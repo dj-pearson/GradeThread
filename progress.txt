@@ -9084,3 +9084,44 @@ invariant + bounded drain, monotone scheduling, backoff bounds); grouping 600-ph
 VERIFICATION: vitest 36/36 on the two suites; npx tsc -b green; eslint clean. Manual
 browser pass on a real 600-photo folder deferred to next check-in (noted in prd).
 Still LOCAL-ONLY; this commit is code-only but queues behind held migration 00339.
+
+=== 2026-07-02 (session cont.): US-1542 (app-level background upload manager) ===
+- NEW src/stores/autolister-upload-store.ts: the ENTIRE upload pipeline (dedup -> EXIF ->
+  normalize -> worker-pool compress -> validate -> paced upload) lifted out of autolister.tsx
+  into a Zustand store. StagedPhoto/UploadTask/StagedUploadResult/MIN_RESOLUTION + fileSig/
+  sha256Hex/uploadStagingPhoto all moved; the page imports them back. In-app navigation no
+  longer cancels uploads.
+- Division of labor: page owns `staged` (grid/grouping/persist); store owns tasks + results.
+  Page ATTACHES on mount (adopting the session; a NEW session while idle resets stale state),
+  syncs staged identities for dedup (module-level non-reactive Sets: stagedSigs replaced by
+  sync, pipelineSigs = inflight+succeeded claims released on failure), and CLAIMS results
+  (deduped by id). While DETACHED, each finished photo is ALSO merged into the persisted
+  localStorage session key (read-modify-write, deduped) so a hard reload mid-navigation
+  cannot lose an uploaded photo.
+- AC4 byte progress: transport switched fetch -> XHR (upload.onprogress); progress 30..100 is
+  real byte fraction, throttled to >=2pt steps; keeps edgeFetch parity (edgeAuthHeaders, one
+  forced-refresh 401 retry, 429 -> RateLimitedError into the US-1541 paced/backoff loop).
+- AC2 global affordance: NEW components/flipdesk/upload-progress-pill.tsx in the dashboard
+  sidebar (desktop + mobile sheet) - "Uploading X of N (· Y failed)" spinner or "N uploads
+  failed - review", links to /dashboard/flipdesk/autolister, renders null when idle.
+- AC3: module-level beforeunload guard while anything is in flight; `autolister:lostUploads`
+  marker (count of not-done tasks, maintained by a store subscriber, cleared when settled);
+  page mount toasts "N photos didn't finish uploading before the page closed" via
+  consumeLostUploadCount (returns 0 on in-app returns where tasks still live).
+- AC5: failed tasks keep their File IN THE STORE -> Retry works after navigating away and back.
+- Batch summary toasts moved into the store (sonner Toaster is app-level, so a batch that
+  finishes while browsing elsewhere still reports).
+- ALSO FIXED (pre-existing, NOT mine): src/test/grid-image-lazy.test.ts was RED on HEAD -
+  the concurrent agent's "thumbnail retry" commit wrapped the autolister grid <img> in
+  StagedThumb, breaking the static needle (this is why that agent's push failed its pre-push
+  hook). Guard updated: lazy-needle now targets StagedThumb's inner img (src={url}); new
+  assertion walks every <StagedThumb> usage requiring itemPhotoThumb + thumbnail_url.
+TESTS: NEW autolister-upload-store.test.ts (9) - batch upload/sweep/results, duplicate skip
+within+across batches, transient failure -> retryable task holding its File, retry re-runs
+and delivers, unknown/non-retryable ignored, detached-delivery merges into the persisted
+session + reattach claim, attached-delivery skips LS merge, new-session reset clears dedup
+claims, lost-marker lifecycle. Heavy stages mocked via vi.mock + the _transport seam.
+VERIFICATION: FULL vitest suite 1103/1103 green (101 files); npx tsc -b green; eslint clean;
+npm run build green (prerender wrote 47 pages). Manual end-to-end (navigate mid-upload,
+reattach, hard reload) is a browser pass for next check-in alongside US-1541's.
+Still LOCAL-ONLY; queues behind held migration 00339.

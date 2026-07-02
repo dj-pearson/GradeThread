@@ -35,26 +35,19 @@ import { Progress } from "@/components/ui/progress";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { useWorkspace } from "@/hooks/use-workspace";
-import { ImageDecodeError, processStagedImage } from "@/lib/image-worker-pool";
-import { runWithConcurrency } from "@/lib/concurrency";
-import { readCaptureTime } from "@/lib/exif";
-import {
-  isVideoFile,
-  MediaIntakeError,
-  normalizeToImageFile,
-} from "@/lib/media-intake";
+import { processStagedImage } from "@/lib/image-worker-pool";
+import { isVideoFile } from "@/lib/media-intake";
 import {
   autoGroupPhotos,
   compareByProvenance,
   type GroupablePhoto,
 } from "@/lib/autolister-grouping";
 import {
-  backoffDelayMs,
-  RATE_LIMIT_MAX_ATTEMPTS,
-  RateLimitedError,
-  SlidingWindowLimiter,
-  sleep,
-} from "@/lib/upload-rate-limit";
+  type StagedPhoto,
+  type StagedUploadResult,
+  uploadStagingPhoto,
+  useAutolisterUploadStore,
+} from "@/stores/autolister-upload-store";
 import { autoEnhance, type EnhanceStats } from "@/lib/image-enhance";
 import { removeImageBackground, type BgMode } from "@/lib/background-removal";
 import { useStartAutolisterBatch, useRunCoverQa } from "@/hooks/use-autolister";
@@ -71,43 +64,9 @@ import { cn } from "@/lib/utils";
 // Generation is metered + premium-gated server-side (US-323). The quota/tier
 // gate surfaces through edgeFetch's 402 handling, so we don't duplicate it here.
 
-interface StagedPhoto {
-  id: string;
-  url: string;
-  storagePath: string;
-  thumbnailUrl: string | null;
-  thumbnailStoragePath: string | null;
-  width: number | null;
-  height: number | null;
-  bytes: number;
-  // US-532 auto-grouping signals, captured at upload. Stored as epoch-ms (not a
-  // Date) so the localStorage session round-trips cleanly. phash is the 16-hex
-  // dHash compressImage already computes (empty string if unavailable).
-  capturedAtMs: number | null;
-  phash: string;
-  // Duplicate guards for the SOURCE file this photo came from (optional →
-  // older persisted sessions round-trip). sourceSig is the cheap identity
-  // (name|size|mtime); sourceHash is the SHA-256 of the original bytes, which
-  // also catches renamed copies. Photos without them (Google Photos imports,
-  // pre-upgrade sessions) simply don't participate in dedup.
-  sourceSig?: string;
-  sourceHash?: string;
-  // Original filename, for the name sort (photos shot as IMG_0001..IMG_0600
-  // regroup correctly even when retries appended them out of order).
-  sourceName?: string;
-  // Snapshot of the pre-processed image so one-tap enhancement/background removal
-  // can be reverted. Present only after processing; cleared on undo/revert.
-  original?: {
-    url: string;
-    storagePath: string;
-    thumbnailUrl: string | null;
-    thumbnailStoragePath: string | null;
-    width: number | null;
-    height: number | null;
-    bytes: number;
-    phash: string;
-  };
-}
+// US-1542: StagedPhoto (and the whole upload pipeline) moved to the app-level
+// store so uploads survive in-app navigation. The page consumes the store's
+// task list for progress UI and claims finished photos into `staged`.
 
 // US-533: per-photo gallery roles. The cover is always "front"; the rest carry
 // a role the AI assigns (and the user can override). Order after the cover:
@@ -134,165 +93,6 @@ interface Group {
   // photoId -> role. Optional so sessions persisted before US-533 (and freshly
   // created groups) round-trip; a missing entry falls back to "detail".
   roles?: Record<string, PhotoRole>;
-}
-
-function extForBlobType(mimeType: string): string {
-  if (mimeType === "image/png") return "png";
-  if (mimeType === "image/jpeg") return "jpg";
-  return "webp";
-}
-
-// US-529: every staged upload goes through the edge's validated path
-// (magic-byte sniff, size/dimension caps, min-resolution gate, EXIF/GPS strip
-// — the US-276 hardening) instead of writing to storage directly from the
-// browser. This also covers the compress-failure fallback: the server strips
-// metadata, so a raw original never lands with GPS intact.
-interface StagedUploadResult {
-  storagePath: string;
-  url: string;
-  thumbnailStoragePath: string | null;
-  thumbnailUrl: string | null;
-  width: number | null;
-  height: number | null;
-  bytes: number;
-}
-
-async function uploadStagingPhoto(
-  session: string,
-  full: Blob,
-  thumb: Blob | null,
-): Promise<StagedUploadResult> {
-  const form = new FormData();
-  form.append("session_id", session);
-  form.append("full", full, `photo.${extForBlobType(full.type)}`);
-  if (thumb) {
-    form.append("thumb", thumb, `thumb.${extForBlobType(thumb.type)}`);
-  }
-  // A fetch on a half-open connection can hang indefinitely, freezing an
-  // upload lane (and eventually the whole batch) with no error. Cap it —
-  // the pipeline's catch marks the task retryable.
-  let res: Response;
-  try {
-    res = await edgeFetch("/api/flipdesk/autolister/staging/upload", {
-      method: "POST",
-      body: form,
-      signal: AbortSignal.timeout(120_000),
-    });
-  } catch (err) {
-    if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
-      throw new Error("Upload timed out — check your connection and retry.");
-    }
-    throw err;
-  }
-  // US-1541: a 429 is the server pacing us, not a per-file failure — surface
-  // it as a typed error so the pipeline backs off (Retry-After honored) and
-  // retries automatically instead of showing a terminal-looking error.
-  if (res.status === 429) {
-    const retryAfter = Number.parseInt(res.headers.get("Retry-After") ?? "", 10);
-    throw new RateLimitedError(Number.isFinite(retryAfter) ? retryAfter : null);
-  }
-  const data = (await res.json().catch(() => ({}))) as {
-    error?: string;
-    storage_path?: string;
-    url?: string;
-    thumbnail_storage_path?: string | null;
-    thumbnail_url?: string | null;
-    width?: number | null;
-    height?: number | null;
-    bytes?: number;
-  };
-  if (!res.ok || !data.storage_path || !data.url) {
-    throw new Error(data.error ?? `Upload failed (HTTP ${res.status})`);
-  }
-  return {
-    storagePath: data.storage_path,
-    url: data.url,
-    thumbnailStoragePath: data.thumbnail_storage_path ?? null,
-    thumbnailUrl: data.thumbnail_url ?? null,
-    width: data.width ?? null,
-    height: data.height ?? null,
-    bytes: data.bytes ?? full.size,
-  };
-}
-
-// US-539: per-file upload pipeline state. Tasks drive the per-file progress
-// bars while a batch is in flight; failed tasks keep their File so "Retry"
-// can re-run the pipeline without re-picking. `retryable: false` marks
-// permanent rejections (low-res, wrong type, corrupt) where retrying is
-// pointless — those get only a dismiss affordance.
-type UploadTaskStatus = "queued" | "processing" | "uploading" | "done" | "error";
-
-interface UploadTask {
-  id: string;
-  name: string;
-  status: UploadTaskStatus;
-  progress: number; // 0–100, stage-based
-  error?: string;
-  retryable?: boolean;
-  file: File;
-}
-
-// Pipeline concurrency: compression is bounded by the worker pool (2–4
-// workers), so lanes above that overlap network uploads with compression.
-const UPLOAD_CONCURRENCY = 5;
-
-// US-1541: pace upload STARTS under the edge's 120/60s staging-upload budget
-// (with headroom for retries/another tab). Module-level so every lane — and a
-// retry pass — shares the same window.
-const uploadLimiter = new SlidingWindowLimiter();
-
-// US-1541: run one paced, 429-aware upload. Waits for a rate slot before each
-// attempt, and on a 429 backs off (server Retry-After when given, else
-// exponential, always jittered) and retries in place — a rate limit is the
-// server pacing us, never a per-file failure until retries run out.
-async function uploadStagingPhotoPaced(
-  session: string,
-  full: Blob,
-  thumb: Blob | null,
-): Promise<StagedUploadResult> {
-  for (let attempt = 0; ; attempt++) {
-    const delay = uploadLimiter.acquireDelayMs();
-    if (delay > 0) await sleep(delay);
-    try {
-      return await uploadStagingPhoto(session, full, thumb);
-    } catch (err) {
-      if (err instanceof RateLimitedError) {
-        if (attempt < RATE_LIMIT_MAX_ATTEMPTS - 1) {
-          await sleep(backoffDelayMs(attempt, err.retryAfterSeconds));
-          continue;
-        }
-        // Retries exhausted — keep it retryable with honest copy.
-        throw new Error(
-          "The server is rate-limiting uploads — wait a minute, then tap Retry failed.",
-        );
-      }
-      throw err;
-    }
-  }
-}
-
-// Aggregate per-batch accounting for the summary toasts.
-interface BatchStats {
-  ok: number;
-  failed: number;
-  heicFailed: number;
-  videoFailed: number;
-  duplicates: number;
-  borderline: string[];
-}
-
-// Duplicate-upload guards: the cheap file identity used to skip re-picked
-// files before any work happens, and a content hash that also catches the
-// same image under a different name/mtime (e.g. "IMG_1 copy.jpg").
-function fileSig(file: File): string {
-  return `${file.name}|${file.size}|${file.lastModified}`;
-}
-
-async function sha256Hex(blob: Blob): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
 }
 
 // Sort key for the name sort. Pre-sourceName photos recover the filename from
@@ -369,9 +169,6 @@ function StagedThumb({ src, className }: { src: string; className?: string }) {
     />
   );
 }
-
-const MIN_RESOLUTION = 1200;
-const BORDERLINE_RESOLUTION = 1500;
 
 // US-957: covers scoring below this (0-100 listing-readiness) get a non-blocking
 // "reshoot recommended" nudge before Generate. Advisory only — never blocks.
@@ -481,8 +278,11 @@ export function FlipdeskAutolisterPage() {
   const [lastAutoGroupIds, setLastAutoGroupIds] = useState<string[] | null>(
     null,
   );
-  // US-539: per-file pipeline tasks (progress bars + failure retry).
-  const [uploadTasks, setUploadTasks] = useState<UploadTask[]>([]);
+  // US-539/US-1542: per-file pipeline tasks (progress bars + failure retry)
+  // now live in the app-level store, so uploads survive in-app navigation and
+  // this page just renders live progress + claims finished photos.
+  const uploadTasks = useAutolisterUploadStore((s) => s.tasks);
+  const uploadResults = useAutolisterUploadStore((s) => s.results);
   const uploading = uploadTasks.filter(
     (t) => t.status === "queued" || t.status === "processing" || t.status === "uploading",
   ).length;
@@ -531,19 +331,22 @@ export function FlipdeskAutolisterPage() {
   const [coverScores, setCoverScores] = useState<Record<string, number>>({});
   const coverInFlight = useRef<Set<string>>(new Set());
 
-  // Duplicate guards. `stagedDedup` mirrors the staged photos' source
-  // signatures/hashes (rebuilt below, so deleting a photo frees its identity
-  // for re-adding). `inflightDedup` holds claims for tasks mid-pipeline —
-  // released on failure, and transferred to the staged set on success (the
-  // rebuild prunes claims that made it into `staged`).
-  const stagedDedup = useRef<{ sigs: Set<string>; hashes: Set<string> }>({
-    sigs: new Set(),
-    hashes: new Set(),
-  });
-  const inflightDedup = useRef<{ sigs: Set<string>; hashes: Set<string> }>({
-    sigs: new Set(),
-    hashes: new Set(),
-  });
+  // US-1542: page ↔ upload-store wiring.
+  //
+  // Attach/detach: while attached the store skips its own localStorage merge
+  // (this page claims results + persists them itself). Detaching hands that
+  // responsibility back so uploads finishing mid-navigation are still safe
+  // against a hard reload.
+  useEffect(() => {
+    // sessionId is a ref — stable for the component's lifetime.
+    const store = useAutolisterUploadStore.getState();
+    store.attach(sessionId.current);
+    return () => useAutolisterUploadStore.getState().detach();
+  }, []);
+
+  // Duplicate guards: mirror the staged photos' source signatures/hashes into
+  // the store (deleting a photo frees its identity for re-adding; a claim that
+  // made it into `staged` is pruned store-side).
   useEffect(() => {
     const sigs = new Set<string>();
     const hashes = new Set<string>();
@@ -551,10 +354,37 @@ export function FlipdeskAutolisterPage() {
       if (p.sourceSig) sigs.add(p.sourceSig);
       if (p.sourceHash) hashes.add(p.sourceHash);
     }
-    stagedDedup.current = { sigs, hashes };
-    for (const s of sigs) inflightDedup.current.sigs.delete(s);
-    for (const h of hashes) inflightDedup.current.hashes.delete(h);
+    useAutolisterUploadStore.getState().syncStagedIdentities(sigs, hashes);
   }, [staged]);
+
+  // Claim finished photos from the store into the page's staged state (deduped
+  // by id — a photo merged into localStorage while this page was unmounted may
+  // already have rehydrated).
+  useEffect(() => {
+    if (uploadResults.length === 0) return;
+    setStaged((prev) => {
+      const have = new Set(prev.map((p) => p.id));
+      const fresh = uploadResults.filter((r) => !have.has(r.id));
+      return fresh.length > 0 ? [...prev, ...fresh] : prev;
+    });
+    useAutolisterUploadStore.getState().claimResults(uploadResults.map((r) => r.id));
+  }, [uploadResults]);
+
+  // US-1542 AC3: after a hard reload, Files queued in the previous page life
+  // are unrecoverable — say plainly how many need re-adding.
+  useEffect(() => {
+    const lost = useAutolisterUploadStore.getState().consumeLostUploadCount();
+    if (lost > 0) {
+      toast.warning(
+        `${lost} photo${lost === 1 ? "" : "s"} didn't finish uploading before the page closed.`,
+        {
+          description:
+            "Already-uploaded photos are safe below — add the missing files again to finish.",
+          duration: 10_000,
+        },
+      );
+    }
+  }, []);
 
   // Persist whenever staged / groups change. US-1541: size-guarded — a 600-
   // photo session's JSON is normally well under quota, but the per-photo
@@ -680,303 +510,28 @@ export function FlipdeskAutolisterPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groups, stagedById, coverScores, entitled]);
 
-  function patchTask(id: string, patch: Partial<UploadTask>) {
-    setUploadTasks((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, ...patch } : t)),
-    );
-  }
-
-  // US-539: the per-file pipeline. Capture time → HEIC transcode → off-thread
-  // compress+thumbnail (worker pool) → quality gate → parallel upload. Never
-  // throws: every failure lands on the task (with retryability) + batch stats.
-  async function processUploadTask(task: UploadTask, stats: BatchStats): Promise<void> {
-    const { id, file } = task;
-
-    // Duplicate gate 1: exact file identity. handleFiles pre-filters too, but
-    // this claim is the authoritative, race-safe one (two lanes can carry the
-    // same file when batches overlap or a retry races a re-pick).
-    const sig = fileSig(file);
-    const isDupSig = () =>
-      stagedDedup.current.sigs.has(sig) || inflightDedup.current.sigs.has(sig);
-    const skipDuplicate = () => {
-      stats.duplicates++;
-      setUploadTasks((prev) => prev.filter((t) => t.id !== id));
-    };
-    if (isDupSig()) {
-      skipDuplicate();
-      return;
-    }
-    inflightDedup.current.sigs.add(sig);
-
-    let contentHash = "";
-    let succeeded = false;
-    patchTask(id, { status: "processing", progress: 10, error: undefined });
-    try {
-      // Duplicate gate 2: content hash of the original bytes — catches the
-      // same image re-added under a different name or modified time.
-      contentHash = await sha256Hex(file).catch(() => "");
-      if (
-        contentHash &&
-        (stagedDedup.current.hashes.has(contentHash) ||
-          inflightDedup.current.hashes.has(contentHash))
-      ) {
-        skipDuplicate();
-        return;
-      }
-      if (contentHash) inflightDedup.current.hashes.add(contentHash);
-      // US-532: capture EXIF time from the ORIGINAL file (incl. HEIC) before
-      // any transcode/recompression that may drop the metadata — it drives
-      // capture-time auto-grouping.
-      const capturedAt = await readCaptureTime(file).catch(() => null);
-      // US-531 / US-1300: normalize odd iPhone inputs in the browser so they
-      // "just work" instead of being rejected — a Live Photo exported as a
-      // .mov/.mp4 video becomes a still JPEG frame, HEIC/HEIF becomes JPEG, and
-      // ordinary JPEG/PNG/WebP pass through untouched.
-      let workFile: File;
-      try {
-        workFile = await normalizeToImageFile(file);
-      } catch (convErr) {
-        if (import.meta.env.DEV) console.warn("[autolister] media intake failed:", convErr);
-        const kind = convErr instanceof MediaIntakeError ? convErr.kind : "heic";
-        if (kind === "video") stats.videoFailed++;
-        else stats.heicFailed++;
-        stats.failed++;
-        patchTask(id, {
-          status: "error",
-          retryable: false,
-          error: convErr instanceof Error
-            ? convErr.message
-            : "Couldn't convert this file. Re-export it as a JPEG and add it again.",
-        });
-        return;
-      }
-      // US-540: type gate (the compressor and server accept JPEG/PNG/WebP).
-      if (!/^image\/(jpeg|png|webp)$/.test(workFile.type)) {
-        stats.failed++;
-        patchTask(id, {
-          status: "error",
-          retryable: false,
-          error: `Unsupported type "${workFile.type || "unknown"}" — use JPEG, PNG, or WebP.`,
-        });
-        return;
-      }
-      patchTask(id, { progress: 25 });
-
-      let body: Blob = workFile;
-      let width: number | null = null;
-      let height: number | null = null;
-      let phash = "";
-      let thumbBlob: Blob | null = null;
-      let compressed = false;
-      try {
-        // US-539: decode + resize + thumbnail + dHash run in the worker pool
-        // (OffscreenCanvas), one decode for both renditions, off the main thread.
-        const out = await processStagedImage(workFile, {
-          maxWidth: 2400,
-          quality: 0.85,
-          thumbWidth: 320,
-          thumbQuality: 0.7,
-        });
-        // US-540: gate on minimum resolution (original dimensions) BEFORE we
-        // spend an upload + AI generation on an image too small to list well.
-        // Borderline (just above the floor) images warn but still pass.
-        if (out.srcWidth != null && out.srcHeight != null) {
-          const minDim = Math.min(out.srcWidth, out.srcHeight);
-          if (minDim < MIN_RESOLUTION) {
-            stats.failed++;
-            patchTask(id, {
-              status: "error",
-              retryable: false,
-              error: `Resolution (${out.srcWidth}x${out.srcHeight}) is too low. Minimum is ${MIN_RESOLUTION}x${MIN_RESOLUTION}px.`,
-            });
-            return;
-          }
-          if (minDim < BORDERLINE_RESOLUTION) stats.borderline.push(file.name);
-        }
-        body = out.blob;
-        width = out.width;
-        height = out.height;
-        phash = out.phash; // US-532: dHash for the visual grouping pass
-        thumbBlob = out.thumbBlob;
-        compressed = true;
-      } catch (compErr) {
-        if (compErr instanceof ImageDecodeError) {
-          stats.failed++;
-          patchTask(id, { status: "error", retryable: false, error: compErr.message });
-          return;
-        }
-        if (import.meta.env.DEV) console.warn("[autolister] compress failed, using original:", compErr);
-      }
-      // If compression failed AND the file is huge (>15MB), the AI generation
-      // will likely choke too. Skip with a clear message.
-      if (!compressed && workFile.size > 15 * 1024 * 1024) {
-        stats.failed++;
-        patchTask(id, {
-          status: "error",
-          retryable: false,
-          error: `${(workFile.size / 1024 / 1024).toFixed(1)}MB and couldn't be compressed in the browser. Convert it to a regular JPEG and try again.`,
-        });
-        return;
-      }
-
-      // US-529: server-side validated upload (sniff + caps + EXIF strip). On
-      // the compress-failure fallback `body` is the raw original — the
-      // server's metadata strip guarantees no GPS EXIF lands in storage.
-      // US-1541: paced under the server's rate budget + auto-backoff on 429.
-      patchTask(id, { status: "uploading", progress: 65 });
-      const up = await uploadStagingPhotoPaced(sessionId.current, body, thumbBlob);
-
-      setStaged((prev) => [
-        ...prev,
-        {
-          id: crypto.randomUUID(),
-          url: up.url,
-          storagePath: up.storagePath,
-          thumbnailUrl: up.thumbnailUrl,
-          thumbnailStoragePath: up.thumbnailStoragePath,
-          width: width ?? up.width,
-          height: height ?? up.height,
-          bytes: up.bytes,
-          capturedAtMs: capturedAt ? capturedAt.getTime() : null,
-          phash,
-          sourceSig: sig,
-          sourceHash: contentHash || undefined,
-          sourceName: file.name,
-        },
-      ]);
-      succeeded = true;
-      stats.ok++;
-      patchTask(id, { status: "done", progress: 100 });
-    } catch (err) {
-      // Transient failures (network, server hiccup) — keep the File for retry.
-      stats.failed++;
-      patchTask(id, {
-        status: "error",
-        retryable: true,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    } finally {
-      // Free the duplicate claims unless the photo actually staged (then the
-      // staged-derived set takes over) — a failed/rejected file must remain
-      // re-addable after a retry or dismiss.
-      if (!succeeded) {
-        inflightDedup.current.sigs.delete(sig);
-        if (contentHash) inflightDedup.current.hashes.delete(contentHash);
-      }
-    }
-  }
-
-  function reportBatch(stats: BatchStats) {
-    if (stats.ok > 0) {
-      toast.success(`${stats.ok} photo${stats.ok === 1 ? "" : "s"} added.`);
-    }
-    if (stats.duplicates > 0) {
-      toast.info(
-        `${stats.duplicates} duplicate photo${stats.duplicates === 1 ? "" : "s"} skipped.`,
-        { description: "They're already staged below — nothing was added twice." },
-      );
-    }
-    if (stats.heicFailed > 0) {
-      toast.warning(
-        `${stats.heicFailed} HEIC photo${stats.heicFailed === 1 ? "" : "s"} couldn't be converted.`,
-        {
-          description:
-            "Re-export them as JPEG (Photos app → Share → Save as Files → JPEG) and try again.",
-          duration: 8_000,
-        },
-      );
-    }
-    if (stats.videoFailed > 0) {
-      toast.warning(
-        `${stats.videoFailed} Live Photo / video${stats.videoFailed === 1 ? "" : "s"} couldn't be converted.`,
-        {
-          description:
-            "Open it in Photos, save a still (Share → Save as Current Photo / a frame), and add that JPEG.",
-          duration: 8_000,
-        },
-      );
-    }
-    const otherFailed = stats.failed - stats.heicFailed - stats.videoFailed;
-    if (otherFailed > 0) {
-      toast.error(
-        `${otherFailed} photo${otherFailed === 1 ? "" : "s"} didn't make it.`,
-        {
-          description: "Each one is listed above with the reason — retry or dismiss.",
-          duration: 8_000,
-        },
-      );
-    }
-    if (stats.borderline.length > 0) {
-      toast.warning(
-        `${stats.borderline.length} photo${stats.borderline.length === 1 ? "" : "s"} are low-resolution.`,
-        {
-          description:
-            "They'll list, but a sharper, larger shot (1500px+) reads better and sells faster.",
-          duration: 8_000,
-        },
-      );
-    }
-  }
-
-  // US-539: stage a batch. Each file runs the full pipeline in its own lane
-  // (UPLOAD_CONCURRENCY at a time), so compression (worker pool) and uploads
-  // overlap instead of running serially; photos appear in the grid as each
-  // finishes. Settled "done" rows are swept once the batch ends; failures stay
-  // for retry/dismiss.
+  // US-1542: the upload pipeline itself (dedup -> EXIF -> normalize ->
+  // compress -> validate -> paced upload) lives in the app-level store — see
+  // src/stores/autolister-upload-store.ts. These are thin delegates so the
+  // existing JSX call sites stay unchanged.
   async function handleFiles(files: FileList | File[] | null) {
     if (!files || !ownerId) return;
     const list = Array.from(files);
     if (list.length === 0) return;
-    // Skip files that are already staged (or picked twice in this drop) up
-    // front, so re-dropping the same folder doesn't even enqueue them. The
-    // pipeline re-checks under its race-safe claim; this is just the fast path.
-    const seenSigs = new Set<string>();
-    const stats: BatchStats = { ok: 0, failed: 0, heicFailed: 0, videoFailed: 0, duplicates: 0, borderline: [] };
-    const fresh = list.filter((file) => {
-      const sig = fileSig(file);
-      if (
-        seenSigs.has(sig) ||
-        stagedDedup.current.sigs.has(sig) ||
-        inflightDedup.current.sigs.has(sig)
-      ) {
-        stats.duplicates++;
-        return false;
-      }
-      seenSigs.add(sig);
-      return true;
-    });
-    if (fresh.length === 0) {
-      reportBatch(stats);
-      return;
-    }
-    const tasks: UploadTask[] = fresh.map((file) => ({
-      id: crypto.randomUUID(),
-      name: file.name,
-      status: "queued",
-      progress: 0,
-      file,
-    }));
-    setUploadTasks((prev) => [...prev.filter((t) => t.status !== "done"), ...tasks]);
-    await runWithConcurrency(tasks, UPLOAD_CONCURRENCY, (t) => processUploadTask(t, stats));
-    reportBatch(stats);
-    setUploadTasks((prev) => prev.filter((t) => t.status !== "done"));
+    await useAutolisterUploadStore
+      .getState()
+      .enqueueFiles(list, sessionId.current);
   }
 
   // US-539: re-run failed pipelines without re-picking files.
   async function retryUploadTasks(taskIds: string[]) {
-    const targets = uploadTasks.filter(
-      (t) => taskIds.includes(t.id) && t.status === "error" && t.retryable !== false,
-    );
-    if (targets.length === 0) return;
-    const stats: BatchStats = { ok: 0, failed: 0, heicFailed: 0, videoFailed: 0, duplicates: 0, borderline: [] };
-    await runWithConcurrency(targets, UPLOAD_CONCURRENCY, (t) => processUploadTask(t, stats));
-    reportBatch(stats);
-    setUploadTasks((prev) => prev.filter((t) => t.status !== "done"));
+    await useAutolisterUploadStore.getState().retryTasks(taskIds);
   }
 
   function dismissUploadTask(id: string) {
-    setUploadTasks((prev) => prev.filter((t) => t.id !== id));
+    useAutolisterUploadStore.getState().dismissTask(id);
   }
+
 
   // Google Photos import: open the Google-hosted picker in a popup, poll
   // until the user finishes, then the edge downloads+validates the picks and
@@ -2058,7 +1613,11 @@ export function FlipdeskAutolisterPage() {
                     Retry failed
                   </Button>
                 )}
-                <Button size="sm" variant="ghost" onClick={() => setUploadTasks([])}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => useAutolisterUploadStore.getState().clearTasks()}
+                >
                   Dismiss all
                 </Button>
               </div>

@@ -9577,7 +9577,7 @@
     {
       "id": "US-1542",
       "priority": 2348,
-      "passes": false,
+      "passes": true,
       "title": "App-level background upload manager — uploads survive navigating away",
       "description": "As a seller who just queued 600 photos, I want to keep working (check the queue, edit drafts, browse inventory) while uploads continue in the background; today the upload pipeline lives inside the intake page component, so any in-app navigation abandons every in-flight file, and per-file progress state is lost on reload.",
       "acceptanceCriteria": [

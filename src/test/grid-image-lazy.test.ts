@@ -34,7 +34,9 @@ const GRID_IMAGES: ReadonlyArray<readonly [string, string]> = [
   ["src/components/flipdesk/photo-manager.tsx", "itemPhotoThumb(photo)"],
   ["src/components/flipdesk/photo-uploader.tsx", "itemPhotoThumb(first)"],
   ["src/pages/flipdesk/listings.tsx", "itemPhotoThumb(cover)"],
-  ["src/pages/flipdesk/autolister.tsx", "p.thumbnailUrl"],
+  // AutoLister grids render through the StagedThumb retry wrapper — the actual
+  // <img> lives inside it, fed the itemPhotoThumb-resolved `url`.
+  ["src/pages/flipdesk/autolister.tsx", "src={url}"],
   // Storefront cards — the edge serves thumbnail_url in this field (content-public.ts).
   ["src/pages/verified-seller.tsx", "listing.photo_url"],
   ["src/components/verified/graded-photo-panel.tsx", "src={url}"],
@@ -67,7 +69,6 @@ describe("item_photos grids prefer the stored thumbnail (US-413)", () => {
     ["src/components/flipdesk/photo-manager.tsx", "itemPhotoThumb(photo)"],
     ["src/components/flipdesk/photo-uploader.tsx", "itemPhotoThumb(first)"],
     ["src/pages/flipdesk/listings.tsx", "itemPhotoThumb(cover)"],
-    ["src/pages/flipdesk/autolister.tsx", "p.thumbnailUrl"],
   ];
   for (const [file, expr] of USES_THUMB_HELPER) {
     it(`${file}: grid <img> renders via itemPhotoThumb`, () => {
@@ -75,6 +76,22 @@ describe("item_photos grids prefer the stored thumbnail (US-413)", () => {
       expect(tag).toContain("itemPhotoThumb");
     });
   }
+
+  it("autolister grids resolve thumbnails via itemPhotoThumb into StagedThumb", () => {
+    // The AutoLister <img> lives inside the StagedThumb retry wrapper, so the
+    // thumbnail-first resolution happens at its call sites — assert every
+    // StagedThumb src goes through itemPhotoThumb with the stored thumbnail.
+    const full = readFileSync(
+      resolve(process.cwd(), "src/pages/flipdesk/autolister.tsx"),
+      "utf8",
+    );
+    const usages = [...full.matchAll(/<StagedThumb\b[\s\S]*?\/>/g)];
+    expect(usages.length).toBeGreaterThan(0);
+    for (const usage of usages) {
+      expect(usage[0]).toContain("itemPhotoThumb");
+      expect(usage[0]).toContain("thumbnail_url");
+    }
+  });
 
   it("itemPhotoThumb() prefers thumbnail_url, then falls back to photo_url", () => {
     expect(itemPhotoThumb({ thumbnail_url: "t.jpg", photo_url: "p.jpg" })).toBe("t.jpg");

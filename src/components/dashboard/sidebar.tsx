@@ -42,6 +42,7 @@ import {
 } from "@/components/ui/sheet";
 import { useSavedViews } from "@/hooks/use-saved-views";
 import { SidebarUsageWidget } from "@/components/dashboard/sidebar-usage-widget";
+import { UploadProgressPill } from "@/components/flipdesk/upload-progress-pill";
 import { useAuthStore } from "@/stores/auth-store";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { useBillingSummary } from "@/hooks/use-billing-summary";
@@ -373,6 +374,9 @@ export function Sidebar() {
       <div className="flex flex-1 flex-col overflow-y-auto">
         <SidebarNav />
         <div className="mt-auto pt-4">
+          {/* US-1542: live AutoLister upload progress — uploads keep running
+              app-wide, so the affordance lives here where every page sees it. */}
+          <UploadProgressPill />
           <SidebarUsageWidget />
         </div>
       </div>
@@ -412,6 +416,7 @@ export function MobileNav() {
           <div className="flex flex-1 flex-col overflow-y-auto">
             <SidebarNav onNavigate={() => setOpen(false)} />
             <div className="mt-auto pt-4">
+              <UploadProgressPill />
               <SidebarUsageWidget />
             </div>
           </div>
