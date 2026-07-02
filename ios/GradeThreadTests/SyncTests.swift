@@ -984,13 +984,14 @@ final class SyncTests: XCTestCase {
     func test_invalidateScope_movesEpoch_soCapturedPullDiscards() async throws {
         let engine = try await makeEngine()
         let captured = await engine.currentScopeEpochForTesting
-        // A pull that finished with THIS epoch would apply…
-        XCTAssertTrue(SyncEngine.pullResultApplies(
-            startEpoch: captured, currentEpoch: await engine.currentScopeEpochForTesting))
+        // A pull that finished with THIS epoch would apply… (hoist the awaits out
+        // of the XCTAssert autoclosures — they don't support concurrency).
+        let before = await engine.currentScopeEpochForTesting
+        XCTAssertTrue(SyncEngine.pullResultApplies(startEpoch: captured, currentEpoch: before))
         // …but after a scope change it must be discarded.
         await engine.invalidateScope()
-        XCTAssertFalse(SyncEngine.pullResultApplies(
-            startEpoch: captured, currentEpoch: await engine.currentScopeEpochForTesting))
+        let after = await engine.currentScopeEpochForTesting
+        XCTAssertFalse(SyncEngine.pullResultApplies(startEpoch: captured, currentEpoch: after))
     }
 
     private func makeEngine() async throws -> SyncEngine {
