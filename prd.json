@@ -9634,7 +9634,7 @@
     {
       "id": "US-1545",
       "priority": 2345,
-      "passes": false,
+      "passes": true,
       "title": "Raise the generation batch ceiling (100 -> 300) with quota-aware pre-check",
       "description": "As a seller generating from a 600-photo session (~100-150 items), I must not hit an invisible wall: today POST /autolister/batch rejects >100 items (MAX_BATCH_ITEMS) and the intake UI never warns, so a big session dead-ends at Generate. The 202+background-worker design has no per-request reason to cap at 100.",
       "acceptanceCriteria": [

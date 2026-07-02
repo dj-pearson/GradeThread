@@ -222,6 +222,17 @@ export function FlipdeskAutolisterPage() {
   const plan = billing?.subscription.plan ?? "free";
   const entitled = FLIPDESK_PLANS[plan].gateFlags.autolister;
 
+  // US-1545: the month's remaining AI actions (plan cap, tightened by the
+  // optional self-cap) — feeds the projected-spend line next to Generate. The
+  // server enforces the same math at enqueue (count-aware 402) and per item.
+  const aiActionsRemaining = useMemo(() => {
+    if (!billing) return null;
+    const planCap = FLIPDESK_PLANS[plan].aiActionsPerMonth;
+    const selfCap = billing.usage.ai_action_limit;
+    const limit = selfCap != null ? Math.min(planCap, selfCap) : planCap;
+    return Math.max(0, limit - billing.usage.ai_actions_used_this_month);
+  }, [billing, plan]);
+
   // US-317: persist sessionId across reloads so the _staging uploads aren't
   // orphaned and the staged/groups state can be rehydrated.
   const sessionId = useRef<string>(
@@ -1415,6 +1426,22 @@ export function FlipdeskAutolisterPage() {
             )}
             Generate {groups.length > 0 ? `${groups.length} listing${groups.length === 1 ? "" : "s"}` : ""}
           </Button>
+          {/* US-1545: projected AI spend vs the month's remainder, so a big
+              session never dead-ends at Generate with an invisible quota wall. */}
+          {entitled && groups.length > 0 && aiActionsRemaining != null && (
+            <p
+              className={cn(
+                "text-xs",
+                groups.length > aiActionsRemaining
+                  ? "font-medium text-brand-red-text"
+                  : "text-muted-foreground",
+              )}
+            >
+              {groups.length > aiActionsRemaining
+                ? `Needs ~${groups.length} AI actions but only ${aiActionsRemaining} remain — remove some groups or upgrade.`
+                : `Uses ~${groups.length} of your ${aiActionsRemaining} remaining AI actions this month.`}
+            </p>
+          )}
           {/* US-955: fire-and-forget auto-publish of the green, clean drafts. */}
           {entitled && (
             <label

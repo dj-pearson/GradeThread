@@ -58,7 +58,12 @@ const TEMPLATE_OVERLAY_COLUMNS =
 // every query here is scoped to the workspace owner. Items are verified owned
 // before any job is created; batch/job reads join through batch.user_id.
 
-const MAX_BATCH_ITEMS = 100; // matches the "100 listings in one batch" target
+// US-1545: a 600-photo shoot is ~100–150 items, so the old 100 cap dead-ended
+// exactly the flagship bulk-intake case. The route returns 202 and the durable
+// worker (CONCURRENCY=3, per-item atomic reserveAiAction, reclaim cron)
+// processes in the background, so item count never affects request latency —
+// there is no per-request reason to cap lower. Exported for the CI guard test.
+export const MAX_BATCH_ITEMS = 300;
 // US-533: a single group's photo set passed to the cover/role vision pass.
 // One item rarely has more than a handful of shots; the cap bounds the vision
 // cost (and request size) of one classify call.
@@ -93,8 +98,10 @@ const BATCH_STALE_MS = 15 * 60_000;
 // compounded the server's own withRetry); a genuine failure surfaces on the
 // job for an explicit retry-failed instead.
 const PUBLISH_CONCURRENCY = 3;
-// One bulk-publish run is capped at the same 100 items as a generation batch.
-const MAX_PUBLISH_BATCH_ITEMS = 100;
+// One bulk-publish run is capped at the same size as a generation batch
+// (US-1545: raised together so a fully-green big batch publishes in one run;
+// the active-listing plan cap still gates each publish server-side).
+export const MAX_PUBLISH_BATCH_ITEMS = 300;
 // Hard wall-clock cap on a single item's publish. publishItemForOwner makes
 // several sequential eBay calls (inventory PUT → offer POST → publish), so cap
 // it generously so a hung call can't pin a concurrency slot forever (US-526).
@@ -138,6 +145,34 @@ export function deriveBatchStatus(
 ): BatchTerminalStatus | null {
   if (open > 0) return null;
   return failed === 0 ? "completed" : succeeded === 0 ? "failed" : "partial";
+}
+
+/**
+ * US-1545: count-aware quota pre-check for batch enqueue. A batch reserves one
+ * AI action per item; when the month's remainder can't cover the whole batch,
+ * return the 402 body (with the numbers, so the UI can say "trim or upgrade")
+ * — null means the batch fits (or the plan is unlimited). Pure + unit-tested;
+ * the per-item atomic reservation (US-527) remains the authoritative gate.
+ */
+export function insufficientAiActionsBody(
+  itemCount: number,
+  limit: number,
+  used: number,
+):
+  | { error: string; code: "INSUFFICIENT_AI_ACTIONS"; needed: number; remaining: number; cap: number }
+  | null {
+  if (limit === -1) return null;
+  const remaining = Math.max(0, limit - used);
+  if (itemCount <= remaining) return null;
+  return {
+    error:
+      `This batch needs ${itemCount} AI actions but only ${remaining} remain this month — ` +
+      `remove some groups or upgrade your plan.`,
+    code: "INSUFFICIENT_AI_ACTIONS",
+    needed: itemCount,
+    remaining,
+    cap: limit,
+  };
 }
 
 /** Reject with a clear error if `promise` doesn't settle within `ms` (US-526). */
@@ -794,6 +829,14 @@ flipdeskAutolisterRoutes.post("/batch", async (c) => {
   const quota = await checkQuota(ownerId);
   if (!quota.ok) return c.json(quota.body, quota.status);
   const limit = quota.limit;
+
+  // US-1545: count-aware pre-check — this batch will reserve one AI action per
+  // item, so refuse UP FRONT with the numbers when the month's remainder can't
+  // cover it, instead of letting the batch die item-by-item mid-run. The
+  // per-item reservation stays authoritative (concurrent spenders may still
+  // shrink the remainder before the worker gets there).
+  const insufficient = insufficientAiActionsBody(itemIds.length, limit, quota.used);
+  if (insufficient) return c.json(insufficient, 402);
 
   // Tenant isolation: every requested item MUST belong to this workspace.
   const { data: ownedRows, error: ownErr } = await supabaseAdmin

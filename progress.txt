@@ -9125,3 +9125,28 @@ VERIFICATION: FULL vitest suite 1103/1103 green (101 files); npx tsc -b green; e
 npm run build green (prerender wrote 47 pages). Manual end-to-end (navigate mid-upload,
 reattach, hard reload) is a browser pass for next check-in alongside US-1541's.
 Still LOCAL-ONLY; queues behind held migration 00339.
+
+=== 2026-07-02 (session cont.): US-1545 (batch ceiling 100 -> 300 + count-aware quota pre-check) ===
+- Edge flipdesk-autolister.ts: MAX_BATCH_ITEMS and MAX_PUBLISH_BATCH_ITEMS 100 -> 300, both
+  now EXPORTED so the CI test pins them (and their lockstep). The 202+durable-worker design
+  (CONCURRENCY=3 claiming, per-item atomic reserveAiAction, reclaim cron) is size-agnostic -
+  no worker changes needed; terminalization verified at n=300 via synthetic deriveBatchStatus
+  cases.
+- NEW pure insufficientAiActionsBody(itemCount, limit, used): returns the 402 body
+  {error, code:INSUFFICIENT_AI_ACTIONS, needed, remaining, cap} when the month's remainder
+  cannot cover the batch (null when it fits or plan is unlimited/-1; remaining floored at 0).
+  Wired into POST /batch right after checkQuota - a 143-item batch with 142 actions left now
+  fails UP FRONT with the numbers instead of dying item-by-item mid-run. Per-item reservation
+  (US-527) stays authoritative for races. Server error copy is directly actionable ("remove
+  some groups or upgrade your plan") so the existing hook toast + edgeFetch 402 fallback both
+  read well without web hook changes.
+- Web autolister.tsx: new aiActionsRemaining memo (plan cap from FLIPDESK_PLANS
+  aiActionsPerMonth, tightened by the optional users.ai_action_limit self-cap, minus used) +
+  a projected-spend line under Generate: "Uses ~N of your R remaining AI actions this month."
+  flipping to red "Needs ~N ... only R remain - remove some groups or upgrade." when over.
+TESTS: 4 new deno tests (ceiling=300 + lockstep, 300-job terminalization, pre-check fit/
+unlimited/short-by-one with exact payload numbers, over-cap floors remaining at 0). FULL edge
+suite 2459 passed / 0 failed / 69 ignored. npx tsc -b green; eslint clean.
+NOTE for check-in: reliability test now needs --allow-net --allow-read (module graph pulls
+imagescript wasm at import) - the full-suite invocation already grants these.
+Still LOCAL-ONLY; queues behind held migration 00339.
