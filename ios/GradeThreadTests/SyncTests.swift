@@ -969,6 +969,47 @@ final class SyncTests: XCTestCase {
         XCTAssertTrue(SyncEngine.shouldDeferDependent(edit, unconfirmedCreateIds: unconfirmed))
     }
 
+    // MARK: - US-1508: offline Save & Sync revise re-push
+
+    /// An offline Save & Sync queues the revise as a `.reviseListing` mutation whose
+    /// payload round-trips through the queue, so the reconnect flush can replay it.
+    func test_offlineRevise_queuesAndRoundtripsPayload() throws {
+        let container = try inMemoryContainer()
+        let ctx = ModelContext(container)
+        let payload = OfflineRevisePayload(
+            listingId: "L1", title: "New title", description: "New desc", price: 42,
+            resyncFields: true, conditionNoteChanged: true, conditionNote: "Small mark"
+        )
+        let ok = OfflineMutationQueue.enqueueUpdate(
+            kind: .reviseListing, payload: payload, targetId: "item-1", in: ctx)
+        XCTAssertTrue(ok)
+
+        let row = try XCTUnwrap(
+            try ModelContext(container).fetch(FetchDescriptor<LocalPendingMutation>()).first)
+        XCTAssertEqual(row.kindEnum, .reviseListing)
+        XCTAssertEqual(row.targetId, "item-1")   // shares the item's target → ordered after it
+        let decoded = try JSONDecoder().decode(OfflineRevisePayload.self, from: row.payload)
+        XCTAssertEqual(decoded.listingId, "L1")
+        XCTAssertEqual(decoded.title, "New title")
+        XCTAssertEqual(decoded.description, "New desc")
+        XCTAssertEqual(decoded.price, 42)
+        XCTAssertTrue(decoded.resyncFields)
+        XCTAssertTrue(decoded.conditionNoteChanged)
+        XCTAssertEqual(decoded.conditionNote, "Small mark")
+    }
+
+    /// The queued revise shares the item's targetId, so the US-1496 same-target hold
+    /// defers it when the item update fails this pass — it never pushes to eBay ahead
+    /// of the item write. And it is NOT an inventory-item edit (won't touch the dirty
+    /// flag / the create-deferral set).
+    func test_reviseListing_orderingAndKindClassification() {
+        let revise = snapshot(kind: .reviseListing, targetId: "item-1")
+        XCTAssertTrue(
+            SyncEngine.shouldHoldForBlockedTarget(revise, blockedTargetIds: ["item-1"]))
+        XCTAssertFalse(SyncEngine.isInventoryItemEdit(MutationKind.reviseListing.rawValue))
+        XCTAssertFalse(SyncEngine.isCreateKind(MutationKind.reviseListing.rawValue))
+    }
+
     // MARK: - US-1210: drop-safe watermark
 
     func test_safeCursor_keepsCursorBehindDroppedLowRow() {

@@ -9079,7 +9079,7 @@
         "Unit test: offline save of a live-listed item → reconnect → server receives the revise."
       ],
       "priority": 2383,
-      "passes": false,
+      "passes": true,
       "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Completes the offline story for the highest-traffic edit path."
     },
     {

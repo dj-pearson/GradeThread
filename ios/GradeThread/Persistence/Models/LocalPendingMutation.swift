@@ -67,4 +67,7 @@ enum MutationKind: String, Codable, CaseIterable {
     // US-982: operating expenses (`flipdesk_expenses`) join the offline queue.
     case createExpense
     case deleteExpense
+    // US-1508: a Save & Sync eBay revise that couldn't run offline — queued so the
+    // reconnect flush re-pushes it to the live listing (after the item update lands).
+    case reviseListing
 }

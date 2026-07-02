@@ -1956,13 +1956,37 @@ struct ItemCanvasView: View {
                 OfflineMutationQueue.enqueueUpdate(
                     kind: .updateInventoryItem, payload: payload, targetId: item.id, in: modelContext
                 )
+                // US-1508: the online path also revises the live eBay listing, but
+                // that revise only ran in the success branch — an offline Save & Sync
+                // dropped it silently (only price drift later hinted). Queue it too
+                // (targetId = item.id so FIFO + the same-target hold replay it AFTER
+                // the item update lands), so the reconnect flush re-pushes it.
+                if let plan = ebayPlan {
+                    let revise = OfflineRevisePayload(
+                        listingId: plan.listingId,
+                        title: plan.title,
+                        description: plan.description,
+                        price: plan.price,
+                        resyncFields: plan.resync,
+                        conditionNoteChanged: plan.conditionNotesChanged,
+                        conditionNote: plan.conditionNotesChanged
+                            ? state.draft.conditionNotes.nonEmpty : nil
+                    )
+                    OfflineMutationQueue.enqueueUpdate(
+                        kind: .reviseListing, payload: revise, targetId: item.id, in: modelContext
+                    )
+                }
                 applyToLocalItem(state: state)
                 item.hasLocalChanges = true  // not yet on the server — keep it from prune
                 state.acceptDraftAsOriginal()
                 modelContext.saveOrLog("save")
                 state.savePhase = .idle
                 HapticFeedback.warning()
-                actionToast = "Saved offline — will sync when you reconnect."
+                // Truthful copy: only promise the eBay update when we actually
+                // queued a re-push for it (US-1508 AC3).
+                actionToast = ebayPlan != nil
+                    ? "Saved offline — your device and the eBay listing will sync when you reconnect."
+                    : "Saved offline — will sync when you reconnect."
                 if dismissAfter { dismiss() }
                 return true
             }

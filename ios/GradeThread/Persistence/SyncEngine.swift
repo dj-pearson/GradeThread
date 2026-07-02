@@ -1307,6 +1307,8 @@ actor SyncEngine {
                 try await replayDelete(table: "item_photos", id: mutation.targetId)
             case .uploadPhoto:
                 try await replayUploadPhoto(payload: mutation.payload)
+            case .reviseListing:
+                try await replayReviseListing(payload: mutation.payload)
             }
             await deleteMutation(id: mutation.id)  // server-confirmed → dequeue
             return true
@@ -1324,6 +1326,28 @@ actor SyncEngine {
     }
 
     // MARK: - Mutation replay handlers
+
+    /// US-1508: replays a queued Save & Sync eBay revise on reconnect. Runs AFTER
+    /// the queued item update for the same target (FIFO + the US-1496 same-target
+    /// hold), so the live listing reflects the persisted row. A `.noOfferId` is
+    /// terminal (won't fix on retry); a transient `.failed` throws a plain error so
+    /// the mutation retries and, if it exhausts the budget, surfaces in the pending-
+    /// changes inspector — the offline equivalent of the online `ebaySyncError`.
+    private func replayReviseListing(payload: Data) async throws {
+        let p = try JSONDecoder().decode(OfflineRevisePayload.self, from: payload)
+        switch await EbayPublishService.reviseForReplay(p) {
+        case .revised: return
+        case .noOfferId: throw SyncReplayError.reviseNoOffer
+        case .failed(let message): throw OfflineReviseFailure(message: message)
+        }
+    }
+
+    /// Retryable failure of a replayed revise (US-1508) — NOT a ``SyncReplayError``,
+    /// so ``apply(_:)`` routes it to `markFailed` (retry) rather than `markStuck`.
+    private struct OfflineReviseFailure: LocalizedError {
+        let message: String
+        var errorDescription: String? { message }
+    }
 
     private func replayUpsert(table: String, payload: Data) async throws {
         let row = try JSONDecoder().decode([String: AnyJSON].self, from: payload)
@@ -1450,6 +1474,8 @@ actor SyncEngine {
         case notSignedIn
         case storageUpload(status: Int)
         case invalidStorageURL
+        // US-1508: a replayed eBay revise had no offer to update — terminal.
+        case reviseNoOffer
 
         var errorDescription: String? {
             switch self {
@@ -1458,6 +1484,7 @@ actor SyncEngine {
             case .notSignedIn: return "Sign-in expired before this change could sync."
             case .storageUpload(let status): return "Photo upload failed (HTTP \(status))."
             case .invalidStorageURL: return "Storage isn't configured correctly."
+            case .reviseNoOffer: return "This listing has no eBay offer to update."
             }
         }
 
@@ -1468,7 +1495,7 @@ actor SyncEngine {
         /// transient and keep retrying.
         var isTerminal: Bool {
             switch self {
-            case .missingTarget, .missingLocalFile, .invalidStorageURL: return true
+            case .missingTarget, .missingLocalFile, .invalidStorageURL, .reviseNoOffer: return true
             case .notSignedIn, .storageUpload: return false
             }
         }

@@ -1,5 +1,19 @@
 import Foundation
 
+/// US-1508: the parameters of a Save & Sync revise, captured when the push can't
+/// run offline and replayed on reconnect (after the item update lands). A plain
+/// Sendable value type so it round-trips through the offline queue's JSON payload
+/// and crosses the SyncEngine↔EbayPublishService actor boundary freely.
+struct OfflineRevisePayload: Codable, Sendable {
+    let listingId: String
+    let title: String?
+    let description: String?
+    let price: Double?
+    let resyncFields: Bool
+    let conditionNoteChanged: Bool
+    let conditionNote: String?
+}
+
 /// Wraps the four publish + manage endpoints behind a single Swift
 /// surface. Each method returns a `PublishOutcome` rather than throwing
 /// so callers can switch over the cases — the typed result includes
@@ -139,6 +153,56 @@ public final class EbayPublishService {
         } catch {
             return .failed(message: Self.networkFailureMessage(error))
         }
+    }
+
+    // MARK: - US-1508: offline Save & Sync revise replay
+
+    /// Sendable result of an offline-queued revise replay, so the (non-MainActor)
+    /// ``SyncEngine`` can map it to retry / stuck without holding a non-Sendable
+    /// ``ReviseOutcome`` across the actor boundary.
+    enum ReplayReviseResult: Sendable { case revised, noOfferId, failed(String) }
+
+    /// Replays a queued Save & Sync revise (US-1508): mirrors the condition note
+    /// onto the listing first (US-1501 parity), then revises. Runs on the MainActor
+    /// (this service is `@MainActor`) and returns a Sendable result. `static` so the
+    /// SyncEngine calls it with a single `await` hop instead of constructing a
+    /// non-Sendable instance on the wrong actor.
+    static func reviseForReplay(_ p: OfflineRevisePayload) async -> ReplayReviseResult {
+        if p.conditionNoteChanged {
+            do { try await mirrorConditionNote(listingId: p.listingId, note: p.conditionNote) }
+            catch { return .failed("Couldn't update the eBay condition note.") }
+        }
+        switch await EbayPublishService().revise(
+            listingId: p.listingId,
+            title: p.title,
+            description: p.description,
+            price: p.price,
+            syncPhotos: true,
+            resyncFields: p.resyncFields
+        ) {
+        case .revised: return .revised
+        case .noOfferId: return .noOfferId
+        case .failed(let m): return .failed(m)
+        }
+    }
+
+    /// US-1508/1501: writes the listing's canonical `ebay_condition_description`
+    /// (explicit null to CLEAR) so a replayed revise carries the offline
+    /// condition-note edit instead of the stale composer snapshot.
+    private static func mirrorConditionNote(listingId: String, note: String?) async throws {
+        struct Patch: Encodable {
+            let ebay_condition_description: String?
+            enum CodingKeys: String, CodingKey { case ebay_condition_description }
+            func encode(to encoder: Encoder) throws {
+                var c = encoder.container(keyedBy: CodingKeys.self)
+                try c.encode(ebay_condition_description, forKey: .ebay_condition_description)
+            }
+        }
+        try await SupabaseShared.client
+            .from("listings")
+            .update(Patch(ebay_condition_description: note))
+            .eq("id", value: listingId)
+            .execute()
     }
 
     // MARK: - End listing

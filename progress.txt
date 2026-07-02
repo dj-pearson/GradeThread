@@ -8690,3 +8690,35 @@ seam; SpecificsEditorTests-style pure helpers don't apply here). Verified by com
 the encode() null-vs-omit distinction is the crux and is asserted by inspection.
 VERIFICATION (this host): comment/string-aware brace balance clean on both files; no-ungated-print +
 no-bare-strings + no-default-shared-session OK. iOS CI is the build gate. No migration.
+
+## 2026-07-02 (cont.) — US-1508 iOS offline 'Save & Sync' now queues the eBay revise for reconnect — COMPLETE (passes:true) — NO MIGRATION
+Files: LocalPendingMutation.swift, PendingChangesView.swift, EbayPublishService.swift,
+SyncEngine.swift, ItemCanvasView.swift, SyncTests.swift. Extends the US-1496 offline queue.
+
+ItemCanvasView.save(): on a queueable network failure the inventory edit went to the
+OfflineMutationQueue but the ebayPlan revise lived ONLY in the online success path — it
+was never queued. The toast "Saved offline — will sync" implied eBay would update; only a
+later price drift hinted otherwise (title/specifics/description drift was invisible).
+
+- New MutationKind `.reviseListing` + a Sendable `OfflineRevisePayload` (listingId, title,
+  description, price, resyncFields, conditionNoteChanged, conditionNote).
+- (AC1) The offline catch now ALSO enqueues a `.reviseListing` mutation (when ebayPlan != nil)
+  with targetId = item.id — so FIFO + the US-1496 same-target hold replay it AFTER the queued
+  item update lands.
+- Replay: SyncEngine.apply() gains a `.reviseListing` case → replayReviseListing decodes the
+  payload and calls the new @MainActor `EbayPublishService.reviseForReplay` (bridges the
+  MainActor service to the plain SyncEngine actor via a Sendable ReplayReviseResult; mirrors
+  the condition note onto listings.ebay_condition_description first, US-1501 parity). `.revised`
+  → dequeue; `.noOfferId` → new terminal SyncReplayError.reviseNoOffer (markStuck); transient
+  `.failed` → a plain OfflineReviseFailure (markFailed → retry, then surfaces in the pending-
+  changes inspector as "Update eBay listing" — the offline equivalent of ebaySyncError, AC2).
+- (AC3) The offline toast is now truthful: it promises the eBay update ONLY when a re-push was
+  actually queued ("your device and the eBay listing will sync when you reconnect"), else the
+  plain device-only copy.
+- (AC4) Tests: the `.reviseListing` payload round-trips through the queue (kind/targetId/fields),
+  and the ordering/kind classification (held behind a failed same-target item update; not an
+  inventory-item-edit / create) is asserted via the pure helpers.
+VERIFICATION (this host): brace balance clean on all 6 files (SyncTests via the naive scan — the
+string-aware one trips on the triple-quoted JSON fixtures); no-ungated-print + no-bare-strings +
+no-default-shared-session OK. No other exhaustive MutationKind switch exists beyond apply() +
+PendingChangesView.title (both updated). iOS CI is the build + unit-test gate. No migration.
