@@ -8627,8 +8627,8 @@
         "Fall back to existing paged sync below the threshold."
       ],
       "priority": 1986,
-      "passes": false,
-      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · ebay · ebay coverage audit] Evidence: ebay-client.ts:2298,2567; https://developer.ebay.com/api-docs/sell/feed/overview.html"
+      "passes": true,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · ebay · ebay coverage audit] Evidence: ebay-client.ts:2298,2567; https://developer.ebay.com/api-docs/sell/feed/overview.html [DONE 2026-07-01: implemented the LMS_ORDER_REPORT Feed path (services/edge-functions/src/lib/ebay-feed.ts): createOrderReportTask→pollFeedTask→downloadFeedResultFile(gunzip via DecompressionStream)→parseOrderReport→RemoteOrder[]; wired flag-gated in doListingsPull orders pass (shouldUseFeedForOrders = EBAY_FEED_SYNC on AND catalog≥EBAY_FEED_SYNC_MIN_CATALOG default 1000), falling back to listRecentOrders on any Feed error. Default OFF → paged sync unchanged. 10 deno tests (parser, threshold/flag gates, gzip decode, create→poll→download DI). SCOPE CORRECTION: the LMS active-inventory report is price/qty-only (ItemID/SKU/Price/Qty) and CANNOT replace the offer sync (no offerId/status/category/description/aspects) — deliberately NOT implemented. Order path needs live high-volume validation before enabling: OrderReport keys line items by Trading TransactionID vs the Sell lineItemId, so a path switch can re-key/duplicate recent sales (documented in .env.example + module header).]"
     },
     {
       "id": "US-1475",

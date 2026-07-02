@@ -81,6 +81,7 @@ import {
   type RemoteOrderLineItem,
   type RemoteTransaction,
 } from "../lib/ebay-client.ts";
+import { runOrderReport, shouldUseFeedForOrders } from "../lib/ebay-feed.ts";
 // US-713: the Depop connector shares this token-refresh cron (no separate
 // Coolify task). The sweep is a no-op while DEPOP_ENABLED is off.
 import { refreshExpiringDepopConnections } from "../lib/depop-client.ts";
@@ -2566,7 +2567,26 @@ async function doListingsPull(
   let salesSkipped = 0;
   let salesReversed = 0; // US-459: cancelled/refunded line items handled.
   try {
-    const orders: RemoteOrder[] = await listRecentOrders(userId, sinceISO, errors);
+    // US-1474: high-volume sellers (large catalog) can pull orders via the Feed
+    // API report instead of paging, when EBAY_FEED_SYNC is enabled AND the
+    // catalog is above the threshold. Default OFF → always the paged path. A
+    // Feed failure falls back to paging so a report hiccup never breaks the
+    // sales sync. `offers.length` is the catalog-size proxy (fetched above).
+    let orders: RemoteOrder[];
+    if (shouldUseFeedForOrders(offers.length)) {
+      try {
+        orders = await runOrderReport(userId, sinceISO);
+      } catch (feedErr) {
+        errors.push(
+          `Feed order report failed; fell back to paged order sync: ${
+            feedErr instanceof Error ? feedErr.message : String(feedErr)
+          }`,
+        );
+        orders = await listRecentOrders(userId, sinceISO, errors);
+      }
+    } else {
+      orders = await listRecentOrders(userId, sinceISO, errors);
+    }
     for (const order of orders) {
       // Failed-payment orders shouldn't flip an item to sold.
       const paid =
