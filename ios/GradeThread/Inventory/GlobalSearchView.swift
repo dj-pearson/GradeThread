@@ -128,7 +128,15 @@ struct GlobalSearchView: View {
             if !matchedSources.isEmpty {
                 Section("Sources") {
                     ForEach(matchedSources) { source in
-                        row(title: source.name, subtitle: source.sourceType.capitalized, system: "bag")
+                        // US-1498: these rows looked identical to the tappable
+                        // item/sale rows but had no action — a dead row. Navigate
+                        // to the source's filtered inventory (matches the "no
+                        // tappable-looking dead rows" rule).
+                        NavigationLink {
+                            InventoryListView(initialSourceId: source.id)
+                        } label: {
+                            row(title: source.name, subtitle: source.sourceType.capitalized, system: "bag")
+                        }
                     }
                 }
             }

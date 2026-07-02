@@ -51,27 +51,56 @@ final class AIAssistantStore {
         }
     }
 
-    func setEnabled(_ enabled: Bool, userId: String) async {
+    /// US-1498: a failed toggle/cap write used to be swallowed (`try?`) — the UI
+    /// showed "saved" optimistically, then silently snapped back on the next visit
+    /// with no explanation. Now surfaces the error (persists past the `fetch()`
+    /// revert, which only touches `phase`) and returns success so the view can
+    /// revert its optimistic override.
+    var actionError: String?
+
+    @discardableResult
+    func setEnabled(_ enabled: Bool, userId: String) async -> Bool {
         struct Update: Encodable { let ai_enrichment_enabled: Bool }
-        try? await SupabaseShared.client
-            .from("users")
-            .update(Update(ai_enrichment_enabled: enabled))
-            .eq("id", value: userId)
-            .execute()
-        await fetch()
+        do {
+            try await SupabaseShared.client
+                .from("users")
+                .update(Update(ai_enrichment_enabled: enabled))
+                .eq("id", value: userId)
+                .execute()
+            actionError = nil
+            await fetch()
+            return true
+        } catch {
+            actionError = FriendlyErrorCopy.actionMessage(
+                for: error,
+                fallback: "Couldn't update the AI Assistant setting. Please try again.")
+            await fetch()  // revert to server truth
+            return false
+        }
     }
 
     /// `nil` clears the override → falls back to the plan default. Uses an
     /// explicit JSON null (a synthesized Optional encoder would omit the field,
     /// leaving the column unchanged).
-    func setLimit(_ limit: Int?, userId: String) async {
+    @discardableResult
+    func setLimit(_ limit: Int?, userId: String) async -> Bool {
         let value: AnyJSON = limit.map { .integer($0) } ?? .null
-        try? await SupabaseShared.client
-            .from("users")
-            .update(["ai_action_limit": value])
-            .eq("id", value: userId)
-            .execute()
-        await fetch()
+        do {
+            try await SupabaseShared.client
+                .from("users")
+                .update(["ai_action_limit": value])
+                .eq("id", value: userId)
+                .execute()
+            actionError = nil
+            await fetch()
+            return true
+        } catch {
+            actionError = FriendlyErrorCopy.actionMessage(
+                for: error,
+                fallback: "Couldn't update the monthly cap. Please try again.")
+            await fetch()  // revert to server truth
+            return false
+        }
     }
 
     /// Monthly AI-action allowance per plan (mirrors FLIPDESK_PLANS
@@ -148,10 +177,22 @@ struct AIAssistantSection: View {
             set: { newValue in
                 enabledOverride = newValue
                 guard let userId, newValue != info.ai_enrichment_enabled else { return }
-                Task { await store.setEnabled(newValue, userId: userId) }
+                Task {
+                    // US-1498: revert the optimistic override on a failed write so
+                    // the toggle snaps back to server truth AND the error shows
+                    // (instead of appearing saved then silently reverting later).
+                    let ok = await store.setEnabled(newValue, userId: userId)
+                    if !ok { enabledOverride = nil }
+                }
             }
         )) {
             Label("AI suggestions", systemImage: "sparkles")
+        }
+        // US-1498: surface a failed toggle/cap write.
+        if let actionError = store.actionError {
+            Text(actionError)
+                .font(.caption)
+                .foregroundStyle(Color.brandRed)
         }
 
         // Usage meter.
@@ -200,6 +241,13 @@ struct AIAssistantSection: View {
         guard let userId else { return }
         let trimmed = limitText.trimmingCharacters(in: .whitespaces)
         let newLimit = trimmed.isEmpty ? nil : Int(trimmed)
-        Task { await store.setLimit(newLimit, userId: userId) }
+        Task {
+            // US-1498: on a failed write, resync the field to server truth so a
+            // rejected cap doesn't linger as if it saved (the error shows too).
+            let ok = await store.setLimit(newLimit, userId: userId)
+            if !ok, case let .ready(info) = store.phase {
+                limitText = info.ai_action_limit.map(String.init) ?? ""
+            }
+        }
     }
 }

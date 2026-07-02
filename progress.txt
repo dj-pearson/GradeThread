@@ -8354,3 +8354,26 @@ Three fixes:
 VERIFICATION (this host): curly-scan clean on all touched Swift; existing
 thisMonthTotal test passes an explicit calendar (unaffected by the default change).
 iOS macOS CI is the build gate (runs after the held migration batch is pushed).
+
+## 2026-07-02 (cont.) — US-1498 iOS settings/UX dead-ends (5 fixes) — COMPLETE (passes:true)
+ - (1) Settings "Help & FAQ" opened /help which 404s (no such route) — a guaranteed
+   App Review reject. helpURL → /faq (the real route PublishDialog uses).
+ - (2) AIAssistantSection setEnabled/setLimit swallowed writes with try? (optimistic
+   UI showed saved, then snapped back next visit, no message). Now return Bool + set
+   a dedicated store.actionError (persists past the fetch() revert); the toggle
+   reverts its optimistic override on failure and the cap field resyncs to server
+   truth; the error renders in the section.
+ - (3) MoneyView context-menu expense delete discarded the WriteResult (server
+   rejection = silent). Now captures .failed(message) → new expenseActionError @State
+   + an .alert.
+ - (4) TeamStore reloadMembers/reloadInvitations used try? (a removed member/revoked
+   invite silently stayed listed). Now surface failures via actionError (the UI banner).
+ - (5) Global-search "Sources" rows looked tappable but had no action — now a
+   NavigationLink to InventoryListView(initialSourceId:).
+ALSO — US-1494 CORRECTION: my part-3 month-bucketing fix landed on the unused
+ExpenseStore.thisMonthTotal; the DISPLAYED total is MoneyView.expensesThisMonthTotal
+(line 29 + 426) which still used Calendar.current. Fixed it to bucket in UTC
+(ExpenseStore.bucketingCalendar) — the real timezone-drift path.
+NO MIGRATION.
+VERIFICATION (this host): curly-scan clean on all 5 touched files; iOS macOS CI is
+the build gate.

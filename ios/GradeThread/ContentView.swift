@@ -1477,7 +1477,11 @@ struct SettingsView: View {
     // US-670: active workspace context (switcher).
     @State private var workspaceContext: WorkspaceContext?
 
-    private static let helpURL = URL(string: "https://gradethread.com/help")!
+    // US-1498: /help does NOT exist (not in the web router, public-routes
+    // registry, or Pages Functions) — it 404'd in the in-app Safari sheet, a
+    // guaranteed App Review reject. /faq is the real route (PublishDialog already
+    // links it). Keep this pointed at a route that ships.
+    private static let helpURL = URL(string: "https://gradethread.com/faq")!
 
     /// US-818: legal surfaces App Review expects to find in-app, opened via
     /// ``SafariView``. An Identifiable wrapper drives a single `.sheet(item:)`.

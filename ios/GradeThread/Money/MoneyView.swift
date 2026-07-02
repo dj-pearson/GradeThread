@@ -10,6 +10,9 @@ struct MoneyView: View {
     @State private var expenseStore = ExpenseStore()
     @State private var showingAddExpense = false
     @State private var showingExport = false
+    // US-1498: surface a failed context-menu expense delete (was silently
+    // discarded — a server rejection did nothing with no message).
+    @State private var expenseActionError: String?
 
     @Query(sort: \LocalSale.saleDate, order: .reverse) private var sales: [LocalSale]
     @Query private var items: [LocalInventoryItem]
@@ -53,7 +56,15 @@ struct MoneyView: View {
     /// Sum of cached expenses dated in the current calendar month. Mirrors the
     /// old `ExpenseStore.thisMonthTotal` but reads the shared cache so the figure
     /// can't drift from the list shown below it.
-    private func expensesThisMonthTotal(now: Date = .now, calendar: Calendar = .current) -> Double {
+    private func expensesThisMonthTotal(
+        now: Date = .now,
+        // US-1494: this is the total actually DISPLAYED (line "…this month" + the
+        // net-profit calc). `spent_on` is parsed at UTC midnight, so bucket in UTC
+        // too — Calendar.current put a boundary-day expense in the wrong month for
+        // users behind/ahead of UTC. (The ExpenseStore.thisMonthTotal fix landed on
+        // the older, cache-less helper; this is the live path.)
+        calendar: Calendar = ExpenseStore.bucketingCalendar
+    ) -> Double {
         guard let startOfMonth = calendar.date(
             from: calendar.dateComponents([.year, .month], from: now)
         ) else { return 0 }
@@ -153,6 +164,18 @@ struct MoneyView: View {
         }
         .sheet(isPresented: $showingExport) {
             FinancialExportSheet()
+        }
+        // US-1498: a failed context-menu expense delete now says so.
+        .alert(
+            "Couldn't delete the expense",
+            isPresented: Binding(
+                get: { expenseActionError != nil },
+                set: { if !$0 { expenseActionError = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(expenseActionError ?? "")
         }
         // US-750: pull-to-refresh fires the same full sync pull as Inventory /
         // Sales, which repopulates the shared cache (sales + expenses). No
@@ -452,7 +475,15 @@ struct MoneyView: View {
                     ExpenseRow(expense: expense, currency: currency)
                         .contextMenu {
                             Button(role: .destructive) {
-                                Task { _ = await expenseStore.delete(id: expense.id, queueContext: modelContext) }
+                                Task {
+                                    // US-1498: surface a rejection instead of
+                                    // silently discarding the result.
+                                    let result = await expenseStore.delete(
+                                        id: expense.id, queueContext: modelContext)
+                                    if case let .failed(message) = result {
+                                        expenseActionError = message
+                                    }
+                                }
                             } label: {
                                 Label("Delete", systemImage: "trash")
                             }

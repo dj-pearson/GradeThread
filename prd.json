@@ -8938,7 +8938,7 @@
         "Global-search Source rows navigate (sources manager or InventoryListView(initialSourceId:)) — no tappable-looking dead rows."
       ],
       "priority": 2393,
-      "passes": false,
+      "passes": true,
       "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] The /help 404 is the single most certain thing a reviewer will tap from Settings."
     },
     {

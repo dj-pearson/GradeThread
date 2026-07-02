@@ -180,15 +180,23 @@ final class TeamStore {
     }
 
     private func reloadMembers() async {
-        if let rows = try? await service.members(ownerId: ownerId) {
-            members = rows
+        // US-1498: surface a failed post-mutation refresh via actionError (the
+        // UI's error banner) instead of swallowing it with `try?` — otherwise a
+        // removed member could silently stay listed against server truth.
+        do {
+            members = try await service.members(ownerId: ownerId)
             currentRole = resolveCurrentRole()
+        } catch {
+            actionError = message(error)
         }
     }
 
     private func reloadInvitations() async {
-        if let rows = try? await service.invitations(ownerId: ownerId) {
-            invitations = WorkspaceInvites.active(rows, now: Date())
+        do {
+            invitations = WorkspaceInvites.active(
+                try await service.invitations(ownerId: ownerId), now: Date())
+        } catch {
+            actionError = message(error)
         }
     }
 
