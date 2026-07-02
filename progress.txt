@@ -8207,3 +8207,13 @@ NO MIGRATION.
 VERIFICATION (this host): curly-quote scan clean on AuthStore, FriendlyErrorCopy,
 LoginView, FriendlyErrorCopyTests. Kind switches (authMessage/actionMessage) kept
 exhaustive with the 2 new cases. Can't compile Swift — iOS CI (macOS) is the gate.
+
+### Loop checkpoint 8 (2026-07-01) — 8 stories verified & committed locally (NOT pushed)
+15 commits ahead of origin. Web/edge: US-1505/1506/1502/1503/1504/1518. iOS:
+US-1522, US-1521. ALL code-only, PENDING_MIGRATIONS.md empty, schema 00331.
+⚠️ ~16 blind iOS edits now stacked (US-1522+1521) — only macOS CI compiles them.
+RECOMMEND at next check-in: push so iOS CI validates this batch before stacking
+more blind iOS work. Web fixes also go live then (no migrations to apply).
+NEXT (if continuing iOS): US-1520 (2371, perf — parallelize sync pull + kill the
+photos-relationship N+1) — a PERF REFACTOR, higher-risk blind; or the lower-risk
+sync-correctness set US-1516/1515/1514. US-1523 still deferred (macOS lockfile).
