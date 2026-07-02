@@ -9527,7 +9527,7 @@
     {
       "id": "US-1539",
       "priority": 2351,
-      "passes": false,
+      "passes": true,
       "title": "Persist photo provenance: original filename + EXIF capture time on item_photos",
       "description": "As the grouping engine (and future audits), I need each photo's original filename and capture timestamp persisted, because today EXIF is read client-side then thrown away (server strips EXIF at intake) and the original filename is never kept anywhere — so the server can never reconstruct or verify grouping, and filename-sequence grouping has nothing durable to read after a reload.",
       "acceptanceCriteria": [
@@ -9542,7 +9542,7 @@
     {
       "id": "US-1540",
       "priority": 2350,
-      "passes": false,
+      "passes": true,
       "title": "Filename-sequence signal in auto-grouping (IMG_055/056/057 belong together)",
       "description": "As a seller whose photos lack EXIF capture time (WhatsApp/AirDrop exports, screenshots, some Android cameras), I want auto-grouping to also use camera filename sequences — people shoot items back-to-back so IMG_0551..IMG_0554 are almost always one item — instead of every timeless photo becoming a singleton group as it does today.",
       "acceptanceCriteria": [

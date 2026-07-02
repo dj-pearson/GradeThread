@@ -1,6 +1,21 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-## 📌 CURRENT STATE — 2026-07-02 (US-1507/1509 completion session)
+## 📌 CURRENT STATE — 2026-07-02 (bulk-intake epic session)
+
+### 🔸 NEW + HELD LOCALLY (not pushed): `00339` (US-1539)
+
+**`supabase/migrations/00339_item_photos_provenance.sql`** — adds nullable
+`item_photos.original_filename text` (+ a belt-and-suspenders
+`captured_at timestamptz`, which most DBs already have from 00066). Idempotent
+(`ADD COLUMN IF NOT EXISTS`), self-record footer, `EXPECTED_SCHEMA_VERSION`
+bumped **00338 → 00339** in the same commit. Apply to prod +
+`NOTIFY pgrst, 'reload schema';` BEFORE the edge redeploy that follows the next
+push (its boot guard will expect 00339). Low-risk: nullable columns, no code
+reads them server-side yet — the web AutoLister writes them at generate().
+**Per the standing rule, the commit carrying 00339 stays local until you apply
+it and say "OK to push".**
+
+### Previously outstanding — apply to prod (already on origin)
 
 Everything through migration **00338** is already ON `origin/main` (0230db73 was
 pushed). What's outstanding is **applying to prod**, not pushing:

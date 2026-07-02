@@ -1,14 +1,22 @@
 import { describe, expect, it } from "vitest";
 import {
   autoGroupPhotos,
+  compareByProvenance,
   type GroupablePhoto,
   hammingHex,
+  parseFilenameSequence,
+  sequenceRuns,
   VISUAL_MERGE_MAX_DISTANCE,
   visualPairs,
 } from "./autolister-grouping";
 
-function p(id: string, iso: string | null, phash = "0000000000000000"): GroupablePhoto {
-  return { id, capturedAt: iso ? new Date(iso) : null, phash };
+function p(
+  id: string,
+  iso: string | null,
+  phash = "0000000000000000",
+  sourceName?: string | null,
+): GroupablePhoto {
+  return { id, capturedAt: iso ? new Date(iso) : null, phash, sourceName };
 }
 
 describe("hammingHex", () => {
@@ -79,5 +87,216 @@ describe("autoGroupPhotos", () => {
 
   it("VISUAL_MERGE_MAX_DISTANCE is a conservative threshold", () => {
     expect(VISUAL_MERGE_MAX_DISTANCE).toBeLessThanOrEqual(12);
+  });
+});
+
+// US-1540: filename-sequence signal ------------------------------------------
+
+describe("parseFilenameSequence", () => {
+  it("parses common camera formats (case-insensitive)", () => {
+    expect(parseFilenameSequence("IMG_0551.jpg")).toEqual({ prefix: "img_", seq: 551 });
+    expect(parseFilenameSequence("img_0551.JPG")).toEqual({ prefix: "img_", seq: 551 });
+    expect(parseFilenameSequence("DSC01234.jpg")).toEqual({ prefix: "dsc", seq: 1234 });
+    expect(parseFilenameSequence("DSCN9001.png")).toEqual({ prefix: "dscn", seq: 9001 });
+    expect(parseFilenameSequence("DSC_4402.webp")).toEqual({ prefix: "dsc_", seq: 4402 });
+    expect(parseFilenameSequence("IMG-2044.jpeg")).toEqual({ prefix: "img-", seq: 2044 });
+  });
+
+  it("parses WhatsApp and Pixel names by their trailing number", () => {
+    expect(parseFilenameSequence("IMG-20240101-WA0012.jpg")).toEqual({
+      prefix: "img-20240101-wa",
+      seq: 12,
+    });
+    expect(parseFilenameSequence("PXL_20230801_103015123.jpg")).toEqual({
+      prefix: "pxl_20230801_",
+      seq: 103015123,
+    });
+  });
+
+  it("ignores copy suffixes so a duplicate keeps its real sequence", () => {
+    expect(parseFilenameSequence("IMG_0551 (1).jpg")).toEqual({ prefix: "img_", seq: 551 });
+    expect(parseFilenameSequence("IMG_0551 - Copy.jpg")).toEqual({ prefix: "img_", seq: 551 });
+    expect(parseFilenameSequence("IMG_0551 copy 2.jpg")).toEqual({ prefix: "img_", seq: 551 });
+  });
+
+  it("returns null for unusable names", () => {
+    expect(parseFilenameSequence(null)).toBeNull();
+    expect(parseFilenameSequence(undefined)).toBeNull();
+    expect(parseFilenameSequence("")).toBeNull();
+    expect(parseFilenameSequence("garment-front.jpg")).toBeNull();
+  });
+});
+
+describe("sequenceRuns", () => {
+  const named = (id: string, name: string) => ({ id, sourceName: name });
+
+  it("splits on sequence gaps and prefix changes", () => {
+    // Runs come back in (prefix, seq) order — "dsc_" sorts before "img_".
+    const runs = sequenceRuns([
+      named("a", "IMG_0001.jpg"),
+      named("b", "IMG_0002.jpg"),
+      named("c", "IMG_0004.jpg"), // gap (0003 missing) → new run
+      named("d", "DSC_0005.jpg"), // prefix change → new run
+    ]);
+    expect(runs.map((r) => r.map((p) => p.id))).toEqual([["d"], ["a", "b"], ["c"]]);
+  });
+
+  it("keeps duplicate filenames (same sequence) in one run, and omits unparseable names", () => {
+    const runs = sequenceRuns([
+      named("a", "IMG_0001.jpg"),
+      named("a2", "IMG_0001 (1).jpg"), // copy of 0001 → same seq → same run
+      named("b", "IMG_0002.jpg"),
+      named("x", "front.jpg"), // unparseable → omitted entirely
+    ]);
+    expect(runs).toHaveLength(1);
+    expect(runs[0]!.map((p) => p.id)).toEqual(["a", "a2", "b"]);
+  });
+
+  it("orders by sequence regardless of input order", () => {
+    const runs = sequenceRuns([
+      named("c", "IMG_0003.jpg"),
+      named("a", "IMG_0001.jpg"),
+      named("b", "IMG_0002.jpg"),
+    ]);
+    expect(runs.map((r) => r.map((p) => p.id))).toEqual([["a", "b", "c"]]);
+  });
+});
+
+describe("autoGroupPhotos — filename-sequence grouping (US-1540)", () => {
+  // Distinct phashes so the visual pass can't be what merges them.
+  const HASHES = [
+    "0000000000000000",
+    "ffff000000000000",
+    "0000ffff00000000",
+    "00000000ffff0000",
+    "000000000000ffff",
+    "f0f0f0f0f0f0f0f0",
+  ];
+
+  it("groups a pure no-EXIF IMG_ run into one item instead of singletons", () => {
+    const photos = [
+      p("a", null, HASHES[0], "IMG_0551.jpg"),
+      p("b", null, HASHES[1], "IMG_0552.jpg"),
+      p("c", null, HASHES[2], "IMG_0553.jpg"),
+    ];
+    const groups = autoGroupPhotos(photos);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.photoIds).toEqual(["a", "b", "c"]);
+    expect(groups[0]!.coverId).toBe("a");
+  });
+
+  it("two cameras (mixed prefixes) become two groups", () => {
+    const photos = [
+      p("a", null, HASHES[0], "IMG_0001.jpg"),
+      p("b", null, HASHES[1], "IMG_0002.jpg"),
+      p("x", null, HASHES[2], "DSC_0100.jpg"),
+      p("y", null, HASHES[3], "DSC_0101.jpg"),
+    ];
+    const groups = autoGroupPhotos(photos);
+    expect(groups).toHaveLength(2);
+    expect(groups.map((g) => g.photoIds)).toEqual(
+      expect.arrayContaining([["x", "y"], ["a", "b"]]),
+    );
+  });
+
+  it("a missing number in a run starts a new candidate group", () => {
+    const photos = [
+      p("a", null, HASHES[0], "IMG_0001.jpg"),
+      p("b", null, HASHES[1], "IMG_0002.jpg"),
+      p("c", null, HASHES[2], "IMG_0007.jpg"), // gap
+      p("d", null, HASHES[3], "IMG_0008.jpg"),
+    ];
+    const groups = autoGroupPhotos(photos);
+    expect(groups).toHaveLength(2);
+    expect(groups[0]!.photoIds).toEqual(["a", "b"]);
+    expect(groups[1]!.photoIds).toEqual(["c", "d"]);
+  });
+
+  it("no-EXIF WhatsApp-style names group by their WA sequence", () => {
+    const photos = [
+      p("a", null, HASHES[0], "IMG-20240101-WA0010.jpg"),
+      p("b", null, HASHES[1], "IMG-20240101-WA0011.jpg"),
+      p("c", null, HASHES[2], "IMG-20240101-WA0012.jpg"),
+    ];
+    const groups = autoGroupPhotos(photos);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.photoIds).toEqual(["a", "b", "c"]);
+  });
+
+  it("the dHash visual pass can still merge two sequence-adjacent runs of the same garment", () => {
+    // Same phash across the gap → visual pass merges the two seeded runs.
+    const photos = [
+      p("a", null, "1234567890abcdef", "IMG_0001.jpg"),
+      p("b", null, "1234567890abcdef", "IMG_0002.jpg"),
+      p("c", null, "1234567890abcdef", "IMG_0009.jpg"), // gap → separate run…
+    ];
+    const groups = autoGroupPhotos(photos);
+    expect(groups).toHaveLength(1); // …but visually identical → merged
+    expect(new Set(groups[0]!.photoIds)).toEqual(new Set(["a", "b", "c"]));
+  });
+
+  it("timeless photos with unusable names keep today's singleton behavior", () => {
+    const photos = [
+      p("u1", null, HASHES[0], "front.jpg"),
+      p("u2", null, HASHES[1]), // no name at all
+    ];
+    const groups = autoGroupPhotos(photos);
+    expect(groups).toHaveLength(2);
+    expect(groups.every((g) => g.photoIds.length === 1)).toBe(true);
+  });
+
+  it("mixed sets: EXIF photos keep time-gap behavior while timeless ones group by sequence", () => {
+    const photos = [
+      // Timed burst — must group by TIME exactly as before, even though the
+      // filenames are wildly out of sequence.
+      p("t1", "2024-01-01T10:00:00Z", HASHES[0], "IMG_0900.jpg"),
+      p("t2", "2024-01-01T10:00:05Z", HASHES[1], "IMG_0100.jpg"),
+      // Timeless sequential pair.
+      p("n1", null, HASHES[2], "IMG_0551.jpg"),
+      p("n2", null, HASHES[3], "IMG_0552.jpg"),
+    ];
+    const groups = autoGroupPhotos(photos);
+    expect(groups).toHaveLength(2);
+    // Timed group first (real capture time beats Infinity), ordered by time.
+    expect(groups[0]!.photoIds).toEqual(["t1", "t2"]);
+    expect(groups[1]!.photoIds).toEqual(["n1", "n2"]);
+  });
+
+  it("REGRESSION: EXIF time-gap + dHash behavior is unchanged when no names exist", () => {
+    // The exact fixture of the original burst-split test, no sourceName.
+    const photos = [
+      p("a1", "2024-01-01T10:00:00Z", "0000000000000000"),
+      p("a2", "2024-01-01T10:00:05Z", "ffff000000000000"),
+      p("b1", "2024-01-01T10:01:00Z", "0000ffff00000000"),
+      p("b2", "2024-01-01T10:01:04Z", "00000000ffff0000"),
+    ];
+    const groups = autoGroupPhotos(photos);
+    expect(groups).toHaveLength(2);
+    expect(new Set(groups[0]!.photoIds)).toEqual(new Set(["a1", "a2"]));
+    expect(new Set(groups[1]!.photoIds)).toEqual(new Set(["b1", "b2"]));
+  });
+});
+
+describe("compareByProvenance (US-1540 grid ordering)", () => {
+  it("orders by capture time first, unknown times last", () => {
+    const early = { capturedAt: new Date("2024-01-01T10:00:00Z"), sourceName: "IMG_9999.jpg" };
+    const late = { capturedAt: new Date("2024-01-01T11:00:00Z"), sourceName: "IMG_0001.jpg" };
+    const timeless = { capturedAt: null, sourceName: "IMG_0000.jpg" };
+    expect(compareByProvenance(early, late)).toBeLessThan(0);
+    expect(compareByProvenance(late, timeless)).toBeLessThan(0);
+  });
+
+  it("breaks time ties by filename sequence; equal keys return 0 (stable-sort upload order)", () => {
+    const t = new Date("2024-01-01T10:00:00Z");
+    const a = { capturedAt: t, sourceName: "IMG_0001.jpg" };
+    const b = { capturedAt: t, sourceName: "IMG_0002.jpg" };
+    const unnamedX = { capturedAt: null, sourceName: null };
+    const unnamedY = { capturedAt: null, sourceName: "no-digits.jpg" };
+    expect(compareByProvenance(a, b)).toBeLessThan(0);
+    expect(compareByProvenance(b, a)).toBeGreaterThan(0);
+    // Parseable sequence sorts before unparseable at equal time.
+    expect(compareByProvenance(a, { capturedAt: t, sourceName: null })).toBeLessThan(0);
+    // Two unparseables tie → 0 (the caller's stable sort keeps upload order).
+    expect(compareByProvenance(unnamedX, unnamedY)).toBe(0);
   });
 });

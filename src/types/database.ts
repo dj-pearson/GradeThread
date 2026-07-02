@@ -1344,6 +1344,10 @@ export interface ItemPhotoRow {
   // 00066 — photo-dump reconciliation: original EXIF capture time + session.
   captured_at: string | null;
   reconcile_session_id: string | null;
+  // 00339 (US-1539) — photo provenance: the source file's original name
+  // (e.g. "IMG_0551.jpg"), the durable signal for filename-sequence grouping
+  // (US-1540) and grouping audits. Never rendered on public surfaces.
+  original_filename: string | null;
   // US-889 (migration 00213): admin moderation marker. A hide sets this true so
   // the photo is withheld from public/marketplace surfaces; the audited unhide
   // endpoint flips it back. Default false.
@@ -2235,6 +2239,8 @@ export interface ItemPhotoInsert {
   archived_to_r2?: boolean;
   captured_at?: string | null;
   reconcile_session_id?: string | null;
+  // 00339 (US-1539) — photo provenance.
+  original_filename?: string | null;
 }
 
 export interface MarketplaceConnectionInsert {

@@ -9007,3 +9007,43 @@ US-1523 (supabase-swift pin + Package.resolved) DEFERRED for now: generating a v
 Package.resolved requires an Xcode dependency resolve (macOS-only) - flagged for a Mac
 session or CI-assisted generation rather than hand-authoring pin SHAs.
 Still LOCAL-ONLY (00338 pending prod apply); commit held with the previous ones.
+
+=== 2026-07-02 (session cont.): US-1539 + US-1540 (AutoLister bulk-intake epic, first two children) ===
+US-1539 (photo provenance):
+- NEW MIGRATION 00339_item_photos_provenance.sql: item_photos.original_filename text (nullable)
+  + belt-and-suspenders captured_at timestamptz (already on most DBs from 00066 - the audit
+  claim "no exif columns" was half wrong; IF NOT EXISTS keeps it idempotent either way).
+  Self-record footer; EXPECTED_SCHEMA_VERSION 00338 -> 00339 same commit. HELD LOCALLY per the
+  standing migration rule - packaged in PENDING_MIGRATIONS.md (apply + NOTIFY pgrst before the
+  edge redeploy that follows the next push).
+- Web AutoLister generate() now writes captured_at (ISO from the client-read EXIF capturedAtMs)
+  + original_filename (via stagedSortName, which also recovers names from sourceSig for
+  pre-sourceName sessions) onto every item_photos insert. The stored image BYTES stay
+  metadata-stripped at /staging/upload (US-276 untouched) - only the two scalars persist, and
+  neither is rendered anywhere (grep-verified: types + insert only).
+- StagedPhoto already carried sourceName + capturedAtMs and the localStorage session serializes
+  whole StagedPhoto objects -> reload round-trip was already in place (AC2/AC3 verified).
+- types/database.ts: ItemPhotoRow/Insert gain original_filename.
+US-1540 (filename-sequence grouping):
+- autolister-grouping.ts: parseFilenameSequence (last-digit-run parser -> covers IMG_NNNN,
+  DSC/DSCN/DSC_, IMG-NNNN, WhatsApp IMG-YYYYMMDD-WANNNN, Pixel PXL_..., case-insensitive,
+  strips extension + "(1)"/"- Copy"/"copy 2" suffixes), sequenceRuns (sort by prefix+seq;
+  run breaks on gap or prefix change; duplicates stay together), seedSequenceClusters (seeds
+  clusters ONLY for timeless photos; every run seeded incl. singletons so the existing dHash
+  visual pass can confirm/merge them - it skips unassigned photos), compareByProvenance
+  (time -> filename sequence -> 0 for stable-sort upload order).
+- autoGroupPhotos: timeless photos with sequential names now group instead of all becoming
+  singletons; timed photos keep time-gap primary (sequence = ordering tiebreaker only); NEW
+  deterministic group ordering fix - two all-timeless clusters compared Infinity-Infinity=NaN
+  in groupAssignments (case previously impossible), so groups re-sort by lead-photo provenance.
+- Ungrouped grid renders via ungroupedSorted (deterministic: time -> seq -> upload order);
+  the manual "Sort by name"/"Sort by time" buttons REMOVED (they rewrote staged order to
+  approximate exactly this - now always on; degenerate-grouping toast copy updated). ungrouped
+  memoized while there.
+TESTS: 20 new vitest cases (parser formats/copy-suffixes/nulls; runs gap/prefix/dup/omit;
+pure IMG_ run; two cameras; missing-number split; WhatsApp names; visual merge across a
+sequence gap; unusable-name singletons; mixed EXIF+timeless; EXIF+dHash regression fixture;
+comparator ordering). 48/48 grouping+cluster tests pass.
+VERIFICATION: vitest green; npx tsc -b green; eslint clean on touched files; edge
+schema-version_test 12/12 (validates 00339 sync + footer); deno lint clean.
+COMMIT HELD LOCALLY - contains migration 00339 (standing rule: user applies to prod first).

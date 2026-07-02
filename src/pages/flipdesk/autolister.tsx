@@ -21,8 +21,6 @@ import {
   Pencil,
   RotateCcw,
   Camera,
-  ArrowDownAZ,
-  CalendarClock,
   Ungroup,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -45,7 +43,11 @@ import {
   MediaIntakeError,
   normalizeToImageFile,
 } from "@/lib/media-intake";
-import { autoGroupPhotos, type GroupablePhoto } from "@/lib/autolister-grouping";
+import {
+  autoGroupPhotos,
+  compareByProvenance,
+  type GroupablePhoto,
+} from "@/lib/autolister-grouping";
 import { autoEnhance, type EnhanceStats } from "@/lib/image-enhance";
 import { removeImageBackground, type BgMode } from "@/lib/background-removal";
 import { useStartAutolisterBatch, useRunCoverQa } from "@/hooks/use-autolister";
@@ -484,7 +486,26 @@ export function FlipdeskAutolisterPage() {
     () => new Set(groups.flatMap((g) => g.photoIds)),
     [groups],
   );
-  const ungrouped = staged.filter((p) => !groupedIds.has(p.id));
+  const ungrouped = useMemo(
+    () => staged.filter((p) => !groupedIds.has(p.id)),
+    [staged, groupedIds],
+  );
+  // US-1540: deterministic ungrouped-grid ordering — capture time, then camera
+  // filename sequence, then upload order (the sort is stable, so ties keep the
+  // staged order). Eyeballing the grid in this order shows the item boundaries
+  // the grouping engine will use; it replaces the manual "sort by name / by
+  // time" buttons, which only ever approximated it.
+  const ungroupedSorted = useMemo(() => {
+    const wrapped = ungrouped.map((p) => ({
+      p,
+      key: {
+        capturedAt: p.capturedAtMs != null ? new Date(p.capturedAtMs) : null,
+        sourceName: stagedSortName(p),
+      },
+    }));
+    wrapped.sort((a, b) => compareByProvenance(a.key, b.key));
+    return wrapped.map((w) => w.p);
+  }, [ungrouped]);
 
   // US-957: how many groups have a low-scoring cover (drives the advisory near
   // the Generate button). -1 (a QA error) is not counted as "low".
@@ -952,43 +973,10 @@ export function FlipdeskAutolisterPage() {
     }
   }
 
-  // Sort staged photos by original filename (natural order, so IMG_2 comes
-  // before IMG_10). Retried/re-added photos land at the end of the grid;
-  // this puts them back in shooting order so capture-sequence grouping is
-  // easy again. Photos with no known filename keep their relative order at
-  // the end.
-  function sortStagedByName() {
-    const collator = new Intl.Collator(undefined, {
-      numeric: true,
-      sensitivity: "base",
-    });
-    setStaged((prev) =>
-      [...prev].sort((a, b) => {
-        const an = stagedSortName(a);
-        const bn = stagedSortName(b);
-        if (an == null && bn == null) return 0;
-        if (an == null) return 1;
-        if (bn == null) return -1;
-        return collator.compare(an, bn);
-      }),
-    );
-  }
-
-  // Sort staged photos by EXIF capture time (shooting order), the same signal
-  // auto-group clusters on — eyeballing the grid in this order shows exactly
-  // where the item boundaries are. Photos with no capture time keep their
-  // relative order at the end. Array.prototype.sort is stable, so ties (burst
-  // shots sharing a second) keep their upload order.
-  function sortStagedByTime() {
-    setStaged((prev) =>
-      [...prev].sort((a, b) => {
-        if (a.capturedAtMs == null && b.capturedAtMs == null) return 0;
-        if (a.capturedAtMs == null) return 1;
-        if (b.capturedAtMs == null) return -1;
-        return a.capturedAtMs - b.capturedAtMs;
-      }),
-    );
-  }
+  // US-1540: the manual "sort by name" / "sort by time" passes are gone — the
+  // ungrouped grid is now ALWAYS rendered in deterministic shooting order
+  // (capture time → filename sequence → upload order, see `ungroupedSorted`),
+  // which is what both buttons approximated by rewriting the staged order.
 
   function toggleSelect(id: string) {
     setSelected((prev) => {
@@ -1371,13 +1359,16 @@ export function FlipdeskAutolisterPage() {
   }
 
   // US-532: auto-group the ungrouped photos into per-item listings by EXIF
-  // capture-time bursts + a dHash visual second pass. Existing manual groups are
-  // preserved; detected groups are appended so the user can then merge/split.
+  // capture-time bursts + a dHash visual second pass (US-1540: photos without
+  // capture time group by camera filename sequence instead of all becoming
+  // singletons). Existing manual groups are preserved; detected groups are
+  // appended so the user can then merge/split.
   function autoGroup() {
     const input: GroupablePhoto[] = ungrouped.map((p) => ({
       id: p.id,
       capturedAt: p.capturedAtMs != null ? new Date(p.capturedAtMs) : null,
       phash: p.phash,
+      sourceName: stagedSortName(p),
     }));
     if (input.length === 0) return;
     const auto = autoGroupPhotos(input);
@@ -1392,15 +1383,15 @@ export function FlipdeskAutolisterPage() {
     setGroups((prev) => [...prev, ...created]);
     setLastAutoGroupIds(createdIds);
     setSelected(new Set());
-    // Degenerate grouping (photos exported without EXIF capture times collapse
-    // into one giant burst): warn instead of celebrating, and lead with Undo —
-    // sorting by name and grouping manually beats untangling a 500-photo item.
-    // The toast closes over createdIds directly (the state set above isn't
-    // visible to this render's closures).
+    // Degenerate grouping (photos without capture times or usable filename
+    // sequences collapse into one giant burst): warn instead of celebrating,
+    // and lead with Undo — grouping manually from the (shooting-ordered) grid
+    // beats untangling a 500-photo item. The toast closes over createdIds
+    // directly (the state set above isn't visible to this render's closures).
     const biggest = Math.max(...auto.map((g) => g.photoIds.length));
     if (input.length >= 12 && biggest >= input.length * 0.8) {
       toast.warning(
-        `Auto-group put ${biggest} of ${input.length} photos into one item — the photos may be missing capture times. Undo, then sort by name and group manually.`,
+        `Auto-group put ${biggest} of ${input.length} photos into one item — the photos may be missing capture times. Undo, then group manually (the grid is in shooting order).`,
         {
           action: { label: "Undo", onClick: () => undoAutoGroup(createdIds) },
           duration: 12000,
@@ -1674,6 +1665,14 @@ export function FlipdeskAutolisterPage() {
           width: p.width,
           height: p.height,
           bytes: p.bytes,
+          // US-1539: photo provenance — the client-read EXIF capture time and
+          // the source file's name, persisted as scalars (the stored image
+          // bytes stay metadata-stripped) so grouping is reconstructable and
+          // filename-sequence grouping survives beyond this session.
+          // stagedSortName also recovers the name from sourceSig for photos
+          // staged before sourceName existed.
+          captured_at: p.capturedAtMs != null ? new Date(p.capturedAtMs).toISOString() : null,
+          original_filename: stagedSortName(p),
         }));
         const { error: photoErr } = await supabase
           .from("item_photos")
@@ -2069,26 +2068,6 @@ export function FlipdeskAutolisterPage() {
             Ungrouped photos {ungrouped.length > 0 && `(${ungrouped.length})`}
           </h2>
           <div className="flex flex-wrap items-center gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={sortStagedByName}
-              disabled={ungrouped.length < 2}
-              title="Sort photos by filename (natural order) so they line up in shooting order"
-            >
-              <ArrowDownAZ className="mr-1 h-4 w-4" />
-              Sort by name
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={sortStagedByTime}
-              disabled={ungrouped.length < 2}
-              title="Sort photos by capture time (shooting order) so item boundaries are easy to spot"
-            >
-              <CalendarClock className="mr-1 h-4 w-4" />
-              Sort by time
-            </Button>
             {lastAutoGroupIds && lastAutoGroupIds.length > 0 && (
               <Button
                 size="sm"
@@ -2138,7 +2117,7 @@ export function FlipdeskAutolisterPage() {
           </p>
         ) : (
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-5 md:grid-cols-7">
-            {ungrouped.map((p) => {
+            {ungroupedSorted.map((p) => {
               const bgInFlight = bgProcessing.has(p.id);
               const enhancingInFlight = enhancing.has(p.id);
               const processing = bgInFlight || enhancingInFlight;
