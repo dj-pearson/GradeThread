@@ -21,6 +21,7 @@ import {
   Pencil,
   RotateCcw,
   Camera,
+  ArrowDownAZ,
 } from "lucide-react";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
@@ -80,6 +81,9 @@ interface StagedPhoto {
   // pre-upgrade sessions) simply don't participate in dedup.
   sourceSig?: string;
   sourceHash?: string;
+  // Original filename, for the name sort (photos shot as IMG_0001..IMG_0600
+  // regroup correctly even when retries appended them out of order).
+  sourceName?: string;
   // Snapshot of the pre-processed image so one-tap enhancement/background removal
   // can be reverted. Present only after processing; cleared on undo/revert.
   original?: {
@@ -236,6 +240,42 @@ async function sha256Hex(blob: Blob): Promise<string> {
   return Array.from(new Uint8Array(digest))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
+}
+
+// Sort key for the name sort. Pre-sourceName photos recover the filename from
+// sourceSig (`name|size|mtime` — name may itself contain "|", so strip the
+// two known trailing segments). null = no name known (e.g. Google imports).
+function stagedSortName(p: StagedPhoto): string | null {
+  if (p.sourceName) return p.sourceName;
+  if (p.sourceSig) {
+    const parts = p.sourceSig.split("|");
+    if (parts.length >= 3) return parts.slice(0, -2).join("|");
+  }
+  return null;
+}
+
+// Staging thumbnails on a big batch (600 photos) arrive as one HTTP/2 burst
+// that the self-hosted storage backend can 504 under. Retry each failed image
+// a few times with jittered backoff (cache-busting param so the browser and
+// any intermediary actually refetch) instead of leaving broken tiles.
+function StagedThumb({ src, className }: { src: string; className?: string }) {
+  const [attempt, setAttempt] = useState(0);
+  const url =
+    attempt === 0 ? src : `${src}${src.includes("?") ? "&" : "?"}r=${attempt}`;
+  return (
+    <img
+      src={url}
+      alt=""
+      loading="lazy"
+      className={className}
+      onError={() => {
+        if (attempt < 5) {
+          const delay = 1_000 * 2 ** attempt + Math.random() * 1_500;
+          setTimeout(() => setAttempt((a) => a + 1), delay);
+        }
+      }}
+    />
+  );
 }
 
 const MIN_RESOLUTION = 1200;
@@ -648,6 +688,7 @@ export function FlipdeskAutolisterPage() {
           phash,
           sourceSig: sig,
           sourceHash: contentHash || undefined,
+          sourceName: file.name,
         },
       ]);
       succeeded = true;
@@ -900,6 +941,28 @@ export function FlipdeskAutolisterPage() {
       );
       stop();
     }
+  }
+
+  // Sort staged photos by original filename (natural order, so IMG_2 comes
+  // before IMG_10). Retried/re-added photos land at the end of the grid;
+  // this puts them back in shooting order so capture-sequence grouping is
+  // easy again. Photos with no known filename keep their relative order at
+  // the end.
+  function sortStagedByName() {
+    const collator = new Intl.Collator(undefined, {
+      numeric: true,
+      sensitivity: "base",
+    });
+    setStaged((prev) =>
+      [...prev].sort((a, b) => {
+        const an = stagedSortName(a);
+        const bn = stagedSortName(b);
+        if (an == null && bn == null) return 0;
+        if (an == null) return 1;
+        if (bn == null) return -1;
+        return collator.compare(an, bn);
+      }),
+    );
   }
 
   function toggleSelect(id: string) {
@@ -1936,6 +1999,16 @@ export function FlipdeskAutolisterPage() {
           <div className="flex flex-wrap items-center gap-2">
             <Button
               size="sm"
+              variant="outline"
+              onClick={sortStagedByName}
+              disabled={ungrouped.length < 2}
+              title="Sort photos by filename (natural order) so they line up in shooting order"
+            >
+              <ArrowDownAZ className="mr-1 h-4 w-4" />
+              Sort by name
+            </Button>
+            <Button
+              size="sm"
               onClick={autoGroup}
               disabled={ungrouped.length === 0}
               title="Group photos into items automatically by capture time + visual similarity"
@@ -1993,13 +2066,11 @@ export function FlipdeskAutolisterPage() {
                     aria-label="Select photo"
                     className="absolute inset-0"
                   >
-                    <img
+                    <StagedThumb
                       src={itemPhotoThumb({
                         thumbnail_url: p.thumbnailUrl,
                         photo_url: p.url,
                       })}
-                      alt=""
-                      loading="lazy"
                       className="h-full w-full object-cover"
                     />
                   </button>
@@ -2198,13 +2269,11 @@ export function FlipdeskAutolisterPage() {
                         isCover ? "border-brand-red" : "border-transparent",
                       )}
                     >
-                      <img
+                      <StagedThumb
                         src={itemPhotoThumb({
                           thumbnail_url: p.thumbnailUrl,
                           photo_url: p.url,
                         })}
-                        alt=""
-                        loading="lazy"
                         className="h-full w-full object-cover"
                       />
                       <button
