@@ -124,6 +124,18 @@ interface Group {
   manualOrder?: boolean;
 }
 
+// US-1544: one AI grouping suggestion, as returned by /verify-groups plus a
+// client key for dismissal.
+interface GroupSuggestionRow {
+  id: string;
+  type: "merge" | "split" | "move";
+  /** merge: [a, b] · split: [group] · move: [from, to]. */
+  group_ids: string[];
+  photo_ids: string[];
+  confidence: number;
+  reason: string;
+}
+
 // Sort key for the name sort. Pre-sourceName photos recover the filename from
 // sourceSig (`name|size|mtime` — name may itself contain "|", so strip the
 // two known trailing segments). null = no name known (e.g. Google imports).
@@ -487,6 +499,10 @@ export function FlipdeskAutolisterPage() {
   // US-533: groups currently running the AI cover/role pass.
   const [taggingGroups, setTaggingGroups] = useState<Set<string>>(new Set());
   const [taggingAll, setTaggingAll] = useState(false);
+  // US-1544: AI group-boundary suggestions (merge/split/move). NEVER
+  // auto-applied — rendered as dismissible chips on the affected groups.
+  const [groupSuggestions, setGroupSuggestions] = useState<GroupSuggestionRow[]>([]);
+  const [verifyingGroups, setVerifyingGroups] = useState(false);
   // US-535: studio background. Mode for the one-tap clean, photos currently
   // being segmented, a batch-busy flag, and one-time model-download progress.
   const [bgMode, setBgMode] = useState<BgMode>("white");
@@ -1263,6 +1279,121 @@ export function FlipdeskAutolisterPage() {
     });
   }
 
+  // ── US-1544: AI group-boundary verification ────────────────────────
+
+  /**
+   * One cheap vision call sanity-checks the proposed grouping (adjacent-group
+   * boundaries + intra-group outliers). Suggestions come back as dismissible
+   * chips — never auto-applied. Uses ONE AI action. `checkGroups` lets
+   * autoGroup() verify the groups it JUST created (state not committed yet).
+   */
+  async function verifyGroups(silent: boolean, checkGroups: Group[] = groups) {
+    if (verifyingGroups) return;
+    const eligible = checkGroups.filter((g) => g.photoIds.length > 0);
+    if (eligible.length < 2) {
+      if (!silent) toast.info("Group at least two items first — then AI can compare them.");
+      return;
+    }
+    setVerifyingGroups(true);
+    try {
+      const res = await edgeFetch("/api/flipdesk/autolister/verify-groups", {
+        method: "POST",
+        json: {
+          groups: eligible.map((g) => ({
+            id: g.id,
+            photos: g.photoIds
+              .map((pid) => stagedById.get(pid))
+              .filter((p): p is StagedPhoto => !!p)
+              .map((p) => ({ id: p.id, storage_path: p.storagePath })),
+          })),
+        },
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        suggestions?: Array<Omit<GroupSuggestionRow, "id">>;
+        groups_covered?: number;
+        truncated?: boolean;
+        error?: string;
+      };
+      if (!res.ok) {
+        if (!silent) toast.error(json.error || "Could not verify the grouping.");
+        return;
+      }
+      const rows: GroupSuggestionRow[] = (json.suggestions ?? []).map((s) => ({
+        ...s,
+        id: crypto.randomUUID(),
+      }));
+      setGroupSuggestions(rows);
+      if (rows.length > 0) {
+        toast.info(
+          `AI flagged ${rows.length} possible grouping fix${rows.length === 1 ? "" : "es"} — review the highlighted groups.`,
+          json.truncated
+            ? { description: `Only the first ${json.groups_covered} groups were checked this pass.` }
+            : undefined,
+        );
+      } else if (!silent) {
+        toast.success("The grouping looks right to the AI.");
+      }
+    } catch (err) {
+      if (!silent) {
+        toast.error(
+          `Verify failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    } finally {
+      setVerifyingGroups(false);
+    }
+  }
+
+  /** Suggestions to chip onto group `gid` (move chips only on the source). */
+  function suggestionsFor(gid: string): GroupSuggestionRow[] {
+    return groupSuggestions.filter((s) =>
+      s.type === "move" ? s.group_ids[0] === gid : s.group_ids.includes(gid),
+    );
+  }
+
+  function suggestionLabel(s: GroupSuggestionRow, gid: string): string {
+    const nameOf = (id: string | undefined) =>
+      groups.find((g) => g.id === id)?.name || "another group";
+    const n = s.photo_ids.length;
+    if (s.type === "merge") {
+      return `Same item as ${nameOf(s.group_ids.find((id) => id !== gid))} — merge?`;
+    }
+    if (s.type === "split") {
+      return `May contain two items — split ${n} photo${n === 1 ? "" : "s"} out?`;
+    }
+    return `Move ${n} photo${n === 1 ? "" : "s"} to ${nameOf(s.group_ids[1])}?`;
+  }
+
+  function dismissSuggestion(id: string) {
+    setGroupSuggestions((prev) => prev.filter((s) => s.id !== id));
+  }
+
+  /** Apply one suggestion via the US-1543 undoable mutations. */
+  function applySuggestion(s: GroupSuggestionRow) {
+    if (s.type === "merge") {
+      mergeGroups([s.group_ids[0]!, s.group_ids[1]!]);
+    } else if (s.type === "move") {
+      movePhotos(s.photo_ids, s.group_ids[1] ?? null);
+    } else {
+      applyGroupEdit(
+        `Split ${s.photo_ids.length} photo${s.photo_ids.length === 1 ? "" : "s"} into a new group.`,
+        (prev) => {
+          const pulled = movePhotosToGroup(prev, s.photo_ids, null);
+          return [
+            ...pulled,
+            {
+              id: crypto.randomUUID(),
+              name: `Item ${prev.length + 1}`,
+              photoIds: s.photo_ids,
+              coverId: s.photo_ids[0]!,
+            },
+          ];
+        },
+      );
+    }
+    dismissSuggestion(s.id);
+  }
+
   // US-1543 sensors: the drag handle is a real button, so the pointer sensor
   // needs a small travel threshold (a plain click still focuses/does nothing
   // destructive) and the keyboard sensor makes it operable without a pointer.
@@ -1369,6 +1500,10 @@ export function FlipdeskAutolisterPage() {
       `Auto-grouped ${input.length} photo${input.length === 1 ? "" : "s"} into ${auto.length} item${auto.length === 1 ? "" : "s"}. Tweak as needed.`,
       { action: { label: "Undo", onClick: () => undoAutoGroup(createdIds) } },
     );
+    // US-1544: sanity-check the freshly-created grouping (silent — only
+    // speaks up when it finds something). Skipped in the degenerate branch
+    // above, where the user is being told to undo anyway.
+    void verifyGroups(true, [...groups, ...created]);
   }
 
   // Undo the LAST auto-group run: dissolve exactly the groups it created (their
@@ -2280,6 +2415,21 @@ export function FlipdeskAutolisterPage() {
                   Merge {selectedGroups.size} groups
                 </Button>
               )}
+              {/* US-1544: on-demand AI grouping sanity check (1 AI action). */}
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void verifyGroups(false)}
+                disabled={verifyingGroups || groups.length < 2}
+                title="AI compares your groups (1 AI action): flags likely merges, splits, and misplaced photos — suggestions only, nothing is changed automatically"
+              >
+                {verifyingGroups ? (
+                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="mr-1 h-4 w-4" />
+                )}
+                Verify groups
+              </Button>
               <Button
                 size="sm"
                 variant="secondary"
@@ -2382,6 +2532,39 @@ export function FlipdeskAutolisterPage() {
                   </Button>
                 </div>
               </div>
+              {/* US-1544: AI grouping suggestions — dismissible, Apply is
+                  undoable via the US-1543 toast Undo, never auto-applied. */}
+              {suggestionsFor(g.id).length > 0 && (
+                <div className="mb-2 flex flex-wrap gap-1.5">
+                  {suggestionsFor(g.id).map((s) => (
+                    <span
+                      key={s.id}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs text-amber-800 dark:text-amber-200"
+                      title={s.reason}
+                    >
+                      <Sparkles className="h-3 w-3 shrink-0" />
+                      <span className="max-w-64 truncate">
+                        {suggestionLabel(s, g.id)} · {Math.round(s.confidence * 100)}%
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => applySuggestion(s)}
+                        className="font-semibold underline-offset-2 hover:underline"
+                      >
+                        Apply
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="Dismiss suggestion"
+                        onClick={() => dismissSuggestion(s.id)}
+                        className="rounded-full p-0.5 hover:bg-amber-500/20"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
               <div className="grid grid-cols-4 gap-2 sm:grid-cols-6 md:grid-cols-8">
                 {g.photoIds.map((pid) => {
                   const p = stagedById.get(pid);

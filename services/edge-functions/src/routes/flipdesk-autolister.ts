@@ -15,6 +15,10 @@ import {
   type MarketplacePlatform,
 } from "../lib/marketplace-specs.ts";
 import { classifyPhotoRoles } from "../lib/ai-photo-roles.ts";
+import {
+  type VerifyGroup,
+  verifyGroupBoundaries,
+} from "../lib/ai-group-verify.ts";
 import { assessPhotoQuality } from "../lib/ai-photo-qa.ts";
 import { checkQuota } from "./flipdesk-ai.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
@@ -68,6 +72,11 @@ export const MAX_BATCH_ITEMS = 300;
 // One item rarely has more than a handful of shots; the cap bounds the vision
 // cost (and request size) of one classify call.
 const MAX_CLASSIFY_PHOTOS = 40;
+// US-1544: photo budget for one group-boundary verification call. The route
+// SAMPLES each group down to its boundary shots (first/middle/last) and takes
+// groups in order until this budget runs out, so the response says how far it
+// got instead of rejecting a big session.
+const MAX_VERIFY_PHOTOS = 40;
 // US-537: cap on photo-QA scope. One item's gallery is small; cap photos per
 // item, and cap items per request to bound vision cost.
 const MAX_QA_ITEMS = 100;
@@ -993,6 +1002,100 @@ flipdeskAutolisterRoutes.post("/classify-photos", async (c) => {
     console.error("[AutoLister] classify-photos failed", err);
     return c.json(
       { error: err instanceof Error ? err.message : "Photo classification failed." },
+      502,
+    );
+  }
+});
+
+// US-1544: POST /verify-groups — AI sanity-check of the PROPOSED grouping
+// before any AI actions are spent generating from it. Body:
+//   { groups: [{ id, photos: [{ id, storage_path }] }, …] }  (ordered)
+// Returns { suggestions: [{type: merge|split|move, group_ids, photo_ids,
+// confidence, reason}], model, escalated, groups_covered, truncated }. Writes
+// NOTHING — suggestions are never auto-applied; the intake UI renders them as
+// dismissible chips whose Apply routes through the undoable client mutations.
+//
+// Tenant safety (CLAUDE.md US-268): staged AutoLister photos live under the
+// caller's own `${ownerId}/_staging/…` folder; every path is checked against
+// that prefix BEFORE any DB/AI work, so a forged path can never make us fetch
+// another tenant's image into the model. Rate-limited under the shared
+// autolister POST limiter (20/min) like its vision siblings; metered via
+// increment_ai_actions when a vision call actually ran.
+flipdeskAutolisterRoutes.post("/verify-groups", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+
+  let body: { groups?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const rawGroups = Array.isArray(body.groups) ? body.groups : [];
+  if (rawGroups.length < 2) {
+    return c.json({ error: "groups must contain at least two groups." }, 400);
+  }
+  if (rawGroups.length > MAX_BATCH_ITEMS) {
+    return c.json(
+      { error: `At most ${MAX_BATCH_ITEMS} groups can be verified at once.` },
+      400,
+    );
+  }
+
+  const groups: VerifyGroup[] = [];
+  for (const raw of rawGroups) {
+    const groupId = typeof (raw as { id?: unknown })?.id === "string"
+      ? (raw as { id: string }).id
+      : "";
+    const rawPhotos = (raw as { photos?: unknown })?.photos;
+    if (!groupId || !Array.isArray(rawPhotos) || rawPhotos.length === 0) {
+      return c.json({ error: "Each group needs an id and a non-empty photos array." }, 400);
+    }
+    const photos: VerifyGroup["photos"] = [];
+    for (const p of rawPhotos) {
+      const id = typeof (p as { id?: unknown })?.id === "string"
+        ? (p as { id: string }).id
+        : "";
+      const path = typeof (p as { storage_path?: unknown })?.storage_path === "string"
+        ? (p as { storage_path: string }).storage_path
+        : "";
+      if (!id || !path) {
+        return c.json({ error: "Each photo needs an id and storage_path." }, 400);
+      }
+      if (!path.startsWith(`${ownerId}/_staging/`)) {
+        return c.json({ error: "A photo is not owned by the caller." }, 403);
+      }
+      photos.push({
+        id,
+        url: supabaseAdmin.storage.from("item-photos").getPublicUrl(path).data.publicUrl,
+      });
+    }
+    groups.push({ id: groupId, photos });
+  }
+
+  // Paid-tier gate + monthly cap, matching the sibling vision endpoints.
+  const gated = await requireFlipdesk(c, { feature: "autolister", userId: ownerId });
+  if (gated) return gated;
+  const quota = await checkQuota(ownerId);
+  if (!quota.ok) return c.json(quota.body, quota.status);
+
+  try {
+    const result = await verifyGroupBoundaries(groups, MAX_VERIFY_PHOTOS);
+    // Meter only when a vision call actually ran (fewer than two coverable
+    // groups short-circuits without touching the model).
+    if (result.model !== "none") {
+      await supabaseAdmin.rpc("increment_ai_actions", { p_user_id: ownerId });
+    }
+    return c.json({
+      suggestions: result.suggestions,
+      model: result.model,
+      escalated: result.escalated,
+      groups_covered: result.groupsCovered,
+      truncated: result.truncated,
+    });
+  } catch (err) {
+    console.error("[AutoLister] verify-groups failed", err);
+    return c.json(
+      { error: err instanceof Error ? err.message : "Group verification failed." },
       502,
     );
   }

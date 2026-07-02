@@ -587,6 +587,35 @@ Deno.test({
   },
 });
 
+// US-1544: verify-groups takes ORDERED groups of staged storage paths. Every
+// path must live under the caller's own `{ownerId}/_staging/` prefix, and the
+// check runs BEFORE any DB/AI work — B can never point the vision model at
+// another tenant's staged photo. (402 if B's plan lacks AutoLister is also a
+// pass — B never touches a foreign photo either way.)
+Deno.test({
+  name: "B cannot verify-groups over another tenant's staged photos",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const foreignPath = "00000000-0000-0000-0000-000000000000/_staging/x.jpg";
+    const res = await fetch(`${BASE}/api/flipdesk/autolister/verify-groups`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        groups: [
+          { id: "g1", photos: [{ id: "p1", storage_path: foreignPath }] },
+          { id: "g2", photos: [{ id: "p2", storage_path: foreignPath }] },
+        ],
+      }),
+    });
+    await res.body?.cancel();
+    assert(
+      DENIED_OR_GATED.has(res.status),
+      `POST autolister verify-groups (foreign folder): should be denied ` +
+        `(401/402/403/404) but got ${res.status}`,
+    );
+  },
+});
+
 // The embed endpoint operates on caller-supplied images (no cross-tenant
 // resource), but must still require auth — an unauthenticated call is rejected.
 Deno.test({
