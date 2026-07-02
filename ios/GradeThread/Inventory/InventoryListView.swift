@@ -853,7 +853,13 @@ struct InventoryListView: View {
             actionProgress = (done, total)
         }
         actionProgress = nil
-        actionResult = result
+        // US-1522: a successful single-item swipe is already confirmed by the undo
+        // snackbar — don't ALSO pop a modal alert (double confirmation). Show the
+        // alert only for bulk runs (the summary count matters) or when something
+        // failed (the per-item reason / retry matters).
+        if isBulk || !result.failures.isEmpty {
+            actionResult = result
+        }
 
         guard result.succeeded > 0 else { return }
 

@@ -9276,7 +9276,7 @@
         "Single-item swipe success shows only the snackbar (no modal alert); intake Done sets captureError on the nil-user guard; canvas Save shows an inline title-required hint; Prospect cost gets the Done toolbar."
       ],
       "priority": 2369,
-      "passes": false,
+      "passes": true,
       "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Eight independently-tiny fixes; batched so one session clears the whole list."
     },
     {

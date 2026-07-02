@@ -64,6 +64,10 @@ struct GradeRequestSheet: View {
         .sheet(isPresented: $showCreditPaywall, onDismiss: { Task { await store?.load() } }) {
             if let userId = currentUserId {
                 NavigationStack { PaywallView(userId: userId) }
+            } else {
+                // US-1522: session expired between opening the sheet and tapping
+                // buy-credits — show a re-sign-in prompt, not a blank sheet.
+                SessionExpiredView { showCreditPaywall = false }
             }
         }
         .sheet(isPresented: $showCreditPacks) {
@@ -71,6 +75,8 @@ struct GradeRequestSheet: View {
                 CreditPackSheet(userId: userId) {
                     Task { await store?.creditsPurchased() }
                 }
+            } else {
+                SessionExpiredView { showCreditPacks = false }
             }
         }
     }

@@ -874,6 +874,13 @@ struct ItemCanvasView: View {
         return Section("Item") {
             TextField("Title", text: $state.draft.title)
                 .textInputAutocapitalization(.words)
+            // US-1522: Save greys out when the title is blank (isSavable) — say so
+            // inline instead of leaving the disabled button unexplained.
+            if state.draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text("Title is required to save.")
+                    .font(.caption)
+                    .foregroundStyle(Color.brandRed)
+            }
             TextField("Brand", text: $state.draft.brand)
                 .textInputAutocapitalization(.words)
             TextField("SKU", text: $state.draft.sku)

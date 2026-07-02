@@ -51,6 +51,9 @@ struct BulkGradeSheet: View {
         .sheet(isPresented: $showCreditPaywall, onDismiss: { Task { await store?.load() } }) {
             if let userId = currentUserId {
                 NavigationStack { PaywallView(userId: userId) }
+            } else {
+                // US-1522: re-sign-in prompt instead of a blank sheet.
+                SessionExpiredView { showCreditPaywall = false }
             }
         }
         .sheet(isPresented: $showCreditPacks) {
@@ -58,6 +61,8 @@ struct BulkGradeSheet: View {
                 CreditPackSheet(userId: userId) {
                     Task { await store?.creditsPurchased() }
                 }
+            } else {
+                SessionExpiredView { showCreditPacks = false }
             }
         }
     }

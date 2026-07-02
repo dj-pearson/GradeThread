@@ -59,10 +59,23 @@ struct QuickPriceSheet: View {
     }
 
     private func save() async {
+        // US-1522: unparseable/empty input must NOT wipe target_price to NULL and
+        // dismiss with a success haptic. Reject it with an error instead — only a
+        // real, positive price is written.
+        let trimmed = priceText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            errorMessage = "Enter a price."
+            HapticFeedback.error()
+            return
+        }
+        guard let value = currency.parse(priceText), value > 0 else {
+            errorMessage = "Enter a valid price greater than 0."
+            HapticFeedback.error()
+            return
+        }
         isSaving = true
         defer { isSaving = false }
-        let value = currency.parse(priceText)
-        struct PriceUpdate: Encodable { let target_price: Double? }
+        struct PriceUpdate: Encodable { let target_price: Double }
         do {
             try await SupabaseShared.client
                 .from("inventory_items")

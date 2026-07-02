@@ -8144,3 +8144,31 @@ type-reasoning + curly-quote scan.
   (2370, Apple name never reaches profile + duplicate-account), US-1520 (2371, perf:
   parallelize sync pull + kill photos-relationship N+1), US-1517 (2374, memoize
   O(n²) Sales/global-search derivations). Recommend US-1522 next (UX/reviewer bug).
+
+## 2026-07-01 (cont.) — US-1522 iOS UX dead-end sweep (8 fixes) — NOW COMPLETE (passes:true)
+First iOS-backlog story (macOS CI is the gate; verified here via type-reasoning +
+curly-quote scan). Eight independently-tiny fixes:
+ 1. GradeRequestSheet + BulkGradeSheet: credit paywall/packs sheets had `if let
+    userId` with NO else → blank sheet on expired session. New shared
+    Components/SessionExpiredView.swift (re-sign-in placeholder) used as the else in
+    all 4 spots. Auto-globbed by project.yml `- path: GradeThread`.
+ 2. PublishDialog "View on eBay": presented Safari unconditionally even with nil/
+    invalid listingURL → new Self.validListingURL() helper; button .disabled when
+    nil; sheet guard uses it.
+ 3. ListingKitView footer: Copy all / Share not disabled on empty spec → compute
+    copyAllText() once, .disabled(isEmpty) on both (no empty-copy + "Copied all").
+ 4. QuickPriceSheet: wrote target_price=NULL + success haptic on unparseable/empty
+    → guard empty ("Enter a price.") and !parse||<=0 ("Enter a valid price > 0"),
+    error haptic, no NULL write; PriceUpdate now non-optional Double.
+ 5. InventoryListView: single-item swipe success fired BOTH modal alert AND undo
+    snackbar → set actionResult (drives alert) only when isBulk || has failures.
+ 6. PhotoIntakeView.startIntakeFlow: nil-user guard silently returned → sets
+    captureError ("Your session expired…") so Done doesn't silently no-op.
+ 7. ItemCanvasView identitySection: added inline "Title is required to save." hint
+    (Save greys out via isSavable when title blank — now explained).
+ 8. ProspectView cost field: added .keyboardDoneToolbar() (decimalPad has no return).
+NO MIGRATION.
+
+VERIFICATION (this host): curly-quote scan clean on all 8 edited files + the new
+component (ItemCanvasView's 2 hits are pre-existing string CONTENT, not delimiters,
+not mine). Can't compile Swift on Windows — iOS CI (macOS) is the build/UI gate.

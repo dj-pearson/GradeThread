@@ -240,21 +240,28 @@ private struct PlatformVariantCard: View {
     }
 
     private var footer: some View {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
+        // US-1522: compute once and disable Copy all / Share when there's nothing
+        // to copy — otherwise "Copy all" copies an empty string while flashing
+        // "Copied all", and Share shares an empty payload.
+        let allText = variant.copyAllText()
+        let isEmpty = allText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return VStack(alignment: .leading, spacing: Spacing.xs) {
             HStack(spacing: Spacing.sm) {
                 Button {
-                    onCopy(variant.copyAllText(), fieldKey("_all"))
+                    onCopy(allText, fieldKey("_all"))
                 } label: {
                     Label(copiedKey == fieldKey("_all") ? "Copied all" : "Copy all", systemImage: "doc.on.doc.fill")
                         .font(.caption.weight(.semibold))
                 }
                 .buttonStyle(.brandPrimary)
+                .disabled(isEmpty)
 
-                ShareLink(item: variant.copyAllText()) {
+                ShareLink(item: allText) {
                     Label("Share", systemImage: "square.and.arrow.up")
                         .font(.caption.weight(.semibold))
                 }
                 .buttonStyle(.brandSecondary)
+                .disabled(isEmpty)
             }
             if let note = variant.spec?.sourceNote, !note.isEmpty {
                 Text(note)

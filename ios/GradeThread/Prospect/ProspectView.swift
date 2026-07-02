@@ -184,6 +184,9 @@ struct ProspectView: View {
             TextField("What would you pay? (optional)", text: $store.costText)
                 .keyboardType(.decimalPad)
                 .textFieldStyle(.roundedBorder)
+                // US-1522: decimalPad has no return key — add a Done toolbar so the
+                // keyboard can be dismissed (matches the other numeric fields).
+                .keyboardDoneToolbar()
             if store.costNeedsRerun {
                 // US-1225: the verdict is server-computed for the cost it ran with,
                 // so a cost entered/changed after a run needs a re-run to take.

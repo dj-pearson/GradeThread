@@ -739,7 +739,12 @@ struct PhotoIntakeView: View {
     ///   3. Set `draftItemId` to present the AIExtractView fullScreenCover.
     private func startIntakeFlow() async {
         guard let service = uploadService else { return }
-        guard let userId = currentUserId() else { return }
+        // US-1522: auth died mid-capture — surface it instead of silently
+        // no-oping on Done (the user tapped Done and nothing happened).
+        guard let userId = currentUserId() else {
+            captureError = "Your session expired. Sign in again to save these photos."
+            return
+        }
         guard !isCreatingItem else { return }
 
         isCreatingItem = true
