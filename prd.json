@@ -9204,7 +9204,7 @@
         "No behavior change: outputs identical for the same data (spot-check totals and search results)."
       ],
       "priority": 2374,
-      "passes": false,
+      "passes": true,
       "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] All the same ~30-line pattern; biggest scroll/typing jank on real data sizes."
     },
     {
@@ -9233,7 +9233,7 @@
         "Capture flow feels flat: no growing post-shutter hitch through a 10-photo session (manual check on device or documented as Mac-gated)."
       ],
       "priority": 2372,
-      "passes": false,
+      "passes": true,
       "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Three independent hitches bundled — all small, all in the highest-frequency flows."
     },
     {

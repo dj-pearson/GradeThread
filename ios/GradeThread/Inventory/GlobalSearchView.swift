@@ -15,6 +15,12 @@ struct GlobalSearchView: View {
 
     @State private var query = ""
     @State private var debounced = ""
+    // US-1517: the match set, computed ONCE per debounced query (and when the
+    // cached tables grow mid-search) instead of live computed properties that
+    // rebuilt itemsById inside filter closures and evaluated every matched*
+    // list at least twice per body pass — a visible per-keystroke freeze on a
+    // real catalog.
+    @State private var results = GlobalSearchResults()
     // US-1053 — recent search suggestions offered when the field is empty.
     @State private var recentSearches = RecentSearchStore()
 
@@ -31,7 +37,7 @@ struct GlobalSearchView: View {
                     } else {
                         recentSearchesList
                     }
-                } else if isEmptyResult {
+                } else if results.isEmpty {
                     ContentUnavailableView.search(text: debounced)
                 } else {
                     resultsList
@@ -56,7 +62,20 @@ struct GlobalSearchView: View {
             try? await Task.sleep(nanoseconds: 200_000_000)
             guard !Task.isCancelled else { return }
             debounced = query
+            results = computeResults(for: query)
         }
+        // US-1517: a sync pull can land rows while a search is showing — the old
+        // live computed properties reflected that automatically, so refresh the
+        // stored results when a table grows/shrinks (count is a cheap proxy).
+        .onChange(of: items.count + listings.count + sales.count + sources.count) { _, _ in
+            results = computeResults(for: debounced)
+        }
+    }
+
+    private func computeResults(for query: String) -> GlobalSearchResults {
+        GlobalSearchResults.compute(
+            query: query, items: items, listings: listings, sales: sales, sources: sources
+        )
     }
 
     // MARK: - Recent searches
@@ -68,6 +87,7 @@ struct GlobalSearchView: View {
                     Button {
                         query = term
                         debounced = term
+                        results = computeResults(for: term)
                         // US-1187: re-running an old search via the list should
                         // refresh its recency, like submitting from the field.
                         recentSearches.record(term)
@@ -90,44 +110,40 @@ struct GlobalSearchView: View {
 
     private var resultsList: some View {
         List {
-            if !matchedItems.isEmpty {
+            if !results.items.isEmpty {
                 Section("Inventory") {
-                    ForEach(matchedItems) { item in
+                    ForEach(results.items) { item in
                         NavigationLink(value: item) {
                             row(title: item.title, subtitle: itemSubtitle(item), system: "shippingbox")
                         }
                     }
                 }
             }
-            if !matchedListings.isEmpty {
+            if !results.listings.isEmpty {
                 Section("Listings") {
-                    ForEach(matchedListings) { listing in
-                        if let item = itemsById[listing.inventoryItemId] {
-                            NavigationLink(value: item) {
-                                row(title: item.title,
-                                    subtitle: "\(listing.platform.capitalized) · \(listing.listingStatus)",
-                                    system: "tag")
-                            }
+                    ForEach(results.listings) { hit in
+                        NavigationLink(value: hit.item) {
+                            row(title: hit.item.title,
+                                subtitle: "\(hit.listing.platform.capitalized) · \(hit.listing.listingStatus)",
+                                system: "tag")
                         }
                     }
                 }
             }
-            if !matchedSales.isEmpty {
+            if !results.sales.isEmpty {
                 Section("Sales") {
-                    ForEach(matchedSales) { sale in
-                        if let item = itemsById[sale.inventoryItemId] {
-                            NavigationLink(value: item) {
-                                row(title: item.title,
-                                    subtitle: sale.buyerUsername.map { "Buyer \($0)" } ?? "Sold",
-                                    system: "dollarsign.circle")
-                            }
+                    ForEach(results.sales) { hit in
+                        NavigationLink(value: hit.item) {
+                            row(title: hit.item.title,
+                                subtitle: hit.sale.buyerUsername.map { "Buyer \($0)" } ?? "Sold",
+                                system: "dollarsign.circle")
                         }
                     }
                 }
             }
-            if !matchedSources.isEmpty {
+            if !results.sources.isEmpty {
                 Section("Sources") {
-                    ForEach(matchedSources) { source in
+                    ForEach(results.sources) { source in
                         // US-1498: these rows looked identical to the tappable
                         // item/sale rows but had no action — a dead row. Navigate
                         // to the source's filtered inventory (matches the "no
@@ -154,51 +170,80 @@ struct GlobalSearchView: View {
         }
     }
 
-    // MARK: - Matching
-
-    private var itemsById: [String: LocalInventoryItem] {
-        Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-    }
-
-    private func matches(_ haystacks: [String?]) -> Bool {
-        let needle = debounced.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !needle.isEmpty else { return false }
-        return haystacks.contains { ($0 ?? "").lowercased().contains(needle) }
-    }
-
-    private var matchedItems: [LocalInventoryItem] {
-        items.filter { matches([$0.title, $0.brand, $0.sku, $0.size, $0.color, $0.material]) }
-            .prefix(20).map { $0 }
-    }
-    private var matchedListings: [LocalListing] {
-        // US-1187: only count listings whose parent item is cached — the rows are
-        // gated on the same lookup, so otherwise a header renders with no rows.
-        listings.filter {
-            itemsById[$0.inventoryItemId] != nil
-                && matches([$0.platform, $0.listingStatus, itemsById[$0.inventoryItemId]?.title])
-        }
-        .prefix(20).map { $0 }
-    }
-    private var matchedSales: [LocalSale] {
-        sales.filter {
-            itemsById[$0.inventoryItemId] != nil
-                && matches([$0.buyerUsername, itemsById[$0.inventoryItemId]?.title])
-        }
-        .prefix(20).map { $0 }
-    }
-    private var matchedSources: [LocalSource] {
-        sources.filter { matches([$0.name, $0.notes, $0.sourceType]) }
-            .prefix(20).map { $0 }
-    }
-
-    private var isEmptyResult: Bool {
-        matchedItems.isEmpty && matchedListings.isEmpty && matchedSales.isEmpty && matchedSources.isEmpty
-    }
-
     private func itemSubtitle(_ item: LocalInventoryItem) -> String {
         let parts = [item.brand, item.size].compactMap { value -> String? in
             (value?.isEmpty == false) ? value : nil
         }
         return parts.isEmpty ? item.status.capitalized : parts.joined(separator: " · ")
+    }
+}
+
+// MARK: - Matching (US-1517)
+
+/// One computed result set per debounced query. Extracted from the view (where
+/// each `matched*` was a computed property evaluated at least twice per body
+/// pass, each rebuilding `itemsById` inside its filter closure) so the whole
+/// match — including the single `itemsById` build — runs exactly once per
+/// query change. Listing/sale hits carry their joined item, preserving the
+/// US-1187 rule that a section only renders rows whose parent item is cached.
+struct GlobalSearchResults {
+    struct ListingHit: Identifiable {
+        let listing: LocalListing
+        let item: LocalInventoryItem
+        var id: String { listing.id }
+    }
+    struct SaleHit: Identifiable {
+        let sale: LocalSale
+        let item: LocalInventoryItem
+        var id: String { sale.id }
+    }
+
+    var items: [LocalInventoryItem] = []
+    var listings: [ListingHit] = []
+    var sales: [SaleHit] = []
+    var sources: [LocalSource] = []
+
+    var isEmpty: Bool {
+        items.isEmpty && listings.isEmpty && sales.isEmpty && sources.isEmpty
+    }
+
+    static func compute(
+        query: String,
+        items: [LocalInventoryItem],
+        listings: [LocalListing],
+        sales: [LocalSale],
+        sources: [LocalSource]
+    ) -> GlobalSearchResults {
+        let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !needle.isEmpty else { return GlobalSearchResults() }
+        func matches(_ haystacks: [String?]) -> Bool {
+            haystacks.contains { ($0 ?? "").lowercased().contains(needle) }
+        }
+        let itemsById = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+
+        var results = GlobalSearchResults()
+        results.items = items
+            .filter { matches([$0.title, $0.brand, $0.sku, $0.size, $0.color, $0.material]) }
+            .prefix(20).map { $0 }
+        results.listings = listings
+            .compactMap { listing -> ListingHit? in
+                guard let item = itemsById[listing.inventoryItemId],
+                      matches([listing.platform, listing.listingStatus, item.title])
+                else { return nil }
+                return ListingHit(listing: listing, item: item)
+            }
+            .prefix(20).map { $0 }
+        results.sales = sales
+            .compactMap { sale -> SaleHit? in
+                guard let item = itemsById[sale.inventoryItemId],
+                      matches([sale.buyerUsername, item.title])
+                else { return nil }
+                return SaleHit(sale: sale, item: item)
+            }
+            .prefix(20).map { $0 }
+        results.sources = sources
+            .filter { matches([$0.name, $0.notes, $0.sourceType]) }
+            .prefix(20).map { $0 }
+        return results
     }
 }

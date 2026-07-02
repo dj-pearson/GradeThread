@@ -255,38 +255,70 @@ public final class BackgroundRefreshService {
     /// Snapshots the most recent local sale id; if it's different from
     /// the last seen id (or if a sale exists for the first time), fires
     /// the local notification.
+    ///
+    /// US-1519: the fetch + counting run on a detached background ModelContext
+    /// with fetchLimit/fetchCount — this used to materialize EVERY LocalSale on
+    /// the MainActor after each foreground pull (a hitch after every
+    /// pull-to-refresh on a large account). Only Sendable ids/counts cross
+    /// actors; the one row the notification body needs is re-fetched on main.
     func detectNewSalesAndNotify() async {
         guard let container = modelContainer else { return }
         let lastSeen = UserDefaults.standard.string(forKey: Self.lastSaleSeenIdKey)
 
-        let recentSales: [LocalSale] = await MainActor.run {
+        let snapshot = await Task.detached(priority: .utility) {
+            () -> (mostRecentId: String, newCount: Int)? in
             let context = ModelContext(container)
-            let descriptor = FetchDescriptor<LocalSale>(
+            var latestDescriptor = FetchDescriptor<LocalSale>(
                 sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
             )
-            return (try? context.fetch(descriptor)) ?? []
-        }
-        guard let mostRecent = recentSales.first else { return }
-        guard mostRecent.id != lastSeen else { return }
+            latestDescriptor.fetchLimit = 1
+            guard let mostRecent = try? context.fetch(latestDescriptor).first else { return nil }
+            guard mostRecent.id != lastSeen else { return nil }
+            guard let lastSeenId = lastSeen else {
+                // First-ever run: seed the baseline silently (count 0).
+                return (mostRecent.id, 0)
+            }
+            // Count rows newer than the baseline row (bounded fetchCount, no
+            // materialization). A vanished baseline row (workspace rescope /
+            // deletion) counts everything — same as the old prefix(while:)
+            // never finding its sentinel.
+            var baselineDescriptor = FetchDescriptor<LocalSale>(
+                predicate: #Predicate { $0.id == lastSeenId }
+            )
+            baselineDescriptor.fetchLimit = 1
+            let newCount: Int
+            if let baseline = try? context.fetch(baselineDescriptor).first {
+                let cutoff = baseline.createdAt
+                newCount = (try? context.fetchCount(
+                    FetchDescriptor<LocalSale>(predicate: #Predicate { $0.createdAt > cutoff })
+                )) ?? 0
+            } else {
+                newCount = (try? context.fetchCount(FetchDescriptor<LocalSale>())) ?? 0
+            }
+            return (mostRecent.id, newCount)
+        }.value
 
-        // Count rows that came in since lastSeen so the notification
-        // body is honest. If lastSeen was nil (first-ever run) we
-        // suppress the notification — we don't want to bombard a new
+        guard let snapshot else { return }
+        // Suppress on first run (seed only) — we don't want to bombard a new
         // user with "12 new sales" from the initial sync.
-        if lastSeen == nil {
-            UserDefaults.standard.set(mostRecent.id, forKey: Self.lastSaleSeenIdKey)
-            return
-        }
-        let newCount = recentSales.prefix(while: { $0.id != lastSeen }).count
-        UserDefaults.standard.set(mostRecent.id, forKey: Self.lastSaleSeenIdKey)
+        UserDefaults.standard.set(snapshot.mostRecentId, forKey: Self.lastSaleSeenIdKey)
+        guard snapshot.newCount > 0 else { return }
 
-        if newCount > 0 {
-            Telemetry.event(TelemetryEvent.saleRecorded, props: [
-                "count": newCount,
-                "source": "background_refresh",
-            ])
-            await notifier.notifyNewSales(count: newCount, latest: mostRecent)
-        }
+        // Re-fetch the single newest row on the main context for the
+        // notification body.
+        let context = ModelContext(container)
+        let mostRecentId = snapshot.mostRecentId
+        var descriptor = FetchDescriptor<LocalSale>(
+            predicate: #Predicate { $0.id == mostRecentId }
+        )
+        descriptor.fetchLimit = 1
+        guard let mostRecent = try? context.fetch(descriptor).first else { return }
+
+        Telemetry.event(TelemetryEvent.saleRecorded, props: [
+            "count": snapshot.newCount,
+            "source": "background_refresh",
+        ])
+        await notifier.notifyNewSales(count: snapshot.newCount, latest: mostRecent)
     }
 
     // MARK: - New-grade detection
@@ -301,16 +333,20 @@ public final class BackgroundRefreshService {
         let lastSeenArray = UserDefaults.standard.array(forKey: Self.lastGradedIdsKey) as? [String]
         let lastSeen: Set<String>? = lastSeenArray.map { Set($0) }
 
-        // Graded items, most-recently-updated first (for the body line).
-        let gradedItems: [LocalInventoryItem] = await MainActor.run {
+        // US-1519: graded ids, most-recently-updated first (for the body line).
+        // Runs on a detached background ModelContext with `gradeValue != nil` as
+        // a real predicate — this used to fetch the ENTIRE items table on the
+        // MainActor and filter in memory after every pull. Only the (Sendable)
+        // id array crosses back.
+        let gradedIds: [String] = await Task.detached(priority: .utility) {
             let context = ModelContext(container)
             let descriptor = FetchDescriptor<LocalInventoryItem>(
+                predicate: #Predicate { $0.gradeValue != nil },
                 sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]
             )
-            let all = (try? context.fetch(descriptor)) ?? []
-            return all.filter { $0.gradeValue != nil }
-        }
-        let currentIds = Set(gradedItems.map(\.id))
+            return ((try? context.fetch(descriptor)) ?? []).map(\.id)
+        }.value
+        let currentIds = Set(gradedIds)
 
         // Persist the current set regardless of outcome so the first run
         // seeds the baseline (and never notifies).
@@ -318,9 +354,18 @@ public final class BackgroundRefreshService {
 
         let newlyGraded = GradeNotificationDiff.newlyGraded(current: currentIds, lastSeen: lastSeen)
         guard !newlyGraded.isEmpty,
-              let latest = gradedItems.first(where: { newlyGraded.contains($0.id) }) else {
+              let latestId = gradedIds.first(where: { newlyGraded.contains($0) }) else {
             return
         }
+
+        // Re-fetch the single newest graded row on the main context for the
+        // notification body.
+        let context = ModelContext(container)
+        var descriptor = FetchDescriptor<LocalInventoryItem>(
+            predicate: #Predicate { $0.id == latestId }
+        )
+        descriptor.fetchLimit = 1
+        guard let latest = try? context.fetch(descriptor).first else { return }
 
         Telemetry.event("grade.notification", props: [
             "count": newlyGraded.count,

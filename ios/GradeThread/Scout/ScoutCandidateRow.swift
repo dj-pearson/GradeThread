@@ -184,7 +184,7 @@ struct ScoutCandidateRow: View {
         guard let cents else { return "—" }
         // US-1196: route through CurrencyFormatter so a loss renders "-$5.00",
         // not the malformed "$-5.00" from prepending "$" to a negative number.
-        return CurrencyFormatter().formatDisplay(Double(cents) / 100)
+        return CurrencyFormatter.shared.formatDisplay(Double(cents) / 100)
     }
 
     static func gradeText(_ grade: Double?) -> String {

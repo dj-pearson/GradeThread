@@ -201,7 +201,8 @@ private struct BoardColumn: View {
 
 private struct BoardCard: View {
     let item: LocalInventoryItem
-    private let currencyFormatter = CurrencyFormatter()
+    // US-1517: shared cached formatter — one card per visible board cell.
+    private var currencyFormatter: CurrencyFormatter { .shared }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {

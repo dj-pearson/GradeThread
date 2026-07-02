@@ -81,6 +81,45 @@ final class IntakeDraftCleanSlateTests: XCTestCase {
         XCTAssertEqual(orphanedJpegCount(), 0)
     }
 
+    // MARK: - US-1519: incremental per-shutter persist
+
+    /// `update(from:to:)` is the capture flow's autosave — it must write only
+    /// the changed slot (off the calling thread) yet leave the SAME on-disk
+    /// draft a full `save` would: manifest lists every staged slot, every JPEG
+    /// present, and emptying the set clears the draft.
+    func test_photoDraft_incrementalUpdate_matchesFullSaveSemantics() {
+        PhotoDraftStore.clear()
+        defer { PhotoDraftStore.clear() }
+
+        let front = makeCapture(slot: .front)
+        PhotoDraftStore.update(from: [:], to: [.front: front])
+        PhotoDraftStore.flushWrites()
+        XCTAssertTrue(PhotoDraftStore.hasDraft())
+        XCTAssertEqual(orphanedJpegCount(), 1)
+
+        // Second shutter press adds only the new slot; both JPEGs on disk.
+        let back = makeCapture(slot: .back)
+        PhotoDraftStore.update(from: [.front: front], to: [.front: front, .back: back])
+        PhotoDraftStore.flushWrites()
+        XCTAssertEqual(orphanedJpegCount(), 2)
+
+        // An unchanged set is a no-op (same capture ids) — still resumable.
+        PhotoDraftStore.update(
+            from: [.front: front, .back: back], to: [.front: front, .back: back]
+        )
+        PhotoDraftStore.flushWrites()
+        XCTAssertTrue(PhotoDraftStore.hasDraft())
+
+        // Deleting a photo removes its JPEG; deleting the last clears the draft.
+        PhotoDraftStore.update(from: [.front: front, .back: back], to: [.front: front])
+        PhotoDraftStore.flushWrites()
+        XCTAssertEqual(orphanedJpegCount(), 1)
+        PhotoDraftStore.update(from: [.front: front], to: [:])
+        PhotoDraftStore.flushWrites()
+        XCTAssertFalse(PhotoDraftStore.hasDraft())
+        XCTAssertEqual(orphanedJpegCount(), 0)
+    }
+
     // MARK: - The two stores are independent (AC1 — regression guard)
 
     /// Clearing the DETAILS draft (the details-first save path) must leave a

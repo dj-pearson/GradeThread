@@ -8924,3 +8924,52 @@ all 12 touched Swift files (the 2 curly-quote hits in ItemCanvasView are pre-exi
 CONTENT, not delimiters); project.yml source glob auto-includes the new Components file; iOS CI
 on push remains the compile gate. No web/edge changes -> no web/edge lanes run.
 Still LOCAL-ONLY (00338 pending prod apply); commit held with the previous ones.
+
+=== 2026-07-02 (session cont.): US-1517 + US-1519 (iOS perf: memoized derivations + capture/foreground hitches) ===
+US-1517 (memoize O(n^2) view derivations):
+- NEW Components/SignatureCache.swift: @MainActor signature-gated memo cache held in @State.
+  Unlike the US-967 onChange(initial:true) pattern it computes lazily on FIRST read, so there is
+  never a frame of empty placeholder data; mutating the plain class during body is deliberate
+  (non-@Observable -> no invalidation loop).
+- SalesView: titlesByItemId/itemsById were computed props read PER ROW in the ForEach (full dict
+  build over items per rendered sale). Now one SaleJoins memo on MoneyView.titlesSignature,
+  resolved ONCE per body pass (let joins = joins) and passed into saleEntry.
+- MoneyView: the five analytics rollups (metrics/aging/timeOnMarket/cashFlow/sourceROI) +
+  soldCount memoized in one Derived struct on a new MoneyView.rollupSignature (items ride on
+  updatedAt - bumped by every local edit + sync merge; sales/expenses hash their rollup fields
+  directly since they have no updatedAt; a day bucket keeps "this month"/aging fresh across
+  midnight). Accessors cost one O(n) hash instead of full rollups with DateFormatters per body.
+- GlobalSearchView: match computation extracted to GlobalSearchResults.compute (pure), run once
+  per debounced query in .task(id:) + on table-count change (sync landing mid-search), stored in
+  @State. Listing/sale hits carry their joined item (US-1187 orphan rule preserved). Old code
+  rebuilt itemsById inside filter closures and evaluated every matched* twice per body pass.
+- CurrencyFormatter.shared: NSLock-guarded process-wide cache KEYED ON AppPreferences.currencyCode
+  (a bare static let would freeze a changed currency override until relaunch). Replaced the 8
+  audit-listed per-row/per-keystroke constructions (InventoryRow, BoardCard, ScoutCandidateRow,
+  ProspectView, SnapView, RepricingRuleTypes x3, CounterOfferSheet price-per-keystroke + draft
+  seed, AnalyticsMetrics.priceBands).
+US-1519 (capture & foreground hitches):
+- PhotoDraftStore: new update(from:to:) diffs by PhotoCapture.id (retake mints a new id) and
+  writes ONLY the changed slot's JPEG on a serial utility DispatchQueue; manifest rebuilt from
+  the slot set (filenames are slot-deterministic). save()/clear() go queue-SYNC so explicit
+  rewrites/discards order correctly behind pending deltas (clear can't be overtaken by a queued
+  write resurrecting the draft). PhotoIntakeView autosave now calls update(old,new) - the old
+  path clear()ed + synchronously rewrote EVERY staged JPEG on the MainActor per shutter press.
+  flushWrites() test seam added.
+- BackgroundRefreshService: both detections now run on a detached background ModelContext.
+  Sales: fetchLimit-1 latest + fetchCount bounded by the baseline row's createdAt (vanished
+  baseline -> count all, matching old prefix(while:) sentinel-miss behavior); only Sendable
+  ids/counts cross actors; the single row the notification body needs is re-fetched on main by
+  id. Grades: gradeValue != nil as a real #Predicate (only graded rows materialize, off main).
+  Previously BOTH fetched ENTIRE tables on the MainActor after every foreground pull.
+- AIExtractionManager: setPhase() compare-before-assign - @Observable fires on every set
+  regardless of equality, so the 250ms upload-gate poll re-rendered every visible InventoryRow
+  4x/s for up to 180s; idle ticks are now observation no-ops.
+TESTS: GlobalSearchResultsTests (new - title/brand match, orphan drop + join, 20-cap, sources,
+blank query); PerRenderMemoTests.test_moneyRollupSignature (stable same-day, flips on edit/day);
+IntakeDraftCleanSlateTests.test_photoDraft_incrementalUpdate_matchesFullSaveSemantics.
+VERIFICATION: iOS no-ungated-print OK; brace/paren + curly-quote-delimiter scans clean on all 20
+touched files; stale-reference grep clean (matched*/isEmptyResult/titlesByItemId fully replaced).
+AC4 capture-feel check is Mac-gated (no simulator on this host) - iOS CI compiles, manual device
+check deferred. No web/edge changes.
+Still LOCAL-ONLY (00338 pending prod apply); commit held with the previous ones.

@@ -251,7 +251,7 @@ enum AnalyticsRollup {
     // US-1161: band thresholds are fixed numbers, but the symbol follows the
     // user's currency override / locale rather than a hardcoded "$".
     static var priceBands: [(label: String, range: Range<Double>)] {
-        let s = CurrencyFormatter().symbol
+        let s = CurrencyFormatter.shared.symbol
         return [
             ("Under \(s)50", 0..<50),
             ("\(s)50–150", 50..<150),

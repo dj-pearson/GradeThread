@@ -25,33 +25,106 @@ struct MoneyView: View {
 
     private let currency = CurrencyFormatter()
 
-    private var metrics: MoneyMetrics {
-        MoneyRollup.compute(items: items, sales: sales, now: .now)
+    // US-1517: the five analytics rollups + sold count, memoized. US-967 caught
+    // titlesByItemId but missed these — every `body` pass (a refresh banner,
+    // the export sheet toggling, an expense-store update) recomputed all five,
+    // each allocating DateFormatters and making multiple full passes over the
+    // sales table. Cached on a content signature; the accessors below cost one
+    // cheap O(n) hash instead of the full rollup.
+    private struct Derived {
+        let metrics: MoneyMetrics
+        let agingBrackets: [AgingBracket]
+        let timeOnMarket: TimeOnMarketStats
+        let cashFlow: [CashFlowMonth]
+        let sourceROI: [SourceROIRow]
+        let soldCount: Int
     }
+    @State private var derivedCache = SignatureCache<Derived>()
+    private var derived: Derived {
+        let now = Date.now
+        let signature = MoneyView.rollupSignature(
+            items: items, sales: sales, expenses: expenses, sources: sources, now: now
+        )
+        return derivedCache.value(signature: signature) {
+            Derived(
+                metrics: MoneyRollup.compute(items: items, sales: sales, now: now),
+                agingBrackets: MoneyAnalyticsRollup.inventoryAging(items: items, now: now),
+                timeOnMarket: MoneyAnalyticsRollup.timeOnMarket(
+                    items: items, sales: sales, now: now
+                ),
+                cashFlow: MoneyAnalyticsRollup.cashFlow(
+                    items: items, sales: sales, expenses: expenses, now: now
+                ),
+                sourceROI: SourceROIRollup.bySource(items: items, sales: sales, sources: sources),
+                soldCount: sales.lazy.filter { SalePnL.isCompleted($0) }.count
+            )
+        }
+    }
+
+    /// US-1517: content signature over everything the rollups read. Items ride
+    /// on `updatedAt` (bumped by every local edit and the sync merge); sales and
+    /// expenses have no updatedAt, so their rollup-relevant fields are hashed
+    /// directly. The day bucket keeps day-granular figures ("this month",
+    /// aging) from freezing if the tab sits open across midnight.
+    static func rollupSignature(
+        items: [LocalInventoryItem],
+        sales: [LocalSale],
+        expenses: [LocalExpense],
+        sources: [LocalSource],
+        now: Date
+    ) -> Int {
+        var hasher = Hasher()
+        hasher.combine(items.count)
+        for item in items {
+            hasher.combine(item.id)
+            hasher.combine(item.updatedAt)
+            hasher.combine(item.status)
+        }
+        hasher.combine(sales.count)
+        for sale in sales {
+            hasher.combine(sale.id)
+            hasher.combine(sale.salePrice)
+            hasher.combine(sale.platformFees)
+            hasher.combine(sale.paymentProcessingFees)
+            hasher.combine(sale.shippingCollected)
+            hasher.combine(sale.shippingCost)
+            hasher.combine(sale.gradingCost)
+            hasher.combine(sale.otherCosts)
+            hasher.combine(sale.tax)
+            hasher.combine(sale.status)
+            hasher.combine(sale.saleDate)
+            hasher.combine(sale.inventoryItemId)
+        }
+        hasher.combine(expenses.count)
+        for expense in expenses {
+            hasher.combine(expense.id)
+            hasher.combine(expense.amount)
+            hasher.combine(expense.spentOn)
+        }
+        hasher.combine(sources.count)
+        for source in sources {
+            hasher.combine(source.id)
+            hasher.combine(source.updatedAt)
+        }
+        hasher.combine(Int(now.timeIntervalSinceReferenceDate / 86_400))
+        return hasher.finalize()
+    }
+
+    private var metrics: MoneyMetrics { derived.metrics }
     private var netProfit: Double {
         metrics.netProfitThisMonth - expensesThisMonthTotal()
     }
 
     // US-812: web `/finances`-parity analytics, all pure rollups over the local
     // cache so the Money tab matches the dashboard figure-for-figure.
-    private var agingBrackets: [AgingBracket] {
-        MoneyAnalyticsRollup.inventoryAging(items: items, now: .now)
-    }
-    private var timeOnMarket: TimeOnMarketStats {
-        MoneyAnalyticsRollup.timeOnMarket(items: items, sales: sales, now: .now)
-    }
-    private var cashFlow: [CashFlowMonth] {
-        MoneyAnalyticsRollup.cashFlow(items: items, sales: sales, expenses: expenses, now: .now)
-    }
+    private var agingBrackets: [AgingBracket] { derived.agingBrackets }
+    private var timeOnMarket: TimeOnMarketStats { derived.timeOnMarket }
+    private var cashFlow: [CashFlowMonth] { derived.cashFlow }
     /// ROI grouped by acquisition source (all-time — a source's payback is a
     /// lifetime question). Reuses the rollup that powers the Analytics tab.
-    private var sourceROI: [SourceROIRow] {
-        SourceROIRollup.bySource(items: items, sales: sales, sources: sources)
-    }
+    private var sourceROI: [SourceROIRow] { derived.sourceROI }
     /// Count of completed sales — gates the per-item P&L navigation link.
-    private var soldCount: Int {
-        sales.lazy.filter { SalePnL.isCompleted($0) }.count
-    }
+    private var soldCount: Int { derived.soldCount }
 
     /// Sum of cached expenses dated in the current calendar month. Mirrors the
     /// old `ExpenseStore.thisMonthTotal` but reads the shared cache so the figure

@@ -399,7 +399,7 @@ struct ProspectView: View {
     private func dollars(_ cents: Int?) -> String {
         guard let cents else { return "—" }
         // US-1161: full cents + locale currency, not integer-truncated "$".
-        return CurrencyFormatter().formatDisplay(Double(cents) / 100)
+        return CurrencyFormatter.shared.formatDisplay(Double(cents) / 100)
     }
 
     private func sellThroughColor(_ label: String) -> Color {

@@ -88,6 +88,38 @@ final class PerRenderMemoTests: XCTestCase {
         XCTAssertNotEqual(afterGrade, DashboardView.derivedSignature(items: items, sales: moreSales))
     }
 
+    // MARK: - MoneyView analytics rollups (US-1517)
+
+    /// The Money tab's five analytics rollups are cached on this signature — it
+    /// must be stable for identical data on the same day (so the cache holds
+    /// across body passes) and change when a rollup input or the day changes.
+    func test_moneyRollupSignature_stableForSameData_changesOnEditOrDay() throws {
+        let context = ModelContext(try makeContainer())
+        let items = [makeItem(id: "a", title: "Tee", context: context)]
+        let sales = [makeSale(id: "s1", itemId: "a", price: 20, context: context)]
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+
+        let sig = MoneyView.rollupSignature(
+            items: items, sales: sales, expenses: [], sources: [], now: now
+        )
+        // Same data, same day (a minute later) → same signature.
+        XCTAssertEqual(sig, MoneyView.rollupSignature(
+            items: items, sales: sales, expenses: [], sources: [], now: now.addingTimeInterval(60)
+        ))
+
+        // A money-field edit is a genuine change.
+        sales[0].salePrice = 25
+        XCTAssertNotEqual(sig, MoneyView.rollupSignature(
+            items: items, sales: sales, expenses: [], sources: [], now: now
+        ))
+        sales[0].salePrice = 20
+
+        // Day rollover recomputes day-granular figures ("this month", aging).
+        XCTAssertNotEqual(sig, MoneyView.rollupSignature(
+            items: items, sales: sales, expenses: [], sources: [], now: now.addingTimeInterval(86_400)
+        ))
+    }
+
     // MARK: - ItemCanvasView per-render derivations (AC #4)
 
     func test_itemEditableSignature_stableUntilAnEditableFieldChanges() throws {

@@ -51,7 +51,7 @@ struct RepricingRule: Identifiable, Decodable, Equatable, Hashable {
     }
     static func dollars(_ cents: Int) -> String {
         // US-1161: locale/override currency rather than a literal "$".
-        CurrencyFormatter().formatDisplay(Double(cents) / 100)
+        CurrencyFormatter.shared.formatDisplay(Double(cents) / 100)
     }
 }
 
@@ -82,7 +82,7 @@ struct RuleDraft: Equatable {
         dropPct = r.dropPct
         intervalDays = r.intervalDays
         // US-1162: seed with the locale formatter so the value round-trips on save.
-        floorPrice = r.floorPriceCents.map { CurrencyFormatter().formatRaw(Double($0) / 100) } ?? ""
+        floorPrice = r.floorPriceCents.map { CurrencyFormatter.shared.formatRaw(Double($0) / 100) } ?? ""
         autoAcceptEnabled = r.autoAcceptConfidence != nil
         autoAcceptConfidence = r.autoAcceptConfidence ?? 0.8
     }
@@ -96,7 +96,7 @@ struct RuleDraft: Equatable {
     /// Floor price text → cents, or nil when blank/unparseable.
     var floorPriceCents: Int? {
         // US-1162: locale-aware parse (accepts comma decimals / grouping).
-        guard let dollars = CurrencyFormatter().parse(floorPrice), dollars >= 0 else { return nil }
+        guard let dollars = CurrencyFormatter.shared.parse(floorPrice), dollars >= 0 else { return nil }
         return Int((dollars * 100).rounded())
     }
 }

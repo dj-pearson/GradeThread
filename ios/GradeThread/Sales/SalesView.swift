@@ -13,11 +13,27 @@ struct SalesView: View {
     @Environment(SyncStatusStore.self) private var syncStatus
     private let currency = CurrencyFormatter()
 
-    private var titlesByItemId: [String: String] {
-        Dictionary(items.map { ($0.id, $0.title) }, uniquingKeysWith: { a, _ in a })
+    /// US-1517: the sale→item join maps. These were COMPUTED properties read
+    /// per row inside the ForEach — a full dictionary build over the items
+    /// table for every rendered sale row. Memoized on the same id+title
+    /// signature MoneyView uses (US-967), rebuilt only when the item set (or a
+    /// title) actually changes.
+    private struct SaleJoins {
+        let titlesByItemId: [String: String]
+        let itemsById: [String: LocalInventoryItem]
     }
-    private var itemsById: [String: LocalInventoryItem] {
-        Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+    @State private var joinsCache = SignatureCache<SaleJoins>()
+    private var joins: SaleJoins {
+        joinsCache.value(signature: MoneyView.titlesSignature(items)) {
+            SaleJoins(
+                titlesByItemId: Dictionary(
+                    items.map { ($0.id, $0.title) }, uniquingKeysWith: { a, _ in a }
+                ),
+                itemsById: Dictionary(
+                    items.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }
+                )
+            )
+        }
     }
     /// Gross PROCEEDS = sale price − marketplace fees. Deliberately NOT the
     /// unified net profit on the Money/Dashboard tabs (which nets out shipping,
@@ -62,6 +78,10 @@ struct SalesView: View {
                 )
             }
         } else {
+            // US-1517: resolve the memoized joins ONCE per body pass — the
+            // signature check itself is O(items), so per-row access would
+            // reintroduce the quadratic cost this replaces.
+            let joins = joins
             List {
                 Section {
                     HStack {
@@ -74,7 +94,7 @@ struct SalesView: View {
                 }
                 Section {
                     ForEach(sales) { sale in
-                        saleEntry(sale)
+                        saleEntry(sale, joins: joins)
                     }
                 } header: {
                     Text("\(sales.count) sale\(sales.count == 1 ? "" : "s")")
@@ -86,9 +106,9 @@ struct SalesView: View {
     /// US-748: a sale row links to its item when we have it cached locally,
     /// otherwise it renders non-navigating (orphan sale not yet synced).
     @ViewBuilder
-    private func saleEntry(_ sale: LocalSale) -> some View {
-        let title = titlesByItemId[sale.inventoryItemId] ?? "Untitled item"
-        if let item = itemsById[sale.inventoryItemId] {
+    private func saleEntry(_ sale: LocalSale, joins: SaleJoins) -> some View {
+        let title = joins.titlesByItemId[sale.inventoryItemId] ?? "Untitled item"
+        if let item = joins.itemsById[sale.inventoryItemId] {
             NavigationLink {
                 ItemCanvasView(item: item)
             } label: {

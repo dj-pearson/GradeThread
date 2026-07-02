@@ -123,9 +123,11 @@ struct PhotoIntakeView: View {
             }
         }
         // US-646: persist captures as they change so a background-kill is
-        // recoverable.
-        .onChange(of: store.photos) { _, photos in
-            PhotoDraftStore.save(photos: photos)
+        // recoverable. US-1519: incremental — only the changed slot's JPEG is
+        // written, on a background queue (the full sync rewrite of every staged
+        // photo per shutter press was a growing MainActor hitch).
+        .onChange(of: store.photos) { old, new in
+            PhotoDraftStore.update(from: old, to: new)
         }
         .confirmationDialog(
             "Resume your unsaved photos?",

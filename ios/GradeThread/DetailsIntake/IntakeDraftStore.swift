@@ -147,6 +147,13 @@ enum IntakeDraftStore {
 enum PhotoDraftStore {
     private static let dirName = "intake-photo-draft"
 
+    /// US-1519: serial I/O queue. Every mutation runs through it in submission
+    /// order, so the per-shutter delta writes (async) can never be reordered
+    /// against an explicit `save`/`clear` (sync).
+    private static let ioQueue = DispatchQueue(
+        label: "com.gradethread.app.photo-draft-io", qos: .utility
+    )
+
     private static var directory: URL? {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
         return base?.appendingPathComponent(dirName, isDirectory: true)
@@ -158,19 +165,49 @@ enum PhotoDraftStore {
         let savedAt: Date
     }
 
+    private static func fileName(for slot: PhotoSlotType) -> String {
+        "photo-\(slot.rawValue).jpg"
+    }
+
     /// Persist the current capture set. Overwrites the single draft.
+    /// Synchronous full rewrite — kept for explicit one-shot callers and tests;
+    /// the capture flow's per-shutter autosave uses ``update(from:to:)``, which
+    /// writes only the changed slot and stays off the calling thread.
     static func save(photos: [PhotoSlotType: PhotoCapture]) {
-        guard let dir = directory else { return }
-        clear()
-        guard !photos.isEmpty else { return }
-        try? FileManager.default.createDirectory(
-            at: dir,
-            withIntermediateDirectories: true,
-            attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication]
-        )
+        ioQueue.sync { writeAll(photos: photos) }
+    }
+
+    /// US-1519: incremental per-shutter persist. The original autosave path
+    /// `clear()`ed and synchronously rewrote EVERY staged JPEG on the MainActor
+    /// per capture — ~4MB of sync I/O by photo 8, a visibly growing post-shutter
+    /// hitch. This diffs by ``PhotoCapture/id`` (cheap; a retake mints a new id)
+    /// and hands only the changed slot's bytes to the serial utility queue.
+    static func update(
+        from old: [PhotoSlotType: PhotoCapture],
+        to new: [PhotoSlotType: PhotoCapture]
+    ) {
+        guard !new.isEmpty else {
+            ioQueue.async { removeAll() }
+            return
+        }
+        let changed = new.filter { slot, capture in old[slot]?.id != capture.id }
+        let removedSlots = old.keys.filter { new[$0] == nil }
+        guard !changed.isEmpty || !removedSlots.isEmpty else { return }
+        let allSlots = Array(new.keys)
+        ioQueue.async {
+            writeDelta(changed: changed, removedSlots: removedSlots, allSlots: allSlots)
+        }
+    }
+
+    // MARK: Queue-confined implementation
+
+    private static func writeAll(photos: [PhotoSlotType: PhotoCapture]) {
+        removeAll()
+        guard !photos.isEmpty, let dir = directory else { return }
+        ensureDirectory(dir)
         var entries: [Manifest.Entry] = []
         for (slot, capture) in photos {
-            let filename = "photo-\(slot.rawValue).jpg"
+            let filename = fileName(for: slot)
             let url = dir.appendingPathComponent(filename)
             // Encrypt at rest (consistent with US-658) — these are unsubmitted
             // garment photos sitting on disk.
@@ -178,6 +215,41 @@ enum PhotoDraftStore {
                 entries.append(Manifest.Entry(slot: slot.rawValue, filename: filename))
             }
         }
+        writeManifest(entries: entries, in: dir)
+    }
+
+    private static func writeDelta(
+        changed: [PhotoSlotType: PhotoCapture],
+        removedSlots: [PhotoSlotType],
+        allSlots: [PhotoSlotType]
+    ) {
+        guard let dir = directory else { return }
+        ensureDirectory(dir)
+        for (slot, capture) in changed {
+            try? capture.imageData.write(
+                to: dir.appendingPathComponent(fileName(for: slot)),
+                options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]
+            )
+        }
+        for slot in removedSlots {
+            try? FileManager.default.removeItem(at: dir.appendingPathComponent(fileName(for: slot)))
+        }
+        // The manifest lists the full current slot set (filenames are
+        // slot-deterministic). A slot whose write failed is listed but absent on
+        // disk — restore already skips unreadable entries gracefully.
+        let entries = allSlots.map { Manifest.Entry(slot: $0.rawValue, filename: fileName(for: $0)) }
+        writeManifest(entries: entries, in: dir)
+    }
+
+    private static func ensureDirectory(_ dir: URL) {
+        try? FileManager.default.createDirectory(
+            at: dir,
+            withIntermediateDirectories: true,
+            attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication]
+        )
+    }
+
+    private static func writeManifest(entries: [Manifest.Entry], in dir: URL) {
         let manifest = Manifest(entries: entries, savedAt: .now)
         if let data = try? JSONEncoder().encode(manifest) {
             // Encrypt the manifest too (US-1218): it sits beside protected photos
@@ -187,6 +259,11 @@ enum PhotoDraftStore {
                 options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]
             )
         }
+    }
+
+    private static func removeAll() {
+        guard let dir = directory else { return }
+        try? FileManager.default.removeItem(at: dir)
     }
 
     /// True when a non-empty photo draft exists on disk.
@@ -233,7 +310,14 @@ enum PhotoDraftStore {
     }
 
     static func clear() {
-        guard let dir = directory else { return }
-        try? FileManager.default.removeItem(at: dir)
+        // Sync through the queue so a discard can't be overtaken by a queued
+        // delta write that would resurrect the draft (US-1519).
+        ioQueue.sync { removeAll() }
+    }
+
+    /// Test seam (US-1519): blocks until every queued delta write has landed,
+    /// so tests can assert on-disk state after the async `update(from:to:)`.
+    static func flushWrites() {
+        ioQueue.sync {}
     }
 }

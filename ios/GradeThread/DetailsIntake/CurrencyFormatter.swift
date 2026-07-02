@@ -106,3 +106,29 @@ public struct CurrencyFormatter {
         return decimalFormatter.string(from: NSNumber(value: amount)) ?? ""
     }
 }
+
+// MARK: - US-1517: shared default instance
+
+extension CurrencyFormatter {
+    private static let sharedLock = NSLock()
+    private static var sharedCache: (code: String?, formatter: CurrencyFormatter)?
+
+    /// Process-wide cached default-configured formatter for the hot per-row /
+    /// per-keystroke paths (each init builds TWO NumberFormatters — real cost
+    /// when constructed inside inventory rows, board cards, and typing loops).
+    ///
+    /// Keyed on the user's currency override so a Settings change rebuilds it —
+    /// a bare `static let` would freeze the old symbol until relaunch. Safe to
+    /// share: NumberFormatter is thread-safe for use (not reconfiguration) on
+    /// modern OS versions and this instance is never mutated after init; the
+    /// cache swap itself is lock-guarded.
+    public static var shared: CurrencyFormatter {
+        sharedLock.lock()
+        defer { sharedLock.unlock() }
+        let code = AppPreferences.currencyCode
+        if let cached = sharedCache, cached.code == code { return cached.formatter }
+        let fresh = CurrencyFormatter()
+        sharedCache = (code, fresh)
+        return fresh
+    }
+}

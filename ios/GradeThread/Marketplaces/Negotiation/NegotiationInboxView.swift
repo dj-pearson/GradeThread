@@ -299,7 +299,9 @@ private struct CounterOfferSheet: View {
     @State private var draftWarnings: [String] = []
     @State private var errorMessage: String?
 
-    private var price: Double? { CurrencyFormatter().parse(priceText) }
+    // US-1517: evaluated per keystroke — use the shared formatter, not a fresh
+    // 2-NumberFormatter construction each time.
+    private var price: Double? { CurrencyFormatter.shared.parse(priceText) }
 
     /// US-1168: a counter at or below the buyer's own offer makes no sense.
     private var belowOffer: Bool {
@@ -386,7 +388,7 @@ private struct CounterOfferSheet: View {
                     // format matches `price`'s parser. String(format:) always
                     // uses a "." decimal, which the comma-decimal parser reads as
                     // grouping → a 100× inflated counter-offer.
-                    priceText = CurrencyFormatter().formatRaw(suggested)
+                    priceText = CurrencyFormatter.shared.formatRaw(suggested)
                 }
                 if message.isEmpty { message = result.message }
                 draftWarnings = result.warnings

@@ -5,7 +5,9 @@ import SwiftUI
 /// row is tappable, no inline actions.
 struct InventoryRow: View {
     let item: LocalInventoryItem
-    private let currencyFormatter = CurrencyFormatter()
+    // US-1517: the shared cached formatter — one of these rows is constructed
+    // per visible list cell, so a per-row init (2 NumberFormatters) was jank.
+    private var currencyFormatter: CurrencyFormatter { .shared }
     /// US-686: drives the "AI processing… / Review ready" pill.
     @State private var aiManager = AIExtractionManager.shared
     @State private var reviewStore = AIFillReviewStore.shared

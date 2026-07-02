@@ -49,6 +49,16 @@ final class AIExtractionManager {
 
     func phase(for itemId: String) -> Phase? { phases[itemId] }
 
+    /// US-1519: compare-before-assign. `phases` is one `@Observable` dictionary,
+    /// and @Observable fires on every SET regardless of equality — so the 250ms
+    /// upload-gate poll re-rendered every visible InventoryRow 4×/s for up to
+    /// 180s even when nothing changed. Writing only on a real transition makes
+    /// the idle ticks observation no-ops.
+    private func setPhase(_ phase: Phase, for itemId: String) {
+        guard phases[itemId] != phase else { return }
+        phases[itemId] = phase
+    }
+
     /// True while this item is actively being processed — both the publish/upload
     /// gate AND the AI run — so the inventory "AI processing…" pill stays up across
     /// the whole flow (incl. when the user backgrounds during the upload gate).
@@ -293,7 +303,9 @@ final class AIExtractionManager {
                 if case .uploaded = t.phase { return acc + 1 }
                 return acc
             }
-            phases[itemId] = .uploading(done: uploaded, total: total)
+            // US-1519: no-op unless `done` actually advanced — this poll runs
+            // 4×/s and used to invalidate every observing row per tick.
+            setPhase(.uploading(done: uploaded, total: total), for: itemId)
 
             let registeredAll = allTasks.count >= total
             let gateSettled = gateSlots.allSatisfy { slot in
