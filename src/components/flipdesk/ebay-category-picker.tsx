@@ -21,6 +21,7 @@ import {
 import { cn } from "@/lib/utils";
 import {
   remapAspectsForCategory,
+  syncedItemFieldFor,
   type AspectRemapResult,
   type AspectRewrite,
   type ItemAspectSource,
@@ -624,6 +625,7 @@ export function EbayCategoryPicker({
               <AspectGroup
                 title="Required"
                 tone="required"
+                itemCategory={itemFields?.item_category ?? null}
                 aspects={required}
                 values={aspectValues}
                 sources={sources}
@@ -637,6 +639,7 @@ export function EbayCategoryPicker({
               <AspectGroup
                 title="Recommended"
                 tone="recommended"
+                itemCategory={itemFields?.item_category ?? null}
                 aspects={recommended}
                 values={aspectValues}
                 sources={sources}
@@ -650,6 +653,7 @@ export function EbayCategoryPicker({
               <AspectGroup
                 title="Optional"
                 tone="optional"
+                itemCategory={itemFields?.item_category ?? null}
                 aspects={optional}
                 values={aspectValues}
                 sources={sources}
@@ -739,6 +743,7 @@ function AspectGroup({
   aiMeta,
   rewrites,
   isNeedsReview,
+  itemCategory,
   onChange,
 }: {
   title: string;
@@ -749,6 +754,7 @@ function AspectGroup({
   aiMeta: Record<string, { confidence: number; source: string }>;
   rewrites: Record<string, AspectRewrite>;
   isNeedsReview: (name: string) => boolean;
+  itemCategory: string | null;
   onChange: (name: string, value: string, cardinality: string) => void;
 }) {
   return (
@@ -773,6 +779,7 @@ function AspectGroup({
             aiMetaItem={aiMeta[a.localizedAspectName]}
             rewrite={rewrites[a.localizedAspectName]}
             needsReview={isNeedsReview(a.localizedAspectName)}
+            syncedField={syncedItemFieldFor(a.localizedAspectName, itemCategory)}
             onChange={(v) =>
               onChange(
                 a.localizedAspectName,
@@ -794,6 +801,7 @@ function AspectField({
   aiMetaItem,
   rewrite,
   needsReview,
+  syncedField,
   onChange,
 }: {
   aspect: EbayAspect;
@@ -802,6 +810,8 @@ function AspectField({
   aiMetaItem?: { confidence: number; source: string };
   rewrite?: AspectRewrite;
   needsReview?: boolean;
+  /** Item column this aspect is two-way synced with (brand/size/color/…). */
+  syncedField?: string | null;
   onChange: (v: string) => void;
 }) {
   const cardinality = aspect.aspectConstraint.itemToAspectCardinality ?? "SINGLE";
@@ -833,6 +843,16 @@ function AspectField({
             title="This value isn't in eBay's allowed list for this aspect — pick a valid one or it won't be sent at publish."
           >
             Review
+          </span>
+        )}
+        {/* Two-way sync hint: edits here update the item field and vice versa,
+            so the seller knows one entry feeds both surfaces. */}
+        {syncedField && (
+          <span
+            className="rounded bg-muted px-1 py-0.5 text-[9px] font-medium text-muted-foreground"
+            title={`Synced with the item's ${syncedField.replace(/_/g, " ")} field — editing either one updates both on save.`}
+          >
+            ⇄ {syncedField.replace(/_/g, " ")}
           </span>
         )}
         {/* US-825: provenance badge — AI / Auto (derived) / You (manual). */}

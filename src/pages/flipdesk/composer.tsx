@@ -91,6 +91,7 @@ import { COMPOSER_FOCUS_ANCHORS } from "@/lib/publish-blockers";
 import { itemPhotoThumb } from "@/lib/images";
 import {
   mapEbayCondition,
+  reverseProjectAspectColumns,
   type ItemAspectSource,
 } from "@/lib/ebay-prefill";
 import type { AspectSourceMap } from "@/lib/aspect-provenance";
@@ -493,10 +494,29 @@ export function FlipdeskComposerPage() {
 
   const specifics = useMemo(() => {
     if (!item) return [] as { label: string; value: string }[];
+    // Prefer the LIVE aspect values (what publish will actually send) over the
+    // item columns, so the preview can never disagree with the editable eBay
+    // specifics below it while the user types. Falls back through the saved
+    // override / inventory mirror to the columns for never-edited drafts.
+    const aspects =
+      livePickedAspects ??
+      listing?.item_specifics_override ??
+      ebayMapping?.ebay_aspects ??
+      {};
+    const aspectVal = (...names: string[]): string | null => {
+      for (const n of names) {
+        const v = aspects[n]?.find((x) => x.trim() !== "");
+        if (v) return v;
+      }
+      return null;
+    };
     const rows: { label: string; value: string | null }[] = [
-      { label: "Brand", value: item.brand },
-      { label: "Style", value: item.style },
-      { label: "Size", value: item.size },
+      { label: "Brand", value: aspectVal("Brand") ?? item.brand },
+      { label: "Style", value: aspectVal("Style", "Type") ?? item.style },
+      {
+        label: "Size",
+        value: aspectVal("Size", "US Shoe Size", "Shoe Size") ?? item.size,
+      },
       { label: "Category", value: item.category },
       {
         label: "Condition",
@@ -513,7 +533,7 @@ export function FlipdeskComposerPage() {
       (r): r is { label: string; value: string } =>
         !!r.value && r.value.trim() !== "",
     );
-  }, [item]);
+  }, [item, livePickedAspects, listing, ebayMapping]);
 
   // US-551: the AI's original draft, snapshotted at generation. Drives the
   // per-field diff chips + revert-to-AI. Null for manually-created drafts.
@@ -642,6 +662,31 @@ export function FlipdeskComposerPage() {
     return { resolvedPrice, resolvedCategoryId, resolvedAspects, resolvedSources };
   }
 
+  // Reverse-sync shared fields: fold manual/AI edits made in the eBay specifics
+  // editor back into the item's structured fields (brand/size/color/material/
+  // style columns + US-821 canonical attributes) in the SAME save, so shared
+  // values are single-entry. The item page projects the OTHER direction on its
+  // save (projectColumnAspects), and the edge re-asserts the columns at
+  // publish/revise — without this write-back a Brand typed here would be
+  // clobbered by the stale column and the seller would have to enter it twice.
+  // Returns extra inventory_items patch fields for the mirror update.
+  function aspectWriteBackPatch(
+    resolvedAspects: Record<string, string[]> | null,
+    resolvedSources: Record<string, string | undefined>,
+  ): Record<string, unknown> {
+    if (!resolvedAspects || !itemAspectSource) return {};
+    const wb = reverseProjectAspectColumns(
+      itemAspectSource,
+      resolvedAspects,
+      resolvedSources,
+    );
+    const patch: Record<string, unknown> = { ...wb.columns };
+    if (Object.keys(wb.attributes).length > 0) {
+      patch.attributes = { ...(ebayMapping?.attributes ?? {}), ...wb.attributes };
+    }
+    return patch;
+  }
+
   async function saveDraft(): Promise<string | null> {
     if (!item) return null;
     if (!title.trim()) {
@@ -724,7 +769,9 @@ export function FlipdeskComposerPage() {
         hasDraftListing: true,
       });
       // Mirror the category + aspects onto the item in the same save so the
-      // inventory store stays in lockstep with the listing override (US-557).
+      // inventory store stays in lockstep with the listing override (US-557),
+      // and fold specifics edits back into their backing item fields so shared
+      // values (Brand & co.) stay single-entry.
       const { error: sErr } = await supabase
         .from("inventory_items")
         .update({
@@ -732,6 +779,7 @@ export function FlipdeskComposerPage() {
           ebay_category_id: resolvedCategoryId,
           ebay_aspects: resolvedAspects,
           ebay_aspect_sources: resolvedSources,
+          ...aspectWriteBackPatch(resolvedAspects, resolvedSources),
         } as never)
         .eq("id", item.id);
       if (sErr) throw sErr;
@@ -795,15 +843,19 @@ export function FlipdeskComposerPage() {
         .eq("id", item.listing_id);
       if (error) throw error;
       // Mirror onto the item, but DON'T touch status — it stays 'listed'.
+      // Specifics edits also fold back into their backing item fields
+      // (single-entry rule, same as the draft save).
       const { error: sErr } = await supabase
         .from("inventory_items")
         .update({
           ebay_category_id: resolvedCategoryId,
           ebay_aspects: resolvedAspects,
           ebay_aspect_sources: resolvedSources,
+          ...aspectWriteBackPatch(resolvedAspects, resolvedSources),
         } as never)
         .eq("id", item.id);
       if (sErr) throw sErr;
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
       await qc.invalidateQueries({ queryKey: ["listing", item.listing_id] });
       await qc.invalidateQueries({ queryKey: ["inventory_item_ebay", item.id] });
       return item.listing_id;
