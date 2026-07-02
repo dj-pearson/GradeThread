@@ -1,5 +1,15 @@
 import SwiftUI
 
+/// US-1522: a listing URL is presentable only when it's non-empty and parses to a
+/// real URL — otherwise "View on eBay" is disabled and the Safari sheet never
+/// opens blank. File-private free function so both PublishDialog (the response
+/// section + Safari sheet) and any nested view can call it without a struct-scope
+/// mismatch.
+private func validListingURL(_ raw: String) -> URL? {
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : URL(string: trimmed)
+}
+
 /// End-to-end publish flow shown as a sheet from ItemCanvasView.
 /// State machine: validating → review (blockers OR summary card) →
 /// pushing → success (listing URL + open) | failure (error + retry).
@@ -64,7 +74,7 @@ struct PublishDialog: View {
         .task { await runValidate() }
         .sheet(isPresented: $showingSafari) {
             if case let .succeeded(response) = phase,
-               let url = Self.validListingURL(response.listingURL) {
+               let url = validListingURL(response.listingURL) {
                 SafariView(url: url)
             }
         }
@@ -212,7 +222,7 @@ struct PublishDialog: View {
                 }
                 // US-1522: don't offer "View on eBay" when the listing URL is
                 // missing/invalid — the Safari sheet would present blank.
-                .disabled(Self.validListingURL(response.listingURL) == nil)
+                .disabled(validListingURL(response.listingURL) == nil)
                 Button {
                     onPublished(response)
                     dismiss()
@@ -853,14 +863,6 @@ private struct ComposerForm: View {
                     .foregroundStyle(.red)
             }
         }
-    }
-
-    /// US-1522: a listing URL is presentable only when it's non-empty and parses
-    /// to a real URL — otherwise "View on eBay" is disabled and the Safari sheet
-    /// never opens blank.
-    private static func validListingURL(_ raw: String) -> URL? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : URL(string: trimmed)
     }
 
     private func generate() async {
