@@ -118,10 +118,11 @@ public struct ItemDraft: Equatable {
         self.acquiredPriceText = item.acquiredPrice.map { currencyFormatter.formatRaw($0) } ?? ""
         self.locationBin = item.locationBin ?? ""
         self.consignorId = item.consignorId
-        self.consignmentSplitText = item.consignmentSplitPct.map {
-            // Whole numbers print without a trailing ".0".
-            $0 == $0.rounded() ? String(Int($0)) : String($0)
-        } ?? ""
+        // US-1491: seed locale-formatted so the field's display matches the
+        // locale-aware parser (parseSplit). A "."-formatted seed re-parses wrong
+        // in comma-decimal locales.
+        self.consignmentSplitText = item.consignmentSplitPct
+            .map { CurrencyFormatter().formatRaw($0) } ?? ""
         self.measurements = ItemCanvasView.decodeMeasurements(item.measurementsJSON) ?? [:]
     }
 }

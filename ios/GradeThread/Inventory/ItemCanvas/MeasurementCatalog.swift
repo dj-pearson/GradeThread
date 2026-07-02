@@ -94,4 +94,37 @@ enum MeasurementCatalog {
     static func trimmed(_ value: Double) -> String {
         value == value.rounded() ? String(Int(value)) : String(value)
     }
+
+    /// Locale-aware decimal formatter for the editable measurement field. Both
+    /// the display (get) and parse (set) route through this so the round-trip is
+    /// consistent in comma-decimal locales — US-1491: a raw `Double(cleaned)`
+    /// dropped the fraction of "18,5" (→ nil) in de/fr/es, and a "."-formatted
+    /// display re-parsed as grouping (185). No grouping separator so the field
+    /// only ever shows the value + locale decimal separator.
+    /// `locale` is injectable so tests can exercise a comma-decimal locale
+    /// (de_DE); production always uses `.current`.
+    static func editFormatter(locale: Locale = .current) -> NumberFormatter {
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        f.locale = locale
+        f.usesGroupingSeparator = false
+        f.maximumFractionDigits = 2
+        f.minimumFractionDigits = 0
+        return f
+    }
+
+    /// Display a stored value in the editable field, locale-formatted (trims
+    /// trailing zeros). Empty string for a non-positive/unset value.
+    static func editableString(_ value: Double, locale: Locale = .current) -> String {
+        guard value > 0 else { return "" }
+        return editFormatter(locale: locale).string(from: NSNumber(value: value)) ?? trimmed(value)
+    }
+
+    /// Parse user-entered measurement text with the locale decimal separator.
+    /// Returns nil for empty/unparseable input.
+    static func parse(_ input: String, locale: Locale = .current) -> Double? {
+        let trimmedInput = input.trimmingCharacters(in: .whitespaces)
+        guard !trimmedInput.isEmpty else { return nil }
+        return editFormatter(locale: locale).number(from: trimmedInput)?.doubleValue
+    }
 }

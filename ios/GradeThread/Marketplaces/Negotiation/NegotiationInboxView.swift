@@ -375,7 +375,11 @@ private struct CounterOfferSheet: View {
                     proposedCounter: price
                 )
                 if priceText.isEmpty, let suggested = result.suggestedCounter {
-                    priceText = String(format: "%.2f", suggested)
+                    // US-1491: seed with the locale-aware formatter so the seed
+                    // format matches `price`'s parser. String(format:) always
+                    // uses a "." decimal, which the comma-decimal parser reads as
+                    // grouping → a 100× inflated counter-offer.
+                    priceText = CurrencyFormatter().formatRaw(suggested)
                 }
                 if message.isEmpty { message = result.message }
                 draftWarnings = result.warnings

@@ -1300,13 +1300,16 @@ struct ItemCanvasView: View {
                 text: Binding(
                     get: {
                         guard let v = state.draft.measurements[key], v > 0 else { return "" }
-                        return MeasurementCatalog.trimmed(v)
+                        return MeasurementCatalog.editableString(v)
                     },
                     set: { newValue in
+                        // US-1491: locale-aware parse so "18,5" in comma-decimal
+                        // locales stores 18.5 instead of silently dropping the
+                        // fraction (raw Double("18,5") → nil).
                         let cleaned = newValue.trimmingCharacters(in: .whitespaces)
                         if cleaned.isEmpty {
                             state.draft.measurements[key] = 0
-                        } else if let parsed = Double(cleaned), parsed >= 0 {
+                        } else if let parsed = MeasurementCatalog.parse(cleaned), parsed >= 0 {
                             state.draft.measurements[key] = parsed
                         }
                     }
@@ -1775,10 +1778,12 @@ struct ItemCanvasView: View {
                     || d.category != o.category
                     || d.conditionNotes != o.conditionNotes
                     || measChanged
-            let newPrice = Double(
-                d.targetPriceText.replacingOccurrences(of: ",", with: ""))
-            let oldPrice = Double(
-                o.targetPriceText.replacingOccurrences(of: ",", with: ""))
+            // US-1491: parse with the SAME locale-aware formatter the DB payload
+            // uses (parsedPrices → currencyFormatter.parse). A raw
+            // Double(stripCommas) reads "24,99" as 2499.0 in comma-decimal
+            // locales and pushes a 100× price to the live eBay offer.
+            let newPrice = currencyFormatter.parse(d.targetPriceText)
+            let oldPrice = currencyFormatter.parse(o.targetPriceText)
             let priceChanged = newPrice != nil && newPrice! > 0
                 && newPrice != oldPrice
             guard titleChanged || structuralChanged || priceChanged else {
@@ -2140,8 +2145,9 @@ struct ItemCanvasView: View {
     /// set; cleared (nil) otherwise so an unlinked item carries no stray split.
     private static func parseSplit(_ state: ItemCanvasState) -> Double? {
         guard state.draft.consignorId != nil else { return nil }
-        let trimmed = state.draft.consignmentSplitText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let value = Double(trimmed) else { return nil }
+        // US-1491: locale-aware parse so a comma-decimal split (e.g. "12,5") isn't
+        // dropped to nil. Static context → a fresh formatter (locale-derived).
+        guard let value = CurrencyFormatter().parse(state.draft.consignmentSplitText) else { return nil }
         return min(max(value, 0), 100)
     }
 

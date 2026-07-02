@@ -141,10 +141,11 @@ public enum NotificationActionPlan: Equatable {
 
     /// Parses a user-typed counter price tolerant of currency symbols / commas
     /// ("$42.50" → 42.5). Returns nil when nothing numeric was typed.
+    /// US-1491: routes through the locale-aware CurrencyFormatter so "42,50" in a
+    /// comma-decimal locale reads 42.5, not 4250 (a filter-to-digits+dot strip
+    /// dropped the comma and pushed a 100× counter to the live eBay offer).
     static func parsePrice(_ text: String?) -> Double? {
         guard let text else { return nil }
-        let cleaned = text.filter { $0.isNumber || $0 == "." }
-        guard !cleaned.isEmpty else { return nil }
-        return Double(cleaned)
+        return CurrencyFormatter().parse(text)
     }
 }

@@ -61,11 +61,11 @@ final class ProspectStore {
 
     /// Parsed cost in integer cents, or nil when the field is empty/invalid.
     private var costCents: Int? {
-        let cleaned = costText
-            .replacingOccurrences(of: "$", with: "")
-            .replacingOccurrences(of: ",", with: "")
-            .trimmingCharacters(in: .whitespaces)
-        guard !cleaned.isEmpty, let dollars = Double(cleaned), dollars > 0 else { return nil }
+        // US-1491: locale-aware parse. A raw comma-strip + Double() read "24,99"
+        // as 2499.0 in comma-decimal locales — a 100× cost that poisons the ROI
+        // verdict. CurrencyFormatter.parse strips the symbol/grouping and honors
+        // the locale decimal separator.
+        guard let dollars = CurrencyFormatter().parse(costText), dollars > 0 else { return nil }
         return Int((dollars * 100).rounded())
     }
 

@@ -8836,8 +8836,8 @@
         "Unit tests cover a comma-decimal locale (de_DE): price '24,99' produces a 24.99 revise plan and measurement '18,5' stores 18.5."
       ],
       "priority": 2400,
-      "passes": false,
-      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] CRITICAL. The one bug most likely to cost users real money. Fix is small; the formatter and parsedPrices() already exist."
+      "passes": true,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] CRITICAL. The one bug most likely to cost users real money. Fix is small; the formatter and parsedPrices() already exist. [DONE 2026-07-02] Revise-path price now via currencyFormatter.parse (ItemCanvasView ebayPlan); measurements via MeasurementCatalog.parse/editableString (locale-injectable); NegotiationInbox seeds counter via formatRaw; also swept + fixed BulkPricingStore, ProspectStore cost, NotificationActions counter, and consignment-split seed/parse. New LocaleSafeNumericParsingTests (de_DE 24,99→24.99 plan, 18,5→18.5). Local: python lint scripts + brace-balance clean; iOS macOS CI is the build gate."
     },
     {
       "id": "US-1492",

@@ -8377,3 +8377,32 @@ ExpenseStore.thisMonthTotal; the DISPLAYED total is MoneyView.expensesThisMonthT
 NO MIGRATION.
 VERIFICATION (this host): curly-scan clean on all 5 touched files; iOS macOS CI is
 the build gate.
+
+## 2026-07-02 (cont.) — US-1491 iOS locale-safe numeric parsing — COMPLETE (passes:true) — NO MIGRATION
+The one bug most likely to cost users real money: comma-decimal locales (de/fr/es)
+pushed a 100× price to live eBay listings because the save path parsed the price
+two ways (locale-aware for the DB payload, raw Double(stripCommas) for the eBay
+revise plan). Full sweep + fix:
+ - ItemCanvasView.ebayPlan: newPrice/oldPrice now via currencyFormatter.parse (the
+   same parser parsedPrices() uses) — no raw Double() on user price text remains in
+   the revise path. "24,99" now plans 24.99, not 2499.0.
+ - Measurement row bindings: new MeasurementCatalog.parse/editableString (locale-
+   injectable NumberFormatter, no grouping). BOTH get (display) and set (parse) route
+   through it so the round-trip is consistent — a "."-seed no longer re-parses as
+   grouping (185) in de_DE. "18,5" stores 18.5.
+ - NegotiationInboxView: AI-counter seed now CurrencyFormatter().formatRaw(suggested)
+   (was String(format:"%.2f") → parser read the "." as grouping → 100× counter).
+ - Also swept the same class beyond the audit's 3 sites: BulkPricingStore priceValue
+   + priceInputError (was Double(priceText)); ProspectStore costCents (was comma-strip
+   + Double); NotificationActions.parsePrice notification counter (was filter-to-dot +
+   Double); consignment-split seed (ItemDraft) + parse (parseSplit, static → fresh
+   CurrencyFormatter). Verified all 13 decimalPad fields now parse via
+   CurrencyFormatter().parse; CSV ImportField (decimalIsDot) + wire-string
+   twoDecimalDisplay left intentionally locale-independent.
+ - AC5: new LocaleSafeNumericParsingTests (de_DE 24,99→24.99 plan + no-inflation;
+   median-seed round-trip across de/fr/en/es; measurement 18,5→18.5; editableString
+   round-trip + whole-number trim).
+VERIFICATION (this host): no-ungated-print / no-bare-strings / no-default-shared-
+session all OK; brace/paren/bracket balance clean on all 8 touched files. SourceKit
+"No such module" noise is expected on Windows (no iOS SDK). iOS macOS CI is the build
++ test gate. No migration → safe to push.

@@ -106,7 +106,9 @@ final class BulkPricingStore {
     static let minPrice = 0.01
 
     private var priceValue: Double? {
-        let v = Double(priceText.trimmingCharacters(in: .whitespaces))
+        // US-1491: locale-aware parse so "12,5" (percent or price) reads correctly
+        // in comma-decimal locales instead of failing to nil / dropping the fraction.
+        let v = CurrencyFormatter().parse(priceText)
         guard let v else { return nil }
         switch priceMode {
         // US-1220: in `.reduce` mode the input is a PERCENT and must be strictly
@@ -144,7 +146,9 @@ final class BulkPricingStore {
     var priceInputError: String? {
         let trimmed = priceText.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty, priceMode != .none else { return nil }
-        guard let v = Double(trimmed) else { return "Enter a valid number." }
+        // US-1491: locale-aware parse (matches priceValue) so a valid comma-decimal
+        // entry isn't rejected as "not a number".
+        guard let v = CurrencyFormatter().parse(trimmed) else { return "Enter a valid number." }
         switch priceMode {
         case .reduce:
             if v <= 0 { return "Enter a reduction between 0% and 100%." }
