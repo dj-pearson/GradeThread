@@ -8623,3 +8623,35 @@ existing AuthStore/auth-callback tests still exercise the surrounding surface.
 VERIFICATION (this host): comment/string-aware brace balance clean on all 3 touched files;
 no-ungated-print + no-bare-strings + no-default-shared-session OK. iOS CI is the build gate.
 No migration.
+
+## 2026-07-02 (cont.) — US-1500 iOS eBay category change in specifics editor now reaches eBay — COMPLETE (passes:true) — NO MIGRATION
+File: Marketplaces/Listing/SpecificsEditorModel.swift.
+
+SpecificsEditorModel.save() wrote only inventory_items.ebay_category_id + aspects and
+called revise(syncPhotos:true) with no resync — it never touched
+listings.platform_category_id and never sent resync_ebay_fields. But the edge PREFERS
+listings.platform_category_id over inventory_items.ebay_category_id at BOTH publish and
+revise, and the offer-side category PUT only runs when resync_ebay_fields:true. Net: re-
+categorizing a live-listed (or drafted) item on iOS said "saved" but the live listing —
+and even a later relist — stayed in the OLD category, and the aspect re-PUT validated
+against the old category spec.
+
+- Added `originalCategoryId` (baselined at load and after each successful save) so save()
+  detects a real category change.
+- (AC1) On a category change, save() now also updates listings.platform_category_id for the
+  item's GT-origin listing row(s) — `.eq(inventory_item_id).eq(listing_origin,'gradethread')`
+  — covering draft AND active (so a later relist/publish uses the new category → AC4). RLS
+  scopes the client update to the owner (frontend session, not service-role).
+- (AC2) resyncSpecifics now forwards `resyncFields: categoryChanged` to
+  EbayPublishService.revise (the `resyncFields`→`resync_ebay_fields` param already existed
+  from US-1503) — so on a category change the offer-side category PUT runs and the aspect
+  re-PUT validates against the NEW category spec (AC3). A non-category aspect-only edit still
+  revises without the (heavier) resync, unchanged.
+- A failure to mirror the category to the listing surfaces an explanatory error and returns
+  false rather than a misleading success.
+
+No unit test added: save() is coupled to the live Supabase SDK (the SpecificsEditorTests
+cover only the pure helpers — missingRequired/merge/partition/storedSources). Verified by
+compile + code review; the edge resync path is the web-parity US-1490 endpoint.
+VERIFICATION (this host): comment/string-aware brace balance clean; no-ungated-print +
+no-bare-strings + no-default-shared-session OK. iOS CI is the build gate. No migration.

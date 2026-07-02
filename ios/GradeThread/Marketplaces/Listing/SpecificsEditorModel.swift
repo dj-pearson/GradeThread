@@ -31,6 +31,11 @@ final class SpecificsEditorModel {
     var selectedCategoryId: String?
     var selectedCategoryName: String?
     var selectedCategoryPath: String?
+    /// US-1500: the category persisted at load (or last successful save), so
+    /// `save()` can tell whether the category actually CHANGED — a change must
+    /// also update `listings.platform_category_id` and force the revise resync,
+    /// or the live listing (and a later relist) stays in the old category.
+    private var originalCategoryId: String?
 
     var specs: [AspectSpec] = []
     var values: [String: [String]] = [:]
@@ -93,6 +98,7 @@ final class SpecificsEditorModel {
             .value
         guard let row = rows?.first, let cat = row.ebay_category_id, !cat.isEmpty else { return }
         selectedCategoryId = cat
+        originalCategoryId = cat  // US-1500: baseline for change detection in save()
         if let existing = row.ebay_aspects { values = existing }
         // US-825: restore the saved source badges (AI / Auto / You).
         if let savedSources = row.ebay_aspect_sources {
@@ -275,6 +281,9 @@ final class SpecificsEditorModel {
             // US-825: provenance parallel to ebay_aspects, pruned to filled aspects.
             let ebay_aspect_sources: [String: String]
         }
+        // US-1500: did the category actually change? A change must also reach the
+        // listing row + force the revise resync (below).
+        let categoryChanged = cat != originalCategoryId
         let filled = nonEmptyValues()
         do {
             try await SupabaseShared.client
@@ -290,13 +299,38 @@ final class SpecificsEditorModel {
             errorMessage = message(error)
             return false
         }
+        // US-1500: mirror the new category onto the item's GT-origin listing row(s)
+        // — draft OR active. The edge prefers `listings.platform_category_id` over
+        // `inventory_items.ebay_category_id` at BOTH publish and revise, so without
+        // this a re-categorized item's live listing (and even a later relist) stayed
+        // in the OLD category and the aspect re-PUT validated against the old spec.
+        if categoryChanged {
+            struct CategoryPatch: Encodable { let platform_category_id: String }
+            do {
+                try await SupabaseShared.client
+                    .from("listings")
+                    .update(CategoryPatch(platform_category_id: cat))
+                    .eq("inventory_item_id", value: itemId)
+                    .eq("listing_origin", value: "gradethread")
+                    .execute()
+            } catch {
+                errorMessage =
+                    "Saved on your device, but couldn't update the listing category: \(message(error))"
+                return false
+            }
+        }
+        // The DB now reflects the new category, so re-baseline (a re-save with no
+        // further change won't redundantly re-flag / re-resync).
+        originalCategoryId = cat
         // Push the edit to the live eBay listing. Without this, an aspect edit
         // (e.g. Inseam) only reached inventory_items.ebay_aspects, which a
         // previously-written item_specifics_override on the listing shadowed — so
         // the change never reached eBay. A push failure keeps the sheet open with
         // an explanatory message; the local save already persisted.
         if let listingId = liveListingId {
-            switch await resyncSpecifics(listingId: listingId, filled: filled) {
+            switch await resyncSpecifics(
+                listingId: listingId, filled: filled, categoryChanged: categoryChanged
+            ) {
             case .revised:
                 return true
             case .noOfferId:
@@ -318,7 +352,7 @@ final class SpecificsEditorModel {
     /// don't surface in this editor — notably the "Condition Grade" item specific
     /// — are preserved rather than dropped on the push.
     private func resyncSpecifics(
-        listingId: String, filled: [String: [String]]
+        listingId: String, filled: [String: [String]], categoryChanged: Bool
     ) async -> ReviseOutcome {
         struct Row: Decodable { let item_specifics_override: [String: [String]]? }
         let rows: [Row]? = try? await SupabaseShared.client
@@ -343,7 +377,12 @@ final class SpecificsEditorModel {
             // aspects, so surface the failure instead of a misleading success.
             return .failed(message: message(error))
         }
-        return await EbayPublishService().revise(listingId: listingId, syncPhotos: true)
+        // US-1500: when the category changed, force `resync_ebay_fields` so the
+        // offer-side category PUT runs and the aspect re-PUT validates against the
+        // NEW category spec (the edge only re-PUTs the category when this is set).
+        return await EbayPublishService().revise(
+            listingId: listingId, syncPhotos: true, resyncFields: categoryChanged
+        )
     }
 
     // MARK: - Field editing (from the view)

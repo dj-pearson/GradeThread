@@ -8966,7 +8966,7 @@
         "A relist after an iOS category change publishes in the new category (stale platform_category_id no longer shadows ebay_category_id)."
       ],
       "priority": 2391,
-      "passes": false,
+      "passes": true,
       "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Cross-form carry-over class the user explicitly asked about. The edge endpoint already exists (US-1490, web-only today)."
     },
     {
