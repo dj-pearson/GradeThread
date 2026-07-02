@@ -9,7 +9,7 @@ import { currentAiFeature } from "./ai-feature-context.ts";
 // var never breaks a deploy — only a missing API key does.
 
 const DEFAULTS = {
-  model: "claude-sonnet-4-6",
+  model: "claude-sonnet-5",
   lightweightModel: "claude-haiku-4-5-20251001",
   // Image generation runs through OpenAI's images API (gpt-image-1) — the
   // Anthropic models don't render images. Kept here so the model is a single
@@ -65,6 +65,8 @@ export function getDefaultImageModel(): string {
 // when a new model is qualified against the eval gate.
 export const GRADING_MODEL_ALLOWLIST: ReadonlySet<string> = new Set([
   "claude-opus-4-8",
+  "claude-sonnet-5",
+  // Retained so grades produced on the prior default stay reproducible / re-gradable.
   "claude-sonnet-4-6",
   "claude-haiku-4-5-20251001",
   DEFAULTS.model,

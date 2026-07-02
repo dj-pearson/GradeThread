@@ -29,8 +29,16 @@ Every AI use case in the product is evaluated on four axes:
 | Model | input | output | cache write | cache read |
 |---|--:|--:|--:|--:|
 | `claude-opus-4-8` | 5 | 25 | 6.25 | 0.5 |
+| `claude-sonnet-5` | 3 | 15 | 3.75 | 0.3 |
 | `claude-sonnet-4-6` | 3 | 15 | 3.75 | 0.3 |
 | `claude-haiku-4-5` | 1 | 5 | 1.25 | 0.1 |
+
+> `claude-sonnet-5` is the current `DEFAULT_AI_MODEL` (grading, composite, and
+> photo-bearing AI actions). Priced at **list** ($3/$15) — same sticker as Sonnet
+> 4.6; the intro rate ($2/$10 through 2026-08-31) can be set deploy-free in
+> `ai_model_prices`. The `~Cost/action` figures below are unchanged: Sonnet 5's
+> per-token price matches Sonnet 4.6, and its ~30% larger token count is roughly
+> offset by the intro discount through Aug 2026 (a modest cost rise thereafter).
 
 **Cost-per-action** is `sum(re-priced token cost) / actions`, where an *action*
 is a graded submission (`grading`, `authenticity`) or a single Anthropic call

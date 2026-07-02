@@ -24,6 +24,11 @@ interface ModelPrice {
 
 const MODEL_PRICES: Record<string, ModelPrice> = {
   "claude-opus-4-8": { inputPerMTok: 5, outputPerMTok: 25 },
+  // Sonnet 5 = the current DEFAULT_AI_MODEL. LIST price ($3/$15), same sticker as
+  // Sonnet 4.6. Anthropic's intro rate ($2/$10 through 2026-08-31) can be applied
+  // deploy-free via AI_PRICE_INPUT/OUTPUT_CLAUDE_SONNET_5, or in the
+  // system_settings.ai_model_prices row the admin dashboards re-price from.
+  "claude-sonnet-5": { inputPerMTok: 3, outputPerMTok: 15 },
   "claude-sonnet-4-6": { inputPerMTok: 3, outputPerMTok: 15 },
   "claude-haiku-4-5-20251001": { inputPerMTok: 1, outputPerMTok: 5 },
   // Alias without the date suffix, in case DEFAULT_AI_MODEL is set to the bare id.

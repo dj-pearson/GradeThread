@@ -76,7 +76,7 @@ Media project flips together when a model or timeout changes.
 |---|---|---|---|
 | `ANTHROPIC_API_KEY` | ✅ Required* | Anthropic API key — powers grading + item enrichment + listing copy | [console.anthropic.com](https://console.anthropic.com) → API Keys (`sk-ant-...`) |
 | `CLAUDE_API_KEY` | ⬜ Alias | Fallback name read if `ANTHROPIC_API_KEY` is unset. Set either one. | Same value as above |
-| `DEFAULT_AI_MODEL` | ⬜ Optional | Vision-capable model used for grading + composite + any photo-bearing extract call. Default: `claude-sonnet-4-6` | Anthropic model ID |
+| `DEFAULT_AI_MODEL` | ⬜ Optional | Vision-capable model used for grading + composite + any photo-bearing extract call. Default: `claude-sonnet-5` | Anthropic model ID |
 | `LIGHTWEIGHT_AI_MODEL` | ⬜ Optional | Cheap text-only model used for enrichment / listing copy when no photos are attached. Default: `claude-haiku-4-5-20251001` | Anthropic model ID |
 | `AI_TIMEOUT_MS` | ⬜ Optional | SDK request timeout. Default: `120000` (2 min) | — |
 | `AI_MAX_RETRIES` | ⬜ Optional | SDK retry count on transient failures. Default: `2` | — |

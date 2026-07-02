@@ -107,7 +107,7 @@ Set these in the same Pages env; the SSR functions in `functions/` read them per
 | `ANTHROPIC_API_KEY` 🔒 | ✅* Coolify edge | Anthropic key — powers grading, enrichment, listing copy. |
 | `CLAUDE_API_KEY` 🔒 | ⬜ Coolify edge | Alias read if `ANTHROPIC_API_KEY` is unset. (*one of the two required.) |
 | `OPENAI_API_KEY` 🔒 | ⬜ Coolify edge | OpenAI key — reserved for future multi-provider routing. |
-| `DEFAULT_AI_MODEL` | ⬜ Coolify edge | Vision model for grading/composite (default `claude-sonnet-4-6`). |
+| `DEFAULT_AI_MODEL` | ⬜ Coolify edge | Vision model for grading/composite (default `claude-sonnet-5`). |
 | `LIGHTWEIGHT_AI_MODEL` | ⬜ Coolify edge | Cheap text model for enrichment/copy (default `claude-haiku-4-5-…`). |
 | `DEFAULT_IMAGE_MODEL` | ⬜ Coolify edge | Model used for image-bearing extract calls. |
 | `GRADING_COMPOSITE_MODEL` | ⬜ Coolify edge | Model for the composite multi-photo grading pass. |
