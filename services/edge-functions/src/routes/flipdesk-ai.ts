@@ -65,8 +65,8 @@ export const flipdeskAiRoutes = new Hono<{
 export const AI_ACTION_LIMITS: Record<string, number> = {
   free: 25,
   starter: 200,
-  pro: 1000,
-  business: 5000,
+  pro: 750,
+  business: 2000,
 };
 
 // True when `resetAt` falls in a calendar month before `now`.

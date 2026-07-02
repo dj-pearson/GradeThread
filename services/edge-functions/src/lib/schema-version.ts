@@ -36,8 +36,8 @@ import { supabaseAdmin } from "./supabase.ts";
 import { edgeEnv } from "./env.ts";
 
 // Bump this in the SAME commit that adds a migration. = highest NNNNN in
-// supabase/migrations/. (00335_ai_model_prices_sonnet_5.sql)
-export const EXPECTED_SCHEMA_VERSION = "00335";
+// supabase/migrations/. (00336_rightsize_ai_action_caps.sql)
+export const EXPECTED_SCHEMA_VERSION = "00336";
 
 export type SchemaVersionComparison = "match" | "behind" | "ahead" | "unknown";
 

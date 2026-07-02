@@ -326,8 +326,8 @@ const LIMITS_BY_PLAN_FOR_CAP: Record<
   ],
   aiActions: [
     { plan: "starter", limit: 200 },
-    { plan: "pro", limit: 1000 },
-    { plan: "business", limit: 5000 },
+    { plan: "pro", limit: 750 },
+    { plan: "business", limit: 2000 },
   ],
   marketplaces: [
     { plan: "starter", limit: 2 },

@@ -26,10 +26,10 @@ Deno.test("AI_ACTION_LIMITS mirrors PLAN_MATRIX.aiActionsPerMonth (keyed by flip
 });
 
 Deno.test("self-cap blocks below the plan limit (US-386/US-224)", () => {
-  // Pro plan = 1000 actions; a user self-cap of 100 wins.
+  // Pro plan = 750 actions; a user self-cap of 100 wins.
   assertEquals(effectiveAiCap(AI_ACTION_LIMITS.pro, 100), 100);
   // No self-cap → full plan limit.
-  assertEquals(effectiveAiCap(AI_ACTION_LIMITS.pro, null), 1000);
+  assertEquals(effectiveAiCap(AI_ACTION_LIMITS.pro, null), 750);
   // A self-cap above the plan limit can't raise it.
   assertEquals(effectiveAiCap(AI_ACTION_LIMITS.free, 9999), 25);
 });

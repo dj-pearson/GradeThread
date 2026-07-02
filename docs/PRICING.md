@@ -25,8 +25,8 @@ Annual ≈ 17% off (10 months for the price of 12 → 2 months free).
 |---|---|---|---|---|---|---|---|
 | **Free** | $0 | $0 | 25 | eBay only (1) | 25 | 3 | — |
 | **Starter** | $29 | $290 | 250 | All (-1) | 200 | 10 | Auto-import payouts |
-| **Pro** | $59 | $590 | 1,000 | All (-1) | 1,000 | 30 | Bulk actions, scheduled actions, comp pulls, auto-relist, AI AutoLister |
-| **Business** | $99 | $990 | Unlimited | All (-1) | 5,000 | 75 | Everything in Pro + sub-accounts, API access, payout reconciliation, priority support |
+| **Pro** | $59 | $590 | 1,000 | All (-1) | 750 | 30 | Bulk actions, scheduled actions, comp pulls, auto-relist, AI AutoLister |
+| **Business** | $99 | $990 | Unlimited | All (-1) | 2,000 | 75 | Everything in Pro + sub-accounts, API access, payout reconciliation, priority support |
 
 `activeListingCap` / `marketplacesCap` of `-1` in the constants means
 **unlimited / all**.

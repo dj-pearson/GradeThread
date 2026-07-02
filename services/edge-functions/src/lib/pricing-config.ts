@@ -93,7 +93,7 @@ export const FALLBACK_MATRIX: Record<FlipdeskPlan, PlanConfig> = {
   },
   pro: {
     activeListingCap: 1000,
-    aiActionsPerMonth: 1000,
+    aiActionsPerMonth: 750,
     marketplacesCap: -1,
     includedStandardGradesPerMonth: 30,
     teamSeatCap: 0,
@@ -105,7 +105,7 @@ export const FALLBACK_MATRIX: Record<FlipdeskPlan, PlanConfig> = {
   },
   business: {
     activeListingCap: -1,
-    aiActionsPerMonth: 5000,
+    aiActionsPerMonth: 2000,
     marketplacesCap: -1,
     includedStandardGradesPerMonth: 75,
     teamSeatCap: 10,

@@ -259,9 +259,9 @@ Group display name shown on Apple's manage-subscriptions sheet: **"FlipDesk Plan
 | Reference name | FlipDesk Pro Monthly |
 | Product ID | `com.gradethread.sub.pro.monthly` |
 | Display name | Pro |
-| Description | 1,000 listings · 1,000 AI actions · 30 grades |
+| Description | 1,000 listings · 750 AI actions · 30 grades |
 | Price | $59.00 / month |
-| Review notes | Grants the "pro" plan tier. Allows 1,000 listings, 1,000 AI-assist actions, 30 grades/month, and unlocks the AutoLister bulk-workflow feature. |
+| Review notes | Grants the "pro" plan tier. Allows 1,000 listings, 750 AI-assist actions, 30 grades/month, and unlocks the AutoLister bulk-workflow feature. |
 
 **Pro — Yearly**
 | Field | Value |
@@ -269,9 +269,9 @@ Group display name shown on Apple's manage-subscriptions sheet: **"FlipDesk Plan
 | Reference name | FlipDesk Pro Yearly |
 | Product ID | `com.gradethread.sub.pro.yearly` |
 | Display name | Pro (Yearly) |
-| Description | 1,000 listings · 1,000 AI actions · 30 grades |
+| Description | 1,000 listings · 750 AI actions · 30 grades |
 | Price | $590.00 / year |
-| Review notes | Same entitlements as Pro Monthly; auto-renews annually. Grants "pro" plan with 1,000 listings, 1,000 AI actions, 30 grades/month, and AutoLister. |
+| Review notes | Same entitlements as Pro Monthly; auto-renews annually. Grants "pro" plan with 1,000 listings, 750 AI actions, 30 grades/month, and AutoLister. |
 
 **Business — Monthly**
 | Field | Value |

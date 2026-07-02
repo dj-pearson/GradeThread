@@ -12,8 +12,12 @@ price?** Source of truth for the numbers is `FLIPDESK_PLANS` /
 |---|--:|--:|--:|--:|---|--:|--:|
 | **Free** | 0 | 0 | 25 | 25 | 1 (eBay) | 3 | 0 |
 | **Starter** | 29 | 290 | 250 | 200 | All | 10 | 0 |
-| **Pro** | 59 | 590 | 1,000 | 1,000 | All | 30 | 0 |
-| **Business** | 99 | 990 | ∞ | 5,000 | All | 75 | 10 |
+| **Pro** | 59 | 590 | 1,000 | 750 | All | 30 | 0 |
+| **Business** | 99 | 990 | ∞ | 2,000 | All | 75 | 10 |
+
+> AI-action caps were right-sized 2026-07-02 (Pro 1,000→750, Business
+> 5,000→2,000; migration `00336`) so a maxed-out user still clears the 40% floor
+> — see §5. Still ~3× the heaviest realistic seller.
 
 Feature gates by tier (`gateFlags`):
 
@@ -84,26 +88,29 @@ Realistic per-seller volume (from the US-1065 model: Pro ≈ 40 items, Business 
 **At realistic usage every tier clears 40% with enormous headroom** (84–92%).
 This matches the live AI-Profitability dashboard.
 
-## 5. Margin at MAX cap utilization — Pro & Business fail the floor
+## 5. Margin at MAX cap utilization — after the 2026-07-02 right-size
 
-If a user consumes **100% of every included allowance** (conservative unit costs
-— grade $0.15, action $0.04):
+The old 1,000 / 5,000 AI-action caps broke the floor if fully consumed (Pro 21%,
+Business negative — the caps dwarfed realistic usage, so a "whale" inverted the
+margin). Grading was never the problem — even all-Sonnet it's >90% margin against
+the $2.99 fee; the AI-action cap was the sole driver.
+
+With the caps right-sized (Pro 750, Business 2,000) at the **blended** action
+cost (~$0.02; grade ~$0.05), a user at **100% of every allowance** now clears the
+floor:
 
 | Tier | Grades | AI actions | Stripe | Total COGS | **Margin at max** |
 |---|--:|--:|--:|--:|--:|
-| Starter $29 | $1.50 | $8.00 | $1.14 | $10.64 | **63% ✓** |
-| Pro $59 | $4.50 | $40.00 | $2.01 | $46.51 | **21% ✗** |
-| Business $99 | $11.25 | $200.00 | $3.17 | $214.42 | **negative ✗✗** |
+| Starter $29 (200 actions) | $1.00 | $4.00 | $1.14 | $6.14 | **79% ✓** |
+| Pro $59 (750 actions) | $1.50 | $15.00 | $2.01 | $18.51 | **69% ✓** |
+| Business $99 (2,000 actions) | $3.75 | $40.00 | $3.17 | $46.92 | **53% ✓** |
 
-The driver is the **AI-action cap**: 1,000 (Pro) and especially **5,000
-(Business)** are far larger than any realistic usage, so a maxed-out "whale"
-inverts the margin. Grading is never the problem — even all-Sonnet it's >90%
-margin against the $2.99 fee.
-
-**Caps that would guarantee ≥40% even at full utilization** (current unit costs,
-keeping price): Starter ~370 (current 200 is already safe), Pro ~720, Business
-~1,125. Business's 5,000 cap can't hold 40% at full tilt under *any* realistic
-per-action cost (it would need ≤ ~$0.009/action).
+**Caveat — the pathological tail.** If *every* action were a vision-heavy
+AutoLister call (~$0.04, the conservative unit cost) a maxed user still thins to
+~38% (Pro) / ~5% (Business). That case is (a) unrealistic — the blended mix is
+mostly cheap text/OCR, (b) bounded by the per-feature `ai_budgets` guardrail
+(§6), and (c) closed entirely by the pending **Haiku routing** (US-1065), which
+drops the AutoLister/content per-action cost ~3×.
 
 ## 6. What protects margin today
 
@@ -114,23 +121,29 @@ per-action cost (it would need ≤ ~$0.009/action).
    bound spend even inside a cap.
 3. **Realistic usage is ~10–15% of cap**, so the whale case is rare and bounded.
 
-## 7. Recommendation
+## 7. Actions taken & remaining lever
 
-Keep the current **prices and marketed caps** — they anchor against List
-Perfectly / Vendoo and the generous ceilings are a competitive asset. To make the
-40% floor a *guarantee* rather than an average, in priority order:
+**Done 2026-07-02 (prices unchanged):**
 
-1. **Land the Haiku routing already recommended in US-1065** — route AutoLister +
-   Content to Haiku behind a value gate (~3× cheaper) and tune the grading
-   cascade. This is the single biggest lever and pushes blended per-action cost
-   toward ~$0.01.
-2. **Optionally right-size the Business AI-action cap** from 5,000 → ~2,000. Still
-   3× the heaviest realistic seller, but bounds the worst case far closer to the
-   40% floor. (Pro 1,000 → ~750 is the analogous move; lower marketing value.)
-3. **Keep the `ai_budgets` per-feature guardrail as the whale backstop** — it's
-   the hard stop that makes an unbounded cap safe in practice.
+1. **Right-sized the AI-action caps** — Pro 1,000 → 750, Business 5,000 → 2,000
+   (migration `00336` + `FLIPDESK_PLANS` / `FALLBACK_MATRIX` / `AI_ACTION_LIMITS`
+   / both cap ladders / IAP + doc copy). A maxed user now clears 40% at blended
+   cost (§5).
+2. **Closed the enforcement holes** — `scheduledActions` + `bulkActions` now gate
+   at 402, and the automation cron skips downgraded owners (§2).
 
-**Verdict:** tiers are fully defined and (as of 2026-07-02) fully enforced. At
-realistic usage every level clears 40% by a wide margin. The only exposure is a
-theoretical maxed-out Pro/Business user; the caps + backstops bound it, and the
-Haiku routing closes it without touching price.
+**Remaining lever (not yet done):**
+
+3. **Land the Haiku routing from US-1065** — route AutoLister + Content to Haiku
+   behind a value gate (~3× cheaper) and tune the grading cascade. This closes the
+   pathological all-vision tail (§5) and widens every tier's margin. Biggest
+   single win still on the table.
+
+The `ai_budgets` per-feature guardrail (US-895) remains the hard backstop that
+makes any cap safe in practice.
+
+**Verdict:** tiers are fully defined, fully enforced, and every level clears the
+40% floor at both realistic *and* maxed-out utilization after the right-size —
+without any price change. The only residual exposure (a maxed user whose every
+action is vision-heavy) is bounded by `ai_budgets` and closed by the pending
+Haiku routing.
