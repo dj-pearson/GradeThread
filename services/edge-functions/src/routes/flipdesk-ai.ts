@@ -1642,8 +1642,10 @@ flipdeskAiRoutes.post("/bulk-extract", async (c) => {
 
 /**
  * PATCH /log/:id
- * Records which suggested fields the user actually accepted, so US-167 can
- * compute an acceptance rate. Body: { accepted_fields: Record<string,unknown> }
+ * Records which suggested fields the user accepted (US-167 acceptance rate) and,
+ * for fields they EDITED, what they changed the AI value TO (US-1531 extraction
+ * correction-capture). Body: { accepted_fields?: Record<string,unknown>,
+ * corrected_fields?: Record<string,{suggested,final}> }
  */
 flipdeskAiRoutes.patch("/log/:id", async (c) => {
   // Re-bind userId to the active workspace owner. For solo users this is
@@ -1652,7 +1654,7 @@ flipdeskAiRoutes.patch("/log/:id", async (c) => {
   const userId = c.get("workspaceOwnerId") ?? c.get("userId");
   const id = c.req.param("id");
 
-  let body: { accepted_fields?: unknown };
+  let body: { accepted_fields?: unknown; corrected_fields?: unknown };
   try {
     body = await c.req.json();
   } catch {
@@ -1663,9 +1665,20 @@ flipdeskAiRoutes.patch("/log/:id", async (c) => {
       ? (body.accepted_fields as Record<string, unknown>)
       : {};
 
+  const update: Record<string, unknown> = { accepted_fields: acceptedFields };
+  // US-1531: only set corrected_fields when the caller supplies a plain object,
+  // so a PATCH that carries only acceptances never clobbers prior corrections.
+  if (
+    body.corrected_fields &&
+    typeof body.corrected_fields === "object" &&
+    !Array.isArray(body.corrected_fields)
+  ) {
+    update.corrected_fields = body.corrected_fields as Record<string, unknown>;
+  }
+
   const { error } = await supabaseAdmin
     .from("ai_enrichment_log")
-    .update({ accepted_fields: acceptedFields })
+    .update(update)
     .eq("id", id)
     .eq("user_id", userId);
 

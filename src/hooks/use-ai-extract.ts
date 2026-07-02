@@ -77,17 +77,30 @@ async function aiHeaders(): Promise<Record<string, string>> {
   return headers;
 }
 
-// Records which suggested fields the user accepted. Telemetry only — failures
-// are swallowed so they never block the user's Apply action.
+// US-1531: for a field the user EDITED away from the AI suggestion, the pair we
+// want is (what the AI proposed → what the user finalized).
+export interface AiCorrectionEntry {
+  suggested: unknown;
+  final: unknown;
+}
+
+// Records which suggested fields the user accepted (acceptance rate) and, for
+// edited fields, what they changed the AI value TO (US-1531 correction capture).
+// Telemetry only — failures are swallowed so they never block Apply.
 export async function recordAiAcceptance(
   logId: string,
-  acceptedFields: Record<string, unknown>
+  acceptedFields: Record<string, unknown>,
+  correctedFields?: Record<string, AiCorrectionEntry>
 ): Promise<void> {
   try {
+    const body: Record<string, unknown> = { accepted_fields: acceptedFields };
+    if (correctedFields && Object.keys(correctedFields).length > 0) {
+      body.corrected_fields = correctedFields;
+    }
     await fetch(`${edgeApiUrl()}/api/flipdesk/ai/log/${logId}`, {
       method: "PATCH",
       headers: await aiHeaders(),
-      body: JSON.stringify({ accepted_fields: acceptedFields }),
+      body: JSON.stringify(body),
     });
   } catch {
     /* non-fatal */
