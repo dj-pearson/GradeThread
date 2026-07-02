@@ -49,6 +49,24 @@ final class SpecificsEditorModel {
     var isSaving = false
     var errorMessage: String?
 
+    /// US-1513: the persisted baseline the current edits are compared against —
+    /// snapshotted after `start()` finishes (so the deterministic auto-refill,
+    /// which is re-derived for free on every open, doesn't count as dirty) and
+    /// re-snapshotted after a successful save. Drives the back-swipe guard.
+    private var baselineValues: [String: [String]] = [:]
+    private var baselineCategoryId: String?
+
+    /// US-1513: unsaved work exists — a manual/AI aspect edit or a category
+    /// change since the baseline. Backing out now would silently lose it.
+    var isDirty: Bool {
+        selectedCategoryId != baselineCategoryId || nonEmptyValues() != baselineValues
+    }
+
+    private func rebaseline() {
+        baselineValues = nonEmptyValues()
+        baselineCategoryId = selectedCategoryId
+    }
+
     /// US-824: a category change that would discard specifics, held until the
     /// user confirms. `nil` when there's nothing to confirm. Drives the
     /// confirm-before-discard alert in the view.
@@ -109,6 +127,8 @@ final class SpecificsEditorModel {
         // …then deterministically fill any gaps from the item's own data (no AI),
         // mirroring the web composer's prefill-on-load.
         await refillDerived(categoryId: cat)
+        // US-1513: everything up to here is loaded/derived, not user work.
+        rebaseline()
     }
 
     /// US-1407: retry the aspect-spec load after a `.failed` phase. The view's
@@ -299,6 +319,9 @@ final class SpecificsEditorModel {
             errorMessage = message(error)
             return false
         }
+        // US-1513: the item row is persisted — from here on, backing out loses
+        // nothing (the listing mirror / revise below surface their own errors).
+        rebaseline()
         // US-1500: mirror the new category onto the item's GT-origin listing row(s)
         // — draft OR active. The edge prefers `listings.platform_category_id` over
         // `inventory_items.ebay_category_id` at BOTH publish and revise, so without

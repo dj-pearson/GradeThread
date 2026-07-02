@@ -232,6 +232,79 @@ final class EbayPublishTests: XCTestCase {
         }
     }
 
+    // MARK: - US-1512: Promoted Listings ad-rate disclosure
+
+    private func summaryJSON(promotedAdRateLine: String?) -> String {
+        let extra = promotedAdRateLine.map { ",\n  \($0)" } ?? ""
+        return #"""
+        {
+          "title": "t", "description": "d", "condition": "USED_GOOD",
+          "conditionDescription": null, "priceValue": "42.00", "currency": "USD"\#(extra)
+        }
+        """#
+    }
+
+    func test_publishSummary_decodesPromotedAdRate_number() throws {
+        let parsed = try JSONDecoder().decode(
+            PublishSummary.self,
+            from: Data(summaryJSON(promotedAdRateLine: #""promotedAdRate": 8"#).utf8)
+        )
+        XCTAssertEqual(parsed.promotedAdRate, 8)
+        XCTAssertTrue(parsed.promotedAdRateKnown)
+    }
+
+    func test_publishSummary_decodesPromotedAdRate_nullMeansOptedOut() throws {
+        let parsed = try JSONDecoder().decode(
+            PublishSummary.self,
+            from: Data(summaryJSON(promotedAdRateLine: #""promotedAdRate": null"#).utf8)
+        )
+        XCTAssertNil(parsed.promotedAdRate)
+        // Known: the server DID resolve — the composer shows the toggle off.
+        XCTAssertTrue(parsed.promotedAdRateKnown)
+    }
+
+    func test_publishSummary_absentPromotedAdRate_isUnknown_notOptedOut() throws {
+        let parsed = try JSONDecoder().decode(
+            PublishSummary.self,
+            from: Data(summaryJSON(promotedAdRateLine: nil).utf8)
+        )
+        XCTAssertNil(parsed.promotedAdRate)
+        // An older edge that never sends the field must not render as "opted
+        // out" — the control is hidden entirely.
+        XCTAssertFalse(parsed.promotedAdRateKnown)
+    }
+
+    private func promoSummary(rate: Double?) -> PublishSummary {
+        PublishSummary(
+            title: "t", description: "d", condition: "USED_GOOD",
+            conditionDescription: nil, priceValue: "42.00", currency: "USD",
+            aspects: nil, promotedAdRate: rate, promotedAdRateKnown: true
+        )
+    }
+
+    func test_publishSummaryMerging_carriesPromoChoice() {
+        var edits = ComposerEdits(
+            title: "t", condition: .usedGood, conditionDescription: "", description: "d"
+        )
+
+        // Untouched control → the server resolution rides through a resume.
+        XCTAssertEqual(PublishSummary.merging(edits, into: promoSummary(rate: 8)).promotedAdRate, 8)
+
+        // Opt-out zeroes the resolved rate.
+        edits.promoteEnabled = false
+        XCTAssertNil(PublishSummary.merging(edits, into: promoSummary(rate: 8)).promotedAdRate)
+
+        // Adjusted rate replaces it; promote-with-no-parse keeps the base.
+        edits.promoteEnabled = true
+        edits.promoRatePct = 11
+        XCTAssertEqual(PublishSummary.merging(edits, into: promoSummary(rate: 8)).promotedAdRate, 11)
+        edits.promoRatePct = nil
+        XCTAssertEqual(PublishSummary.merging(edits, into: promoSummary(rate: 8)).promotedAdRate, 8)
+
+        // Known-ness is preserved so a resumed composer still shows the control.
+        XCTAssertTrue(PublishSummary.merging(edits, into: promoSummary(rate: 8)).promotedAdRateKnown)
+    }
+
     // MARK: - Offline classification (US-1006)
 
     func test_networkFailureMessage_offlineErrorIsFriendly() {

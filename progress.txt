@@ -8877,3 +8877,50 @@ VERIFICATION: deno lint clean (4 files); FULL edge suite 2455 passed / 0 failed 
 brace-balance scans clean on all 13 touched Swift files; stale-reference grep clean
 (eligibleCount()→checkEligible() rename fully propagated incl. NegotiationTests fake).
 Still LOCAL-ONLY (00338 pending prod apply); commit held with the previous two.
+
+=== 2026-07-02 (session cont.): US-1512 + US-1513 (iOS money transparency + dirty-form guards) ===
+US-1512 (Promoted Listings disclosure in the iOS composer):
+- Server already resolves the ad rate into /listings/validate summary.promotedAdRate (US-561)
+  and the promo columns exist on listings - NO edge/web changes; iOS-only story.
+- PublishSummary decodes promotedAdRate + promotedAdRateKnown (container.contains distinguishes
+  "resolved null = opted out" from an older edge omitting the key entirely; custom init(from:)
+  + explicit memberwise init since the synthesized one is replaced).
+- ComposerForm: new "Promoted Listings" section (toggle + adjustable % rate seeded from the
+  server-resolved rate, only rendered when promotedAdRateKnown) + profit-estimate footnote
+  "Promoted ad: X% (~$Y) also comes out if it sells through the ad". The ad fee is a labeled
+  footnote, NOT folded into net - eBay charges it only on ad-attributed sales and the net must
+  stay a mirror of the web estimateListingProfit (AC4 parity).
+- ListingProfit.promotedAdFee + PromotedAdRate enum (clamp 2-20 = edge MIN/MAX_AD_RATE_PCT,
+  locale-tolerant parse incl. comma-decimal, "8"/"8.5" format).
+- Persistence: ComposerEdits gains promoteEnabled/promoRatePct; saveDraft writes promo_opt_out
+  + promo_rate_pct EXPLICITLY (encode-null so a cleared rate returns to the category suggestion
+  and never leaves a stale chosen rate) when the control was shown; nil promoteEnabled (older
+  edge) leaves both columns untouched. Publish then resolves via resolvePublishAdRate as before
+  -> opting out attaches no ad (AC3). merging() carries the promo choice through resume.
+US-1513 (dirty-form guards - the "my work vanished" class):
+- NEW Components/InteractivePopGuard.swift: UIViewControllerRepresentable that disables the
+  UINavigationController interactivePopGestureRecognizer while blocked (SwiftUI has no API;
+  navigationBarBackButtonHidden alone doesn't reliably kill the swipe on newer iOS). Restores
+  on unblock/disappear; only re-enables a recognizer it disabled itself.
+- EbayCategorySpecificsView (pushed): SpecificsEditorModel gains isDirty (baseline snapshot
+  after start()'s deterministic refill, re-baselined after save's inventory_items write) ->
+  while dirty: navigationBarBackButtonHidden + InteractivePopGuard + a toolbar Back that opens
+  "You have unsaved specifics" (Save & close / Discard changes / Keep editing). Fill-with-AI
+  results can no longer be lost to one back-tap/swipe.
+- PublishDialog: interactiveDismissDisabled while phase == .pushing (mid-push dismissal orphaned
+  onPublished -> item looked unpublished until next sync) or while the composer differs from the
+  validated summary (ComposerForm onDirty ratchet, reset on each runValidate - conservative so a
+  resumed composer keeps its guard). Close while dirty now confirms ("Discard your edits?").
+- ItemCanvasView (pushed; its interactiveDismissDisabled was a no-op): navigationBarBackButtonHidden
+  + InteractivePopGuard while state.isDirty, so edge-swipe/system chevron can't bypass the custom
+  Back's discard confirmation.
+- Negotiation sheets: CounterOfferSheet / MessageReplySheet / SendOfferSheet get
+  interactiveDismissDisabled while typed-non-empty or submitting (FeedbackSheet pattern).
+TESTS: EbayPublishTests (promotedAdRate decode present/null/absent + merging promo carry),
+ListingComposerTests (promotedAdFee, PromotedAdRate parse/clamp/format, net unchanged),
+SpecificsEditorTests (isDirty false-fresh/true-after-edit/clears-on-revert, blank normalization).
+VERIFICATION: iOS no-ungated-print OK; curly-quote-delimiter + brace/paren balance scans clean on
+all 12 touched Swift files (the 2 curly-quote hits in ItemCanvasView are pre-existing string
+CONTENT, not delimiters); project.yml source glob auto-includes the new Components file; iOS CI
+on push remains the compile gate. No web/edge changes -> no web/edge lanes run.
+Still LOCAL-ONLY (00338 pending prod apply); commit held with the previous ones.

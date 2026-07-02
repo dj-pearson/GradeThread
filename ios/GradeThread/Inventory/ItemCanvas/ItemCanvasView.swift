@@ -223,6 +223,13 @@ struct ItemCanvasView: View {
             Text(labelError ?? "")
         }
         .interactiveDismissDisabled(state?.isDirty == true)
+        // US-1513: the canvas is PUSHED (ContentView/GlobalSearch/Sales), so the
+        // sheet-only interactiveDismissDisabled above never fires there — the
+        // system back chevron and the edge-swipe pop both bypassed the custom
+        // Back button's discard confirmation. While dirty: hide the chevron (the
+        // toolbar Back with its confirm remains) and block the pop gesture.
+        .navigationBarBackButtonHidden(state?.isDirty == true)
+        .background(InteractivePopGuard(blocked: state?.isDirty == true))
         .confirmationDialog(
             "Discard your changes?",
             isPresented: $showingDiscardConfirmation,

@@ -47,6 +47,17 @@ struct PublishSummary: Decodable, Equatable {
     /// item canvas does instead of searching on bare title with nil brand/size.
     /// Optional — older drafts / non-clothing items may omit it.
     let aspects: [String: [String]]?
+    /// US-1512: the Promoted Listings ad rate the SERVER resolved for this
+    /// publish (`resolvePublishAdRate` — the seller's chosen rate, else the
+    /// category suggestion). `nil` = the seller opted out, so no ad attaches.
+    /// Every publish otherwise silently attaches an ad at this rate, so the
+    /// composer must disclose it (mirrors web US-561).
+    let promotedAdRate: Double?
+    /// US-1512: whether the server actually sent `promotedAdRate` (a JSON `null`
+    /// and an ABSENT key both decode to nil). Only when true does the composer
+    /// render the promotion control — an older edge that never resolves a rate
+    /// must not be misread as "opted out".
+    let promotedAdRateKnown: Bool
 
     private enum CodingKeys: String, CodingKey {
         case title, description, condition
@@ -54,6 +65,46 @@ struct PublishSummary: Decodable, Equatable {
         case priceValue = "priceValue"
         case currency
         case aspects
+        case promotedAdRate
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        title = try c.decode(String.self, forKey: .title)
+        description = try c.decode(String.self, forKey: .description)
+        condition = try c.decodeIfPresent(String.self, forKey: .condition)
+        conditionDescription = try c.decodeIfPresent(String.self, forKey: .conditionDescription)
+        priceValue = try c.decode(String.self, forKey: .priceValue)
+        currency = try c.decodeIfPresent(String.self, forKey: .currency)
+        aspects = try c.decodeIfPresent([String: [String]].self, forKey: .aspects)
+        // US-1512: `contains` distinguishes "server resolved no ad (opt-out) →
+        // null" from an older edge that omits the field entirely.
+        promotedAdRateKnown = c.contains(.promotedAdRate)
+        promotedAdRate = try c.decodeIfPresent(Double.self, forKey: .promotedAdRate)
+    }
+
+    /// Memberwise init for `merging`, tests, and previews (the custom Decodable
+    /// init above replaces the synthesized one).
+    init(
+        title: String,
+        description: String,
+        condition: String?,
+        conditionDescription: String?,
+        priceValue: String,
+        currency: String?,
+        aspects: [String: [String]]?,
+        promotedAdRate: Double? = nil,
+        promotedAdRateKnown: Bool = false
+    ) {
+        self.title = title
+        self.description = description
+        self.condition = condition
+        self.conditionDescription = conditionDescription
+        self.priceValue = priceValue
+        self.currency = currency
+        self.aspects = aspects
+        self.promotedAdRate = promotedAdRate
+        self.promotedAdRateKnown = promotedAdRateKnown
     }
 
     /// US-1237: best-effort brand pulled from the eBay aspect map, used to
@@ -87,6 +138,15 @@ struct PublishSummary: Decodable, Equatable {
         // a resumed composer restores the value the seller just typed; a blank
         // edit keeps the validated base price.
         let editedPrice = edits.price.trimmingCharacters(in: .whitespacesAndNewlines)
+        // US-1512: carry the promotion choice through a resume the same way —
+        // opting out zeroes the resolved rate; an adjusted rate replaces it; an
+        // untouched control keeps the server's resolution.
+        let promotedAdRate: Double?
+        switch edits.promoteEnabled {
+        case .some(false): promotedAdRate = nil
+        case .some(true): promotedAdRate = edits.promoRatePct ?? base.promotedAdRate
+        case .none: promotedAdRate = base.promotedAdRate
+        }
         return PublishSummary(
             title: edits.title,
             description: edits.description,
@@ -94,7 +154,9 @@ struct PublishSummary: Decodable, Equatable {
             conditionDescription: note.isEmpty ? nil : note,
             priceValue: editedPrice.isEmpty ? base.priceValue : editedPrice,
             currency: base.currency,
-            aspects: base.aspects
+            aspects: base.aspects,
+            promotedAdRate: promotedAdRate,
+            promotedAdRateKnown: base.promotedAdRateKnown
         )
     }
 }

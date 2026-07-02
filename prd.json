@@ -9135,7 +9135,7 @@
         "Estimate matches web's for the same inputs."
       ],
       "priority": 2379,
-      "passes": false,
+      "passes": true,
       "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Money-transparency; reviewers and users both read the profit estimate as a promise."
     },
     {
@@ -9149,7 +9149,7 @@
         "Negotiation compose sheets get interactiveDismissDisabled while non-empty/submitting (FeedbackSheet.swift:91 pattern)."
       ],
       "priority": 2378,
-      "passes": false,
+      "passes": true,
       "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] The 'my work vanished' class — reviewers trigger it naturally by swiping."
     },
     {

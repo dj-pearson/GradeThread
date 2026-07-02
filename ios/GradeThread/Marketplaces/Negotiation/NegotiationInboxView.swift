@@ -351,6 +351,10 @@ private struct CounterOfferSheet: View {
                 }
             }
         }
+        // US-1513: a swipe-down mustn't discard a typed counter (or tear the
+        // sheet down mid-send) — Cancel stays the explicit exit. FeedbackSheet
+        // pattern.
+        .interactiveDismissDisabled(isSubmitting || !priceText.isEmpty || !message.isEmpty)
     }
 
     private func submit() {
@@ -439,6 +443,8 @@ private struct MessageReplySheet: View {
                 }
             }
         }
+        // US-1513: don't let a swipe-down discard a typed reply / interrupt a send.
+        .interactiveDismissDisabled(isSubmitting || !replyText.isEmpty)
     }
 
     private func submit() {
@@ -592,6 +598,9 @@ private struct SendOfferSheet: View {
                 Text(confirmMessage)
             }
         }
+        // US-1513: a swipe-down mustn't discard a typed buyer note or interrupt
+        // an in-flight send — Cancel stays the explicit exit.
+        .interactiveDismissDisabled(isSubmitting || !message.isEmpty)
     }
 
     private func submit() {

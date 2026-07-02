@@ -45,6 +45,52 @@ public struct ListingProfit: Equatable {
 }
 
 extension ListingProfit {
+    /// US-1512: estimated Promoted Listings ad fee at `ratePct` percent of the
+    /// price. eBay charges this ONLY when the sale is attributed to the ad, so
+    /// it is surfaced as a separate labeled line under the estimate rather than
+    /// folded into `net` — the net stays a field-for-field mirror of the web
+    /// `estimateListingProfit` (which likewise excludes the conditional ad fee).
+    public static func promotedAdFee(price: Double, ratePct: Double) -> Double {
+        max(0, price) * max(0, ratePct) / 100
+    }
+}
+
+/// US-1512: composer-side helpers for the Promoted Listings ad rate — the same
+/// bounds the edge enforces (`ebay-marketing.ts` MIN/MAX_AD_RATE_PCT), so the
+/// number the seller sees is the number the server will apply.
+enum PromotedAdRate {
+    static let minPct = 2.0
+    static let maxPct = 20.0
+
+    static func clamp(_ pct: Double) -> Double {
+        guard pct.isFinite else { return minPct }
+        return min(maxPct, max(minPct, pct))
+    }
+
+    /// Locale-tolerant parse of the composer's rate text ("8", "8.5", "8,5",
+    /// "8%"). nil when blank/unparseable/non-positive — the server then falls
+    /// back to the category suggestion (same contract as the web composer's
+    /// blank rate box).
+    static func parse(_ text: String) -> Double? {
+        let cleaned = text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "%", with: "")
+            .replacingOccurrences(of: ",", with: ".")
+        guard let value = Double(cleaned), value > 0 else { return nil }
+        return clamp(value)
+    }
+
+    /// "8" / "8.5" — eBay bids carry at most one decimal, and a bare integer
+    /// shouldn't render ".0" noise.
+    static func format(_ pct: Double) -> String {
+        let value = clamp(pct)
+        return value == value.rounded()
+            ? String(Int(value))
+            : String(format: "%.1f", value)
+    }
+}
+
+extension ListingProfit {
     /// `net` rounded to whole cents through ``Money`` — the SAME rounding the
     /// Money tab applies to each completed sale's realized P&L (`Money.sum` over
     /// `SalePnL.net`). The composer displays THIS, not the raw `net`, so its

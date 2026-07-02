@@ -36,6 +36,14 @@ struct PublishDialog: View {
     /// US-828/US-1511: aspect values the server will omit from the eBay payload
     /// (value-validation), shown as composer warnings. Set by runValidate.
     @State private var aspectWarnings: [String] = []
+    /// US-1513: the composer reported edits that differ from the validated
+    /// summary. Ratchets up only (a revert-to-original stays true) and resets on
+    /// a fresh validate — conservative on purpose, so a resumed composer that
+    /// re-seeds from the merged summary keeps its swipe guard.
+    @State private var composerDirty = false
+    /// US-1513: Close tapped while the composer holds unsaved edits — confirm
+    /// before discarding instead of silently dropping what the seller typed.
+    @State private var showingCloseConfirmation = false
     private let service = EbayPublishService()
 
     private enum Phase: Equatable {
@@ -69,10 +77,33 @@ struct PublishDialog: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { dismiss() }
-                        .disabled(phase == .pushing)
+                    Button("Close") {
+                        // US-1513: typed-but-unpushed edits get a confirm; every
+                        // other phase closes immediately as before.
+                        if case .readyToPush = phase, composerDirty {
+                            showingCloseConfirmation = true
+                        } else {
+                            dismiss()
+                        }
+                    }
+                    .disabled(phase == .pushing)
                 }
             }
+        }
+        // US-1513: a swipe-down used to discard typed title/note/description —
+        // and worse, dismiss MID-PUSH (Close is disabled but the gesture wasn't):
+        // the push continued server-side but `onPublished` never ran, so the item
+        // looked unpublished until the next sync. EbaySyncModal pattern.
+        .interactiveDismissDisabled(interactiveDismissBlocked)
+        .confirmationDialog(
+            "Discard your edits?",
+            isPresented: $showingCloseConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Discard & close", role: .destructive) { dismiss() }
+            Button("Keep editing", role: .cancel) {}
+        } message: {
+            Text("You have unpublished edits in the composer.")
         }
         .task { await runValidate() }
         .sheet(isPresented: $showingSafari) {
@@ -81,6 +112,16 @@ struct PublishDialog: View {
                 SafariView(url: url)
             }
         }
+    }
+
+    /// US-1513: swipe-to-dismiss is blocked while a push is in flight (dismissal
+    /// mid-push orphans `onPublished`) or while the composer holds unsaved edits.
+    /// Success/blocked/failure cards stay swipe-dismissable — they all have
+    /// explicit buttons and nothing typed left to lose.
+    private var interactiveDismissBlocked: Bool {
+        if phase == .pushing { return true }
+        if case .readyToPush = phase { return composerDirty }
+        return false
     }
 
     // MARK: - Phase bodies
@@ -99,7 +140,8 @@ struct PublishDialog: View {
                 acquiredCost: acquiredCost,
                 pushLabel: relist ? "Relist on eBay" : "Push to eBay",
                 showRelistWarning: listingActive,
-                aspectWarnings: aspectWarnings
+                aspectWarnings: aspectWarnings,
+                onDirty: { composerDirty = true }
             ) { edits in
                 Task { await runPush(edits: edits, summary: summary) }
             }
@@ -321,6 +363,9 @@ struct PublishDialog: View {
 
     private func runValidate() async {
         phase = .validating
+        // US-1513: a fresh validate rebuilds the composer from the server truth,
+        // so the dirty ratchet starts over.
+        composerDirty = false
         let outcome = await service.validate(inventoryItemId: inventoryItemId)
         switch outcome {
         case .validated(let response):
@@ -469,6 +514,9 @@ private struct ComposerForm: View {
     /// US-828/US-1511: "X won't be sent" lines from the validate pre-flight —
     /// non-blocking, but the seller should see them before committing.
     var aspectWarnings: [String] = []
+    /// US-1513: fired (once or more) when the composer's fields first differ
+    /// from the validated summary — the parent uses it to block swipe-dismiss.
+    var onDirty: () -> Void = {}
     let onPush: (ComposerEdits) -> Void
 
     /// US-981: proactively gate the push button when offline so it shows an
@@ -485,6 +533,12 @@ private struct ComposerForm: View {
     /// bounced to the canvas; otherwise the price stays read-only (the canvas is
     /// its home) and this just mirrors the summary value.
     @State private var priceInput: String
+    /// US-1512: Promoted Listings disclosure. Every publish otherwise silently
+    /// attaches an ad at the server-resolved rate — the seller sees (and can
+    /// adjust or opt out of) that rate here, mirroring the web composer (US-561).
+    /// Seeded from `summary.promotedAdRate` (nil = previously opted out).
+    @State private var promoteEnabled: Bool
+    @State private var promoRateText: String
 
     // US-1497: synchronous in-flight guard (the CounterOfferSheet isSubmitting
     // pattern). Set true on tap BEFORE `onPush`, so the button disables in the
@@ -603,6 +657,7 @@ private struct ComposerForm: View {
         pushLabel: String = "Push to eBay",
         showRelistWarning: Bool = false,
         aspectWarnings: [String] = [],
+        onDirty: @escaping () -> Void = {},
         onPush: @escaping (ComposerEdits) -> Void
     ) {
         self.summary = summary
@@ -611,12 +666,39 @@ private struct ComposerForm: View {
         self.pushLabel = pushLabel
         self.showRelistWarning = showRelistWarning
         self.aspectWarnings = aspectWarnings
+        self.onDirty = onDirty
         self.onPush = onPush
         _title = State(initialValue: String(summary.title.prefix(Self.titleLimit)))
         _condition = State(initialValue: EbayCondition.resolve(summary.condition))
         _conditionDescription = State(initialValue: summary.conditionDescription ?? "")
         _description = State(initialValue: summary.description)
         _priceInput = State(initialValue: summary.priceValue)
+        _promoteEnabled = State(initialValue: summary.promotedAdRate != nil)
+        _promoRateText = State(initialValue: Self.seedRateText(summary.promotedAdRate))
+    }
+
+    /// US-1512: what the rate box starts as — the server-resolved rate, or empty
+    /// when opted out.
+    private static func seedRateText(_ rate: Double?) -> String {
+        rate.map(PromotedAdRate.format) ?? ""
+    }
+
+    /// US-1513: any field differing from the validated summary it was seeded
+    /// from. Template application and a promo change count — they're all work
+    /// the seller would lose to a stray swipe.
+    private var isDirty: Bool {
+        title != String(summary.title.prefix(Self.titleLimit))
+            || condition != EbayCondition.resolve(summary.condition)
+            || conditionDescription != (summary.conditionDescription ?? "")
+            || description != summary.description
+            || priceInput != summary.priceValue
+            || !templateItemSpecifics.isEmpty
+            || templateCategoryId != nil
+            || templateReturnPolicyId != nil
+            || templateShippingPolicyId != nil
+            || templatePaymentPolicyId != nil
+            || promoteEnabled != (summary.promotedAdRate != nil)
+            || (promoteEnabled && promoRateText != Self.seedRateText(summary.promotedAdRate))
     }
 
     private var trimmedTitle: String {
@@ -724,6 +806,7 @@ private struct ComposerForm: View {
                 }
 
                 priceSection
+                promoSection
                 profitEstimate
                 // US-1167: comp context (median + spread) from eBay so the seller
                 // can sanity-check the price before publishing. The string is built
@@ -759,7 +842,14 @@ private struct ComposerForm: View {
                         ebayCategoryId: templateCategoryId,
                         returnPolicyId: templateReturnPolicyId,
                         shippingPolicyId: templateShippingPolicyId,
-                        paymentPolicyId: templatePaymentPolicyId
+                        paymentPolicyId: templatePaymentPolicyId,
+                        // US-1512: only carry a promo choice when the control was
+                        // actually shown; an unparseable rate falls back to the
+                        // category suggestion server-side (persisted as null).
+                        promoteEnabled: summary.promotedAdRateKnown ? promoteEnabled : nil,
+                        promoRatePct: summary.promotedAdRateKnown && promoteEnabled
+                            ? PromotedAdRate.parse(promoRateText)
+                            : nil
                     ))
                 } label: {
                     Text(pushLabel)
@@ -778,6 +868,11 @@ private struct ComposerForm: View {
         }
         .scrollDismissesKeyboard(.interactively)
         .keyboardDoneToolbar()
+        // US-1513: report the first divergence from the validated summary so the
+        // parent can block swipe-dismiss (the parent ratchets — see composerDirty).
+        .onChange(of: isDirty) { _, dirty in
+            if dirty { onDirty() }
+        }
         .task { await templateStore.load() }
         // US-1237: load comps from the ALWAYS-present composer body, not the comp
         // caption (conditionally rendered) — so the lookup fires even when there
@@ -1026,6 +1121,53 @@ private struct ComposerForm: View {
         }
     }
 
+    // MARK: - Promoted Listings (US-1512)
+
+    /// The ad rate the publish will actually apply given the current controls:
+    /// nil when opted out (or the control isn't shown), the parsed adjusted
+    /// rate, else the server-resolved rate the box was seeded with.
+    private var effectivePromoRate: Double? {
+        guard summary.promotedAdRateKnown, promoteEnabled else { return nil }
+        return PromotedAdRate.parse(promoRateText) ?? summary.promotedAdRate
+    }
+
+    /// Discloses the Promoted Listings ad the publish attaches by default, with
+    /// an adjust/opt-out control (mirrors web US-561). Only rendered when the
+    /// server resolved a rate — an older edge that omits the field must not be
+    /// misread as "opted out".
+    @ViewBuilder
+    private var promoSection: some View {
+        if summary.promotedAdRateKnown {
+            fieldGroup("Promoted Listings") {
+                Toggle(isOn: $promoteEnabled) {
+                    Text("Promote this listing")
+                        .font(.subheadline)
+                }
+                .tint(Color.brandNavy)
+                if promoteEnabled {
+                    let seeded = Self.seedRateText(summary.promotedAdRate)
+                    HStack(spacing: 6) {
+                        TextField(seeded.isEmpty ? "8" : seeded, text: $promoRateText)
+                            .keyboardType(.decimalPad)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(maxWidth: 80)
+                            .accessibilityLabel("Promoted Listings ad rate percent")
+                        Text("% ad rate")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text("eBay charges this percent of the sale price only if the item sells through the ad. Leave blank to use eBay's suggested rate.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("No ad will be attached to this listing.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
     // MARK: - Profit estimate
 
     @ViewBuilder
@@ -1039,16 +1181,27 @@ private struct ComposerForm: View {
         // the estimate live (equals the summary price when nothing was edited).
         let price = Money.cents(CurrencyFormatter().parse(priceInput) ?? 0)
         let estimate = ListingProfit.estimate(price: price, costBasis: acquiredCost)
-        HStack(alignment: .firstTextBaseline) {
-            Text("Est. net profit")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            Spacer()
-            VStack(alignment: .trailing, spacing: 1) {
-                Text("\(Self.dollars(estimate.netCents)) · \(Int(estimate.marginPctCents(price: price).rounded()))% margin")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(profitColor(estimate))
-                Text(profitDetail(estimate))
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Est. net profit")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text("\(Self.dollars(estimate.netCents)) · \(Int(estimate.marginPctCents(price: price).rounded()))% margin")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(profitColor(estimate))
+                    Text(profitDetail(estimate))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            // US-1512: the ad fee applies only on an ad-attributed sale, so it's
+            // a labeled footnote rather than folded into the net (which stays a
+            // mirror of the web estimate — see ListingProfit.promotedAdFee).
+            if let rate = effectivePromoRate, price > 0 {
+                let fee = Money.cents(ListingProfit.promotedAdFee(price: price, ratePct: rate))
+                Text("Promoted ad: \(PromotedAdRate.format(rate))% (~\(Self.dollars(fee))) also comes out if it sells through the ad.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }

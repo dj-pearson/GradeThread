@@ -164,4 +164,32 @@ final class SpecificsEditorTests: XCTestCase {
         XCTAssertEqual(AspectProvenance.manual.rawValue, "manual")
         XCTAssertEqual(AspectProvenance(rawValue: "ai_extracted"), .aiExtracted)
     }
+
+    // MARK: - US-1513: dirty tracking (drives the back-swipe guard)
+
+    @MainActor
+    func test_isDirty_falseOnFreshModel_trueAfterEdit_clearsWhenReverted() {
+        let model = SpecificsEditorModel(itemId: "item-1")
+        XCTAssertFalse(model.isDirty)
+
+        model.setSingle("Levi's", for: "Brand")
+        XCTAssertTrue(model.isDirty)
+
+        // Clearing the only edit returns to the (empty) baseline.
+        model.setSingle("", for: "Brand")
+        XCTAssertFalse(model.isDirty)
+    }
+
+    @MainActor
+    func test_isDirty_ignoresBlankValues_countsMultiToggle() {
+        let model = SpecificsEditorModel(itemId: "item-1")
+        // A blank write is normalized away — not dirty.
+        model.setSingle("   ", for: "Brand")
+        XCTAssertFalse(model.isDirty)
+
+        model.toggleMulti("Waterproof", for: "Features")
+        XCTAssertTrue(model.isDirty)
+        model.toggleMulti("Waterproof", for: "Features")
+        XCTAssertFalse(model.isDirty)
+    }
 }

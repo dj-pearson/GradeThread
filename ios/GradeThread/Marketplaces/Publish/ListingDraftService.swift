@@ -113,12 +113,17 @@ struct ListingDraftService {
                 let return_policy_id: String?
                 let shipping_policy_id: String?
                 let payment_policy_id: String?
+                // US-1512: the composer's Promoted Listings choice. `nil`
+                // promo_opt_out = control not shown → leave both columns alone.
+                let promo_opt_out: Bool?
+                let promo_rate_pct: Double?
 
                 enum CodingKeys: String, CodingKey {
                     case listing_title, listing_description, ebay_condition
                     case ebay_condition_description, item_specifics_override
                     case platform_category_id, return_policy_id
                     case shipping_policy_id, payment_policy_id
+                    case promo_opt_out, promo_rate_pct
                 }
                 // US-1501: `ebay_condition_description` is encoded EXPLICITLY (null
                 // when nil) so CLEARING the composer condition note actually clears
@@ -137,6 +142,14 @@ struct ListingDraftService {
                     try c.encodeIfPresent(return_policy_id, forKey: .return_policy_id)
                     try c.encodeIfPresent(shipping_policy_id, forKey: .shipping_policy_id)
                     try c.encodeIfPresent(payment_policy_id, forKey: .payment_policy_id)
+                    // US-1512: when the promo control WAS shown, both columns are
+                    // written explicitly — promo_rate_pct must be able to return
+                    // to null ("use the category suggestion"), so nil-omission
+                    // would leave a stale chosen rate shadowing the suggestion.
+                    if let promoOptOut = promo_opt_out {
+                        try c.encode(promoOptOut, forKey: .promo_opt_out)
+                        try c.encode(promo_rate_pct, forKey: .promo_rate_pct)
+                    }
                 }
             }
             try await supabase
@@ -150,7 +163,9 @@ struct ListingDraftService {
                     platform_category_id: edits.ebayCategoryId,
                     return_policy_id: edits.returnPolicyId,
                     shipping_policy_id: edits.shippingPolicyId,
-                    payment_policy_id: edits.paymentPolicyId
+                    payment_policy_id: edits.paymentPolicyId,
+                    promo_opt_out: edits.promoteEnabled.map { !$0 },
+                    promo_rate_pct: edits.promoteEnabled == true ? edits.promoRatePct : nil
                 ))
                 .eq("id", value: row.id)
                 .execute()
@@ -169,6 +184,11 @@ struct ListingDraftService {
                 let return_policy_id: String?
                 let shipping_policy_id: String?
                 let payment_policy_id: String?
+                // US-1512: synthesized nil-omission is correct here — a fresh row
+                // falls back to the column defaults when the control wasn't shown,
+                // and an explicit true/false (or chosen rate) is always encoded.
+                let promo_opt_out: Bool?
+                let promo_rate_pct: Double?
             }
             try await supabase
                 .from("listings")
@@ -185,7 +205,9 @@ struct ListingDraftService {
                     platform_category_id: edits.ebayCategoryId,
                     return_policy_id: edits.returnPolicyId,
                     shipping_policy_id: edits.shippingPolicyId,
-                    payment_policy_id: edits.paymentPolicyId
+                    payment_policy_id: edits.paymentPolicyId,
+                    promo_opt_out: edits.promoteEnabled.map { !$0 },
+                    promo_rate_pct: edits.promoteEnabled == true ? edits.promoRatePct : nil
                 ))
                 .execute()
         }
@@ -247,6 +269,14 @@ struct ComposerEdits: Equatable {
     var returnPolicyId: String? = nil
     var shippingPolicyId: String? = nil
     var paymentPolicyId: String? = nil
+    /// US-1512: the composer's Promoted Listings choice. nil = the control was
+    /// never shown (older edge without `promotedAdRate` in the summary), so
+    /// `saveDraft` leaves `promo_opt_out`/`promo_rate_pct` untouched.
+    var promoteEnabled: Bool? = nil
+    /// US-1512: the seller's adjusted CPS ad rate (%). nil while
+    /// `promoteEnabled == true` = keep/return to the category suggestion at
+    /// publish (`promo_rate_pct` becomes null — the web composer's blank box).
+    var promoRatePct: Double? = nil
 }
 
 /// US-1264: pure, testable transform that computes the composer's field values

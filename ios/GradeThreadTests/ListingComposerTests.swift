@@ -44,6 +44,47 @@ final class ListingComposerTests: XCTestCase {
         XCTAssertEqual(e.costs, 0)
     }
 
+    // MARK: - US-1512: Promoted Listings ad-rate disclosure
+
+    func test_promotedAdFee_percentOfPrice_clampsNegatives() {
+        XCTAssertEqual(ListingProfit.promotedAdFee(price: 100, ratePct: 8), 8, accuracy: 0.0001)
+        XCTAssertEqual(ListingProfit.promotedAdFee(price: 42, ratePct: 11), 4.62, accuracy: 0.0001)
+        XCTAssertEqual(ListingProfit.promotedAdFee(price: 0, ratePct: 8), 0)
+        XCTAssertEqual(ListingProfit.promotedAdFee(price: -10, ratePct: 8), 0)
+        XCTAssertEqual(ListingProfit.promotedAdFee(price: 100, ratePct: -3), 0)
+    }
+
+    /// US-1512 AC: the ad fee is a labeled footnote, NOT folded into the net —
+    /// the estimate stays a field-for-field mirror of the web estimate.
+    func test_promotedAdFee_doesNotChangeCoreEstimate() {
+        let e = ListingProfit.estimate(price: 100, costBasis: 30)
+        XCTAssertEqual(e.net, 56.35, accuracy: 0.0001)
+    }
+
+    func test_promotedAdRate_parse_localeAndNoise() {
+        XCTAssertEqual(PromotedAdRate.parse("8"), 8)
+        XCTAssertEqual(PromotedAdRate.parse(" 8.5 "), 8.5)
+        XCTAssertEqual(PromotedAdRate.parse("8,5"), 8.5)   // comma-decimal keyboards
+        XCTAssertEqual(PromotedAdRate.parse("8%"), 8)
+        XCTAssertNil(PromotedAdRate.parse(""))
+        XCTAssertNil(PromotedAdRate.parse("abc"))
+        XCTAssertNil(PromotedAdRate.parse("0"))
+        XCTAssertNil(PromotedAdRate.parse("-4"))
+    }
+
+    func test_promotedAdRate_parse_clampsToServerBounds() {
+        // Same bounds the edge enforces (MIN/MAX_AD_RATE_PCT) — the number shown
+        // must be the number applied.
+        XCTAssertEqual(PromotedAdRate.parse("1"), 2)
+        XCTAssertEqual(PromotedAdRate.parse("55"), 20)
+    }
+
+    func test_promotedAdRate_format_dropsIntegerNoise_keepsOneDecimal() {
+        XCTAssertEqual(PromotedAdRate.format(8), "8")
+        XCTAssertEqual(PromotedAdRate.format(8.5), "8.5")
+        XCTAssertEqual(PromotedAdRate.format(25), "20") // clamped
+    }
+
     // MARK: - US-1002: composer estimate ↔ Money tab parity
 
     /// UTC calendar + fixed `now` so the Money rollup's month filter is

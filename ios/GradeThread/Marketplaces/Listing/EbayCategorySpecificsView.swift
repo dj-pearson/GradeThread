@@ -9,6 +9,8 @@ struct EbayCategorySpecificsView: View {
     @State private var searchDebounce: Task<Void, Never>?
     /// US-1190: transient "no new suggestions" note after an empty AI fill.
     @State private var aiFillEmptyNote = false
+    /// US-1513: Back tapped with unsaved specifics — confirm before losing them.
+    @State private var showingDiscardConfirmation = false
     @Environment(\.dismiss) private var dismiss
 
     init(itemId: String, liveListingId: String? = nil) {
@@ -47,25 +49,39 @@ struct EbayCategorySpecificsView: View {
         }
         .navigationTitle("eBay Specifics")
         .navigationBarTitleDisplayMode(.inline)
+        // US-1513: this is a PUSHED view whose edits persist only via Save — a
+        // back-tap or edge-swipe after "Fill with AI" + reviewing 10 aspects used
+        // to silently lose everything. While dirty: hide the system chevron,
+        // block the pop gesture, and route Back through a discard confirmation.
+        .navigationBarBackButtonHidden(model.isDirty)
+        .background(InteractivePopGuard(blocked: model.isDirty))
         .toolbar {
+            if model.isDirty {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Back") { showingDiscardConfirmation = true }
+                }
+            }
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save") {
-                    Task {
-                        if await model.save() {
-                            HapticFeedback.success()
-                            Telemetry.event("ebay_specifics_saved", props: [
-                                "category": model.selectedCategoryId ?? "",
-                                "aspects": model.values.count,
-                                "missing": model.missing.count,
-                            ])
-                            dismiss()
-                        } else {
-                            HapticFeedback.error()
-                        }
-                    }
+                    Task { await saveAndDismiss() }
                 }
                 .disabled(!model.canSave)
             }
+        }
+        .confirmationDialog(
+            "You have unsaved specifics",
+            isPresented: $showingDiscardConfirmation,
+            titleVisibility: .visible
+        ) {
+            if model.canSave {
+                Button("Save & close") {
+                    Task { await saveAndDismiss() }
+                }
+            }
+            Button("Discard changes", role: .destructive) { dismiss() }
+            Button("Keep editing", role: .cancel) {}
+        } message: {
+            Text("Going back without saving loses your edits — including anything Fill with AI added.")
         }
         .task {
             Telemetry.event("ebay_specifics_opened")
@@ -105,6 +121,23 @@ struct EbayCategorySpecificsView: View {
                 + "won't carry over and will be removed: \(names). "
                 + "Still-valid values are kept and gaps are refilled from this item — no AI is used."
             )
+        }
+    }
+
+    /// Shared by the toolbar Save and the discard-confirm's "Save & close": a
+    /// successful save dismisses; a failure keeps the editor open (the model's
+    /// errorMessage alert explains).
+    private func saveAndDismiss() async {
+        if await model.save() {
+            HapticFeedback.success()
+            Telemetry.event("ebay_specifics_saved", props: [
+                "category": model.selectedCategoryId ?? "",
+                "aspects": model.values.count,
+                "missing": model.missing.count,
+            ])
+            dismiss()
+        } else {
+            HapticFeedback.error()
         }
     }
 
