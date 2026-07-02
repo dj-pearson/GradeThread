@@ -183,13 +183,28 @@ export async function extractVideoFrame(
  * enters the main bundle. Throws a {@link MediaIntakeError} (kind "heic") on
  * failure.
  */
+// A wedged WASM decoder (e.g. heap exhaustion after a run of large files)
+// never rejects on its own — without a cap it would hang an upload lane, and
+// enough of them freeze the whole staging batch.
+const HEIC_TIMEOUT_MS = 45_000;
+
 export async function transcodeHeic(
   file: File,
   quality = 0.9,
 ): Promise<File> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const { heicTo } = await import("heic-to/csp");
-    const blob = await heicTo({ blob: file, type: "image/jpeg", quality });
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error("HEIC conversion timed out")),
+        HEIC_TIMEOUT_MS,
+      );
+    });
+    const blob = await Promise.race([
+      heicTo({ blob: file, type: "image/jpeg", quality }),
+      timeout,
+    ]);
     return new File([blob], replaceExt(file.name, "jpg"), {
       type: "image/jpeg",
       lastModified: file.lastModified,
@@ -199,6 +214,8 @@ export async function transcodeHeic(
       "heic",
       "HEIC conversion failed. Re-export as JPEG (Photos → Share → Save as Files) and add it again.",
     );
+  } finally {
+    clearTimeout(timer);
   }
 }
 

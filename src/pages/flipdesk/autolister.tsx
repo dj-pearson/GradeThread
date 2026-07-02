@@ -911,6 +911,55 @@ export function FlipdeskAutolisterPage() {
     });
   }
 
+  // Delete staged photos (e.g. accidental duplicates). Drops them from the
+  // grid + any group (re-covering or dissolving as needed), clears selection,
+  // and best-effort removes the storage objects (current + pre-edit original).
+  // The dedup sets rebuild from `staged`, so a deleted photo's source file
+  // becomes re-addable automatically.
+  function removePhotos(ids: string[]) {
+    const idSet = new Set(ids);
+    const orphans: string[] = [];
+    for (const p of staged) {
+      if (!idSet.has(p.id)) continue;
+      for (const path of [
+        p.storagePath,
+        p.thumbnailStoragePath,
+        p.original?.storagePath,
+        p.original?.thumbnailStoragePath,
+      ]) {
+        if (path) orphans.push(path);
+      }
+    }
+    setStaged((prev) => prev.filter((p) => !idSet.has(p.id)));
+    setGroups((prev) =>
+      prev
+        .map((g) => {
+          const photoIds = g.photoIds.filter((pid) => !idSet.has(pid));
+          if (photoIds.length === g.photoIds.length) return g;
+          return {
+            ...g,
+            photoIds,
+            coverId: idSet.has(g.coverId) ? (photoIds[0] ?? g.coverId) : g.coverId,
+            roles: g.roles
+              ? Object.fromEntries(
+                  Object.entries(g.roles).filter(([pid]) => !idSet.has(pid)),
+                )
+              : undefined,
+          };
+        })
+        .filter((g) => g.photoIds.length > 0),
+    );
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) next.delete(id);
+      return next;
+    });
+    if (orphans.length > 0) {
+      void supabase.storage.from("item-photos").remove(orphans);
+    }
+    toast.success(`Deleted ${ids.length} photo${ids.length === 1 ? "" : "s"}.`);
+  }
+
   // Upload a processed image under a fresh storage key and swap it into the
   // staged photo, snapshotting the previous image into `original` for one-tap
   // revert. Keeps the staged id + capture time so grouping/order survive.
@@ -1903,6 +1952,16 @@ export function FlipdeskAutolisterPage() {
               <Plus className="mr-1 h-4 w-4" />
               New group from selected ({selected.size})
             </Button>
+            {selected.size > 0 && (
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={() => removePhotos(Array.from(selected))}
+              >
+                <Trash2 className="mr-1 h-4 w-4" />
+                Delete selected ({selected.size})
+              </Button>
+            )}
           </div>
         </div>
         {ungrouped.length === 0 ? (
@@ -1949,6 +2008,16 @@ export function FlipdeskAutolisterPage() {
                       ✓
                     </span>
                   )}
+                  <button
+                    type="button"
+                    title="Delete photo"
+                    aria-label="Delete photo"
+                    onClick={() => removePhotos([p.id])}
+                    disabled={processing}
+                    className="absolute left-1 top-1 z-10 rounded-full bg-black/55 p-1 text-white opacity-0 hover:bg-red-600 group-hover:opacity-100 disabled:opacity-30"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
                   {/* US-535: per-photo clean / undo */}
                   {cleaned ? (
                     <button
