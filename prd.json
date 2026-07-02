@@ -8663,8 +8663,8 @@
         "Either consume comp_set downstream (show it in the composer) or drop the manual entry."
       ],
       "priority": 1983,
-      "passes": false,
-      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · flipdesk · flipdesk audit] Evidence: prep.tsx:97-119,300-323; comp-editor.tsx:19,33,158-162; ebay-comps-panel.tsx:107-126; composer.tsx:399-403."
+      "passes": true,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · flipdesk · flipdesk audit] Evidence: prep.tsx:97-119,300-323; comp-editor.tsx:19,33,158-162; ebay-comps-panel.tsx:107-126; composer.tsx:399-403. [DONE 2026-07-01: replaced prep’s redundant manual comp editor with the live grade-banded price recommendation (useGradeBandedPrice — works without an eBay category; SoldCompRecommendation extracted to a shared component reused by the composer panel) and dropped the dead-end comp_set write. composer keeps the full category-scoped live-comps pipeline. Verified: tsc -b, eslint, production build.]"
     },
     {
       "id": "US-1478",

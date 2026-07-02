@@ -13,6 +13,7 @@ import {
   Loader2,
   FileText,
   CircleDot,
+  ExternalLink,
 } from "lucide-react";
 import {
   Card,
@@ -31,17 +32,18 @@ import { supabase } from "@/lib/supabase";
 import { useItemsFull } from "@/hooks/use-items-full";
 import { PhotoUploader } from "@/components/flipdesk/photo-uploader";
 import { MeasurementForm } from "@/components/flipdesk/measurement-form";
-import { CompEditor } from "@/components/flipdesk/comp-editor";
+import { SoldCompRecommendation } from "@/components/flipdesk/sold-comp-recommendation";
 import { InventoryViewSwitcher } from "@/components/flipdesk/inventory-view-switcher";
+import { useGradeBandedPrice } from "@/hooks/use-ebay";
+import { ebaySoldSearchUrl } from "@/lib/comps";
 import { rankOf, resolveStatus, factsOf } from "@/lib/workflow";
 import { cn } from "@/lib/utils";
-import type { ItemFullRow, ItemComp, ItemCategory } from "@/types/database";
+import type { ItemFullRow, ItemCategory } from "@/types/database";
 
 const DRAFTED_RANK = rankOf("drafted");
 
 interface PrepState {
   measurements: Record<string, number | string>;
-  comp_set: ItemComp[];
   targetPrice: string;
 }
 
@@ -78,7 +80,6 @@ export function FlipdeskPrepPage() {
           current.measurements && typeof current.measurements === "object"
             ? current.measurements
             : {},
-        comp_set: Array.isArray(current.comps) ? current.comps : [],
         targetPrice:
           current.target_price == null ? "" : String(current.target_price),
       });
@@ -108,9 +109,6 @@ export function FlipdeskPrepPage() {
       .update({
         measurements:
           Object.keys(d.measurements).length > 0 ? d.measurements : null,
-        comp_set: d.comp_set.filter(
-          (c) => Number.isFinite(c.price) && c.price > 0,
-        ),
         target_price: targetPrice,
         status: resolved,
       } as never)
@@ -309,15 +307,10 @@ export function FlipdeskPrepPage() {
               placeholder="0.00"
             />
           </div>
-          <CompEditor
-            comps={draft.comp_set}
-            onChange={(c) => setDraft({ ...draft, comp_set: c })}
-            brand={current.brand}
-            style={current.style}
-            size={current.size}
-            title={current.item_title}
-            onSuggestTarget={(p) =>
-              setDraft({ ...draft, targetPrice: p.toFixed(2) })
+          <PrepPriceRecommendation
+            item={current}
+            onApply={(dollars) =>
+              setDraft((d) => (d ? { ...d, targetPrice: dollars.toFixed(2) } : d))
             }
           />
         </CardContent>
@@ -358,6 +351,58 @@ export function FlipdeskPrepPage() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// US-1477: live grade-banded price recommendation for the prep stage. Keyed on
+// brand/title/size/grade so it works WITHOUT an eBay category (which isn't
+// resolved until the composer), it replaces prep's old blank manual comp table
+// — the composer still owns the full category-scoped live-comps pipeline
+// downstream, so the manual comp_set was redundant dead-end data.
+function PrepPriceRecommendation({
+  item,
+  onApply,
+}: {
+  item: ItemFullRow;
+  onApply: (dollars: number) => void;
+}) {
+  const query = useGradeBandedPrice({
+    categoryId: null,
+    q: item.item_title ?? undefined,
+    brand: item.brand ?? undefined,
+    size: item.size ?? undefined,
+    grade: item.grade_value ?? null,
+  });
+  const rec = query.data ?? null;
+  const hasRec = !!(rec && rec.sufficient && rec.recommendedCents != null);
+  const soldUrl = ebaySoldSearchUrl({
+    brand: item.brand,
+    style: item.style,
+    size: item.size,
+    title: item.item_title,
+  });
+
+  return (
+    <div className="space-y-2">
+      <SoldCompRecommendation
+        recommendation={rec}
+        loading={query.isLoading}
+        onApply={(dollars) => onApply(dollars)}
+      />
+      {!query.isLoading && !hasRec && (
+        <p className="text-xs text-muted-foreground">
+          Not enough live comp data to recommend a price yet — set a target
+          above, or check recent sold listings. Live comps and a category-scoped
+          recommendation appear in the listing composer.
+        </p>
+      )}
+      <Button variant="outline" size="sm" asChild>
+        <a href={soldUrl} target="_blank" rel="noopener noreferrer">
+          <ExternalLink className="mr-2 h-3 w-3" />
+          Search eBay sold
+        </a>
+      </Button>
     </div>
   );
 }
