@@ -126,7 +126,16 @@ export async function extractVideoFrame(
       }
     ).requestVideoFrameCallback;
     if (typeof rvfc === "function") {
-      await new Promise<void>((resolve) => rvfc.call(video, () => resolve()));
+      // Best-effort: in a throttled/backgrounded tab the frame callback may
+      // never fire — proceed after a short wait rather than hanging the upload
+      // lane forever (the seeked frame is almost always drawable already).
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, 3_000);
+        rvfc.call(video, () => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
     }
 
     const width = video.videoWidth;

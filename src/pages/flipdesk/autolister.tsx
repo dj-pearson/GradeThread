@@ -73,6 +73,13 @@ interface StagedPhoto {
   // dHash compressImage already computes (empty string if unavailable).
   capturedAtMs: number | null;
   phash: string;
+  // Duplicate guards for the SOURCE file this photo came from (optional →
+  // older persisted sessions round-trip). sourceSig is the cheap identity
+  // (name|size|mtime); sourceHash is the SHA-256 of the original bytes, which
+  // also catches renamed copies. Photos without them (Google Photos imports,
+  // pre-upgrade sessions) simply don't participate in dedup.
+  sourceSig?: string;
+  sourceHash?: string;
   // Snapshot of the pre-processed image so one-tap enhancement/background removal
   // can be reverted. Present only after processing; cleared on undo/revert.
   original?: {
@@ -146,10 +153,22 @@ async function uploadStagingPhoto(
   if (thumb) {
     form.append("thumb", thumb, `thumb.${extForBlobType(thumb.type)}`);
   }
-  const res = await edgeFetch("/api/flipdesk/autolister/staging/upload", {
-    method: "POST",
-    body: form,
-  });
+  // A fetch on a half-open connection can hang indefinitely, freezing an
+  // upload lane (and eventually the whole batch) with no error. Cap it —
+  // the pipeline's catch marks the task retryable.
+  let res: Response;
+  try {
+    res = await edgeFetch("/api/flipdesk/autolister/staging/upload", {
+      method: "POST",
+      body: form,
+      signal: AbortSignal.timeout(120_000),
+    });
+  } catch (err) {
+    if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
+      throw new Error("Upload timed out — check your connection and retry.");
+    }
+    throw err;
+  }
   const data = (await res.json().catch(() => ({}))) as {
     error?: string;
     storage_path?: string;
@@ -201,7 +220,22 @@ interface BatchStats {
   failed: number;
   heicFailed: number;
   videoFailed: number;
+  duplicates: number;
   borderline: string[];
+}
+
+// Duplicate-upload guards: the cheap file identity used to skip re-picked
+// files before any work happens, and a content hash that also catches the
+// same image under a different name/mtime (e.g. "IMG_1 copy.jpg").
+function fileSig(file: File): string {
+  return `${file.name}|${file.size}|${file.lastModified}`;
+}
+
+async function sha256Hex(blob: Blob): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 const MIN_RESOLUTION = 1200;
@@ -355,6 +389,31 @@ export function FlipdeskAutolisterPage() {
   const [coverScores, setCoverScores] = useState<Record<string, number>>({});
   const coverInFlight = useRef<Set<string>>(new Set());
 
+  // Duplicate guards. `stagedDedup` mirrors the staged photos' source
+  // signatures/hashes (rebuilt below, so deleting a photo frees its identity
+  // for re-adding). `inflightDedup` holds claims for tasks mid-pipeline —
+  // released on failure, and transferred to the staged set on success (the
+  // rebuild prunes claims that made it into `staged`).
+  const stagedDedup = useRef<{ sigs: Set<string>; hashes: Set<string> }>({
+    sigs: new Set(),
+    hashes: new Set(),
+  });
+  const inflightDedup = useRef<{ sigs: Set<string>; hashes: Set<string> }>({
+    sigs: new Set(),
+    hashes: new Set(),
+  });
+  useEffect(() => {
+    const sigs = new Set<string>();
+    const hashes = new Set<string>();
+    for (const p of staged) {
+      if (p.sourceSig) sigs.add(p.sourceSig);
+      if (p.sourceHash) hashes.add(p.sourceHash);
+    }
+    stagedDedup.current = { sigs, hashes };
+    for (const s of sigs) inflightDedup.current.sigs.delete(s);
+    for (const h of hashes) inflightDedup.current.hashes.delete(h);
+  }, [staged]);
+
   // Persist whenever staged / groups change.
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -440,8 +499,39 @@ export function FlipdeskAutolisterPage() {
   // throws: every failure lands on the task (with retryability) + batch stats.
   async function processUploadTask(task: UploadTask, stats: BatchStats): Promise<void> {
     const { id, file } = task;
+
+    // Duplicate gate 1: exact file identity. handleFiles pre-filters too, but
+    // this claim is the authoritative, race-safe one (two lanes can carry the
+    // same file when batches overlap or a retry races a re-pick).
+    const sig = fileSig(file);
+    const isDupSig = () =>
+      stagedDedup.current.sigs.has(sig) || inflightDedup.current.sigs.has(sig);
+    const skipDuplicate = () => {
+      stats.duplicates++;
+      setUploadTasks((prev) => prev.filter((t) => t.id !== id));
+    };
+    if (isDupSig()) {
+      skipDuplicate();
+      return;
+    }
+    inflightDedup.current.sigs.add(sig);
+
+    let contentHash = "";
+    let succeeded = false;
     patchTask(id, { status: "processing", progress: 10, error: undefined });
     try {
+      // Duplicate gate 2: content hash of the original bytes — catches the
+      // same image re-added under a different name or modified time.
+      contentHash = await sha256Hex(file).catch(() => "");
+      if (
+        contentHash &&
+        (stagedDedup.current.hashes.has(contentHash) ||
+          inflightDedup.current.hashes.has(contentHash))
+      ) {
+        skipDuplicate();
+        return;
+      }
+      if (contentHash) inflightDedup.current.hashes.add(contentHash);
       // US-532: capture EXIF time from the ORIGINAL file (incl. HEIC) before
       // any transcode/recompression that may drop the metadata — it drives
       // capture-time auto-grouping.
@@ -556,8 +646,11 @@ export function FlipdeskAutolisterPage() {
           bytes: up.bytes,
           capturedAtMs: capturedAt ? capturedAt.getTime() : null,
           phash,
+          sourceSig: sig,
+          sourceHash: contentHash || undefined,
         },
       ]);
+      succeeded = true;
       stats.ok++;
       patchTask(id, { status: "done", progress: 100 });
     } catch (err) {
@@ -568,12 +661,26 @@ export function FlipdeskAutolisterPage() {
         retryable: true,
         error: err instanceof Error ? err.message : String(err),
       });
+    } finally {
+      // Free the duplicate claims unless the photo actually staged (then the
+      // staged-derived set takes over) — a failed/rejected file must remain
+      // re-addable after a retry or dismiss.
+      if (!succeeded) {
+        inflightDedup.current.sigs.delete(sig);
+        if (contentHash) inflightDedup.current.hashes.delete(contentHash);
+      }
     }
   }
 
   function reportBatch(stats: BatchStats) {
     if (stats.ok > 0) {
       toast.success(`${stats.ok} photo${stats.ok === 1 ? "" : "s"} added.`);
+    }
+    if (stats.duplicates > 0) {
+      toast.info(
+        `${stats.duplicates} duplicate photo${stats.duplicates === 1 ? "" : "s"} skipped.`,
+        { description: "They're already staged below — nothing was added twice." },
+      );
     }
     if (stats.heicFailed > 0) {
       toast.warning(
@@ -626,7 +733,29 @@ export function FlipdeskAutolisterPage() {
     if (!files || !ownerId) return;
     const list = Array.from(files);
     if (list.length === 0) return;
-    const tasks: UploadTask[] = list.map((file) => ({
+    // Skip files that are already staged (or picked twice in this drop) up
+    // front, so re-dropping the same folder doesn't even enqueue them. The
+    // pipeline re-checks under its race-safe claim; this is just the fast path.
+    const seenSigs = new Set<string>();
+    const stats: BatchStats = { ok: 0, failed: 0, heicFailed: 0, videoFailed: 0, duplicates: 0, borderline: [] };
+    const fresh = list.filter((file) => {
+      const sig = fileSig(file);
+      if (
+        seenSigs.has(sig) ||
+        stagedDedup.current.sigs.has(sig) ||
+        inflightDedup.current.sigs.has(sig)
+      ) {
+        stats.duplicates++;
+        return false;
+      }
+      seenSigs.add(sig);
+      return true;
+    });
+    if (fresh.length === 0) {
+      reportBatch(stats);
+      return;
+    }
+    const tasks: UploadTask[] = fresh.map((file) => ({
       id: crypto.randomUUID(),
       name: file.name,
       status: "queued",
@@ -634,7 +763,6 @@ export function FlipdeskAutolisterPage() {
       file,
     }));
     setUploadTasks((prev) => [...prev.filter((t) => t.status !== "done"), ...tasks]);
-    const stats: BatchStats = { ok: 0, failed: 0, heicFailed: 0, videoFailed: 0, borderline: [] };
     await runWithConcurrency(tasks, UPLOAD_CONCURRENCY, (t) => processUploadTask(t, stats));
     reportBatch(stats);
     setUploadTasks((prev) => prev.filter((t) => t.status !== "done"));
@@ -646,7 +774,7 @@ export function FlipdeskAutolisterPage() {
       (t) => taskIds.includes(t.id) && t.status === "error" && t.retryable !== false,
     );
     if (targets.length === 0) return;
-    const stats: BatchStats = { ok: 0, failed: 0, heicFailed: 0, videoFailed: 0, borderline: [] };
+    const stats: BatchStats = { ok: 0, failed: 0, heicFailed: 0, videoFailed: 0, duplicates: 0, borderline: [] };
     await runWithConcurrency(targets, UPLOAD_CONCURRENCY, (t) => processUploadTask(t, stats));
     reportBatch(stats);
     setUploadTasks((prev) => prev.filter((t) => t.status !== "done"));

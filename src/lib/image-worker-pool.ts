@@ -53,7 +53,17 @@ interface QueuedTask {
   req: WorkerCompressRequest;
   resolve: (out: ProcessedImage) => void;
   reject: (err: Error) => void;
+  /** Watchdog armed when the task is posted to a worker. */
+  timer?: ReturnType<typeof setTimeout>;
 }
+
+// Watchdog: a worker that never replies (silently killed by the browser under
+// memory pressure, or an unhandled rejection inside the worker — neither fires
+// `onerror`) would otherwise hold its task in-flight FOREVER, permanently
+// eating a pool slot until the whole staging batch deadlocks. On expiry the
+// wedged worker is recycled and the task rejects, which sends that one photo
+// down the main-thread fallback instead of freezing the queue.
+const WORKER_TASK_TIMEOUT_MS = 60_000;
 
 const workers: PoolWorker[] = [];
 const queue: QueuedTask[] = [];
@@ -83,6 +93,7 @@ function handleMessage(pw: PoolWorker, msg: WorkerCompressResponse): void {
   inFlight.delete(msg.id);
   pw.taskId = null;
   if (task) {
+    clearTimeout(task.timer);
     if (msg.ok) {
       task.resolve({
         blob: msg.blob,
@@ -107,10 +118,33 @@ function handleMessage(pw: PoolWorker, msg: WorkerCompressResponse): void {
 // fallback instead of hanging.
 function handleWorkerFailure(): void {
   poolBroken = true;
-  for (const t of inFlight.values()) t.reject(new Error("worker crashed"));
+  for (const t of inFlight.values()) {
+    clearTimeout(t.timer);
+    t.reject(new Error("worker crashed"));
+  }
   inFlight.clear();
   for (const t of queue.splice(0)) t.reject(new Error("worker unavailable"));
   for (const w of workers.splice(0)) w.worker.terminate();
+}
+
+// Recycle ONE wedged/undeliverable worker: fail its in-flight task (the caller
+// falls back to the main thread), drop it from the pool, and pump so queued
+// tasks respawn a fresh worker. Unlike handleWorkerFailure this doesn't mark
+// the pool broken — the worker script itself is fine.
+function recycleWorker(pw: PoolWorker, reason: string): void {
+  const idx = workers.indexOf(pw);
+  if (idx !== -1) workers.splice(idx, 1);
+  pw.worker.terminate();
+  if (pw.taskId !== null) {
+    const task = inFlight.get(pw.taskId);
+    inFlight.delete(pw.taskId);
+    pw.taskId = null;
+    if (task) {
+      clearTimeout(task.timer);
+      task.reject(new Error(reason));
+    }
+  }
+  pump();
 }
 
 function spawnWorker(): PoolWorker {
@@ -121,6 +155,9 @@ function spawnWorker(): PoolWorker {
   const pw: PoolWorker = { worker, taskId: null };
   worker.onmessage = (e: MessageEvent<WorkerCompressResponse>) =>
     handleMessage(pw, e.data);
+  // A response that fails structured clone never reaches onmessage — without
+  // this the task would hang in-flight forever.
+  worker.onmessageerror = () => recycleWorker(pw, "worker reply undeliverable");
   worker.onerror = () => handleWorkerFailure();
   workers.push(pw);
   return pw;
@@ -137,8 +174,14 @@ function pump(idle?: PoolWorker): void {
     if (!pw) return; // every worker busy — handleMessage pumps again
     idle = undefined;
     const task = queue.shift()!;
+    const owner = pw;
     pw.taskId = task.req.id;
     inFlight.set(task.req.id, task);
+    task.timer = setTimeout(() => {
+      if (inFlight.get(task.req.id) === task) {
+        recycleWorker(owner, "Image processing timed out.");
+      }
+    }, WORKER_TASK_TIMEOUT_MS);
     pw.worker.postMessage(task.req);
   }
 }
