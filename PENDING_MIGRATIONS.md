@@ -4,6 +4,17 @@
 > check-in, apply any migrations below to prod (DB → edge → frontend order per
 > DEPLOY.md), redeploy the edge (Coolify), then give the OK to `git push`.
 
+## 🔸 HELD (commit-only loop — NOT pushed): `00334` (US-1531)
+
+**`supabase/migrations/00334_ai_enrichment_corrected_fields.sql`** — adds
+`ai_enrichment_log.corrected_fields jsonb NOT NULL DEFAULT '{}'` (idempotent,
+`ADD COLUMN IF NOT EXISTS`). `EXPECTED_SCHEMA_VERSION` bumped **00333 → 00334**.
+Apply to prod (idempotent) + `NOTIFY pgrst, 'reload schema';` BEFORE pushing the
+held US-1531 commit. No code reads the column yet (foundation chunk), so applying
+it early is harmless.
+
+---
+
 ## How to apply
 1. Apply each migration SQL below to prod in listed order (they're idempotent).
    Or run `scripts/apply-prod-migrations.sh` if you prefer the scripted path.
