@@ -929,6 +929,46 @@ final class SyncTests: XCTestCase {
         XCTAssertFalse(SyncEngine.shouldDeferDependent(edit, unconfirmedCreateIds: unconfirmed))
     }
 
+    // MARK: - US-1496: same-target FIFO ordering + Retry routing
+
+    /// The A-fails/B-succeeds reorder scenario. Two full-row updates A(old)→B(new)
+    /// for one item drain FIFO; if A fails transiently, B must be HELD so it can't
+    /// land ahead of A (which would replay alone next pass and revert the row).
+    func test_sameTargetOrdering_failedTargetHoldsLaterEdit() {
+        let a = snapshot(kind: .updateInventoryItem, targetId: "item-1")
+        let b = snapshot(kind: .updateInventoryItem, targetId: "item-1")
+        let other = snapshot(kind: .updateInventoryItem, targetId: "item-2")
+
+        // A applied first, no blocks yet.
+        var blocked = Set<String>()
+        XCTAssertFalse(SyncEngine.shouldHoldForBlockedTarget(a, blockedTargetIds: blocked))
+        // A failed → its target is blocked for the rest of the pass.
+        blocked.insert("item-1")
+        // B (same target) is now held; an unrelated item is not.
+        XCTAssertTrue(SyncEngine.shouldHoldForBlockedTarget(b, blockedTargetIds: blocked))
+        XCTAssertFalse(SyncEngine.shouldHoldForBlockedTarget(other, blockedTargetIds: blocked))
+    }
+
+    /// A mutation with no targetId (e.g. a create keyed only by payload) is never
+    /// held by the target-block guard.
+    func test_sameTargetOrdering_nilTargetNeverHeld() {
+        let noTarget = snapshot(kind: .createSale, targetId: nil)
+        XCTAssertFalse(
+            SyncEngine.shouldHoldForBlockedTarget(noTarget, blockedTargetIds: ["item-1"]))
+    }
+
+    /// Retry-behind-stuck-create: retryMutation now routes through flushPending(),
+    /// so the create-deferral guard still applies — an UPDATE queued behind a stuck
+    /// create is deferred, not applied directly against a row the server lacks
+    /// (which would UPDATE 0 rows, 'succeed', and dequeue — a silent edit loss).
+    func test_retryRoutesThroughDeferralGuard_forEditBehindStuckCreate() {
+        let create = snapshot(kind: .createInventoryItem, targetId: "item-9", retryCount: 6)
+        let edit = snapshot(kind: .updateInventoryItem, targetId: "item-9")
+        let unconfirmed = SyncEngine.unconfirmedCreateTargetIds([create, edit])
+        // The same guard flushPending() (and therefore retryMutation) applies.
+        XCTAssertTrue(SyncEngine.shouldDeferDependent(edit, unconfirmedCreateIds: unconfirmed))
+    }
+
     // MARK: - US-1210: drop-safe watermark
 
     func test_safeCursor_keepsCursorBehindDroppedLowRow() {

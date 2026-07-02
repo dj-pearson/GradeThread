@@ -546,7 +546,8 @@ public final class PhotoUploadService {
                     // screen. Queue a pending mutation so the next SyncEngine pass
                     // re-links the photo automatically (idempotent storage
                     // re-upload + upsert by the SAME deterministic id ⇒ no dupes).
-                    handlePhotoLinkFailure(task: task, message: error.localizedDescription)
+                    handlePhotoLinkFailure(
+                        task: task, message: error.localizedDescription, sortOrder: sortOrder)
                     return false
                 }
                 // 0.3s, 0.6s, 0.9s backoff between attempts.
@@ -558,12 +559,12 @@ public final class PhotoUploadService {
     /// A successful storage upload followed by a failed `item_photos` insert.
     /// Marks the task `.failed` for the UI AND enqueues a pending mutation so
     /// the photo is auto-re-linked on the next sync rather than orphaned.
-    func handlePhotoLinkFailure(task: PhotoUploadTask, message: String) {
+    func handlePhotoLinkFailure(task: PhotoUploadTask, message: String, sortOrder: Int = 0) {
         store.updatePhase(
             task.id,
             to: .failed(error: "Saved photo, couldn't link it: \(message)")
         )
-        enqueuePendingMutation(for: task, message: message)
+        enqueuePendingMutation(for: task, sortOrder: sortOrder, message: message)
     }
 
     private func storagePublicURL(for path: String) -> String {
@@ -647,7 +648,11 @@ public final class PhotoUploadService {
             "message": message,
         ])
         store.updatePhase(task.id, to: .failed(error: message))
-        enqueuePendingMutation(for: task, message: message)
+        // US-1496: the upload failed before the link step, so the sort_order is
+        // still parked in the scheduling map — carry it through so the replay
+        // writes the right strip position instead of defaulting to 0.
+        enqueuePendingMutation(
+            for: task, sortOrder: sortOrderByUploadId[task.id] ?? 0, message: message)
     }
 
     /// ISO-8601 (internet date-time) formatter for the queued captured_at,
@@ -662,7 +667,7 @@ public final class PhotoUploadService {
     /// Backs the upload by a `LocalPendingMutation` so the next SyncEngine
     /// pass on a healthy network picks it back up. Mutation payload carries
     /// enough metadata for a clean re-upload.
-    private func enqueuePendingMutation(for task: PhotoUploadTask, message: String) {
+    private func enqueuePendingMutation(for task: PhotoUploadTask, sortOrder: Int, message: String) {
         guard let container = modelContainer else { return }
         struct Payload: Codable {
             let inventory_item_id: String
@@ -679,6 +684,9 @@ public final class PhotoUploadService {
             // retry doesn't drop them from the item_photos row.
             let captured_at: String?
             let reconcile_session_id: String?
+            // US-1496: the strip position, so the replay writes the right
+            // sort_order instead of hardcoding 0 (nondeterministic order/cover).
+            let sort_order: Int
         }
         let payload = Payload(
             inventory_item_id: task.inventoryItemId,
@@ -688,7 +696,8 @@ public final class PhotoUploadService {
             local_file_url: task.localFileURL.path,
             photo_id: Self.photoId(for: task),
             captured_at: task.capturedAt.map { Self.iso8601.string(from: $0) },
-            reconcile_session_id: task.reconcileSessionId
+            reconcile_session_id: task.reconcileSessionId,
+            sort_order: sortOrder
         )
         guard let data = try? JSONEncoder().encode(payload) else {
             // Can't even encode the replay payload — the upload would be

@@ -1138,6 +1138,13 @@ actor SyncEngine {
         // pass — candidates for clearing the sticky `hasLocalChanges` flag once
         // no pending edit remains for them.
         var flushedItemIds = Set<String>()
+        // US-1496: once a mutation for some target fails this pass, HOLD every
+        // later mutation for that same target. The queue drains FIFO, so two
+        // full-row updates A(old)→B(new) for one item must apply in order: if A
+        // fails transiently and B still flushed, the next pass would replay A
+        // alone and revert the row to the older edit. Blocking the target keeps
+        // B queued behind A so per-target order is preserved across passes.
+        var blockedTargetIds = Set<String>()
         for mutation in mutations {
             // US-1147: stop cleanly on teardown — replays are idempotent so the
             // remaining mutations simply flush on the next start/sync.
@@ -1147,8 +1154,19 @@ actor SyncEngine {
             if Self.shouldDeferDependent(mutation, unconfirmedCreateIds: unconfirmedCreateIds) {
                 continue
             }
+            // US-1496: a prior same-target mutation failed this pass — hold this
+            // one so a newer snapshot can't land ahead of the older, still-queued
+            // one (which would then replay next pass and revert the row).
+            if Self.shouldHoldForBlockedTarget(mutation, blockedTargetIds: blockedTargetIds) {
+                continue
+            }
             let succeeded = await apply(mutation)
-            guard succeeded else { continue }
+            guard succeeded else {
+                // US-1496: block the rest of this target's queued mutations for
+                // the pass so FIFO order holds (transient failure OR stuck).
+                if let target = mutation.targetId { blockedTargetIds.insert(target) }
+                continue
+            }
             // A just-confirmed create unblocks dependent edits queued behind it
             // so they can still flush in THIS pass.
             if Self.isCreateKind(mutation.kind), let target = mutation.targetId {
@@ -1226,6 +1244,18 @@ actor SyncEngine {
         Set(queue.filter { isInventoryItemEdit($0.kind) }.compactMap(\.targetId))
     }
 
+    /// US-1496: true when `mutation` must be held this pass because an earlier
+    /// same-target mutation already failed (its target is blocked). Preserves FIFO
+    /// per-target order so a newer full-row update can't land ahead of an older one
+    /// that stayed queued — which would then replay alone next pass and revert the
+    /// row to the older edit.
+    static func shouldHoldForBlockedTarget(
+        _ mutation: PendingMutationSnapshot, blockedTargetIds: Set<String>
+    ) -> Bool {
+        guard let target = mutation.targetId else { return false }
+        return blockedTargetIds.contains(target)
+    }
+
     /// True when `mutation` is an edit that must wait for a still-pending create
     /// of the same row (US-1208).
     static func shouldDeferDependent(
@@ -1253,7 +1283,13 @@ actor SyncEngine {
                 // a retry after a partial success can't create a duplicate.
                 try await replayUpsert(table: "inventory_items", payload: mutation.payload)
             case .createListing:
-                try await replayInsert(table: "listings", payload: mutation.payload)
+                // US-1496: upsert, not insert. A force-quit between the server
+                // insert and the dequeue would otherwise replay a raw insert and
+                // hit a PK 409 — a poison entry that never drains. Upsert keyed by
+                // the payload's client id makes the replay idempotent. (Dormant
+                // today — nothing enqueues createListing yet — but a standing trap;
+                // any future enqueue MUST inject a client `id` for this to dedupe.)
+                try await replayUpsert(table: "listings", payload: mutation.payload)
             case .createSale:
                 // Upsert (the offline payload carries a client-generated id) so a
                 // retry after a partial success can't double-record the sale.
@@ -1289,11 +1325,6 @@ actor SyncEngine {
 
     // MARK: - Mutation replay handlers
 
-    private func replayInsert(table: String, payload: Data) async throws {
-        let row = try JSONDecoder().decode([String: AnyJSON].self, from: payload)
-        try await SupabaseShared.client.from(table).insert(row).execute()
-    }
-
     private func replayUpsert(table: String, payload: Data) async throws {
         let row = try JSONDecoder().decode([String: AnyJSON].self, from: payload)
         try await SupabaseShared.client.from(table).upsert(row).execute()
@@ -1325,6 +1356,9 @@ actor SyncEngine {
             // offline queue so a retried upload doesn't lose them.
             let captured_at: String?
             let reconcile_session_id: String?
+            // US-1496: the strip position, carried through the queue so a replayed
+            // batch keeps deterministic order/cover. Optional for pre-fix payloads.
+            let sort_order: Int?
         }
         let p = try JSONDecoder().decode(UploadPayload.self, from: payload)
         let fileURL = URL(fileURLWithPath: p.local_file_url)
@@ -1366,7 +1400,10 @@ actor SyncEngine {
             "photo_type": .string(photoType),
             "storage_path": .string(p.storage_path),
             "photo_url": .string(photoURL),
-            "sort_order": .integer(0),
+            // US-1496: replay the captured strip position instead of hardcoding 0,
+            // so a queued batch keeps its order and a lost-response replay upsert
+            // can't clobber a correct sort_order back to 0.
+            "sort_order": .integer(p.sort_order ?? 0),
             "bytes": .integer(bytes ?? 0),
         ]
         if let photoId = p.photo_id { row["id"] = .string(photoId) }
@@ -1463,16 +1500,16 @@ actor SyncEngine {
     /// Re-attempt a single mutation immediately: clears its error/retry budget
     /// then applies it.
     func retryMutation(id: String) async {
+        // US-1496: clear this mutation's retry budget, then drain through the
+        // full flush path instead of applying the one snapshot directly. The
+        // direct-apply route skipped shouldDeferDependent + FIFO ordering, so a
+        // manual Retry on an edit queued behind a stuck create replayed against a
+        // row the server didn't have — UPDATE 0 rows, "succeeded", dequeued: a
+        // silent permanent edit loss (the exact class US-1208 prevents). Routing
+        // through flushPending() re-applies the create-deferral + same-target
+        // ordering guards, and it also clears the dirty flag (US-1495) on success.
         await pendingActor.clearErrorAndResetRetry(id: id)
-        let snapshot = await snapshotMutations().first { $0.id == id }
-        if let snapshot {
-            let succeeded = await apply(snapshot)
-            // US-1495: a manual retry that flushes the last edit for an item must
-            // clear its dirty flag too, exactly like the auto-flush path.
-            if succeeded, Self.isInventoryItemEdit(snapshot.kind), let target = snapshot.targetId {
-                await clearDirtyFlagsForFlushedItems([target])
-            }
-        }
+        await flushPending()
         await refreshPendingCount()
     }
 

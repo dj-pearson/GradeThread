@@ -8508,3 +8508,40 @@ The US-1493 epoch test referenced `await engine.currentScopeEpochForTesting` ins
 XCTAssertTrue/False autoclosures (no concurrency support) → GradeThreadTests failed to
 compile, iOS CI red on 693572f (exit 65). Hoisted each actor-isolated epoch read into a
 local before the assertion (commit 4d86936). Production epoch guard unchanged.
+
+## 2026-07-02 (cont.) — US-1496 iOS offline mutation-queue ordering + Retry safety + photo sort_order — COMPLETE (passes:true) — NO MIGRATION
+Four related offline-queue integrity bugs (the impossible-to-reproduce "my edit
+disappeared/reverted" reports). Files: SyncEngine.swift, PhotoUploadService.swift,
+SyncTests.swift, PhotoUploadTests.swift.
+
+(1) Same-target reorder. Two full-row updateInventoryItem snapshots A(old)→B(new) for
+one item drain FIFO; if A failed transiently but B still flushed, the next pass replayed
+A alone and reverted every field to the older edit. FIX: flushPending() now tracks a
+blockedTargetIds set — when any mutation fails (transient OR stuck) its targetId is
+blocked for the rest of the pass, so a later same-target mutation is HELD (new static
+shouldHoldForBlockedTarget). B can't land ahead of A; either A succeeds then B flushes,
+or A goes stuck (filtered out) and B (the newer full-row) wins — no revert, no loss.
+
+(2) Retry bypassed the guards. retryMutation applied one snapshot directly, skipping
+shouldDeferDependent + FIFO — Retry on an edit queued behind a stuck create UPDATE'd 0
+rows, 'succeeded', and dequeued (silent permanent loss, the class US-1208 prevents).
+FIX: retryMutation now clears the retry budget then routes through flushPending(), so the
+create-deferral + same-target ordering guards apply (and the US-1495 dirty-flag clear
+runs) — no out-of-order single apply.
+
+(3) Photo replay dropped sort_order. replayUploadPhoto hardcoded sort_order 0, so a
+replayed batch got nondeterministic strip order/cover and a lost-response replay upsert
+clobbered a correct order back to 0. FIX: the queued uploadPhoto payload now carries
+sort_order (threaded through enqueuePendingMutation ← handlePhotoLinkFailure /
+handleNetworkFailure, sourced from the upload scheduling map) and the replay writes it.
+
+(4) createListing replay used insert not upsert — a force-quit between server insert and
+dequeue would replay a raw insert → PK 409 poison entry. FIX: replay switched to upsert
+(dead replayInsert removed); dormant today (nothing enqueues createListing) but the
+comment flags that any future enqueue MUST inject a client id to dedupe.
+
+Tests: shouldHoldForBlockedTarget reorder scenario + nil-target never held; retry-behind-
+stuck-create routes through the deferral guard; queued photo mutation carries sort_order.
+VERIFICATION (this host): brace/paren/bracket balance clean on the 4 touched files;
+no-ungated-print + no-bare-strings + no-default-shared-session OK. iOS CI (xcodebuild
+test on macOS) is the build + unit-test gate. No migration.

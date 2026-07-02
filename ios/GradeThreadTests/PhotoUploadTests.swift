@@ -239,6 +239,30 @@ final class PhotoUploadTests: XCTestCase {
         XCTAssertEqual(payload.local_file_url, task.localFileURL.path)
     }
 
+    /// US-1496: the queued replay payload must carry the photo's strip position so
+    /// a replayed batch keeps deterministic order/cover instead of every row
+    /// defaulting to sort_order 0 (which the direct-insert path never does).
+    func test_dbLinkFailure_queuedMutationCarriesSortOrder() throws {
+        let store = PhotoUploadStore()
+        let container = try makeContainer()
+        let service = PhotoUploadService(
+            store: store,
+            modelContainer: container,
+            sessionIdentifier: "test-sortorder-\(UUID().uuidString)"
+        )
+
+        let task = makeTask(slot: .detail, itemId: "item-Z")
+        store.upsert(task)
+        service.handlePhotoLinkFailure(task: task, message: "token expired", sortOrder: 3)
+
+        let context = ModelContext(container)
+        let mutation = try XCTUnwrap(
+            try context.fetch(FetchDescriptor<LocalPendingMutation>()).first)
+        struct Payload: Decodable { let sort_order: Int }
+        let payload = try JSONDecoder().decode(Payload.self, from: mutation.payload)
+        XCTAssertEqual(payload.sort_order, 3)
+    }
+
     // MARK: - Storage upload auth-failure re-queue (US-1252)
 
     /// A storage upload rejected with 401/403 (an expired/invalid signed-upload

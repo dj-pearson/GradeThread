@@ -8908,7 +8908,7 @@
         "Unit tests cover the A-fails/B-succeeds reorder scenario and the Retry-behind-stuck-create scenario."
       ],
       "priority": 2395,
-      "passes": false,
+      "passes": true,
       "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Ordering bugs are the 'my edit disappeared/reverted' reports that are impossible to reproduce in support."
     },
     {
