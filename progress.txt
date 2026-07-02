@@ -8271,3 +8271,12 @@ add updated_at + set_updated_at trigger (+ backfill) to item_photos (00332). Par
 = gate watermark.advance on merge SUCCESS (SyncMergeActor merges currently return
 Void + saveOrLog swallows failures) — a real merge-return-value refactor. Do this as
 a focused iteration WITH the migration packaged in PENDING_MIGRATIONS.md.
+
+### Loop checkpoint 10 (2026-07-01) — pushed; iOS CI re-validating
+origin/main = 4cd7a497 (pushed twice: 18-commit batch, then the CI-fix + US-1514).
+10 stories verified: web/edge US-1505/1506/1502/1503/1504/1518; iOS US-1522/1521/
+1516/1514. First push FAILED iOS CI (validListingURL scope) — FIXED + re-pushed;
+watching iOS CI run 28561998938. PENDING_MIGRATIONS.md empty (all code-only so far).
+NEXT once CI green: US-1515 (needs the item_photos.updated_at MIGRATION 00332 +
+merge-return refactor) or another lower-risk iOS story. Pausing new blind iOS edits
+until CI confirms this batch compiles.
