@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1538,
+  "nextId": 1549,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -9496,6 +9496,210 @@
         "Ships as new composite prompt version through eval gate + canary + shadow comparison; golden-set MAE must not regress"
       ],
       "notes": "[P2][AI/Grading] [AI-refine audit 2026-07-01] Child of US-1532. The 'factor in the photos as a whole' ask applied to grading. Composite max_tokens 3072 and prompt-cached system block already in place; incremental cost is the image tokens — hence canary-gated rollout with cost measurement."
+    },
+    {
+      "id": "US-1538",
+      "priority": 2352,
+      "passes": false,
+      "title": "AutoLister bulk-intake epic — a 600-photo dump becomes review-ready drafts",
+      "description": "As a reseller, I can dump an entire shoot (600+ photos) into AutoLister and get correctly grouped, review-ready listing drafts with minimal manual fixing: uploads survive navigation, auto-grouping uses capture time + filename sequence + visual similarity and is AI-verified, I can correct groups by drag-and-drop before generating, and generation scales past the current 100-item batch cap into the existing queue/drafts review flow. This is a flagship selling feature for resellers. Umbrella for US-1539..US-1548.",
+      "acceptanceCriteria": [
+        "End-to-end: a 600-photo session (mixed EXIF/no-EXIF, sequential IMG_NNNN names) uploads without rate-limit failures, auto-groups into items, survives in-app navigation mid-upload, and generates drafts in one flow without manual batch splitting",
+        "Grouping accuracy levers all present: EXIF time-gap + dHash (existing), filename-sequence signal (US-1540), AI boundary verification suggestions (US-1544)",
+        "Manual correction: drag-and-drop photos between groups and reorder within a group, plus select/deselect and move-to-group fallback (US-1543)",
+        "Pre-generate checkpoint summarizes groups/ungrouped/quota and requires explicit confirmation before spending AI actions (US-1546)",
+        "All child stories US-1539..US-1548 pass"
+      ],
+      "dependsOn": [
+        "US-1539",
+        "US-1540",
+        "US-1541",
+        "US-1542",
+        "US-1543",
+        "US-1544",
+        "US-1545",
+        "US-1546",
+        "US-1547",
+        "US-1548"
+      ],
+      "notes": "[P1][Web+Edge+iOS/AutoLister][Epic] [bulk-intake deep dive 2026-07-02] Current state verified: intake page src/pages/flipdesk/autolister.tsx (~2104 lines, UPLOAD_CONCURRENCY=5, MIN_RESOLUTION=1200); auto-group = EXIF 30s time-gap + dHash Hamming<=10 (src/lib/autolister-grouping.ts, src/lib/reconcile-cluster.ts DEFAULT_GAP_SECONDS=30, VISUAL_MERGE_MAX_DISTANCE=10); server has NO grouping and strips EXIF at intake (flipdesk-autolister.ts:686); MAX_BATCH_ITEMS=100 (flipdesk-autolister.ts:61); no drag-and-drop anywhere (only file-drop upload); uploads die on navigation (page-local state); item_photos has no original_filename/captured_at. Generation/publish are already durable server-side batches with reclaim crons — do not rebuild those."
+    },
+    {
+      "id": "US-1539",
+      "priority": 2351,
+      "passes": false,
+      "title": "Persist photo provenance: original filename + EXIF capture time on item_photos",
+      "description": "As the grouping engine (and future audits), I need each photo's original filename and capture timestamp persisted, because today EXIF is read client-side then thrown away (server strips EXIF at intake) and the original filename is never kept anywhere — so the server can never reconstruct or verify grouping, and filename-sequence grouping has nothing durable to read after a reload.",
+      "acceptanceCriteria": [
+        "Migration adds nullable original_filename text and captured_at timestamptz to public.item_photos; idempotent (IF NOT EXISTS); bumps EXPECTED_SCHEMA_VERSION in the same commit; ends with the applied_migrations self-record footer (US-1108 rules)",
+        "Web intake keeps file.name and the already-read EXIF capture time (readCaptureTime) on each staged photo, persists both in the staged-session store so they survive reload, and writes both onto the item_photos insert in generate() (autolister.tsx)",
+        "Types updated (src/types/database.ts item_photos row) and the staging-session serialization round-trips the new fields",
+        "No PII regression: EXIF/GPS is still stripped from the stored image bytes at /staging/upload — only the two scalar fields are kept, and captured_at/original_filename are never rendered on public listing surfaces",
+        "Typecheck (tsc -b) passes and schema-version_test.ts stays green"
+      ],
+      "notes": "[P1][DB+Web/AutoLister] [bulk-intake deep dive 2026-07-02] Grounding: item_photos defined 00008_flipdesk_schema.sql:153-167 (no exif/filename columns — verified gap); EXIF strip at services/edge-functions/src/routes/flipdesk-autolister.ts:686 (stripImageMetadata); client already reads capture time pre-transcode via src/lib/exif.ts readCaptureTime and stores capturedAtMs in staged state (autolister.tsx); item_photos inserts happen client-side in generate() (autolister.tsx:1354-1369). iOS write-through is US-1547, not here. Foundation for [[US-1540]] and server-side awareness in [[US-1544]]."
+    },
+    {
+      "id": "US-1540",
+      "priority": 2350,
+      "passes": false,
+      "title": "Filename-sequence signal in auto-grouping (IMG_055/056/057 belong together)",
+      "description": "As a seller whose photos lack EXIF capture time (WhatsApp/AirDrop exports, screenshots, some Android cameras), I want auto-grouping to also use camera filename sequences — people shoot items back-to-back so IMG_0551..IMG_0554 are almost always one item — instead of every timeless photo becoming a singleton group as it does today.",
+      "acceptanceCriteria": [
+        "src/lib/autolister-grouping.ts parses (prefix, sequence number) from original filenames (handles IMG_NNNN, DSCNNNNN, PXL_..., DSC_NNNN, IMG-NNNN-WA...; case-insensitive; ignores copy suffixes like (1))",
+        "Photos WITHOUT capture time no longer all become singletons: contiguous same-prefix sequence runs seed candidate groups, then the existing dHash visual pass (Hamming <= 10) confirms/merges — a sequence gap or prefix change starts a new candidate group",
+        "Photos WITH capture time keep today's behavior (time-gap primary); filename sequence acts only as a tiebreaker/ordering signal there, and mixed sets (some EXIF, some not) group both partitions sensibly",
+        "Ungrouped grid ordering becomes deterministic: capture time, then filename sequence, then upload order",
+        "Vitest unit tests cover: pure IMG_ run, mixed prefixes (two cameras), missing numbers in a run, no-EXIF WhatsApp-style names, duplicate filenames, and regression tests proving EXIF+dHash behavior is unchanged",
+        "Typecheck passes"
+      ],
+      "dependsOn": [
+        "US-1539"
+      ],
+      "notes": "[P1][Web/AutoLister] [bulk-intake deep dive 2026-07-02] Grounding: autoGroupPhotos in src/lib/autolister-grouping.ts wraps src/lib/reconcile-cluster.ts (DEFAULT_GAP_SECONDS=30 line 32; VISUAL_MERGE_MAX_DISTANCE=10 autolister-grouping.ts:56); current rule 'photos without capture time become singleton groups' is the verified gap. Needs original filename retained on staged photos ([[US-1539]]). Keep O(n^2) dHash pass bounded — perf work for 600 photos is [[US-1541]]. iOS port is [[US-1547]]."
+    },
+    {
+      "id": "US-1541",
+      "priority": 2349,
+      "passes": false,
+      "title": "Scale AutoLister intake to 600+ photos (perf, memory, rate limits)",
+      "description": "As a seller uploading a whole shoot (600+ photos), I need the intake page to stay responsive and every upload to succeed: today the design target is ~100 photos, the ungrouped grid renders every thumbnail (no virtualization), staged state persists to localStorage (quota risk), the O(n^2) dHash merge pass runs unchunked, and 600 uploads at concurrency 5 will slam the server's 120-req/60s rate limit with no 429 handling.",
+      "acceptanceCriteria": [
+        "Ungrouped photo grid and the groups list are virtualized (reuse src/components/flipdesk/virtual-list.tsx or equivalent) so a 600-photo session renders and scrolls smoothly",
+        "Upload scheduler is rate-limit aware: stays under the edge's 120/60s staging-upload limit and, on HTTP 429, backs off with jitter and retries automatically (retryable, not terminal); aggregate header shows 'X of N uploaded - Y failed'",
+        "Staged-session persistence moves from localStorage to IndexedDB (or is size-guarded with graceful degradation) so a 600-photo session never throws QuotaExceededError and still rehydrates on reload",
+        "dHash visual-merge clustering is chunked (worker or idle-sliced) so grouping 600 photos does not freeze the main thread; auto-group completes and remains correct at 600 photos",
+        "Object URLs for thumbnails are revoked when photos are removed/dismissed (no unbounded memory growth across a long session)",
+        "A synthetic 600-file test (unit-level for the scheduler/backoff + grouping perf; manual browser pass for the grid) is documented in the story notes on completion; typecheck and vitest pass"
+      ],
+      "notes": "[P1][Web/AutoLister] [bulk-intake deep dive 2026-07-02] Grounding: UPLOAD_CONCURRENCY=5 autolister.tsx:196; per-file pipeline via runWithConcurrency (src/lib/concurrency.ts, '~100 photos' design comments there and in src/lib/image-worker-pool.ts:5); localStorage keys autolister:sessionId / autolister:state:<id> (autolister.tsx:264-305); server rate limit 120 req/60s on /staging/upload (services/edge-functions/src/main.ts:668) — client currently has NO 429 backoff; dHash pairwise pass is O(n^2) bounded only by the 100-photo assumption. MAX_BATCH_ITEMS server cap is handled separately in [[US-1545]]."
+    },
+    {
+      "id": "US-1542",
+      "priority": 2348,
+      "passes": false,
+      "title": "App-level background upload manager — uploads survive navigating away",
+      "description": "As a seller who just queued 600 photos, I want to keep working (check the queue, edit drafts, browse inventory) while uploads continue in the background; today the upload pipeline lives inside the intake page component, so any in-app navigation abandons every in-flight file, and per-file progress state is lost on reload.",
+      "acceptanceCriteria": [
+        "Upload pipeline (compress -> validate -> POST /staging/upload) is lifted out of autolister.tsx into an app-level Zustand store/singleton; navigating anywhere within the SPA no longer cancels in-flight uploads, and returning to the intake page reattaches to live progress",
+        "Global progress affordance while uploads are in flight (e.g. pill in the FlipDesk header/sidebar: 'Uploading 214/600'), linking back to /dashboard/flipdesk/autolister",
+        "beforeunload warns when uploads are in flight (full page close/reload is the one thing the web platform cannot survive); after a hard reload, already-staged photos rehydrate and the UI states plainly how many files were lost and need re-adding",
+        "Per-file progress uses real byte-level upload progress (XHR/stream) instead of the current 10/25/65/100 stage approximations",
+        "Failed files remain retryable from the store after navigation (retry re-runs the pipeline without re-picking files)",
+        "Typecheck passes; store logic unit-tested (queue, retry, reattach)"
+      ],
+      "dependsOn": [
+        "US-1541"
+      ],
+      "notes": "[P1][Web/AutoLister] [bulk-intake deep dive 2026-07-02] Grounding: uploads are page-local today — uploadTasks state + pipeline in autolister.tsx:441-653, not persisted (verified: navigation abandons in-flight files; reload loses progress list while staged photos survive via storage + persisted session). Server-side generation/publish are ALREADY durable (batch tables + reclaim crons) — this story is client-side only. True close-the-tab background upload (service worker Background Fetch) is explicitly out of scope; document the limitation in-UI."
+    },
+    {
+      "id": "US-1543",
+      "priority": 2347,
+      "passes": false,
+      "title": "Drag-and-drop grouping workbench (move photos between groups, reorder, undo)",
+      "description": "As a seller reviewing auto-grouped photos, I want to fix mistakes directly: drag a photo from one group to another, drag ungrouped photos into a group, drag to reorder within a group, and undo a wrong move. Today there is NO drag-and-drop (the only DnD is file upload), no move-photo-between-groups affordance at all (only remove-then-regroup), and no undo for grouping actions.",
+      "acceptanceCriteria": [
+        "Using @dnd-kit (or equivalent already-vetted lib): drag photo(s) between groups, from the ungrouped grid into a group, and from a group back to ungrouped; multi-select then drag moves the whole selection",
+        "Drag-to-reorder within a group persists: manual order becomes the sort_order written at generate() (cover stays first; manual order wins over role-derived order, roles preserved)",
+        "Non-pointer fallback: per-photo 'Move to group...' menu and keyboard-operable drag (dnd-kit keyboard sensor) — jsx-a11y build-blocking lint stays green",
+        "Undo (at least single-level) for grouping mutations: create/merge/move/remove/delete-group, via toast with Undo action",
+        "Works with the virtualized grids from US-1541 (drag across a scrolled 600-photo session does not break)",
+        "Typecheck passes; verify in browser (drag between groups, reorder, keyboard move, undo)"
+      ],
+      "dependsOn": [
+        "US-1541"
+      ],
+      "notes": "[P1][Web/AutoLister] [bulk-intake deep dive 2026-07-02] Grounding: verified no @dnd-kit/react-dnd in the repo; grouping UI is checkbox-select + 'New group from selected' + merge + per-photo X only (autolister.tsx:1093-1276); photo order is role-derived (ROLE_ORDER autolister.tsx:94-100) with cover-first at generate() (:1305-1314). Depends on [[US-1541]] because DnD must interoperate with virtualized lists. Pre-generate checkpoint that consumes this UX is [[US-1546]]."
+    },
+    {
+      "id": "US-1544",
+      "priority": 2346,
+      "passes": false,
+      "title": "AI group-boundary verification: suggest merges/splits/moves before generating",
+      "description": "As a seller, after auto-grouping I want a cheap AI vision pass to sanity-check the proposed groups — 'groups 3 and 4 look like the same jacket: merge?', 'photo 5 in group 2 looks like a different item: move it?' — so grouping mistakes are caught BEFORE I spend AI actions generating wrong drafts. Today the server has zero grouping awareness: /classify-photos only tags roles within one already-formed group.",
+      "acceptanceCriteria": [
+        "New edge endpoint POST /api/flipdesk/autolister/verify-groups: accepts the proposed grouping as ordered groups of staged storage paths; every path is validated to live under the caller's own ${ownerId}/_staging/ prefix (tenant isolation US-268 — add a case to tenant-isolation_test.ts)",
+        "Vision pass compares adjacent-group boundaries (last photo of group i vs first of group i+1) plus flags intra-group outliers; uses the lightweight model from ai-config with the US-1065 cascade helper; returns suggestions [{type: merge|split|move, groups/photos, confidence, reason}] and writes nothing",
+        "Metered and gated like siblings: requireFlipdesk feature 'autolister', checkQuota + increment_ai_actions, photo-count cap per call (reuse MAX_CLASSIFY_PHOTOS-style constant), rate-limited under the existing autolister limiter",
+        "Web UI: after auto-group (and on demand via a 'Verify groups' button), suggestions render as dismissible chips on the affected groups with one-click Apply; suggestions are NEVER auto-applied; applying is undoable via the US-1543 undo",
+        "Deno tests for the endpoint (auth, tenant path rejection, cap, suggestion shape); typecheck passes; verify in browser"
+      ],
+      "dependsOn": [
+        "US-1540",
+        "US-1543"
+      ],
+      "notes": "[P1][Edge+Web/AutoLister] [bulk-intake deep dive 2026-07-02] Grounding: verified NO server-side grouping exists (agent sweep of services/edge-functions/src — /classify-photos at flipdesk-autolister.ts:900 and lib/ai-photo-roles.ts operate on ONE pre-formed group; ai-listing.ts:1220 comment confirms client owns grouping). Boundary-pair comparison keeps cost O(groups) not O(photos^2). Model: LIGHTWEIGHT_AI_MODEL claude-haiku-4-5 (lib/ai-config.ts:12-13) with cascade escalation (lib/ai-action-cascade.ts). iOS consumption is [[US-1548]]."
+    },
+    {
+      "id": "US-1545",
+      "priority": 2345,
+      "passes": false,
+      "title": "Raise the generation batch ceiling (100 -> 300) with quota-aware pre-check",
+      "description": "As a seller generating from a 600-photo session (~100-150 items), I must not hit an invisible wall: today POST /autolister/batch rejects >100 items (MAX_BATCH_ITEMS) and the intake UI never warns, so a big session dead-ends at Generate. The 202+background-worker design has no per-request reason to cap at 100.",
+      "acceptanceCriteria": [
+        "MAX_BATCH_ITEMS raised to 300 in flipdesk-autolister.ts; worker behavior verified unchanged (CONCURRENCY=3 claiming, per-item reserveAiAction, finalizeBatch counts, reclaim cron) at the new size via a deno test with a large synthetic batch",
+        "Count-aware quota pre-check at enqueue: if remaining monthly AI actions < item_count, return 402 with {needed, remaining, cap} instead of letting the batch die item-by-item mid-run",
+        "Intake UI pre-Generate banner shows projected AI actions vs remaining (e.g. 'This will use ~142 of your 610 remaining AI actions') and surfaces the 402 payload as an actionable upgrade/trim message",
+        "MAX_PUBLISH_BATCH_ITEMS raised to match so a fully-green big batch can bulk-publish in one run (active-listing cap logic unchanged)",
+        "Deno tests + typecheck pass; iOS unaffected (it sends item ids the same way)"
+      ],
+      "notes": "[P1][Edge+Web/AutoLister] [bulk-intake deep dive 2026-07-02] Grounding: MAX_BATCH_ITEMS=100 / MAX_PUBLISH_BATCH_ITEMS=100 (flipdesk-autolister.ts:61-97, cap check :779-781); POST /batch returns 202 and processes in background (:876-880) so item count never affects request latency; per-item atomic reserveAiAction via reserve_ai_action RPC already prevents cap-bypass (:163, :306 — US-527). checkQuota (flipdesk-ai.ts:89) is currently a boolean-ish pre-check, not count-aware. Plan caps: pro 750 / business 2000 AI actions per month (lib/pricing-config.ts:66-116)."
+    },
+    {
+      "id": "US-1546",
+      "priority": 2344,
+      "passes": false,
+      "title": "Pre-generate review checkpoint: summary, suspicious-group warnings, explicit confirm",
+      "description": "As a seller about to spend one AI action per listing, I want a final checkpoint that makes the batch state obvious — how many groups, how many photos left ungrouped, which groups look wrong — and requires me to explicitly confirm, so I never generate 120 drafts off a bad grouping. Today Generate fires immediately with no summary and silently ignores ungrouped photos.",
+      "acceptanceCriteria": [
+        "Sticky summary bar on the intake page: N photos - M listings to generate - K ungrouped - projected AI actions (from US-1545 data)",
+        "Suspicious-group warnings surfaced inline before generating: single-photo groups, oversized groups (> 12 photos), groups whose cover QA score < 60 ('Reshoot recommended'), and unresolved US-1544 AI suggestions — each warning links/scrolls to the offending group",
+        "Clicking Generate opens a confirm dialog summarizing the above; when K > 0 it states 'K photos will NOT be listed' and requires an explicit checkbox/acknowledgment before proceeding",
+        "Confirm dialog respects existing gates (uploads still in flight, 0 groups, entitlement) — Generate remains disabled in those states as today",
+        "Typecheck passes; verify in browser (warnings render, ungrouped acknowledgment blocks, generate proceeds after confirm)"
+      ],
+      "dependsOn": [
+        "US-1543",
+        "US-1545"
+      ],
+      "notes": "[P2][Web/AutoLister] [bulk-intake deep dive 2026-07-02] Grounding: generate() at autolister.tsx:1290-1401 fires straight from the button (disabled only for in-flight uploads / 0 groups / entitlement); ungrouped photos are simply not included; cover QA advisory already exists (COVER_QA_REVIEW_THRESHOLD=60, autolister.tsx:212) but is per-group only. Builds on [[US-1543]] (jump-to-group fixes) and [[US-1545]] (quota projection)."
+    },
+    {
+      "id": "US-1547",
+      "priority": 2343,
+      "passes": false,
+      "title": "iOS parity: photo provenance write-through + filename-sequence grouping",
+      "description": "As an iOS seller, I get the same grouping quality as web: the app persists original filename + capture time on item_photos (US-1539 columns) and PhotoGrouping gains the filename-sequence signal so no-EXIF imports stop becoming singleton groups.",
+      "acceptanceCriteria": [
+        "ItemPhotoInsert/PhotoUploadService write original_filename and captured_at onto item_photos rows (values already available from PHAsset/library metadata pre-strip)",
+        "PhotoGrouping.swift adds the filename-sequence signal with the same semantics as web US-1540 (sequence runs seed groups for timeless photos; tiebreaker/ordering otherwise); unit tests mirror the web cases (IMG_ run, mixed prefixes, gaps, duplicates, EXIF-regression)",
+        "Review screen ordering matches web: capture time, then filename sequence, then import order",
+        "swift test (or XCTest target) passes for the grouping cases; no-ungated-print check passes"
+      ],
+      "dependsOn": [
+        "US-1539",
+        "US-1540"
+      ],
+      "notes": "[P2][iOS/AutoLister] [bulk-intake deep dive 2026-07-02] Grounding: ios/GradeThread/AutoLister/PhotoGrouping.swift:39-71 (time-gap only, defaultGapSeconds=30; dHash pass explicitly deferred to v2 per header comment :8-12 — that port is [[US-1548]]); uploads via ios/GradeThread/Upload/PhotoUploadService.swift + ItemPhotoInsert.swift (deterministic-id inserts, 00120 dedup guard). Device/macOS-CI-gated like other iOS stories (no local xcodebuild on Windows)."
+    },
+    {
+      "id": "US-1548",
+      "priority": 2342,
+      "passes": false,
+      "title": "iOS parity: dHash visual merge pass + AI verify-groups suggestions",
+      "description": "As an iOS seller, grouping catches out-of-order shots of the same garment (the deferred-to-v2 dHash visual pass) and I see the same AI merge/split/move suggestions as web before generating.",
+      "acceptanceCriteria": [
+        "Port the web dHash visual second pass to PhotoGrouping.swift (64-bit dHash per photo, merge groups within Hamming distance <= 10), computed off the main thread; unit tests cover the same merge cases as src/lib/reconcile-cluster.ts",
+        "AutoLister review screen calls POST /api/flipdesk/autolister/verify-groups (US-1544) after auto-grouping and renders suggestions as dismissible, one-tap-apply rows; never auto-applies",
+        "Suggestion apply integrates with existing split/merge/cover actions in AutoListerReviewModel; a failed/timed-out verify call degrades silently to no suggestions (no blocking spinner)",
+        "XCTest passes for grouping; no-ungated-print check passes"
+      ],
+      "dependsOn": [
+        "US-1544",
+        "US-1547"
+      ],
+      "notes": "[P2][iOS/AutoLister] [bulk-intake deep dive 2026-07-02] Grounding: PhotoGrouping.swift:8-12 documents the dHash pass as a known v2 gap (web reference: src/lib/reconcile-cluster.ts + phash from src/workers/image-compress.worker.ts); review model at ios/GradeThread/AutoLister/AutoListerReviewModel.swift; endpoint client lives in AutolisterService.swift:27-31. Device/macOS-CI-gated."
     }
   ]
 }
