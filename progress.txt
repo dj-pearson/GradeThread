@@ -8463,3 +8463,48 @@ VERIFICATION (this host): brace/paren/bracket balance clean on all 4 touched fil
 no-ungated-print + no-bare-strings + no-default-shared-session OK. SourceKit "No such
 module" noise expected on Windows. iOS CI (xcodebuild test on macOS) is the build +
 unit-test gate — CONFIRM GREEN in the cloud session. No migration.
+
+## 2026-07-02 (cont.) — US-1495 iOS frozen/ghost items: dirty-flag never cleared + items never delete-reconciled — COMPLETE (passes:true) — NO MIGRATION
+Two related offline-sync integrity bugs that produced the "stale data"/"my edit
+disappeared" class of complaints. Files: SyncEngine.swift, SyncMergeActor.swift,
+SyncTests.swift.
+
+Bug 1 — sticky hasLocalChanges froze rows forever. The canvas sets
+`hasLocalChanges=true` on an OFFLINE save (ItemCanvasView:636,1910) but only the
+ONLINE path (:2185) ever cleared it. flushPending()/apply() dequeued the flushed
+mutation without clearing the flag, so one offline edit froze the row: applyServerWins
+(SyncMergeActor) kept the LOCAL value for every user-owned field on every subsequent
+pull (web/member/AI edits never appeared on the device) and the row was exempt from
+full-backfill prune (an immortal ghost if deleted server-side).
+ - FIX: dirtiness is now defined by the pending queue. flushPending() tracks each
+   inventory-item create/update it flushes this pass; after the loop it snapshots the
+   queue (as late as possible, so an edit made DURING the flush keeps its flag) and,
+   for every flushed item with NO remaining pending edit, calls the new
+   SyncMergeActor.clearItemDirtyFlags(itemIds:) to clear hasLocalChanges. retryMutation()
+   (manual Retry) clears the flag on the same path. New static helpers
+   isInventoryItemEdit / itemIdsWithPendingEdits.
+
+Bug 2 — inventory_items never delete-reconciled. reconcileDeletesIfDue covered
+sales/expenses/listings/photos but NOT items, so an item deleted on web lingered on
+iOS forever; a later iOS edit then UPDATE'd 0 rows, reported success and dequeued.
+ - FIX: reconcileDeletesIfDue now fetches the surviving inventory_items id set
+   (user-scoped) and passes it to SyncMergeActor.reconcileDeletes, which prunes local
+   items absent from the server set. Guarded so it NEVER prunes a pending-create target
+   (protectedIds) NOR a row with a genuinely-pending local edit (protectedItemIds =
+   protectedIds ∪ itemIdsWithPendingEdits, plus a belt-and-suspenders !hasLocalChanges
+   skip). nil id set (offline/fetch-fail) leaves items untouched — same partial-view
+   guard the other tables use.
+ - Tests: itemIdsWithPendingEdits kind filter; clearItemDirtyFlags unfreezes a row so
+   the next pull applies the server edit (AC3) + leaves still-pending dirty rows alone;
+   reconcile prunes a server-deleted item but keeps protected-create + dirty rows (AC2/4);
+   nil item set leaves items untouched.
+VERIFICATION (this host): brace/paren/bracket balance clean on the 3 touched files;
+no-ungated-print + no-bare-strings + no-default-shared-session OK. SourceKit "No such
+module" noise expected off-macOS. iOS CI (xcodebuild test on macOS) is the build +
+unit-test gate. No migration.
+
+### iOS CI hotfix (2026-07-02) — US-1493 test compile break
+The US-1493 epoch test referenced `await engine.currentScopeEpochForTesting` inside
+XCTAssertTrue/False autoclosures (no concurrency support) → GradeThreadTests failed to
+compile, iOS CI red on 693572f (exit 65). Hoisted each actor-isolated epoch read into a
+local before the assertion (commit 4d86936). Production epoch guard unchanged.

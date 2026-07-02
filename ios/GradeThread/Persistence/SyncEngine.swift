@@ -334,24 +334,34 @@ actor SyncEngine {
         // Never prune a row whose server copy doesn't exist yet: offline creates
         // (the create is still queued) and staged photo uploads (the item_photos
         // row hasn't been inserted). Both materialize a local row optimistically.
-        let protectedIds = Self.protectedReconcileIds(await snapshotMutations())
+        let queue = await snapshotMutations()
+        let protectedIds = Self.protectedReconcileIds(queue)
+        // US-1495: additionally protect items with a genuinely-pending local edit
+        // (an UPDATE queued against an existing server row) — the create-only
+        // `protectedIds` above doesn't cover them, and pruning one would drop a
+        // dirty row whose edit hasn't flushed yet.
+        let protectedItemIds = protectedIds.union(Self.itemIdsWithPendingEdits(queue))
 
-        // sales / expenses are user-scoped; listings + item_photos have no
-        // user_id column (RLS scopes them via the parent item).
+        // sales / expenses / inventory_items are user-scoped; listings +
+        // item_photos have no user_id column (RLS scopes them via the parent item).
+        let itemIds = await fetchServerIds(table: "inventory_items", scopeUserId: ownerId)
         let saleIds = await fetchServerIds(table: "sales", scopeUserId: ownerId)
         let expenseIds = await fetchServerIds(table: "flipdesk_expenses", scopeUserId: ownerId)
         let listingIds = await fetchServerIds(table: "listings", scopeUserId: nil)
         let photoIds = await fetchServerIds(table: "item_photos", scopeUserId: nil)
 
         // All fetches failed (offline) → don't touch the mirror or the throttle.
-        guard saleIds != nil || expenseIds != nil || listingIds != nil || photoIds != nil else { return }
+        guard itemIds != nil || saleIds != nil || expenseIds != nil
+                || listingIds != nil || photoIds != nil else { return }
 
         await mergeActor.reconcileDeletes(
+            itemIds: itemIds,
             saleIds: saleIds,
             expenseIds: expenseIds,
             listingIds: listingIds,
             photoIds: photoIds,
-            protectedIds: protectedIds
+            protectedIds: protectedIds,
+            protectedItemIds: protectedItemIds
         )
         lastReconcileAt = now
     }
@@ -1124,6 +1134,10 @@ actor SyncEngine {
         }
 
         await statusStore.set(.syncing)
+        // US-1495: inventory-item ids whose create/update mutation flushed this
+        // pass — candidates for clearing the sticky `hasLocalChanges` flag once
+        // no pending edit remains for them.
+        var flushedItemIds = Set<String>()
         for mutation in mutations {
             // US-1147: stop cleanly on teardown — replays are idempotent so the
             // remaining mutations simply flush on the next start/sync.
@@ -1134,13 +1148,39 @@ actor SyncEngine {
                 continue
             }
             let succeeded = await apply(mutation)
+            guard succeeded else { continue }
             // A just-confirmed create unblocks dependent edits queued behind it
             // so they can still flush in THIS pass.
-            if succeeded, Self.isCreateKind(mutation.kind), let target = mutation.targetId {
+            if Self.isCreateKind(mutation.kind), let target = mutation.targetId {
                 unconfirmedCreateIds.remove(target)
             }
+            // US-1495: an inventory-item edit reached the server.
+            if Self.isInventoryItemEdit(mutation.kind), let target = mutation.targetId {
+                flushedItemIds.insert(target)
+            }
         }
+        // US-1495: clear the sticky dirty flag on every item whose LAST pending
+        // create/update just flushed. The canvas set `hasLocalChanges` on an
+        // offline save but only the online path ever cleared it — so a flushed
+        // offline edit froze the row forever: applyServerWins kept the local
+        // values for every user-owned field (web/member/AI edits never appeared)
+        // and the row was exempt from full-backfill prune (an immortal ghost if
+        // deleted server-side). Dirtiness is now defined by the queue: keep the
+        // flag only while an edit is still pending (retrying OR stuck).
+        await clearDirtyFlagsForFlushedItems(flushedItemIds)
         await refreshPendingCount()
+    }
+
+    /// US-1495: clears `hasLocalChanges` on each just-flushed item that no longer
+    /// has any pending create/update mutation. Snapshotted as late as possible so
+    /// an edit the user makes DURING the flush (which re-sets the flag and enqueues
+    /// a fresh mutation) keeps its flag.
+    private func clearDirtyFlagsForFlushedItems(_ flushedItemIds: Set<String>) async {
+        guard !flushedItemIds.isEmpty else { return }
+        let stillPending = Self.itemIdsWithPendingEdits(await snapshotMutations())
+        let toClear = flushedItemIds.subtracting(stillPending)
+        guard !toClear.isEmpty else { return }
+        await mergeActor.clearItemDirtyFlags(itemIds: toClear)
     }
 
     // MARK: - US-1208: create-before-edit replay ordering
@@ -1167,6 +1207,23 @@ actor SyncEngine {
     /// not exist yet (US-1208).
     static func unconfirmedCreateTargetIds(_ queue: [PendingMutationSnapshot]) -> Set<String> {
         Set(queue.filter { isCreateKind($0.kind) }.compactMap(\.targetId))
+    }
+
+    /// US-1495: mutation kinds that carry an inventory-item edit — the ones the
+    /// canvas pairs with `hasLocalChanges = true`. Used to decide when a flushed
+    /// item has no more pending edits and its dirty flag can be cleared.
+    static func isInventoryItemEdit(_ kind: String) -> Bool {
+        switch MutationKind(rawValue: kind) {
+        case .createInventoryItem, .updateInventoryItem: return true
+        default: return false
+        }
+    }
+
+    /// US-1495: target ids of inventory-item create/update mutations still in the
+    /// queue (retrying OR stuck) — these items are genuinely dirty and must keep
+    /// their `hasLocalChanges` flag (and stay protected from delete-reconcile).
+    static func itemIdsWithPendingEdits(_ queue: [PendingMutationSnapshot]) -> Set<String> {
+        Set(queue.filter { isInventoryItemEdit($0.kind) }.compactMap(\.targetId))
     }
 
     /// True when `mutation` is an edit that must wait for a still-pending create
@@ -1408,7 +1465,14 @@ actor SyncEngine {
     func retryMutation(id: String) async {
         await pendingActor.clearErrorAndResetRetry(id: id)
         let snapshot = await snapshotMutations().first { $0.id == id }
-        if let snapshot { await apply(snapshot) }
+        if let snapshot {
+            let succeeded = await apply(snapshot)
+            // US-1495: a manual retry that flushes the last edit for an item must
+            // clear its dirty flag too, exactly like the auto-flush path.
+            if succeeded, Self.isInventoryItemEdit(snapshot.kind), let target = snapshot.targetId {
+                await clearDirtyFlagsForFlushedItems([target])
+            }
+        }
         await refreshPendingCount()
     }
 

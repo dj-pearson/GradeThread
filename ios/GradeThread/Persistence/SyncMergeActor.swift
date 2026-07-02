@@ -132,6 +132,26 @@ actor SyncMergeActor {
         return modelContext.saveOrLog("mergeItems")
     }
 
+    /// US-1495: clears the sticky `hasLocalChanges` flag on the given items after
+    /// their last pending create/update mutation flushed to the server. Until this
+    /// ran, an offline edit left the flag set forever — `applyServerWins` then kept
+    /// the local value for every user-owned field on every pull, so web/member/AI
+    /// edits never reached the device and the row was exempt from backfill prune
+    /// (an immortal ghost if the server row was deleted). Bounded to the passed ids.
+    func clearItemDirtyFlags(itemIds: Set<String>) {
+        guard !itemIds.isEmpty else { return }
+        let ids = Array(itemIds)
+        let rows = (try? modelContext.fetch(
+            FetchDescriptor<LocalInventoryItem>(predicate: #Predicate { ids.contains($0.id) })
+        )) ?? []
+        var cleared = 0
+        for row in rows where row.hasLocalChanges {
+            row.hasLocalChanges = false
+            cleared += 1
+        }
+        if cleared > 0 { modelContext.saveOrLog("clearItemDirtyFlags") }
+    }
+
     /// Upserts item photos. `prune` is true ONLY on a full backfill — in delta
     /// mode `remotePhotos` is just the new rows, so pruning locals not in the
     /// set would wrongly wipe the whole strip. US-1515: returns save success.
@@ -503,14 +523,36 @@ actor SyncMergeActor {
     /// locals are left untouched (never prune on an incomplete view). Rows whose
     /// id is in `protectedIds` are never pruned — those are offline creates /
     /// staged photo uploads whose server row legitimately doesn't exist yet.
+    /// - Parameters:
+    ///   - itemIds: surviving `inventory_items` id set (US-1495). A `nil` means
+    ///     the fetch failed → items are left untouched.
+    ///   - protectedItemIds: ids the inventory-item prune must never remove —
+    ///     pending creates PLUS rows with a genuinely-pending local edit
+    ///     (`hasLocalChanges`), so an offline edit isn't dropped mid-flush.
     func reconcileDeletes(
+        itemIds: Set<String>? = nil,
         saleIds: Set<String>?,
         expenseIds: Set<String>?,
         listingIds: Set<String>?,
         photoIds: Set<String>?,
-        protectedIds: Set<String>
+        protectedIds: Set<String>,
+        protectedItemIds: Set<String>? = nil
     ) {
         var pruned = 0
+        if let itemIds {
+            // US-1495: items deleted on the web (or another device) previously
+            // lingered on iOS forever — a later iOS edit then UPDATE'd 0 rows,
+            // reported success, and dequeued ('my edit disappeared'). Prune them,
+            // but never a pending-create target or a row with unflushed local
+            // changes (belt-and-suspenders: also skip `hasLocalChanges` rows).
+            let guardIds = protectedItemIds ?? protectedIds
+            let rows = (try? modelContext.fetch(FetchDescriptor<LocalInventoryItem>())) ?? []
+            for row in rows
+            where !itemIds.contains(row.id) && !guardIds.contains(row.id) && !row.hasLocalChanges {
+                modelContext.delete(row)
+                pruned += 1
+            }
+        }
         if let saleIds {
             pruned += pruneAbsent(FetchDescriptor<LocalSale>(), keep: saleIds, protected: protectedIds) { $0.id }
         }

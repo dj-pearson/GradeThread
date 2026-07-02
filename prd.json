@@ -8893,7 +8893,7 @@
         "Unit tests cover: offline edit → flush → server edit → pull applies it; server-side item delete → reconcile removes the local row."
       ],
       "priority": 2396,
-      "passes": false,
+      "passes": true,
       "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Kills the 'frozen/ghost item' class — the root of several 'stale data' complaints."
     },
     {

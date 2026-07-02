@@ -1061,6 +1061,127 @@ final class SyncTests: XCTestCase {
         XCTAssertFalse(protected.contains("i1"))
     }
 
+    // MARK: - US-1495: dirty-flag clearing + inventory-item delete reconcile
+
+    /// The pending-edit id set drives both the dirty-flag clear (on flush) and the
+    /// item delete-reconcile guard: only inventory-item create/update mutations
+    /// count; sales/photos/deletes/unknown kinds do not.
+    func test_itemIdsWithPendingEdits_onlyInventoryCreateAndUpdate() {
+        let queue = [
+            snapshot(kind: .createInventoryItem, targetId: "i-create"),
+            snapshot(kind: .updateInventoryItem, targetId: "i-update"),
+            snapshot(kind: .deleteInventoryItem, targetId: "i-delete"),
+            snapshot(kind: .createSale, targetId: "sale-1"),
+            snapshot(kind: .uploadPhoto, targetId: "i-photo"),
+        ]
+        let ids = SyncEngine.itemIdsWithPendingEdits(queue)
+        XCTAssertEqual(ids, ["i-create", "i-update"])
+    }
+
+    /// AC#3: once the dirty flag is cleared (its last pending edit flushed), the
+    /// next pull's `applyServerWins` stops shadowing the server value — a server
+    /// edit made after the offline edit flushed becomes visible on the device.
+    func test_clearItemDirtyFlags_unfreezesRowSoServerEditApplies() async throws {
+        let container = try inMemoryContainer()
+        let ctx = ModelContext(container)
+        let item = LocalInventoryItem(
+            id: "a", userId: "u1", title: "Local offline edit",
+            status: "cataloged", hasLocalChanges: true
+        )
+        ctx.insert(item)
+        try ctx.save()
+
+        let actor = SyncMergeActor(modelContainer: container)
+
+        // While dirty, a newer server row is shadowed (dirty-wins keeps local).
+        await actor.mergeItems(
+            [Self.remoteItem(id: "a", title: "Server v1", updated: "2026-06-02T00:00:00Z")],
+            primaryPhotos: [:], prune: false
+        )
+        var fetched = try ModelContext(container).fetch(FetchDescriptor<LocalInventoryItem>()).first
+        XCTAssertEqual(fetched?.title, "Local offline edit")
+
+        // Flush clears the flag (no pending edit remains for this item)…
+        await actor.clearItemDirtyFlags(itemIds: ["a"])
+        fetched = try ModelContext(container).fetch(FetchDescriptor<LocalInventoryItem>()).first
+        XCTAssertEqual(fetched?.hasLocalChanges, false)
+
+        // …so the next pull now applies the server edit instead of freezing.
+        await actor.mergeItems(
+            [Self.remoteItem(id: "a", title: "Server v2", updated: "2026-06-03T00:00:00Z")],
+            primaryPhotos: [:], prune: false
+        )
+        fetched = try ModelContext(container).fetch(FetchDescriptor<LocalInventoryItem>()).first
+        XCTAssertEqual(fetched?.title, "Server v2")
+    }
+
+    /// clearItemDirtyFlags is bounded to the passed ids — an item still dirty (its
+    /// edit hasn't flushed) is untouched even though the actor was invoked.
+    func test_clearItemDirtyFlags_leavesUnlistedDirtyItemsAlone() async throws {
+        let container = try inMemoryContainer()
+        let ctx = ModelContext(container)
+        ctx.insert(LocalInventoryItem(id: "flushed", userId: "u1", title: "A",
+                                      status: "cataloged", hasLocalChanges: true))
+        ctx.insert(LocalInventoryItem(id: "stillPending", userId: "u1", title: "B",
+                                      status: "cataloged", hasLocalChanges: true))
+        try ctx.save()
+
+        let actor = SyncMergeActor(modelContainer: container)
+        await actor.clearItemDirtyFlags(itemIds: ["flushed"])
+
+        let byId = Dictionary(uniqueKeysWithValues: try ModelContext(container)
+            .fetch(FetchDescriptor<LocalInventoryItem>()).map { ($0.id, $0.hasLocalChanges) })
+        XCTAssertEqual(byId["flushed"], false)
+        XCTAssertEqual(byId["stillPending"], true)  // its edit is still queued
+    }
+
+    /// AC#2/#4: an item deleted server-side is pruned from the local mirror, but a
+    /// pending-create target and a row with genuinely-pending local changes are
+    /// both protected from the prune.
+    func test_reconcileDeletes_prunesServerDeletedItemsButKeepsProtectedAndDirty() async throws {
+        let container = try inMemoryContainer()
+        let ctx = ModelContext(container)
+        ctx.insert(LocalInventoryItem(id: "keep", userId: "u1", title: "Survives",
+                                      status: "cataloged"))
+        ctx.insert(LocalInventoryItem(id: "gone", userId: "u1", title: "Deleted on web",
+                                      status: "cataloged"))
+        ctx.insert(LocalInventoryItem(id: "dirty", userId: "u1", title: "Pending edit",
+                                      status: "cataloged", hasLocalChanges: true))
+        ctx.insert(LocalInventoryItem(id: "creating", userId: "u1", title: "Offline create",
+                                      status: "cataloged"))
+        try ctx.save()
+
+        let actor = SyncMergeActor(modelContainer: container)
+        // Server still has only "keep". "creating" is a pending create (protected);
+        // "dirty" has an unflushed local edit (protected via hasLocalChanges).
+        await actor.reconcileDeletes(
+            itemIds: ["keep"],
+            saleIds: nil, expenseIds: nil, listingIds: nil, photoIds: nil,
+            protectedIds: ["creating"],
+            protectedItemIds: ["creating"]
+        )
+        let remaining = try ModelContext(container)
+            .fetch(FetchDescriptor<LocalInventoryItem>()).map(\.id).sorted()
+        XCTAssertEqual(remaining, ["creating", "dirty", "keep"])
+    }
+
+    /// A nil item id set (fetch failed / offline) never prunes items — same
+    /// partial-view guard the other tables already have.
+    func test_reconcileDeletes_nilItemSetLeavesItemsUntouched() async throws {
+        let container = try inMemoryContainer()
+        let ctx = ModelContext(container)
+        ctx.insert(LocalInventoryItem(id: "a", userId: "u1", title: "A", status: "cataloged"))
+        try ctx.save()
+
+        let actor = SyncMergeActor(modelContainer: container)
+        await actor.reconcileDeletes(
+            itemIds: nil,
+            saleIds: [], expenseIds: nil, listingIds: nil, photoIds: nil,
+            protectedIds: []
+        )
+        XCTAssertEqual(try ModelContext(container).fetch(FetchDescriptor<LocalInventoryItem>()).count, 1)
+    }
+
     // MARK: - PendingMutationActor off-main queue (US-1165)
 
     func test_pendingActor_snapshotReturnsFifoOrder() async throws {
