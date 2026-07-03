@@ -9765,7 +9765,7 @@
     {
       "id": "US-1553",
       "priority": 2260,
-      "passes": false,
+      "passes": true,
       "title": "Agent infra: grading-engine project skill (.claude/skills/grading-engine)",
       "description": "As an agent editing grading code, I load a skill that encodes the grading domain contract instead of re-deriving it: 5 factors + weights, the three rounding sites that must stay in lockstep, prompt-version lifecycle (draft -> shadow -> eval gate -> activate), golden-set growth rules, exemplar privacy rules (US-1067), and review-threshold semantics (flat 0.75 + defect-divergence trigger).",
       "acceptanceCriteria": [
@@ -9775,12 +9775,12 @@
         "CLAUDE.md grading section slims to a pointer at the skill (skill is the source of truth; CLAUDE.md keeps only the always-needed summary)",
         "AGENT_LEVELUP_ROADMAP.md item 2.1 marked done"
       ],
-      "notes": "From AGENT_LEVELUP_ROADMAP.md section 2.1 (reviewed 2026-07-03). Skills load on demand; CLAUDE.md is loaded every turn - keep it lean."
+      "notes": "From AGENT_LEVELUP_ROADMAP.md section 2.1 (reviewed 2026-07-03). Skills load on demand; CLAUDE.md is loaded every turn - keep it lean. [COMPLETION 2026-07-03] .claude/skills/grading-engine/SKILL.md (100 lines) + references/{rounding-sites,prompt-lifecycle}.md. Frontmatter triggers on all grading files incl. the newer peer-norm/fabric-criteria/garment-baselines modules; names the three rounding sites (existence re-verified by symbol) + lockstep rule + a 5-point change checklist; covers the +baseline/+fabric/+visual suffix discipline this week added. CLAUDE.md grading section slimmed to a 2-line summary + load-the-skill pointer. Roadmap 2.1 checked off. Skill registered live in-session. Shipped in commit 6a40e266."
     },
     {
       "id": "US-1554",
       "priority": 2258,
-      "passes": false,
+      "passes": true,
       "title": "Agent infra: migrations + tenant-isolation project skills",
       "description": "As an agent writing a migration or an edge route, I load executable checklists for the two most-violated contracts: the US-1108 migration triple (idempotent / EXPECTED_SCHEMA_VERSION bump same commit / self-record footer) and the US-268 tenant-isolation rule (service-role bypasses RLS; every multi-tenant query scoped or ownership-verified via parent).",
       "acceptanceCriteria": [
@@ -9789,7 +9789,7 @@
         "Both trigger from their frontmatter descriptions on matching work (supabase/migrations edits; edge route/service-role query edits)",
         "Matching CLAUDE.md sections slim to pointers; AGENT_LEVELUP_ROADMAP.md items 2.2-2.3 marked done"
       ],
-      "notes": "From AGENT_LEVELUP_ROADMAP.md sections 2.2-2.3 (reviewed 2026-07-03)."
+      "notes": "From AGENT_LEVELUP_ROADMAP.md sections 2.2-2.3 (reviewed 2026-07-03). [COMPLETION 2026-07-03] .claude/skills/migrations/SKILL.md (72 lines: the triple, lexical numbering + concurrent-agent recheck, the STANDING held-push rule now including the lesson from the 2026-07-02 out-of-band push - call out loudly when client-side code reads a new column since Pages auto-deploys on push - prod runbook, throwaway-stack caveat, enum ADD VALUE caveat, rls-guard naming traps) + .claude/skills/tenant-isolation/SKILL.md (77 lines: workspaceOwnerId resolution, ownership-via-parent code shapes, storage-path prefix checks, webhook/cron tenancy, the test-case-per-route rule, operator-table SERVICE_ROLE_ONLY registration, edge-diff review checklist). Both registered live in-session; CLAUDE.md bullets slimmed to hard-rule one-liners + pointers; roadmap 2.2-2.3 checked off. Shipped in commit 6a40e266."
     },
     {
       "id": "US-1555",
