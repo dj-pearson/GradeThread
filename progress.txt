@@ -10437,3 +10437,18 @@ VERIFIED LOCALLY: three gates green; 5/5 in the results XML.
   about:blank + destroys - a dismissed sheet can't leak the page or keep JS
   running. Token plumbing to gotrue landed with US-1310.
 VERIFIED LOCALLY: three gates green; 4/4 in the results XML.
+
+=== 2026-07-03 (loop v2): US-1313 (adaptive five-section app shell) ===
+- ShellSection registry: the five iOS tabs with Add CENTERED (pinned by test);
+  one place owns routes/labels/icons so bar + rail + graph can't drift.
+- Adaptive: window-size-class -> NavigationBar on compact, NavigationRail on
+  medium/expanded (the iPad split analog); pure navKindForWidth tested;
+  recomputes on fold/rotate.
+- PER-SECTION BACK STACKS via the canonical save/restore navigation pattern -
+  stacks never leak across tabs. Add is a one-tap shortcut opening the method
+  sheet: photo-first primary + Details/AutoLister secondaries; medium haptic
+  on Add, light on section switches.
+- Chrome: statusBar + reconcileBanner composable SLOTS (sync stories inject) +
+  Search/Tools/Settings top-bar entries. Placeholders per section until each
+  feature story lands.
+VERIFIED LOCALLY: three gates green; 4/4 in the results XML.

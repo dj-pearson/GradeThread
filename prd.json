@@ -6541,7 +6541,7 @@
     {
       "id": "US-1313",
       "priority": -98687,
-      "passes": false,
+      "passes": true,
       "title": "App shell: adaptive bottom-nav / navigation-rail with per-section back stacks",
       "description": "As a user, I want the five-section shell (Home, Inventory, Add, Money, Marketplaces) + Settings, with each section keeping its own navigation, adapting to tablets/foldables.",
       "acceptanceCriteria": [
@@ -6550,7 +6550,7 @@
         "Global status bar (sync/offline) + a shell-level reconcile banner slot + global search/Tools entry points",
         "Settings reachable (gear on Home / rail section); haptic on section change"
       ],
-      "notes": "[P1][Android/Shell] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P1][Android/Shell] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. [COMPLETION 2026-07-03] ui/shell, locally verified (three gates; SectionsTest 4/4 in results XML). ShellSection registry: the five iOS tabs (Home/Inventory/Add/Money/Marketplaces) with Add CENTERED (position pinned by test), one place owning routes/labels/icons so bar+rail+graph can't drift; route uniqueness incl. Settings/Search/Tools tested. AppShell: window-size-class drives NavigationBar (compact) vs NavigationRail (medium/expanded - the iPad NavigationSplitView analog; navKindForWidth pure + tested; recomputes on fold/rotate via calculateWindowSizeClass in MainActivity - AC1). PER-SECTION BACK STACKS via the canonical save/restore pattern (popUpTo(start){saveState}+launchSingleTop+restoreState) - stacks never leak across tabs (AC2). Add = one-tap shortcut opening the METHOD SHEET: photo-first primary ('Take photos' BrandPrimaryButton) + secondary Details-first/AutoLister (AC2), medium haptic; plain section switches tick light (AC4). Shell chrome: statusBar + reconcileBanner COMPOSABLE SLOTS (empty defaults - the sync stories inject) + Search/Tools/Settings top-bar entries (AC3/AC4). Section placeholders deliberately minimal - the shell's job is navigation correctness; content arrives with each feature story. material3-window-size-class added via the BOM."
     },
     {
       "id": "US-1314",
