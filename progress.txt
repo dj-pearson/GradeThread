@@ -9939,3 +9939,33 @@ OPEN: one React #185 (max update depth) in a Select on /items/:id/draft - Sentry
 captured it via the error boundary; need the event's componentStack (minified
 traces inconclusive; picker/composer effect chains audited, all bail out).
 VERIFIED: tsc, eslint, full edge suite (exit 0), full build + CSP hash sync green.
+
+=== 2026-07-03 (loop): US-1558 (active-learning review-queue routing) ===
+Reviewer hours now go where they teach the most:
+- NEW lib/review-info-value.ts (pure): information value = 0.4 x category novelty
+  (golden-set + active-exemplar coverage; zero coverage = 1.0 decaying as labels
+  accumulate) + 0.35 x calibration gap (confidence within +/-0.15 of the CATEGORY
+  review threshold - wired to US-1557 thresholdForCategory with flat fallback; labels
+  near the boundary refine the curve, labels far from it refine nothing) + 0.25 x
+  defect-combo rarity (sorted-unique defect_type key, "clean" for none, scored
+  against the last 300 graded reports). Reasons emitted for factors >= 0.5 so the
+  ordering is explainable. rankReviews encodes the SLA guard: items older than the
+  guard age ALWAYS float first (oldest-first among themselves - ranking can never
+  starve an SLA), then info value, waiting-time tiebreak.
+- Route /review-queue: three bounded, best-effort context reads (active golden-set
+  categories, active exemplar pools, recent defect combos) + the calibration setting;
+  every queue item now carries info_value / info_factors / info_reasons; the select
+  gains defects_found.
+- Web (grading.tsx mandatory-review queue): DEFAULT sort is now information value
+  with the overdue-first SLA guard inline; FIFO stays one click away (the existing
+  Waiting header). New sortable "Value" column shows the score + reason chips
+  ("novel category - near review threshold - rare defect combo") per AC3.
+- NO schema change (AC4): scores are computed per request over the bounded queue;
+  the optional persisted-score column is deferred until queue size demands it.
+TESTS: 5 new deno tests (combo-key canonicalization; high-vs-low scoring with factor
+assertions + reasons; CATEGORY-threshold gap wiring; saturation lows; SLA-guard
+ordering). Fixed one off-by-rounding assertion (1/101 rounds to exactly 0.01).
+FULL edge 2531/0/70; web tsc -b 0, eslint clean, vitest 1121/1121.
+NEW-STORY BATCH COMPLETE: US-1553-1558 all shipped (agent infra + grading moat).
+Remaining pending = Android ports + US-1523 (macOS) + US-1421 (ops) + US-1399
+(deferred), unchanged.

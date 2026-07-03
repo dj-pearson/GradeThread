@@ -9837,7 +9837,7 @@
     {
       "id": "US-1558",
       "priority": 2178,
-      "passes": false,
+      "passes": true,
       "title": "Grading moat: active-learning review-queue routing (information value, not FIFO)",
       "description": "As a reviewer, the queue surfaces the reviews that improve the system fastest: rank pending human reviews by information value - novel category/defect combinations, calibration-gap regions (from US-1557 curves), golden-set coverage holes - so each human hour grows the golden set and exemplar pool fastest.",
       "acceptanceCriteria": [
@@ -9847,7 +9847,7 @@
         "No schema change to reviews themselves beyond an optional persisted score column if needed for sorting at scale; migration follows US-1108 if added",
         "Edge + web suites green"
       ],
-      "notes": "From AGENT_LEVELUP_ROADMAP.md section 6.3 (reviewed 2026-07-03). Depends on US-1557 for the calibration-gap signal but can ship with novelty + rarity factors first."
+      "notes": "From AGENT_LEVELUP_ROADMAP.md section 6.3 (reviewed 2026-07-03). Depends on US-1557 for the calibration-gap signal but can ship with novelty + rarity factors first. [COMPLETION 2026-07-03] NEW lib/review-info-value.ts (pure, 5 tests): informationValue = 0.4*novelty (golden-set + active-exemplar coverage per category, 1/(1+coverage/4)) + 0.35*calibrationGap (confidence within +/-0.15 of the CATEGORY threshold via US-1557 thresholdForCategory, flat fallback) + 0.25*rarity (defectComboKey = sorted unique defect_types, 'clean' for none; 1/(1+recent count)); reviewer-facing reasons emitted for factors >= 0.5. rankReviews implements the SLA guard: items past slaAgeMs ALWAYS first (oldest-first among themselves), then score desc, waiting tiebreak. Route (/review-queue): three bounded context reads (active grading_eval_cases categories, active exemplar-set exemplars, last 300 grade_reports defect combos) + the calibration setting, all best-effort (a miss flattens that factor); each item ships info_value + info_factors + info_reasons; queue select gains defects_found. Web (grading.tsx mandatory queue): default sort = info_value with the overdue-first SLA guard inline (FIFO = the existing Waiting header, one click); new sortable Value column showing the score + reason chips (novel category / near review threshold / rare defect combo) per AC3. NO schema change (scores computed per request over the <=200-item queue - the optional persisted column deferred until scale demands). reviews.tsx (the US-775 low-confidence view of the same route) untouched but receives the new payload fields for future use."
     },
     {
       "id": "US-1559",

@@ -80,6 +80,11 @@ interface QueueItem {
   claimed_by_email: string | null;
   claimed_by_name: string | null;
   claimed_at: string | null;
+  // Mandatory-review SLA signals from the route.
+  overdue?: boolean;
+  // US-1558: information-value ranking + reviewer-facing reasons.
+  info_value?: number;
+  info_reasons?: string[];
 }
 
 interface QueueResponse {
@@ -102,7 +107,7 @@ interface ReviewDetailResponse {
   images: ReviewDetailImage[];
 }
 
-type SortField = "waiting_time" | "confidence" | "score";
+type SortField = "info_value" | "waiting_time" | "confidence" | "score";
 type SortDir = "asc" | "desc";
 
 const FACTOR_KEYS: (keyof FactorScores)[] = [
@@ -160,7 +165,9 @@ export function AdminGradingQueuePage() {
 
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
-  const [sortField, setSortField] = useState<SortField>("waiting_time");
+  // US-1558: information-value ordering is the default; FIFO (Waiting)
+  // stays one click away in the header.
+  const [sortField, setSortField] = useState<SortField>("info_value");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   const [selected, setSelected] = useState<QueueItem | null>(null);
@@ -220,6 +227,19 @@ export function AdminGradingQueuePage() {
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
       const dir = sortDir === "asc" ? 1 : -1;
+      if (sortField === "info_value") {
+        // US-1558 SLA guard: overdue items float to the top regardless of
+        // score (oldest first among themselves) so ranking never starves an
+        // SLA; then information value, waiting time as tiebreak.
+        const aOver = a.overdue === true;
+        const bOver = b.overdue === true;
+        if (aOver !== bOver) return aOver ? -1 : 1;
+        if (aOver && bOver) return b.waiting_ms - a.waiting_ms;
+        const av = a.info_value ?? 0;
+        const bv = b.info_value ?? 0;
+        if (av !== bv) return (av - bv) * dir;
+        return b.waiting_ms - a.waiting_ms;
+      }
       if (sortField === "waiting_time") return (a.waiting_ms - b.waiting_ms) * dir;
       if (sortField === "confidence") return (a.confidence_score - b.confidence_score) * dir;
       if (sortField === "score") return (a.overall_score - b.overall_score) * dir;
@@ -502,6 +522,16 @@ export function AdminGradingQueuePage() {
                   <TableHead>
                     <button
                       className="flex items-center gap-1 hover:text-foreground"
+                      onClick={() => toggleSort("info_value")}
+                      title="Information value: how much reviewing this item improves the grader (novel category, near review threshold, rare defect combo). Overdue items always float to the top."
+                    >
+                      Value
+                      <ArrowUpDown className="h-3 w-3" />
+                    </button>
+                  </TableHead>
+                  <TableHead>
+                    <button
+                      className="flex items-center gap-1 hover:text-foreground"
                       onClick={() => toggleSort("score")}
                     >
                       Grade
@@ -533,7 +563,7 @@ export function AdminGradingQueuePage() {
               <TableBody>
                 {sorted.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                    <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
                       No grades are waiting for review. 🎉
                     </TableCell>
                   </TableRow>
@@ -551,6 +581,17 @@ export function AdminGradingQueuePage() {
                         </TableCell>
                         <TableCell className="max-w-[160px] truncate text-sm text-muted-foreground">
                           {item.user_name ?? item.user_email ?? "Unknown"}
+                        </TableCell>
+                        <TableCell className="max-w-[170px]">
+                          {/* US-1558: why this item ranks where it does. */}
+                          <span className="font-mono text-xs tabular-nums">
+                            {(item.info_value ?? 0).toFixed(2)}
+                          </span>
+                          {(item.info_reasons ?? []).length > 0 && (
+                            <p className="text-xs text-muted-foreground truncate">
+                              {(item.info_reasons ?? []).join(" · ")}
+                            </p>
+                          )}
                         </TableCell>
                         <TableCell>
                           <span className="font-bold tabular-nums">

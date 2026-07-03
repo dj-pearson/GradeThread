@@ -4,8 +4,14 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import {
   CALIBRATION_SETTING_KEY,
   EMPTY_CALIBRATION,
+  thresholdForCategory,
   type CalibrationSetting,
 } from "../lib/confidence-calibration.ts";
+import {
+  defectComboKey,
+  informationValue,
+  type ReviewInfoContext,
+} from "../lib/review-info-value.ts";
 import { getSetting } from "../lib/system-settings.ts";
 import { reviewConfidenceThreshold } from "../lib/ai-config.ts";
 import { failSafe } from "../lib/http-errors.ts";
@@ -1690,7 +1696,7 @@ adminGradingRoutes.get("/review-queue", async (c) => {
         "fabric_condition_score, structural_integrity_score, cosmetic_appearance_score, " +
         "functional_elements_score, odor_cleanliness_score, ai_summary, needs_human_review, " +
         "human_reviewed, review_claimed_by, review_claimed_at, review_due_at, created_at, " +
-        "detailed_notes",
+        "detailed_notes, defects_found",
     )
     // Every preliminary grade that hasn't been finalized or sent back yet.
     .eq("review_status", "pending")
@@ -1758,6 +1764,63 @@ adminGradingRoutes.get("/review-queue", async (c) => {
     }
   }
 
+  // US-1558: information-value context — golden-set + exemplar coverage per
+  // category, recent defect-combo frequencies, and the US-1557 calibrated
+  // thresholds. Three bounded reads; all best-effort (a miss just flattens
+  // that factor).
+  const goldenByCategory: Record<string, number> = {};
+  const exemplarsByCategory: Record<string, number> = {};
+  const comboCounts: Record<string, number> = {};
+  let calibration = EMPTY_CALIBRATION;
+  try {
+    const [{ data: goldenRows }, { data: exemplarRows }, { data: recentReports }] =
+      await Promise.all([
+        supabaseAdmin.from("grading_eval_cases").select("garment_category")
+          .eq("is_active", true).limit(2000),
+        supabaseAdmin.from("grading_exemplar_sets").select("exemplars")
+          .eq("is_active", true).limit(10),
+        supabaseAdmin.from("grade_reports").select("defects_found")
+          .order("created_at", { ascending: false }).limit(300),
+      ]);
+    for (const row of (goldenRows ?? []) as Array<{ garment_category: string }>) {
+      const cat = (row.garment_category ?? "").toLowerCase();
+      goldenByCategory[cat] = (goldenByCategory[cat] ?? 0) + 1;
+    }
+    for (const row of (exemplarRows ?? []) as Array<{ exemplars: unknown }>) {
+      if (!Array.isArray(row.exemplars)) continue;
+      for (const ex of row.exemplars as Array<{ garment_category?: string }>) {
+        const cat = (ex.garment_category ?? "").toLowerCase();
+        if (!cat) continue;
+        exemplarsByCategory[cat] = (exemplarsByCategory[cat] ?? 0) + 1;
+      }
+    }
+    for (const row of (recentReports ?? []) as Array<{ defects_found: unknown }>) {
+      const types = Array.isArray(row.defects_found)
+        ? (row.defects_found as Array<{ defect_type?: string }>)
+          .map((d) => d?.defect_type ?? "").filter(Boolean)
+        : [];
+      const key = defectComboKey(types);
+      comboCounts[key] = (comboCounts[key] ?? 0) + 1;
+    }
+    calibration = await getSetting<CalibrationSetting>(
+      CALIBRATION_SETTING_KEY,
+      EMPTY_CALIBRATION,
+    );
+  } catch (err) {
+    console.warn(
+      "[admin-grading] info-value context failed (scores flatten):",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+  const flatThreshold = reviewConfidenceThreshold();
+  const infoCtx: ReviewInfoContext = {
+    goldenByCategory,
+    exemplarsByCategory,
+    comboCounts,
+    thresholdForCategory: (category) =>
+      thresholdForCategory(calibration, category, flatThreshold).threshold,
+  };
+
   const now = Date.now();
   const items = reports.map((r) => {
     const sub = subById.get(r.submission_id);
@@ -1792,6 +1855,25 @@ adminGradingRoutes.get("/review-queue", async (c) => {
       // n=23"), when this grade was flagged. Reviewers see WHY it's here.
       peer_norm: ((r as unknown as { detailed_notes?: Record<string, string> | null })
         .detailed_notes?.peer_norm) ?? null,
+      // US-1558: information-value ranking (active-learning routing) — the
+      // score + the reviewer-facing reasons for why this item ranks high.
+      ...(() => {
+        const defects = (r as unknown as { defects_found?: unknown }).defects_found;
+        const types = Array.isArray(defects)
+          ? (defects as Array<{ defect_type?: string }>)
+            .map((d) => d?.defect_type ?? "").filter(Boolean)
+          : [];
+        const iv = informationValue({
+          garmentCategory: sub?.garment_category ?? null,
+          confidence: Number(r.confidence_score),
+          defectTypes: types,
+        }, infoCtx);
+        return {
+          info_value: iv.score,
+          info_factors: iv.factors,
+          info_reasons: iv.reasons,
+        };
+      })(),
       created_at: r.created_at,
       waiting_ms: now - new Date(r.created_at).getTime(),
       // Mandatory-review priority signals: the requested grade-speed tier and the
