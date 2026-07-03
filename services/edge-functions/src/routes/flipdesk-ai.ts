@@ -26,6 +26,7 @@ import {
 } from "../lib/ai-size-estimate.ts";
 import { getCategoryAspects, suggestCategories } from "../lib/ebay-client.ts";
 import { buildEbayPrepUpdate } from "../lib/ebay-prep.ts";
+import { verifyIdentificationAgainstMarket } from "../lib/identification-verify.ts";
 import {
   classifyPhotoTypes,
   extractMatchHints,
@@ -436,6 +437,33 @@ flipdeskAiRoutes.post("/extract", async (c) => {
       } catch (err) {
         console.error(
           "[flipdesk-ai] background eBay aspects phase failed:",
+          err instanceof Error ? err.message : String(err)
+        );
+      }
+    })();
+  }
+
+  // US-1528: cross-reference the research identification against live eBay
+  // listings (Browse, app token) in the background — verified IDs get boosted
+  // confidence + "Verified on eBay"; zero market hits demote. No AI call, no
+  // foreground latency; every failure degrades to "stays unverified".
+  if (itemId && result.research) {
+    const bgItemId = itemId as string;
+    const research = result.research;
+    const brand = result.suggestions.brand?.value ?? null;
+    const styleCode = result.attributes.style_code?.values[0] ?? null;
+    void (async () => {
+      try {
+        await verifyIdentificationAgainstMarket({
+          userId,
+          itemId: bgItemId,
+          brand,
+          styleCode,
+          research,
+        });
+      } catch (err) {
+        console.error(
+          "[flipdesk-ai] background identification verify failed:",
           err instanceof Error ? err.message : String(err)
         );
       }

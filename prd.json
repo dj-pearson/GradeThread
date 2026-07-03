@@ -9353,7 +9353,7 @@
     {
       "id": "US-1528",
       "priority": 2337,
-      "passes": false,
+      "passes": true,
       "title": "eBay Browse cross-reference: confirm/refine the identification against live marketplace listings",
       "description": "As a reseller I want the AI's style identification validated against reality: after extract returns brand + identified_style/style_code, query the existing eBay Browse integration (flipdesk-ebay.ts comps section / lib/sold-comps.ts) with 'brand + style_code' and 'brand + identified_style', and score agreement between the top result titles and the proposed identification. High agreement boosts identification_confidence and harvests recurring title keywords (colorway names, fabric tech, fit descriptors) as suggested title keywords; zero hits demotes confidence and flags the ID as unverified. Runs in the existing BACKGROUND enrichment phase (alongside runEbayAspectsPhase in flipdesk-ai.ts) so the foreground Add flow pays no latency.",
       "acceptanceCriteria": [
@@ -9362,7 +9362,7 @@
         "Browse failures/no-connection degrade silently (identification stays unverified; no user-facing error); respects existing eBay API quotas and works with the app-level (non-user) Browse token if available, else skips",
         "Deno tests with mocked Browse responses: confirm boost, refute demote, empty-result skip"
       ],
-      "notes": "[P1][AI/Autolister] [AI-refine audit 2026-07-01] Child of US-1525; depends on US-1527. Reuses the Browse client that already powers comps (useGradeBandedPrice) — this is identification-validation, deliberately separate from pricing. Keyword harvest also improves title SEO for US-1529."
+      "notes": "[P1][AI/Autolister] [AI-refine audit 2026-07-01] Child of US-1525; depends on US-1527. Reuses the Browse client that already powers comps (useGradeBandedPrice) — this is identification-validation, deliberately separate from pricing. Keyword harvest also improves title SEO for US-1529. [COMPLETION 2026-07-02] lib/identification-verify.ts: pure core (tokenizeTitle / scoreTitleAgreement token-overlap with brand/style/size/color exclusions / decideVerification: agree>=0.5-of-titles -> verified + confidence +0.2 cap 0.95; ZERO hits -> -0.2 floor 0.05; hits-that-disagree -> unverified, untouched - noisy search is not refutation) + impure wrapper (two Browse queries via app token searchBrowseComps: brand+style_code, brand+identified_style; title dedupe; per-query silent catch). Persists attributes.identification_verified + market_title_keywords (direct-set, never user keys) + ai_field_sources.style confidence/market_verified when source=research. Wired as second background block in /extract. Web: green Verified-on-eBay badge on the item-canvas Details header (keywords in tooltip). 9 mocked-Browse deno tests."
     },
     {
       "id": "US-1529",

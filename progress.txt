@@ -9358,3 +9358,33 @@ injection, plus floor-drop (0.49), missing-rationale kill, observed-style-wins, 
 sanity band, absent-block cases. FULL edge suite 2475/0/70; web 1114/1114; tsc -b green;
 eslint clean; iOS no-ungated-print + brace scans clean (iOS CI compiles on push).
 Still LOCAL-ONLY; queues behind held migrations 00339 + 00340.
+
+=== 2026-07-02 (loop): US-1528 (eBay Browse cross-reference for identification) ===
+- NEW lib/identification-verify.ts, pure decision core + impure wrapper:
+  * tokenizeTitle (keeps 501/lw7dvcs-style codes), scoreTitleAgreement (a title agrees
+    when it contains >=60% of the style tokens; keywords = tokens recurring in >=40% of
+    titles minus brand/style/color/size/stopwords, cap 8 - harvests colorways/fabric
+    tech/fit descriptors for US-1529 title SEO).
+  * decideVerification: agreement >= 0.5 of titles -> verified:true + confidence +0.2
+    (cap 0.95); ZERO market hits for a supposedly-known product -> -0.2 (floor 0.05),
+    unverified; hits that DISAGREE -> unverified with confidence untouched (a noisy
+    search is not refutation - deliberate asymmetry).
+  * verifyIdentificationAgainstMarket: two Browse queries (brand+style_code from
+    US-1526, brand+identified_style from US-1527) via the APP-LEVEL client-credentials
+    token (searchBrowseComps); missing creds/quota/network per-query catch -> the ID
+    simply stays unverified (AC3). Tenant-scoped persist: attributes.
+    identification_verified (true/false) + market_title_keywords[] (direct-set - these
+    keys are exclusively verification outputs) + ai_field_sources.style confidence
+    adjusted + market_verified flag when the style came from research.
+- Wired as a SECOND background block in POST /extract (alongside runEbayAspectsPhase):
+  foreground Add flow pays zero latency; failures log server-side only.
+- Web: item-canvas Details header shows a green "Verified on eBay" badge when
+  attributes.identification_verified === "true" (harvested market keywords in the
+  tooltip). The AiFillPanel "Identified" badge is the pre-verification state - the
+  upgrade appears on the item once the background pass lands.
+TESTS: 9 deno tests in identification-verify_test.ts with fixture Browse titles
+(ABC Pant agreement + warpstreme keyword harvest with brand/style/color exclusions;
+unrelated-results low score; empty set; confirm boost; 0.95 cap; zero-hit demote;
+0.05 floor; disagree-untouched). FULL edge suite 2484/0/70; web 1114/1114; tsc -b
+green; eslint clean.
+Still LOCAL-ONLY; queues behind held migrations 00339 + 00340.

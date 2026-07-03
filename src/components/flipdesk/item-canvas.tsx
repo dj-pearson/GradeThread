@@ -1552,7 +1552,25 @@ export function ItemCanvas({
         </div>
 
         <div id="canvas-details" className="space-y-2 scroll-mt-4">
-          <Label>Details</Label>
+          <div className="flex items-center gap-2">
+            <Label>Details</Label>
+            {/* US-1528: the research identification was cross-referenced
+                against live eBay listings in the background and confirmed. */}
+            {loadedAttrs.current.raw.identification_verified === "true" && (
+              <Badge
+                variant="outline"
+                className="border-green-200 bg-green-100 text-green-800 dark:border-green-800 dark:bg-green-950/50 dark:text-green-300"
+                title={
+                  Array.isArray(loadedAttrs.current.raw.market_title_keywords) &&
+                  loadedAttrs.current.raw.market_title_keywords.length > 0
+                    ? `Market keywords: ${(loadedAttrs.current.raw.market_title_keywords as string[]).join(", ")}`
+                    : undefined
+                }
+              >
+                Verified on eBay
+              </Badge>
+            )}
+          </div>
           <p className="text-xs text-muted-foreground">
             Optional specifics — Department, Pattern, and friends. Entered once
             here they flow straight into the eBay item specifics (and edits
