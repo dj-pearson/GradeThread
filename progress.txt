@@ -9748,3 +9748,9 @@ TESTS: +2 automation-rules tests (bounds incl. rejects, plan passthrough) -> 18/
 ebay-item-promotion_test. FULL edge suite 2520/0/70; deno check + lint clean; web
 tsc -b 0, eslint clean, vitest 1121/1121.
 Still LOCAL-ONLY; queues behind held migrations 00339-00342.
+
+NOTE on commit 21ab3c04 (US-1448): git add -A also swept in the CONCURRENT agent's
+in-flight US-1552 edits (ai-listing.ts MAX_GENERATION_PHOTOS cap + flipdesk-autolister
+wiring). Tree verified green WITH them (edge 2520/0, tsc, vitest) - left in place
+rather than rewriting history under a live concurrent agent. US-1552 attribution:
+that work is the other agent's; its story bookkeeping will follow in its own commit.
