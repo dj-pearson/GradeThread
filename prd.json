@@ -6555,7 +6555,7 @@
     {
       "id": "US-1314",
       "priority": -98686,
-      "passes": false,
+      "passes": true,
       "title": "Deep links & verified App Links routing",
       "description": "As a user, taps from push, widgets, shortcuts, and auth/email links open the right screen, even mid-sign-in.",
       "acceptanceCriteria": [
@@ -6564,7 +6564,7 @@
         "Inbound links are rate-limited (mirrors DeepLinkGate) and a link arriving before sign-in completes is queued and replayed after (mirrors pendingDeepLink)",
         "Widget-scheme links route before the auth-callback handler"
       ],
-      "notes": "[P1][Android/Shell] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P1][Android/Shell] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. [COMPLETION 2026-07-03] platform/deeplink, locally verified (three gates; DeepLinkTest 8/8 under Robolectric). DeepLinkRoute: the iOS case set (SalesTab/MarketplacesTab/ReconnectEbay/InventoryItem/InventoryTab/NegotiationInbox/GradesList/CaptureItem/AddItem/SupportTickets) parsed from TWO grammars - verified App Links https://gradethread.com/app/<dest>[/<id>] (full matrix proven) and the widget scheme com.gradethread.app://widget/<dest> (the iOS WidgetDeepLink contract: the widget host is deliberately distinct from auth-callback so AC4's precedence holds BY CONSTRUCTION); /app/auth-callback proven NEVER content-routed in either grammar; foreign hosts/schemes/web-app paths fall through null; every route's toNavRoute proven to hit a REGISTERED nav target (the graph gained an 'add' destination for deep links - the bar's Add still opens the method sheet). DeepLinkController (iOS DeepLinkGate + pendingDeepLink, US-1156): 250ms rate-limit floor between ACCEPTED links (foreign URIs don't consume the gate - proven), single-slot pre-sign-in queue where a newer link supersedes, replayPending idempotent; clock-injectable. Manifest: MainActivity (now singleTask) gains the widget-scheme filter + an autoVerify App Link filter listing content subpaths INDIVIDUALLY (not an /app prefix) so auth-callback keeps routing exclusively to AuthCallbackActivity; MainActivity feeds the controller from the launch intent + onNewIntent (isReady=true until the auth-gated-shell story wires the real check - the queue/replay semantics are in place for it); AppShell collects routes and navigates launchSingleTop."
     },
     {
       "id": "US-1315",

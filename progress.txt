@@ -10452,3 +10452,19 @@ VERIFIED LOCALLY: three gates green; 4/4 in the results XML.
   Search/Tools/Settings top-bar entries. Placeholders per section until each
   feature story lands.
 VERIFIED LOCALLY: three gates green; 4/4 in the results XML.
+
+=== 2026-07-03 (loop v2): US-1314 (deep links & verified App Links routing) ===
+- DeepLinkRoute: the iOS destination set parsed from two grammars - verified
+  App Links (https://gradethread.com/app/<dest>[/<id>], full matrix proven)
+  and the widget scheme (widget host deliberately distinct from auth-callback,
+  so the AC4 precedence holds BY CONSTRUCTION). /app/auth-callback proven
+  never content-routed; foreign URIs fall through; every route maps to a
+  REGISTERED nav target (proven against the actual graph).
+- DeepLinkController (DeepLinkGate + pendingDeepLink): 250ms floor between
+  accepted links (foreign URIs don't consume the gate); single-slot
+  pre-sign-in queue, newest supersedes, idempotent replay; clock-injectable.
+- Manifest: widget-scheme filter + autoVerify App Link filter listing content
+  subpaths INDIVIDUALLY so the auth callback stays exclusive to
+  AuthCallbackActivity; MainActivity (singleTask) feeds the controller from
+  launch + onNewIntent; the shell collects and navigates.
+VERIFIED LOCALLY: three gates green; 8/8 in the results XML.

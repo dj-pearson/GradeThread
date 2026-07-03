@@ -32,6 +32,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.gradethread.app.R
+import androidx.compose.runtime.LaunchedEffect
+import com.gradethread.app.platform.deeplink.DeepLinkController
 import com.gradethread.app.platform.rememberHapticFeedback
 import com.gradethread.app.ui.theme.BrandPrimaryButton
 import com.gradethread.app.ui.theme.BrandSecondaryButton
@@ -63,6 +65,13 @@ fun AppShell(
 
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+
+    // US-1314: inbound deep links (push/widget/App Links) drive navigation.
+    LaunchedEffect(Unit) {
+        DeepLinkController.shared.routes.collect { route ->
+            navController.navigate(route.toNavRoute()) { launchSingleTop = true }
+        }
+    }
 
     fun selectSection(section: ShellSection) {
         if (section == ShellSection.ADD) {
@@ -151,6 +160,9 @@ fun AppShell(
 private fun ShellNavHost(navController: NavHostController) {
     NavHost(navController = navController, startDestination = ShellSection.HOME.route) {
         composable(ShellSection.HOME.route) { SectionPlaceholder("Home") }
+        // Registered for deep links (US-1314 AddItem); the bar's Add button
+        // opens the method sheet instead of navigating here.
+        composable(ShellSection.ADD.route) { SectionPlaceholder("Add an item") }
         composable(ShellSection.INVENTORY.route) { SectionPlaceholder("Inventory") }
         composable(ShellSection.MONEY.route) { SectionPlaceholder("Money") }
         composable(ShellSection.MARKETPLACES.route) { SectionPlaceholder("Marketplaces") }

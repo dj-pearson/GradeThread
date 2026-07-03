@@ -17,10 +17,41 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTask"
             android:theme="@style/Theme.GradeThread">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- US-1314: widget taps. The `widget` host is deliberately
+                 distinct from `auth-callback`, so these can never be mistaken
+                 for OAuth redirects (AC4 precedence by construction). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="com.gradethread.app"
+                    android:host="widget" />
+            </intent-filter>
+            <!-- US-1314: verified App Links for content destinations. Listed
+                 per-subpath (NOT a /app prefix) so /app/auth-callback keeps
+                 routing exclusively to AuthCallbackActivity. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="gradethread.com" />
+                <data android:pathPrefix="/app/item" />
+                <data android:pathPrefix="/app/inventory" />
+                <data android:pathPrefix="/app/sales" />
+                <data android:pathPrefix="/app/marketplaces" />
+                <data android:pathPrefix="/app/reconnect" />
+                <data android:pathPrefix="/app/negotiation" />
+                <data android:pathPrefix="/app/grades" />
+                <data android:pathPrefix="/app/support" />
+                <data android:pathPrefix="/app/capture" />
+                <data android:pathPrefix="/app/add" />
             </intent-filter>
         </activity>
         <!-- US-1311: the OAuth return point. The App Link is domain-bound via
