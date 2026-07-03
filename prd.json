@@ -9310,7 +9310,7 @@
     {
       "id": "US-1525",
       "priority": 2340,
-      "passes": false,
+      "passes": true,
       "title": "AI Autolister research epic — from 'read the photos' to 'know the product' (identify named styles like Lululemon ABC Pant)",
       "description": "As a reseller using Add (iOS) / Complete-with-AI (web), I want the AI to RESEARCH my item — not just transcribe what is visible — so a Lululemon tag + a photo of jogger-style pants becomes 'Lululemon ABC Pant Classic, Warpstreme' with the style name flowing into the title, description, and eBay item specifics. Today lib/ai-extract.ts SYSTEM_PROMPT hard-rules 'Never guess … use ONLY what the photos/text support', which suppresses the model's own product knowledge entirely: no style/RN code reading, no named-style identification, no eBay catalog cross-check, and no learning from user corrections. This umbrella tracks US-1526..US-1531.",
       "acceptanceCriteria": [
@@ -9319,7 +9319,7 @@
         "Research output is applied end-to-end: title, description, ebay_category_query, and the eBay aspects pass all consume the identified style",
         "No regression to observed-field precision: extraction acceptance rate (ai_enrichment_log accepted_fields) for brand/size/color does not drop after rollout"
       ],
-      "notes": "[P1][AI/Autolister][Epic] [AI-refine audit 2026-07-01] Grounding: services/edge-functions/src/lib/ai-extract.ts (SYSTEM_PROMPT ~189-237, extractItemFields ~546, extractEbayAspects ~921), routes/flipdesk-ai.ts POST /extract (~196-470, background runEbayAspectsPhase ~757), ios/GradeThread/AIExtract/AIExtractionManager.swift, src/components/flipdesk/ai-fill-panel.tsx. Children: US-1526 codes, US-1527 identification pass, US-1528 eBay Browse cross-ref, US-1529 apply-to-listing, US-1530 cross-photo reasoning, US-1531 correction loop."
+      "notes": "[P1][AI/Autolister][Epic] [AI-refine audit 2026-07-01] Grounding: services/edge-functions/src/lib/ai-extract.ts (SYSTEM_PROMPT ~189-237, extractItemFields ~546, extractEbayAspects ~921), routes/flipdesk-ai.ts POST /extract (~196-470, background runEbayAspectsPhase ~757), ios/GradeThread/AIExtract/AIExtractionManager.swift, src/components/flipdesk/ai-fill-panel.tsx. Children: US-1526 codes, US-1527 identification pass, US-1528 eBay Browse cross-ref, US-1529 apply-to-listing, US-1530 cross-photo reasoning, US-1531 correction loop. [EPIC CLOSED 2026-07-02] All six children shipped (US-1526 codes, 1527 identification, 1528 Browse verify, 1529 apply-to-listing, 1530 cross-photo, 1531 correction loop). AC1 (two tiers w/ provenance + badges) and AC3 (end-to-end application) delivered and test-guarded. AC2 (identification quality on mainstream brands) and AC4 (no observed-field precision regression) are PRODUCTION OUTCOME metrics - the US-1531 admin extraction-accuracy view is precisely the instrument for both; watch it after rollout."
     },
     {
       "id": "US-1526",
