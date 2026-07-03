@@ -71,6 +71,7 @@ import { CompEditor } from "@/components/flipdesk/comp-editor";
 import { PhotoUploader } from "@/components/flipdesk/photo-uploader";
 import { PhotoManager } from "@/components/flipdesk/photo-manager";
 import { MeasurementForm } from "@/components/flipdesk/measurement-form";
+import { MeasurementPhotoEditor } from "@/components/flipdesk/measurement-photo-editor";
 import { PnlPanel } from "@/components/flipdesk/pnl-panel";
 import { MarkListedDialog } from "@/components/flipdesk/mark-listed-dialog";
 import { RecordSaleDialog } from "@/components/flipdesk/record-sale-dialog";
@@ -1601,6 +1602,15 @@ export function ItemCanvas({
             values={state.measurements}
             onChange={(m) => patch("measurements", m)}
             aiSources={heavy.ai_field_sources}
+          />
+          {/* US-1574: calibrated photo measuring (shows only with a
+              MeasureCard shot on the item). */}
+          <MeasurementPhotoEditor
+            itemId={item.id}
+            category={item.category}
+            values={state.measurements}
+            aiSources={heavy.ai_field_sources}
+            onApply={(next) => patch("measurements", next)}
           />
         </div>
 

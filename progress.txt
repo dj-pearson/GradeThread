@@ -2,6 +2,32 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-07-03
 
+## 2026-07-03 — US-1574 (measurement overlay editor, web) — passes:true
+
+Drag-adjust calibrated measuring in the composer AND the item canvas:
+- src/components/flipdesk/measurement-photo-editor.tsx — self-contained
+  (fetches its own measurement-photo row; parents pass values/aiSources/
+  onApply so it edits the SAME state MeasurementForm does). SVG overlay:
+  white-halo draggable lines, endpoint circles, live label chips in the
+  seller's unit pref (22 1/4-style inches or cm), amber for ai-flagged keys
+  until touched. Toolbar: Detect card (force calibrate; surfaces the quality
+  -gate remediation strings), Auto-measure (one AI action -> extract,
+  pre-seeds lines + fills values), Add-line chips for schema keys the auto
+  pass skipped (schema-default placements: vertical for length-like keys).
+- Save: line geometry -> item_photos.measure_calibration.lines; touched
+  values -> inventory_items.measurements + ai_field_sources 'manual'
+  provenance; best-effort POST /measure/overlay so the buyer-facing photo
+  refreshes; invalidates items_full/item_photos; syncs parent state via
+  onApply.
+- Pure math in src/lib/measure-editor-math.ts (applyHomography mirror,
+  inchesBetween, fitScale, hitEndpoint display-space grabbing, default
+  placements) — vitest 5/5; this module is the spec for the iOS/Android
+  editor ports (US-1575/76).
+- Renders null with no MeasureCard photo; manual MeasurementForm entry is
+  never gated. noUncheckedIndexedAccess satisfied on homography indexing.
+VERIFIED LOCALLY: full web vitest 1142/1142 (108 files); tsc -b clean;
+eslint clean. No migration.
+
 ## 2026-07-03 — US-1577 (card-free measurement-overlay listing asset) — passes:true — ⚠️ MIGRATION HELD
 
 The buyer-facing payoff: an UNBRANDED annotated measurements photo.

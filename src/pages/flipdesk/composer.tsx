@@ -84,6 +84,7 @@ import { AiDiffChip } from "@/components/flipdesk/ai-diff-chip";
 import { PhotoManager } from "@/components/flipdesk/photo-manager";
 import { PhotoUploader } from "@/components/flipdesk/photo-uploader";
 import { MeasurementForm } from "@/components/flipdesk/measurement-form";
+import { MeasurementPhotoEditor } from "@/components/flipdesk/measurement-photo-editor";
 import {
   AiFillPanel,
   type AcceptedField,
@@ -1760,6 +1761,16 @@ export function FlipdeskComposerPage() {
                 values={measurements}
                 onChange={setMeasurements}
                 aiSources={item.ai_field_sources ?? null}
+              />
+              {/* US-1574: calibrated photo measuring — renders only when the
+                  item has a MeasureCard shot; drag-adjust + save syncs the
+                  same measurements state the form above edits. */}
+              <MeasurementPhotoEditor
+                itemId={item.id}
+                category={item.category}
+                values={measurements}
+                aiSources={item.ai_field_sources ?? null}
+                onApply={(next) => setMeasurements(next)}
               />
             </CardContent>
           </Card>

@@ -10086,7 +10086,7 @@
     {
       "id": "US-1574",
       "priority": 2376,
-      "passes": false,
+      "passes": true,
       "title": "Measurement overlay editor (web): review, drag-adjust, and save calibrated measurements",
       "description": "As a reseller, I review the auto-extracted measurements on an interactive overlay: the rectified photo with each measurement drawn as a draggable line and a live inch readout. I nudge endpoints, add missing measurements, delete wrong ones, and save. If the auto pass failed, I can still place every line manually — the calibration alone makes manual measuring a 10-second job.",
       "acceptanceCriteria": [
@@ -10097,7 +10097,7 @@
         "The existing manual measurement-form remains for items with NO measurement photo — the overlay editor augments, never gates, measurement entry",
         "vitest: endpoint-drag math (pixel to inch via ppi), provenance rules on save, unit conversion display"
       ],
-      "notes": "Render in rectified coordinate space (apply the stored homography via canvas transform). Keep the editor logic in pure functions (hit-testing, px-to-inch) so the iOS/Android ports share the math by spec, not copy-paste drift. Mind the composer EMPTY_PHOTOS stable-identity lesson (f02426ff) for any new query-fed effect."
+      "notes": "Render in rectified coordinate space (apply the stored homography via canvas transform). Keep the editor logic in pure functions (hit-testing, px-to-inch) so the iOS/Android ports share the math by spec, not copy-paste drift. Mind the composer EMPTY_PHOTOS stable-identity lesson (f02426ff) for any new query-fed effect. BUILT 2026-07-03: MeasurementPhotoEditor (self-contained; mounts beside MeasurementForm in BOTH composer and item canvas via onApply state sync). SVG drag lines over the photo, live chips in the unit pref (in with quarter glyphs / cm), amber styling from ai_field_sources flagged, Detect card (calibrate force) + Auto-measure (1 AI action, extract) + Add-line chips with schema-default placements; Save persists lines to measure_calibration + touched values to measurements with manual provenance + regenerates the US-1577 overlay best-effort. Pure math in lib/measure-editor-math.ts (vitest 5/5) as the spec for the iOS/Android ports. Renders null without a MeasureCard photo — never gates manual entry."
     },
     {
       "id": "US-1575",
