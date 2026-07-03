@@ -10562,3 +10562,19 @@ VERIFIED LOCALLY: three gates green; 7/7 in the results XML.
 - Lenient row decoder (drop + let catch-up repair; ids lowercased) and
   three-shape timestamp parsing proven with exact epoch values.
 VERIFIED LOCALLY: three gates green; 6/6 in the results XML.
+
+=== 2026-07-03 (loop v2): US-1322 (connectivity, debouncer, status, save health) ===
+- ConnectivityMonitor: default-network callback -> StateFlow, initial value
+  read synchronously so cold-launch-offline shows offline IMMEDIATELY; onLost
+  re-probes (another network may remain). ACCESS_NETWORK_STATE added - lint
+  caught all three call sites, fixed with the manifest permission.
+- ConnectivityDebouncer (US-997): 2s trailing window proven with virtual time
+  (5 flaps -> exactly 1 fire after settle); fireNow() bypasses AND cancels the
+  pending run (no double-fire) so manual sync stays immediate.
+- SyncStatus.derive priority proven: stuck (US-1147) beats everything; then
+  syncing > pending > offline > reconnecting > idle. SyncStatusBar composable
+  renders nothing when idle; tap-to-inspect only where it acts (US-1188).
+- PersistenceHealth (US-1142): scrubbed breadcrumb ALWAYS; notice arms at >=3
+  persistent failures (2 blips insufficient - proven); acknowledge re-arms
+  only on new trouble.
+VERIFIED LOCALLY: three gates green; 7/7 in the results XML.

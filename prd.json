@@ -6666,7 +6666,7 @@
     {
       "id": "US-1322",
       "priority": -98678,
-      "passes": false,
+      "passes": true,
       "title": "Connectivity monitor, debouncer, sync status & save-failure health",
       "description": "As a user, I want a clear sync/offline indicator and a heads-up if my device genuinely can’t save locally.",
       "acceptanceCriteria": [
@@ -6674,7 +6674,7 @@
         "Sync status surface (idle/syncing/pending/offline/reconnecting) bound to the shell status bar; cold-launch-offline shows offline immediately",
         "Local-save failures are breadcrumbed and, after a few persistent failures, surface a one-time \"couldn’t save on this device\" notice (mirrors PersistenceHealth/US-1142)"
       ],
-      "notes": "[P2][Android/Sync] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P2][Android/Sync] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. [COMPLETION 2026-07-03] sync/Connectivity+SyncStatus+PersistenceHealth + ui/shell/SyncStatusBar, locally verified (three gates; ConnectivityAndStatusTest 7/7). ConnectivityMonitor: registerDefaultNetworkCallback -> StateFlow<Boolean> with the initial value read SYNCHRONOUSLY from the active network so a cold launch offline shows offline IMMEDIATELY (AC2; onLost re-probes since another network may remain); ACCESS_NETWORK_STATE added (lint caught all three call sites). ConnectivityDebouncer (US-997 ported): 2s TRAILING window - every trigger restarts it, so a flap storm keeps deferring until the link settles then fires EXACTLY once (proven with virtual time: 5 flaps at 500ms spacing -> 0 fires until settle -> 1); separated triggers each fire; fireNow() bypasses AND cancels the pending run so a user gesture stays immediate without a double-fire (proven). SyncStatus.derive with the iOS priority proven: stuck changes (US-1147) beat EVERYTHING (even syncing+offline+reconnecting simultaneously); then syncing > pending(online) > offline > reconnecting > idle; offline-with-queued shows the queued count. SyncStatusBar composable for the shell's statusBar slot: renders NOTHING when idle (quiet by default), needs-attention in brand red, tap routes to the pending inspector only for PENDING/NEEDS_ATTENTION (the US-1188 no-dangling-chevron rule). PersistenceHealth (US-1142): every Room save failure breadcrumbs SCRUBBED (always - diagnostics), notice arms only at >= 3 PERSISTENT failures (2 blips proven insufficient), acknowledge resets so it re-arms only on NEW trouble (proven). Engine wiring (debouncer -> flush+pull) lands with the orchestrator/session story."
     },
     {
       "id": "US-1323",
