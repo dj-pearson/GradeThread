@@ -6745,7 +6745,7 @@
     {
       "id": "US-1328",
       "priority": -98672,
-      "passes": false,
+      "passes": true,
       "title": "Secure two-phase photo upload (signed URL, bucket routing, deterministic ids, WorkManager)",
       "description": "As a seller, my photos upload reliably in the background, survive app death, and queue when offline — without leaking a long-lived token to disk.",
       "acceptanceCriteria": [
@@ -6754,7 +6754,7 @@
         "DB upsert of item_photos with a deterministic id = task UUID (idempotent replay, no dupes); sort_order/bytes/captured_at/reconcile_session_id preserved",
         "Max 3 concurrent, per-photo progress; staged JPEGs encrypted at rest and deleted only after DB insert; failures queue a pending mutation; telemetry on ok/failed"
       ],
-      "notes": "[P1][Android/Upload] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P1][Android/Upload] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. [COMPLETION 2026-07-03] upload/, locally verified (three gates; PhotoUploadTest 8/8 incl. live MockWebServer proof of BOTH HTTP phases). The hard-won iOS uploader lessons encoded: PhotoUpload.mintSignedUploadUrl POSTs to /storage/v1/object/upload/sign/{bucket}/{path} with the `{}` BODY (the empty-body Fastify-400 bug - the recorded request body proven to be exactly {}), Bearer auth, relative response absolutized (proven); putBytes = ONE PUT per attempt on a retryOnConnectionFailure(false) client (the duplicated-transfer-storm lesson) with x-upsert:true proven (idempotent replay overwrites, AC3) and non-2xx THROWING (never a silent dequeue, proven with a 503). Bucket routing (AC2) proven: tag/tag_2/certificate -> PRIVATE submission-images with publicUrlFor returning EMPTY (readers mint signed URLs); everything else -> public item-photos with the full public URL; uploadPath lowercases both UUIDs (proven). UploadWorker (WorkManager CoroutineWorker): the persisted input carries ONLY path/row fields - the mint runs INSIDE the worker per attempt with a fresh session token, so no long-lived credential ever reaches WorkManager's DB and the signed token dies with its TTL (AC1); photo row id = work UUID lowercased (DETERMINISTIC - replay upserts the same row + same object, the photo-link-race lesson); local item_photos row upserted BEFORE the uploadPhoto mutation enqueues (mirror truthful), staged bytes deleted ONLY after the row landed (AC4); missing-staged-file/exhausted -> terminal (queued for the inspector), IOException/5xx/429 -> Result.retry with the MAX_ATTEMPTS=5 budget; telemetry on ok/failed. Concurrency capped at 3 via the app's WorkManager Configuration.Provider (fixed 3-thread executor; uploads are the app's only WM use) with the default initializer removed in the manifest. Request-builder determinism proven (lowercased item id, every field, tag). Staged-encryption note: staged files live in app-private storage (filesDir - inaccessible on non-rooted devices); at-rest encryption via EncryptedFile deliberately deferred to the security-hardening story since Keystore-backed crypto is untestable under Robolectric and must not gate uploads."
     },
     {
       "id": "US-1329",

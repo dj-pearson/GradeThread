@@ -111,6 +111,7 @@ dependencies {
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
     implementation(libs.androidx.exifinterface)
+    implementation(libs.androidx.work.runtime)
     implementation(libs.androidx.lifecycle.process)
 
     implementation(libs.hilt.android)

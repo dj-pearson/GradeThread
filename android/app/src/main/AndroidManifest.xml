@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- US-1322: the connectivity monitor (sync/offline status + debounced flush). -->
@@ -87,6 +88,16 @@
                     android:host="auth-callback" />
             </intent-filter>
         </activity>
+        <!-- US-1328: disable WorkManager's default initializer so the
+             Configuration.Provider (3-thread upload cap) takes effect. -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                tools:node="remove" />
+        </provider>
     </application>
 
 </manifest>

@@ -10641,3 +10641,18 @@ VERIFIED LOCALLY: three gates green; 6/6 in the results XML.
   pipeline runs (long-edge cap + GPS destruction proven on real images).
 - Cap proven (9 picks -> 8); per-pick Result isolation; staging cleaned.
 VERIFIED LOCALLY: three gates green; 4/4 in the results XML.
+
+=== 2026-07-03 (loop v2): US-1328 (two-phase photo upload) ===
+- Both HTTP phases proven live: the sign mint sends EXACTLY {} (the Fastify
+  empty-body 400 lesson), Bearer auth, relative URL absolutized; the PUT is
+  ONE per attempt (no auto-retry client), x-upsert proven, non-2xx throws.
+- Bucket routing proven: tag/tag_2/certificate -> PRIVATE submission-images
+  with an EMPTY public URL; else public item-photos; paths lowercase UUIDs.
+- UploadWorker: mint runs INSIDE the worker per attempt (nothing long-lived
+  in WorkManager's DB); photo id = work UUID (deterministic replay - the
+  photo-link-race lesson); local row before mutation enqueue; staged bytes
+  deleted only after the row; transient->retry(5), terminal->inspector queue.
+- 3-concurrent cap via Configuration.Provider (default initializer removed).
+- Staged files app-private; EncryptedFile deferred to security-hardening
+  (Keystore untestable under Robolectric; must not gate uploads).
+VERIFIED LOCALLY: three gates green; 8/8 in the results XML.

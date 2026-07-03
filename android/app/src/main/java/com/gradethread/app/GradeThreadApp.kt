@@ -1,6 +1,7 @@
 package com.gradethread.app
 
 import android.app.Application
+import androidx.work.Configuration
 import com.gradethread.app.platform.AppConfig
 import com.gradethread.app.platform.applock.AppLock
 import com.gradethread.app.platform.telemetry.Telemetry
@@ -12,7 +13,18 @@ import dagger.hilt.android.HiltAndroidApp
  * SingletonComponent as they land (networking, sync, telemetry…).
  */
 @HiltAndroidApp
-class GradeThreadApp : Application() {
+class GradeThreadApp : Application(), Configuration.Provider {
+
+    /**
+     * US-1328: cap upload parallelism at 3 (the iOS maxConcurrent) — this
+     * executor runs ALL WorkManager work, and photo uploads are the app's
+     * only WorkManager use, so the global cap IS the per-photo cap.
+     */
+    override val workManagerConfiguration: Configuration
+        get() = Configuration.Builder()
+            .setExecutor(java.util.concurrent.Executors.newFixedThreadPool(3))
+            .build()
+
     override fun onCreate() {
         super.onCreate()
         // US-1301: a build with a missing/cleartext base URL dies HERE with a
