@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1570,
+  "nextId": 1581,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -10017,6 +10017,179 @@
         "Generation also mirrors size/color/material columns from the generated specifics when the item columns are blank (same fill-only provenance rules as reverseColumnAspects)"
       ],
       "notes": "User-reported (2026-07-03). Title write-back for new generations landed with the seller-credentials link fix (ai-listing.ts shouldAdoptGeneratedTitle). Fill-only: never clobber seller-entered columns — reuse the provenance rules from SYNC_SOURCE_OF_TRUTH.md."
+    },
+    {
+      "id": "US-1570",
+      "priority": 2372,
+      "passes": false,
+      "title": "MeasureCard v1: fiducial reference-card artwork + commercial print spec + printable fallback",
+      "description": "As GradeThread, we need a physical reference card (the 'GradeThread MeasureCard') that subscribers lay beside a garment in one photo so downstream CV can recover absolute scale and correct camera tilt. It must be producible by any commercial printer from our files, and a free print-at-home fallback must exist so the feature works before a card arrives in the mail.",
+      "acceptanceCriteria": [
+        "Vector master (SVG + print-ready PDF) checked into assets/measure-card/: a 7in x 5in card carrying FOUR ArUco fiducial markers (OpenCV DICT_5X5_1000, ids 10,11,12,13 = card v1; the id set IS the version so future card revisions are machine-detectable), one per corner, each marker >= 1.0in square, with the four marker CENTERS forming an exact 6.000in x 4.000in rectangle — these four known distances are the scale + homography ground truth",
+        "Markers are pure black on white with >= 0.25in quiet zone; interior of the card may carry light GradeThread branding but NOTHING within any marker quiet zone; finish spec is MATTE (glare kills detection)",
+        "MEASUREMENT_CARD_SPEC.md documents the full commercial-print handoff: trim size, 0.125in bleed, registration/crop marks, CMYK profile, markers as 100% K-only black (no rich black), matte stock >= 14pt, tolerance note (marker-center geometry must hold to +/-0.02in) — a printer can produce the card from the PDF + this doc alone",
+        "Print-at-home fallback: a US-Letter PDF with the same fiducial geometry, a 'print at 100% / no page scaling' warning, and a self-check scale box ('a standard credit card fits exactly here — if not, reprint') so home prints are verifiable",
+        "A constants module shared by edge + clients (e.g. lib/measure-card.ts mirrored per the shared-constants convention) exports the card geometry: dict, ids per version, marker-center rectangle in inches — NO magic numbers in the CV code",
+        "Unit test: geometry constants match the spec doc values (guard against silent drift)"
+      ],
+      "notes": "Design decision: 4 corner markers (not 1) so the CV story can compute a full homography (perspective/tilt correction), not just a scale ratio — a single credit card cannot correct tilt. DICT_5X5_1000 chosen for robustness at small pixel sizes. Card v2+ = new id set; never re-use v1 ids with changed geometry."
+    },
+    {
+      "id": "US-1571",
+      "priority": 2373,
+      "passes": false,
+      "title": "New 'measurement' photo type across every surface (web, edge, DB, iOS; Android-ready)",
+      "description": "As a reseller, I take ONE extra flat-lay photo with the MeasureCard beside the garment, tagged as the 'measurement' photo. That tag is what the extraction pipeline keys on, and it must NEVER ship to a marketplace (the card is a branded foreign object eBay dislikes in photos).",
+      "acceptanceCriteria": [
+        "photo_type gains 'measurement' on EVERY surface that duplicates the vocabulary (per the photo-required-and-order-surfaces contract: web constants, edge validators, DB enum/check migration, iOS FlipdeskPhotoType; leave a marked TODO hook for the Android enum) — migration follows the US-1108 triple (idempotent / EXPECTED_SCHEMA_VERSION bump same commit / self-record footer)",
+        "'measurement' is EXCLUDED from listing-eligible photo types everywhere listing photos are assembled (publish photo set, photo sync to eBay, cross-listing photo pull, composer photo strip include-in-listing logic) — a card photo can never reach a marketplace",
+        "'measurement' does not count toward the required-photo set (front+back stays the requirement) and does not affect has_required_photos",
+        "Capture guidance surfaced at tagging time (web + iOS): garment fully flat, card ON THE SAME SURFACE BESIDE the garment (never on top of it), all four markers unobstructed, shoot as top-down as possible",
+        "Existing photos can be RE-tagged to 'measurement' in the photo manager (a seller who already shot one should not reshoot)",
+        "Tests: edge validator accepts the new type; listing-photo assembly test proves a 'measurement' photo is filtered out of the publish set"
+      ],
+      "notes": "Load the migrations skill for the enum change (enum caveats!). The card-removal requirement is PRIMARILY solved here — by segregation, not image editing: the card photo simply never leaves GradeThread. US-1577 then produces a clean, card-free overlay asset for listings."
+    },
+    {
+      "id": "US-1572",
+      "priority": 2374,
+      "passes": false,
+      "title": "Edge calibration service: detect MeasureCard, rectify perspective, persist px-per-inch",
+      "description": "As the platform, given a 'measurement' photo I need a deterministic CV pass that finds the four card fiducials, computes a homography that rectifies the photo to a true top-down plane, derives pixels-per-inch, and persists that calibration — the foundation every measurement (auto or manual) is computed from. Server-side so iOS, web, and Android all share ONE implementation.",
+      "acceptanceCriteria": [
+        "POST /api/flipdesk/measure/calibrate {photoId}: loads the photo (signed, tenant-scoped via owner-verified parent item — tenant-isolation skill), detects the ArUco markers, identifies card version from the id set, computes the homography from the four marker centers to the known 6x4in rectangle, derives px-per-inch on the rectified plane, and returns {cardVersion, ppi, homography, quality}",
+        "Quality gates return actionable errors, not garbage numbers: fewer than 4 markers found (card not fully visible), min marker size < 40px (move camera closer), blur metric below threshold (photo too blurry), homography reprojection residual above threshold (card bent or photo too angled) — each with a user-facing remediation string",
+        "Calibration persists on the item_photos row (new nullable jsonb column, e.g. measure_calibration: {v, cardVersion, ppi, homography, quality, computedAt}) via a US-1108-triple migration, so re-opening the editor never re-runs detection",
+        "Implementation: ArUco detection + homography inside the existing Deno edge container (opencv WASM or a pure-TS ArUco port validated against OpenCV outputs); if WASM proves unworkable, a minimal Python/OpenCV sidecar container on Coolify behind the same route is the sanctioned fallback (document the choice in the code)",
+        "Deterministic test fixtures: >= 6 synthetic renders of the card geometry (straight-on, 15deg tilt, 30deg tilt, small-in-frame, one marker occluded, blurred) with known ground truth; calibrate must recover ppi within 1% on the passing cases and emit the RIGHT error on the failing ones",
+        "Endpoint registered in the tenant-isolation test suite (new-route rule)"
+      ],
+      "notes": "The homography is the whole ballgame for accuracy: it converts a slightly-angled photo from an error source into a solved problem. All downstream pixel math (auto landmarks AND the manual editor) happens in RECTIFIED coordinates. Raw photos stay untouched — rectification is a coordinate transform, not a rewrite of the stored image."
+    },
+    {
+      "id": "US-1573",
+      "priority": 2375,
+      "passes": false,
+      "title": "Auto measurement extraction: garment-class schema + AI landmark proposal + deterministic refinement",
+      "description": "As a reseller, once my measurement photo is calibrated, GradeThread should pull the actual measurements out automatically: pit-to-pit, length, sleeve, waist, inseam, rise — whichever apply to the garment class — with per-measurement confidence, so most items need zero manual measuring.",
+      "acceptanceCriteria": [
+        "A per-garment-class measurement schema module (shared constant, mirrored web/edge/iOS like the photo vocabulary): tops = chest/pit-to-pit, length, shoulder, sleeve; bottoms = waist, inseam, rise, hem/leg opening; dresses/outerwear/shoes each get their own set — this schema also drives which fields the editor (next story) renders",
+        "POST /api/flipdesk/measure/extract {photoId}: on the RECTIFIED image, Claude Vision proposes each measurement's two endpoints as NORMALIZED coordinates constrained by garment class (the existing AI-extraction pass supplies the class); a deterministic refinement step snaps each proposed endpoint to the nearest garment edge (contour/gradient search within a small window) — the VLM proposes, classical CV decides (VLMs alone are not pixel-accurate)",
+        "Each measurement returns {name, endpoints, inches, confidence}; inches = rectified pixel distance / ppi, rounded to 0.25in",
+        "Results write to item.measurements (existing jsonb consumed by the US-1450 publish aspects) plus a parallel measurement_sources provenance map (ai_measured), NEVER overwriting a manual entry — same fill-only provenance rules as reverseColumnAspects / SYNC_SOURCE_OF_TRUTH.md",
+        "Plausibility guard: compare extracted values against size-tag priors (existing size column; e.g. a mens L top with pit-to-pit outside 20-26in) — out-of-band measurements are flagged needs-review-style and surfaced in the editor rather than silently saved",
+        "AI spend rides the existing ai_enrichment_log + quota gate; extraction is one vision call per item (all measurements in one prompt)",
+        "Deno tests: schema module; snapping function on synthetic edges; plausibility guard bands; provenance fill-only rules"
+      ],
+      "notes": "Designed to be WRONG sometimes and cheaply corrected: everything lands in the overlay editor pre-seeded, and every manual correction becomes telemetry for a future trained landmark model (eval-harness story). AutoLister integration: when a batch item has a calibrated measurement photo, run extract during generation so drafts arrive measured."
+    },
+    {
+      "id": "US-1574",
+      "priority": 2376,
+      "passes": false,
+      "title": "Measurement overlay editor (web): review, drag-adjust, and save calibrated measurements",
+      "description": "As a reseller, I review the auto-extracted measurements on an interactive overlay: the rectified photo with each measurement drawn as a draggable line and a live inch readout. I nudge endpoints, add missing measurements, delete wrong ones, and save. If the auto pass failed, I can still place every line manually — the calibration alone makes manual measuring a 10-second job.",
+      "acceptanceCriteria": [
+        "Composer + item canvas gain a Measurements panel: when a calibrated measurement photo exists, it renders the rectified photo on a canvas with each schema measurement as a colored line with draggable endpoints and a live value chip (inches, 0.25 steps, unit pref respected via useMeasurementPrefs)",
+        "Pre-seeded from the extract output when present; a bare calibrated photo (no extract, or extract failed) starts with schema-default line placements the user drags into position — the editor NEVER requires the auto pass",
+        "Low-confidence / plausibility-flagged measurements render visually distinct (amber) so review attention goes to the right lines",
+        "Save writes item.measurements + measurement_sources=manual for touched entries (untouched ai_measured entries keep their provenance) and invalidates the items_full / item queries",
+        "The existing manual measurement-form remains for items with NO measurement photo — the overlay editor augments, never gates, measurement entry",
+        "vitest: endpoint-drag math (pixel to inch via ppi), provenance rules on save, unit conversion display"
+      ],
+      "notes": "Render in rectified coordinate space (apply the stored homography via canvas transform). Keep the editor logic in pure functions (hit-testing, px-to-inch) so the iOS/Android ports share the math by spec, not copy-paste drift. Mind the composer EMPTY_PHOTOS stable-identity lesson (f02426ff) for any new query-fed effect."
+    },
+    {
+      "id": "US-1575",
+      "priority": 2377,
+      "passes": false,
+      "title": "iOS: guided MeasureCard capture + native measurement overlay editor",
+      "description": "As an iOS reseller (the primary capture device), the camera flow guides me to a good measurement shot — card fully visible, top-down, sharp — and I can review/adjust the extracted measurements natively, identical in behavior to the web editor.",
+      "acceptanceCriteria": [
+        "Capture flow gains a skippable Measurement-shot step: live hint overlay (lay the MeasureCard beside the garment, all 4 squares visible); after capture the photo auto-tags photo_type=measurement and upload rides the existing foreground uploader",
+        "Post-upload, the app calls calibrate (+extract when the item has a garment class) and surfaces the quality-gate errors verbatim with a Retake affordance — a bad card shot is caught at the shelf, not at listing time",
+        "Native overlay editor mirrors the web editor: rectified image, draggable measurement lines, live inch values, amber low-confidence styling, identical save semantics via the same endpoints",
+        "Measurement photos are excluded from the iOS listing-photo picker/sync exactly like web (shared vocabulary)",
+        "iOS CI: unit tests for the px-to-inch math port and the photo-type exclusion; UI smoke for the editor sheet (no-ungated-print rule respected)"
+      ],
+      "notes": "iOS is not buildable on this Windows host — rides the iOS CI lane. Optional stretch ONLY if trivial: live card-visibility hint via Vision framework rectangle detection; full on-device detection is explicitly NOT required (server calibrate is the source of truth, keeping all platforms consistent)."
+    },
+    {
+      "id": "US-1576",
+      "priority": 2378,
+      "passes": false,
+      "title": "Android: MeasureCard capture + measurement editor parity",
+      "description": "As an Android reseller, I get the same guided measurement capture and overlay editor as iOS/web, backed by the same server-side calibrate/extract endpoints — no platform-specific CV.",
+      "acceptanceCriteria": [
+        "Capture step with the same guidance + auto-tag photo_type=measurement; the Android photo-type enum gains measurement (the TODO hook from the vocabulary story)",
+        "Calibrate/extract calls + quality-error surfacing + Retake, matching iOS behavior",
+        "Compose overlay editor with draggable lines, live values, amber flags, identical save semantics",
+        "Measurement photos excluded from listing photo selection",
+        "Unit tests for the shared math port; runs in the Android CI lane once it exists (assembleDebug + testDebugUnitTest locally per the android-local-toolchain setup until then)"
+      ],
+      "notes": "DEPENDS on the Android client reaching photo-capture parity — keep pending until then rather than building against a moving target. All heavy lifting is server-side by design, so parity is UI-only."
+    },
+    {
+      "id": "US-1577",
+      "priority": 2379,
+      "passes": false,
+      "title": "Clean measurement-overlay listing asset: card-free annotated photo buyers can trust",
+      "description": "As a reseller, GradeThread renders a clean, marketplace-safe measurements photo for my listing: the garment (card cropped OUT of frame) with unbranded measurement lines and inch labels burned in — the buyer-facing payoff of the whole system and a big listing-quality differentiator.",
+      "acceptanceCriteria": [
+        "POST /api/flipdesk/measure/overlay {itemId}: renders from the rectified measurement photo — crop to the garment region EXCLUDING the card (the capture protocol guarantees the card sits beside the garment, so a deterministic crop removes it; NO inpainting in v1), then draw each saved measurement as a clean line with end-caps and an inch label (server-side ImageScript, same stack as the old badge compositor)",
+        "The rendered asset is UNBRANDED: plain lines + numbers only — no GradeThread logo, wordmark, URL, or QR (eBay third-party-marks / off-eBay-promotion policy; same rule family as the no-links pivot)",
+        "Asset stores as a generated item photo with a distinct type (e.g. measurement_overlay, added to the vocabulary surfaces like the measurement type), listing-ELIGIBLE but never auto-primary; regenerating after a measurement edit replaces the previous render",
+        "Composer/photo manager show it with an include-in-listing toggle (default ON when >= 2 measurements exist); publish + photo-sync append it after the seller's real photos",
+        "Graceful degradation: a crop that would clip the garment falls back to the full rectified frame with the card region masked to a flat background fill (not inpainting); if that also fails the overlay is simply skipped — publish is never blocked by overlay generation",
+        "Deno test: renderer draws the expected line/label count from a fixture measurement set; type-exclusion test that measurement stays OUT and measurement_overlay goes IN (non-primary) of the publish photo set"
+      ],
+      "notes": "This story answers the eBay concern: the CARD photo never ships (segregated by type), and the shipping overlay is card-free + brand-free. Annotated measurement photos are established eBay practice (Tailored's flagship output) — the policy risk is branding, not measurement callouts."
+    },
+    {
+      "id": "US-1578",
+      "priority": 2380,
+      "passes": false,
+      "title": "Measurements ride every listing surface: eBay aspects + description block + cross-listing text",
+      "description": "As a reseller, saved measurements should reach buyers everywhere automatically: eBay measurement item specifics, a formatted description block, the overlay photo, and plain-text lines on cross-listed platforms — one measurement pass, every surface.",
+      "acceptanceCriteria": [
+        "eBay: the existing resolveMeasurementAspects/applyMeasurementsBlock paths consume the new measurements exactly as they do manual ones (regression tests updated to cover ai_measured-provenance values) — publish AND revise",
+        "Description block includes a one-line method note when measurements came from a calibrated photo (Measured flat via calibrated photo measurement) — text only, no URLs",
+        "Cross-listing generation (platform_fields variants) appends a plain-text measurements section per platform within each platform's description cap, using platform-appropriate unit formatting",
+        "Composer preview specifics + ListingKit measurement lines read the same store so the preview never disagrees with what publishes",
+        "AutoLister queue pre-flight surfaces a has-measurements informational badge (never blocking) on drafts, so batch reviewers see coverage at a glance"
+      ],
+      "notes": "Mostly wiring + tests: US-1450 already built the eBay fold-in; this story guarantees the new provenance and the overlay asset flow through publish, revise, AND the queue/bulk paths (watch the publish-time listings-row snapshot class of bug)."
+    },
+    {
+      "id": "US-1579",
+      "priority": 2381,
+      "passes": false,
+      "title": "MeasureCard distribution: in-app ordering, printable download, fulfillment queue, version tracking",
+      "description": "As a subscriber, I can get a MeasureCard: download the print-at-home PDF instantly, or request a professionally printed card mailed to me (plan-gated). As the operator, I get a fulfillment queue I can export to my print/mail vendor, and the system knows which card version each user has.",
+      "acceptanceCriteria": [
+        "A MeasureCard page under FlipDesk settings/tools: what it is, capture do/donts, instant PDF download (the letter fallback), and Request-a-mailed-card for eligible plans",
+        "Mail request captures shipping address into a measure_card_requests table (US-1108-triple migration; deny-all operator table registered in rls-guard with owner_user_id) with status requested -> exported -> shipped; plan gating enforced server-side",
+        "Admin ops page lists + CSV-exports pending requests (address, plan, requested_at) and bulk-marks exported/shipped — the operator handles the actual print/mail vendor",
+        "A profile-side record tracks card_version delivered/downloaded so future card revisions can target upgrade messaging; calibrate already detects the version per photo from the marker ids",
+        "Education hook: one in-app announcement via the existing Growth broadcast system when the feature ships (draft copy included in the story; operator sends)",
+        "Abuse guard: one active mail request per user + rate limit on the request endpoint"
+      ],
+      "notes": "Fulfillment stays manual/vendor-side on purpose at this scale; the queue is just structured data. Shipping address is PII: operator table, service-role only, NEVER in item-photos or any public surface."
+    },
+    {
+      "id": "US-1580",
+      "priority": 2382,
+      "passes": false,
+      "title": "Measurement accuracy eval harness + correction telemetry (earning the word accurate)",
+      "description": "As GradeThread, before we market photo measurements as accurate we need to KNOW the error distribution: a golden set of tape-measured garments the pipeline runs against on demand, plus production telemetry on how far users drag the auto lines — which doubles as training data for a future dedicated landmark model.",
+      "acceptanceCriteria": [
+        "Golden set: >= 20 real garments across the class schema, each with operator tape-measured ground truth + a MeasureCard photo, stored as fixtures (photos in private storage, truth values in a JSON manifest)",
+        "An eval script (like the grading eval) runs calibrate+extract on the set and reports per-measurement error stats; RELEASE GATE for accuracy marketing: p50 <= 0.25in AND p95 <= 0.5in vs tape truth — until met, all UI copy says estimated from photo, review before listing",
+        "Production telemetry: on editor save, log the per-measurement delta between the ai_measured proposal and the final value (PostHog event + a compact measure_corrections operator table via migration) — deltas/class/confidence only, no photo content",
+        "An admin view (or documented SQL) surfaces the correction-delta distribution per garment class so we can see which measurements the auto pass gets wrong",
+        "Documented threshold review: when 30 days of telemetry shows p95 <= 0.5in for a class, that class's copy may drop estimated (a recorded human decision, not automatic)"
+      ],
+      "notes": "Same philosophy as the grading golden set: never claim accuracy you have not measured. The correction telemetry is also the labeled dataset that would let a Phase-3 trained landmark model (HRNet-style) replace the VLM-propose step if volume justifies it."
     }
   ]
 }
