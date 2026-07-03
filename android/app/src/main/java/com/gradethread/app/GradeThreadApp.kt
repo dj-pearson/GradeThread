@@ -1,6 +1,7 @@
 package com.gradethread.app
 
 import android.app.Application
+import com.gradethread.app.platform.AppConfig
 import dagger.hilt.android.HiltAndroidApp
 
 /**
@@ -8,4 +9,11 @@ import dagger.hilt.android.HiltAndroidApp
  * SingletonComponent as they land (networking, sync, telemetry…).
  */
 @HiltAndroidApp
-class GradeThreadApp : Application()
+class GradeThreadApp : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        // US-1301: a build with a missing/cleartext base URL dies HERE with a
+        // named error, not deep inside the first network call.
+        AppConfig.validateAtStartup()
+    }
+}

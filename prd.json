@@ -6376,7 +6376,7 @@
     {
       "id": "US-1301",
       "priority": -98699,
-      "passes": false,
+      "passes": true,
       "title": "Build config, flavors & secrets (BuildConfig) + network security",
       "description": "As an Android developer, I want debug/release build types with build-time config (endpoints, keys) sourced from secrets, so no credentials live in source and HTTPS is enforced.",
       "acceptanceCriteria": [
@@ -6385,7 +6385,7 @@
         "debug vs release buildTypes differ in endpoints/logging; network-security-config disallows cleartext",
         "Mirrors iOS Debug/Release.xcconfig semantics"
       ],
-      "notes": "[P1][Android/Foundation] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P1][Android/Foundation] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. [COMPLETION 2026-07-03] BuildConfig fields for all 7 keys (SUPABASE_URL/EDGE_API_URL/SUPABASE_ANON_KEY/SENTRY_DSN/POSTHOG_API_KEY/POSTHOG_HOST/TURNSTILE_SITE_KEY) via secret() = CI env var -> local.properties (gitignored) -> placeholder; the two base URLs default to the public prod routing facts, keys default empty. AppConfig.kt (platform pkg) mirrors iOS AppConfig semantics exactly: required values (both URLs + anon key) are lazy + fail-fast with NAMED errors, https-enforced + normalized (ConfigValidation.requireHttpsBaseUrl - the fatalError analog); optional values blankToNull -> feature disables silently; posthogHost defaults to us.i.posthog.com like iOS; validateAtStartup() called from GradeThreadApp.onCreate so a misconfigured build dies at launch, not mid-request. Debug vs release: applicationIdSuffix .debug (side-by-side installs) + LOGGING_ENABLED true/false per buildType (AC3). network_security_config.xml: cleartextTrafficPermitted=false base-config, wired in the manifest - NO debug exception (backend is public https). ConfigValidation is import-free pure Kotlin; 7 JVM unit tests (blank/whitespace->null, trim, https accept+normalize, cleartext/garbage/hostless rejection with key-named errors, non-blank requirement). VERIFIED LOCALLY: assembleDebug + testDebugUnitTest + lintDebug all green. TWO Kotlin gotchas recorded: (1) .kts scripts need explicit `import java.util.Properties` at file top; (2) Kotlin block comments NEST - the literal path '/api/*' inside a KDoc opens an unclosed nested comment ('Syntax error: Unclosed comment' at EOF); ALSO a failed compile can leave stale incremental state that replays the old error after the fix - rm -rf app/build/kotlin."
     },
     {
       "id": "US-1302",

@@ -10220,3 +10220,25 @@ compile+test verification before commit.
   uploads the debug APK (7d) so anyone can install the shell without a build,
   and the lint report on failure. The neutral second net behind local runs.
 Remaining Android backlog: US-1301..1396 (78 stories), now all verifiable.
+
+=== 2026-07-03 (loop v2): US-1301 (Android build config, secrets & network security) ===
+- BuildConfig fields for all 7 config keys via secret() = CI env -> gitignored
+  local.properties -> placeholder; base URLs default to the public prod routing
+  facts, keys default empty. AppConfig.kt mirrors iOS AppConfig EXACTLY:
+  required values lazy + fail-fast with key-NAMED errors, https-enforced and
+  normalized; optional values blankToNull -> feature silently disables;
+  posthogHost defaults to us.i.posthog.com; validateAtStartup() in
+  GradeThreadApp.onCreate makes a misconfigured build die at launch, not
+  mid-request.
+- Debug vs release: .debug applicationIdSuffix (side-by-side installs) +
+  LOGGING_ENABLED flag per buildType. network_security_config.xml: cleartext
+  disallowed globally, wired in the manifest - no debug exception.
+- ConfigValidation.kt is import-free pure Kotlin with 7 JVM tests (blank ->
+  absent, trim, https accept/normalize, cleartext/garbage/hostless rejection
+  with named errors, non-blank requirement).
+- VERIFIED LOCALLY: assembleDebug + testDebugUnitTest + lintDebug green.
+- New toolchain gotchas recorded in memory: Kotlin block comments NEST (a
+  literal api-wildcard path inside a KDoc = "Unclosed comment" at EOF);
+  .gradle.kts needs an explicit java.util.Properties import; a FAILED compile
+  can leave stale incremental state that replays the old error - clear the
+  app build kotlin directory to recover.

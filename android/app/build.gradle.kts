@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -5,6 +7,17 @@ plugins {
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
 }
+
+// US-1301: build-time secrets — CI env var first, then local.properties, then
+// an empty placeholder (AppConfig treats empty as absent; required values fail
+// fast at startup). Nothing sensitive is ever committed.
+val localProps = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+
+fun secret(name: String, default: String = ""): String =
+    System.getenv(name) ?: localProps.getProperty(name) ?: default
 
 android {
     namespace = "com.gradethread.app"
@@ -21,11 +34,28 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // US-1301: endpoint/keys via BuildConfig (see AppConfig.kt). The two
+        // base URLs default to prod (they're public routing facts — CLAUDE.md);
+        // keys default to empty placeholders that read as absent.
+        buildConfigField("String", "SUPABASE_URL", "\"${secret("SUPABASE_URL", "https://api.gradethread.com")}\"")
+        buildConfigField("String", "EDGE_API_URL", "\"${secret("EDGE_API_URL", "https://functions.gradethread.com")}\"")
+        buildConfigField("String", "SUPABASE_ANON_KEY", "\"${secret("SUPABASE_ANON_KEY")}\"")
+        buildConfigField("String", "SENTRY_DSN", "\"${secret("SENTRY_DSN")}\"")
+        buildConfigField("String", "POSTHOG_API_KEY", "\"${secret("POSTHOG_API_KEY")}\"")
+        buildConfigField("String", "POSTHOG_HOST", "\"${secret("POSTHOG_HOST")}\"")
+        buildConfigField("String", "TURNSTILE_SITE_KEY", "\"${secret("TURNSTILE_SITE_KEY")}\"")
     }
 
     buildTypes {
+        debug {
+            // Side-by-side install with a release build; verbose logging on.
+            applicationIdSuffix = ".debug"
+            buildConfigField("boolean", "LOGGING_ENABLED", "true")
+        }
         release {
             isMinifyEnabled = true
+            buildConfigField("boolean", "LOGGING_ENABLED", "false")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
@@ -41,6 +71,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

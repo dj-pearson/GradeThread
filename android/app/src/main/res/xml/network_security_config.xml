@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- US-1301: HTTPS only, everywhere. No cleartext exception exists even for
+     debug builds — the backend is public https (api./functions.gradethread.com)
+     and local dev against a device would use https tunnels anyway. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>
