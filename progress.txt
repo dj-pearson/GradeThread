@@ -10656,3 +10656,17 @@ VERIFIED LOCALLY: three gates green; 4/4 in the results XML.
 - Staged files app-private; EncryptedFile deferred to security-hardening
   (Keystore untestable under Robolectric; must not gate uploads).
 VERIFIED LOCALLY: three gates green; 8/8 in the results XML.
+
+=== 2026-07-03 (loop v2): US-1319 (offline mutation queue) ===
+- The iOS replay rules carried exactly: US-1208 create-before-edit (blocked
+  set from the FULL queue incl. stuck creates; same-pass unblock when the
+  create lands - both FIFO interleaves proven), US-1496 blocked-target hold
+  (per-target FIFO preserved after a failure; other targets unaffected),
+  US-1221 terminal-vs-transient (terminal pins retry to the 6 budget
+  immediately; transient bumps and stays; matrices pinned).
+- shouldEnqueue gate: only connectivity-shaped failures queue; 4xx/validation
+  surface immediately. US-1495 pending-edit protection set ported.
+- Inspector: snapshot + retryNow/discard (stuck rows skipped by the drain but
+  never hidden). describe() extracts EdgeApiError property detail so
+  lastError is the real reason (the test caught the class-name leak first).
+VERIFIED LOCALLY: three gates green; 10/10 in the results XML.
