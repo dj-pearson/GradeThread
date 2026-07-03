@@ -9914,7 +9914,7 @@
     {
       "id": "US-1563",
       "priority": 2356,
-      "passes": false,
+      "passes": true,
       "title": "Category-map admin editor (wire the unused /api/admin/category-map router)",
       "description": "As an admin, garment-category → eBay-category mappings drive every seller's listing generation, and the CRUD endpoints exist (admin-category-map.ts: GET/PUT /api/admin/category-map, DELETE /:id) but there is no editor page — mappings are effectively DB-console-only today.",
       "acceptanceCriteria": [
@@ -9924,7 +9924,7 @@
         "Empty state explains what mappings do (feeds listing generation category suggestions) so a fresh install isn't a blank mystery table",
         "tsc, eslint, full build green"
       ],
-      "notes": "[2026-07-02 admin backend audit, finding #5] Backend unchanged — UI only."
+      "notes": "[2026-07-02 admin backend audit, finding #5] Backend unchanged — UI only. [COMPLETION 2026-07-03] NEW /admin/category-map page (route + 'Category Map' sidebar item, admin-gated like peers): table of all mappings (platform/garment/category/department/source badges incl. ai-confidence % and needs_confirmation amber badge) with text search + platform filter; add/edit dialog whose client validation mirrors the route's validateMapping EXACTLY (same platform whitelist poshmark/mercari/depop/grailed, same required-field messages, same max lengths; garment lowercased on save; platform+garment immutable when editing since they're the upsert key - documented in helper text); delete confirm dialog explaining the seed/AI layer re-resolves on next item; server errors surface as toasts with the backend message. Empty state explains what mappings do (feeds listing-generation category suggestions; AI suggestions land as 'ai' rows awaiting confirmation; saving converts to admin override) per AC4. Editing a needs_confirmation row IS the confirm flow (PUT sets source=admin + clears the flag - matches the route semantics). tsc -b 0, eslint clean, vitest 1121/1121, FULL npm run build green through prerender (AC5)."
     },
     {
       "id": "US-1564",

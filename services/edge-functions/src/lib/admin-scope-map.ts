@@ -1,4 +1,4 @@
-﻿// US-1560: the documented routerâ†’scope registry for admin RBAC enforcement.
+// US-1560: the documented routerâ†’scope registry for admin RBAC enforcement.
 //
 // Every src/routes/admin-*.ts file MUST have exactly one entry here â€” the
 // drift-guard test (admin-scope-coverage_test.ts) walks the directory and

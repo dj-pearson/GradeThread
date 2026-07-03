@@ -49,6 +49,7 @@ import {
   Mailbox,
   ClipboardCheck,
   Menu,
+  Map,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
@@ -71,6 +72,7 @@ const adminNavItems = [
   { to: "/admin", icon: LayoutDashboard, label: "Dashboard", end: true, superAdminOnly: false },
   { to: "/admin/users", icon: Users, label: "Users", end: false, superAdminOnly: false },
   { to: "/admin/bulk", icon: Layers, label: "Bulk Ops", end: false, superAdminOnly: false },
+  { to: "/admin/category-map", icon: Map, label: "Category Map", end: false, superAdminOnly: false },
   { to: "/admin/submissions", icon: FileText, label: "Submissions", end: false, superAdminOnly: false },
   { to: "/admin/grading", icon: ClipboardCheck, label: "Review Queue", end: false, superAdminOnly: false },
   { to: "/admin/reviews", icon: MessageSquare, label: "Reviews", end: false, superAdminOnly: false },
