@@ -9560,3 +9560,36 @@ TESTS: 4 new grouping regressions (40-photo mega-run capped; identical-hash 30-p
 chain capped; far-apart similar pair stays apart; nearby reshoot still merges).
 65/65 vitest across grouping/group-edits/reconcile; tsc -b, eslint, full build +
 prerender green. prd.json: US-1550 appended passes:true, nextId -> 1551. No migration.
+
+=== 2026-07-02 (loop): US-1535 (learnings loop turned ON) ===
+Highest leverage-to-effort story in the grading epic: all machinery existed, nothing ran it.
+- NEW cron POST /api/jobs/exemplar-assembly (job-secret + lock; COOLIFY.md cron table row
+  added - weekly Sun 12:00 UTC suggested; optional ?category= assembles a category-scoped
+  set, AC3 - scoped storage + grade-time selection already existed end-to-end).
+  IDEMPOTENT per correction window: one auto_YYYYMMDD[_cat] version per day+scope, and a
+  freshness gate (zero new human_reviews AND zero new active claim signals since the last
+  auto set -> skip). Empty candidates are deleted, not parked.
+- Assembly upgrades (few-shot-exemplars.ts):
+  * approved-claim mining (AC1): active claim_accuracy_signals in the window become
+    synthetic CorrectionSignals (corrected = ai + overall_delta, clamped 1-10) - an
+    approved buyer claim is a confirmed wrong grade; failure degrades to reviews-only.
+  * AC4 guardrails: correctionSignature dedupe (same category/type/misread/rounded-delta
+    -> only the newest survives; repeats spend no tokens) + capExemplarsToTokenBudget
+    (hard 1500-token block cap, trims the round-robin tail).
+  * AC5 lineage: "sources: N review correction(s) + M approved-claim signal(s), window
+    Xd" recorded in the set notes.
+- Flow: assemble -> eval auto-run -> FAIL: parked (per-tag breakdown already recorded by
+  evalExemplarSet, visible in admin) + admins notified; PASS: auto-activate ONLY behind
+  system_settings grading_exemplar_auto_activate (default off), else every admin gets an
+  unsuppressible system notification linking to the one-click activate.
+- NEW ExemplarSetsCard on /admin/grading (the SPA had NO exemplar surface despite the
+  US-1067 edge routes): status badges, exemplar/token/MAE/agreement metrics, one-click
+  Activate (step-up-gated route) / Deactivate, lineage notes.
+- Pre-existing cap tests updated deliberately: their fixtures used IDENTICAL signals,
+  which the new dedupe correctly collapses - fixtures now vary garment_type so the tests
+  keep measuring the caps.
+TESTS: 3 new deno tests (signature grouping, dedupe-keeps-newest, token-cap trim);
+few-shot-exemplars_test 13/13. FULL edge suite 2507/0/70; deno check + lint clean;
+web tsc -b 0 / eslint clean / vitest 1121/1121 (incl. concurrent-agent US-1550 tests).
+NOTE: concurrent agent landed fbeb8b66 (US-1550) mid-iteration; working trees stayed
+disjoint. Still LOCAL-ONLY; queues behind held migrations 00339-00341.

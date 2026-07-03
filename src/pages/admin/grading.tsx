@@ -849,7 +849,156 @@ export function AdminGradingQueuePage() {
           reference briefs the grader is given. An edit is live on the next
           grade (pipeline reads are DB-fresh). */}
       <GarmentBaselinesCard />
+
+      {/* US-1535: the learnings loop — auto-assembled exemplar sets land here
+          after the scheduled eval; passing sets activate with one click. */}
+      <ExemplarSetsCard />
     </div>
+  );
+}
+
+// ── US-1535: exemplar sets (the learnings loop) ─────────────────────────────
+
+interface ExemplarSetListRow {
+  id: string;
+  version_name: string;
+  garment_category: string | null;
+  exemplar_count: number;
+  approx_tokens: number;
+  status: string;
+  eval_passed: boolean | null;
+  eval_mae: number | null;
+  eval_agreement_rate: number | null;
+  is_active: boolean;
+  notes: string | null;
+  created_at: string;
+}
+
+function ExemplarSetsCard() {
+  const queryClient = useQueryClient();
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["admin-exemplar-sets"],
+    queryFn: async (): Promise<ExemplarSetListRow[]> => {
+      const res = await edgeFetch("/api/admin/grading/exemplars");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const body = (await res.json()) as { sets: ExemplarSetListRow[] };
+      return body.sets;
+    },
+    staleTime: 30 * 1000,
+  });
+
+  const act = async (id: string, action: "activate" | "deactivate") => {
+    setBusyId(id);
+    try {
+      const res = await edgeFetch(
+        `/api/admin/grading/exemplars/${id}/${action}`,
+        { method: "POST", json: {} },
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? `HTTP ${res.status}`);
+      }
+      toast.success(
+        action === "activate"
+          ? "Exemplar set activated — live on grading"
+          : "Exemplar set deactivated",
+      );
+      queryClient.invalidateQueries({ queryKey: ["admin-exemplar-sets"] });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : `Failed to ${action}`);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const statusBadge = (row: ExemplarSetListRow) => {
+    if (row.is_active) {
+      return (
+        <Badge className="bg-green-100 text-green-800 dark:bg-green-950/50 dark:text-green-300">
+          Active
+        </Badge>
+      );
+    }
+    if (row.eval_passed === true) {
+      return (
+        <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-950/50 dark:text-blue-300">
+          Passed eval
+        </Badge>
+      );
+    }
+    if (row.eval_passed === false) {
+      return (
+        <Badge className="bg-red-100 text-red-800 dark:bg-red-950/50 dark:text-red-300">
+          Failed eval
+        </Badge>
+      );
+    }
+    return <Badge variant="outline">{row.status}</Badge>;
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Learned exemplar sets</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          Auto-assembled weekly from human corrections + approved claims
+          (US-1535), eval-gated. Activate a passing set to inject its lessons
+          into live grading; failing sets park here with their metrics.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {isLoading && <Skeleton className="h-16 w-full" />}
+        {data && data.length === 0 && (
+          <p className="text-sm text-muted-foreground">
+            No exemplar sets yet — the weekly assembly job creates candidates
+            once human corrections accumulate.
+          </p>
+        )}
+        {(data ?? []).map((row) => (
+          <div
+            key={row.id}
+            className="flex flex-wrap items-center gap-2 rounded-lg border p-3"
+          >
+            <span className="text-sm font-medium">{row.version_name}</span>
+            {row.garment_category && (
+              <Badge variant="outline">{row.garment_category}</Badge>
+            )}
+            {statusBadge(row)}
+            <span className="text-xs text-muted-foreground">
+              {row.exemplar_count} exemplars · ~{row.approx_tokens} tok
+              {row.eval_mae !== null
+                ? ` · MAE ${row.eval_mae.toFixed(2)} · agree ${Math.round((row.eval_agreement_rate ?? 0) * 100)}%`
+                : ""}
+            </span>
+            <div className="ml-auto flex gap-2">
+              {row.is_active ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={busyId === row.id}
+                  onClick={() => act(row.id, "deactivate")}
+                >
+                  Deactivate
+                </Button>
+              ) : row.eval_passed === true ? (
+                <Button
+                  size="sm"
+                  disabled={busyId === row.id}
+                  onClick={() => act(row.id, "activate")}
+                >
+                  {busyId === row.id ? "Activating…" : "Activate"}
+                </Button>
+              ) : null}
+            </div>
+            {row.notes && (
+              <p className="w-full text-xs text-muted-foreground">{row.notes}</p>
+            )}
+          </div>
+        ))}
+      </CardContent>
+    </Card>
   );
 }
 

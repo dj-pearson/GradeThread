@@ -9455,7 +9455,7 @@
     {
       "id": "US-1535",
       "priority": 2330,
-      "passes": false,
+      "passes": true,
       "title": "Turn on the learnings loop: scheduled auto-assembly + eval + one-click activation of few-shot exemplar sets",
       "description": "The past-learnings machinery exists end-to-end (few-shot-exemplars.ts mines human corrections into a text block; grading-eval.ts gates activation; ai-grading.ts injects the active block) but ships OFF: getActiveExemplarBlock returns '' unless an operator manually assembles, evals, and activates a set — so months of human reviews and approved guarantee claims teach the grader nothing. As the GradeThread team we want a scheduled job (Coolify scheduled task hitting an internal admin endpoint, consistent with existing schedulers) that: assembles candidate exemplar sets from fresh high-signal corrections (intentional_misread rows, deltas ≥ threshold, approved-claim signals via claim-accuracy), auto-runs the golden-set eval, and on pass notifies admins with a one-click activate (auto-activate only behind an explicit setting). Add per-category scoping so denim misread lessons attach to denim grades.",
       "acceptanceCriteria": [
@@ -9465,7 +9465,7 @@
         "Exemplar volume guardrails: max block token size, most-recent-N selection, dedupe by defect signature",
         "Metrics: exemplar-set lineage recorded (which corrections/claims fed it); accuracy summary comparable before/after activation via existing per-prompt-version slicing"
       ],
-      "notes": "[P1][AI/Grading] [AI-refine audit 2026-07-01] Child of US-1532. Highest leverage-to-effort in the epic: all hard parts are built; this is orchestration + scheduling + admin UX. 'Leveraging past learnings' from the user's ask literally = making this loop run by default."
+      "notes": "[P1][AI/Grading] [AI-refine audit 2026-07-01] Child of US-1532. Highest leverage-to-effort in the epic: all hard parts are built; this is orchestration + scheduling + admin UX. 'Leveraging past learnings' from the user's ask literally = making this loop run by default. [COMPLETION 2026-07-02] NEW POST /api/jobs/exemplar-assembly (X-Internal-Job-Secret + job lock; COOLIFY.md row added, Sun 12:00 UTC weekly suggested; optional ?category= for scoped sets per AC3 - storage + grade-time scoped selection already existed). Idempotent per window: one auto_YYYYMMDD set per day-scope + skips when zero fresh human_reviews AND zero fresh active claim_accuracy_signals since the last auto set. Assembly now ALSO mines approved-claim signals (US-1113 rows -> synthetic CorrectionSignals, corrected = ai + overall_delta clamped; additive - failure degrades to reviews-only) and records lineage counts in notes (AC5). AC4 guardrails in selectExemplars/assembleExemplarSet: correctionSignature dedupe (same category/type/misread/rounded-delta keeps only the newest) + capExemplarsToTokenBudget (MAX 1500 tok, trims round-robin tail). Flow: assemble -> empty=>delete+skip -> evalExemplarSet -> FAIL: parked + admin notify; PASS: auto-activate ONLY when system_settings grading_exemplar_auto_activate=true, else notifyUser(system) to every admin linking /admin/grading. NEW ExemplarSetsCard on /admin/grading: status badges (Active/Passed/Failed + MAE/agreement/token metrics), one-click Activate (step-up-gated edge route) / Deactivate, lineage notes shown. 3 new deno tests + 2 fixture updates (cap tests now vary garment_type since identical lessons legitimately dedupe)."
     },
     {
       "id": "US-1536",

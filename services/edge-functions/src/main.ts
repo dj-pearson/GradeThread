@@ -130,6 +130,7 @@ import { handleAbuseScanCron } from "./routes/jobs-abuse-scan.ts";
 import { handlePassportIntegrityScanCron } from "./routes/jobs-passport-integrity-scan.ts";
 import { handlePassportBackfillCron } from "./routes/jobs-passport-backfill.ts";
 import { handleListingPromptPromoteCron } from "./routes/jobs-listing-prompt-promote.ts";
+import { handleExemplarAssemblyCron } from "./routes/jobs-exemplar-assembly.ts";
 import { handleNorthStarDigestCron } from "./routes/jobs-north-star.ts";
 import { handleContentWatchdogCron } from "./routes/jobs-content-watchdog.ts";
 import { handleContentRefreshCron } from "./routes/jobs-content-refresh.ts";
@@ -1162,6 +1163,12 @@ app.post("/api/jobs/marketplace-events", (c) => handleMarketplaceEventsCron(c));
 // challenger against the champion on seller keep-rate + sell-through and
 // promotes (eval-gated) / ends the trial. Handler enforces the job secret.
 app.post("/api/jobs/listing-prompt-promote", (c) => handleListingPromptPromoteCron(c));
+// US-1535 grading learnings loop: assemble fresh human-correction exemplar
+// sets, auto-run the golden-set eval, notify admins for one-click activation
+// (auto-activate only behind grading_exemplar_auto_activate). Handler enforces
+// the job secret. Schedule on Coolify cron (weekly, e.g. Sun 12:00 UTC);
+// optional ?category= assembles a category-scoped set.
+app.post("/api/jobs/exemplar-assembly", (c) => handleExemplarAssemblyCron(c));
 // US-597 North Star digest. Weekly (Monday) encouragement + milestone emails
 // tied to items-listed-per-week, with streak tracking. Handler enforces the
 // job secret. Schedule on Coolify cron (weekly, e.g. Mon 14:00 UTC).

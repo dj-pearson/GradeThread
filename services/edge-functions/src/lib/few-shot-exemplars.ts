@@ -59,6 +59,25 @@ export interface SelectExemplarsOptions {
 export const DEFAULT_MIN_DELTA = 1.0;
 export const DEFAULT_PER_CATEGORY_CAP = 4;
 export const DEFAULT_TOTAL_CAP = 24;
+/** US-1535: hard cap on the rendered block's token cost (AC4). */
+export const MAX_EXEMPLAR_BLOCK_TOKENS = 1500;
+
+/**
+ * US-1535 (AC4): dedupe key for a correction — two corrections teaching the
+ * SAME lesson (same category/type, same misread flag, same direction and
+ * rounded magnitude) add tokens without adding signal; only the most recent
+ * survives selection.
+ */
+export function correctionSignature(s: CorrectionSignal): string {
+  const delta = s.corrected_overall_score - s.ai_overall_score;
+  const dir = delta > 0 ? "+" : delta < 0 ? "-" : "0";
+  return [
+    s.garment_category,
+    s.garment_type,
+    s.intentional_misread ? "misread" : "delta",
+    `${dir}${Math.abs(Math.round(delta))}`,
+  ].join("|");
+}
 
 // ─── Pure selection + rendering (unit-tested, no DB) ─────────────────────────
 
@@ -122,9 +141,17 @@ export function selectExemplars(
       ? Math.floor(options.totalCap as number)
       : DEFAULT_TOTAL_CAP;
 
+  // US-1535 (AC4): dedupe by defect signature FIRST — keep only the most
+  // recent correction per lesson, so repeats spend no token budget.
+  const bySignature = new Map<string, CorrectionSignal>();
+  for (const s of [...signals].sort((a, b) => b.reviewed_at.localeCompare(a.reviewed_at))) {
+    const key = correctionSignature(s);
+    if (!bySignature.has(key)) bySignature.set(key, s);
+  }
+
   // Group high-signal corrections by category, drop the catch-all "unknown".
   const byCategory = new Map<string, CorrectionSignal[]>();
-  for (const s of signals) {
+  for (const s of bySignature.values()) {
     if (!isHighSignalSignal(s, minDelta)) continue;
     const cat = s.garment_category?.trim();
     if (!cat || cat === "unknown") continue;
@@ -191,6 +218,24 @@ export function buildExemplarBlock(exemplars: GradingExemplar[]): string {
 }
 
 /** Rough token estimate (≈4 chars/token) for the impact report. Pure. */
+/**
+ * US-1535 (AC4): trim the LOWEST-priority exemplars (the round-robin tail)
+ * until the rendered block fits the token budget. Pure; returns the surviving
+ * exemplars + their block.
+ */
+export function capExemplarsToTokenBudget(
+  exemplars: GradingExemplar[],
+  maxTokens = MAX_EXEMPLAR_BLOCK_TOKENS,
+): { exemplars: GradingExemplar[]; blockText: string } {
+  let kept = [...exemplars];
+  let blockText = buildExemplarBlock(kept);
+  while (kept.length > 1 && estimateTokens(blockText) > maxTokens) {
+    kept = kept.slice(0, -1);
+    blockText = buildExemplarBlock(kept);
+  }
+  return { exemplars: kept, blockText };
+}
+
 export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
@@ -319,12 +364,72 @@ export async function assembleExemplarSet(
     }
   }
 
-  const exemplars = selectExemplars(signals, {
+  // US-1535: approved buyer-guarantee claims are confirmed "the grade was
+  // wrong" signals (US-1113) — mine active claim signals in the same window as
+  // additional corrections. corrected = ai + the claim's overall delta.
+  const reviewSignalCount = signals.length;
+  let claimSignalCount = 0;
+  try {
+    const { data: claimRows } = await supabaseAdmin
+      .from("claim_accuracy_signals")
+      .select("grade_report_id, garment_category, overall_delta, updated_at")
+      .eq("active", true)
+      .gte("updated_at", since)
+      .limit(500);
+    const claims = (claimRows ?? []) as Array<{
+      grade_report_id: string;
+      garment_category: string | null;
+      overall_delta: number;
+      updated_at: string;
+    }>;
+    const claimReportIds = claims
+      .map((cl) => cl.grade_report_id)
+      .filter((id) => !!id);
+    if (claimReportIds.length > 0) {
+      const { data: claimReports } = await supabaseAdmin
+        .from("grade_reports")
+        .select("id, overall_score")
+        .in("id", claimReportIds);
+      const scoreByReport = new Map(
+        ((claimReports ?? []) as Array<{ id: string; overall_score: number }>)
+          .map((r) => [r.id, r.overall_score]),
+      );
+      for (const cl of claims) {
+        const ai = scoreByReport.get(cl.grade_report_id);
+        const category = cl.garment_category?.trim() || "unknown";
+        if (ai === undefined || cl.overall_delta === 0) continue;
+        if (scope && category !== scope) continue;
+        signals.push({
+          garment_category: category,
+          garment_type: "unknown",
+          ai_overall_score: ai,
+          corrected_overall_score: Math.max(1, Math.min(10, ai + cl.overall_delta)),
+          intentional_misread: false,
+          reviewed_at: cl.updated_at,
+        });
+        claimSignalCount++;
+      }
+    }
+  } catch (err) {
+    // Claim mining is additive — a failure just means a review-only set.
+    console.error(
+      "[few-shot-exemplars] claim-signal mining failed (continuing with reviews only):",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+
+  const selected = selectExemplars(signals, {
     minDelta: opts.minDelta,
     perCategoryCap: opts.perCategoryCap,
     totalCap: opts.totalCap,
   });
-  const blockText = buildExemplarBlock(exemplars);
+  // US-1535 (AC4): hard token budget on the rendered block.
+  const { exemplars, blockText } = capExemplarsToTokenBudget(selected);
+
+  // US-1535 (AC5): lineage — what fed this set. Prepended to the operator notes.
+  const lineage =
+    `sources: ${reviewSignalCount} review correction(s) + ${claimSignalCount} approved-claim signal(s), window ${sinceDays}d`;
+  const notes = [lineage, opts.notes?.trim() || ""].filter(Boolean).join(" | ");
 
   const { data: inserted, error } = await supabaseAdmin
     .from("grading_exemplar_sets")
@@ -338,7 +443,7 @@ export async function assembleExemplarSet(
       source_review_count: signals.length,
       status: "candidate",
       is_active: false,
-      notes: opts.notes?.trim() || null,
+      notes,
       created_by: opts.createdBy ?? null,
     })
     .select("*")
