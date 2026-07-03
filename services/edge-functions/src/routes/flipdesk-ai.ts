@@ -10,6 +10,7 @@ import {
   generateListingCopy,
   generateNegotiationReply,
   isRewriteAction,
+  researchAttributeSuggestions,
   rewriteField,
   rewriteListingCopy,
   validateCounterOffer,
@@ -904,6 +905,9 @@ async function runEbayAspectsPhase(args: {
       knownAspects: existingAspects,
       aspects: aiSpecs,
       categoryPath,
+      // US-1529: Style/Model/Product Line/Fabric Type aspects fill from the
+      // identification instead of being omitted. Absent → prompt unchanged.
+      research: extraction.research,
     });
   } catch (err) {
     await refundAiAction(userId);
@@ -1017,7 +1021,15 @@ async function persistCanonicalAttributes(args: {
       unknown
     >) ?? {};
 
-  const suggested = attributesToColumn(extraction.attributes);
+  // US-1529: the research identification persists alongside the extracted
+  // attributes (identified_style / product_line / fabric_technology / msrp)
+  // so AutoLister generation + the aspects pass can consume it later without
+  // re-running AI. Empty map when no identification — unchanged behavior.
+  const allSuggestions = {
+    ...extraction.attributes,
+    ...researchAttributeSuggestions(extraction.research),
+  };
+  const suggested = attributesToColumn(allSuggestions);
   const merged: Record<string, string | string[]> = { ...existing };
   let attributesChanged = false;
   for (const [key, value] of Object.entries(suggested)) {
@@ -1029,7 +1041,7 @@ async function persistCanonicalAttributes(args: {
       (Array.isArray(cur) ? cur.length === 0 : String(cur).trim() === "");
     if (!isEmpty) continue;
     merged[key] = value;
-    const sug: AttributeSuggestion | undefined = extraction.attributes[key];
+    const sug: AttributeSuggestion | undefined = allSuggestions[key];
     aiSources[key] = {
       source: sug?.source ?? "ai",
       confidence: sug?.confidence ?? 0,
@@ -1580,7 +1592,12 @@ flipdeskAiRoutes.post("/bulk-extract", async (c) => {
           ? (item as { attributes: Record<string, string | string[]> })
               .attributes
           : {}) as Record<string, string | string[]>;
-      const suggestedAttrs = attributesToColumn(extraction.attributes);
+      // US-1529: research identification persists with the attributes here too.
+      const allAttrSuggestions = {
+        ...extraction.attributes,
+        ...researchAttributeSuggestions(extraction.research),
+      };
+      const suggestedAttrs = attributesToColumn(allAttrSuggestions);
       const mergedAttrs: Record<string, string | string[]> = {
         ...existingAttrs,
       };
@@ -1593,7 +1610,7 @@ flipdeskAiRoutes.post("/bulk-extract", async (c) => {
           (Array.isArray(cur) ? cur.length === 0 : String(cur).trim() === "");
         if (!isEmpty) continue;
         mergedAttrs[key] = value;
-        const sug = extraction.attributes[key];
+        const sug = allAttrSuggestions[key];
         aiSources[key] = {
           source: sug?.source ?? "ai",
           confidence: sug?.confidence ?? 0,

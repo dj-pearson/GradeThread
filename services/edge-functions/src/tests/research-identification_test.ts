@@ -303,3 +303,116 @@ Deno.test("US-1527: absent research block decodes to null without side effects",
   assertEquals(res.research, null);
   assertEquals(res.suggestions.style, undefined);
 });
+
+// ── US-1529: apply research to the listing ────────────────────────────────────
+
+const { buildAspectUserPrompt, researchAspectContext, researchAttributeSuggestions } =
+  await import("../lib/ai-extract.ts");
+const { identificationFromAttributes, identificationPromptLines } = await import(
+  "../lib/ai-listing.ts"
+);
+
+const SAMPLE_RESEARCH = {
+  identifiedStyle: "ABC Pant Classic",
+  productLine: "ABC",
+  fabricTechnology: "Warpstreme",
+  msrpEstimateCents: 12800,
+  rationale: "Gusseted crotch + zippered back pocket; Warpstreme on the care label",
+  confidence: 0.85,
+};
+
+Deno.test("US-1529: researchAttributeSuggestions maps fields with research provenance", () => {
+  const attrs = researchAttributeSuggestions(SAMPLE_RESEARCH);
+  assertEquals(attrs.identified_style.values, ["ABC Pant Classic"]);
+  assertEquals(attrs.product_line.values, ["ABC"]);
+  assertEquals(attrs.fabric_technology.values, ["Warpstreme"]);
+  assertEquals(attrs.identification_msrp_cents.values, ["12800"]);
+  for (const sug of Object.values(attrs)) {
+    assertEquals(sug.source, RESEARCH_SOURCE);
+    assertEquals(sug.confidence, 0.85);
+  }
+  // Null research → empty map (regression: nothing new persists).
+  assertEquals(researchAttributeSuggestions(null), {});
+  // Null sub-fields are simply omitted.
+  const sparse = researchAttributeSuggestions({
+    ...SAMPLE_RESEARCH,
+    productLine: null,
+    fabricTechnology: null,
+    msrpEstimateCents: null,
+  });
+  assertEquals(Object.keys(sparse), ["identified_style"]);
+});
+
+Deno.test("US-1529 REGRESSION: aspect prompt is byte-identical without research", () => {
+  const base = {
+    text: "Nice pants",
+    knownAspects: { Brand: ["Lululemon"] },
+    aspects: [
+      { name: "Style", required: false, cardinality: "SINGLE", mode: "FREE_TEXT" },
+    ],
+    categoryPath: "Clothing > Men > Pants",
+  } as Parameters<typeof buildAspectUserPrompt>[0];
+  assertEquals(
+    buildAspectUserPrompt(base),
+    buildAspectUserPrompt({ ...base, research: null }),
+  );
+  assertEquals(researchAspectContext(null), "");
+  assertEquals(researchAspectContext(undefined), "");
+});
+
+Deno.test("US-1529: aspect prompt gains the IDENTIFIED PRODUCT block with research", () => {
+  const base = {
+    aspects: [
+      { name: "Style", required: false, cardinality: "SINGLE", mode: "FREE_TEXT" },
+    ],
+  } as Parameters<typeof buildAspectUserPrompt>[0];
+  const prompt = buildAspectUserPrompt({ ...base, research: SAMPLE_RESEARCH });
+  assert(prompt.includes("IDENTIFIED PRODUCT"));
+  assert(prompt.includes("ABC Pant Classic"));
+  assert(prompt.includes("Warpstreme"));
+});
+
+Deno.test("US-1529: identificationFromAttributes round-trips the persisted keys", () => {
+  const id = identificationFromAttributes({
+    identified_style: "ABC Pant Classic",
+    product_line: "ABC",
+    fabric_technology: "Warpstreme",
+    identification_msrp_cents: "12800",
+    identification_verified: "true",
+    market_title_keywords: ["warpstreme", "gusset"],
+  });
+  assert(id);
+  assertEquals(id!.style, "ABC Pant Classic");
+  assertEquals(id!.msrpCents, 12800);
+  assertEquals(id!.verified, true);
+  assertEquals(id!.marketKeywords, ["warpstreme", "gusset"]);
+  // No identified_style → null (regression: unidentified items unchanged).
+  assertEquals(identificationFromAttributes({ department: "Men" }), null);
+  assertEquals(identificationFromAttributes(null), null);
+});
+
+Deno.test("US-1529 REGRESSION: identificationPromptLines is empty when unidentified", () => {
+  assertEquals(identificationPromptLines(null), []);
+  assertEquals(identificationPromptLines(undefined), []);
+});
+
+Deno.test("US-1529: listing prompt lines phrase unverified as identification, verified as market-checked", () => {
+  const base = identificationFromAttributes({
+    identified_style: "ABC Pant Classic",
+    product_line: "ABC",
+    identification_verified: "false",
+  })!;
+  const unverified = identificationPromptLines(base).join("\n");
+  assert(unverified.includes("identified as"), "unverified phrasing");
+  assert(unverified.includes("LEAD the title"));
+
+  const verified = identificationPromptLines({ ...base, verified: true }).join("\n");
+  assert(verified.includes("verified against live eBay"));
+
+  const withKeywords = identificationPromptLines({
+    ...base,
+    marketKeywords: ["warpstreme", "obsidian"],
+  }).join("\n");
+  assert(withKeywords.includes("MARKET TITLE KEYWORDS"));
+  assert(withKeywords.includes("- warpstreme"));
+});

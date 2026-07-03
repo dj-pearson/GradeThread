@@ -277,6 +277,7 @@ Product identification — the 'research_identification' object (RESEARCH tier):
 - identification_rationale: REQUIRED — cite the specific photo evidence supporting the ID ("gusseted crotch + zippered back pocket in the back photo; Warpstreme on the care label"). An identification without a rationale is worthless to the seller.
 - identification_confidence: calibrated 0..1 for the identification as a whole. If it is below 0.5, OMIT the entire research_identification object — a wrong confident-sounding ID is worse than none.
 - Do not attempt identification for unbranded/generic items; omit the object.
+- APPLY the identification to the listing fields you return in this same call (US-1529): LEAD the title with brand + the identified style name ("Lululemon ABC Pant Classic …") — the style name is a top buyer search token. In the description, name the product line and fabric technology, and give MSRP context ("retails around $128") — phrased as an identification ("identified as the ABC Pant Classic"), never as fabricated certainty, and never overriding the honest-condition rules. ebay_category_query may use the identified product type. When you return NO research_identification, compose title/description exactly as the base rules above describe.
 
 Measurement suggestions:
 - ONLY suggest measurements when brand AND size AND item type are clearly identifiable. If any of those are unknown, OMIT measurements entirely.
@@ -853,6 +854,35 @@ export function decodeExtraction(
 }
 
 /**
+ * US-1529: research fields as attribute suggestions, so the identification
+ * persists onto inventory_items.attributes (gap-fill, research provenance) and
+ * downstream passes (AutoLister listing generation, aspects) can consume it
+ * without re-running AI. Empty for null research — items without an
+ * identification persist exactly what they do today.
+ */
+export function researchAttributeSuggestions(
+  research: ResearchIdentification | null,
+): Record<string, AttributeSuggestion> {
+  if (!research) return {};
+  const out: Record<string, AttributeSuggestion> = {};
+  const put = (key: string, value: string | null) => {
+    if (value === null || value.trim() === "") return;
+    out[key] = {
+      values: [value.trim()],
+      confidence: research.confidence,
+      source: RESEARCH_SOURCE,
+    };
+  };
+  put("identified_style", research.identifiedStyle);
+  put("product_line", research.productLine);
+  put("fabric_technology", research.fabricTechnology);
+  if (research.msrpEstimateCents !== null) {
+    put("identification_msrp_cents", String(research.msrpEstimateCents));
+  }
+  return out;
+}
+
+/**
  * Maps decoded AttributeSuggestions to the persisted inventory_items.attributes
  * column form (canonical key -> scalar string | string[] for multi). US-821.
  */
@@ -903,6 +933,10 @@ export interface AspectExtractionInput {
   knownAspects?: Record<string, string[]>; // already-filled values
   aspects: EbayAspectSpec[];
   categoryPath?: string | null;
+  // US-1529: the research-tier identification from the extract pass, so
+  // Style/Model/Product Line/Fabric Type aspects fill from the identification
+  // instead of being omitted. Absent → the prompt is byte-identical to today.
+  research?: ResearchIdentification | null;
   // US-545: override the model for this refine pass. The listing flow routes
   // EASY apparel categories to the cheaper lightweight model (Haiku) here, since
   // their item-specifics are unambiguous enough to refine reliably without
@@ -1019,11 +1053,34 @@ function buildAspectTool(aspects: EbayAspectSpec[]): BuiltAspectTool {
   };
 }
 
-function buildAspectUserPrompt(input: AspectExtractionInput): string {
+/**
+ * US-1529: human-readable identification block for the aspects prompt.
+ * Returns "" for null/style-less research so the prompt stays byte-identical
+ * when no identification exists (regression guarantee).
+ */
+export function researchAspectContext(
+  research: ResearchIdentification | null | undefined,
+): string {
+  if (!research?.identifiedStyle) return "";
+  const parts = [`style: ${research.identifiedStyle}`];
+  if (research.productLine) parts.push(`product line: ${research.productLine}`);
+  if (research.fabricTechnology) {
+    parts.push(`fabric technology: ${research.fabricTechnology}`);
+  }
+  return (
+    `IDENTIFIED PRODUCT (research-tier identification from the extract pass — ` +
+    `use for Style/Model/Product Line/Fabric Type aspects when the category ` +
+    `offers them; do not fabricate beyond it):\n${parts.join("\n")}`
+  );
+}
+
+export function buildAspectUserPrompt(input: AspectExtractionInput): string {
   const lines: string[] = [];
   if (input.categoryPath) {
     lines.push(`EBAY CATEGORY: ${input.categoryPath}`);
   }
+  const researchBlock = researchAspectContext(input.research);
+  if (researchBlock) lines.push(researchBlock);
   if (input.text && input.text.trim()) {
     lines.push(`ITEM DESCRIPTION / NOTES:\n${input.text.trim()}`);
   }

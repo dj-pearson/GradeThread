@@ -169,6 +169,90 @@ export interface ListingGenInput {
   // US-547: deterministic A/B key (the item id). Decides champion-vs-challenger
   // when a listing_gen challenger is in trial. Omit to force the champion.
   promptSelectKey?: string | null;
+  // US-1529: the research-tier identification persisted on the item's
+  // attributes (US-1527/1528). When present, the title leads with the
+  // identified style and the description gets line/fabric/MSRP context.
+  // Absent → the prompt is byte-identical to today.
+  identification?: ListingIdentification | null;
+}
+
+// US-1529: identification context for listing generation, parsed from the
+// item's attributes column (written by the extract pass).
+export interface ListingIdentification {
+  style: string;
+  productLine: string | null;
+  fabricTechnology: string | null;
+  msrpCents: number | null;
+  /** US-1528: true when the identification was verified against live eBay. */
+  verified: boolean;
+  /** US-1528: recurring market title tokens (colorways, fabric tech, fit). */
+  marketKeywords: string[];
+}
+
+/**
+ * Parse the persisted research identification off inventory_items.attributes.
+ * Null when the item was never identified — callers then behave exactly as
+ * before this feature existed.
+ */
+export function identificationFromAttributes(
+  attributes: Record<string, string | string[]> | null | undefined,
+): ListingIdentification | null {
+  const attrs = attributes ?? {};
+  const scalar = (v: string | string[] | undefined): string | null =>
+    typeof v === "string" && v.trim() !== "" ? v.trim() : null;
+  const style = scalar(attrs.identified_style);
+  if (!style) return null;
+  const msrpRaw = Number(scalar(attrs.identification_msrp_cents));
+  return {
+    style,
+    productLine: scalar(attrs.product_line),
+    fabricTechnology: scalar(attrs.fabric_technology),
+    msrpCents: Number.isFinite(msrpRaw) && msrpRaw > 0 ? Math.round(msrpRaw) : null,
+    verified: scalar(attrs.identification_verified) === "true",
+    marketKeywords: Array.isArray(attrs.market_title_keywords)
+      ? attrs.market_title_keywords.filter((k) => typeof k === "string" && k !== "")
+      : [],
+  };
+}
+
+/**
+ * US-1529: prompt lines for the identification block. Empty array when null —
+ * the regression guarantee that unidentified items build today's exact prompt.
+ */
+export function identificationPromptLines(
+  identification: ListingIdentification | null | undefined,
+): string[] {
+  if (!identification) return [];
+  const facts = [`style: ${identification.style}`];
+  if (identification.productLine) {
+    facts.push(`product line: ${identification.productLine}`);
+  }
+  if (identification.fabricTechnology) {
+    facts.push(`fabric technology: ${identification.fabricTechnology}`);
+  }
+  if (identification.msrpCents) {
+    facts.push(`estimated original retail: $${Math.round(identification.msrpCents / 100)}`);
+  }
+  const lines = [
+    `IDENTIFIED PRODUCT (${
+      identification.verified
+        ? "verified against live eBay listings"
+        : "research-tier identification — phrase as 'identified as', not certainty"
+    }):\n${facts.join("\n")}\n` +
+      "LEAD the title with brand + this style name (a top buyer search token), " +
+      "and give the description the product line / fabric / retail context. " +
+      "Never fabricate specifics beyond these facts, and never let them soften " +
+      "the honest condition statement.",
+  ];
+  if (identification.marketKeywords.length > 0) {
+    lines.push(
+      "MARKET TITLE KEYWORDS (recurring tokens on live listings of this exact " +
+        "product — fold the ones that truthfully describe THIS item into the " +
+        "title/description):\n" +
+        identification.marketKeywords.map((k) => `- ${k}`).join("\n"),
+    );
+  }
+  return lines;
 }
 
 export interface ListingGenResult {
@@ -459,6 +543,8 @@ export async function generateListingFields(
   if (input.knownFields && Object.keys(input.knownFields).length > 0) {
     lines.push(`KNOWN ATTRIBUTES:\n${JSON.stringify(input.knownFields, null, 2)}`);
   }
+  // US-1529: identified-product context (empty array when unidentified).
+  lines.push(...identificationPromptLines(input.identification));
   if (input.measurements && Object.keys(input.measurements).length > 0) {
     lines.push(`MEASUREMENTS:\n${JSON.stringify(input.measurements, null, 2)}`);
   }
@@ -858,7 +944,7 @@ export async function generateListing(
   const { data: itemData, error: itemErr } = await supabaseAdmin
     .from("inventory_items")
     .select(
-      "id, user_id, title, brand, style, size, color, material, condition_notes, measurements, ebay_category_id, grade_report_id",
+      "id, user_id, title, brand, style, size, color, material, condition_notes, measurements, ebay_category_id, grade_report_id, attributes",
     )
     .eq("id", itemId)
     .eq("user_id", ownerId)
@@ -867,6 +953,12 @@ export async function generateListing(
     throw new Error(`Item ${itemId} not found for this workspace`);
   }
   const item = itemData as ItemRow;
+  // US-1529: the research identification persisted by the extract pass (null
+  // for never-identified items → generation behaves exactly as before).
+  const identification = identificationFromAttributes(
+    (itemData as { attributes?: Record<string, string | string[]> | null })
+      .attributes,
+  );
   const gradeReportId =
     (itemData as { grade_report_id?: string | null }).grade_report_id ?? null;
 
@@ -994,6 +1086,8 @@ export async function generateListing(
     measurements,
     allowedAspects: aspectsAlreadyConstrained ? allowedAspects : undefined,
     demandTerms: demandTerms.length > 0 ? demandTerms : undefined,
+    // US-1529: identified-product context (title leads with the style name).
+    identification,
     // US-547: split this item between champion / A/B-challenger prompt.
     promptSelectKey: itemId,
   });

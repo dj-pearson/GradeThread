@@ -9388,3 +9388,36 @@ unrelated-results low score; empty set; confirm boost; 0.95 cap; zero-hit demote
 0.05 floor; disagree-untouched). FULL edge suite 2484/0/70; web 1114/1114; tsc -b
 green; eslint clean.
 Still LOCAL-ONLY; queues behind held migrations 00339 + 00340.
+
+=== 2026-07-02 (loop): US-1529 (apply research to the listing) ===
+The identification now LANDS everywhere a buyer searches:
+- Extract call (same single call): the RESEARCH prompt section instructs the model to
+  apply its own identification to the fields it returns - title leads brand + identified
+  style; description names product line/fabric tech + MSRP context (phrased as
+  "identified as", never certainty, never softening condition honesty);
+  ebay_category_query may use the identified product type. No-research items follow the
+  base rules verbatim.
+- Persistence: NEW researchAttributeSuggestions() (ai-extract.ts) gap-fills
+  identified_style / product_line / fabric_technology / identification_msrp_cents onto
+  inventory_items.attributes with research provenance - merged at BOTH persist sites in
+  flipdesk-ai.ts (persistCanonicalAttributes + the bulk-enrich path) so downstream passes
+  read the ID without re-running AI.
+- Aspects pass: AspectExtractionInput.research + researchAspectContext() IDENTIFIED
+  PRODUCT block -> Style/Model/Product Line/Fabric Type aspects fill from the ID.
+  runEbayAspectsPhase passes extraction.research; the user-triggered /extract-aspects
+  refine route is unchanged (no extraction in scope).
+- AutoLister generation: identificationFromAttributes() parses the persisted keys (incl.
+  US-1528 identification_verified + market_title_keywords); identificationPromptLines()
+  renders the block - "verified against live eBay listings" vs "phrase as identified-as"
+  - plus a MARKET TITLE KEYWORDS list folded like demand terms. generateListing selects
+  attributes and passes identification through. LISTING_GEN_SYSTEM_PROMPT deliberately
+  NOT touched (it is the A/B-versioned champion prompt; instructions ride the user
+  block instead).
+- REGRESSION GUARANTEE (AC5, test-guarded): buildAspectUserPrompt with research:null is
+  byte-identical to no-research; identificationPromptLines(null) === []; unidentified
+  items persist/generate exactly as before.
+TESTS: 6 new deno tests (attribute mapping + provenance + sparse/null; aspect-prompt
+byte-identity + IDENTIFIED PRODUCT presence; attributes round-trip incl. verified +
+keywords; empty-lines regression; verified-vs-unverified phrasing + keyword block).
+FULL edge suite 2490/0/70. No web/iOS diffs this story.
+Still LOCAL-ONLY; queues behind held migrations 00339 + 00340.

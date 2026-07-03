@@ -9367,7 +9367,7 @@
     {
       "id": "US-1529",
       "priority": 2336,
-      "passes": false,
+      "passes": true,
       "title": "Apply research to the listing: identified style in title, description, category query, and eBay aspects",
       "description": "Identification is only valuable if it lands in the listing. As a reseller I want the identified style to flow everywhere a buyer searches: title ('Lululemon ABC Pant Classic 32x32 Warpstreme Navy' — style name is a top search token), description (product line, fabric technology, MSRP context: 'retails ~$128'), ebay_category_query, and the extractEbayAspects pass (Style/Model/Product Line aspects currently guess from photos alone). Update LISTING_SYSTEM_PROMPT + the extract description rule in lib/ai-extract.ts to consume research-tier fields when present (labeled honestly — 'identified as', never fabricated specifics), and pass identified_style/product_line into buildAspectTool input for the aspects call.",
       "acceptanceCriteria": [
@@ -9377,7 +9377,7 @@
         "iOS + web show the enriched title/description through the existing suggestion-review flows (no new UI beyond the US-1527 badge); user edits still win",
         "Regression: items WITHOUT identification produce byte-identical prompts/behavior to today (guarded by tests)"
       ],
-      "notes": "[P1][AI/Autolister] [AI-refine audit 2026-07-01] Child of US-1525; depends on US-1527 (US-1528 keywords optional enhancement). This is the 'combined it will come up with all of the details of the listing and apply that' half of the user's ask."
+      "notes": "[P1][AI/Autolister] [AI-refine audit 2026-07-01] Child of US-1525; depends on US-1527 (US-1528 keywords optional enhancement). This is the 'combined it will come up with all of the details of the listing and apply that' half of the user's ask. [COMPLETION 2026-07-02] Extract call: SYSTEM_PROMPT research section now APPLIES the ID in-call (title leads brand+style; description gets line/fabric/retails-around-X phrased as identified-as; category query may use the identified type) - no second call. Persistence: researchAttributeSuggestions() gap-fills identified_style/product_line/fabric_technology/identification_msrp_cents onto attributes with research provenance at BOTH persist sites (extract + bulk-enrich). Aspects: AspectExtractionInput.research + researchAspectContext block (runEbayAspectsPhase passes extraction.research; /extract-aspects route unchanged - no extraction in scope there). AutoLister: identificationFromAttributes + identificationPromptLines consumed by generateListing->generateListingFields (verified-vs-unverified phrasing; US-1528 market_title_keywords folded like demand terms). LISTING_GEN_SYSTEM_PROMPT deliberately untouched (A/B-versioned champion; instructions ride the user block). Regression AC guarded: byte-identical aspect prompt with research:null + empty listing lines when unidentified. No web/iOS changes (AC4: existing review flows carry the enriched copy)."
     },
     {
       "id": "US-1530",
