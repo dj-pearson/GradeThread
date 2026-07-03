@@ -9324,7 +9324,7 @@
     {
       "id": "US-1526",
       "priority": 2339,
-      "passes": false,
+      "passes": true,
       "title": "Extract style/product codes from tag photos (style #, RN, CA, UPC/SKU) as first-class fields",
       "description": "Care/brand tags carry machine-readable identity the extractor currently ignores: brand style numbers (e.g. Lululemon LW7DVCS), RN numbers (US FTC manufacturer registry), CA numbers, and UPC/SKU barcodes on retail tags. As a reseller I want these read into structured fields so downstream identification (US-1527/1528) has hard anchors instead of only visual guesswork. Add style_code, rn_number, upc to the extract_item_fields tool schema + EXTRACT_FIELDS in lib/ai-extract.ts, with prompt guidance that tag/tag_2 photos are the source and partial/uncertain reads get low confidence rather than omission (a fuzzy code is still a useful search key).",
       "acceptanceCriteria": [
@@ -9333,7 +9333,7 @@
         "Codes persist into inventory_items.attributes with ai_field_sources provenance and appear in the web AiFillPanel + iOS review UI",
         "Deno tests: decode fixtures with codes present/absent/garbled; existing extract tests stay green"
       ],
-      "notes": "[P1][AI/Autolister] [AI-refine audit 2026-07-01] Child of US-1525. Cheap, pure-prompt+schema change inside the existing single extract call (max_tokens 2500 has headroom; bump if needed). RN numbers resolve manufacturers via the model's knowledge of the FTC registry — useful when the brand wordmark is unreadable."
+      "notes": "[P1][AI/Autolister] [AI-refine audit 2026-07-01] Child of US-1525. Cheap, pure-prompt+schema change inside the existing single extract call (max_tokens 2500 has headroom; bump if needed). RN numbers resolve manufacturers via the model's knowledge of the FTC registry — useful when the brand wordmark is unreadable. [COMPLETION 2026-07-02] Implemented via the US-821 CANONICAL_ATTRIBUTES pipeline (schema + decode + persistence are generic, so the three codes flow end-to-end with ai_field_sources provenance for free). Web surface: item-canvas attributes editor (Style Code / RN Number / UPC defs). iOS: values persist server-side; iOS has NO generic attributes editor today (same gap as pattern/mpn/theme) - surfacing codes there rides the future attributes-editor story, not this one."
     },
     {
       "id": "US-1527",

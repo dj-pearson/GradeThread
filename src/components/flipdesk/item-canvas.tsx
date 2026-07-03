@@ -182,6 +182,11 @@ const ATTRIBUTE_FIELD_DEFS: {
   { key: "vintage", label: "Vintage", options: ["Yes", "No"] },
   { key: "theme", label: "Theme" },
   { key: "mpn", label: "MPN" },
+  // US-1526: machine-readable identity codes read from the tag photos — hard
+  // anchors for product identification/research (US-1527/1528).
+  { key: "style_code", label: "Style Code", placeholder: "e.g. LW7DVCS" },
+  { key: "rn_number", label: "RN Number", placeholder: "digits after 'RN'" },
+  { key: "upc", label: "UPC / EAN", placeholder: "barcode digits" },
   {
     key: "features",
     label: "Features",

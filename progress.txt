@@ -9302,3 +9302,28 @@ VERIFICATION: FULL edge suite 2465/0/70 (3 new filter tests); web 1114/1114; tsc
 eslint clean; npm run build green (47 pages); iOS no-ungated-print + brace scans clean.
 Recorded as US-1549 (nextId -> 1550).
 COMMIT HELD LOCALLY - contains migration 00340 (standing rule).
+
+=== 2026-07-02 (loop): US-1526 (tag identity codes: style_code / rn_number / upc) ===
+- ai-extract.ts: three new CANONICAL_ATTRIBUTES (style_code, rn_number, upc - all single-
+  value) ride the existing US-821 pipeline, so the tool schema, decodeExtraction, the
+  inventory_items.attributes persistence (gap-fill + ai_field_sources provenance), and the
+  downstream eBay aspect mapping all pick them up with ZERO new plumbing.
+- SYSTEM_PROMPT gains an Identity codes block: names the formats (alphanumeric style block
+  near size/fiber, RN 12345 FTC registry, UPC/EAN barcode digits), demands VERBATIM
+  transcription (never normalize, never drop leading zeros; rn_number = digits only), and
+  carves the ONE deliberate exception to the never-guess rule: for these three code fields
+  ONLY, a partial/uncertain read returns with LOW confidence (<=0.4) instead of omission -
+  a fuzzy code is still a search key for US-1527/1528. mpn cross-fill rule when one printed
+  code serves both.
+- Web: item-canvas ATTRIBUTE_FIELD_DEFS + Style Code / RN Number / UPC (visible + editable
+  on the item attributes editor).
+- iOS: codes persist server-side via the generic attributes write; iOS intentionally has no
+  generic attributes editor (pattern/mpn/theme share the gap) - noted in prd.
+- DRIVE-BY: canonical-attributes_test.ts was a third order-dependent test file (static
+  supabase-graph import, no env preamble) - hardened with the standard env.set +
+  dynamic-import pattern like the two fixed earlier today.
+TESTS: 4 new deno tests (specs registered single-value; verbatim decode incl. garbled
+low-confidence + leading-zero preservation; absent codes stay absent; scalar column
+persistence). Targeted file 12/12; FULL edge suite 2469/0/70; web 1114/1114; tsc -b green;
+eslint clean.
+Still LOCAL-ONLY; queues behind held migrations 00339 + 00340.

@@ -113,6 +113,14 @@ export const CANONICAL_ATTRIBUTES: CanonicalAttributeSpec[] = [
   { key: "vintage", multi: false, description: "Whether the item is vintage (20+ years old / clearly retro) — 'Yes' or 'No'" },
   { key: "theme", multi: false, description: "Theme or franchise — e.g. a sports team, band, movie, brand collab" },
   { key: "mpn", multi: false, description: "Manufacturer Part Number / style code printed on the tag (distinct from the marketing style name)" },
+  // US-1526: machine-readable identity codes read off the tag photos. These are
+  // hard anchors for downstream product identification (US-1527/1528) — a
+  // partial read is still a useful search key, so the prompt tells the model to
+  // return them with LOW confidence rather than omit (codes ONLY; every other
+  // field keeps the never-guess rule).
+  { key: "style_code", multi: false, description: "Brand style/product code printed on the tag (e.g. LW7DVCS, 511-0011) — transcribe characters VERBATIM, never normalize. Often the same code as mpn; fill both when one code serves both." },
+  { key: "rn_number", multi: false, description: "US FTC RN number from the care label — the digits after 'RN' (e.g. 'RN 106259' → 106259). Identifies the manufacturer of record." },
+  { key: "upc", multi: false, description: "UPC/EAN barcode digits from a retail hang tag or sticker, transcribed verbatim (12–13 digits)" },
 ];
 
 const MULTI_ATTRIBUTE_KEYS = new Set(
@@ -224,6 +232,12 @@ Canonical attributes (the 'attributes' object):
 - 'features' is an array (return all that apply); every other attribute is a single value.
 - Read department, size_type, garment_care, country_of_manufacture, and mpn from the care/brand tag when present. mpn is the manufacturer part/style number printed on the tag — distinct from the marketing 'style' name; do not conflate them.
 - Give each attribute a 0..1 confidence and a source string, same as the core fields.
+
+Identity codes on the tag (style_code, rn_number, upc):
+- Tag/care-label photos often carry machine-readable identity: a brand style/product code (usually an alphanumeric block printed near the size or fiber content — e.g. LW7DVCS, 511-0011, CV8839-010), an RN number ("RN 12345" — the US FTC manufacturer registry), and UPC/EAN barcode digits on retail hang tags.
+- Transcribe these codes VERBATIM, character for character — never normalize, expand, reformat, or drop leading zeros. For rn_number return only the digits after "RN".
+- EXCEPTION to the never-guess rule, for these three code fields ONLY: a partial or uncertain read is still a useful search key, so return your best transcription with LOW confidence (≤ 0.4) instead of omitting it. Mark the source (usually 'photo:tag'). Every other field keeps the never-guess rule.
+- If one printed code serves as both the style code and the MPN, fill both style_code and mpn with it.
 
 Measurement suggestions:
 - ONLY suggest measurements when brand AND size AND item type are clearly identifiable. If any of those are unknown, OMIT measurements entirely.
