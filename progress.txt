@@ -9593,3 +9593,32 @@ few-shot-exemplars_test 13/13. FULL edge suite 2507/0/70; deno check + lint clea
 web tsc -b 0 / eslint clean / vitest 1121/1121 (incl. concurrent-agent US-1550 tests).
 NOTE: concurrent agent landed fbeb8b66 (US-1550) mid-iteration; working trees stayed
 disjoint. Still LOCAL-ONLY; queues behind held migrations 00339-00341.
+
+=== 2026-07-02 (loop): US-1536 (peer-norm sanity check, final chunk) ===
+The previously-deferred SQL percentile RPC was AVOIDED by design: fetchPeerDistribution
+(peer-norm.ts) does a bounded indexed scan - 400 most-recent same-category grade_reports
+via a submissions!inner join, then the latest human_reviews adjustment per report
+(FINAL grade = adjusted ?? AI) - and runs the already-tested TS quartile math over the
+cohort. Auditable, no bespoke RPC on the grading path, and the pure core from chunks
+1/1b is reused unchanged.
+- NEW pure selectPeerGrades: filters candidates to the (defect-count-bucket x
+  max-severity) cell and refines to the brand subset ONLY when the brand alone clears
+  minSampleSize (case/whitespace-insensitive match) - else the category cohort.
+- MIGRATION 00342 (HELD): idx_submissions_garment_category +
+  idx_human_reviews_grade_report_id (pure btree additions);
+  EXPECTED_SCHEMA_VERSION -> 00342; packaged in PENDING_MIGRATIONS.md.
+- PIPELINE (grading-pipeline.ts, after composite + detailedNotes): config read from
+  system_settings key grading_peer_norm (jsonb {enabled,minSampleSize,iqrMarginPoints})
+  merged over DEFAULT_PEER_NORM_CONFIG (ON, n>=10, margin 1.0 - conservative per AC4);
+  outlier -> composeConfidenceCap 0.7 (min-of-caps, mirrors PARTIAL_IMAGE cap) +
+  needs_human_review + detailed_notes.peer_norm carrying the reviewer-facing context
+  ("grade 9.0 is above the similar-item range 5.5-7.0 (median 6.5, n=23)"). try/catch:
+  a check failure NEVER fails the grade. Peer grades never enter the prompt (anchor
+  risk) - this audits the independent output after the fact.
+- REVIEWER UI: /review-queue selects detailed_notes and maps item.peer_norm;
+  admin/reviews.tsx renders the amber peer-distribution banner in the review dialog
+  above the factor-adjust section.
+TESTS: peer-norm_test 15/15 (3 new: cell filtering, brand-floor refinement both sides,
+case-insensitive brand). FULL edge suite 2510/0/70; deno check+lint clean; web tsc -b 0,
+eslint clean, vitest 1121/1121.
+Still LOCAL-ONLY; queues behind held migrations 00339-00342.

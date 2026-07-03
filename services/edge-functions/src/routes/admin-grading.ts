@@ -1665,7 +1665,8 @@ adminGradingRoutes.get("/review-queue", async (c) => {
       "id, submission_id, overall_score, grade_tier, confidence_score, " +
         "fabric_condition_score, structural_integrity_score, cosmetic_appearance_score, " +
         "functional_elements_score, odor_cleanliness_score, ai_summary, needs_human_review, " +
-        "human_reviewed, review_claimed_by, review_claimed_at, review_due_at, created_at",
+        "human_reviewed, review_claimed_by, review_claimed_at, review_due_at, created_at, " +
+        "detailed_notes",
     )
     // Every preliminary grade that hasn't been finalized or sent back yet.
     .eq("review_status", "pending")
@@ -1763,6 +1764,10 @@ adminGradingRoutes.get("/review-queue", async (c) => {
         odor_cleanliness_score: Number(r.odor_cleanliness_score),
       },
       ai_summary: r.ai_summary,
+      // US-1536: the peer-norm outlier context ("similar items: median 6.5,
+      // n=23"), when this grade was flagged. Reviewers see WHY it's here.
+      peer_norm: ((r as unknown as { detailed_notes?: Record<string, string> | null })
+        .detailed_notes?.peer_norm) ?? null,
       created_at: r.created_at,
       waiting_ms: now - new Date(r.created_at).getTime(),
       // Mandatory-review priority signals: the requested grade-speed tier and the

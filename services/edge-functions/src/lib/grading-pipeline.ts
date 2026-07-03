@@ -16,6 +16,14 @@ import {
   baselineReferenceBlock,
   getGarmentBaseline,
 } from "./garment-baselines.ts";
+import {
+  composeConfidenceCap,
+  DEFAULT_PEER_NORM_CONFIG,
+  evaluatePeerNorm,
+  fetchPeerDistribution,
+  type PeerNormConfig,
+} from "./peer-norm.ts";
+import { getSetting } from "./system-settings.ts";
 import { assessAuthenticity, type AuthenticityAssessment } from "./ai-authenticity.ts";
 import { runShadowGrades } from "./grading-shadow.ts";
 import { notifyWebhooks } from "./webhook-delivery.ts";
@@ -1423,6 +1431,49 @@ export async function processSubmission(submissionId: string) {
       detailedNotes["defects_summary"] = compositeResult.defects_found
         .map((d) => `[${d.severity}] ${d.defect} at ${d.location} — ${d.impact_on_grade}`)
         .join("; ");
+    }
+
+    // US-1536: peer-norm sanity check — compare this grade against recent
+    // FINAL grades for similar items (same category + defect profile, brand-
+    // refined when sampled enough). A grade well outside the peer IQR is
+    // confidence-capped below the review threshold and routed to a human with
+    // the peer context in detailed_notes. Deliberately POST-composite (peer
+    // grades never enter the prompt — that would anchor the model) and
+    // best-effort: any failure skips the check, never the grade.
+    try {
+      const peerCfg: PeerNormConfig = {
+        ...DEFAULT_PEER_NORM_CONFIG,
+        ...(await getSetting<Partial<PeerNormConfig>>("grading_peer_norm", {})),
+      };
+      if (peerCfg.enabled) {
+        const dist = await fetchPeerDistribution({
+          garmentCategory: submission.garment_category,
+          brand: submission.brand,
+          defectSeverities: compositeResult.defects_found.map((d) => d.severity),
+          minSampleSize: peerCfg.minSampleSize,
+        });
+        const verdict = evaluatePeerNorm(
+          compositeResult.overall_score,
+          dist,
+          peerCfg,
+        );
+        if (verdict.flagged) {
+          compositeResult.confidence_score = composeConfidenceCap(
+            compositeResult.confidence_score,
+            verdict.confidenceCap,
+          );
+          compositeResult.needs_human_review = true;
+          detailedNotes["peer_norm"] = verdict.reason ?? "peer_norm outlier";
+          console.log(
+            `[Pipeline] peer-norm flagged submission ${submissionId}: ${verdict.reason}`,
+          );
+        }
+      }
+    } catch (err) {
+      console.error(
+        `[Pipeline] peer-norm check failed for ${submissionId} (skipped):`,
+        err instanceof Error ? err.message : String(err),
+      );
     }
 
     // US-1296: Forensic Grade summary — record that the paid high-resolution

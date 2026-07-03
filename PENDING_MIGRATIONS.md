@@ -33,6 +33,14 @@ only). EXPECTED_SCHEMA_VERSION bumped **00340 -> 00341**. Apply with 00339+00340
 (all idempotent), NOTIFY pgrst, then the edge redeploy. Zero-risk: new empty table;
 the pipeline feature is OFF until you set GRADING_BASELINES=1 on the edge.
 
+### 🔸 ALSO NEW + HELD LOCALLY: 00342 (US-1536)
+
+**supabase/migrations/00342_peer_norm_indexes.sql** - two plain btree indexes
+(submissions.garment_category + human_reviews.grade_report_id) supporting the
+peer-norm sanity-check scan. EXPECTED_SCHEMA_VERSION bumped **00341 -> 00342**.
+Apply with 00339-00341 (all idempotent), NOTIFY pgrst, then the edge redeploy.
+Zero-risk: pure index additions.
+
 ### Previously outstanding — apply to prod (already on origin)
 
 Everything through migration **00338** is already ON `origin/main` (0230db73 was

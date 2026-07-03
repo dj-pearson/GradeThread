@@ -167,3 +167,125 @@ export function peerProfileCell(input: {
     maxSeverity: maxSeverityBucket(input.defectSeverities),
   };
 }
+
+// ── Peer selection + fetch (US-1536 final chunk) ─────────────────────────────
+
+/** One past grade eligible as a peer: its FINAL grade (human-adjusted where
+ *  reviewed), brand, and consolidated defect severities. */
+export interface PeerCandidate {
+  finalGrade: number;
+  brand: string | null;
+  severities: string[];
+}
+
+/**
+ * Pure peer selection: keep candidates whose defect profile matches the cell,
+ * refined to the brand subset when it alone clears minSampleSize (AC1) —
+ * otherwise the category-level cohort is the comparison set.
+ */
+export function selectPeerGrades(
+  candidates: readonly PeerCandidate[],
+  cell: PeerProfileCell,
+  minSampleSize: number,
+): number[] {
+  const inCell = candidates.filter(
+    (c) =>
+      defectCountBucket(c.severities.length) === cell.defectCountBucket &&
+      maxSeverityBucket(c.severities) === cell.maxSeverity,
+  );
+  if (cell.brand) {
+    const wanted = cell.brand.toLowerCase();
+    const brandMatched = inCell.filter(
+      (c) => (c.brand ?? "").trim().toLowerCase() === wanted,
+    );
+    if (brandMatched.length >= minSampleSize) {
+      return brandMatched.map((c) => c.finalGrade);
+    }
+  }
+  return inCell.map((c) => c.finalGrade);
+}
+
+// How many recent same-category grades to scan per check. Bounded so the
+// post-composite check stays a cheap indexed read even on huge categories.
+const PEER_SCAN_LIMIT = 400;
+
+/**
+ * Fetch the peer distribution for a fresh grade: recent FINAL grades in the
+ * same garment_category (human-adjusted where reviewed), filtered to the same
+ * defect-profile cell in TS via the pure bucketing above. Deliberately NOT a
+ * SQL percentile query — the bounded scan + tested TS math is auditable and
+ * needs no bespoke RPC on the grading path. Returns null on any failure or an
+ * empty cohort (the caller's evaluatePeerNorm then no-ops).
+ */
+export async function fetchPeerDistribution(args: {
+  garmentCategory: string;
+  brand: string | null;
+  defectSeverities: readonly string[];
+  minSampleSize: number;
+}): Promise<PeerDistribution | null> {
+  const category = args.garmentCategory?.trim();
+  if (!category) return null;
+  try {
+    const { supabaseAdmin } = await import("./supabase.ts");
+    const { data: reportRows, error } = await supabaseAdmin
+      .from("grade_reports")
+      .select(
+        "id, overall_score, defects_found, submissions!inner(brand, garment_category)",
+      )
+      .eq("submissions.garment_category", category)
+      .is("superseded_at", null)
+      .order("created_at", { ascending: false })
+      .limit(PEER_SCAN_LIMIT);
+    if (error) return null;
+
+    const rows = (reportRows ?? []) as unknown as Array<{
+      id: string;
+      overall_score: number;
+      defects_found: unknown;
+      submissions: { brand: string | null };
+    }>;
+    if (rows.length === 0) return null;
+
+    // Latest human adjustment per report — the FINAL grade wins over the AI's.
+    const adjustedByReport = new Map<string, number>();
+    const { data: reviewRows } = await supabaseAdmin
+      .from("human_reviews")
+      .select("grade_report_id, adjusted_score, reviewed_at")
+      .in("grade_report_id", rows.map((r) => r.id))
+      .order("reviewed_at", { ascending: false });
+    for (
+      const r of (reviewRows ?? []) as Array<{
+        grade_report_id: string;
+        adjusted_score: number | null;
+      }>
+    ) {
+      if (r.adjusted_score !== null && !adjustedByReport.has(r.grade_report_id)) {
+        adjustedByReport.set(r.grade_report_id, r.adjusted_score);
+      }
+    }
+
+    const candidates: PeerCandidate[] = rows.map((r) => ({
+      finalGrade: adjustedByReport.get(r.id) ?? r.overall_score,
+      brand: r.submissions?.brand ?? null,
+      severities: Array.isArray(r.defects_found)
+        ? (r.defects_found as Array<{ severity?: unknown }>)
+          .map((d) => (typeof d?.severity === "string" ? d.severity : ""))
+          .filter((s) => s !== "")
+        : [],
+    }));
+
+    const cell = peerProfileCell({
+      garmentCategory: category,
+      brand: args.brand,
+      defectSeverities: args.defectSeverities,
+    });
+    const grades = selectPeerGrades(candidates, cell, args.minSampleSize);
+    return computePeerQuartiles(grades);
+  } catch (err) {
+    console.error(
+      "[peer-norm] fetch failed (check skipped):",
+      err instanceof Error ? err.message : String(err),
+    );
+    return null;
+  }
+}

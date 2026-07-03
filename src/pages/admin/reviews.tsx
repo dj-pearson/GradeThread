@@ -90,6 +90,9 @@ interface QueueItem {
   confidence_label: string | null;
   factor_scores: FactorScores;
   ai_summary: string;
+  // US-1536: peer-norm outlier context when this grade was flagged
+  // ("similar items: median 6.5, n=23") — why it landed in review.
+  peer_norm?: string | null;
   created_at: string;
   waiting_ms: number;
 }
@@ -803,6 +806,17 @@ export function AdminReviewsPage() {
                   {reviewingItem.ai_summary}
                 </p>
               </div>
+
+              {/* US-1536: peer-distribution line for peer-norm-flagged grades —
+                  the reviewer sees how similar items graded before adjusting. */}
+              {reviewingItem.peer_norm && (
+                <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 dark:border-amber-800 dark:bg-amber-950/40">
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                  <p className="text-sm text-amber-800 dark:text-amber-300">
+                    Peer-norm outlier: {reviewingItem.peer_norm.replace(/^peer_norm:\s*/, "")}
+                  </p>
+                </div>
+              )}
 
               {/* Factor Scores — review & adjust */}
               <div>

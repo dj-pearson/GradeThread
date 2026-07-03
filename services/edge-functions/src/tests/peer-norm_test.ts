@@ -107,3 +107,64 @@ Deno.test("peerProfileCell: composes category/brand + defect profile", () => {
     { garmentCategory: "tee", brand: null, defectCountBucket: "0", maxSeverity: "none" },
   );
 });
+
+// ── US-1536 final chunk: pure peer selection (brand refinement + cell filter) ─
+
+const { selectPeerGrades } = await import("../lib/peer-norm.ts");
+
+function cand(finalGrade: number, brand: string | null, severities: string[]) {
+  return { finalGrade, brand, severities };
+}
+
+Deno.test("US-1536: selectPeerGrades filters to the defect-profile cell", () => {
+  const cell = peerProfileCell({
+    garmentCategory: "jacket",
+    brand: null,
+    defectSeverities: ["minor", "moderate"], // bucket 2-3, max moderate
+  });
+  const grades = selectPeerGrades(
+    [
+      cand(7.0, null, ["minor", "minor"]), // 2-3 + minor max → different cell
+      cand(6.5, null, ["moderate", "minor"]), // matches
+      cand(6.0, null, ["moderate", "minor", "minor"]), // matches (2-3, moderate)
+      cand(9.0, null, []), // clean item → different cell
+      cand(3.0, null, ["major", "major", "major", "major"]), // 4+ major → different
+    ],
+    cell,
+    10,
+  );
+  assertEquals(grades.sort(), [6.0, 6.5]);
+});
+
+Deno.test("US-1536: brand refinement applies only at/above the sample floor", () => {
+  const cell = peerProfileCell({
+    garmentCategory: "jeans",
+    brand: "Levi's",
+    defectSeverities: ["minor"],
+  });
+  const brandPeers = Array.from({ length: 10 }, () => cand(6.0, "Levi's", ["minor"]));
+  const otherPeers = Array.from({ length: 20 }, () => cand(9.0, "Wrangler", ["minor"]));
+
+  // 10 brand samples clear the floor → brand-only cohort.
+  const refined = selectPeerGrades([...brandPeers, ...otherPeers], cell, 10);
+  assertEquals(refined.length, 10);
+  assertEquals(refined.every((g) => g === 6.0), true);
+
+  // Below the floor → the whole category cohort is used instead.
+  const sparse = selectPeerGrades([...brandPeers.slice(0, 4), ...otherPeers], cell, 10);
+  assertEquals(sparse.length, 24);
+});
+
+Deno.test("US-1536: brand matching is case/whitespace-insensitive", () => {
+  const cell = peerProfileCell({
+    garmentCategory: "jeans",
+    brand: "levi's",
+    defectSeverities: [],
+  });
+  const grades = selectPeerGrades(
+    Array.from({ length: 10 }, () => cand(8.0, "  LEVI'S ", [])),
+    cell,
+    10,
+  );
+  assertEquals(grades.length, 10);
+});
