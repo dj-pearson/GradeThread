@@ -6583,7 +6583,7 @@
     {
       "id": "US-1316",
       "priority": -98684,
-      "passes": false,
+      "passes": true,
       "title": "Room schema: 7 entities, indexes, migrations & corruption recovery",
       "description": "As an Android developer, I want the offline cache schema (the 7 SwiftData models) as Room entities with the same indexes/relations and a corruption-recovery path.",
       "acceptanceCriteria": [
@@ -6592,7 +6592,7 @@
         "Corruption recovery: delete+recreate, then in-memory fallback, never crash on data (only a broken schema is fatal) — mirrors ModelStoreProvider; surfaces a one-time reset notice",
         "hasPhotos derives from the photos relation, not the denormalized cover URL (US-994 parity)"
       ],
-      "notes": "[P1][Android/Sync] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P1][Android/Sync] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. [COMPLETION 2026-07-03] sync/db, locally verified (three gates; RoomSchemaTest 6/6 under Robolectric with real Room). The 7 iOS SwiftData models (Persistence/Models/Local*) as Room entities with the SAME field sets: inventory_items (full ~35-field set incl. jsonb round-trips compSetJson/measurementsJson, consignment, grading, dispute columns), item_photos (photoType/localCacheToken/localBytesPath for offline intake), sales (full fee/cost/net-profit set), expenses, listings (listingOrigin provenance per SYNC_SOURCE_OF_TRUTH), sources, pending_mutations (kind/payload/retryCount FIFO). US-985 index parity: items (updatedAt, status, gradeValue, gradeValue+updatedAt, gradeReportId for US-819 dispute mapping), photos (itemId, itemId+sortOrder), sales/expenses/listings per iOS; item->photos FK CASCADE (delete proven). US-994 CARRIED + PROVEN BOTH WAYS: hasPhotos derives from the relation - a stale cover URL with no rows reads FALSE, rows with null cover read TRUE (EXISTS query + ItemWithPhotos relation). GradeThreadDb v1 with exportSchema (schemas/ committed as the migration-diff baseline) + WATERMARK_SCHEMA_VERSION const separate from the Room version (Room migrations preserve rows; the watermark version decides whether rows are COMPLETE -> full backfill on bump; the sync-engine story consumes it). DatabaseProvider: the ModelStoreProvider chain - normal open (forced via readableDatabase probe) -> delete+recreate (RESET) -> in-memory (EPHEMERAL), outcome StateFlow for the one-time reset notice; corrupt-file recovery proven (garbage bytes planted, store recovers usable, never EPHEMERAL, never a crash). clearAll per table supports the US-1323 sign-out wipe; FIFO mutation order proven (create-before-edit replay depends on it)."
     },
     {
       "id": "US-1317",

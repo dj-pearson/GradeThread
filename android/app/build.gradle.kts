@@ -74,6 +74,10 @@ android {
         compose = true
         buildConfig = true
     }
+    // US-1316: Room schema JSON export (migration-diff reviews).
+    ksp {
+        arg("room.schemaLocation", "$projectDir/schemas")
+    }
 }
 
 dependencies {
@@ -119,6 +123,7 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.okhttp.mockwebserver)
     testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

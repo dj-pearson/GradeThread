@@ -10481,3 +10481,23 @@ VERIFIED LOCALLY: three gates green; 8/8 in the results XML.
   financial composed underneath); auto-prompts, button re-prompts.
 - MainActivity became FragmentActivity (BiometricPrompt requirement).
 VERIFIED LOCALLY: three gates green; 3/3 in the results XML.
+
+=== 2026-07-03 (loop v2): US-1316 (Room schema: 7 entities, indexes, recovery) ===
+- The 7 SwiftData models ported field-for-field: inventory_items (~35 cols
+  incl. jsonb round-trips, consignment, grading, disputes), item_photos
+  (offline-intake localBytesPath, cache token), sales (full fee/net set),
+  expenses, listings (listingOrigin provenance), sources, pending_mutations.
+- US-985 index parity + item->photos FK CASCADE (proven). US-994 proven BOTH
+  ways: stale cover URL with no photo rows reads hasPhotos=false; rows with a
+  null cover read true - the relation is the only truth.
+- WATERMARK_SCHEMA_VERSION separate from the Room version: migrations preserve
+  rows, the watermark version decides whether rows are COMPLETE (bump -> full
+  backfill; the sync engine consumes it). Schema JSON export committed as the
+  migration-diff baseline.
+- DatabaseProvider: the ModelStoreProvider recovery chain (normal -> delete+
+  recreate RESET -> in-memory EPHEMERAL, one-time notice flow) - corrupt-file
+  recovery proven with planted garbage bytes; never a crash on data.
+- FIFO mutation order proven (create-before-edit replay depends on it);
+  per-table clearAll ready for the US-1323 sign-out wipe.
+VERIFIED LOCALLY: three gates green; 6/6 in the results XML (real Room under
+Robolectric).
