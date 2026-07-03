@@ -204,7 +204,7 @@ function VariationEditor({
     if (nextSpecs.length === 0) return;
     const nextVariants = variants.map((v) => {
       const aspects: Record<string, string> = {};
-      for (const s of nextSpecs) aspects[s] = v.aspects[s] ?? "";
+      for (const s of nextSpecs) aspects[s] = v.aspects?.[s] ?? "";
       return { ...v, aspects };
     });
     onChange({ specifications: nextSpecs, variants: nextVariants });
@@ -264,7 +264,7 @@ function VariationEditor({
                 <Input
                   className="h-8 w-24"
                   placeholder={spec}
-                  value={variant.aspects[spec] ?? ""}
+                  value={variant.aspects?.[spec] ?? ""}
                   onChange={(e) => setVariantAspect(idx, spec, e.target.value)}
                 />
               </div>

@@ -37,6 +37,15 @@ import type {
   FlipdeskGradingSubmissionRow,
 } from "@/types/database";
 
+// Stable identity for the photos query's pending/empty state. An inline `[]`
+// default is a NEW array every render, and the drag-order sync effect
+// (`setOrder(photos)`) keys on the array's identity — a fresh identity each
+// render re-fires the effect and each setOrder schedules another render, an
+// update loop that runs until the query resolves. On slow loads React hits its
+// nested-update limit first and the whole route crashes with "Maximum update
+// depth exceeded". Same fix as the composer's EMPTY_PHOTOS.
+const EMPTY_PHOTOS: ItemPhotoRow[] = [];
+
 interface PhotoManagerProps {
   itemId: string;
   /** The item's live, revisable GradeThread eBay listing id, when one exists.
@@ -104,7 +113,7 @@ export function PhotoManager({ itemId, liveListingId, dirtyRef }: PhotoManagerPr
     }
   }
 
-  const { data: photos = [], isLoading } = useQuery({
+  const { data: photos = EMPTY_PHOTOS, isLoading } = useQuery({
     queryKey: ["item_photos", itemId],
     queryFn: async (): Promise<ItemPhotoRow[]> => {
       const { data, error } = await supabase

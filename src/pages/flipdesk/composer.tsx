@@ -137,6 +137,16 @@ import type {
 
 const TITLE_MAX = 80;
 
+// Stable identity for the photos query's pending/empty state. An inline `[]`
+// default is a NEW array every render, and the drag-order sync effect
+// (`setOrder(photos)`) keys on the array's identity — with a fresh identity
+// each render, that effect re-fires each render and each setOrder schedules
+// another render: an update loop that runs until the query resolves. On a
+// slow load React hits its nested-update limit first and the route crashes
+// with "Maximum update depth exceeded" (the AutoLister drafts → Review error
+// page). One shared constant makes the pending identity stable.
+const EMPTY_PHOTOS: ItemPhotoRow[] = [];
+
 // US-568: composer default — fixed-price, no auction terms, single SKU.
 const DEFAULT_LISTING_FORMAT_VALUE: ListingFormatValue = {
   format: "fixed_price",
@@ -296,7 +306,7 @@ export function FlipdeskComposerPage() {
     return () => clearTimeout(t);
   }, [isLoading, item, focusParams]);
 
-  const { data: photos = [] } = useQuery({
+  const { data: photos = EMPTY_PHOTOS } = useQuery({
     queryKey: ["item_photos", id],
     enabled: !!id,
     queryFn: async (): Promise<ItemPhotoRow[]> => {
@@ -1019,13 +1029,15 @@ export function FlipdeskComposerPage() {
       list.find((p) => p.policy_type === type);
     return chosen?.policy_name ?? null;
   };
+  // `defaults` is optional-chained too: a policies response without it (edge
+  // degradation / unexpected shape) must not crash the whole composer route.
   const shippingPolicyName = policyName(
     "fulfillment",
-    ebayPolicies?.defaults.fulfillment_policy_id ?? null,
+    ebayPolicies?.defaults?.fulfillment_policy_id ?? null,
   );
   const returnPolicyName = policyName(
     "return",
-    ebayPolicies?.defaults.return_policy_id ?? null,
+    ebayPolicies?.defaults?.return_policy_id ?? null,
   );
 
   return (
