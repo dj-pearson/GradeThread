@@ -10069,7 +10069,7 @@
     {
       "id": "US-1573",
       "priority": 2375,
-      "passes": false,
+      "passes": true,
       "title": "Auto measurement extraction: garment-class schema + AI landmark proposal + deterministic refinement",
       "description": "As a reseller, once my measurement photo is calibrated, GradeThread should pull the actual measurements out automatically: pit-to-pit, length, sleeve, waist, inseam, rise — whichever apply to the garment class — with per-measurement confidence, so most items need zero manual measuring.",
       "acceptanceCriteria": [
@@ -10081,7 +10081,7 @@
         "Extraction is a billed AI ACTION: the endpoint reserves atomically via reserve_ai_action BEFORE the vision call (refund on failure — same reserve/refund contract as generation) and logs spend to ai_enrichment_log; one action covers the whole per-item extraction (all measurements in one prompt); calibrate (pure CV, no model call) is NOT billed",
         "Deno tests: schema module; snapping function on synthetic edges; plausibility guard bands; provenance fill-only rules"
       ],
-      "notes": "Designed to be WRONG sometimes and cheaply corrected: everything lands in the overlay editor pre-seeded, and every manual correction becomes telemetry for a future trained landmark model (eval-harness story). AutoLister integration: when a batch item has a calibrated measurement photo, run extract during generation so drafts arrive measured. Billing decision (2026-07-03): photo-measurement extraction counts toward the monthly AI-action allotment; deterministic calibration does not."
+      "notes": "Designed to be WRONG sometimes and cheaply corrected: everything lands in the overlay editor pre-seeded, and every manual correction becomes telemetry for a future trained landmark model (eval-harness story). AutoLister integration: when a batch item has a calibrated measurement photo, run extract during generation so drafts arrive measured. Billing decision (2026-07-03): photo-measurement extraction counts toward the monthly AI-action allotment; deterministic calibration does not. BUILT 2026-07-03: NO new migration/column — provenance rides the EXISTING inventory_items.ai_field_sources with the measurements.<key> convention the MeasurementForm already badges (fill-only rules identical to the story: seller values never overwritten, AI refreshes AI, blanks fill). Schema module = existing MEASUREMENT_TEMPLATES/measurementGroupFor mirrored to edge (byte-equality test). lib/measure-extract.ts: one vision call proposes normalized endpoints per class field, deterministic gradient snap along the measurement axis (noise-floored), inches via the US-1572 homography, size-narrowed plausibility bands. Route POST /api/flipdesk/measure/extract: calibration required, checkQuota + withAiAction (ONE billed action; calibrate stays free — source-guard test), ai_enrichment_log spend row. Edge suite 2596/0."
     },
     {
       "id": "US-1574",

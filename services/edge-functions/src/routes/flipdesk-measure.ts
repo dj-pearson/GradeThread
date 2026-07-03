@@ -19,7 +19,10 @@
 import { Hono } from "hono";
 import { Image } from "imagescript";
 import { supabaseAdmin } from "../lib/supabase.ts";
-import { downloadItemPhoto } from "../lib/item-photo-storage.ts";
+import {
+  bucketForItemPhoto,
+  downloadItemPhoto,
+} from "../lib/item-photo-storage.ts";
 import { MEASURE_CARD_VERSIONS } from "../lib/measure-card.ts";
 import {
   calibrateMeasurePhoto,
@@ -27,6 +30,20 @@ import {
   type CalibrateResult,
   type GrayImage,
 } from "../lib/measure-detect.ts";
+import {
+  extractMeasurements,
+  mergeMeasurementsFillOnly,
+} from "../lib/measure-extract.ts";
+import {
+  MEASUREMENT_TEMPLATES,
+  measurementGroupFor,
+} from "../lib/measurement-templates.ts";
+import {
+  AiQuotaExhaustedError,
+  QUOTA_EXHAUSTED_MESSAGE,
+  withAiAction,
+} from "../lib/ai-metering.ts";
+import { checkQuota } from "./flipdesk-ai.ts";
 
 export const flipdeskMeasureRoutes = new Hono<{
   Variables: {
@@ -213,4 +230,180 @@ flipdeskMeasureRoutes.post("/calibrate", async (c) => {
   }
 
   return c.json({ ok: true, cached: false, ...stored });
+});
+
+// US-1573: POST /extract { photo_id } — one billed AI action that proposes
+// every applicable measurement's endpoints (Claude Vision), snaps them to the
+// garment edge deterministically, converts to inches on the calibrated card
+// plane, plausibility-checks against the size tag, and fill-only merges into
+// inventory_items.measurements + ai_field_sources ("measurements.<key>" keys,
+// the same provenance the MeasurementForm already badges). Requires a prior
+// successful /calibrate (the homography is the ruler).
+flipdeskMeasureRoutes.post("/extract", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+
+  let body: { photo_id?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const photoId = typeof body.photo_id === "string" ? body.photo_id : "";
+  if (!photoId) return c.json({ error: "photo_id is required" }, 400);
+
+  // Tenant-scoped photo load (same owner-verified join as /calibrate).
+  const { data: row, error: rowErr } = await supabaseAdmin
+    .from("item_photos")
+    .select(
+      "id, inventory_item_id, storage_path, photo_type, measure_calibration, inventory_items!inner(user_id)",
+    )
+    .eq("id", photoId)
+    .eq("inventory_items.user_id", ownerId)
+    .maybeSingle();
+  if (rowErr) return c.json({ error: "Could not load the photo." }, 500);
+  const photo = row as
+    | {
+      id: string;
+      inventory_item_id: string;
+      storage_path: string | null;
+      photo_type: string | null;
+      measure_calibration: StoredCalibration | null;
+    }
+    | null;
+  if (!photo) return c.json({ error: "Photo not found" }, 404);
+  if (photo.photo_type !== "measurement" || !photo.storage_path) {
+    return c.json(
+      { error: "Tag a MeasureCard photo as 'Measurement card' first." },
+      422,
+    );
+  }
+  if (photo.measure_calibration?.v !== 1) {
+    return c.json(
+      {
+        error:
+          "Calibrate this photo first (POST /measure/calibrate) — the card homography is required to measure.",
+      },
+      422,
+    );
+  }
+
+  // Item facts drive the schema + plausibility priors. Tenant-scoped.
+  const { data: itemRow } = await supabaseAdmin
+    .from("inventory_items")
+    .select("id, category, size, measurements, ai_field_sources")
+    .eq("id", photo.inventory_item_id)
+    .eq("user_id", ownerId)
+    .maybeSingle();
+  const item = itemRow as
+    | {
+      id: string;
+      category: string | null;
+      size: string | null;
+      measurements: Record<string, unknown> | null;
+      ai_field_sources: Record<string, unknown> | null;
+    }
+    | null;
+  if (!item) return c.json({ error: "Item not found" }, 404);
+
+  const group = measurementGroupFor(item.category);
+  const fields = MEASUREMENT_TEMPLATES[group].filter((f) => f.unit === "length");
+  if (fields.length === 0) {
+    return c.json(
+      { error: `No photo-measurable fields for the '${group}' category.` },
+      422,
+    );
+  }
+
+  // Enablement + cap gate, then ONE atomically reserved AI action (US-1581
+  // contract — refunded automatically if the vision call throws).
+  const quota = await checkQuota(ownerId);
+  if (!quota.ok) return c.json(quota.body, quota.status);
+
+  // The vision call reads the photo by URL; detection/snapping read pixels.
+  const publicUrl = supabaseAdmin.storage
+    .from(bucketForItemPhoto(photo.photo_type))
+    .getPublicUrl(photo.storage_path).data.publicUrl;
+  const dl = await downloadItemPhoto(photo.storage_path, photo.photo_type);
+  if ("error" in dl) {
+    return c.json({ error: `Could not load the image: ${dl.error}` }, 502);
+  }
+  let decoded: Image;
+  try {
+    decoded = (await Image.decode(
+      new Uint8Array(await dl.blob.arrayBuffer()),
+    )) as Image;
+  } catch {
+    return c.json({ error: "Could not decode the image." }, 422);
+  }
+  const { gray, scale } = toGray(decoded);
+
+  try {
+    const result = await withAiAction(ownerId, quota.limit, () =>
+      extractMeasurements({
+        photoUrl: publicUrl,
+        gray,
+        grayScale: scale,
+        homography: photo.measure_calibration!.homography,
+        imageWidth: decoded.width,
+        imageHeight: decoded.height,
+        group,
+        fields,
+        sizeLabel: item.size,
+      }));
+
+    // Fill-only merge: seller-typed values are never overwritten.
+    const merged = mergeMeasurementsFillOnly(
+      item.measurements,
+      item.ai_field_sources,
+      result.measurements,
+    );
+    if (merged.written.length > 0) {
+      const { error: upErr } = await supabaseAdmin
+        .from("inventory_items")
+        .update({
+          measurements: merged.measurements,
+          ai_field_sources: merged.aiFieldSources,
+        } as never)
+        .eq("id", item.id)
+        .eq("user_id", ownerId);
+      if (upErr) {
+        console.error("[flipdesk-measure] extract persist failed:", upErr.message);
+      }
+    }
+
+    // Spend log (usage parity with the other vision passes).
+    try {
+      await supabaseAdmin.from("ai_enrichment_log").insert({
+        user_id: ownerId,
+        inventory_item_id: item.id,
+        model: result.model,
+        input_kind: "photo",
+        tokens_in: result.tokensIn,
+        tokens_out: result.tokensOut,
+        cost_usd: 0,
+        suggested_fields: Object.fromEntries(
+          result.measurements.map((m) => [m.key, m.inches]),
+        ),
+      } as never);
+    } catch {
+      /* best-effort logging */
+    }
+
+    return c.json({
+      ok: true,
+      group,
+      written: merged.written,
+      measurements: result.measurements,
+      model: result.model,
+    });
+  } catch (err) {
+    if (err instanceof AiQuotaExhaustedError) {
+      return c.json({ error: QUOTA_EXHAUSTED_MESSAGE }, 429);
+    }
+    console.error("[flipdesk-measure] extract failed:", err);
+    return c.json(
+      { error: err instanceof Error ? err.message : "Measurement extraction failed." },
+      502,
+    );
+  }
 });

@@ -98,8 +98,19 @@ Deno.test("photo bytes are read via downloadItemPhoto (dual-bucket helper)", () 
   );
 });
 
-Deno.test("calibration is NOT a billed AI action (no model call, no reserve)", () => {
-  assert(!routeSrc.includes("reserveAiAction"));
-  assert(!routeSrc.includes("withAiAction"));
-  assert(!routeSrc.includes("ai-config"));
+Deno.test("calibration is free; extraction is the billed AI action (US-1573)", () => {
+  const calibrateStart = routeSrc.indexOf('post("/calibrate"');
+  const extractStart = routeSrc.indexOf('post("/extract"');
+  assert(calibrateStart >= 0 && extractStart > calibrateStart);
+  const calibrateBlock = routeSrc.slice(calibrateStart, extractStart);
+  const extractBlock = routeSrc.slice(extractStart);
+  // /calibrate: pure CV — no model call, no reservation.
+  assert(!calibrateBlock.includes("withAiAction"));
+  assert(!calibrateBlock.includes("reserveAiAction"));
+  assert(!calibrateBlock.includes("extractMeasurements"));
+  // /extract: exactly the US-1581 contract — quota gate + atomic reserve
+  // around the single vision call, 429 mapping included.
+  assert(extractBlock.includes("checkQuota(ownerId)"));
+  assert(extractBlock.includes("withAiAction(ownerId, quota.limit"));
+  assert(extractBlock.includes("AiQuotaExhaustedError"));
 });

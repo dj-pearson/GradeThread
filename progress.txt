@@ -2,6 +2,32 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-07-03
 
+## 2026-07-03 — US-1573 (auto measurement extraction: VLM proposes, CV decides) — passes:true
+
+One billed AI action turns a calibrated MeasureCard photo into real inches:
+- lib/measure-extract.ts: Claude Vision places each class-applicable
+  measurement's two endpoints as NORMALIZED coords (tool-forced, per-field
+  landmark guidance); a deterministic gradient snap slides each endpoint to
+  the garment edge along the measurement's own axis (noise-floored so uniform
+  regions never move); distances map through the US-1572 homography onto the
+  card plane -> inches rounded to 0.25; size-narrowed plausibility bands flag
+  outliers/low-confidence for the (US-1574) editor instead of silently saving.
+- ZERO new schema: provenance rides the EXISTING ai_field_sources
+  'measurements.<key>' convention (MeasurementForm already renders AI badges
+  from it) with strict fill-only merge — seller-typed values never
+  overwritten, AI refreshes AI, blanks fill. The per-class field schema is the
+  existing MEASUREMENT_TEMPLATES, mirrored to edge with a byte-equality test.
+  (Story had drafted a new measurement_sources column; the existing system is
+  strictly better and dodges a migration race with the concurrent agent.)
+- Route POST /api/flipdesk/measure/extract: tenant-scoped loads, requires a
+  prior calibration, checkQuota + withAiAction around the SINGLE vision call
+  (US-1581 contract; /calibrate stays free — the source-guard test now proves
+  both halves), ai_enrichment_log usage row, returns per-measurement
+  {key,endpoints,inches,confidence,flagged,flagReason}.
+VERIFIED LOCALLY: full edge suite 2595/0 pre-mirror-test (now 2596); deno
+lint/check clean. Committed with EXPLICIT paths (concurrent agent active in
+composer/ai-listing — see memory).
+
 ## 2026-07-03 — US-1572 (MeasureCard calibration service) — passes:true — ⚠️ MIGRATION HELD
 
 Deterministic CV, one implementation for all platforms, zero new deps:
