@@ -9671,3 +9671,23 @@ sell.negotiation scopes is a human/business step; the code AC needs a prod token
 validate) - left pending. US-1399 remains deliberately deferred per its 2026-06-27
 note (SSR of live numeric values needs a fragile build-time prod fetch). US-1370..1377
 are Android-toolchain-gated ports - skipped per loop rules.
+
+=== 2026-07-02 (user request): US-1551 (AutoLister: full photo-type role vocabulary) ===
+AutoLister's per-photo role select offered only Front/Back/Tag/Detail/Defect(+Internal)
+while the photo manager + iOS carry the full canonical set. PhotoRole now = the whole
+FLIPDESK_PHOTO_TYPES vocabulary; ROLE_ORDER derives from the canonical array index (same
+rank as photo-order.ts, so generate() sort_order matches every other surface); the tile
+select renders grouped options (core / Measurements / More shots / Internal last) built
+from constants + PHOTO_TYPE_LABELS so future types appear automatically. AI classify
+now preserves EVERY role outside AI_ASSIGNABLE_ROLES (front/back/tag/detail/defect) -
+previously only 'internal' survived, so a hand-tagged measurement_chest would have been
+demoted to detail by a later auto-tag run. No DB/edge change (enum complete since
+00230/00340); old persisted sessions round-trip. tsc, eslint, vitest 43/43, build green.
+BATCH-DURABILITY AUDIT (user asked whether Generate 43 is safe to walk away from): YES
+server-side - POST /batch 202s immediately, worker runs detached (CONCURRENCY=3, per-job
+claim + attempts cap), heartbeat roll-up, reclaim cron /api/jobs/autolister-reclaim
+(5-min schedule, BATCH_STALE_MS 15min) resumes container-death, queue page has Resume +
+Retry-failed, MAX_BATCH_ITEMS=300, US-1545 up-front quota precheck. Caveats handed to
+user: stay on page until the client materialize-loop finishes (item/photo inserts happen
+client-side before the POST), and confirm the autolister-reclaim Coolify scheduled task
+is actually configured in prod (LAUNCH_CHECKLIST item; code path can't verify ops).

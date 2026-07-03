@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1551,
+  "nextId": 1552,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -9731,6 +9731,21 @@
         "Unit tests cover the mega-run, size-cap, and locality-window regressions; tsc, eslint, vitest, build green"
       ],
       "notes": "[USER REQUEST 2026-07-02] Root cause of the 600-photo mega-group: HEIC/export pipelines strip EXIF so every photo was timeless -> US-1540 seeded the single 600-long filename run as ONE cluster, and the unbounded visual union-find chained same-background photos across the whole dump. reconcile.tsx applyVisualSecondPass (embed-based, opt-in) intentionally unchanged. Time-gap clusters are exempt from the size cap (strong signal)."
+    },
+    {
+      "id": "US-1551",
+      "priority": 2343,
+      "passes": true,
+      "title": "AutoLister: full photo-type role vocabulary (measurements, tag_2, detail_2..., universal roles)",
+      "description": "As a reseller tagging photos in AutoLister, I can assign ANY canonical photo type (Chest/Bust and the other measurements, Garment Tag 2, Detail 2-4, Interior, Flat lay, On model, and the universal roles), not just Front/Back/Tag/Detail/Defect - matching the photo manager and iOS - and the AI auto-tag pass never clobbers a hand-picked role it cannot itself assign.",
+      "acceptanceCriteria": [
+        "PhotoRole = the full FLIPDESK_PHOTO_TYPES vocabulary; ROLE_ORDER derives from the canonical array index (the same rank photo-order.ts uses) so generate() sort_order matches every other surface",
+        "Role select renders the whole vocabulary grouped (core / Measurements / More shots / Internal last) with PHOTO_TYPE_LABELS, built from constants so new types appear automatically; front stays cover-only",
+        "AI classify preserves every role outside AI_ASSIGNABLE_ROLES (front/back/tag/detail/defect) - measurements, tag_2, internal, etc. survive auto-tag",
+        "generate() writes the chosen role as photo_type (all values already valid flipdesk_photo_type enum members - no migration)",
+        "tsc, eslint, vitest, build green"
+      ],
+      "notes": "[USER REQUEST 2026-07-02] No DB/edge change needed: the enum has had the full set since 00230 (+internal 00340); only AutoLister was stuck on the 6-role subset. Old persisted sessions round-trip (narrow roles are a subset). iOS parity already exists via PhotoSlotType/FlipdeskPhotoType."
     }
   ]
 }

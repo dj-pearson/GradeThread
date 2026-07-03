@@ -95,7 +95,12 @@ import { removeImageBackground, type BgMode } from "@/lib/background-removal";
 import { useStartAutolisterBatch, useRunCoverQa } from "@/hooks/use-autolister";
 import { useBillingSummary } from "@/hooks/use-billing-summary";
 import { useUpgradeDialogStore } from "@/stores/upgrade-dialog-store";
-import { FLIPDESK_PLANS } from "@/lib/constants";
+import {
+  FLIPDESK_PHOTO_TYPES,
+  FLIPDESK_PLANS,
+  MEASUREMENT_PHOTO_TYPES,
+  PHOTO_TYPE_LABELS,
+} from "@/lib/constants";
 import { cn } from "@/lib/utils";
 
 // FlipDesk AutoLister (US-316 upload + US-317 grouping). Dump a folder of
@@ -111,20 +116,44 @@ import { cn } from "@/lib/utils";
 // task list for progress UI and claims finished photos into `staged`.
 
 // US-533: per-photo gallery roles. The cover is always "front"; the rest carry
-// a role the AI assigns (and the user can override). Order after the cover:
-// back → tag → detail → defect. US-1549: "internal" marks a seller-reference
-// shot (the price tag you paid) — it generates with photo_type 'internal',
-// which the edge excludes from eBay, AI passes, and public surfaces; it sorts
-// last and is never sent to the classify/verify vision calls from here either.
-type PhotoRole = "front" | "back" | "tag" | "detail" | "defect" | "internal";
-const ROLE_ORDER: Record<PhotoRole, number> = {
-  front: 0,
-  back: 1,
-  tag: 2,
-  detail: 3,
-  defect: 4,
-  internal: 5,
-};
+// a role the AI assigns (and the user can override). US-1551: the role
+// vocabulary is now the FULL canonical photo-type set (measurements, tag_2,
+// detail_2…, interior, universal roles, …) so a photo can be tagged here
+// exactly like in the photo manager / iOS — the AI still only ASSIGNS the
+// basic five (AI_ASSIGNABLE_ROLES); everything else is user-set and survives
+// the AI pass. US-1549: "internal" marks a seller-reference shot (the price
+// tag you paid) — it generates with photo_type 'internal', which the edge
+// excludes from eBay, AI passes, and public surfaces; it sorts last and is
+// never sent to the classify/verify vision calls from here either.
+type PhotoRole = (typeof FLIPDESK_PHOTO_TYPES)[number];
+// Canonical gallery rank — FLIPDESK_PHOTO_TYPES order IS the sort order
+// (front → back → tag → detail → measurements → defect → extras → universal
+// → internal), the same rank photo-order.ts derives everywhere else.
+const ROLE_ORDER: Record<PhotoRole, number> = Object.fromEntries(
+  FLIPDESK_PHOTO_TYPES.map((t, i) => [t, i]),
+) as Record<PhotoRole, number>;
+// The roles the classify vision call is allowed to (re)assign. Any role
+// OUTSIDE this set was necessarily hand-picked by the seller (measurements,
+// tag_2, internal, …) — the AI never emits those, so an AI re-tag must not
+// clobber them back to "detail".
+const AI_ASSIGNABLE_ROLES: ReadonlySet<PhotoRole> = new Set([
+  "front",
+  "back",
+  "tag",
+  "detail",
+  "defect",
+]);
+// Role-select layout: the basic four first, then measurements, then the rest
+// of the canonical order (extras + universal), with internal kept last.
+// Derived from constants so a new photo type shows up here automatically.
+const CORE_ROLE_OPTIONS: PhotoRole[] = ["back", "tag", "detail", "defect"];
+const MORE_ROLE_OPTIONS: PhotoRole[] = FLIPDESK_PHOTO_TYPES.filter(
+  (t) =>
+    t !== "front" &&
+    t !== "internal" &&
+    !CORE_ROLE_OPTIONS.includes(t) &&
+    !(MEASUREMENT_PHOTO_TYPES as readonly string[]).includes(t),
+);
 
 interface Group {
   id: string;
@@ -1839,14 +1868,18 @@ export function FlipdeskAutolisterPage() {
         typeof json.cover_id === "string" && g.photoIds.includes(json.cover_id)
           ? json.cover_id
           : g.coverId;
-      // US-1549: the AI never saw the internal photos, so its role map can't
-      // include them — re-apply the user's internal tags over the AI result.
-      const preservedInternal = Object.fromEntries(
-        Object.entries(g.roles ?? {}).filter(([, role]) => role === "internal"),
+      // US-1549/US-1551: the AI only assigns the basic five roles, so any role
+      // outside that set (internal, measurements, tag_2, …) was hand-picked by
+      // the seller — re-apply those over the AI result instead of letting the
+      // pass demote them to "detail".
+      const preservedManual = Object.fromEntries(
+        Object.entries(g.roles ?? {}).filter(
+          ([, role]) => !AI_ASSIGNABLE_ROLES.has(role),
+        ),
       ) as Record<string, PhotoRole>;
       updateGroup(groupId, {
         coverId: cover,
-        roles: { ...(json.roles ?? {}), ...preservedInternal },
+        roles: { ...(json.roles ?? {}), ...preservedManual },
       });
       return true;
     } catch (err) {
@@ -1948,9 +1981,10 @@ export function FlipdeskAutolisterPage() {
           .filter((p): p is StagedPhoto => !!p);
         if (photos.length === 0) continue;
 
-        // US-533: cover first (front), then the rest ordered by role
-        // (back → tag → detail → defect). photo_type carries the assigned role
-        // so the eBay gallery is well-ordered and labeled, not all "detail".
+        // US-533: cover first (front), then the rest in the canonical
+        // photo-type order (back → tag → detail → measurements → defect →
+        // extras; internal last). photo_type carries the assigned role so the
+        // eBay gallery is well-ordered and labeled, not all "detail".
         // US-1543: once the seller hand-placed photos (drag-reorder /
         // positional drop), THEIR order wins — it becomes sort_order verbatim
         // (cover still first; roles still label each photo).
@@ -2974,12 +3008,33 @@ export function FlipdeskAutolisterPage() {
                           aria-label="Photo role"
                           className="absolute inset-x-0 bottom-0 w-full cursor-pointer border-0 bg-black/60 py-0.5 text-center text-[10px] text-white outline-none"
                         >
-                          <option value="back">Back</option>
-                          <option value="tag">Tag</option>
-                          <option value="detail">Detail</option>
-                          <option value="defect">Defect</option>
+                          {/* US-1551: the full photo-type vocabulary (same as
+                              the photo manager / iOS), grouped for scanning.
+                              "Front" is absent on purpose — the cover IS the
+                              front; promote via the star. */}
+                          {CORE_ROLE_OPTIONS.map((r) => (
+                            <option key={r} value={r}>
+                              {PHOTO_TYPE_LABELS[r]}
+                            </option>
+                          ))}
+                          <optgroup label="Measurements">
+                            {MEASUREMENT_PHOTO_TYPES.map((r) => (
+                              <option key={r} value={r}>
+                                {PHOTO_TYPE_LABELS[r]}
+                              </option>
+                            ))}
+                          </optgroup>
+                          <optgroup label="More shots">
+                            {MORE_ROLE_OPTIONS.map((r) => (
+                              <option key={r} value={r}>
+                                {PHOTO_TYPE_LABELS[r]}
+                              </option>
+                            ))}
+                          </optgroup>
                           {/* US-1549: reference-only — not sent to eBay/AI. */}
-                          <option value="internal">Internal (not listed)</option>
+                          <option value="internal">
+                            {PHOTO_TYPE_LABELS.internal}
+                          </option>
                         </select>
                       )}
                     </PhotoDragTile>
