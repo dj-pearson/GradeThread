@@ -53,6 +53,10 @@ class EdgeApi(
     private val workspaceOwnerProvider: () -> String? = { null },
     private val onPlanGate: (PlanGateError) -> Unit = PlanGateNotifier::publish,
     private val onPlanWarning: (PlanWarning) -> Unit = PlanGateNotifier::publishWarning,
+    /** US-794: fired when the edge reports the active workspace membership was
+     *  revoked — the scope layer drops the stale selection; the error still
+     *  surfaces to the caller. */
+    private val onWorkspaceRevoked: () -> Unit = {},
     private val sleeper: suspend (Long) -> Unit = { delay(it) },
 ) {
 
@@ -167,6 +171,12 @@ class EdgeApi(
                 if (code == 429) retryAfterHint = retryAfter
                 throw EdgeApiError.from(code, responseBody)
             } catch (error: EdgeApiError) {
+                // US-794: drop the stale workspace scope so the retry/next
+                // request runs under the personal tenant, then surface it.
+                if (error is EdgeApiError.WorkspaceAccessRevoked) {
+                    onWorkspaceRevoked()
+                    throw error
+                }
                 // One forced token refresh on a server 401 (US-1146): a token
                 // the server rejects (rotation, clock skew) gets exactly one
                 // explicit refresh + retry before "session expired".

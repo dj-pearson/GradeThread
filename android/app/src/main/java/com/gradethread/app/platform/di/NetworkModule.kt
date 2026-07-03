@@ -7,6 +7,7 @@ import com.gradethread.app.platform.net.EdgeNetwork
 import com.gradethread.app.platform.supabase.SupabaseShared
 import com.gradethread.app.platform.supabase.edgeTokenProvider
 import com.gradethread.app.platform.supabase.edgeTokenRefresher
+import com.gradethread.app.platform.workspace.WorkspaceScope
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -19,9 +20,9 @@ import javax.inject.Singleton
 /**
  * US-1307: the networking graph — one Supabase client; two EdgeApi profiles
  * (iOS EdgeAPI.shared / EdgeAPI.aiShared) wired to the typed token providers
- * so the US-1523 transient-vs-signed-out contract holds everywhere. The
- * workspace-owner provider is a placeholder until the workspace-scope story
- * (US-1309) supplies the real source.
+ * so the US-1523 transient-vs-signed-out contract holds everywhere; the
+ * workspace scope (US-1309) supplies the X-Workspace-Owner header and absorbs
+ * mid-session revocations.
  */
 @Module
 @InstallIn(SingletonComponent::class)
@@ -40,6 +41,8 @@ object NetworkModule {
         client = EdgeNetwork.sharedClient(),
         tokenProvider = client.edgeTokenProvider(),
         tokenRefresher = client.edgeTokenRefresher(),
+        workspaceOwnerProvider = { WorkspaceScope.activeOwnerId },
+        onWorkspaceRevoked = WorkspaceScope::handleAccessRevoked,
     )
 
     @Provides
@@ -50,5 +53,7 @@ object NetworkModule {
         client = EdgeNetwork.aiClient(),
         tokenProvider = client.edgeTokenProvider(),
         tokenRefresher = client.edgeTokenRefresher(),
+        workspaceOwnerProvider = { WorkspaceScope.activeOwnerId },
+        onWorkspaceRevoked = WorkspaceScope::handleAccessRevoked,
     )
 }

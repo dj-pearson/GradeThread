@@ -3,6 +3,7 @@ package com.gradethread.app
 import android.app.Application
 import com.gradethread.app.platform.AppConfig
 import com.gradethread.app.platform.telemetry.Telemetry
+import com.gradethread.app.platform.workspace.WorkspaceScope
 import dagger.hilt.android.HiltAndroidApp
 
 /**
@@ -18,5 +19,7 @@ class GradeThreadApp : Application() {
         AppConfig.validateAtStartup()
         // US-1308: crash reporting (DSN-gated) + opt-out-respecting analytics.
         Telemetry.bootstrap(this)
+        // US-1309: the workspace scope backs every X-Workspace-Owner header.
+        WorkspaceScope.initialize(this)
     }
 }

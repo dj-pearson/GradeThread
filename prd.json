@@ -6487,7 +6487,7 @@
     {
       "id": "US-1309",
       "priority": -98691,
-      "passes": false,
+      "passes": true,
       "title": "Workspace tenant-scope utility + X-Workspace-Owner header",
       "description": "As an Android developer, I want a single source of truth for the active workspace owner id so every scoped query/header is consistent, mirroring WorkspaceScope.",
       "acceptanceCriteria": [
@@ -6495,7 +6495,7 @@
         "A .workspaceDidChange signal drives cache re-scope + Realtime re-home (consumed by the sync stories)",
         "Disputes scope by selfId (filer), not workspace owner — matches iOS"
       ],
-      "notes": "[P1][Android/Foundation] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P1][Android/Foundation] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. [COMPLETION 2026-07-03] platform/workspace/WorkspaceScope.kt, locally verified (three gates; WorkspaceScopeTest 4/4 in results XML). Single source of truth mirroring iOS WorkspaceScope (US-670/794): SharedPreferences-persisted activeOwnerId (null = personal; the id isn't a secret, matching the iOS UserDefaults choice) behind an injectable MutableStore seam; tenantOwnerId(selfId) = active ?? self (AC1); the DISPUTES-scope-by-selfId (filer, never workspace owner) rule documented at the resolver for the sync stories (AC3). Signals as a buffered SharedFlow<Event> replacing NotificationCenter: Changed (drives cache re-scope + Realtime re-home, consumed by the sync stories - AC2) fires ONLY on real changes (redundant selection proven not to churn), AccessRevoked as the one-time UI notice. handleAccessRevoked: no-op without a scope, else drop + Changed + AccessRevoked (proven idempotent). WIRED END-TO-END: EdgeApi gained onWorkspaceRevoked fired when the edge reports workspace_access_revoked (before rethrow, mirroring the iOS EdgeAPI catch); NetworkModule supplies workspaceOwnerProvider={activeOwnerId} + the revocation callback on BOTH profiles; initialized from Application.onCreate."
     },
     {
       "id": "US-1310",

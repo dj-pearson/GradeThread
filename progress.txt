@@ -10378,3 +10378,17 @@ VERIFIED LOCALLY: three gates green; both new suites in the results XML.
   when the target dir doesn't exist (bit twice) - Write tool + results-XML
   verification is now the standing discipline.
 VERIFIED LOCALLY: three gates green; scrubber suite 6/6 in the results XML.
+
+=== 2026-07-03 (loop v2): US-1309 (workspace tenant scope + X-Workspace-Owner) ===
+- WorkspaceScope: activeOwnerId persisted in SharedPreferences behind an
+  injectable store seam; tenantOwnerId(selfId) = active ?? self; the
+  disputes-scope-by-FILER rule documented at the resolver for the sync stories.
+- Signals as a buffered SharedFlow (replacing NotificationCenter): Changed
+  fires only on REAL changes (redundant selection proven not to churn the
+  cache); AccessRevoked is the one-time notice. handleAccessRevoked drops the
+  stale scope + emits both, idempotent (all proven in 4 tests).
+- Wired end-to-end: EdgeApi fires onWorkspaceRevoked when the edge reports
+  workspace_access_revoked (mirroring the iOS catch); NetworkModule supplies
+  the owner provider + revocation callback on both client profiles; initialized
+  in Application.onCreate.
+VERIFIED LOCALLY: three gates green; 4/4 in the results XML.
