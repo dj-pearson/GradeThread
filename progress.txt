@@ -10518,3 +10518,20 @@ Robolectric).
 - primaryPhotoByItem: in-memory lowest-sortOrder mapping (display only;
   presence stays the US-994 relation).
 VERIFIED LOCALLY: three gates green; 10/10 in the results XML.
+
+=== 2026-07-03 (loop v2): US-1318 (merge + ConflictPolicy, 4 strategies) ===
+- ConflictPolicy ported exactly: server-owned, user-owned-if-dirty
+  (hasLocalChanges is the ONLY editedness truth), newest-wins (server on
+  ties), and ebay-origin-aware (ebay-origin -> server ALWAYS, even against a
+  dirty edit; unknown origin never silently reads as eBay - both proven).
+- US-1244 price selection ported exactly: a LIVE listing beats non-live
+  regardless of timestamp (proven in both arrival orders); same-class newer
+  wins; the live-status set pinned to the iOS pair.
+- SyncMerger.mergeItem: the full per-field application - 17 user-owned, 9
+  server-owned, neutral provenance by timestamp; a dirty local keeps user
+  fields while taking server-owned IN THE SAME MERGE; conflicts breadcrumbed;
+  the dirty flag survives the pull (only replay clears it) - all proven,
+  including through the real-Room transactional apply.
+- apply(batch): one Room transaction on IO; delta NEVER prunes (deletes are
+  US-1320's explicit reconciliation pass; sales/expenses append-authoritative).
+VERIFIED LOCALLY: three gates green; 12/12 across both suites.

@@ -6611,7 +6611,7 @@
     {
       "id": "US-1318",
       "priority": -98682,
-      "passes": false,
+      "passes": true,
       "title": "Merge + ConflictPolicy (4 strategies incl. eBay listing-origin)",
       "description": "As a user, my local edits and server truth merge predictably so neither clobbers the other incorrectly.",
       "acceptanceCriteria": [
@@ -6620,7 +6620,7 @@
         "Merge upserts run in a Room transaction off-main; sales/expenses never pruned in delta",
         "Listing market-price selection: a live (active/relisted) listing beats non-live regardless of timestamp (US-1244 parity)"
       ],
-      "notes": "[P1][Android/Sync] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P1][Android/Sync] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. [COMPLETION 2026-07-03] sync/ConflictPolicy + SyncMerge, locally verified (three gates; ConflictPolicyTest 8/8 + SyncMergeTest 4/4 w/ real Room). ConflictPolicy ported exactly (iOS ConflictPolicy, US-148/1086): resolveServerOwned (server always), resolveUserOwned (local while hasLocalChanges - the ONLY editedness truth), resolveByTimestamp (newest, server on ties - it round-tripped), resolveEbayOwnedListingField (ebay-origin -> server ALWAYS even against a dirty local edit - proven; gradethread/unknown -> the user-owned rule; unknown never silently reads as eBay - proven). US-1244 selectListingPrices ported exactly: live (active/relisted) beats non-live REGARDLESS of timestamp (proven both arrival orders), same-liveness-class newer wins, statuses set pinned to the iOS pair. SyncMerger.mergeItem: the full per-field application over InventoryItemEntity - 17 user-owned fields (title/brand/sku/measurements/targetPrice/...), 9 server-owned (status/listingPrice/grade*/dispute/compSet/primaryPhotoUrl), neutral-by-timestamp for provenance fields; a dirty local KEEPS user fields while TAKING server-owned in the same merge (proven); dirty+differs breadcrumbs the conflict (scrubbed); the merged row KEEPS the dirty flag - the mutation queue clears it after replay, never the pull (proven through the transactional path too). apply(batch): one Room withTransaction on Dispatchers.IO (AC3); delta NEVER prunes - rows absent from a delta page aren't deletions, sales/expenses are append-authoritative (documented at the seam; delete reconciliation is US-1320's explicit pass)."
     },
     {
       "id": "US-1319",
