@@ -1,6 +1,5 @@
 package com.gradethread.app.ui.components
 
-import android.provider.Settings
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -14,7 +13,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
@@ -22,30 +20,12 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.gradethread.app.ui.a11y.rememberReducedMotion
 import com.gradethread.app.ui.theme.GradeThreadTheme
-
-/**
- * US-1303: reduced-motion check — Android's "remove animations" accessibility
- * setting manifests as ANIMATOR_DURATION_SCALE == 0. The a11y foundation story
- * (US-1304) builds the full policy on top; skeletons need the read now so the
- * shimmer honors it (iOS SkeletonView honors Reduce Motion the same way).
- */
-@Composable
-fun rememberReducedMotion(): Boolean {
-    val context = LocalContext.current
-    return remember {
-        Settings.Global.getFloat(
-            context.contentResolver,
-            Settings.Global.ANIMATOR_DURATION_SCALE,
-            1f,
-        ) == 0f
-    }
-}
 
 /**
  * A shimmering placeholder block for skeleton loading states — a muted

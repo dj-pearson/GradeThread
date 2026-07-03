@@ -6418,7 +6418,7 @@
     {
       "id": "US-1304",
       "priority": -98696,
-      "passes": false,
+      "passes": true,
       "title": "Accessibility foundation (TalkBack, reduced motion, font scaling)",
       "description": "As a user relying on accessibility services, I want TalkBack announcements, reduced-motion respect, and font-scale-aware icons from day one.",
       "acceptanceCriteria": [
@@ -6427,7 +6427,7 @@
         "Icon glyphs scale with Configuration.fontScale but clamp to a max so fixed frames don’t overflow (mirrors ScaledIconFont)",
         "Form validation errors are announced, not just shown"
       ],
-      "notes": "[P2][Android/Foundation] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P2][Android/Foundation] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. [COMPLETION 2026-07-03] ui/a11y package, locally verified (three gradle gates green; ScaledIconTest present in test-results XML). A11yAnnounce.kt (AC1): A11yAnnouncer(view) with announce(msg) - no-op unless an accessibility service is enabled, 100ms post delay mirroring the iOS after-commit drop-avoidance, deprecation-suppressed View.announceForAccessibility documented as the transient-outcome route (persistent text should use liveRegion semantics per the KDoc) - and screenChanged() via TYPE_WINDOW_STATE_CHANGED; rememberA11yAnnouncer() composable entry. ReducedMotion.kt (AC2): rememberReducedMotionState() is LIVE - a ContentObserver on the ANIMATOR_DURATION_SCALE settings URI updates mid-session (matching iOS's every-access read), DisposableEffect-unregistered; accessibleSpec(reduced, spec) returns snap() when reduced (the accessibleAnimation analog); Skeleton.kt migrated off its one-shot local copy onto the live reader. ScaledIcon.kt (AC3): scaledIconSize(base, max) tracks LocalDensity.fontScale with pure resolveScaledSize clamp math (3 JVM tests: scale, cap for fixed frames, shrink-without-floor). AC4: FieldError gained liveRegion=Polite so a validation error is ANNOUNCED when it appears, not only when the field is focused (on top of the existing semantics error())."
     },
     {
       "id": "US-1305",

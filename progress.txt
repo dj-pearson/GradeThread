@@ -10286,3 +10286,20 @@ correct, locally verified through the three gradle gates):
   README-documented convention is native keyboardOptions everywhere else.
 - InteractivePopGuard/SessionExpiredView intentionally deferred to their
   owning navigation/auth stories.
+
+=== 2026-07-03 (loop v2): US-1304 (Android accessibility foundation) ===
+ui/a11y package porting the iOS Accessibility/ layer:
+- A11yAnnounce: announce() for async outcomes (WCAG 4.1.3 - grade complete,
+  sync done, form saved) with the iOS 100ms after-commit delay; no-op without
+  an active accessibility service; screenChanged() moves focus after big
+  content swaps. KDoc steers persistent text to liveRegion semantics instead.
+- ReducedMotion: LIVE ContentObserver-backed state on ANIMATOR_DURATION_SCALE
+  (mid-session toggles take effect like iOS's every-access read);
+  accessibleSpec(reduced, spec) snaps instead of interpolating. Skeleton
+  migrated off its one-shot local copy.
+- ScaledIcon: scaledIconSize(base, max) tracks fontScale so icon buttons grow
+  with the user's text size but clamp inside fixed frames; pure clamp math
+  with 3 JVM tests (proven present in the test-results XML this time).
+- FieldError now carries liveRegion=Polite: validation errors are ANNOUNCED on
+  appearance, not just when focused (AC4).
+VERIFIED LOCALLY: assembleDebug + testDebugUnitTest + lintDebug green.

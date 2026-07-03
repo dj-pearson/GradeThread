@@ -7,7 +7,9 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.error
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
 import com.gradethread.app.ui.theme.GradeThreadTheme
@@ -29,7 +31,11 @@ fun FieldError(message: String?, modifier: Modifier = Modifier) {
         color = MaterialTheme.colorScheme.error,
         modifier = modifier
             .padding(top = Spacing.xxs)
-            .semantics { error(message) },
+            .semantics {
+                error(message)
+                // US-1304: announced when it APPEARS, not only when focused.
+                liveRegion = LiveRegionMode.Polite
+            },
     )
 }
 
