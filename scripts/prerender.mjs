@@ -136,6 +136,32 @@ try {
   const { PUBLIC_ROUTES } = await vite.ssrLoadModule(
     "/src/lib/seo/public-routes.ts",
   );
+
+  // US-1399: fetch the live transparency figures so /transparency's numeric
+  // facts land in the crawlable HTML (AI answer engines don't run JS). ANY
+  // failure degrades to the old placeholder render — this fetch must never
+  // fail the build (the reason the story was once deferred).
+  const { setTransparencySeed } = await vite.ssrLoadModule(
+    "/src/lib/seo/transparency-seed.ts",
+  );
+  const edgeBase = (process.env.VITE_EDGE_API_URL || "https://functions.gradethread.com")
+    .replace(/\/$/, "");
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 10_000);
+    const res = await fetch(`${edgeBase}/api/grading/public/transparency`, {
+      signal: ctrl.signal,
+    });
+    clearTimeout(timer);
+    if (res.ok) {
+      setTransparencySeed(await res.json());
+      console.log("[prerender] transparency seed fetched — live figures will be in the static HTML.");
+    } else {
+      console.warn(`[prerender] transparency seed fetch returned ${res.status} — rendering placeholders (non-fatal).`);
+    }
+  } catch (err) {
+    console.warn(`[prerender] transparency seed fetch failed (${err?.message ?? err}) — rendering placeholders (non-fatal).`);
+  }
   prerenderedPaths = PUBLIC_ROUTES.map((r) => r.path);
 
   // Guard: every registered route must be renderable, and vice versa, so a new

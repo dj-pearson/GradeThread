@@ -10153,3 +10153,25 @@ VERIFICATION (Windows static gates): no-ungated-print OK; no curly-quote
 delimiters; no stale call sites of the old APIs (grep); non-throwing test
 closures satisfy the new throwing params by Swift function subtyping. Compile
 proof = iOS CI on next push (the macOS safety net).
+
+=== 2026-07-03 (loop v2): US-1399 (SEO: AI-crawler SSR of live numeric facts - un-deferred) ===
+The original deferral feared a build-time prod fetch failing CI; the fix makes
+graceful degradation the contract instead of avoiding the fetch:
+- prerender.mjs fetches /api/grading/public/transparency at build time (10s
+  abort, VITE_EDGE_API_URL || functions.gradethread.com); ANY failure = warn +
+  render the old placeholders. The build can never fail on it.
+- NEW lib/seo/transparency-seed.ts: module seed for SSR + inline-JSON-script
+  reader for the browser + escapeJsonForScript (a </script> in data can't
+  terminate the tag).
+- transparency.tsx: the report query's initialData resolves from the DOM seed
+  (browser) or module seed (SSR); the page embeds the report as an inline JSON
+  script - crawlers read real numbers in static HTML, humans hydrate to the SAME
+  numbers with zero flash, and TanStack Query revalidates live as before.
+- VERIFIED ON THE REAL ARTIFACT: the full build fetched prod and
+  dist/transparency.html now carries the live figures (100.0% agreement, 63.6%
+  review rate, 0.0% dispute + the seed JSON) - these are the exact bytes
+  Cloudflare Pages serves to no-JS crawlers. condition-index was already fully
+  SSR; certificates are edge-SSR'd (US-294) - the audit's other surfaces hold.
+VERIFICATION: 3 new tests (seeded SSR figures + script, unseeded degradation,
+JSON escaping); seo+prerender suites 196/196; FULL vitest 1124/1124; tsc -b 0;
+eslint clean; real npm run build green (47 pages, head-integrity guard passed).

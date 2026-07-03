@@ -1,5 +1,11 @@
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import {
+  escapeJsonForScript,
+  getTransparencySeed,
+  readSeedFromDom,
+  TRANSPARENCY_SEED_DOM_ID,
+} from "@/lib/seo/transparency-seed";
 import { ShieldCheck, GitCommitVertical, Gauge, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -86,7 +92,18 @@ function categoryLabel(slug: string): string {
     .join(" ");
 }
 
+// US-1399: initial data comes from the build-time seed — during SSR from the
+// module set by scripts/prerender.mjs, in the browser from the inline JSON
+// script that same prerender baked into the HTML. Either way the numeric facts
+// are present in the initial render (crawlers read them without JS; humans see
+// them at hydration), and TanStack Query revalidates live as before. With no
+// seed (CI build, fetch failed) this degrades to the old fetch-on-mount flow.
+function resolveSeed(): TransparencyReport | null {
+  return (readSeedFromDom() ?? getTransparencySeed()) as TransparencyReport | null;
+}
+
 function useTransparencyReport() {
+  const seed = resolveSeed();
   return useQuery<TransparencyReport>({
     queryKey: ["transparency-report"],
     queryFn: async () => {
@@ -94,6 +111,7 @@ function useTransparencyReport() {
       if (!res.ok) throw new Error(`Transparency report unavailable (${res.status})`);
       return res.json();
     },
+    initialData: seed ?? undefined,
     staleTime: 10 * 60 * 1000,
     retry: 1,
   });
@@ -131,6 +149,17 @@ export function TransparencyPage() {
   const q = data?.quality;
 
   return (
+    <>
+      {/* US-1399: embed the report so (a) the prerendered HTML carries it for
+          the live SPA's initialData and (b) hydration shows the same numbers
+          the crawlable HTML had — no numbers→spinner→numbers flash. */}
+      {data && (
+        <script
+          type="application/json"
+          id={TRANSPARENCY_SEED_DOM_ID}
+          dangerouslySetInnerHTML={{ __html: escapeJsonForScript(data) }}
+        />
+      )}
     <MarketingLayout
       title="Grading Accuracy & Transparency Report"
       description="GradeThread's published clothing-grading accuracy: AI-vs-human agreement, error against expert reviewers, intentional-design misread rate, confidence, and buyer dispute rate — plus the eval gate and model changelog behind a self-improving standard."
@@ -491,5 +520,6 @@ export function TransparencyPage() {
 
       <MarketingCTA />
     </MarketingLayout>
+    </>
   );
 }

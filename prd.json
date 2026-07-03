@@ -7654,7 +7654,7 @@
       "id": "US-1399",
       "title": "SEO: AI-crawler SSR/crawlability hardening",
       "priority": 1398,
-      "passes": false,
+      "passes": true,
       "description": "As AI answer engines (which mostly do NOT run JS), I can read the grading standard, condition-index data, transparency figures, and certificates as server HTML.",
       "acceptanceCriteria": [
         "Audit + fix any client-only data surfaces (e.g. /transparency, condition-index) so key facts render in prerender/Pages-Function HTML",
@@ -7662,7 +7662,7 @@
         "Verify via curl/no-JS fetch of the key routes",
         "no regression to existing prerender parity tests"
       ],
-      "notes": "[SEO] See SEO_STRATEGY.md. 2026-06-27 deep-research + codebase-audit derived. [DEFERRED 2026-06-27: /transparency already SSRs all authority content (methodology, section headings, FAQ); only live numeric values hydrate client-side. Server-rendering them needs a build-time fetch of the prod API (fragile — could fail CI builds) for moderate gain. condition-index is fully SSR. Revisit only if AI-citation analytics show the live figures matter.]"
+      "notes": "[SEO] See SEO_STRATEGY.md. 2026-06-27 deep-research + codebase-audit derived. [DEFERRED 2026-06-27: /transparency already SSRs all authority content (methodology, section headings, FAQ); only live numeric values hydrate client-side. Server-rendering them needs a build-time fetch of the prod API (fragile — could fail CI builds) for moderate gain. condition-index is fully SSR. Revisit only if AI-citation analytics show the live figures matter.] [COMPLETION 2026-07-03 - un-deferred] The deferral concern (build-time prod fetch could fail CI) is solved by making graceful degradation the CONTRACT: scripts/prerender.mjs fetches /api/grading/public/transparency (VITE_EDGE_API_URL || functions.gradethread.com, 10s abort) and on ANY failure logs a warning and renders the old placeholders - the build can never fail on it. NEW lib/seo/transparency-seed.ts: module seed (set by prerender, read during SSR), TRANSPARENCY_SEED_DOM_ID, escapeJsonForScript (escapes < so </script> in data can't terminate the tag), readSeedFromDom. transparency.tsx: useTransparencyReport gains initialData = readSeedFromDom() ?? getTransparencySeed() (browser reads the inline JSON script the prerender baked; SSR reads the module) and the page embeds the report as <script type=application/json> when data exists - crawlers get numbers in HTML (AC2), humans hydrate to the SAME numbers with no flash, TanStack Query still revalidates live. VERIFIED ON THE REAL ARTIFACT (AC3): npm run build fetched prod and dist/transparency.html contains the live figures (100.0% agreement, 63.6% review rate, 0.0% dispute, items_graded:16 in the seed) - the exact bytes Pages serves to no-JS crawlers; one 'Not enough data yet' remains for a genuinely-null prod metric (honest). Other audited surfaces: condition-index already fully SSR (per the original audit); certificates edge-SSR'd (US-294). 3 new tests (seeded SSR contains figures + seed script; unseeded degrades placeholder-only; JSON escape). AC4: seo+prerender suites 196/196; full vitest 1124/1124; head-integrity guard green through the real build (47 pages)."
     },
     {
       "id": "US-1400",
