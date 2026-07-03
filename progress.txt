@@ -10620,3 +10620,14 @@ kills); 8/8 in the results XML.
   lenient with garbage BYTES, so the portable failure case is documented).
 - Thumbnail cache: 160px keyed by name+mtime; second call proven a file hit.
 VERIFIED LOCALLY: three gates green; 8/8 in the results XML.
+
+=== 2026-07-03 (loop v2): US-1326 (category photo profiles) ===
+- PhotoProfile/PhotoRole: ordered per-category roles; server types resolve to
+  capture slots with unknown types DROPPED (future 'hologram' proven);
+  defects EXCLUDED from optionals - the reveal flow owns them,
+  category-agnostic (AC3). Bundled fallback matches the iOS table exactly.
+- PhotoProfileStore: GET /api/flipdesk/photo-profiles via EdgeApi's 1h TTL
+  cache; load-once proven by request count; a 500 keeps the bundled fallback
+  (capture never blocks on network); null/unknown -> clothing; labels/hints
+  follow the category (watch 'Face' proven); decode tolerates future keys.
+VERIFIED LOCALLY: three gates green; 6/6 in the results XML.

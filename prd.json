@@ -6719,7 +6719,7 @@
     {
       "id": "US-1326",
       "priority": -98674,
-      "passes": false,
+      "passes": true,
       "title": "Category photo profiles (server-driven slots + bundled fallback)",
       "description": "As a seller listing a non-clothing item (e.g. watch), I see category-specific photo roles instead of clothing defaults.",
       "acceptanceCriteria": [
@@ -6727,7 +6727,7 @@
         "Slot labels/hints update per item_category; server photo_type strings map back to capture slots",
         "Defect-reveal logic stays category-agnostic"
       ],
-      "notes": "[P2][Android/Capture] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P2][Android/Capture] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. [COMPLETION 2026-07-03] capture/PhotoProfile, locally verified (three gates; PhotoProfileTest 6/6 incl. MockWebServer HTTP proof). PhotoProfile/PhotoRole (iOS mirror): per-category ORDERED roles (type/label/hint/required/icon); requiredSlots/optionalSlots resolve server photo_type strings to capture slots via fromWire with unknown types DROPPED not crashed (proven with a future 'hologram' type); DEFECTS EXCLUDED from optionalSlots - the reveal-one-at-a-time flow owns them, category-agnostic by design (AC3 proven); allowsDefects + roleForServerType. Bundled fallback matches the iOS table exactly (clothing: front/back/tag/detail required + defect; other: front/back required) - proven. PhotoProfileStore over EdgeApi: GET /api/flipdesk/photo-profiles with the 1h TTL cache (AC1); load-once proven via requestCount (second loadIfNeeded = no refetch); a 500 keeps the bundled fallback so capture NEVER blocks on the network (proven); null/unknown categories fall back to clothing (the historical default, proven); server table replaces the fallback and labels/hints follow the category (AC2 proven with a watch profile whose front slot reads 'Face'); wire decode tolerates unknown JSON keys (future-proofing proven)."
     },
     {
       "id": "US-1327",
