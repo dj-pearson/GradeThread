@@ -10303,3 +10303,15 @@ ui/a11y package porting the iOS Accessibility/ layer:
 - FieldError now carries liveRegion=Polite: validation errors are ANNOUNCED on
   appearance, not just when focused (AC4).
 VERIFIED LOCALLY: assembleDebug + testDebugUnitTest + lintDebug green.
+
+=== 2026-07-03 (loop v2): US-1305 (Android haptics & system sounds) ===
+- platform/HapticFeedback.kt: the iOS semantic mapping ported 1:1 (light=tab/
+  chip taps, medium=capture/commit, success/warning/error) over
+  View.performHapticFeedback - chosen over raw Vibrator because it respects
+  the system touch-feedback setting, needs no permission, and is main-thread
+  by construction. Warning = doubled tick (no system warning constant);
+  CONFIRM/REJECT are API 30+ and degrade silently on 26-29 (documented).
+- ShutterSound wraps MediaActionSound SHUTTER_CLICK - the locale-compliant
+  system shutter (JP/KR), mirroring iOS SystemSoundID 1108; lifecycle-managed
+  release via rememberShutterSound.
+VERIFIED LOCALLY: three gradle gates green.

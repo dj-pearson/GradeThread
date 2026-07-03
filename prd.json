@@ -6432,7 +6432,7 @@
     {
       "id": "US-1305",
       "priority": -98695,
-      "passes": false,
+      "passes": true,
       "title": "Haptics & system sounds",
       "description": "As a user, I want typed haptic + sound feedback for taps, captures, successes, and failures, matching the iOS feel.",
       "acceptanceCriteria": [
@@ -6440,7 +6440,7 @@
         "Camera shutter uses MediaActionSound (respects mute/locale obligations) — mirrors the iOS system shutter requirement",
         "Centralized so per-action tuning lives in one place (mirrors HapticFeedback)"
       ],
-      "notes": "[P3][Android/Foundation] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P3][Android/Foundation] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. [COMPLETION 2026-07-03] platform/HapticFeedback.kt, locally verified (three gradle gates green). Typed wrapper mirroring the iOS semantic mapping exactly (light=tab/chip taps via CLOCK_TICK, medium=capture/commit via KEYBOARD_TAP, success=CONFIRM, warning=doubled tick 90ms apart - no system warning constant, error=REJECT); the View.performHapticFeedback route chosen over raw Vibrator deliberately: respects the system touch-feedback setting automatically, needs no VIBRATE permission, main-thread by construction (AC1). CONFIRM/REJECT are API 30+ - on 26-29 the call returns false silently (documented; acceptable degradation, no crash). rememberHapticFeedback() composable entry. ShutterSound wraps MediaActionSound.SHUTTER_CLICK - the compliant system-shutter route for JP/KR mute-override locales, mirroring the iOS SystemSoundID 1108 requirement (AC2); rememberShutterSound() releases the SoundPool on dispose. Centralized single-file audit surface (AC3)."
     },
     {
       "id": "US-1306",
