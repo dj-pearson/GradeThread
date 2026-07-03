@@ -6625,7 +6625,7 @@
     {
       "id": "US-1319",
       "priority": -98681,
-      "passes": false,
+      "passes": true,
       "title": "Offline mutation queue: replay, idempotency, ordering, terminal-vs-transient",
       "description": "As a user, edits I make offline are queued and replayed safely when I reconnect, without duplicates or lost edits.",
       "acceptanceCriteria": [
@@ -6634,7 +6634,7 @@
         "Idempotent replay: creates upsert by client-generated id, deletes by id, updates by id+patch; photo uploads use x-upsert + deterministic photo_id",
         "Terminal errors (missing target/file, invalid storage URL) mark stuck immediately; transient (network/5xx/auth-expired) bump retry; both visible in an inspector"
       ],
-      "notes": "[P1][Android/Sync] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P1][Android/Sync] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. [COMPLETION 2026-07-03] sync/MutationQueue, locally verified (three gates; MutationQueueTest 10/10 w/ real Room). OfflineMutationQueue over the pending_mutations table with the iOS rules carried EXACTLY: US-1208 create-before-edit - an edit/delete defers while its create is unconfirmed (blocked set computed from the FULL queue incl. STUCK creates - proven: a stuck create still blocks its dependents), a create succeeding UNBLOCKS dependents in the SAME pass (proven both FIFO interleaves: create-first flushes both in one pass; edit-first defers then flushes next pass); US-1496 blocked-target hold - a same-target failure holds later mutations for that target preserving per-target FIFO (proven; other targets unaffected); US-1221 terminal-vs-transient - terminal (NotFound/BadRequest/FeatureUnavailable) pins retryCount to MAX_RETRIES=6 immediately, transient (Network/5xx/RateLimited/Unauthorized) bumps retry + stays queued (both proven; classification matrix pinned); stuck rows (retry>=6) skipped by the drain, surfaced via snapshot() + retryNow/discard inspector actions (US-641, proven). shouldEnqueue gate: only connectivity-shaped failures (Network/5xx/IOException) queue - 4xx/validation/RLS surface to the user immediately (matrix pinned). US-1495 itemIdsWithPendingEdits (dirty-flag protection set) ported + proven. describe() pulls EdgeApiError property-carried detail so lastError reads the real reason, not the class name (caught by the test failing honestly first). MutationKind: all 10 iOS wire values; client mutation ids minted LOWERCASE (the uuid case rule). DAO gained markAttempt. Idempotent-replay contracts (upsert-by-client-id, x-upsert + deterministic photo_id) are documented on the kinds and land with the executor wiring in the store stories."
     },
     {
       "id": "US-1320",

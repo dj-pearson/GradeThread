@@ -126,6 +126,13 @@ interface PendingMutationDao {
     @Query("DELETE FROM pending_mutations WHERE id = :id")
     suspend fun delete(id: String)
 
+    /** US-1319: retry bookkeeping (terminal pins retryCount to the budget). */
+    @Query(
+        "UPDATE pending_mutations SET retryCount = :retryCount, lastError = :lastError, " +
+            "lastAttemptAt = :lastAttemptAt WHERE id = :id",
+    )
+    suspend fun markAttempt(id: String, retryCount: Int, lastError: String?, lastAttemptAt: Long?)
+
     @Query("DELETE FROM pending_mutations")
     suspend fun clearAll()
 }
