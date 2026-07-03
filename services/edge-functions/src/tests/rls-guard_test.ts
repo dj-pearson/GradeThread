@@ -55,6 +55,11 @@ const PARENT_SCOPED = [
 // service-role (which bypasses RLS) reads/writes them. This is the most
 // restrictive configuration, not a gap.
 const SERVICE_ROLE_ONLY = new Set([
+  // US-1565: admin task board — internal operator tooling; client policies
+  // dropped in 00344, all CRUD flows through /api/admin/tasks (edge boundary).
+  "admin_task_projects",
+  "admin_tasks",
+  "admin_task_comments",
   "flipdesk_subscription_events",
   "oauth_states",
   // US-1533 garment expectation briefs: RLS enabled, zero policies by design —

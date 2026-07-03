@@ -70,6 +70,18 @@ behavior change. `EXPECTED_SCHEMA_VERSION` bumped **00342 → 00343**.
 build enforcing the new scopes against an unseeded DB would 403 admins on the
 newly-guarded surfaces (the boot guard enforces this ordering mechanically).
 
+### 🔸 ALSO NEW + HELD LOCALLY: `00344` (US-1565)
+
+**`supabase/migrations/00344_admin_tasks_service_role_only.sql`** — drops the
+12 admin client RLS policies on `admin_task_projects` / `admin_tasks` /
+`admin_task_comments` (task-board CRUD now flows through the new
+`/api/admin/tasks` edge router; deny-all + service-role only, registered in
+rls-guard). `EXPECTED_SCHEMA_VERSION` bumped **00343 → 00344**.
+⚠️ Ordering: apply WITH/AFTER 00343 and before the edge redeploy carrying this
+commit. Note the frontend on Pages auto-deploys on push — after this push the
+tasks/dashboard/system pages REQUIRE the new edge routes, so redeploy the edge
+promptly after pushing.
+
 ### Previously outstanding — apply to prod (already on origin)
 
 Everything through migration **00338** is already ON `origin/main` (0230db73 was

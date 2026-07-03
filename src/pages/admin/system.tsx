@@ -1,12 +1,10 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useDocumentVisible } from "@/hooks/use-document-visible";
-import { supabase } from "@/lib/supabase";
-import {
-  fetchAdminSystemMetrics,
-  fetchAdminRevenueMetrics,
-  type AdminSystemMetrics,
-  type AdminRevenueMetrics,
+import { edgeFetch } from "@/lib/edge-fetch";
+import type {
+  AdminSystemMetrics,
+  AdminRevenueMetrics,
 } from "@/lib/admin-aggregates";
 import { FLIPDESK_PLANS, GRADETHREAD_TIERS, type FlipdeskPlanKey } from "@/lib/constants";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -325,23 +323,21 @@ export function AdminSystemPage() {
   const { data, isLoading, refetch, isFetching } = useQuery({
     queryKey: ["admin-system"],
     queryFn: async () => {
-      // Measure DB latency with a simple ping (also serves as a cheap health probe).
-      const dbStart = performance.now();
-      const pingRes = await supabase.from("users").select("id", { count: "exact", head: true });
-      const dbLatencyMs = Math.round(performance.now() - dbStart);
-      if (pingRes.error) throw pingRes.error;
-
-      // All aggregation happens server-side (US-415/US-583): two compact
-      // summaries (system health + authoritative revenue/AI cost), no
-      // full-table downloads.
-      const [metrics, revenue] = await Promise.all([
-        fetchAdminSystemMetrics(),
-        fetchAdminRevenueMetrics(),
-      ]);
+      // US-1565: one edge round-trip — the endpoint measures its own DB
+      // latency and runs both metrics RPCs service-role, so this page makes
+      // no direct Supabase reads.
+      const res = await edgeFetch("/api/admin/dashboard/system");
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to load system metrics.");
+      const payload = json as {
+        db_latency_ms: number;
+        metrics: AdminSystemMetrics;
+        revenue: AdminRevenueMetrics;
+      };
 
       setLastRefresh(new Date());
 
-      return buildSystemData(metrics, revenue, dbLatencyMs);
+      return buildSystemData(payload.metrics, payload.revenue, payload.db_latency_ms);
     },
     staleTime: 15 * 1000,
     // Auto-refresh every 30s, but only while the tab is visible so a

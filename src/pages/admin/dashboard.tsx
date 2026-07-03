@@ -1,14 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useDocumentVisible } from "@/hooks/use-document-visible";
-import { supabase } from "@/lib/supabase";
-import type {
-  UserRow,
-  SubmissionRow,
-  GradeReportRow,
-  DisputeRow,
-  SaleRow,
-  HumanReviewRow,
-} from "@/types/database";
+import { edgeFetch } from "@/lib/edge-fetch";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -81,137 +73,11 @@ interface AdminChartData {
 interface AdminDashboardData {
   kpis: AdminKPIs;
   charts: AdminChartData;
+  // Slim rows — exactly the fields PlatformAnalytics aggregates (US-1565).
   raw: {
-    users: UserRow[];
-    submissions: SubmissionRow[];
-    gradeReports: GradeReportRow[];
-  };
-}
-
-function buildDailyBuckets(days: number): Array<{ date: string; label: string; start: Date; end: Date }> {
-  const now = new Date();
-  const buckets: Array<{ date: string; label: string; start: Date; end: Date }> = [];
-  for (let i = days - 1; i >= 0; i--) {
-    const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
-    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    const start = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-    const end = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
-    buckets.push({
-      date: dateStr,
-      label: `${d.getMonth() + 1}/${d.getDate()}`,
-      start,
-      end,
-    });
-  }
-  return buckets;
-}
-
-function processAdminData(
-  users: UserRow[],
-  submissions: SubmissionRow[],
-  gradeReports: GradeReportRow[],
-  disputes: DisputeRow[],
-  sales: SaleRow[],
-  humanReviews: HumanReviewRow[]
-): AdminDashboardData {
-  const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-
-  // KPI: Total Users
-  const totalUsers = users.length;
-
-  // KPI: Active Subscribers (non-free plan)
-  const activeSubscribers = users.filter((u) => u.plan !== "free").length;
-
-  // KPI: Submissions Today
-  const submissionsToday = submissions.filter(
-    (s) => new Date(s.created_at) >= todayStart
-  ).length;
-
-  // KPI: Revenue This Month (sum of sales this month)
-  const revenueThisMonth = sales
-    .filter((s) => new Date(s.sale_date) >= monthStart)
-    .reduce((sum, s) => sum + s.sale_price, 0);
-
-  // KPI: Average Grade
-  const completedReports = gradeReports.filter((r) => r.overall_score > 0);
-  const averageGrade =
-    completedReports.length > 0
-      ? Math.round(
-          (completedReports.reduce((sum, r) => sum + r.overall_score, 0) /
-            completedReports.length) *
-            10
-        ) / 10
-      : 0;
-
-  // KPI: Dispute Rate % (disputes / completed submissions)
-  const completedSubmissions = submissions.filter((s) => s.status === "completed" || s.status === "disputed");
-  const disputeRatePercent =
-    completedSubmissions.length > 0
-      ? Math.round((disputes.length / completedSubmissions.length) * 1000) / 10
-      : 0;
-
-  // KPI: AI Accuracy % (reports with confidence >= 0.75 / total reports)
-  const highConfidence = completedReports.filter((r) => r.confidence_score >= 0.75);
-  const aiAccuracyPercent =
-    completedReports.length > 0
-      ? Math.round((highConfidence.length / completedReports.length) * 1000) / 10
-      : 0;
-
-  // KPI: Pending Reviews (human reviews not yet completed)
-  const pendingReviews = humanReviews.filter((r) => r.adjusted_score === null).length;
-
-  const kpis: AdminKPIs = {
-    totalUsers,
-    activeSubscribers,
-    submissionsToday,
-    revenueThisMonth,
-    averageGrade,
-    disputeRatePercent,
-    aiAccuracyPercent,
-    pendingReviews,
-  };
-
-  // Charts: 30-day daily buckets
-  const buckets = buildDailyBuckets(30);
-
-  // Submission volume
-  const submissionVolume: SubmissionPoint[] = buckets.map((b) => ({
-    date: b.date,
-    label: b.label,
-    count: submissions.filter((s) => {
-      const d = new Date(s.created_at);
-      return d >= b.start && d < b.end;
-    }).length,
-  }));
-
-  // Revenue over time (daily)
-  const revenueOverTime: RevenuePoint[] = buckets.map((b) => ({
-    date: b.date,
-    label: b.label,
-    revenue: sales
-      .filter((s) => {
-        const d = new Date(s.sale_date);
-        return d >= b.start && d < b.end;
-      })
-      .reduce((sum, s) => sum + s.sale_price, 0),
-  }));
-
-  // New users over time (daily)
-  const newUsers: UserPoint[] = buckets.map((b) => ({
-    date: b.date,
-    label: b.label,
-    count: users.filter((u) => {
-      const d = new Date(u.created_at);
-      return d >= b.start && d < b.end;
-    }).length,
-  }));
-
-  return {
-    kpis,
-    charts: { submissionVolume, revenueOverTime, newUsers },
-    raw: { users, submissions, gradeReports },
+    users: Array<{ id: string; plan: string; created_at: string; email: string; full_name: string | null }>;
+    submissions: Array<{ user_id: string; status: string; created_at: string }>;
+    gradeReports: Array<{ created_at: string }>;
   };
 }
 
@@ -219,32 +85,13 @@ export function AdminDashboardPage() {
   const visible = useDocumentVisible();
   const { data, isLoading } = useQuery({
     queryKey: ["admin-dashboard"],
-    queryFn: async () => {
-      // Fetch all data in parallel — admin RLS policies allow reading all rows
-      const [usersRes, subsRes, reportsRes, disputesRes, salesRes, reviewsRes] = await Promise.all([
-        supabase.from("users").select("*"),
-        supabase.from("submissions").select("*"),
-        supabase.from("grade_reports").select("*"),
-        supabase.from("disputes").select("*"),
-        supabase.from("sales").select("*"),
-        supabase.from("human_reviews").select("*"),
-      ]);
-
-      if (usersRes.error) throw usersRes.error;
-      if (subsRes.error) throw subsRes.error;
-      if (reportsRes.error) throw reportsRes.error;
-      if (disputesRes.error) throw disputesRes.error;
-      if (salesRes.error) throw salesRes.error;
-      if (reviewsRes.error) throw reviewsRes.error;
-
-      const users = (usersRes.data ?? []) as UserRow[];
-      const submissions = (subsRes.data ?? []) as SubmissionRow[];
-      const gradeReports = (reportsRes.data ?? []) as GradeReportRow[];
-      const disputes = (disputesRes.data ?? []) as DisputeRow[];
-      const sales = (salesRes.data ?? []) as SaleRow[];
-      const humanReviews = (reviewsRes.data ?? []) as HumanReviewRow[];
-
-      return processAdminData(users, submissions, gradeReports, disputes, sales, humanReviews);
+    queryFn: async (): Promise<AdminDashboardData> => {
+      // US-1565: aggregates are computed on the edge (narrow selects, one
+      // request) instead of six whole-table client pulls.
+      const res = await edgeFetch("/api/admin/dashboard/summary");
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to load dashboard data.");
+      return json as AdminDashboardData;
     },
     staleTime: 30 * 1000,
     // Auto-refresh every 60s, but only while the tab is visible so a

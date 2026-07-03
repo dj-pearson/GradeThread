@@ -10094,3 +10094,30 @@ comments recorded at each route:
   grading math/prompt changes (read-only analytics).
 VERIFICATION: tsc -b 0, eslint clean, vitest 1121/1121, deno check + lint clean.
 No migration.
+
+=== 2026-07-03 (loop v2): US-1565 (admin dashboard/system/tasks onto the edge boundary) ===
+The last three admin surfaces bypassing the edge boundary now go through it:
+- NEW /api/admin/dashboard (role-only, read aggregates): GET /summary computes the
+  dashboard KPIs + 30-day charts server-side (narrow selects + count-head queries
+  replacing SIX select(*) whole-table browser pulls) and ships slim raw arrays with
+  exactly the fields PlatformAnalytics aggregates; GET /system measures DB latency +
+  runs both metrics RPCs service-role; GET /enrichment-log migrates
+  platform-analytics' direct ai_enrichment_log read too (beyond the AC's file list).
+- NEW /api/admin/tasks (ops:write): full task-board CRUD with per-table FIELD
+  WHITELISTS - created_by/author_id always stamped server-side from the acting
+  admin, never body-controlled (tenant-isolation_test.ts case proves spoofed
+  created_by/author_id/id/updated_at get stripped); status/priority enum checks;
+  markdown /import continues positions after the existing max server-side.
+- Clients: dashboard.tsx + system.tsx are each ONE edgeFetch now (the aggregation
+  code moved to the edge verbatim, chart labels identical); use-admin-tasks.ts
+  rewritten endpoint-backed with an UNCHANGED exported hook API so
+  tasks.tsx/task-board.tsx needed zero changes; platform-analytics props slimmed to
+  structural types. grep-verified: zero .from()/.rpc() left in the target files.
+- MIGRATION 00344 (HELD, packaged in PENDING_MIGRATIONS.md): drops the 12 admin
+  client policies on the 3 task tables -> deny-all, service-role only; registered in
+  rls-guard SERVICE_ROLE_ONLY; EXPECTED_SCHEMA_VERSION -> 00344 same commit.
+- Repaired a mojibake double-encoding in admin-scope-map.ts comments (from an
+  earlier PowerShell Set-Content); scope-map entries added for both new routers.
+VERIFICATION: edge 2542/0/70 (incl. scope-coverage + rls-guard + the new isolation
+case); vitest 1121/1121; tsc -b 0; eslint clean. ADMIN-AUDIT BATCH COMPLETE
+(US-1560-1565 all shipped; US-1566 remains ops/user-action).

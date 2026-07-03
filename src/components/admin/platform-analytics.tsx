@@ -1,14 +1,8 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type {
-  UserRow,
-  SubmissionRow,
-  GradeReportRow,
-  UserPlan,
-  AiEnrichmentLogRow,
-} from "@/types/database";
+import type { AiEnrichmentLogRow, UserPlan } from "@/types/database";
 import { PLANS } from "@/lib/constants";
-import { supabase } from "@/lib/supabase";
+import { edgeFetch } from "@/lib/edge-fetch";
 import {
   Card,
   CardContent,
@@ -90,10 +84,13 @@ interface CohortRow {
   retention: (number | null)[];
 }
 
+// US-1565: slim structural props — exactly the fields this component
+// aggregates, matching the edge /api/admin/dashboard/summary raw payload
+// (full rows never leave the server anymore).
 interface PlatformAnalyticsProps {
-  users: UserRow[];
-  submissions: SubmissionRow[];
-  gradeReports: GradeReportRow[];
+  users: Array<{ id: string; plan: string; created_at: string; email: string; full_name: string | null }>;
+  submissions: Array<{ user_id: string; status: string; created_at: string }>;
+  gradeReports: Array<{ created_at: string }>;
 }
 
 export function PlatformAnalytics({
@@ -123,7 +120,8 @@ export function PlatformAnalytics({
     const planCounts = new Map<UserPlan, number>();
     for (const plan of PLAN_ORDER) planCounts.set(plan, 0);
     for (const u of users) {
-      planCounts.set(u.plan, (planCounts.get(u.plan) ?? 0) + 1);
+      const plan = u.plan as UserPlan;
+      planCounts.set(plan, (planCounts.get(plan) ?? 0) + 1);
     }
     const planDistribution = PLAN_ORDER.map((plan) => ({
       plan,
@@ -243,13 +241,11 @@ export function PlatformAnalytics({
   const { data: aiLogs } = useQuery({
     queryKey: ["admin-ai-acceptance"],
     queryFn: async (): Promise<AiEnrichmentLogRow[]> => {
-      const { data, error } = await supabase
-        .from("ai_enrichment_log")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(2000);
-      if (error) throw error;
-      return (data ?? []) as AiEnrichmentLogRow[];
+      // US-1565: through the edge boundary instead of a direct table read.
+      const res = await edgeFetch("/api/admin/dashboard/enrichment-log");
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to load enrichment log.");
+      return (json.logs ?? []) as AiEnrichmentLogRow[];
     },
     staleTime: 60 * 1000,
   });

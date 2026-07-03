@@ -1740,3 +1740,36 @@ Deno.test({
     );
   },
 });
+
+// ── US-1565: admin task-board field whitelists ───────────────────────────────
+// Operator tables (no tenant column) — the isolation analog here is that a
+// request body can NEVER set created_by/author_id (always stamped server-side
+// from the authenticated admin) nor write arbitrary columns. Pure whitelist
+// checks; the deny-all RLS posture is covered by rls-guard_test.ts.
+Deno.test("US-1565: task-board whitelists strip created_by/author_id and unknown columns", async () => {
+  const { pickFields, PROJECT_FIELDS, TASK_FIELDS } = await import(
+    "../routes/admin-tasks.ts"
+  );
+  const spoofed = pickFields({
+    title: "legit",
+    created_by: "attacker-uuid",
+    author_id: "attacker-uuid",
+    id: "override-pk",
+    updated_at: "1999-01-01",
+    archived: true,
+  }, PROJECT_FIELDS);
+  assertEquals(Object.keys(spoofed).sort(), ["archived", "title"]);
+
+  const task = pickFields({
+    project_id: "p1",
+    title: "t",
+    status: "done",
+    created_by: "attacker-uuid",
+    completed_at: "2026-01-01",
+    secret_column: "x",
+  }, TASK_FIELDS);
+  assertEquals(
+    Object.keys(task).sort(),
+    ["completed_at", "project_id", "status", "title"],
+  );
+});
