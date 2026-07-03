@@ -49,3 +49,25 @@ Deno.test("normalizeTargetIds: rejects an over-cap batch", () => {
   const { error } = normalizeTargetIds(big);
   assertEquals(typeof error, "string");
 });
+
+// ── US-1562: resolve-endpoint entry classification ───────────────────────────
+const { classifyResolveEntries } = await import("../routes/admin-bulk.ts");
+
+Deno.test("US-1562: classifyResolveEntries splits ids/emails/malformed, dedupes, lowercases", () => {
+  const out = classifyResolveEntries([
+    "A1B2C3D4-1111-4111-8111-000000000001", // uppercase UUID → lowercased id
+    "a1b2c3d4-1111-4111-8111-000000000001", // dup of the same id
+    "  Seller@Example.COM ",                 // email, trimmed + lowercased
+    "not-an-id",                             // malformed
+    42 as unknown as string,                 // non-string ignored
+    "",                                      // empty ignored
+  ]);
+  assertEquals(out.ids, ["a1b2c3d4-1111-4111-8111-000000000001"]);
+  assertEquals(out.emails, ["seller@example.com"]);
+  assertEquals(out.malformed, ["not-an-id"]);
+});
+
+Deno.test("US-1562: classifyResolveEntries handles the empty case", () => {
+  const out = classifyResolveEntries([]);
+  assertEquals(out.ids.length + out.emails.length + out.malformed.length, 0);
+});

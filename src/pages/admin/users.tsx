@@ -108,6 +108,8 @@ export function AdminUsersPage() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [page, setPage] = useState(1);
+  // US-1562: row multi-select -> hand the ids to /admin/bulk prefilled.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // US-581: global account lookup by email / Stripe customer / submission id /
   // certificate id. Resolves to the owning user and jumps to their detail page.
@@ -369,10 +371,50 @@ export function AdminUsersPage() {
         </Card>
       ) : (
         <Card>
+          {/* US-1562: selection toolbar — hands the picked ids to /admin/bulk. */}
+          {selectedIds.size > 0 && (
+            <div className="flex items-center justify-between border-b bg-muted/40 px-4 py-2">
+              <span className="text-sm">
+                {selectedIds.size} user{selectedIds.size === 1 ? "" : "s"} selected
+              </span>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setSelectedIds(new Set())}
+                >
+                  Clear
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() =>
+                    navigate(`/admin/bulk?ids=${[...selectedIds].join(",")}`)}
+                >
+                  Bulk actions…
+                </Button>
+              </div>
+            </div>
+          )}
           <CardContent className="p-0">
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-8">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all on page"
+                      className="h-4 w-4 accent-primary"
+                      checked={paginated.length > 0 && paginated.every((u) => selectedIds.has(u.id))}
+                      onChange={(e) => {
+                        const next = new Set(selectedIds);
+                        for (const u of paginated) {
+                          if (e.target.checked) next.add(u.id);
+                          else next.delete(u.id);
+                        }
+                        setSelectedIds(next);
+                      }}
+                    />
+                  </TableHead>
                   <TableHead>Name</TableHead>
                   <TableHead>Email</TableHead>
                   <TableHead>Plan</TableHead>
@@ -385,7 +427,7 @@ export function AdminUsersPage() {
               <TableBody>
                 {paginated.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                    <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
                       No users found matching your filters.
                     </TableCell>
                   </TableRow>
@@ -396,6 +438,20 @@ export function AdminUsersPage() {
                       className="cursor-pointer hover:bg-muted/50"
                       onClick={() => navigate(`/admin/users/${user.id}`)}
                     >
+                      <TableCell className="w-8" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${user.email}`}
+                          className="h-4 w-4 accent-primary"
+                          checked={selectedIds.has(user.id)}
+                          onChange={(e) => {
+                            const next = new Set(selectedIds);
+                            if (e.target.checked) next.add(user.id);
+                            else next.delete(user.id);
+                            setSelectedIds(next);
+                          }}
+                        />
+                      </TableCell>
                       <TableCell className="font-medium">
                         {user.full_name || "—"}
                       </TableCell>

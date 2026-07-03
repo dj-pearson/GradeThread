@@ -10029,3 +10029,29 @@ Closed the 42-registered vs ~21-documented scheduled-jobs gap:
 - Bonus: /admin/ops jobs page reads CRON_REGISTRY, so the 16 newly-registered jobs
   now show schedules/next-run in the console automatically.
 VERIFICATION: drift tests 4/4; FULL edge suite 2539/0/70; lint clean. No migration.
+
+=== 2026-07-03 (loop v2): US-1562 (bulk admin operations UI) ===
+The built-but-unwired US-589 bulk endpoints finally have an operator surface:
+- NEW /admin/bulk page (+ Bulk Ops sidebar item): three-step flow that cannot
+  fat-finger 200 accounts. (1) Paste user ids AND/OR emails (any separator;
+  regrade takes submission UUIDs, validated client-side) then RESOLVE against the
+  NEW read-only POST /api/admin/bulk/resolve - unknown/malformed entries surface
+  in an amber panel and BLOCK submission until fixed. (2) Review the resolved
+  accounts (name/email/suspended badge) + parameters (credits 1-1000 + audited
+  reason, mirroring server validation). (3) Two-step confirm dialog shows the
+  exact affected count + params, then fires with a client-minted
+  crypto.randomUUID() idempotency key.
+- Results: per-target table (ok / skipped / error + replayed badge) and a
+  "Load N failed targets for retry" button that reloads ONLY the failures under a
+  FRESH key - the correct retry semantics for the idempotent ledger.
+- Step-up: credits/suspend mint value -> STEP_UP_REQUIRED opens the shared
+  MfaStepUpDialog and retries on verify (same pattern as ai-budgets).
+- /admin/users: checkbox multi-select column (select-all-on-page header; row
+  clicks stopPropagation so navigation still works) + a selection toolbar that
+  hands the picked ids to /admin/bulk?ids=... - both AC1 input paths.
+- Edge: /resolve classifies uuid/email/malformed via exported pure
+  classifyResolveEntries (unit-tested: dedupe, lowercase, non-string tolerance),
+  caps 200, dedupes accounts resolved via both id and email; documented on the
+  scope-map rationale (read-only = no scope; the ops carry their US-1560 scopes).
+VERIFICATION: edge suite 2541/0/70 (2 new tests); vitest 1121/1121; tsc -b 0;
+eslint clean. No migration.

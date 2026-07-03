@@ -172,6 +172,90 @@ function summarize(results: PerTargetResult[]) {
 // Body: { user_ids: string[], credits: number, reason: string, idempotency_key }
 // Grants `credits` to each user via the existing grant_grade_credits RPC. Minting
 // value → fresh MFA step-up (same gate as the single comp-credits endpoint).
+// ── POST /resolve ────────────────────────────────────────────────────────────
+// US-1562: read-only target resolution for the bulk-operations UI. Accepts a
+// pasted mix of user UUIDs and emails, returns which resolve to real accounts
+// and which don't — the client surfaces unknowns BEFORE any operation fires.
+// No scope guard: this mutates nothing (a lookup admins already have via
+// GET /api/admin/users/lookup); the operations themselves carry the scopes.
+// Pure classification of pasted entries (exported for unit tests): lowercased,
+// deduped, split into UUID ids / emails / malformed leftovers.
+export function classifyResolveEntries(raw: unknown[]): {
+  ids: string[];
+  emails: string[];
+  malformed: string[];
+} {
+  const entries: string[] = [...new Set(
+    raw.filter((e): e is string => typeof e === "string")
+      .map((e) => e.trim().toLowerCase()).filter(Boolean),
+  )];
+  return {
+    ids: entries.filter((e) => UUID_RE.test(e)),
+    emails: entries.filter((e) => !UUID_RE.test(e) && e.includes("@")),
+    malformed: entries.filter((e) => !UUID_RE.test(e) && !e.includes("@")),
+  };
+}
+
+adminBulkRoutes.post("/resolve", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const raw = Array.isArray(body.entries) ? body.entries : null;
+  if (!raw || raw.length === 0) {
+    return c.json({ error: "entries must be a non-empty array" }, 400);
+  }
+  if (raw.length > MAX_TARGETS) {
+    return c.json({ error: `at most ${MAX_TARGETS} entries per batch` }, 400);
+  }
+  const { ids, emails, malformed } = classifyResolveEntries(raw as unknown[]);
+  const entries = [...ids, ...emails, ...malformed];
+
+  interface UserRow {
+    id: string;
+    email: string;
+    full_name: string | null;
+    suspended: boolean | null;
+  }
+  const found = new Map<string, UserRow>();
+  const foundByEmail = new Map<string, UserRow>();
+  if (ids.length > 0) {
+    const { data } = await supabaseAdmin.from("users")
+      .select("id, email, full_name, suspended").in("id", ids);
+    for (const row of (data ?? []) as UserRow[]) found.set(row.id.toLowerCase(), row);
+  }
+  if (emails.length > 0) {
+    const { data } = await supabaseAdmin.from("users")
+      .select("id, email, full_name, suspended").in("email", emails);
+    for (const row of (data ?? []) as UserRow[]) {
+      foundByEmail.set(row.email.toLowerCase(), row);
+    }
+  }
+
+  const resolved: Array<{ input: string; user_id: string; email: string; full_name: string | null; suspended: boolean }> = [];
+  const unknown: string[] = [...malformed];
+  for (const e of entries) {
+    if (malformed.includes(e)) continue;
+    const row = UUID_RE.test(e) ? found.get(e) : foundByEmail.get(e);
+    if (row) {
+      resolved.push({
+        input: e,
+        user_id: row.id,
+        email: row.email,
+        full_name: row.full_name,
+        suspended: row.suspended === true,
+      });
+    } else {
+      unknown.push(e);
+    }
+  }
+  // Dedupe accounts resolved via both their id and email.
+  const seenUsers = new Set<string>();
+  const uniqueResolved = resolved.filter((r) => {
+    if (seenUsers.has(r.user_id)) return false;
+    seenUsers.add(r.user_id);
+    return true;
+  });
+  return c.json({ resolved: uniqueResolved, unknown });
+});
+
 // US-1560: each bulk op carries its owning scope (see lib/admin-scope-map.ts).
 adminBulkRoutes.post("/credits", requireScope("billing:write"), async (c) => {
   const stepUp = requireStepUp(c);

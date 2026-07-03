@@ -9898,7 +9898,7 @@
     {
       "id": "US-1562",
       "priority": 2357,
-      "passes": false,
+      "passes": true,
       "title": "Bulk admin operations UI (wire the unused /api/admin/bulk router)",
       "description": "As a super-admin, bulk credit grant / suspend-unsuspend / regrade endpoints (admin-bulk.ts: POST /api/admin/bulk/credits|suspend|regrade — idempotency-keyed, audited, US-589) are fully built but no UI calls them; operators fall back to per-user actions which don't scale past a handful of accounts.",
       "acceptanceCriteria": [
@@ -9909,7 +9909,7 @@
         "Surface is gated to super_admin in the sidebar/UI to match backend authorization; actions land in admin_audit_log (existing backend behavior verified in an integration-shaped test or manual verification note)",
         "tsc, eslint, deno edge suite untouched-or-green, full build green"
       ],
-      "notes": "[2026-07-02 admin backend audit, finding #5] Backend needs no changes — UI only. Follow controlled-inputs / sonner / shadcn conventions."
+      "notes": "[2026-07-02 admin backend audit, finding #5] Backend needs no changes — UI only. Follow controlled-inputs / sonner / shadcn conventions. [COMPLETION 2026-07-03] NEW /admin/bulk page (src/pages/admin/bulk.tsx, route + 'Bulk Ops' sidebar item) driving all three US-589 endpoints. Three-step flow: (1) paste targets (ids AND emails, any separator; regrade takes submission UUIDs validated client-side) -> RESOLVE via NEW read-only POST /api/admin/bulk/resolve (classifies uuid/email/malformed - pure classifyResolveEntries exported + unit-tested; batch-capped 200; dedupes accounts resolved via both id and email; returns full_name/email/suspended per match) with unknowns surfaced in an amber panel and submission BLOCKED until fixed (AC2); (2) resolved-accounts review table + op params (credits 1-1000 + audited reason, mirroring route validation); (3) two-step confirm dialog showing the resolved affected count + parameters, fires with client-minted crypto.randomUUID() idempotency key (AC3). Per-target results table (ok/skipped/error + replayed badge) + 'Load N failed targets for retry' which reloads ONLY failures under a fresh key (AC4 retry guidance). STEP_UP_REQUIRED responses open the shared MfaStepUpDialog and retry on verify (credits/suspend mint value). /admin/users gained a checkbox multi-select column (header select-all-on-page, row clicks stopPropagation'd) + a selection toolbar handing ids to /admin/bulk?ids=... prefill (AC1 both input paths). Resolve endpoint documented in admin-scope-map rationale (read-only, no scope; ops carry their US-1560 scopes). Edge 2541/0, vitest 1121/1121, tsc/eslint clean."
     },
     {
       "id": "US-1563",

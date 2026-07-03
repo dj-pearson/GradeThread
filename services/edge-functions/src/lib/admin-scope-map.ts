@@ -1,25 +1,25 @@
-// US-1560: the documented router→scope registry for admin RBAC enforcement.
+﻿// US-1560: the documented routerâ†’scope registry for admin RBAC enforcement.
 //
-// Every src/routes/admin-*.ts file MUST have exactly one entry here — the
+// Every src/routes/admin-*.ts file MUST have exactly one entry here â€” the
 // drift-guard test (admin-scope-coverage_test.ts) walks the directory and
 // fails on any router that is missing, stale, or whose source doesn't match
 // its declared mode. This file is the single place a reviewer answers "which
 // permission gates surface X?".
 //
 // Modes:
-//   • "router"    — the whole router is guarded with use("*", requireScope(s)):
+//   â€¢ "router"    â€” the whole router is guarded with use("*", requireScope(s)):
 //                    reads included. Chosen for single-concern routers where
 //                    revoking the scope should coherently close the surface.
-//   • "mutations" — per-mutation requireScope guards; reads stay role-gated
+//   â€¢ "mutations" â€” per-mutation requireScope guards; reads stay role-gated
 //                    (mixed-concern routers where each write maps to a
 //                    different scope).
-//   • "role-only" — deliberately NOT scope-guarded: read-only aggregates with
+//   â€¢ "role-only" â€” deliberately NOT scope-guarded: read-only aggregates with
 //                    zero mutations, gated by the admin role + AAL2 alone. The
 //                    rationale is mandatory and reviewed.
 //
 // super_admin implicitly holds every scope; the default `admin` role holds all
 // scopes except users:role (00298 + 00343 seeds), so enforcement changed no
-// effective access at rollout — operators narrow deliberately afterward.
+// effective access at rollout â€” operators narrow deliberately afterward.
 
 import type { ScopeKey } from "./rbac-scopes.ts";
 
@@ -35,19 +35,19 @@ export interface AdminRouterScope {
 }
 
 export const ADMIN_ROUTER_SCOPES: AdminRouterScope[] = [
-  // ── billing ────────────────────────────────────────────────────────────────
+  // â”€â”€ billing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   {
     file: "admin-billing.ts",
     scope: "billing:write",
     mode: "router",
-    rationale: "Plans, credits, refunds, coupons — the original US-908 enforcement; unchanged.",
+    rationale: "Plans, credits, refunds, coupons â€” the original US-908 enforcement; unchanged.",
   },
-  // ── grading ────────────────────────────────────────────────────────────────
+  // â”€â”€ grading â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   {
     file: "admin-grading.ts",
     scope: "grading:review",
     mode: "router",
-    rationale: "Review queue, regrades, prompt/exemplar/eval management — all grade-outcome authority.",
+    rationale: "Review queue, regrades, prompt/exemplar/eval management â€” all grade-outcome authority.",
   },
   {
     file: "admin-claims.ts",
@@ -61,7 +61,7 @@ export const ADMIN_ROUTER_SCOPES: AdminRouterScope[] = [
     mode: "router",
     rationale: "Grade disputes are re-adjudications of grade outcomes.",
   },
-  // ── moderation / trust & safety ────────────────────────────────────────────
+  // â”€â”€ moderation / trust & safety â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   {
     file: "admin-moderation.ts",
     scope: "moderation:write",
@@ -84,9 +84,9 @@ export const ADMIN_ROUTER_SCOPES: AdminRouterScope[] = [
     file: "admin-fraud.ts",
     scope: null,
     mode: "role-only",
-    rationale: "Zero mutations — read-only fraud signal dashboards; acting on them goes through moderation/safety routers.",
+    rationale: "Zero mutations â€” read-only fraud signal dashboards; acting on them goes through moderation/safety routers.",
   },
-  // ── content ────────────────────────────────────────────────────────────────
+  // â”€â”€ content â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   {
     file: "admin-changelog.ts",
     scope: "content:publish",
@@ -123,26 +123,26 @@ export const ADMIN_ROUTER_SCOPES: AdminRouterScope[] = [
     mode: "router",
     rationale: "Recomputes/curates the public Condition Index content surface.",
   },
-  // ── users / roles / identity ───────────────────────────────────────────────
+  // â”€â”€ users / roles / identity â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   {
     file: "admin-users.ts",
     scope: null,
     mode: "mutations",
-    rationale: "Mixed: POST /:id/role → users:role (original US-908 guard); POST /:id/suspend → moderation:write (account action). Reads (user lookup/detail) stay role-gated for support workflows.",
+    rationale: "Mixed: POST /:id/role â†’ users:role (original US-908 guard); POST /:id/suspend â†’ moderation:write (account action). Reads (user lookup/detail) stay role-gated for support workflows.",
   },
   {
     file: "admin-scopes.ts",
     scope: null,
     mode: "mutations",
-    rationale: "Original US-908 enforcement: role/user scope edits → users:role; reads (catalog, effective scopes) stay role-gated so the roles page renders for any admin.",
+    rationale: "Original US-908 enforcement: role/user scope edits â†’ users:role; reads (catalog, effective scopes) stay role-gated so the roles page renders for any admin.",
   },
   {
     file: "admin-impersonation.ts",
     scope: "users:role",
     mode: "router",
-    rationale: "Acting AS a user is the most privileged identity operation — same authority tier as role grants.",
+    rationale: "Acting AS a user is the most privileged identity operation â€” same authority tier as role grants.",
   },
-  // ── platform ops ───────────────────────────────────────────────────────────
+  // â”€â”€ platform ops â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   {
     file: "admin-config.ts",
     scope: "ops:write",
@@ -153,7 +153,7 @@ export const ADMIN_ROUTER_SCOPES: AdminRouterScope[] = [
     file: "admin-settings.ts",
     scope: "ops:write",
     mode: "router",
-    rationale: "Settings-registry (system_settings) editor — operational constants incl. grading thresholds.",
+    rationale: "Settings-registry (system_settings) editor â€” operational constants incl. grading thresholds.",
   },
   {
     file: "admin-flags.ts",
@@ -209,7 +209,7 @@ export const ADMIN_ROUTER_SCOPES: AdminRouterScope[] = [
     mode: "router",
     rationale: "Audit-log views + anomaly acknowledgement; the one mutation is an ops action.",
   },
-  // ── marketplace ────────────────────────────────────────────────────────────
+  // â”€â”€ marketplace â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   {
     file: "admin-marketplace-connections.ts",
     scope: "marketplace:write",
@@ -232,7 +232,7 @@ export const ADMIN_ROUTER_SCOPES: AdminRouterScope[] = [
     file: "admin-category-map.ts",
     scope: "marketplace:write",
     mode: "router",
-    rationale: "Garment→eBay category mappings feed every seller's listing generation.",
+    rationale: "Garmentâ†’eBay category mappings feed every seller's listing generation.",
   },
   {
     file: "admin-ads.ts",
@@ -240,7 +240,7 @@ export const ADMIN_ROUTER_SCOPES: AdminRouterScope[] = [
     mode: "router",
     rationale: "Promoted-listings / ads administration on marketplace accounts.",
   },
-  // ── support ────────────────────────────────────────────────────────────────
+  // â”€â”€ support â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   {
     file: "admin-support.ts",
     scope: "support:write",
@@ -257,7 +257,7 @@ export const ADMIN_ROUTER_SCOPES: AdminRouterScope[] = [
     file: "admin-messages.ts",
     scope: "support:write",
     mode: "router",
-    rationale: "Admin→user messages.",
+    rationale: "Adminâ†’user messages.",
   },
   {
     file: "admin-notifications.ts",
@@ -271,7 +271,7 @@ export const ADMIN_ROUTER_SCOPES: AdminRouterScope[] = [
     mode: "router",
     rationale: "Email suppression-list management.",
   },
-  // ── growth ─────────────────────────────────────────────────────────────────
+  // â”€â”€ growth â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   {
     file: "admin-growth.ts",
     scope: "growth:write",
@@ -296,42 +296,42 @@ export const ADMIN_ROUTER_SCOPES: AdminRouterScope[] = [
     mode: "router",
     rationale: "Waitlist management (invites/approvals).",
   },
-  // ── mixed bulk operations ──────────────────────────────────────────────────
+  // â”€â”€ mixed bulk operations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   {
     file: "admin-bulk.ts",
     scope: null,
     mode: "mutations",
-    rationale: "Each bulk op maps to its owning scope: /credits → billing:write, /suspend → moderation:write, /regrade → grading:review. Reads (op status) stay role-gated.",
+    rationale: "Each bulk op maps to its owning scope: /credits â†’ billing:write, /suspend â†’ moderation:write, /regrade â†’ grading:review. POST /resolve is a read-only target lookup (no scope; US-1562).",
   },
-  // ── read-only aggregates (deliberately role-gated) ─────────────────────────
+  // â”€â”€ read-only aggregates (deliberately role-gated) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   {
     file: "admin-ai-spend.ts",
     scope: null,
     mode: "role-only",
-    rationale: "Zero mutations — AI spend/profitability/extraction-accuracy dashboards.",
+    rationale: "Zero mutations â€” AI spend/profitability/extraction-accuracy dashboards.",
   },
   {
     file: "admin-analytics.ts",
     scope: null,
     mode: "role-only",
-    rationale: "Zero mutations — platform analytics aggregates.",
+    rationale: "Zero mutations â€” platform analytics aggregates.",
   },
   {
     file: "admin-revenue.ts",
     scope: null,
     mode: "role-only",
-    rationale: "Zero mutations — revenue aggregates (mutating billing lives in admin-billing).",
+    rationale: "Zero mutations â€” revenue aggregates (mutating billing lives in admin-billing).",
   },
   {
     file: "admin-search.ts",
     scope: null,
     mode: "role-only",
-    rationale: "Zero mutations — cross-entity admin search.",
+    rationale: "Zero mutations â€” cross-entity admin search.",
   },
   {
     file: "admin-subscribers.ts",
     scope: null,
     mode: "role-only",
-    rationale: "Zero mutations — subscriber list views (suppression edits live in admin-suppressions).",
+    rationale: "Zero mutations â€” subscriber list views (suppression edits live in admin-suppressions).",
   },
 ];
