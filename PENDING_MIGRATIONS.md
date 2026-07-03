@@ -15,6 +15,16 @@ reads them server-side yet — the web AutoLister writes them at generate().
 **Per the standing rule, the commit carrying 00339 stays local until you apply
 it and say "OK to push".**
 
+### 🔸 ALSO NEW + HELD LOCALLY: `00340` (US-1549, user-requested)
+
+**`supabase/migrations/00340_internal_photo_type.sql`** — `ALTER TYPE
+flipdesk_photo_type ADD VALUE IF NOT EXISTS 'internal'` (seller-reference
+photos: kept with the item, never sent to eBay/AI/public — enforcement is
+edge-side code). `EXPECTED_SCHEMA_VERSION` bumped **00339 → 00340**. Apply with
+00339 (both idempotent, any order), `NOTIFY pgrst, 'reload schema';`, then the
+edge redeploy (boot guard expects 00340). Zero-risk: pure enum addition —
+nothing reads the value until clients send it.
+
 ### Previously outstanding — apply to prod (already on origin)
 
 Everything through migration **00338** is already ON `origin/main` (0230db73 was
