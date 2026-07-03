@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, useEffect, type ReactNode } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useSearchParams, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { toast } from "sonner";
@@ -334,6 +334,10 @@ const LISTINGS_COLUMNS = [
   "carrier",
   "shipped_at",
   "delivered_at",
+  // US-1569 (00349): draft-review fields for the Drafts tab.
+  "listing_needs_review",
+  "listing_reviewed_at",
+  "listing_title",
 ].join(",");
 
 function fmtMoney(n: number | null | undefined): string {
@@ -429,6 +433,7 @@ export function FlipdeskListingsPage() {
   const [search, setSearch] = useUrlParamState("q", "");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(100);
+  const navigate = useNavigate();
   const [detailItem, setDetailItem] = useState<ItemFullRow | null>(null);
   // US-961: mobile per-card quick-edit drawer + the mobile filters sheet.
   const [quickEditItem, setQuickEditItem] = useState<ItemFullRow | null>(null);
@@ -2190,7 +2195,11 @@ export function FlipdeskListingsPage() {
                             "cursor-pointer hover:bg-muted/30",
                             isSel && "bg-brand-navy/5",
                           )}
-                          onClick={() => setDetailItem(it)}
+                          onClick={() =>
+                            tab === "drafts" && it.listing_id
+                              ? navigate(`/dashboard/flipdesk/items/${it.id}/draft`)
+                              : setDetailItem(it)
+                          }
                         >
                           {selectable && (
                             <TableCell
@@ -2214,7 +2223,13 @@ export function FlipdeskListingsPage() {
                               variant="ghost"
                               size="icon"
                               className="h-6 w-6"
-                              onClick={() => setDetailItem(it)}
+                              onClick={() =>
+                                tab === "drafts" && it.listing_id
+                                  ? navigate(
+                                      `/dashboard/flipdesk/items/${it.id}/draft`,
+                                    )
+                                  : setDetailItem(it)
+                              }
                               aria-label="Open full editor"
                             >
                               <Pencil className="h-3 w-3" />
@@ -2239,7 +2254,24 @@ export function FlipdeskListingsPage() {
                           </TableCell>
                           <TableCell className="max-w-[280px] font-medium">
                             <div className="flex items-center gap-1.5">
-                              <span className="truncate">{it.item_title}</span>
+                              {/* US-1569: a placeholder item title falls back
+                                  to the draft's generated listing title. */}
+                              <span className="truncate">
+                                {/^item\s+\d+$/i.test(it.item_title ?? "") ||
+                                /^untitled/i.test(it.item_title ?? "") ||
+                                !(it.item_title ?? "").trim()
+                                  ? (it.listing_title ?? it.item_title)
+                                  : it.item_title}
+                              </span>
+                              {tab === "drafts" && it.listing_needs_review && (
+                                <Badge
+                                  variant="outline"
+                                  className="shrink-0 border-amber-400 px-1.5 py-0 text-[10px] text-amber-700 dark:text-amber-300"
+                                  title="The AI flagged fields to double-check before publishing"
+                                >
+                                  Needs review
+                                </Badge>
+                              )}
                               {it.grade_value != null && (
                                 <Badge
                                   variant="secondary"

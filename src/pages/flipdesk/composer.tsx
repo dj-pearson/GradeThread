@@ -72,7 +72,6 @@ import { resolveStatus, factsOf } from "@/lib/workflow";
 import { cn, isoToLocalInput, localInputToIso } from "@/lib/utils";
 import { estimateListingProfit } from "@/lib/listing-profit";
 import { COMPOSER_FOCUS_ANCHORS } from "@/lib/publish-blockers";
-import { itemPhotoThumb } from "@/lib/images";
 import {
   mapEbayCondition,
   reverseProjectAspectColumns,
@@ -117,6 +116,7 @@ import {
 import { useCrossPush } from "@/hooks/use-cross-listing";
 import { useSellThroughForecast } from "@/hooks/use-forecast";
 import type {
+  ItemCategory,
   ItemPhotoRow,
   ListingInsert,
   ListingRow,
@@ -695,6 +695,9 @@ export function FlipdeskComposerPage() {
         // Saving = a human reviewed the price, so it's no longer an unverified
         // AI estimate.
         price_is_estimated: false,
+        // US-1568: a composer Save IS the human review — the draft leaves the
+        // AutoLister 'needs review' queue and lives on in Inventory → Drafts.
+        reviewed_at: new Date().toISOString(),
         is_active: false,
         primary_photo_id: primaryPhotoId,
         // US-561: persist the Promoted Listings choice. Opt-out when the toggle
@@ -1714,7 +1717,7 @@ export function FlipdeskComposerPage() {
               <PhotoUploader
                 itemId={item.id}
                 currentStatus={item.status}
-                category={item.category}
+                category={item.category as ItemCategory | null}
               />
               <PhotoManager
                 itemId={item.id}
@@ -1804,7 +1807,7 @@ export function FlipdeskComposerPage() {
                         Tighten &amp; polish
                       </DropdownMenuItem>
                       <DropdownMenuItem
-                        disabled={order.length === 0}
+                        disabled={photos.length === 0}
                         onClick={() => void runRewrite("description_regen")}
                       >
                         Regenerate from photos
@@ -1854,7 +1857,7 @@ export function FlipdeskComposerPage() {
                 // US-1571: keep the preview honest — internal + measurement
                 // photos never publish (edge filterListablePhotos), so they
                 // don't render in the buyer-facing preview either.
-                photos={order.filter((p) => !isNonListablePhotoType(p.photo_type))}
+                photos={photos.filter((p) => !isNonListablePhotoType(p.photo_type))}
                 primaryPhotoId={primaryPhoto?.id ?? null}
                 conditionLabel={
                   ebayCondition

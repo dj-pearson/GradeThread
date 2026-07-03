@@ -9977,7 +9977,7 @@
     {
       "id": "US-1567",
       "priority": 2369,
-      "passes": false,
+      "passes": true,
       "title": "Unified draft editor: composer gains full photo management (type tags, rotate, delete)",
       "description": "As a reseller reviewing AutoLister drafts, the Review page (listing composer at /dashboard/flipdesk/items/:id/draft) only lets me reorder photos and pick the hero — I cannot retag photo types (front/back/tag/detail), rotate, or delete like the item page's PhotoManager can. I have to bounce between two half-editors. The composer should embed the SAME PhotoManager the item canvas uses so one surface has everything: comps, category+specifics, promote, push-to, description, cross-post AND photo tagging/rotation/deletion.",
       "acceptanceCriteria": [
@@ -9987,7 +9987,7 @@
         "No duplicate photo-order writers: the composer's old order/primary handlers are removed or delegated so item_photos.sort_order has ONE owner on that page",
         "vitest/e2e coverage: composer renders PhotoManager and a retag+delete round-trips through the mocked network seam"
       ],
-      "notes": "User-reported (2026-07-03): 'the autolister drafts review page does not have image tags so I cant change what they are like in the inventory/drafts page.' PhotoManager already encapsulates retag/rotate/delete + eBay revise coalescing — mount it instead of duplicating. Watch the composer's EMPTY_PHOTOS stable-identity fix (f02426ff) when touching the photos query."
+      "notes": "User-reported (2026-07-03): 'the autolister drafts review page does not have image tags so I cant change what they are like in the inventory/drafts page.' PhotoManager already encapsulates retag/rotate/delete + eBay revise coalescing — mount it instead of duplicating. Watch the composer's EMPTY_PHOTOS stable-identity fix (f02426ff) when touching the photos query. [COMPLETION 2026-07-03] Locally verified (tsc -b via build, eslint 0 errors, vitest 1137/1137 incl. the new photo-manager-seams suite, prerender build green). The composer's Photos card now renders the SHARED PhotoManager + PhotoUploader (upload/reorder/rotate/straighten/crop/retag/delete/bg-removal) instead of the bespoke strip; ComposerPhoto + persistOrder/handleDragEnd + the order state DELETED so item_photos.sort_order has ONE owner on the page (AC4, pinned by test); the primary-photo star preserved via new OPTIONAL PhotoManager props (primaryPhotoId/onPickPrimary - surfaces without them are unchanged); liveListingId rides the existing dirty-flag/unmount sync contract (AC2, pinned); the preview reads the shared ['item_photos', id] query so retags/rotations/deletions reflect immediately with no stale order state (AC3). BONUS: a click-to-view LIGHTBOX added to PhotoManager (both composer AND item page gain it - the user's 'open up to view the photo larger' ask), and a Measurements card (the shared MeasurementForm) added to the composer, persisting to inventory_items.measurements on save. AC5: persistRetag/persistDelete extracted behind a PhotoMutationClient seam (PromiseLike - the tsc -b thenable gotcha) with round-trip tests (update-by-id, storage-then-row delete order, no-path skip, error surfacing) + structural guards (PhotoManager/PhotoUploader/MeasurementForm rendered, old writers gone)."
     },
     {
       "id": "US-1568",
@@ -10002,12 +10002,12 @@
         "Both surfaces route to the SAME composer editor; the item page keeps linking to it for draft items",
         "Publishing (or scheduled publish) moves the item to listed as today; nothing regresses in the queue's publish-all flow"
       ],
-      "notes": "User-reported (2026-07-03): wants 'a happy medium of both' with a single draft view; 'on save or approve the autolister drafts should drop off and then live in the drafts in Inventory until published or listed status.' Migration + EXPECTED_SCHEMA_VERSION bump + self-record footer; load the migrations skill. Edge writes must stay tenant-scoped (tenant-isolation skill)."
+      "notes": "User-reported (2026-07-03): wants 'a happy medium of both' with a single draft view; 'on save or approve the autolister drafts should drop off and then live in the drafts in Inventory until published or listed status.' Migration + EXPECTED_SCHEMA_VERSION bump + self-record footer; load the migrations skill. Edge writes must stay tenant-scoped (tenant-isolation skill). [PROGRESS 2026-07-03] The lifecycle CORE shipped with US-1567/1569: listings.reviewed_at (migration 00349, HELD - also republishes items_full with listing_needs_review/listing_reviewed_at/listing_title appended); composer Save + bulk-edit save STAMP reviewed_at; generateListing CLEARS it (a regeneration re-enters the queue); the AutoLister cockpit filters reviewed_at IS NULL (AC1+AC2 done); both surfaces route to the same composer (AC4 done - drafts-tab rows + pencil now open it). REMAINING for passes: AC3's full Inventory->Drafts enrichment (price estimated-badge, aspect_review count, batch link, scheduled-date column) and AC5's publish-flow regression check."
     },
     {
       "id": "US-1569",
       "priority": 2371,
-      "passes": false,
+      "passes": true,
       "title": "Inventory→Drafts rows carry the generated listing info (title, price, review state) and link to the composer",
       "description": "As a reseller, Inventory→Drafts showed 'Item 1, Item 2' placeholders with none of the generated info (title/description/category/specifics live only on the listings row), and clicking a row landed me on the bare item page. The generated-title write-back at generation time (shouldAdoptGeneratedTitle) fixes NEW batches; this story closes the rest: backfill existing placeholder items from their draft listings and surface listing facts on the Drafts tab.",
       "acceptanceCriteria": [
@@ -10016,7 +10016,7 @@
         "Row click (and any Edit affordance) opens the composer for draft items, not the bare item canvas",
         "Generation also mirrors size/color/material columns from the generated specifics when the item columns are blank (same fill-only provenance rules as reverseColumnAspects)"
       ],
-      "notes": "User-reported (2026-07-03). Title write-back for new generations landed with the seller-credentials link fix (ai-listing.ts shouldAdoptGeneratedTitle). Fill-only: never clobber seller-entered columns — reuse the provenance rules from SYNC_SOURCE_OF_TRUTH.md."
+      "notes": "User-reported (2026-07-03). Title write-back for new generations landed with the seller-credentials link fix (ai-listing.ts shouldAdoptGeneratedTitle). Fill-only: never clobber seller-entered columns — reuse the provenance rules from SYNC_SOURCE_OF_TRUTH.md. [COMPLETION 2026-07-03] AC4 (generation mirror): aspectCarryOver in ai-listing.ts - built on the canonical ASPECT_REGISTRY (the same table the composer write-back + publish projection use, so the mapping can never drift), STRICTLY FILL-ONLY onto size/color/material/style columns + attributes jsonb (department/size_type/pattern/fit/features w/ multi-join/...), case-insensitive with category alternates (US Shoe Size, Colour, Fastening...); wired into generateListing's itemUpdate next to the shouldAdoptGeneratedTitle guard; generated description also fills a blank item description. 5 deno tests (fill-only proven: seller-typed values never clobbered; unknown aspects ignored; alternates resolve; attributes merge preserves existing keys; empty aspects -> empty update) - 19/19 in listing-confidence_test. AC1 (backfill): migration 00348 (HELD) - DML-only, fill-only, idempotent: columns+attributes from ebay_aspects for ai_generated_aspects_at items; title (placeholder-guarded, mirrors shouldAdoptGeneratedTitle in SQL) + description from the newest AutoLister draft. AC2: drafts rows show the listing_title fallback for placeholder titles + the needs-review badge (via the 00349 items_full additions). AC3: drafts-tab row click AND the pencil route to the COMPOSER (/items/:id/draft) instead of the bare item canvas."
     },
     {
       "id": "US-1570",

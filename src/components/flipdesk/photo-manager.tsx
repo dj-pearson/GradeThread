@@ -68,6 +68,45 @@ interface PhotoManagerProps {
   onPickPrimary?: (photoId: string) => void;
 }
 
+// US-1567 AC5: the retag/delete network round-trips, extracted behind a
+// minimal client shape so tests drive them through a mocked seam. The
+// component wrappers add the dirty flag + cache invalidation + toasts.
+export interface PhotoMutationClient {
+  // PromiseLike, not Promise: supabase-js query builders are thenables.
+  from(table: string): {
+    update(patch: unknown): {
+      eq(col: string, v: string): PromiseLike<{ error: unknown }>;
+    };
+    delete(): { eq(col: string, v: string): PromiseLike<{ error: unknown }> };
+  };
+  storage: {
+    from(bucket: string): { remove(paths: string[]): PromiseLike<unknown> };
+  };
+}
+
+export async function persistRetag(
+  client: PhotoMutationClient,
+  photo: Pick<ItemPhotoRow, "id">,
+  photoType: FlipdeskPhotoType,
+): Promise<void> {
+  const { error } = await client
+    .from("item_photos")
+    .update({ photo_type: photoType } as never)
+    .eq("id", photo.id);
+  if (error) throw error;
+}
+
+export async function persistDelete(
+  client: PhotoMutationClient,
+  photo: Pick<ItemPhotoRow, "id" | "storage_path">,
+): Promise<void> {
+  if (photo.storage_path) {
+    await client.storage.from("item-photos").remove([photo.storage_path]);
+  }
+  const { error } = await client.from("item_photos").delete().eq("id", photo.id);
+  if (error) throw error;
+}
+
 export function PhotoManager({
   itemId,
   liveListingId,
@@ -199,11 +238,7 @@ export function PhotoManager({
   async function retag(photo: ItemPhotoRow, photoType: FlipdeskPhotoType) {
     photosDirtyRef.current = true;
     try {
-      const { error } = await supabase
-        .from("item_photos")
-        .update({ photo_type: photoType } as never)
-        .eq("id", photo.id);
-      if (error) throw error;
+      await persistRetag(supabase, photo, photoType);
       await qc.invalidateQueries({ queryKey: ["item_photos", itemId] });
     } catch {
       toast.error("Failed to change the photo type.");
@@ -213,16 +248,7 @@ export function PhotoManager({
   async function remove(photo: ItemPhotoRow) {
     photosDirtyRef.current = true;
     try {
-      if (photo.storage_path) {
-        await supabase.storage
-          .from("item-photos")
-          .remove([photo.storage_path]);
-      }
-      const { error } = await supabase
-        .from("item_photos")
-        .delete()
-        .eq("id", photo.id);
-      if (error) throw error;
+      await persistDelete(supabase, photo);
       await qc.invalidateQueries({ queryKey: ["item_photos", itemId] });
       toast.success("Photo deleted.");
     } catch (err) {

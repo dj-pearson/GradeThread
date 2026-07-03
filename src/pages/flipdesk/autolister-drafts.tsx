@@ -127,6 +127,10 @@ export function FlipdeskAutolisterDraftsPage() {
         )
         .eq("listing_status", "draft")
         .not("batch_id", "is", null)
+        // US-1568: this cockpit is the 'AI-processed, not yet human-reviewed'
+        // queue. A composer Save stamps reviewed_at and the draft drops off
+        // here — its durable home is Inventory → Drafts until published.
+        .is("reviewed_at", null)
         .order("created_at", { ascending: false })
         .limit(500);
       if (error) throw error;

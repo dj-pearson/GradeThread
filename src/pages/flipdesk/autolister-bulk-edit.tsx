@@ -816,6 +816,9 @@ export function FlipdeskAutolisterBulkEditPage() {
       .update({
         listing_title: r.title.trim() || null,
         listing_description: r.description.trim() || null,
+        // US-1568: a bulk-edit save is a human review — the draft leaves the
+        // AutoLister needs-review queue.
+        reviewed_at: new Date().toISOString(),
         listing_price: Number.isFinite(price) ? price : 0,
         ebay_condition: r.condition || null,
         quantity: Number.isFinite(qty) && qty > 0 ? qty : 1,

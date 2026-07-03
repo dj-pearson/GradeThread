@@ -1,5 +1,31 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00349_draft_review_lifecycle.sql (US-1568/US-1569, 2026-07-03)
+
+**What:** two changes in one transaction:
+1. `listings.reviewed_at timestamptz` — the "a human reviewed this draft"
+   marker (composer Save + bulk-edit save set it; regeneration clears it; the
+   AutoLister drafts cockpit filters `reviewed_at IS NULL`).
+2. `items_full` view recreated with three appended columns:
+   `listing_needs_review`, `listing_reviewed_at`, `listing_title`
+   (every pre-existing column reproduced in its exact 00306 position).
+
+Idempotent (ADD COLUMN IF NOT EXISTS + CREATE OR REPLACE VIEW); self-records
+'00349'.
+
+**Risk: MEDIUM — ⚠️ CLIENT-SIDE READS.** This commit's frontend:
+- selects the three NEW view columns in the inventory table projection
+  (`LISTINGS_COLUMNS` in listings.tsx) → the whole Inventory table (all tabs)
+  **400s** the moment Cloudflare Pages auto-deploys, until 00349 is applied;
+- filters the AutoLister drafts cockpit on `reviewed_at` → that page **400s**
+  too;
+- the composer/bulk-edit save writes `reviewed_at` → **saves fail**.
+
+**Apply 00349 (after 00346–00348) BEFORE OKing the push.** Then
+`NOTIFY pgrst, 'reload schema';` (REQUIRED here — new column + view) and
+redeploy the edge (boot guard expects 00349).
+
+
 ## ⏳ HELD: 00348_autolister_carryover_backfill.sql (US-1567, 2026-07-03)
 
 **What:** DML-only backfill (no schema change) repairing EXISTING AI-generated

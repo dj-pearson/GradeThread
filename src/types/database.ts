@@ -1034,6 +1034,10 @@ export interface ListingRow {
   platform_category_id: string | null;
   // AutoLister draft + publish fields (migration 00052)
   batch_id: string | null;
+  // US-1568 (00349): when a human reviewed this draft (composer / bulk-edit
+  // save); null = still in the AutoLister needs-review queue. Cleared when a
+  // regeneration overwrites the draft.
+  reviewed_at: string | null;
   scheduled_publish_at: string | null;
   publish_error: string | null;
   publish_failed_at: string | null;
@@ -1616,6 +1620,10 @@ export interface ItemFullRow {
   carrier: string | null;
   shipped_at: string | null;
   delivered_at: string | null;
+  // US-1569 (00349): draft-review fields from the most-recent listing.
+  listing_needs_review: boolean | null;
+  listing_reviewed_at: string | null;
+  listing_title: string | null;
 }
 
 // ── Admin task / project management (00047) ──────────────────────────────
@@ -2153,6 +2161,8 @@ export interface ListingInsert {
   platform_category_id?: string | null;
   // AutoLister (migration 00052)
   batch_id?: string | null;
+  // US-1568: composer/bulk-edit save stamps the human review.
+  reviewed_at?: string | null;
   scheduled_publish_at?: string | null;
   publish_error?: string | null;
   publish_failed_at?: string | null;

@@ -1534,6 +1534,9 @@ export async function generateListing(
     listing_title: listing.title,
     listing_description: listingDescription,
     listing_status: "draft" as const,
+    // US-1568: a fresh generation overwrites whatever a human reviewed —
+    // the draft goes back into the not-yet-reviewed queue.
+    reviewed_at: null,
     listing_price: priceDollars,
     platform_category_id: categoryId,
     ebay_condition: listing.ebay_condition,

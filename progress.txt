@@ -10774,3 +10774,25 @@ VERIFIED LOCALLY: three gates green; 8/8 in the results XML.
   never hidden). describe() extracts EdgeApiError property detail so
   lastError is the real reason (the test caught the class-name leak first).
 VERIFIED LOCALLY: three gates green; 10/10 in the results XML.
+
+=== 2026-07-03 (user-directed): US-1567 + US-1569 (+US-1568 core) — unified drafts ===
+THE ASK: AutoLister drafts (AI-rich) and Inventory drafts (photo tools) were
+two half-editors; carry-over stopped at the title. Now one system:
+- COMPOSER = THE draft editor: shared PhotoManager + PhotoUploader (rotate/
+  crop/straighten/retag/delete/bg-removal/reorder) replaces its bespoke strip
+  (one sort_order owner, pinned by test); primary star preserved via new
+  optional PhotoManager props; NEW click-to-view lightbox (both surfaces);
+  NEW Measurements card (shared MeasurementForm) saving to the item.
+- CARRY-OVER: aspectCarryOver (edge, on the canonical ASPECT_REGISTRY) fills
+  blank size/color/material/style + attributes + description at GENERATION,
+  fill-only (5 deno tests; seller values never clobbered). Migration 00348
+  (HELD) backfills existing drafts incl. placeholder titles.
+- LIFECYCLE (US-1568 core): listings.reviewed_at (00349, HELD - also adds
+  listing_needs_review/reviewed_at/title to items_full); composer + bulk-edit
+  saves stamp it, regeneration clears it, the cockpit filters to unreviewed.
+- INVENTORY->DRAFTS: rows show the generated title (placeholder fallback) +
+  needs-review badge; row click + pencil open the COMPOSER.
+VERIFIED: tsc -b/eslint/vitest 1137/1137 (new seams suite) + build (47 pages);
+deno lint/check + my edge surface 57/0 (the 1 edge-suite failure is the
+CONCURRENT agent's uncommitted measure-extract WIP, untouched). ⚠️ 00348+00349
+HELD: the frontend now READS the new view columns - apply before push OK.

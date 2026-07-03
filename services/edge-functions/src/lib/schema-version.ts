@@ -36,8 +36,8 @@ import { supabaseAdmin } from "./supabase.ts";
 import { edgeEnv } from "./env.ts";
 
 // Bump this in the SAME commit that adds a migration. = highest NNNNN in
-// supabase/migrations/. (00348_autolister_carryover_backfill.sql)
-export const EXPECTED_SCHEMA_VERSION = "00348";
+// supabase/migrations/. (00349_draft_review_lifecycle.sql)
+export const EXPECTED_SCHEMA_VERSION = "00349";
 
 export type SchemaVersionComparison = "match" | "behind" | "ahead" | "unknown";
 
