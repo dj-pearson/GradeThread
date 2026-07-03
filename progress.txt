@@ -2,6 +2,30 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-07-03
 
+## 2026-07-03 — US-1577 (card-free measurement-overlay listing asset) — passes:true — ⚠️ MIGRATION HELD
+
+The buyer-facing payoff: an UNBRANDED annotated measurements photo.
+- Migration 00350: flipdesk_photo_type 'measurement_overlay' (+ version bump
+  00350; NOTE Ralph's 00348/00349 sit between mine — PENDING_MIGRATIONS.md
+  spells out the 00346->00350 apply order). Vocabulary mirrored across web
+  constants/types + iOS labels; listing-ELIGIBLE (unlike 'measurement').
+- lib/measure-overlay.ts: inverse-homography card bbox -> guillotine crop
+  (largest card-free side, 35%-of-axis usefulness guard) with a deterministic
+  flat-fill mask fallback (no inpainting); white-halo lines + perpendicular
+  end caps + label pills (Roboto, 'Chest: 22 1/4 in') — no logo/URL/QR, and a
+  source-guard test enforces the unbranded contract.
+- /extract now persists per-measurement LINE GEOMETRY additively into
+  measure_calibration.lines (inches alone can't draw); at render time the
+  item's saved measurement value (editor-corrected) wins over extract-time.
+- POST /api/flipdesk/measure/overlay: tenant-scoped, replaces the previous
+  render (row + object), stores under {ownerId}/{itemId}/, trails the gallery
+  sort order, never primary (cover pick already excludes by type family).
+  Deterministic image work — NOT a billed AI action.
+- Deviation recorded in the story: include-in-listing toggle = the photo's
+  presence (delete/retag to exclude) rather than a new toggle column.
+VERIFIED LOCALLY: edge 2604/0 (8 new overlay tests incl. crop/mask/no-lines/
+unbranded); vitest 6/6; tsc -b clean.
+
 ## 2026-07-03 — US-1573 (auto measurement extraction: VLM proposes, CV decides) — passes:true
 
 One billed AI action turns a calibrated MeasureCard photo into real inches:

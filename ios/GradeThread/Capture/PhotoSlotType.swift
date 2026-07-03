@@ -233,6 +233,9 @@ public enum FlipdeskPhotoType {
         // photo-measurement pipeline; the edge excludes it from eBay,
         // generation AI, and public surfaces (like "internal").
         "measurement",
+        // US-1577 (migration 00350): generated card-free annotated
+        // measurements photo. Listing-eligible, never primary.
+        "measurement_overlay",
         "measurement_chest", "measurement_waist", "measurement_length",
         "measurement_sleeve", "measurement_inseam",
         "defect",
@@ -272,6 +275,7 @@ public enum FlipdeskPhotoType {
         case "corner":      return "Corners"
         case "surface":     return "Surface / Centering"
         case "measurement":        return "Measurement card (not listed)"
+        case "measurement_overlay": return "Measurements photo (generated)"
         case "measurement_chest":  return "Measure: Chest / Bust"
         case "measurement_waist":  return "Measure: Waist"
         case "measurement_length": return "Measure: Length"

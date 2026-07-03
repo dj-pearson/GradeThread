@@ -10132,7 +10132,7 @@
     {
       "id": "US-1577",
       "priority": 2379,
-      "passes": false,
+      "passes": true,
       "title": "Clean measurement-overlay listing asset: card-free annotated photo buyers can trust",
       "description": "As a reseller, GradeThread renders a clean, marketplace-safe measurements photo for my listing: the garment (card cropped OUT of frame) with unbranded measurement lines and inch labels burned in — the buyer-facing payoff of the whole system and a big listing-quality differentiator.",
       "acceptanceCriteria": [
@@ -10143,7 +10143,7 @@
         "Graceful degradation: a crop that would clip the garment falls back to the full rectified frame with the card region masked to a flat background fill (not inpainting); if that also fails the overlay is simply skipped — publish is never blocked by overlay generation",
         "Deno test: renderer draws the expected line/label count from a fixture measurement set; type-exclusion test that measurement stays OUT and measurement_overlay goes IN (non-primary) of the publish photo set"
       ],
-      "notes": "This story answers the eBay concern: the CARD photo never ships (segregated by type), and the shipping overlay is card-free + brand-free. Annotated measurement photos are established eBay practice (Tailored's flagship output) — the policy risk is branding, not measurement callouts."
+      "notes": "This story answers the eBay concern: the CARD photo never ships (segregated by type), and the shipping overlay is card-free + brand-free. Annotated measurement photos are established eBay practice (Tailored's flagship output) — the policy risk is branding, not measurement callouts. BUILT 2026-07-03: migration 00350 (measurement_overlay enum) + version bump; vocabulary mirrored web/types/iOS; lib/measure-overlay.ts (invert homography -> card px bbox -> guillotine crop choosing the largest card-free side with a 35%-axis guard, mask-with-flat-fill fallback, thick halo lines + perpendicular end caps + label pills via ImageScript/Roboto — UNBRANDED, source-guard test); /extract now persists per-measurement LINE GEOMETRY additively into measure_calibration.lines (editor-corrected item.measurements value wins at render); POST /api/flipdesk/measure/overlay replaces the previous render, stores {ownerId}/{itemId}/measurement_overlay_*.jpg, trails sort_order, listing-eligible non-primary. DEVIATION: include-in-listing toggle = presence (delete/retag the generated photo to exclude) — a per-photo toggle column was not worth a second migration; revisit with US-1574 if sellers ask. Edge 2604/0."
     },
     {
       "id": "US-1578",

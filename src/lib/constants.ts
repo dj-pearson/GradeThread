@@ -812,6 +812,10 @@ export const FLIPDESK_PHOTO_TYPES = [
   "interior",
   "flatlay",
   "on_model",
+  // US-1577 (migration 00350): GENERATED card-free annotated measurements
+  // photo (unbranded lines + inch labels). Listing-ELIGIBLE, never primary;
+  // regenerating replaces the previous render.
+  "measurement_overlay",
   // Universal roles (migration 00230) reused across non-clothing categories.
   "angle",
   "sole",
@@ -876,6 +880,7 @@ export const PHOTO_TYPE_LABELS: Record<
   corner: "Corners",
   surface: "Surface / Centering",
   measurement: "Measurement card (not listed)",
+  measurement_overlay: "Measurements photo (generated)",
   measurement_chest: "Measure: Chest / Bust",
   measurement_waist: "Measure: Waist",
   measurement_length: "Measure: Length",

@@ -54,6 +54,20 @@ safe even before this is applied; the backfill just makes OLD drafts whole.
 (boot guard expects 00348).
 
 
+## ⏳ HELD: 00350_measurement_overlay_photo_type.sql (US-1577, 2026-07-03)
+
+**What:** `ALTER TYPE public.flipdesk_photo_type ADD VALUE IF NOT EXISTS 'measurement_overlay';`
+— the GENERATED card-free annotated measurements photo (listing-eligible,
+never primary). Idempotent; self-records '00350'.
+
+**Risk: LOW.** Client-side reads: the web photo pickers list the new type the
+moment the frontend deploys — retagging a photo TO it 400s until applied
+(same class as 00346). Edge writes it only post-boot-guard (version 00350).
+NOTE: Ralph's 00348 (carry-over backfill) + 00349 (draft review lifecycle)
+sit between — apply 00346 → 00350 IN ORDER, then NOTIFY pgrst.
+
+---
+
 ## ⏳ HELD: 00347_measure_calibration.sql (US-1572, 2026-07-03)
 
 **What:** `ALTER TABLE public.item_photos ADD COLUMN IF NOT EXISTS measure_calibration jsonb;`
