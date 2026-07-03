@@ -9794,7 +9794,7 @@
     {
       "id": "US-1555",
       "priority": 2256,
-      "passes": false,
+      "passes": true,
       "title": "Agent infra: PreToolUse write-guards + roadmap doc corrections",
       "description": "As the project owner, prose rules become hard stops: agents cannot hand-edit shadcn ui components or rewrite the prd archive. Also correct the level-up roadmap where the 2026-07-03 review found drift.",
       "acceptanceCriteria": [
@@ -9803,12 +9803,12 @@
         "AGENT_LEVELUP_ROADMAP.md section 6.4 (verifiable certificates) marked BUILT (cert-integrity v3: canonical hash + optional HMAC + public verify + QR, coverage scope sealed since US-1279), with the only open slice (cross-cert transparency chain) noted as low-value",
         "Roadmap section 1 updated: supabase skills installed, permission allowlist exists; remaining = SessionStart hook + loop-prompt usage of /verify, /code-review, /security-review"
       ],
-      "notes": "From AGENT_LEVELUP_ROADMAP.md section 4 + review corrections (2026-07-03). Skip the async PostToolUse tsc idea - tsc -b is too slow per-edit; the pre-push hook stays the wall."
+      "notes": "From AGENT_LEVELUP_ROADMAP.md section 4 + review corrections (2026-07-03). Skip the async PostToolUse tsc idea - tsc -b is too slow per-edit; the pre-push hook stays the wall. [COMPLETION 2026-07-03] .claude/settings.json (checked in) PreToolUse hook matcher-scoped to Edit|Write|NotebookEdit -> node .claude/hooks/write-guard.mjs: blocks src/components/ui/** (message points at npx shadcn add / wrap-in-own-file) and prd.archive.json (message points at the archive script + stop-Ralph rule); exit 2 + stderr; malformed hook input exits 0 (never breaks tooling); reads untouched (matcher covers write tools only). Verified with 5 byte-exact stdin cases incl. Windows backslash paths and notebook_path. Roadmap corrections: section 6.4 verifiable certificates marked BUILT (cert-integrity v3 canonical hash + optional HMAC + /verify + cert numbers/QR + coverage sealed since US-1279; only the cross-cert transparency chain open, noted low-value); section 1 status block added (supabase skills installed, allowlist exists; remaining = SessionStart hook + loop-prompt usage of /verify+/code-review+/security-review); section 4 PreToolUse item checked off and the PostToolUse-tsc idea explicitly REJECTED per story note."
     },
     {
       "id": "US-1556",
       "priority": 2254,
-      "passes": false,
+      "passes": true,
       "title": "Agent infra: durable-jobs project skill (batch/claim/heartbeat/reclaim contract)",
       "description": "As an agent building or debugging any queued background work, I load the durable-jobs contract that generation batches, bulk publish, and feed sync already share - so the next queue copies the pattern correctly and a batch-does-nothing report starts at the job rows, not the code.",
       "acceptanceCriteria": [
@@ -9817,7 +9817,7 @@
         "Cites flipdesk-autolister.ts processBatch as the reference implementation and lists the deploy-time ops dependency (Coolify scheduled task per cron-runs.ts registry)",
         "Triggers on queue/batch/worker/cron work in edge routes"
       ],
-      "notes": "Motivated by US-1552 (2026-07-03): a 43-item batch died silently - wholesale timeouts wrote only to job rows while edge logs looked healthy. Not in the original roadmap; added by the 2026-07-03 review."
+      "notes": "Motivated by US-1552 (2026-07-03): a 43-item batch died silently - wholesale timeouts wrote only to job rows while edge logs looked healthy. Not in the original roadmap; added by the 2026-07-03 review. [COMPLETION 2026-07-03] .claude/skills/durable-jobs/SKILL.md (registered live in-session). Leads with the US-1552 lesson as the DEBUG-PROCEDURE-FIRST section (job rows before code; SQL snippets for listing_generation_jobs/batches). Contract documented with the REAL constants (MAX_JOB_ATTEMPTS 5; GENERATION_TIMEOUT 240s < JOB_STALE 6min; BATCH_STALE 15min; publish variants 5/15min), the atomic conditional-UPDATE claim with the error-never-swallowed rule AND the PostgREST no-.or()-on-mutations caveat from US-1552's fix, attempts-cap semantics (explicit user retry resets; automation never), heartbeat roll-up, finalize-from-job-rows idempotency, reclaim cron + job-secret + job-lock, and the Coolify-scheduled-task + cron_runs ops dependency. Cites processBatch as reference; ends with a 6-point new-queue checklist incl. per-item quota reserve + tenant-isolation cross-reference."
     },
     {
       "id": "US-1557",

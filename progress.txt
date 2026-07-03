@@ -9851,3 +9851,36 @@ VERIFICATION: docs/markdown only - no code paths touched; skills <=150-line budg
 (100/72/77); frontmatter descriptions trigger-tested by the harness registering them.
 Commit held local per the standing rule (no migration inside, but the push queue is
 now user-managed after tonight's out-of-band push).
+
+=== 2026-07-03 (loop): US-1555 (write-guards + roadmap corrections) + US-1556 (durable-jobs skill) ===
+US-1555:
+- NEW .claude/settings.json (checked in - every agent/session inherits it): PreToolUse
+  hook matcher-scoped to Edit|Write|NotebookEdit running node
+  .claude/hooks/write-guard.mjs. Blocks src/components/ui/** ("re-generate with npx
+  shadcn add, or wrap the component") and prd.archive.json ("append-only via the
+  archive script; stop Ralph first"). Exit 2 + stderr message; malformed input exits 0
+  so the guard can never break tooling; reads are untouched (matcher = write tools
+  only, AC2). VERIFIED with 5 byte-exact stdin cases (Windows backslash + POSIX paths,
+  archive, pass-through, notebook_path) after discovering Git-Bash echo/printf mangle
+  backslash JSON - the test harness was the bug, not the guard.
+- Roadmap corrections: 6.4 verifiable certificates marked BUILT (cert-integrity v3:
+  canonical hash + optional HMAC + public /verify + cert numbers/QR + coverage-scope
+  sealing since US-1279; open slice = cross-cert transparency chain, noted low-value);
+  section 1 gains a status block (supabase skills installed, allowlist exists;
+  remaining = SessionStart hook + loop-prompt /verify + /code-review +
+  /security-review usage); section 4 PreToolUse checked off, PostToolUse-tsc idea
+  explicitly REJECTED (tsc -b too slow per-edit; pre-push stays the wall).
+US-1556:
+- NEW .claude/skills/durable-jobs/SKILL.md (registered live in-session). Structured
+  around the US-1552 lesson: DEBUG PROCEDURE FIRST - read
+  listing_generation_jobs.status/error/attempts for the batch BEFORE any code, because
+  failure paths are DB-row-only by design (SQL snippets included). Contract with the
+  real constants (attempts cap 5; per-item timeout 240s < JOB_STALE 6min < BATCH_STALE
+  15min; publish 5/15min), atomic conditional-UPDATE claim + error-never-swallowed +
+  the PostgREST no-.or()-on-mutations caveat, attempts-cap semantics (user retry
+  resets, automation never), heartbeat/finalize-from-rows idempotency, reclaim cron +
+  job secret + job lock, and the Coolify-scheduled-task + cron_runs ops dependency.
+  Reference: processBatch. Ends with a 6-point new-queue checklist.
+VERIFICATION: guard exercised with byte-exact cases (5/5); skills/docs otherwise
+markdown-only. Agent-infra batch (US-1553-1556) COMPLETE - all four in
+.claude/{skills,hooks,settings.json}.

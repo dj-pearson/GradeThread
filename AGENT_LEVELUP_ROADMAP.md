@@ -11,7 +11,12 @@ into `prd.json` as stories (use `nextId`).
 ## 1. Skills to use today (already available — zero build cost)
 
 These exist in the current Claude Code environment; the win is *using them
-consistently*, ideally baked into the Ralph loop prompt and CLAUDE.md:
+consistently*, ideally baked into the Ralph loop prompt and CLAUDE.md.
+**Status 2026-07-03 (US-1555):** the supabase skills are installed in
+`.claude/skills/` and a permission allowlist already exists
+(`.claude/settings.local.json`) — remaining from this table: the one-time
+SessionStart hook, and wiring `/verify`, `/code-review`, `/security-review`
+into the loop prompts.
 
 | Skill | When |
 |---|---|
@@ -70,12 +75,13 @@ matching CLAUDE.md sections into them and leave one-line pointers behind
 
 ## 4. Hooks & automation (`.claude/settings.json`)
 
-- **PreToolUse guard:** block Edit/Write to `src/components/ui/**` (shadcn —
-  "DO NOT hand-edit" is currently only prose) and to `prd.archive.json`.
+- ✅ **PreToolUse guard** (DONE 2026-07-03, US-1555): `.claude/settings.json`
+  + `.claude/hooks/write-guard.mjs` block Edit/Write/NotebookEdit to
+  `src/components/ui/**` and `prd.archive.json` with actionable messages.
 - **SessionStart hook:** install deps + `deno cache` so web/remote agents are
   productive from turn one (use the `session-start-hook` skill).
-- **PostToolUse (async):** `tsc --noEmit` on edited `.ts/.tsx` scoped to the
-  touched project, so agents get type feedback before the pre-push wall.
+- ~~PostToolUse async tsc~~ — REJECTED (2026-07-03 review): `tsc -b` is too
+  slow per-edit on this repo; the pre-push hook stays the wall.
 - Keep gitleaks/verify git hooks as the hard gate; the Claude hooks are the
   fast inner loop.
 
@@ -130,10 +136,13 @@ system better in a way competitors can't copy without the volume. Next layers:
 3. **Active-learning review routing.** Rank the review queue by information
    value (novel category/defect combos, calibration-gap regions), not FIFO —
    each human hour grows the golden set and exemplar pool fastest.
-4. **Verifiable certificates.** Hash-chain or signed-snapshot each issued
-   certificate (append-only log + printable verification code). Tamper
-   evidence is a trust feature imitators with mutable DBs can't claim, and it
-   makes GradeThread grades *citable* by marketplaces.
+4. ✅ **Verifiable certificates — BUILT** (corrected 2026-07-03, US-1555):
+   cert-integrity v3 already ships canonical-hash sealing + optional HMAC
+   signing, the public /verify page with printable certificate numbers
+   (US-00307) and QR, and the guarantee coverage scope sealed into the hash
+   (US-1279). The only unbuilt slice is a cross-certificate transparency
+   chain (each cert hashing the previous) — low value until someone disputes
+   the append-only property; don't build speculatively.
 5. **Outcome-grounded truth.** Extend claim-accuracy beyond SNAD: FlipDesk
    knows sale price, returns, and disputes — regress realized outcomes against
    grades to prove (and publish) that grade ↔ price/return-rate correlation.
