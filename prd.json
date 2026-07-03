@@ -10037,7 +10037,7 @@
     {
       "id": "US-1571",
       "priority": 2373,
-      "passes": false,
+      "passes": true,
       "title": "New 'measurement' photo type across every surface (web, edge, DB, iOS; Android-ready)",
       "description": "As a reseller, I take ONE extra flat-lay photo with the MeasureCard beside the garment, tagged as the 'measurement' photo. That tag is what the extraction pipeline keys on, and it must NEVER ship to a marketplace (the card is a branded foreign object eBay dislikes in photos).",
       "acceptanceCriteria": [
@@ -10048,7 +10048,7 @@
         "Existing photos can be RE-tagged to 'measurement' in the photo manager (a seller who already shot one should not reshoot)",
         "Tests: edge validator accepts the new type; listing-photo assembly test proves a 'measurement' photo is filtered out of the publish set"
       ],
-      "notes": "Load the migrations skill for the enum change (enum caveats!). The card-removal requirement is PRIMARILY solved here — by segregation, not image editing: the card photo simply never leaves GradeThread. US-1577 then produces a clean, card-free overlay asset for listings."
+      "notes": "Load the migrations skill for the enum change (enum caveats!). The card-removal requirement is PRIMARILY solved here — by segregation, not image editing: the card photo simply never leaves GradeThread. US-1577 then produces a clean, card-free overlay asset for listings. BUILT 2026-07-03: migration 00346 (enum add) + EXPECTED_SCHEMA_VERSION bump; web constants/types/pickers + NON_LISTABLE_PHOTO_TYPES helper (composer preview now filters non-listable, fixing internal too); edge filterListablePhotos excludes measurement, cover-pick + photoCount .neq behind the boot guard; photo-profiles measurement role (capture guidance); autolister vision-pass filters; iOS FlipdeskPhotoType.all + label. Android TODO hook noted in US-1576. Commit HELD locally per the migration push rule."
     },
     {
       "id": "US-1572",

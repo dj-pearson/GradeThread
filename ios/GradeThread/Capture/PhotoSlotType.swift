@@ -228,6 +228,11 @@ public enum FlipdeskPhotoType {
     /// Front → Back → Tag → Detail → measurements → defect → extras → universal.
     public static let all: [String] = [
         "front", "back", "tag", "detail",
+        // US-1571 (migration 00346): MeasureCard calibration frame - the
+        // whole garment flat with the fiducial card beside it. Keys the
+        // photo-measurement pipeline; the edge excludes it from eBay,
+        // generation AI, and public surfaces (like "internal").
+        "measurement",
         "measurement_chest", "measurement_waist", "measurement_length",
         "measurement_sleeve", "measurement_inseam",
         "defect",
@@ -266,6 +271,7 @@ public enum FlipdeskPhotoType {
         case "certificate": return "Certificate / Label"
         case "corner":      return "Corners"
         case "surface":     return "Surface / Centering"
+        case "measurement":        return "Measurement card (not listed)"
         case "measurement_chest":  return "Measure: Chest / Bust"
         case "measurement_waist":  return "Measure: Waist"
         case "measurement_length": return "Measure: Length"

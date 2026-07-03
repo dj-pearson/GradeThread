@@ -1350,6 +1350,10 @@ export async function generateListing(
     .eq("inventory_item_id", itemId)
     // US-1549: a seller-reference photo must never become the cover.
     .neq("photo_type", "internal")
+    // US-1571: nor the MeasureCard calibration frame. SQL-side filter on the
+    // new enum value is safe here: the boot guard holds this code behind
+    // migration 00346 (EXPECTED_SCHEMA_VERSION bumps in the same commit).
+    .neq("photo_type", "measurement")
     .order("sort_order", { ascending: true })
     .limit(1)
     .maybeSingle();
@@ -1875,7 +1879,10 @@ export async function generatePlatformVariants(
     .from("item_photos")
     .select("id", { count: "exact", head: true })
     .eq("inventory_item_id", itemId)
-    .neq("photo_type", "internal");
+    .neq("photo_type", "internal")
+    // US-1571: the MeasureCard frame isn't cross-listable imagery either
+    // (enum value guaranteed by the 00346 boot guard, same as the cover pick).
+    .neq("photo_type", "measurement");
 
   // 5. Resolve each platform's category (US-722): shared cache → seed → AI →
   // unmapped. Cache/seed hits cost ~0; only an unseeded garment type triggers

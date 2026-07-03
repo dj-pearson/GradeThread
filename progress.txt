@@ -2,6 +2,31 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-07-03
 
+## 2026-07-03 — US-1571 ('measurement' photo type across every surface) — passes:true — ⚠️ MIGRATION HELD
+
+MeasureCard calibration-frame tag, segregated from every listing surface:
+- Migration 00346: flipdesk_photo_type ADD VALUE 'measurement' (idempotent,
+  self-records) + EXPECTED_SCHEMA_VERSION -> 00346 same commit. COMMIT HELD
+  LOCALLY per the standing rule — see PENDING_MIGRATIONS.md (frontend picker
+  writes the new enum value, so pushing before prod-apply 400s retagging).
+- Web: FLIPDESK_PHOTO_TYPES + label ("Measurement card (not listed)") +
+  FlipdeskPhotoType union; NEW NON_LISTABLE_PHOTO_TYPES/isNonListablePhotoType
+  helper (mirrors edge); composer buyer preview now filters non-listable
+  (fixes 'internal' leaking into the preview too); photo-manager retag picker
+  gains the type + inline capture guidance; AutoLister intake role picker
+  auto-includes it and its classify/verify vision payloads exclude it.
+- Edge: filterListablePhotos excludes measurement (publish/revise/cross-list/
+  public/AI selection sites all flow through it); cover-pick + cross-listing
+  photoCount add .neq('measurement') guarded by the 00346 boot guard;
+  photo-profiles.ts gains the 'measurement' role (server-authoritative
+  capture guidance: card BESIDE garment, 4 squares visible, top-down).
+- iOS: FlipdeskPhotoType.all + label (retag works; capture step is US-1575).
+- Required set untouched (front+back); measurement never counts toward it.
+VERIFIED LOCALLY: full edge suite 2565/0 (item-photo-storage exclusion tests
+extended incl. measurement_* close-ups staying listable); vitest 6/6 (new
+photo-type-measurement suite); tsc -b clean; deno lint/check clean; iOS
+no-ungated-print + curly-quote scans clean (build rides iOS CI).
+
 ## 2026-07-03 — US-1570 (MeasureCard v1: artwork + print spec + printable fallback) — passes:true
 
 - scripts/generate-measure-card.py: generates ALL artwork from code and REFUSES

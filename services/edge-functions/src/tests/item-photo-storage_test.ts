@@ -22,6 +22,7 @@ const {
   bucketForItemPhoto,
   filterListablePhotos,
   isInternalItemPhoto,
+  isNonListableItemPhoto,
   ITEM_PHOTOS_BUCKET,
   SENSITIVE_ITEM_PHOTO_TYPES,
   SUBMISSION_IMAGES_BUCKET,
@@ -95,4 +96,25 @@ Deno.test("US-1549: internal photos are excluded by filterListablePhotos", () =>
   // NOT bucket-sensitive: the blob stays wherever it was uploaded — the
   // enforcement is selection-side, by design.
   assertEquals(bucketForItemPhoto("internal"), ITEM_PHOTOS_BUCKET);
+});
+
+Deno.test("US-1571: measurement (MeasureCard) photos are excluded like internal", () => {
+  assert(isNonListableItemPhoto("measurement"));
+  assert(isNonListableItemPhoto("internal"));
+  assert(!isNonListableItemPhoto("front"));
+  // The tape-measure close-ups are NOT the card frame - they stay listable.
+  assert(!isNonListableItemPhoto("measurement_chest"));
+  assert(!isNonListableItemPhoto(null));
+
+  const rows = [
+    { id: "a", photo_type: "front" },
+    { id: "b", photo_type: "measurement" },
+    { id: "c", photo_type: "measurement_length" },
+    { id: "d", photo_type: "internal" },
+  ];
+  // The publish/AI/public selection keeps only a + c.
+  assertEquals(filterListablePhotos(rows).map((r) => r.id), ["a", "c"]);
+  // isInternalItemPhoto stays narrow (bucket/other semantics unchanged).
+  assert(!isInternalItemPhoto("measurement"));
+  assertEquals(bucketForItemPhoto("measurement"), ITEM_PHOTOS_BUCKET);
 });

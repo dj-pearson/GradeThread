@@ -374,6 +374,14 @@ function SortablePhoto({
           </button>
         </div>
       </div>
+      {/* US-1571: capture guidance for the MeasureCard frame, surfaced right
+          where the tag is set. */}
+      {photo.photo_type === "measurement" && (
+        <p className="px-1.5 pb-1 text-[10px] leading-tight text-muted-foreground">
+          MeasureCard shot: whole garment flat, card BESIDE it, all 4 squares
+          visible. Never sent to eBay.
+        </p>
+      )}
       <div className="flex items-center gap-1 p-1">
         <Select
           value={photo.photo_type}

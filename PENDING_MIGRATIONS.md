@@ -1,5 +1,28 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00346_measurement_photo_type.sql (US-1571, 2026-07-03)
+
+**What:** `ALTER TYPE public.flipdesk_photo_type ADD VALUE IF NOT EXISTS 'measurement';`
+— the MeasureCard calibration-frame photo tag for the photo-measurement
+pipeline (US-1570..1580). Idempotent; self-records '00346'.
+
+**Risk: LOW** (single enum value add). But note the CLIENT-SIDE read:
+
+- ⚠️ The same commit ships web UI that lets a seller TAG a photo
+  `measurement` (photo-manager retag picker, AutoLister role picker). The
+  moment this commit reaches origin, Cloudflare Pages auto-deploys — and
+  picking "Measurement card (not listed)" 400s ("invalid input value for
+  enum") until 00346 is applied to prod. **Apply 00346 BEFORE OKing the push.**
+- The edge in this commit bumps `EXPECTED_SCHEMA_VERSION` to 00346 and adds
+  two SQL-side `.neq("photo_type","measurement")` filters — safe because the
+  boot guard holds the edge redeploy behind the applied migration.
+
+**Apply order:** ensure 00343→00345 are applied first (see below / prior
+sessions), then 00346, then `NOTIFY pgrst, 'reload schema';`. All idempotent —
+re-running the tail is safe. Edge redeploy afterward at your convenience.
+
+---
+
 > ## 🚨 STATUS CHANGE 2026-07-02 22:19 CT — THE HELD COMMITS WERE PUSHED
 > A `git pull` + push from this machine (user or the concurrent agent — reflog
 > shows the pull at 22:19:14; I did not push) landed EVERYTHING on origin/main,

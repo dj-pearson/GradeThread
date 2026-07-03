@@ -21,14 +21,30 @@ export function isInternalItemPhoto(photoType?: string | null): boolean {
   return (photoType ?? "") === "internal";
 }
 
+// US-1571: photo types that never leave GradeThread. 'measurement' is the
+// MeasureCard calibration frame (garment flat with the fiducial card beside
+// it) — the measurement pipeline reads it EXPLICITLY by type; every listing /
+// generation-AI / public selection drops it, exactly like 'internal' (the
+// card is a branded foreign object in a listing photo). Mirror of the web's
+// NON_LISTABLE_PHOTO_TYPES in src/lib/constants.ts.
+export const NON_LISTABLE_PHOTO_TYPES = new Set<string>([
+  "internal",
+  "measurement",
+]);
+
+export function isNonListableItemPhoto(photoType?: string | null): boolean {
+  return NON_LISTABLE_PHOTO_TYPES.has(photoType ?? "");
+}
+
 /**
- * Drop 'internal' photos from a selection headed to eBay, an AI pass, or a
- * public surface. Pure; rows without a photo_type pass through unchanged.
+ * Drop 'internal' + 'measurement' photos from a selection headed to eBay, an
+ * AI pass, or a public surface. Pure; rows without a photo_type pass through
+ * unchanged.
  */
 export function filterListablePhotos<T extends { photo_type?: string | null }>(
   rows: T[],
 ): T[] {
-  return rows.filter((r) => !isInternalItemPhoto(r.photo_type));
+  return rows.filter((r) => !isNonListableItemPhoto(r.photo_type));
 }
 
 export const ITEM_PHOTOS_BUCKET = "item-photos";

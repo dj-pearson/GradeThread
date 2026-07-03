@@ -793,6 +793,14 @@ export const FLIPDESK_PHOTO_TYPES = [
   "back",
   "tag",
   "detail",
+  // US-1571 (migration 00346): the MeasureCard calibration frame — the whole
+  // garment laid flat with the GradeThread MeasureCard beside it; the
+  // photo-measurement pipeline keys on this tag. Never sent to eBay /
+  // cross-listings, never fed to the generation/classify AI passes, never
+  // public (the card is a branded foreign object in a listing photo) — the
+  // edge enforces via filterListablePhotos, like 'internal'. Distinct from
+  // the measurement_* tape close-ups below (size-estimate shots).
+  "measurement",
   // Measurements rank ahead of defects in the gallery.
   ...MEASUREMENT_PHOTO_TYPES,
   "defect",
@@ -867,6 +875,7 @@ export const PHOTO_TYPE_LABELS: Record<
   certificate: "Certificate / Label",
   corner: "Corners",
   surface: "Surface / Centering",
+  measurement: "Measurement card (not listed)",
   measurement_chest: "Measure: Chest / Bust",
   measurement_waist: "Measure: Waist",
   measurement_length: "Measure: Length",
@@ -874,6 +883,16 @@ export const PHOTO_TYPE_LABELS: Record<
   measurement_inseam: "Measure: Inseam",
   internal: "Internal (not listed)",
 };
+
+// US-1571: photo types that must never leave GradeThread — excluded from the
+// eBay/cross-listing photo set, AI listing passes, and public surfaces.
+// Mirror of the edge's filterListablePhotos (lib/item-photo-storage.ts);
+// clients use this to keep previews honest about what will actually publish.
+export const NON_LISTABLE_PHOTO_TYPES = ["internal", "measurement"] as const;
+
+export function isNonListablePhotoType(t?: string | null): boolean {
+  return (NON_LISTABLE_PHOTO_TYPES as readonly string[]).includes(t ?? "");
+}
 
 export const LISTING_STATUSES = [
   "draft",

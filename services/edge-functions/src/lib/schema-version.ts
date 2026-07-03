@@ -37,7 +37,7 @@ import { edgeEnv } from "./env.ts";
 
 // Bump this in the SAME commit that adds a migration. = highest NNNNN in
 // supabase/migrations/. (00345_negotiation_access_denied.sql)
-export const EXPECTED_SCHEMA_VERSION = "00345";
+export const EXPECTED_SCHEMA_VERSION = "00346";
 
 export type SchemaVersionComparison = "match" | "behind" | "ahead" | "unknown";
 

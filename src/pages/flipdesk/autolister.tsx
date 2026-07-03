@@ -97,6 +97,7 @@ import { useBillingSummary } from "@/hooks/use-billing-summary";
 import { useUpgradeDialogStore } from "@/stores/upgrade-dialog-store";
 import {
   FLIPDESK_PHOTO_TYPES,
+  isNonListablePhotoType,
   FLIPDESK_PLANS,
   MEASUREMENT_PHOTO_TYPES,
   PHOTO_TYPE_LABELS,
@@ -1453,8 +1454,9 @@ export function FlipdeskAutolisterPage() {
         .map((g) => ({
           id: g.id,
           photos: g.photoIds
-            // US-1549: internal (seller-reference) photos stay out of AI.
-            .filter((pid) => (g.roles?.[pid] ?? "detail") !== "internal")
+            // US-1549/US-1571: internal (seller-reference) and measurement
+            // (MeasureCard frame) photos stay out of the vision passes.
+            .filter((pid) => !isNonListablePhotoType(g.roles?.[pid] ?? "detail"))
             .map((pid) => stagedById.get(pid))
             .filter((p): p is StagedPhoto => !!p)
             .map((p) => ({ id: p.id, storage_path: p.storagePath })),
@@ -1842,7 +1844,7 @@ export function FlipdeskAutolisterPage() {
     const photos = g.photoIds
       // US-1549: never send seller-reference (internal) photos to the vision
       // pass — the AI must not read the price tag you paid.
-      .filter((pid) => (g.roles?.[pid] ?? "detail") !== "internal")
+      .filter((pid) => !isNonListablePhotoType(g.roles?.[pid] ?? "detail"))
       .map((pid) => stagedById.get(pid))
       .filter((p): p is StagedPhoto => !!p);
     if (photos.length === 0) return false;

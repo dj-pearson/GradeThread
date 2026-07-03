@@ -28,6 +28,8 @@ export type PhotoStorageType =
   | "defect"
   | "flatlay"
   | "on_model"
+  // US-1571 (migration 00346): the MeasureCard calibration frame.
+  | "measurement"
   | "measurement_chest"
   | "measurement_waist"
   | "measurement_length"
@@ -101,6 +103,17 @@ const CLOTHING: PhotoProfile = {
     role("back", "Back", "Same crop as the front shot", true, "shirt"),
     role("tag", "Garment Tag", "Care + size label, close enough to read (skip if the tag is missing)", false, "tag"),
     role("detail", "Detail", "Texture, weave, or a distinctive feature", false, "search"),
+    // US-1571: the MeasureCard calibration frame the photo-measurement
+    // pipeline reads. Never listed / never fed to generation AI (edge
+    // filterListablePhotos) — this slot exists so tagging surfaces show the
+    // capture guidance.
+    role(
+      "measurement",
+      "Measurement card",
+      "Whole garment flat with the MeasureCard BESIDE it — all 4 squares visible, shot top-down",
+      false,
+      "ruler",
+    ),
     role("measurement_chest", "Measure: Chest / Bust", "Tape across the chest, garment flat, pit to pit", false, "ruler"),
     role("measurement_waist", "Measure: Waist", "Tape across the waistband, garment flat", false, "ruler"),
     role("measurement_length", "Measure: Length", "Tape top to hem, garment flat", false, "ruler"),

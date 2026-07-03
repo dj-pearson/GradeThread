@@ -201,6 +201,9 @@ export type FlipdeskPhotoType =
   | "certificate"
   | "corner"
   | "surface"
+  // US-1571 (migration 00346): the MeasureCard calibration frame — keys the
+  // photo-measurement pipeline; never listed, never fed to generation AI.
+  | "measurement"
   // US-1549 (migration 00340): seller-reference only — never sent to eBay,
   // never fed to AI, never shown on public surfaces.
   | "internal";

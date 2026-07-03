@@ -83,6 +83,7 @@ import {
   MARKETPLACE_TIER,
   MARKETPLACE_TIER_LABEL,
   type CrossListingPlatform,
+  isNonListablePhotoType,
 } from "@/lib/constants";
 import { resolveStatus, factsOf } from "@/lib/workflow";
 import { cn, isoToLocalInput, localInputToIso } from "@/lib/utils";
@@ -1880,7 +1881,10 @@ export function FlipdeskComposerPage() {
               <EbayViewItemPreview
                 title={title}
                 price={previewPrice}
-                photos={order}
+                // US-1571: keep the preview honest — internal + measurement
+                // photos never publish (edge filterListablePhotos), so they
+                // don't render in the buyer-facing preview either.
+                photos={order.filter((p) => !isNonListablePhotoType(p.photo_type))}
                 primaryPhotoId={primaryPhoto?.id ?? null}
                 conditionLabel={
                   ebayCondition
