@@ -108,7 +108,9 @@ final class NegotiationTests: XCTestCase {
         fake.eligibleError = EdgeAPIError.featureUnavailable(detail: nil)
         let store = NegotiationStore(service: fake)
         let check = await store.checkEligible()
-        XCTAssertEqual(check, .unavailable)
+        guard case .unavailable = check else {
+            return XCTFail("expected .unavailable, got \(check)")
+        }
         XCTAssertTrue(store.sendOfferUnavailable)
 
         // A later successful probe clears the gate (scope re-added, US-1421).

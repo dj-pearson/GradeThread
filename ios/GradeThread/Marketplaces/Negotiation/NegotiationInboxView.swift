@@ -505,7 +505,16 @@ private struct SendOfferSheet: View {
     }
 
     /// US-1510: the server said send-offer can't work on this connection.
-    private var isUnavailable: Bool { eligibleCheck == .unavailable }
+    private var isUnavailable: Bool {
+        if case .unavailable = eligibleCheck { return true }
+        return false
+    }
+
+    /// US-1421: the server's gate copy (reconnect vs not-available-yet).
+    private var unavailableDetail: String? {
+        if case .unavailable(let detail) = eligibleCheck { return detail }
+        return nil
+    }
 
     private func listingLabel(_ count: Int) -> String {
         "\(count) listing\(count == 1 ? "" : "s")"
@@ -546,8 +555,12 @@ private struct SendOfferSheet: View {
                         // US-1510: sending is a guaranteed failure here — say so
                         // calmly instead of the old "you can still send" (which
                         // walked the user into "eBay rejected the offer.").
+                        // US-1421: prefer the server's own copy — the
+                        // reconnect_required variant tells the seller the fix
+                        // (reconnect) instead of an indefinite wait.
                         Label(
-                            "Sending offers to interested buyers isn't available yet. It switches on automatically once eBay enables it for GradeThread.",
+                            unavailableDetail
+                                ?? "Sending offers to interested buyers isn't available yet. It switches on automatically once eBay enables it for GradeThread.",
                             systemImage: "hourglass"
                         )
                         .font(.callout)

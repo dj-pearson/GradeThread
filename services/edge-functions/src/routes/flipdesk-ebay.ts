@@ -6846,6 +6846,39 @@ const NEGOTIATION_UNAVAILABLE = {
   code: "feature_unavailable" as const,
 };
 
+// US-1421: when the DEPLOYMENT requests the scope but THIS token still 403s,
+// the token predates the grant — a re-consent fixes it, so the client gets a
+// distinct code (and the connection is flagged, mirroring
+// analytics_access_denied) instead of the dead-end "feature unavailable".
+const NEGOTIATION_RECONNECT = {
+  error:
+    "Your eBay authorization predates the send-offers permission. Reconnect your eBay account to enable it.",
+  code: "reconnect_required" as const,
+};
+
+// Pure body pick for a scope-403 — exported for tests.
+export function negotiationScope403Body(deploymentHasScope: boolean) {
+  return deploymentHasScope ? NEGOTIATION_RECONNECT : NEGOTIATION_UNAVAILABLE;
+}
+
+// US-1421: persist the per-connection denial (tenant-scoped; service role
+// bypasses RLS — US-268). Best-effort: the 501 must reach the client even if
+// the flag write hiccups.
+async function markNegotiationDenied(userId: string, denied: boolean): Promise<void> {
+  try {
+    let q = supabaseAdmin
+      .from("marketplace_connections")
+      .update({ negotiation_access_denied: denied })
+      .eq("user_id", userId)
+      .eq("marketplace", "ebay");
+    // Clearing is conditional so the common success path writes nothing.
+    if (!denied) q = q.eq("negotiation_access_denied", true);
+    await q;
+  } catch (err) {
+    console.warn("[flipdesk-ebay] negotiation_access_denied update failed:", err);
+  }
+}
+
 // A runtime 403 from /sell/negotiation means THIS connection's token lacks the
 // scope even though the deployment requests it (e.g. consented before the scope
 // was added) — same client treatment as the deployment-level gate.
@@ -6943,12 +6976,18 @@ flipdeskEbayRoutes.get("/negotiation/eligible", async (c) => {
     }
 
     const items = enrichEligibleItems(eligible, localByListingId, browseByListingId);
+    // US-1421: the scope works on this token — clear any stale denial flag.
+    await markNegotiationDenied(userId, false);
     return c.json({ items });
   } catch (err) {
     console.error("[flipdesk-ebay] findEligibleNegotiationItems failed:", err);
-    // US-1510: a token without the scope (consented pre-scope) reads the same
-    // to the client as the deployment-level gate above.
-    if (isScopeForbidden(err)) return c.json(NEGOTIATION_UNAVAILABLE, 501);
+    // US-1510/US-1421: a token without the scope. When the deployment DOES
+    // request it, this token predates the grant → flag the connection +
+    // tell the client to reconnect; otherwise it's the deployment-level gate.
+    if (isScopeForbidden(err)) {
+      await markNegotiationDenied(userId, true);
+      return c.json(negotiationScope403Body(isNegotiationScopeAvailable()), 501);
+    }
     return c.json({ error: "Couldn't load eligible listings from eBay." }, 502);
   }
 });
@@ -6993,11 +7032,16 @@ flipdeskEbayRoutes.post("/negotiation/send-offer", async (c) => {
         message: typeof body.message === "string" ? body.message : undefined,
       }, connectionId);
     }
+    // US-1421: offers went out — the scope works; clear any stale denial flag.
+    await markNegotiationDenied(userId, false);
     return c.json({ ok: true, count: listingIds.length });
   } catch (err) {
     console.error("[flipdesk-ebay] sendOfferToInterestedBuyers failed:", err);
-    // US-1510: pre-scope token → same clean gate as the deployment-level check.
-    if (isScopeForbidden(err)) return c.json(NEGOTIATION_UNAVAILABLE, 501);
+    // US-1510/US-1421: pre-scope token → flag + reconnect vs deployment gate.
+    if (isScopeForbidden(err)) {
+      await markNegotiationDenied(userId, true);
+      return c.json(negotiationScope403Body(isNegotiationScopeAvailable()), 501);
+    }
     // US-1511: mapped/human detail only — the raw blob stays in the log above.
     return c.json({
       error: "eBay rejected the offer.",

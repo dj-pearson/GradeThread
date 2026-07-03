@@ -10175,3 +10175,25 @@ graceful degradation the contract instead of avoiding the fetch:
 VERIFICATION: 3 new tests (seeded SSR figures + script, unseeded degradation,
 JSON escaping); seo+prerender suites 196/196; FULL vitest 1124/1124; tsc -b 0;
 eslint clean; real npm run build green (47 pages, head-integrity guard passed).
+
+=== 2026-07-03 (loop v2): US-1421 code slice (negotiation scope-absent flag + reconnect flow) ===
+The Negotiation API's ops story stays open (the eBay scope APPLICATION is the
+user's step), but all its code ACs are now in place for the day the grant lands:
+- MIGRATION 00345 (HELD): marketplace_connections.negotiation_access_denied,
+  mirroring analytics_access_denied. Set on a /sell/negotiation 403 (tenant-
+  scoped, best-effort so the 501 always reaches the client); cleared on any
+  successful eligible/send-offer call.
+- NEW distinction: negotiationScope403Body(deploymentHasScope) - when the
+  deployment requests the scope but THIS token 403s (consented pre-grant), the
+  client gets 501 code=reconnect_required with copy naming the fix, vs the
+  US-1510 feature_unavailable dead-end when the deployment lacks the scope.
+- iOS: reconnect_required maps onto featureUnavailable(detail:) so the server
+  copy flows through; EligibleCheck.unavailable carries the detail; the
+  send-offer sheet shows the reconnect instruction instead of an indefinite
+  "not available yet". (The old == .unavailable comparisons became pattern
+  matches; NegotiationTests updated.)
+- 2 new edge tests (both body variants); full edge suite 2544/0/70. iOS static
+  gates clean (no ungated prints / curly quotes); compile proof = iOS CI on push.
+When the grant lands: re-add the two documented scope lines at getScopes
+(US-1510 kept them ready), sellers re-consent at /oauth/start, and the runtime
+flag + reconnect flow shipped here handles the transition automatically.

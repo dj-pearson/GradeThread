@@ -82,6 +82,16 @@ commit. Note the frontend on Pages auto-deploys on push — after this push the
 tasks/dashboard/system pages REQUIRE the new edge routes, so redeploy the edge
 promptly after pushing.
 
+### 🔸 ALSO NEW + HELD LOCALLY: `00345` (US-1421 code slice)
+
+**`supabase/migrations/00345_negotiation_access_denied.sql`** — adds
+`marketplace_connections.negotiation_access_denied` (mirrors
+analytics_access_denied): set when a /sell/negotiation call 403s although the
+deployment requests the scope (token predates the grant → reconnect required),
+cleared on any successful negotiation call. `EXPECTED_SCHEMA_VERSION`
+**00344 → 00345**. Additive column; no ordering hazard beyond apply-before-
+edge-redeploy.
+
 ### Previously outstanding — apply to prod (already on origin)
 
 Everything through migration **00338** is already ON `origin/main` (0230db73 was

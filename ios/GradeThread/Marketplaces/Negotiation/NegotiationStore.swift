@@ -22,7 +22,10 @@ final class NegotiationStore {
     /// `.failed`, which may succeed on retry.
     enum EligibleCheck: Equatable {
         case count(Int)
-        case unavailable
+        /// US-1421: carries the server's own copy — the reconnect_required
+        /// variant tells the seller the FIX (reconnect) instead of an
+        /// indefinite "not available yet".
+        case unavailable(detail: String?)
         case failed
     }
 
@@ -128,9 +131,9 @@ final class NegotiationStore {
             let count = try await service.eligibleItems().count
             sendOfferUnavailable = false
             return .count(count)
-        } catch EdgeAPIError.featureUnavailable {
+        } catch EdgeAPIError.featureUnavailable(let detail) {
             sendOfferUnavailable = true
-            return .unavailable
+            return .unavailable(detail: detail)
         } catch {
             return .failed
         }

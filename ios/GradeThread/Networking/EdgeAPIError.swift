@@ -104,7 +104,10 @@ public enum EdgeAPIError: LocalizedError, Equatable {
         }
         // US-1510: capability gates. Keyed on the discriminator (not just the
         // status) so the mapping survives a future status tweak on the edge.
-        if payload?.discriminator == "feature_unavailable" {
+        // US-1421: reconnect_required is the same capability gate with an
+        // actionable fix — the detail string carries the reconnect copy.
+        if payload?.discriminator == "feature_unavailable"
+            || payload?.discriminator == "reconnect_required" {
             return .featureUnavailable(detail: detail)
         }
         if payload?.discriminator == "offer_not_open" {
