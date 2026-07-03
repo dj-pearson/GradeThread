@@ -10262,3 +10262,27 @@ Remaining Android backlog: US-1301..1396 (78 stories), now all verifiable.
 - Gotcha: TextGeometricTransform.None is INTERNAL in this Compose version -
   omit it (default is identity anyway).
 VERIFIED LOCALLY: assembleDebug + testDebugUnitTest + lintDebug all green.
+
+=== 2026-07-03 (loop v2): US-1303 (reusable Compose component library) ===
+Ported the iOS Components/ layer (8 primitives, all @Preview'd + TalkBack-
+correct, locally verified through the three gradle gates):
+- StatusBadge: pure label/tone mapping (emerald sold/shipped/completed, navy
+  listed, amber drafted, red returned, steel pre-list) + the iOS US-1202
+  "say the status explicitly" a11y fix; 3 JVM tests. Emerald/Amber added to
+  BrandPalette from the iOS asset catalog.
+- Skeleton block/circle: highlight-sweep shimmer that goes STATIC when the
+  system "remove animations" setting is on (rememberReducedMotion reads
+  ANIMATOR_DURATION_SCALE==0; US-1304 will build the full policy on it);
+  semantically hidden (decorative).
+- ErrorStateView: suspend retry with self-spinner + disable; optional
+  secondary escape. DataRow: tabular-digit values. InfoCard: 4 tones.
+- FieldError + ValidatedTextField: errors rendered AND announced via
+  semantics{error()} - never color-only.
+- CachedThumbnail: Coil-backed with skeleton loading; the signed-URL seam is
+  a pluggable StoragePathResolver composition local (default passes https
+  through and REFUSES private paths - the real resolver arrives with US-1307,
+  mirroring the iOS SignatureCache; US-276 never-public rule documented).
+- ImeActionBar: imePadding-pinned Done bar for IME-action-less forms; the
+  README-documented convention is native keyboardOptions everywhere else.
+- InteractivePopGuard/SessionExpiredView intentionally deferred to their
+  owning navigation/auth stories.

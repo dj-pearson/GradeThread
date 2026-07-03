@@ -6404,7 +6404,7 @@
     {
       "id": "US-1303",
       "priority": -98697,
-      "passes": false,
+      "passes": true,
       "title": "Reusable Compose component library",
       "description": "As an Android developer, I want the shared UI primitives the iOS app relies on, so feature screens compose consistently.",
       "acceptanceCriteria": [
@@ -6413,7 +6413,7 @@
         "Thumbnail loader integrates with the auth/signed-URL layer for Supabase Storage images",
         "Components have @Preview coverage and TalkBack semantics"
       ],
-      "notes": "[P2][Android/Foundation] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P2][Android/Foundation] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. [COMPLETION 2026-07-03] ui/components library ported from ios/GradeThread/Components, locally verified (assembleDebug + testDebugUnitTest + lintDebug green). StatusBadge (US-753 mirror): pure StatusStyle.label (snake->Title) + tone mapping (sold/shipped/completed emerald, listed/active navy, drafted amber, returned red, pre-list steel; Emerald #10B981 + Amber #F59E0B added to BrandPalette from the iOS asset catalog), pill chip, clearAndSetSemantics 'Status: X' (the iOS US-1202 color-only fix carried over); 3 JVM tests. Skeleton.kt: SkeletonBlock/SkeletonCircle with an infinite-transition highlight sweep, rememberReducedMotion() reading ANIMATOR_DURATION_SCALE==0 (the Android 'remove animations' signal; US-1304 builds the full policy on it) -> static fill when reduced (AC2), clearAndSetSemantics{} (decorative). ErrorStateView (US-971 mirror): suspend retry with self-spinner + disable (double-tap-proof), optional secondary escape. DataRow: label + tabular-digit value (brandData), merged TalkBack semantics. InfoCard: Info/Success/Warning/Error tones. FieldValidation: FieldError with semantics{error()} (announced, never color-only) + controlled ValidatedTextField. CachedThumbnail: Coil 2.7 SubcomposeAsyncImage with skeleton loading/glyph error; AC3 via the PLUGGABLE StoragePathResolver fun-interface + LocalStoragePathResolver composition local (default: passthrough https, null for private paths -> the real signed-URL resolver plugs in with US-1307, mirroring the iOS SignatureCache); private-bucket rule (US-276 never-public) documented at the seam. ImeActionBar: imePadding-pinned Done bar for forms whose IME lacks an action key; most fields use keyboardOptions natively (platform-appropriate port of KeyboardToolbar). Every component has @Preview coverage (AC4). InteractivePopGuard/SessionExpiredView deferred to their owning stories (navigation/auth)."
     },
     {
       "id": "US-1304",

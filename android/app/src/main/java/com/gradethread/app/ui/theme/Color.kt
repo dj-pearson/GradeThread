@@ -19,6 +19,10 @@ object BrandPalette {
     val NavyDark = Color(0xFF3B82F6)
     val RedDark = Color(0xFFFB5E78)
 
+    // Status tones (from the iOS asset catalog; mirror the web status system).
+    val Emerald = Color(0xFF10B981)
+    val Amber = Color(0xFFF59E0B)
+
     // Supporting neutrals.
     val NightSurface = Color(0xFF23233B) // one step above Night for cards
     val OutlineLight = Color(0xFFD6D9E0)
