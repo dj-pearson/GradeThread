@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1553,
+  "nextId": 1559,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -9761,6 +9761,93 @@
         "Full edge suite green (2520/0); deno lint + check clean"
       ],
       "notes": "[USER BUG 2026-07-03, prod] Batch 05d36ecc: polls 200, resume 202, zero worker output. Diagnosis from code reading; DB confirmation SQL handed to user. Fix needs prod edge redeploy (queued behind held migrations through 00342)."
+    },
+    {
+      "id": "US-1553",
+      "priority": 2260,
+      "passes": false,
+      "title": "Agent infra: grading-engine project skill (.claude/skills/grading-engine)",
+      "description": "As an agent editing grading code, I load a skill that encodes the grading domain contract instead of re-deriving it: 5 factors + weights, the three rounding sites that must stay in lockstep, prompt-version lifecycle (draft -> shadow -> eval gate -> activate), golden-set growth rules, exemplar privacy rules (US-1067), and review-threshold semantics (flat 0.75 + defect-divergence trigger).",
+      "acceptanceCriteria": [
+        ".claude/skills/grading-engine/SKILL.md exists, <= ~150 lines, with references/ for depth (rounding-sites map, prompt-version lifecycle, factor weights table)",
+        "Frontmatter description triggers on grading-related work (ai-grading, grading-*, accuracy-*, human-review, admin reviews UI)",
+        "Names the three rounding sites (ai-grading.roundToTenth, human-review.computeWeightedOverall, admin reviews computeWeightedScore) and the lockstep rule",
+        "CLAUDE.md grading section slims to a pointer at the skill (skill is the source of truth; CLAUDE.md keeps only the always-needed summary)",
+        "AGENT_LEVELUP_ROADMAP.md item 2.1 marked done"
+      ],
+      "notes": "From AGENT_LEVELUP_ROADMAP.md section 2.1 (reviewed 2026-07-03). Skills load on demand; CLAUDE.md is loaded every turn - keep it lean."
+    },
+    {
+      "id": "US-1554",
+      "priority": 2258,
+      "passes": false,
+      "title": "Agent infra: migrations + tenant-isolation project skills",
+      "description": "As an agent writing a migration or an edge route, I load executable checklists for the two most-violated contracts: the US-1108 migration triple (idempotent / EXPECTED_SCHEMA_VERSION bump same commit / self-record footer) and the US-268 tenant-isolation rule (service-role bypasses RLS; every multi-tenant query scoped or ownership-verified via parent).",
+      "acceptanceCriteria": [
+        ".claude/skills/migrations/SKILL.md: idempotency patterns, version-bump-same-commit, footer, scripts/apply-prod-migrations.sh, throwaway-local-stack caveat, held-migration push rule (commit local, user applies to prod before OKing push)",
+        ".claude/skills/tenant-isolation/SKILL.md: explicit-scoping rule, loadListingOwned-style ownership-via-parent pattern, every-new-edge-route-needs-a-tenant-isolation_test.ts-case rule, rls-guard SERVICE_ROLE_ONLY registration for operator tables",
+        "Both trigger from their frontmatter descriptions on matching work (supabase/migrations edits; edge route/service-role query edits)",
+        "Matching CLAUDE.md sections slim to pointers; AGENT_LEVELUP_ROADMAP.md items 2.2-2.3 marked done"
+      ],
+      "notes": "From AGENT_LEVELUP_ROADMAP.md sections 2.2-2.3 (reviewed 2026-07-03)."
+    },
+    {
+      "id": "US-1555",
+      "priority": 2256,
+      "passes": false,
+      "title": "Agent infra: PreToolUse write-guards + roadmap doc corrections",
+      "description": "As the project owner, prose rules become hard stops: agents cannot hand-edit shadcn ui components or rewrite the prd archive. Also correct the level-up roadmap where the 2026-07-03 review found drift.",
+      "acceptanceCriteria": [
+        ".claude/settings.json PreToolUse hook blocks Edit/Write/NotebookEdit to src/components/ui/** and prd.archive.json with a clear message (checked into the repo so every agent/session inherits it)",
+        "Hook does NOT block reads, and does not slow unrelated tool calls (matcher-scoped)",
+        "AGENT_LEVELUP_ROADMAP.md section 6.4 (verifiable certificates) marked BUILT (cert-integrity v3: canonical hash + optional HMAC + public verify + QR, coverage scope sealed since US-1279), with the only open slice (cross-cert transparency chain) noted as low-value",
+        "Roadmap section 1 updated: supabase skills installed, permission allowlist exists; remaining = SessionStart hook + loop-prompt usage of /verify, /code-review, /security-review"
+      ],
+      "notes": "From AGENT_LEVELUP_ROADMAP.md section 4 + review corrections (2026-07-03). Skip the async PostToolUse tsc idea - tsc -b is too slow per-edit; the pre-push hook stays the wall."
+    },
+    {
+      "id": "US-1556",
+      "priority": 2254,
+      "passes": false,
+      "title": "Agent infra: durable-jobs project skill (batch/claim/heartbeat/reclaim contract)",
+      "description": "As an agent building or debugging any queued background work, I load the durable-jobs contract that generation batches, bulk publish, and feed sync already share - so the next queue copies the pattern correctly and a batch-does-nothing report starts at the job rows, not the code.",
+      "acceptanceCriteria": [
+        ".claude/skills/durable-jobs/SKILL.md documents the contract: batches+jobs tables, atomic claim (conditional UPDATE, error NEVER swallowed - log it), attempts-cap semantics (guards unattended reclaim loops; explicit user retry resets the budget), heartbeat roll-up (updated_at), stale thresholds (JOB_STALE > per-item timeout; BATCH_STALE > slice), reclaim cron + job-secret gating, finalize-from-jobs-table idempotency",
+        "Debugging procedure first: check listing_generation_jobs (or analogous) status/error/attempts for the batch id BEFORE reading code - failure paths are DB-row-only by design",
+        "Cites flipdesk-autolister.ts processBatch as the reference implementation and lists the deploy-time ops dependency (Coolify scheduled task per cron-runs.ts registry)",
+        "Triggers on queue/batch/worker/cron work in edge routes"
+      ],
+      "notes": "Motivated by US-1552 (2026-07-03): a 43-item batch died silently - wholesale timeouts wrote only to job rows while edge logs looked healthy. Not in the original roadmap; added by the 2026-07-03 review."
+    },
+    {
+      "id": "US-1557",
+      "priority": 2180,
+      "passes": false,
+      "title": "Grading moat: per-category confidence calibration replaces the flat 0.75 review threshold",
+      "description": "As the review-queue owner, the human-review trigger uses measured reliability instead of a guess: reliability curves of confidence_score vs realized error (from accuracy-tracking + human-review corrections) yield per-category calibrated thresholds targeting a chosen shipped-error rate - fewer wasted reviews AND fewer bad grades shipped.",
+      "acceptanceCriteria": [
+        "Calibration job (scheduled, cron-runs registered) bins historical (confidence, |AI - human-corrected overall|) pairs per garment_category and derives the threshold that targets the configured max error rate; falls back to the global 0.75 when a category lacks sample size (document the minimum N)",
+        "Thresholds persisted (system_settings or a calibration table) and read by the grading path where 0.75 is hardcoded today (ai-grading.ts); defect-divergence trigger unchanged and still ORed in",
+        "Admin surface (existing ops/settings pattern) shows the curve + active threshold per category with a manual override",
+        "Shadow validation: log would-have-routed deltas for a period before enforcement (flag-gated activation), so the change is provable from data before it gates real reviews",
+        "Unit tests for the binning/threshold math (pure lib); edge suite green"
+      ],
+      "notes": "From AGENT_LEVELUP_ROADMAP.md section 6.1 (reviewed 2026-07-03) - highest-ROI moat item; the data has been accumulating in accuracy-tracking since US-329/330."
+    },
+    {
+      "id": "US-1558",
+      "priority": 2178,
+      "passes": false,
+      "title": "Grading moat: active-learning review-queue routing (information value, not FIFO)",
+      "description": "As a reviewer, the queue surfaces the reviews that improve the system fastest: rank pending human reviews by information value - novel category/defect combinations, calibration-gap regions (from US-1557 curves), golden-set coverage holes - so each human hour grows the golden set and exemplar pool fastest.",
+      "acceptanceCriteria": [
+        "Pure scoring lib computes an information-value score per pending review from: category novelty (low golden-set/exemplar coverage), confidence in the calibration gap band, defect-combination rarity; unit-tested",
+        "Admin review queue defaults to information-value order with a FIFO toggle (oldest-first still one click away; SLA guard: items older than a configurable age float to the top regardless)",
+        "Score factors surfaced on the queue row (why this item ranks high) so reviewers trust the ordering",
+        "No schema change to reviews themselves beyond an optional persisted score column if needed for sorting at scale; migration follows US-1108 if added",
+        "Edge + web suites green"
+      ],
+      "notes": "From AGENT_LEVELUP_ROADMAP.md section 6.3 (reviewed 2026-07-03). Depends on US-1557 for the calibration-gap signal but can ship with novelty + rarity factors first."
     }
   ]
 }
