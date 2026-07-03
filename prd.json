@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1560,
+  "nextId": 1567,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -9863,6 +9863,116 @@
         "tsc, eslint, edge suite, full build green"
       ],
       "notes": "[USER BUG 2026-07-03, prod, follow-up to US-1552] The 44-job batch itself generated cleanly. OPEN follow-up: one React #185 (max update depth) crash in a Select on /items/:id/draft - captured by Sentry via the error boundary; needs the Sentry event componentStack to pinpoint (minified traces inconclusive; picker/composer effect chains audited and bail out correctly)."
+    },
+    {
+      "id": "US-1560",
+      "priority": 2360,
+      "passes": false,
+      "title": "Admin RBAC: enforce permission scopes across all admin routers (audit finding #4)",
+      "description": "As a super-admin, the granular scope system (role_scopes, admin_scope_grants, lib/scope-guard.ts requireScope, roles editor UI) exists but is enforced on only 4 of 48 admin route files (admin-billing, admin-moderation, admin-scopes, admin-users role change). Every other admin surface — pricing, config, fraud, compliance, safety, bulk, revenue, growth, etc. — is open to any plain admin-role user regardless of granted scopes, so the roles editor implies enforcement that does not exist.",
+      "acceptanceCriteria": [
+        "A scope taxonomy covers every admin router: extend DEFAULT_ROLE_SCOPES in lib/scope-guard.ts (or a sibling registry) with a documented router→scope mapping; every admin-*.ts file is either scope-guarded or on an explicit allowlist with a written rationale (e.g. read-only aggregates stay role-gated)",
+        "Each covered router applies requireScope() — router-level use(\"*\", requireScope(...)) for single-concern routers, per-mutation guards where reads are intentionally role-only; the existing 4 enforced files keep their current behavior",
+        "super_admin implicit-all is preserved; the default admin role scope grants are seeded so CURRENT admin capabilities are unchanged at rollout (no operator lockout on deploy) — tightening is then a data change in the roles editor, not a code change",
+        "Coverage test enumerates services/edge-functions/src/routes/admin-*.ts and asserts each registers a scope guard or appears on the allowlist — a new admin router without a scope decision fails CI",
+        "Roles editor UI lists exactly the enforceable scopes (no phantom scopes, none missing)",
+        "tsc, eslint, deno edge suite (incl. new coverage test), full build green"
+      ],
+      "notes": "[2026-07-02 admin backend audit, finding #4] Enforcement gap only — infra already built (00298_rbac_permission_scopes.sql, scope-guard 60s cache, admin-scopes.ts editors). Load tenant-isolation skill before editing edge routes. Rollout safety: seed role_scopes for role=admin with the full current-capability scope set in the SAME migration/commit so enforcement flips on as a no-op, then operators can subtract."
+    },
+    {
+      "id": "US-1561",
+      "priority": 2359,
+      "passes": false,
+      "title": "Cron registry: close the 42-registered vs ~21-documented scheduled-jobs gap + drift guard",
+      "description": "As an operator, main.ts registers 42 /api/jobs/* cron endpoints (plus secret-gated ticks like /api/drip/tick and /api/content/scheduler/tick) but LAUNCH_CHECKLIST.md §3 documents only ~21 and COOLIFY.md is further behind (its own drift note admits 4 missing). Jobs absent from the docs — journey-tick, newsletter-tuning/topic-bank-refill/ab-finalize/dispatch, abuse-scan, passport-integrity-scan, audit-anomaly-scan, marketplace-events, listing-prompt-promote, exemplar-assembly, confidence-calibration, keyword-research, billing-reconciliation, automation-rules, thumbnail-backfill, consignor-payouts, affiliate-payouts — will never get Coolify tasks, so their admin surfaces (Journeys, Newsletter automation, Passport Integrity, Audit anomalies, Reconciliation, calibration) sit empty and /admin/jobs shows everything never-run.",
+      "acceptanceCriteria": [
+        "A single canonical cron registry module (e.g. services/edge-functions/src/lib/cron-registry.ts) enumerates every scheduled job: path, suggested cadence, secret env var (FLIPDESK_INTERNAL_JOB_SECRET vs DRIP_INTERNAL_JOB_SECRET vs CONTENT_INTERNAL_JOB_SECRET), expected healthy/idle response shape, and one-off-at-launch flags (cert-integrity-backfill, passport-backfill)",
+        "LAUNCH_CHECKLIST.md §3 and services/edge-functions/COOLIFY.md are regenerated from / reconciled with the registry — full job set, no drift note needed",
+        "Drift-guard test asserts every /api/jobs/* route registered in main.ts (and the secret-gated tick endpoints) appears in the registry; adding a cron endpoint without a registry entry fails the edge suite",
+        "GET /api/admin/jobs (and /admin/jobs page) joins the registry against cron_runs so operators can distinguish 'never scheduled' from 'scheduled and healthy' from 'failing' — expected-but-never-run jobs are visibly flagged",
+        "tsc, eslint, deno edge suite (incl. drift guard), full build green"
+      ],
+      "notes": "[2026-07-02 admin backend audit, finding #3] The actual Coolify Scheduled Tasks creation + Run Now verification is a USER ops action (tracked in the companion ops story) — this story makes the job set impossible to under-document again and makes the gap visible in the admin UI."
+    },
+    {
+      "id": "US-1562",
+      "priority": 2357,
+      "passes": false,
+      "title": "Bulk admin operations UI (wire the unused /api/admin/bulk router)",
+      "description": "As a super-admin, bulk credit grant / suspend-unsuspend / regrade endpoints (admin-bulk.ts: POST /api/admin/bulk/credits|suspend|regrade — idempotency-keyed, audited, US-589) are fully built but no UI calls them; operators fall back to per-user actions which don't scale past a handful of accounts.",
+      "acceptanceCriteria": [
+        "An admin bulk-operations surface exists (either /admin/bulk page or a bulk-actions toolbar on /admin/users driven by row selection + paste-a-list input) supporting all three operations",
+        "Target input accepts multi-select from the users table AND a pasted list of user ids/emails; invalid/unknown entries are surfaced before submit",
+        "Two-step confirm shows the resolved affected-user count and operation parameters before firing; the request carries a client-generated idempotency key",
+        "Per-user success/failure results are rendered after completion (from the endpoint's response), with retry guidance for failures",
+        "Surface is gated to super_admin in the sidebar/UI to match backend authorization; actions land in admin_audit_log (existing backend behavior verified in an integration-shaped test or manual verification note)",
+        "tsc, eslint, deno edge suite untouched-or-green, full build green"
+      ],
+      "notes": "[2026-07-02 admin backend audit, finding #5] Backend needs no changes — UI only. Follow controlled-inputs / sonner / shadcn conventions."
+    },
+    {
+      "id": "US-1563",
+      "priority": 2356,
+      "passes": false,
+      "title": "Category-map admin editor (wire the unused /api/admin/category-map router)",
+      "description": "As an admin, garment-category → eBay-category mappings drive every seller's listing generation, and the CRUD endpoints exist (admin-category-map.ts: GET/PUT /api/admin/category-map, DELETE /:id) but there is no editor page — mappings are effectively DB-console-only today.",
+      "acceptanceCriteria": [
+        "New /admin/category-map page: table of current mappings with search/filter, inline or dialog add/edit, delete with confirm dialog",
+        "Client validation mirrors the route's schema (required fields, id formats); server errors surface as toasts with the backend message",
+        "Page registered in src/routes/index.tsx and the admin sidebar (appropriate group), admin-gated like peers",
+        "Empty state explains what mappings do (feeds listing generation category suggestions) so a fresh install isn't a blank mystery table",
+        "tsc, eslint, full build green"
+      ],
+      "notes": "[2026-07-02 admin backend audit, finding #5] Backend unchanged — UI only."
+    },
+    {
+      "id": "US-1564",
+      "priority": 2355,
+      "passes": false,
+      "title": "Surface or prune unreachable admin-grading analytics endpoints + messages templates",
+      "description": "As an admin, several built endpoints have zero frontend callers: admin-grading GET /accuracy, /accuracy/defects, /accuracy/outcomes, /shadow/comparison, /shadow/results, POST /model-comparison, GET /training-export; and admin-messages GET /templates. They represent finished analytics (grading accuracy trends, shadow-prompt comparisons, model A/B, training-data export) that operators simply cannot see.",
+      "acceptanceCriteria": [
+        "Explicit wire-or-prune decision recorded per endpoint (notes or code comment); nothing left silently unreachable",
+        "Grading accuracy (+defects/outcomes) and shadow comparison/results get tabs or cards on /admin/grading (or the reviews surface) rendering the real data",
+        "model-comparison and training-export get a minimal operator affordance (trigger button + download link) OR are documented as API-only with a covering edge test so they stay contract-stable",
+        "user-detail message compose loads GET /api/admin/messages/templates and offers template pick-and-prefill",
+        "grading-engine skill loaded before touching any grading UI/routes; no grading contract changes (read-only surfacing)",
+        "tsc, eslint, deno edge suite, full build green"
+      ],
+      "notes": "[2026-07-02 admin backend audit, finding #5] All endpoints verified working at the route layer — this is discoverability, not repair."
+    },
+    {
+      "id": "US-1565",
+      "priority": 2354,
+      "passes": false,
+      "title": "Move admin dashboard/system/tasks off direct client Supabase onto edge admin endpoints",
+      "description": "As a security posture matter, three admin surfaces bypass the edge admin boundary (JWT+role+AAL2 middleware, step-up, audit, saved rate limits) by querying Supabase directly from the browser: dashboard.tsx (raw selects on users/submissions/grade_reports/disputes/sales/human_reviews), system.tsx (admin_system_metrics / admin_revenue_metrics RPCs via client), and use-admin-tasks.ts (admin_tasks/admin_task_projects/admin_task_comments tables). They work only because RLS currently allows admin reads, and will silently break or over-expose if those policies change.",
+      "acceptanceCriteria": [
+        "Edge endpoints serve the needed aggregates: extend admin-analytics/admin-ops (or a small admin-dashboard router) for the dashboard + system metrics; a new admin-tasks router (or extension) for the tasks CRUD",
+        "dashboard.tsx, system.tsx, tasks.tsx/task-board.tsx (via use-admin-tasks) switch to edgeFetch against those endpoints; no direct .from()/.rpc() admin reads remain in these files",
+        "tenant-isolation skill loaded; new/changed routes get tenant-isolation_test.ts cases; operator-only tables added to rls-guard SERVICE_ROLE_ONLY if their client policies are dropped",
+        "Client RLS policies for the migrated tables/RPCs reviewed: tightened or removed in a migration if nothing else depends on them (checked against web+iOS callers first), with the US-1108 migration triple if a migration is created",
+        "No functional regression: dashboard KPIs, system health metrics, and task board CRUD verified working against the local stack or documented manual verification",
+        "tsc, eslint, deno edge suite, full build green"
+      ],
+      "notes": "[2026-07-02 admin backend audit, finding #6 watch-item] If RLS tightening requires a migration, the held-migration push rule applies (PENDING_MIGRATIONS.md packaging, no push until user OK). Check iOS does not read admin_tasks before dropping client policies."
+    },
+    {
+      "id": "US-1566",
+      "priority": 2358,
+      "passes": false,
+      "title": "[OPS — USER ACTION REQUIRED, DEFERRED for agent loop] Prod runtime reconciliation: apply migrations, fix SES/SMTP, create Coolify cron tasks",
+      "description": "As the operator, the 2026-07-02 admin audit found the admin code layer healthy but prod ops behind it: (1) migrations 00339–00342 pushed but not applied (AutoLister generation 400s in prod NOW; next edge redeploy boot-guards on 00342), plus possible stragglers 00332–00338 and older drift; (2) SES/SMTP creds misconfigured so drip previews 502 and admin messages / support replies / newsletter / journeys / growth campaigns queue mail that never delivers; (3) zero Coolify scheduled tasks created, so cron_runs is empty and every cron-fed admin surface is stale.",
+      "acceptanceCriteria": [
+        "Migrations applied: run 00332→00342 on prod (all idempotent) or scripts/apply-prod-migrations.sh; run the applied_migrations reconciliation query to catch older drift and re-run anything missing; NOTIFY pgrst, 'reload schema'; then redeploy the edge (boot guard expects 00342)",
+        "AutoLister generation succeeds in prod (00339 column present); Tag/Certificate photo rotate no longer 400s (00333)",
+        "SES/SMTP creds fixed in Coolify: drip preview endpoint returns success; /api/jobs/email-retry drains the queued backlog; a real admin message delivers end-to-end",
+        "Coolify Scheduled Tasks created for the full cron registry (per the cron-registry story / LAUNCH_CHECKLIST §3), each verified with Run Now → {ok:true} (or documented idle shape) and a cron_runs row; curl confirmed present in the edge container",
+        "One-off jobs fired once: cert-integrity-backfill (and passport-backfill if applicable)",
+        "migrate:prod pre-deploy gate configured in Coolify so schema drift stops recurring"
+      ],
+      "notes": "[2026-07-02 admin backend audit, findings #1–#3] NOT verifiable from this host (no prod DB/Coolify access) — agent loop must SKIP this story (treat like DEFERRED); it is tracked here so the ops work isn't lost. Companion code story: cron registry drift guard."
     }
   ]
 }
