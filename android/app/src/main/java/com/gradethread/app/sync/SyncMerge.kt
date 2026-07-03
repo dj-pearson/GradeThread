@@ -113,6 +113,12 @@ class SyncMerger(private val db: GradeThreadDb) {
         val sources: List<SourceEntity> = emptyList(),
     )
 
+    /** US-1321: a realtime DELETE is server-authoritative — remove the local
+     *  row (the FK cascade drops its photos). */
+    suspend fun deleteItemLocally(id: String) = withContext(Dispatchers.IO) {
+        db.items().delete(id)
+    }
+
     /**
      * Merge + upsert a pulled batch in one transaction on IO. Delta NEVER
      * prunes: rows absent from a delta page aren't deletions (the delta can't

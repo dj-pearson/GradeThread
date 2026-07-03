@@ -6652,7 +6652,7 @@
     {
       "id": "US-1321",
       "priority": -98679,
-      "passes": false,
+      "passes": true,
       "title": "Realtime service: live inventory updates with re-subscribe catch-up",
       "description": "As a user, server-side inventory changes appear live, and nothing is missed across reconnects.",
       "acceptanceCriteria": [
@@ -6661,7 +6661,7 @@
         "Every .subscribed transition (first + every reconnect) triggers a catch-up pull so downtime events aren’t lost",
         "User toggle (default on); JSON decode off the main thread"
       ],
-      "notes": "[P1][Android/Sync] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P1][Android/Sync] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. [COMPLETION 2026-07-03] sync/RealtimeService, locally verified (three gates; RealtimeServiceTest 6/6). supabase-kt Realtime channel 'inventory:<ownerId>' with the user_id EQ filter (defense-in-depth on top of RLS - iOS comment carried); postgresChangeFlow on inventory_items: Insert/Update decode -> SyncMerger.apply (through the FULL US-1318 conflict policy, so a realtime event can't clobber a dirty local edit); Delete -> deleteItemLocally (server-authoritative; FK cascade drops photos). US-1211 CARRIED EXACTLY + PROVEN: shouldCatchUp fires on EVERY transition INTO subscribed (first subscribe AND every reconnect after token expiry/handoff/backgrounding - matrix proven both ways) because postgres-change events during socket downtime are never replayed; the injected onCatchUpNeeded hook takes the SyncEngine pull. Lifecycle: start no-ops when a channel exists, pause tears the socket fully down (background battery/data to zero), rehome = pause+start for workspace switch. DataStore toggle default ON. Decode on Dispatchers.Default (AC4); RealtimeRows lenient row decoder (malformed event dropped - the catch-up repairs; unknown columns ignored; ids LOWERCASED per the uuid rule - proven) + parseTimestamp handling all three server shapes (timestamptz offset, Zulu, date-only - proven with exact epoch values). Subscribe failures log a redacted phase only (the raw error can embed the channel token - US-662/698 rule). Wiring into the shell/session lands with US-1322's orchestrator."
     },
     {
       "id": "US-1322",

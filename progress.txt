@@ -10549,3 +10549,16 @@ VERIFIED LOCALLY: three gates green; 12/12 across both suites.
 - Pure prune plan (locals - surviving - protected) applied in one Room
   transaction on IO; payload parse tolerates garbage.
 VERIFIED LOCALLY: three gates green; 7/7 in the results XML.
+
+=== 2026-07-03 (loop v2): US-1321 (realtime inventory + re-subscribe catch-up) ===
+- Owner-filtered channel (defense-in-depth over RLS); insert/update flow
+  through the FULL conflict policy (a realtime event can't clobber a dirty
+  edit); delete is server-authoritative with the FK cascade.
+- US-1211 proven: catch-up fires on EVERY transition INTO subscribed (matrix
+  both ways) - downtime events are never replayed by the server, so each
+  (re)subscribe kicks a pull.
+- Lifecycle: no-op double start, full socket teardown on background, rehome
+  on workspace switch; DataStore toggle default ON; decode off-main.
+- Lenient row decoder (drop + let catch-up repair; ids lowercased) and
+  three-shape timestamp parsing proven with exact epoch values.
+VERIFIED LOCALLY: three gates green; 6/6 in the results XML.
