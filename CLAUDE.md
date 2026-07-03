@@ -114,6 +114,7 @@ Server uploads MUST go: `validateImageUpload()` (magic-byte sniff, not client MI
 
 ## Gotchas
 
+- **NEVER use `.or(...)` on a supabase-js UPDATE/DELETE** (US-1552): the self-hosted prod PostgREST rejects logical operators on mutations (42703 "column <table>.x does not exist" — the update-CTE alias), while the newer local-stack PostgREST accepts them, so CI can't catch it. Use sequential conditional updates (e.g. try `.eq("status","pending")`, then `.eq("status","running").lt("updated_at", stale)`). `.or()` on SELECT is fine.
 - shadcn v4: needs `@import "tailwindcss"` in CSS before init; needs `paths` alias in ROOT `tsconfig.json` (not just `tsconfig.app.json`); `toast` deprecated → use `sonner`.
 - `eslint-plugin-react-hooks` v5 for eslint 9 (v7+ needs eslint 10).
 - Supabase client throws if `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` missing.

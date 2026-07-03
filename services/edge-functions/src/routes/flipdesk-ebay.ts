@@ -6462,15 +6462,36 @@ flipdeskEbayRoutes.post("/jobs/publish-due", async (c) => {
     // `now`, which can be many minutes old on a long batch), so the claim is
     // honored for the full stale window from the moment it is taken.
     const claimedAt = new Date().toISOString();
-    const { data: claimed } = await supabaseAdmin
+    // US-1552: two sequential conditional updates, NOT `.or()` — the prod
+    // PostgREST rejects logical operators on mutations (42703 from the
+    // update-CTE alias), which silently skipped every claim.
+    let { data: claimed, error: claimErr } = await supabaseAdmin
       .from("listings")
       .update({ publish_claimed_at: claimedAt })
       .eq("id", row.id)
       .eq("listing_status", "draft")
       .is("synced_to_ebay_at", null)
-      .or(`publish_claimed_at.is.null,publish_claimed_at.lt.${staleBefore}`)
+      .is("publish_claimed_at", null)
       .select("id")
       .maybeSingle();
+    if (!claimErr && !claimed) {
+      ({ data: claimed, error: claimErr } = await supabaseAdmin
+        .from("listings")
+        .update({ publish_claimed_at: claimedAt })
+        .eq("id", row.id)
+        .eq("listing_status", "draft")
+        .is("synced_to_ebay_at", null)
+        .lt("publish_claimed_at", staleBefore)
+        .select("id")
+        .maybeSingle());
+    }
+    if (claimErr) {
+      console.error(
+        `[flipdesk-ebay] scheduled-publish claim failed for listing ${row.id}: ${claimErr.message}`,
+      );
+      skipped += 1;
+      continue;
+    }
     if (!claimed) {
       skipped += 1;
       continue;

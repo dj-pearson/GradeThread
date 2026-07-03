@@ -342,14 +342,29 @@ async function processBatch(
     // US-525: atomically CLAIM the job. Eligible = still 'pending', or a
     // 'running' job left stale by a dead worker. If a live worker already owns
     // it (fresh 'running'), the conditional update matches nothing and we skip.
-    const { data: claimed, error: claimErr } = await supabaseAdmin
+    // US-1552: TWO sequential conditional updates, NOT one with `.or()` —
+    // the self-hosted prod PostgREST rejects logical operators on mutations
+    // (42703 "column <table>.status does not exist" from the update-CTE alias),
+    // which stranded a whole batch. Plain column filters on PATCH are safe.
+    const claimPatch = { status: "running", attempts: attempts + 1, error: null };
+    let { data: claimed, error: claimErr } = await supabaseAdmin
       .from("listing_generation_jobs")
-      .update({ status: "running", attempts: attempts + 1, error: null })
+      .update(claimPatch)
       .eq("id", job.id)
-      .in("status", ["pending", "running"])
-      .or(`status.eq.pending,updated_at.lt.${jobStaleBefore}`)
+      .eq("status", "pending")
       .select("id")
       .maybeSingle();
+    if (!claimErr && !claimed) {
+      // Not pending — claim it only if it's a stale 'running' orphan.
+      ({ data: claimed, error: claimErr } = await supabaseAdmin
+        .from("listing_generation_jobs")
+        .update(claimPatch)
+        .eq("id", job.id)
+        .eq("status", "running")
+        .lt("updated_at", jobStaleBefore)
+        .select("id")
+        .maybeSingle());
+    }
     // US-1552: a DB error here used to read as "someone else owns it" and the
     // job was skipped SILENTLY — with a persistent error (e.g. schema drift)
     // every job skipped and the batch sat 'running' forever with no log trail.
@@ -1767,14 +1782,32 @@ async function processPublishBatch(
     // Atomically CLAIM the job. Eligible = still 'pending', or a 'running' job
     // left stale by a dead worker. A fresh 'running' job (live worker owns it)
     // matches nothing and we skip — the idempotency guard against double-publish.
-    const { data: claimed } = await supabaseAdmin
+    // US-1552: two sequential conditional updates, NOT `.or()` — the prod
+    // PostgREST rejects logical operators on mutations (see generation claim).
+    const claimPatch = { status: "running", attempts: attempts + 1, error: null };
+    let { data: claimed, error: claimErr } = await supabaseAdmin
       .from("listing_publish_jobs")
-      .update({ status: "running", attempts: attempts + 1, error: null })
+      .update(claimPatch)
       .eq("id", job.id)
-      .in("status", ["pending", "running"])
-      .or(`status.eq.pending,updated_at.lt.${jobStaleBefore}`)
+      .eq("status", "pending")
       .select("id")
       .maybeSingle();
+    if (!claimErr && !claimed) {
+      ({ data: claimed, error: claimErr } = await supabaseAdmin
+        .from("listing_publish_jobs")
+        .update(claimPatch)
+        .eq("id", job.id)
+        .eq("status", "running")
+        .lt("updated_at", jobStaleBefore)
+        .select("id")
+        .maybeSingle());
+    }
+    if (claimErr) {
+      console.error(
+        `[flipdesk-autolister] publish job ${job.id} claim failed (left pending): ${claimErr.message}`,
+      );
+      return;
+    }
     if (!claimed) return;
 
     try {

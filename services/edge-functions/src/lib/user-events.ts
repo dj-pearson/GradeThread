@@ -105,13 +105,28 @@ export async function emitEvent(
  */
 async function touchLastActive(userId: string, atIso?: string): Promise<void> {
   const at = atIso ?? new Date().toISOString();
-  const { error } = await supabaseAdmin
+  // US-1552: two sequential conditional updates, NOT `.or()` — the prod
+  // PostgREST rejects logical operators on mutations, so this touch had been
+  // failing (warn-only) on every event. Advance-only either way: common case
+  // first (an existing older timestamp), then the never-touched NULL case.
+  const { data: advanced, error } = await supabaseAdmin
     .from("users")
     .update({ last_active_at: at })
     .eq("id", userId)
-    // Only advance: skip rows already at-or-past `at`.
-    .or(`last_active_at.is.null,last_active_at.lt.${at}`);
+    .lt("last_active_at", at)
+    .select("id")
+    .maybeSingle();
   if (error) {
     console.warn(`[user-events] last_active_at touch failed: ${error.message}`);
+    return;
+  }
+  if (advanced) return;
+  const { error: nullErr } = await supabaseAdmin
+    .from("users")
+    .update({ last_active_at: at })
+    .eq("id", userId)
+    .is("last_active_at", null);
+  if (nullErr) {
+    console.warn(`[user-events] last_active_at touch failed: ${nullErr.message}`);
   }
 }

@@ -9805,3 +9805,21 @@ degrade with a failing service; foreign-group-id filtering through a mock servic
 end-to-end; regroup clears suggestions). no-ungated-print + brace/curly scans clean;
 iOS CI compiles on push (already pushed, see above).
 US-1538 bulk-intake EPIC CLOSED: web US-1539-1546 + iOS US-1547/1548 all shipped.
+
+=== 2026-07-03 (user bug, prod, follow-up): US-1552b (batch stall TRUE root cause: PostgREST rejects .or() on mutations) ===
+The US-1552 claim logging paid off on the very next run: every claim errored with
+42703 "column listing_generation_jobs.status does not exist". The column exists -
+the failure is the .or() filter ON AN UPDATE: prod's older self-hosted PostgREST
+rejects logical operators on mutations (update-CTE alias qualification), while the
+newer local-stack PostgREST accepts them, so deno tests + verify:db never catch it.
+All 44 jobs were still pending (nothing failed, no quota burned).
+FIX: rewrote ALL FOUR or-on-mutation sites as sequential conditional updates
+(pending-first, then stale-running):
+- flipdesk-autolister.ts generation claim (the confirmed failure)
+- flipdesk-autolister.ts publish-job claim (same shape; also now logs claim errors)
+- flipdesk-ebay.ts scheduled-publish claim (same shape; now logs + counts skips)
+- lib/user-events.ts touchLastActive (advance-only touch had been warn-failing on
+  EVERY user event in prod - last_active_at was never advancing)
+.or() on SELECT is unaffected and stays. Rule added to CLAUDE.md Gotchas.
+VERIFIED: deno lint + check clean; full edge suite green (see below).
+RECOVERY: redeploy edge -> queue page Resume picks up all pending jobs.
