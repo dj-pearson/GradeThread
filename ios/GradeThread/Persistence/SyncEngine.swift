@@ -1419,6 +1419,8 @@ actor SyncEngine {
             // US-289: capture-time + reconcile session carried through the
             // offline queue so a retried upload doesn't lose them.
             let captured_at: String?
+            // US-1547: provenance filename (00339). Optional for pre-fix payloads.
+            let original_filename: String?
             let reconcile_session_id: String?
             // US-1496: the strip position, carried through the queue so a replayed
             // batch keeps deterministic order/cover. Optional for pre-fix payloads.
@@ -1473,6 +1475,10 @@ actor SyncEngine {
         if let photoId = p.photo_id { row["id"] = .string(photoId) }
         // US-289: preserve capture-time + reconcile session through replay.
         if let capturedAt = p.captured_at { row["captured_at"] = .string(capturedAt) }
+        // US-1547: preserve the provenance filename through replay.
+        if let originalName = p.original_filename {
+            row["original_filename"] = .string(originalName)
+        }
         if let sessionId = p.reconcile_session_id {
             row["reconcile_session_id"] = .string(sessionId)
         }

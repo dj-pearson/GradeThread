@@ -149,7 +149,9 @@ struct ReconcileIntakeView: View {
                     imageData: output.imageData,
                     thumbnail: output.thumbnail,
                     capturedAt: capturedAt,
-                    source: .library
+                    source: .library,
+                    // US-1547: provenance filename → item_photos.original_filename.
+                    sourceName: result.itemProvider.suggestedName
                 )
             )
         }

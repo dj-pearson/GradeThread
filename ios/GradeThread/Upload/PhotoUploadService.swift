@@ -225,6 +225,7 @@ public final class PhotoUploadService {
             localFileURL: fileURL,
             bytes: Int64(capture.imageData.count),
             capturedAt: capture.capturedAt,
+            sourceName: capture.sourceName,
             reconcileSessionId: reconcileSessionId
         )
         store.upsert(task)
@@ -519,6 +520,7 @@ public final class PhotoUploadService {
             sort_order: sortOrder,
             bytes: task.bytes,
             captured_at: task.capturedAt,
+            original_filename: task.sourceName,
             reconcile_session_id: task.reconcileSessionId
         )
         // Retry the link before giving up. The upsert is idempotent (keyed on the
@@ -683,6 +685,8 @@ public final class PhotoUploadService {
             // US-289: carry capture-time + reconcile session so an offline
             // retry doesn't drop them from the item_photos row.
             let captured_at: String?
+            // US-1547: provenance filename, carried for the same reason.
+            let original_filename: String?
             let reconcile_session_id: String?
             // US-1496: the strip position, so the replay writes the right
             // sort_order instead of hardcoding 0 (nondeterministic order/cover).
@@ -696,6 +700,7 @@ public final class PhotoUploadService {
             local_file_url: task.localFileURL.path,
             photo_id: Self.photoId(for: task),
             captured_at: task.capturedAt.map { Self.iso8601.string(from: $0) },
+            original_filename: task.sourceName,
             reconcile_session_id: task.reconcileSessionId,
             sort_order: sortOrder
         )

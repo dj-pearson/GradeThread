@@ -21,6 +21,10 @@ public struct PhotoUploadTask: Identifiable, Equatable {
     /// stamped onto `item_photos.captured_at`. nil when unknown.
     public let capturedAt: Date?
 
+    /// US-1547: the source file's original name (library picks), stamped onto
+    /// `item_photos.original_filename` (00339 provenance). nil when unknown.
+    public let sourceName: String?
+
     /// Set when this photo was ingested through a Photo Dump Reconciliation
     /// session (US-289). nil for the normal per-item intake flow.
     public let reconcileSessionId: String?
@@ -52,6 +56,7 @@ public struct PhotoUploadTask: Identifiable, Equatable {
         bytes: Int64,
         createdAt: Date = .now,
         capturedAt: Date? = nil,
+        sourceName: String? = nil,
         reconcileSessionId: String? = nil,
         phase: Phase = .queued,
         retryCount: Int = 0,
@@ -66,6 +71,7 @@ public struct PhotoUploadTask: Identifiable, Equatable {
         self.bytes = bytes
         self.createdAt = createdAt
         self.capturedAt = capturedAt
+        self.sourceName = sourceName
         self.reconcileSessionId = reconcileSessionId
         self.phase = phase
         self.retryCount = retryCount

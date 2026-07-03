@@ -9231,3 +9231,40 @@ queued with the other AutoLister manual passes.
 WEB SIDE OF THE US-1538 EPIC NOW COMPLETE (1539/40/41/42/43/44/45/46); remaining children
 are iOS parity (US-1547, US-1548).
 Still LOCAL-ONLY; queues behind held migration 00339.
+
+=== 2026-07-02 (loop): US-1547 (iOS provenance + sequence grouping) + US-1548 PARTIAL (dHash) ===
+US-1547 (COMPLETE):
+- PhotoCapture gains sourceName (optional, default nil - every existing construction
+  compiles unchanged). Captured from PHPickerResult.itemProvider.suggestedName at ALL FOUR
+  library ingest sites (AutoLister importPicks, PhotoIntakeView, ItemCanvas add-from-library,
+  ReconcileIntakeView); AutoLister rotate() preserves it across re-encode.
+- Write-through: PhotoUploadTask.sourceName -> ItemPhotoInsert.original_filename (encodeIfPresent,
+  so pre-existing payload shapes are unchanged when nil) -> insertPhotoRow; ALSO carried through
+  the offline-replay pending-mutation payload and SyncEngine.replayUploadPhoto upsert, so a
+  queued retry never drops provenance. captured_at already flowed since 00066/US-289.
+- PhotoGrouping.swift ported to full web parity (US-1540 semantics): parseFilenameSequence
+  (last-digit-run parser, extension + copy-suffix strip, case-insensitive), sequenceRuns
+  (prefix+seq sort; run breaks on gap/prefix change; duplicates together), timeless photos
+  group by sequence runs (singleton run output identical to the old singleton), unparseable
+  names keep old behavior; timed photos keep time-gap clustering exactly (regression case).
+  Group order: timed by time, then runs by (prefix, seq), then unparseable in input order.
+US-1548 (PARTIAL - AC1/AC4 done, AC2/AC3 blocked):
+- NEW DHash.swift: 9x8 grayscale 64-bit dHash (CGContext downsample, web-parity algorithm)
+  + hammingDistance via nonzeroBitCount. Computed OFF-MAIN during import (Task.detached
+  alongside compression) and re-hashed after rotate.
+- PhotoGrouping.mergeSimilarGroups: union-find merge of groups with any cross-pair Hamming
+  <= 10 (web applyVisualSecondPass port); earlier group keeps position+cover; unhashed
+  photos never match. Wired via autoGroup(hashes:) from AutoListerReviewModel.regroupAll
+  (hashesById maintained across import/rotate/remove/delete).
+- BLOCKED remainder: the verify-groups suggestions UI (AC2/AC3) - /verify-groups takes
+  ${ownerId}/_staging/ storage paths, but iOS AutoLister photos stay LOCAL until generate.
+  Needs an iOS staging-upload client or an edge inline-image variant; noted in prd.
+TESTS: 12 new XCTest cases in AutolisterGroupingTests (parser formats/copy-suffix/nil;
+sequence run grouping; gap+prefix split; duplicates+unparseable; timed regression with wild
+names; visual merge join/keep-apart/transitive+unhashed/threshold boundary at 10 vs 11;
+hamming sanity). iOS CI compiles + runs them.
+VERIFICATION (Windows host): no-ungated-print OK; curly-quote-delimiter + brace/paren scans
+clean on all 12 touched Swift files; single GroupablePhoto construction site updated;
+ItemPhotoInsert memberwise stays source-compatible (optional var default). iOS CI on the
+eventual push is the compile gate.
+Still LOCAL-ONLY; queues behind held migration 00339.

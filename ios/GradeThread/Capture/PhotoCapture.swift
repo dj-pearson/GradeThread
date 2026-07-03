@@ -11,6 +11,11 @@ public struct PhotoCapture: Identifiable, Hashable {
     public let thumbnail: UIImage
     public let capturedAt: Date
     public let source: Source
+    /// US-1547: the source file's original name (e.g. "IMG_0551.jpg") from the
+    /// library item provider. nil for camera captures / providers without one.
+    /// Drives filename-sequence grouping and is persisted onto item_photos as
+    /// `original_filename` (00339 provenance).
+    public let sourceName: String?
 
     public enum Source: Hashable {
         case camera
@@ -22,13 +27,15 @@ public struct PhotoCapture: Identifiable, Hashable {
         imageData: Data,
         thumbnail: UIImage,
         capturedAt: Date = .now,
-        source: Source = .camera
+        source: Source = .camera,
+        sourceName: String? = nil
     ) {
         self.id = id
         self.imageData = imageData
         self.thumbnail = thumbnail
         self.capturedAt = capturedAt
         self.source = source
+        self.sourceName = sourceName
     }
 
     /// Equality only by id so SwiftUI diffing doesn't recompute on every

@@ -1649,7 +1649,9 @@ struct ItemCanvasView: View {
                 imageData: output.imageData,
                 thumbnail: output.thumbnail,
                 capturedAt: result.creationDate() ?? .now,
-                source: .library
+                source: .library,
+                // US-1547: provenance filename → item_photos.original_filename.
+                sourceName: result.itemProvider.suggestedName
             )
             pairs.append((slotForAddedPhoto(offset: accepted), capture))
             accepted += 1

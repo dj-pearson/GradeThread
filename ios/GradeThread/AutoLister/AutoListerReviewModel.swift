@@ -27,6 +27,9 @@ final class AutoListerReviewModel: ObservableObject {
 
     @Published private(set) var photosById: [UUID: PhotoCapture] = [:]
     @Published private(set) var groups: [ReviewGroup] = []
+    /// US-1548: 64-bit dHash per photo, computed off-main during import. Feeds
+    /// the visual merge pass; photos that couldn't hash simply don't participate.
+    private var hashesById: [UUID: UInt64] = [:]
     @Published private(set) var isImporting = false
     /// Set when a batch import yields no usable photos (US-1116) — drives a
     /// retryable error state instead of silently dropping back to the empty
@@ -66,14 +69,23 @@ final class AutoListerReviewModel: ObservableObject {
         for result in results {
             guard let image = await result.loadImage(),
                   let output = await PhotoCompressor.compressOffMain(image) else { continue }
-            captures.append(
-                PhotoCapture(
-                    imageData: output.imageData,
-                    thumbnail: output.thumbnail,
-                    capturedAt: result.creationDate() ?? .now,
-                    source: .library
-                )
+            let capture = PhotoCapture(
+                imageData: output.imageData,
+                thumbnail: output.thumbnail,
+                capturedAt: result.creationDate() ?? .now,
+                source: .library,
+                // US-1547: the original filename drives sequence grouping and
+                // is persisted as item_photos.original_filename at upload.
+                sourceName: result.itemProvider.suggestedName
             )
+            captures.append(capture)
+            // US-1548: hash for the visual merge pass — off-main, alongside the
+            // compression this import already does per photo.
+            if let hash = await Task.detached(priority: .userInitiated, operation: {
+                DHash.compute(image)
+            }).value {
+                hashesById[capture.id] = hash
+            }
         }
         ingest(captures)
         // The user picked photos but none could be materialized (still syncing
@@ -98,12 +110,25 @@ final class AutoListerReviewModel: ObservableObject {
 
     // MARK: - Grouping
 
-    /// Re-run capture-time clustering over all imported photos.
+    /// Re-run clustering over all imported photos: capture-time bursts, the
+    /// US-1547 filename-sequence signal for timeless photos, and the US-1548
+    /// dHash visual merge pass over whatever hashed during import.
     func regroupAll() {
         let groupables = photosById.values.map {
-            GroupablePhoto(id: $0.id.uuidString, capturedAt: $0.capturedAt)
+            GroupablePhoto(
+                id: $0.id.uuidString,
+                capturedAt: $0.capturedAt,
+                sourceName: $0.sourceName
+            )
         }
-        groups = PhotoGrouping.autoGroup(groupables).compactMap { auto in
+        // GroupablePhoto ids are lowercase-normalized? UUID.uuidString is
+        // uppercase; the hash map below keys by the SAME uuidString, so the
+        // round-trip stays consistent either way.
+        let hashes = Dictionary(
+            hashesById.map { ($0.key.uuidString, $0.value) },
+            uniquingKeysWith: { a, _ in a }
+        )
+        groups = PhotoGrouping.autoGroup(groupables, hashes: hashes).compactMap { auto in
             let ids = auto.photoIds.compactMap(UUID.init(uuidString:))
             guard let cover = UUID(uuidString: auto.coverId) ?? ids.first else { return nil }
             return ReviewGroup(id: UUID(), photoIds: ids, coverId: cover)
@@ -136,13 +161,17 @@ final class AutoListerReviewModel: ObservableObject {
 
     func removePhoto(_ photoId: UUID) {
         photosById[photoId] = nil
+        hashesById[photoId] = nil
         for i in groups.indices { groups[i].photoIds.removeAll { $0 == photoId } }
         normalize()
     }
 
     func deleteGroup(_ groupId: UUID) {
         guard let g = groups.first(where: { $0.id == groupId }) else { return }
-        for pid in g.photoIds { photosById[pid] = nil }
+        for pid in g.photoIds {
+            photosById[pid] = nil
+            hashesById[pid] = nil
+        }
         groups.removeAll { $0.id == groupId }
     }
 
@@ -179,8 +208,14 @@ final class AutoListerReviewModel: ObservableObject {
             imageData: output.imageData,
             thumbnail: output.thumbnail,
             capturedAt: capture.capturedAt,
-            source: capture.source
+            source: capture.source,
+            // US-1547: rotation must not drop the provenance filename.
+            sourceName: capture.sourceName
         )
+        // US-1548: re-hash the rotated pixels (a 90° turn changes the dHash).
+        hashesById[photoId] = await Task.detached(priority: .userInitiated, operation: {
+            DHash.compute(rotated)
+        }).value
     }
 
     // MARK: - Handoff

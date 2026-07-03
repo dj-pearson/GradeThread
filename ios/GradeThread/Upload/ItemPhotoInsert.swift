@@ -22,6 +22,9 @@ struct ItemPhotoInsert: Encodable, Equatable {
     let sort_order: Int
     let bytes: Int64
     var captured_at: Date?
+    /// US-1547: the source file's original name (00339 provenance), omitted
+    /// when the device doesn't know it (camera captures).
+    var original_filename: String?
     var reconcile_session_id: String?
 
     enum CodingKeys: String, CodingKey {
@@ -33,6 +36,7 @@ struct ItemPhotoInsert: Encodable, Equatable {
         case sort_order
         case bytes
         case captured_at
+        case original_filename
         case reconcile_session_id
     }
 
@@ -58,6 +62,7 @@ struct ItemPhotoInsert: Encodable, Equatable {
         if let captured_at {
             try c.encode(Self.captureFormatter.string(from: captured_at), forKey: .captured_at)
         }
+        try c.encodeIfPresent(original_filename, forKey: .original_filename)
         try c.encodeIfPresent(reconcile_session_id, forKey: .reconcile_session_id)
     }
 }
