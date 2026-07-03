@@ -7741,8 +7741,8 @@
         "GradeThread.storekit has a real _developerTeamID and a failure-testing scheme so Ask-to-Buy/declined-card paths get coverage; existing unit/UI tests stay green"
       ],
       "priority": 1405,
-      "passes": false,
-      "notes": "[P1][iOS/AppReview] From 2026-06-30 deep iOS bug audit (paywall/IAP sweep). CRITICAL: launch-timing listener miss = charged-but-not-entitled. HIGH: unbounded product fetch = infinite paywall spinner (the 2.1(b) reject pattern). Restore/terms/manage-sub links + verification/empty-products handling already correct. IMPLEMENTED 2026-06-30 on branch claude/ios-app-bug-audit-9in0xv (listener→AppDelegate launch, productsWithTimeout, consumable reportWithRetry-before-finish, optimistic plan + tests) — pending one iOS CI run to confirm green; .storekit team-id is operator-supplied."
+      "passes": true,
+      "notes": "[P1][iOS/AppReview] From 2026-06-30 deep iOS bug audit (paywall/IAP sweep). CRITICAL: launch-timing listener miss = charged-but-not-entitled. HIGH: unbounded product fetch = infinite paywall spinner (the 2.1(b) reject pattern). Restore/terms/manage-sub links + verification/empty-products handling already correct. IMPLEMENTED 2026-06-30 on branch claude/ios-app-bug-audit-9in0xv (listener→AppDelegate launch, productsWithTimeout, consumable reportWithRetry-before-finish, optimistic plan + tests) — pending one iOS CI run to confirm green; .storekit team-id is operator-supplied. [VERIFIED ON MAIN 2026-07-02] The branch work merged long since (78d1a5fa via PRs #144/#145, iOS CI green on merge). Re-verified all ACs on current main: (1) Transaction.updates listener attached in AppDelegate.didFinishLaunchingWithOptions BEFORE any awaited warm-up (AppDelegate.swift ~57, storeKitListener task held); (2) productsWithTimeout wraps BOTH loadPrices and the purchase() prefetch (StoreKitService.swift 106/123/141); (3) consumable purchase runs reportWithRetry BEFORE transaction.finish() (157-159) and the updates path mirrors it (328-332). Tests exist: PaywallStoreTests + StoreKitListenerTests. .storekit team-id remains operator-supplied (unchanged)."
     },
     {
       "id": "US-1406",

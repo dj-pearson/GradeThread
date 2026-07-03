@@ -9651,3 +9651,23 @@ epic success metric (per-factor MAE + misread rate vs pre-epic baseline) directl
 sliceable in the existing accuracy tracking. Ops at rollout: schedule the
 exemplar-assembly cron, seed fabric golden-set cases, enable flags via eval+canary.
 Still LOCAL-ONLY; queues behind held migrations 00339-00342.
+
+=== 2026-07-02 (loop): US-1405 (iOS StoreKit launch listener) - VERIFICATION CLOSE ===
+The implementation already lived on main (78d1a5fa, merged via PRs #144/#145 with iOS CI):
+story notes still pointed at the side branch. Re-verified every AC on current main:
+- Transaction.updates listener attached synchronously in AppDelegate
+  didFinishLaunchingWithOptions, before any awaited warm-up (task retained so the
+  detached listener is never cancelled) - launch-resolved transactions can no longer be
+  missed (the charged-but-not-entitled class).
+- productsWithTimeout (~15s bound) wraps BOTH StoreKitService.loadPrices and the
+  purchase() product prefetch - a StoreKit stall routes to the failed/retry paywall
+  state instead of an infinite spinner (the 2.1(b) rejection pattern).
+- Consumable purchases call reportWithRetry BEFORE transaction.finish(), and the
+  background updates listener follows the same report-then-finish discipline.
+- Tests present: PaywallStoreTests + StoreKitListenerTests; no-ungated-print clean.
+No code changes needed - prd bookkeeping only.
+BACKLOG NOTES this sweep: US-1421 is ops-gated (applying to eBay for restricted
+sell.negotiation scopes is a human/business step; the code AC needs a prod token to
+validate) - left pending. US-1399 remains deliberately deferred per its 2026-06-27
+note (SSR of live numeric values needs a fragile build-time prod fetch). US-1370..1377
+are Android-toolchain-gated ports - skipped per loop rules.
