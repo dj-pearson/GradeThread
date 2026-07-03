@@ -10315,3 +10315,32 @@ VERIFIED LOCALLY: assembleDebug + testDebugUnitTest + lintDebug green.
   system shutter (JP/KR), mirroring iOS SystemSoundID 1108; lifecycle-managed
   release via rememberShutterSound.
 VERIFIED LOCALLY: three gradle gates green.
+
+=== 2026-07-03 (loop v2): US-1306 (Android networking core - EdgeAPI) ===
+The biggest foundation story: the 680-line iOS EdgeAPI actor ported with its
+full behavioral contract, proven by 23 tests (13 of them MockWebServer
+behavioral tests - a level of coverage the iOS original earned only over
+months of incidents):
+- Typed error model: all 11 iOS cases; discriminators BEAT status codes
+  (workspace_access_revoked, email_unverified, feature_unavailable +
+  reconnect_required, offer_not_open); 240-char body preview; actionable copy.
+- Retry policy carried exactly (US-638/1145/1164): network + 429 retry any
+  method (rejected-not-processed), 5xx only for idempotent methods (a POST 5xx
+  may have applied - blind retry risks duplicate sales), <=2 attempts,
+  exponential backoff w/ Retry-After hint, injectable sleeper for tests.
+- ONE forced token refresh on a server 401 (US-1146); email_unverified proven
+  to SKIP the futile refresh; the US-1523 transient-token contract holds (a
+  blip THROWS retryable Network - never an unauthenticated request).
+- Plan-gate (US-805): X-Plan-Warning parsed on ANY status; 402 body decodes
+  the verbatim plan-gate.ts keys; both emit on buffered SharedFlows.
+- TTL GET cache (LRU 64 entries / 4MB, oversized-refusal, clock-injectable);
+  multipart image POST (no transient retry, same 401 refresh); shared 20s vs
+  AI 120s OkHttp client profiles.
+- DELIBERATE DEVIATION: raw OkHttp + kotlinx-serialization instead of
+  Retrofit - the iOS surface is a generic path-based client used by ~40
+  services; Retrofit's per-endpoint interfaces would fragment the port. The
+  AC's intent (auth attach + single synchronous refresh) is implemented and
+  TESTED in the send loop.
+- Kotlin gotcha: while(true) in a lambda body doesn't infer Nothing - needs an
+  explicit unreachable-throw tail.
+VERIFIED LOCALLY: 23/23 networking tests in the results XML; three gates green.

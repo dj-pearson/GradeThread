@@ -6445,7 +6445,7 @@
     {
       "id": "US-1306",
       "priority": -98694,
-      "passes": false,
+      "passes": true,
       "title": "Networking core: EdgeAPI (OkHttp/Retrofit) with auth, retry, plan-gate",
       "description": "As an Android developer, I want a single typed HTTP layer that attaches the bearer token, refreshes on 401, backs off on transient/429, and surfaces plan-gate signals — mirroring iOS EdgeAPI.",
       "acceptanceCriteria": [
@@ -6454,7 +6454,7 @@
         "Plan-gate interceptor parses 402 body → PlanGateError and the X-Plan-Warning header (on ANY status) → PlanWarning, emitted on a shared Flow",
         "Typed error model (unauthorized, emailUnverified, rateLimited, notFound, badRequest, serverError, decoding, network, workspaceAccessRevoked); TTL in-memory cache for idempotent GETs; multipart image POST helper"
       ],
-      "notes": "[P1][Android/Foundation] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P1][Android/Foundation] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. [COMPLETION 2026-07-03] platform/net: the iOS EdgeAPI ported with 23 tests green in the results XML (EdgeApiTest 13 behavioral over MockWebServer + EdgeApiErrorTest 5 + PlanGateTest 5), three gradle gates green. DELIBERATE DEVIATION from AC1's 'Retrofit': the iOS design is a generic path-based client consumed by ~40 services, not per-endpoint interfaces - built on raw OkHttp + kotlinx-serialization with the same generic getJson/postJson/patch/delete surface; the AC's INTENT (auth attach + single-synchronous-refresh-on-401) is implemented in the suspend send loop (behaviorally identical to an Authenticator, and testably so). EdgeApiError: all 11 iOS cases incl. discriminator mappings (workspace_access_revoked/email_unverified/feature_unavailable+reconnect_required/offer_not_open beat status codes), 240-char body preview, actionable user copy. Retry policy EXACTLY iOS US-638/1145/1164: network+429 retry any method (rejected-not-processed), 5xx only idempotent methods, <=2 attempts, Backoff base 500ms cap 4s, Retry-After hint honored (capped 8s), injectable sleeper; ONE forced token refresh on 401 (US-1146) with EmailUnverified proven to SKIP the futile refresh; the US-1523 token contract carried over (provider throws retryable Network on transient - never unauthenticated). Plan-gate (US-805): X-Plan-Warning parsed on ANY status + 402 body -> PlanGateError (verbatim camelCase keys, title/usageDetail/recommendation helpers) emitted on PlanGateNotifier SharedFlows (extraBuffered - never suspends the network path). TtlCache: LRU 64 entries/4MB, oversized-blob refusal, clock-injectable (proven expire+evict). postMultipartImage: no transient retry (non-idempotent) but same 401 refresh. EdgeNetwork: shared 20s-read vs ai 120s-read client profiles. DI wiring to real token providers lands with US-1307/1310. Kotlin gotcha logged: while(true) in a lambda body doesn't infer Nothing - needs an explicit unreachable throw tail."
     },
     {
       "id": "US-1307",
