@@ -10607,3 +10607,16 @@ VERIFIED LOCALLY: three gates green; 4/4 in the results XML.
   denied fallback. Camera declared optional hardware.
 VERIFIED LOCALLY: three gates green (split runs after two download-cap
 kills); 8/8 in the results XML.
+
+=== 2026-07-03 (loop v2): US-1325 (photo compression + EXIF strip + thumb cache) ===
+- Pipeline: power-of-2 sampled decode -> orientation BAKED INTO PIXELS (all 8
+  EXIF orientations mapped) -> 2048 long-edge downsize (never upscales) ->
+  fresh JPEG q80. Metadata gone BY CONSTRUCTION (re-encode writes no EXIF).
+- REAL-IMAGE PROOF: planted GPS + datetime + make + rotate-90 on a 4096x2048
+  source -> output 1024x2048 (rotation physical, cap honored), all privacy
+  tags NULL (US-276 parity end-to-end).
+- Batch: Semaphore-bounded concurrency (cap proven with a gate); per-item
+  Result isolation (a missing source fails alone; Robolectric's decoder is
+  lenient with garbage BYTES, so the portable failure case is documented).
+- Thumbnail cache: 160px keyed by name+mtime; second call proven a file hit.
+VERIFIED LOCALLY: three gates green; 8/8 in the results XML.

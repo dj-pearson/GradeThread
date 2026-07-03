@@ -6706,7 +6706,7 @@
     {
       "id": "US-1325",
       "priority": -98675,
-      "passes": false,
+      "passes": true,
       "title": "Photo compression + EXIF strip + thumbnail cache",
       "description": "As a seller, my photos are downsized, orientation-baked, and stripped of GPS/serial/time before upload (US-276 parity).",
       "acceptanceCriteria": [
@@ -6714,7 +6714,7 @@
         "EXIF whitelisted to orientation only; GPS/device/time discarded (ExifInterface)",
         "Off-main batched compression with bounded concurrency + a 160px thumbnail cache for the strip"
       ],
-      "notes": "[P1][Android/Capture] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P1][Android/Capture] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. [COMPLETION 2026-07-03] capture/PhotoProcessor, locally verified (three gates; PhotoProcessorTest 8/8 with REAL images under Robolectric native graphics). Pipeline: bounds-pass decode with power-of-2 inSampleSize (memory-safe; math pinned) -> ORIENTATION BAKED INTO PIXELS via the full EXIF matrix map (all 8 orientations incl. transpose/transverse; the eBay pipeline ignores EXIF so upright must be physical) -> exact downsize to the 2048 long edge (never upscales - proven) -> JPEG q80. METADATA GONE BY CONSTRUCTION: Bitmap.compress writes a fresh JPEG with NO EXIF - stronger than the AC's whitelist since even the orientation tag becomes unnecessary once baked; REAL-IMAGE PROOF: planted GPS lat/long + DATETIME_ORIGINAL + MAKE + orientation ROTATE_90 on a 4096x2048 source -> output is 1024x2048 (rotation physically applied, cap honored), latLong NULL, datetime NULL, make NULL, orientation undefined/normal (US-276 parity proven end-to-end). Batch: bounded concurrency via Semaphore (primitive proven to cap in-flight at 2 with a gate; a missing/undecodable source fails ALONE - Result-per-item; note: Robolectric's decoder is lenient with garbage BYTES so the portable failure case is a missing file, documented). Thumbnail cache: 160px long-edge q70 keyed by source name+mtime - second call proven a FILE HIT (same path + unchanged mtime; an edited source regenerates by key construction). exifinterface 1.4.0 added."
     },
     {
       "id": "US-1326",
