@@ -16,8 +16,8 @@ public actor EdgeAPI {
         // US-1523: a transient session-refresh failure throws a retryable
         // `.network` error — the request is NEVER sent unauthenticated and the
         // user NEVER sees "session expired" for a network blip.
-        tokenProvider: { try await Self.resolveToken() },
-        tokenRefresher: { try await Self.resolveRefreshedToken() }
+        tokenProvider: { try await EdgeAPI.resolveToken() },
+        tokenRefresher: { try await EdgeAPI.resolveRefreshedToken() }
     )
 
     /// US-1164: AI-session-backed instance so the slow vision calls (AI extract,
@@ -30,8 +30,8 @@ public actor EdgeAPI {
     public static let aiShared = EdgeAPI(
         baseURL: AppConfig.edgeAPIURL,
         session: EdgeNetwork.aiSession,
-        tokenProvider: { try await Self.resolveToken() },
-        tokenRefresher: { try await Self.resolveRefreshedToken() }
+        tokenProvider: { try await EdgeAPI.resolveToken() },
+        tokenRefresher: { try await EdgeAPI.resolveRefreshedToken() }
     )
 
     /// US-1523: maps the typed token result onto the provider contract —
