@@ -37,6 +37,7 @@ import {
   searchBrowseComps,
   suggestCategories,
 } from "./ebay-client.ts";
+import { filterListablePhotos } from "./item-photo-storage.ts";
 import { withRetry } from "./retry.ts";
 import { supabaseAdmin } from "./supabase.ts";
 import { ensurePassportForGradeReport } from "./passport-write.ts";
@@ -825,7 +826,11 @@ async function loadItemPhotoUrls(itemId: string): Promise<ListingGenPhoto[]> {
     .select("photo_type, storage_path, sort_order")
     .eq("inventory_item_id", itemId)
     .order("sort_order", { ascending: true });
-  return ((data ?? []) as Array<{ photo_type: string; storage_path: string | null }>)
+  // US-1549: 'internal' photos (price tags, receipts) are seller-reference
+  // only — the AI must never read them (they'd leak cost basis into copy).
+  return filterListablePhotos(
+    (data ?? []) as Array<{ photo_type: string; storage_path: string | null }>,
+  )
     .filter((p) => !!p.storage_path)
     .map((p) => ({
       url: supabaseAdmin.storage.from("item-photos").getPublicUrl(p.storage_path!)
@@ -1224,6 +1229,8 @@ export async function generateListing(
     .from("item_photos")
     .select("id")
     .eq("inventory_item_id", itemId)
+    // US-1549: a seller-reference photo must never become the cover.
+    .neq("photo_type", "internal")
     .order("sort_order", { ascending: true })
     .limit(1)
     .maybeSingle();
@@ -1734,11 +1741,15 @@ export async function generatePlatformVariants(
   // 3. One text-only AI pass for all requested platforms.
   const text = await generatePlatformVariantText(base, platforms);
 
-  // 4. Photo count (for the photo-cap validation rule).
+  // 4. Photo count (for the photo-cap validation rule). US-1549: 'internal'
+  // photos never publish, so they don't count toward a platform's photo cap.
+  // (Safe to filter at the DB: the edge only deploys once 00340 is applied —
+  // the schema boot guard enforces the ordering.)
   const { count: photoCount } = await supabaseAdmin
     .from("item_photos")
     .select("id", { count: "exact", head: true })
-    .eq("inventory_item_id", itemId);
+    .eq("inventory_item_id", itemId)
+    .neq("photo_type", "internal");
 
   // 5. Resolve each platform's category (US-722): shared cache → seed → AI →
   // unmapped. Cache/seed hits cost ~0; only an unseeded garment type triggers

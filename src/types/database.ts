@@ -200,7 +200,10 @@ export type FlipdeskPhotoType =
   | "accessory"
   | "certificate"
   | "corner"
-  | "surface";
+  | "surface"
+  // US-1549 (migration 00340): seller-reference only — never sent to eBay,
+  // never fed to AI, never shown on public surfaces.
+  | "internal";
 export type ListingStatus = "draft" | "active" | "ended" | "sold" | "relisted";
 export type GradingSubmissionTier = "standard" | "premium" | "express";
 export type PayoutImportMethod = "csv_upload" | "api_sync";

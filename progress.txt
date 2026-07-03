@@ -9268,3 +9268,37 @@ clean on all 12 touched Swift files; single GroupablePhoto construction site upd
 ItemPhotoInsert memberwise stays source-compatible (optional var default). iOS CI on the
 eventual push is the compile gate.
 Still LOCAL-ONLY; queues behind held migration 00339.
+
+=== 2026-07-02 (user request, mid-loop): US-1549 (internal seller-reference photo type) ===
+User ask: photos of the price tag they PAID should stay with the listing for reference but
+never reach eBay or the AI. Implemented as a new item_photos photo_type.
+- MIGRATION 00340: ALTER TYPE flipdesk_photo_type ADD VALUE IF NOT EXISTS internal (held
+  locally per standing rule; EXPECTED_SCHEMA_VERSION -> 00340; packaged in
+  PENDING_MIGRATIONS.md).
+- Edge enforcement via NEW shared filterListablePhotos/isInternalItemPhoto
+  (item-photo-storage.ts, unit-tested): applied at BOTH eBay publish imageUrl builds +
+  assemblePublishContext photos (so internal never reaches eBay, never counts toward
+  front/back blockers, never shows in the composer gallery), the eBay-sync representative
+  thumbnail map, AI listing generation photo inputs (would leak cost basis into copy),
+  the platform photo-cap count + AutoLister cover resolution (.neq - safe: edge deploys
+  only after 00340 per the boot guard), and the PUBLIC storefront cards. relist-detect
+  hashing + operator moderation + own-data export deliberately still see internal.
+  Deliberately NOT bucket-sensitive: blob stays where uploaded; enforcement is
+  selection-side (documented in the migration header).
+- Web: FLIPDESK_PHOTO_TYPES + internal (appended LAST -> photo-order rank sorts reference
+  shots to the gallery tail automatically) + label Internal (not listed); photo-manager
+  retag menu gains it for free (iterates the const). AutoLister: PhotoRole + internal
+  (ROLE_ORDER 5), role <select> option, generate() writes photo_type internal via roleOf;
+  classify-photos + verify-groups payloads EXCLUDE internal-role photos (verify also drops
+  emptied groups + re-checks the 2-group floor); AI auto-tag now MERGES its role map over
+  preserved user-set internal tags instead of wiping them.
+- iOS: FlipdeskPhotoType.all + label - synced internal photos render correctly and the
+  PhotoManagerView retag menu offers it (validated by PhotoEditService against .all).
+  No capture SLOT added - retag path only, matching web.
+- DRIVE-BY FIX: item-photo-storage_test + subscription-mapping_test lacked the dummy-env
+  preamble and only passed via suite-order luck (an earlier file evaluating supabase.ts
+  first); both now use the standard env.set + dynamic-import pattern.
+VERIFICATION: FULL edge suite 2465/0/70 (3 new filter tests); web 1114/1114; tsc -b green;
+eslint clean; npm run build green (47 pages); iOS no-ungated-print + brace scans clean.
+Recorded as US-1549 (nextId -> 1550).
+COMMIT HELD LOCALLY - contains migration 00340 (standing rule).

@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { filterListablePhotos } from "../lib/item-photo-storage.ts";
 import { verifyPreviewToken } from "../lib/preview-token.ts";
 import { verifyCertIntegrity } from "../lib/cert-integrity.ts";
 import { isCertificateWithheld } from "../lib/certificate-visibility.ts";
@@ -981,15 +982,18 @@ async function loadStorefrontListings(
   if (itemIds.length > 0) {
     const { data: photos } = await supabaseAdmin
       .from("item_photos")
-      .select("id, inventory_item_id, photo_url, thumbnail_url, sort_order")
+      .select("id, inventory_item_id, photo_url, thumbnail_url, photo_type, sort_order")
       .in("inventory_item_id", itemIds)
       .order("sort_order", { ascending: true });
-    for (const p of (photos ?? []) as Array<{
+    // US-1549: 'internal' photos (price tags, receipts) never appear on the
+    // PUBLIC storefront.
+    for (const p of filterListablePhotos((photos ?? []) as Array<{
       id: string;
       inventory_item_id: string;
       photo_url: string;
       thumbnail_url: string | null;
-    }>) {
+      photo_type: string | null;
+    }>)) {
       const url = p.thumbnail_url ?? p.photo_url;
       photoById.set(p.id, url);
       if (!firstPhotoByItem.has(p.inventory_item_id)) {

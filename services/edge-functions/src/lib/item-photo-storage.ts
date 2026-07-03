@@ -12,6 +12,25 @@ export const SENSITIVE_ITEM_PHOTO_TYPES = new Set<string>([
   "certificate",
 ]);
 
+// US-1549: seller-reference photos (e.g. the price tag showing what they
+// paid). They stay on the item and render in-app, but are NEVER sent to eBay,
+// NEVER fed to AI passes, and NEVER shown on public surfaces. Enforced in code
+// via filterListablePhotos at every such selection site — the blob itself
+// stays wherever it was uploaded.
+export function isInternalItemPhoto(photoType?: string | null): boolean {
+  return (photoType ?? "") === "internal";
+}
+
+/**
+ * Drop 'internal' photos from a selection headed to eBay, an AI pass, or a
+ * public surface. Pure; rows without a photo_type pass through unchanged.
+ */
+export function filterListablePhotos<T extends { photo_type?: string | null }>(
+  rows: T[],
+): T[] {
+  return rows.filter((r) => !isInternalItemPhoto(r.photo_type));
+}
+
 export const ITEM_PHOTOS_BUCKET = "item-photos";
 export const SUBMISSION_IMAGES_BUCKET = "submission-images";
 

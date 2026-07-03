@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1549,
+  "nextId": 1550,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -9700,6 +9700,21 @@
         "US-1547"
       ],
       "notes": "[P2][iOS/AutoLister] [bulk-intake deep dive 2026-07-02] Grounding: PhotoGrouping.swift:8-12 documents the dHash pass as a known v2 gap (web reference: src/lib/reconcile-cluster.ts + phash from src/workers/image-compress.worker.ts); review model at ios/GradeThread/AutoLister/AutoListerReviewModel.swift; endpoint client lives in AutolisterService.swift:27-31. Device/macOS-CI-gated. [PARTIAL 2026-07-02] AC1+AC4 DONE (committed with US-1547): DHash.swift (9x8 grayscale dHash + hamming) computed off-main during import/rotate; PhotoGrouping.mergeSimilarGroups union-find port wired into autoGroup via regroupAll; 4 XCTest merge cases. AC2/AC3 BLOCKED architecturally: /verify-groups requires /_staging/ storage paths but iOS AutoLister photos stay LOCAL until generate (no staging upload exists on iOS). Unblocking needs an iOS staging-upload client (multipart to /autolister/staging/upload) or an edge variant accepting inline images - schedule deliberately."
+    },
+    {
+      "id": "US-1549",
+      "priority": 2341,
+      "passes": true,
+      "title": "Internal (seller-reference) photo type - kept with the item, never sent to eBay/AI/public",
+      "description": "As a reseller I photograph things I want to KEEP with the item but never publish - the price tag showing what I paid, receipts, sourcing notes. A new internal photo_type carries with the listing and renders in-app, but is excluded from every eBay push, every AI pass, and all public surfaces.",
+      "acceptanceCriteria": [
+        "Migration adds internal to flipdesk_photo_type (idempotent, footer, EXPECTED_SCHEMA_VERSION bump)",
+        "Edge: publish/revise/relist photo assembly, sync thumbnails, AI listing generation inputs + photo-cap count + cover resolution, and the public storefront all exclude internal (shared filterListablePhotos helper, unit-tested)",
+        "Web: retag any photo to Internal (not listed) in the photo manager; AutoLister role select gains internal (sorts last, excluded from classify/verify AI calls, AI auto-tag preserves user-set internal tags)",
+        "iOS: type registry + label so synced internal photos render and the retag menu offers it",
+        "Full edge + web suites, tsc, eslint, build green"
+      ],
+      "notes": "[USER REQUEST 2026-07-02, built same day] Deliberately NOT bucket-sensitive: the blob stays where it was uploaded (unguessable path); enforcement is selection-side. relist-detect hashing + operator moderation deliberately still see internal photos. iOS capture SLOT not added - retag path only."
     }
   ]
 }

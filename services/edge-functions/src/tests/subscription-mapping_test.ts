@@ -8,10 +8,20 @@
 
 import { assertEquals } from "@std/assert";
 import type Stripe from "stripe";
-import {
-  mapSubscriptionStatus,
-  mapSubscriptionToFlipdeskPlan,
-} from "../routes/webhooks.ts";
+
+// webhooks.ts imports the service-role supabase client at load, so set dummy
+// env BEFORE the dynamic import (same pattern as the other tests). This file
+// previously leaned on ANOTHER test file having evaluated that module first —
+// which broke the moment that file stopped importing it statically.
+Deno.env.set("SUPABASE_URL", Deno.env.get("SUPABASE_URL") ?? "http://localhost:54321");
+Deno.env.set(
+  "SUPABASE_SERVICE_ROLE_KEY",
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
+);
+
+const { mapSubscriptionStatus, mapSubscriptionToFlipdeskPlan } = await import(
+  "../routes/webhooks.ts"
+);
 
 function sub(partial: {
   metadata?: Record<string, string>;

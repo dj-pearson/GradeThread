@@ -8,12 +8,24 @@
 //
 // This is a source-guard (grep-style) plus a unit test of the bucket selection.
 import { assert, assertEquals } from "@std/assert";
-import {
+
+// item-photo-storage.ts imports the service-role supabase client at load, so
+// set dummy env BEFORE the dynamic import (same pattern as the other tests) —
+// otherwise this file only passes when an earlier suite file happened to set it.
+Deno.env.set("SUPABASE_URL", Deno.env.get("SUPABASE_URL") ?? "http://localhost:54321");
+Deno.env.set(
+  "SUPABASE_SERVICE_ROLE_KEY",
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
+);
+
+const {
   bucketForItemPhoto,
+  filterListablePhotos,
+  isInternalItemPhoto,
   ITEM_PHOTOS_BUCKET,
   SENSITIVE_ITEM_PHOTO_TYPES,
   SUBMISSION_IMAGES_BUCKET,
-} from "../lib/item-photo-storage.ts";
+} = await import("../lib/item-photo-storage.ts");
 
 const SRC_DIR = new URL("../", import.meta.url);
 // The resolver itself is the ONLY place allowed to call `.download` on a
@@ -63,4 +75,24 @@ Deno.test("bucketForItemPhoto routes sensitive types to the private bucket", () 
     [...SENSITIVE_ITEM_PHOTO_TYPES].sort(),
     ["certificate", "tag", "tag_2"],
   );
+});
+
+// US-1549: 'internal' photos are seller-reference only — every eBay/AI/public
+// photo selection filters them via filterListablePhotos.
+Deno.test("US-1549: internal photos are excluded by filterListablePhotos", () => {
+  assert(isInternalItemPhoto("internal"));
+  assert(!isInternalItemPhoto("front"));
+  assert(!isInternalItemPhoto(null));
+  assert(!isInternalItemPhoto(undefined));
+
+  const rows = [
+    { id: "a", photo_type: "front" },
+    { id: "b", photo_type: "internal" },
+    { id: "c", photo_type: null },
+    { id: "d", photo_type: "detail" },
+  ];
+  assertEquals(filterListablePhotos(rows).map((r) => r.id), ["a", "c", "d"]);
+  // NOT bucket-sensitive: the blob stays wherever it was uploaded — the
+  // enforcement is selection-side, by design.
+  assertEquals(bucketForItemPhoto("internal"), ITEM_PHOTOS_BUCKET);
 });

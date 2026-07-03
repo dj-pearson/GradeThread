@@ -1,7 +1,10 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
-import { SENSITIVE_ITEM_PHOTO_TYPES } from "../lib/item-photo-storage.ts";
+import {
+  filterListablePhotos,
+  SENSITIVE_ITEM_PHOTO_TYPES,
+} from "../lib/item-photo-storage.ts";
 import { maybeFireImmediateConsignorPayout } from "../lib/consignor-payout.ts";
 import { sanitizeRelativePath } from "../lib/oauth-redirect.ts";
 import {
@@ -4990,13 +4993,14 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
       .select("storage_path, photo_url, photo_type, sort_order")
       .eq("inventory_item_id", itemId)
       .order("sort_order", { ascending: true });
+    // US-1549: 'internal' photos (price tags, receipts) never go to eBay.
     const imageUrls = toEbayImageUrls(
-      (
+      filterListablePhotos(
         (photoRows ?? []) as Array<{
           storage_path: string | null;
           photo_url: string | null;
           photo_type: string | null;
-        }>
+        }>,
       ).map(ebayPublicPhotoUrl)
     );
 
@@ -6866,13 +6870,17 @@ flipdeskEbayRoutes.get("/negotiation/eligible", async (c) => {
           .in("inventory_item_id", itemIds)
           .order("sort_order", { ascending: true });
         for (
-          const p of (photoRows ?? []) as Array<{
-            inventory_item_id: string;
-            storage_path: string | null;
-            photo_url: string | null;
-            photo_type: string | null;
-            sort_order: number;
-          }>
+          // US-1549: skip 'internal' photos so a reference shot (price tag)
+          // never becomes the representative image.
+          const p of filterListablePhotos(
+            (photoRows ?? []) as Array<{
+              inventory_item_id: string;
+              storage_path: string | null;
+              photo_url: string | null;
+              photo_type: string | null;
+              sort_order: number;
+            }>,
+          )
         ) {
           // Keep only the first (lowest sort_order) photo per item.
           if (imageByItemId.has(p.inventory_item_id)) continue;
@@ -7653,13 +7661,14 @@ export async function resyncGradeToLiveListing(
     .select("storage_path, photo_url, photo_type, sort_order")
     .eq("inventory_item_id", itemId)
     .order("sort_order", { ascending: true });
+  // US-1549: 'internal' photos (price tags, receipts) never go to eBay.
   const imageUrls = toEbayImageUrls(
-    (
+    filterListablePhotos(
       (photoRows ?? []) as Array<{
         storage_path: string | null;
         photo_url: string | null;
         photo_type: string | null;
-      }>
+      }>,
     ).map(ebayPublicPhotoUrl),
   );
 
@@ -7874,7 +7883,10 @@ export async function assemblePublishContext(
     .eq("inventory_item_id", itemId)
     .order("sort_order", { ascending: true });
 
-  const photos: PublishPhoto[] = ((photoRows ?? []) as Array<{
+  // US-1549: 'internal' photos (price tags, receipts) are excluded from the
+  // whole publish context — they never reach eBay, never count toward the
+  // photo blockers, and never surface as the composer's gallery.
+  const photos: PublishPhoto[] = filterListablePhotos((photoRows ?? []) as Array<{
     id: string;
     storage_path: string | null;
     photo_url: string | null;

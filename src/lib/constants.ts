@@ -813,6 +813,11 @@ export const FLIPDESK_PHOTO_TYPES = [
   "certificate",
   "corner",
   "surface",
+  // US-1549: seller-reference only (the price tag you paid, a receipt, a
+  // sourcing note). Carried with the item and shown in-app, but never sent to
+  // eBay, never fed to AI, never shown publicly. Last on purpose — reference
+  // shots trail the gallery ordering.
+  "internal",
 ] as const;
 
 // Photos a CLOTHING item must have before it can advance to "photographed".
@@ -867,6 +872,7 @@ export const PHOTO_TYPE_LABELS: Record<
   measurement_length: "Measure: Length",
   measurement_sleeve: "Measure: Sleeve",
   measurement_inseam: "Measure: Inseam",
+  internal: "Internal (not listed)",
 };
 
 export const LISTING_STATUSES = [

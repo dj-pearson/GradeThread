@@ -103,14 +103,18 @@ import { cn } from "@/lib/utils";
 
 // US-533: per-photo gallery roles. The cover is always "front"; the rest carry
 // a role the AI assigns (and the user can override). Order after the cover:
-// back → tag → detail → defect.
-type PhotoRole = "front" | "back" | "tag" | "detail" | "defect";
+// back → tag → detail → defect. US-1549: "internal" marks a seller-reference
+// shot (the price tag you paid) — it generates with photo_type 'internal',
+// which the edge excludes from eBay, AI passes, and public surfaces; it sorts
+// last and is never sent to the classify/verify vision calls from here either.
+type PhotoRole = "front" | "back" | "tag" | "detail" | "defect" | "internal";
 const ROLE_ORDER: Record<PhotoRole, number> = {
   front: 0,
   back: 1,
   tag: 2,
   detail: 3,
   defect: 4,
+  internal: 5,
 };
 
 interface Group {
@@ -1313,17 +1317,21 @@ export function FlipdeskAutolisterPage() {
     }
     setVerifyingGroups(true);
     try {
+      const payloadGroups = eligible
+        .map((g) => ({
+          id: g.id,
+          photos: g.photoIds
+            // US-1549: internal (seller-reference) photos stay out of AI.
+            .filter((pid) => (g.roles?.[pid] ?? "detail") !== "internal")
+            .map((pid) => stagedById.get(pid))
+            .filter((p): p is StagedPhoto => !!p)
+            .map((p) => ({ id: p.id, storage_path: p.storagePath })),
+        }))
+        .filter((g) => g.photos.length > 0);
+      if (payloadGroups.length < 2) return;
       const res = await edgeFetch("/api/flipdesk/autolister/verify-groups", {
         method: "POST",
-        json: {
-          groups: eligible.map((g) => ({
-            id: g.id,
-            photos: g.photoIds
-              .map((pid) => stagedById.get(pid))
-              .filter((p): p is StagedPhoto => !!p)
-              .map((p) => ({ id: p.id, storage_path: p.storagePath })),
-          })),
-        },
+        json: { groups: payloadGroups },
       });
       const json = (await res.json().catch(() => ({}))) as {
         suggestions?: Array<Omit<GroupSuggestionRow, "id">>;
@@ -1666,6 +1674,9 @@ export function FlipdeskAutolisterPage() {
     const g = groups.find((x) => x.id === groupId);
     if (!g) return false;
     const photos = g.photoIds
+      // US-1549: never send seller-reference (internal) photos to the vision
+      // pass — the AI must not read the price tag you paid.
+      .filter((pid) => (g.roles?.[pid] ?? "detail") !== "internal")
       .map((pid) => stagedById.get(pid))
       .filter((p): p is StagedPhoto => !!p);
     if (photos.length === 0) return false;
@@ -1691,7 +1702,15 @@ export function FlipdeskAutolisterPage() {
         typeof json.cover_id === "string" && g.photoIds.includes(json.cover_id)
           ? json.cover_id
           : g.coverId;
-      updateGroup(groupId, { coverId: cover, roles: json.roles ?? {} });
+      // US-1549: the AI never saw the internal photos, so its role map can't
+      // include them — re-apply the user's internal tags over the AI result.
+      const preservedInternal = Object.fromEntries(
+        Object.entries(g.roles ?? {}).filter(([, role]) => role === "internal"),
+      ) as Record<string, PhotoRole>;
+      updateGroup(groupId, {
+        coverId: cover,
+        roles: { ...(json.roles ?? {}), ...preservedInternal },
+      });
       return true;
     } catch (err) {
       toast.error(
@@ -2778,6 +2797,8 @@ export function FlipdeskAutolisterPage() {
                           <option value="tag">Tag</option>
                           <option value="detail">Detail</option>
                           <option value="defect">Defect</option>
+                          {/* US-1549: reference-only — not sent to eBay/AI. */}
+                          <option value="internal">Internal (not listed)</option>
                         </select>
                       )}
                     </PhotoDragTile>

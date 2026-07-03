@@ -235,6 +235,10 @@ public enum FlipdeskPhotoType {
         "interior", "flatlay", "on_model",
         "angle", "sole", "marking", "serial", "accessory",
         "certificate", "corner", "surface",
+        // US-1549: seller-reference only (price tag paid, receipt). Stays with
+        // the item in-app; the edge excludes it from eBay, AI, and public
+        // surfaces. Last on purpose.
+        "internal",
     ]
 
     /// Human label for a server `photo_type` string. Unknown values fall back
@@ -267,6 +271,7 @@ public enum FlipdeskPhotoType {
         case "measurement_length": return "Measure: Length"
         case "measurement_sleeve": return "Measure: Sleeve"
         case "measurement_inseam": return "Measure: Inseam"
+        case "internal": return "Internal (not listed)"
         default:
             return serverType
                 .replacingOccurrences(of: "_", with: " ")
