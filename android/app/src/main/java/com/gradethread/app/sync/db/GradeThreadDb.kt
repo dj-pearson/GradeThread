@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.StateFlow
         ListingEntity::class,
         SourceEntity::class,
         PendingMutationEntity::class,
+        CaptureDraftEntity::class,
     ],
     version = 1,
     exportSchema = true,
@@ -38,6 +39,7 @@ abstract class GradeThreadDb : RoomDatabase() {
     abstract fun listings(): ListingDao
     abstract fun sources(): SourceDao
     abstract fun pendingMutations(): PendingMutationDao
+    abstract fun captureDrafts(): CaptureDraftDao
 
     companion object {
         const val DB_NAME = "gradethread.db"

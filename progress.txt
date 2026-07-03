@@ -10590,3 +10590,20 @@ VERIFIED LOCALLY: three gates green; 7/7 in the results XML.
 - ScopeEpoch token invalidation proven; hooks are the registration seams for
   uploader/push/widget/engine stories.
 VERIFIED LOCALLY: three gates green; 4/4 in the results XML.
+
+=== 2026-07-03 (loop v2): US-1324 (CameraX photo-first intake) ===
+- PhotoSlotType: the full 28-slot iOS vocabulary; wire = server photo_type;
+  defects collapse to 'defect'; declaration order = sort order (FRONT =
+  cover); required = front+back only (00306). All pinned by test.
+- PhotoIntakeStore: auto-advance to next EMPTY visible slot (incl. the
+  scan-from-start subtlety), stays put when full, defects reveal ONE AT A
+  TIME with exactly one Add-menu defect entry, re-reveal activates without
+  duplicating, Add-menu ordering proven.
+- DRAFT RECOVERY: full state persists to a capture_drafts row after every
+  mutation; process-death proof via a fresh store restored from real Room;
+  table covered by the SessionScope tenant wipe.
+- CaptureScreen: CameraX controller + preview, slot strip with checkmarks +
+  Add menu, shutter (haptic + MediaActionSound), permission flow with the
+  denied fallback. Camera declared optional hardware.
+VERIFIED LOCALLY: three gates green (split runs after two download-cap
+kills); 8/8 in the results XML.

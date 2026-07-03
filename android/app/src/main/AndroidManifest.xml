@@ -4,6 +4,10 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- US-1322: the connectivity monitor (sync/offline status + debounced flush). -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- US-1324: photo-first capture. Camera is optional hardware - the app
+         works (photo import, everything else) on camera-less devices. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application
         android:name=".GradeThreadApp"

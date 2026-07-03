@@ -6692,7 +6692,7 @@
     {
       "id": "US-1324",
       "priority": -98676,
-      "passes": false,
+      "passes": true,
       "title": "CameraX photo-first intake: slots, strip, auto-advance, draft recovery",
       "description": "As a seller, I want to capture garment photos into category slots with a live preview, auto-advancing to the next empty slot, and resume if interrupted.",
       "acceptanceCriteria": [
@@ -6701,7 +6701,7 @@
         "Full capture state (photos map + active/extra slots) persists to Room and recovers after process death/backgrounding",
         "Camera permission flow (request → store result) with a denied-state fallback message"
       ],
-      "notes": "[P1][Android/Capture] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P1][Android/Capture] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. [COMPLETION 2026-07-03] capture/, locally verified (three gates; PhotoIntakeStoreTest 8/8 w/ real Room). PhotoSlotType: the FULL iOS vocabulary (28 slots incl. universal roles from 00230) with wire values = server photo_type strings (round-trip without translation), defects collapsing to the shared 'defect' server type (proven), declaration order = sort order (FRONT ordinal 0 = cover, pinned), required = front+back ONLY (00306, pinned), per-slot hints. PhotoIntakeStore (iOS mirror, pure over an immutable serializable State): visibleSlots = 4 defaults + revealed; recordCapture lands in the ACTIVE slot then auto-advances to next EMPTY (proven incl. the scan-from-strip-start subtlety: capturing TAG first advances BACK to FRONT); stays put when everything's filled; defects reveal ONE AT A TIME (Add menu offers exactly one defect entry while any hidden - proven; reveal activates; re-reveal just activates without duplicating - proven); hiddenExtraSlots order = next defect, extras, measurements (proven). DRAFT RECOVERY (AC3): full state (photos map + active + revealed) serializes to a capture_drafts Room row after EVERY mutation; process-death proof: a brand-new store restored from Room carries photos/active/revealed exactly; discard clears (proven). capture_drafts added at Room v1 (pre-release, no installed base - no migration needed) + covered by the SessionScope wipe (an in-flight capture is tenant data). CaptureScreen: CameraX LifecycleCameraController + PreviewView, slot strip (FilterChips w/ checkmarks + active highlight + Add menu), shutter w/ success haptic + MediaActionSound, permission launcher with the denied-state fallback message (AC4), Continue appears when required filled (handoff wired by the intake-completion story). CAMERA permission + camera-optional uses-feature; camerax 1.4.2."
     },
     {
       "id": "US-1325",

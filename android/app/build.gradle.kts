@@ -107,6 +107,9 @@ dependencies {
     implementation(libs.posthog.android)
     implementation(libs.androidx.browser)
     implementation(libs.androidx.biometric)
+    implementation(libs.androidx.camera.core)
+    implementation(libs.androidx.camera.lifecycle)
+    implementation(libs.androidx.camera.view)
     implementation(libs.androidx.lifecycle.process)
 
     implementation(libs.hilt.android)

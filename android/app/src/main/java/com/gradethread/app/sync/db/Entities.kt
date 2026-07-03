@@ -208,3 +208,14 @@ data class PendingMutationEntity(
 
     override fun hashCode(): Int = id.hashCode()
 }
+
+/**
+ * US-1324: the in-flight capture session (photos map + active/revealed
+ * slots as JSON) so process death/backgrounding recovers the draft.
+ */
+@Entity(tableName = "capture_drafts")
+data class CaptureDraftEntity(
+    @PrimaryKey val id: String,
+    val stateJson: String,
+    val updatedAt: Long,
+)

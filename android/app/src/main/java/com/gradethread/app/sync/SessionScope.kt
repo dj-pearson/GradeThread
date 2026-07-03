@@ -94,6 +94,7 @@ class SessionScope(
                     db.expenses().clearAll()
                     db.listings().clearAll()
                     db.sources().clearAll()
+                    db.captureDrafts().clearAll() // an in-flight capture is tenant data
                     if (includeQueue) db.pendingMutations().clearAll()
                 }
             }

@@ -180,3 +180,18 @@ interface PendingMutationDao {
     @Query("DELETE FROM pending_mutations")
     suspend fun clearAll()
 }
+
+@Dao
+interface CaptureDraftDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(draft: CaptureDraftEntity)
+
+    @Query("SELECT * FROM capture_drafts WHERE id = :id")
+    suspend fun byId(id: String): CaptureDraftEntity?
+
+    @Query("DELETE FROM capture_drafts WHERE id = :id")
+    suspend fun delete(id: String)
+
+    @Query("DELETE FROM capture_drafts")
+    suspend fun clearAll()
+}
