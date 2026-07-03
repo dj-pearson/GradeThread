@@ -17,6 +17,7 @@ const {
   LISTING_REVIEW_CONFIDENCE,
   priceConfidenceClearsEstimated,
   PRICE_ESTIMATED_CONFIDENCE_THRESHOLD,
+  shouldAdoptGeneratedTitle,
 } = await import("../lib/ai-listing.ts");
 
 Deno.test("high overall + high aspects → no review", () => {
@@ -67,4 +68,29 @@ Deno.test("price-estimated threshold is a sensible default", () => {
     PRICE_ESTIMATED_CONFIDENCE_THRESHOLD > LISTING_REVIEW_CONFIDENCE &&
       PRICE_ESTIMATED_CONFIDENCE_THRESHOLD <= 1,
   );
+});
+
+// ── Generated-title write-back to the item (Inventory/Drafts "Item 12" fix) ──
+// AutoLister seeds items as "Item N"; once generation produces a real title it
+// folds into inventory_items.title — but never over a seller-typed one.
+
+Deno.test("title adopt: placeholder 'Item N' is replaced", () => {
+  assertEquals(shouldAdoptGeneratedTitle("Item 12", "Nike Polo L"), true);
+  assertEquals(shouldAdoptGeneratedTitle("item 3", "Nike Polo L"), true);
+});
+
+Deno.test("title adopt: blank / Untitled is replaced", () => {
+  assertEquals(shouldAdoptGeneratedTitle("", "Nike Polo L"), true);
+  assertEquals(shouldAdoptGeneratedTitle(null, "Nike Polo L"), true);
+  assertEquals(shouldAdoptGeneratedTitle("Untitled draft", "Nike Polo L"), true);
+});
+
+Deno.test("title adopt: a seller-typed title is NEVER clobbered", () => {
+  assertEquals(shouldAdoptGeneratedTitle("Vintage Levi's 501", "AI title"), false);
+  assertEquals(shouldAdoptGeneratedTitle("Item 12 special", "AI title"), false);
+});
+
+Deno.test("title adopt: no generated title → no write", () => {
+  assertEquals(shouldAdoptGeneratedTitle("Item 12", ""), false);
+  assertEquals(shouldAdoptGeneratedTitle("Item 12", null), false);
 });

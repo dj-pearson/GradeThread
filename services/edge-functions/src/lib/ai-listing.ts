@@ -862,6 +862,21 @@ export function priceConfidenceClearsEstimated(
  * confidence is low, or ANY refined per-aspect confidence is low. Pure, so the
  * triage rule is unit-tested.
  */
+// AutoLister items are seeded with a placeholder name ("Item 12" / "Untitled")
+// by the web grouping flow. Once generation produces a real title, fold it
+// into inventory_items.title so Inventory → Drafts (and the item page) show
+// the actual garment instead of "Item 12" — but NEVER clobber a title the
+// seller typed themselves. Pure + exported for tests.
+export function shouldAdoptGeneratedTitle(
+  storedTitle: string | null | undefined,
+  generatedTitle: string | null | undefined,
+): boolean {
+  if (!generatedTitle || !generatedTitle.trim()) return false;
+  const stored = (storedTitle ?? "").trim();
+  if (stored === "") return true;
+  return /^item\s+\d+$/i.test(stored) || /^untitled\b/i.test(stored);
+}
+
 export function listingNeedsReview(
   overallConfidence: number,
   fieldConfidence: Record<string, number>,
@@ -1535,6 +1550,13 @@ export async function generateListing(
   };
   if (normalizedBrand && normalizedBrand !== item.brand) {
     itemUpdate.brand = normalizedBrand;
+  }
+  // Fold the generated title into the item when it still carries the
+  // AutoLister placeholder ("Item 12"/"Untitled"/blank), so Inventory → Drafts
+  // and the item page show the real garment. Seller-typed titles are never
+  // overwritten (shouldAdoptGeneratedTitle is placeholder-guarded).
+  if (shouldAdoptGeneratedTitle(item.title, listing.title)) {
+    itemUpdate.title = listing.title;
   }
   await supabaseAdmin
     .from("inventory_items")

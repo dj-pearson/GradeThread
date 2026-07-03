@@ -3,8 +3,9 @@
 // A publicly-verified seller's accumulated, independently-certified grades are
 // the trust signal that differentiates them from a plain marketplace seller.
 // This module turns that signal into a buyer-facing block (total graded, average
-// grade, a link to the public /verified/<handle> profile) that AutoLister embeds
-// into the listing / cross-listing description.
+// grade, a text-only "verify at GradeThread" pointer — NEVER a link/URL, see
+// buildSellerCredentialBlock) that AutoLister embeds into the listing /
+// cross-listing description.
 //
 // PURE (no I/O) so it's unit-tested directly; the impure loader that enforces
 // eligibility + pulls the stats lives in seller-credentials-job.ts. No PII beyond
@@ -42,20 +43,30 @@ function escapeHtml(s: string): string {
 /**
  * Pure: render the verified-seller credential block in plain/markdown/html. The
  * stats line is only shown when the seller has at least one certified grade; the
- * verified badge + profile link always appear (the caller has already confirmed
- * the seller is publicly verified and opted in). No I/O — unit-tested.
+ * verified badge always appears (the caller has already confirmed the seller is
+ * publicly verified and opted in). No I/O — unit-tested.
+ *
+ * eBay-policy: NO LINKS, NO URLS in any variant. Every consumer of this block
+ * is a marketplace listing description, and eBay treats an off-eBay URL in the
+ * description as "offering to buy/sell outside eBay" and HIDES the listing
+ * (observed policy hit, ref 2-106523659851 — same rule that keeps cert URLs
+ * out, see applyGradeListingPromotion). Other marketplaces (Poshmark, Mercari)
+ * prohibit external links too. The trust signal is the brand + handle + stats
+ * as plain text; buyers find the profile by searching the seller handle. The
+ * `siteUrl` parameter is retained so callers don't churn, but it no longer
+ * appears in any output.
  */
 export function buildSellerCredentialBlock(
   cred: SellerCredential,
-  siteUrl: string = DEFAULT_SITE,
+  _siteUrl: string = DEFAULT_SITE,
 ): SellerCredentialBlock {
-  const site = siteUrl || DEFAULT_SITE;
-  const profileUrl = `${site}/verified/${cred.handle}`;
   const name = cred.display_name?.trim() || cred.handle;
   const { total_graded, average_grade } = cred.stats;
   const hasStats = total_graded > 0;
   const avg = average_grade.toFixed(1);
   const gradedLabel = `${total_graded} ${total_graded === 1 ? "item" : "items"}`;
+  // Text-only pointer — a search phrase, never a URL.
+  const verifyLine = `Verify grades at GradeThread — seller "${cred.handle}"`;
 
   // ── Plain text ──────────────────────────────────────────────────
   const plainLines: string[] = [];
@@ -66,7 +77,7 @@ export function buildSellerCredentialBlock(
       `${gradedLabel} independently graded • Average condition grade ${avg} / 10`,
     );
   }
-  plainLines.push(`See every verified grade: ${profileUrl}`);
+  plainLines.push(verifyLine);
   const plain = plainLines.join("\n");
 
   // ── Markdown ────────────────────────────────────────────────────
@@ -77,7 +88,7 @@ export function buildSellerCredentialBlock(
       `${gradedLabel} independently graded · **${avg} / 10** average condition grade`,
     );
   }
-  mdLines.push(`[See every verified grade ↗](${profileUrl})`);
+  mdLines.push(verifyLine);
   const markdown = mdLines.join("\n\n");
 
   // ── HTML (for listing descriptions that render HTML, e.g. eBay) ──
@@ -94,7 +105,7 @@ export function buildSellerCredentialBlock(
     );
   }
   htmlParts.push(
-    `<a href="${escapeHtml(profileUrl)}" style="color:#0F3460;font-weight:600;text-decoration:none">See every verified grade ↗</a>`,
+    `<div style="color:#0F3460;font-weight:600">${escapeHtml(verifyLine)}</div>`,
   );
   htmlParts.push(`</div>`);
   const html = htmlParts.join("");

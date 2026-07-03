@@ -10,9 +10,8 @@ Deno.env.set(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
 );
 
-const { applyGradeListingPromotion, allowedAspectsFromSpec } = await import(
-  "../routes/flipdesk-ebay.ts"
-);
+const { applyGradeListingPromotion, allowedAspectsFromSpec, stripCertLinks } =
+  await import("../routes/flipdesk-ebay.ts");
 const { resolveMeasurementAspects } = await import("../lib/measurements.ts");
 
 // US-1502: the grade item specific value is "GradeThread <n.n>" under the
@@ -61,6 +60,59 @@ Deno.test("promotion: no grade value is a no-op on the aspect map", async () => 
   );
   assertEquals(aspects[GRADE_KEY], undefined);
   assertEquals(desc, "keep me");
+});
+
+// ── Off-eBay link strip: legacy US-1126 credential blocks ──────────
+// Older AutoLister generations embedded the verified-seller credential block
+// WITH an <a href> to gradethread.com/verified/<handle>; eBay hides listings
+// whose description links off-eBay, so publish/revise must scrub stored
+// descriptions (new generations are link-free at the source).
+
+const LEGACY_CREDENTIAL_DESC =
+  `<p>Nice polo.</p>\n` +
+  `<!--gradethread-seller-credentials--><div style="border:1px solid #e5e7eb">` +
+  `<div style="font-weight:700">✓ GradeThread Verified Seller — Pearson Mercantile</div>` +
+  `<div>13 items independently graded · <strong>8.2 / 10</strong> average condition grade</div>` +
+  `<a href="https://gradethread.com/verified/pearson" style="color:#0F3460">See every verified grade ↗</a>` +
+  `</div>`;
+
+Deno.test("strip: removes the legacy credential anchor, keeps name + stats", () => {
+  const out = stripCertLinks(LEGACY_CREDENTIAL_DESC);
+  assertEquals(out.includes("https://"), false);
+  assertEquals(out.includes("<a"), false);
+  assertEquals(out.includes("See every verified grade"), false);
+  // The trust text survives — only the link goes.
+  assertEquals(out.includes("Verified Seller — Pearson Mercantile"), true);
+  assertEquals(out.includes("8.2 / 10"), true);
+  assertEquals(out.includes("Nice polo."), true);
+});
+
+Deno.test("strip: removes the plain-text verified-profile URL line", () => {
+  const out = stripCertLinks(
+    "Great shirt.\n\nGradeThread Verified Seller\nPearson\n" +
+      "See every verified grade: https://gradethread.com/verified/pearson\n",
+  );
+  assertEquals(out.includes("https://"), false);
+  assertEquals(out.includes("Great shirt."), true);
+  assertEquals(out.includes("Verified Seller"), true);
+});
+
+Deno.test("strip: removes bare /verified/ and /cert/ URLs", () => {
+  const out = stripCertLinks(
+    "See https://gradethread.com/verified/px and https://gradethread.com/cert/abc here.",
+  );
+  assertEquals(/https?:\/\//.test(out), false);
+});
+
+Deno.test("promotion: strips legacy credential link even when UNGRADED (revise path)", async () => {
+  const out = await applyGradeListingPromotion(
+    { grade_value: null, certificate_url: null },
+    {},
+    LEGACY_CREDENTIAL_DESC,
+    { force: true },
+  );
+  assertEquals(out.includes("https://"), false);
+  assertEquals(out.includes("Verified Seller — Pearson Mercantile"), true);
 });
 
 // ── US-1503: measurement aspects flow through the derive/revise paths ──

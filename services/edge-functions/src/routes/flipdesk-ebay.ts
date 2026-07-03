@@ -4934,11 +4934,13 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
         for (const [k, v] of Object.entries(measAspects)) aspects[k] = v;
         desc = applyMeasurementsBlock(desc, meas);
       }
-      if (item.grade_value != null) {
-        desc = await applyGradeListingPromotion(item, aspects, desc, {
-          force: true,
-        });
-      }
+      // Run unconditionally: for ungraded items this is a no-op past the
+      // off-eBay link strip, and the strip must reach EVERY revise so a legacy
+      // linked credential block in a stored description can't ride a revise
+      // back onto the live listing.
+      desc = await applyGradeListingPromotion(item, aspects, desc, {
+        force: true,
+      });
       reviseGradeDesc = desc;
     }
 
@@ -7815,15 +7817,38 @@ function appendCertNumber(
   return description.trim() ? `${description.trim()}\n\n${line}` : line;
 }
 
-// Remove any certificate link from a listing description so a published eBay
-// listing never trips the off-eBay-links policy — covers the old template line
-// ("View the full condition certificate: <url>") and any bare /cert/ URL.
-function stripCertLinks(description: string): string {
-  return description
-    .replace(/^.*View the full condition certificate:.*$/gim, "")
-    .replace(/^.*https?:\/\/\S*\/cert\/\S*.*$/gim, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+// Remove any off-eBay GradeThread link from a listing description so a
+// published eBay listing never trips the off-eBay-links policy — covers the
+// old template line ("View the full condition certificate: <url>"), any bare
+// /cert/ URL, AND the US-1126 verified-seller credential block that older
+// AutoLister generations embedded WITH an <a href> to /verified/<handle>
+// (current generations are link-free, but stored drafts still carry it and
+// eBay hides listings over it). Exported for tests.
+export function stripCertLinks(description: string): string {
+  return (
+    description
+      // Legacy linked credential block: drop the anchor entirely — "See every
+      // verified grade ↗" is meaningless without its link. Non-greedy so only
+      // the anchor goes, not the rest of the block (name + stats stay).
+      .replace(
+        /<a\b[^>]*href="[^"]*gradethread\.com\/verified\/[^"]*"[^>]*>.*?<\/a>/gis,
+        "",
+      )
+      // Any other anchor pointing off-eBay at gradethread.com: unwrap to its
+      // text so no URL survives in the markup.
+      .replace(
+        /<a\b[^>]*href="[^"]*gradethread\.com[^"]*"[^>]*>(.*?)<\/a>/gis,
+        "$1",
+      )
+      .replace(/^.*View the full condition certificate:.*$/gim, "")
+      .replace(/^.*https?:\/\/\S*\/cert\/\S*.*$/gim, "")
+      // Bare /verified/ profile URLs in plain-text descriptions (the old
+      // plain-variant "See every verified grade: <url>" line).
+      .replace(/^.*See every verified grade:.*$/gim, "")
+      .replace(/https?:\/\/\S*gradethread\.com\/verified\/\S*/gi, "")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim()
+  );
 }
 
 // NOTE: the Digital-Slab listing-image attachment (formerly slabImageUrlForItem
