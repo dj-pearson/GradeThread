@@ -10501,3 +10501,20 @@ VERIFIED LOCALLY: three gates green; 3/3 in the results XML.
   per-table clearAll ready for the US-1323 sign-out wipe.
 VERIFIED LOCALLY: three gates green; 6/6 in the results XML (real Room under
 Robolectric).
+
+=== 2026-07-03 (loop v2): US-1317 (SyncEngine pull: watermarks + drop-safe advance) ===
+- SyncWatermark: per-table DataStore cursors with MONOTONIC advance (a stale
+  pull can't rewind), resetAll honoring the resets-before-wipe sign-out
+  ordering, and the watermark-schema companion gating the one-time full
+  backfill on a pull-shape bump.
+- SyncPull: the pure machinery over an injected page fetcher - 500/page with
+  the 50k ceiling (proven to stop a runaway loop at exactly 100 pages),
+  lenient per-row decode (a bad row drops the ROW, never the page; throwing
+  decoders count as dropped), and safeCursor ported EXACTLY per US-1210 with
+  the full matrix proven (no-drop max, strictly-before clamp, equal-instant
+  not passed, all-dropped no advance). rawCursor reads updated_at even from
+  rows whose full decode fails, so a dropped row is re-fetched next pass
+  instead of skipped forever.
+- primaryPhotoByItem: in-memory lowest-sortOrder mapping (display only;
+  presence stays the US-994 relation).
+VERIFIED LOCALLY: three gates green; 10/10 in the results XML.

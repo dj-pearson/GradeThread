@@ -6597,7 +6597,7 @@
     {
       "id": "US-1317",
       "priority": -98683,
-      "passes": false,
+      "passes": true,
       "title": "SyncEngine pull: watermark delta, pagination, resilient decode, drop-safe advance",
       "description": "As a user, I want my data to sync incrementally and resiliently so a single bad row never blanks a table and nothing is silently skipped.",
       "acceptanceCriteria": [
@@ -6606,7 +6606,7 @@
         "Drop-safe watermark advance: cursor only advances to the max decoded cursor strictly before the earliest dropped row (mirrors safeCursor / US-1210)",
         "Primary-photo mapping computed in-memory during pull; merge runs off the main thread"
       ],
-      "notes": "[P1][Android/Sync] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P1][Android/Sync] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. [COMPLETION 2026-07-03] sync/, locally verified (three gates; SyncPullTest 10/10). SyncWatermark: per-table cursors in DataStore (6 tables), MONOTONIC advance (a stale late-returning pull can't rewind), resetAll (the resets-BEFORE-row-wipe sign-out contract), plus the US-1316 watermark-schema companion: needsFullBackfill pure decision + migrateToCurrentSchema (reset + record) gating the one-time backfill (AC1/AC2's plan). SyncPull - the pure machinery over an injected page fetcher so EVERY invariant unit-tests without a network: PAGE_SIZE 500 / MAX_ROWS_PER_PASS 50k exactly like iOS (ceiling proven to stop a runaway full-page loop at exactly 100 pages, short page drains); LENIENT DECODE drops the ROW never the page (proven; a THROWING decoder also counts as dropped); safeCursor ported EXACTLY (US-1210: max decoded with no drops; strictly-before-earliest-drop clamp; equal-instant NOT passed; all-dropped never advances; empty pass null - the full matrix proven) with rawCursor extracting updated_at even from rows whose full decode fails (a cursor-less unrecoverable row can't clamp - proven); primaryPhotoByItem in-memory mapping (lowest sortOrder wins - display denormalization only, presence stays the US-994 relation). The tenant-scoping contract (eq user_id ownerId via WorkspaceScope) documented at the fetchPage seam; the Postgrest-bound fetcher + merge-into-Room integration is the next story's (US-1318) surface."
     },
     {
       "id": "US-1318",
