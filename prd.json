@@ -6569,7 +6569,7 @@
     {
       "id": "US-1315",
       "priority": -98685,
-      "passes": false,
+      "passes": true,
       "title": "Biometric app lock + privacy cover + anti-lockout",
       "description": "As a user, I want an optional biometric/device-credential lock and a hidden app-switcher preview so my sales/payout figures stay private.",
       "acceptanceCriteria": [
@@ -6578,7 +6578,7 @@
         "FLAG_SECURE (or an opaque cover) hides financial figures in the Recents thumbnail the instant the app goes inactive (mirrors PrivacyCover, no fade)",
         "Anti-lockout: a device with no enrolled auth auto-unlocks and is telemetered (never strands the user)"
       ],
-      "notes": "[P2][Android/Security] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P2][Android/Security] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. [COMPLETION 2026-07-03] platform/applock, locally verified (three gates; AppLockTest 3/3). AppLock (iOS AppLock mirror): two modes persisted in DataStore - BIOMETRICS_OR_CREDENTIAL maps to BIOMETRIC_WEAK|DEVICE_CREDENTIAL, BIOMETRICS_ONLY to BIOMETRIC_STRONG (pure mapping tested, AC1); arms on background (MainActivity.onStop), prompts on foreground/cold-launch (onResume + initialize() starting LOCKED when enabled); the prompt is re-entrance-guarded via compareAndSet so rapid foreground bounces can't stack system dialogs (AC2). ANTI-LOCKOUT (AC4): shouldAutoUnlock treats EVERY non-SUCCESS canAuthenticate answer (none-enrolled/no-hardware/hw-unavailable/unsupported/unknown - full matrix tested) as auto-unlock + a telemetered app_lock_auto_unlock event - a privacy nicety never strands the user. PrivacyCover (AC3): FLAG_SECURE applied whenever the lock is enabled - the Recents thumbnail blanks INSTANTLY (no fade, the iOS requirement) + screenshots blocked as a bonus; toggled in onResume. LockScreen: opaque cover REPLACING the shell composition entirely (nothing financial composed underneath), auto-prompts on entry, button re-prompts after cancel. MainActivity became FragmentActivity (BiometricPrompt requires it). Settings UI toggle rides the Settings story."
     },
     {
       "id": "US-1316",

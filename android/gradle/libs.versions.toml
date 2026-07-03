@@ -22,6 +22,8 @@ securityCrypto = "1.1.0-alpha06"
 sentry = "7.22.0"
 posthog = "3.11.2"
 browser = "1.8.0"
+biometric = "1.1.0"
+lifecycleProcess = "2.8.7"
 serialization = "1.8.0"
 junit = "4.13.2"
 robolectric = "4.14.1"
@@ -60,6 +62,8 @@ androidx-security-crypto = { group = "androidx.security", name = "security-crypt
 sentry-android = { group = "io.sentry", name = "sentry-android", version.ref = "sentry" }
 posthog-android = { group = "com.posthog", name = "posthog-android", version.ref = "posthog" }
 androidx-browser = { group = "androidx.browser", name = "browser", version.ref = "browser" }
+androidx-biometric = { group = "androidx.biometric", name = "biometric", version.ref = "biometric" }
+androidx-lifecycle-process = { group = "androidx.lifecycle", name = "lifecycle-process", version.ref = "lifecycleProcess" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
 

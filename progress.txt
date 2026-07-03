@@ -10468,3 +10468,16 @@ VERIFIED LOCALLY: three gates green; 4/4 in the results XML.
   AuthCallbackActivity; MainActivity (singleTask) feeds the controller from
   launch + onNewIntent; the shell collects and navigates.
 VERIFIED LOCALLY: three gates green; 8/8 in the results XML.
+
+=== 2026-07-03 (loop v2): US-1315 (biometric app lock + privacy cover + anti-lockout) ===
+- AppLock: two modes (bio-or-credential -> WEAK|DEVICE_CREDENTIAL, bio-only ->
+  STRONG; pure mapping tested); arms on background, prompts on foreground and
+  cold launch (starts LOCKED when enabled); re-entrance-guarded prompt.
+- ANTI-LOCKOUT: every non-SUCCESS canAuthenticate answer auto-unlocks with a
+  telemetered event (full matrix tested) - the lock never strands the user.
+- PrivacyCover: FLAG_SECURE whenever the lock is enabled - Recents thumbnail
+  blanks instantly (no fade) and screenshots are blocked.
+- LockScreen replaces the shell composition entirely while locked (nothing
+  financial composed underneath); auto-prompts, button re-prompts.
+- MainActivity became FragmentActivity (BiometricPrompt requirement).
+VERIFIED LOCALLY: three gates green; 3/3 in the results XML.

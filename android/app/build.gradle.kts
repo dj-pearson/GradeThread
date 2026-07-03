@@ -102,6 +102,8 @@ dependencies {
     implementation(libs.sentry.android)
     implementation(libs.posthog.android)
     implementation(libs.androidx.browser)
+    implementation(libs.androidx.biometric)
+    implementation(libs.androidx.lifecycle.process)
 
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
