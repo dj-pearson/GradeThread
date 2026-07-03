@@ -120,6 +120,7 @@ type Stage = (typeof STAGES)[number];
 // ── Accuracy ───────────────────────────────────────────────────────
 
 // GET /accuracy?period=week  — aggregate accuracy metrics.
+// US-1564 wire decision: WIRED — Accuracy tab of GradingAccuracyPanel (/admin/ai-models).
 adminGradingRoutes.get("/accuracy", async (c) => {
   try {
     const period = c.req.query("period");
@@ -168,6 +169,7 @@ adminGradingRoutes.get("/claim-signal", async (c) => {
 
 // GET /accuracy/defects — per-defect-type & per-size accuracy + weight-table
 // calibration recommendations (US-1036). ?period=week scopes the window.
+// US-1564 wire decision: WIRED — Defects tab of GradingAccuracyPanel.
 adminGradingRoutes.get("/accuracy/defects", async (c) => {
   try {
     const period = c.req.query("period");
@@ -193,6 +195,8 @@ adminGradingRoutes.get("/accuracy/defects", async (c) => {
 // eval case twice through the real vision model. Body: { prompt_version_id,
 // model_a, model_b }. prompt_version_id should reference a default/empty-text
 // version to evaluate current grading behavior under each model.
+// US-1564 wire decision: WIRED — Tools tab (confirm-gated trigger; 7 covering tests
+// in model-comparison_test.ts keep the contract stable).
 adminGradingRoutes.post("/model-comparison", async (c) => {
   const userId = c.get("userId") ?? null;
   try {
@@ -242,6 +246,7 @@ adminGradingRoutes.post("/model-comparison", async (c) => {
 });
 
 // GET /accuracy/outcomes — post-sale feedback (dispute rate + grade↔price) per category.
+// US-1564 wire decision: WIRED — Outcomes tab of GradingAccuracyPanel.
 adminGradingRoutes.get("/accuracy/outcomes", async (c) => {
   try {
     return c.json(await computeOutcomeFeedback());
@@ -259,6 +264,7 @@ adminGradingRoutes.get("/accuracy/outcomes", async (c) => {
 // controls: ?consent_only=false includes non-opted-in rows (a fully-internal
 // export — audited); ?include_notes=true keeps reviewer free text (default
 // redacted). Returns NDJSON so it downloads cleanly.
+// US-1564 wire decision: WIRED — Tools tab download button (NDJSON; consent toggle).
 adminGradingRoutes.get("/training-export", async (c) => {
   try {
     const consentOnly = c.req.query("consent_only") !== "false";
@@ -920,6 +926,7 @@ adminGradingRoutes.patch("/prompts/:id/shadow", async (c) => {
 // GET /shadow/comparison?version=<name>&days=<n> — aggregate shadow-vs-active
 // comparison for a candidate: score-delta distribution, agreement rate, and
 // per-tag divergence (e.g. distressed_denim). Admin-only platform analytics.
+// US-1564 wire decision: WIRED — Shadow tab of GradingAccuracyPanel.
 adminGradingRoutes.get("/shadow/comparison", async (c) => {
   const version = (c.req.query("version") ?? "").trim();
   if (!version) return c.json({ error: "version query param is required" }, 400);
@@ -939,6 +946,7 @@ adminGradingRoutes.get("/shadow/comparison", async (c) => {
 
 // GET /shadow/results?version=<name>&limit=<n> — recent shadow rows for
 // inspection (the divergent cases an admin wants to eyeball).
+// US-1564 wire decision: WIRED — Shadow tab (divergent-row inspection + version picker).
 adminGradingRoutes.get("/shadow/results", async (c) => {
   const version = (c.req.query("version") ?? "").trim();
   const limit = Math.min(Math.max(Number(c.req.query("limit")) || 50, 1), 200);

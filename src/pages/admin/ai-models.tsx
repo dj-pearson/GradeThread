@@ -32,6 +32,7 @@ import { GradingMonitorPanel } from "@/components/admin/grading-monitor-panel";
 import { GradingEvalCandidatesPanel } from "@/components/admin/grading-eval-candidates-panel";
 import { GradingCalibrationPanel } from "@/components/admin/grading-calibration-panel";
 import { GradingCanaryPanel } from "@/components/admin/grading-canary-panel";
+import { GradingAccuracyPanel } from "@/components/admin/grading-accuracy-panel";
 import { ListingPromptPerformancePanel } from "@/components/admin/listing-prompt-performance-panel";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { MfaStepUpDialog } from "@/components/admin/admin-mfa-gate";
@@ -1094,6 +1095,9 @@ export function AdminAiModelsPage() {
 
       {/* Staged prompt rollout / canary % (US-896) */}
       <GradingCanaryPanel />
+
+      {/* US-1564: accuracy / defects / outcomes / shadow / export+comparison. */}
+      <GradingAccuracyPanel />
 
       {/* Listing-prompt acceptance + sell-through performance / A-B (US-547) */}
       <ListingPromptPerformancePanel />

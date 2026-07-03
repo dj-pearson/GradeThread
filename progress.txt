@@ -10073,3 +10073,24 @@ The DB-console-only marketplace_category_map finally has an editor:
   Set-Content in the previous commit; deno tolerated it but it was inconsistent).
 VERIFICATION: tsc -b 0, eslint clean, vitest 1121/1121, FULL npm run build green
 through prerender. No migration.
+
+=== 2026-07-03 (loop v2): US-1564 (wire-or-prune unreachable admin endpoints) ===
+All 8 finished-but-unreachable endpoints WIRED (none deserved pruning); decision
+comments recorded at each route:
+- NEW GradingAccuracyPanel on /admin/ai-models (the AI-ops hub): Accuracy tab
+  (global + per-version + per-category MAE/agreement/design-misread, windowed);
+  Defects tab (per-defect-type + per-size deltas with the advisory weight-table
+  recommendation banner - never auto-applied); Outcomes tab (post-sale dispute
+  rate + sold/list ratio per category); Shadow tab (version picker derived from
+  recent results; comparison stats + delta histogram + divergent/errored rows
+  for eyeballing); Tools tab (training-export NDJSON download with the
+  consent-only toggle defaulting ON to match the endpoint's audited privacy
+  contract, and the EXPENSIVE model-comparison behind a cost-warning confirm -
+  its contract already held stable by 7 existing tests).
+- admin-messages GET /templates: user-detail compose now loads the server list
+  instead of its hand-mirrored MESSAGE_TEMPLATES copy - the same drift class the
+  cron-registry story just killed, eliminated here too.
+- grading-engine skill loaded before touching grading surfaces per AC; no
+  grading math/prompt changes (read-only analytics).
+VERIFICATION: tsc -b 0, eslint clean, vitest 1121/1121, deno check + lint clean.
+No migration.

@@ -75,6 +75,8 @@ const TEMPLATES: MessageTemplate[] = [
 ];
 
 // GET /templates — canned starting points for the compose UI.
+// US-1564 wire decision: WIRED — user-detail compose loads these (replaced its
+// hand-mirrored copy; the server list is now the single source of truth).
 adminMessagesRoutes.get("/templates", (c: Context<AdminEnv>) => {
   return c.json({ templates: TEMPLATES });
 });

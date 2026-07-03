@@ -9929,7 +9929,7 @@
     {
       "id": "US-1564",
       "priority": 2355,
-      "passes": false,
+      "passes": true,
       "title": "Surface or prune unreachable admin-grading analytics endpoints + messages templates",
       "description": "As an admin, several built endpoints have zero frontend callers: admin-grading GET /accuracy, /accuracy/defects, /accuracy/outcomes, /shadow/comparison, /shadow/results, POST /model-comparison, GET /training-export; and admin-messages GET /templates. They represent finished analytics (grading accuracy trends, shadow-prompt comparisons, model A/B, training-data export) that operators simply cannot see.",
       "acceptanceCriteria": [
@@ -9940,7 +9940,7 @@
         "grading-engine skill loaded before touching any grading UI/routes; no grading contract changes (read-only surfacing)",
         "tsc, eslint, deno edge suite, full build green"
       ],
-      "notes": "[2026-07-02 admin backend audit, finding #5] All endpoints verified working at the route layer — this is discoverability, not repair."
+      "notes": "[2026-07-02 admin backend audit, finding #5] All endpoints verified working at the route layer — this is discoverability, not repair. [COMPLETION 2026-07-03] grading-engine skill loaded first per AC. ALL 8 endpoints WIRED (none pruned - each renders finished analytics); decision comments recorded at every endpoint in admin-grading.ts/admin-messages.ts (AC1). NEW GradingAccuracyPanel on /admin/ai-models (the AI-ops hub, beside monitor/eval/calibration/canary panels): Accuracy tab (GET /accuracy - global MAE/agreement/misread stats + per-prompt-version + per-category tables, week/month/all window), Defects tab (GET /accuracy/defects - per-defect-type + per-size MAE/signed-delta/agreement + advisory weight-table recommendations banner, never auto-applied), Outcomes tab (GET /accuracy/outcomes - post-sale dispute rate + sold/list ratio per category), Shadow tab (GET /shadow/results derives the version picker; GET /shadow/comparison renders agreement/mean-delta/histogram + a divergent-and-errored-rows table for eyeballing), Tools tab: training-export download button (NDJSON blob download, consent-only checkbox defaulting ON matching the endpoint's audited privacy contract) + model-comparison trigger (prompt-version picker fed by GET /prompts, model A/B inputs, cost-warning confirm dialog; contract already covered by 7 tests in model-comparison_test.ts). admin-messages GET /templates: user-detail compose now LOADS the endpoint instead of its hand-mirrored MESSAGE_TEMPLATES copy (drift class eliminated; server is single source of truth). tsc -b 0, eslint clean, vitest 1121/1121, deno check/lint clean."
     },
     {
       "id": "US-1565",

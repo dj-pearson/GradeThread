@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
@@ -101,37 +101,11 @@ const ROLE_COLORS: Record<string, string> = {
   super_admin: "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300",
 };
 
-// US-582: transactional message starting points. Mirrors the seed templates in
-// services/edge-functions/src/routes/admin-messages.ts — the admin can edit any
-// field before sending, and the server only ever sends the subject/body it gets.
-const MESSAGE_TEMPLATES: { id: string; label: string; subject: string; body: string }[] = [
-  {
-    id: "support_followup",
-    label: "Support follow-up",
-    subject: "Following up on your GradeThread support request",
-    body:
-      "Thanks for reaching out to GradeThread support.\n\n" +
-      "[Write your response here.]\n\n" +
-      "If there's anything else we can help with, just reply to this email.",
-  },
-  {
-    id: "payment_reminder",
-    label: "Payment / billing notice",
-    subject: "Action needed on your GradeThread account",
-    body:
-      "We noticed an issue with the most recent payment on your account.\n\n" +
-      "[Describe the billing issue and the action needed.]\n\n" +
-      "You can update your billing details from the Billing page in your dashboard.",
-  },
-  {
-    id: "account_notice",
-    label: "Account notice",
-    subject: "An update about your GradeThread account",
-    body:
-      "We're reaching out with an important update about your account.\n\n" +
-      "[Write the account notice here.]",
-  },
-];
+// US-1564: message templates come from GET /api/admin/messages/templates —
+// the server is the single source of truth (this used to be a hand-mirrored
+// copy that could drift). The admin edits any field before sending; the server
+// only ever sends the subject/body it receives.
+interface MessageTemplate { id: string; label: string; subject: string; body: string }
 
 function formatRole(role: string): string {
   if (role === "super_admin") return "Super Admin";
@@ -193,6 +167,19 @@ export function AdminUserDetailPage() {
   const [impersonating, setImpersonating] = useState(false);
   const [impersonateStepUpOpen, setImpersonateStepUpOpen] = useState(false);
   const [messageDialogOpen, setMessageDialogOpen] = useState(false);
+  // US-1564: canned compose templates from the server (loaded when the page
+  // mounts; tiny static payload).
+  const { data: templateData } = useQuery({
+    queryKey: ["admin-message-templates"],
+    queryFn: async (): Promise<{ templates: MessageTemplate[] }> => {
+      const res = await edgeFetch("/api/admin/messages/templates");
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to load templates");
+      return json as { templates: MessageTemplate[] };
+    },
+    staleTime: 10 * 60 * 1000,
+  });
+  const messageTemplates = useMemo(() => templateData?.templates ?? [], [templateData]);
   const [msgTemplate, setMsgTemplate] = useState<string>("free");
   const [msgSubject, setMsgSubject] = useState("");
   const [msgBody, setMsgBody] = useState("");
@@ -404,7 +391,7 @@ export function AdminUserDetailPage() {
   // US-582: prefill compose fields from a canned template (or clear for free-form).
   function applyTemplate(templateId: string) {
     setMsgTemplate(templateId);
-    const tpl = MESSAGE_TEMPLATES.find((t) => t.id === templateId);
+    const tpl = messageTemplates.find((t) => t.id === templateId);
     if (tpl) {
       setMsgSubject(tpl.subject);
       setMsgBody(tpl.body);
@@ -1007,7 +994,7 @@ export function AdminUserDetailPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="free">Free-form</SelectItem>
-                  {MESSAGE_TEMPLATES.map((t) => (
+                  {messageTemplates.map((t) => (
                     <SelectItem key={t.id} value={t.id}>
                       {t.label}
                     </SelectItem>
