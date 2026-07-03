@@ -19,6 +19,8 @@ okhttp = "4.12.0"
 supabase = "3.1.4"
 ktor = "3.1.2"
 securityCrypto = "1.1.0-alpha06"
+sentry = "7.22.0"
+posthog = "3.11.2"
 serialization = "1.8.0"
 junit = "4.13.2"
 
@@ -53,6 +55,8 @@ supabase-realtime = { group = "io.github.jan-tennert.supabase", name = "realtime
 supabase-storage = { group = "io.github.jan-tennert.supabase", name = "storage-kt" }
 ktor-client-okhttp = { group = "io.ktor", name = "ktor-client-okhttp", version.ref = "ktor" }
 androidx-security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
+sentry-android = { group = "io.sentry", name = "sentry-android", version.ref = "sentry" }
+posthog-android = { group = "com.posthog", name = "posthog-android", version.ref = "posthog" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 
 [plugins]

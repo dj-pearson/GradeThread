@@ -10362,3 +10362,19 @@ VERIFIED LOCALLY: 23/23 networking tests in the results XML; three gates green.
 - NetworkModule (Hilt): SupabaseClient singleton + @Named("shared"/"ai")
   EdgeApi instances - the full networking graph is now assembled end-to-end.
 VERIFIED LOCALLY: three gates green; both new suites in the results XML.
+
+=== 2026-07-03 (loop v2): US-1308 (telemetry: Sentry + PostHog, scrubbed + opt-out) ===
+- TelemetryScrubber: the iOS US-662/990/1178 rules ported pure - emails, Bearer
+  tokens, key=value secrets, signed storage URLs, raw UUIDs; wholesale-drop
+  header set; recursive property scrubbing for nested maps/lists. 6 tests.
+- Telemetry facade: Sentry only when a DSN exists (manifest auto-init disabled
+  so config-driven init wins; sendDefaultPii off; beforeSend/beforeBreadcrumb
+  scrub hooks). PostHog gated on key presence AND the DataStore opt-out flag -
+  crashes stay on regardless (operational, not analytics). NO screen
+  autocapture (would leak item titles/consignor names); screens named manually.
+  setUser = Supabase user.id ONLY; clearUser resets both SDKs. Bootstrapped
+  from Application.onCreate after config validation.
+- Process lesson recorded in memory: cat-heredoc test files silently vanish
+  when the target dir doesn't exist (bit twice) - Write tool + results-XML
+  verification is now the standing discipline.
+VERIFIED LOCALLY: three gates green; scrubber suite 6/6 in the results XML.

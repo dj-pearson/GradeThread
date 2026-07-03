@@ -6473,7 +6473,7 @@
     {
       "id": "US-1308",
       "priority": -98692,
-      "passes": false,
+      "passes": true,
       "title": "Telemetry: Sentry + PostHog with PII scrubbing & opt-out",
       "description": "As the team, I want crash reporting always-on and product analytics opt-out-respecting, with PII scrubbed before the wire, matching the iOS Telemetry rules.",
       "acceptanceCriteria": [
@@ -6482,7 +6482,7 @@
         "Recursive scrubber redacts emails, JWTs, signed-storage URLs, api keys/Authorization on every event (mirrors TelemetryScrubber)",
         "Missing DSN/key disables silently; no screen autocapture (would leak item titles/consignor names)"
       ],
-      "notes": "[P2][Android/Foundation] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P2][Android/Foundation] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. [COMPLETION 2026-07-03] platform/telemetry, locally verified (three gates green; TelemetryScrubberTest 6/6 in results XML). TelemetryScrubber: pure port of the iOS US-662/990/1178 rules - emails, Bearer tokens, apikey/access_token/refresh_token values, signed storage-object URLs, raw UUIDs (identifying in aggregate) - plus the sensitive-header wholesale-drop set (authorization/apikey/cookies etc.) and a recursive redactProperties for nested maps/lists (AC3). Telemetry facade: Sentry-Android 7.22 initialized ONLY when AppConfig.sentryDsn present (manifest io.sentry.auto-init=false so manual config wins), sendDefaultPii=false, beforeSend+beforeBreadcrumb scrub hooks; PostHog-Android 3.11 gated on BOTH key presence AND the DataStore opt-out flag (analytics_opt_out, default false = enabled - crashes stay ON regardless per the iOS rule); NO screen autocapture (captureScreenViews/DeepLinks false - autocaptured hierarchies would leak item titles/consignor names, AC4); setUser is the Supabase user.id ONLY (never email) + clearUser resets both (AC2); event/screen/breadcrumb facade scrubs all props pre-wire; setAnalyticsEnabled persists + live-toggles PostHog. Bootstrapped from GradeThreadApp.onCreate after config validation. PostHog capture() wants Map<String,Any> - nulls dropped post-scrub (nonNull). PROCESS NOTE: the cat-heredoc-cant-mkdir trap bit a second time (test silently not landing) - caught by checking the results XML per the new discipline; test files now always go through the Write tool."
     },
     {
       "id": "US-1309",

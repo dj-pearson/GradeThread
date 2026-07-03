@@ -10,6 +10,10 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.GradeThread">
+        <!-- US-1308: Sentry initializes manually from AppConfig (DSN may be
+             absent → silently disabled); the auto-init provider must not race it. -->
+        <meta-data android:name="io.sentry.auto-init" android:value="false" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

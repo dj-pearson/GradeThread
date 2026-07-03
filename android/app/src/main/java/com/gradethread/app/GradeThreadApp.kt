@@ -2,6 +2,7 @@ package com.gradethread.app
 
 import android.app.Application
 import com.gradethread.app.platform.AppConfig
+import com.gradethread.app.platform.telemetry.Telemetry
 import dagger.hilt.android.HiltAndroidApp
 
 /**
@@ -15,5 +16,7 @@ class GradeThreadApp : Application() {
         // US-1301: a build with a missing/cleartext base URL dies HERE with a
         // named error, not deep inside the first network call.
         AppConfig.validateAtStartup()
+        // US-1308: crash reporting (DSN-gated) + opt-out-respecting analytics.
+        Telemetry.bootstrap(this)
     }
 }

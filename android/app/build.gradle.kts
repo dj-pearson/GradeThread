@@ -98,6 +98,8 @@ dependencies {
     implementation(libs.supabase.storage)
     implementation(libs.ktor.client.okhttp)
     implementation(libs.androidx.security.crypto)
+    implementation(libs.sentry.android)
+    implementation(libs.posthog.android)
 
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
