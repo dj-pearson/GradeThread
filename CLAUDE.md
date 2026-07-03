@@ -70,23 +70,20 @@ Navy `#0F3460` (primary/headers/sidebar) · Red `#E94560` (accent/CTA/destructiv
 
 ## Grading System
 
-- Scale 1.0–10.0. The 5 FACTORS are graded in half-point (0.5) steps; the weighted OVERALL is rounded to 0.1 (e.g. 8.6) so a single-factor human-review correction actually moves it. Keep the three rounding sites in lockstep: `ai-grading.roundToTenth`, `human-review.computeWeightedOverall`, and the admin reviews UI `computeWeightedScore`. Tiers: NWT 10, NWOT 9, Excellent 8, Very Good 7, Good 6, Fair 5, Poor 3–4.
-- 5 factors: Fabric 30%, Structural 25%, Cosmetic 20%, Functional 15%, Odor/Cleanliness 10%.
-- Confidence 0–1; **< 0.75 → human review**. Photos: front/back/label/1+ detail required; +detail2 and ≤3 defects optional.
+- Scale 1.0–10.0; factors in 0.5 steps, weighted overall rounded to 0.1. Factors: Fabric 30%, Structural 25%, Cosmetic 20%, Functional 15%, Odor 10%. Tiers NWT 10 → Poor 3–4. Confidence < **0.75** → human review. Photos: front/back/label/1+ detail required.
+- **Editing ANY grading code? Load the `grading-engine` skill first** (`.claude/skills/grading-engine`) — it owns the full contract: the three-rounding-sites lockstep rule, prompt-version lifecycle (shadow → eval gate → canary), golden-set rules, exemplar privacy, confidence-cap composition.
 
 ## Conventions
 
 - **Files:** components/pages `kebab-case.tsx`; hooks `use-*.ts`; stores `*-store.ts`; types `kebab-case.ts`; migrations `NNNNN_description.sql`.
 - **Components:** named exports (`export function X()`); `@/` import alias; icons from `lucide-react` only; toasts via `sonner` (not shadcn toast); controlled inputs (no form libs); spinner = `animate-spin rounded-full border-4 border-primary border-t-transparent`.
 - **DB:** UUID PKs (`gen_random_uuid()`); `created_at`/`updated_at` everywhere; enums for fixed sets; service-role client in edge for admin ops.
-- **Migrations (US-1108):** make each idempotent (`IF NOT EXISTS`, `CREATE OR REPLACE`); bump `EXPECTED_SCHEMA_VERSION` (edge `schema-version.ts`) in the SAME commit; and END every migration with the self-record footer (`INSERT INTO public.applied_migrations (version) VALUES ('NNNNN') ON CONFLICT DO NOTHING;`) so the edge boot guard stays in sync no matter how it's applied. CI (`schema-version_test.ts`) enforces both. See `MIGRATIONS.md`; apply to prod via `scripts/apply-prod-migrations.sh`.
+- **Migrations (US-1108):** the triple — idempotent SQL / `EXPECTED_SCHEMA_VERSION` bump in the SAME commit / self-record footer. **Touching `supabase/migrations/`? Load the `migrations` skill first** (`.claude/skills/migrations`) — it owns the full checklist, the held-migration push rule, enum caveats, and the prod-apply runbook.
 - **Errors:** auth fns throw → caller toasts; check `{ data, error }`; edge returns `{ error }` + HTTP status; frontend toasts user-facing errors.
 
 ### 🔒 SECURITY — tenant isolation (US-268) — MANDATORY
 
-The edge service uses the **service-role client, which BYPASSES RLS.** Every query on a multi-tenant table (submissions, grade_reports, inventory_items, listings, sales, item_photos, marketplace_connections, api_keys, …) MUST be tenant-scoped — either `.eq("user_id", c.get("workspaceOwnerId") ?? c.get("userId"))`, or via a parent row whose ownership was already verified (see `loadListingOwned` / `assemblePublishContext` in `flipdesk-ebay.ts`). NEVER `update`/`delete`/`select`-by-`id` using an id from the request body without first confirming ownership. Regression suite: `services/edge-functions/src/tests/tenant-isolation_test.ts`.
-
-> Per-request RLS was evaluated and deliberately rejected: many flows have no JWT to forward (Stripe/eBay webhooks, scheduled jobs, the in-process FlipDesk→grading bridge) and workspace features legitimately cross the *owner's* tenant on behalf of members. Defense = the explicit-scoping rule above **+** the regression suite, NOT edge RLS.
+The edge service uses the **service-role client, which BYPASSES RLS.** Every query on a multi-tenant table MUST be tenant-scoped — `.eq("user_id", c.get("workspaceOwnerId") ?? c.get("userId"))` or via an owner-verified parent row. NEVER act on an id from the request body without confirming ownership first. **Writing/editing any edge route? Load the `tenant-isolation` skill first** (`.claude/skills/tenant-isolation`) — it owns the patterns, the why-not-RLS rationale, the every-new-route-needs-a-`tenant-isolation_test.ts`-case rule, and rls-guard registration for operator tables.
 
 ## FlipDesk
 

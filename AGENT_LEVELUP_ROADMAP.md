@@ -31,15 +31,15 @@ Skills in `.claude/skills/<name>/SKILL.md` load on demand, so deep domain
 contracts stop bloating CLAUDE.md and stop getting missed. Each below encodes a
 rule set that agents currently either re-derive or violate:
 
-1. **`grading-engine`** — the grading domain contract: 5 factors + weights, the
+1. ✅ **`grading-engine`** (DONE 2026-07-03, US-1553 — `.claude/skills/grading-engine/`) — the grading domain contract: 5 factors + weights, the
    three rounding sites that must stay in lockstep, prompt-version lifecycle
    (draft → shadow → eval gate → activate), golden-set growth rules, exemplar
    privacy rules (US-1067), review-threshold semantics. Trigger: any edit under
    `services/edge-functions/src/lib/{ai-grading,grading-*,accuracy-*,human-review}*`.
-2. **`migrations`** — US-1108 checklist as an executable procedure: idempotency
+2. ✅ **`migrations`** (DONE 2026-07-03, US-1554 — `.claude/skills/migrations/`) — US-1108 checklist as an executable procedure: idempotency
    patterns, `EXPECTED_SCHEMA_VERSION` bump in same commit, self-record footer,
    `scripts/apply-prod-migrations.sh`, the throwaway-local-stack caveat.
-3. **`tenant-isolation`** — US-268: the explicit-scoping rule, the
+3. ✅ **`tenant-isolation`** (DONE 2026-07-03, US-1554 — `.claude/skills/tenant-isolation/`) — US-268: the explicit-scoping rule, the
    `loadListingOwned`-style ownership-via-parent pattern, and "every new edge
    route needs a case in `tenant-isolation_test.ts`."
 4. **`flipdesk-ebay`** — OAuth/refresh + AES-GCM key handling, provenance model

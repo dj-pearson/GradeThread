@@ -9823,3 +9823,31 @@ FIX: rewrote ALL FOUR or-on-mutation sites as sequential conditional updates
 .or() on SELECT is unaffected and stays. Rule added to CLAUDE.md Gotchas.
 VERIFIED: deno lint + check clean; full edge suite green (see below).
 RECOVERY: redeploy edge -> queue page Resume picks up all pending jobs.
+
+=== 2026-07-03 (loop resumed): US-1553 + US-1554 (agent-infra project skills) ===
+Three on-demand project skills now encode the most-violated contracts (they load only
+when relevant, so CLAUDE.md - loaded every turn - slims to hard-rule one-liners +
+pointers):
+- grading-engine (100 lines + references/rounding-sites.md + prompt-lifecycle.md):
+  factor weights table, the THREE rounding sites by exact symbol name (existence
+  re-verified) + lockstep rule, prompt lifecycle draft->shadow->eval gate->canary->
+  activate + the +baseline/+fabric/+visual suffix discipline, golden-set growth rules,
+  US-1067 exemplar privacy (PII-free fields only), confidence-cap min-composition,
+  US-346 trusted-vs-fenced channel separation, and a 5-point change checklist.
+- migrations (72 lines): the US-1108 triple, lexical numbering + re-check-before-create
+  (concurrent agent), the STANDING held-migration push rule now including the lesson
+  from tonight - call out loudly when CLIENT-side code reads a new column, because
+  Cloudflare Pages auto-deploys on push - the prod apply runbook, throwaway-local-stack
+  caveat, enum ADD VALUE caveats, and the rls-guard owner_user_id naming trap.
+- tenant-isolation (77 lines): workspaceOwnerId ?? userId resolution, direct-scope +
+  ownership-via-parent code shapes, storage-path prefix checks before any DB/AI work,
+  webhook/job tenancy (resolve from the resource, never the payload), the every-new-
+  route-needs-a-tenant-isolation_test-case rule, operator-table SERVICE_ROLE_ONLY
+  registration, and an edge-diff review checklist.
+All three registered live in this session (harness picked them up on write). CLAUDE.md
+Grading/Migrations/US-268 sections slimmed to summaries + load-the-skill pointers.
+AGENT_LEVELUP_ROADMAP.md items 2.1-2.3 checked off with story ids.
+VERIFICATION: docs/markdown only - no code paths touched; skills <=150-line budget
+(100/72/77); frontmatter descriptions trigger-tested by the harness registering them.
+Commit held local per the standing rule (no migration inside, but the push queue is
+now user-managed after tonight's out-of-band push).
