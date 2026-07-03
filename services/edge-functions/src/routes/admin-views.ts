@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 
 // US-909: per-admin saved views for the admin list pages.
 //
@@ -22,6 +23,9 @@ type AdminEnv = {
 };
 
 export const adminViewsRoutes = new Hono<AdminEnv>();
+
+// US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
+adminViewsRoutes.use("*", requireScope("ops:write"));
 
 // Whitelist the list pages that support saved views, so a typo'd surface can't
 // silently fragment a view into an unreachable namespace.

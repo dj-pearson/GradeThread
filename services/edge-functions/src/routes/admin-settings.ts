@@ -9,6 +9,7 @@ import {
   type SettingValueType,
   type SystemSettingRow,
 } from "../lib/system-settings.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 
 // DB-backed system settings registry — admin editor API (US-884).
 //
@@ -31,6 +32,9 @@ type AdminEnv = {
 };
 
 export const adminSettingsRoutes = new Hono<AdminEnv>();
+
+// US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
+adminSettingsRoutes.use("*", requireScope("ops:write"));
 
 const SELECT_COLS =
   "key, value, value_type, default_value, description, category, updated_at, updated_by";

@@ -59,6 +59,17 @@ peer-norm sanity-check scan. EXPECTED_SCHEMA_VERSION bumped **00341 -> 00342**.
 Apply with 00339-00341 (all idempotent), NOTIFY pgrst, then the edge redeploy.
 Zero-risk: pure index additions.
 
+### 🔸 ALSO NEW + HELD LOCALLY: `00343` (US-1560)
+
+**`supabase/migrations/00343_rbac_router_scopes.sql`** — seeds the four new
+RBAC scope families (ops/marketplace/support/growth:write) into
+permission_scopes + grants all four to the `admin` role, so the new
+requireScope() enforcement across all 48 admin routers lands with ZERO
+behavior change. `EXPECTED_SCHEMA_VERSION` bumped **00342 → 00343**.
+⚠️ MUST apply before the edge redeploy that carries this commit — an edge
+build enforcing the new scopes against an unseeded DB would 403 admins on the
+newly-guarded surfaces (the boot guard enforces this ordering mechanically).
+
 ### Previously outstanding — apply to prod (already on origin)
 
 Everything through migration **00338** is already ON `origin/main` (0230db73 was

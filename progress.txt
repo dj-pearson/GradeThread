@@ -9969,3 +9969,36 @@ FULL edge 2531/0/70; web tsc -b 0, eslint clean, vitest 1121/1121.
 NEW-STORY BATCH COMPLETE: US-1553-1558 all shipped (agent infra + grading moat).
 Remaining pending = Android ports + US-1523 (macOS) + US-1421 (ops) + US-1399
 (deferred), unchanged.
+
+=== 2026-07-03 (loop v2): US-1560 (RBAC scope enforcement across all 48 admin routers) ===
+The granular scope system finally covers the whole admin surface:
+- TAXONOMY: 4 new scope families - ops:write (config/settings/flags/jobs/ops/monitoring/
+  ai-budgets/pricing/views/passport-integrity/audit), marketplace:write (connections/
+  ops/pipeline/category-map/ads), support:write (support/tickets/messages/notifications/
+  suppressions), growth:write (growth/drip/journeys/waitlist) - added to SCOPE_KEYS +
+  catalog + DEFAULT_ROLE_SCOPES.admin. Existing scopes absorb their natural neighbors:
+  grading:review += claims + disputes; moderation:write += safety + compliance;
+  content:publish += changelog/newsletter/knowledge-base/seo/legal/condition-index;
+  users:role += impersonation (acting AS a user = role-grant authority tier).
+- MIGRATION 00343 (HELD per standing rule): seeds the 4 scopes + admin role grants.
+  EXPECTED_SCHEMA_VERSION -> 00343 in the SAME commit, so the boot guard mechanically
+  prevents an enforcing edge build from serving against an unseeded DB - deploy order
+  can never lock admins out. Packaged in PENDING_MIGRATIONS.md with the warning.
+- NEW lib/admin-scope-map.ts: every one of the 48 routers classified with a written
+  rationale - 37 newly guarded router-level, admin-bulk per-mutation (credits->billing,
+  suspend->moderation, regrade->grading), admin-users' POST /:id/suspend gains the
+  missing moderation:write guard (found unguarded during classification), 6 read-only
+  aggregate routers on the explicit role-only allowlist, the 4 originally-enforced
+  files unchanged per AC.
+- NEW admin-scope-coverage_test.ts drift guard: directory <-> registry exact match
+  (a new admin-*.ts fails until classified); source-matches-mode (router mode must
+  use('*', requireScope(<registered scope>)); role-only must have ZERO mutations + a
+  >=20-char rationale); admin-default exhaustive everything-except-users:role parity
+  (a new scope missing from the default would lock admins out - now untestable to
+  forget); scope-key validity.
+- Roles editor UI reads the catalog from the DB -> the 4 new scopes appear in the
+  editor once 00343 applies; no web change needed.
+VERIFICATION: rbac parity + coverage tests 10/10; FULL edge suite 2535/0/70; deno
+check + lint clean. No web diffs (edge-only + migration).
+HELD LOCAL - contains migration 00343. Push queue: user applies 00343 (with any
+stragglers) before OKing the next push, per the re-confirmed standing rule.

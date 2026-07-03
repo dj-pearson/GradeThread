@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { type NotificationType, PREF_KEY } from "../lib/notify.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 
 // US-1058: admin notification event catalog.
 //
@@ -23,6 +24,9 @@ type AdminEnv = {
 };
 
 export const adminNotificationsRoutes = new Hono<AdminEnv>();
+
+// US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
+adminNotificationsRoutes.use("*", requireScope("support:write"));
 
 const ALL_TYPES = Object.keys(PREF_KEY) as NotificationType[];
 

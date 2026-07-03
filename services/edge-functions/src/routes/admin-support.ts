@@ -8,6 +8,7 @@ import {
   updateByIdChecked,
   ZeroRowsAffectedError,
 } from "../lib/db-write.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 
 // US-839: admin support inbox for escalated AI-assistant conversations.
 //
@@ -34,6 +35,9 @@ type AdminEnv = {
 };
 
 export const adminSupportRoutes = new Hono<AdminEnv>();
+
+// US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
+adminSupportRoutes.use("*", requireScope("support:write"));
 
 const db = supabaseAdmin as unknown as CheckedUpdateClient;
 

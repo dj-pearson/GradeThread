@@ -16,6 +16,7 @@ import {
   updateByIdChecked,
   ZeroRowsAffectedError,
 } from "../lib/db-write.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 
 // Admin dispute resolution (US-474). Mounted at /api/admin/disputes — inherits
 // authMiddleware + adminAuthMiddleware from main.ts (/api/admin/*).
@@ -37,6 +38,9 @@ type AdminEnv = {
 };
 
 export const adminDisputesRoutes = new Hono<AdminEnv>();
+
+// US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
+adminDisputesRoutes.use("*", requireScope("grading:review"));
 
 const db = supabaseAdmin as unknown as CheckedUpdateClient;
 

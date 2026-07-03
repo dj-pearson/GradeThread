@@ -19,6 +19,7 @@ import {
   adminRetryPublishBatch,
 } from "./flipdesk-autolister.ts";
 import { CRON_REGISTRY, nextCronRun } from "../lib/cron-runs.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 
 // Admin job/queue monitoring + control (US-584).
 //
@@ -39,6 +40,9 @@ type AdminEnv = {
 };
 
 export const adminJobsRoutes = new Hono<AdminEnv>();
+
+// US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
+adminJobsRoutes.use("*", requireScope("ops:write"));
 
 const KINDS = ["grading", "sync", "autolister", "publish", "email", "repricing"] as const;
 type Kind = (typeof KINDS)[number];

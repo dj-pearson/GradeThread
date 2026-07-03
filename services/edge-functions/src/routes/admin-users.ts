@@ -529,7 +529,8 @@ adminUsersRoutes.post("/:id/role", requireScope("users:role"), async (c: Context
 // downgraded the plan to free, which blocked nothing server-side — divergent and
 // unreliable. Removed.) Suspending an account is destructive → require a fresh
 // MFA step-up, and audit the change so it's attributable to the acting admin.
-adminUsersRoutes.post("/:id/suspend", async (c: Context<AdminEnv>) => {
+// US-1560: account suspension is moderation authority (was role-only).
+adminUsersRoutes.post("/:id/suspend", requireScope("moderation:write"), async (c: Context<AdminEnv>) => {
   const stepUp = requireStepUp(c);
   if (stepUp) return stepUp;
 

@@ -3,6 +3,7 @@ import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { failSafe } from "../lib/http-errors.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 
 // US-905: audit-log export + anomaly triage.
 //
@@ -27,6 +28,9 @@ type AdminEnv = {
 };
 
 export const adminAuditRoutes = new Hono<AdminEnv>();
+
+// US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
+adminAuditRoutes.use("*", requireScope("ops:write"));
 
 // Hard cap on an export — generous (a full forensic pull) but bounded so a
 // single request can't stream an unbounded result set off a busy platform.

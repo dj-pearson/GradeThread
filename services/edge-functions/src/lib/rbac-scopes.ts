@@ -12,13 +12,20 @@
 
 export type UserRole = "user" | "reviewer" | "admin" | "super_admin";
 
-// The assignable permission scopes. Mirrors permission_scopes seeded in 00298.
+// The assignable permission scopes. Mirrors permission_scopes seeded in 00298
+// (first five) + 00343 (US-1560 router-coverage scopes).
 export const SCOPE_KEYS = [
   "billing:write",
   "grading:review",
   "moderation:write",
   "content:publish",
   "users:role",
+  // US-1560: four families covering the previously-unguarded admin routers.
+  // The router→scope registry lives in lib/admin-scope-map.ts.
+  "ops:write",
+  "marketplace:write",
+  "support:write",
+  "growth:write",
 ] as const;
 
 export type ScopeKey = (typeof SCOPE_KEYS)[number];
@@ -63,6 +70,34 @@ export const PERMISSION_SCOPES: PermissionScope[] = [
     description: "Grant or revoke admin roles and edit which scopes a role or admin holds.",
     category: "users",
   },
+  {
+    key: "ops:write",
+    label: "Platform operations",
+    description:
+      "Edit platform config, feature flags, the settings registry, pricing, saved views; trigger jobs and integrity actions.",
+    category: "ops",
+  },
+  {
+    key: "marketplace:write",
+    label: "Marketplace operations",
+    description:
+      "Manage marketplace connections, listing-pipeline operations, category mappings, and promoted-listings admin actions.",
+    category: "marketplace",
+  },
+  {
+    key: "support:write",
+    label: "Support operations",
+    description:
+      "Handle support tickets, send admin messages/notifications, and manage email suppressions.",
+    category: "support",
+  },
+  {
+    key: "growth:write",
+    label: "Growth & lifecycle",
+    description:
+      "Manage growth campaigns, drip/journey lifecycle emails, and the waitlist.",
+    category: "growth",
+  },
 ];
 
 export function isScopeKey(v: unknown): v is ScopeKey {
@@ -70,18 +105,31 @@ export function isScopeKey(v: unknown): v is ScopeKey {
 }
 
 // Default role → scopes mapping. THIS IS THE PARITY SOURCE OF TRUTH and equals
-// the 00298 role_scopes seed:
+// the 00298 + 00343 role_scopes seeds:
 //   super_admin → implicit-all (handled in roleHasScope, never enumerated)
 //   admin       → everything except users:role (role grants were always
-//                 super_admin-only)
+//                 super_admin-only) — INCLUDING the US-1560 router-coverage
+//                 scopes, so enforcement lands with zero behavior change; an
+//                 operator then narrows individual roles/admins deliberately.
 //   reviewer    → grading:review only (is_reviewer_or_admin)
 //   user        → no admin scopes
 // The runtime loader (scope-guard.ts) reads role_scopes from the DB and falls
 // back to this map if the table is unreadable, so a DB blip can't silently widen
-// or revoke access.
+// or revoke access. The 00343 seed + the schema-version bump ship in the same
+// commit as enforcement, so an edge build requiring the new scopes never serves
+// against a DB that hasn't seeded them (boot-guard ordering).
 export const DEFAULT_ROLE_SCOPES: Record<UserRole, ScopeKey[]> = {
   super_admin: [...SCOPE_KEYS],
-  admin: ["billing:write", "grading:review", "moderation:write", "content:publish"],
+  admin: [
+    "billing:write",
+    "grading:review",
+    "moderation:write",
+    "content:publish",
+    "ops:write",
+    "marketplace:write",
+    "support:write",
+    "growth:write",
+  ],
   reviewer: ["grading:review"],
   user: [],
 };

@@ -45,12 +45,16 @@ import {
   adminRetryGenerationBatch,
   adminRetryPublishBatch,
 } from "./flipdesk-autolister.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 
 type AdminEnv = {
   Variables: { userId: string; adminRole: "admin" | "super_admin" };
 };
 
 export const adminMarketplacePipelineRoutes = new Hono<AdminEnv>();
+
+// US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
+adminMarketplacePipelineRoutes.use("*", requireScope("marketplace:write"));
 
 function pageParams(c: { req: { query: (k: string) => string | undefined } }) {
   const page = Math.max(1, parseInt(c.req.query("page") ?? "1", 10) || 1);

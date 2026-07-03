@@ -63,6 +63,7 @@ import {
   resolveAlertWebhook,
 } from "../lib/ops-events.ts";
 import { bustSettingCache } from "../lib/system-settings.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 
 // Operations console — background jobs & scheduler (US-881).
 //
@@ -87,6 +88,9 @@ type AdminEnv = {
 };
 
 export const adminOpsRoutes = new Hono<AdminEnv>();
+
+// US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
+adminOpsRoutes.use("*", requireScope("ops:write"));
 
 // Bounded recent window pulled for stats. cron_runs is small + pruned daily by
 // the data-retention sweep, so this comfortably covers the rolling window for

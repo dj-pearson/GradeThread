@@ -4,6 +4,7 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { failSafe } from "../lib/http-errors.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { sendAdminMessageEmail } from "../lib/email.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 
 // Ad-hoc admin → customer messaging (US-582). Lets an operator send a
 // transactional support / account email to a specific user from the admin app,
@@ -25,6 +26,9 @@ type AdminEnv = {
 };
 
 export const adminMessagesRoutes = new Hono<AdminEnv>();
+
+// US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
+adminMessagesRoutes.use("*", requireScope("support:write"));
 
 const SUBJECT_MAX = 200;
 const BODY_MAX = 5000;

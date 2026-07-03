@@ -4,6 +4,7 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { requireStepUp } from "../lib/step-up.ts";
 import { defaultRegradeStore, regradeSubmission } from "../lib/grading-pipeline.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 
 // Bulk admin operations (US-589). Every admin action used to be single-record;
 // this module adds three batch primitives an operator needs when a promo or a
@@ -171,7 +172,8 @@ function summarize(results: PerTargetResult[]) {
 // Body: { user_ids: string[], credits: number, reason: string, idempotency_key }
 // Grants `credits` to each user via the existing grant_grade_credits RPC. Minting
 // value → fresh MFA step-up (same gate as the single comp-credits endpoint).
-adminBulkRoutes.post("/credits", async (c) => {
+// US-1560: each bulk op carries its owning scope (see lib/admin-scope-map.ts).
+adminBulkRoutes.post("/credits", requireScope("billing:write"), async (c) => {
   const stepUp = requireStepUp(c);
   if (stepUp) return stepUp;
 
@@ -227,7 +229,7 @@ adminBulkRoutes.post("/credits", async (c) => {
 // (US-588) every grading/referral surface enforces server-side. Destructive →
 // fresh MFA step-up (same gate as the single suspend endpoint). The acting admin
 // is skipped, never suspended, to prevent self-lockout.
-adminBulkRoutes.post("/suspend", async (c) => {
+adminBulkRoutes.post("/suspend", requireScope("moderation:write"), async (c) => {
   const stepUp = requireStepUp(c);
   if (stepUp) return stepUp;
 
@@ -291,7 +293,7 @@ adminBulkRoutes.post("/suspend", async (c) => {
 // Re-runs the grading pipeline for each submission (supersede prior report,
 // reset, re-kick) via regradeSubmission. Same gate as the single regrade
 // endpoint — admin JWT + AAL2, no extra step-up.
-adminBulkRoutes.post("/regrade", async (c) => {
+adminBulkRoutes.post("/regrade", requireScope("grading:review"), async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const key = typeof body.idempotency_key === "string" ? body.idempotency_key.trim() : "";
   if (key.length < 8 || key.length > 200) {

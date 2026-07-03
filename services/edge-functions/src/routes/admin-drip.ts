@@ -23,6 +23,7 @@ import {
   optimizeGraph,
   type VariantStats,
 } from "../lib/drip-optimizer.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 
 // US-946: Trial-conversion drip analytics (read-only) + US-945: the visual
 // drip / journey BUILDER backing the admin page (src/pages/admin/drip.tsx).
@@ -60,6 +61,9 @@ type AdminEnv = {
 };
 
 export const adminDripRoutes = new Hono<AdminEnv>();
+
+// US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
+adminDripRoutes.use("*", requireScope("growth:write"));
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 

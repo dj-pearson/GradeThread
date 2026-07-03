@@ -22,6 +22,7 @@ import {
 } from "../lib/guarantee-remedy.ts";
 import { getStripe } from "../lib/stripe-client.ts";
 import { sendGuaranteeRemedyEmail } from "../lib/email.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 
 // US-867: admin review of buyer trust-guarantee claims. Mounted at
 // /api/admin/claims — inherits authMiddleware + adminAuthMiddleware from main.ts
@@ -41,6 +42,9 @@ type AdminEnv = {
 };
 
 export const adminClaimsRoutes = new Hono<AdminEnv>();
+
+// US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
+adminClaimsRoutes.use("*", requireScope("grading:review"));
 
 const db = supabaseAdmin as unknown as CheckedUpdateClient;
 

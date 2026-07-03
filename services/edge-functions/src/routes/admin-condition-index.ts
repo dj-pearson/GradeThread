@@ -25,12 +25,16 @@ import {
   refreshConditionIndex,
   refreshIndexSeed,
 } from "../lib/condition-index.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 
 type AdminEnv = {
   Variables: { userId: string; adminRole: "admin" | "super_admin" };
 };
 
 export const adminConditionIndexRoutes = new Hono<AdminEnv>();
+
+// US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
+adminConditionIndexRoutes.use("*", requireScope("content:publish"));
 
 const SEED_COLS =
   "id, slug, label, brand, category_id, q, enabled, priority, created_at, updated_at";

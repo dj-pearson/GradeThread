@@ -51,6 +51,7 @@ import {
   type SubjectVariant,
   variantById,
 } from "../lib/newsletter-ab.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 
 // US-931: Email program analytics & deliverability dashboard (read-only) + a
 // deliverability-guard enforcement action.
@@ -69,6 +70,9 @@ type AdminEnv = {
 };
 
 export const adminNewsletterRoutes = new Hono<AdminEnv>();
+
+// US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
+adminNewsletterRoutes.use("*", requireScope("content:publish"));
 
 const VALID_PERIODS = new Set(["7d", "30d", "90d", "180d", "365d"]);
 

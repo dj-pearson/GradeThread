@@ -39,12 +39,16 @@ import {
 } from "../lib/sync-conflict-resolve.ts";
 import { matchOrphanSale } from "../lib/orphan-sale-match.ts";
 import { triggerEbaySyncForUser } from "./flipdesk-ebay.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 
 type AdminEnv = {
   Variables: { userId: string; adminRole: "admin" | "super_admin" };
 };
 
 export const adminMarketplaceOpsRoutes = new Hono<AdminEnv>();
+
+// US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
+adminMarketplaceOpsRoutes.use("*", requireScope("marketplace:write"));
 
 const SETTING_STUCK_MIN = "marketplace_sync_stuck_threshold_min";
 const STUCK_MIN_FALLBACK = 15;

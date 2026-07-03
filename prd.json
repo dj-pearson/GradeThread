@@ -9867,7 +9867,7 @@
     {
       "id": "US-1560",
       "priority": 2360,
-      "passes": false,
+      "passes": true,
       "title": "Admin RBAC: enforce permission scopes across all admin routers (audit finding #4)",
       "description": "As a super-admin, the granular scope system (role_scopes, admin_scope_grants, lib/scope-guard.ts requireScope, roles editor UI) exists but is enforced on only 4 of 48 admin route files (admin-billing, admin-moderation, admin-scopes, admin-users role change). Every other admin surface — pricing, config, fraud, compliance, safety, bulk, revenue, growth, etc. — is open to any plain admin-role user regardless of granted scopes, so the roles editor implies enforcement that does not exist.",
       "acceptanceCriteria": [
@@ -9878,7 +9878,7 @@
         "Roles editor UI lists exactly the enforceable scopes (no phantom scopes, none missing)",
         "tsc, eslint, deno edge suite (incl. new coverage test), full build green"
       ],
-      "notes": "[2026-07-02 admin backend audit, finding #4] Enforcement gap only — infra already built (00298_rbac_permission_scopes.sql, scope-guard 60s cache, admin-scopes.ts editors). Load tenant-isolation skill before editing edge routes. Rollout safety: seed role_scopes for role=admin with the full current-capability scope set in the SAME migration/commit so enforcement flips on as a no-op, then operators can subtract."
+      "notes": "[2026-07-02 admin backend audit, finding #4] Enforcement gap only — infra already built (00298_rbac_permission_scopes.sql, scope-guard 60s cache, admin-scopes.ts editors). Load tenant-isolation skill before editing edge routes. Rollout safety: seed role_scopes for role=admin with the full current-capability scope set in the SAME migration/commit so enforcement flips on as a no-op, then operators can subtract. [COMPLETION 2026-07-03] Taxonomy: 4 new scope families (ops/marketplace/support/growth:write) added to SCOPE_KEYS + PERMISSION_SCOPES catalog + DEFAULT_ROLE_SCOPES.admin (parity: admin holds everything except users:role, now enforced exhaustively by test). MIGRATION 00343 (HELD) seeds permission_scopes + admin role_scopes; EXPECTED_SCHEMA_VERSION -> 00343 in the same commit = the boot guard mechanically prevents an enforcing edge build from serving against an unseeded DB (admins can never be locked out by deploy order). NEW lib/admin-scope-map.ts: all 48 routers classified with per-entry rationale - 37 newly guarded router-level (use('*', requireScope(...)): grading:review x3, moderation:write x2 new, content:publish x6, users:role x1 (impersonation = role-grant authority tier), ops:write x11, marketplace:write x5, support:write x5, growth:write x4), admin-bulk per-mutation (credits->billing, suspend->moderation, regrade->grading), admin-users gains the missing moderation:write guard on POST /:id/suspend (was role-only - found during classification), 6 read-only aggregate routers on the documented role-only allowlist (zero mutations verified BY the test), existing 4 enforced files unchanged. NEW admin-scope-coverage_test.ts drift guard: directory<->registry exact match, source-matches-mode (guarded files must call requireScope with the registered scope via use('*'); role-only files must have NO mutations + a written rationale), admin-default exhaustive parity, scope-key validity. Roles editor UI reads the catalog from the DB - new scopes appear once 00343 applies, no web change. Edge suite 2535/0."
     },
     {
       "id": "US-1561",

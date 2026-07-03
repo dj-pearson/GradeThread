@@ -16,6 +16,7 @@ import type {
   AbuseSignalStatus,
   AbuseSignalType,
 } from "../lib/abuse-signals.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 
 // US-888: Trust & Safety — fraud/abuse signals console (the read/triage API).
 //
@@ -42,6 +43,9 @@ type AdminEnv = {
 };
 
 export const adminSafetyRoutes = new Hono<AdminEnv>();
+
+// US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
+adminSafetyRoutes.use("*", requireScope("moderation:write"));
 
 const SIGNAL_TYPES = new Set<AbuseSignalType>([
   "phash_collision",

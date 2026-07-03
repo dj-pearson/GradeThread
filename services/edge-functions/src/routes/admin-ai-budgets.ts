@@ -23,12 +23,16 @@ import { writeAuditLog } from "../lib/audit-log.ts";
 import { requireStepUp } from "../lib/step-up.ts";
 import { clearFeatureFlagCache } from "../lib/feature-flags.ts";
 import { clearAiBudgetGateCache } from "../lib/ai-budget-gate.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 
 type AdminEnv = {
   Variables: { userId: string; adminRole: "admin" | "super_admin" };
 };
 
 export const adminAiBudgetsRoutes = new Hono<AdminEnv>();
+
+// US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
+adminAiBudgetsRoutes.use("*", requireScope("ops:write"));
 
 const VALID_PERIODS = new Set(["day", "month"]);
 const VALID_ACTIONS = new Set(["alert", "throttle", "kill"]);

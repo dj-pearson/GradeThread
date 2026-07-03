@@ -12,6 +12,7 @@ import {
   isChangelogStatus,
 } from "../lib/changelog.ts";
 import { autoCaptureChangelogDrafts, CHANGELOG_COLS } from "../lib/changelog-job.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 
 // US-916: Product "What's New" changelog — admin CRUD.
 //
@@ -23,6 +24,9 @@ import { autoCaptureChangelogDrafts, CHANGELOG_COLS } from "../lib/changelog-job
 
 type Env = { Variables: { userId: string; adminRole: "admin" | "super_admin" } };
 export const adminChangelogRoutes = new Hono<Env>();
+
+// US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
+adminChangelogRoutes.use("*", requireScope("content:publish"));
 
 interface ChangelogInput {
   title?: string;

@@ -10,6 +10,7 @@ import type {
   IntegrityStatus,
   PassportIntegrityType,
 } from "../lib/passport-integrity.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 
 // US-1103: Garment Passport — admin integrity & fraud signals console.
 //
@@ -35,6 +36,9 @@ type AdminEnv = {
 };
 
 export const adminPassportIntegrityRoutes = new Hono<AdminEnv>();
+
+// US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
+adminPassportIntegrityRoutes.use("*", requireScope("ops:write"));
 
 const SIGNAL_TYPES = new Set<PassportIntegrityType>([
   "wear_reversal",

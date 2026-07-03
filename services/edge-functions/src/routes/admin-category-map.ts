@@ -15,12 +15,16 @@ import { jsonError } from "../lib/http-errors.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { MAPPED_PLATFORMS } from "../lib/marketplace-category.ts";
 import type { MarketplacePlatform } from "../lib/marketplace-specs.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 
 type AdminEnv = {
   Variables: { userId: string; adminRole: "admin" | "super_admin" };
 };
 
 export const adminCategoryMapRoutes = new Hono<AdminEnv>();
+
+// US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
+adminCategoryMapRoutes.use("*", requireScope("marketplace:write"));
 
 const SELECT_COLS =
   "id, platform, gradethread_garment, platform_category, department, source, " +

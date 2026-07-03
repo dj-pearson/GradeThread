@@ -76,6 +76,7 @@ import {
   minimizeReliabilityQueueRow,
   RELIABILITY_QUEUE_SELECT,
 } from "../lib/reliability-privacy.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 
 // Admin grading-quality + self-improvement surface (US-070/US-073/US-132).
 // Mounted at /api/admin/grading — inherits authMiddleware + adminAuthMiddleware
@@ -94,6 +95,9 @@ type AdminEnv = {
 };
 
 export const adminGradingRoutes = new Hono<AdminEnv>();
+
+// US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
+adminGradingRoutes.use("*", requireScope("grading:review"));
 
 // Thin wrapper over the shared writeAuditLog (US-269) for uniform actor_role /
 // ip / user_agent capture. Threads the request Context through.

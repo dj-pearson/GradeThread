@@ -22,6 +22,7 @@ import {
   type ConversationRow,
 } from "../lib/support-analytics.ts";
 import { estimateCost } from "../lib/ai-extract.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 
 // US-841: admin abuse & usage monitoring for the AI Support Assistant.
 //
@@ -50,6 +51,9 @@ type AdminEnv = {
 };
 
 export const adminMonitoringRoutes = new Hono<AdminEnv>();
+
+// US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
+adminMonitoringRoutes.use("*", requireScope("ops:write"));
 
 const db = supabaseAdmin as unknown as CheckedUpdateClient;
 

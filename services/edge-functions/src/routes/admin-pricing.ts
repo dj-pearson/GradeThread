@@ -19,12 +19,16 @@ import { jsonError } from "../lib/http-errors.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { requireStepUp } from "../lib/step-up.ts";
 import { clearPricingConfigCache, GATE_FLAG_KEYS } from "../lib/pricing-config.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 
 type AdminEnv = {
   Variables: { userId: string; adminRole: "admin" | "super_admin" };
 };
 
 export const adminPricingRoutes = new Hono<AdminEnv>();
+
+// US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
+adminPricingRoutes.use("*", requireScope("ops:write"));
 
 const PLAN_KEYS = new Set(["free", "starter", "pro", "business"]);
 

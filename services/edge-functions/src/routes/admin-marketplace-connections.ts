@@ -38,12 +38,16 @@ import {
   toConnectionHealth,
   VALID_HEALTH,
 } from "../lib/marketplace-health.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 
 type AdminEnv = {
   Variables: { userId: string; adminRole: "admin" | "super_admin" };
 };
 
 export const adminMarketplaceConnectionsRoutes = new Hono<AdminEnv>();
+
+// US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
+adminMarketplaceConnectionsRoutes.use("*", requireScope("marketplace:write"));
 
 // Non-token columns ONLY — the encrypted access/refresh tokens are never selected
 // so they can't leak out of this console (AC2).

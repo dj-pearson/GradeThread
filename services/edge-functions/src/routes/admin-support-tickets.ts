@@ -10,6 +10,7 @@ import {
   updateByIdChecked,
   ZeroRowsAffectedError,
 } from "../lib/db-write.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 
 // US-900: admin triage queue for user-opened support tickets.
 //
@@ -32,6 +33,9 @@ type AdminEnv = {
 };
 
 export const adminSupportTicketsRoutes = new Hono<AdminEnv>();
+
+// US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
+adminSupportTicketsRoutes.use("*", requireScope("support:write"));
 
 const db = supabaseAdmin as unknown as CheckedUpdateClient;
 

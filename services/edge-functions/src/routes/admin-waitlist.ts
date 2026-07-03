@@ -13,10 +13,14 @@ import { jsonError } from "../lib/http-errors.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { clearAccessGateCache } from "../lib/access-gate.ts";
 import { sendWaitlistInviteEmail } from "../lib/email.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 
 type AdminEnv = { Variables: { userId: string } };
 
 export const adminWaitlistRoutes = new Hono<AdminEnv>();
+
+// US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
+adminWaitlistRoutes.use("*", requireScope("growth:write"));
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const VALID_STATUS = new Set(["pending", "approved", "invited", "rejected"]);

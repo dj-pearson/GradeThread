@@ -18,12 +18,16 @@ import {
 } from "../lib/gsc-client.ts";
 import { submitUrls } from "../lib/indexnow.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 
 export const adminSeoRoutes = new Hono<{
   Variables: {
     userId: string;
   };
 }>();
+
+// US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
+adminSeoRoutes.use("*", requireScope("content:publish"));
 
 // GSC reports lag by ~2 days. Sync window = today-3 → today-3, with a 7-day
 // trailing rolling pull each day to absorb any backfilled rows.

@@ -3,6 +3,7 @@ import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { requireStepUp } from "../lib/step-up.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 
 // Admin user impersonation / "view as" (US-581). Lets a super-admin observe a
 // user's own dashboard exactly as that user sees it, to debug support tickets
@@ -32,6 +33,9 @@ type AdminEnv = {
 };
 
 export const adminImpersonationRoutes = new Hono<AdminEnv>();
+
+// US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
+adminImpersonationRoutes.use("*", requireScope("users:role"));
 
 const PRIVILEGED_ROLES = new Set(["admin", "super_admin"]);
 

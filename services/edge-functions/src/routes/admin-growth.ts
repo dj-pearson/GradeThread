@@ -52,6 +52,7 @@ import {
   warmupDayIndex,
 } from "../lib/email-warmup.ts";
 import { type ConfirmedSubscriber, partitionExtraSubscribers } from "../lib/broadcast-audience.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 
 type AdminEnv = {
   Variables: {
@@ -61,6 +62,9 @@ type AdminEnv = {
 };
 
 export const adminGrowthRoutes = new Hono<AdminEnv>();
+
+// US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
+adminGrowthRoutes.use("*", requireScope("growth:write"));
 
 const SITE_URL = "https://gradethread.com";
 const EMPTY_RULES: SegmentRules = { match: "all", conditions: [] };

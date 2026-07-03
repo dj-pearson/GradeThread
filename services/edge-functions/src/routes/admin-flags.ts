@@ -30,12 +30,16 @@ import {
 import { jsonError } from "../lib/http-errors.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { requireStepUp } from "../lib/step-up.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 
 type AdminEnv = {
   Variables: { userId: string; adminRole: "admin" | "super_admin" };
 };
 
 export const adminFlagsRoutes = new Hono<AdminEnv>();
+
+// US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
+adminFlagsRoutes.use("*", requireScope("ops:write"));
 
 // Plans the flag can target — the users.plan enum (migration 00001).
 const VALID_PLANS = new Set(["free", "starter", "professional", "enterprise"]);

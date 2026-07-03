@@ -4,6 +4,7 @@ import { captureException } from "../lib/observability.ts";
 import { requireStepUp } from "../lib/step-up.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { getSuppression, normalizeEmail, removeSuppression } from "../lib/email-suppression.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 
 // US-914: admin view of the email suppression list + manual false-positive
 // removal. Mounted at /api/admin/suppressions, inheriting authMiddleware +
@@ -20,6 +21,9 @@ type AdminEnv = {
 };
 
 export const adminSuppressionsRoutes = new Hono<AdminEnv>();
+
+// US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
+adminSuppressionsRoutes.use("*", requireScope("support:write"));
 
 const PAGE_LIMIT = 200;
 

@@ -16,6 +16,7 @@ import { captureException } from "../lib/observability.ts";
 import { requireStepUp } from "../lib/step-up.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { isFeatureEnabled } from "../lib/feature-flags.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 
 type AdminEnv = {
   Variables: {
@@ -25,6 +26,9 @@ type AdminEnv = {
 };
 
 export const adminJourneyRoutes = new Hono<AdminEnv>();
+
+// US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
+adminJourneyRoutes.use("*", requireScope("growth:write"));
 
 interface StepMetrics {
   step_order: number;

@@ -13,6 +13,7 @@ import {
   type ExportDb,
   type ExportStorageObject,
 } from "../lib/data-export.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 
 // US-903: GDPR/CCPA data-subject request workflow (operator queue).
 //
@@ -35,6 +36,9 @@ type AdminEnv = {
 };
 
 export const adminComplianceRoutes = new Hono<AdminEnv>();
+
+// US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
+adminComplianceRoutes.use("*", requireScope("moderation:write"));
 
 const db = supabaseAdmin as unknown as CheckedUpdateClient;
 const exportDb = supabaseAdmin as unknown as ExportDb;

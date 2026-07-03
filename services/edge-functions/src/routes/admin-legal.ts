@@ -3,6 +3,7 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { requireStepUp } from "../lib/step-up.ts";
 import { loadLegalVersionState } from "../lib/legal-versions.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 
 // US-904: Legal/ToS version manager.
 //
@@ -26,6 +27,9 @@ type AdminEnv = {
 };
 
 export const adminLegalRoutes = new Hono<AdminEnv>();
+
+// US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
+adminLegalRoutes.use("*", requireScope("content:publish"));
 
 const VALID_KINDS = new Set(["tos", "privacy"]);
 // YYYY-MM-DD — versions are by convention the document's effective date.

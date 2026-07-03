@@ -15,6 +15,7 @@ import {
   ingestKeywordResearch,
   isKeywordResearchConfigured,
 } from "../lib/keyword-research.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 
 // US-1073: AI Ad Copy Studio (admin-only). Generates Google Ads RSA copy and
 // Apple Search Ads keyword/creative sets grounded in the keyword library + brand
@@ -25,6 +26,9 @@ import {
 
 type Env = { Variables: { userId: string } };
 export const adminAdsRoutes = new Hono<Env>();
+
+// US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
+adminAdsRoutes.use("*", requireScope("marketplace:write"));
 
 const PLATFORMS: AdPlatform[] = ["google_ads", "apple_search_ads"];
 

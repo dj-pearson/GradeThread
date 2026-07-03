@@ -25,12 +25,16 @@ import { writeAuditLog } from "../lib/audit-log.ts";
 import { requireStepUp } from "../lib/step-up.ts";
 import { clearPricingConfigCache } from "../lib/pricing-config.ts";
 import { adminPricingRoutes } from "./admin-pricing.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 
 type AdminEnv = {
   Variables: { userId: string; adminRole: "admin" | "super_admin" };
 };
 
 export const adminConfigRoutes = new Hono<AdminEnv>();
+
+// US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
+adminConfigRoutes.use("*", requireScope("ops:write"));
 
 // ── /config/plans[...] — reuse the audited pricing_plans editor (US-587) ──
 // Re-mounting the same router exposes GET /config/plans + PUT /config/plans/:key
