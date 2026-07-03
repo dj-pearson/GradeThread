@@ -4,14 +4,15 @@
 // engine (lib/reconcile-cluster.ts) built for Photo Dump Reconciliation:
 //   1. EXIF capture-time bursts  — clusterByTimeGap/autoAssign. Resellers shoot
 //      one item, pause, shoot the next; the gap is a strong "new item" signal.
-//   2. Visual second pass        — applyVisualSecondPass merges the time
-//      clusters of near-identical photos (the same garment shot out of order),
-//      using the dHash (perceptual hash) every upload already computes.
+//   2. Visual second pass        — applyBoundedVisualMerge (US-1550) merges
+//      the clusters of near-identical photos (the same garment shot out of
+//      order) using the dHash every upload already computes, bounded by group
+//      size and shooting-order locality so it can never chain a whole
+//      same-background dump into one giant group.
 // The output is mapped to AutoLister's group shape. Pure + side-effect-free so
 // it's unit-tested without a DB or canvas.
 
 import {
-  applyVisualSecondPass,
   autoAssign,
   type AssignmentMap,
   type ClusterablePhoto,
@@ -80,6 +81,30 @@ export function hammingHex(a: string, b: string): number {
 export const VISUAL_MERGE_MAX_DISTANCE = 10;
 
 /**
+ * Ceiling on how many photos auto-grouping will pile into one item through the
+ * WEAK signals (filename runs, dHash merges). Nobody shoots more than about a
+ * dozen photos of one garment; anything the heuristics grow past this is far
+ * more likely a detection failure (US-1550: same-background clothing shots sit
+ * within dHash range of each other, so unbounded transitive merging chained a
+ * 600-photo dump into ONE group). Time-gap clusters are exempt — real EXIF
+ * bursts are a strong signal and may legitimately be long.
+ */
+export const MAX_AUTO_GROUP_PHOTOS = 12;
+
+/**
+ * How far apart (in shooting order) two clusters may sit and still be merged
+ * by the visual pass, measured in cluster ordinals. People shoot items
+ * back-to-back: a same-garment reshoot lands a couple of clusters away, while
+ * a "similar" pair spanning half the dump is a same-background false positive.
+ */
+export const VISUAL_MERGE_ORDINAL_WINDOW = 3;
+
+/** A similar pair plus its dHash distance, so merges can be applied best-first. */
+export interface DistancedPair extends SimilarPair {
+  distance: number;
+}
+
+/**
  * Build "similar" pairs from dHash proximity. O(n²) over the staged set —
  * US-1541: each hash parses ONCE up front and the pairwise inner loop is pure
  * integer XOR+popcount (~ns per pair), so even a 600-photo session (~180k
@@ -88,9 +113,9 @@ export const VISUAL_MERGE_MAX_DISTANCE = 10;
 export function visualPairs(
   photos: GroupablePhoto[],
   maxDistance: number = VISUAL_MERGE_MAX_DISTANCE,
-): SimilarPair[] {
+): DistancedPair[] {
   const parsed = photos.map((p) => parsePhash(p.phash));
-  const pairs: SimilarPair[] = [];
+  const pairs: DistancedPair[] = [];
   for (let i = 0; i < photos.length; i++) {
     const pa = parsed[i];
     if (!pa) continue;
@@ -100,7 +125,7 @@ export function visualPairs(
       const dist =
         popcount32((pa.hi ^ pb.hi) >>> 0) + popcount32((pa.lo ^ pb.lo) >>> 0);
       if (dist <= maxDistance) {
-        pairs.push({ a: photos[i]!.id, b: photos[j]!.id });
+        pairs.push({ a: photos[i]!.id, b: photos[j]!.id, distance: dist });
       }
     }
   }
@@ -210,13 +235,121 @@ function seedSequenceClusters(
   let changed = false;
   const next: AssignmentMap = { ...prev };
   for (const run of sequenceRuns(timeless)) {
-    const clusterId = `seq-${run[0]!.id}`;
+    // US-1550: a contiguous run only signals "one item" while it's plausibly
+    // one item's shoot. A no-EXIF dump has ONE contiguous run spanning the
+    // whole folder (600 photos ⇒ one giant group). Past the cap, seed each
+    // photo as its own cluster instead: the run still contributes shooting
+    // ORDER (the visual pass merges neighbors, bounded by size + window
+    // below), just not a single boundary-free mega-group.
+    const oneItem = run.length <= MAX_AUTO_GROUP_PHOTOS;
     for (const p of run) {
+      const clusterId = oneItem ? `seq-${run[0]!.id}` : `seq-${p.id}`;
       next[p.id] = { clusterId, manual: false };
       changed = true;
     }
   }
   return changed ? next : prev;
+}
+
+/**
+ * US-1550: the bounded visual second pass. The reconcile page's
+ * applyVisualSecondPass unions clusters transitively with no limit — fine for
+ * its opt-in embed-based pairs, but dHash on clothing photos is dominated by
+ * the (shared) background, so on a big dump nearly every cluster chains into
+ * one mega-group. This variant applies the closest pairs first and refuses a
+ * merge that would (a) grow a group past MAX_AUTO_GROUP_PHOTOS or (b) join two
+ * clusters more than VISUAL_MERGE_ORDINAL_WINDOW apart in shooting order.
+ * Manual assignments and unclustered photos are untouched, as before.
+ */
+function applyBoundedVisualMerge(
+  prev: AssignmentMap,
+  pairs: DistancedPair[],
+  photos: GroupablePhoto[],
+): AssignmentMap {
+  // Cluster membership — non-manual, clustered photos only (same eligibility
+  // as applyVisualSecondPass).
+  const members = new Map<string, GroupablePhoto[]>();
+  for (const p of photos) {
+    const a = prev[p.id];
+    if (!a || a.manual || a.clusterId === null) continue;
+    const arr = members.get(a.clusterId);
+    if (arr) arr.push(p);
+    else members.set(a.clusterId, [p]);
+  }
+  if (members.size < 2 || pairs.length === 0) return prev;
+
+  // Shooting-order ordinal per cluster: position when clusters are sorted by
+  // their earliest photo's provenance (time → filename sequence).
+  const earliest = new Map<string, GroupablePhoto>();
+  for (const [id, ps] of members) {
+    earliest.set(
+      id,
+      ps.reduce((min, p) => (compareByProvenance(p, min) < 0 ? p : min)),
+    );
+  }
+  const ordered = [...members.keys()].sort((x, y) =>
+    compareByProvenance(earliest.get(x)!, earliest.get(y)!),
+  );
+
+  // Union-find over cluster ids, tracking size + the ordinal range covered.
+  const parent = new Map<string, string>();
+  const size = new Map<string, number>();
+  const minOrd = new Map<string, number>();
+  const maxOrd = new Map<string, number>();
+  ordered.forEach((id, ord) => {
+    parent.set(id, id);
+    size.set(id, members.get(id)!.length);
+    minOrd.set(id, ord);
+    maxOrd.set(id, ord);
+  });
+  function find(x: string): string {
+    let root = x;
+    while (parent.get(root) !== root) root = parent.get(root)!;
+    let cur = x;
+    while (parent.get(cur) !== root) {
+      const next = parent.get(cur)!;
+      parent.set(cur, root);
+      cur = next;
+    }
+    return root;
+  }
+
+  // Closest pairs first, so when the size cap bites it's the weakest
+  // (most-likely-false) merges that lose out.
+  const byDistance = [...pairs].sort((a, b) => a.distance - b.distance);
+  let merged = false;
+  for (const { a, b } of byDistance) {
+    const aa = prev[a];
+    const bb = prev[b];
+    if (!aa || !bb || aa.manual || bb.manual) continue;
+    if (aa.clusterId === null || bb.clusterId === null) continue;
+    if (!parent.has(aa.clusterId) || !parent.has(bb.clusterId)) continue;
+    const ra = find(aa.clusterId);
+    const rb = find(bb.clusterId);
+    if (ra === rb) continue;
+    if (size.get(ra)! + size.get(rb)! > MAX_AUTO_GROUP_PHOTOS) continue;
+    // Gap between the two components' ordinal ranges (0 when they overlap).
+    const gap =
+      Math.max(minOrd.get(ra)!, minOrd.get(rb)!) -
+      Math.min(maxOrd.get(ra)!, maxOrd.get(rb)!);
+    if (gap > VISUAL_MERGE_ORDINAL_WINDOW) continue;
+    parent.set(rb, ra);
+    size.set(ra, size.get(ra)! + size.get(rb)!);
+    minOrd.set(ra, Math.min(minOrd.get(ra)!, minOrd.get(rb)!));
+    maxOrd.set(ra, Math.max(maxOrd.get(ra)!, maxOrd.get(rb)!));
+    merged = true;
+  }
+  if (!merged) return prev;
+
+  const next: AssignmentMap = {};
+  for (const [id, a] of Object.entries(prev)) {
+    if (!a.manual && a.clusterId !== null && parent.has(a.clusterId)) {
+      next[id] = { clusterId: find(a.clusterId), manual: false };
+    } else {
+      next[id] = a;
+    }
+  }
+  return next;
 }
 
 /**
@@ -280,7 +413,9 @@ export function autoGroupPhotos(
   // visual pass below can confirm/merge those like any time cluster.
   map = seedSequenceClusters(map, photos);
   if (opts.visual !== false) {
-    map = applyVisualSecondPass(map, visualPairs(photos, opts.maxDistance));
+    // US-1550: size- and shooting-order-bounded (the unbounded union used to
+    // chain a whole same-background dump into one giant group).
+    map = applyBoundedVisualMerge(map, visualPairs(photos, opts.maxDistance), photos);
   }
 
   const { clusters, needsSorting } = groupAssignments(photos, map);

@@ -9499,3 +9499,34 @@ empty-brief no-op; env-flag parsing incl. default OFF; per-image AND composite
 byte-identity regressions + baseline-outside-the-fence ordering). FULL edge suite
 2497/0/70; web tsc -b 0 / eslint clean / vitest 1117/1117 (admin card compiles).
 Still LOCAL-ONLY; queues behind held migrations 00339 + 00340 + NOW 00341.
+
+=== 2026-07-02 (loop): US-1534 (fabric-aware grading criteria from the care label) ===
+- Per-image pass now TRANSCRIBES the care label: fiber_content [{fiber, pct}] added to
+  the label/label_2 image context (verbatim, omit-never-guess), the prompt JSON schema,
+  and PER_IMAGE_OUTPUT_SCHEMA (required; [] for non-label images); parse hardened via
+  normalizeFiberContent (clamp 0-100, numeric-string coercion, cap 8, garbage dropped).
+  PER_IMAGE_PROMPT_VERSION bumped per_image_v4 -> per_image_v5 for accuracy attribution.
+- NEW lib/fabric-criteria.ts: FABRIC_CRITERIA for 6 fiber classes written in the
+  GARMENT_CATEGORY_CRITERIA tone - cashmere pilling is expected-with-wear and partly
+  comb-remediable while the SAME pilling on synthetics signals heavy wear; denim
+  factory whiskering vs genuine seat/knee fade; silk seam slippage; leather patina as
+  honest character; linen wrinkles never a defect - plus the ELASTANE_CRITERIA
+  modifier (bagging/recovery loss = permanent structural wear) applied whenever the
+  label shows spandex at any percentage. dominantFiberClass picks by total pct with
+  listing-order tiebreak (care labels list dominant first); elastane never a class.
+- PIPELINE-ORDERING DECISION (AC3, documented in the fabric-criteria.ts header):
+  COMPOSITE-stage injection. Per-image calls stay fully parallel
+  (Promise.allSettled); the composite already re-weights factors and has the label
+  read in hand. compositeGrade computes fabricCriteriaBlock(perImageResults) and
+  passes it into buildCompositeUserPrompt; prompt_version gains a +fabric suffix
+  (composing deterministically with US-1533 +baseline).
+- ADDITIVE GUARANTEE (test-guarded): no fiber read -> empty block -> composite prompt
+  byte-identical; non-label images unaffected.
+- OPS REMAINDER noted in prd: seed >=5 fabric-sensitive golden-set cases (cashmere
+  pilling / denim fade-vs-whisker / elastane bagging) through the admin eval tooling
+  before activating any DB prompt override - the golden set is prod data.
+TESTS: 7 deno tests (class mapping incl. blends + unknown + elastane-never-class;
+listing-order tiebreak; elastane synonyms; parse hardening; block rendering with
+composition line + both criteria; label_2 fallback + empty cases; composite
+byte-identity + ordering). FULL edge suite 2504/0/70; deno check + lint clean.
+No web/iOS changes. Still LOCAL-ONLY; queues behind held migrations 00339-00341.

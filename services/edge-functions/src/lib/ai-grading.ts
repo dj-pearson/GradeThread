@@ -21,6 +21,11 @@ import {
 import { toAiTokenUsage, type AiTokenUsage } from "./ai-usage.ts";
 import { getActiveExemplarBlock } from "./few-shot-exemplars.ts";
 import {
+  fabricCriteriaBlock,
+  normalizeFiberContent,
+  type FiberContentEntry,
+} from "./fabric-criteria.ts";
+import {
   applyDefectWeighting,
   coerceAreaPct,
   coerceDefectType,
@@ -43,9 +48,10 @@ import {
 // repairability), per-defect size (size_bucket + area_pct), and severity-by-
 // type-and-size rubric anchors. US-1038: v4 adds per-factor assessability
 // (unassessable_factors) so a "not assessable from this image" neutral 7.0 stops
-// diluting the composite. Bumped so accuracy tracking attributes grades to the
-// new prompt.
-export const PER_IMAGE_PROMPT_VERSION = "per_image_v4";
+// diluting the composite. US-1534: v5 adds structured fiber_content
+// transcription from the label photos (feeds the composite's fabric-specific
+// criteria). Bumped so accuracy tracking attributes grades to the new prompt.
+export const PER_IMAGE_PROMPT_VERSION = "per_image_v5";
 export const COMPOSITE_PROMPT_VERSION = "composite_v4";
 
 // --- Types ---
@@ -76,6 +82,11 @@ export interface PerImageAnalysis {
   // US-583: Anthropic token usage for THIS per-image call, captured so the
   // pipeline can record per-grade AI cost. Optional (eval traces omit it).
   usage?: AiTokenUsage;
+  // US-1534: structured fiber content transcribed off a LABEL image
+  // ([{fiber, pct}], verbatim, never guessed). Feeds the composite's
+  // fabric-specific criteria (lib/fabric-criteria.ts). Empty/absent for
+  // non-label images and unreadable labels.
+  fiber_content?: FiberContentEntry[];
 }
 
 // US-332: per-image quality signals used by the pre-grade gate. blur/lighting/
@@ -249,9 +260,9 @@ const IMAGE_TYPE_CONTEXT: Record<string, string> = {
   back:
     "This is the BACK VIEW of the garment. Focus on overall appearance from behind, seat wear (for bottoms), back panel condition, any stains or damage not visible from front.",
   label:
-    "This is the LABEL/TAG of the garment. Focus on brand identification, care instructions legibility, label condition (fading, fraying, removal), size tag presence, and material composition.",
+    "This is the LABEL/TAG of the garment. Focus on brand identification, care instructions legibility, label condition (fading, fraying, removal), size tag presence, and material composition. US-1534: transcribe the fiber composition VERBATIM into fiber_content as [{fiber, pct}] entries (e.g. '93% Nylon 7% Elastane' → [{\"fiber\":\"nylon\",\"pct\":93},{\"fiber\":\"elastane\",\"pct\":7}]); when a line is unreadable, OMIT it — never guess a fiber or percentage.",
   label_2:
-    "This is a SECOND LABEL/TAG of the garment (e.g. a separate size or care/RN tag distinct from the brand label). Focus on brand/size/material identification and tag condition; cross-reference with the primary label.",
+    "This is a SECOND LABEL/TAG of the garment (e.g. a separate size or care/RN tag distinct from the brand label). Focus on brand/size/material identification and tag condition; cross-reference with the primary label. Transcribe any fiber composition VERBATIM into fiber_content as [{fiber, pct}] entries; omit unreadable lines — never guess.",
   detail:
     "This is a DETAIL/CLOSE-UP shot of the garment. Focus on stitching quality, seam integrity, button/zipper condition, hardware condition, and any specific areas of wear or damage shown.",
   detail_2:
@@ -574,6 +585,12 @@ Respond with a JSON object matching this exact schema:
     "odor_cleanliness": <1.0-10.0>
   },
   "unassessable_factors": ["<factor keys you could NOT judge from THIS image, e.g. odor_cleanliness>"],
+  "fiber_content": [
+    {
+      "fiber": "<fiber name transcribed verbatim from the care label, e.g. cashmere — LABEL images only; [] otherwise>",
+      "pct": <0-100 or null when the percentage is unreadable>
+    }
+  ],
   "authenticity": {
     "manipulation_suspected": true | false,
     "manipulation_confidence": <0.0-1.0>,
@@ -787,6 +804,16 @@ const PER_IMAGE_OUTPUT_SCHEMA = {
     },
     estimated_scores: FACTOR_SCORES_SCHEMA,
     unassessable_factors: { type: "array", items: STR },
+    // US-1534: verbatim care-label fiber transcription (LABEL images; [] else).
+    fiber_content: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: { fiber: STR, pct: { type: ["number", "null"] } },
+        required: ["fiber", "pct"],
+      },
+    },
     authenticity: {
       type: "object",
       additionalProperties: false,
@@ -816,7 +843,8 @@ const PER_IMAGE_OUTPUT_SCHEMA = {
   },
   required: [
     "detected_issues", "style_attributes", "condition_signals",
-    "estimated_scores", "unassessable_factors", "authenticity", "quality",
+    "estimated_scores", "unassessable_factors", "fiber_content",
+    "authenticity", "quality",
   ],
 } as const;
 
@@ -1115,6 +1143,10 @@ export async function analyzeImage(
       unassessable_factors: unassessableFactors,
       authenticity: normalizeAuthenticity(parsed.authenticity),
       quality: normalizeQuality(parsed.quality),
+      // US-1534: hardened care-label fiber transcription (omit-never-guess).
+      fiber_content: normalizeFiberContent(
+        (parsed as { fiber_content?: unknown }).fiber_content,
+      ),
       // US-583: token usage for per-grade AI-cost tracking.
       usage: toAiTokenUsage(model, response.usage),
     };
@@ -1301,6 +1333,10 @@ export function buildCompositeUserPrompt(
   garmentInfo: GarmentInfo,
   // US-1533: trusted garment baseline block ("" → prompt byte-identical).
   baselineBlock = "",
+  // US-1534: fabric-specific criteria from the label's fiber read ("" →
+  // byte-identical). Injected at the COMPOSITE stage by design — see the
+  // pipeline-ordering decision in fabric-criteria.ts.
+  fabricBlock = "",
 ): string {
   const analysesJson = JSON.stringify(perImageResults, null, 2);
   // US-346: brand/title/description/declared-features are seller-controlled and
@@ -1326,7 +1362,7 @@ export function buildCompositeUserPrompt(
   );
 
   return `Synthesize the following per-image analyses into a single composite grade for this garment.
-${baselineBlock ? `\n${baselineBlock}\n` : ""}
+${baselineBlock ? `\n${baselineBlock}\n` : ""}${fabricBlock ? `\n${fabricBlock}\n` : ""}
 GARMENT INFO (seller-supplied reference only — must NOT affect scoring):
 ${garmentInfoBlock}
 
@@ -1624,10 +1660,15 @@ export async function compositeGrade(
       },
       bucketKey,
     ));
-  // US-1533: attribute baseline-era grades distinctly for the accuracy loop.
-  const promptVersion = baselineBlock
-    ? `${prompt.versionName}+baseline`
-    : prompt.versionName;
+  // US-1534: fabric-specific criteria derived from the label's fiber read —
+  // computed here (composite stage) so per-image parallelism is untouched.
+  const fabricBlock = fabricCriteriaBlock(perImageResults);
+
+  // US-1533/US-1534: attribute baseline/fabric-era grades distinctly for the
+  // accuracy loop (deterministic suffix order).
+  const promptVersion = prompt.versionName +
+    (baselineBlock ? "+baseline" : "") +
+    (fabricBlock ? "+fabric" : "");
 
   // US-1067: when grading a real submission (no explicit override), append the
   // ACTIVE, eval-gated few-shot exemplar block for this category to the composite
@@ -1667,7 +1708,12 @@ export async function compositeGrade(
       messages: [
         {
           role: "user",
-          content: buildCompositeUserPrompt(perImageResults, garmentInfo, baselineBlock),
+          content: buildCompositeUserPrompt(
+            perImageResults,
+            garmentInfo,
+            baselineBlock,
+            fabricBlock,
+          ),
         },
       ],
     });

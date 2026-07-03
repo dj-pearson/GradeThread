@@ -56,7 +56,7 @@ describe("autoGroupPhotos", () => {
       p("x", "2024-01-01T10:00:00Z", "1234567890abcdef"),
       p("y", "2024-01-01T10:30:00Z", "1234567890abcdef"),
     ];
-    expect(visualPairs(photos)).toEqual([{ a: "x", b: "y" }]);
+    expect(visualPairs(photos)).toEqual([{ a: "x", b: "y", distance: 0 }]);
     const groups = autoGroupPhotos(photos);
     expect(groups).toHaveLength(1);
     expect(new Set(groups[0]!.photoIds)).toEqual(new Set(["x", "y"]));
@@ -326,6 +326,73 @@ describe("autoGroupPhotos — 600-photo session (US-1541)", () => {
     expect(hammingHex("8000000000000001", "0000000000000000")).toBe(2);
     // Malformed-but-16-chars must be rejected, not partially parsed.
     expect(hammingHex("0000zzzz0000zzzz", "0000000000000000")).toBe(64);
+  });
+});
+
+// US-1550: bounded detection — the failure mode this guards against is a real
+// 600-photo dump (EXIF stripped in export, contiguous filenames, same shooting
+// background) collapsing into ONE group: the filename run seeded one giant
+// cluster, and the unbounded dHash union chained the rest together.
+describe("autoGroupPhotos — bounded detection (US-1550)", () => {
+  it("a long contiguous no-EXIF filename run must NOT become one giant group", () => {
+    // 40 timeless photos, contiguous names, all visually distinct.
+    const photos = Array.from({ length: 40 }, (_, i) =>
+      p(
+        `p${i}`,
+        null,
+        // Distinct hashes pairwise ≥ 16 apart (4 index bits × 16-bit fields).
+        `${[0, 1, 2, 3].map((bit) => ((i >> bit) & 1 ? "ffff" : "0000")).join("")}`,
+        `IMG_${String(i + 1).padStart(4, "0")}.jpg`,
+      ),
+    );
+    const groups = autoGroupPhotos(photos);
+    const biggest = Math.max(...groups.map((g) => g.photoIds.length));
+    expect(biggest).toBeLessThanOrEqual(MAX_AUTO_GROUP_PHOTOS);
+    // Nothing dropped.
+    expect(groups.flatMap((g) => g.photoIds)).toHaveLength(40);
+  });
+
+  it("visual merging is size-capped: identical hashes can't chain past the cap", () => {
+    // 30 timeless, contiguous names, ALL the same hash (worst case: every
+    // pair "similar"). Pre-US-1550 this became one 30-photo group.
+    const photos = Array.from({ length: 30 }, (_, i) =>
+      p(`p${i}`, null, "1234567890abcdef", `IMG_${String(i + 1).padStart(4, "0")}.jpg`),
+    );
+    const groups = autoGroupPhotos(photos);
+    expect(Math.max(...groups.map((g) => g.photoIds.length))).toBeLessThanOrEqual(
+      MAX_AUTO_GROUP_PHOTOS,
+    );
+    expect(groups.flatMap((g) => g.photoIds)).toHaveLength(30);
+  });
+
+  it("visual merging is local: similar photos far apart in shooting order stay apart", () => {
+    // Ten timed singleton bursts (10 min apart); only the first and last are
+    // visually identical. They're 9 clusters apart — a same-background false
+    // positive, not a reshoot — so they must NOT merge.
+    const base = Date.parse("2024-01-01T09:00:00Z");
+    const photos = Array.from({ length: 10 }, (_, i) =>
+      p(
+        `p${i}`,
+        new Date(base + i * 600_000).toISOString(),
+        i === 0 || i === 9
+          ? "1234567890abcdef"
+          : `${[0, 1, 2, 3].map((bit) => ((i >> bit) & 1 ? "ffff" : "0000")).join("")}`,
+      ),
+    );
+    const groups = autoGroupPhotos(photos);
+    expect(groups).toHaveLength(10);
+  });
+
+  it("a nearby same-garment reshoot still merges (the window allows neighbors)", () => {
+    // Two timed bursts 10 min apart, visually identical → still one item.
+    const photos = [
+      p("x1", "2024-01-01T10:00:00Z", "1234567890abcdef"),
+      p("x2", "2024-01-01T10:00:05Z", "1234567890abcdef"),
+      p("y1", "2024-01-01T10:10:00Z", "1234567890abcdef"),
+    ];
+    const groups = autoGroupPhotos(photos);
+    expect(groups).toHaveLength(1);
+    expect(new Set(groups[0]!.photoIds)).toEqual(new Set(["x1", "x2", "y1"]));
   });
 });
 
