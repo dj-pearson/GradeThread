@@ -6459,7 +6459,7 @@
     {
       "id": "US-1307",
       "priority": -98693,
-      "passes": false,
+      "passes": true,
       "title": "Supabase Kotlin SDK integration (auth, PostgREST, Realtime, Storage)",
       "description": "As an Android developer, I want supabase-kt configured with PKCE auth, encrypted session storage, and bounded HTTP, so auth/db/realtime/storage all use one client.",
       "acceptanceCriteria": [
@@ -6468,7 +6468,7 @@
         "Auth, Postgrest, Realtime, Storage modules installed; storage helpers build object/sign/upload-sign URLs nil-safely (mirrors StorageURL)",
         "Token access/refresh helpers exposed to the networking layer"
       ],
-      "notes": "[P1][Android/Foundation] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P1][Android/Foundation] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. [COMPLETION 2026-07-03] platform/supabase + platform/di, locally verified (three gradle gates; StorageUrlsTest 3 + TokenClassificationTest 4 green in results XML). SupabaseShared: one client via supabase-kt 3.1.4 (BOM) + ktor-client-okhttp against AppConfig.supabaseUrl - PKCE flowType, requestTimeout 30s (the bounded-HTTP lesson from the iOS 1h-refresh incident), KotlinX serializer w/ ignoreUnknownKeys, Auth+Postgrest+Realtime+Storage installed (AC1/AC3). EncryptedSessionManager: SessionManager over EncryptedSharedPreferences (AES256_GCM Keystore master key, namespaced gradethread.supabase.session.v1) - Keystore keys are device-bound with no backup restore, mirroring the iOS AfterFirstUnlockThisDeviceOnly accessibility (AC2). StorageUrls: pure nil-safe port of iOS StorageURL (object/public/sign/uploadSign; trailing-slash normalize; rejects null/blank/http/path-carrying bases - the US-993 crash-free contract; US-276 signed-only + US-1219 no-JWT-in-upload-state rules documented at the builders). TokenAccess: the US-1523 AccessTokenResult contract ported (Token/NoSession/Transient; classifyTokenError walks the cause chain hop-bounded for IOException - Ktor wraps transport errors; unknowns lean NoSession since EdgeApi's server-401 path is the authoritative expiry signal) + edgeTokenProvider/edgeTokenRefresher throwing retryable EdgeApiError.Network on transient (AC4). NetworkModule (Hilt): SupabaseClient singleton + @Named shared/ai EdgeApi instances wired to the typed providers; workspace-owner provider is the documented placeholder until US-1309."
     },
     {
       "id": "US-1308",

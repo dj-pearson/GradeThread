@@ -10344,3 +10344,21 @@ months of incidents):
 - Kotlin gotcha: while(true) in a lambda body doesn't infer Nothing - needs an
   explicit unreachable-throw tail.
 VERIFIED LOCALLY: 23/23 networking tests in the results XML; three gates green.
+
+=== 2026-07-03 (loop v2): US-1307 (supabase-kt integration) ===
+- SupabaseShared: one client (supabase-kt 3.1.4 BOM + ktor-okhttp engine)
+  against api.gradethread.com - PKCE flow, 30s bounded requestTimeout (the
+  iOS 1h-refresh-incident lesson), Auth/Postgrest/Realtime/Storage installed.
+- EncryptedSessionManager: session persisted via EncryptedSharedPreferences
+  (AES256-GCM Keystore master key, namespaced v1 file) - device-bound like
+  the iOS Keychain AfterFirstUnlockThisDeviceOnly class.
+- StorageUrls: pure nil-safe port of iOS StorageURL (object/public/sign/
+  upload-sign; rejects null/http/path-carrying bases instead of crashing;
+  US-276 + US-1219 rules documented at the seam). 3 tests.
+- TokenAccess: the US-1523 Token/NoSession/Transient contract ported -
+  classifyTokenError walks the cause chain for IOException (Ktor wraps
+  transport errors), unknowns lean NoSession (server-401 stays authoritative);
+  edgeTokenProvider/Refresher throw retryable Network on transient. 4 tests.
+- NetworkModule (Hilt): SupabaseClient singleton + @Named("shared"/"ai")
+  EdgeApi instances - the full networking graph is now assembled end-to-end.
+VERIFIED LOCALLY: three gates green; both new suites in the results XML.
