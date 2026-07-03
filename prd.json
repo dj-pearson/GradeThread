@@ -10021,18 +10021,18 @@
     {
       "id": "US-1570",
       "priority": 2372,
-      "passes": false,
+      "passes": true,
       "title": "MeasureCard v1: fiducial reference-card artwork + commercial print spec + printable fallback",
       "description": "As GradeThread, we need a physical reference card (the 'GradeThread MeasureCard') that subscribers lay beside a garment in one photo so downstream CV can recover absolute scale and correct camera tilt. It must be producible by any commercial printer from our files, and a free print-at-home fallback must exist so the feature works before a card arrives in the mail.",
       "acceptanceCriteria": [
-        "Vector master (SVG + print-ready PDF) checked into assets/measure-card/: a 7in x 5in card carrying FOUR ArUco fiducial markers (OpenCV DICT_5X5_1000, ids 10,11,12,13 = card v1; the id set IS the version so future card revisions are machine-detectable), one per corner, each marker >= 1.0in square, with the four marker CENTERS forming an exact 6.000in x 4.000in rectangle — these four known distances are the scale + homography ground truth",
+        "Vector master (SVG + print-ready PDF) checked into assets/measure-card/: a 7.5in x 5.5in card carrying FOUR ArUco fiducial markers (OpenCV DICT_5X5_1000, ids 10,11,12,13 = card v1; the id set IS the version so future card revisions are machine-detectable), one per corner, each marker >= 1.0in square, with the four marker CENTERS forming an exact 6.000in x 4.000in rectangle — these four known distances are the scale + homography ground truth",
         "Markers are pure black on white with >= 0.25in quiet zone; interior of the card may carry light GradeThread branding but NOTHING within any marker quiet zone; finish spec is MATTE (glare kills detection)",
         "MEASUREMENT_CARD_SPEC.md documents the full commercial-print handoff: trim size, 0.125in bleed, registration/crop marks, CMYK profile, markers as 100% K-only black (no rich black), matte stock >= 14pt, tolerance note (marker-center geometry must hold to +/-0.02in) — a printer can produce the card from the PDF + this doc alone",
         "Print-at-home fallback: a US-Letter PDF with the same fiducial geometry, a 'print at 100% / no page scaling' warning, and a self-check scale box ('a standard credit card fits exactly here — if not, reprint') so home prints are verifiable",
         "A constants module shared by edge + clients (e.g. lib/measure-card.ts mirrored per the shared-constants convention) exports the card geometry: dict, ids per version, marker-center rectangle in inches — NO magic numbers in the CV code",
         "Unit test: geometry constants match the spec doc values (guard against silent drift)"
       ],
-      "notes": "Design decision: 4 corner markers (not 1) so the CV story can compute a full homography (perspective/tilt correction), not just a scale ratio — a single credit card cannot correct tilt. DICT_5X5_1000 chosen for robustness at small pixel sizes. Card v2+ = new id set; never re-use v1 ids with changed geometry."
+      "notes": "Design decision: 4 corner markers (not 1) so the CV story can compute a full homography (perspective/tilt correction), not just a scale ratio — a single credit card cannot correct tilt. DICT_5X5_1000 chosen for robustness at small pixel sizes. Card v2+ = new id set; never re-use v1 ids with changed geometry. BUILT 2026-07-03: card is 7.5x5.5 (not the drafted 7x5) — the 300dpi OpenCV detection validation in scripts/generate-measure-card.py caught that 7x5 left the corner markers edge-flush with NO printed quiet zone (detection fails on dark surfaces); centers now sit 0.75in from trim. Artwork is generated + detection-validated output of that script; constants mirrored web/edge with byte-identical drift tests."
     },
     {
       "id": "US-1571",

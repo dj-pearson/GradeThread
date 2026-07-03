@@ -2,6 +2,31 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-07-03
 
+## 2026-07-03 — US-1570 (MeasureCard v1: artwork + print spec + printable fallback) — passes:true
+
+- scripts/generate-measure-card.py: generates ALL artwork from code and REFUSES
+  to emit anything OpenCV ArUco can't decode — rasterizes the card at 300dpi
+  and asserts ids 10-13 detect at the declared centers (<2px error), and that
+  our stored 5x5 bit matrices reproduce cv2's marker images exactly.
+- Validation caught a real design flaw in the drafted spec: a 7x5in card with
+  the 6x4in center rectangle put 1in corner markers EDGE-FLUSH (no printed
+  quiet zone -> zero detections on the test raster). Card is 7.5x5.5in; the
+  6.000x4.000in marker-center rectangle stands; 0.25in+ white surrounds every
+  marker. Story AC updated to match.
+- assets/measure-card/: geometry-v1.json (canonical), measure-card-v1.svg,
+  measure-card-v1.pdf (hand-rolled vector PDF, trim size), and
+  measure-card-letter-v1.pdf (print-at-home: 100%-scale warning, exact
+  credit-card check box (ISO ID-1), 6in reference ruler).
+- MEASUREMENT_CARD_SPEC.md: commercial handoff — trim, +/-0.02in center-rect
+  tolerance, K-only black, >=14pt MATTE stock (no gloss/UV/lam), 0.125in bleed
+  via white extension, proof-check procedure, and the versioning rule (id set
+  = card version; never re-print ids with changed geometry).
+- lib/measure-card.ts mirrored web+edge (byte-identical, generated from the
+  JSON): MEASURE_CARD_V1, MEASURE_CARD_VERSIONS, cardVersionForIds().
+VERIFIED LOCALLY: deno measure-card_test 4/4 (JSON drift + spec invariants +
+quiet-zone containment + version resolution); vitest 3/3 incl. web<->edge
+byte-equality; tsc -b clean. No migration.
+
 ## 2026-07-03 — US-1581 (AI-action metering: one reserve/refund contract + coverage drift test) — passes:true
 
 User report: "when I do listings and leverage AI it does not count against my

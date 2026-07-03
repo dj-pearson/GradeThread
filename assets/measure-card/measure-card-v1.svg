@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="7.5in" height="5.5in" viewBox="0 0 7.5 5.5">
+<!-- GradeThread MeasureCard v1 - DO NOT SCALE. Marker centers form an
+     exact 6.0x4.0 inch rectangle; markers are DICT_5X5_1000 ids [10, 11, 12, 13].
+     Print 100% K-only black on matte stock. See MEASUREMENT_CARD_SPEC.md. -->
+<rect x="0" y="0" width="7.5" height="5.5" fill="#ffffff"/>
+<rect x="0.2500" y="0.2500" width="1.0000" height="1.0000" fill="#000"/>
+<rect x="0.3929" y="0.3929" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="0.8214" y="0.3929" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="0.9643" y="0.3929" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="0.3929" y="0.5357" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="0.5357" y="0.5357" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="0.9643" y="0.5357" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="0.3929" y="0.6786" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="0.5357" y="0.6786" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="0.8214" y="0.6786" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="0.9643" y="0.6786" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="0.3929" y="0.8214" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="0.8214" y="0.9643" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="0.9643" y="0.9643" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="6.2500" y="0.2500" width="1.0000" height="1.0000" fill="#000"/>
+<rect x="6.3929" y="0.3929" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="6.5357" y="0.3929" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="6.8214" y="0.3929" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="6.6786" y="0.5357" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="6.9643" y="0.5357" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="6.3929" y="0.6786" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="6.6786" y="0.6786" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="6.8214" y="0.6786" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="6.3929" y="0.8214" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="6.6786" y="0.8214" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="6.8214" y="0.8214" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="6.2500" y="4.2500" width="1.0000" height="1.0000" fill="#000"/>
+<rect x="6.3929" y="4.3929" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="6.5357" y="4.3929" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="6.6786" y="4.3929" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="6.8214" y="4.3929" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="6.5357" y="4.5357" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="6.6786" y="4.5357" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="6.5357" y="4.6786" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="6.8214" y="4.6786" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="6.3929" y="4.8214" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="6.5357" y="4.8214" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="6.3929" y="4.9643" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="6.9643" y="4.9643" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="0.2500" y="4.2500" width="1.0000" height="1.0000" fill="#000"/>
+<rect x="0.6786" y="4.3929" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="0.9643" y="4.3929" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="0.3929" y="4.5357" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="0.5357" y="4.5357" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="0.6786" y="4.5357" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="0.3929" y="4.6786" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="0.5357" y="4.6786" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="0.6786" y="4.6786" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="0.5357" y="4.8214" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="0.8214" y="4.8214" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="0.9643" y="4.8214" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="0.6786" y="4.9643" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="0.8214" y="4.9643" width="0.1429" height="0.1429" fill="#fff"/>
+<text x="3.75" y="2.5" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="0.28" font-weight="bold" fill="#0F3460">GradeThread MeasureCard</text>
+<text x="3.75" y="2.85" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="0.16" fill="#1A1A2E">Lay this card flat BESIDE your garment - keep all four squares visible.</text>
+<text x="3.75" y="3.15" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="0.13" fill="#666">v1 - do not trim, fold, or laminate (gloss breaks detection)</text>
+</svg>
