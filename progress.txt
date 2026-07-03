@@ -9622,3 +9622,32 @@ TESTS: peer-norm_test 15/15 (3 new: cell filtering, brand-floor refinement both 
 case-insensitive brand). FULL edge suite 2510/0/70; deno check+lint clean; web tsc -b 0,
 eslint clean, vitest 1121/1121.
 Still LOCAL-ONLY; queues behind held migrations 00339-00342.
+
+=== 2026-07-02 (loop): US-1537 (composite visual verification) + US-1532 EPIC CLOSED ===
+US-1537 - the composite finally re-sees pixels before sealing the grade:
+- compositeGrade accepts verificationImages (<=4; empty -> byte-identical text-only call,
+  the additive guarantee). Content becomes labeled photo blocks + the user prompt with
+  VISUAL_VERIFICATION_ADDENDUM: verify each MAJOR defect against the angles that should
+  show it, check the overall visual impression matches the implied tier BEFORE
+  finalizing factor scores, list contradictions in verification_discrepancies.
+- Deterministic selection (selectVerificationImages, pure): front, back, then the
+  worst-GENUINE-defect angles (severity rank -> genuine count -> name; intentional-only
+  issues never qualify; cap clamped 1-4).
+- Pipeline: config system_settings grading_composite_visual {enabled:false, maxImages:4}
+  (DEFAULT OFF - canary rollout per AC5; +visual prompt_version suffix attributes
+  visual-era grades; per-call usage ledger measures the image-token delta per AC4).
+  Selected data URIs are captured INSIDE the memory-gated closure while the base64 is
+  still resident. The US-1066 escalation re-grade stays text-only by documented design.
+- Discrepancy policy (AC3): recorded in detailed_notes.visual_verification; confidence
+  shaved 0.1 per discrepancy (cap 0.2, floor 0); >=2 discrepancies -> human review.
+  Defect-weighting min-blend + code-side weighted-overall recompute (rounding lockstep)
+  untouched - verification adjusts within the existing machinery (AC2).
+TESTS: 6 deno tests (selection order, cap + tiebreaks, intentional exclusion, missing
+front/back + clean sets, discrepancy hardening, addendum content). FULL edge suite
+2516/0/70; deno check + lint clean. No web/iOS changes.
+US-1532 EPIC: all 5 children complete (1533 baselines / 1534 fabric / 1535 learnings
+loop / 1536 peer norm / 1537 visual verify). Per-prompt-version suffixes make the
+epic success metric (per-factor MAE + misread rate vs pre-epic baseline) directly
+sliceable in the existing accuracy tracking. Ops at rollout: schedule the
+exemplar-assembly cron, seed fabric golden-set cases, enable flags via eval+canary.
+Still LOCAL-ONLY; queues behind held migrations 00339-00342.

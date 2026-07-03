@@ -5,11 +5,13 @@ import {
   mergeZoomIntoIssue,
   partitionImageResults,
   selectDefectsForZoom,
+  selectVerificationImages,
   PARTIAL_IMAGE_CONFIDENCE_CAP,
   type SettledImage,
   type PerImageAnalysis,
   type GarmentInfo,
   type CompositeGradeResult,
+  type VerificationImage,
 } from "./ai-grading.ts";
 import { Image } from "imagescript";
 import {
@@ -1055,6 +1057,20 @@ export async function processSubmission(submissionId: string) {
       })) ?? "",
     );
 
+    // US-1537: composite visual verification config (default OFF — canary
+    // rollout; adds image tokens to the composite call). When on, the buffer
+    // closure below captures the ≤4 selected photos so the composite can
+    // re-see pixels; the array stays empty when disabled.
+    const visualCfg = {
+      enabled: false,
+      maxImages: 4,
+      ...(await getSetting<{ enabled?: boolean; maxImages?: number }>(
+        "grading_composite_visual",
+        {},
+      )),
+    };
+    const verificationImages: VerificationImage[] = [];
+
     // --- Steps 3+4: download → base64 → per-image analysis, under a
     // process-wide memory gate (US-573). The base64 data URIs stay resident
     // for the whole analysis, so the slot is held across BOTH steps — this
@@ -1154,6 +1170,21 @@ export async function processSubmission(submissionId: string) {
           );
         }
       });
+
+      // US-1537: capture the ≤4 verification photos WHILE the base64 data is
+      // still resident (imageData is scoped to this closure). Deterministic
+      // selection: front/back + the worst-genuine-defect angles.
+      if (visualCfg.enabled) {
+        const analyses = results
+          .map((r) => r.result)
+          .filter((r): r is PerImageAnalysis => r !== null);
+        const wantedTypes = selectVerificationImages(analyses, visualCfg.maxImages);
+        for (const t of wantedTypes) {
+          const img = imageData.find((d) => d.imageType === t);
+          if (img) verificationImages.push({ imageType: t, dataUri: img.dataUri });
+        }
+      }
+
       return { settledImages: results, authenticityAssessment };
     });
 
@@ -1314,6 +1345,10 @@ export async function processSubmission(submissionId: string) {
       submissionId,
       // US-1533: same trusted baseline the per-image pass saw.
       baselineBlock,
+      // US-1537: the visual-verification photo set ([] when disabled). The
+      // escalation re-grade below stays text-only by design — it re-runs the
+      // whole per-image pass on the stronger model anyway.
+      verificationImages,
     );
 
     // US-1066: escalate a low-confidence / high-value first-pass grade to the
@@ -1431,6 +1466,27 @@ export async function processSubmission(submissionId: string) {
       detailedNotes["defects_summary"] = compositeResult.defects_found
         .map((d) => `[${d.severity}] ${d.defect} at ${d.location} — ${d.impact_on_grade}`)
         .join("; ");
+    }
+
+    // US-1537: cross-photo contradictions found by the visual verification
+    // pass are recorded on the report and lower confidence — a grade whose
+    // own verification caught inconsistencies must not ship confidently.
+    // Penalty mirrors the existing policy shape (bounded shave, floor 0);
+    // ≥2 discrepancies also route to a human.
+    const discrepancies = compositeResult.verification_discrepancies ?? [];
+    if (discrepancies.length > 0) {
+      detailedNotes["visual_verification"] =
+        `Discrepancies found re-checking the photos: ${discrepancies.join("; ")}`;
+      compositeResult.confidence_score = Math.max(
+        0,
+        compositeResult.confidence_score -
+          Math.min(0.2, 0.1 * discrepancies.length),
+      );
+      if (discrepancies.length >= 2) compositeResult.needs_human_review = true;
+      console.log(
+        `[Pipeline] visual verification found ${discrepancies.length} discrepancy(ies) ` +
+          `for submission ${submissionId}`,
+      );
     }
 
     // US-1536: peer-norm sanity check — compare this grade against recent

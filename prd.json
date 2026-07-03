@@ -9411,7 +9411,7 @@
     {
       "id": "US-1532",
       "priority": 2333,
-      "passes": false,
+      "passes": true,
       "title": "Certified Grades accuracy epic — reference-grounded grading (know how the item is SUPPOSED to look)",
       "description": "As GradeThread we sell trust in the number, so the grader must judge condition against how THIS garment left the factory — not against a generic clothing rubric. Today ai-grading.ts feeds photos + static hand-written category strings (GARMENT_TYPE/CATEGORY_CRITERIA); there is no brand/style baseline, no fabric-specific criteria beyond those strings, the few-shot learnings block is EMPTY unless an operator hand-assembles a set (getActiveExemplarBlock → ''), no peer-norm sanity check, and the composite stage never re-sees pixels. The calibration machinery (prompt versioning, golden-set eval gate, canary, claim signals, shadow grading) already exists — these stories feed it real knowledge and turn the loops on. Umbrella for US-1533..US-1537.",
       "acceptanceCriteria": [
@@ -9420,7 +9420,7 @@
         "Every prompt change ships through the existing gate: ai_prompt_versions + runEval pass (EVAL_MAX_MAE/EVAL_MIN_AGREEMENT) before activation, canary rollout for risky changes",
         "Success metric: per-factor MAE and intentional_misread_rate (accuracy-tracking.ts computeAccuracySummary) improve vs the pre-epic baseline; dispute rate (grade_outcomes) does not rise"
       ],
-      "notes": "[P1][AI/Grading][Epic] [AI-refine audit 2026-07-01] Grounding: services/edge-functions/src/lib/ai-grading.ts (SYSTEM_PROMPT ~401, GARMENT_*_CRITERIA ~280-315, exemplar injection ~1617-1623), few-shot-exemplars.ts, grading-eval.ts (activation gate), accuracy-tracking.ts (MAE/misread/claims/outcomes), canary-rollout.ts, grading-shadow.ts. Children: US-1533 baselines, US-1534 fabric criteria, US-1535 exemplar loop, US-1536 peer norms, US-1537 composite visual check."
+      "notes": "[P1][AI/Grading][Epic] [AI-refine audit 2026-07-01] Grounding: services/edge-functions/src/lib/ai-grading.ts (SYSTEM_PROMPT ~401, GARMENT_*_CRITERIA ~280-315, exemplar injection ~1617-1623), few-shot-exemplars.ts, grading-eval.ts (activation gate), accuracy-tracking.ts (MAE/misread/claims/outcomes), canary-rollout.ts, grading-shadow.ts. Children: US-1533 baselines, US-1534 fabric criteria, US-1535 exemplar loop, US-1536 peer norms, US-1537 composite visual check. [EPIC CLOSED 2026-07-02] All five children shipped: US-1533 baselines (GRADING_BASELINES gate), US-1534 fabric criteria (label fiber read -> composite injection), US-1535 learnings loop (weekly assembly cron + eval + one-click activate), US-1536 peer-norm sanity check (default ON, conservative), US-1537 composite visual verification (default OFF, canary). AC1-AC3 delivered and test-guarded; AC4 (per-factor MAE / misread-rate improvement, stable dispute rate) is the production outcome to watch via the existing accuracy tracking + the per-prompt-version suffixes (+baseline/+fabric/+visual) these stories attribute with. OPS to run at rollout: schedule the exemplar-assembly cron, seed fabric-sensitive golden-set cases, enable flags via eval+canary in order."
     },
     {
       "id": "US-1533",
@@ -9485,7 +9485,7 @@
     {
       "id": "US-1537",
       "priority": 2328,
-      "passes": false,
+      "passes": true,
       "title": "Composite visual verification: final synthesis re-sees key photos before sealing the grade",
       "description": "The composite stage — where the final overall grade, tier, and report text are produced — is text-only: it synthesizes per-image JSON and never re-sees pixels, so cross-photo visual contradictions (front analysis says 'no visible flaws' while the defect crop shows a stain that is ALSO faintly visible on the front) cannot be caught. As a grading-accuracy improvement, attach a bounded photo set to the composite call — front + back + up to 2 worst-defect images (reusing the Forensic add-on's cropDefectRegion for zoomed crops) — with prompt instructions to VERIFY the drafted per-image findings against the photos as a whole: confirm each major defect is/isn't corroborated by other angles, and check the overall visual impression is consistent with the computed tier before finalizing factor scores. Config-gated (system_settings, default canary-only) since it adds vision tokens to every grade.",
       "acceptanceCriteria": [
@@ -9495,7 +9495,7 @@
         "Cost control: config keys for enable + max images; token/cost delta measured via existing ai cost logging before default-on",
         "Ships as new composite prompt version through eval gate + canary + shadow comparison; golden-set MAE must not regress"
       ],
-      "notes": "[P2][AI/Grading] [AI-refine audit 2026-07-01] Child of US-1532. The 'factor in the photos as a whole' ask applied to grading. Composite max_tokens 3072 and prompt-cached system block already in place; incremental cost is the image tokens — hence canary-gated rollout with cost measurement."
+      "notes": "[P2][AI/Grading] [AI-refine audit 2026-07-01] Child of US-1532. The 'factor in the photos as a whole' ask applied to grading. Composite max_tokens 3072 and prompt-cached system block already in place; incremental cost is the image tokens — hence canary-gated rollout with cost measurement. [COMPLETION 2026-07-02] compositeGrade gains verificationImages (<=4; [] -> byte-identical text-only call): photo blocks + VISUAL_VERIFICATION_ADDENDUM appended to the user prompt; +visual prompt_version suffix (composes with +baseline/+fabric). Deterministic selectVerificationImages: front/back then worst-GENUINE-defect angles (severity rank, count, name tiebreak; intentional-only issues never qualify). Config system_settings grading_composite_visual {enabled:false, maxImages:4} - DEFAULT OFF per canary AC; cost measured by the existing per-call usage ledger. Pipeline captures the selected data URIs INSIDE the memory-gated closure (base64 still resident) and passes to the main composite; the US-1066 escalation re-grade stays text-only by documented design. verification_discrepancies: schema field (optional) + normalize hardening (strings, 300 chars, cap 10) + CompositeGradeResult field; pipeline records detailed_notes.visual_verification, shaves confidence 0.1/discrepancy (cap 0.2, floor 0), routes to human at >=2. Defect-weighting min-blend + code-side weighted recompute untouched (verification adjusts within existing machinery). OPS: enable via canary after golden-set eval; shadow comparison through existing grading-shadow machinery. 6 deno tests."
     },
     {
       "id": "US-1538",

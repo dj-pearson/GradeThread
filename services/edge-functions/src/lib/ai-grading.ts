@@ -243,6 +243,9 @@ export interface CompositeGradeResult {
   image_validity: ImageValidity;
   // US-336/US-338: aggregated photo-authenticity assessment.
   image_authenticity: ImageAuthenticity;
+  // US-1537: cross-photo contradictions found by the visual verification pass
+  // (empty/absent when the pass didn't run or everything checked out).
+  verification_discrepancies?: string[];
   prompt_version: string;
   // Actual model that produced the composite grade. Recorded so the
   // accuracy tracker can attribute error rates per model, not just per
@@ -896,6 +899,10 @@ const COMPOSITE_OUTPUT_SCHEMA = {
       properties: { is_clothing: BOOL, reason: STR },
       required: ["is_clothing", "reason"],
     },
+    // US-1537: cross-photo contradictions found during the visual
+    // verification pass (only meaningful when photos were attached; []
+    // otherwise). Each entry names the finding and what the photos showed.
+    verification_discrepancies: { type: "array", items: STR },
   },
   required: [
     "overall_score", "grade_tier", "factor_scores", "ai_summary",
@@ -1619,6 +1626,83 @@ export function partitionImageResults(
   return { usable, failedRequired, failedOptional };
 }
 
+// ── US-1537: composite visual verification ───────────────────────────────────
+//
+// The composite stage synthesizes per-image JSON and historically never
+// re-saw pixels, so cross-photo contradictions (front analysis says clean;
+// the defect crop shows a stain faintly visible on the front too) couldn't be
+// caught. When enabled (system_settings `grading_composite_visual`, default
+// OFF — canary rollout), the pipeline attaches a bounded photo set to the
+// composite call and the prompt below instructs a verification pass before
+// factor scores are finalized. The deterministic defect-weighting min-blend
+// and the code-side weighted-overall recompute still run downstream, so
+// verification adjusts scores WITHIN the existing machinery.
+
+/** One photo attached to the composite for verification. */
+export interface VerificationImage {
+  imageType: string;
+  dataUri: string;
+}
+
+/** Appended to the composite user prompt ONLY when photos are attached. */
+export const VISUAL_VERIFICATION_ADDENDUM =
+  `VISUAL VERIFICATION — photos of the garment are attached (front/back and the worst-defect angles).
+Before finalizing factor scores, VERIFY the drafted per-image findings against the photos as a whole:
+- Confirm each MAJOR defect is (or is not) corroborated by the other angles that should show it.
+- Check the overall visual impression is consistent with the tier your scores imply — a garment that visibly reads "well-worn" must not score NWOT.
+- If a per-image finding is NOT corroborated, or a NEW finding is visible that no per-image analysis recorded, list it in verification_discrepancies (one short line each: what was claimed vs what the photos show) and reflect the corrected reality in the factor scores and defects_found.
+- Leave verification_discrepancies empty when everything checks out.`;
+
+/**
+ * Deterministic image selection for the verification pass (US-1537 AC1):
+ * front, back, then the image types carrying the worst GENUINE defects
+ * (severity rank, then defect count), up to `maxImages`. Pure.
+ */
+export function selectVerificationImages(
+  perImageResults: readonly PerImageAnalysis[],
+  maxImages = 4,
+): string[] {
+  const cap = Math.max(1, Math.min(4, Math.floor(maxImages)));
+  const present = new Set(perImageResults.map((r) => r.image_type));
+  const picked: string[] = [];
+  for (const required of ["front", "back"]) {
+    if (present.has(required) && picked.length < cap) picked.push(required);
+  }
+
+  const sevRank: Record<string, number> = { minor: 1, moderate: 2, major: 3 };
+  const scored = perImageResults
+    .filter((r) => !picked.includes(r.image_type))
+    .map((r) => {
+      const genuine = r.detected_issues.filter((i) => !i.is_intentional);
+      const worst = genuine.reduce(
+        (max, i) => Math.max(max, sevRank[i.severity] ?? 0),
+        0,
+      );
+      return { imageType: r.image_type, worst, count: genuine.length };
+    })
+    .filter((s) => s.worst > 0)
+    .sort(
+      (a, b) =>
+        b.worst - a.worst ||
+        b.count - a.count ||
+        a.imageType.localeCompare(b.imageType),
+    );
+  for (const s of scored) {
+    if (picked.length >= cap) break;
+    picked.push(s.imageType);
+  }
+  return picked;
+}
+
+/** Harden the model's discrepancy list: strings only, trimmed, capped. */
+export function normalizeVerificationDiscrepancies(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((d): d is string => typeof d === "string" && d.trim() !== "")
+    .map((d) => d.trim().slice(0, 300))
+    .slice(0, 10);
+}
+
 export async function compositeGrade(
   perImageResults: PerImageAnalysis[],
   garmentInfo: GarmentInfo,
@@ -1632,6 +1716,9 @@ export async function compositeGrade(
   // non-empty the reported prompt_version gains a "+baseline" suffix so the
   // accuracy loop can attribute baseline-era grades.
   baselineBlock = "",
+  // US-1537: bounded photo set for the visual verification pass ([] →
+  // text-only composite, byte-identical behavior). "+visual" suffix when used.
+  verificationImages: VerificationImage[] = [],
 ): Promise<CompositeGradeResult> {
   const client = getAnthropicClient();
   const startTime = Date.now();
@@ -1664,11 +1751,12 @@ export async function compositeGrade(
   // computed here (composite stage) so per-image parallelism is untouched.
   const fabricBlock = fabricCriteriaBlock(perImageResults);
 
-  // US-1533/US-1534: attribute baseline/fabric-era grades distinctly for the
-  // accuracy loop (deterministic suffix order).
+  // US-1533/US-1534/US-1537: attribute baseline/fabric/visual-era grades
+  // distinctly for the accuracy loop (deterministic suffix order).
   const promptVersion = prompt.versionName +
     (baselineBlock ? "+baseline" : "") +
-    (fabricBlock ? "+fabric" : "");
+    (fabricBlock ? "+fabric" : "") +
+    (verificationImages.length > 0 ? "+visual" : "");
 
   // US-1067: when grading a real submission (no explicit override), append the
   // ACTIVE, eval-gated few-shot exemplar block for this category to the composite
@@ -1708,12 +1796,33 @@ export async function compositeGrade(
       messages: [
         {
           role: "user",
-          content: buildCompositeUserPrompt(
-            perImageResults,
-            garmentInfo,
-            baselineBlock,
-            fabricBlock,
-          ),
+          // US-1537: with verification images the content becomes photo
+          // blocks + the prompt (with the verification addendum); without
+          // them it stays the plain text prompt — byte-identical to before.
+          content: verificationImages.length === 0
+            ? buildCompositeUserPrompt(
+              perImageResults,
+              garmentInfo,
+              baselineBlock,
+              fabricBlock,
+            )
+            : [
+              ...verificationImages.flatMap(
+                (img): Anthropic.ContentBlockParam[] => [
+                  { type: "text", text: `Photo (${img.imageType}):` },
+                  { type: "image", source: parseImageInput(img.dataUri) },
+                ],
+              ),
+              {
+                type: "text",
+                text: buildCompositeUserPrompt(
+                  perImageResults,
+                  garmentInfo,
+                  baselineBlock,
+                  fabricBlock,
+                ) + `\n\n${VISUAL_VERIFICATION_ADDENDUM}`,
+              },
+            ],
         },
       ],
     });
@@ -1951,6 +2060,12 @@ export async function compositeGrade(
       image_authenticity: imageAuthenticity,
       prompt_version: promptVersion,
       model: compositeModel,
+      // US-1537: cross-photo contradictions from the verification pass —
+      // recorded on the report; the pipeline lowers confidence when non-empty.
+      verification_discrepancies: normalizeVerificationDiscrepancies(
+        (parsed as { verification_discrepancies?: unknown })
+          .verification_discrepancies,
+      ),
       // US-583: token usage for per-grade AI-cost tracking.
       usage: toAiTokenUsage(compositeModel, response.usage),
     };
