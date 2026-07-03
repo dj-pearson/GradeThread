@@ -1,55 +1,71 @@
 package com.gradethread.app.ui.theme
 
-import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 
-// US-1300: minimal brand seed — Navy primary / Red accent, matching the web
-// tokens (CLAUDE.md Brand). The full Material 3 token pass (typography scale,
-// tonal palettes, dark variants, Inter) is US-1302; this exists so the shell
-// isn't default-purple in the meantime.
-private val BrandNavy = Color(0xFF0F3460)
-private val BrandRed = Color(0xFFE94560)
-private val BrandNight = Color(0xFF1A1A2E)
-
+/**
+ * US-1302: the full Material 3 brand theme. Light mode = web-canonical brand
+ * (Navy primary on Soft Gray); dark mode = the iOS strategy (Night surfaces
+ * with the brighter blue/red brand variants for contrast). Dynamic
+ * (wallpaper-derived) color is deliberately OFF — the grade certificate and
+ * marketing surfaces depend on brand recognition.
+ */
 private val LightColors = lightColorScheme(
-    primary = BrandNavy,
-    secondary = BrandRed,
-    tertiary = BrandNight,
+    primary = BrandPalette.Navy,
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFFD5E3F8),
+    onPrimaryContainer = BrandPalette.Navy,
+    secondary = BrandPalette.Red,
+    onSecondary = Color.White,
+    secondaryContainer = Color(0xFFFFD9DF),
+    onSecondaryContainer = Color(0xFF8E1F35),
+    tertiary = BrandPalette.Night,
+    onTertiary = Color.White,
+    error = BrandPalette.Red,
+    onError = Color.White,
+    background = BrandPalette.SoftGray,
+    onBackground = BrandPalette.Night,
+    surface = Color.White,
+    onSurface = BrandPalette.Night,
+    surfaceVariant = Color(0xFFEDEFF4),
+    onSurfaceVariant = Color(0xFF44475A),
+    outline = BrandPalette.OutlineLight,
 )
 
 private val DarkColors = darkColorScheme(
-    primary = Color(0xFF9DB8E0),
-    secondary = BrandRed,
-    background = BrandNight,
-    surface = BrandNight,
+    primary = BrandPalette.NavyDark,
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFF1E3A5F),
+    onPrimaryContainer = Color(0xFFD5E3F8),
+    secondary = BrandPalette.RedDark,
+    onSecondary = Color(0xFF40000E),
+    secondaryContainer = Color(0xFF7A2038),
+    onSecondaryContainer = Color(0xFFFFD9DF),
+    tertiary = BrandPalette.SoftGray,
+    onTertiary = BrandPalette.Night,
+    error = BrandPalette.RedDark,
+    onError = Color(0xFF40000E),
+    background = BrandPalette.Night,
+    onBackground = BrandPalette.SoftGray,
+    surface = BrandPalette.Night,
+    onSurface = BrandPalette.SoftGray,
+    surfaceVariant = BrandPalette.NightSurface,
+    onSurfaceVariant = Color(0xFFB9BCD0),
+    outline = BrandPalette.OutlineDark,
 )
 
 @Composable
 fun GradeThreadTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    // Brand colors beat wallpaper-derived dynamic color by default; US-1302
-    // revisits whether to offer dynamic as a setting.
-    dynamicColor: Boolean = false,
     content: @Composable () -> Unit,
 ) {
-    val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val context = LocalContext.current
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
-        darkTheme -> DarkColors
-        else -> LightColors
-    }
     MaterialTheme(
-        colorScheme = colorScheme,
+        colorScheme = if (darkTheme) DarkColors else LightColors,
+        typography = GradeThreadTypography,
         content = content,
     )
 }

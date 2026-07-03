@@ -10242,3 +10242,23 @@ Remaining Android backlog: US-1301..1396 (78 stories), now all verifiable.
   .gradle.kts needs an explicit java.util.Properties import; a FAILED compile
   can leave stale incremental state that replays the old error - clear the
   app build kotlin directory to recover.
+
+=== 2026-07-03 (loop v2): US-1302 (Android Material 3 brand theme) ===
+- Color: web-canonical seeds (Navy/Red/Night/SoftGray) + the iOS dark-mode
+  strategy decoded from Assets.xcassets (dark navy = brighter #3B82F6, dark red
+  = #FB5E78); complete light+dark M3 ColorSchemes; dynamic color deliberately
+  off (brand recognition on certificates/marketing surfaces).
+- Type: the SAME OFL font files as iOS copied into res/font (Outfit x3, Inter
+  x3); M3 Typography mapped onto the iOS brand scale; brandScore(size) +
+  brandData(size, weight) with tnum tabular digits for aligned prices/counts.
+- Tokens: Spacing 4pt scale, CornerRadius card/control/chip/pill, 48dp
+  MinTouchTarget (Android floor; iOS uses 44pt). Components: Modifier.cardStyle
+  (standard/flush, mirroring the iOS CardStyleModifier) + BrandPrimary/
+  Secondary/DestructiveButton with the 48dp floor.
+- The placeholder shell + @Preview exercise a score card and primary CTA so a
+  theme regression is visible immediately.
+- 4 JVM drift-guard tests pin the canonical hex values, the 4pt scale, radius
+  classes, and the touch floor.
+- Gotcha: TextGeometricTransform.None is INTERNAL in this Compose version -
+  omit it (default is identity anyway).
+VERIFIED LOCALLY: assembleDebug + testDebugUnitTest + lintDebug all green.

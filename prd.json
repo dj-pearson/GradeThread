@@ -6390,7 +6390,7 @@
     {
       "id": "US-1302",
       "priority": -98698,
-      "passes": false,
+      "passes": true,
       "title": "Material 3 brand theme: colors, typography, tokens, dark mode",
       "description": "As a user, I want the Android app to look like GradeThread — navy/red/night/gray brand palette, Outfit + Inter fonts, consistent spacing/radius — in light and dark mode.",
       "acceptanceCriteria": [
@@ -6399,7 +6399,7 @@
         "Spacing (4pt scale) + corner-radius (card/control/chip/pill) tokens + a reusable cardStyle/brandPrimary/secondary/destructive button styles; 48dp min touch targets",
         "Honors system dark mode; brand surfaces render correctly in both"
       ],
-      "notes": "[P1][Android/Foundation] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P1][Android/Foundation] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. [COMPLETION 2026-07-03] Full M3 token pass, locally verified (assembleDebug + testDebugUnitTest + lintDebug green). Color.kt: BrandPalette with the web-canonical seeds (Navy #0F3460, Red #E94560, Night #1A1A2E, SoftGray #F5F5F5) PLUS the iOS dark-mode strategy decoded from Assets.xcassets (BrandNavy dark = #3B82F6 brighter blue, BrandRed dark = #FB5E78) and supporting neutrals; Theme.kt maps complete light+dark ColorSchemes (primary/containers/secondary/tertiary/error/background/surface/surfaceVariant/outline - light = Navy on SoftGray w/ white surfaces, dark = Night surfaces w/ NightSurface cards); dynamic color deliberately OFF (brand recognition). Type.kt: the SAME OFL font files copied from the iOS bundle (Outfit Regular/SemiBold/Bold + Inter Regular/Medium/Bold -> res/font), Compose FontFamilies, M3 Typography mapped onto the iOS brand scale (display 34/title 28/titleMedium 22/headline 17 Outfit; body 17/16, label 15 Medium, caption 12 Inter) + brandScore(size) and brandData(size,weight) with tnum tabular digits (TextGeometricTransform.None removed - it's INTERNAL in this Compose version, new gotcha). Dimens.kt: Spacing 4pt scale (xxs 4..xxl 32, md 16 = default inset), CornerRadius (card 16/control 12/chip 9/pill 999), MinTouchTarget 48dp (Android floor vs iOS 44pt, per AC). Components.kt: Modifier.cardStyle(flush) mirroring the iOS CardStyleModifier + BrandPrimary/Secondary/DestructiveButton (48dp defaultMinSize, control radius, headline/label type). MainActivity shell exercises cardStyle + brandScore + BrandPrimaryButton so theme regressions surface immediately (also in @Preview). DesignTokensTest: 4 JVM drift-guard tests (canonical hex values, 4pt scale, radius classes, touch floor)."
     },
     {
       "id": "US-1303",

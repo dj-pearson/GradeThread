@@ -17,7 +17,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.gradethread.app.ui.theme.BrandPrimaryButton
 import com.gradethread.app.ui.theme.GradeThreadTheme
+import com.gradethread.app.ui.theme.Spacing
+import com.gradethread.app.ui.theme.brandScore
+import com.gradethread.app.ui.theme.cardStyle
 import dagger.hilt.android.AndroidEntryPoint
 
 /**
@@ -57,6 +61,16 @@ fun PlaceholderShell(modifier: Modifier = Modifier) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            // US-1302: exercise the brand chrome so theme regressions surface
+            // in the shell (and in the preview) immediately.
+            Column(Modifier.padding(top = Spacing.lg).cardStyle()) {
+                Text("9.4", style = brandScore(40), color = MaterialTheme.colorScheme.primary)
+                Text("Sample score card", style = MaterialTheme.typography.bodySmall)
+            }
+            BrandPrimaryButton(
+                text = "Primary action",
+                modifier = Modifier.padding(top = Spacing.md),
+            ) {}
         }
     }
 }

@@ -1,0 +1,26 @@
+package com.gradethread.app.ui.theme
+
+import androidx.compose.ui.graphics.Color
+
+/**
+ * US-1302: the GradeThread brand palette (CLAUDE.md Brand + the iOS
+ * Assets.xcassets variants). Light mode uses the web-canonical values; dark
+ * mode follows the iOS strategy — a lighter, higher-contrast blue/red so
+ * brand elements stay legible on Night surfaces.
+ */
+object BrandPalette {
+    // Web-canonical seeds (light).
+    val Navy = Color(0xFF0F3460)
+    val Red = Color(0xFFE94560)
+    val Night = Color(0xFF1A1A2E)
+    val SoftGray = Color(0xFFF5F5F5)
+
+    // Dark-mode brand variants (from the iOS BrandNavy/BrandRed dark assets).
+    val NavyDark = Color(0xFF3B82F6)
+    val RedDark = Color(0xFFFB5E78)
+
+    // Supporting neutrals.
+    val NightSurface = Color(0xFF23233B) // one step above Night for cards
+    val OutlineLight = Color(0xFFD6D9E0)
+    val OutlineDark = Color(0xFF3A3A55)
+}
