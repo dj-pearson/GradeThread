@@ -10535,3 +10535,17 @@ VERIFIED LOCALLY: three gates green; 10/10 in the results XML.
 - apply(batch): one Room transaction on IO; delta NEVER prunes (deletes are
   US-1320's explicit reconciliation pass; sales/expenses append-authoritative).
 VERIFIED LOCALLY: three gates green; 12/12 across both suites.
+
+=== 2026-07-03 (loop v2): US-1320 (delete reconciliation) ===
+- iOS reconcileDeletesIfDue ported exactly: 15-min in-memory throttle with the
+  critical asymmetry PROVEN - a failed offline pass does not advance the
+  throttle, so the next healthy pass runs immediately.
+- Five id-only fetches concurrent (US-1520), iOS table-scoping split carried;
+  a table whose fetch failed is left UNTOUCHED while the others reconcile
+  (pruning against a partial view would delete live rows - proven).
+- Protected sets all proven: dirty rows (+US-1495 pending-edit items), queued
+  creates, the client-minted photo_id inside queued uploadPhoto payloads
+  (targetId is the PARENT item - the iOS subtlety), and local-only captures.
+- Pure prune plan (locals - surviving - protected) applied in one Room
+  transaction on IO; payload parse tolerates garbage.
+VERIFIED LOCALLY: three gates green; 7/7 in the results XML.

@@ -40,6 +40,16 @@ interface ItemDao {
     @Query("SELECT * FROM inventory_items ORDER BY updatedAt DESC")
     suspend fun allWithPhotos(): List<ItemWithPhotos>
 
+    /** US-1320: reconcile support — ids + dirty ids + bulk delete. */
+    @Query("SELECT id FROM inventory_items")
+    suspend fun allIds(): List<String>
+
+    @Query("SELECT id FROM inventory_items WHERE hasLocalChanges = 1")
+    suspend fun dirtyIds(): List<String>
+
+    @Query("DELETE FROM inventory_items WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<String>)
+
     /** US-994: presence via the relation — EXISTS, not primaryPhotoUrl. */
     @Query("SELECT EXISTS(SELECT 1 FROM item_photos WHERE inventoryItemId = :itemId)")
     suspend fun itemHasPhotos(itemId: String): Boolean
@@ -62,6 +72,16 @@ interface PhotoDao {
     @Query("DELETE FROM item_photos WHERE id = :id")
     suspend fun delete(id: String)
 
+    @Query("SELECT id FROM item_photos")
+    suspend fun allIds(): List<String>
+
+    /** Local captures not yet uploaded — never reconcile-pruned. */
+    @Query("SELECT id FROM item_photos WHERE localBytesPath IS NOT NULL")
+    suspend fun localOnlyIds(): List<String>
+
+    @Query("DELETE FROM item_photos WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<String>)
+
     @Query("DELETE FROM item_photos")
     suspend fun clearAll()
 }
@@ -73,6 +93,15 @@ interface SaleDao {
 
     @Query("SELECT * FROM sales ORDER BY saleDate DESC")
     suspend fun all(): List<SaleEntity>
+
+    @Query("SELECT id FROM sales")
+    suspend fun allIds(): List<String>
+
+    @Query("SELECT id FROM sales WHERE hasLocalChanges = 1")
+    suspend fun dirtyIds(): List<String>
+
+    @Query("DELETE FROM sales WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<String>)
 
     @Query("DELETE FROM sales")
     suspend fun clearAll()
@@ -86,6 +115,12 @@ interface ExpenseDao {
     @Query("SELECT * FROM expenses ORDER BY spentOn DESC")
     suspend fun all(): List<ExpenseEntity>
 
+    @Query("SELECT id FROM expenses")
+    suspend fun allIds(): List<String>
+
+    @Query("DELETE FROM expenses WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<String>)
+
     @Query("DELETE FROM expenses")
     suspend fun clearAll()
 }
@@ -97,6 +132,15 @@ interface ListingDao {
 
     @Query("SELECT * FROM listings WHERE inventoryItemId = :itemId")
     suspend fun forItem(itemId: String): List<ListingEntity>
+
+    @Query("SELECT id FROM listings")
+    suspend fun allIds(): List<String>
+
+    @Query("SELECT id FROM listings WHERE hasLocalChanges = 1")
+    suspend fun dirtyIds(): List<String>
+
+    @Query("DELETE FROM listings WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<String>)
 
     @Query("DELETE FROM listings")
     suspend fun clearAll()

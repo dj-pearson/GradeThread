@@ -6639,7 +6639,7 @@
     {
       "id": "US-1320",
       "priority": -98680,
-      "passes": false,
+      "passes": true,
       "title": "Delete reconciliation (id-fetch, throttle, protected set)",
       "description": "As a user, rows deleted on the web or another device disappear locally so my Money totals aren’t inflated by stale rows.",
       "acceptanceCriteria": [
@@ -6647,7 +6647,7 @@
         "Never prunes rows with hasLocalChanges or photos referenced by a queued uploadPhoto mutation",
         "Skips + doesn’t advance the throttle when offline (retries next pass) — mirrors US-1221"
       ],
-      "notes": "[P1][Android/Sync] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P1][Android/Sync] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. [COMPLETION 2026-07-03] sync/DeleteReconciler, locally verified (three gates; DeleteReconcilerTest 7/7 w/ real Room). iOS reconcileDeletesIfDue ported exactly (US-1221/1495/1520): 15-min in-memory throttle (first pull of a session reconciles; window skip proven) with the CRITICAL asymmetry proven - a FAILED (all-null/offline) pass does NOT advance the throttle so the immediately-following healthy pass runs. Five id-only fetches run CONCURRENTLY (US-1520) via an injected per-table fetcher (iOS table split carried: items/sales/flipdesk_expenses user-scoped, listings/item_photos parent-scoped); a table whose fetch failed (null) is left UNTOUCHED (proven - pruning against a partial view would delete live rows) while healthy tables still reconcile. Protected sets all proven: hasLocalChanges rows (items via dirtyIds + US-1495 itemIdsWithPendingEdits union, sales, listings), pending creates' target ids, the client-minted photo_id parsed from queued uploadPhoto payloads (whose targetId is the PARENT item - the iOS subtlety), and not-yet-uploaded local captures (localBytesPath IS NOT NULL). Prune plan is pure (locals - surviving - protected); applied in one Room withTransaction on IO. uploadPhotoId payload parse tolerates garbage. DAOs gained allIds/dirtyIds/deleteByIds per table + photos.localOnlyIds."
     },
     {
       "id": "US-1321",
