@@ -10578,3 +10578,15 @@ VERIFIED LOCALLY: three gates green; 6/6 in the results XML.
   persistent failures (2 blips insufficient - proven); acknowledge re-arms
   only on new trouble.
 VERIFIED LOCALLY: three gates green; 7/7 in the results XML.
+
+=== 2026-07-03 (loop v2): US-1323 (sign-out wipe & workspace re-scope) ===
+- Sign-out ordering PROVEN as a strict sequence: stop writers -> epoch bump
+  (US-1493 stale-pull discard) -> watermarks reset STRICTLY BEFORE rows (the
+  crash-safety rule) -> one-transaction full wipe incl. the queue ->
+  clearances. Integration proof: seeded every tenant table + queue + an
+  advanced watermark; all empty + cursor null after.
+- Workspace switch: flush pending FIRST (old-tenant edits), wipe tenant rows
+  with the queue PROVEN KEPT (same user), rehome + re-pull in order.
+- ScopeEpoch token invalidation proven; hooks are the registration seams for
+  uploader/push/widget/engine stories.
+VERIFIED LOCALLY: three gates green; 4/4 in the results XML.

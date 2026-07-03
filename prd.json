@@ -6679,7 +6679,7 @@
     {
       "id": "US-1323",
       "priority": -98677,
-      "passes": false,
+      "passes": true,
       "title": "Sign-out wipe & workspace-switch re-scope correctness",
       "description": "As a user switching accounts or workspaces, I never see or flush the previous tenant’s data.",
       "acceptanceCriteria": [
@@ -6687,7 +6687,7 @@
         "Workspace switch: flush pending first, reset watermarks, wipe tenant cache (keep the queue — same owner), re-home Realtime, then re-pull scoped to the new owner (mirrors US-670/US-1211)",
         "Regression tests assert no cross-tenant leakage into list/Money/dashboard surfaces"
       ],
-      "notes": "[P1][Android/Sync] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P1][Android/Sync] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. [COMPLETION 2026-07-03] sync/SessionScope, locally verified (three gates; SessionScopeTest 4/4 w/ real Room + real DataStore watermarks). SIGN-OUT with the full ordering contract PROVEN as a strict sequence: stopSync -> stopRealtime -> cancelUploads -> epoch bump (US-1493: an in-flight pull discards its merge + cursor advance instead of re-saving rows after the wipe) -> WATERMARKS RESET STRICTLY BEFORE ROWS (the crash-safety rule: wipe-then-die would leave the next account delta-pulling from the old cursor and silently missing everything older) -> one-transaction wipe of ALL cache tables + the mutation queue -> clearances (intake inbox / push token / widget snapshot register as hooks). Integration proof: seeded all tenant tables + queue + an advanced watermark; after signOutWipe every list/Money/dashboard-backing surface is empty, the queue is empty (the next account can't FLUSH old edits), and the cursor is null (AC3's no-leakage sweep). WORKSPACE SWITCH (US-670/1211): flushPending FIRST (queued edits target the OLD tenant) -> epoch+watermarks -> wipe TENANT ROWS ONLY with the queue PROVEN KEPT (same signed-in user) -> rehome realtime -> re-pull for the new owner (hook order proven). ScopeEpoch: monotonic AtomicLong token invalidation proven. Hooks are injectable seams the remaining stories (uploader, push, widget, engine) register into."
     },
     {
       "id": "US-1324",
