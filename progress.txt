@@ -9691,3 +9691,31 @@ Retry-failed, MAX_BATCH_ITEMS=300, US-1545 up-front quota precheck. Caveats hand
 user: stay on page until the client materialize-loop finishes (item/photo inserts happen
 client-side before the POST), and confirm the autolister-reclaim Coolify scheduled task
 is actually configured in prod (LAUNCH_CHECKLIST item; code path can't verify ops).
+
+=== 2026-07-02 (loop): US-1447 (Promoted Listings Advanced: Smart Targeting + suggestMaxCpc) ===
+Chunk 1 (CPS/CPC campaigns, ad groups, per-listing mode column, composer CPS-vs-CPC
+buttons) was already on main. This chunk completes the story:
+- ebay-marketing.ts: suggestMaxCpc (pre-create suggestion call with marketplaceId +
+  listingIds; tolerant of maxCpc/suggestedMaxCpc response envelopes; non-fatal null ->
+  conservative DEFAULT_MAX_CPC fallback), ensureSmartCampaign (find-by-name, else
+  createCampaign with fundingModel COST_PER_CLICK + campaignTargetingType SMART +
+  CAMPAIGN-level maxCpc - field names grounded against developer.ebay.com createCampaign
+  + priority-campaign-flow docs; smart campaigns have no ad groups, resolved by name per
+  attach so NO schema migration), createSmartAdForListing (create_ads_by_listing_id
+  without adGroupId), attachPromotionAtPublish gains mode "smart" (suggestion-seeded
+  ceiling; promo_rate_pct cleared like CPC; failed -> promo_status=failed, never fails
+  the live publish).
+- flipdesk-ebay.ts: promoModeFor() maps listings.promo_mode (cps|cpc|smart, legacy ->
+  cps) at BOTH publish call sites.
+- composer.tsx: third "Smart Targeting" campaign-type button + explainer copy; mode
+  load/save round-trips promo_mode=smart; ad-rate input stays CPS-only.
+- CAVEATS recorded in prd: Marketing API payloads modeled from official docs, NOT
+  live-eBay tested from this host (identical disclaimer to chunk 1 - a wrong field
+  fails as a surfaced eBay 4xx and records promo_status=failed); iOS publish dialog
+  remains CPS-only (enable + rate) - the 3-way picker is web-composer-first.
+TESTS: surface-pin deno test (exports + non-throwing contract documented); FULL edge
+suite 2517/0/70; deno check + lint clean; web tsc -b 0, eslint clean, vitest 1121/1121.
+Grounding sources: developer.ebay.com Marketing API createCampaign +
+pl-campaign-flow-pla + updateBiddingStrategy pages (campaignTargetingType=SMART,
+campaign-level maxCpc, suggestMaxCpc pre-create with planned listings).
+Still LOCAL-ONLY; queues behind held migrations 00339-00342.

@@ -207,9 +207,10 @@ export function FlipdeskComposerPage() {
   const [promoteEnabled, setPromoteEnabled] = useState(true);
   const [promoRate, setPromoRate] = useState("");
   const [promoSuggested, setPromoSuggested] = useState<number | null>(null);
-  // US-1447: Promoted Listings mode — 'cps' (Cost-Per-Sale %, default) or 'cpc'
-  // (Cost-Per-Click / Priority; bid is eBay's ad-group max-CPC, no % applies).
-  const [promoMode, setPromoMode] = useState<"cps" | "cpc">("cps");
+  // US-1447: Promoted Listings mode — 'cps' (Cost-Per-Sale %, default), 'cpc'
+  // (Cost-Per-Click / Priority; bid is eBay's ad-group max-CPC, no % applies),
+  // or 'smart' (Smart Targeting — eBay auto-targets under a suggested max-CPC).
+  const [promoMode, setPromoMode] = useState<"cps" | "cpc" | "smart">("cps");
   // US-568: listing format (fixed/auction), auction terms, and variation matrix.
   const [listingFormat, setListingFormat] = useState<ListingFormatValue>(
     DEFAULT_LISTING_FORMAT_VALUE,
@@ -421,7 +422,11 @@ export function FlipdeskComposerPage() {
     // the rate from the seller's saved value; the suggestion effect fills it in
     // once the resolved category is known (when no saved rate exists yet).
     setPromoteEnabled(!(listing?.promo_opt_out ?? false));
-    setPromoMode(listing?.promo_mode === "cpc" ? "cpc" : "cps");
+    setPromoMode(
+      listing?.promo_mode === "cpc" || listing?.promo_mode === "smart"
+        ? listing.promo_mode
+        : "cps",
+    );
     setPromoRate(
       listing?.promo_rate_pct != null ? String(listing.promo_rate_pct) : "",
     );
@@ -1541,12 +1546,30 @@ export function FlipdeskComposerPage() {
                   >
                     Cost-Per-Click (Priority)
                   </Button>
+                  {/* US-1447: Smart Targeting — eBay auto-targets under a
+                      suggested max-CPC ceiling. */}
+                  <Button
+                    type="button"
+                    variant={promoMode === "smart" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setPromoMode("smart")}
+                    className={promoMode === "smart" ? "bg-brand-navy" : undefined}
+                  >
+                    Smart Targeting
+                  </Button>
                 </div>
                 {promoMode === "cpc" ? (
                   <p className="text-xs text-muted-foreground">
                     Priority ads bid per click (charged when a shopper clicks,
                     not only on sale). The bid uses your eBay Priority ad group&apos;s
                     max cost-per-click. You can fine-tune bids in eBay Seller Hub.
+                  </p>
+                ) : promoMode === "smart" ? (
+                  <p className="text-xs text-muted-foreground">
+                    Smart Targeting lets eBay pick placements and bids
+                    automatically, capped at a max cost-per-click seeded from
+                    eBay&apos;s suggestion for this listing. Charged per click; tune
+                    the ceiling any time in eBay Seller Hub.
                   </p>
                 ) : (
                   <>

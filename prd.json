@@ -8295,8 +8295,8 @@
         "Let sellers choose CPS vs CPC (Priority) vs Smart per listing in the publish/promote UI."
       ],
       "priority": 2083,
-      "passes": false,
-      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · ebay · ebay coverage audit] Evidence: ebay-marketing.ts:1-60; https://developer.ebay.com/api-docs/sell/static/marketing/pl-overview.html"
+      "passes": true,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · ebay · ebay coverage audit] Evidence: ebay-marketing.ts:1-60; https://developer.ebay.com/api-docs/sell/static/marketing/pl-overview.html [COMPLETION 2026-07-02, chunk 2 of 2] Chunk 1 (found on main): ensureCpcCampaign + ad group + createCpcAdForListing + attachPromotionAtPublish cps/cpc + composer CPS-vs-CPC buttons + listings.promo_mode. THIS CHUNK: suggestMaxCpc (POST /ad_campaign/suggest_max_cpc, marketplaceId+listingIds, tolerant maxCpc/suggestedMaxCpc parse, non-fatal null), ensureSmartCampaign (find-by-name FlipDesk Smart Targeting, else create with fundingModel COST_PER_CLICK + campaignTargetingType SMART + campaign-level maxCpc - grounded via developer.ebay.com createCampaign/pl-campaign-flow docs; no ad groups for smart, no schema change - resolved by name per attach), createSmartAdForListing (create_ads_by_listing_id without adGroupId), attachPromotionAtPublish mode smart (suggestMaxCpc-seeded ceiling, DEFAULT_MAX_CPC fallback, promo_rate_pct cleared), promoModeFor helper mapping listings.promo_mode at BOTH publish sites, composer third Smart Targeting button + explainer + load/save mapping. CAVEATS: same not-live-eBay-tested disclaimer as chunk 1 (payloads modeled from docs; failures surface as eBay 4xx + promo_status failed, never silent); iOS publish dialog still CPS-only (enable+rate) - mode picker is web-composer-first."
     },
     {
       "id": "US-1448",

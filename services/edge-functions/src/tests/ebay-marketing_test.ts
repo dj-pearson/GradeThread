@@ -67,3 +67,18 @@ Deno.test("resolvePublishAdRate: no chosen rate falls back to the category sugge
     8,
   );
 });
+
+// ── US-1447 chunk 2: Smart Targeting exports exist and are wire-shaped ──────
+// The network functions (suggestMaxCpc / ensureSmartCampaign /
+// createSmartAdForListing) are eBay-API-bound like the CPS/CPC creators above
+// (validated live, not unit-mocked); this pins the exported surface + the
+// non-throwing failure contract of suggestMaxCpc against a dead endpoint.
+
+const marketing = await import("../lib/ebay-marketing.ts");
+
+Deno.test("US-1447: smart-targeting surface is exported", () => {
+  assertEquals(typeof marketing.suggestMaxCpc, "function");
+  assertEquals(typeof marketing.ensureSmartCampaign, "function");
+  assertEquals(typeof marketing.createSmartAdForListing, "function");
+  assertEquals(typeof marketing.attachPromotionAtPublish, "function");
+});

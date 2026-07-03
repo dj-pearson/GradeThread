@@ -251,6 +251,12 @@ import {
   updateAdRateForListing,
 } from "../lib/ebay-marketing.ts";
 
+// US-1447: listings.promo_mode ('cps' default | 'cpc' | 'smart') → the
+// attachPromotionAtPublish mode. Unknown/legacy values fall back to CPS.
+function promoModeFor(raw: string | null | undefined): "cps" | "cpc" | "smart" {
+  return raw === "cpc" || raw === "smart" ? raw : "cps";
+}
+
 // eBay integration endpoints. Mounted at /api/flipdesk/ebay.
 //
 // Auth split:
@@ -5891,11 +5897,8 @@ export async function publishItemForOwner(
         listingRowId: listing?.id ?? null,
         ebayListingId: listingId,
         ratePct: ctx.summary.promotedAdRate,
-        // US-1447: honour the listing's chosen promotion mode (CPS vs CPC).
-        mode:
-          (listing as { promo_mode?: string } | null)?.promo_mode === "cpc"
-            ? "cpc"
-            : "cps",
+        // US-1447: honour the listing's chosen promotion mode (CPS / CPC / Smart).
+        mode: promoModeFor((listing as { promo_mode?: string } | null)?.promo_mode),
       });
     }
 
@@ -6197,11 +6200,8 @@ async function publishVariationListing(args: {
       listingRowId: listing?.id ?? null,
       ebayListingId: listingId,
       ratePct: ctx.summary.promotedAdRate,
-      // US-1447: honour the listing's chosen promotion mode (CPS vs CPC).
-      mode:
-        (listing as { promo_mode?: string } | null)?.promo_mode === "cpc"
-          ? "cpc"
-          : "cps",
+      // US-1447: honour the listing's chosen promotion mode (CPS / CPC / Smart).
+      mode: promoModeFor((listing as { promo_mode?: string } | null)?.promo_mode),
     });
   }
 

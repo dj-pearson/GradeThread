@@ -375,6 +375,140 @@ export async function ensureCpcCampaign(
   return { campaignId, adGroupId };
 }
 
+// ── US-1447 chunk 2: Smart Targeting (campaignTargetingType=SMART, maxCpc) ──
+//
+// Smart campaigns are CPC campaigns where eBay auto-manages targeting; the
+// seller only sets a campaign-level maxCpc ceiling. suggestMaxCpc is called
+// BEFORE campaign creation with the listings you plan to include and returns
+// eBay's recommended ceiling (per the priority-strategy campaign flow docs).
+// Same disclaimer as the CPS/CPC code above: modeled from the Sell Marketing
+// docs, NOT live-eBay tested on this host — a bad payload fails as a surfaced
+// eBay 4xx, never silent corruption.
+
+const SMART_CAMPAIGN_NAME = "FlipDesk Smart Targeting";
+
+/**
+ * eBay's suggested max cost-per-click for a smart campaign covering the given
+ * listings. Best-effort: null on any failure (caller falls back to the
+ * conservative default). Tolerant of the response shape (maxCpc vs
+ * suggestedMaxCpc envelopes).
+ */
+export async function suggestMaxCpc(
+  userId: string,
+  listingIds: string[],
+): Promise<{ value: string; currency: string } | null> {
+  try {
+    const { body } = await marketingFetch<{
+      maxCpc?: { value?: string; currency?: string };
+      suggestedMaxCpc?: { value?: string; currency?: string };
+    }>(userId, `/sell/marketing/v1/ad_campaign/suggest_max_cpc`, {
+      method: "POST",
+      body: JSON.stringify({
+        marketplaceId: getMarketplaceId(),
+        listingIds,
+      }),
+    });
+    const amount = body.maxCpc ?? body.suggestedMaxCpc;
+    if (amount?.value && Number.isFinite(Number(amount.value))) {
+      return {
+        value: amount.value,
+        currency: amount.currency ?? marketplaceCurrency(),
+      };
+    }
+    return null;
+  } catch (err) {
+    console.warn(
+      "[ebay-marketing] suggestMaxCpc failed (falling back to default):",
+      err instanceof Error ? err.message : String(err),
+    );
+    return null;
+  }
+}
+
+/**
+ * Find-or-create the seller's Smart Targeting campaign. Smart campaigns carry
+ * the max-CPC ceiling at CAMPAIGN level and have no ad groups (eBay
+ * auto-targets). Resolved by name on each attach — smart promotion is
+ * per-listing opt-in, so the extra GET is cheap and avoids a schema change.
+ */
+export async function ensureSmartCampaign(
+  userId: string,
+  maxCpc: { value: string; currency: string },
+): Promise<string> {
+  try {
+    const { body } = await marketingFetch<{ campaigns?: CampaignSummary[] }>(
+      userId,
+      `/sell/marketing/v1/ad_campaign?campaign_name=${encodeURIComponent(SMART_CAMPAIGN_NAME)}`,
+    );
+    const match = (body.campaigns ?? []).find(
+      (cmp) =>
+        cmp.campaignName === SMART_CAMPAIGN_NAME &&
+        cmp.campaignStatus !== "ENDED" &&
+        !!cmp.campaignId,
+    );
+    if (match?.campaignId) return match.campaignId;
+  } catch (err) {
+    console.warn(
+      "[ebay-marketing] smart campaign lookup failed (will try create):",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+
+  const { body, location } = await marketingFetch<{ campaignId?: string }>(
+    userId,
+    `/sell/marketing/v1/ad_campaign`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        campaignName: SMART_CAMPAIGN_NAME,
+        marketplaceId: getMarketplaceId(),
+        fundingStrategy: { fundingModel: "COST_PER_CLICK" },
+        campaignTargetingType: "SMART",
+        maxCpc: { currency: maxCpc.currency, value: maxCpc.value },
+        startDate: new Date().toISOString(),
+      }),
+    },
+  );
+  const campaignId =
+    body.campaignId ??
+    (location ? location.split("/").filter(Boolean).pop() ?? null : null);
+  if (!campaignId) {
+    throw new Error("eBay smart ad_campaign create returned no campaignId.");
+  }
+  return campaignId;
+}
+
+/**
+ * Create an ad for a live listing under the Smart Targeting campaign. No
+ * adGroupId — smart campaigns have none; eBay handles targeting/bidding under
+ * the campaign maxCpc. Non-fatal null on failure (listing is already live).
+ */
+export async function createSmartAdForListing(
+  userId: string,
+  campaignId: string,
+  listingId: string,
+): Promise<{ adId: string } | null> {
+  try {
+    const { body } = await marketingFetch<CreateAdsResponse>(
+      userId,
+      `/sell/marketing/v1/ad_campaign/${encodeURIComponent(campaignId)}/create_ads_by_listing_id`,
+      {
+        method: "POST",
+        body: JSON.stringify({ listingIds: [listingId] }),
+      },
+    );
+    const first = body.responses?.[0];
+    if (first?.adId) return { adId: first.adId };
+    return null;
+  } catch (err) {
+    console.warn(
+      "[ebay-marketing] createSmartAdForListing failed (non-fatal):",
+      err instanceof Error ? err.message : String(err),
+    );
+    return null;
+  }
+}
+
 /**
  * Create a CPC ad for a live listing under the seller's CPC ad group. The bid is
  * the ad group's defaultBid (max CPC). Returns the adId, or null on ineligible /
@@ -572,13 +706,43 @@ export async function attachPromotionAtPublish(args: {
   listingRowId: string | null;
   ebayListingId: string;
   ratePct: number;
-  // US-1447: 'cps' (default, Cost-Per-Sale bid %) or 'cpc' (Cost-Per-Click /
-  // Priority — bid is the CPC ad group's max-CPC, ratePct is ignored).
-  mode?: "cps" | "cpc";
+  // US-1447: 'cps' (default, Cost-Per-Sale bid %), 'cpc' (Cost-Per-Click /
+  // Priority — bid is the CPC ad group's max-CPC), or 'smart' (Smart
+  // Targeting — eBay auto-targets under a campaign-level max-CPC seeded from
+  // suggestMaxCpc). ratePct only applies to 'cps'.
+  mode?: "cps" | "cpc" | "smart";
 }): Promise<AttachPromotionResult | null> {
   const { userId, listingRowId, ebayListingId, ratePct } = args;
   const mode = args.mode ?? "cps";
   try {
+    if (mode === "smart") {
+      // eBay's suggested ceiling for THIS listing; conservative default when
+      // the suggestion call fails (same floor the CPC ad group uses).
+      const maxCpc = (await suggestMaxCpc(userId, [ebayListingId])) ?? {
+        value: DEFAULT_MAX_CPC,
+        currency: marketplaceCurrency(),
+      };
+      const campaignId = await ensureSmartCampaign(userId, maxCpc);
+      const ad = await createSmartAdForListing(userId, campaignId, ebayListingId);
+      if (!ad) {
+        await markPromoStatus(listingRowId, "failed", { campaignId });
+        return null;
+      }
+      if (listingRowId) {
+        await supabaseAdmin
+          .from("listings")
+          .update({
+            promo_campaign_id: campaignId,
+            promo_ad_id: ad.adId,
+            // Smart bids are eBay-managed under the campaign maxCpc → no %.
+            promo_rate_pct: null,
+            promo_status: "active",
+            promo_synced_at: new Date().toISOString(),
+          })
+          .eq("id", listingRowId);
+      }
+      return { campaignId, adId: ad.adId, ratePct: 0, status: "active" };
+    }
     if (mode === "cpc") {
       const { campaignId, adGroupId } = await ensureCpcCampaign(userId);
       const ad = await createCpcAdForListing(
