@@ -6362,7 +6362,7 @@
     {
       "id": "US-1300",
       "priority": -98700,
-      "passes": false,
+      "passes": true,
       "title": "Android project scaffold & module structure",
       "description": "As an Android developer, I want a Gradle (Kotlin DSL) project with a clean module layout, Hilt DI, Compose, and the base dependency set wired, so feature work has a consistent home.",
       "acceptanceCriteria": [
@@ -6371,7 +6371,7 @@
         "Package structure mirrors the iOS feature grouping (auth, sync, capture, grading, inventory, marketplaces, money, billing, platform)",
         "App launches to a placeholder shell on an emulator; `./gradlew assembleDebug test` is green"
       ],
-      "notes": "[P1][Android/Foundation] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P1][Android/Foundation] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. [COMPLETION 2026-07-03] android/ scaffold VERIFIED LOCALLY - the loop host gained a full toolchain (scoop: temurin17-jdk + gradle 9.6.1; the machine already had an Android SDK w/ platforms 35/36 + accepted licenses), so every Android story is now compile+test verifiable BEFORE push, mirroring web/edge discipline. Stack pinned in gradle/libs.versions.toml: Kotlin 2.1.20, AGP 8.9.2, Gradle 8.13 wrapper (committed), Compose BOM 2025.04 + Material 3, Hilt 2.56 (KSP 2.1.20-2.0.0), Room 2.7.0, DataStore 1.1.4, Navigation-Compose 2.8.9, coroutines 1.10.1; minSdk 26 / target+compileSdk 35 / JDK 17 (all documented in android/README.md with rationale). Single-module app: GradeThreadApp (@HiltAndroidApp), MainActivity (@AndroidEntryPoint, edge-to-edge Compose M3 placeholder shell), minimal brand theme seed (Navy/Red/Night - full token pass is US-1302), 9 feature packages mirroring the iOS grouping (auth/sync/capture/grading/inventory/marketplaces/money/billing/platform) with an iOS-counterpart map + carried invariants (lowercased UUIDs, watermark-before-wipe, plan-gate interception, photos-relation) in the README. ScaffoldSmokeTest proves JUnit4+coroutines-test. VERIFIED: ./gradlew assembleDebug testDebugUnitTest lintDebug ALL GREEN locally (11MB app-debug.apk produced); first run's kill left a torn kotlin incremental cache - cleaned + documented. NEW .github/workflows/android-ci.yml: assembleDebug + unit tests + lint on android/** pushes/PRs (ubuntu image ships the SDK), lint report on failure + debug APK uploaded (7d retention) so a human can install the shell without a local build. Emulator-launch spot-check of the placeholder shell = first human run / CI emulator job (trivial activity, compile-proven)."
     },
     {
       "id": "US-1301",

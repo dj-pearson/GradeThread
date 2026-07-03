@@ -10197,3 +10197,26 @@ user's step), but all its code ACs are now in place for the day the grant lands:
 When the grant lands: re-add the two documented scope lines at getScopes
 (US-1510 kept them ready), sellers re-consent at /oauth/start, and the runtime
 flag + reconnect flow shipped here handles the transition automatically.
+
+=== 2026-07-03 (loop v2): US-1300 (Android scaffold + CI lane) - THE ANDROID PHASE OPENS ===
+Quality gate first, then stories: this host now has a FULL Android toolchain
+(scoop temurin17-jdk + gradle; the machine already had an SDK with platforms
+35/36 and accepted licenses) - so unlike iOS, every Android story gets LOCAL
+compile+test verification before commit.
+- android/ scaffold: Gradle KTS + versions catalog (Kotlin 2.1.20, AGP 8.9.2,
+  Gradle 8.13 wrapper committed, Compose BOM 2025.04/M3, Hilt 2.56/KSP,
+  Room 2.7.0, DataStore, Navigation-Compose, coroutines; minSdk 26,
+  target/compileSdk 35, JDK 17). @HiltAndroidApp + @AndroidEntryPoint Compose
+  placeholder shell with a minimal Navy/Red/Night brand seed (full M3 token
+  pass = US-1302). 9 feature packages mirroring the iOS grouping; README maps
+  each to its iOS counterpart and carries the non-negotiable invariants
+  (lowercased client UUIDs, watermark-reset-before-wipe, 402/X-Plan-Warning
+  interception on every response, photos-relation-not-cover-URL).
+- VERIFIED LOCALLY: ./gradlew assembleDebug testDebugUnitTest lintDebug all
+  green (11MB app-debug.apk). Gotcha for the log: killing a first gradle run
+  mid-compile leaves a torn kotlin incremental cache ("Failed to create MD5
+  hash for ... source-to-output.tab_i") - rm -rf app/build/kotlin fixes it.
+- NEW android-ci.yml: assembleDebug + unit tests + lint on android/** changes;
+  uploads the debug APK (7d) so anyone can install the shell without a build,
+  and the lint report on failure. The neutral second net behind local runs.
+Remaining Android backlog: US-1301..1396 (78 stories), now all verifiable.
