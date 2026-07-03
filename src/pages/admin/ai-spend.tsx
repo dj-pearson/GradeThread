@@ -460,6 +460,9 @@ export function AdminAiSpendPage() {
         </CardContent>
       </Card>
 
+      {/* US-1531: extraction correction rates — which fields the AI gets wrong. */}
+      <ExtractionAccuracyCard />
+
       {/* Methodology note */}
       <div className="flex items-start gap-2 text-xs text-muted-foreground">
         <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -471,5 +474,142 @@ export function AdminAiSpendPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+// ── US-1531: per-field extraction accuracy ──────────────────────────────────
+
+interface ExtractionAccuracyField {
+  field: string;
+  accepted: number;
+  corrected: number;
+  correctionRate: number;
+}
+
+interface ExtractionAccuracyResponse {
+  fields: ExtractionAccuracyField[];
+  sample_size: number;
+  truncated: boolean;
+  days: number;
+}
+
+function ExtractionAccuracyCard() {
+  const [days, setDays] = useState(30);
+  const [brand, setBrand] = useState("");
+  const [category, setCategory] = useState("");
+
+  const params = new URLSearchParams({ days: String(days) });
+  if (brand.trim()) params.set("brand", brand.trim());
+  if (category.trim()) params.set("category", category.trim());
+
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["admin-extraction-accuracy", days, brand.trim(), category.trim()],
+    queryFn: async (): Promise<ExtractionAccuracyResponse> => {
+      const res = await edgeFetch(
+        `/api/admin/ai/extraction-accuracy?${params.toString()}`,
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(
+          (body as { error?: string })?.error ?? `HTTP ${res.status}`,
+        );
+      }
+      return (await res.json()) as ExtractionAccuracyResponse;
+    },
+    staleTime: 60 * 1000,
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Extraction accuracy</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          How often users correct each AI-suggested field (worst first) — the
+          prompt-fix priority list. Corrections are captured from the review
+          flows (US-1531).
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          {[7, 30, 90].map((d) => (
+            <Button
+              key={d}
+              size="sm"
+              variant={days === d ? "default" : "outline"}
+              onClick={() => setDays(d)}
+            >
+              {d}d
+            </Button>
+          ))}
+          <input
+            value={brand}
+            onChange={(e) => setBrand(e.target.value)}
+            placeholder="Filter brand…"
+            className="h-8 rounded-md border bg-background px-2 text-sm"
+          />
+          <input
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+            placeholder="item_category…"
+            className="h-8 rounded-md border bg-background px-2 text-sm"
+          />
+          {data && (
+            <span className="text-xs text-muted-foreground">
+              {data.sample_size} extractions{data.truncated ? " (capped)" : ""}
+            </span>
+          )}
+        </div>
+        {isError && (
+          <p className="text-sm text-destructive">
+            Failed to load extraction accuracy.
+          </p>
+        )}
+        {isLoading && (
+          <p className="text-sm text-muted-foreground">Loading…</p>
+        )}
+        {data && data.fields.length === 0 && (
+          <p className="text-sm text-muted-foreground">
+            No accepted extractions in this window yet.
+          </p>
+        )}
+        {data && data.fields.length > 0 && (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Field</TableHead>
+                <TableHead className="text-right">Accepted</TableHead>
+                <TableHead className="text-right">Corrected</TableHead>
+                <TableHead className="text-right">Correction rate</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {data.fields.map((f) => (
+                <TableRow key={f.field}>
+                  <TableCell className="font-medium">{f.field}</TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {f.accepted}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {f.corrected}
+                  </TableCell>
+                  <TableCell
+                    className={
+                      "text-right tabular-nums " +
+                      (f.correctionRate >= 0.4
+                        ? "text-red-600 dark:text-red-400"
+                        : f.correctionRate >= 0.2
+                          ? "text-amber-600 dark:text-amber-400"
+                          : "")
+                    }
+                  >
+                    {(f.correctionRate * 100).toFixed(0)}%
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
   );
 }

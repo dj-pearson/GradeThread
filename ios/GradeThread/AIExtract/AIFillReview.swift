@@ -80,6 +80,10 @@ struct AIFillReview: Equatable, Codable {
     /// ("Identified") rows so the user can verify the named product. Optional +
     /// defaulted for pre-existing disk-cached reviews and synthetic callers.
     var researchRationale: String? = nil
+    /// US-1531: the ai_enrichment_log id for this extraction — the review's
+    /// keep/undo decisions report acceptance + corrections to PATCH /ai/log/:id.
+    /// Optional + defaulted (disk-cache + synthetic safe); nil = don't report.
+    var logId: String? = nil
 
     /// Count shown in the entry point — applied fields plus applied measurements.
     var appliedCount: Int {

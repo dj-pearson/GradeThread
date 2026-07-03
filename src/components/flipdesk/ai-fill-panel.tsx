@@ -66,6 +66,77 @@ function confidenceTier(c: number): {
   };
 }
 
+/**
+ * US-1530: the "photos/text disagree — pick one" section, rendered ABOVE the
+ * suggestion rows. Conflicted fields are excluded from the auto-apply rows
+ * entirely (see `rows` below), so a conflict can never land silently — the
+ * user must pick. Exported for unit tests (the Dialog portal defeats static
+ * rendering of the whole panel).
+ */
+export function ConflictPicker({
+  conflicts,
+  picks,
+  fieldLabels,
+  onPick,
+}: {
+  conflicts: { field: string; text_value: string; photo_value: string }[];
+  picks: Record<string, "text" | "photo">;
+  fieldLabels: Record<string, string>;
+  onPick: (field: string, pick: "text" | "photo") => void;
+}) {
+  if (conflicts.length === 0) return null;
+  return (
+    <div className="space-y-2">
+      <p className="flex items-center gap-1.5 text-sm font-medium text-amber-700 dark:text-amber-500">
+        <AlertTriangle className="h-4 w-4" />
+        Conflicting values — pick one
+      </p>
+      {conflicts.map((conflict) => {
+        const pick = picks[conflict.field] ?? "photo";
+        return (
+          <div key={conflict.field} className="rounded-lg border p-3">
+            <p className="mb-2 text-sm font-medium">
+              {fieldLabels[conflict.field] ?? humanize(conflict.field)}
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => onPick(conflict.field, "photo")}
+                className={cn(
+                  "rounded-md border-2 p-2 text-left text-sm",
+                  pick === "photo"
+                    ? "border-primary bg-primary/5"
+                    : "border-border"
+                )}
+              >
+                <span className="block text-xs text-muted-foreground">
+                  From photo
+                </span>
+                {conflict.photo_value || "—"}
+              </button>
+              <button
+                type="button"
+                onClick={() => onPick(conflict.field, "text")}
+                className={cn(
+                  "rounded-md border-2 p-2 text-left text-sm",
+                  pick === "text"
+                    ? "border-primary bg-primary/5"
+                    : "border-border"
+                )}
+              >
+                <span className="block text-xs text-muted-foreground">
+                  From text
+                </span>
+                {conflict.text_value || "—"}
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function AiFillPanel({
   open,
   onOpenChange,
@@ -195,70 +266,14 @@ export function AiFillPanel({
         )}
 
         {/* Conflicts first — they need an explicit decision. */}
-        {result.conflicts.length > 0 && (
-          <div className="space-y-2">
-            <p className="flex items-center gap-1.5 text-sm font-medium text-amber-700 dark:text-amber-500">
-              <AlertTriangle className="h-4 w-4" />
-              Conflicting values — pick one
-            </p>
-            {result.conflicts.map((conflict) => {
-              const pick = conflictPick[conflict.field] ?? "photo";
-              return (
-                <div
-                  key={conflict.field}
-                  className="rounded-lg border p-3"
-                >
-                  <p className="mb-2 text-sm font-medium">
-                    {fieldLabels[conflict.field] ??
-                      humanize(conflict.field)}
-                  </p>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setConflictPick((p) => ({
-                          ...p,
-                          [conflict.field]: "photo",
-                        }))
-                      }
-                      className={cn(
-                        "rounded-md border-2 p-2 text-left text-sm",
-                        pick === "photo"
-                          ? "border-primary bg-primary/5"
-                          : "border-border"
-                      )}
-                    >
-                      <span className="block text-xs text-muted-foreground">
-                        From photo
-                      </span>
-                      {conflict.photo_value || "—"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setConflictPick((p) => ({
-                          ...p,
-                          [conflict.field]: "text",
-                        }))
-                      }
-                      className={cn(
-                        "rounded-md border-2 p-2 text-left text-sm",
-                        pick === "text"
-                          ? "border-primary bg-primary/5"
-                          : "border-border"
-                      )}
-                    >
-                      <span className="block text-xs text-muted-foreground">
-                        From text
-                      </span>
-                      {conflict.text_value || "—"}
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+        <ConflictPicker
+          conflicts={result.conflicts}
+          picks={conflictPick}
+          fieldLabels={fieldLabels}
+          onPick={(field, pick) =>
+            setConflictPick((p) => ({ ...p, [field]: pick }))
+          }
+        />
 
         {/* Suggestion rows */}
         {rows.length > 0 && (

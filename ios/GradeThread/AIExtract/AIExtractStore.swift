@@ -59,6 +59,9 @@ final class AIExtractStore {
     /// server-side confidence floor. Its rationale rides into the review so
     /// the user can verify the named product before accepting.
     var research: ResearchIdentification?
+    /// US-1531: the ai_enrichment_log row for this extraction, so the review
+    /// can report acceptance + corrections back to PATCH /ai/log/:id.
+    var logId: String?
 
     /// US-826: true when the AI produced at least one of the high-value
     /// attributes (department / size_type / vintage / condition tier) worth
@@ -155,6 +158,26 @@ final class AIExtractStore {
         // already resolved to the tag value, we lower its confidence below the
         // bar so the disagreement still demands a choice; otherwise we inject a
         // fresh row for the field.
+        // US-1530: a conflicted field must NEVER auto-apply, whatever its
+        // confidence — the photos disagreed, so the user decides. Fields
+        // outside the US-1217 forced-tag set keep their suggested value but
+        // get clamped below the auto-apply bar and re-sourced so the review
+        // row says why ("Photos disagree on this").
+        let conflictedFields = Set(response.conflicts.map(\.field))
+        for (idx, entry) in entries.enumerated()
+        where conflictedFields.contains(entry.field) &&
+            !Self.conflictReviewFields.contains(entry.field) {
+            entries[idx] = FieldSuggestionEntry(
+                id: entry.field,
+                field: entry.field,
+                suggestion: FieldSuggestion(
+                    value: entry.value,
+                    confidence: min(entry.confidence, Self.conflictReviewConfidence),
+                    source: "conflict:photo"
+                )
+            )
+        }
+
         for conflict in response.conflicts {
             guard Self.conflictReviewFields.contains(conflict.field) else { continue }
             let tagValue = conflict.textValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -194,6 +217,7 @@ final class AIExtractStore {
         ebayPrep = response.ebay
         attributes = response.attributes
         research = response.research
+        logId = response.logId
 
         phase = .ready(Result(
             entries: entries,
@@ -267,7 +291,9 @@ final class AIExtractStore {
             // visible right after intake (it's already saved on the item).
             ebayCategory: AIFillReview.EbaySummary(from: ebayPrep),
             // US-1527: the identification rationale for research-tier rows.
-            researchRationale: research?.identificationRationale
+            researchRationale: research?.identificationRationale,
+            // US-1531: lets the review report acceptance + corrections.
+            logId: logId
         )
     }
 

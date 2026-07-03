@@ -195,3 +195,32 @@ Deno.test("US-1526: a code attribute persists to the attributes column as a scal
   assertEquals(col.style_code, "CV8839-010");
   assertEquals(col.upc, "885176939001");
 });
+
+// ── US-1530: conflicts[] decode (cross-photo disagreements surface, never coin-flip) ──
+
+Deno.test("US-1530: decodeExtraction parses conflicts and drops malformed entries", () => {
+  const res = decodeExtraction(
+    {
+      size: { value: "M", confidence: 0.6, source: "photo:tag" },
+      conflicts: [
+        { field: "size", text_value: "M", photo_value: "8 (waistband print)" },
+        { field: "brand", text_value: "Lululemon", photo_value: "Lulu Lemon" },
+        { text_value: "no-field", photo_value: "dropped" }, // malformed → dropped
+        "garbage",
+      ],
+    },
+    true,
+  );
+  assertEquals(res.conflicts.length, 2);
+  assertEquals(res.conflicts[0], {
+    field: "size",
+    text_value: "M",
+    photo_value: "8 (waistband print)",
+  });
+  assertEquals(res.conflicts[1].field, "brand");
+});
+
+Deno.test("US-1530: absent conflicts decode to an empty array", () => {
+  const res = decodeExtraction({}, true);
+  assertEquals(res.conflicts, []);
+});

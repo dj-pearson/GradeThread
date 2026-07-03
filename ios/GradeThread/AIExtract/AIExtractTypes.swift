@@ -228,6 +228,9 @@ struct FieldSuggestionEntry: Identifiable, Equatable, Codable {
         // label tells the user this field disagreed across signals so they pick
         // deliberately rather than inherit a silently-resolved value.
         if source == "conflict:tag" { return "Tag value — conflicts with photo" }
+        // US-1530: the photos themselves disagreed on this field — clamped
+        // below auto-apply so the user picks deliberately.
+        if source == "conflict:photo" { return "Photos disagree on this — verify" }
         if source.hasPrefix("photo:") {
             let slot = String(source.dropFirst("photo:".count))
             return "From \(slot) photo"

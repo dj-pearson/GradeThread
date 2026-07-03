@@ -247,7 +247,10 @@ Photo guidance (when photos are present):
 - Set each field's source to where it came from: 'text', or 'photo:<type>' (e.g. 'photo:tag').
 - Read label text robustly across blurry or angled shots — if a label is hard to read, return the field with LOW confidence rather than a confident guess. Skip images you genuinely cannot interpret.
 
-When BOTH text and photos are provided:
+Cross-photo synthesis (US-1530) — the photos are ONE item, not separate jobs:
+- The per-photo guidance above says where each field is EASIEST to read, not which photo "owns" it. Reason about the item jointly: corroborate every field against EVERY photo that bears on it. The care label's fiber content should inform what the front photo's sheen/drape means; a gusset or waistband construction in a detail shot should refine the garment_type you read from the front; a printed size on a waistband should be checked against the size tag.
+- Confidence must reflect corroboration: a field supported by multiple photos that agree deserves HIGHER confidence than one read from a single blurry source. One clean tag read is still strong; two agreeing signals are stronger; a lone ambiguous glimpse is LOW.
+- When two PHOTOS genuinely disagree on a field (tag says M, waistband print says 8), that is a conflict exactly like a text-vs-photo disagreement: prefer tag/label TEXT over visual inference for the suggestion, and ALSO add a conflicts entry carrying both values (use text_value for the tag/label reading and photo_value for the visual one, and name which photos in the values when helpful). Never silently coin-flip a disagreement.
 - Photos win for brand, size, and material; text wins for condition_notes.
 - If text and photos genuinely disagree on a field, do NOT silently pick one — add an entry to conflicts with both values.
 

@@ -9421,3 +9421,43 @@ byte-identity + IDENTIFIED PRODUCT presence; attributes round-trip incl. verifie
 keywords; empty-lines regression; verified-vs-unverified phrasing + keyword block).
 FULL edge suite 2490/0/70. No web/iOS diffs this story.
 Still LOCAL-ONLY; queues behind held migrations 00339 + 00340.
+
+=== 2026-07-02 (loop): US-1530 (cross-photo reasoning + conflict surfacing) + US-1531 (correction-capture loop, final chunks) ===
+US-1530:
+- SYSTEM_PROMPT gains a cross-photo synthesis section: photos are ONE item, not lanes -
+  corroborate every field against every photo bearing on it (care-label fiber informs
+  front-photo sheen; gusset detail refines garment_type); confidence must scale with
+  corroboration (multi-photo agreement > single blurry source); photo-vs-photo
+  disagreements (tag M vs waistband 8) prefer tag/label TEXT and MUST land in
+  conflicts[] - never a silent coin-flip.
+- iOS: applyResponse now clamps EVERY conflicted field below the auto-apply bar
+  (source conflict:photo, label "Photos disagree on this - verify"), generalizing
+  US-1217 (which force-reviews tag values for size/brand/department) to all fields -
+  a conflicted field can never auto-apply regardless of confidence.
+- Web: the conflicts pick-one UI already existed and conflicted fields were already
+  excluded from the auto-apply rows; extracted it as exported ConflictPicker (the
+  Radix Dialog portal defeats static-markup testing of the whole panel) - behavior
+  unchanged, now unit-tested.
+- TESTS: 2 deno decode tests (conflicts parse + malformed dropped; absent -> []),
+  3 vitest render tests (warning header + per-field cards + both candidates; picked
+  highlight + custom labels; empty -> nothing).
+US-1531 (chunks 5 - completing the story; chunks 1-4 were migration 00334 + edge PATCH
++ web capture + the pure accuracy core):
+- Admin route: GET /api/admin/ai/extraction-accuracy (admin+AAL2 via the /api/admin/ai
+  mount) - days(1-365)/model/brand/category filters, brand/category via
+  inventory_items!inner embed, 2000-row cap with truncated flag, aggregated by the
+  tested summarizeExtractionAccuracy core.
+- Admin UI: ExtractionAccuracyCard on /admin/ai-spend - per-field accepted/corrected/
+  correction-rate table worst-first (red >=40%, amber >=20%), 7/30/90d + brand +
+  item_category filters, sample size + capped indicator.
+- iOS capture: response.logId now flows AIExtractStore -> AIFillReview (Optional+
+  default, disk-cache safe) -> AIFillReviewSheet.apply reportAcceptance(): kept
+  applied + accepted low-conf report accepted_fields {field: value}; UNDONE applied
+  fields report corrected_fields {field: {suggested: AI value, final: restored prior}}
+  - the undo IS the correction signal available on iOS (the sheet has no inline
+  editing). Fire-and-forget patchJSON to /api/flipdesk/ai/log/:id, matching the web
+  recordAiAcceptance contract; nil logId (Live Text fallback / older cache) -> no-op.
+VERIFICATION: edge 2492/0/70 (deno check+lint clean); web tsc -b 0, eslint clean,
+vitest 1117/1117 (103 files); iOS no-ungated-print + brace scans clean (iOS CI is the
+compile gate). US-1525 research epic children now ALL complete (1526-1531).
+Still LOCAL-ONLY; queues behind held migrations 00339 + 00340 (00334 also pending).

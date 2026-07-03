@@ -397,6 +397,14 @@ struct AIFillReviewSheet: View {
             return
         }
 
+        // US-1531: report acceptance + corrections to the enrichment log
+        // (fire-and-forget; measurement only — never blocks the save).
+        reportAcceptance(
+            review,
+            unkept: unkept,
+            acceptedLowEntries: acceptedLowEntries
+        )
+
         // Local mirror: kept applied keep their value, unkept revert, accepted
         // low-conf take their value.
         for field in review.applied {
@@ -412,6 +420,64 @@ struct AIFillReviewSheet: View {
         withAnimation { didApply = true }
         try? await Task.sleep(nanoseconds: 700_000_000)
         finish()
+    }
+
+    /// US-1531: acceptance + correction capture. Kept fields report their AI
+    /// value as accepted; an UNDONE applied field is a correction signal — the
+    /// user rejected the AI value in favor of what the column held before —
+    /// reported as {suggested: AI value, final: restored value}. Matches the
+    /// web recordAiAcceptance contract on PATCH /api/flipdesk/ai/log/:id.
+    /// Fire-and-forget: measurement telemetry must never block or fail a save.
+    private func reportAcceptance(
+        _ review: AIFillReview,
+        unkept: [AppliedAIField],
+        acceptedLowEntries: [FieldSuggestionEntry]
+    ) {
+        guard let logId = review.logId, !logId.isEmpty else { return }
+
+        struct CorrectedPair: Encodable {
+            let suggested: String
+            let finalValue: String
+
+            enum CodingKeys: String, CodingKey {
+                case suggested
+                case finalValue = "final"
+            }
+        }
+        struct Payload: Encodable {
+            let accepted_fields: [String: String]
+            let corrected_fields: [String: CorrectedPair]?
+        }
+        struct OkResponse: Decodable {
+            let ok: Bool?
+        }
+
+        var accepted: [String: String] = [:]
+        for field in review.applied where keptApplied.contains(field.field) {
+            accepted[field.field] = field.value
+        }
+        for entry in acceptedLowEntries {
+            accepted[entry.field] = entry.value
+        }
+        var corrected: [String: CorrectedPair] = [:]
+        for field in unkept {
+            corrected[field.field] = CorrectedPair(
+                suggested: field.value,
+                finalValue: field.previousValue ?? ""
+            )
+        }
+        guard !accepted.isEmpty || !corrected.isEmpty else { return }
+
+        let payload = Payload(
+            accepted_fields: accepted,
+            corrected_fields: corrected.isEmpty ? nil : corrected
+        )
+        Task {
+            _ = try? await EdgeAPI.shared.patchJSON(
+                "/api/flipdesk/ai/log/\(logId)",
+                body: payload
+            ) as OkResponse
+        }
     }
 
     /// Reverts every AI-added field + measurements back to the pre-fill state.
