@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1581,
+  "nextId": 1582,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -10078,10 +10078,10 @@
         "Each measurement returns {name, endpoints, inches, confidence}; inches = rectified pixel distance / ppi, rounded to 0.25in",
         "Results write to item.measurements (existing jsonb consumed by the US-1450 publish aspects) plus a parallel measurement_sources provenance map (ai_measured), NEVER overwriting a manual entry — same fill-only provenance rules as reverseColumnAspects / SYNC_SOURCE_OF_TRUTH.md",
         "Plausibility guard: compare extracted values against size-tag priors (existing size column; e.g. a mens L top with pit-to-pit outside 20-26in) — out-of-band measurements are flagged needs-review-style and surfaced in the editor rather than silently saved",
-        "AI spend rides the existing ai_enrichment_log + quota gate; extraction is one vision call per item (all measurements in one prompt)",
+        "Extraction is a billed AI ACTION: the endpoint reserves atomically via reserve_ai_action BEFORE the vision call (refund on failure — same reserve/refund contract as generation) and logs spend to ai_enrichment_log; one action covers the whole per-item extraction (all measurements in one prompt); calibrate (pure CV, no model call) is NOT billed",
         "Deno tests: schema module; snapping function on synthetic edges; plausibility guard bands; provenance fill-only rules"
       ],
-      "notes": "Designed to be WRONG sometimes and cheaply corrected: everything lands in the overlay editor pre-seeded, and every manual correction becomes telemetry for a future trained landmark model (eval-harness story). AutoLister integration: when a batch item has a calibrated measurement photo, run extract during generation so drafts arrive measured."
+      "notes": "Designed to be WRONG sometimes and cheaply corrected: everything lands in the overlay editor pre-seeded, and every manual correction becomes telemetry for a future trained landmark model (eval-harness story). AutoLister integration: when a batch item has a calibrated measurement photo, run extract during generation so drafts arrive measured. Billing decision (2026-07-03): photo-measurement extraction counts toward the monthly AI-action allotment; deterministic calibration does not."
     },
     {
       "id": "US-1574",
@@ -10190,6 +10190,24 @@
         "Documented threshold review: when 30 days of telemetry shows p95 <= 0.5in for a class, that class's copy may drop estimated (a recorded human decision, not automatic)"
       ],
       "notes": "Same philosophy as the grading golden set: never claim accuracy you have not measured. The correction telemetry is also the labeled dataset that would let a Phase-3 trained landmark model (HRNet-style) replace the VLM-propose step if volume justifies it."
+    },
+    {
+      "id": "US-1581",
+      "priority": 2383,
+      "passes": false,
+      "title": "AI-action metering: one reserve/refund contract on EVERY model call + coverage drift test",
+      "description": "As the operator, every Anthropic call a user triggers must count against their monthly AI-action allotment through ONE enforcement point. An audit (2026-07-03) found the atomic reserve_ai_action contract is applied on all flipdesk-ai endpoints and AutoLister batch generation, but several vision flows leak: flipdesk-scout's AI endpoints checkQuota but NEVER count (free actions); AutoLister classify-photos counts via the non-atomic increment_ai_actions but has NO cap check at all; verify-groups and the cover/item photo-QA passes use the deprecated checkQuota->increment flow (TOCTOU past the cap, and cover-QA has no cap check); flipdesk-listings' lazy cross-variant fill increments without a verified cap. This is why heavy AI use during listing intake can feel like it never counts.",
+      "acceptanceCriteria": [
+        "A single shared helper (e.g. lib/ai-metering.ts: withAiAction(ownerId, fn) — resolve limit, reserve_ai_action atomically, run fn, refund_ai_action on throw) replaces every direct checkQuota->increment_ai_actions sequence; increment_ai_actions has no remaining callers on user-triggered paths and its deprecation is noted where it is defined",
+        "flipdesk-scout AI endpoints (all three checkQuota sites) reserve+refund through the helper — scout vision calls now count",
+        "AutoLister classify-photos, verify-groups, cover photo-QA, and item photo-QA reserve atomically (cap-aware) instead of increment-after; multi-photo QA batches document their action granularity (one action per QA call, matching today's meter)",
+        "flipdesk-listings lazy generatePlatformVariants fill reserves before the model call",
+        "Documented + tested policy for BUNDLED sub-passes: one reserved action per generated item covers generation's internal tag-OCR/research-ID/verification/synthesis/aspect-extract sub-calls (today's behavior, now asserted by a test so it cannot silently double-bill)",
+        "Deliberately UNMETERED model calls are allow-listed with rationale in one place: grading pipeline + authenticity (billed via grade credits), support assistant (operator cost), admin/ops tooling — the allow-list is code, not tribal knowledge",
+        "COVERAGE DRIFT TEST: a static test walks services/edge-functions/src for imports of the model-calling libs (ai-config/callClaude consumers) and asserts every consuming route module either uses the metering helper or appears on the allow-list — a future AI feature that forgets metering fails CI (same drift-test pattern as rls-guard/cron-registry)",
+        "Billing page usage card is verified against a real flow in a test: one metered action moves usage.ai_actions_used_this_month by exactly 1 (and a failed model call refunds it)"
+      ],
+      "notes": "User-observed (2026-07-03): 'when I do listings and leverage AI it does not count against my allotment.' Two compounding causes: (a) the leaks above — intake-time photo roles/QA/group-verify and scout are exactly the flows a heavy lister touches; (b) operator accounts are super_admin (plan-feature gates bypass) on a high-cap plan, so even metered actions barely dent the number. Do NOT add a super_admin quota bypass — operators should see real counts. AI_ACTION_LIMITS: free 25 / starter 200 / pro 750 / business 2000; reserve_ai_action is migration 00087."
     }
   ]
 }
