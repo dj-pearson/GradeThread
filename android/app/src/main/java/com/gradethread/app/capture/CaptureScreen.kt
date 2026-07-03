@@ -3,6 +3,7 @@ package com.gradethread.app.capture
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -26,6 +27,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddCircle
+import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
@@ -86,6 +88,22 @@ fun CaptureScreen() {
     }
     LaunchedEffect(Unit) {
         if (!granted) permissionLauncher.launch(Manifest.permission.CAMERA)
+    }
+
+    // US-1327: library import — the Photo Picker needs NO storage permission.
+    val pickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickMultipleVisualMedia(PhotoImport.MAX_PICK),
+    ) { uris ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        scope.launch {
+            val outputDir = File(context.filesDir, "captures")
+            PhotoImport.importPicked(context, uris, outputDir).forEach { result ->
+                result.getOrNull()?.let { imported ->
+                    store?.recordCapture(imported.processed.file.absolutePath)
+                }
+            }
+            store?.persist(db)
+        }
     }
 
     val intake = store ?: return
@@ -168,6 +186,17 @@ fun CaptureScreen() {
                         Text(if (state.photoFor(slot) != null) "✓ ${slot.label}" else slot.label)
                     },
                 )
+            }
+            item {
+                IconButton(onClick = {
+                    pickerLauncher.launch(
+                        PickVisualMediaRequest(
+                            ActivityResultContracts.PickVisualMedia.ImageOnly,
+                        ),
+                    )
+                }) {
+                    Icon(Icons.Outlined.Menu, contentDescription = "Import from library")
+                }
             }
             item {
                 Box {

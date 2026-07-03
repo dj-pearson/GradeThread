@@ -6732,7 +6732,7 @@
     {
       "id": "US-1327",
       "priority": -98673,
-      "passes": false,
+      "passes": true,
       "title": "Photo library import via Android Photo Picker",
       "description": "As a seller, I can pick existing photos (up to 8) into intake without granting full library access.",
       "acceptanceCriteria": [
@@ -6740,7 +6740,7 @@
         "Best-effort capture-date from the picked item, falling back to now (mirrors US-1013/US-289)",
         "Picked images flow through the same compression/EXIF pipeline"
       ],
-      "notes": "[P2][Android/Capture] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P2][Android/Capture] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. [COMPLETION 2026-07-03] capture/PhotoImport + CaptureScreen wiring, locally verified (three gates; PhotoImportTest 4/4 w/ real images). Android Photo Picker via PickMultipleVisualMedia(MAX_PICK=8) + ImageOnly - NO storage permission (the picker runs in its own process, AC1); library button in the capture strip launches it; picked photos land through recordCapture (active slot + auto-advance) and the draft persists. importPicked: content URI -> private staging copy (the processor needs a real path) -> capture date read from the SOURCE EXIF BEFORE processing (the output has none by design) via parseExifDateTime (yyyy:MM:dd HH:mm:ss local-naive; garbage/null rejected - proven) falling back to now() (both paths proven with an injected clock, US-1013/289 parity) -> the SAME PhotoProcessor pipeline (proven: output long-edge capped AND planted GPS destroyed - AC3). Cap proven (9 picks -> 8 taken); per-pick Result isolation (a broken pick never sinks the batch); staging cleaned after processing."
     },
     {
       "id": "US-1328",

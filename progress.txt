@@ -10631,3 +10631,13 @@ VERIFIED LOCALLY: three gates green; 8/8 in the results XML.
   (capture never blocks on network); null/unknown -> clothing; labels/hints
   follow the category (watch 'Face' proven); decode tolerates future keys.
 VERIFIED LOCALLY: three gates green; 6/6 in the results XML.
+
+=== 2026-07-03 (loop v2): US-1327 (photo library import via Photo Picker) ===
+- PickMultipleVisualMedia(8) images-only - no storage permission; library
+  button in the capture strip; picked photos land via recordCapture with the
+  draft persisted.
+- Capture date read from SOURCE EXIF before processing (the output has none
+  by design), falling back to an injected now() - both proven; the SAME
+  pipeline runs (long-edge cap + GPS destruction proven on real images).
+- Cap proven (9 picks -> 8); per-pick Result isolation; staging cleaned.
+VERIFIED LOCALLY: three gates green; 4/4 in the results XML.
