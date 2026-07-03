@@ -47,6 +47,14 @@ object AppConfig {
     /** Turnstile site key; null = the captcha step is skipped (local/CI). */
     val turnstileSiteKey: String? get() = ConfigValidation.blankToNull(BuildConfig.TURNSTILE_SITE_KEY)
 
+    /**
+     * US-1311: Google OAuth gate — compile-time like iOS
+     * (AppConfig.googleSignInEnabled = false until the provider is configured
+     * on the self-hosted GoTrue). Apple-on-Android rides the same web-OAuth
+     * path and is always available.
+     */
+    const val googleSignInEnabled: Boolean = false
+
     /** Debug builds log verbosely; release builds don't (US-1301 AC3). */
     val loggingEnabled: Boolean get() = BuildConfig.LOGGING_ENABLED
 

@@ -6514,7 +6514,7 @@
     {
       "id": "US-1311",
       "priority": -98689,
-      "passes": false,
+      "passes": true,
       "title": "OAuth sign-in (Google) via Custom Tabs + deep-link callback",
       "description": "As a user, I want to continue with Google (and Apple via web) using an in-app browser, returning cleanly to the app.",
       "acceptanceCriteria": [
@@ -6523,7 +6523,7 @@
         "Google gated by a feature flag (mirrors AppConfig.googleSignInEnabled); Apple-on-Android handled as a web OAuth provider",
         "A callback arriving mid-flow is handled without crashing or double-completing"
       ],
-      "notes": "[P1][Android/Auth] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P1][Android/Auth] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. [COMPLETION 2026-07-03] Locally verified (three gates; OAuthCallbackTest 5/5 under Robolectric - first Robolectric suite, runtime jars now cached). OAuthSignIn: Custom Tabs (androidx.browser 1.8) launches auth.getOAuthUrl(provider, redirect=https://gradethread.com/app/auth-callback); Provider enum GOOGLE (gated by AppConfig.googleSignInEnabled - compile-time const false mirroring iOS until GoTrue has the provider configured) + APPLE (web OAuth - no native Apple SDK on Android, AC3); ephemeral browsing deliberately NOT enabled (still experimental in androidx.browser - documented, 'where possible' per AC2). OAuthCallback: strict allowlist parse (https gradethread.com + /app/auth-callback exact, OR the com.gradethread.app://auth-callback fallback scheme; wrong host/path/scheme/blank code all reject - 7 shapes proven) + bounded CompletionGuard consuming each code exactly once (browser re-delivery + onCreate/onNewIntent races absorbed; boundedness documented as UX-nicety-not-security since PKCE codes are single-use server-side - AC4). AuthCallbackActivity (singleTask, Hilt): validate -> guard -> exchangeCodeForSession exactly once -> CLEAR_TOP return to the shell; invalid/duplicate/failed callbacks finish silently with a scrubbed breadcrumb (the auth-state Flow drives the outcome). Manifest: autoVerify App Link intent-filter (pairs with the LIVE assetlinks.json from the android-backend-deps work) + the custom-scheme filter."
     },
     {
       "id": "US-1312",

@@ -23,6 +23,33 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- US-1311: the OAuth return point. The App Link is domain-bound via
+             assetlinks.json (US-661's Android half); the custom scheme is the
+             pre-App-Link fallback — the activity validates BOTH against a
+             strict allowlist before touching auth. -->
+        <activity
+            android:name=".auth.AuthCallbackActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:theme="@style/Theme.GradeThread">
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="gradethread.com"
+                    android:path="/app/auth-callback" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="com.gradethread.app"
+                    android:host="auth-callback" />
+            </intent-filter>
+        </activity>
     </application>
 
 </manifest>

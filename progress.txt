@@ -10406,3 +10406,20 @@ VERIFIED LOCALLY: three gates green; 4/4 in the results XML.
 - FriendlyAuthError: the FriendlyErrorCopy port - typed edge cases beat string
   matching; every case's copy is actionable (length-checked by test).
 VERIFIED LOCALLY: three gates green; 6/6 auth tests in the results XML.
+
+=== 2026-07-03 (loop v2): US-1311 (OAuth via Custom Tabs + deep-link callback) ===
+- OAuthSignIn: Custom Tabs launches the GoTrue consent URL with the App Link
+  redirect; GOOGLE gated by the compile-time AppConfig flag (false, mirroring
+  iOS until the provider is configured), APPLE always available as web OAuth.
+  Ephemeral browsing deliberately deferred (experimental in androidx.browser).
+- OAuthCallback: strict allowlist (exact App Link host+path, or the custom-
+  scheme fallback; 7 rejection shapes proven) + a bounded consume-once guard
+  absorbing browser re-deliveries and onCreate/onNewIntent races.
+- AuthCallbackActivity (singleTask): validate -> guard -> PKCE exchange exactly
+  once -> CLEAR_TOP return; invalid/duplicate/failed callbacks finish silently
+  with a scrubbed breadcrumb - never a crash, never a double session.
+- Manifest: autoVerify App Link filter (pairs with the LIVE assetlinks.json
+  shipped earlier in the backend-deps work) + the custom-scheme filter.
+- First Robolectric suite (Uri is framework); runtime jars now cached for
+  future framework-touching tests.
+VERIFIED LOCALLY: three gates green; 5/5 in the results XML.

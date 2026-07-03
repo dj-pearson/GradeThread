@@ -100,6 +100,7 @@ dependencies {
     implementation(libs.androidx.security.crypto)
     implementation(libs.sentry.android)
     implementation(libs.posthog.android)
+    implementation(libs.androidx.browser)
 
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
@@ -114,6 +115,7 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.okhttp.mockwebserver)
+    testImplementation(libs.robolectric)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

@@ -21,8 +21,10 @@ ktor = "3.1.2"
 securityCrypto = "1.1.0-alpha06"
 sentry = "7.22.0"
 posthog = "3.11.2"
+browser = "1.8.0"
 serialization = "1.8.0"
 junit = "4.13.2"
+robolectric = "4.14.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -57,7 +59,9 @@ ktor-client-okhttp = { group = "io.ktor", name = "ktor-client-okhttp", version.r
 androidx-security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
 sentry-android = { group = "io.sentry", name = "sentry-android", version.ref = "sentry" }
 posthog-android = { group = "com.posthog", name = "posthog-android", version.ref = "posthog" }
+androidx-browser = { group = "androidx.browser", name = "browser", version.ref = "browser" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
