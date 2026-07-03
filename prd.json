@@ -9883,7 +9883,7 @@
     {
       "id": "US-1561",
       "priority": 2359,
-      "passes": false,
+      "passes": true,
       "title": "Cron registry: close the 42-registered vs ~21-documented scheduled-jobs gap + drift guard",
       "description": "As an operator, main.ts registers 42 /api/jobs/* cron endpoints (plus secret-gated ticks like /api/drip/tick and /api/content/scheduler/tick) but LAUNCH_CHECKLIST.md §3 documents only ~21 and COOLIFY.md is further behind (its own drift note admits 4 missing). Jobs absent from the docs — journey-tick, newsletter-tuning/topic-bank-refill/ab-finalize/dispatch, abuse-scan, passport-integrity-scan, audit-anomaly-scan, marketplace-events, listing-prompt-promote, exemplar-assembly, confidence-calibration, keyword-research, billing-reconciliation, automation-rules, thumbnail-backfill, consignor-payouts, affiliate-payouts — will never get Coolify tasks, so their admin surfaces (Journeys, Newsletter automation, Passport Integrity, Audit anomalies, Reconciliation, calibration) sit empty and /admin/jobs shows everything never-run.",
       "acceptanceCriteria": [
@@ -9893,7 +9893,7 @@
         "GET /api/admin/jobs (and /admin/jobs page) joins the registry against cron_runs so operators can distinguish 'never scheduled' from 'scheduled and healthy' from 'failing' — expected-but-never-run jobs are visibly flagged",
         "tsc, eslint, deno edge suite (incl. drift guard), full build green"
       ],
-      "notes": "[2026-07-02 admin backend audit, finding #3] The actual Coolify Scheduled Tasks creation + Run Now verification is a USER ops action (tracked in the companion ops story) — this story makes the job set impossible to under-document again and makes the gap visible in the admin UI."
+      "notes": "[2026-07-02 admin backend audit, finding #3] The actual Coolify Scheduled Tasks creation + Run Now verification is a USER ops action (tracked in the companion ops story) — this story makes the job set impossible to under-document again and makes the gap visible in the admin UI. [COMPLETION 2026-07-03] CRON_REGISTRY (lib/cron-runs.ts) is now the single canonical registry: grew 38->54 entries. Added the 12 undocumented /api/jobs crons (ai-budget-guardrails, appstore-expiry-sweep, audit-anomaly-scan, billing-reconciliation, cert-integrity-backfill, content-refresh, content-watchdog, exemplar-assembly, keyword-research, marketplace-events, passport-integrity-scan, thumbnail-backfill), the eBay sub-router pair (leave-feedback, promoted-sync), the content ticks (tick + digest, CONTENT secret), and TWO crons that existed only in COOLIFY prose (photo-archive /api/flipdesk/images/archive + reconciliation-sweep /api/flipdesk/reconciliation/run - routes verified). CronDef gained secretEnv (default FLIPDESK_INTERNAL_JOB_SECRET; DRIP/CONTENT/NEWSLETTER overrides set), healthy (idle-response note; family default documented), oneOff (cert-integrity-backfill + passport-backfill flagged). renderCronDocs() + scripts/render-cron-docs.ts generate the operator table; COOLIFY.md + LAUNCH_CHECKLIST.md section 3 now embed it between cron-registry markers (old drift notes deleted; COOLIFY command column replaced by one curl template + the Secret column). 4 drift-guard tests: main.ts /api/jobs <-> registry BOTH directions, eBay sub-router coverage, unique names/endpoints + every schedule parses via nextCronRun (a typo'd cron would never fire), and DOCS-embed-the-exact-render (docs can never silently drift again). Full edge suite 2539/0."
     },
     {
       "id": "US-1562",

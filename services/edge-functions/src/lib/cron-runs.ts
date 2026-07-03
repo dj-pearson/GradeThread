@@ -63,7 +63,21 @@ export interface CronDef {
   category: string;
   endpoint: string;
   recorded: boolean;
+  // US-1561: which secret header value the Coolify task must send. Absent =
+  // the shared default FLIPDESK_INTERNAL_JOB_SECRET; the drip/content/
+  // newsletter ticks each authenticate with their own env var.
+  secretEnv?: string;
+  // US-1561: what a HEALTHY (possibly idle) run returns, for the operator
+  // clicking Run Now. Absent = the family default: 200 with `{"ok":true,...}`
+  // where an idle run reports skipped/zero counts.
+  healthy?: string;
+  // US-1561: one-off-at-launch backfills — run once (safe to re-run), then
+  // the schedule may be removed/disabled once the backlog reads zero.
+  oneOff?: boolean;
 }
+
+/** US-1561: the shared default secret env var (see CronDef.secretEnv). */
+export const DEFAULT_JOB_SECRET_ENV = "FLIPDESK_INTERNAL_JOB_SECRET";
 
 export const CRON_REGISTRY: CronDef[] = [
   // /api/jobs/* family — captured by the cron_runs middleware.
@@ -99,24 +113,64 @@ export const CRON_REGISTRY: CronDef[] = [
   { name: "newsletter-dispatch", label: "Newsletter weekly dispatch", schedule: "0 * * * *", category: "growth", endpoint: "/api/jobs/newsletter-dispatch", recorded: true },
   { name: "abuse-scan", label: "Abuse-signal scan", schedule: "0 */6 * * *", category: "safety", endpoint: "/api/jobs/abuse-scan", recorded: true },
   // US-1124: Garment Passport backfill/repair — seed passports for grade_reports left NULL by the live-seed race window.
-  { name: "passport-backfill", label: "Garment Passport backfill", schedule: "*/15 * * * *", category: "maintenance", endpoint: "/api/jobs/passport-backfill", recorded: true },
+  { name: "passport-backfill", label: "Garment Passport backfill", schedule: "*/15 * * * *", category: "maintenance", endpoint: "/api/jobs/passport-backfill", recorded: true, oneOff: true },
   { name: "listing-prompt-promote", label: "Listing-prompt auto-promote", schedule: "0 9 * * *", category: "grading", endpoint: "/api/jobs/listing-prompt-promote", recorded: true },
   { name: "ebay-pending-webhooks", label: "eBay parked-webhook drain", schedule: "*/15 * * * *", category: "sync", endpoint: "/api/jobs/ebay-pending-webhooks", recorded: true },
   { name: "gsc-sync", label: "Search Console sync", schedule: "30 6 * * *", category: "seo", endpoint: "/api/jobs/gsc-sync", recorded: true },
   { name: "growth-dispatch", label: "Scheduled-campaign dispatch", schedule: "*/15 * * * *", category: "growth", endpoint: "/api/jobs/growth-dispatch", recorded: true },
   { name: "north-star-digest", label: "North Star weekly digest", schedule: "0 14 * * 1", category: "growth", endpoint: "/api/jobs/north-star-digest", recorded: true },
   // US-943: served under /api/drip/* (own auth) but records to cron_runs itself.
-  { name: "drip-tick", label: "Trial-drip orchestration tick", schedule: "0 * * * *", category: "growth", endpoint: "/api/drip/tick", recorded: true },
+  { name: "drip-tick", label: "Trial-drip orchestration tick", schedule: "0 * * * *", category: "growth", endpoint: "/api/drip/tick", recorded: true, secretEnv: "DRIP_INTERNAL_JOB_SECRET" },
   // US-923: the ONE external trigger that kicks off the autonomous newsletter run.
   // Served under /api/newsletter/scheduler/* (own auth); records to cron_runs itself.
   // Hourly so it self-gates on cadence and the Make schedule stays simple.
-  { name: "newsletter-kickoff", label: "Newsletter kickoff trigger", schedule: "0 * * * *", category: "growth", endpoint: "/api/newsletter/scheduler/tick", recorded: true },
+  { name: "newsletter-kickoff", label: "Newsletter kickoff trigger", schedule: "0 * * * *", category: "growth", endpoint: "/api/newsletter/scheduler/tick", recorded: true, secretEnv: "NEWSLETTER_INTERNAL_JOB_SECRET" },
+  // ── US-1561: previously-undocumented /api/jobs/* crons ─────────────────────
+  // US-1064: AI spend guardrails — pause AI features when budget ceilings hit.
+  { name: "ai-budget-guardrails", label: "AI budget guardrails", schedule: "*/15 * * * *", category: "ops", endpoint: "/api/jobs/ai-budget-guardrails", recorded: true },
+  // US-811: App Store expiry backstop — lapse appstore-billed users whose Apple
+  // expiry notification was lost (72h grace on stale period_end).
+  { name: "appstore-expiry-sweep", label: "App Store expiry sweep", schedule: "45 1 * * *", category: "billing", endpoint: "/api/jobs/appstore-expiry-sweep", recorded: true },
+  // US-1145: hourly audit-log anomaly scan (impossible travel, burst actions).
+  { name: "audit-anomaly-scan", label: "Audit anomaly scan", schedule: "5 * * * *", category: "safety", endpoint: "/api/jobs/audit-anomaly-scan", recorded: true },
+  // US-893: Stripe-vs-DB reconciliation — precompute divergences for the admin console.
+  { name: "billing-reconciliation", label: "Billing reconciliation", schedule: "0 5 * * *", category: "billing", endpoint: "/api/jobs/billing-reconciliation", recorded: true },
+  // Seals legacy certificates into the integrity chain. ONE-OFF at launch;
+  // idempotent, safe to re-run; disable once the backlog reads zero.
+  { name: "cert-integrity-backfill", label: "Cert-integrity backfill", schedule: "0 6 * * *", category: "maintenance", endpoint: "/api/jobs/cert-integrity-backfill", recorded: true, oneOff: true },
+  // US-877: daily content freshness pass (stale posts re-dated/refreshed).
+  { name: "content-refresh", label: "Content freshness refresh", schedule: "30 4 * * *", category: "content", endpoint: "/api/jobs/content-refresh", recorded: true },
+  // US-875: content-system watchdog — flags stalled autonomous content runs.
+  { name: "content-watchdog", label: "Content watchdog", schedule: "0 */3 * * *", category: "content", endpoint: "/api/jobs/content-watchdog", recorded: true },
+  // US-1535: weekly few-shot exemplar assembly + eval (learnings loop).
+  { name: "exemplar-assembly", label: "Grading exemplar assembly", schedule: "0 12 * * 0", category: "grading", endpoint: "/api/jobs/exemplar-assembly", recorded: true },
+  // US-1072: weekly keyword-research ingestion (no-ops without Google Ads env).
+  { name: "keyword-research", label: "Keyword research ingest", schedule: "0 6 * * 1", category: "seo", endpoint: "/api/jobs/keyword-research", recorded: true },
+  // US-1055: poll open offers/messages per connection → seller notifications.
+  { name: "marketplace-events", label: "Marketplace event notifications", schedule: "*/15 * * * *", category: "sync", endpoint: "/api/jobs/marketplace-events", recorded: true },
+  // US-1150: passport-chain integrity scan (tamper evidence sweep).
+  { name: "passport-integrity-scan", label: "Passport integrity scan", schedule: "0 */6 * * *", category: "maintenance", endpoint: "/api/jobs/passport-integrity-scan", recorded: true },
+  // US-1518: item-photo thumbnail backfill — drain-to-zero, then keeps up with
+  // new iOS uploads; cheap when idle.
+  { name: "thumbnail-backfill", label: "Photo thumbnail backfill", schedule: "*/5 * * * *", category: "maintenance", endpoint: "/api/jobs/thumbnail-backfill", recorded: true },
   // Served under /api/flipdesk/* — not in the ledger (next-run still computed).
   { name: "ebay-token-refresh", label: "eBay token refresh", schedule: "0 * * * *", category: "sync", endpoint: "/api/flipdesk/ebay/oauth/refresh", recorded: false },
   { name: "ebay-orders-sync", label: "eBay listings/orders sync", schedule: "*/30 * * * *", category: "sync", endpoint: "/api/flipdesk/ebay/listings/pull", recorded: false },
   { name: "ebay-performance-sync", label: "eBay performance sync", schedule: "0 */6 * * *", category: "sync", endpoint: "/api/flipdesk/ebay/sync/performance", recorded: false },
   { name: "ebay-publish-due", label: "Scheduled publish-due", schedule: "*/5 * * * *", category: "publish", endpoint: "/api/flipdesk/ebay/jobs/publish-due", recorded: false },
   { name: "google-sheet-sync", label: "Google Sheet sync", schedule: "*/5 * * * *", category: "sync", endpoint: "/api/flipdesk/google/sync/push", recorded: false },
+  // Nightly photo archive sweep (cold-storage old originals).
+  { name: "photo-archive", label: "Photo archive sweep", schedule: "0 4 * * *", category: "maintenance", endpoint: "/api/flipdesk/images/archive", recorded: false },
+  // Payout reconciliation sweep (auto-link payout rows to sales).
+  { name: "reconciliation-sweep", label: "Payout reconciliation sweep", schedule: "0 5 * * *", category: "flipdesk", endpoint: "/api/flipdesk/reconciliation/run", recorded: false },
+  // US-1047: auto leave-feedback (no-op unless system setting feedback.auto_leave).
+  { name: "ebay-leave-feedback", label: "eBay auto leave-feedback", schedule: "0 10 * * *", category: "sync", endpoint: "/api/flipdesk/ebay/jobs/leave-feedback", recorded: false, healthy: "200; no-op unless system setting feedback.auto_leave=true" },
+  // US-561: promoted-listings performance sync.
+  { name: "ebay-promoted-sync", label: "eBay promoted-listings sync", schedule: "0 */6 * * *", category: "sync", endpoint: "/api/flipdesk/ebay/jobs/promoted-sync", recorded: false },
+  // US-852: autonomous content tick — its OWN secret; idle returns skipped:true.
+  { name: "content-tick", label: "Content scheduler tick", schedule: "0 * * * *", category: "content", endpoint: "/api/content/scheduler/tick", recorded: false, secretEnv: "CONTENT_INTERNAL_JOB_SECRET", healthy: "200 with skipped:true when idle (cadence gate) — NOT ok:true" },
+  // US-882: weekly content digest email to admins.
+  { name: "content-digest", label: "Content weekly digest", schedule: "0 14 * * 1", category: "content", endpoint: "/api/content/scheduler/digest", recorded: false, secretEnv: "CONTENT_INTERNAL_JOB_SECRET" },
 ];
 
 // ── Minimal cron next-run computation ────────────────────────────────
@@ -177,3 +231,36 @@ export function nextCronRun(schedule: string, from: Date): string | null {
   }
   return null;
 }
+
+// ── US-1561: canonical doc rendering ─────────────────────────────────
+//
+// COOLIFY.md and LAUNCH_CHECKLIST.md embed this exact rendering between
+// `<!-- cron-registry:start -->` / `<!-- cron-registry:end -->` markers; the
+// drift test (cron-registry-drift_test.ts) regenerates it and fails when the
+// docs diverge from the registry. Update the registry, re-run
+// `deno run scripts/render-cron-docs.ts`, paste — never hand-edit the table.
+
+/** Markdown table of every scheduled job, generated from CRON_REGISTRY. */
+export function renderCronDocs(): string {
+  const lines: string[] = [
+    "| Task | Schedule (UTC) | Endpoint (POST) | Secret env | Notes |",
+    "|---|---|---|---|---|",
+  ];
+  const sorted = [...CRON_REGISTRY].sort((a, b) => a.name.localeCompare(b.name));
+  for (const def of sorted) {
+    const secret = def.secretEnv ?? DEFAULT_JOB_SECRET_ENV;
+    const notes: string[] = [];
+    if (def.oneOff) notes.push("ONE-OFF at launch (idempotent; disable once drained)");
+    if (def.healthy) notes.push(def.healthy);
+    if (!def.recorded) notes.push("not in the cron_runs ledger");
+    lines.push(
+      `| ${def.name} | \`${def.schedule}\` | \`${def.endpoint}\` | \`$${secret}\` | ${notes.join("; ")} |`,
+    );
+  }
+  lines.push(
+    "",
+    `_${sorted.length} scheduled jobs. Default healthy response: 200 \`{"ok":true,...}\` (idle runs report skipped/zero counts). Generated from \`src/lib/cron-runs.ts\` CRON_REGISTRY — do not hand-edit._`,
+  );
+  return lines.join("\n");
+}
+

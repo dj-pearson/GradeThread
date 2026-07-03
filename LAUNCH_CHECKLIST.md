@@ -92,15 +92,10 @@ and confirm the expected output. All hit `http://localhost:8787` (in-container,
 skips Traefik/WAF) with header `X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET`.
 A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COOLIFY.md`.
 
-> The `content-scheduler-tick` task is the **one exception** to the shared
-> header: it authenticates with `X-Internal-Job-Secret: $CONTENT_INTERNAL_JOB_SECRET`
-> (its own secret) and a healthy idle run returns `{"skipped":true,...}`, not
-> `{"ok":true}`. See `docs/CONTENT_SCHEDULER.md` for the safe low-cadence rollout.
-
-> **COOLIFY.md drift (fix at launch):** its table predates four jobs —
-> `growth-dispatch`, `reprice-rules`, `sync-reaper`, `google-sheet-sync` are
-> registered in `main.ts` but missing from that table. This checklist is the
-> authoritative set (20 tasks).
+> Secrets vary per task — the **Secret env** column below is authoritative
+> (drip/content/newsletter ticks use their own env vars). Content-tick idle
+> runs return `{"skipped":true}`; see `docs/CONTENT_SCHEDULER.md` for the
+> safe low-cadence rollout.
 
 > **`curl` must be in the edge image.** Every task below is a `curl` POST, and the
 > `denoland/deno:debian` base ships without curl — the Dockerfile installs it on
@@ -108,38 +103,66 @@ A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COO
 > the request, so the app logs show nothing and `cron_runs` stays empty for every
 > job). Confirm once per deploy: `which curl` in the edge container terminal.
 
-| Task | Schedule | Endpoint (POST) | Run Now ✓ | By / Date |
+<!-- cron-registry:start (generated - see src/lib/cron-runs.ts + scripts/render-cron-docs.ts; drift-guarded by cron-registry-drift_test.ts) -->
+| Task | Schedule (UTC) | Endpoint (POST) | Secret env | Notes |
 |---|---|---|---|---|
-| ebay-token-refresh | `0 * * * *` | `/api/flipdesk/ebay/oauth/refresh` | ☐ | |
-| ebay-orders-sync | `*/30 * * * *` | `/api/flipdesk/ebay/listings/pull` | ☐ | |
-| ebay-performance-sync | `0 */6 * * *` | `/api/flipdesk/ebay/sync/performance` | ☐ | |
-| ebay-publish-due | `*/5 * * * *` | `/api/flipdesk/ebay/jobs/publish-due` | ☐ | |
-| ebay-leave-feedback | `0 10 * * *` | `/api/flipdesk/ebay/jobs/leave-feedback` | ☐ | no-op unless system setting `feedback.auto_leave`=true (US-1047) |
-| gsc-sync | `30 6 * * *` | `/api/jobs/gsc-sync` | ☐ | |
-| trial-expiry | `15 0 * * *` | `/api/jobs/trial-expiry` | ☐ | |
-| drip-tick | `0 * * * *` | `/api/drip/tick` | ☐ | **uses `DRIP_INTERNAL_JOB_SECRET`** (NOT the FlipDesk one — empty/mismatched fails closed with 401). Autonomous trial-conversion drip (US-943): enrolls trialists, sends the next due step, exits on conversion. Campaign is `status='active'` + `trial_conversion_drip` fails-open, so the first tick enrolls all current trialists — enable in a quiet window. Records to `cron_runs` as `drip-tick` (verify with the ledger). |
-| appstore-expiry-sweep | `30 */6 * * *` | `/api/jobs/appstore-expiry-sweep` | ☐ | backstop: lapses appstore-billed users to free when Apple's expiry notification was lost (stale period_end past a 72h grace; tune `APPSTORE_SWEEP_GRACE_HOURS`) (US-811) |
-| autolister-reclaim | `*/5 * * * *` | `/api/jobs/autolister-reclaim` | ☐ | |
-| publish-batch-reclaim | `*/5 * * * *` | `/api/jobs/publish-batch-reclaim` | ☐ | |
-| reprice-scan | `0 */6 * * *` | `/api/jobs/reprice-scan` | ☐ | |
-| reprice-rules | `0 */6 * * *` | `/api/jobs/reprice-rules` | ☐ | |
-| grading-monitor | `0 */12 * * *` | `/api/jobs/grading-monitor` | ☐ | |
-| stuck-submissions | `*/10 * * * *` | `/api/jobs/stuck-submissions` | ☐ | |
-| email-retry | `*/5 * * * *` | `/api/jobs/email-retry` | ☐ | |
-| integrity-scan | `0 7 * * *` | `/api/jobs/integrity-scan` | ☐ | |
-| data-retention | `0 4 * * *` | `/api/jobs/data-retention` | ☐ | |
-| condition-index-refresh | `0 8 * * *` | `/api/jobs/condition-index-refresh` | ☐ | |
-| sync-reaper | `*/15 * * * *` | `/api/jobs/sync-reaper` | ☐ | |
-| growth-dispatch | `*/15 * * * *` | `/api/jobs/growth-dispatch` | ☐ | |
-| push-token-prune | `0 3 * * *` | `/api/jobs/push-token-prune` | ☐ | |
-| google-sheet-sync | `*/5 * * * *` | `/api/flipdesk/google/sync/push` | ☐ | full 2-way merge (push **and** pull); `/sync/pull` is an alias |
-| ebay-pending-webhooks | `*/15 * * * *` | `/api/jobs/ebay-pending-webhooks` | ☐ | re-links parked payout/order/return events once the seller's handle/id hydrates (US-472) |
-| north-star-digest | `0 14 * * 1` | `/api/jobs/north-star-digest` | ☐ | weekly (Mon) items-listed encouragement + milestone emails, streak tracking (US-597) |
-| content-scheduler-tick | `0 * * * *` | `/api/content/scheduler/tick` | ☐ | **uses `CONTENT_INTERNAL_JOB_SECRET`**; idle returns `{skipped:true}`. Hourly tick enforces per-day cadence + promotes scheduled drafts. Start with autopilot OFF — `docs/CONTENT_SCHEDULER.md` (US-852) |
-| content-watchdog | `0 */3 * * *` | `/api/jobs/content-watchdog` | ☐ | shared `FLIPDESK_INTERNAL_JOB_SECRET`. Heartbeat check on the auto-publisher: alerts the owner if no healthy scheduler tick in 3h or >25% webhook failures over 24h. Routes to `CONTENT_ALERT_EMAIL`/`MONITOR_ALERT_EMAIL`/`SMTP_ADMIN_EMAIL` (+ optional `CONTENT_ALERT_WEBHOOK`) (US-869) |
-| content-refresh | `30 4 * * *` | `/api/jobs/content-refresh` | ☐ | shared `FLIPDESK_INTERNAL_JOB_SECRET`. Daily freshness loop: refreshes the single top stale-but-important published post (GSC-weighted, else reading-time), only when the change is material — bumps dateModified, purges CF cache, re-pings IndexNow. Honours `content_settings.auto_refresh_enabled` + the cooldown/min-stale windows (US-875) |
-| content-digest | `0 14 * * 1` | `/api/content/scheduler/digest` | ☐ | **uses `CONTENT_INTERNAL_JOB_SECRET`** (same as scheduler-tick). Weekly (Mon) owner readout: posts published, topic/webhook health, GSC opportunities + refresh activity, plus tuning recommendations that deep-link into the admin content UI. Routes to `CONTENT_DIGEST_EMAIL`/`CONTENT_ALERT_EMAIL`/`SMTP_ADMIN_EMAIL`; an undelivered digest is logged (Sentry), never silent. Admins can also fire it on demand from `/admin/content/analytics` (US-880) |
-| ai-budget-guardrails | `*/15 * * * *` | `/api/jobs/ai-budget-guardrails` | ☐ | shared `FLIPDESK_INTERNAL_JOB_SECRET`. Evaluates per-feature AI spend budgets (`/admin/ai-spend`) and, on a fresh breach, alerts + (for action=kill) flips the matching feature kill-switch off. Routes to `AI_BUDGET_ALERT_EMAIL`/`MONITOR_ALERT_EMAIL`/`SMTP_ADMIN_EMAIL` (+ optional `AI_BUDGET_ALERT_WEBHOOK`/`MONITOR_ALERT_WEBHOOK`). Idle when no budgets configured (US-895) |
+| abuse-scan | `0 */6 * * *` | `/api/jobs/abuse-scan` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| affiliate-payouts | `15 */6 * * *` | `/api/jobs/affiliate-payouts` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| ai-budget-guardrails | `*/15 * * * *` | `/api/jobs/ai-budget-guardrails` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| appstore-expiry-sweep | `45 1 * * *` | `/api/jobs/appstore-expiry-sweep` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| audit-anomaly-scan | `5 * * * *` | `/api/jobs/audit-anomaly-scan` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| autolister-reclaim | `*/5 * * * *` | `/api/jobs/autolister-reclaim` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| automation-rules | `0 * * * *` | `/api/jobs/automation-rules` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| billing-reconciliation | `0 5 * * *` | `/api/jobs/billing-reconciliation` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| cert-integrity-backfill | `0 6 * * *` | `/api/jobs/cert-integrity-backfill` | `$FLIPDESK_INTERNAL_JOB_SECRET` | ONE-OFF at launch (idempotent; disable once drained) |
+| condition-index-refresh | `0 8 * * *` | `/api/jobs/condition-index-refresh` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| confidence-calibration | `0 13 * * 0` | `/api/jobs/confidence-calibration` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| consignor-payouts | `*/30 * * * *` | `/api/jobs/consignor-payouts` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| content-digest | `0 14 * * 1` | `/api/content/scheduler/digest` | `$CONTENT_INTERNAL_JOB_SECRET` | not in the cron_runs ledger |
+| content-refresh | `30 4 * * *` | `/api/jobs/content-refresh` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| content-tick | `0 * * * *` | `/api/content/scheduler/tick` | `$CONTENT_INTERNAL_JOB_SECRET` | 200 with skipped:true when idle (cadence gate) — NOT ok:true; not in the cron_runs ledger |
+| content-watchdog | `0 */3 * * *` | `/api/jobs/content-watchdog` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| data-retention | `0 4 * * *` | `/api/jobs/data-retention` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| drip-tick | `0 * * * *` | `/api/drip/tick` | `$DRIP_INTERNAL_JOB_SECRET` |  |
+| ebay-leave-feedback | `0 10 * * *` | `/api/flipdesk/ebay/jobs/leave-feedback` | `$FLIPDESK_INTERNAL_JOB_SECRET` | 200; no-op unless system setting feedback.auto_leave=true; not in the cron_runs ledger |
+| ebay-orders-sync | `*/30 * * * *` | `/api/flipdesk/ebay/listings/pull` | `$FLIPDESK_INTERNAL_JOB_SECRET` | not in the cron_runs ledger |
+| ebay-pending-webhooks | `*/15 * * * *` | `/api/jobs/ebay-pending-webhooks` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| ebay-performance-sync | `0 */6 * * *` | `/api/flipdesk/ebay/sync/performance` | `$FLIPDESK_INTERNAL_JOB_SECRET` | not in the cron_runs ledger |
+| ebay-promoted-sync | `0 */6 * * *` | `/api/flipdesk/ebay/jobs/promoted-sync` | `$FLIPDESK_INTERNAL_JOB_SECRET` | not in the cron_runs ledger |
+| ebay-publish-due | `*/5 * * * *` | `/api/flipdesk/ebay/jobs/publish-due` | `$FLIPDESK_INTERNAL_JOB_SECRET` | not in the cron_runs ledger |
+| ebay-token-refresh | `0 * * * *` | `/api/flipdesk/ebay/oauth/refresh` | `$FLIPDESK_INTERNAL_JOB_SECRET` | not in the cron_runs ledger |
+| email-retry | `*/5 * * * *` | `/api/jobs/email-retry` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| exemplar-assembly | `0 12 * * 0` | `/api/jobs/exemplar-assembly` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| google-sheet-sync | `*/5 * * * *` | `/api/flipdesk/google/sync/push` | `$FLIPDESK_INTERNAL_JOB_SECRET` | not in the cron_runs ledger |
+| grading-monitor | `0 */12 * * *` | `/api/jobs/grading-monitor` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| growth-dispatch | `*/15 * * * *` | `/api/jobs/growth-dispatch` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| gsc-sync | `30 6 * * *` | `/api/jobs/gsc-sync` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| integrity-scan | `0 7 * * *` | `/api/jobs/integrity-scan` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| journey-tick | `30 13 * * *` | `/api/jobs/journey-tick` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| keyword-research | `0 6 * * 1` | `/api/jobs/keyword-research` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| listing-prompt-promote | `0 9 * * *` | `/api/jobs/listing-prompt-promote` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| marketplace-events | `*/15 * * * *` | `/api/jobs/marketplace-events` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| newsletter-ab-finalize | `*/15 * * * *` | `/api/jobs/newsletter-ab-finalize` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| newsletter-dispatch | `0 * * * *` | `/api/jobs/newsletter-dispatch` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| newsletter-kickoff | `0 * * * *` | `/api/newsletter/scheduler/tick` | `$NEWSLETTER_INTERNAL_JOB_SECRET` |  |
+| newsletter-topic-bank-refill | `0 5 * * 1` | `/api/jobs/newsletter-topic-bank-refill` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| newsletter-tuning | `45 12 * * *` | `/api/jobs/newsletter-tuning` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| north-star-digest | `0 14 * * 1` | `/api/jobs/north-star-digest` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| passport-backfill | `*/15 * * * *` | `/api/jobs/passport-backfill` | `$FLIPDESK_INTERNAL_JOB_SECRET` | ONE-OFF at launch (idempotent; disable once drained) |
+| passport-integrity-scan | `0 */6 * * *` | `/api/jobs/passport-integrity-scan` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| photo-archive | `0 4 * * *` | `/api/flipdesk/images/archive` | `$FLIPDESK_INTERNAL_JOB_SECRET` | not in the cron_runs ledger |
+| publish-batch-reclaim | `*/5 * * * *` | `/api/jobs/publish-batch-reclaim` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| push-token-prune | `0 3 * * *` | `/api/jobs/push-token-prune` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| reconciliation-sweep | `0 5 * * *` | `/api/flipdesk/reconciliation/run` | `$FLIPDESK_INTERNAL_JOB_SECRET` | not in the cron_runs ledger |
+| reprice-rules | `0 */6 * * *` | `/api/jobs/reprice-rules` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| reprice-scan | `0 */6 * * *` | `/api/jobs/reprice-scan` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| stuck-submissions | `*/10 * * * *` | `/api/jobs/stuck-submissions` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| sync-reaper | `*/15 * * * *` | `/api/jobs/sync-reaper` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| thumbnail-backfill | `*/5 * * * *` | `/api/jobs/thumbnail-backfill` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| trial-expiry | `15 0 * * *` | `/api/jobs/trial-expiry` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+
+_54 scheduled jobs. Default healthy response: 200 `{"ok":true,...}` (idle runs report skipped/zero counts). Generated from `src/lib/cron-runs.ts` CRON_REGISTRY — do not hand-edit._
+<!-- cron-registry:end -->
 
 **One-off at launch (not scheduled):** POST `/api/jobs/cert-integrity-backfill`
 (same secret header) once after the final pre-launch deploy — it seals every

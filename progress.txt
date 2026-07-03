@@ -10002,3 +10002,30 @@ VERIFICATION: rbac parity + coverage tests 10/10; FULL edge suite 2535/0/70; den
 check + lint clean. No web diffs (edge-only + migration).
 HELD LOCAL - contains migration 00343. Push queue: user applies 00343 (with any
 stragglers) before OKing the next push, per the re-confirmed standing rule.
+
+=== 2026-07-03 (loop v2): US-1561 (canonical cron registry + drift guard) ===
+Closed the 42-registered vs ~21-documented scheduled-jobs gap:
+- CRON_REGISTRY (lib/cron-runs.ts) grew 38 -> 54 entries and is now the single
+  source of truth: added the 12 undocumented /api/jobs crons (ai-budget-guardrails,
+  appstore-expiry-sweep, audit-anomaly-scan, billing-reconciliation,
+  cert-integrity-backfill, content-refresh, content-watchdog, exemplar-assembly,
+  keyword-research, marketplace-events, passport-integrity-scan, thumbnail-backfill),
+  the eBay sub-router pair (leave-feedback, promoted-sync), the content ticks
+  (tick + digest), and TWO crons that existed only in COOLIFY prose with no registry
+  entry at all (photo-archive, reconciliation-sweep - routes verified in
+  flipdesk-images.ts / flipdesk-reconciliation.ts).
+- CronDef gained secretEnv (default FLIPDESK_INTERNAL_JOB_SECRET; DRIP/CONTENT/
+  NEWSLETTER tick overrides recorded), healthy (expected idle response - the content
+  tick returns skipped:true NOT ok:true, now machine-recorded), and oneOff
+  (cert-integrity-backfill + passport-backfill flagged as launch one-offs).
+- renderCronDocs() + scripts/render-cron-docs.ts emit the canonical operator table;
+  COOLIFY.md and LAUNCH_CHECKLIST.md section 3 embed it between cron-registry
+  markers. Old drift notes deleted; COOLIFY's per-row curl commands replaced by one
+  template + the Secret column.
+- 4 drift-guard tests (cron-registry-drift_test.ts): main.ts /api/jobs <-> registry
+  in BOTH directions; eBay sub-router coverage; unique names/endpoints + every
+  schedule parses via nextCronRun (a typo'd cron string would silently never fire);
+  and both docs embed the EXACT render (operator docs can never drift again).
+- Bonus: /admin/ops jobs page reads CRON_REGISTRY, so the 16 newly-registered jobs
+  now show schedules/next-run in the console automatically.
+VERIFICATION: drift tests 4/4; FULL edge suite 2539/0/70; lint clean. No migration.
