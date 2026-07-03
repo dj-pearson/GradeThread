@@ -2,6 +2,32 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-07-03
 
+## 2026-07-03 — US-1572 (MeasureCard calibration service) — passes:true — ⚠️ MIGRATION HELD
+
+Deterministic CV, one implementation for all platforms, zero new deps:
+- lib/measure-detect.ts: PURE-TS card-tuned detector — integral-image adaptive
+  threshold, connected components, hull->quad, canonical 7x7 unwarp + bit
+  decode across 4 rotations against the card's known matrices, then a
+  16-corner least-squares DLT homography (normalized) mapping image px ->
+  card-plane INCHES. Quality gates with user-facing remediation: markers<4,
+  side<40px, Laplacian-variance blur, reprojection residual (bent/angled).
+- Validated against REAL OpenCV: scripts/generate-measure-fixtures.py renders
+  6 deterministic scenes (straight-on, 15/30deg tilt, small-in-frame,
+  occluded, blurred) and records cv2.aruco's detections as ground truth;
+  measure-detect_test.ts asserts id-set equality + centers within 3px +
+  homography maps cv2's centers onto true inch coords + ppi ~110dpi (2%).
+  12/12 first run. The TS port cannot drift from OpenCV silently.
+- Route POST /api/flipdesk/measure/calibrate: full middleware stack (auth,
+  access gate, workspace, 15/min limiter), tenant-scoped photo load via
+  inventory_items!inner(user_id) BEFORE any storage read, requires
+  photo_type='measurement', dual-bucket downloadItemPhoto, downscale to
+  2000px + homography/ppi rescale back to original px, cached in
+  item_photos.measure_calibration (force:true recomputes).
+- Migration 00347 (nullable jsonb) + EXPECTED_SCHEMA_VERSION -> 00347. HELD
+  with 00346 per the standing rule (PENDING_MIGRATIONS.md updated).
+- NOT a billed AI action (no model call) — source-guard test enforces it.
+VERIFIED LOCALLY: full edge suite 2588/0; deno lint/check clean.
+
 ## 2026-07-03 — US-1571 ('measurement' photo type across every surface) — passes:true — ⚠️ MIGRATION HELD
 
 MeasureCard calibration-frame tag, segregated from every listing surface:

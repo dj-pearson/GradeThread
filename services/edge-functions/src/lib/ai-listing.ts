@@ -14,6 +14,7 @@
 // listing_gen seed row in migration 00053.
 
 import Anthropic from "@anthropic-ai/sdk";
+import { ASPECT_REGISTRY } from "./aspect-registry.ts";
 import {
   getAiTemperature,
   getAnthropicClient,
@@ -877,6 +878,74 @@ export function shouldAdoptGeneratedTitle(
   return /^item\s+\d+$/i.test(stored) || /^untitled\b/i.test(stored);
 }
 
+// US-1567: the AutoLister -> Inventory carry-over. Generation extracts
+// Brand/Size/Color/Type/etc. but historically parked them ONLY in the eBay
+// aspect stores (listings.item_specifics_override + inventory_items.
+// ebay_aspects), so the item detail page and inventory grid showed blank
+// columns for AI-processed drafts. This maps well-known aspects onto the
+// item's OWN columns and attributes via the canonical ASPECT_REGISTRY (the
+// same table the composer's reverse write-back and the publish projection
+// use, so the mapping can never drift) — STRICTLY FILL-ONLY: a value the
+// seller already typed is never overwritten. Brand is excluded here; it
+// carries via the existing normalizedBrand path. Pure + exported for tests.
+export function aspectCarryOver(
+  item: Pick<
+    ItemRow,
+    "size" | "color" | "material" | "style" | "attributes"
+  >,
+  aspects: Record<string, string[]>,
+): Record<string, unknown> {
+  // Case-insensitive aspect lookup (mirrors reverseProjectAspectColumns).
+  const byLower = new Map<string, string[]>();
+  for (const [key, values] of Object.entries(aspects)) {
+    const l = key.trim().toLowerCase();
+    if (l && !byLower.has(l)) byLower.set(l, values);
+  }
+  const valuesFor = (names: string[]): string[] => {
+    for (const name of names) {
+      const vals = (byLower.get(name.toLowerCase()) ?? [])
+        .map((v) => v.trim())
+        .filter((v) => v !== "");
+      if (vals.length > 0) return vals;
+    }
+    return [];
+  };
+
+  const update: Record<string, unknown> = {};
+  const existingAttrs = (item.attributes ?? {}) as Record<string, unknown>;
+  const attrFill: Record<string, string> = {};
+
+  for (const entry of ASPECT_REGISTRY.entries) {
+    if (entry.key === "brand") continue; // normalizedBrand path owns it
+    // All candidate names, category variants included — the aspect map is
+    // keyed by the REAL names the model emitted, so scan every alternate.
+    const candidates = [
+      ...entry.aspects,
+      ...Object.values(entry.byCategory ?? {}).flat(),
+    ];
+    const values = valuesFor(candidates);
+    if (values.length === 0) continue;
+
+    if (entry.source === "column" && entry.column) {
+      const stored = item[entry.column as keyof typeof item];
+      if (typeof stored === "string" && stored.trim() !== "") continue;
+      if (stored != null && typeof stored !== "string") continue;
+      update[entry.column] = values[0];
+    } else if (entry.source === "attribute" && entry.attribute) {
+      const stored = existingAttrs[entry.attribute];
+      if (typeof stored === "string" && stored.trim() !== "") continue;
+      if (Array.isArray(stored) && stored.length > 0) continue;
+      if (stored != null && typeof stored !== "string" && !Array.isArray(stored)) continue;
+      attrFill[entry.attribute] = entry.multi ? values.join(", ") : values[0];
+    }
+  }
+
+  if (Object.keys(attrFill).length > 0) {
+    update.attributes = { ...existingAttrs, ...attrFill };
+  }
+  return update;
+}
+
 export function listingNeedsReview(
   overallConfidence: number,
   fieldConfidence: Record<string, number>,
@@ -916,9 +985,11 @@ interface ItemRow {
   size: string | null;
   color: string | null;
   material: string | null;
+  description: string | null;
   condition_notes: string | null;
   measurements: Record<string, unknown> | null;
   ebay_category_id: string | null;
+  attributes: Record<string, unknown> | null;
 }
 
 // US-1552: hard cap on how many photos feed the generation vision calls —
@@ -969,7 +1040,7 @@ export async function generateListing(
   const { data: itemData, error: itemErr } = await supabaseAdmin
     .from("inventory_items")
     .select(
-      "id, user_id, title, brand, style, size, color, material, condition_notes, measurements, ebay_category_id, grade_report_id, attributes",
+      "id, user_id, title, brand, style, size, color, material, description, condition_notes, measurements, ebay_category_id, grade_report_id, attributes",
     )
     .eq("id", itemId)
     .eq("user_id", ownerId)
@@ -1561,6 +1632,18 @@ export async function generateListing(
   // overwritten (shouldAdoptGeneratedTitle is placeholder-guarded).
   if (shouldAdoptGeneratedTitle(item.title, listing.title)) {
     itemUpdate.title = listing.title;
+  }
+  // US-1567: carry the extracted specifics onto the item's own columns +
+  // attributes (fill-only), and the generated description onto the item's
+  // public description when the seller hasn't written one — so the item
+  // page and inventory grid show real data for AI-processed drafts instead
+  // of blanks.
+  Object.assign(itemUpdate, aspectCarryOver(item, itemSpecifics));
+  if (
+    (item.description ?? "").trim() === "" &&
+    listingDescription.trim() !== ""
+  ) {
+    itemUpdate.description = listingDescription;
   }
   await supabaseAdmin
     .from("inventory_items")

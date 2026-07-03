@@ -1,5 +1,46 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00348_autolister_carryover_backfill.sql (US-1567, 2026-07-03)
+
+**What:** DML-only backfill (no schema change) repairing EXISTING AI-generated
+AutoLister items whose Brand/Size/Color/Material/Style, attributes, title, and
+description never carried from the aspect stores onto the item's own columns:
+
+1. Fills blank `inventory_items.size/color/material/style` from
+   `ebay_aspects` (Size / US Shoe Size / Color / Colour / Material / Type…).
+2. Fill-only merge of attributes jsonb keys (department, size_type, pattern,
+   fit, sleeve_length, features…) from the matching aspects.
+3. Adopts the newest AutoLister draft's `listing_title` when the item still
+   holds the "Item N"/"Untitled"/blank placeholder (mirrors
+   shouldAdoptGeneratedTitle), and the draft description when the item has none.
+
+STRICTLY FILL-ONLY: seller-typed values are never overwritten. Idempotent —
+re-running changes nothing. Self-records '00348'.
+
+**Risk: LOW.** Pure data fill on existing columns; no DDL, no enum, no RLS.
+The paired edge change (`aspectCarryOver` in ai-listing.ts, EXPECTED_SCHEMA_VERSION
+→ 00348) handles all FUTURE generations and only writes columns that already
+exist — nothing client-side reads a new column, so the frontend auto-deploy is
+safe even before this is applied; the backfill just makes OLD drafts whole.
+
+**Apply order:** after 00346–00347. Then `NOTIFY pgrst, 'reload schema';`
+(harmless for DML-only, keeps the runbook uniform) and redeploy the edge
+(boot guard expects 00348).
+
+
+## ⏳ HELD: 00347_measure_calibration.sql (US-1572, 2026-07-03)
+
+**What:** `ALTER TABLE public.item_photos ADD COLUMN IF NOT EXISTS measure_calibration jsonb;`
+— persisted MeasureCard calibration (homography/ppi/quality) so the editor
+never re-runs detection. Idempotent; self-records '00347'.
+
+**Risk: LOW** (nullable column add). Client-side reads: none yet — only the
+edge writes/reads it (POST /api/flipdesk/measure/calibrate), and the edge
+boot-guards on 00347 via EXPECTED_SCHEMA_VERSION in the same commit. Apply
+together with 00346, then `NOTIFY pgrst, 'reload schema';`.
+
+---
+
 ## ⏳ HELD: 00346_measurement_photo_type.sql (US-1571, 2026-07-03)
 
 **What:** `ALTER TYPE public.flipdesk_photo_type ADD VALUE IF NOT EXISTS 'measurement';`

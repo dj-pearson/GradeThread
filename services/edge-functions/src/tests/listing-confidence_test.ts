@@ -17,6 +17,7 @@ const {
   LISTING_REVIEW_CONFIDENCE,
   priceConfidenceClearsEstimated,
   PRICE_ESTIMATED_CONFIDENCE_THRESHOLD,
+  aspectCarryOver,
   shouldAdoptGeneratedTitle,
 } = await import("../lib/ai-listing.ts");
 
@@ -93,4 +94,94 @@ Deno.test("title adopt: a seller-typed title is NEVER clobbered", () => {
 Deno.test("title adopt: no generated title → no write", () => {
   assertEquals(shouldAdoptGeneratedTitle("Item 12", ""), false);
   assertEquals(shouldAdoptGeneratedTitle("Item 12", null), false);
+});
+
+// ── US-1567: the AutoLister → Inventory aspect carry-over ──────────────────
+
+Deno.test("carry-over: fills blank item columns from the extracted aspects", () => {
+  const update = aspectCarryOver(
+    { size: null, color: "", material: null, style: null, attributes: null },
+    {
+      Size: ["L"],
+      Color: ["Navy Blue"],
+      Material: ["Cotton"],
+      Style: ["Polo"],
+      Brand: ["Nike"], // brand carries via the existing normalizedBrand path
+    },
+  );
+  assertEquals(update.size, "L");
+  assertEquals(update.color, "Navy Blue");
+  assertEquals(update.material, "Cotton");
+  assertEquals(update.style, "Polo");
+  assertEquals("brand" in update, false);
+});
+
+Deno.test("carry-over: NEVER overwrites a seller-typed value", () => {
+  const update = aspectCarryOver(
+    {
+      size: "XL", // seller typed it
+      color: null,
+      material: "  ", // whitespace counts as blank
+      style: null,
+      attributes: { department: "Men" }, // seller picked it
+    },
+    {
+      Size: ["L"],
+      Color: ["Red"],
+      Material: ["Wool"],
+      Department: ["Women"],
+    },
+  );
+  assertEquals("size" in update, false); // kept XL
+  assertEquals(update.color, "Red");
+  assertEquals(update.material, "Wool"); // blank-ish → filled
+  const attrs = update.attributes as Record<string, string> | undefined;
+  assertEquals(attrs, undefined); // department already set → no attr write
+});
+
+Deno.test("carry-over: alternate aspect names resolve (shoes, colour)", () => {
+  const update = aspectCarryOver(
+    { size: null, color: null, material: null, style: null, attributes: null },
+    {
+      "US Shoe Size": ["10.5"],
+      Colour: ["Black"],
+      Type: ["Sneaker"],
+    },
+  );
+  assertEquals(update.size, "10.5");
+  assertEquals(update.color, "Black");
+  assertEquals(update.style, "Sneaker");
+});
+
+Deno.test("carry-over: attributes merge is fill-only and preserves existing keys", () => {
+  const update = aspectCarryOver(
+    {
+      size: "L",
+      color: "Blue",
+      material: "Cotton",
+      style: "Polo",
+      attributes: { pattern: "Solid", mpn: "" },
+    },
+    {
+      Pattern: ["Striped"], // existing non-blank → kept
+      MPN: ["ABC-123"], // blank string → filled
+      "Sleeve Length": ["Short Sleeve"],
+      Features: ["Moisture Wicking", "Breathable"],
+      Department: ["Men"],
+    },
+  );
+  const attrs = update.attributes as Record<string, string>;
+  assertEquals(attrs.pattern, "Solid"); // preserved
+  assertEquals(attrs.mpn, "ABC-123");
+  assertEquals(attrs.sleeve_length, "Short Sleeve");
+  assertEquals(attrs.features, "Moisture Wicking, Breathable"); // multi-join
+  assertEquals(attrs.department, "Men");
+});
+
+Deno.test("carry-over: empty aspects → empty update (no accidental writes)", () => {
+  const update = aspectCarryOver(
+    { size: null, color: null, material: null, style: null, attributes: null },
+    {},
+  );
+  assertEquals(Object.keys(update).length, 0);
 });

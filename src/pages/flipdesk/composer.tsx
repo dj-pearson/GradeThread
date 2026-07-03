@@ -3,29 +3,12 @@ import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
-  DndContext,
-  closestCenter,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
-import {
-  SortableContext,
-  useSortable,
-  arrayMove,
-  horizontalListSortingStrategy,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
-import {
   ArrowLeft,
   Wand2,
   Save,
   Loader2,
   Plus,
   Award,
-  Star,
-  GripVertical,
   Rocket,
   Sparkles,
 } from "lucide-react";
@@ -99,6 +82,9 @@ import type { AspectSourceMap } from "@/lib/aspect-provenance";
 import { EbayCategoryPicker } from "@/components/flipdesk/ebay-category-picker";
 import { ConditionIndexValueHint } from "@/components/flipdesk/condition-index-value-hint";
 import { AiDiffChip } from "@/components/flipdesk/ai-diff-chip";
+import { PhotoManager } from "@/components/flipdesk/photo-manager";
+import { PhotoUploader } from "@/components/flipdesk/photo-uploader";
+import { MeasurementForm } from "@/components/flipdesk/measurement-form";
 import {
   AiFillPanel,
   type AcceptedField,
@@ -209,8 +195,12 @@ export function FlipdeskComposerPage() {
   // own zone; the <input type="datetime-local"> stays browser-local, so a preset
   // just computes the UTC instant and fills the input with its local equivalent.
   const [dropTimezone, setDropTimezone] = useState(() => detectTimezone());
-  const [order, setOrder] = useState<ItemPhotoRow[]>([]);
   const [primaryPhotoId, setPrimaryPhotoId] = useState<string | null>(null);
+  // US-1567: measurements are editable right in the composer (parity with the
+  // item canvas) — they feed the category's measurement aspects at publish.
+  const [measurements, setMeasurements] = useState<
+    Record<string, number | string>
+  >({});
   // US-561: Promoted Listings. promoteEnabled mirrors !promo_opt_out (promote by
   // default); promoRate is the seller's accepted/adjusted ad rate (%) seeded
   // from the category suggestion; promoSuggested holds the fetched suggestion so
@@ -396,11 +386,6 @@ export function FlipdeskComposerPage() {
     [item, ebayMapping],
   );
 
-  // Keep the local drag order in sync with fetched photos.
-  useEffect(() => {
-    setOrder(photos);
-  }, [photos]);
-
   // Seed editable fields once the item, photos, and listing have settled.
   // Everything the item already knows is carried in (description, condition
   // notes, grade-derived condition, target price) so the composer never asks
@@ -458,12 +443,11 @@ export function FlipdeskComposerPage() {
         ? listing.primary_photo_id
         : (photos[0]?.id ?? null);
     setPrimaryPhotoId(seededPrimary);
+    setMeasurements(
+      (item.measurements as Record<string, number | string> | null) ?? {},
+    );
     setInitialised(true);
   }, [initialised, item, listing, photos]);
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-  );
 
   // US-561: the category that publish will use, for the Promoted Listings ad-rate
   // suggestion (mirrors the resolution order in saveDraft / assemblePublishContext).
@@ -503,7 +487,7 @@ export function FlipdeskComposerPage() {
   const keywords = item ? titleKeywords(item) : [];
   const group = item ? templateGroupFor(item) : "generic";
   const primaryPhoto =
-    order.find((p) => p.id === primaryPhotoId) ?? order[0] ?? null;
+    photos.find((p) => p.id === primaryPhotoId) ?? photos[0] ?? null;
   const resolvedDescription = item
     ? interpolateDescription(description, item, measurementUnit)
     : description;
@@ -600,34 +584,6 @@ export function FlipdeskComposerPage() {
     if (accepted.length > 0) {
       toast.success("AI rewrite applied. Save the draft to keep it.");
     }
-  }
-
-  async function persistOrder(next: ItemPhotoRow[]) {
-    try {
-      await Promise.all(
-        next.map((p, i) =>
-          supabase
-            .from("item_photos")
-            .update({ sort_order: i } as never)
-            .eq("id", p.id),
-        ),
-      );
-      await qc.invalidateQueries({ queryKey: ["item_photos", id] });
-    } catch {
-      toast.error("Failed to save the new photo order.");
-      await qc.invalidateQueries({ queryKey: ["item_photos", id] });
-    }
-  }
-
-  function handleDragEnd(event: DragEndEvent) {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-    const oldIndex = order.findIndex((p) => p.id === active.id);
-    const newIndex = order.findIndex((p) => p.id === over.id);
-    if (oldIndex < 0 || newIndex < 0) return;
-    const next = arrayMove(order, oldIndex, newIndex);
-    setOrder(next); // optimistic
-    void persistOrder(next);
   }
 
   // Persists the draft. Returns the listing row's id on success (so the
@@ -795,6 +751,9 @@ export function FlipdeskComposerPage() {
           ebay_category_id: resolvedCategoryId,
           ebay_aspects: resolvedAspects,
           ebay_aspect_sources: resolvedSources,
+          // US-1567: measurements edited in the composer save with the draft.
+          measurements:
+            Object.keys(measurements).length > 0 ? measurements : null,
           ...aspectWriteBackPatch(resolvedAspects, resolvedSources),
         } as never)
         .eq("id", item.id);
@@ -1741,37 +1700,28 @@ export function FlipdeskComposerPage() {
             <CardHeader>
               <CardTitle>Photos</CardTitle>
               <CardDescription>
-                Drag to reorder. Click the star to choose the primary image.
+                Drag to reorder, click a photo to view it full size, and use
+                the pencil to rotate, straighten, or crop. The star picks the
+                primary image.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {order.length === 0 ? (
-                <p className="py-3 text-sm text-muted-foreground">
-                  No photos yet — add some from the item's Photos tab first.
-                </p>
-              ) : (
-                <DndContext
-                  sensors={sensors}
-                  collisionDetection={closestCenter}
-                  onDragEnd={handleDragEnd}
-                >
-                  <SortableContext
-                    items={order.map((p) => p.id)}
-                    strategy={horizontalListSortingStrategy}
-                  >
-                    <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-                      {order.map((photo) => (
-                        <ComposerPhoto
-                          key={photo.id}
-                          photo={photo}
-                          isPrimary={photo.id === primaryPhoto?.id}
-                          onPickPrimary={() => setPrimaryPhotoId(photo.id)}
-                        />
-                      ))}
-                    </div>
-                  </SortableContext>
-                </DndContext>
-              )}
+              {/* US-1567: the full shared photo toolkit — upload, reorder,
+                  rotate/crop/straighten, retag, delete, background removal,
+                  and click-to-view — identical to the item page, so the
+                  drafts flow never sends the seller elsewhere for photo
+                  work. The star keeps the composer's primary-photo pick. */}
+              <PhotoUploader
+                itemId={item.id}
+                currentStatus={item.status}
+                category={item.category}
+              />
+              <PhotoManager
+                itemId={item.id}
+                liveListingId={isLiveListing ? listing?.id : null}
+                primaryPhotoId={primaryPhoto?.id ?? null}
+                onPickPrimary={setPrimaryPhotoId}
+              />
 
               {item.grade_value != null && (
                 <div className="rounded-md border p-3">
@@ -1788,6 +1738,26 @@ export function FlipdeskComposerPage() {
                   </p>
                 </div>
               )}
+            </CardContent>
+          </Card>
+
+          {/* US-1567: measurements — same form as the item canvas. */}
+          <Card id="composer-measurements">
+            <CardHeader>
+              <CardTitle>Measurements</CardTitle>
+              <CardDescription>
+                Flat measurements buyers ask about. Saved to the item and
+                folded into the category's measurement specifics at publish.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <MeasurementForm
+                category={item.category}
+                brand={item.brand}
+                values={measurements}
+                onChange={setMeasurements}
+                aiSources={item.ai_field_sources ?? null}
+              />
             </CardContent>
           </Card>
 
@@ -2019,71 +1989,6 @@ export function FlipdeskComposerPage() {
         fieldLabels={{ title: "Title", description: "Description" }}
         onApply={applyRewrite}
       />
-    </div>
-  );
-}
-
-function ComposerPhoto({
-  photo,
-  isPrimary,
-  onPickPrimary,
-}: {
-  photo: ItemPhotoRow;
-  isPrimary: boolean;
-  onPickPrimary: () => void;
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: photo.id });
-
-  return (
-    <div
-      ref={setNodeRef}
-      style={{
-        transform: CSS.Transform.toString(transform),
-        transition,
-        opacity: isDragging ? 0.5 : 1,
-      }}
-      className={cn(
-        "relative aspect-square overflow-hidden rounded-md border bg-muted/40",
-        isPrimary && "ring-2 ring-brand-navy",
-      )}
-    >
-      <img
-        src={itemPhotoThumb(photo)}
-        alt=""
-        loading="lazy"
-        className="h-full w-full object-cover"
-      />
-      <button
-        type="button"
-        {...attributes}
-        {...listeners}
-        className="absolute left-1 top-1 cursor-grab rounded bg-background/80 p-1 text-muted-foreground active:cursor-grabbing"
-        aria-label="Drag to reorder"
-      >
-        <GripVertical className="h-3.5 w-3.5" />
-      </button>
-      <button
-        type="button"
-        onClick={onPickPrimary}
-        aria-label={isPrimary ? "Primary photo" : "Set as primary photo"}
-        title={isPrimary ? "Primary photo" : "Set as primary photo"}
-        className={cn(
-          "absolute right-1 top-1 rounded bg-background/80 p-1",
-          isPrimary
-            ? "text-amber-500"
-            : "text-muted-foreground hover:text-amber-500",
-        )}
-      >
-        <Star
-          className={cn("h-3.5 w-3.5", isPrimary && "fill-current")}
-        />
-      </button>
-      {isPrimary && (
-        <span className="absolute bottom-1 left-1 rounded bg-brand-navy px-1.5 py-0.5 text-[9px] font-semibold text-white">
-          Primary
-        </span>
-      )}
     </div>
   );
 }

@@ -31,6 +31,7 @@ import { flipdeskReconciliationRoutes } from "./routes/flipdesk-reconciliation.t
 import { flipdeskSheetsRoutes } from "./routes/flipdesk-sheets.ts";
 import { flipdeskAiRoutes } from "./routes/flipdesk-ai.ts";
 import { flipdeskScoutRoutes } from "./routes/flipdesk-scout.ts";
+import { flipdeskMeasureRoutes } from "./routes/flipdesk-measure.ts";
 import { flipdeskForecastRoutes } from "./routes/flipdesk-forecast.ts";
 import { flipdeskProductRoutes } from "./routes/flipdesk-product.ts";
 import { flipdeskTemplatesRoutes } from "./routes/flipdesk-templates.ts";
@@ -380,6 +381,7 @@ app.use("/api/flipdesk/reconciliation/*", authMiddleware);
 app.use("/api/flipdesk/sheets/*", authMiddleware);
 app.use("/api/flipdesk/ai/*", authMiddleware);
 app.use("/api/flipdesk/scout/*", authMiddleware);
+app.use("/api/flipdesk/measure/*", authMiddleware);
 app.use("/api/flipdesk/product/*", authMiddleware);
 app.use("/api/flipdesk/templates/*", authMiddleware);
 app.use("/api/flipdesk/autolister/*", authMiddleware);
@@ -410,6 +412,7 @@ app.use("/api/flipdesk/grading/submit", accessGateMiddleware);
 app.use("/api/flipdesk/autolister/*", accessGateMiddleware);
 app.use("/api/flipdesk/ai/*", accessGateMiddleware);
 app.use("/api/flipdesk/scout/*", accessGateMiddleware);
+app.use("/api/flipdesk/measure/*", accessGateMiddleware);
 
 // US-585: authenticated access-status check for the SPA. Public capture
 // (POST /api/waitlist) is unauthenticated + rate-limited below.
@@ -489,6 +492,7 @@ app.use("/api/flipdesk/listings/*", workspaceMiddleware);
 app.use("/api/flipdesk/reconciliation/*", workspaceMiddleware);
 app.use("/api/flipdesk/ai/*", workspaceMiddleware);
 app.use("/api/flipdesk/scout/*", workspaceMiddleware);
+app.use("/api/flipdesk/measure/*", workspaceMiddleware);
 app.use("/api/flipdesk/product/*", workspaceMiddleware);
 app.use("/api/passport/garments/*", workspaceMiddleware);
 app.use("/api/flipdesk/templates/*", workspaceMiddleware);
@@ -653,6 +657,9 @@ app.use("/api/flipdesk/grading/*", rateLimiter(60, 60_000, "flipdesk-grading"));
 app.use("/api/flipdesk/ai/*", rateLimiter(20, 60_000, "flipdesk-ai"));
 // US-619: ScoutAI is expensive (grades N candidates per scan) - cap tightly.
 app.use("/api/flipdesk/scout/*", rateLimiter(6, 60_000, "flipdesk-scout"));
+// US-1572: calibration is CPU-bound image decode + CV (no model call) — cap
+// enough for a capture-review loop without letting one client hog the worker.
+app.use("/api/flipdesk/measure/*", rateLimiter(15, 60_000, "flipdesk-measure"));
 // US-598: barcode/UPC lookup is a single cheap eBay Browse call — roomy budget
 // so scanning a haul item-by-item never trips the limiter.
 app.use("/api/flipdesk/product/*", rateLimiter(40, 60_000, "flipdesk-product"));
@@ -857,6 +864,7 @@ app.route("/api/flipdesk/reconciliation", flipdeskReconciliationRoutes);
 app.route("/api/flipdesk/sheets", flipdeskSheetsRoutes);
 app.route("/api/flipdesk/ai", flipdeskAiRoutes);
 app.route("/api/flipdesk/scout", flipdeskScoutRoutes);
+app.route("/api/flipdesk/measure", flipdeskMeasureRoutes);
 // US-1104 Garment Passport resale-value & depreciation forecast — list price,
 // days-to-sell, 12-month resale projection + CI from the owner's SKU-class sale
 // ledger. Tenant-scoped; compPulls plan tier + passport_forecast kill-switch.

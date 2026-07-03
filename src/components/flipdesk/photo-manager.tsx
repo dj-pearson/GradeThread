@@ -15,7 +15,7 @@ import {
   rectSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical, Trash2, Pencil, Wand2, Loader2 } from "lucide-react";
+import { GripVertical, Trash2, Pencil, Wand2, Loader2, Star } from "lucide-react";
 import { toast } from "sonner";
 import {
   Select,
@@ -24,6 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/lib/supabase";
 import { FLIPDESK_PHOTO_TYPES, PHOTO_TYPE_LABELS } from "@/lib/constants";
 import { PhotoEditorDialog } from "@/components/flipdesk/photo-editor-dialog";
@@ -60,11 +61,24 @@ interface PhotoManagerProps {
    *  unmount auto-sync from double-pushing the same change. When omitted, an
    *  internal ref is used and edits sync only on unmount. */
   dirtyRef?: MutableRefObject<boolean>;
+  /** US-1567: optional primary-photo picker (the composer's star). When both
+   *  are provided each tile shows a star button; the highlighted star marks
+   *  the current primary. Omit for surfaces where position 0 is the cover. */
+  primaryPhotoId?: string | null;
+  onPickPrimary?: (photoId: string) => void;
 }
 
-export function PhotoManager({ itemId, liveListingId, dirtyRef }: PhotoManagerProps) {
+export function PhotoManager({
+  itemId,
+  liveListingId,
+  dirtyRef,
+  primaryPhotoId,
+  onPickPrimary,
+}: PhotoManagerProps) {
   const qc = useQueryClient();
   const [order, setOrder] = useState<ItemPhotoRow[]>([]);
+  // US-1567: click a thumbnail to view the full-size photo.
+  const [viewingPhoto, setViewingPhoto] = useState<ItemPhotoRow | null>(null);
   // US-1296+: coalesced auto-resync. Each photo edit persists immediately; we
   // push the net result to the live eBay listing ONCE on unmount (the editor
   // closing) instead of a full photo re-PUT per micro-edit. Refs so the cleanup
@@ -259,11 +273,35 @@ export function PhotoManager({ itemId, liveListingId, dirtyRef }: PhotoManagerPr
                 onRemoveBg={doRemoveBg}
                 removingBg={removingBgId === photo.id}
                 removeBgEnabled={removeBgEnabled}
+                onView={setViewingPhoto}
+                isPrimary={
+                  onPickPrimary ? photo.id === primaryPhotoId : undefined
+                }
+                onPickPrimary={onPickPrimary}
               />
             ))}
           </div>
         </SortableContext>
       </DndContext>
+
+      {/* US-1567: full-size viewer. */}
+      <Dialog
+        open={viewingPhoto != null}
+        onOpenChange={(o) => !o && setViewingPhoto(null)}
+      >
+        <DialogContent className="max-w-4xl p-2">
+          <DialogTitle className="sr-only">
+            {viewingPhoto ? PHOTO_TYPE_LABELS[viewingPhoto.photo_type] : "Photo"}
+          </DialogTitle>
+          {viewingPhoto && (
+            <img
+              src={viewingPhoto.photo_url}
+              alt={PHOTO_TYPE_LABELS[viewingPhoto.photo_type]}
+              className="max-h-[80vh] w-full rounded object-contain"
+            />
+          )}
+        </DialogContent>
+      </Dialog>
 
       <PhotoEditorDialog
         open={editingPhoto != null}
@@ -304,6 +342,9 @@ function SortablePhoto({
   onRemoveBg,
   removingBg,
   removeBgEnabled,
+  onView,
+  isPrimary,
+  onPickPrimary,
 }: {
   photo: ItemPhotoRow;
   gradingInFlight: boolean;
@@ -313,6 +354,9 @@ function SortablePhoto({
   onRemoveBg: (photo: ItemPhotoRow) => void;
   removingBg: boolean;
   removeBgEnabled: boolean;
+  onView: (photo: ItemPhotoRow) => void;
+  isPrimary?: boolean;
+  onPickPrimary?: (photoId: string) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: photo.id });
@@ -331,13 +375,20 @@ function SortablePhoto({
       className="overflow-hidden rounded-md border bg-card"
     >
       <div className="relative aspect-square bg-muted/40">
-        <img
-          src={itemPhotoThumb(photo)}
-          alt={PHOTO_TYPE_LABELS[photo.photo_type]}
-          loading="lazy"
-          decoding="async"
-          className="h-full w-full object-cover"
-        />
+        <button
+          type="button"
+          onClick={() => onView(photo)}
+          className="block h-full w-full cursor-zoom-in"
+          aria-label="View photo full size"
+        >
+          <img
+            src={itemPhotoThumb(photo)}
+            alt={PHOTO_TYPE_LABELS[photo.photo_type]}
+            loading="lazy"
+            decoding="async"
+            className="h-full w-full object-cover"
+          />
+        </button>
         <button
           type="button"
           {...attributes}
@@ -348,6 +399,25 @@ function SortablePhoto({
           <GripVertical className="h-3.5 w-3.5" />
         </button>
         <div className="absolute right-1 top-1 flex gap-1">
+          {onPickPrimary && (
+            <button
+              type="button"
+              onClick={() => onPickPrimary(photo.id)}
+              className={cn(
+                "rounded bg-background/80 p-1",
+                isPrimary
+                  ? "text-amber-500"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              aria-label={isPrimary ? "Primary photo" : "Set as primary photo"}
+              title={isPrimary ? "Primary photo" : "Set as primary photo"}
+            >
+              <Star
+                className="h-3.5 w-3.5"
+                fill={isPrimary ? "currentColor" : "none"}
+              />
+            </button>
+          )}
           {photo.photo_type !== "flatlay" && removeBgEnabled && (
             <button
               type="button"

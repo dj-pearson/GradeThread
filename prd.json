@@ -10053,7 +10053,7 @@
     {
       "id": "US-1572",
       "priority": 2374,
-      "passes": false,
+      "passes": true,
       "title": "Edge calibration service: detect MeasureCard, rectify perspective, persist px-per-inch",
       "description": "As the platform, given a 'measurement' photo I need a deterministic CV pass that finds the four card fiducials, computes a homography that rectifies the photo to a true top-down plane, derives pixels-per-inch, and persists that calibration — the foundation every measurement (auto or manual) is computed from. Server-side so iOS, web, and Android all share ONE implementation.",
       "acceptanceCriteria": [
@@ -10064,7 +10064,7 @@
         "Deterministic test fixtures: >= 6 synthetic renders of the card geometry (straight-on, 15deg tilt, 30deg tilt, small-in-frame, one marker occluded, blurred) with known ground truth; calibrate must recover ppi within 1% on the passing cases and emit the RIGHT error on the failing ones",
         "Endpoint registered in the tenant-isolation test suite (new-route rule)"
       ],
-      "notes": "The homography is the whole ballgame for accuracy: it converts a slightly-angled photo from an error source into a solved problem. All downstream pixel math (auto landmarks AND the manual editor) happens in RECTIFIED coordinates. Raw photos stay untouched — rectification is a coordinate transform, not a rewrite of the stored image."
+      "notes": "The homography is the whole ballgame for accuracy: it converts a slightly-angled photo from an error source into a solved problem. All downstream pixel math (auto landmarks AND the manual editor) happens in RECTIFIED coordinates. Raw photos stay untouched — rectification is a coordinate transform, not a rewrite of the stored image. BUILT 2026-07-03: pure-TS card-tuned detector (lib/measure-detect.ts — adaptive threshold via integral image, CC labeling, hull->quad, canonical unwarp + bit decode across 4 rotations, 16-corner least-squares DLT homography with normalization) — NO WASM/sidecar needed; CI validates against REAL OpenCV detections on 6 generated fixtures (scripts/generate-measure-fixtures.py; ids match, centers within 3px incl. 30deg tilt, ppi within 2%). Route POST /api/flipdesk/measure/calibrate (auth+gate+workspace+15/min limiter), tenant-scoped via inventory_items!inner, downloadItemPhoto helper, cached via item_photos.measure_calibration (migration 00347, HELD), downscale + homography rescale to original px. Calibration is NOT a billed AI action (source-guarded)."
     },
     {
       "id": "US-1573",
