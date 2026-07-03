@@ -844,6 +844,150 @@ export function AdminGradingQueuePage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* US-1533: garment expectation baselines — view/correct the trusted
+          reference briefs the grader is given. An edit is live on the next
+          grade (pipeline reads are DB-fresh). */}
+      <GarmentBaselinesCard />
     </div>
+  );
+}
+
+// ── US-1533: garment baselines admin ────────────────────────────────────────
+
+interface GarmentBaselineRow {
+  id: string;
+  brand: string;
+  garment_category: string;
+  style: string;
+  brief: string;
+  model: string;
+  prompt_version: string;
+  updated_at: string;
+}
+
+function GarmentBaselinesCard() {
+  const queryClient = useQueryClient();
+  const [brandFilter, setBrandFilter] = useState("");
+  const [editing, setEditing] = useState<GarmentBaselineRow | null>(null);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["admin-garment-baselines", brandFilter.trim()],
+    queryFn: async (): Promise<GarmentBaselineRow[]> => {
+      const params = new URLSearchParams({ limit: "50" });
+      if (brandFilter.trim()) params.set("brand", brandFilter.trim());
+      const res = await edgeFetch(
+        `/api/admin/grading/baselines?${params.toString()}`,
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const body = (await res.json()) as { baselines: GarmentBaselineRow[] };
+      return body.baselines;
+    },
+    staleTime: 30 * 1000,
+  });
+
+  const saveBrief = async () => {
+    if (!editing) return;
+    setSaving(true);
+    try {
+      const res = await edgeFetch(
+        `/api/admin/grading/baselines/${editing.id}`,
+        { method: "PUT", json: { brief: draft.trim() } },
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? `HTTP ${res.status}`);
+      }
+      toast.success("Baseline updated — live on the next grade");
+      setEditing(null);
+      queryClient.invalidateQueries({ queryKey: ["admin-garment-baselines"] });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save baseline");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Garment baselines</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          Server-generated as-manufactured expectation briefs injected into the
+          grading prompts (US-1533). Correct a bad brief here — the fix applies
+          to the very next grade.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <Input
+          value={brandFilter}
+          onChange={(e) => setBrandFilter(e.target.value)}
+          placeholder="Filter by brand…"
+          className="h-8 max-w-xs"
+        />
+        {isLoading && <Skeleton className="h-16 w-full" />}
+        {data && data.length === 0 && (
+          <p className="text-sm text-muted-foreground">
+            No baselines generated yet — they appear as branded items get graded
+            with baselines enabled.
+          </p>
+        )}
+        <div className="space-y-2">
+          {(data ?? []).map((row) => (
+            <div key={row.id} className="rounded-lg border p-3">
+              <div className="mb-1 flex flex-wrap items-center gap-2">
+                <span className="text-sm font-medium capitalize">
+                  {row.brand} · {row.garment_category}
+                  {row.style ? ` · ${row.style}` : ""}
+                </span>
+                <Badge variant="outline">{row.prompt_version}</Badge>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="ml-auto h-7"
+                  onClick={() => {
+                    setEditing(row);
+                    setDraft(row.brief);
+                  }}
+                >
+                  Edit
+                </Button>
+              </div>
+              {editing?.id === row.id ? (
+                <div className="space-y-2">
+                  <Textarea
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    rows={6}
+                  />
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={saveBrief}
+                      disabled={saving || draft.trim() === ""}
+                    >
+                      {saving ? "Saving…" : "Save"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setEditing(null)}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <p className="whitespace-pre-wrap text-xs text-muted-foreground">
+                  {row.brief}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   );
 }

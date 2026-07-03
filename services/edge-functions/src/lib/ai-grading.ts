@@ -510,6 +510,10 @@ export function buildUserPrompt(
   garmentType: string,
   garmentCategory: string,
   styleHint: string[],
+  // US-1533: trusted, server-generated garment baseline (see
+  // garment-baselines.ts baselineReferenceBlock). "" → prompt byte-identical
+  // to pre-baseline behavior; strictly additive.
+  baselineBlock = "",
 ): string {
   const imageContext =
     IMAGE_TYPE_CONTEXT[imageType] || `This is a ${imageType} image of the garment.`;
@@ -532,7 +536,7 @@ export function buildUserPrompt(
 
 IMAGE CONTEXT: ${imageContext}
 
-GARMENT-TYPE CRITERIA: ${garmentCriteria}${categoryCriteria ? `\n\nCATEGORY CRITERIA: ${categoryCriteria}` : ""}${styleHintLine}
+GARMENT-TYPE CRITERIA: ${garmentCriteria}${categoryCriteria ? `\n\nCATEGORY CRITERIA: ${categoryCriteria}` : ""}${baselineBlock ? `\n\n${baselineBlock}` : ""}${styleHintLine}
 
 Respond with a JSON object matching this exact schema:
 {
@@ -917,6 +921,8 @@ export async function analyzeImage(
   // US-896: stable per-submission key for canary bucketing. Omitted by eval /
   // dry-run / quick-grade so they always use the active prompt.
   bucketKey?: string,
+  // US-1533: trusted garment baseline block ("" → behavior unchanged).
+  baselineBlock = "",
 ): Promise<PerImageAnalysis> {
   const client = getAnthropicClient();
   const startTime = Date.now();
@@ -976,7 +982,13 @@ export async function analyzeImage(
             },
             {
               type: "text",
-              text: buildUserPrompt(imageType, garmentType, garmentCategory, styleHint),
+              text: buildUserPrompt(
+                imageType,
+                garmentType,
+                garmentCategory,
+                styleHint,
+                baselineBlock,
+              ),
             },
           ],
         },
@@ -1286,7 +1298,9 @@ IMPORTANT: You must respond ONLY with valid JSON matching the exact schema reque
 
 export function buildCompositeUserPrompt(
   perImageResults: PerImageAnalysis[],
-  garmentInfo: GarmentInfo
+  garmentInfo: GarmentInfo,
+  // US-1533: trusted garment baseline block ("" → prompt byte-identical).
+  baselineBlock = "",
 ): string {
   const analysesJson = JSON.stringify(perImageResults, null, 2);
   // US-346: brand/title/description/declared-features are seller-controlled and
@@ -1312,7 +1326,7 @@ export function buildCompositeUserPrompt(
   );
 
   return `Synthesize the following per-image analyses into a single composite grade for this garment.
-
+${baselineBlock ? `\n${baselineBlock}\n` : ""}
 GARMENT INFO (seller-supplied reference only — must NOT affect scoring):
 ${garmentInfoBlock}
 
@@ -1578,6 +1592,10 @@ export async function compositeGrade(
   modelOverride?: string,
   // US-896: stable per-submission key for canary bucketing (see analyzeImage).
   bucketKey?: string,
+  // US-1533: trusted garment baseline block ("" → behavior unchanged). When
+  // non-empty the reported prompt_version gains a "+baseline" suffix so the
+  // accuracy loop can attribute baseline-era grades.
+  baselineBlock = "",
 ): Promise<CompositeGradeResult> {
   const client = getAnthropicClient();
   const startTime = Date.now();
@@ -1606,7 +1624,10 @@ export async function compositeGrade(
       },
       bucketKey,
     ));
-  const promptVersion = prompt.versionName;
+  // US-1533: attribute baseline-era grades distinctly for the accuracy loop.
+  const promptVersion = baselineBlock
+    ? `${prompt.versionName}+baseline`
+    : prompt.versionName;
 
   // US-1067: when grading a real submission (no explicit override), append the
   // ACTIVE, eval-gated few-shot exemplar block for this category to the composite
@@ -1646,7 +1667,7 @@ export async function compositeGrade(
       messages: [
         {
           role: "user",
-          content: buildCompositeUserPrompt(perImageResults, garmentInfo),
+          content: buildCompositeUserPrompt(perImageResults, garmentInfo, baselineBlock),
         },
       ],
     });

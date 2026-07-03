@@ -25,6 +25,14 @@ edge-side code). `EXPECTED_SCHEMA_VERSION` bumped **00339 → 00340**. Apply wit
 edge redeploy (boot guard expects 00340). Zero-risk: pure enum addition —
 nothing reads the value until clients send it.
 
+### 🔸 ALSO NEW + HELD LOCALLY: 00341 (US-1533)
+
+**supabase/migrations/00341_garment_baselines.sql** - new garment_baselines table
+(operator knowledge cache for grading expectation briefs; deny-all RLS, service-role
+only). EXPECTED_SCHEMA_VERSION bumped **00340 -> 00341**. Apply with 00339+00340
+(all idempotent), NOTIFY pgrst, then the edge redeploy. Zero-risk: new empty table;
+the pipeline feature is OFF until you set GRADING_BASELINES=1 on the edge.
+
 ### Previously outstanding — apply to prod (already on origin)
 
 Everything through migration **00338** is already ON `origin/main` (0230db73 was

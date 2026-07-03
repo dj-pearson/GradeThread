@@ -57,6 +57,11 @@ const PARENT_SCOPED = [
 const SERVICE_ROLE_ONLY = new Set([
   "flipdesk_subscription_events",
   "oauth_states",
+  // US-1533 garment expectation briefs: RLS enabled, zero policies by design —
+  // written by the lazy baseline generator and read by the grading pipeline,
+  // both service-role; admins edit via /api/admin/grading/baselines. No tenant
+  // data (brand + category knowledge only); the SPA never queries it directly.
+  "garment_baselines",
   // US-146 Google Sheets OAuth CSRF state: RLS enabled, zero policies by design
   // (migration 00131 documents "all access via the service-role edge client").
   // Single-use + self-expiring; the SPA never reads it.

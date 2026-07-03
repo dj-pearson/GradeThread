@@ -9461,3 +9461,41 @@ VERIFICATION: edge 2492/0/70 (deno check+lint clean); web tsc -b 0, eslint clean
 vitest 1117/1117 (103 files); iOS no-ungated-print + brace scans clean (iOS CI is the
 compile gate). US-1525 research epic children now ALL complete (1526-1531).
 Still LOCAL-ONLY; queues behind held migrations 00339 + 00340 (00334 also pending).
+
+=== 2026-07-02 (loop): US-1533 (garment baseline knowledge layer) ===
+THE "grade it against how it is SUPPOSED to look" story (US-1532 epic child #1).
+- MIGRATION 00341 (HELD): garment_baselines - brand + garment_category + style ('' =
+  brand-level) -> brief, with generation provenance (model + prompt_version); unique
+  key on plain columns (PostgREST upsert-able); deny-all RLS operator table
+  (registered in rls-guard SERVICE_ROLE_ONLY; no tenant data). EXPECTED_SCHEMA_VERSION
+  -> 00341; packaged in PENDING_MIGRATIONS.md.
+- NEW lib/garment-baselines.ts: cache-first getGarmentBaseline with LAZY generation
+  (one cheap Haiku text call on first encounter of a brand+category; enterAiFeature
+  "grading_baseline" spend attribution; _baselineGen test seam; upsert
+  ignoreDuplicates handles racing generators); normalizeBaselineBrand skips
+  empty/unknown brands; baselineReferenceBlock renders the TRUSTED reference block
+  with the AC3 guardrail ("visible damage still scores as damage... never excuses a
+  defect") and a 1200-char cap. EVERY failure returns null -> grade proceeds exactly
+  as today (strictly additive by construction).
+- ROLLOUT GATE (AC4): GRADING_BASELINES env flag, DEFAULT OFF. Enabling is the
+  deliberate operator step after the golden-set eval + canary run through the
+  existing machinery - never a silent hot change. When ON, the composite
+  prompt_version reports "<version>+baseline" so accuracy tracking attributes
+  baseline-era grades distinctly.
+- INJECTION: buildUserPrompt / analyzeImage / buildCompositeUserPrompt /
+  compositeGrade gain trailing baselineBlock params (default "" -> BYTE-IDENTICAL
+  prompts, regression test-guarded). grading-pipeline fetches the baseline ONCE
+  before the memory-gated closure and threads it through per-image, composite, AND
+  the US-1066 escalation re-grade. The block sits OUTSIDE the US-346 untrusted
+  fence - brand knowledge returns through a trusted server channel, so the seller
+  prompt-injection defense is untouched. Eval / dry-run / few-shot harnesses are
+  deliberately baseline-free (the golden set measures the prompt itself).
+- ADMIN (AC5): GET /api/admin/grading/baselines (search brand/category) + PUT
+  /baselines/:id (brief edit, audit-logged, 2000-char bound); GarmentBaselinesCard
+  on /admin/grading with inline edit. Pipeline reads are DB-fresh so an edit is
+  live on the very next grade - the edit IS the cache invalidation.
+TESTS: 5 deno tests (brand normalization; trust label + guardrail + truncation +
+empty-brief no-op; env-flag parsing incl. default OFF; per-image AND composite
+byte-identity regressions + baseline-outside-the-fence ordering). FULL edge suite
+2497/0/70; web tsc -b 0 / eslint clean / vitest 1117/1117 (admin card compiles).
+Still LOCAL-ONLY; queues behind held migrations 00339 + 00340 + NOW 00341.

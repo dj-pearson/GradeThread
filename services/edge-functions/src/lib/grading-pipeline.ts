@@ -12,6 +12,10 @@ import {
   type CompositeGradeResult,
 } from "./ai-grading.ts";
 import { Image } from "imagescript";
+import {
+  baselineReferenceBlock,
+  getGarmentBaseline,
+} from "./garment-baselines.ts";
 import { assessAuthenticity, type AuthenticityAssessment } from "./ai-authenticity.ts";
 import { runShadowGrades } from "./grading-shadow.ts";
 import { notifyWebhooks } from "./webhook-delivery.ts";
@@ -233,6 +237,9 @@ async function escalateGrade(
   // US-1296: only re-run the paid defect-zoom pass on escalation when the
   // Forensic add-on was purchased — mirrors the gate on the first-pass path.
   wantForensic: boolean,
+  // US-1533: the baseline block the first pass used — escalation grades the
+  // same item, so it sees the same trusted reference ("" → unchanged).
+  baselineBlock = "",
 ): Promise<
   { perImageResults: PerImageAnalysis[]; compositeResult: CompositeGradeResult } | null
 > {
@@ -272,6 +279,7 @@ async function escalateGrade(
         undefined,
         model,
         submissionId,
+        baselineBlock,
       )
     );
     const results = await Promise.allSettled(perImagePromises);
@@ -307,6 +315,7 @@ async function escalateGrade(
     undefined,
     model,
     submissionId,
+    baselineBlock,
   );
   return { perImageResults, compositeResult };
 }
@@ -1027,6 +1036,17 @@ export async function processSubmission(submissionId: string) {
       style_attributes: styleHint,
     };
 
+    // US-1533: trusted garment expectation baseline (flag-gated, default OFF;
+    // cache-first with lazy generation). Fetched ONCE before the memory-gated
+    // closure so both the per-image calls and the composite share it. Strictly
+    // additive — a null baseline leaves every prompt byte-identical.
+    const baselineBlock = baselineReferenceBlock(
+      (await getGarmentBaseline({
+        brand: submission.brand,
+        garmentCategory: submission.garment_category,
+      })) ?? "",
+    );
+
     // --- Steps 3+4: download → base64 → per-image analysis, under a
     // process-wide memory gate (US-573). The base64 data URIs stay resident
     // for the whole analysis, so the slot is held across BOTH steps — this
@@ -1084,6 +1104,7 @@ export async function processSubmission(submissionId: string) {
           // US-1066: cheap first-pass model when the cascade is on (else default).
           firstPassModel,
           submissionId,
+          baselineBlock,
         )
       );
 
@@ -1283,6 +1304,8 @@ export async function processSubmission(submissionId: string) {
       // US-1066: cheap first-pass model when the cascade is on (else default).
       firstPassModel,
       submissionId,
+      // US-1533: same trusted baseline the per-image pass saw.
+      baselineBlock,
     );
 
     // US-1066: escalate a low-confidence / high-value first-pass grade to the
@@ -1329,6 +1352,7 @@ export async function processSubmission(submissionId: string) {
             submissionId,
             cascade.escalationModel,
             wantForensic,
+            baselineBlock,
           );
           if (escalated) {
             perImageResults = escalated.perImageResults;

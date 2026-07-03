@@ -2201,3 +2201,62 @@ adminGradingRoutes.post("/submissions/:id/regrade", async (c) => {
   });
   return c.json({ ok: true, superseded: result.supersededReportIds.length });
 });
+
+// ── US-1533: garment expectation baselines ──────────────────────────────────
+//
+// GET  /baselines?brand=&category=&limit=   — browse/search cached briefs
+// PUT  /baselines/:id { brief }             — reviewer corrects a bad brief
+//
+// Reads in the grading pipeline are DB-fresh (no in-memory cache), so an edit
+// here is live on the very next grade — the edit IS the cache invalidation.
+adminGradingRoutes.get("/baselines", async (c) => {
+  const brand = c.req.query("brand")?.trim().toLowerCase() || null;
+  const category = c.req.query("category")?.trim().toLowerCase() || null;
+  const limit = Math.min(Math.max(Number(c.req.query("limit") ?? "50") || 50, 1), 200);
+
+  let query = supabaseAdmin
+    .from("garment_baselines")
+    .select("id, brand, garment_category, style, brief, model, prompt_version, created_at, updated_at")
+    .order("updated_at", { ascending: false })
+    .limit(limit);
+  if (brand) query = query.ilike("brand", `%${brand}%`);
+  if (category) query = query.eq("garment_category", category);
+
+  const { data, error } = await query;
+  if (error) {
+    console.error("[admin-grading] baselines list failed:", error);
+    return c.json({ error: "Failed to load baselines" }, 500);
+  }
+  return c.json({ baselines: data ?? [] });
+});
+
+adminGradingRoutes.put("/baselines/:id", async (c) => {
+  const id = c.req.param("id");
+  let body: { brief?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const brief = typeof body.brief === "string" ? body.brief.trim() : "";
+  if (brief === "" || brief.length > 2000) {
+    return c.json({ error: "brief must be a non-empty string of at most 2000 chars" }, 400);
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from("garment_baselines")
+    .update({ brief })
+    .eq("id", id)
+    .select("id")
+    .maybeSingle();
+  if (error) {
+    console.error("[admin-grading] baseline update failed:", error);
+    return c.json({ error: "Failed to update baseline" }, 500);
+  }
+  if (!data) return c.json({ error: "Baseline not found" }, 404);
+
+  await auditLog(c, "grading.baseline_edit", "garment_baseline", id, {
+    brief_length: brief.length,
+  });
+  return c.json({ ok: true });
+});
