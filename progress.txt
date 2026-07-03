@@ -10392,3 +10392,17 @@ VERIFIED LOCALLY: three gates green; scrubber suite 6/6 in the results XML.
   the owner provider + revocation callback on both client profiles; initialized
   in Application.onCreate.
 VERIFIED LOCALLY: three gates green; 4/4 in the results XML.
+
+=== 2026-07-03 (loop v2): US-1310 (email/password auth + auth-state Flow) ===
+- AuthRepository: supabase-kt sessionStatus tailed into a phase StateFlow;
+  session restores from encrypted storage without a round-trip. THE 1h-BOUNDARY
+  RULE CARRIED FROM iOS: RefreshFailure HOLDS the phase (pure transition,
+  unit-proven) - a transient refresh failure is never a sign-out.
+- Actions: signIn / signUp (full_name metadata, Turnstile captcha plumbed) /
+  resendConfirmation (the US-810 unconfirmed-email recovery) / resetPassword /
+  LOCAL-FIRST signOut (US-1499): wipe signal + workspace clear + telemetry
+  clear + phase change all land BEFORE the best-effort server revoke, so an
+  offline user is never stuck signed-in. signOutEvents feeds the US-1323 wipe.
+- FriendlyAuthError: the FriendlyErrorCopy port - typed edge cases beat string
+  matching; every case's copy is actionable (length-checked by test).
+VERIFIED LOCALLY: three gates green; 6/6 auth tests in the results XML.

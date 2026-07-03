@@ -6500,7 +6500,7 @@
     {
       "id": "US-1310",
       "priority": -98690,
-      "passes": false,
+      "passes": true,
       "title": "Email/password PKCE auth + session storage + auth-state Flow",
       "description": "As a user, I want to sign in or sign up with email/password and stay signed in across launches, with clear errors.",
       "acceptanceCriteria": [
@@ -6509,7 +6509,7 @@
         "Friendly error copy mapping (mirrors FriendlyErrorCopy); errors surfaced to UI",
         "Sign-out clears session + triggers the local-data wipe (US-1323)"
       ],
-      "notes": "[P1][Android/Auth] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P1][Android/Auth] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. [COMPLETION 2026-07-03] auth/ package, locally verified (three gates; FriendlyAuthErrorTest 3/3 + AuthPhaseTransitionTest 3/3 in results XML). AuthRepository (Hilt singleton): tails supabase-kt sessionStatus into phase: StateFlow (Loading/SignedOut/SignedIn(userId,email)); session restores from the US-1307 EncryptedSessionManager so relaunches land signed-in without a round-trip (AC1). THE 1h-BOUNDARY RULE CARRIED: SessionStatus.RefreshFailure HOLDS the current phase (pure nextPhase transition, unit-proven) - a transient refresh failure is never a sign-out; EdgeApi surfaces it as a network error until refresh succeeds or the server definitively rejects. Actions: signIn/signUp (full_name metadata via buildJsonObject; captchaToken plumbed for US-368 Turnstile), resendConfirmation (OtpType SIGNUP - the US-810 unconfirmed-email recovery, AC2), resetPassword, LOCAL-FIRST signOut (US-1499: signOutEvents emission for the US-1323 wipe consumers + WorkspaceScope.clear + Telemetry.clearUser + phase->SignedOut ALL before the best-effort server revoke - an airplane-mode user is never stuck signed-in, AC4). Errors classify through FriendlyAuthError (iOS FriendlyErrorCopy port: typed edge cases beat string matching; offline/invalid-creds/not-confirmed/rate-limit/exists/weak-password/expired-link/generic with actionable copy per case, length-checked by test) into a lastError StateFlow (AC3). Telemetry.setUser on authenticated (id only). Auth UI screens = the next story."
     },
     {
       "id": "US-1311",
