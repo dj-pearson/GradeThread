@@ -131,6 +131,7 @@ import { handlePassportIntegrityScanCron } from "./routes/jobs-passport-integrit
 import { handlePassportBackfillCron } from "./routes/jobs-passport-backfill.ts";
 import { handleListingPromptPromoteCron } from "./routes/jobs-listing-prompt-promote.ts";
 import { handleExemplarAssemblyCron } from "./routes/jobs-exemplar-assembly.ts";
+import { handleConfidenceCalibrationCron } from "./routes/jobs-confidence-calibration.ts";
 import { handleNorthStarDigestCron } from "./routes/jobs-north-star.ts";
 import { handleContentWatchdogCron } from "./routes/jobs-content-watchdog.ts";
 import { handleContentRefreshCron } from "./routes/jobs-content-refresh.ts";
@@ -1169,6 +1170,10 @@ app.post("/api/jobs/listing-prompt-promote", (c) => handleListingPromptPromoteCr
 // the job secret. Schedule on Coolify cron (weekly, e.g. Sun 12:00 UTC);
 // optional ?category= assembles a category-scoped set.
 app.post("/api/jobs/exemplar-assembly", (c) => handleExemplarAssemblyCron(c));
+// US-1557 per-category confidence calibration: recompute reliability curves +
+// thresholds from human-review outcomes; enforcement stays behind the
+// setting's own enabled flag. Weekly (e.g. Sun 13:00 UTC).
+app.post("/api/jobs/confidence-calibration", (c) => handleConfidenceCalibrationCron(c));
 // US-597 North Star digest. Weekly (Monday) encouragement + milestone emails
 // tied to items-listed-per-week, with streak tracking. Handler enforces the
 // job secret. Schedule on Coolify cron (weekly, e.g. Mon 14:00 UTC).

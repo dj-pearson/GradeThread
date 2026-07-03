@@ -145,7 +145,11 @@ function ageTone(ms: number): string {
 function computeWeightedScore(factors: FactorScores): number {
   let total = 0;
   for (const key of FACTOR_KEYS) total += factors[key] * FACTOR_META[key].weight;
-  return Math.round(total * 2) / 2;
+  // LOCKSTEP (grading-engine skill): the weighted OVERALL rounds to 0.1 —
+  // matching ai-grading.roundToTenth / human-review.computeWeightedOverall /
+  // reviews.tsx computeWeightedScore. This previewed 0.5-rounded values while
+  // the edge persisted 0.1-rounded ones (drift caught 2026-07-03, US-1557).
+  return Math.round(total * 10) / 10;
 }
 
 // ─── Main Component ─────────────────────────────────────────────────
@@ -853,7 +857,117 @@ export function AdminGradingQueuePage() {
       {/* US-1535: the learnings loop — auto-assembled exemplar sets land here
           after the scheduled eval; passing sets activate with one click. */}
       <ExemplarSetsCard />
+
+      {/* US-1557: per-category confidence calibration — shadow-first. */}
+      <CalibrationCard />
     </div>
+  );
+}
+
+// ── US-1557: confidence calibration ─────────────────────────────────────────
+
+interface CalibrationCurveBin {
+  lo: number;
+  hi: number;
+  n: number;
+  meanAbsError: number;
+  errorRate: number;
+}
+
+interface CalibrationCategory {
+  threshold: number;
+  sample_size: number;
+  shipped_error_rate: number | null;
+  curve: CalibrationCurveBin[];
+}
+
+interface CalibrationResponse {
+  calibration: {
+    enabled: boolean;
+    target_error_rate: number;
+    computed_at: string | null;
+    categories: Record<string, CalibrationCategory>;
+  };
+  flat_threshold: number;
+}
+
+function CalibrationCard() {
+  const { data, isLoading } = useQuery({
+    queryKey: ["admin-calibration-thresholds"],
+    queryFn: async (): Promise<CalibrationResponse> => {
+      const res = await edgeFetch("/api/admin/grading/calibration-thresholds");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return (await res.json()) as CalibrationResponse;
+    },
+    staleTime: 60 * 1000,
+  });
+
+  const cats = Object.entries(data?.calibration.categories ?? {}).sort(
+    (a, b) => a[0].localeCompare(b[0]),
+  );
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          Confidence calibration
+          {data && (
+            <Badge
+              className={
+                data.calibration.enabled
+                  ? "bg-green-100 text-green-800 dark:bg-green-950/50 dark:text-green-300"
+                  : "bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300"
+              }
+            >
+              {data.calibration.enabled ? "Enforcing" : "Shadow mode"}
+            </Badge>
+          )}
+        </CardTitle>
+        <p className="text-sm text-muted-foreground">
+          Per-category review thresholds derived weekly from human-review
+          outcomes (US-1557). In shadow mode the flat threshold
+          {data ? ` (${data.flat_threshold})` : ""} still rules and would-route
+          deltas are logged. Enable / override via the Settings Registry key{" "}
+          <code>grading_confidence_calibration</code>.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {isLoading && <Skeleton className="h-14 w-full" />}
+        {data && cats.length === 0 && (
+          <p className="text-sm text-muted-foreground">
+            No categories calibrated yet — needs ≥50 reviewed grades per
+            category. The weekly job fills this in as reviews accumulate.
+          </p>
+        )}
+        {cats.map(([name, cat]) => (
+          <div key={name} className="rounded-lg border p-3">
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <span className="font-medium capitalize">{name}</span>
+              <Badge variant="outline">
+                threshold {cat.threshold.toFixed(2)}
+                {data ? ` (flat ${data.flat_threshold})` : ""}
+              </Badge>
+              <span className="text-xs text-muted-foreground">
+                n={cat.sample_size}
+                {cat.shipped_error_rate != null
+                  ? ` · shipped error ${(cat.shipped_error_rate * 100).toFixed(1)}%`
+                  : ""}
+              </span>
+            </div>
+            {cat.curve.length > 0 && (
+              <p className="mt-1 font-mono text-xs text-muted-foreground">
+                {cat.curve
+                  .map(
+                    (b) =>
+                      `${b.lo.toFixed(2)}–${b.hi.toFixed(2)}: ${(b.errorRate * 100).toFixed(0)}% err (n=${b.n})`,
+                  )
+                  .join("  ·  ")}
+              </p>
+            )}
+          </div>
+        ))}
+      </CardContent>
+    </Card>
   );
 }
 

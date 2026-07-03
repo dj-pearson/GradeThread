@@ -1,6 +1,13 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import {
+  CALIBRATION_SETTING_KEY,
+  EMPTY_CALIBRATION,
+  type CalibrationSetting,
+} from "../lib/confidence-calibration.ts";
+import { getSetting } from "../lib/system-settings.ts";
+import { reviewConfidenceThreshold } from "../lib/ai-config.ts";
 import { failSafe } from "../lib/http-errors.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import {
@@ -1226,6 +1233,23 @@ adminGradingRoutes.post("/exemplars/:id/deactivate", async (c) => {
   await deactivateExemplarSet(id);
   await auditLog(c, "deactivate_exemplar_set", "grading_exemplar_set", id, {});
   return c.json({ ok: true });
+});
+
+// ── US-1557: confidence-calibration view ─────────────────────────────
+//
+// GET /calibration-thresholds — the persisted per-category calibration
+// (thresholds + reliability curves + enabled flag). Manual override / enable
+// happens through the system-settings editor (key
+// grading_confidence_calibration) — this is the read-only curve view.
+adminGradingRoutes.get("/calibration-thresholds", async (c) => {
+  const calibration = await getSetting<CalibrationSetting>(
+    CALIBRATION_SETTING_KEY,
+    EMPTY_CALIBRATION,
+  );
+  return c.json({
+    calibration,
+    flat_threshold: reviewConfidenceThreshold(),
+  });
 });
 
 // ── Regression monitor (US-327) ──────────────────────────────────────

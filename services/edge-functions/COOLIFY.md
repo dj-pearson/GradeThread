@@ -222,6 +222,7 @@ the handler returns 401.
 | audit-anomaly-scan      | `5 * * * *` (hourly)   | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/audit-anomaly-scan`                    |
 | passport-integrity-scan | `0 */6 * * *` (6h)     | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/passport-integrity-scan`               |
 | exemplar-assembly       | `0 12 * * 0` (Sun 12:00) | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/exemplar-assembly`                    |
+| confidence-calibration  | `0 13 * * 0` (Sun 13:00) | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/confidence-calibration`               |
 
 > **Cadence notes (US-496):**
 > - `reprice-scan` fans out one eBay Browse call per active listing — every 6h

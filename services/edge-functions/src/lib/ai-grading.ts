@@ -26,6 +26,13 @@ import {
   type FiberContentEntry,
 } from "./fabric-criteria.ts";
 import {
+  CALIBRATION_SETTING_KEY,
+  EMPTY_CALIBRATION,
+  thresholdForCategory,
+  type CalibrationSetting,
+} from "./confidence-calibration.ts";
+import { getSettingSync } from "./system-settings.ts";
+import {
   applyDefectWeighting,
   coerceAreaPct,
   coerceDefectType,
@@ -2018,6 +2025,39 @@ export async function compositeGrade(
       imageAuthenticity.manipulation_suspected ||
       imageAuthenticity.screenshot_or_watermark_detected;
 
+    // US-1557: per-category calibrated review threshold. Enforced ONLY when
+    // the calibration setting's own `enabled` flag is true; until then the
+    // flat threshold rules and we SHADOW-LOG any decision the calibrated
+    // threshold would have changed, so enforcement is provable from data
+    // before it gates real reviews. Defect-divergence and every cap below
+    // remain ORed in unchanged — calibration replaces only the flat term.
+    const flatThreshold = reviewConfidenceThreshold();
+    const calibration = getSettingSync<CalibrationSetting>(
+      CALIBRATION_SETTING_KEY,
+      EMPTY_CALIBRATION,
+    );
+    const calibrated = thresholdForCategory(
+      calibration,
+      garmentInfo.garment_category,
+      flatThreshold,
+    );
+    const effectiveThreshold = calibration.enabled && calibrated.calibrated
+      ? calibrated.threshold
+      : flatThreshold;
+    if (
+      !calibration.enabled && calibrated.calibrated &&
+      (confidenceScore < flatThreshold) !==
+        (confidenceScore < calibrated.threshold)
+    ) {
+      void captureServer("grading-engine", "grading.calibration_shadow_delta", {
+        garment_category: garmentInfo.garment_category,
+        confidence: confidenceScore,
+        flat_threshold: flatThreshold,
+        calibrated_threshold: calibrated.threshold,
+        would_route_to_review: confidenceScore < calibrated.threshold,
+      });
+    }
+
     // US-483: a flagged authenticity signal OR any defaulted factor caps
     // confidence and forces human review (the grade abstains rather than
     // shipping confidently on partially-hallucinated output).
@@ -2025,7 +2065,7 @@ export async function compositeGrade(
       confidenceScore,
       authenticityFlagged,
       defaultedFactorCount,
-      reviewThreshold: reviewConfidenceThreshold(),
+      reviewThreshold: effectiveThreshold,
     });
     let finalConfidence = policy.finalConfidence;
     let needsHumanReview = policy.needsHumanReview;

@@ -73,6 +73,8 @@ export const CRON_REGISTRY: CronDef[] = [
   { name: "autolister-reclaim", label: "AutoLister reclaim", schedule: "*/5 * * * *", category: "autolister", endpoint: "/api/jobs/autolister-reclaim", recorded: true },
   { name: "publish-batch-reclaim", label: "Publish-batch reclaim", schedule: "*/5 * * * *", category: "publish", endpoint: "/api/jobs/publish-batch-reclaim", recorded: true },
   { name: "grading-monitor", label: "Grading regression monitor", schedule: "0 */12 * * *", category: "grading", endpoint: "/api/jobs/grading-monitor", recorded: true },
+  // US-1557: weekly per-category review-threshold calibration (shadow-first).
+  { name: "confidence-calibration", label: "Confidence calibration", schedule: "0 13 * * 0", category: "grading", endpoint: "/api/jobs/confidence-calibration", recorded: true },
   { name: "stuck-submissions", label: "Stuck-submission recovery", schedule: "*/10 * * * *", category: "grading", endpoint: "/api/jobs/stuck-submissions", recorded: true },
   { name: "push-token-prune", label: "Push-token prune", schedule: "0 3 * * *", category: "maintenance", endpoint: "/api/jobs/push-token-prune", recorded: true },
   { name: "sync-reaper", label: "eBay sync reaper", schedule: "*/15 * * * *", category: "sync", endpoint: "/api/jobs/sync-reaper", recorded: true },

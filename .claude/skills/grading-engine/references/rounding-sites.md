@@ -23,6 +23,13 @@ CI (`schema-version_test` siblings) does not catch drift here; reviewers must.
   sees while dragging factor sliders. If this drifts from site 2, the reviewer
   approves a number different from what persists.
 
+## 4. Admin grading QUEUE dialog — `src/pages/admin/grading.tsx`
+
+- Its OWN `computeWeightedScore(factors)` (~line 145) feeds the mandatory-
+  review dialog's `computedOverall` preview. Found rounding to 0.5 on
+  2026-07-03 (drift from the 0.1 contract) and fixed — proof this map is
+  needed. Any future weighted-overall preview belongs on this list too.
+
 ## Why 0.1 overall / 0.5 factors
 
 Factors move in half-points (human-scale judgments); the overall rounds to a

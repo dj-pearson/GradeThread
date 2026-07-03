@@ -9822,7 +9822,7 @@
     {
       "id": "US-1557",
       "priority": 2180,
-      "passes": false,
+      "passes": true,
       "title": "Grading moat: per-category confidence calibration replaces the flat 0.75 review threshold",
       "description": "As the review-queue owner, the human-review trigger uses measured reliability instead of a guess: reliability curves of confidence_score vs realized error (from accuracy-tracking + human-review corrections) yield per-category calibrated thresholds targeting a chosen shipped-error rate - fewer wasted reviews AND fewer bad grades shipped.",
       "acceptanceCriteria": [
@@ -9832,7 +9832,7 @@
         "Shadow validation: log would-have-routed deltas for a period before enforcement (flag-gated activation), so the change is provable from data before it gates real reviews",
         "Unit tests for the binning/threshold math (pure lib); edge suite green"
       ],
-      "notes": "From AGENT_LEVELUP_ROADMAP.md section 6.1 (reviewed 2026-07-03) - highest-ROI moat item; the data has been accumulating in accuracy-tracking since US-329/330."
+      "notes": "From AGENT_LEVELUP_ROADMAP.md section 6.1 (reviewed 2026-07-03) - highest-ROI moat item; the data has been accumulating in accuracy-tracking since US-329/330. [COMPLETION 2026-07-03] NEW lib/confidence-calibration.ts (pure, 6 tests): binReliability curve, deriveThreshold (lowest t in [0.5,0.9] whose shipped set of >=10 keeps error-events |AI-final|>0.5 at/under target 10%; MIN_CALIBRATION_SAMPLES=50 documented fallback; hopeless data falls back - review can never be disabled), thresholdForCategory (clamped resolver). NEW cron POST /api/jobs/confidence-calibration (job-secret+lock; mines last 365d human_reviews capped 5000, latest-per-report, approvals count as absError 0 - dropping them would bias pessimistic; per-category derive; persists system_settings grading_confidence_calibration incl. per-category curves; NEVER auto-enables - preserves the operator enabled flag). CRON_REGISTRY + COOLIFY.md rows (Sun 13:00 UTC). Grading path (ai-grading.ts composite policy site): effectiveThreshold = calibrated when setting.enabled AND category calibrated, else flat reviewConfidenceThreshold(); SHADOW MODE (enabled:false default) logs grading.calibration_shadow_delta events whenever the decision would differ (AC4); defect-divergence + all caps ORed in unchanged. Admin: GET /api/admin/grading/calibration-thresholds + CalibrationCard on /admin/grading (Enforcing/Shadow badge, per-category threshold vs flat, n, shipped error rate, text reliability curve; enable/override via the settings-registry editor per AC3). DRIVE-BY caught BY the new skill discipline: admin grading.tsx computeWeightedScore rounded the dialog preview to 0.5 (drift from the 0.1 lockstep contract; reviews.tsx was correct) - fixed to 0.1 and the skill rounding-sites map now lists FOUR sites."
     },
     {
       "id": "US-1558",

@@ -9884,3 +9884,37 @@ US-1556:
 VERIFICATION: guard exercised with byte-exact cases (5/5); skills/docs otherwise
 markdown-only. Agent-infra batch (US-1553-1556) COMPLETE - all four in
 .claude/{skills,hooks,settings.json}.
+
+=== 2026-07-03 (loop): US-1557 (per-category confidence calibration, shadow-first) ===
+The flat 0.75 review threshold becomes MEASURED per-category thresholds:
+- NEW lib/confidence-calibration.ts (pure): every human review yields a (confidence,
+  |AI overall - human-final overall|) pair; error event = off by >0.5. binReliability
+  renders the curve; deriveThreshold picks the LOWEST t in [0.5, 0.9] whose shipped
+  set (conf >= t, n >= 10) keeps the error rate at/under the 10% target; categories
+  under N=50 pairs (documented minimum) or with hopeless data FALL BACK to the flat
+  threshold - calibration can lower review load, never disable review.
+- NEW weekly cron /api/jobs/confidence-calibration (job-secret + lock; CRON_REGISTRY
+  + COOLIFY.md rows, Sun 13:00 UTC): mines 365d of human_reviews (latest per report;
+  APPROVALS count as absError 0 - dropping them would bias every bin pessimistic),
+  joins confidence + category, derives per category, persists to system_settings
+  grading_confidence_calibration (thresholds + curves + sample sizes). The job NEVER
+  flips enabled - preserving the operator flag across recomputes is the shadow-first
+  guarantee.
+- Grading path (composite confidence-policy site in ai-grading.ts): when
+  setting.enabled AND the category has a real calibrated threshold, it replaces the
+  flat term ONLY; defect-divergence and every confidence cap stay ORed in. While
+  DISABLED (default), any decision the calibrated threshold would change emits a
+  grading.calibration_shadow_delta telemetry event (AC4 - provable from data before
+  it gates real reviews).
+- Admin: GET /calibration-thresholds + CalibrationCard on /admin/grading
+  (Enforcing/Shadow badge, per-category threshold vs flat + n + shipped error rate +
+  text reliability curve); manual override + enable via the existing settings-registry
+  editor (grading_confidence_calibration jsonb).
+- DRIVE-BY, caught by the day-old skill discipline: admin grading.tsx had its OWN
+  computeWeightedScore rounding the review-dialog preview to 0.5 - drift from the 0.1
+  lockstep contract (reviews.tsx was correct). Fixed to 0.1; the grading-engine
+  skill's rounding-sites reference now maps FOUR sites and records the catch.
+TESTS: 6 new deno tests (bin rates; lowest-qualifying threshold; reliable category
+earns LOWER-than-flat; under-sample fallback; hopeless-data fallback; resolver
+clamp/fallback/case-insensitivity). FULL edge 2526/0/70; web tsc -b 0, eslint clean,
+vitest 1121/1121. Held local; no migration (system_settings is row-data).
