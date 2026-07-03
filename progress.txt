@@ -9530,3 +9530,33 @@ listing-order tiebreak; elastane synonyms; parse hardening; block rendering with
 composition line + both criteria; label_2 fallback + empty cases; composite
 byte-identity + ordering). FULL edge suite 2504/0/70; deno check + lint clean.
 No web/iOS changes. Still LOCAL-ONLY; queues behind held migrations 00339-00341.
+
+=== 2026-07-02 (user request): US-1550 (AutoLister: sortable grid, bounded detection, group-every-N + range select) ===
+USER BUG: a 600-photo dump auto-grouped into 2 merged singles + ONE 600-photo group,
+and Ungroup appeared to scramble the original photo order.
+ROOT CAUSE (two compounding, both in lib/autolister-grouping.ts):
+- US-1540 filename-sequence seeding treated ANY contiguous run as one item; an
+  EXIF-less export (HEIC/Live-Photo conversion strips capture time) is one 600-long
+  contiguous run -> one seeded mega-cluster.
+- The visual dHash pass (shared applyVisualSecondPass) unions clusters transitively
+  with no bound; same-background clothing shots sit within dHash 10 of each other, so
+  the union-find chained everything else together.
+- "Scrambled order": US-1540 also removed the manual sort buttons and force-sorted the
+  grid by provenance (time first) - with mixed/absent EXIF that order looks arbitrary.
+FIX:
+- seedSequenceClusters: runs longer than MAX_AUTO_GROUP_PHOTOS (12) seed per-photo
+  clusters (order signal only), never one group.
+- New applyBoundedVisualMerge (AutoLister-only; reconcile.tsx keeps the unbounded
+  embed-based pass): closest pairs merge first; a merge is refused if it grows a group
+  past MAX_AUTO_GROUP_PHOTOS or joins clusters > VISUAL_MERGE_ORDINAL_WINDOW (3) apart
+  in shooting order. Time-gap clusters exempt from the cap (strong signal; the 30x20
+  US-1541 fixture still groups exactly).
+- autolister.tsx: persisted sort Select for the Ungrouped grid (Shooting order default /
+  File name natural-compare / Date taken / Upload order = original order, recoverable
+  after any Ungroup); "Group every N" chunks the grid in displayed order (undoable as
+  one run, N persisted); shift-click range-selects between clicks in displayed order;
+  "New group from selected" now orders by displayed order instead of click order.
+TESTS: 4 new grouping regressions (40-photo mega-run capped; identical-hash 30-photo
+chain capped; far-apart similar pair stays apart; nearby reshoot still merges).
+65/65 vitest across grouping/group-edits/reconcile; tsc -b, eslint, full build +
+prerender green. prd.json: US-1550 appended passes:true, nextId -> 1551. No migration.

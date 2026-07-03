@@ -24,6 +24,8 @@ import {
   Ungroup,
   GripVertical,
   FolderInput,
+  ArrowUpDown,
+  Layers,
 } from "lucide-react";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
@@ -31,6 +33,13 @@ import { itemPhotoThumb } from "@/lib/images";
 import { PhotoEditorDialog } from "@/components/flipdesk/photo-editor-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -160,6 +169,20 @@ function stagedSortName(p: StagedPhoto): string | null {
   return null;
 }
 
+// US-1550: user-selectable ungrouped-grid ordering. "shooting" is the US-1540
+// provenance sort the auto-grouper mirrors; the rest exist because EXIF-less
+// exports make "shooting order" meaningless and the seller then needs a
+// predictable order to group against (and to recover after an Ungroup).
+type UngroupedSortMode = "shooting" | "name" | "date" | "upload";
+const UNGROUPED_SORT_KEY = "flipdesk-autolister-ungrouped-sort";
+const GROUP_EVERY_KEY = "flipdesk-autolister-group-every";
+const UNGROUPED_SORT_LABELS: Record<UngroupedSortMode, string> = {
+  shooting: "Shooting order",
+  name: "File name",
+  date: "Date taken",
+  upload: "Upload order",
+};
+
 // US-1541: windowed rendering for the two unbounded sections. A 600-photo
 // session used to mount every thumbnail tile (and every group card) at once —
 // the initial render froze the tab. Only the first chunk mounts; scrolling the
@@ -226,8 +249,8 @@ function PhotoDragTile({
     setNodeRef: setDragRef,
     isDragging,
   } = useDraggable({ id: photoId, data: { fromGroupId: groupId } });
-  // Ungrouped tiles aren't positional targets — their order is provenance-
-  // derived (US-1540), so dropping "between" them means nothing.
+  // Ungrouped tiles aren't positional targets — their order is sort-derived
+  // (US-1540/US-1550), so dropping "between" them means nothing.
   const { setNodeRef: setDropRef, isOver } = useDroppable({
     id: `photo:${photoId}`,
     data: { groupId },
@@ -470,6 +493,28 @@ export function FlipdeskAutolisterPage() {
   });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
+  // US-1550: shift-click range selection anchor (id of the last plain click).
+  const selectAnchorRef = useRef<string | null>(null);
+  // US-1550: grid sort mode + the "group every N" chunk size, both remembered
+  // across sessions (a 600-photo intake spans many visits).
+  const [ungroupedSort, setUngroupedSort] = useState<UngroupedSortMode>(() => {
+    try {
+      const v = localStorage.getItem(UNGROUPED_SORT_KEY);
+      if (v === "shooting" || v === "name" || v === "date" || v === "upload") return v;
+    } catch {
+      // ignore — default below
+    }
+    return "shooting";
+  });
+  const [groupEvery, setGroupEvery] = useState(() => {
+    try {
+      const v = Number.parseInt(localStorage.getItem(GROUP_EVERY_KEY) ?? "", 10);
+      if (Number.isFinite(v) && v >= 1 && v <= 24) return v;
+    } catch {
+      // ignore — default below
+    }
+    return 4;
+  });
   // US-1541: windowed-rendering limits (raised by the LoadMoreSentinels).
   const [ungroupedLimit, setUngroupedLimit] = useState(GRID_CHUNK);
   const [groupsLimit, setGroupsLimit] = useState(GROUPS_CHUNK);
@@ -652,12 +697,41 @@ export function FlipdeskAutolisterPage() {
     () => staged.filter((p) => !groupedIds.has(p.id)),
     [staged, groupedIds],
   );
-  // US-1540: deterministic ungrouped-grid ordering — capture time, then camera
-  // filename sequence, then upload order (the sort is stable, so ties keep the
-  // staged order). Eyeballing the grid in this order shows the item boundaries
-  // the grouping engine will use; it replaces the manual "sort by name / by
-  // time" buttons, which only ever approximated it.
+  // US-1550: the grid's sort is user-selectable again. "Shooting order" (the
+  // US-1540 provenance sort: capture time → filename sequence → upload order)
+  // stays the default because it previews the boundaries auto-grouping will
+  // use — but exports often strip EXIF, and then the seller needs to see (and
+  // group across) their own order: by file name, by date taken, or exactly as
+  // uploaded. Every sort is stable, so ties keep the staged (upload) order.
   const ungroupedSorted = useMemo(() => {
+    if (ungroupedSort === "upload") return ungrouped;
+    if (ungroupedSort === "name") {
+      const wrapped = ungrouped.map((p) => ({ p, name: stagedSortName(p) }));
+      // Natural compare so IMG_9 < IMG_10; unnamed photos sink to the end.
+      wrapped.sort((a, b) => {
+        if (a.name != null && b.name != null) {
+          return a.name.localeCompare(b.name, undefined, {
+            numeric: true,
+            sensitivity: "base",
+          });
+        }
+        if (a.name != null) return -1;
+        if (b.name != null) return 1;
+        return 0;
+      });
+      return wrapped.map((w) => w.p);
+    }
+    if (ungroupedSort === "date") {
+      const timeOf = (p: StagedPhoto) =>
+        p.capturedAtMs ?? Number.POSITIVE_INFINITY;
+      // Unknown dates sink to the end (both-unknown ties keep upload order —
+      // never subtract two Infinities, that's NaN).
+      return [...ungrouped].sort((a, b) => {
+        const ta = timeOf(a);
+        const tb = timeOf(b);
+        return ta === tb ? 0 : ta - tb;
+      });
+    }
     const wrapped = ungrouped.map((p) => ({
       p,
       key: {
@@ -667,7 +741,7 @@ export function FlipdeskAutolisterPage() {
     }));
     wrapped.sort((a, b) => compareByProvenance(a.key, b.key));
     return wrapped.map((w) => w.p);
-  }, [ungrouped]);
+  }, [ungrouped, ungroupedSort]);
 
   // US-957: how many groups have a low-scoring cover (drives the advisory near
   // the Generate button). -1 (a QA error) is not counted as "low".
@@ -861,18 +935,47 @@ export function FlipdeskAutolisterPage() {
     }
   }
 
-  // US-1540: the manual "sort by name" / "sort by time" passes are gone — the
-  // ungrouped grid is now ALWAYS rendered in deterministic shooting order
-  // (capture time → filename sequence → upload order, see `ungroupedSorted`),
-  // which is what both buttons approximated by rewriting the staged order.
+  // US-1550: remember the chosen grid sort (see `ungroupedSorted`, which
+  // renders it; unlike the pre-US-1540 sort buttons this never rewrites the
+  // staged order, so "Upload order" always recovers the original sequence).
+  useEffect(() => {
+    try {
+      localStorage.setItem(UNGROUPED_SORT_KEY, ungroupedSort);
+      if (Number.isFinite(groupEvery) && groupEvery >= 1 && groupEvery <= 24) {
+        localStorage.setItem(GROUP_EVERY_KEY, String(groupEvery));
+      }
+    } catch {
+      // best-effort persistence only
+    }
+  }, [ungroupedSort, groupEvery]);
 
-  function toggleSelect(id: string) {
+  // US-1550: shift-click selects the whole range between the last plain click
+  // and this one, in the grid's CURRENT displayed order — the only sane way to
+  // hand-group a several-hundred-photo dump.
+  function toggleSelect(id: string, shiftKey = false) {
+    const anchor = selectAnchorRef.current;
+    if (shiftKey && anchor && anchor !== id) {
+      const order = ungroupedSorted.map((p) => p.id);
+      const i = order.indexOf(anchor);
+      const j = order.indexOf(id);
+      if (i >= 0 && j >= 0) {
+        const [lo, hi] = i < j ? [i, j] : [j, i];
+        setSelected((prev) => {
+          const next = new Set(prev);
+          for (const pid of order.slice(lo, hi + 1)) next.add(pid);
+          return next;
+        });
+        selectAnchorRef.current = id;
+        return;
+      }
+    }
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
+    selectAnchorRef.current = id;
   }
 
   // Delete staged photos (e.g. accidental duplicates). Drops them from the
@@ -1536,7 +1639,13 @@ export function FlipdeskAutolisterPage() {
   }
 
   function createGroupFromSelection() {
-    const ids = Array.from(selected).filter((id) => !groupedIds.has(id));
+    // US-1550: order the new group by the grid's displayed order, not by the
+    // click order the Set happens to remember (range selection makes click
+    // order meaningless).
+    const orderIndex = new Map(ungroupedSorted.map((p, i) => [p.id, i]));
+    const ids = Array.from(selected)
+      .filter((id) => !groupedIds.has(id))
+      .sort((x, y) => (orderIndex.get(x) ?? 0) - (orderIndex.get(y) ?? 0));
     if (ids.length === 0) return;
     applyGroupEdit(
       `Group created from ${ids.length} photo${ids.length === 1 ? "" : "s"}.`,
@@ -1604,6 +1713,34 @@ export function FlipdeskAutolisterPage() {
     void verifyGroups(true, [...groups, ...created]);
   }
 
+  // US-1550: chunk the grid into fixed-size groups, in the grid's CURRENT
+  // displayed order. The rescue tool for dumps auto-grouping can't read
+  // (EXIF stripped, one contiguous filename run): sellers who shoot a fixed
+  // number of photos per item sort by name/upload and cut every N. Undoable
+  // as one run, exactly like Auto-group.
+  function groupEveryN() {
+    const n = Math.floor(groupEvery);
+    if (!Number.isFinite(n) || n < 1 || ungroupedSorted.length === 0) return;
+    const created: Group[] = [];
+    for (let i = 0; i < ungroupedSorted.length; i += n) {
+      const chunk = ungroupedSorted.slice(i, i + n);
+      created.push({
+        id: crypto.randomUUID(),
+        name: `Item ${groups.length + created.length + 1}`,
+        photoIds: chunk.map((p) => p.id),
+        coverId: chunk[0]!.id,
+      });
+    }
+    const createdIds = created.map((g) => g.id);
+    setGroups((prev) => [...prev, ...created]);
+    setLastAutoGroupIds(createdIds);
+    setSelected(new Set());
+    toast.success(
+      `Grouped ${ungroupedSorted.length} photos into ${created.length} item${created.length === 1 ? "" : "s"} of ${n}, following the grid's current order (${UNGROUPED_SORT_LABELS[ungroupedSort].toLowerCase()}).`,
+      { action: { label: "Undo", onClick: () => undoAutoGroup(createdIds) } },
+    );
+  }
+
   // Undo the LAST auto-group run: dissolve exactly the groups it created (their
   // photos return to Ungrouped). Groups made by hand — before or after — stay.
   // `ids` defaults to the tracked run for the toolbar button; the toast action
@@ -1627,7 +1764,7 @@ export function FlipdeskAutolisterPage() {
   function ungroupAll() {
     // US-1543: undoable like every other grouping mutation.
     applyGroupEdit(
-      "All groups dissolved — photos are back in Ungrouped (shown in shooting order).",
+      "All groups dissolved — photos are back in Ungrouped, in the grid's chosen sort order.",
       (prev) => (prev.length === 0 ? prev : []),
     );
     setSelectedGroups(new Set());
@@ -2380,6 +2517,25 @@ export function FlipdeskAutolisterPage() {
             Ungrouped photos {ungrouped.length > 0 && `(${ungrouped.length})`}
           </h2>
           <div className="flex flex-wrap items-center gap-2">
+            {/* US-1550: user-selectable grid order. */}
+            <div className="flex items-center gap-1" title="Order the grid — grouping tools follow this order">
+              <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
+              <Select
+                value={ungroupedSort}
+                onValueChange={(v) => setUngroupedSort(v as UngroupedSortMode)}
+              >
+                <SelectTrigger size="sm" className="h-8 w-[140px]" aria-label="Sort photos by">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(UNGROUPED_SORT_LABELS) as UngroupedSortMode[]).map((m) => (
+                    <SelectItem key={m} value={m}>
+                      {UNGROUPED_SORT_LABELS[m]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             {lastAutoGroupIds && lastAutoGroupIds.length > 0 && (
               <Button
                 size="sm"
@@ -2400,6 +2556,31 @@ export function FlipdeskAutolisterPage() {
               <Wand2 className="mr-1 h-4 w-4" />
               Auto-group ({ungrouped.length})
             </Button>
+            {/* US-1550: fixed-size chunking in the displayed order — the rescue
+                tool when photos carry no capture times for Auto-group to use. */}
+            <div
+              className="flex items-center gap-1"
+              title="Cut the grid into items of exactly this many photos, in the order shown"
+            >
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={groupEveryN}
+                disabled={ungrouped.length === 0}
+              >
+                <Layers className="mr-1 h-4 w-4" />
+                Group every
+              </Button>
+              <Input
+                type="number"
+                min={1}
+                max={24}
+                value={Number.isFinite(groupEvery) ? groupEvery : ""}
+                onChange={(e) => setGroupEvery(e.target.valueAsNumber)}
+                aria-label="Photos per item"
+                className="h-8 w-16"
+              />
+            </div>
             <Button
               size="sm"
               variant="secondary"
@@ -2449,8 +2630,8 @@ export function FlipdeskAutolisterPage() {
                 >
                   <button
                     type="button"
-                    onClick={() => toggleSelect(p.id)}
-                    aria-label="Select photo"
+                    onClick={(e) => toggleSelect(p.id, e.shiftKey)}
+                    aria-label="Select photo (Shift-click selects the range)"
                     className="absolute inset-0"
                   >
                     <StagedThumb

@@ -4,6 +4,7 @@ import {
   compareByProvenance,
   type GroupablePhoto,
   hammingHex,
+  MAX_AUTO_GROUP_PHOTOS,
   parseFilenameSequence,
   sequenceRuns,
   VISUAL_MERGE_MAX_DISTANCE,

@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1550,
+  "nextId": 1551,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -9715,6 +9715,22 @@
         "Full edge + web suites, tsc, eslint, build green"
       ],
       "notes": "[USER REQUEST 2026-07-02, built same day] Deliberately NOT bucket-sensitive: the blob stays where it was uploaded (unguessable path); enforcement is selection-side. relist-detect hashing + operator moderation deliberately still see internal photos. iOS capture SLOT not added - retag path only."
+    },
+    {
+      "id": "US-1550",
+      "priority": 2342,
+      "passes": true,
+      "title": "AutoLister: sortable ungrouped grid, bounded auto-group detection, group-every-N + range select",
+      "description": "As a reseller dumping hundreds of photos, I need the Ungrouped grid sortable (shooting order / file name / date taken / upload order), auto-group detection that cannot collapse an EXIF-less contiguous-filename dump into one giant group, and bulk tools (group every N in displayed order, shift-click range select) so a 600-photo session is actually groupable.",
+      "acceptanceCriteria": [
+        "Ungrouped grid has a persisted sort control: Shooting order (default, provenance), File name (natural compare), Date taken, Upload order; Ungroup/Ungroup-all returns photos in the chosen order so the original order is recoverable",
+        "Filename-sequence seeding caps at MAX_AUTO_GROUP_PHOTOS: a contiguous run longer than the cap seeds per-photo clusters (order signal only), never one mega-group",
+        "Visual dHash merging is bounded: closest pairs first, refuses merges that grow a group past MAX_AUTO_GROUP_PHOTOS or join clusters more than VISUAL_MERGE_ORDINAL_WINDOW apart in shooting order (kills transitive same-background chaining)",
+        "Group every N chunks the grid in its displayed order, undoable as one run like Auto-group; N persisted",
+        "Shift-click selects the range between the last click and this one in displayed order; New group from selected orders photos by displayed order",
+        "Unit tests cover the mega-run, size-cap, and locality-window regressions; tsc, eslint, vitest, build green"
+      ],
+      "notes": "[USER REQUEST 2026-07-02] Root cause of the 600-photo mega-group: HEIC/export pipelines strip EXIF so every photo was timeless -> US-1540 seeded the single 600-long filename run as ONE cluster, and the unbounded visual union-find chained same-background photos across the whole dump. reconcile.tsx applyVisualSecondPass (embed-based, opt-in) intentionally unchanged. Time-gap clusters are exempt from the size cap (strong signal)."
     }
   ]
 }
