@@ -9754,3 +9754,24 @@ in-flight US-1552 edits (ai-listing.ts MAX_GENERATION_PHOTOS cap + flipdesk-auto
 wiring). Tree verified green WITH them (edge 2520/0, tsc, vitest) - left in place
 rather than rewriting history under a live concurrent agent. US-1552 attribution:
 that work is the other agent's; its story bookkeeping will follow in its own commit.
+
+=== 2026-07-03 (user bug, prod): US-1552 (AutoLister batch stalled silently - photo cap + timeout + observability) ===
+SYMPTOM: Generate 43 listings -> queue page shows groups, nothing progresses; Resume 202s,
+still nothing; edge logs show ONLY the polling GETs - zero worker output either run.
+ROOT CAUSE (compounding, all silent):
+- generateListing had NO photo cap: every non-internal group photo (avg ~14 from the
+  600-photo intake) fed 3-4 sequential vision calls (tag-OCR, main gen incl. cascade
+  escalation, aspects 2nd pass) -> per-item wall clock blew GENERATION_TIMEOUT_MS=90s.
+- A timeout writes error to the job row ONLY (markJobFailed never logged), so wholesale
+  failure was invisible; the claim step also swallowed DB errors (silent skip).
+FIX (services/edge-functions):
+- ai-listing.ts: MAX_GENERATION_PHOTOS=8 cap in loadItemPhotoUrls (canonical order =
+  most informative first; matches flipdesk-ai MAX_PHOTOS).
+- flipdesk-autolister.ts: GENERATION_TIMEOUT_MS 90s->240s (backstop, not target);
+  JOB_STALE_MS 5->6min (must exceed timeout); worker bookend + per-slice logs;
+  markJobFailed logs; claim DB error logged instead of silent skip; explicit
+  Retry-failed resets attempts (DB + in-memory) - MAX_JOB_ATTEMPTS only guards
+  unattended reclaim loops, not a seller who asked again.
+VERIFIED: full edge suite 2520/0/70 ignored; deno lint + check clean.
+RECOVERY (handed to user): diagnostic SQL for batch 05d36ecc-8817-4d59-914d-762cdf87716a;
+apply held migrations through 00342 -> OK push -> Coolify edge redeploy -> Retry failed.

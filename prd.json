@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1552,
+  "nextId": 1553,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -9746,6 +9746,21 @@
         "tsc, eslint, vitest, build green"
       ],
       "notes": "[USER REQUEST 2026-07-02] No DB/edge change needed: the enum has had the full set since 00230 (+internal 00340); only AutoLister was stuck on the 6-role subset. Old persisted sessions round-trip (narrow roles are a subset). iOS parity already exists via PhotoSlotType/FlipdeskPhotoType."
+    },
+    {
+      "id": "US-1552",
+      "priority": 2344,
+      "passes": true,
+      "title": "AutoLister batch worker: photo cap + realistic generation timeout + observability (43-listing batch stalled silently)",
+      "description": "As a reseller generating a 43-item batch, every job silently died: generateListing sent EVERY group photo (~14 avg from a 600-photo intake) through 3-4 sequential vision calls, blowing the 90s per-item wall clock; timeouts wrote only to the job row (no logs), the claim step swallowed DB errors, and the queue looked frozen even after Resume.",
+      "acceptanceCriteria": [
+        "loadItemPhotoUrls caps AI-input photos at MAX_GENERATION_PHOTOS (8, canonical order = most informative first), matching the AI-extract MAX_PHOTOS cap",
+        "GENERATION_TIMEOUT_MS raised 90s to 240s (hung-call backstop, not target duration); JOB_STALE_MS raised to 6min so it still exceeds the timeout",
+        "Worker logs bookends (started/N jobs, per-slice progress, finished), markJobFailed logs the failure, and a claim DB error is logged instead of silently skipping the job",
+        "Explicit Retry-failed resets the attempts budget (in the DB and in the jobs passed to the worker) - the MAX_JOB_ATTEMPTS cap only guards unattended reclaim loops",
+        "Full edge suite green (2520/0); deno lint + check clean"
+      ],
+      "notes": "[USER BUG 2026-07-03, prod] Batch 05d36ecc: polls 200, resume 202, zero worker output. Diagnosis from code reading; DB confirmation SQL handed to user. Fix needs prod edge redeploy (queued behind held migrations through 00342)."
     }
   ]
 }
