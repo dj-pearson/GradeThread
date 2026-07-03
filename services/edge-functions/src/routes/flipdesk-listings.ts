@@ -17,6 +17,8 @@ import {
   validateSiblingForPublish,
 } from "../lib/cross-listing-fields.ts";
 import { generatePlatformVariants } from "../lib/ai-listing.ts";
+import { withAiAction } from "../lib/ai-metering.ts";
+import { checkQuota } from "./flipdesk-ai.ts";
 import { recordRelist } from "../lib/passport-relist.ts";
 
 // Multi-marketplace cross-listing dispatch (US-149 + US-564).
@@ -96,8 +98,14 @@ async function resolvePlatformVariants(
   const missing = mapped.filter((p) => !fields[p]);
   if (missing.length > 0) {
     try {
-      await generatePlatformVariants(itemId, ownerId, missing);
-      await supabaseAdmin.rpc("increment_ai_actions", { p_user_id: ownerId });
+      // US-1581: one billed action for the lazy fill, reserved atomically
+      // BEFORE the model call (the old meter-after had no cap check). A cap
+      // or enablement refusal falls through to the source-copy fallback —
+      // cross-push itself must never block on AI.
+      const quota = await checkQuota(ownerId);
+      if (!quota.ok) throw new Error("AI quota unavailable for lazy variant fill");
+      await withAiAction(ownerId, quota.limit, () =>
+        generatePlatformVariants(itemId, ownerId, missing));
       fields = await read();
     } catch (err) {
       console.warn(

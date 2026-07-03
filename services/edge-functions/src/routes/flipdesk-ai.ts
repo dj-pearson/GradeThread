@@ -37,6 +37,11 @@ import {
 } from "../lib/ai-reconcile.ts";
 import { effectivePlanFor } from "../lib/grade-pricing.ts";
 import { effectiveAiCap, requireFlipdesk } from "../lib/plan-gate.ts";
+import {
+  QUOTA_EXHAUSTED_MESSAGE,
+  refundAiAction,
+  reserveAiActionSafe,
+} from "../lib/ai-metering.ts";
 
 const MAX_PHOTOS = 8;
 
@@ -152,32 +157,12 @@ export async function checkQuota(
 // gap. checkQuota stays for the enablement gate + limit resolution + a fast UX
 // rejection; reserveAiAction is the AUTHORITATIVE enforcement point. Callers
 // reserve immediately BEFORE the billable AI call and refund if it throws.
-async function reserveAiAction(userId: string, limit: number): Promise<boolean> {
-  const { data, error } = await supabaseAdmin.rpc("reserve_ai_action", {
-    p_user_id: userId,
-    p_limit: limit,
-  });
-  if (error) {
-    // Fail CLOSED: a broken counter must not hand out free, over-cap actions.
-    console.error("[flipdesk-ai] reserve_ai_action failed:", error.message);
-    return false;
-  }
-  return data === true;
-}
-
-// Return a reserved action to the pool when the work it was reserved for fails.
-async function refundAiAction(userId: string): Promise<void> {
-  const { error } = await supabaseAdmin.rpc("refund_ai_action", {
-    p_user_id: userId,
-  });
-  if (error) {
-    console.error("[flipdesk-ai] refund_ai_action failed:", error.message);
-  }
-}
+// US-1581: the primitives live in lib/ai-metering.ts (one contract, every
+// route); this alias keeps the fifteen call sites below unchanged.
+const reserveAiAction = reserveAiActionSafe;
 
 const QUOTA_EXHAUSTED_429 = {
-  error:
-    "You've used all your AI actions for this month. Your allowance resets at the start of next month.",
+  error: QUOTA_EXHAUSTED_MESSAGE,
   actions_remaining: 0,
 };
 

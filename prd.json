@@ -10194,9 +10194,9 @@
     {
       "id": "US-1581",
       "priority": 2383,
-      "passes": false,
+      "passes": true,
       "title": "AI-action metering: one reserve/refund contract on EVERY model call + coverage drift test",
-      "description": "As the operator, every Anthropic call a user triggers must count against their monthly AI-action allotment through ONE enforcement point. An audit (2026-07-03) found the atomic reserve_ai_action contract is applied on all flipdesk-ai endpoints and AutoLister batch generation, but several vision flows leak: flipdesk-scout's AI endpoints checkQuota but NEVER count (free actions); AutoLister classify-photos counts via the non-atomic increment_ai_actions but has NO cap check at all; verify-groups and the cover/item photo-QA passes use the deprecated checkQuota->increment flow (TOCTOU past the cap, and cover-QA has no cap check); flipdesk-listings' lazy cross-variant fill increments without a verified cap. This is why heavy AI use during listing intake can feel like it never counts.",
+      "description": "As the operator, every Anthropic call a user triggers must count against their monthly AI-action allotment through ONE enforcement point. An audit (2026-07-03) found the atomic reserve_ai_action contract is applied on all flipdesk-ai endpoints and AutoLister batch generation, but several vision flows leak: AutoLister classify-photos counts via the non-atomic increment_ai_actions but has NO cap check at all; verify-groups and the cover/item photo-QA passes use the deprecated checkQuota->increment flow (TOCTOU past the cap, and cover-QA has no cap check); flipdesk-listings' lazy cross-variant fill increments without a verified cap. This is why heavy AI use during listing intake can feel like it never counts.",
       "acceptanceCriteria": [
         "A single shared helper (e.g. lib/ai-metering.ts: withAiAction(ownerId, fn) — resolve limit, reserve_ai_action atomically, run fn, refund_ai_action on throw) replaces every direct checkQuota->increment_ai_actions sequence; increment_ai_actions has no remaining callers on user-triggered paths and its deprecation is noted where it is defined",
         "flipdesk-scout AI endpoints (all three checkQuota sites) reserve+refund through the helper — scout vision calls now count",
@@ -10207,7 +10207,7 @@
         "COVERAGE DRIFT TEST: a static test walks services/edge-functions/src for imports of the model-calling libs (ai-config/callClaude consumers) and asserts every consuming route module either uses the metering helper or appears on the allow-list — a future AI feature that forgets metering fails CI (same drift-test pattern as rls-guard/cron-registry)",
         "Billing page usage card is verified against a real flow in a test: one metered action moves usage.ai_actions_used_this_month by exactly 1 (and a failed model call refunds it)"
       ],
-      "notes": "User-observed (2026-07-03): 'when I do listings and leverage AI it does not count against my allotment.' Two compounding causes: (a) the leaks above — intake-time photo roles/QA/group-verify and scout are exactly the flows a heavy lister touches; (b) operator accounts are super_admin (plan-feature gates bypass) on a high-cap plan, so even metered actions barely dent the number. Do NOT add a super_admin quota bypass — operators should see real counts. AI_ACTION_LIMITS: free 25 / starter 200 / pro 750 / business 2000; reserve_ai_action is migration 00087."
+      "notes": "User-observed (2026-07-03): 'when I do listings and leverage AI it does not count against my allotment.' Two compounding causes: (a) the leaks above — intake-time photo roles/QA/group-verify are exactly the flows a heavy lister touches (scout, on closer read, already metered atomically via raw rpc calls — now unified on the lib helpers); (b) operator accounts are super_admin (plan-feature gates bypass) on a high-cap plan, so even metered actions barely dent the number. Do NOT add a super_admin quota bypass — operators should see real counts. AI_ACTION_LIMITS: free 25 / starter 200 / pro 750 / business 2000; reserve_ai_action is migration 00087."
     }
   ]
 }

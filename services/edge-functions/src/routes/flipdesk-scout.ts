@@ -16,6 +16,7 @@ import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
 import { checkQuota } from "./flipdesk-ai.ts";
+import { refundAiAction, reserveAiActionSafe } from "../lib/ai-metering.ts";
 import { searchBrowseComps, suggestCategories } from "../lib/ebay-client.ts";
 import { extractMatchHints, type VisionImage } from "../lib/ai-reconcile.ts";
 import { quickGrade } from "../lib/quick-grade.ts";
@@ -101,10 +102,7 @@ flipdeskScoutRoutes.post("/", async (c) => {
     if (!cand.imageUrl) continue; // need a photo to shadow-grade
 
     // US-619: atomically reserve one AI action; stop cleanly when the cap is hit.
-    const { data: reserved } = await supabaseAdmin.rpc("reserve_ai_action", {
-      p_user_id: userId,
-      p_limit: quota.limit,
-    });
+    const reserved = await reserveAiActionSafe(userId, quota.limit);
     if (reserved !== true) break;
 
     try {
@@ -120,7 +118,7 @@ flipdeskScoutRoutes.post("/", async (c) => {
       graded += 1;
     } catch (err) {
       // Refund the reserved action on failure so a transient error isn't billed.
-      await supabaseAdmin.rpc("refund_ai_action", { p_user_id: userId }).then(() => {}, () => {});
+      await refundAiAction(userId);
       captureException(err, { level: "warn", route: "scout.grade", extra: { itemId: cand.itemId } });
     }
   }
@@ -211,10 +209,7 @@ flipdeskScoutRoutes.post("/appraise", async (c) => {
   let needsHumanReview = false;
   let imagesAnalyzed = 0;
   if (image) {
-    const { data: reserved } = await supabaseAdmin.rpc("reserve_ai_action", {
-      p_user_id: userId,
-      p_limit: quota.limit,
-    });
+    const reserved = await reserveAiActionSafe(userId, quota.limit);
     if (reserved !== true) {
       return jsonError(
         c,
@@ -233,10 +228,7 @@ flipdeskScoutRoutes.post("/appraise", async (c) => {
       needsHumanReview = grade.needsHumanReview;
       imagesAnalyzed = grade.imagesAnalyzed;
     } catch (err) {
-      await supabaseAdmin.rpc("refund_ai_action", { p_user_id: userId }).then(
-        () => {},
-        () => {},
-      );
+      await refundAiAction(userId);
       return failSafe(
         c,
         502,
@@ -417,10 +409,7 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
   //    (US-285 primitive). One AI action; the comp search is meaningless
   //    without it, so a failure here is terminal for this call.
   {
-    const { data: reserved } = await supabaseAdmin.rpc("reserve_ai_action", {
-      p_user_id: userId,
-      p_limit: quota.limit,
-    });
+    const reserved = await reserveAiActionSafe(userId, quota.limit);
     if (reserved !== true) {
       return jsonError(
         c,
@@ -433,10 +422,7 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
   try {
     hints = await extractMatchHints(visionImages);
   } catch (err) {
-    await supabaseAdmin.rpc("refund_ai_action", { p_user_id: userId }).then(
-      () => {},
-      () => {},
-    );
+    await refundAiAction(userId);
     return failSafe(
       c,
       502,
@@ -486,10 +472,7 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
   let gradeTier: string | null = null;
   let gradeConfidence = 0;
   if (frontDataUri) {
-    const { data: reservedGrade } = await supabaseAdmin.rpc("reserve_ai_action", {
-      p_user_id: userId,
-      p_limit: quota.limit,
-    });
+    const reservedGrade = await reserveAiActionSafe(userId, quota.limit);
     if (reservedGrade === true) {
       try {
         const grade = await quickGrade({
@@ -500,10 +483,7 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
         gradeTier = grade.gradeTier;
         gradeConfidence = grade.confidence;
       } catch (err) {
-        await supabaseAdmin.rpc("refund_ai_action", { p_user_id: userId }).then(
-          () => {},
-          () => {},
-        );
+        await refundAiAction(userId);
         captureException(err, { level: "warn", route: "scout.prospect.grade" });
       }
     }

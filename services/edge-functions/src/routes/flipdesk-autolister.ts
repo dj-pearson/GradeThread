@@ -21,6 +21,14 @@ import {
 } from "../lib/ai-group-verify.ts";
 import { assessPhotoQuality } from "../lib/ai-photo-qa.ts";
 import { checkQuota } from "./flipdesk-ai.ts";
+import {
+  AiQuotaExhaustedError,
+  QUOTA_EXHAUSTED_MESSAGE,
+  refundAiAction,
+  reserveAiAction,
+  reserveAiActionSafe,
+  withAiAction,
+} from "../lib/ai-metering.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
 import { acquireJobLock } from "../lib/job-lock.ts";
@@ -202,28 +210,11 @@ export function withTimeout<T>(promise: Promise<T>, ms: number, label: string): 
   });
 }
 
-/**
- * US-527: atomically reserve one AI action against the monthly cap. Returns
- * true if reserved, false if the cap is reached. This is the SINGLE quota
- * enforcement point — replacing the old in-memory allowance that two parallel
- * batches could each spend, blowing past the cap.
- */
-async function reserveAiAction(ownerId: string, limit: number): Promise<boolean> {
-  const { data, error } = await supabaseAdmin.rpc("reserve_ai_action", {
-    p_user_id: ownerId,
-    p_limit: limit,
-  });
-  if (error) throw new Error(`Quota reservation failed: ${error.message}`);
-  return data === true;
-}
-
-/** Give a reserved AI action back when its generation ultimately failed. */
-async function refundAiAction(ownerId: string): Promise<void> {
-  const { error } = await supabaseAdmin.rpc("refund_ai_action", { p_user_id: ownerId });
-  if (error) {
-    console.error("[flipdesk-autolister] refund_ai_action failed:", error.message);
-  }
-}
+// US-527/US-1581: the atomic reserve/refund primitives live in
+// lib/ai-metering.ts — one contract for every route. The batch worker uses the
+// THROWING reserve variant (an rpc failure marks the job failed rather than
+// reading as "cap reached"); the interactive vision endpoints below use
+// withAiAction (fail-closed).
 
 async function markJobFailed(jobId: string, message: string): Promise<void> {
   // US-1552: also log it — job failures used to be DB-row-only, which made a
@@ -1015,6 +1006,10 @@ flipdeskAutolisterRoutes.post("/classify-photos", async (c) => {
   // Paid-tier gate (same as generation): the cover/role pass is an AI feature.
   const gated = await requireFlipdesk(c, { feature: "autolister", userId: ownerId });
   if (gated) return gated;
+  // US-1581: this endpoint used to meter AFTER the call with no cap check at
+  // all — an uncapped free-actions leak. Enablement + cap now gate up front.
+  const quota = await checkQuota(ownerId);
+  if (!quota.ok) return c.json(quota.body, quota.status);
 
   const photos: { id: string; url: string }[] = [];
   for (const raw of rawPhotos) {
@@ -1036,11 +1031,15 @@ flipdeskAutolisterRoutes.post("/classify-photos", async (c) => {
   }
 
   try {
-    const result = await classifyPhotoRoles(photos);
-    // Meter the AI action for usage parity with the other vision endpoints.
-    await supabaseAdmin.rpc("increment_ai_actions", { p_user_id: ownerId });
+    // One billed action, reserved atomically BEFORE the vision call and
+    // refunded if it throws (US-1581).
+    const result = await withAiAction(ownerId, quota.limit, () =>
+      classifyPhotoRoles(photos));
     return c.json({ cover_id: result.coverId, roles: result.roles });
   } catch (err) {
+    if (err instanceof AiQuotaExhaustedError) {
+      return c.json({ error: QUOTA_EXHAUSTED_MESSAGE }, 429);
+    }
     console.error("[AutoLister] classify-photos failed", err);
     return c.json(
       { error: err instanceof Error ? err.message : "Photo classification failed." },
@@ -1061,8 +1060,9 @@ flipdeskAutolisterRoutes.post("/classify-photos", async (c) => {
 // caller's own `${ownerId}/_staging/…` folder; every path is checked against
 // that prefix BEFORE any DB/AI work, so a forged path can never make us fetch
 // another tenant's image into the model. Rate-limited under the shared
-// autolister POST limiter (20/min) like its vision siblings; metered via
-// increment_ai_actions when a vision call actually ran.
+// autolister POST limiter (20/min) like its vision siblings; metered via the
+// atomic reserve (US-1581), refunded when the coverable-groups short-circuit
+// means no vision call actually ran.
 flipdeskAutolisterRoutes.post("/verify-groups", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
 
@@ -1120,12 +1120,17 @@ flipdeskAutolisterRoutes.post("/verify-groups", async (c) => {
   const quota = await checkQuota(ownerId);
   if (!quota.ok) return c.json(quota.body, quota.status);
 
+  // US-1581: reserve atomically BEFORE the vision call (the old meter-after
+  // increment could race past the cap). Fewer than two coverable groups
+  // short-circuits without touching the model — refund that reservation so a
+  // no-op stays free, exactly like the old model!=="none" metering.
+  if (!(await reserveAiActionSafe(ownerId, quota.limit))) {
+    return c.json({ error: QUOTA_EXHAUSTED_MESSAGE }, 429);
+  }
   try {
     const result = await verifyGroupBoundaries(groups, MAX_VERIFY_PHOTOS);
-    // Meter only when a vision call actually ran (fewer than two coverable
-    // groups short-circuits without touching the model).
-    if (result.model !== "none") {
-      await supabaseAdmin.rpc("increment_ai_actions", { p_user_id: ownerId });
+    if (result.model === "none") {
+      await refundAiAction(ownerId);
     }
     return c.json({
       suggestions: result.suggestions,
@@ -1135,6 +1140,7 @@ flipdeskAutolisterRoutes.post("/verify-groups", async (c) => {
       truncated: result.truncated,
     });
   } catch (err) {
+    await refundAiAction(ownerId);
     console.error("[AutoLister] verify-groups failed", err);
     return c.json(
       { error: err instanceof Error ? err.message : "Group verification failed." },
@@ -1188,6 +1194,12 @@ flipdeskAutolisterRoutes.post("/photo-qa", async (c) => {
 
     const gated = await requireFlipdesk(c, { feature: "autolister", userId: ownerId });
     if (gated) return gated;
+    // US-1581: enablement + cap gate (this branch used to meter after each
+    // vision call with NO cap check — an uncapped leak). Capture the limit
+    // into a const: TS narrowing doesn't survive into the worker closure.
+    const coverQuota = await checkQuota(ownerId);
+    if (!coverQuota.ok) return c.json(coverQuota.body, coverQuota.status);
+    const coverLimit = coverQuota.limit;
 
     type CoverResult = {
       cover_id: string;
@@ -1209,8 +1221,11 @@ flipdeskAutolisterRoutes.post("/photo-qa", async (c) => {
           .from("item-photos")
           .getPublicUrl(cover.storage_path).data.publicUrl;
         try {
-          const qa = await assessPhotoQuality([{ url, type: "front" }]);
-          await supabaseAdmin.rpc("increment_ai_actions", { p_user_id: ownerId });
+          // One billed action per cover, reserved atomically before the call
+          // and refunded on failure (US-1581). Cap reached mid-batch → stop
+          // spending: report this cover as capped and drain the queue.
+          const qa = await withAiAction(ownerId, coverLimit, () =>
+            assessPhotoQuality([{ url, type: "front" }]));
           coverResults.push({
             cover_id: cover.id,
             score: qa.score,
@@ -1222,6 +1237,16 @@ flipdeskAutolisterRoutes.post("/photo-qa", async (c) => {
             })),
           });
         } catch (err) {
+          if (err instanceof AiQuotaExhaustedError) {
+            coverResults.push({
+              cover_id: cover.id,
+              score: -1,
+              issues: [],
+              error: QUOTA_EXHAUSTED_MESSAGE,
+            });
+            coverQueue.length = 0;
+            continue;
+          }
           console.error("[AutoLister] cover photo-qa failed for", cover.id, err);
           coverResults.push({
             cover_id: cover.id,
@@ -1253,6 +1278,12 @@ flipdeskAutolisterRoutes.post("/photo-qa", async (c) => {
 
   const gated = await requireFlipdesk(c, { feature: "autolister", userId: ownerId });
   if (gated) return gated;
+  // US-1581: enablement + cap gate (per-item QA used to meter after each
+  // vision call with NO cap check — an uncapped leak). Capture the limit into
+  // a const: TS narrowing doesn't survive into the worker closure.
+  const quota = await checkQuota(ownerId);
+  if (!quota.ok) return c.json(quota.body, quota.status);
+  const qaLimit = quota.limit;
 
   // Tenant scope: only items owned by this workspace are assessed/written.
   const { data: ownedRows, error: ownErr } = await supabaseAdmin
@@ -1334,7 +1365,11 @@ flipdeskAutolisterRoutes.post("/photo-qa", async (c) => {
         continue;
       }
       try {
-        const qa = await assessPhotoQuality(photos);
+        // One billed action per item, reserved atomically before the vision
+        // call and refunded on failure (US-1581). Cap reached mid-batch →
+        // stop spending: report this item as capped and drain the queue.
+        const qa = await withAiAction(ownerId, qaLimit, () =>
+          assessPhotoQuality(photos));
         const issues: QaPersistIssue[] = qa.issues.map((i) => ({
           type: i.type,
           severity: i.severity,
@@ -1342,9 +1377,18 @@ flipdeskAutolisterRoutes.post("/photo-qa", async (c) => {
           photo_index: i.photoIndex,
         }));
         await persist(itemId, qa.score, issues);
-        await supabaseAdmin.rpc("increment_ai_actions", { p_user_id: ownerId });
         results.push({ item_id: itemId, score: qa.score, issues });
       } catch (err) {
+        if (err instanceof AiQuotaExhaustedError) {
+          results.push({
+            item_id: itemId,
+            score: -1,
+            issues: [],
+            error: QUOTA_EXHAUSTED_MESSAGE,
+          });
+          queue.length = 0;
+          continue;
+        }
         console.error("[AutoLister] photo-qa failed for", itemId, err);
         results.push({
           item_id: itemId,
@@ -2248,6 +2292,9 @@ flipdeskAutolisterRoutes.post("/platform-fields", async (c) => {
   // Paid-tier gate (AI feature), same as generation.
   const gated = await requireFlipdesk(c, { feature: "autolister", userId: ownerId });
   if (gated) return gated;
+  // US-1581: enablement + cap gate (used to meter after with no cap check).
+  const quota = await checkQuota(ownerId);
+  if (!quota.ok) return c.json(quota.body, quota.status);
 
   // Ownership pre-check for a clean 404.
   const { data: owned } = await supabaseAdmin
@@ -2259,8 +2306,10 @@ flipdeskAutolisterRoutes.post("/platform-fields", async (c) => {
   if (!owned) return c.json({ error: "Item not found for this workspace" }, 404);
 
   try {
-    const result = await generatePlatformVariants(itemId, ownerId, platforms);
-    await supabaseAdmin.rpc("increment_ai_actions", { p_user_id: ownerId });
+    // One billed action covers ALL requested platforms (single generation
+    // pass) — reserved atomically before the call, refunded on failure.
+    const result = await withAiAction(ownerId, quota.limit, () =>
+      generatePlatformVariants(itemId, ownerId, platforms));
     // US-745: attach each platform's field spec (display label + per-field
     // char limits + required flags + photo cap + the "verify these" source
     // note) so a thin native client (the iOS Listing Kit) can render a
@@ -2283,6 +2332,9 @@ flipdeskAutolisterRoutes.post("/platform-fields", async (c) => {
     });
     return c.json({ listing_id: result.listingId, variants });
   } catch (err) {
+    if (err instanceof AiQuotaExhaustedError) {
+      return c.json({ error: QUOTA_EXHAUSTED_MESSAGE }, 429);
+    }
     const msg = err instanceof Error ? err.message : "Platform-field generation failed.";
     // "no eBay draft" is a precondition the caller can fix → 409.
     const status = /no eBay draft/i.test(msg) ? 409 : 502;

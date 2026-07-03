@@ -1,6 +1,34 @@
 # GradeThread Progress Tracker
 # Ralph AI / Snarktank Format
-# Last updated: 2026-07-01
+# Last updated: 2026-07-03
+
+## 2026-07-03 — US-1581 (AI-action metering: one reserve/refund contract + coverage drift test) — passes:true
+
+User report: "when I do listings and leverage AI it does not count against my
+allotment." Audit + fix:
+- NEW lib/ai-metering.ts: reserveAiAction (throwing) / reserveAiActionSafe
+  (fail-closed) / refundAiAction / withAiAction(owner, limit, fn) with
+  injectable deps + AiQuotaExhaustedError + QUOTA_EXHAUSTED_MESSAGE. Replaces
+  THREE copies of the primitives (flipdesk-ai, flipdesk-autolister, raw rpc in
+  flipdesk-scout).
+- Leaks fixed (all now atomic reserve-before, refund-on-failure):
+  * classify-photos: metered AFTER with NO cap check -> checkQuota + withAiAction.
+  * photo-qa (cover + per-item branches): NO cap check -> quota gate + per-call
+    reserve; cap mid-batch drains the queue with a per-entry 429-style error.
+  * verify-groups: non-atomic checkQuota->increment -> reserve-before, refund on
+    the no-vision short-circuit (model==="none") and on throw.
+  * platform-fields (autolister) + lazy cross-push variant fill
+    (flipdesk-listings): meter-after with no cap -> quota + withAiAction; the
+    cross-push fill degrades to source copy at the cap (publish never blocks).
+  * scout: was ALREADY atomic via raw rpc (initial audit claim corrected in the
+    story) — unified on the lib helpers.
+- Drift tests (ai-metering-coverage_test.ts): every route importing a
+  model-calling lib must meter or sit on a rationaled allow-list (grading =
+  per-grade credits; support/admin = operator cost); allow-list staleness
+  check; increment_ai_actions banned from routes; bundling contract asserted
+  (ai-listing never reserves — caller bills one action per item).
+VERIFIED LOCALLY: deno check + lint clean; full edge suite 2560 passed / 0
+failed. No migration in this story.
 
 ## 2026-07-01 — US-1448 (Promotions Manager item promotions) — chunk 1, PARTIAL (passes:false)
 
