@@ -10423,3 +10423,17 @@ VERIFIED LOCALLY: three gates green; 6/6 auth tests in the results XML.
 - First Robolectric suite (Uri is framework); runtime jars now cached for
   future framework-touching tests.
 VERIFIED LOCALLY: three gates green; 5/5 in the results XML.
+
+=== 2026-07-03 (loop v2): US-1312 (Turnstile captcha WebView bridge) ===
+- TurnstileHtml: pure page builder mirroring the iOS document - widget script,
+  attribute-ESCAPED site key (an XSS-shaped key proven neutralized), all four
+  widget callbacks bridged through the named JavascriptInterface. BASE_URL
+  https://gradethread.com pinned BY TEST: Turnstile validates the rendering
+  hostname against the key's allowed-domains, so the web app's key accepts the
+  Android challenge - the cross-platform compatibility contract.
+- TurnstileChallenge composable: no site key -> NotConfigured immediately with
+  NO WebView (dev/CI no-op); otherwise a minimal-surface WebView (JS on, DOM
+  storage off) posting Token/Failed to the main thread; onRelease loads
+  about:blank + destroys - a dismissed sheet can't leak the page or keep JS
+  running. Token plumbing to gotrue landed with US-1310.
+VERIFIED LOCALLY: three gates green; 4/4 in the results XML.

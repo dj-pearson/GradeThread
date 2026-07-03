@@ -6528,7 +6528,7 @@
     {
       "id": "US-1312",
       "priority": -98688,
-      "passes": false,
+      "passes": true,
       "title": "Turnstile captcha (WebView bridge) on signup/sign-in/recover",
       "description": "As the team, I want Cloudflare Turnstile on auth in production so signups are bot-resisted, mirroring iOS.",
       "acceptanceCriteria": [
@@ -6536,7 +6536,7 @@
         "Token attached to signup/token/recover requests (gotrue captcha_token)",
         "Lifecycle-clean (loads on show, tears down on dismiss)"
       ],
-      "notes": "[P2][Android/Auth] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P2][Android/Auth] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. [COMPLETION 2026-07-03] Locally verified (three gates; TurnstileHtmlTest 4/4 in results XML). TurnstileHtml: pure page builder mirroring iOS TurnstileView.html byte-for-concept - the widget script from challenges.cloudflare.com, data-sitekey attribute-ESCAPED defensively (XSS-injection shape proven neutralized by test), all four widget callbacks (callback/error/expired/timeout) routed through the named JavascriptInterface bridge; BASE_URL = https://gradethread.com pinned BY TEST because Turnstile validates the rendering hostname against the site key's allowed-domains list - the same key the web app uses accepts the Android challenge (the iOS compatibility contract). TurnstileChallenge composable: gated on AppConfig.turnstileSiteKey - absent -> TurnstileResult.NotConfigured immediately with NO WebView (dev/CI no-op, AC1; the server has captcha disabled there too); present -> AndroidView WebView (JS on, DOM storage OFF - minimal surface) with the bridge posting Token/Failed(reason)/expired onto the main thread; LIFECYCLE-CLEAN via onRelease = about:blank + destroy (AC3). Token plumbing to gotrue captcha_token already landed with US-1310's signIn/signUp params (AC2). The auth SCREENS presenting this land with the login-UI story."
     },
     {
       "id": "US-1313",

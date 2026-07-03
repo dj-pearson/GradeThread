@@ -1,0 +1,101 @@
+package com.gradethread.app.auth
+
+import android.annotation.SuppressLint
+import android.view.ViewGroup
+import android.webkit.JavascriptInterface
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import com.gradethread.app.platform.AppConfig
+
+/** The bridge outcomes the auth screens act on. */
+sealed class TurnstileResult {
+    /** A solved challenge — attach [token] as gotrue's captcha_token. */
+    data class Token(val token: String) : TurnstileResult()
+
+    /** No site key configured (dev/CI) — proceed WITHOUT a token; the
+     *  server has captcha disabled in that environment too. */
+    object NotConfigured : TurnstileResult()
+
+    /** Widget error/expiry — the caller re-presents or falls back. */
+    data class Failed(val reason: String) : TurnstileResult()
+}
+
+/**
+ * US-1312: the Turnstile challenge (iOS TurnstileSheet). Hosts the widget in
+ * a WebView whose document origin is the registered domain (the key's
+ * allowed-hostnames list validates it) and bridges the token back through a
+ * [JavascriptInterface]. Gated on [AppConfig.turnstileSiteKey]: absent →
+ * [TurnstileResult.NotConfigured] immediately, no WebView at all.
+ *
+ * Lifecycle-clean: the WebView is created in the AndroidView factory and torn
+ * down in onRelease (loadUrl about:blank + destroy) so a dismissed sheet
+ * can't leak the page or keep JS running.
+ */
+@SuppressLint("SetJavaScriptEnabled") // Turnstile is a JS widget; the page is
+// OUR generated document with a strict bridge — no arbitrary navigation.
+@Composable
+fun TurnstileChallenge(
+    onResult: (TurnstileResult) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val siteKey = AppConfig.turnstileSiteKey
+    if (siteKey == null) {
+        LaunchedEffect(Unit) { onResult(TurnstileResult.NotConfigured) }
+        return
+    }
+
+    AndroidView(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(140.dp),
+        factory = { context ->
+            WebView(context).apply {
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                )
+                settings.javaScriptEnabled = true
+                // The challenge page needs no storage; keep the surface minimal.
+                settings.domStorageEnabled = false
+                webViewClient = WebViewClient()
+                addJavascriptInterface(
+                    object {
+                        @JavascriptInterface
+                        fun postToken(token: String) {
+                            post { onResult(TurnstileResult.Token(token)) }
+                        }
+
+                        @JavascriptInterface
+                        fun postError(code: String) {
+                            post { onResult(TurnstileResult.Failed(code)) }
+                        }
+
+                        @JavascriptInterface
+                        fun postExpired() {
+                            post { onResult(TurnstileResult.Failed("expired")) }
+                        }
+                    },
+                    TurnstileHtml.BRIDGE_NAME,
+                )
+                loadDataWithBaseURL(
+                    TurnstileHtml.BASE_URL,
+                    TurnstileHtml.page(siteKey),
+                    "text/html",
+                    "utf-8",
+                    null,
+                )
+            }
+        },
+        onRelease = { webView ->
+            webView.loadUrl("about:blank")
+            webView.destroy()
+        },
+    )
+}
