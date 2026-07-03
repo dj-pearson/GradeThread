@@ -155,4 +155,138 @@ final class AutoListerReviewModelTests: XCTestCase {
         m.ingest([cap(0)])
         XCTAssertFalse(m.hasPhotosButNoGroups) // grouped
     }
+
+    // MARK: - US-1548: verify-groups suggestions
+
+    /// In-memory service: no uploads (fixed paths), canned suggestions.
+    private struct MockVerifyService: AutolisterBatching {
+        let canned: [GroupVerifySuggestion]
+        func startBatch(itemIds: [String], useComps: Bool, templateId: String?) async throws -> StartBatchResponse {
+            throw URLError(.unsupportedURL)
+        }
+        func batchStatus(batchId: String) async throws -> BatchStatusResponse {
+            throw URLError(.unsupportedURL)
+        }
+        func retryFailed(batchId: String) async throws -> RetryFailedResponse {
+            throw URLError(.unsupportedURL)
+        }
+        func classifyPhotos(_ photos: [ClassifyPhotoInput]) async throws -> ClassifyPhotosResponse {
+            throw URLError(.unsupportedURL)
+        }
+        func photoQa(itemIds: [String]) async throws -> PhotoQaResponse {
+            throw URLError(.unsupportedURL)
+        }
+        func stageVerificationPhoto(sessionId: String, jpegData: Data) async throws -> String {
+            "owner/_staging/mock/\(UUID().uuidString).jpg"
+        }
+        func verifyGroups(_ groups: [VerifyGroupPayload]) async throws -> VerifyGroupsResponse {
+            VerifyGroupsResponse(suggestions: canned)
+        }
+    }
+
+    private struct FailingVerifyService: AutolisterBatching {
+        func startBatch(itemIds: [String], useComps: Bool, templateId: String?) async throws -> StartBatchResponse {
+            throw URLError(.unsupportedURL)
+        }
+        func batchStatus(batchId: String) async throws -> BatchStatusResponse {
+            throw URLError(.unsupportedURL)
+        }
+        func retryFailed(batchId: String) async throws -> RetryFailedResponse {
+            throw URLError(.unsupportedURL)
+        }
+        func classifyPhotos(_ photos: [ClassifyPhotoInput]) async throws -> ClassifyPhotosResponse {
+            throw URLError(.unsupportedURL)
+        }
+        func photoQa(itemIds: [String]) async throws -> PhotoQaResponse {
+            throw URLError(.unsupportedURL)
+        }
+        func stageVerificationPhoto(sessionId: String, jpegData: Data) async throws -> String {
+            throw URLError(.timedOut)
+        }
+        func verifyGroups(_ groups: [VerifyGroupPayload]) async throws -> VerifyGroupsResponse {
+            throw URLError(.timedOut)
+        }
+    }
+
+    func test_verify_appliesMergeSuggestionThroughNormalMutations() async {
+        // Two time-separated groups the AI says are the same item.
+        let a = cap(0), b = cap(500)
+        let probe = AutoListerReviewModel()
+        probe.ingest([a, b])
+        let ga = probe.groups[0].id, gb = probe.groups[1].id
+        let merge = GroupVerifySuggestion(
+            type: "merge",
+            groupIds: [ga.uuidString, gb.uuidString],
+            photoIds: [],
+            confidence: 0.9,
+            reason: "Same jacket across both groups"
+        )
+        // Re-seed a model whose service returns that suggestion for ITS ids —
+        // easier: drive apply directly on the probe.
+        probe.applyTestSuggestions([merge])
+        XCTAssertEqual(probe.suggestions.count, 1)
+        probe.applySuggestion(merge)
+        XCTAssertEqual(probe.groups.count, 1)
+        XCTAssertEqual(Set(probe.groups[0].photoIds), [a.id, b.id])
+        XCTAssertTrue(probe.suggestions.isEmpty, "applied suggestion is dismissed")
+    }
+
+    func test_verify_splitSuggestionCreatesOneNewGroup() {
+        let a = cap(0), b = cap(2), c = cap(4)
+        let m = AutoListerReviewModel()
+        m.ingest([a, b, c]) // one burst group
+        let g = m.groups[0].id
+        let split = GroupVerifySuggestion(
+            type: "split",
+            groupIds: [g.uuidString],
+            photoIds: [b.id.uuidString, c.id.uuidString],
+            confidence: 0.8,
+            reason: "Photos 2-3 show a different item"
+        )
+        m.applyTestSuggestions([split])
+        m.applySuggestion(split)
+        XCTAssertEqual(m.groups.count, 2)
+        XCTAssertEqual(m.groups[0].photoIds, [a.id])
+        XCTAssertEqual(Set(m.groups[1].photoIds), [b.id, c.id])
+    }
+
+    func test_verify_silentDegradeOnFailure() async {
+        let m = AutoListerReviewModel(service: FailingVerifyService())
+        m.ingest([cap(0), cap(500)]) // two groups
+        await m.verifyGroupsNow()
+        XCTAssertTrue(m.suggestions.isEmpty)
+        XCTAssertNil(m.actionError, "verification failures are silent")
+    }
+
+    func test_verify_endToEndWithMockService_filtersUnknownGroupIds() async {
+        let a = cap(0), b = cap(500)
+        // Canned suggestions reference a FOREIGN group id → filtered out.
+        let foreign = GroupVerifySuggestion(
+            type: "merge",
+            groupIds: [UUID().uuidString, UUID().uuidString],
+            photoIds: [],
+            confidence: 0.9,
+            reason: "stale"
+        )
+        let m = AutoListerReviewModel(service: MockVerifyService(canned: [foreign]))
+        m.ingest([a, b])
+        await m.verifyGroupsNow()
+        XCTAssertTrue(m.suggestions.isEmpty, "suggestions for unknown groups are dropped")
+    }
+
+    func test_regroup_clearsStaleSuggestions() {
+        let m = AutoListerReviewModel()
+        m.ingest([cap(0), cap(500)])
+        m.applyTestSuggestions([
+            GroupVerifySuggestion(
+                type: "merge",
+                groupIds: [m.groups[0].id.uuidString, m.groups[1].id.uuidString],
+                photoIds: [],
+                confidence: 0.9,
+                reason: "x"
+            ),
+        ])
+        m.regroupAll()
+        XCTAssertTrue(m.suggestions.isEmpty)
+    }
 }

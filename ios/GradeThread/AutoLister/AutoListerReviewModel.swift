@@ -38,6 +38,24 @@ final class AutoListerReviewModel: ObservableObject {
     /// Transient failure (e.g. a rotate that couldn't re-encode) surfaced as an
     /// alert; the review list stays put.
     @Published var actionError: String?
+    /// US-1548: AI merge/split/move suggestions from the verify-groups pass.
+    /// NEVER auto-applied — the user taps Apply or Dismiss per suggestion. A
+    /// failed/timed-out verify silently leaves this empty (no blocking UI).
+    @Published private(set) var suggestions: [GroupVerifySuggestion] = []
+    @Published private(set) var verifying = false
+
+    // US-1548: verify-groups plumbing. Boundary samples upload once into the
+    // caller's `_staging/` folder (the endpoint's tenant check requires that
+    // prefix) and are reused across verify runs in this session.
+    private let service: AutolisterBatching
+    private var stagedPathByPhotoId: [UUID: String] = [:]
+    private let verifySessionId = UUID().uuidString.lowercased()
+    /// Hard bandwidth bound on verification uploads per session.
+    private static let maxVerifyUploads = 36
+
+    init(service: AutolisterBatching = AutolisterService()) {
+        self.service = service
+    }
 
     var isEmpty: Bool { photosById.isEmpty }
     var totalPhotos: Int { photosById.count }
@@ -88,6 +106,11 @@ final class AutoListerReviewModel: ObservableObject {
             }
         }
         ingest(captures)
+        // US-1548: silent post-import verification (mirrors the web's
+        // auto-run after auto-group). Fire-and-forget; failures leave no trace.
+        if !captures.isEmpty {
+            Task { await self.verifyGroupsNow() }
+        }
         // The user picked photos but none could be materialized (still syncing
         // from iCloud, undecodable). Surface a retryable error rather than the
         // empty state, which would look like the import never ran (US-1116).
@@ -133,6 +156,9 @@ final class AutoListerReviewModel: ObservableObject {
             guard let cover = UUID(uuidString: auto.coverId) ?? ids.first else { return nil }
             return ReviewGroup(id: UUID(), photoIds: ids, coverId: cover)
         }
+        // US-1548: regrouping mints fresh group ids — prior suggestions can no
+        // longer be applied, so drop them (a new verify can re-derive).
+        suggestions = []
     }
 
     // MARK: - Edits
@@ -173,6 +199,124 @@ final class AutoListerReviewModel: ObservableObject {
             hashesById[pid] = nil
         }
         groups.removeAll { $0.id == groupId }
+    }
+
+    // MARK: - US-1548: AI group verification
+
+    /// One vision pass over boundary samples of every group, returning
+    /// merge/split/move suggestions. Silent by design: any upload/verify
+    /// failure just clears the suggestions (AC — no blocking spinner, grade
+    /// of degradation is "no suggestions"). Costs one AI action server-side.
+    func verifyGroupsNow() async {
+        guard groups.count >= 2, !verifying else { return }
+        verifying = true
+        defer { verifying = false }
+
+        var uploads = stagedPathByPhotoId.count
+        var payload: [VerifyGroupPayload] = []
+        for group in groups {
+            var photos: [VerifyGroupPhotoPayload] = []
+            for pid in boundarySample(group.photoIds) {
+                if stagedPathByPhotoId[pid] == nil {
+                    guard uploads < Self.maxVerifyUploads,
+                          let capture = photosById[pid] else { continue }
+                    if let path = try? await service.stageVerificationPhoto(
+                        sessionId: verifySessionId,
+                        jpegData: capture.imageData
+                    ) {
+                        stagedPathByPhotoId[pid] = path
+                        uploads += 1
+                    }
+                }
+                if let path = stagedPathByPhotoId[pid] {
+                    photos.append(
+                        VerifyGroupPhotoPayload(id: pid.uuidString, storagePath: path)
+                    )
+                }
+            }
+            if !photos.isEmpty {
+                payload.append(VerifyGroupPayload(id: group.id.uuidString, photos: photos))
+            }
+        }
+        guard payload.count >= 2 else {
+            suggestions = []
+            return
+        }
+
+        do {
+            let response = try await service.verifyGroups(payload)
+            let validGroupIds = Set(groups.map { $0.id.uuidString })
+            suggestions = response.suggestions.filter { s in
+                s.groupIds.allSatisfy { validGroupIds.contains($0) }
+            }
+        } catch {
+            // Degrade silently — verification is advisory (AC3).
+            suggestions = []
+        }
+    }
+
+    /// First / middle / last photo of a group — the frames most likely to
+    /// reveal a bad boundary (mirrors the server's own sampling).
+    private func boundarySample(_ ids: [UUID]) -> [UUID] {
+        guard ids.count > 3 else { return ids }
+        return [ids[0], ids[ids.count / 2], ids[ids.count - 1]]
+    }
+
+    /// Apply one suggestion through the SAME mutations the user's manual edits
+    /// use (undo/normalize semantics identical), then drop it from the list.
+    func applySuggestion(_ suggestion: GroupVerifySuggestion) {
+        defer { dismissSuggestion(suggestion) }
+        let gids = suggestion.groupIds.compactMap(UUID.init(uuidString:))
+        let pids = suggestion.photoIds.compactMap(UUID.init(uuidString:))
+        switch suggestion.type {
+        case "merge":
+            guard gids.count >= 2 else { return }
+            mergeGroups(from: gids[1], into: gids[0])
+        case "split":
+            guard let source = gids.first, !pids.isEmpty else { return }
+            splitPhotos(pids, from: source)
+        case "move":
+            guard gids.count >= 2, !pids.isEmpty else { return }
+            for pid in pids { movePhoto(pid, from: gids[0], to: gids[1]) }
+        default:
+            break
+        }
+    }
+
+    func dismissSuggestion(_ suggestion: GroupVerifySuggestion) {
+        suggestions.removeAll { $0.id == suggestion.id }
+    }
+
+    /// Test seam (US-1548): seed suggestions without a network verify.
+    func applyTestSuggestions(_ list: [GroupVerifySuggestion]) {
+        suggestions = list
+    }
+
+    /// The suggestions relevant to one group card (for inline badges).
+    func suggestions(for groupId: UUID) -> [GroupVerifySuggestion] {
+        suggestions.filter { $0.groupIds.contains(groupId.uuidString) }
+    }
+
+    /// Move every photo of `from` into `into` (a merge), then normalize away
+    /// the emptied group.
+    func mergeGroups(from sourceId: UUID, into targetId: UUID) {
+        guard let si = groups.firstIndex(where: { $0.id == sourceId }),
+              groups.contains(where: { $0.id == targetId }) else { return }
+        for pid in groups[si].photoIds {
+            movePhoto(pid, from: sourceId, to: targetId)
+        }
+    }
+
+    /// Split the given photos out of `sourceId` into ONE new group.
+    func splitPhotos(_ photoIds: [UUID], from sourceId: UUID) {
+        guard let si = groups.firstIndex(where: { $0.id == sourceId }) else { return }
+        let members = photoIds.filter { groups[si].photoIds.contains($0) }
+        guard let first = members.first else { return }
+        movePhoto(first, from: sourceId, to: nil) // creates the new group
+        guard let newGroup = groups.last, newGroup.photoIds == [first] else { return }
+        for pid in members.dropFirst() {
+            movePhoto(pid, from: sourceId, to: newGroup.id)
+        }
     }
 
     /// Drop empty groups and repair any cover that no longer points at a member.

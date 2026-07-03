@@ -9500,7 +9500,7 @@
     {
       "id": "US-1538",
       "priority": 2352,
-      "passes": false,
+      "passes": true,
       "title": "AutoLister bulk-intake epic — a 600-photo dump becomes review-ready drafts",
       "description": "As a reseller, I can dump an entire shoot (600+ photos) into AutoLister and get correctly grouped, review-ready listing drafts with minimal manual fixing: uploads survive navigation, auto-grouping uses capture time + filename sequence + visual similarity and is AI-verified, I can correct groups by drag-and-drop before generating, and generation scales past the current 100-item batch cap into the existing queue/drafts review flow. This is a flagship selling feature for resellers. Umbrella for US-1539..US-1548.",
       "acceptanceCriteria": [
@@ -9522,7 +9522,7 @@
         "US-1547",
         "US-1548"
       ],
-      "notes": "[P1][Web+Edge+iOS/AutoLister][Epic] [bulk-intake deep dive 2026-07-02] Current state verified: intake page src/pages/flipdesk/autolister.tsx (~2104 lines, UPLOAD_CONCURRENCY=5, MIN_RESOLUTION=1200); auto-group = EXIF 30s time-gap + dHash Hamming<=10 (src/lib/autolister-grouping.ts, src/lib/reconcile-cluster.ts DEFAULT_GAP_SECONDS=30, VISUAL_MERGE_MAX_DISTANCE=10); server has NO grouping and strips EXIF at intake (flipdesk-autolister.ts:686); MAX_BATCH_ITEMS=100 (flipdesk-autolister.ts:61); no drag-and-drop anywhere (only file-drop upload); uploads die on navigation (page-local state); item_photos has no original_filename/captured_at. Generation/publish are already durable server-side batches with reclaim crons — do not rebuild those."
+      "notes": "[P1][Web+Edge+iOS/AutoLister][Epic] [bulk-intake deep dive 2026-07-02] Current state verified: intake page src/pages/flipdesk/autolister.tsx (~2104 lines, UPLOAD_CONCURRENCY=5, MIN_RESOLUTION=1200); auto-group = EXIF 30s time-gap + dHash Hamming<=10 (src/lib/autolister-grouping.ts, src/lib/reconcile-cluster.ts DEFAULT_GAP_SECONDS=30, VISUAL_MERGE_MAX_DISTANCE=10); server has NO grouping and strips EXIF at intake (flipdesk-autolister.ts:686); MAX_BATCH_ITEMS=100 (flipdesk-autolister.ts:61); no drag-and-drop anywhere (only file-drop upload); uploads die on navigation (page-local state); item_photos has no original_filename/captured_at. Generation/publish are already durable server-side batches with reclaim crons — do not rebuild those. [EPIC CLOSED 2026-07-02] All children shipped: US-1539-1546 (web bulk intake: provenance, sequence+visual grouping, 600-photo perf, resumable uploads, drag/keyboard editing, AI verify suggestions, resilience, review checkpoint) + US-1547/1548 (iOS parity incl. the staging-upload unblock). Manual browser passes for the web flows remain queued for the user check-in (noted on the individual stories)."
     },
     {
       "id": "US-1539",
@@ -9686,7 +9686,7 @@
     {
       "id": "US-1548",
       "priority": 2342,
-      "passes": false,
+      "passes": true,
       "title": "iOS parity: dHash visual merge pass + AI verify-groups suggestions",
       "description": "As an iOS seller, grouping catches out-of-order shots of the same garment (the deferred-to-v2 dHash visual pass) and I see the same AI merge/split/move suggestions as web before generating.",
       "acceptanceCriteria": [
@@ -9699,7 +9699,7 @@
         "US-1544",
         "US-1547"
       ],
-      "notes": "[P2][iOS/AutoLister] [bulk-intake deep dive 2026-07-02] Grounding: PhotoGrouping.swift:8-12 documents the dHash pass as a known v2 gap (web reference: src/lib/reconcile-cluster.ts + phash from src/workers/image-compress.worker.ts); review model at ios/GradeThread/AutoLister/AutoListerReviewModel.swift; endpoint client lives in AutolisterService.swift:27-31. Device/macOS-CI-gated. [PARTIAL 2026-07-02] AC1+AC4 DONE (committed with US-1547): DHash.swift (9x8 grayscale dHash + hamming) computed off-main during import/rotate; PhotoGrouping.mergeSimilarGroups union-find port wired into autoGroup via regroupAll; 4 XCTest merge cases. AC2/AC3 BLOCKED architecturally: /verify-groups requires /_staging/ storage paths but iOS AutoLister photos stay LOCAL until generate (no staging upload exists on iOS). Unblocking needs an iOS staging-upload client (multipart to /autolister/staging/upload) or an edge variant accepting inline images - schedule deliberately."
+      "notes": "[P2][iOS/AutoLister] [bulk-intake deep dive 2026-07-02] Grounding: PhotoGrouping.swift:8-12 documents the dHash pass as a known v2 gap (web reference: src/lib/reconcile-cluster.ts + phash from src/workers/image-compress.worker.ts); review model at ios/GradeThread/AutoLister/AutoListerReviewModel.swift; endpoint client lives in AutolisterService.swift:27-31. Device/macOS-CI-gated. [PARTIAL 2026-07-02] AC1+AC4 DONE (committed with US-1547): DHash.swift (9x8 grayscale dHash + hamming) computed off-main during import/rotate; PhotoGrouping.mergeSimilarGroups union-find port wired into autoGroup via regroupAll; 4 XCTest merge cases. AC2/AC3 BLOCKED architecturally: /verify-groups requires /_staging/ storage paths but iOS AutoLister photos stay LOCAL until generate (no staging upload exists on iOS). Unblocking needs an iOS staging-upload client (multipart to /autolister/staging/upload) or an edge variant accepting inline images - schedule deliberately. [COMPLETION 2026-07-02, second half] The architectural blocker is RESOLVED by uploading boundary samples to staging: AutolisterService gains stageVerificationPhoto (multipart to /staging/upload via a dedicated ephemeral URLSession + bearer; returns storage_path) and verifyGroups (postJSON; GroupVerifySuggestion decodes group_ids/photo_ids via the shared snake-case decoder); protocol extension provides defaults so pre-existing test mocks compile. AutoListerReviewModel: verifyGroupsNow() uploads first/middle/last per group ONCE per session (36-upload bandwidth cap, staged paths reused), requires >=2 coverable groups, filters suggestions to known group ids, degrades SILENTLY on any failure (AC3 - advisory only, no blocking spinner); applySuggestion routes merge/split/move through the SAME manual mutations (new mergeGroups + splitPhotos helpers; split creates exactly ONE new group); regroupAll clears stale suggestions; auto-runs silently after import + on Auto-group + a manual Verify groups toolbar button (disabled <2 groups). AutoListerView renders dismissible amber suggestion rows (sparkles icon, reason text, Apply/Dismiss) above the group cards + a small checking hint while running. 5 new XCTest cases (merge apply end-state, split creates one group, silent degrade on failing service, foreign-group-id filtering via mock service e2e, regroup clears). Costs 1 AI action per verify (metered server-side)."
     },
     {
       "id": "US-1549",

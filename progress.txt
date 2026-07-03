@@ -9775,3 +9775,33 @@ FIX (services/edge-functions):
 VERIFIED: full edge suite 2520/0/70 ignored; deno lint + check clean.
 RECOVERY (handed to user): diagnostic SQL for batch 05d36ecc-8817-4d59-914d-762cdf87716a;
 apply held migrations through 00342 -> OK push -> Coolify edge redeploy -> Retry failed.
+
+=== 2026-07-02 (loop): US-1548 second half (iOS verify-groups) + US-1538 EPIC CLOSED ===
+!! 22:19 CT: a pull+push from this machine (user or concurrent agent - NOT this loop)
+landed ALL held commits incl. migrations 00339-00342 on origin/main. Cloudflare Pages
+auto-deployed the frontend -> prod web AutoLister generate 400s until 00339 applied
+(original_filename insert); internal photo type 400s if picked (00340). Edge is NOT
+redeployed (00341/00342 only matter at next Coolify deploy, which boot-guards 00342).
+Runbook banner added to PENDING_MIGRATIONS.md; user push-notified. Apply 00339->00342
++ NOTIFY pgrst to unbreak.
+US-1548 second half (the architectural blocker RESOLVED via staging uploads):
+- AutolisterService: stageVerificationPhoto (multipart POST /staging/upload via a
+  dedicated ephemeral URLSession + bearer token; returns storage_path) + verifyGroups
+  (postJSON; GroupVerifySuggestion decodes group_ids/photo_ids through the shared
+  snake-case decoder). Protocol extension supplies defaults so pre-US-1548 test mocks
+  keep compiling.
+- AutoListerReviewModel: verifyGroupsNow() uploads first/middle/last boundary samples
+  per group ONCE per session (36-upload bandwidth cap, staged paths reused across
+  runs), needs >=2 coverable groups, filters suggestions to known group ids, and
+  degrades SILENTLY on any failure (advisory only - AC3). applySuggestion routes
+  merge/split/move through the SAME manual mutations (new mergeGroups/splitPhotos
+  helpers; split creates exactly ONE new group). regroupAll clears stale suggestions.
+  Auto-runs after import and on Auto-group; manual "Verify groups" toolbar button.
+- AutoListerView: dismissible amber suggestion rows (title like "Merge Item 1 and
+  Item 2?", model reason, Apply/Dismiss) above the group cards; small inline
+  "Checking group boundaries..." hint while running.
+TESTS: 5 new XCTest cases (merge apply end-state; split creates one new group; silent
+degrade with a failing service; foreign-group-id filtering through a mock service
+end-to-end; regroup clears suggestions). no-ungated-print + brace/curly scans clean;
+iOS CI compiles on push (already pushed, see above).
+US-1538 bulk-intake EPIC CLOSED: web US-1539-1546 + iOS US-1547/1548 all shipped.

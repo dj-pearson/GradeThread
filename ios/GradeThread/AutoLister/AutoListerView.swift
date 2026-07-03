@@ -150,6 +150,21 @@ struct AutoListerView: View {
     private var reviewList: some View {
         ScrollView {
             LazyVStack(spacing: 16) {
+                // US-1548: AI grouping suggestions — advisory, one-tap apply,
+                // never auto-applied. Silent when verification found nothing
+                // (or failed); a small inline hint while it runs.
+                if model.verifying {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text("Checking group boundaries…")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                ForEach(model.suggestions) { suggestion in
+                    suggestionRow(suggestion)
+                }
                 ForEach(model.groups) { group in
                     groupCard(group)
                 }
@@ -158,6 +173,66 @@ struct AutoListerView: View {
         }
         .scrollDismissesKeyboard(.interactively)
         .safeAreaInset(edge: .bottom) { generateBar }
+    }
+
+    /// US-1548: one dismissible AI suggestion ("these two groups look like the
+    /// same jacket — merge?") with Apply routed through the model's normal
+    /// merge/split/move mutations.
+    private func suggestionRow(_ suggestion: GroupVerifySuggestion) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "sparkles")
+                .foregroundStyle(Color.orange)
+                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(suggestionTitle(suggestion))
+                    .font(.subheadline.weight(.semibold))
+                Text(suggestion.reason)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            Button("Apply") {
+                withAnimation { model.applySuggestion(suggestion) }
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .tint(Color.brandNavy)
+            Button {
+                withAnimation { model.dismissSuggestion(suggestion) }
+            } label: {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .accessibilityLabel("Dismiss suggestion")
+        }
+        .padding(12)
+        .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(Color.orange.opacity(0.35))
+        )
+    }
+
+    private func suggestionTitle(_ suggestion: GroupVerifySuggestion) -> String {
+        let names = suggestion.groupIds.compactMap { gid -> String? in
+            guard let uuid = UUID(uuidString: gid),
+                  let group = model.groups.first(where: { $0.id == uuid }) else {
+                return nil
+            }
+            return "Item \(model.displayIndex(of: group))"
+        }
+        switch suggestion.type {
+        case "merge":
+            return "Merge \(names.joined(separator: " and "))?"
+        case "split":
+            return "Split \(suggestion.photoIds.count) photo\(suggestion.photoIds.count == 1 ? "" : "s") out of \(names.first ?? "this group")?"
+        case "move":
+            return "Move \(suggestion.photoIds.count) photo\(suggestion.photoIds.count == 1 ? "" : "s") from \(names.first ?? "one group") to \(names.last ?? "another")?"
+        default:
+            return "Review this grouping"
+        }
     }
 
     private func groupCard(_ group: ReviewGroup) -> some View {
@@ -364,10 +439,21 @@ struct AutoListerView: View {
         ToolbarItemGroup(placement: .topBarTrailing) {
             Button {
                 model.regroupAll()
+                // US-1548: fresh groups → re-derive the AI suggestions.
+                Task { await model.verifyGroupsNow() }
             } label: {
                 Label("Auto-group", systemImage: "wand.and.stars")
             }
             .disabled(model.isEmpty)
+
+            // US-1548: on-demand boundary verification (also auto-runs after
+            // import). Costs one AI action; disabled mid-run or under 2 groups.
+            Button {
+                Task { await model.verifyGroupsNow() }
+            } label: {
+                Label("Verify groups", systemImage: "checkmark.seal")
+            }
+            .disabled(model.groups.count < 2 || model.verifying)
 
             Button {
                 showingPicker = true

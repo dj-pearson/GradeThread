@@ -1,5 +1,23 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+> ## 🚨 STATUS CHANGE 2026-07-02 22:19 CT — THE HELD COMMITS WERE PUSHED
+> A `git pull` + push from this machine (user or the concurrent agent — reflog
+> shows the pull at 22:19:14; I did not push) landed EVERYTHING on origin/main,
+> including migrations **00339–00342**. Consequences RIGHT NOW:
+>
+> 1. **Cloudflare Pages auto-deployed the new frontend.** The web AutoLister
+>    generate() inserts `item_photos.original_filename` (00339) — that column
+>    does not exist on prod yet, so **AutoLister generation 400s in prod until
+>    00339 is applied**. The "Internal (not listed)" photo type (00340) also
+>    400s if a seller picks it.
+> 2. **The edge is NOT redeployed** (manual Coolify), so 00341/00342 aren't
+>    load-bearing yet — but the NEXT edge redeploy boot-guards on **00342**.
+>
+> **Fix (5 minutes, all idempotent):** apply 00339 → 00342 to prod
+> (`scripts/apply-prod-migrations.sh` or run the four files in order), then
+> `NOTIFY pgrst, 'reload schema';`. Then the edge can be redeployed whenever.
+
+
 ## 📌 CURRENT STATE — 2026-07-02 (bulk-intake epic session)
 
 ### 🔸 NEW + HELD LOCALLY (not pushed): `00339` (US-1539)
