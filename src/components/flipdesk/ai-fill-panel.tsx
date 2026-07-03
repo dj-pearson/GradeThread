@@ -310,9 +310,34 @@ export function AiFillPanel({
                   <Badge variant="outline" className={tier.className}>
                     {tier.label}
                   </Badge>
-                  <span className="text-xs text-muted-foreground">
-                    {sug.source}
-                  </span>
+                  {sug.source === "research" ? (
+                    // US-1527: research-tier identification — badged so the
+                    // user knows this is the AI NAMING the product from its
+                    // knowledge (verify before accepting), not tag text.
+                    <Badge
+                      variant="outline"
+                      className="border-violet-200 bg-violet-100 text-violet-800 dark:border-violet-800 dark:bg-violet-950/50 dark:text-violet-300"
+                      title={result?.research?.identification_rationale ?? undefined}
+                    >
+                      Identified
+                    </Badge>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">
+                      {sug.source}
+                    </span>
+                  )}
+                  {sug.source === "research" &&
+                    result?.research?.identification_rationale && (
+                      <span className="w-full text-xs text-muted-foreground">
+                        Why: {result.research.identification_rationale}
+                        {result.research.fabric_technology
+                          ? ` · Fabric: ${result.research.fabric_technology}`
+                          : ""}
+                        {result.research.msrp_estimate_cents
+                          ? ` · Est. retail $${Math.round(result.research.msrp_estimate_cents / 100)}`
+                          : ""}
+                      </span>
+                    )}
                   {current && (
                     <span className="w-full text-xs text-amber-700 dark:text-amber-500">
                       Replaces current value: “{current}”

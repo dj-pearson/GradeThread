@@ -7,6 +7,10 @@ struct FieldSuggestionRow: View {
     let entry: FieldSuggestionEntry
     let isAccepted: Bool
     let onToggle: () -> Void
+    /// US-1527: the identification rationale, shown under a research-tier row
+    /// ("Identified" badge) so the user can verify the AI's product ID before
+    /// accepting. nil for observed rows and callers that predate research.
+    var researchRationale: String? = nil
 
     var body: some View {
         Button(action: onToggle) {
@@ -37,6 +41,9 @@ struct FieldSuggestionRow: View {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(entry.displayLabel)
                     .font(.subheadline.weight(.semibold))
+                if entry.source == "research" {
+                    identifiedBadge
+                }
                 Spacer(minLength: 8)
                 confidenceBadge
             }
@@ -54,7 +61,29 @@ struct FieldSuggestionRow: View {
                 confidenceBar
                     .frame(width: 90)
             }
+
+            // US-1527: the identification's photo-evidence rationale — the
+            // user verifies the named product before accepting it.
+            if entry.source == "research", let rationale = researchRationale,
+               !rationale.isEmpty {
+                Text("Why: \(rationale)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
+    }
+
+    /// US-1527: research-tier rows are the AI NAMING the product from its own
+    /// knowledge — visually distinct from observed (read-off-the-tag) fields.
+    private var identifiedBadge: some View {
+        Text("Identified")
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.purple)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color.purple.opacity(0.12))
+            .clipShape(Capsule())
     }
 
     /// Defensive clamp to the documented 0…1 contract. A backend that emits an

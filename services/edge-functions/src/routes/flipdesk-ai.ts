@@ -454,6 +454,19 @@ flipdeskAiRoutes.post("/extract", async (c) => {
     // confidence + source) plus the merged column form persisted on the item.
     attributes: result.attributes,
     persisted_attributes: persistedAttributes,
+    // US-1527: research-tier product identification (already confidence-
+    // floored in decode). The style suggestion carries source:'research' when
+    // it came from here; clients badge it and show the rationale.
+    research: result.research
+      ? {
+          identified_style: result.research.identifiedStyle,
+          product_line: result.research.productLine,
+          fabric_technology: result.research.fabricTechnology,
+          msrp_estimate_cents: result.research.msrpEstimateCents,
+          identification_rationale: result.research.rationale,
+          identification_confidence: result.research.confidence,
+        }
+      : null,
     condition_summary: result.conditionSummary,
     ebay_category_query: result.ebayCategoryQuery,
     conflicts: result.conflicts,

@@ -132,6 +132,11 @@ struct AIExtractResponse: Decodable, Equatable {
     /// no brand/size/color). Persisted server-side so a later category change
     /// can re-resolve without re-running AI.
     var ebayCategoryQuery: String? = nil
+    /// US-1527: research-tier product identification (already confidence-
+    /// floored server-side). The style suggestion carries source "research"
+    /// when it came from here; the review row badges it and discloses the
+    /// rationale. Defaulted so synthetic responses / older edges still decode.
+    var research: ResearchIdentification? = nil
 
     private enum CodingKeys: String, CodingKey {
         case suggestions
@@ -144,6 +149,29 @@ struct AIExtractResponse: Decodable, Equatable {
         case ebay
         case attributes
         case ebayCategoryQuery = "ebay_category_query"
+        case research
+    }
+}
+
+/// US-1527: the research-tier identification block — the AI NAMING the product
+/// from its own knowledge (anchored on brand + tag codes + construction
+/// details), distinct from observed fields. Shown with an "Identified" badge +
+/// the rationale so the user verifies before accepting.
+struct ResearchIdentification: Decodable, Equatable {
+    let identifiedStyle: String?
+    let productLine: String?
+    let fabricTechnology: String?
+    let msrpEstimateCents: Int?
+    let identificationRationale: String?
+    let identificationConfidence: Double
+
+    private enum CodingKeys: String, CodingKey {
+        case identifiedStyle = "identified_style"
+        case productLine = "product_line"
+        case fabricTechnology = "fabric_technology"
+        case msrpEstimateCents = "msrp_estimate_cents"
+        case identificationRationale = "identification_rationale"
+        case identificationConfidence = "identification_confidence"
     }
 }
 
@@ -167,6 +195,7 @@ extension AIExtractResponse {
         ebay = try c.decodeIfPresent(AIExtractEbayBlock.self, forKey: .ebay)
         attributes = try c.decodeIfPresent([String: AttributeSuggestion].self, forKey: .attributes) ?? [:]
         ebayCategoryQuery = try c.decodeIfPresent(String.self, forKey: .ebayCategoryQuery)
+        research = try c.decodeIfPresent(ResearchIdentification.self, forKey: .research)
     }
 }
 
@@ -187,10 +216,14 @@ struct FieldSuggestionEntry: Identifiable, Equatable, Codable {
     }
 
     /// Human-readable source label. Knows the canonical `text`,
-    /// `photo:<slot>`, and `live-text` (on-device OCR, US-177) sources.
+    /// `photo:<slot>`, `live-text` (on-device OCR, US-177), and `research`
+    /// (US-1527 product identification) sources.
     var sourceLabel: String {
         if source == "text" { return "From description" }
         if source == "live-text" { return "On-device OCR" }
+        // US-1527: the AI identified the product from its knowledge — the row
+        // shows the "Identified" badge; this label backs it up.
+        if source == "research" { return "Identified from product knowledge" }
         // US-1217: a conflict-derived row carries the tag (text) candidate; the
         // label tells the user this field disagreed across signals so they pick
         // deliberately rather than inherit a silently-resolved value.

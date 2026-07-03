@@ -167,10 +167,40 @@ export interface FieldConflict {
 // that size, NOT a measurement of this specific garment — the user verifies.
 export type MeasurementSuggestions = Record<string, number>;
 
+// US-1527: the research-tier product identification. Unlike OBSERVED fields
+// (read off the photos/text under the never-guess rule), these are INFORMED
+// IDENTIFICATION from the model's product knowledge, anchored on brand + codes
+// (US-1526) + visible construction details — e.g. "Lululemon ABC Pant Classic"
+// vs "Commission Pant". Carried with distinct provenance (source: "research")
+// so the UI badges it as an identification to verify, never silent fact.
+export interface ResearchIdentification {
+  /** The named style/model — e.g. "ABC Pant Classic", "Better Sweater 1/4-Zip". */
+  identifiedStyle: string | null;
+  /** The product line/family — e.g. "ABC", "Dri-FIT", "Nano Puff". */
+  productLine: string | null;
+  /** Brand fabric technology — e.g. "Warpstreme", "Luon", "Tech Fleece". */
+  fabricTechnology: string | null;
+  /** Original-retail estimate in CENTS. Seller context only — never auto-applied to price. */
+  msrpEstimateCents: number | null;
+  /** Which photo evidence supports the ID — required, shown to the user. */
+  rationale: string | null;
+  /** Calibrated 0..1. Below RESEARCH_MIN_CONFIDENCE the whole block is dropped. */
+  confidence: number;
+}
+
+/** US-1527: identifications below this confidence are dropped server-side. */
+export const RESEARCH_MIN_CONFIDENCE = 0.5;
+
+/** Provenance value for research-tier suggestions (UI badges these). */
+export const RESEARCH_SOURCE = "research";
+
 export interface ExtractionResult {
   suggestions: Record<string, FieldSuggestion>;
   /** US-821: canonical listing attributes captured in the same single pass. */
   attributes: Record<string, AttributeSuggestion>;
+  /** US-1527: research-tier product identification; null when below the
+   * confidence floor or not attempted. */
+  research: ResearchIdentification | null;
   conditionSummary: string | null;
   conflicts: FieldConflict[];
   measurements: MeasurementSuggestions | null;
@@ -238,6 +268,15 @@ Identity codes on the tag (style_code, rn_number, upc):
 - Transcribe these codes VERBATIM, character for character — never normalize, expand, reformat, or drop leading zeros. For rn_number return only the digits after "RN".
 - EXCEPTION to the never-guess rule, for these three code fields ONLY: a partial or uncertain read is still a useful search key, so return your best transcription with LOW confidence (≤ 0.4) instead of omitting it. Mark the source (usually 'photo:tag'). Every other field keeps the never-guess rule.
 - If one printed code serves as both the style code and the MPN, fill both style_code and mpn with it.
+
+Product identification — the 'research_identification' object (RESEARCH tier):
+- This object is the ONE place you are AUTHORIZED to use your own product knowledge to IDENTIFY the item, not just describe it. Every other field keeps the never-guess rule exactly as written above.
+- Identify the NAMED style/model when the evidence supports it: anchor on the brand, any tag codes (style_code / RN / UPC — a style code often maps directly to a known product), the fabric from the care label, and the CONSTRUCTION DETAILS visible across ALL photos — gusset, waistband build, pocket layout, stitching, zips, hardware, hem style. Example: a Lululemon tag + Warpstreme content + a gusseted crotch and zippered back pocket says "ABC Pant Classic"; a dress-pant waistband with hidden zip pockets says "Commission Pant".
+- identified_style: the specific named style/model. product_line: the family/line ("ABC", "Dri-FIT", "Nano Puff"). fabric_technology: the brand's fabric name when identifiable ("Warpstreme", "Luon", "Tech Fleece").
+- msrp_estimate_cents: your best estimate of the ORIGINAL retail price in cents (context for the seller; never a listing price).
+- identification_rationale: REQUIRED — cite the specific photo evidence supporting the ID ("gusseted crotch + zippered back pocket in the back photo; Warpstreme on the care label"). An identification without a rationale is worthless to the seller.
+- identification_confidence: calibrated 0..1 for the identification as a whole. If it is below 0.5, OMIT the entire research_identification object — a wrong confident-sounding ID is worse than none.
+- Do not attempt identification for unbranded/generic items; omit the object.
 
 Measurement suggestions:
 - ONLY suggest measurements when brand AND size AND item type are clearly identifiable. If any of those are unknown, OMIT measurements entirely.
@@ -371,6 +410,38 @@ const EXTRACT_TOOL: Anthropic.Tool = {
           "Short eBay category search phrase: item type + department, no brand/size/color (e.g. \"men's flannel button-up shirt\")",
       },
       attributes: ATTRIBUTES_SCHEMA,
+      research_identification: {
+        type: "object",
+        description:
+          "RESEARCH-tier product identification (informed by your product knowledge, anchored on brand + tag codes + visible construction). Omit entirely when identification_confidence would be below 0.5 or the item is unbranded/generic.",
+        properties: {
+          identified_style: {
+            type: "string",
+            description: "The named style/model — e.g. 'ABC Pant Classic', 'Better Sweater 1/4-Zip'",
+          },
+          product_line: {
+            type: "string",
+            description: "Product line/family — e.g. 'ABC', 'Dri-FIT', 'Nano Puff'",
+          },
+          fabric_technology: {
+            type: "string",
+            description: "Brand fabric technology — e.g. 'Warpstreme', 'Luon', 'Tech Fleece'",
+          },
+          msrp_estimate_cents: {
+            type: "number",
+            description: "Estimated ORIGINAL retail price in cents (seller context only)",
+          },
+          identification_rationale: {
+            type: "string",
+            description: "REQUIRED: the specific photo evidence supporting this identification",
+          },
+          identification_confidence: {
+            type: "number",
+            description: "Calibrated 0..1 for the identification as a whole",
+          },
+        },
+        required: ["identified_style", "identification_rationale", "identification_confidence"],
+      },
       conflicts: {
         type: "array",
         description:
@@ -684,6 +755,50 @@ export function decodeExtraction(
     attributes[spec.key] = { values, confidence, source };
   }
 
+  // US-1527: research-tier product identification. Validated hard: a usable
+  // block needs a style name, a rationale (an ID the user can't verify is
+  // worthless), and confidence at/above the floor — otherwise the WHOLE block
+  // drops (partial research output would masquerade as observed fact).
+  let research: ResearchIdentification | null = null;
+  if (raw.research_identification && typeof raw.research_identification === "object") {
+    const r = raw.research_identification as Record<string, unknown>;
+    const str = (v: unknown): string | null =>
+      typeof v === "string" && v.trim() !== "" ? v.trim() : null;
+    const identifiedStyle = str(r.identified_style);
+    const rationale = str(r.identification_rationale);
+    let confidence = Number(r.identification_confidence);
+    if (Number.isNaN(confidence)) confidence = 0;
+    confidence = Math.max(0, Math.min(1, confidence));
+    const msrpRaw = Number(r.msrp_estimate_cents);
+    // Sanity band: $1 – $10,000 in cents; anything else is a unit mistake.
+    const msrpEstimateCents =
+      Number.isFinite(msrpRaw) && msrpRaw >= 100 && msrpRaw <= 1_000_000
+        ? Math.round(msrpRaw)
+        : null;
+    if (identifiedStyle && rationale && confidence >= RESEARCH_MIN_CONFIDENCE) {
+      research = {
+        identifiedStyle,
+        productLine: str(r.product_line),
+        fabricTechnology: str(r.fabric_technology),
+        msrpEstimateCents,
+        rationale,
+        confidence,
+      };
+    }
+  }
+
+  // US-1527: an accepted identification fills the style suggestion when the
+  // photos/text produced none (no style name printed on the tag) — with the
+  // distinct 'research' provenance so the UI badges it. An OBSERVED style
+  // always wins; research never overwrites it.
+  if (research && !suggestions.style) {
+    suggestions.style = {
+      value: research.identifiedStyle as string,
+      confidence: research.confidence,
+      source: RESEARCH_SOURCE,
+    };
+  }
+
   const conditionSummary =
     typeof raw.condition_summary === "string" &&
       raw.condition_summary.trim() !== ""
@@ -729,6 +844,7 @@ export function decodeExtraction(
   return {
     suggestions,
     attributes,
+    research,
     conditionSummary,
     conflicts,
     measurements: Object.keys(measurements).length > 0 ? measurements : null,

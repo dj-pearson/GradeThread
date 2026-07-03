@@ -9338,7 +9338,7 @@
     {
       "id": "US-1527",
       "priority": 2338,
-      "passes": false,
+      "passes": true,
       "title": "Product identification pass: name the style/model (ABC Pant, Commission Pant) with research-tier provenance",
       "description": "As a reseller I want the AI to say WHAT the item is, not just describe it: given brand (tag), silhouette/details (front/back/detail photos), fabric (care label), and any codes (US-1526), identify the named style/product line — e.g. 'Lululemon ABC Pant Classic' vs 'Commission Pant' (gusset, waistband construction, pocket layout differ visibly). Implement as a research-tier field set in the SAME extract call (identified_style, product_line, fabric_technology, msrp_estimate_cents, identification_rationale, identification_confidence) with prompt language that EXPLICITLY authorizes informed identification from the model's product knowledge for these fields only — carving them out of the 'Never guess' rule — while requiring the rationale to cite which photo evidence supports the ID and returning nothing below a confidence floor. Distinct provenance value (e.g. source:'research') in ai_field_sources so UI can badge it.",
       "acceptanceCriteria": [
@@ -9348,7 +9348,7 @@
         "Web AiFillPanel + iOS AIFillReview show an 'Identified' badge with rationale tooltip/disclosure so the user can verify before accepting; acceptance recorded per existing accepted_fields flow",
         "Eval fixture set: ≥10 known-item test cases (JSON transcripts of expected IDs for common Lululemon/Nike/Patagonia styles) asserting schema decode + confidence-floor behavior"
       ],
-      "notes": "[P1][AI/Autolister] [AI-refine audit 2026-07-01] Child of US-1525; builds on US-1526 codes. THE core story for the user's Lululemon ABC/Commission Pant ask. Keep it in the single extract call (latency budget: Add flow already runs 20-40s; do not add a serial second call on the foreground path). msrp_estimate is context for the seller + description, never auto-applied to price."
+      "notes": "[P1][AI/Autolister] [AI-refine audit 2026-07-01] Child of US-1525; builds on US-1526 codes. THE core story for the user's Lululemon ABC/Commission Pant ask. Keep it in the single extract call (latency budget: Add flow already runs 20-40s; do not add a serial second call on the foreground path). msrp_estimate is context for the seller + description, never auto-applied to price. [COMPLETION 2026-07-02] Research tier lives INSIDE the single extract call (no added latency): research_identification tool object + SYSTEM_PROMPT RESEARCH section (explicit product-knowledge authorization scoped to this object only; never-guess text untouched); decode enforces style+rationale+confidence>=0.5 (RESEARCH_MIN_CONFIDENCE) or drops the WHOLE block; msrp sanity band - else null; identified_style injects into suggestions.style with source research ONLY when no observed style. /extract returns research{}; web AiFillPanel violet Identified badge + Why/fabric/MSRP line; iOS ResearchIdentification decode + Identified badge/rationale in BOTH applied + low-confidence review sections. 16-fixture eval (11 known items incl. ABC vs Commission + 5 floor/rationale/override/msrp cases). Acceptance rides the existing accepted_fields flow (style is a normal suggestion field)."
     },
     {
       "id": "US-1528",

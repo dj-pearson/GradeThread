@@ -76,6 +76,10 @@ struct AIFillReview: Equatable, Codable {
     /// in reviews persisted before this field existed (US-1171 disk cache), and
     /// (b) the memberwise init stays callable without it (tests / synthetic uses).
     var ebayCategory: EbaySummary? = nil
+    /// US-1527: the product-identification rationale, shown under research-tier
+    /// ("Identified") rows so the user can verify the named product. Optional +
+    /// defaulted for pre-existing disk-cached reviews and synthetic callers.
+    var researchRationale: String? = nil
 
     /// Count shown in the entry point — applied fields plus applied measurements.
     var appliedCount: Int {

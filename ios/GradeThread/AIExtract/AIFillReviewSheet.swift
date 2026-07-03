@@ -161,11 +161,33 @@ struct AIFillReviewSheet: View {
                             .scaledIconFont(size: 22)
                             .foregroundStyle(keptApplied.contains(field.field) ? Color.brandNavy : .secondary)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(field.displayLabel)
-                                .font(.subheadline.weight(.semibold))
+                            HStack(spacing: 6) {
+                                Text(field.displayLabel)
+                                    .font(.subheadline.weight(.semibold))
+                                // US-1527: this value is the AI NAMING the
+                                // product from its knowledge — badge it so the
+                                // user verifies rather than assumes tag text.
+                                if field.source == "research" {
+                                    Text("Identified")
+                                        .font(.caption2.weight(.semibold))
+                                        .foregroundStyle(.purple)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(Color.purple.opacity(0.12))
+                                        .clipShape(Capsule())
+                                }
+                            }
                             Text(field.value)
                                 .font(.body)
                                 .foregroundStyle(.primary)
+                            if field.source == "research",
+                               let rationale = review.researchRationale,
+                               !rationale.isEmpty {
+                                Text("Why: \(rationale)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
                             if !keptApplied.contains(field.field) {
                                 Text(undoHint(for: field))
                                     .font(.caption)
@@ -191,10 +213,12 @@ struct AIFillReviewSheet: View {
             ForEach(review.lowConfidence) { entry in
                 FieldSuggestionRow(
                     entry: entry,
-                    isAccepted: acceptedLow.contains(entry.field)
-                ) {
-                    toggle(&acceptedLow, entry.field)
-                }
+                    isAccepted: acceptedLow.contains(entry.field),
+                    onToggle: { toggle(&acceptedLow, entry.field) },
+                    // US-1527: research-tier rows disclose the identification
+                    // rationale (the row gates on source == "research").
+                    researchRationale: review.researchRationale
+                )
             }
         } header: {
             Text("Suggestions to review")

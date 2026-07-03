@@ -55,6 +55,10 @@ final class AIExtractStore {
     /// US-821 canonical attributes captured this pass (department, size_type,
     /// vintage, …). Drives the US-826 high-value confirm chips.
     var attributes: [String: AttributeSuggestion] = [:]
+    /// US-1527: the research-tier product identification, when one cleared the
+    /// server-side confidence floor. Its rationale rides into the review so
+    /// the user can verify the named product before accepting.
+    var research: ResearchIdentification?
 
     /// US-826: true when the AI produced at least one of the high-value
     /// attributes (department / size_type / vintage / condition tier) worth
@@ -189,6 +193,7 @@ final class AIExtractStore {
         acceptMeasurements = !measurements.isEmpty
         ebayPrep = response.ebay
         attributes = response.attributes
+        research = response.research
 
         phase = .ready(Result(
             entries: entries,
@@ -260,7 +265,9 @@ final class AIExtractStore {
             // persisted server-side during this extract pass, surfaced read-only
             // in the review so "selected eBay category / required info" is
             // visible right after intake (it's already saved on the item).
-            ebayCategory: AIFillReview.EbaySummary(from: ebayPrep)
+            ebayCategory: AIFillReview.EbaySummary(from: ebayPrep),
+            // US-1527: the identification rationale for research-tier rows.
+            researchRationale: research?.identificationRationale
         )
     }
 

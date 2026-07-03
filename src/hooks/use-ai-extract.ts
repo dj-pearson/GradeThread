@@ -27,8 +27,22 @@ export interface AiExtractEbayBlock {
   >;
 }
 
+// US-1527: research-tier product identification (already confidence-floored
+// server-side). The style suggestion carries source:"research" when it came
+// from here; the panel badges it and shows the rationale.
+export interface AiResearchIdentification {
+  identified_style: string | null;
+  product_line: string | null;
+  fabric_technology: string | null;
+  msrp_estimate_cents: number | null;
+  identification_rationale: string | null;
+  identification_confidence: number;
+}
+
 export interface AiExtractResponse {
   suggestions: Record<string, AiFieldSuggestion>;
+  // US-1527: null when no identification cleared the confidence floor.
+  research?: AiResearchIdentification | null;
   condition_summary: string | null;
   conflicts: AiFieldConflict[];
   // Brand-spec flat measurements (inches) the AI inferred from brand+size+
