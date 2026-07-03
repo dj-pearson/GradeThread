@@ -9,6 +9,11 @@ export const MAX_PRICE_DROP_PCT = 90;
 export const MAX_PROMO_RATE_PCT = 100;
 export const DEFAULT_COOLDOWN_DAYS = 7;
 export const DEFAULT_MARGIN_FLOOR_PCT = 10;
+// US-1448: coupon discount bounds — mirror the shared markdown clamp
+// (MIN/MAX_MARKDOWN_PCT in ebay-marketing.ts), duplicated here so this module
+// stays pure (no network-touching imports).
+export const MIN_COUPON_PCT = 5;
+export const MAX_COUPON_PCT = 70;
 
 // ── Wire shapes ─────────────────────────────────────────────────
 
@@ -27,6 +32,10 @@ export type AutomationTrigger =
 export type AutomationAction =
   | { type: "price_drop_pct"; pct: number; margin_floor_pct: number }
   | { type: "set_promo_rate_pct"; pct: number }
+  // US-1448: create a CODED_COUPON item promotion for the aged listing (the
+  // "auto-coupon items >90 days" merchandising lever). The coupon code is
+  // generated at apply time; the cover photo is the required promotion image.
+  | { type: "create_coded_coupon"; discount_pct: number }
   | { type: "end_listing" };
 
 // Scope mirrors the US-143 FilterQuery shape (src/lib/item-filter.ts) so the
@@ -167,6 +176,17 @@ function normalizeAction(raw: unknown): AutomationAction | { error: string } {
         return { error: `Promo rate must be between 1 and ${MAX_PROMO_RATE_PCT}%` };
       }
       return { type: "set_promo_rate_pct", pct };
+    }
+    case "create_coded_coupon": {
+      const pct = typeof a.discount_pct === "number" && Number.isFinite(a.discount_pct)
+        ? a.discount_pct
+        : 0;
+      if (pct < MIN_COUPON_PCT || pct > MAX_COUPON_PCT) {
+        return {
+          error: `Coupon discount must be between ${MIN_COUPON_PCT} and ${MAX_COUPON_PCT}%`,
+        };
+      }
+      return { type: "create_coded_coupon", discount_pct: pct };
     }
     case "end_listing":
       return { type: "end_listing" };
@@ -377,6 +397,7 @@ export function computeFloorCents(
 export type PlannedAction =
   | { kind: "price_drop"; newCents: number; floored: boolean }
   | { kind: "set_promo_rate"; newRatePct: number }
+  | { kind: "create_coupon"; discountPct: number }
   | { kind: "end_listing" };
 
 export interface PlanInput {
@@ -408,6 +429,10 @@ export function planAction(
       }
       return { kind: "set_promo_rate", newRatePct: action.pct };
     }
+    case "create_coded_coupon":
+      // Uniqueness/eligibility is enforced at apply time (live listing id +
+      // cover image required); the trigger cooldown prevents repeat coupons.
+      return { kind: "create_coupon", discountPct: action.discount_pct };
     case "end_listing":
       return { kind: "end_listing" };
   }

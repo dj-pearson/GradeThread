@@ -9719,3 +9719,32 @@ Grounding sources: developer.ebay.com Marketing API createCampaign +
 pl-campaign-flow-pla + updateBiddingStrategy pages (campaignTargetingType=SMART,
 campaign-level maxCpc, suggestMaxCpc pre-create with planned listings).
 Still LOCAL-ONLY; queues behind held migrations 00339-00342.
+
+=== 2026-07-02 (loop): US-1448 (Promotions Manager coupons - aging tie-in, final chunk) ===
+Chunks 1-2 (getItemPromotions + buildItemPromotionBody/create/update/delete for
+ORDER_DISCOUNT / VOLUME_DISCOUNT / CODED_COUPON, 7 tests) were already on main. This
+chunk ships AC2 - "auto-coupon items >90 days" - on the EXISTING automations engine
+(hourly cron with cooldowns, scope filters, first-rule-wins):
+- automation-rules.ts: action create_coded_coupon {discount_pct} bounded 5-70
+  (MIN/MAX_COUPON_PCT mirroring the shared markdown clamp; module stays pure) ->
+  PlannedAction {kind: create_coupon} (apply-time gating; trigger cooldown prevents
+  repeat coupons).
+- flipdesk-automations.ts applyMatch: new branch INSERTED BEFORE the end_listing else
+  (a fall-through would have ENDED the listing) - requires live platform_listing_id
+  (added to the cron select + row type) + isEbayConfigured + a listable cover photo
+  (filterListablePhotos, so US-1549 internal photos never become coupon imagery; the
+  cover doubles as the promotion image eBay mandates for CODED_COUPON - resolving the
+  chunk-2 "promotion-image source" blocker), generates an FD-prefixed crypto-random
+  code (generateCouponCode in ebay-marketing.ts), createItemPromotion, and records
+  promotion_id + coupon_code + discount_pct in the action history; every failure
+  path returns false so the cooldown retries later.
+- Web (automations.tsx + use-automations.ts): "Create coded coupon %" action - select
+  option, % input (max 70), explainer (code auto-generated; cover photo used; share
+  from Seller Hub), describeAction/ACTION_LABELS/history rendering, edit round-trip.
+- CAVEAT unchanged from chunk 2: the item-promotion write path still wants a live-eBay
+  smoke test before heavy use; failures surface as eBay 4xx + a skipped action.
+TESTS: +2 automation-rules tests (bounds incl. rejects, plan passthrough) -> 18/18;
++1 coupon-generator test (200 draws, format + prefix + no collisions) -> 8/8 in
+ebay-item-promotion_test. FULL edge suite 2520/0/70; deno check + lint clean; web
+tsc -b 0, eslint clean, vitest 1121/1121.
+Still LOCAL-ONLY; queues behind held migrations 00339-00342.

@@ -15,6 +15,9 @@ export type AutomationTrigger =
 export type AutomationAction =
   | { type: "price_drop_pct"; pct: number; margin_floor_pct: number }
   | { type: "set_promo_rate_pct"; pct: number }
+  // US-1448: aged-inventory coded coupon (server generates the code + uses
+  // the cover photo as eBay's required promotion image).
+  | { type: "create_coded_coupon"; discount_pct: number }
   | { type: "end_listing" };
 
 // Same vocabulary the US-143 FilterBuilder edits, plus the discriminator.

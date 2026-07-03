@@ -9,6 +9,11 @@ import {
   updateOfferPrice,
   withdrawOffer,
 } from "../lib/ebay-client.ts";
+import {
+  createItemPromotion,
+  generateCouponCode,
+} from "../lib/ebay-marketing.ts";
+import { filterListablePhotos } from "../lib/item-photo-storage.ts";
 import { failSafe, jsonError } from "../lib/http-errors.ts";
 import { featureAllowedForUser, requireFlipdesk } from "../lib/plan-gate.ts";
 import {
@@ -66,6 +71,7 @@ interface AutomationListingRow {
   watchers: number | null;
   views: number | null;
   platform_offer_id: string | null;
+  platform_listing_id: string | null;
   promo_rate_pct: number | null;
   inventory_items: {
     user_id: string;
@@ -115,7 +121,7 @@ async function loadOwnerListings(
   const { data, error } = await supabaseAdmin
     .from("listings")
     .select(
-      "id, inventory_item_id, listing_price, listed_at, watchers, views, platform_offer_id, promo_rate_pct, " +
+      "id, inventory_item_id, listing_price, listed_at, watchers, views, platform_offer_id, platform_listing_id, promo_rate_pct, " +
         "inventory_items!inner(user_id, title, brand, size, item_category, garment_category, acquired_price, target_price, status, grade_value, updated_at, exclude_from_automations, sources(name))",
     )
     .eq("platform", "ebay")
@@ -308,6 +314,53 @@ async function applyMatch(
     if (error) return false;
     before = { promo_rate_pct: listing.promo_rate_pct };
     after = { promo_rate_pct: planned.newRatePct };
+  } else if (planned.kind === "create_coupon") {
+    // US-1448: aged-inventory coded coupon. Requires a LIVE eBay listing id
+    // and a public cover photo (eBay mandates a promotion image for
+    // CODED_COUPON). Any missing prerequisite or eBay failure skips the
+    // action (returns false) — the cooldown retries on a later run.
+    const liveListingId = listing.platform_listing_id;
+    if (!liveListingId || !isEbayConfigured()) return false;
+    const { data: photoRows } = await supabaseAdmin
+      .from("item_photos")
+      .select("photo_url, photo_type, sort_order")
+      .eq("inventory_item_id", listing.inventory_item_id)
+      .order("sort_order", { ascending: true })
+      .limit(10);
+    const cover = filterListablePhotos(
+      (photoRows ?? []) as Array<{
+        photo_url: string | null;
+        photo_type: string | null;
+      }>,
+    ).find((pht) => !!pht.photo_url)?.photo_url;
+    if (!cover) return false;
+    const couponCode = generateCouponCode();
+    try {
+      const promotionId = await createItemPromotion(ownerId, {
+        type: "CODED_COUPON",
+        name: `FlipDesk ${planned.discountPct}% coupon ${couponCode}`,
+        listingIds: [liveListingId],
+        percentOff: planned.discountPct,
+        promotionImageUrl: cover,
+        couponCode,
+        startDate: new Date().toISOString(),
+      });
+      if (!promotionId) return false;
+      before = {};
+      after = {
+        promotion_id: promotionId,
+        coupon_code: couponCode,
+        discount_pct: planned.discountPct,
+      };
+      ebaySynced = true;
+    } catch (err) {
+      console.error(
+        "[automations] createItemPromotion failed for",
+        listing.id,
+        err instanceof Error ? err.message : String(err),
+      );
+      return false;
+    }
   } else {
     if (hasLiveOffer) {
       try {

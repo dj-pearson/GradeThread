@@ -86,14 +86,18 @@ const CONCURRENCY = 3; // vision calls are heavy; mirror flipdesk-ai bulk-extrac
 // US-526: hard wall-clock cap on a single item's generation. generateListing
 // makes several sequential Anthropic + eBay calls; only the SDK socket timeout
 // protected it before, so one hung item could pin a concurrency slot.
-const GENERATION_TIMEOUT_MS = 90_000;
+// US-1552: raised 90s → 240s — the pipeline has grown to 3-4 sequential vision
+// calls (tag-OCR, main generation incl. cascade escalation, aspects second
+// pass) and 90s made photo-heavy items time out wholesale. This is a hung-call
+// backstop, not a target duration; keep it comfortably under JOB_STALE_MS.
+const GENERATION_TIMEOUT_MS = 240_000;
 // US-525: a job started this many times (incl. reclaim resumes) is failed
 // terminally rather than resumed forever.
 const MAX_JOB_ATTEMPTS = 5;
 // US-525: a 'running' job whose updated_at is older than this was left by a
 // dead worker and is eligible for reclaim. Must exceed GENERATION_TIMEOUT_MS so
 // a live, generating job is never reclaimed out from under its worker.
-const JOB_STALE_MS = 5 * 60_000;
+const JOB_STALE_MS = 6 * 60_000;
 // US-525: a 'running' batch whose updated_at (bumped on every progress roll-up)
 // is older than this is presumed abandoned and is swept.
 const BATCH_STALE_MS = 15 * 60_000;
@@ -222,6 +226,10 @@ async function refundAiAction(ownerId: string): Promise<void> {
 }
 
 async function markJobFailed(jobId: string, message: string): Promise<void> {
+  // US-1552: also log it — job failures used to be DB-row-only, which made a
+  // wholesale batch failure (e.g. every item timing out) completely invisible
+  // in the edge logs.
+  console.error(`[flipdesk-autolister] job ${jobId} failed: ${message}`);
   await supabaseAdmin
     .from("listing_generation_jobs")
     .update({ status: "failed", error: message.slice(0, 1000) })
@@ -334,7 +342,7 @@ async function processBatch(
     // US-525: atomically CLAIM the job. Eligible = still 'pending', or a
     // 'running' job left stale by a dead worker. If a live worker already owns
     // it (fresh 'running'), the conditional update matches nothing and we skip.
-    const { data: claimed } = await supabaseAdmin
+    const { data: claimed, error: claimErr } = await supabaseAdmin
       .from("listing_generation_jobs")
       .update({ status: "running", attempts: attempts + 1, error: null })
       .eq("id", job.id)
@@ -342,6 +350,15 @@ async function processBatch(
       .or(`status.eq.pending,updated_at.lt.${jobStaleBefore}`)
       .select("id")
       .maybeSingle();
+    // US-1552: a DB error here used to read as "someone else owns it" and the
+    // job was skipped SILENTLY — with a persistent error (e.g. schema drift)
+    // every job skipped and the batch sat 'running' forever with no log trail.
+    if (claimErr) {
+      console.error(
+        `[flipdesk-autolister] job ${job.id} claim failed (left pending): ${claimErr.message}`,
+      );
+      return;
+    }
     if (!claimed) return;
 
     // US-527: atomic, cap-aware reservation.
@@ -409,10 +426,19 @@ async function processBatch(
   }
 
   try {
+    // US-1552: bookend logs — the worker was previously silent end-to-end on
+    // the happy path AND on per-job failures, so a dead/stalled batch was
+    // indistinguishable from a healthy one in the edge logs.
+    console.log(
+      `[flipdesk-autolister] batch ${batchId}: worker started, ${jobs.length} job(s)`,
+    );
     for (let i = 0; i < jobs.length; i += CONCURRENCY) {
       await Promise.all(jobs.slice(i, i + CONCURRENCY).map((j) => runJob(j)));
       // Live progress + heartbeat for the reclaim sweeper.
       await finalizeBatch(batchId);
+      console.log(
+        `[flipdesk-autolister] batch ${batchId}: ${Math.min(i + CONCURRENCY, jobs.length)}/${jobs.length} dispatched`,
+      );
     }
   } catch (err) {
     console.error("[flipdesk-autolister] batch worker crashed:", err);
@@ -421,6 +447,7 @@ async function processBatch(
     await finalizeBatch(batchId).catch((e) =>
       console.error("[flipdesk-autolister] finalizeBatch failed:", e)
     );
+    console.log(`[flipdesk-autolister] batch ${batchId}: worker finished`);
   }
 }
 
@@ -1357,16 +1384,25 @@ flipdeskAutolisterRoutes.post("/batch/:id/retry-failed", async (c) => {
 
   // Reopen the batch and reset the failed jobs to 'pending' so the worker can
   // claim them. finalizeBatch recomputes the rolled-up counts from the jobs.
+  // US-1552: an EXPLICIT retry also resets the attempts budget — the cap
+  // exists to stop unattended reclaim loops, not to refuse a seller who asked
+  // again (after e.g. a wholesale-timeout batch, attempts were already burned).
   await supabaseAdmin
     .from("listing_generation_batches")
     .update({ status: "running", error: null })
     .eq("id", batchId);
   await supabaseAdmin
     .from("listing_generation_jobs")
-    .update({ status: "pending", error: null })
+    .update({ status: "pending", error: null, attempts: 0 })
     .in("id", jobs.map((j) => j.id));
 
-  void processBatch(batchId, ownerId, jobs, useComps, limit).catch((err) =>
+  void processBatch(
+    batchId,
+    ownerId,
+    jobs.map((j) => ({ ...j, attempts: 0 })),
+    useComps,
+    limit,
+  ).catch((err) =>
     console.error("[flipdesk-autolister] retry batch crashed:", err)
   );
 

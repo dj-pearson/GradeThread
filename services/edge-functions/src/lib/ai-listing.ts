@@ -906,6 +906,15 @@ interface ItemRow {
   ebay_category_id: string | null;
 }
 
+// US-1552: hard cap on how many photos feed the generation vision calls —
+// the same input cap as the AI-extract pass (flipdesk-ai MAX_PHOTOS). The
+// photos arrive in canonical sort_order (front → back → tag → detail → …), so
+// the first N are exactly the most informative shots. Uncapped, a photo-heavy
+// AutoLister group (a 600-photo intake averages ~14/item) made the sequential
+// vision calls slow enough to blow the batch worker's per-item timeout, and
+// every job died as a silent timeout.
+const MAX_GENERATION_PHOTOS = 8;
+
 async function loadItemPhotoUrls(itemId: string): Promise<ListingGenPhoto[]> {
   const { data } = await supabaseAdmin
     .from("item_photos")
@@ -918,6 +927,7 @@ async function loadItemPhotoUrls(itemId: string): Promise<ListingGenPhoto[]> {
     (data ?? []) as Array<{ photo_type: string; storage_path: string | null }>,
   )
     .filter((p) => !!p.storage_path)
+    .slice(0, MAX_GENERATION_PHOTOS)
     .map((p) => ({
       url: supabaseAdmin.storage.from("item-photos").getPublicUrl(p.storage_path!)
         .data.publicUrl,

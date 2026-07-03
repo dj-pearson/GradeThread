@@ -1198,6 +1198,18 @@ export interface ItemPromotionInput {
 
 const COUPON_CODE_RE = /^[A-Za-z0-9]{8,15}$/;
 
+/** US-1448: generate a coupon code satisfying eBay's 8-15 alphanumeric rule.
+ *  "FD" prefix + 10 random uppercase alphanumerics — 36^10 space makes
+ *  collisions with other sellers' codes vanishingly unlikely. */
+export function generateCouponCode(): string {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let code = "FD";
+  const bytes = new Uint8Array(10);
+  crypto.getRandomValues(bytes);
+  for (const b of bytes) code += alphabet[b % alphabet.length];
+  return code;
+}
+
 /** Build an item_promotion request body per type. Pure + unit-tested; throws a
  *  clear error when a type's eBay-required input is missing. */
 export function buildItemPromotionBody(

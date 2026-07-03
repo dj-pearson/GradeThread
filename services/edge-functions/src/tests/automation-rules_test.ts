@@ -237,3 +237,39 @@ Deno.test("end_listing always plans", () => {
   );
   assert(p && p.kind === "end_listing");
 });
+
+// ── US-1448: create_coded_coupon action (aging → auto-coupon) ────────────────
+
+Deno.test("US-1448: create_coded_coupon normalizes within the 5-70% bounds", () => {
+  const ok = normalizeAutomationInput({
+    name: "Coupon aged stock",
+    is_active: true,
+    trigger_json: { type: "days_listed_gt", days: 90, cooldown_days: 30 },
+    action_json: { type: "create_coded_coupon", discount_pct: 15 },
+    scope_json: { type: "all" },
+  });
+  if (!ok.ok) throw new Error(ok.error);
+  assertEquals(ok.value.action_json, {
+    type: "create_coded_coupon",
+    discount_pct: 15,
+  });
+
+  for (const bad of [0, 4, 71, Number.NaN]) {
+    const res = normalizeAutomationInput({
+      name: "x",
+      is_active: true,
+      trigger_json: { type: "days_listed_gt", days: 90, cooldown_days: 30 },
+      action_json: { type: "create_coded_coupon", discount_pct: bad },
+      scope_json: { type: "all" },
+    });
+    assertEquals(res.ok, false, `discount_pct=${bad} must be rejected`);
+  }
+});
+
+Deno.test("US-1448: planAction passes the coupon through (apply-time gating)", () => {
+  const planned = planAction(
+    { type: "create_coded_coupon", discount_pct: 20 },
+    { currentCents: 5000, costBasisDollars: 10, currentPromoRatePct: null },
+  );
+  assertEquals(planned, { kind: "create_coupon", discountPct: 20 });
+});

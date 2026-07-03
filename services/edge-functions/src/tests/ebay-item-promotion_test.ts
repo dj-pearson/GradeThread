@@ -140,3 +140,21 @@ Deno.test("empty name / no listings throws", () => {
       percentOff: 10,
     }), Error, "listing");
 });
+
+// ── US-1448 final chunk: coupon-code generator ───────────────────────────────
+
+const { generateCouponCode } = await import("../lib/ebay-marketing.ts");
+
+Deno.test("US-1448: generateCouponCode satisfies eBay's 8-15 alphanumeric rule", () => {
+  const seen = new Set<string>();
+  for (let i = 0; i < 200; i++) {
+    const code = generateCouponCode();
+    if (!/^[A-Za-z0-9]{8,15}$/.test(code)) {
+      throw new Error(`invalid code: ${code}`);
+    }
+    if (!code.startsWith("FD")) throw new Error(`missing prefix: ${code}`);
+    seen.add(code);
+  }
+  // 200 draws from a 32^10 space must not collide.
+  if (seen.size !== 200) throw new Error("collision in 200 draws");
+});

@@ -84,6 +84,8 @@ function describeAction(a: AutomationAction): string {
       return `drop price ${a.pct}% (floor: cost +${a.margin_floor_pct}%)`;
     case "set_promo_rate_pct":
       return `set promo rate to ${a.pct}%`;
+    case "create_coded_coupon":
+      return `create a ${a.discount_pct}% coded coupon`;
     case "end_listing":
       return "end the listing";
   }
@@ -99,6 +101,7 @@ function describeScope(rule: AutomationRule): string {
 const ACTION_LABELS: Record<AutomationAction["type"], string> = {
   price_drop_pct: "Price drop",
   set_promo_rate_pct: "Promo rate",
+  create_coded_coupon: "Coded coupon",
   end_listing: "End listing",
 };
 
@@ -156,7 +159,9 @@ function RuleDialog({
       initial?.action_json.type === "price_drop_pct" ||
         initial?.action_json.type === "set_promo_rate_pct"
         ? initial.action_json.pct
-        : 10,
+        : initial?.action_json.type === "create_coded_coupon"
+          ? initial.action_json.discount_pct
+          : 10,
     ),
   );
   const [marginFloorPct, setMarginFloorPct] = useState(
@@ -199,7 +204,9 @@ function RuleDialog({
           }
         : actionType === "set_promo_rate_pct"
           ? { type: actionType, pct }
-          : { type: actionType };
+          : actionType === "create_coded_coupon"
+            ? { type: actionType, discount_pct: pct }
+            : { type: actionType };
     return {
       name: name.trim(),
       is_active: isActive,
@@ -318,6 +325,7 @@ function RuleDialog({
                 <SelectContent>
                   <SelectItem value="price_drop_pct">Drop price by %</SelectItem>
                   <SelectItem value="set_promo_rate_pct">Set promo rate %</SelectItem>
+                  <SelectItem value="create_coded_coupon">Create coded coupon %</SelectItem>
                   <SelectItem value="end_listing">End the listing</SelectItem>
                 </SelectContent>
               </Select>
@@ -326,7 +334,13 @@ function RuleDialog({
                   <Input
                     type="number"
                     min={1}
-                    max={actionType === "price_drop_pct" ? 90 : 100}
+                    max={
+                      actionType === "price_drop_pct"
+                        ? 90
+                        : actionType === "create_coded_coupon"
+                          ? 70
+                          : 100
+                    }
                     value={actionPct}
                     onChange={(e) => setActionPct(e.target.value)}
                     className="w-20"
@@ -354,6 +368,14 @@ function RuleDialog({
               <p className="text-xs text-muted-foreground">
                 Tracked in FlipDesk for now — the rate isn't pushed to eBay
                 Promoted Listings yet.
+              </p>
+            )}
+            {actionType === "create_coded_coupon" && (
+              <p className="text-xs text-muted-foreground">
+                Creates an eBay coded coupon (5–70%) for the aged listing — the
+                code is generated automatically and the listing's cover photo is
+                used as the promotion image eBay requires. Share the code from
+                eBay Seller Hub → Marketing.
               </p>
             )}
           </div>
