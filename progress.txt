@@ -9918,3 +9918,24 @@ TESTS: 6 new deno tests (bin rates; lowest-qualifying threshold; reliable catego
 earns LOWER-than-flat; under-sample fallback; hopeless-data fallback; resolver
 clamp/fallback/case-insensitivity). FULL edge 2526/0/70; web tsc -b 0, eslint clean,
 vitest 1121/1121. Held local; no migration (system_settings is row-data).
+
+=== 2026-07-03 (user bug, prod): US-1559 (queue post-generation fixes: 429 storm, false-clean pre-flight, suggest 502, CSP) ===
+The 44-job batch generated cleanly post-US-1552; four downstream bugs surfaced:
+- Queue pre-flight hammered /ebay/listings/validate past the 30/min limiter at
+  concurrency 4 unpaced; every 429 re-armed the id and the 2s poll re-fired it
+  (sustained storm). FIX: global start pacing (acquireValidateSlot ~24/min via a
+  shared ref across overlapping waves AND the publish dialog), concurrency 2,
+  60s wave cooldown on any 429.
+- Publish dialog cached a 429/!ok validate as blockers=[] -> FALSELY CLEAN and
+  publishable. FIX: non-ok -> explicit blocker row, never warms the cache.
+- /ebay/category/suggest surfaced eBay Taxonomy 500s (errorId 62000) as 502s the
+  browser showed as CORS errors. FIX: degrade to 200 {suggestions:[], degraded}.
+- CSP: eBay comp thumbnails blocked NOT by img-src (already allowed) but by the
+  service worker's Workbox image cache re-fetch, which is governed by
+  connect-src -> added *.ebayimg.com to connect-src; also googleads.g.doubleclick.net
+  + www.googleadservices.com to script-src and ad.doubleclick.net to connect-src
+  (GTM conversion tracking). Inline-script hash untouched (auto-synced anyway).
+OPEN: one React #185 (max update depth) in a Select on /items/:id/draft - Sentry
+captured it via the error boundary; need the event's componentStack (minified
+traces inconclusive; picker/composer effect chains audited, all bail out).
+VERIFIED: tsc, eslint, full edge suite (exit 0), full build + CSP hash sync green.

@@ -81,6 +81,20 @@ interface PreflightItem {
   blockersLoaded: boolean;
 }
 
+// US-1559: minimum spacing between /listings/validate request STARTS. The edge
+// rate-limits /ebay/listings/* at 30/min; ~24 starts/min leaves headroom for
+// the user's own clicks. Shared (via a ref) by the background pre-flight wave
+// and the publish dialog so they can't stack into a 429 storm together.
+const VALIDATE_SPACING_MS = 2500;
+async function acquireValidateSlot(slotRef: { current: number }): Promise<void> {
+  const now = Date.now();
+  const startAt = Math.max(now, slotRef.current);
+  slotRef.current = startAt + VALIDATE_SPACING_MS;
+  if (startAt > now) {
+    await new Promise((resolve) => setTimeout(resolve, startAt - now));
+  }
+}
+
 export function FlipdeskAutolisterQueuePage() {
   const [params] = useSearchParams();
   const batchId = params.get("batch");
@@ -105,6 +119,14 @@ export function FlipdeskAutolisterQueuePage() {
   // itemIds already validated or in-flight, so the polling effect never
   // re-fires a validate for the same draft.
   const preflightSeenRef = useRef<Set<string>>(new Set());
+  // US-1559: global pacing for the pre-flight wave. The edge rate-limits
+  // /ebay/listings/* at 30/min; a 44-draft batch validated at concurrency 4
+  // with no spacing blew straight through it (a sustained 429 storm, because
+  // every 429 re-armed the id and the next poll re-fired it). validateSlotRef
+  // spaces request STARTS globally (across overlapping effect runs), and
+  // preflightCooldownRef pauses the whole wave after any 429.
+  const validateSlotRef = useRef(0);
+  const preflightCooldownRef = useRef(0);
   // US-554: queue filter/sort + multi-select.
   const [queueFilter, setQueueFilter] = useState<"all" | "ready" | "review" | "failed">("all");
   const [queueSort, setQueueSort] = useState<"confidence" | "price" | "status">("confidence");
@@ -231,6 +253,9 @@ export function FlipdeskAutolisterQueuePage() {
   // Skipped until eBay is connected (validate needs a live connection).
   useEffect(() => {
     if (!ebayConnection) return;
+    // US-1559: after a 429, pause the whole wave — hammering the limiter just
+    // extends the block. The publish dialog still validates on demand.
+    if (Date.now() < preflightCooldownRef.current) return;
     const succeeded = jobs
       .filter((j) => j.status === "success")
       .map((j) => j.inventory_item_id);
@@ -239,13 +264,29 @@ export function FlipdeskAutolisterQueuePage() {
     pending.forEach((id) => preflightSeenRef.current.add(id));
 
     let cancelled = false;
-    void runWithConcurrency(pending, 4, async (itemId) => {
+    void runWithConcurrency(pending, 2, async (itemId) => {
       if (cancelled) return;
+      await acquireValidateSlot(validateSlotRef);
+      if (cancelled || Date.now() < preflightCooldownRef.current) {
+        preflightSeenRef.current.delete(itemId);
+        return;
+      }
       try {
         const res = await edgeFetch("/api/flipdesk/ebay/listings/validate", {
           method: "POST",
           json: { inventory_item_id: itemId },
         });
+        if (res.status === 429) {
+          // Rate-limited: re-arm this id and cool the wave down for a minute.
+          preflightSeenRef.current.delete(itemId);
+          preflightCooldownRef.current = Date.now() + 60_000;
+          return;
+        }
+        if (!res.ok) {
+          // Server/eBay error: never cache a false "ready" — re-arm instead.
+          preflightSeenRef.current.delete(itemId);
+          return;
+        }
         const json = await res.json().catch(() => ({}));
         const blockers = Array.isArray(json.blockers)
           ? (json.blockers as string[])
@@ -425,20 +466,34 @@ export function FlipdeskAutolisterQueuePage() {
         })),
       );
 
-      // Validate only the uncached items, with bounded concurrency (eBay rate
-      // budget), warming the shared cache as each completes.
-      await runWithConcurrency(needValidation, 4, async (it) => {
+      // Validate only the uncached items, paced under the edge rate limiter
+      // (US-1559), warming the shared cache as each completes. A failed or
+      // rate-limited validate is a BLOCKER, never a silent "clean" — and it
+      // isn't cached, so reopening the dialog re-validates it.
+      await runWithConcurrency(needValidation, 2, async (it) => {
+        await acquireValidateSlot(validateSlotRef);
         let blockers: string[];
+        let cacheable = true;
         try {
           const res = await edgeFetch("/api/flipdesk/ebay/listings/validate", {
             method: "POST",
             json: { inventory_item_id: it.itemId },
           });
-          const json = await res.json().catch(() => ({}));
-          blockers = Array.isArray(json.blockers)
-            ? (json.blockers as string[])
-            : [];
+          if (!res.ok) {
+            cacheable = false;
+            blockers = [
+              res.status === 429
+                ? "Rate-limited while validating — wait a minute and reopen this dialog."
+                : "Validation failed — reopen this dialog to retry.",
+            ];
+          } else {
+            const json = await res.json().catch(() => ({}));
+            blockers = Array.isArray(json.blockers)
+              ? (json.blockers as string[])
+              : [];
+          }
         } catch (err) {
+          cacheable = false;
           blockers = [
             err instanceof Error ? err.message : "Validation request failed.",
           ];
@@ -450,10 +505,12 @@ export function FlipdeskAutolisterQueuePage() {
               : p,
           ),
         );
-        setPreflightByItem((prev) => ({
-          ...prev,
-          [it.itemId]: { blockers, loaded: true },
-        }));
+        if (cacheable) {
+          setPreflightByItem((prev) => ({
+            ...prev,
+            [it.itemId]: { blockers, loaded: true },
+          }));
+        }
       });
     } finally {
       setPreflightLoading(false);

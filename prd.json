@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1559,
+  "nextId": 1560,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -9848,6 +9848,21 @@
         "Edge + web suites green"
       ],
       "notes": "From AGENT_LEVELUP_ROADMAP.md section 6.3 (reviewed 2026-07-03). Depends on US-1557 for the calibration-gap signal but can ship with novelty + rarity factors first."
+    },
+    {
+      "id": "US-1559",
+      "priority": 2345,
+      "passes": true,
+      "title": "AutoLister queue post-generation fixes: validate 429 storm, false-clean pre-flight, category-suggest 502, CSP blocks",
+      "description": "As a reseller reviewing a 44-draft batch, the queue page hammered /ebay/listings/validate past the 30/min limiter (sustained 429 storm - every 429 re-armed the id and the next poll re-fired it), a 429 in the publish dialog cached as ZERO blockers (falsely publishable), eBay Taxonomy 500s surfaced as CORS-less 502s, and eBay comp thumbnails were blocked by the service worker's connect-src.",
+      "acceptanceCriteria": [
+        "Background pre-flight paces validate request starts globally (acquireValidateSlot, ~24/min shared via ref across overlapping waves and the publish dialog) at concurrency 2; any 429 cools the whole wave down for 60s and re-arms the id",
+        "A non-ok validate response is never cached as ready: background wave re-arms; publish dialog shows an explicit rate-limited/failed blocker and does not warm the shared cache",
+        "GET /ebay/category/suggest degrades eBay Taxonomy 5xx (errorId 62000) to 200 {suggestions: [], degraded: true} instead of 502 - suggestions are advisory and the 502 broke the client with a CORS-masked error",
+        "CSP (public/_headers): *.ebayimg.com added to connect-src (img-src already allowed it; the block was Workbox re-fetching images inside the SW, which is governed by connect-src); googleads.g.doubleclick.net + www.googleadservices.com added to script-src and ad.doubleclick.net to connect-src for GTM conversion tracking",
+        "tsc, eslint, edge suite, full build green"
+      ],
+      "notes": "[USER BUG 2026-07-03, prod, follow-up to US-1552] The 44-job batch itself generated cleanly. OPEN follow-up: one React #185 (max update depth) crash in a Select on /items/:id/draft - captured by Sentry via the error boundary; needs the Sentry event componentStack to pinpoint (minified traces inconclusive; picker/composer effect chains audited and bail out correctly)."
     }
   ]
 }

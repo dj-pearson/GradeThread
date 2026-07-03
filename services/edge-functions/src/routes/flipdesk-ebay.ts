@@ -1442,7 +1442,15 @@ flipdeskEbayRoutes.get("/category/suggest", async (c) => {
     const suggestions = await suggestCategories(q);
     return c.json({ suggestions });
   } catch (err) {
-    console.error("[flipdesk-ebay] category suggest failed:", err);
+    // US-1559: eBay's Taxonomy API intermittently 500s (errorId 62000,
+    // "internal system or process"). Suggestions are advisory — degrade to an
+    // empty list instead of a 502 that TanStack Query retries into (and that
+    // an upstream proxy can strip CORS headers from, masking the real error).
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[flipdesk-ebay] category suggest failed:", msg);
+    if (msg.includes("(500)") || msg.includes("62000")) {
+      return c.json({ suggestions: [], degraded: true });
+    }
     return c.json({ error: "Category suggest failed" }, 502);
   }
 });
