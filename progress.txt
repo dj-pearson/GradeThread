@@ -10121,3 +10121,35 @@ The last three admin surfaces bypassing the edge boundary now go through it:
 VERIFICATION: edge 2542/0/70 (incl. scope-coverage + rls-guard + the new isolation
 case); vitest 1121/1121; tsc -b 0; eslint clean. ADMIN-AUDIT BATCH COMPLETE
 (US-1560-1565 all shipped; US-1566 remains ops/user-action).
+
+=== 2026-07-03 (loop v2): US-1523 ACs 2-4 (iOS auth hardening - AC1 stays macOS-gated) ===
+- AC2 (transient vs no-session): SupabaseShared.AccessTokenResult
+  (token/noSession/transient) + pure classifyTokenError - hop-bounded walk of the
+  NSError underlying chain; NSURLErrorDomain anywhere = transient; unknowns lean
+  noSession ON PURPOSE (the EdgeAPI server-401 + forced-refresh path is the
+  authoritative expiry signal, and public endpoints must not fail on an exotic
+  error misread as network). EdgeAPI's tokenProvider AND tokenRefresher are now
+  throwing: a transient failure throws retryable .network - a request is NEVER
+  sent unauthenticated on a blip at the 1h token boundary, and a blip during the
+  one forced 401-refresh reads "connection problem, retry" instead of "session
+  expired". Legacy String? shims kept for the ~30 non-Edge call sites (behavior
+  unchanged). NEW AccessTokenClassificationTests (6 URLError codes, wrapped
+  chains, non-network -> noSession, deep-chain termination).
+- AC3 (plan-step leak): the pending flag was a DEVICE-level boolean - if A signed
+  up and abandoned before confirming, the next account signing in on that device
+  inherited A's one-time plan offer. markPendingEligibility(email:) now stamps
+  the normalized signup email; resolvePending(userId:email:) attaches ONLY on
+  match, PRESERVES pending on mismatch (A still gets their offer later on the
+  family iPad), and consumes-without-attaching legacy unstamped flags. The Apple
+  first-grant path skips the device-level hop entirely (markEligible(userId:) -
+  the session exists at grant time). PlanSelectionStateTests rewritten - the old
+  test_pendingResolvesToWhicheverUserSignsIn literally documented the bug; now
+  replaced with leak-closure cases.
+- AC4 (weak_password copy): verified ALREADY COVERED by US-1521 (three phrasing
+  variants map to actionable requirements copy; FriendlyErrorCopyTests).
+- AC1 (pin supabase-swift exact + commit Package.resolved + CI drift guard):
+  REQUIRES Xcode resolve on macOS - the one remaining item; story stays open.
+VERIFICATION (Windows static gates): no-ungated-print OK; no curly-quote
+delimiters; no stale call sites of the old APIs (grep); non-throwing test
+closures satisfy the new throwing params by Swift function subtyping. Compile
+proof = iOS CI on next push (the macOS safety net).

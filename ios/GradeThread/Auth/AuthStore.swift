@@ -100,7 +100,10 @@ public final class AuthStore {
             // one-time post-signup plan step. The flag carries no id yet (email
             // confirmation may not have signed the user in); it's attached to the
             // user id at first sign-in. Only runs when signUp didn't throw.
-            PlanSelectionState().markPendingEligibility()
+            // US-1523: stamped with the signup email so it can only resolve onto
+            // THIS account — a different user signing in on the same device
+            // can't inherit the offer.
+            PlanSelectionState().markPendingEligibility(email: email)
         }
     }
 
@@ -176,11 +179,12 @@ public final class AuthStore {
                 }
             }
             // US-804: a first-time Apple grant supplies the name, which is our
-            // reliable signal that this is a brand-new account — mark the device
-            // eligible for the one-time post-signup plan step (resolved to the
-            // user id at the signed-in transition, like the email signup path).
-            if fullName != nil {
-                PlanSelectionState().markPendingEligibility()
+            // reliable signal that this is a brand-new account. US-1523: the
+            // Apple exchange signs the user in IMMEDIATELY, so skip the pending
+            // hop and mark this exact user id eligible — nothing device-level
+            // another account could inherit.
+            if fullName != nil, let uid = SupabaseShared.client.auth.currentUser?.id {
+                PlanSelectionState().markEligible(userId: uid)
             }
         }
     }

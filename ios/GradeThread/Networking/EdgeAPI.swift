@@ -13,8 +13,11 @@ public actor EdgeAPI {
         // US-992: bounded-timeout session so a stalled request fails fast as
         // a transient `.network` error instead of hanging ~60s behind a spinner.
         session: EdgeNetwork.shared,
-        tokenProvider: { await SupabaseShared.currentAccessToken() },
-        tokenRefresher: { await SupabaseShared.refreshAccessToken() }
+        // US-1523: a transient session-refresh failure throws a retryable
+        // `.network` error — the request is NEVER sent unauthenticated and the
+        // user NEVER sees "session expired" for a network blip.
+        tokenProvider: { try await Self.resolveToken() },
+        tokenRefresher: { try await Self.resolveRefreshedToken() }
     )
 
     /// US-1164: AI-session-backed instance so the slow vision calls (AI extract,
@@ -27,17 +30,44 @@ public actor EdgeAPI {
     public static let aiShared = EdgeAPI(
         baseURL: AppConfig.edgeAPIURL,
         session: EdgeNetwork.aiSession,
-        tokenProvider: { await SupabaseShared.currentAccessToken() },
-        tokenRefresher: { await SupabaseShared.refreshAccessToken() }
+        tokenProvider: { try await Self.resolveToken() },
+        tokenRefresher: { try await Self.resolveRefreshedToken() }
     )
+
+    /// US-1523: maps the typed token result onto the provider contract —
+    /// `.token` attaches, `.noSession` proceeds unauthenticated (public
+    /// endpoints), `.transient` throws the same retryable `.network` error the
+    /// send loop already backs off on.
+    private static func resolveToken() async throws -> String? {
+        switch await SupabaseShared.currentAccessTokenResult() {
+        case .token(let token): return token
+        case .noSession: return nil
+        case .transient(let why):
+            throw EdgeAPIError.network("Session refresh failed: \(why)")
+        }
+    }
+
+    /// US-1523: forced-refresh variant of ``resolveToken()`` — a transient
+    /// refresh failure throws `.network` so a network blip during the one
+    /// forced 401 refresh reads as "connection problem, retry", never
+    /// "session expired". A definite no-session returns nil and the caller
+    /// surfaces the original auth error (true expiry).
+    private static func resolveRefreshedToken() async throws -> String? {
+        switch await SupabaseShared.refreshAccessTokenResult() {
+        case .token(let token): return token
+        case .noSession: return nil
+        case .transient(let why):
+            throw EdgeAPIError.network("Session refresh failed: \(why)")
+        }
+    }
 
     private let baseURL: URL
     private let session: URLSession
-    private let tokenProvider: @Sendable () async -> String?
+    private let tokenProvider: @Sendable () async throws -> String?
     /// US-1146: forces a token refresh after a server 401 so a rejected-but-
     /// present token gets one explicit refresh + retry before surfacing
     /// "session expired". Injectable for tests.
-    private let tokenRefresher: @Sendable () async -> String?
+    private let tokenRefresher: @Sendable () async throws -> String?
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
     /// US-805: centralized plan-gate interception. A decoded 402 cap body and an
@@ -82,8 +112,8 @@ public actor EdgeAPI {
     init(
         baseURL: URL,
         session: URLSession,
-        tokenProvider: @Sendable @escaping () async -> String?,
-        tokenRefresher: @Sendable @escaping () async -> String? = { nil },
+        tokenProvider: @Sendable @escaping () async throws -> String?,
+        tokenRefresher: @Sendable @escaping () async throws -> String? = { nil },
         decoder: JSONDecoder = .iso8601,
         encoder: JSONEncoder = .iso8601,
         onPlanGate: @escaping @Sendable (PlanGateError) -> Void = PlanGateNotifier.publish,
@@ -237,7 +267,7 @@ public actor EdgeAPI {
                 let mapped = EdgeAPIError.from(statusCode: http.statusCode, body: respData)
                 if case .unauthorized = mapped, !didRefreshAuth {
                     didRefreshAuth = true
-                    if await tokenRefresher() != nil {
+                    if try await tokenRefresher() != nil {
                         request = try await buildMultipartRequest(path: path, boundary: boundary)
                         continue
                     }
@@ -260,7 +290,7 @@ public actor EdgeAPI {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        if let token = await tokenProvider() {
+        if let token = try await tokenProvider() {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         if let workspaceOwner = WorkspaceScope.activeOwnerId {
@@ -416,7 +446,7 @@ public actor EdgeAPI {
                 // expired" mid-task.
                 if case .unauthorized = error, !didRefreshAuth {
                     didRefreshAuth = true
-                    if await tokenRefresher() != nil {
+                    if try await tokenRefresher() != nil {
                         request = try await buildRequest(
                             method: method, path: path, query: query, bodyData: bodyData)
                         continue
@@ -587,7 +617,7 @@ public actor EdgeAPI {
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        if let token = await tokenProvider() {
+        if let token = try await tokenProvider() {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 

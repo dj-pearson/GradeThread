@@ -747,7 +747,9 @@ struct MainShell: View {
     private func offerPlanSelectionIfNeeded() {
         guard case let .signedIn(user) = authStore.phase else { return }
         let state = PlanSelectionState()
-        state.resolvePending(userId: user.id)
+        // US-1523: the pending flag resolves only onto the account whose email
+        // signed up — a different account on this device never inherits it.
+        state.resolvePending(userId: user.id, email: user.email)
         if state.shouldOffer(userId: user.id) {
             planStep = PlanStepPresentation(userId: user.id)
         }

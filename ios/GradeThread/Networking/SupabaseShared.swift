@@ -80,16 +80,64 @@ public enum SupabaseShared {
         )
     }()
 
-    /// Best-effort access-token fetch for the current session. Returns nil
-    /// when the user isn't signed in or the SDK throws — callers (notably
-    /// ``EdgeAPI``) should treat nil as "send the request unauthenticated".
-    public static func currentAccessToken() async -> String? {
+    /// US-1523: the three distinguishable outcomes of asking for an access
+    /// token. The old `String?` collapsed "signed out" and "the refresh call
+    /// failed on a flaky network" into the same nil — so a transient blip at
+    /// the 1h token boundary sent requests UNAUTHENTICATED, the server said
+    /// 401, and the user saw a spurious "session expired".
+    public enum AccessTokenResult: Sendable {
+        /// A live token — attach it.
+        case token(String)
+        /// Genuinely signed out (no stored session) — public endpoints may
+        /// proceed unauthenticated.
+        case noSession
+        /// The session exists but fetching/refreshing it failed on something
+        /// network-shaped — surface as a retryable network error, NEVER as
+        /// signed-out and NEVER by sending the request without auth.
+        case transient(String)
+    }
+
+    /// US-1523: pure classification of an auth-session fetch error. Walks the
+    /// NSError underlying-error chain looking for NSURLErrorDomain (timeouts,
+    /// DNS, offline, connection lost …) → `.transient`. Anything else from the
+    /// SDK (missing/invalid session, storage decode) → `.noSession`. Unknowns
+    /// lean `.noSession` deliberately: the server-401 + forced-refresh path in
+    /// ``EdgeAPI`` is the authoritative expiry signal, and a public endpoint
+    /// must not start failing because an exotic error was misread as network.
+    static func classifyTokenError(_ error: Error) -> AccessTokenResult {
+        var current: NSError? = error as NSError
+        var hops = 0
+        while let err = current, hops < 8 {
+            if err.domain == NSURLErrorDomain {
+                return .transient(err.localizedDescription)
+            }
+            current = err.userInfo[NSUnderlyingErrorKey] as? NSError
+            hops += 1
+        }
+        return .noSession
+    }
+
+    /// US-1523: typed access-token fetch. ``EdgeAPI`` consumes this so a
+    /// transient refresh failure becomes a retryable `.network` error instead
+    /// of an unauthenticated request.
+    public static func currentAccessTokenResult() async -> AccessTokenResult {
         do {
             let session = try await client.auth.session
-            return session.accessToken
+            return .token(session.accessToken)
         } catch {
-            return nil
+            return classifyTokenError(error)
         }
+    }
+
+    /// Best-effort access-token fetch for the current session. Returns nil
+    /// when the user isn't signed in or the SDK throws. Legacy shim for
+    /// non-Edge call sites; new code should prefer
+    /// ``currentAccessTokenResult()`` which distinguishes transient failures.
+    public static func currentAccessToken() async -> String? {
+        if case .token(let token) = await currentAccessTokenResult() {
+            return token
+        }
+        return nil
     }
 
     /// Force a token refresh and return the new access token (US-1146). The SDK
@@ -98,11 +146,22 @@ public enum SupabaseShared {
     /// retry. Returns nil when there's no session to refresh or the refresh
     /// fails — the caller then surfaces the original auth error.
     public static func refreshAccessToken() async -> String? {
+        if case .token(let token) = await refreshAccessTokenResult() {
+            return token
+        }
+        return nil
+    }
+
+    /// US-1523: typed variant — a refresh that failed on a network blip is
+    /// `.transient`, NOT "the session is dead". ``EdgeAPI``'s forced-refresh
+    /// path surfaces it as a retryable network error instead of "session
+    /// expired".
+    public static func refreshAccessTokenResult() async -> AccessTokenResult {
         do {
             let session = try await client.auth.refreshSession()
-            return session.accessToken
+            return .token(session.accessToken)
         } catch {
-            return nil
+            return classifyTokenError(error)
         }
     }
 }

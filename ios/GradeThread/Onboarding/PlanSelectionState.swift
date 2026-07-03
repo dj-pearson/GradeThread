@@ -25,8 +25,18 @@ import Foundation
 /// existing users by bumping the suffix.
 struct PlanSelectionState {
     static let pendingKey = "com.gradethread.app.planSelection.pending.v1"
+    /// US-1523: the (normalized) email the pending signup was created with, so
+    /// the flag can only ever resolve onto the account that actually signed up
+    /// — a DIFFERENT account signing in on the same device (family iPad,
+    /// signup abandoned before email confirmation) must not inherit it.
+    static let pendingEmailKey = "com.gradethread.app.planSelection.pending.email.v1"
     static let eligibleKey = "com.gradethread.app.planSelection.eligible.v1"
     static let offeredKey = "com.gradethread.app.planSelection.offered.v1"
+
+    /// Case/whitespace-insensitive email comparison key.
+    static func normalizeEmail(_ email: String) -> String {
+        email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
 
     private let defaults: UserDefaults
 
@@ -62,17 +72,46 @@ struct PlanSelectionState {
 
     /// Record that a fresh account was just created (no id available yet because
     /// email confirmation may not have signed the user in). Resolved to a concrete
-    /// user id by ``resolvePending(userId:)``.
-    func markPendingEligibility() {
+    /// user id by ``resolvePending(userId:email:)``. US-1523: the signup email is
+    /// stamped alongside so the flag can only resolve onto THIS account.
+    func markPendingEligibility(email: String) {
         defaults.set(true, forKey: Self.pendingKey)
+        defaults.set(Self.normalizeEmail(email), forKey: Self.pendingEmailKey)
     }
 
-    /// Attach a pending signup to the now-known user id and clear the flag. No-op
-    /// when there's no pending signup (e.g. an existing user signing in) or the
-    /// user has already been offered the step. Idempotent.
-    func resolvePending(userId: UUID) {
+    /// US-1523: mark an ALREADY-SIGNED-IN fresh account eligible directly (the
+    /// Apple first-grant path — the session exists at grant time, so there's no
+    /// pending hop and nothing another account could inherit). Idempotent;
+    /// respects an existing offered record.
+    func markEligible(userId: UUID) {
+        let id = userId.uuidString
+        guard !ids(Self.offeredKey).contains(id) else { return }
+        append(id, to: Self.eligibleKey)
+    }
+
+    /// Attach a pending signup to the now-known user id and clear the flag —
+    /// but ONLY when the signed-in account's email matches the one that signed
+    /// up (US-1523). Mismatch = a different account on the same device: the
+    /// pending flag is PRESERVED for the real signer-upper and nothing is
+    /// attached. A legacy flag with no stamped email (pre-US-1523 install) is
+    /// cleared without attaching — the safe direction; an existing account must
+    /// never be treated as fresh. No-op when there's no pending signup.
+    /// Idempotent.
+    func resolvePending(userId: UUID, email: String?) {
         guard hasPendingEligibility else { return }
+        guard let stamped = defaults.string(forKey: Self.pendingEmailKey),
+              !stamped.isEmpty
+        else {
+            // Legacy flag — consume it without attaching.
+            defaults.set(false, forKey: Self.pendingKey)
+            return
+        }
+        guard let email, Self.normalizeEmail(email) == stamped else {
+            // Someone else's pending signup — leave it for them.
+            return
+        }
         defaults.set(false, forKey: Self.pendingKey)
+        defaults.removeObject(forKey: Self.pendingEmailKey)
         let id = userId.uuidString
         guard !ids(Self.offeredKey).contains(id) else { return }
         append(id, to: Self.eligibleKey)
