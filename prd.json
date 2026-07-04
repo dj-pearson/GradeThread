@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1614,
+  "nextId": 1650,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -11015,6 +11015,715 @@
         "AGENTIC_OS.md",
         "services/edge-functions/src/lib/agent-kernel.ts",
         "services/edge-functions/src/lib/agent-policy.ts"
+      ]
+    },
+    {
+      "id": "US-1614",
+      "title": "C1 · Bind Google Play subscription tokens to one account (stop unlimited-account entitlement)",
+      "description": "As the platform operator, I want a Google Play subscription purchase token to entitle exactly one account, so that a single purchase can't be shared to grant Business to N accounts.",
+      "priority": 2600,
+      "passes": false,
+      "notes": "[Critical C1][P0 fraud/revenue][Source: CODE_REVIEW_2026-07-04.md §Critical] Unlike the App Store path, Play subscription verify only checks token validity with Google then entitles whoever calls; no obfuscatedExternalAccountId binding and users.google_purchase_token has no unique constraint. One purchase → share purchaseToken → N Business accounts, re-verifiable monthly.",
+      "acceptanceCriteria": [
+        "Stamp obfuscatedExternalAccountId = userId at purchase time and require it to match the caller in the Play subscription verify (services/edge-functions/src/lib/google-play/verify.ts:206-233)",
+        "Add a uniqueness claim so a given purchaseToken maps to exactly one user (unique constraint on users.google_purchase_token or an equivalent claim table); a second account presenting the same token is rejected",
+        "A verify call whose obfuscatedExternalAccountId does not match the authenticated caller returns a non-entitling error (mirror the App Store appAccountToken ownership check)",
+        "Deno tests cover: token bound to the wrong account is rejected, re-verify by the owner still works, second-account replay is denied; deno lint + check clean"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/lib/google-play/verify.ts",
+        "services/edge-functions/src/routes/google-play.ts"
+      ]
+    },
+    {
+      "id": "US-1615",
+      "title": "C2 · Claw back Apple credit-pack credits on REFUND/REVOKE",
+      "description": "As the platform operator, I want refunded or revoked Apple consumable credit-pack transactions to remove the granted credits, so that a buyer can't buy a pack, refund it, and keep the credits.",
+      "priority": 2599,
+      "passes": false,
+      "notes": "[Critical C2][P0 revenue][Source: CODE_REVIEW_2026-07-04.md §Critical] The consumable branch only ever grants; there is no Apple analog of Stripe's clawbackCreditPack, and DecodedTransactionLite doesn't carry revocationDate so /verify will even grant an already-refunded transaction. Buy credits_100 → refund → keep credits, repeatable.",
+      "acceptanceCriteria": [
+        "Handle the Apple 'revoke' notification for consumables: an RPC keyed on transactionId that removes granted credits, clamped like revoke_grade_credits (services/edge-functions/src/lib/appstore/notifications.ts:29-31)",
+        "Add revocationDate to DecodedTransactionLite and have verifyTransaction reject/withhold grant for an already-refunded transaction (services/edge-functions/src/routes/appstore.ts:233-238)",
+        "Clawback is idempotent and clamped: credits never go negative and a duplicate revoke notification is a no-op",
+        "Deno tests: refund after grant zeroes the pack, double-revoke is idempotent, verify of a revoked transaction does not grant; deno lint + check clean"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/routes/appstore.ts",
+        "services/edge-functions/src/lib/appstore/notifications.ts"
+      ]
+    },
+    {
+      "id": "US-1616",
+      "title": "C3 · Enforce workspaceRole on FlipDesk write/spend routes (viewer must not move money)",
+      "description": "As a workspace owner, I want read-only viewer members blocked from money-moving and publish actions, so that a viewer can't trigger a Stripe payout, drain my AI/grade credits, or publish my inventory live.",
+      "priority": 2598,
+      "passes": false,
+      "notes": "[Critical C3][P1 privilege-escalation][Source: CODE_REVIEW_2026-07-04.md §Critical] requireWorkspaceRole exists (middleware/workspace.ts:121) but is never called. A viewer sends X-Workspace-Owner: <ownerId> and acts: /payouts is a real Stripe transfer, /pay drains credits, /publish-batch publishes live inventory.",
+      "acceptanceCriteria": [
+        "Apply requireWorkspaceRole(...) at the main.ts mounts: admin for payouts/disconnect, listing_manager for publish/reprice/CRUD (services/edge-functions/src/middleware/workspace.ts:121; flipdesk-consignment.ts:287 /payouts; flipdesk-autolister.ts:1899 /publish-batch)",
+        "Add an explicit viewer 403 to grade.ts /pay/:id, /snap, and /dispute (services/edge-functions/src/routes/grade.ts:684)",
+        "A viewer member calling any protected write/spend route receives 403; owner/admin/listing_manager (as appropriate) still succeed",
+        "Add tenant-isolation_test.ts cases proving viewer is denied on payouts, publish-batch, and /pay; deno lint + check clean"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/middleware/workspace.ts",
+        "services/edge-functions/src/routes/flipdesk-consignment.ts",
+        "services/edge-functions/src/routes/flipdesk-autolister.ts",
+        "services/edge-functions/src/routes/grade.ts",
+        "services/edge-functions/src/main.ts"
+      ]
+    },
+    {
+      "id": "US-1617",
+      "title": "C4 · Clear the query cache on sign-out and user-key per-user queries (same-device exposure)",
+      "description": "As a user on a shared browser, I want my finances/submissions/disputes gone the instant I sign out, so that the next person to sign in never sees my data from a stale cache.",
+      "priority": 2597,
+      "passes": false,
+      "notes": "[Critical C4][P1 PII exposure][Source: CODE_REVIEW_2026-07-04.md §Critical] Sign-out is SPA navigation (no reload), only Zustand is reset, and dozens of per-user query keys omit the user id (['finances-dashboard',period], ['dashboard-submissions'], ['my-disputes'], ['ebay_payouts'], ['api-keys'], …). With staleTime 5min, user B is served user A's data without a refetch. Copy user-keying from use-consignors.ts.",
+      "acceptanceCriteria": [
+        "queryClient.clear() runs in the SIGNED_OUT branch of onAuthStateChange (src/hooks/use-auth.ts:184-186; queryClient in src/main.tsx:39)",
+        "Every per-user query key includes user.id (audit and fix ['finances-dashboard'], ['dashboard-submissions'], ['my-disputes'], ['ebay_payouts'], ['api-keys'], and siblings — pattern from src/hooks/use-consignors.ts)",
+        "After sign-out then sign-in as a different user on the same tab, no previous-user data renders before a fresh fetch resolves",
+        "tsc -b clean, eslint clean, build green"
+      ],
+      "relevantPaths": [
+        "src/hooks/use-auth.ts",
+        "src/main.tsx",
+        "src/hooks/use-consignors.ts"
+      ]
+    },
+    {
+      "id": "US-1618",
+      "title": "C5 · Set billing_source='stripe' so cross-processor customers aren't double-billed or locked out",
+      "description": "As a cross-processor customer, I want my billing_source to reflect an active Stripe subscription, so that buying on Android doesn't double-bill me and moving from iOS to Stripe doesn't lock me out of plan changes or force-lapse me.",
+      "priority": 2596,
+      "passes": false,
+      "notes": "[Critical C5][P1 revenue/lockout][Source: CODE_REVIEW_2026-07-04.md §Critical] webhooks.ts:548-587 never sets billing_source='stripe'. So (a) the Play 'active Stripe' precedence gate never fires → active Stripe subscriber buying on Android is double-billed (google-play/verify.ts:206-211); (b) a former iOS subscriber who moves to Stripe stays flagged 'appstore' → every plan change 409s, UI hides cancel/change, and the Apple expiry sweep can force-lapse a paying Stripe customer to Free.",
+      "acceptanceCriteria": [
+        "handleSubscriptionChange sets billing_source:'stripe' (at least on customer.subscription.created) — services/edge-functions/src/routes/webhooks.ts:548-587",
+        "The Google Play precedence gate uses the Apple-style null-tolerant predicate so an active Stripe sub blocks/flags a Play purchase (services/edge-functions/src/lib/google-play/verify.ts:206-211)",
+        "A Stripe subscriber is no longer flagged 'appstore': plan change/cancel works and the Apple expiry sweep no longer lapses them",
+        "Deno tests: subscription.created stamps stripe, Play purchase by an active Stripe user is gated; deno lint + check clean"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/routes/webhooks.ts",
+        "services/edge-functions/src/lib/google-play/verify.ts"
+      ]
+    },
+    {
+      "id": "US-1619",
+      "title": "C6 · Lapse Google Play subscriptions server-side (RTDN webhook + expiry sweep)",
+      "description": "As the platform operator, I want Google Play subscriptions to expire and reconcile server-side, so that a cancelled or refunded Play subscriber loses entitlement instead of keeping it perpetually.",
+      "priority": 2595,
+      "passes": false,
+      "notes": "[Critical C6][P1 revenue][Source: CODE_REVIEW_2026-07-04.md §Critical] No RTDN webhook and no expiry sweep for googleplay (google-play.ts:19-20; expiry-sweep.ts:71 is Apple-scoped). Buy one month, cancel in Play → entitlement is effectively perpetual; refunds never reconciled.",
+      "acceptanceCriteria": [
+        "Implement the RTDN Pub/Sub webhook with an idempotency claim that reconciles expiry/cancel/refund for googleplay (services/edge-functions/src/routes/google-play.ts:19-20)",
+        "Interim/backstop: extend the expiry sweep to billing_source='googleplay' so lapses are caught even without a live RTDN event (services/edge-functions/src/lib/appstore/expiry-sweep.ts:71)",
+        "A cancelled/expired Play subscription lapses to Free; a refunded purchase reconciles; both are idempotent under retry",
+        "Deno tests over the RTDN handler and the extended sweep; deno lint + check clean"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/routes/google-play.ts",
+        "services/edge-functions/src/lib/appstore/expiry-sweep.ts"
+      ]
+    },
+    {
+      "id": "US-1620",
+      "title": "C7 · Don't permanently lose an App Store webhook event on handler failure",
+      "description": "As the platform operator, I want a transient failure while processing an App Store notification to release the idempotency claim, so that Apple's retry actually reprocesses a REFUND/EXPIRED instead of hitting a duplicate no-op.",
+      "priority": 2594,
+      "passes": false,
+      "notes": "[Critical C7][P1 revenue][Source: CODE_REVIEW_2026-07-04.md §Critical] appstore.ts:216-257 takes the idempotency claim before side-effects, but a handler throw isn't caught, the claim is never released, and Apple's retry hits 'duplicate' → 200 no-op. A transient DB blip during REFUND/EXPIRED leaves the user with paid entitlement. Copy the Stripe route's dead-letter policy.",
+      "acceptanceCriteria": [
+        "Wrap dispatch in the same transient-release / dead-letter policy the Stripe route uses (failIfDbError + releaseWebhookEvent) — services/edge-functions/src/routes/appstore.ts:216-257",
+        "A transient DB error during dispatch releases the claim so Apple's retry reprocesses; a genuine duplicate still no-ops",
+        "Permanent-failure events land in the dead-letter path rather than silently 200-ing",
+        "Deno tests: transient error releases claim (retry reprocesses), duplicate is a no-op, poison event dead-letters; deno lint + check clean"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/routes/appstore.ts"
+      ]
+    },
+    {
+      "id": "US-1621",
+      "title": "C8 · Persist the iOS photo upload queue and survive mid-batch app kill",
+      "description": "As an iOS seller, I want my queued garment photos to survive the app being killed mid-upload, so that a background jetsam never leaves an item with missing photos and no way to retry.",
+      "priority": 2593,
+      "passes": false,
+      "notes": "[Critical C8][P1 data-loss][Source: CODE_REVIEW_2026-07-04.md §iOS] PhotoUploadStore queue is a plain in-memory dict (PhotoUploadStore.swift:13); the crash-recovery draft is cleared the moment tasks enqueue not upload (PhotoIntakeView.swift:830-838); durable mutations are only written on failure paths; nothing rescans at launch; the foreground upload takes no background-task assertion. Replay is already idempotent by deterministic photo_id.",
+      "acceptanceCriteria": [
+        "Persist queued upload tasks (or write the LocalPendingMutation at enqueue time) and re-enqueue them at launch — ios/GradeThread/Upload/PhotoUploadStore.swift:13, Capture/PhotoIntakeView.swift:830-838",
+        "Do NOT clear the crash-recovery draft until uploads actually succeed",
+        "Wrap the serial drain in beginBackgroundTask so a backgrounded batch gets time to finish",
+        "Replay stays idempotent via the existing deterministic photo_id; a mid-batch kill leaves no orphaned item-with-no-photos-and-no-retry state",
+        "iOS CI (macOS runner) build/test green; python3 ios/Scripts/no-ungated-print.py clean"
+      ],
+      "relevantPaths": [
+        "ios/GradeThread/Upload/PhotoUploadStore.swift",
+        "ios/GradeThread/Capture/PhotoIntakeView.swift"
+      ]
+    },
+    {
+      "id": "US-1622",
+      "title": "C9 · Re-derive the human-review gate after all post-composite confidence adjustments",
+      "description": "As the grading operator, I want a grade whose effective confidence fell below the review threshold to always route to human review, so that provenance boosts can't auto-finalize and publish a certificate for a below-threshold grade.",
+      "priority": 2592,
+      "passes": false,
+      "notes": "[Critical C9][P1 grading-integrity][Source: CODE_REVIEW_2026-07-04.md §Grading] The review gate is computed once inside compositeGrade; the pipeline then shaves confidence for a verification discrepancy (without re-checking the 0.75 gate) and later adds provenance boosts back. A 0.70-effective, contradiction-found grade can be boosted to 0.90 and published with no human review. Violates the grading-engine contract (confidence<0.75→review; never raise confidence post-composite). LOAD the grading-engine skill first.",
+      "acceptanceCriteria": [
+        "Re-derive needs_human_review ||= confidence_score < reviewConfidenceThreshold() AFTER all post-composite adjustments (services/edge-functions/src/lib/grading-pipeline.ts:1476-1490, 1632-1653)",
+        "Any confidence-lowering event (e.g. verification discrepancy) becomes a floor that later provenance boosts cannot cross",
+        "A grade whose effective confidence is <0.75 at any point cannot auto-finalize / publish a certificate",
+        "Deno tests: discrepancy-then-boost still routes to review; rounding-lockstep unchanged; deno lint + check clean"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/lib/grading-pipeline.ts"
+      ]
+    },
+    {
+      "id": "US-1623",
+      "title": "P1 · Add the ten dead eBay endpoints to the edge auth whitelist",
+      "description": "As a signed-in seller, I want the eBay analytics/compliance/finances/catalog/promotions endpoints to work, so that they stop returning 401 unconditionally even when I'm authenticated.",
+      "priority": 2585,
+      "passes": false,
+      "notes": "[P1][Source: CODE_REVIEW_2026-07-04.md §Database RLS & durable jobs] main.ts:331-361 omits app.use(authMiddleware) for ten flipdesk-ebay.ts routes (analytics/account-health, compliance/*, finances/payouts*, catalog/match|adopt, promotions), so userId is never set and they fail closed to 401 for signed-in users too. CI misses it because flipdesk-auth-coverage_test.ts only checks each router prefix has ≥1 auth line. All are live SPA call sites.",
+      "acceptanceCriteria": [
+        "Add the missing app.use(authMiddleware) lines for the ten endpoints (services/edge-functions/src/main.ts:331-361)",
+        "Each of the ten endpoints (analytics/account-health, compliance/*, finances/payouts*, catalog/match, catalog/adopt, promotions) authenticates and serves a signed-in seller instead of 401",
+        "Harden the guard so this class can't recur: either invert to wildcard-auth + explicit public exceptions, or make the coverage test diff declared paths vs the whitelist (services/edge-functions/src/routes/flipdesk-auth-coverage_test.ts)",
+        "Deno tests prove each endpoint requires and accepts auth; deno lint + check clean"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/main.ts",
+        "services/edge-functions/src/routes/flipdesk-ebay.ts",
+        "services/edge-functions/src/routes/flipdesk-auth-coverage_test.ts"
+      ]
+    },
+    {
+      "id": "US-1624",
+      "title": "P1 · Owner-key workspace-scoped queries so switching shows the right tenant's data",
+      "description": "As a workspace member, I want automations/repricing/sheets/eBay queries to refetch on workspace switch, so that I never see or mutate the previous workspace's data.",
+      "priority": 2584,
+      "passes": false,
+      "notes": "[P1][Source: CODE_REVIEW_2026-07-04.md §Web P1] switchWorkspace only sets Zustand; no invalidation. Query keys omit the owner, so a member switching workspaces sees (and can mutate) the prior workspace's automation rules and repricing nudges.",
+      "acceptanceCriteria": [
+        "Key affected queries on activeWorkspaceOwnerId ?? user.id and/or invalidate them in switchWorkspace (src/hooks/use-automations.ts:84, use-repricing.ts:57,70, use-google-sheets.ts:61, most of use-ebay.ts)",
+        "After switching workspaces the UI shows the new workspace's data with no stale prior-workspace rows and no cross-workspace mutation",
+        "tsc -b clean, eslint clean, build green"
+      ],
+      "relevantPaths": [
+        "src/hooks/use-automations.ts",
+        "src/hooks/use-repricing.ts",
+        "src/hooks/use-google-sheets.ts",
+        "src/hooks/use-ebay.ts"
+      ]
+    },
+    {
+      "id": "US-1625",
+      "title": "P1 · Add a synchronous double-submit lock to bulk submission",
+      "description": "As a seller submitting a bulk batch, I want a double-click to not POST every row twice, so that I'm not double-charged.",
+      "priority": 2583,
+      "passes": false,
+      "notes": "[P1][Source: CODE_REVIEW_2026-07-04.md §Web P1] disabled={isSubmitting} only applies next render; new-submission.tsx fixed this with submitLockRef (US-774) but bulk never got it. Two clicks in one frame POST every row twice.",
+      "acceptanceCriteria": [
+        "Add the same synchronous submitLockRef pattern used in new-submission.tsx to bulk submit (src/pages/bulk-submission.tsx:287-291)",
+        "Two clicks within one frame result in exactly one submission per row",
+        "tsc -b clean, eslint clean, build green"
+      ],
+      "relevantPaths": [
+        "src/pages/bulk-submission.tsx",
+        "src/pages/new-submission.tsx"
+      ]
+    },
+    {
+      "id": "US-1626",
+      "title": "P1 · Stop compressImage from double-applying EXIF orientation",
+      "description": "As a seller, I want my uploaded garment photos to keep their correct orientation, so that they don't come out sideways/upside-down everywhere compressImage runs.",
+      "priority": 2582,
+      "passes": false,
+      "notes": "[P1][Source: CODE_REVIEW_2026-07-04.md §Web P1] loadImage decodes via a plain <img> (browsers already bake in orientation), then the manual transform rotates again. Hits every surface via compressImage.",
+      "acceptanceCriteria": [
+        "Remove the double rotation: delete the manual orientation transform OR decode with createImageBitmap(file,{imageOrientation:'none'}) (src/lib/image-utils.ts:423-480)",
+        "An EXIF-oriented photo compresses to the correct upright orientation across all compressImage call sites",
+        "Add/adjust a unit test for orientation handling; tsc -b clean, eslint clean, build green"
+      ],
+      "relevantPaths": [
+        "src/lib/image-utils.ts"
+      ]
+    },
+    {
+      "id": "US-1627",
+      "title": "P1 · Preserve staged photos when stepping back from Review in new-submission",
+      "description": "As a seller, I want my staged/replaced photos to persist when I go Back from Review, so that I don't lose them or have edits clobbered by the original list.",
+      "priority": 2581,
+      "passes": false,
+      "notes": "[P1][Source: CODE_REVIEW_2026-07-04.md §Web P1] Photos live only in child state and are never passed back down; 'Back' remounts empty while Continue stays enabled; the retake remount re-seeds the original photos over replacements.",
+      "acceptanceCriteria": [
+        "Lift slot state to the parent (controlled) OR keep the component mounted and hide via CSS (src/pages/new-submission.tsx:822-861 + src/components/submission/photo-upload.tsx:326-360)",
+        "Stepping Back to photos then forward preserves staged photos and any replacements; Continue reflects real photo state",
+        "tsc -b clean, eslint clean, build green"
+      ],
+      "relevantPaths": [
+        "src/pages/new-submission.tsx",
+        "src/components/submission/photo-upload.tsx"
+      ]
+    },
+    {
+      "id": "US-1628",
+      "title": "P1 · Fix detail-page realtime so pending_review resolves without a hard refresh",
+      "description": "As a seller watching a submission, I want the 'we'll let you know the moment it's official' banner to resolve live, so that I don't have to hard-refresh to see the grade go official.",
+      "priority": 2580,
+      "passes": false,
+      "notes": "[P1][Source: CODE_REVIEW_2026-07-04.md §Web P1] The page uses useState not useQuery, so invalidating [\"submission\",id] matches nothing and the fallback poll excludes pending_review.",
+      "acceptanceCriteria": [
+        "Add an onChange callback (or convert to useQuery) so realtime updates reach the page (src/hooks/use-realtime-submission.ts:94 + src/pages/submission-detail.tsx)",
+        "Include pending_review in the fallback poll",
+        "A submission transitioning to official updates the banner/state live without a hard refresh",
+        "tsc -b clean, eslint clean, build green"
+      ],
+      "relevantPaths": [
+        "src/hooks/use-realtime-submission.ts",
+        "src/pages/submission-detail.tsx"
+      ]
+    },
+    {
+      "id": "US-1629",
+      "title": "P1 · Only clear the auto-delist stamp on a real delist success",
+      "description": "As a cross-lister, I want a still-live cross-listing to stay on the delist queue when the extension hard-fails, so that it can't sell twice — while manual paths can still be cleared.",
+      "priority": 2579,
+      "passes": false,
+      "notes": "[P1][Source: CODE_REVIEW_2026-07-04.md §Web P1] delist-confirm fires unconditionally even when sendDelistToLister resolved {ok:false}, so a still-live cross-listing drops off the queue and can sell twice; conversely the manual paths never clear and nag forever.",
+      "acceptanceCriteria": [
+        "Confirm delist only on a real {ok:true} success (src/hooks/use-pending-delists.ts:74-91)",
+        "Add an explicit 'mark done' affordance for manual delist paths so they stop nagging",
+        "A hard-failed delist stays queued; a real success clears; a manual completion can be acknowledged",
+        "tsc -b clean, eslint clean, build green"
+      ],
+      "relevantPaths": [
+        "src/hooks/use-pending-delists.ts"
+      ]
+    },
+    {
+      "id": "US-1630",
+      "title": "P1 · Invalidate queries after FlipDesk inventory add/sale/detail writes",
+      "description": "As a FlipDesk reseller, I want the pipeline and inventory lists to reflect a new item or a recorded sale immediately, so that I don't see stale 'Listed' status or re-add a duplicate.",
+      "priority": 2578,
+      "passes": false,
+      "notes": "[P1][Source: CODE_REVIEW_2026-07-04.md §Web P1] inventory-detail.tsx:285-296 (and 4 other sites) has no useQueryClient — recording a sale leaves the pipeline showing 'Listed' for up to 15 min; inventory-add.tsx:106-126 invalidates nothing so a new item is missing from the list.",
+      "acceptanceCriteria": [
+        "inventory-detail write paths invalidate ['items_full'], ['inventory'], ['inventory-listings'] (src/pages/inventory-detail.tsx:285-296 and the 4 sibling sites)",
+        "inventory-add invalidates ['inventory'], ['inventory-brands'], ['items_full'] (src/pages/inventory-add.tsx:106-126)",
+        "Recording a sale updates the pipeline status immediately; a newly added item appears in the list the user lands on",
+        "tsc -b clean, eslint clean, build green"
+      ],
+      "relevantPaths": [
+        "src/pages/inventory-detail.tsx",
+        "src/pages/inventory-add.tsx"
+      ]
+    },
+    {
+      "id": "US-1631",
+      "title": "Web P2 · Billing/checkout duplication & missing error states",
+      "description": "As a paying user, I want billing and checkout flows to not spawn duplicate sessions, to surface errors, and to compute my AI cap consistently, so that I'm not double-charged, stuck on skeletons, or silently capped at 0.",
+      "priority": 2280,
+      "passes": false,
+      "notes": "[P2 batch][Source: CODE_REVIEW_2026-07-04.md §Web P2 + §Web P3] Four related billing/checkout correctness bugs grouped; each AC is independently verifiable.",
+      "acceptanceCriteria": [
+        "Latch a 'redirecting' flag on Stripe checkout/portal buttons so they stay disabled through the location.href redirect (src/hooks/use-billing-summary.ts:138-143)",
+        "Billing page handles isError with a retry instead of rendering skeletons forever (src/pages/billing.tsx:153-166)",
+        "Checkout-success toast/analytics/reconcile no longer replay from bare URL params (bookmark re-fires the loop + inflates conversion metrics) (src/pages/billing.tsx:102-131)",
+        "Self-imposed AI-cap semantics agree across surfaces and non-numeric input does not save as a hard 0 cap (src/hooks/use-plan-usage.ts:73 vs billing.tsx:632-637; src/pages/settings.tsx:469-473)",
+        "tsc -b clean, eslint clean, build green"
+      ],
+      "relevantPaths": [
+        "src/hooks/use-billing-summary.ts",
+        "src/pages/billing.tsx",
+        "src/hooks/use-plan-usage.ts",
+        "src/pages/settings.tsx"
+      ]
+    },
+    {
+      "id": "US-1632",
+      "title": "Web P2 · Detail-page fetch robustness (cancellation, swallowed errors, dispute .maybeSingle, token refresh)",
+      "description": "As a user navigating detail pages, I want fetches to cancel on navigation, surface real errors, and not mistreat the normal zero-dispute case, so that I don't see 'Pending' forever or mid-batch 401s.",
+      "priority": 2278,
+      "passes": false,
+      "notes": "[P2 batch][Source: CODE_REVIEW_2026-07-04.md §Web P2] Cluster of data-fetch robustness bugs across detail pages and bulk submission.",
+      "acceptanceCriteria": [
+        "submission-detail fetch: add a cancellation flag + reset on id change, check every Supabase error (five are swallowed), and use .maybeSingle() for the zero-dispute case (src/pages/submission-detail.tsx:304-393); apply the same to inventory-detail.tsx and certificate.tsx",
+        "Bulk submission refreshes the auth token per row (or routes through edgeFetch) instead of fetching once before a long batch, and guards response.json() against HTML 502s (src/pages/bulk-submission.tsx:297-341; also new-submission.tsx:620)",
+        "linkInventoryItem reads {error} from supabase-js (it returns {error}, doesn't throw) so the failure toast is no longer dead code and the item actually links (src/pages/new-submission.tsx:518-534)",
+        "A transient error on a completed grade no longer renders 'Grade Report Pending' forever; A→B navigation no longer interleaves state",
+        "tsc -b clean, eslint clean, build green"
+      ],
+      "relevantPaths": [
+        "src/pages/submission-detail.tsx",
+        "src/pages/inventory-detail.tsx",
+        "src/pages/certificate.tsx",
+        "src/pages/bulk-submission.tsx",
+        "src/pages/new-submission.tsx"
+      ]
+    },
+    {
+      "id": "US-1633",
+      "title": "Web P2 · Cache-invalidation & optimistic-update correctness batch",
+      "description": "As a FlipDesk/content user, I want realtime, optimistic updates and writes to keep the cache correct, so that dashboards refresh, drags don't corrupt state, and saves don't wipe data.",
+      "priority": 2276,
+      "passes": false,
+      "notes": "[P2 batch][Source: CODE_REVIEW_2026-07-04.md §Web P2] Grouped invalidation/optimistic-update correctness findings; each AC independently verifiable.",
+      "acceptanceCriteria": [
+        "Grade-completion realtime invalidates the correct keys (currently two phantom keys → dashboard never refreshes) (src/hooks/use-realtime-submission.ts:44-45)",
+        "Kanban drag optimistic update calls cancelQueries and rolls back precisely instead of whole-array (src/pages/flipdesk/pipeline.tsx:352-376)",
+        "Photo-reconcile commit no longer counts failed uploads, orphans drafts, or marks the session committed on partial success (src/hooks/use-reconcile-commit.ts:72,190-244)",
+        "useUpdateBlogPost stops caching the tag-less PATCH response so the next save doesn't wipe tags (src/hooks/use-content.ts:198-200)",
+        "useBulkPublish poll is bounded and cancels on unmount instead of for(;;) (src/hooks/use-autolister.ts:172-206)",
+        "Record Sale surfaces the bulk listing-deactivation error instead of ignoring it (src/pages/inventory-detail.tsx:416-426)",
+        "Grade/status sort is server-side so it sorts globally, not just the current page (src/pages/submissions.tsx:257-312, inventory.tsx:216-236)",
+        "tsc -b clean, eslint clean, build green"
+      ],
+      "relevantPaths": [
+        "src/hooks/use-realtime-submission.ts",
+        "src/pages/flipdesk/pipeline.tsx",
+        "src/hooks/use-reconcile-commit.ts",
+        "src/hooks/use-content.ts",
+        "src/hooks/use-autolister.ts",
+        "src/pages/inventory-detail.tsx",
+        "src/pages/submissions.tsx",
+        "src/pages/inventory.tsx"
+      ]
+    },
+    {
+      "id": "US-1634",
+      "title": "Web P2 · Remaining resilience findings (token retry, silent rejections, idempotency, snap upload, sync toast)",
+      "description": "As a user across admin/referrals/offline/snap/eBay-sync surfaces, I want expired-token retries, caught rejections, idempotent replays, compressed snap uploads, and a resolvable sync state, so that these flows don't silently fail or hang.",
+      "priority": 2274,
+      "passes": false,
+      "notes": "[P2 batch][Source: CODE_REVIEW_2026-07-04.md §Web P2] Remaining web P2 resilience findings grouped.",
+      "acceptanceCriteria": [
+        "Admin content/changelog/sheet/Shopify hooks refresh a possibly-expired token and retry on 401 (src/hooks/use-content.ts, use-changelog.ts, use-sheet-import.ts, use-shopify.ts)",
+        "Referrals redeem/campaign/leaderboard add a catch (currently try/finally with no catch → silent unhandled rejection) (src/pages/referrals.tsx:168-293)",
+        "Offline intake queue replay is idempotent (add an idempotency key; current per-tab lock allows duplicate replays) (src/lib/offline-queue.ts:87-99)",
+        "Snap-to-Value validates+compresses before upload and stops pushing a full data URI into router history state (src/pages/snap.tsx:36-43,176-186)",
+        "eBay sync completion no longer compares client clock to server timestamp and has a failure path so it can't hang on a permanent 'syncing…' toast (src/pages/flipdesk/marketplaces.tsx:999-1036)",
+        "tsc -b clean, eslint clean, build green"
+      ],
+      "relevantPaths": [
+        "src/hooks/use-content.ts",
+        "src/hooks/use-changelog.ts",
+        "src/hooks/use-sheet-import.ts",
+        "src/hooks/use-shopify.ts",
+        "src/pages/referrals.tsx",
+        "src/lib/offline-queue.ts",
+        "src/pages/snap.tsx",
+        "src/pages/flipdesk/marketplaces.tsx"
+      ]
+    },
+    {
+      "id": "US-1635",
+      "title": "Web security · Keep auth tokens out of analytics; escape all PDF-export cells",
+      "description": "As a user, I want my single-use auth tokens never captured by GA/PostHog and every export cell escaped, so that a still-valid token can't leak into analytics and marketplace-sourced text can't inject HTML.",
+      "priority": 2272,
+      "passes": false,
+      "notes": "[P2+P3][Source: CODE_REVIEW_2026-07-04.md §Web auth/client security] Two web-security findings grouped.",
+      "acceptanceCriteria": [
+        "Strip auth params via history.replaceState before any pageview, and add PostHog before_send / GA redaction for /auth/* so token_hash/recovery tokens never reach analytics (src/pages/auth-confirm.tsx:50-52, reset-password.tsx:167; index.html:62-97 GA page_location; src/lib/analytics.ts:92-99 PostHog $current_url)",
+        "Financial PDF export escapeHtml()s EVERY cell — platform/category (marketplace-sourced) currently go in raw before document.write (src/components/finances/financial-export.tsx:135-143; match esc() in src/pages/flipdesk/reconciliation.tsx:684)",
+        "tsc -b clean, eslint clean, build green"
+      ],
+      "relevantPaths": [
+        "src/pages/auth-confirm.tsx",
+        "src/pages/reset-password.tsx",
+        "src/lib/analytics.ts",
+        "index.html",
+        "src/components/finances/financial-export.tsx"
+      ]
+    },
+    {
+      "id": "US-1636",
+      "title": "Web P3 · Hardening batch (local dates, swallowed errors, object-URL leak, tax float, CSV injection)",
+      "description": "As a user, I want date defaults in my local timezone, error states surfaced, leaked resources freed, exact tax sums, and CSV cells neutralized, so that edge cases don't corrupt records or the UI.",
+      "priority": 2150,
+      "passes": false,
+      "notes": "[P3 batch][Source: CODE_REVIEW_2026-07-04.md §Web P3] Grouped hardening findings; each AC independently verifiable.",
+      "acceptanceCriteria": [
+        "Date-only defaults derive local Y/M/D (toLocaleDateString('en-CA')) instead of toISOString() UTC so evening users don't record tomorrow's date (src/pages/inventory-add.tsx:50-52, inventory-detail.tsx, submissions.tsx:165 — also add the superseded_at filter to the CSV export)",
+        "Dashboard inventory/passport and disputes-join queries surface errors instead of swallowing them into a wrong zero-state (src/pages/dashboard.tsx:334-387)",
+        "Auth profile-load failure no longer nukes profile/workspaces or stamps the dedup window (paid user shows free, retry suppressed); settings forms can't save empty over real data (src/hooks/use-auth.ts:110-118)",
+        "Photo-preview object URLs are revoked on unmount, not only on replace/remove (src/components/submission/photo-upload.tsx:413-493)",
+        "Tax P&L summary sums with the printed-row precision so it can't disagree by a cent (src/lib/tax-pnl-export.ts:145-228)",
+        "CSV formula-injection (=/+/-/@) is neutralized in financial-export.tsx and the submissions CSV escaper; assorted stale-invalidation/swallowed-write gaps addressed (use-google-sheets.ts:143, flipdesk/sources.tsx:157, use-workspace.ts:36, inventory.tsx:461, use-forecast.ts:33, settings.tsx:495)",
+        "tsc -b clean, eslint clean, build green"
+      ],
+      "relevantPaths": [
+        "src/pages/inventory-add.tsx",
+        "src/pages/dashboard.tsx",
+        "src/hooks/use-auth.ts",
+        "src/components/submission/photo-upload.tsx",
+        "src/lib/tax-pnl-export.ts",
+        "src/components/finances/financial-export.tsx"
+      ]
+    },
+    {
+      "id": "US-1637",
+      "title": "Edge P2 · Workspace-scope per-grade checkout; sweep retained originals + dispute evidence on account deletion",
+      "description": "As a workspace member and a deleting user, I want per-grade checkout to work for member submissions and account deletion to actually remove my retained originals and dispute evidence, so that member flows don't 404 and GPS-bearing PII doesn't survive deletion.",
+      "priority": 2270,
+      "passes": false,
+      "notes": "[P2][Source: CODE_REVIEW_2026-07-04.md §Edge tenant isolation] LOAD the tenant-isolation skill first. Two edge P2s grouped.",
+      "acceptanceCriteria": [
+        "Mount workspaceMiddleware on /api/payments/* and thread ownerId through the ownership check + metadata.user_id + webhook flip so member submissions (user_id = ownerId) no longer 404 on /per-grade (services/edge-functions/src/routes/payments.ts:612-624)",
+        "Account deletion's caller-scoped removeAll sweep includes submission_images.original_storage_path (EXIF/GPS intact) and disputes.evidence_paths, not just storage_path — so {deleted:true} means the objects are actually gone (services/edge-functions/src/routes/account.ts:355-371)",
+        "Add/extend tenant-isolation_test.ts cases for the member per-grade flow and the deletion sweep; deno lint + check clean"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/routes/payments.ts",
+        "services/edge-functions/src/routes/account.ts"
+      ]
+    },
+    {
+      "id": "US-1638",
+      "title": "Edge P3 · Tenant-isolation hardening batch (column whitelists, chokepoint scoping, oracles, staging paths)",
+      "description": "As the security owner, I want the remaining edge tenant-isolation hardening items closed, so that column leaks, existence oracles, and loose write scopes don't become exploitable as the surface grows.",
+      "priority": 2148,
+      "passes": false,
+      "notes": "[P3 batch][Source: CODE_REVIEW_2026-07-04.md §Edge tenant isolation] LOAD the tenant-isolation skill first. Verified not currently exploitable; each AC independently verifiable.",
+      "acceptanceCriteria": [
+        "grade.ts:792 /status/:id whitelists returned columns instead of select('*') (stops leaking reviewed_by)",
+        "lib/grade-billing.ts:252 runPaymentPrecedence adds .eq('user_id',…) at the chokepoint (not only .eq('id',…))",
+        "notifications.ts:568 /dispute-filed scopes the lookup and adds an admin_alerted_at guard (stops existence/status oracle + repeated admin email)",
+        "notifications.ts:733 /welcome moves behind auth (stops account-existence oracle from body userId)",
+        "flipdesk-ai.ts:364 does the ownership check BEFORE inserting ai_enrichment_log (stops cross-tenant UUID-existence oracle)",
+        "flipdesk-autolister.ts:1025/1183 use ${ownerId}/_staging/ not ${ownerId}/",
+        "flipdesk-listings.ts:287 /cross-push adds .eq('user_id',ownerId) (free via 00146)",
+        "flipdesk-images.ts:53 /remove-bg blocks sensitive photo_types (tag/certificate) from the public bucket",
+        "deno lint + check clean"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/routes/grade.ts",
+        "services/edge-functions/src/lib/grade-billing.ts",
+        "services/edge-functions/src/routes/notifications.ts",
+        "services/edge-functions/src/routes/flipdesk-ai.ts",
+        "services/edge-functions/src/routes/flipdesk-autolister.ts",
+        "services/edge-functions/src/routes/flipdesk-listings.ts",
+        "services/edge-functions/src/routes/flipdesk-images.ts"
+      ]
+    },
+    {
+      "id": "US-1639",
+      "title": "Edge · Close tenant-isolation test-coverage gaps and generalize the deny-by-default guard",
+      "description": "As the security owner, I want a cross-tenant rejection case per route and a router-agnostic auth guard, so that the US-268 mandate is enforced and a new router that forgets auth can't ship uncaught.",
+      "priority": 2146,
+      "passes": false,
+      "notes": "[Test coverage][Source: CODE_REVIEW_2026-07-04.md §Edge tenant isolation] workspace.ts (the C3 role-authz surface) has ZERO cases. LOAD the tenant-isolation skill first.",
+      "acceptanceCriteria": [
+        "Add tenant-isolation_test.ts cross-tenant/role rejection cases for workspace.ts (currently zero), notifications.ts, verified.ts, and passport.ts tags/:tagId/revoke",
+        "Generalize the deny-by-default guard beyond /api/flipdesk/* so a new router elsewhere that forgets auth is caught (services/edge-functions/src/routes/flipdesk-auth-coverage_test.ts:35)",
+        "Add tenant-isolation_test.ts cases for the new measure routes (services/edge-functions/src/routes/flipdesk-measure.ts:668,686)",
+        "deno lint + check + test clean"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/middleware/workspace.ts",
+        "services/edge-functions/src/routes/flipdesk-auth-coverage_test.ts",
+        "services/edge-functions/src/routes/flipdesk-measure.ts"
+      ]
+    },
+    {
+      "id": "US-1640",
+      "title": "Payments P2 · Guard App Store lapse against active Stripe; refund duplicate per-grade payments",
+      "description": "As a paying customer, I want a delayed Apple EXPIRED/REVOKE to not clobber a newer active Stripe sub, and a duplicate per-grade payment to be refunded/alerted, so that I keep what I paid for and never silently over-pay.",
+      "priority": 2268,
+      "passes": false,
+      "notes": "[P2][Source: CODE_REVIEW_2026-07-04.md §Payments] Two payments P2s grouped.",
+      "acceptanceCriteria": [
+        "App Store EXPIRED/REVOKE skips lapse actions when the user has a live Stripe sub (mirror the sweep's lapseUser guard) instead of applying computeUserUpdate unconditionally (services/edge-functions/src/routes/appstore.ts:240-248)",
+        "Per-grade checkout auto-refunds (or records pending_refunds + alerts) when a per_grade paid-flip matches 0 rows, so a duplicate payment for the same submission isn't silently kept (services/edge-functions/src/routes/payments.ts:25-31 + webhooks.ts:1027-1040)",
+        "Deno tests: delayed Apple lapse with active Stripe is a no-op; second per-grade payment triggers refund/alert; deno lint + check clean"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/routes/appstore.ts",
+        "services/edge-functions/src/routes/payments.ts",
+        "services/edge-functions/src/routes/webhooks.ts"
+      ]
+    },
+    {
+      "id": "US-1641",
+      "title": "Payments P3 · Idempotency & freshness hardening (discount packs, affiliate payouts, SNS, admin refunds)",
+      "description": "As the payments operator, I want grant/transfer idempotency and webhook freshness tightened, so that discounted packs, affiliate payouts, and admin refunds can't double-apply and stale/forged webhooks are rejected.",
+      "priority": 2144,
+      "passes": false,
+      "notes": "[P3 batch][Source: CODE_REVIEW_2026-07-04.md §Payments] Grouped payments hardening; each AC independently verifiable.",
+      "acceptanceCriteria": [
+        "100%-discount pack checkout falls back to session.id when payment_intent is null so grant idempotency isn't defeated (services/edge-functions/src/routes/payments.ts:546 + supabase/migrations/00092_grant_credits_idempotent.sql:52)",
+        "Affiliate payout lists transfers by metadata.payout_id before retry, adds a retry cap (stop retrying permanently-failing transfers forever), and stops carrying commission amount as float USD (services/edge-functions/src/lib/affiliate-payout.ts)",
+        "SNS verification rejects messages older than ~1h (Timestamp freshness) and gates SES_SNS_SKIP_VERIFICATION on !isProduction() (services/edge-functions/src/lib/sns-verify.ts, email-sns.ts:43)",
+        "Admin /charges/:id/refund partial refunds carry an idempotency key (services/edge-functions/src/routes/admin-billing.ts:807-815)",
+        "deno lint + check clean; verify:db green if migration touched"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/routes/payments.ts",
+        "services/edge-functions/src/lib/affiliate-payout.ts",
+        "services/edge-functions/src/lib/sns-verify.ts",
+        "services/edge-functions/src/routes/admin-billing.ts"
+      ]
+    },
+    {
+      "id": "US-1642",
+      "title": "Grading P2 · Fix min-of-caps composition, escalation image-drop cap, and brand injection via baselines",
+      "description": "As the grading operator, I want provenance boosts to respect confidence caps, escalation re-grades to keep the partial-image cap, and seller brand text sanitized before baseline generation, so that stored confidence stays honest and the trusted prompt channel stays clean.",
+      "priority": 2266,
+      "passes": false,
+      "notes": "[P2 batch][Source: CODE_REVIEW_2026-07-04.md §Grading] LOAD the grading-engine skill first. Three grading P2s grouped.",
+      "acceptanceCriteria": [
+        "Provenance boosts use min(conf + boost, capFloor) so they can't exceed the min-of-caps composition and pollute the US-1557 calibration loop; evaluateVerifiedCapture also respects manipulation_suspected (services/edge-functions/src/lib/grading-pipeline.ts:1632/1744/1851)",
+        "Escalation re-grade ORs failedOptional into partialSuccess so a dropped optional image applies the partial-image cap and forced review instead of shipping uncapped (services/edge-functions/src/lib/grading-pipeline.ts:302-308)",
+        "garment-baselines.ts sanitizes seller brand (sanitizeSellerText) before generation and validates/moderates the brief before caching, closing the indirect-injection path around the US-346 fence (services/edge-functions/src/lib/garment-baselines.ts:79-96)",
+        "Deno tests cover capped boost, escalation partial cap, and brand sanitization; deno lint + check clean"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/lib/grading-pipeline.ts",
+        "services/edge-functions/src/lib/garment-baselines.ts"
+      ]
+    },
+    {
+      "id": "US-1643",
+      "title": "Grading P3 · Reconcile refund+graded, honor finalize errors, tighten peer-norm cohort and eval isolation",
+      "description": "As the grading operator, I want the failure/finalize/peer-norm/eval edge cases fixed, so that refunds don't coexist with graded reports, finalize errors halt go-live, and measurements aren't confounded.",
+      "priority": 2142,
+      "passes": false,
+      "notes": "[P3 batch][Source: CODE_REVIEW_2026-07-04.md §Grading] LOAD the grading-engine skill first. Grouped grading hardening.",
+      "acceptanceCriteria": [
+        "Pipeline failure handler no longer refunds a submission whose grade report was already inserted (avoid the 'refunded + graded' state nothing reconciles) (services/edge-functions/src/lib/grading-pipeline.ts:2216-2241)",
+        "finalizeGradeReview checks the finalize UPDATE's {error} and does not proceed to go-live on failure (services/edge-functions/src/lib/grading-pipeline.ts:774-786)",
+        "Peer-norm cohort excludes non-finalized preliminary grades (add .not('finalized_at','is',null)) (services/edge-functions/src/lib/peer-norm.ts:230-238)",
+        "Eval/dry-run composite legs exclude the live exemplar block so measurements aren't confounded (services/edge-functions/src/lib/ai-grading.ts:1774-1780, grading-eval.ts:230-515)",
+        "Deno tests cover each; deno lint + check clean"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/lib/grading-pipeline.ts",
+        "services/edge-functions/src/lib/peer-norm.ts",
+        "services/edge-functions/src/lib/ai-grading.ts",
+        "services/edge-functions/src/lib/grading-eval.ts"
+      ]
+    },
+    {
+      "id": "US-1644",
+      "title": "DB P2 · Close the moderation-withhold view bypass and the resume double-run",
+      "description": "As the moderation/operator owner, I want a flagged certificate unreadable via the public view and resume to not restart live jobs, so that withheld grades stay hidden and items aren't regenerated concurrently.",
+      "priority": 2264,
+      "passes": false,
+      "notes": "[P2 batch][Source: CODE_REVIEW_2026-07-04.md §Database RLS & durable jobs] LOAD the migrations skill for the view change and the durable-jobs skill for the resume fix. Two DB P2s grouped.",
+      "acceptanceCriteria": [
+        "public_grade_reports view joins submissions.flagged/moderation_status so a finalized-then-flagged certificate is not readable via PostgREST; the SPA /cert/:id no longer renders a withheld grade's score/tier/summary (new migration reproducing all columns + flag predicate, OR route the SPA through the withhold-aware edge endpoint) (supabase/migrations/00318_public_cert_coverage.sql:107-116)",
+        "User resume endpoints only reset stale jobs: add .lt('updated_at', jobStaleBefore) / refuse resume while the batch heartbeat is fresh, so a running job isn't reset to pending and double-run (services/edge-functions/src/routes/flipdesk-autolister.ts:1511-1519, 2110-2117)",
+        "Migration follows the US-1108 triple (idempotent / EXPECTED_SCHEMA_VERSION bump same commit / self-record footer); verify:db green",
+        "Deno tests for the resume staleness guard; deno lint + check clean"
+      ],
+      "relevantPaths": [
+        "supabase/migrations/00318_public_cert_coverage.sql",
+        "services/edge-functions/src/routes/flipdesk-autolister.ts",
+        "services/edge-functions/src/lib/schema-version.ts"
+      ]
+    },
+    {
+      "id": "US-1645",
+      "title": "DB P3 · Register unlogged crons in cron_runs; add measure-route tenant-isolation tests",
+      "description": "As the operator, I want every cron visible to the cron_runs ledger and the new measure routes covered by tenant tests, so that missed runs signal and scoping stays regression-protected.",
+      "priority": 2140,
+      "passes": false,
+      "notes": "[P3 batch][Source: CODE_REVIEW_2026-07-04.md §Database RLS & durable jobs] Grouped DB hardening.",
+      "acceptanceCriteria": [
+        "ebay-publish-due, promoted-sync, leave-feedback, and sync/performance crons record to the cron_runs ledger so a missed run signals (services/edge-functions/src/main.ts:523-542)",
+        "New measure routes get tenant-isolation_test.ts cases (correctly scoped today; add the regression net) (services/edge-functions/src/routes/flipdesk-measure.ts:668,686)",
+        "deno lint + check + test clean"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/main.ts",
+        "services/edge-functions/src/routes/flipdesk-measure.ts"
+      ]
+    },
+    {
+      "id": "US-1646",
+      "title": "iOS core P2 · Compress share imports, clear per-account state on sign-out, fix signOut order & tmp paths",
+      "description": "As an iOS seller, I want share-imported photos compressed, my drafts/searches/filters cleared on sign-out, the refresh token revoked, and queued uploads survive container relocation, so that uploads are fast, accounts don't bleed state, and offline uploads don't get orphaned.",
+      "priority": 2262,
+      "passes": false,
+      "notes": "[P2 batch][Source: CODE_REVIEW_2026-07-04.md §iOS core] Grouped iOS core P2s. The share-extension full-res-in-memory sibling is P1 (jetsam) and is resolved by the same compression fix.",
+      "acceptanceCriteria": [
+        "Share-imported photos run PhotoCompressor-equivalent downscaling in the extension so they don't upload at full 3–10 MB resolution (also resolves the P1 full-res-in-memory jetsam) (ios/GradeThread/Share/ShareViewController.swift:133 → ShareInboxConsumer.swift:6-8)",
+        "The .signedOut sweep also clears IntakeDraftStore, PhotoDraftStore, RecentSearchStore, and SavedFilterStore (ios/GradeThread/ContentView.swift:105-156)",
+        "signOut() calls the SDK sign-out (short timeout) BEFORE wiping the keychain so the server-side refresh-token revoke isn't skipped (ios/GradeThread/Auth/AuthStore.swift:293-307; match deleteAccount() ordering at line 325)",
+        "Queued upload mutations persist a path relative to the staging dir (prefer Application Support over purgeable tmp/) so an app update/container relocation or tmp purge doesn't cause missingLocalFile loss (ios/GradeThread/Upload/PhotoUploadService.swift:679,700 + SyncEngine.swift:1430)",
+        "iOS CI (macOS runner) build/test green; no-ungated-print.py clean"
+      ],
+      "relevantPaths": [
+        "ios/GradeThread/Share/ShareViewController.swift",
+        "ios/GradeThread/Share/ShareInboxConsumer.swift",
+        "ios/GradeThread/ContentView.swift",
+        "ios/GradeThread/Auth/AuthStore.swift",
+        "ios/GradeThread/Upload/PhotoUploadService.swift"
+      ]
+    },
+    {
+      "id": "US-1647",
+      "title": "iOS core P3 · Tenant-key the EdgeAPI cache; fix ShareExtension default slot spill",
+      "description": "As an iOS user, I want the response cache scoped/flushed per tenant and share-imported photos to default into garment slots, so that no latent cross-tenant caching lands and photos don't spill into measurement slots.",
+      "priority": 2138,
+      "passes": false,
+      "notes": "[P3 batch][Source: CODE_REVIEW_2026-07-04.md §iOS core] Grouped iOS core P3s.",
+      "acceptanceCriteria": [
+        "EdgeAPI response cache is tenant-keyed and flushed on sign-out/workspace-switch (latent; no tenant-scoped endpoint is cached today) (ios/GradeThread/.../EdgeAPI.swift:384)",
+        "ShareExtension default slot assignment no longer spills into measurement_* slots after the US-1571 mirror reorder (ios/GradeThread/Share/ShareIntakeView.swift:32-53)",
+        "iOS CI (macOS runner) build/test green; no-ungated-print.py clean"
+      ],
+      "relevantPaths": [
+        "ios/GradeThread/Networking/EdgeAPI.swift",
+        "ios/GradeThread/Share/ShareIntakeView.swift"
+      ]
+    },
+    {
+      "id": "US-1648",
+      "title": "iOS features P2 · Fix sensitive-slot race, idempotent creates, publish-dismiss desync, in-flight guards, price persist, temp sweep, OCR double-resume",
+      "description": "As an iOS seller, I want capture/reconcile/publish/post-sale flows to be race-safe and idempotent, so that a tag photo never lands in the public bucket, retries don't duplicate, and successful publishes/edits persist.",
+      "priority": 2260,
+      "passes": false,
+      "notes": "[P2 batch][Source: CODE_REVIEW_2026-07-04.md §iOS feature flows] Grouped iOS feature P2s; each AC independently verifiable. The sensitive-slot race inverts US-979 (public/private bucket) — highest-value item in this batch.",
+      "acceptanceCriteria": [
+        "Pin let slot = store.activeSlot synchronously before the capture Task so a slot-strip tap mid-compress can't record a sensitive tag photo as 'front' and push it to the public item-photos bucket (ios/GradeThread/Capture/PhotoIntakeView.swift:948-960 + PhotoIntakeStore.swift:81-86)",
+        "Reconciliation 'Create item' mints a client id and upserts (idempotent) instead of inserting, so a retry doesn't duplicate inventory items (ios/GradeThread/.../ReconciliationService.swift:70-116)",
+        "PublishDialog toolbar Close and swipe-dismiss call onPublished(response) after a successful publish so the item isn't left 'unpublished' locally (US-1513 desync) (ios/GradeThread/.../PublishDialog.swift:286-288 + ItemCanvasView.swift:395-405)",
+        "Cancellation/dispute decisions reuse the US-1497 in-flight re-entry guard (keyed on cancelId/paymentDisputeId) so 'Approve & cancel' can't fire twice (ios/GradeThread/.../PostSaleStore.swift:121-157)",
+        "Publish composer inline price fix persists: write listing_price/target_price in the UPDATE branch and fix the false 'saved when you publish' copy / unconditional validate block (ios/GradeThread/.../ListingDraftService.swift:105-171 + services/edge-functions/src/routes/flipdesk-ebay.ts:8294)",
+        "24h stale-temp sweep skips files referenced by any pending .uploadPhoto mutation so offline-queued uploads aren't deleted out from under them (ios/GradeThread/Upload/PhotoUploadService.swift:762-774)",
+        "TagTextRecognizer adds a one-shot resume guard so a Vision failure that both calls the completion handler and throws can't resume the same continuation twice (process abort) (ios/GradeThread/Vision/TagTextRecognizer.swift:39-76)",
+        "iOS CI (macOS runner) build/test green; no-ungated-print.py clean"
+      ],
+      "relevantPaths": [
+        "ios/GradeThread/Capture/PhotoIntakeView.swift",
+        "ios/GradeThread/Capture/PhotoIntakeStore.swift",
+        "ios/GradeThread/Vision/TagTextRecognizer.swift",
+        "services/edge-functions/src/routes/flipdesk-ebay.ts"
+      ]
+    },
+    {
+      "id": "US-1649",
+      "title": "iOS features P3 · Upload progress plumbing, OCR threading, disk-full telemetry, orphan-count efficiency",
+      "description": "As an iOS seller, I want real upload progress, non-blocking OCR, disk-full errors surfaced, and efficient orphan counting, so that the UI is honest and doesn't stall or waste bandwidth.",
+      "priority": 2136,
+      "passes": false,
+      "notes": "[P3 batch][Source: CODE_REVIEW_2026-07-04.md §iOS feature flows] Grouped iOS feature P3s.",
+      "acceptanceCriteria": [
+        "Wire a session delegate so upload progress reflects real bytes instead of staying 0% (dead plumbing) (ios/GradeThread/Upload/PhotoUploadService.swift:51-59,404-412)",
+        ".accurate OCR no longer runs synchronously inside an actor method blocking a cooperative-pool thread (ios/GradeThread/Vision/TagTextRecognizer.swift:70-76)",
+        "Disk-full capture surfaces an error + telemetry instead of being silently dropped (ios/GradeThread/Upload/PhotoUploadService.swift:211,735-746)",
+        "countOrphans uses count:.exact, head:true instead of downloading every unmatched row (ios/GradeThread/.../ReconciliationService.swift:33-43)",
+        "iOS CI (macOS runner) build/test green; no-ungated-print.py clean"
+      ],
+      "relevantPaths": [
+        "ios/GradeThread/Upload/PhotoUploadService.swift",
+        "ios/GradeThread/Vision/TagTextRecognizer.swift",
+        "ios/GradeThread/Reconciliation/ReconciliationService.swift"
       ]
     }
   ]
