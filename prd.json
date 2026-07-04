@@ -11399,7 +11399,7 @@
       "title": "Web P2 · Remaining resilience findings (token retry, silent rejections, idempotency, snap upload, sync toast)",
       "description": "As a user across admin/referrals/offline/snap/eBay-sync surfaces, I want expired-token retries, caught rejections, idempotent replays, compressed snap uploads, and a resolvable sync state, so that these flows don't silently fail or hang.",
       "priority": 2274,
-      "passes": false,
+      "passes": true,
       "notes": "[P2 batch][Source: CODE_REVIEW_2026-07-04.md §Web P2] Remaining web P2 resilience findings grouped.",
       "acceptanceCriteria": [
         "Admin content/changelog/sheet/Shopify hooks refresh a possibly-expired token and retry on 401 (src/hooks/use-content.ts, use-changelog.ts, use-sheet-import.ts, use-shopify.ts)",

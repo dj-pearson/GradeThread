@@ -985,44 +985,65 @@ export function FlipdeskMarketplacesPage() {
   const qc = useQueryClient();
 
   // When a background sync is running we poll last_synced_at every 5s.
-  // syncSince holds the ISO timestamp right before we fired the sync so we
-  // can detect when last_synced_at advances past it.
-  const [syncSince, setSyncSince] = useState<string | null>(null);
+  // US-1634: hold the SERVER's last_synced_at from BEFORE we fired the sync as a
+  // baseline, and detect completion when it CHANGES — comparing server value to
+  // server value. The old code compared the client's clock at fire time to the
+  // server timestamp, so a client clock running ahead of the server never saw
+  // completion → the "syncing…" toast hung forever.
+  const [syncBaseline, setSyncBaseline] = useState<{ before: string | null } | null>(null);
   const syncToastId = useRef<string | number | null>(null);
 
-  const pollingInterval = syncSince != null ? 5_000 : undefined;
+  const clearSyncToast = () => {
+    if (syncToastId.current != null) {
+      toast.dismiss(syncToastId.current);
+      syncToastId.current = null;
+    }
+  };
+
+  const pollingInterval = syncBaseline != null ? 5_000 : undefined;
   const { data: connection, isLoading: connLoading } = useEbayConnection(pollingInterval);
   const { data: connIssue } = useEbayConnectionIssue();
   const startOauth = useStartEbayOauth();
   const syncListings = useSyncEbayListings();
 
-  // Detect completion: last_synced_at has moved past the moment we fired the sync.
+  // Detect completion: last_synced_at changed from the pre-sync baseline.
   useEffect(() => {
-    if (!syncSince || !connection?.last_synced_at) return;
-    const syncedAt = new Date(connection.last_synced_at).getTime();
-    const firedAt = new Date(syncSince).getTime();
-    if (syncedAt > firedAt) {
-      setSyncSince(null);
-      if (syncToastId.current != null) {
-        toast.dismiss(syncToastId.current);
-        syncToastId.current = null;
-      }
+    if (!syncBaseline) return;
+    const current = connection?.last_synced_at ?? null;
+    if (current != null && current !== syncBaseline.before) {
+      setSyncBaseline(null);
+      clearSyncToast();
       qc.invalidateQueries({ queryKey: ["items_full"] });
       toast.success("eBay sync complete. Listings updated.");
     }
-  }, [connection?.last_synced_at, syncSince, qc]);
+  }, [connection?.last_synced_at, syncBaseline, qc]);
+
+  // US-1634: failure path — if the sync never reports back within a generous
+  // window (a stuck/failed background run), stop polling and dismiss the toast
+  // with a "check back" message instead of spinning forever.
+  useEffect(() => {
+    if (!syncBaseline) return;
+    const t = setTimeout(() => {
+      setSyncBaseline(null);
+      clearSyncToast();
+      toast.info("eBay sync is taking longer than expected — check back shortly.");
+    }, 5 * 60_000);
+    return () => clearTimeout(t);
+  }, [syncBaseline]);
 
   // Shared handler for both the incremental sync and the full backfill.
   // `full` reaches back ~24 months for sales that predate the connection.
   const runSync = async (full: boolean) => {
     try {
-      const firedAt = new Date().toISOString();
+      // US-1634: snapshot the SERVER's current last_synced_at as the baseline
+      // (not the client clock) so completion is a server-to-server comparison.
+      const before = connection?.last_synced_at ?? null;
       const r = await syncListings.mutateAsync({ full });
 
       if (r.started) {
         // 202 — sync is running in the background.
         // Start polling; show a persistent toast until done.
-        setSyncSince(firedAt);
+        setSyncBaseline({ before });
         syncToastId.current = toast.loading(
           full
             ? "Importing full eBay sales history…"
@@ -1097,7 +1118,7 @@ export function FlipdeskMarketplacesPage() {
     setParams(next, { replace: true });
   }, [params, setParams]);
 
-  const syncing = syncListings.isPending || syncSince != null;
+  const syncing = syncListings.isPending || syncBaseline != null;
 
   // Per-user FlipDesk behavior settings (migration 00134). Absent row =
   // defaults (auto-end ON), so the toggle reads that until the user changes it.

@@ -1,16 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { supabase } from "@/lib/supabase";
-import { edgeApiUrl } from "@/lib/edge-api";
-
-async function authHeader(): Promise<string> {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session?.access_token) {
-    throw new Error("You must be signed in.");
-  }
-  return `Bearer ${session.access_token}`;
-}
+import { edgeFetch } from "@/lib/edge-fetch";
 
 export interface FetchSheetResponse {
   csv: string;
@@ -24,17 +13,13 @@ export interface FetchSheetResponse {
 export function useFetchGoogleSheet() {
   return useMutation<FetchSheetResponse, Error, { url: string }>({
     mutationFn: async ({ url }) => {
-      const res = await fetch(
-        `${edgeApiUrl()}/api/flipdesk/sheets/fetch-csv`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: await authHeader(),
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ url }),
-        },
-      );
+      // US-1634: edgeFetch mints a fresh token + retries once on 401, instead of
+      // getSession()'s possibly-expired token with no retry.
+      const res = await edgeFetch("/api/flipdesk/sheets/fetch-csv", {
+        method: "POST",
+        json: { url },
+        silentGate: true,
+      });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(json.error || "Could not fetch the sheet.");

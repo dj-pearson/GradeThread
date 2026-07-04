@@ -11,6 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
+import { compressImage } from "@/lib/image-utils";
 import { useSnap, type SnapBridgeState } from "@/hooks/use-snap";
 import { PwaInstallBanner } from "@/components/flipdesk/pwa-install-banner";
 
@@ -33,13 +35,24 @@ export function SnapToValuePage() {
   const snap = useSnap();
   const result = snap.data;
 
-  function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setDataUri(typeof reader.result === "string" ? reader.result : null);
-    reader.readAsDataURL(file);
     snap.reset();
+    // US-1634: validate + COMPRESS before use. Reading the RAW file as a data
+    // URI sent a 3–10 MB base64 blob to /snap AND pushed it into router history
+    // `state` (which browsers cap at ~1–2 MB), silently breaking the
+    // snap→certified bridge. compressImage also decodes the file, so a
+    // non-image is rejected here.
+    try {
+      const { blob } = await compressImage(file, 2400, 0.85);
+      const reader = new FileReader();
+      reader.onload = () =>
+        setDataUri(typeof reader.result === "string" ? reader.result : null);
+      reader.readAsDataURL(blob);
+    } catch {
+      toast.error("Couldn't read that image — try a different photo.");
+    }
   }
 
   function valueIt() {
