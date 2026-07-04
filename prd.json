@@ -11188,7 +11188,7 @@
       "title": "P1 · Add the ten dead eBay endpoints to the edge auth whitelist",
       "description": "As a signed-in seller, I want the eBay analytics/compliance/finances/catalog/promotions endpoints to work, so that they stop returning 401 unconditionally even when I'm authenticated.",
       "priority": 2585,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][Source: CODE_REVIEW_2026-07-04.md §Database RLS & durable jobs] main.ts:331-361 omits app.use(authMiddleware) for ten flipdesk-ebay.ts routes (analytics/account-health, compliance/*, finances/payouts*, catalog/match|adopt, promotions), so userId is never set and they fail closed to 401 for signed-in users too. CI misses it because flipdesk-auth-coverage_test.ts only checks each router prefix has ≥1 auth line. All are live SPA call sites.",
       "acceptanceCriteria": [
         "Add the missing app.use(authMiddleware) lines for the ten endpoints (services/edge-functions/src/main.ts:331-361)",

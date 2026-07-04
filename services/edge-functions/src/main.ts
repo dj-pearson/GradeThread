@@ -338,6 +338,16 @@ app.use("/api/flipdesk/ebay/payouts/*", authMiddleware);
 app.use("/api/flipdesk/ebay/comps", authMiddleware);
 app.use("/api/flipdesk/ebay/policies", authMiddleware);
 app.use("/api/flipdesk/ebay/policies/*", authMiddleware);
+// US-1623: these eBay sub-paths were missing from the per-path whitelist, so
+// authMiddleware never ran and the handlers (which read
+// workspaceOwnerId ?? userId) failed closed to 401 for signed-in sellers too.
+// Analytics, compliance, seller finances, catalog match/adopt, and promotions.
+app.use("/api/flipdesk/ebay/analytics/*", authMiddleware);
+app.use("/api/flipdesk/ebay/compliance/*", authMiddleware);
+app.use("/api/flipdesk/ebay/finances/*", authMiddleware);
+app.use("/api/flipdesk/ebay/catalog/*", authMiddleware);
+app.use("/api/flipdesk/ebay/promotions", authMiddleware);
+app.use("/api/flipdesk/ebay/promotions/*", authMiddleware);
 // US-561: Promoted Listings ad-rate suggestion + performance sync (the
 // /jobs/* promoted sync uses the job secret instead).
 app.use("/api/flipdesk/ebay/marketing/*", authMiddleware);
@@ -463,6 +473,14 @@ app.use("/api/flipdesk/ebay/payouts/*", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/comps", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/policies", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/policies/*", workspaceMiddleware);
+// US-1623: workspace scope for the newly-authed eBay sub-paths (they resolve
+// the tenant via workspaceOwnerId ?? userId), matching the other eBay routes.
+app.use("/api/flipdesk/ebay/analytics/*", workspaceMiddleware);
+app.use("/api/flipdesk/ebay/compliance/*", workspaceMiddleware);
+app.use("/api/flipdesk/ebay/finances/*", workspaceMiddleware);
+app.use("/api/flipdesk/ebay/catalog/*", workspaceMiddleware);
+app.use("/api/flipdesk/ebay/promotions", workspaceMiddleware);
+app.use("/api/flipdesk/ebay/promotions/*", workspaceMiddleware);
 // US-673: best offers + send-offer + buyer messages.
 app.use("/api/flipdesk/ebay/negotiation/*", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/messages", workspaceMiddleware);
