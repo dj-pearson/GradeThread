@@ -25,6 +25,7 @@ import {
   fetchPeerDistribution,
   type PeerNormConfig,
 } from "./peer-norm.ts";
+import { reconcileNeedsReview } from "./ai-config.ts";
 import { getSetting } from "./system-settings.ts";
 import { assessAuthenticity, type AuthenticityAssessment } from "./ai-authenticity.ts";
 import { runShadowGrades } from "./grading-shadow.ts";
@@ -1443,6 +1444,17 @@ export async function processSubmission(submissionId: string) {
       compositeResult.needs_human_review = true;
     }
 
+    // US-1622 / C9: a running ceiling on confidence that every post-composite
+    // LOWERING event (a verification-discrepancy shave, a peer-norm cap, a
+    // forensic-tamper shave) tightens. The provenance BOOSTS below
+    // (verified-capture / live-capture / verified-360) are clamped to this
+    // ceiling, so a boost can never lift confidence back over a floor a lowering
+    // event established — and the review gate re-derivation at the end then
+    // catches any grade whose EFFECTIVE confidence still ended below threshold.
+    // Honors the grading contract: "never raise confidence post-composite" past
+    // where a penalty put it.
+    let confidenceCeiling = partialSuccess ? PARTIAL_IMAGE_CONFIDENCE_CAP : 1;
+
     // --- Step 6: Create grade report record ---
     const certificateId = crypto.randomUUID();
     // PSA-style public verification number (00307) — the plain-text key that
@@ -1482,6 +1494,9 @@ export async function processSubmission(submissionId: string) {
         compositeResult.confidence_score -
           Math.min(0.2, 0.1 * discrepancies.length),
       );
+      // US-1622 / C9: this shave is a floor a later provenance boost must not
+      // cross — even a single discrepancy that drops confidence below threshold.
+      confidenceCeiling = Math.min(confidenceCeiling, compositeResult.confidence_score);
       if (discrepancies.length >= 2) compositeResult.needs_human_review = true;
       console.log(
         `[Pipeline] visual verification found ${discrepancies.length} discrepancy(ies) ` +
@@ -1518,6 +1533,8 @@ export async function processSubmission(submissionId: string) {
             compositeResult.confidence_score,
             verdict.confidenceCap,
           );
+          // US-1622 / C9: the peer-norm cap is a floor boosts can't cross.
+          confidenceCeiling = Math.min(confidenceCeiling, compositeResult.confidence_score);
           compositeResult.needs_human_review = true;
           detailedNotes["peer_norm"] = verdict.reason ?? "peer_norm outlier";
           console.log(
@@ -1632,7 +1649,10 @@ export async function processSubmission(submissionId: string) {
     if (verifiedCapture.verified) {
       // Bump confidence (never down), respecting the partial-image ceiling so an
       // incomplete image set can't be boosted past its review cap.
-      const ceiling = partialSuccess ? PARTIAL_IMAGE_CONFIDENCE_CAP : 1;
+      // US-1622 / C9: clamp the provenance boost to the running confidence
+      // ceiling (tightened by any post-composite lowering event), not just the
+      // partial-image cap — so a boost can't lift confidence back over a floor.
+      const ceiling = confidenceCeiling;
       compositeResult.confidence_score = Math.min(
         ceiling,
         Math.max(
@@ -1705,6 +1725,8 @@ export async function processSubmission(submissionId: string) {
           0,
           compositeResult.confidence_score - fusedTamper.confidence_penalty,
         );
+        // US-1622 / C9: manipulation evidence is a floor boosts can't cross.
+        confidenceCeiling = Math.min(confidenceCeiling, compositeResult.confidence_score);
       }
       detailedNotes["forensic_analysis"] = fusedTamper.tells.length > 0
         ? `${fusedTamper.summary} Tells: ${fusedTamper.tells.join("; ")}.`
@@ -1739,7 +1761,10 @@ export async function processSubmission(submissionId: string) {
       // boost over the standard Verified Capture boost already added above (a
       // live_verified result implies verifiedCapture.verified). Respect the
       // partial-image ceiling so an incomplete set can't be boosted past its cap.
-      const ceiling = partialSuccess ? PARTIAL_IMAGE_CONFIDENCE_CAP : 1;
+      // US-1622 / C9: clamp the provenance boost to the running confidence
+      // ceiling (tightened by any post-composite lowering event), not just the
+      // partial-image cap — so a boost can't lift confidence back over a floor.
+      const ceiling = confidenceCeiling;
       const extra = Math.max(0, liveCaptureBoost() - verifiedCaptureBoost());
       compositeResult.confidence_score = Math.min(
         ceiling,
@@ -1847,7 +1872,10 @@ export async function processSubmission(submissionId: string) {
         verified_360: true,
         coverage_source: "geometric_360",
       };
-      const ceiling = partialSuccess ? PARTIAL_IMAGE_CONFIDENCE_CAP : 1;
+      // US-1622 / C9: clamp the provenance boost to the running confidence
+      // ceiling (tightened by any post-composite lowering event), not just the
+      // partial-image cap — so a boost can't lift confidence back over a floor.
+      const ceiling = confidenceCeiling;
       compositeResult.confidence_score = Math.min(
         ceiling,
         compositeResult.confidence_score + verified360Boost(),
@@ -1861,6 +1889,19 @@ export async function processSubmission(submissionId: string) {
       // Not a flag, not a penalty; the 2D coverage stands.
       detailedNotes["verified_360"] = `${verified360.reasons.join("; ")}.`;
     }
+
+    // US-1622 / C9: FINAL review-gate re-derivation — after EVERY post-composite
+    // adjustment (penalties AND provenance boosts). The initial gate was computed
+    // once inside compositeGrade; a later confidence-lowering event (a single
+    // verification discrepancy, a peer-norm cap, a forensic shave) could drop the
+    // effective confidence below the review threshold without setting the flag,
+    // and a provenance boost could otherwise auto-finalize (publish a cert for)
+    // that grade. The confidenceCeiling above already stops the boost from lifting
+    // confidence back over the floor; this catches whatever still landed short.
+    compositeResult.needs_human_review = reconcileNeedsReview(
+      compositeResult.needs_human_review,
+      compositeResult.confidence_score,
+    );
 
     // US-333 + US-1279: tamper-evident integrity. Hash the canonical
     // (already-public) grade fields and sign the hash if CERT_SIGNING_KEY is set.

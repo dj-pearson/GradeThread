@@ -11170,7 +11170,7 @@
       "title": "C9 · Re-derive the human-review gate after all post-composite confidence adjustments",
       "description": "As the grading operator, I want a grade whose effective confidence fell below the review threshold to always route to human review, so that provenance boosts can't auto-finalize and publish a certificate for a below-threshold grade.",
       "priority": 2592,
-      "passes": false,
+      "passes": true,
       "notes": "[Critical C9][P1 grading-integrity][Source: CODE_REVIEW_2026-07-04.md §Grading] The review gate is computed once inside compositeGrade; the pipeline then shaves confidence for a verification discrepancy (without re-checking the 0.75 gate) and later adds provenance boosts back. A 0.70-effective, contradiction-found grade can be boosted to 0.90 and published with no human review. Violates the grading-engine contract (confidence<0.75→review; never raise confidence post-composite). LOAD the grading-engine skill first.",
       "acceptanceCriteria": [
         "Re-derive needs_human_review ||= confidence_score < reviewConfidenceThreshold() AFTER all post-composite adjustments (services/edge-functions/src/lib/grading-pipeline.ts:1476-1490, 1632-1653)",
