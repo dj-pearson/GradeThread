@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
+import { queryClient } from "@/lib/query-client";
 import { useAuthStore, deriveActiveRole } from "@/stores/auth-store";
 import { canDo, type WorkspaceCapability } from "@/lib/workspace-permissions";
 import type { WorkspaceRole, WorkspaceSummary } from "@/types/database";
@@ -31,6 +32,17 @@ export function useWorkspace() {
 
   const switchWorkspace = useCallback(
     async (ownerId: string) => {
+      // No-op when clicking the already-active workspace — don't clear the cache
+      // for nothing.
+      if (ownerId === workspaceOwnerId) return;
+      // US-1624: a workspace switch changes the tenant scope of EVERY edgeFetch
+      // (it sends X-Workspace-Owner = activeWorkspaceOwnerId ?? user.id). Dozens
+      // of workspace-scoped query keys (automation_rules, repricing/performance
+      // suggestions, google_connection, and most of use-ebay.ts) omit the owner,
+      // so without this the member would be served — and could mutate — the
+      // prior workspace's data until it went stale. Drop all cached server data
+      // so the new workspace refetches cleanly (mirrors the sign-out clear).
+      queryClient.clear();
       setActiveOwnerId(ownerId);
       if (user?.id) {
         await supabase
@@ -41,7 +53,7 @@ export function useWorkspace() {
           .eq("id", user.id);
       }
     },
-    [user?.id, setActiveOwnerId],
+    [user?.id, workspaceOwnerId, setActiveOwnerId],
   );
 
   const can = useCallback(

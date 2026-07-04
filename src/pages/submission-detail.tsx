@@ -168,9 +168,6 @@ export function SubmissionDetailPage() {
   const [disputePhotos, setDisputePhotos] = useState<File[]>([]);
   const [submittingDispute, setSubmittingDispute] = useState(false);
 
-  // Subscribe to realtime status updates for this submission
-  useRealtimeSubmission(id);
-
   const refetchData = useCallback(async () => {
     if (!id) return;
     const { data: sub } = await supabase
@@ -190,6 +187,11 @@ export function SubmissionDetailPage() {
       .maybeSingle();
     if (reportData) setGradeReport(reportData);
   }, [id]);
+
+  // Subscribe to realtime status updates for this submission (US-1628: pass
+  // refetchData so the useState-held submission actually refreshes on change —
+  // resolving the "we'll let you know the moment it's official" banner live).
+  useRealtimeSubmission(id, refetchData);
 
   // ── Auto-retry payment after a mid-flow credit-pack purchase (US-207) ──
   //
@@ -281,7 +283,11 @@ export function SubmissionDetailPage() {
       visible &&
       (!submissionStatus ||
         submissionStatus === "processing" ||
-        submissionStatus === "pending")
+        submissionStatus === "pending" ||
+        // US-1628: keep polling while a grade awaits human review, so the
+        // "we'll let you know the moment it's official" banner resolves without
+        // a hard refresh even if the realtime event is missed.
+        submissionStatus === "pending_review")
     ) {
       refetchData();
       const interval = setInterval(refetchData, 5000);

@@ -11207,7 +11207,7 @@
       "title": "P1 · Owner-key workspace-scoped queries so switching shows the right tenant's data",
       "description": "As a workspace member, I want automations/repricing/sheets/eBay queries to refetch on workspace switch, so that I never see or mutate the previous workspace's data.",
       "priority": 2584,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][Source: CODE_REVIEW_2026-07-04.md §Web P1] switchWorkspace only sets Zustand; no invalidation. Query keys omit the owner, so a member switching workspaces sees (and can mutate) the prior workspace's automation rules and repricing nudges.",
       "acceptanceCriteria": [
         "Key affected queries on activeWorkspaceOwnerId ?? user.id and/or invalidate them in switchWorkspace (src/hooks/use-automations.ts:84, use-repricing.ts:57,70, use-google-sheets.ts:61, most of use-ebay.ts)",
@@ -11226,7 +11226,7 @@
       "title": "P1 · Add a synchronous double-submit lock to bulk submission",
       "description": "As a seller submitting a bulk batch, I want a double-click to not POST every row twice, so that I'm not double-charged.",
       "priority": 2583,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][Source: CODE_REVIEW_2026-07-04.md §Web P1] disabled={isSubmitting} only applies next render; new-submission.tsx fixed this with submitLockRef (US-774) but bulk never got it. Two clicks in one frame POST every row twice.",
       "acceptanceCriteria": [
         "Add the same synchronous submitLockRef pattern used in new-submission.tsx to bulk submit (src/pages/bulk-submission.tsx:287-291)",
@@ -11243,7 +11243,7 @@
       "title": "P1 · Stop compressImage from double-applying EXIF orientation",
       "description": "As a seller, I want my uploaded garment photos to keep their correct orientation, so that they don't come out sideways/upside-down everywhere compressImage runs.",
       "priority": 2582,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][Source: CODE_REVIEW_2026-07-04.md §Web P1] loadImage decodes via a plain <img> (browsers already bake in orientation), then the manual transform rotates again. Hits every surface via compressImage.",
       "acceptanceCriteria": [
         "Remove the double rotation: delete the manual orientation transform OR decode with createImageBitmap(file,{imageOrientation:'none'}) (src/lib/image-utils.ts:423-480)",
@@ -11276,7 +11276,7 @@
       "title": "P1 · Fix detail-page realtime so pending_review resolves without a hard refresh",
       "description": "As a seller watching a submission, I want the 'we'll let you know the moment it's official' banner to resolve live, so that I don't have to hard-refresh to see the grade go official.",
       "priority": 2580,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][Source: CODE_REVIEW_2026-07-04.md §Web P1] The page uses useState not useQuery, so invalidating [\"submission\",id] matches nothing and the fallback poll excludes pending_review.",
       "acceptanceCriteria": [
         "Add an onChange callback (or convert to useQuery) so realtime updates reach the page (src/hooks/use-realtime-submission.ts:94 + src/pages/submission-detail.tsx)",
@@ -11294,7 +11294,7 @@
       "title": "P1 · Only clear the auto-delist stamp on a real delist success",
       "description": "As a cross-lister, I want a still-live cross-listing to stay on the delist queue when the extension hard-fails, so that it can't sell twice — while manual paths can still be cleared.",
       "priority": 2579,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][Source: CODE_REVIEW_2026-07-04.md §Web P1] delist-confirm fires unconditionally even when sendDelistToLister resolved {ok:false}, so a still-live cross-listing drops off the queue and can sell twice; conversely the manual paths never clear and nag forever.",
       "acceptanceCriteria": [
         "Confirm delist only on a real {ok:true} success (src/hooks/use-pending-delists.ts:74-91)",
@@ -11311,7 +11311,7 @@
       "title": "P1 · Invalidate queries after FlipDesk inventory add/sale/detail writes",
       "description": "As a FlipDesk reseller, I want the pipeline and inventory lists to reflect a new item or a recorded sale immediately, so that I don't see stale 'Listed' status or re-add a duplicate.",
       "priority": 2578,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][Source: CODE_REVIEW_2026-07-04.md §Web P1] inventory-detail.tsx:285-296 (and 4 other sites) has no useQueryClient — recording a sale leaves the pipeline showing 'Listed' for up to 15 min; inventory-add.tsx:106-126 invalidates nothing so a new item is missing from the list.",
       "acceptanceCriteria": [
         "inventory-detail write paths invalidate ['items_full'], ['inventory'], ['inventory-listings'] (src/pages/inventory-detail.tsx:285-296 and the 4 sibling sites)",

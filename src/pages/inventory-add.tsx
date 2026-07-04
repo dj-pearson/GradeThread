@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Loader2, Package } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -53,6 +54,7 @@ function todayString(): string {
 
 export function InventoryAddPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { user } = useAuth();
   const { workspaceOwnerId, can } = useWorkspace();
   const [submitting, setSubmitting] = useState(false);
@@ -112,6 +114,13 @@ export function InventoryAddPage() {
       if (error) throw error;
 
       const item = data as Pick<InventoryItemRow, "id">;
+
+      // US-1630: a new item must appear in the list the user lands on — the
+      // inventory list, brand filter, and pipeline (items_full) all read cached
+      // queries, so invalidate them before navigating away.
+      queryClient.invalidateQueries({ queryKey: ["inventory"] });
+      queryClient.invalidateQueries({ queryKey: ["inventory-brands"] });
+      queryClient.invalidateQueries({ queryKey: ["items_full"] });
 
       toast.success("Item added to inventory!");
 

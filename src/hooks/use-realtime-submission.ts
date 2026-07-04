@@ -74,7 +74,15 @@ export function useRealtimeSubmissions() {
  * Subscribes to realtime status changes for a single submission.
  * Use on the submission detail page.
  */
-export function useRealtimeSubmission(submissionId: string | undefined) {
+export function useRealtimeSubmission(
+  submissionId: string | undefined,
+  // US-1628: the detail page holds its submission in useState, not useQuery, so
+  // invalidating ["submission", id] matched nothing and the "we'll let you know
+  // the moment it's official" banner never resolved without a hard refresh. Pass
+  // an onChange so the page can refetch its own state on a realtime UPDATE. The
+  // key invalidation is kept for any useQuery consumers.
+  onChange?: (row: SubmissionChange) => void,
+) {
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -90,8 +98,9 @@ export function useRealtimeSubmission(submissionId: string | undefined) {
           table: "submissions",
           filter: `id=eq.${submissionId}`,
         },
-        () => {
+        (payload) => {
           queryClient.invalidateQueries({ queryKey: ["submission", submissionId] });
+          onChange?.(payload.new as SubmissionChange);
         }
       )
       .subscribe();
@@ -99,5 +108,5 @@ export function useRealtimeSubmission(submissionId: string | undefined) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [submissionId, queryClient]);
+  }, [submissionId, queryClient, onChange]);
 }

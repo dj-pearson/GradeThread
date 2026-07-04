@@ -144,6 +144,8 @@ export function BulkSubmissionPage() {
   const navigate = useNavigate();
   const csvInputRef = useRef<HTMLInputElement>(null);
   const zipInputRef = useRef<HTMLInputElement>(null);
+  // US-1625: synchronous double-submit guard (see handleSubmit).
+  const submitLockRef = useRef(false);
 
   const [csvName, setCsvName] = useState<string>("");
   const [zipName, setZipName] = useState<string>("");
@@ -286,6 +288,12 @@ export function BulkSubmissionPage() {
 
   async function handleSubmit() {
     if (validRows.length === 0) return;
+    // US-1625: reject a re-entrant double-click synchronously. `disabled={isSubmitting}`
+    // only applies on the NEXT render, so two clicks in one frame would both run
+    // this loop and POST every row twice (double charge). Mirrors the submitLockRef
+    // fix in new-submission.tsx (US-774).
+    if (submitLockRef.current) return;
+    submitLockRef.current = true;
     setIsSubmitting(true);
     setResult(null);
     setProgress({ current: 0, total: validRows.length });
@@ -375,6 +383,7 @@ export function BulkSubmissionPage() {
         err instanceof Error ? err.message : "Bulk upload failed."
       );
     } finally {
+      submitLockRef.current = false;
       setIsSubmitting(false);
     }
   }

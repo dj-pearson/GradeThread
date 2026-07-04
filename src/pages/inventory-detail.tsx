@@ -1,5 +1,6 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   AlertTriangle,
@@ -154,6 +155,17 @@ function LoadingSkeleton() {
 export function InventoryDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  // US-1630: this page mutates inventory/listing/sale state via plain supabase
+  // writes and only updates its OWN local useState — so the cached queries other
+  // surfaces read (the FlipDesk pipeline, the inventory list/brands) stayed
+  // stale for up to 15 min (e.g. an item shown "Listed" after it was sold).
+  // Invalidate the shared keys after every state-changing write.
+  const invalidateInventoryCaches = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["items_full"] });
+    queryClient.invalidateQueries({ queryKey: ["inventory"] });
+    queryClient.invalidateQueries({ queryKey: ["inventory-listings"] });
+  }, [queryClient]);
   const [item, setItem] = useState<InventoryItemRow | null>(null);
   const [listings, setListings] = useState<ListingRow[]>([]);
   const [sales, setSales] = useState<SaleRow[]>([]);
@@ -291,6 +303,7 @@ export function InventoryDetailPage() {
       toast.error("Failed to update status.");
     } else {
       setItem({ ...item, status: newStatus as ItemStatus });
+      invalidateInventoryCaches();
       toast.success(`Status updated to ${formatLabel(newStatus)}.`);
     }
     setUpdatingStatus(false);
@@ -349,6 +362,7 @@ export function InventoryDetailPage() {
     setPlatformListingId("");
     setAddListingOpen(false);
     setAddListingSubmitting(false);
+    invalidateInventoryCaches();
     toast.success(`Listing added on ${formatPlatform(listingPlatform)}.`);
   }
 
@@ -367,6 +381,7 @@ export function InventoryDetailPage() {
       setListings((prev) =>
         prev.map((l) => (l.id === listing.id ? { ...l, is_active: newActive } : l))
       );
+      invalidateInventoryCaches();
       toast.success(`Listing marked as ${newActive ? "active" : "inactive"}.`);
     }
     setTogglingListingId(null);
@@ -443,6 +458,7 @@ export function InventoryDetailPage() {
     setSaleBuyerUsername("");
     setRecordSaleOpen(false);
     setRecordSaleSubmitting(false);
+    invalidateInventoryCaches();
     toast.success("Sale recorded successfully.");
   }
 
@@ -516,6 +532,7 @@ export function InventoryDetailPage() {
     setShipmentWeightOz("");
     setRecordShipmentOpen(false);
     setRecordShipmentSubmitting(false);
+    invalidateInventoryCaches();
     toast.success("Shipment recorded successfully.");
   }
 
