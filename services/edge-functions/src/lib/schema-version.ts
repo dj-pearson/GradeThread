@@ -36,8 +36,8 @@ import { supabaseAdmin } from "./supabase.ts";
 import { edgeEnv } from "./env.ts";
 
 // Bump this in the SAME commit that adds a migration. = highest NNNNN in
-// supabase/migrations/. (00354_dead_letter_googleplay_provider.sql)
-export const EXPECTED_SCHEMA_VERSION = "00354";
+// supabase/migrations/. (00355_dispute_admin_alerted_at.sql)
+export const EXPECTED_SCHEMA_VERSION = "00355";
 
 export type SchemaVersionComparison = "match" | "behind" | "ahead" | "unknown";
 

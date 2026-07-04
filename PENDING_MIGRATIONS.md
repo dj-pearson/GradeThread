@@ -1,5 +1,22 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00355_dispute_admin_alerted_at.sql (US-1652, 2026-07-04)
+
+**What:** `ALTER TABLE disputes ADD COLUMN IF NOT EXISTS admin_alerted_at
+timestamptz`. The dedup gate for the dispute-filed admin alert — the handler
+claims it with a race-safe conditional UPDATE (`WHERE admin_alerted_at IS NULL`)
+so the alert fires at most once per dispute. Self-records '00355'.
+
+**Risk: LOW — additive nullable column; no client reads.** No backfill (NULL =
+"never alerted", correct for existing open disputes). Edge boot guard now expects
+**00355**.
+
+**⚠️ Apply order:** apply after 00353/00354. The edge code reads/writes
+`admin_alerted_at` at RUNTIME only when `/dispute-filed` is called — an update
+targeting a missing column would 42703-fail that request, so apply 00355 before
+this edge build deploys. `NOTIFY pgrst, 'reload schema';` after applying (a new
+column PostgREST must expose). Redeploy the edge so its boot guard matches 00355.
+
 ## ⏳ HELD: 00354_dead_letter_googleplay_provider.sql (US-1650 / C6, 2026-07-04)
 
 **What:** extends the `webhook_dead_letters.provider` CHECK allow-list to include

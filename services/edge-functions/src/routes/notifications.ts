@@ -579,6 +579,20 @@ notificationRoutes.post("/dispute-filed", async (c) => {
     // Only alert on a just-filed dispute (idempotent + not abusable on old ones).
     if (dispute.status !== "open") return c.json({ ok: true, skipped: "not open" });
 
+    // US-1652: dedup the admin alert. Race-safe CLAIM — the conditional
+    // `admin_alerted_at IS NULL` filter means exactly one caller (of concurrent
+    // re-files for the same dispute) flips it and proceeds to send; the rest get
+    // 0 rows and skip. Owner-scoped like the lookup above.
+    const { data: claimed } = await supabaseAdmin
+      .from("disputes")
+      .update({ admin_alerted_at: new Date().toISOString() })
+      .eq("id", disputeId)
+      .eq("user_id", userId)
+      .is("admin_alerted_at", null)
+      .select("id")
+      .maybeSingle();
+    if (!claimed) return c.json({ ok: true, skipped: "already alerted" });
+
     // Resolve the submission title + submitter name for the alert.
     const { data: report } = await supabaseAdmin
       .from("grade_reports")

@@ -11771,7 +11771,7 @@
       "title": "Dispute-filed admin-alert dedup (disputes.admin_alerted_at) — HELD MIGRATION",
       "description": "As the platform admin, I want the dispute-filed alert (email + in-app) to fire at most once per dispute, so an owner re-POSTing /dispute-filed for their own open dispute can't spam the admin.",
       "priority": 2147,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][Source: CODE_REVIEW_2026-07-04.md §Edge tenant isolation] Split out of US-1638 because it needs a NEW disputes column, which triggers the held-migration rule (code referencing the column must NOT deploy before the SQL applies to prod). LOAD the migrations skill. The oracle-scope half of the original AC (scope the lookup to .eq('user_id',userId)) already shipped in US-1638.",
       "acceptanceCriteria": [
         "Migration adds disputes.admin_alerted_at timestamptz null (idempotent ADD COLUMN IF NOT EXISTS); EXPECTED_SCHEMA_VERSION bumped same commit; self-record footer; recorded in PENDING_MIGRATIONS.md (HELD until user applies to prod)",
