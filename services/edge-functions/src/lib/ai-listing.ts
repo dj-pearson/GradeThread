@@ -50,6 +50,8 @@ import {
 } from "./aspect-reconcile.ts";
 import {
   applyMeasurementsBlock,
+  buildPlainMeasurementsText,
+  hasCalibratedMeasurements,
   resolveMeasurementAspects,
 } from "./measurements.ts";
 import {
@@ -1040,7 +1042,7 @@ export async function generateListing(
   const { data: itemData, error: itemErr } = await supabaseAdmin
     .from("inventory_items")
     .select(
-      "id, user_id, title, brand, style, size, color, material, description, condition_notes, measurements, ebay_category_id, grade_report_id, attributes",
+      "id, user_id, title, brand, style, size, color, material, description, condition_notes, measurements, ai_field_sources, ebay_category_id, grade_report_id, attributes",
     )
     .eq("id", itemId)
     .eq("user_id", ownerId)
@@ -1085,6 +1087,12 @@ export async function generateListing(
   const measurements = item.measurements && typeof item.measurements === "object"
     ? item.measurements
     : undefined;
+  // US-1578: values that came from the calibrated MeasureCard pipeline get a
+  // one-line method note inside the measurements block (text only).
+  const calibratedMeasurements = hasCalibratedMeasurements(
+    (item as { ai_field_sources?: Record<string, unknown> | null })
+      .ai_field_sources,
+  );
 
   // 2b. US-543: dedicated tag-OCR ground-truth pass. When a tag/care-label
   // photo exists, run a focused vision pass over ONLY the tag(s) to read
@@ -1440,7 +1448,12 @@ export async function generateListing(
   // description (idempotent — a regeneration strips the prior block first, never
   // duplicating). Edge renders inches (the stored unit); the composer re-applies
   // it in the seller's preferred unit (US-648) on edit.
-  let listingDescription = applyMeasurementsBlock(listing.description, measurements);
+  let listingDescription = applyMeasurementsBlock(
+    listing.description,
+    measurements,
+    "in",
+    { calibrated: calibratedMeasurements },
+  );
   let conditionDescription = listing.condition_description;
   if (gradeReportId) {
     // US-1124: guarantee the passport exists BEFORE we read garment_id — closes
@@ -1901,7 +1914,7 @@ export async function generatePlatformVariants(
   const { data: itemData, error: itemErr } = await supabaseAdmin
     .from("inventory_items")
     .select(
-      "id, user_id, brand, size, color, material, grade_value, grade_label, ebay_aspects, garment_category, item_category",
+      "id, user_id, brand, size, color, material, grade_value, grade_label, ebay_aspects, garment_category, item_category, measurements, ai_field_sources",
     )
     .eq("id", itemId)
     .eq("user_id", ownerId)
@@ -1917,6 +1930,8 @@ export async function generatePlatformVariants(
     ebay_aspects: Record<string, string[]> | null;
     garment_category: string | null;
     item_category: string | null;
+    measurements: Record<string, unknown> | null;
+    ai_field_sources: Record<string, unknown> | null;
   };
 
   // 2. The eBay draft is the base. It must exist (generateListing ran first).
@@ -2008,6 +2023,28 @@ export async function generatePlatformVariants(
     for (const v of variants) {
       const spec = getMarketplaceSpec(v.platform);
       const addition = `\n\n${crossCredential.plain}`;
+      const max = spec?.descriptionMaxLength ?? null;
+      if (max == null || v.description.length + addition.length <= max) {
+        v.description = `${v.description}${addition}`;
+      }
+    }
+  }
+
+  // 6c. US-1578: measurements ride EVERY platform. The text pass rewrites the
+  // eBay description per platform and may drop the measurements section — so
+  // append the deterministic plain-text block (no HTML markers) to any variant
+  // that lost it, within the platform's description cap. Buyers comparing
+  // across marketplaces always see the same numbers.
+  const plainMeasurements = buildPlainMeasurementsText(item.measurements, "in", {
+    calibrated: hasCalibratedMeasurements(item.ai_field_sources),
+  });
+  if (plainMeasurements) {
+    for (const v of variants) {
+      if (v.description.includes("Measurements (garment laid flat)")) continue;
+      const spec = getMarketplaceSpec(v.platform);
+      const addition = `
+
+${plainMeasurements}`;
       const max = spec?.descriptionMaxLength ?? null;
       if (max == null || v.description.length + addition.length <= max) {
         v.description = `${v.description}${addition}`;

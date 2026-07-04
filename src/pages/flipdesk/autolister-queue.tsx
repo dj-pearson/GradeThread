@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   AlertTriangle,
   Camera,
+  Ruler,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -142,6 +143,8 @@ export function FlipdeskAutolisterQueuePage() {
     title: string;
     qaScore: number | null;
     qaIssues: PhotoQaIssue[];
+    /** US-1578: informational — the item carries flat measurements. */
+    hasMeasurements: boolean;
   }
   const { data: itemMeta = {} } = useQuery<Record<string, ItemMeta>>({
     queryKey: ["autolister_item_meta", batchId, itemIds.length],
@@ -153,7 +156,7 @@ export function FlipdeskAutolisterQueuePage() {
       for (let i = 0; i < itemIds.length; i += CHUNK) {
         const { data: rows } = await supabase
           .from("inventory_items")
-          .select("id, title, photo_qa_score, photo_qa_issues")
+          .select("id, title, photo_qa_score, photo_qa_issues, measurements")
           .in("id", itemIds.slice(i, i + CHUNK));
         for (
           const r of (rows ?? []) as Array<{
@@ -161,12 +164,15 @@ export function FlipdeskAutolisterQueuePage() {
             title: string;
             photo_qa_score: number | null;
             photo_qa_issues: PhotoQaIssue[] | null;
+            measurements: Record<string, unknown> | null;
           }>
         ) {
           map[r.id] = {
             title: r.title,
             qaScore: r.photo_qa_score,
             qaIssues: r.photo_qa_issues ?? [],
+            hasMeasurements: !!r.measurements &&
+              Object.keys(r.measurements).length > 0,
           };
         }
       }
@@ -863,6 +869,9 @@ export function FlipdeskAutolisterQueuePage() {
 
               {/* US-537: photo readiness — nudge a reshoot before publish. */}
               <PhotoQaBadge meta={itemMeta[job.inventory_item_id]} />
+              <MeasurementsBadge
+                has={itemMeta[job.inventory_item_id]?.hasMeasurements}
+              />
 
               {/* US-954: background eBay pre-flight — ready / will-block(reason)
                   before the publish dialog is ever opened. Will-block reasons
@@ -993,6 +1002,23 @@ function PhotoQaBadge({
     <Badge variant="outline" className={cn("gap-1 text-[10px]", cls)} title={tip}>
       <Camera className="h-3 w-3" />
       Photos {score}
+    </Badge>
+  );
+}
+
+// US-1578: informational "has measurements" chip. Never gates the tier — it
+// just tells the seller which drafts will publish with a measurements block
+// (and which could use a MeasureCard shot before listing).
+function MeasurementsBadge({ has }: { has: boolean | undefined }) {
+  if (!has) return null;
+  return (
+    <Badge
+      variant="outline"
+      className="gap-1 border-sky-500/40 bg-sky-500/10 text-[10px] text-sky-700 dark:text-sky-300"
+      title="This item has flat measurements — they ride the description and item specifics at publish."
+    >
+      <Ruler className="h-3 w-3" />
+      Measured
     </Badge>
   );
 }

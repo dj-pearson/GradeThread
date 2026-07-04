@@ -137,12 +137,45 @@ export function buildMeasurementLines(
   return lines;
 }
 
+// US-1578: the method note appended when the values came from a calibrated
+// MeasureCard photo (US-1572..74). Text only — never a link/badge (eBay
+// no-off-site-promotion rule, same family as the seller-credential pivot).
+export const CALIBRATED_MEASURE_NOTE =
+  "Measured flat with a calibrated photo process.";
+
+export interface MeasurementsBlockOpts {
+  /** Add the calibrated-method note line (US-1578). */
+  calibrated?: boolean;
+}
+
+/**
+ * True when any measurement value carries photo-measurement provenance —
+ * an ai_field_sources entry under "measurements.<key>" stamped with
+ * measuredAt (written by /measure/extract and the overlay editor's save).
+ */
+export function hasCalibratedMeasurements(
+  aiFieldSources: Record<string, unknown> | null | undefined,
+): boolean {
+  if (!aiFieldSources || typeof aiFieldSources !== "object") return false;
+  for (const [key, value] of Object.entries(aiFieldSources)) {
+    if (!key.startsWith("measurements.")) continue;
+    if (
+      value && typeof value === "object" &&
+      typeof (value as { measuredAt?: unknown }).measuredAt === "string"
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /**
  * The full marker-delimited measurements block, or "" when no measurements.
  */
 export function buildMeasurementsBlock(
   measurements: Measurements,
   unit: LengthUnit = "in",
+  opts: MeasurementsBlockOpts = {},
 ): string {
   const lines = buildMeasurementLines(measurements, unit);
   if (lines.length === 0) return "";
@@ -150,7 +183,26 @@ export function buildMeasurementsBlock(
     MEASUREMENTS_BLOCK_START,
     "Measurements (garment laid flat):",
     ...lines,
+    ...(opts.calibrated ? [CALIBRATED_MEASURE_NOTE] : []),
     MEASUREMENTS_BLOCK_END,
+  ].join("\n");
+}
+
+/**
+ * Plain-text measurements section for platforms that render no HTML (the
+ * cross-listing variants) — same lines, no markers. "" when empty.
+ */
+export function buildPlainMeasurementsText(
+  measurements: Measurements,
+  unit: LengthUnit = "in",
+  opts: MeasurementsBlockOpts = {},
+): string {
+  const lines = buildMeasurementLines(measurements, unit);
+  if (lines.length === 0) return "";
+  return [
+    "Measurements (garment laid flat):",
+    ...lines,
+    ...(opts.calibrated ? [CALIBRATED_MEASURE_NOTE] : []),
   ].join("\n");
 }
 
@@ -164,9 +216,10 @@ export function applyMeasurementsBlock(
   description: string,
   measurements: Measurements,
   unit: LengthUnit = "in",
+  opts: MeasurementsBlockOpts = {},
 ): string {
   const base = (description ?? "").replace(BLOCK_RE, "").trimEnd();
-  const block = buildMeasurementsBlock(measurements, unit);
+  const block = buildMeasurementsBlock(measurements, unit, opts);
   if (!block) return base;
   return base.length > 0 ? `${base}\n\n${block}` : block;
 }

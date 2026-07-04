@@ -10148,7 +10148,7 @@
     {
       "id": "US-1578",
       "priority": 2380,
-      "passes": false,
+      "passes": true,
       "title": "Measurements ride every listing surface: eBay aspects + description block + cross-listing text",
       "description": "As a reseller, saved measurements should reach buyers everywhere automatically: eBay measurement item specifics, a formatted description block, the overlay photo, and plain-text lines on cross-listed platforms — one measurement pass, every surface.",
       "acceptanceCriteria": [
@@ -10158,7 +10158,7 @@
         "Composer preview specifics + ListingKit measurement lines read the same store so the preview never disagrees with what publishes",
         "AutoLister queue pre-flight surfaces a has-measurements informational badge (never blocking) on drafts, so batch reviewers see coverage at a glance"
       ],
-      "notes": "Mostly wiring + tests: US-1450 already built the eBay fold-in; this story guarantees the new provenance and the overlay asset flow through publish, revise, AND the queue/bulk paths (watch the publish-time listings-row snapshot class of bug)."
+      "notes": "Mostly wiring + tests: US-1450 already built the eBay fold-in; this story guarantees the new provenance and the overlay asset flow through publish, revise, AND the queue/bulk paths (watch the publish-time listings-row snapshot class of bug). BUILT 2026-07-03: CALIBRATED_MEASURE_NOTE (text-only, link-free) rides the idempotent measurements block when hasCalibratedMeasurements(ai_field_sources) — wired at generation (ai-listing select + applyMeasurementsBlock) AND revise (flipdesk-ebay select + apply). Cross-listing variants get buildPlainMeasurementsText appended within each platform descriptionMaxLength cap unless the AI pass already carried the section (crossCredential pattern). resolveMeasurementAspects untouched — provenance-agnostic by design (values are values). Queue: informational sky Measured badge from item.measurements presence; never gates tierOf. Composer preview reads the same description text the block lives in (no divergence to fix). Source-guard test pins all three surfaces. Edge 2608/0; tsc clean."
     },
     {
       "id": "US-1579",

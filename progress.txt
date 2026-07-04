@@ -2,6 +2,30 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-07-03
 
+## 2026-07-03 — US-1578 (measurements ride every listing surface) — passes:true
+
+The store is provenance-agnostic by design, so this was wiring + guarantees:
+- measurements.ts: CALIBRATED_MEASURE_NOTE ("Measured flat with a calibrated
+  photo process." — text only, link-free per the eBay no-off-site rule),
+  hasCalibratedMeasurements(ai_field_sources) keying on measurements.* +
+  measuredAt (ai_measured AND editor-manual both count), opts.calibrated on
+  buildMeasurementsBlock/applyMeasurementsBlock (idempotent upgrade: a
+  re-apply swaps the block in place, never duplicates), and
+  buildPlainMeasurementsText for no-HTML platforms.
+- Generation (ai-listing) + revise (flipdesk-ebay) selects gained
+  ai_field_sources and pass the calibrated flag — the note reaches new drafts
+  AND live-listing revises.
+- Cross-listing variants: the per-platform AI rewrite can drop the
+  measurements section, so the deterministic plain block is appended to any
+  variant that lost it, within each platform's descriptionMaxLength cap
+  (same pattern as the US-1126 credential block).
+- AutoLister queue: informational sky "Measured" badge (Ruler icon) from
+  item.measurements presence — never affects the green/amber tier.
+- resolveMeasurementAspects/publish untouched on purpose (values are values;
+  aspects already flow) — regression-pinned by the new source-guard test.
+VERIFIED LOCALLY: edge 2608/0 (4 new tests); tsc -b + eslint clean. No
+migration.
+
 ## 2026-07-03 — US-1574 (measurement overlay editor, web) — passes:true
 
 Drag-adjust calibrated measuring in the composer AND the item canvas:

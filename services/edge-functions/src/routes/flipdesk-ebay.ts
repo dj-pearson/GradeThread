@@ -15,6 +15,7 @@ import {
 import type { RegistryAspect, RegistryItem } from "../lib/aspect-registry.ts";
 import {
   applyMeasurementsBlock,
+  hasCalibratedMeasurements,
   type Measurements,
   resolveMeasurementAspects,
 } from "../lib/measurements.ts";
@@ -4806,7 +4807,7 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
     const { data: itemRow } = await supabaseAdmin
       .from("inventory_items")
       .select(
-        "id, user_id, title, brand, size, color, material, style, item_category, attributes, sku, description, condition_notes, grade_value, grade_label, certificate_url, ebay_aspects, ebay_aspect_sources, ebay_category_id, measurements"
+        "id, user_id, title, brand, size, color, material, style, item_category, attributes, sku, description, condition_notes, grade_value, grade_label, certificate_url, ebay_aspects, ebay_aspect_sources, ebay_category_id, measurements, ai_field_sources"
       )
       .eq("id", itemId)
       .maybeSingle();
@@ -4932,7 +4933,12 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
           aspects,
         );
         for (const [k, v] of Object.entries(measAspects)) aspects[k] = v;
-        desc = applyMeasurementsBlock(desc, meas);
+        desc = applyMeasurementsBlock(desc, meas, "in", {
+          calibrated: hasCalibratedMeasurements(
+            (item as { ai_field_sources?: Record<string, unknown> | null })
+              .ai_field_sources,
+          ),
+        });
       }
       // Run unconditionally: for ungraded items this is a no-op past the
       // off-eBay link strip, and the strip must reach EVERY revise so a legacy
