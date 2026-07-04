@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1583,
+  "nextId": 1614,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -10222,6 +10222,800 @@
       "priority": 60,
       "passes": false,
       "notes": "[HUMAN/OPERATOR TASK — not automatable from this host: requires physical garments, a tape measure, and a printed MeasureCard. Ralph/agents should SKIP this story. Split from US-1580 (all code/docs shipped there).] "
+    },
+    {
+      "id": "US-1583",
+      "title": "Agentic OS kernel schema: agents, runs, steps, proposals, memory",
+      "description": "As the operator, I want the foundational tables for the Agentic OS (agent registry, run ledger, step transcript, proposal queue, agent memory) so every later module has a durable, audited substrate.",
+      "acceptanceCriteria": [
+        "One migration creates: agents (key text unique, name, description, module_letter, status enum enabled/paused, autonomy jsonb per action-class, config jsonb incl. schedule + tool allowlist + model + budget_usd_daily), agent_runs (agent_id FK, trigger, status enum queued/running/succeeded/failed/timeout/skipped, started_at/finished_at, tokens_in/tokens_out/cost_usd, outcome jsonb, error text), agent_run_steps (run_id FK, seq, step_type enum model_call/tool_call/output, name, input jsonb, output jsonb, duration_ms), agent_proposals (agent_id, run_id, action_class, title, summary, payload jsonb, evidence jsonb, status enum pending/approved/rejected/expired/executed/failed, expires_at, decided_by, decided_at, decide_reason, idempotency_key unique, executed_at, result jsonb), agent_memory (agent_id, kind, key, content, weight, last_used_at) — all with uuid PKs, created_at/updated_at + trigger, and sensible indexes (runs by agent+started_at desc, proposals by status)",
+        "Migration follows the US-1108 triple: idempotent (IF NOT EXISTS / guarded enum adds), EXPECTED_SCHEMA_VERSION bumped in the SAME commit, self-record footer",
+        "All five tables are operator-only: RLS enabled with no user policies (service-role access only) and each is registered in the rls-guard operator-table list per the tenant-isolation skill",
+        "npm run verify:db passes (throwaway local stack applies all migrations from scratch)"
+      ],
+      "priority": 2360,
+      "passes": false,
+      "notes": "[AGENTIC-OS Phase 0][Module A — Agent Kernel] Read AGENTIC_OS.md §2 (guardrails) + §3.A first. Load the migrations skill AND the tenant-isolation skill before touching anything. autonomy jsonb shape: { \"<action_class>\": 0|1|2|3 } (L0 observe default). No routes or code in this story — schema only.",
+      "relevantPaths": [
+        "AGENTIC_OS.md",
+        "supabase/migrations/",
+        "services/edge-functions/src/lib/schema-version.ts",
+        ".claude/skills/migrations/",
+        ".claude/skills/tenant-isolation/"
+      ]
+    },
+    {
+      "id": "US-1584",
+      "title": "Agent kernel runtime: the run loop (Claude tool-use, caps, transcripts)",
+      "description": "As the operator, I want a single kernel run loop that executes any registered agent — assemble context, run a bounded Claude tool-use loop, record every step, persist a structured outcome — so all domain agents share one hardened, budgeted runtime instead of bespoke loops.",
+      "acceptanceCriteria": [
+        "services/edge-functions/src/lib/agent-kernel.ts exports runAgent(agentKey, trigger): creates an agent_runs row, executes a Claude tool-use loop via the existing ai-config/model-routing infrastructure (model from agents.config, allowlist-validated), and finalizes the run with status + tokens + cost_usd",
+        "Hard per-run caps enforced from config with safe defaults: max steps (default 24), max output tokens, max wall-clock (default 5 min) — breach kills the loop, records status 'timeout' with a partial outcome, and never throws to the caller",
+        "Every model call and tool call is recorded to agent_run_steps in order, with inputs/outputs passed through the log-redact PII redaction before persisting",
+        "Each model call passes the existing ai-budget gate first; a budget refusal ends the run cleanly as 'skipped' with the reason in outcome",
+        "A paused agent (status='paused') or the global 'agents.pause' system setting short-circuits to a 'skipped' run row (setting read is fail-closed: unreadable → treated as paused)",
+        "Final agent output is a structured contract { summary, findings: [], proposals: [] } validated before persisting to agent_runs.outcome; malformed output records status 'failed'",
+        "Deno unit tests with a mocked model client cover: happy path, step-cap kill, budget-gate refusal, pause short-circuit, malformed-output failure; deno lint + check clean"
+      ],
+      "priority": 2359,
+      "passes": false,
+      "notes": "[AGENTIC-OS Phase 0][Module A — Agent Kernel] Read AGENTIC_OS.md §2 + §3.A. Proposals in the output contract are just data at this stage (persisted by US-1587's lifecycle; here they may be stored on outcome). No tools registered yet — the tool loop should accept an injected tool registry (US-1585) but function with an empty one.",
+      "dependsOn": [
+        "US-1583"
+      ],
+      "relevantPaths": [
+        "AGENTIC_OS.md",
+        "services/edge-functions/src/lib/ai-config.ts",
+        "services/edge-functions/src/lib/model-routing.ts",
+        "services/edge-functions/src/lib/ai-budget-gate.ts",
+        "services/edge-functions/src/lib/log-redact.ts",
+        "services/edge-functions/src/lib/system-settings.ts"
+      ]
+    },
+    {
+      "id": "US-1585",
+      "title": "Agent tool registry v1: typed, allowlisted, audited read tools",
+      "description": "As the operator, I want agents to see the world only through a typed tool registry — read-only tools wrapping existing operator libs, allowlisted per agent, audited per invocation — so no agent can touch data outside its charter and every access is attributable.",
+      "acceptanceCriteria": [
+        "services/edge-functions/src/lib/agent-tools.ts defines the registry: { name, description, inputSchema (JSON schema), class: 'read'|'write', handler } with input validated against the schema before the handler runs; invalid input returns a structured tool error to the model (run continues)",
+        "v1 ships read tools wrapping EXISTING libs (no new queries where a lib exists): get_cron_health (cron_runs recent outcomes), get_ops_events (filterable window), get_dead_letters, get_system_health, get_ai_spend (per feature/agent window), get_support_ticket_stats, get_review_queue_stats, get_revenue_window, get_marketplace_health",
+        "Per-agent allowlist from agents.config.tools: a tool not in the allowlist is invisible in the model's tool list AND rejected at dispatch if called anyway",
+        "Every invocation writes an audit-log entry (agent key, tool, redacted input summary) in addition to its agent_run_steps row",
+        "Tool handlers are operator-scope reads on operator tables; any tool touching multi-tenant rows uses existing owner-scoped patterns and returns aggregates, not raw user PII",
+        "Deno tests: schema rejection, allowlist rejection, one representative tool handler happy path; lint + check clean"
+      ],
+      "priority": 2358,
+      "passes": false,
+      "notes": "[AGENTIC-OS Phase 0][Module A — Agent Kernel] Read AGENTIC_OS.md §2 guardrail 1–2. Load the tenant-isolation skill. Write tools intentionally deferred to US-1587 — v1 is read-only by design so the kernel can run at L0 immediately.",
+      "dependsOn": [
+        "US-1584"
+      ],
+      "relevantPaths": [
+        "AGENTIC_OS.md",
+        "services/edge-functions/src/lib/cron-runs.ts",
+        "services/edge-functions/src/lib/ops-events.ts",
+        "services/edge-functions/src/lib/ops-dead-letters.ts",
+        "services/edge-functions/src/lib/ops-health.ts",
+        "services/edge-functions/src/lib/audit-log.ts",
+        ".claude/skills/tenant-isolation/"
+      ]
+    },
+    {
+      "id": "US-1586",
+      "title": "Policy engine: autonomy ladder L0–L3, action classes, kill switches",
+      "description": "As the operator, I want every agent capability gated by a per-(agent, action-class) autonomy level with global and per-agent kill switches, so autonomy is granted in small reversible increments and revoked instantly.",
+      "acceptanceCriteria": [
+        "services/edge-functions/src/lib/agent-policy.ts defines the action-class taxonomy (e.g. file_task, retry_job, requeue_dead_letter, draft_reply, adjust_queue, run_playbook — extensible constant) and resolveAutonomy(agent, actionClass) → 0|1|2|3 from agents.autonomy with default 0",
+        "Kernel integration: a write intent emitted by an agent is dispatched by level — L0: dropped and recorded as a finding ('would have proposed X'); L1: becomes a pending proposal; L2/L3: eligible for direct execution (execution path lands with US-1587; until then L2/L3 downgrade to proposal with a note)",
+        "Global kill switch: system setting agents.pause=true halts all agent runs and all proposal executions; per-agent pause via agents.status; both checked at run start AND at each write dispatch, fail-closed",
+        "recordPolicyBreach(agent, actionClass, reason) demotes that (agent, class) one level, persists the change, and emits a warning ops event",
+        "Deno tests: ladder resolution + default, global pause precedence over per-agent state, demotion floor at L0; lint + check clean"
+      ],
+      "priority": 2357,
+      "passes": false,
+      "notes": "[AGENTIC-OS Phase 0][Module D — Decision Policies] Read AGENTIC_OS.md §2 (the ladder table) + §3.D. Promotion automation is US-1608 — this story is resolution/demotion/kill only.",
+      "dependsOn": [
+        "US-1584"
+      ],
+      "relevantPaths": [
+        "AGENTIC_OS.md",
+        "services/edge-functions/src/lib/system-settings.ts",
+        "services/edge-functions/src/lib/feature-flags.ts",
+        "services/edge-functions/src/lib/ops-events.ts"
+      ]
+    },
+    {
+      "id": "US-1587",
+      "title": "Proposal lifecycle: approvals, execution, first write tools",
+      "description": "As the operator, I want agent write-actions to land as structured proposals I can approve or reject from the admin API — with approved actions executed exactly once by the kernel — so agents get hands only through my sign-off.",
+      "acceptanceCriteria": [
+        "Kernel persists proposals from run output to agent_proposals (pending, TTL default 72h from config); duplicate suppression via idempotency_key so a re-run doesn't re-file the same proposal",
+        "routes/admin-agents.ts (mounted under /api/admin/agents, standard admin JWT + RBAC scope): list proposals (filter by status/agent), approve, reject (reason required); decisions record decided_by/decided_at and write audit-log entries",
+        "Approval executes the payload through a registered WRITE tool with the proposal id as idempotency key: execution happens exactly once even under concurrent/double approval calls; result → agent_proposals.result, status → executed/failed",
+        "First write tools (class 'write', reversible by design): retry_job (re-POST a registered /api/jobs/* endpoint via the internal job secret), requeue_dead_letter (existing dead-letter machinery), create_admin_task; write tools refuse to run outside an approved-proposal or L2+ policy context",
+        "Expiry sweep marks past-TTL pending proposals 'expired' (wired into the agent tick or a small job); expired/rejected proposals can never execute",
+        "New pending proposals trigger an admin notification (existing admin-notifications lib), batched per run",
+        "tenant-isolation_test.ts gains cases for the new admin route; deno tests cover approve-once semantics and expiry; lint + check clean"
+      ],
+      "priority": 2356,
+      "passes": false,
+      "notes": "[AGENTIC-OS Phase 0][Module E — Escalation & Approvals] Read AGENTIC_OS.md §3.E. Load the tenant-isolation skill (new edge route rule). retry_job must only accept endpoints present in CRON_REGISTRY — never an arbitrary URL.",
+      "dependsOn": [
+        "US-1585",
+        "US-1586"
+      ],
+      "relevantPaths": [
+        "AGENTIC_OS.md",
+        "services/edge-functions/src/routes/admin-jobs.ts",
+        "services/edge-functions/src/lib/ops-dead-letters.ts",
+        "services/edge-functions/src/lib/admin-notifications.ts",
+        "services/edge-functions/src/lib/cron-runs.ts",
+        "services/edge-functions/src/tests/"
+      ]
+    },
+    {
+      "id": "US-1588",
+      "title": "Agent scheduler: /api/jobs/agent-tick on the existing cron rails",
+      "description": "As the operator, I want agents to run on the same Coolify cron + job-secret + ledger rails as the other 54 jobs, so the fleet needs zero new infrastructure and shows up in the existing ops surfaces.",
+      "acceptanceCriteria": [
+        "POST /api/jobs/agent-tick (X-Internal-Job-Secret) claims a job_lock, selects enabled agents due per their config schedule (cron-expression or interval semantics consistent with how the tick cadence works), and runs each via runAgent sequentially with a per-tick wall-clock budget; leftover due agents defer to the next tick (recorded, not silently dropped)",
+        "Registered in CRON_REGISTRY (suggested: */10 * * * *) with COOLIFY.md regenerated via scripts/render-cron-docs.ts; the cron-registry drift test passes",
+        "Each tick records to the cron_runs ledger; a failed tick emits the standard job.failed ops event; individual agent-run failures do NOT fail the tick",
+        "Global agents.pause makes the tick a recorded no-op",
+        "Deno tests: due-selection logic, per-tick budget deferral, pause no-op; lint + check clean"
+      ],
+      "priority": 2355,
+      "passes": false,
+      "notes": "[AGENTIC-OS Phase 0][Module J — Jobs Orchestrator] Read AGENTIC_OS.md §3.J. Follow the durable-jobs skill contract (lock, bounded batch, defer-not-drop). Add the Coolify scheduled-task row to COOLIFY.md via the generator, and note the new task in LAUNCH_CHECKLIST.md's scheduled-tasks section if one exists.",
+      "dependsOn": [
+        "US-1584",
+        "US-1586"
+      ],
+      "relevantPaths": [
+        "AGENTIC_OS.md",
+        "services/edge-functions/src/lib/cron-runs.ts",
+        "services/edge-functions/src/lib/job-lock.ts",
+        "services/edge-functions/src/routes/",
+        "services/edge-functions/COOLIFY.md",
+        "scripts/render-cron-docs.ts",
+        ".claude/skills/durable-jobs/"
+      ]
+    },
+    {
+      "id": "US-1589",
+      "title": "Agent observability: transcripts, ops events, metrics, crash capture",
+      "description": "As the operator, I want every agent run as debuggable as an HTTP request — full transcript, per-step timing, cost, a clean outcome taxonomy, and agent.* events in the existing activity stream — so I can trust (and audit) what the fleet did.",
+      "acceptanceCriteria": [
+        "agent.* ops_events emitted at the right moments: run.started/run.finished/run.failed/run.timeout (with agent key, duration, cost) and proposal.created/approved/rejected/executed — visible in /admin/ops-activity with no UI changes",
+        "Admin API endpoint returns a run's full ordered transcript (steps with redacted input/output, timings, tokens) for the Mission Control viewer; transcript content passes through log-redact at write time (verify, don't re-redact)",
+        "Metrics lines via observability.ts per run: duration_ms, steps, tokens_in/out, cost_usd, outcome — tagged by agent key",
+        "Kernel crashes route through captureException with the run id as context; the run row still finalizes as 'failed'",
+        "tenant-isolation_test.ts covers the transcript endpoint; deno tests for event emission points; lint + check clean"
+      ],
+      "priority": 2354,
+      "passes": false,
+      "notes": "[AGENTIC-OS Phase 0][Module O — Observability] Read AGENTIC_OS.md §3.O. Reuse emitOpsEvent + observability.ts conventions exactly — grep how jobs-*.ts emit job.failed for the house style.",
+      "dependsOn": [
+        "US-1584"
+      ],
+      "relevantPaths": [
+        "AGENTIC_OS.md",
+        "services/edge-functions/src/lib/ops-events.ts",
+        "services/edge-functions/src/lib/observability.ts",
+        "services/edge-functions/src/routes/admin-ops.ts"
+      ]
+    },
+    {
+      "id": "US-1590",
+      "title": "Mission Control: /admin/agents registry, runs, transcripts, proposals inbox",
+      "description": "As the operator, I want one admin surface where I see every agent's status, read any run transcript, work the proposals inbox, and hit kill switches — so supervising the fleet is a single page, not a spelunking trip.",
+      "acceptanceCriteria": [
+        "src/pages/admin/agents.tsx: registry cards per agent — status (enabled/paused), autonomy summary per action class, last run outcome + time, 7-day spend, pending-proposal count; per-agent pause/resume and a prominent global pause-all switch (agents.pause)",
+        "Run history list (filter by agent/status) and a run-detail transcript viewer rendering the ordered steps (model/tool/output) with timings and cost",
+        "Proposals inbox: pending proposals with title, agent, evidence summary, expiry countdown; approve/reject (reason) inline; decided items visible in a history tab",
+        "Route registered in src/routes/index.tsx, sidebar entry in the admin group, gated by an appropriate admin RBAC scope consistent with existing admin pages",
+        "Follows the existing admin console patterns (shadcn, TanStack Query, loading/error/empty states, sonner toasts); npx tsc --noEmit, build, lint, and vitest clean"
+      ],
+      "priority": 2353,
+      "passes": false,
+      "notes": "[AGENTIC-OS Phase 0][Module C — Command Center] Read AGENTIC_OS.md §3.C. Mirror the structure of an existing rich admin page (e.g. src/pages/admin/jobs.tsx or ops-jobs.tsx) rather than inventing new patterns.",
+      "dependsOn": [
+        "US-1587",
+        "US-1589"
+      ],
+      "relevantPaths": [
+        "AGENTIC_OS.md",
+        "src/pages/admin/",
+        "src/routes/index.tsx",
+        "src/components/dashboard/sidebar.tsx",
+        "services/edge-functions/src/routes/admin-agents.ts"
+      ]
+    },
+    {
+      "id": "US-1591",
+      "title": "Budget governor: per-agent spend caps on the ai-budget rails",
+      "description": "As the operator, I want each agent leashed to a daily dollar budget (plus a fleet-wide cap) enforced by the existing ai-budget guardrails, with breach meaning halt + pause + alert — so the OS can never outspend its value.",
+      "acceptanceCriteria": [
+        "Agent runs meter spend under agent-scoped budget keys on the existing ai-budget machinery (one key per agent + one fleet rollup), attributed so /admin/ai-spend shows per-agent lines",
+        "Kernel refuses to START a run whose agent budget is exhausted (skipped run with reason) and halts mid-run on breach; breach pauses the agent, records a policy breach (US-1586 demotion), and sends an admin notification + warning ops event",
+        "Fleet-wide daily cap enforced independently of per-agent caps; defaults are conservative and configurable via agents.config / system settings",
+        "Mission Control cards show 7-day spend against budget (extend the US-1590 card data)",
+        "Deno tests: refusal at exhausted budget, breach halt + pause side-effects; lint + check clean"
+      ],
+      "priority": 2352,
+      "passes": false,
+      "notes": "[AGENTIC-OS Phase 0][Module B — Budget Governor] Read AGENTIC_OS.md §3.B. Reuse ai-budget/ai-budget-gate/jobs-ai-budget wiring — do NOT build a parallel metering system.",
+      "dependsOn": [
+        "US-1590"
+      ],
+      "relevantPaths": [
+        "AGENTIC_OS.md",
+        "services/edge-functions/src/lib/ai-budget.ts",
+        "services/edge-functions/src/lib/ai-budget-gate.ts",
+        "services/edge-functions/src/routes/jobs-ai-budget.ts",
+        "services/edge-functions/src/routes/admin-ai-spend.ts"
+      ]
+    },
+    {
+      "id": "US-1592",
+      "title": "Daily Operator Brief: one cross-agent digest instead of N alert streams",
+      "description": "As the operator, I want one daily brief — what the fleet found, what's pending my approval (with deep links), spend, anomalies, and an honest 'nothing needs you' when true — so supervising the OS costs minutes, not a dashboard tour.",
+      "acceptanceCriteria": [
+        "New job (registered in CRON_REGISTRY, suggested 0 13 * * * UTC; COOLIFY.md regenerated) assembles the brief from agent_runs outcomes, pending agent_proposals, per-agent spend, and warning-level agent.* ops events over the last 24h",
+        "Brief renders as email via the existing transport/render machinery, respecting admin notification prefs, AND persists so Mission Control shows the latest brief",
+        "Pending proposals appear with title, agent, expiry, and a deep link to the Mission Control inbox; zero-pending + zero-anomaly days say so in one line ('All quiet: N runs, $X, nothing pending')",
+        "Degrades gracefully with zero registered agents (brief still sends, states the fleet is empty)",
+        "Deno tests for assembly logic (fixtures for busy day / quiet day / empty fleet); lint + check clean"
+      ],
+      "priority": 2351,
+      "passes": false,
+      "notes": "[AGENTIC-OS Phase 0][Module N — Notifications & Operator Brief] Read AGENTIC_OS.md §3.N. Reuse the north-star-digest job's email assembly style as the template.",
+      "dependsOn": [
+        "US-1590"
+      ],
+      "relevantPaths": [
+        "AGENTIC_OS.md",
+        "services/edge-functions/src/routes/jobs-north-star.ts",
+        "services/edge-functions/src/lib/email-render.ts",
+        "services/edge-functions/src/lib/admin-notifications.ts",
+        "services/edge-functions/COOLIFY.md"
+      ]
+    },
+    {
+      "id": "US-1593",
+      "title": "Sentinel: the health & incident agent (ops triage at L0/L1)",
+      "description": "As the operator, I want an agent watching cron failures, dead letters, health regressions, and audit anomalies that correlates them into incidents (one root cause, not ten alerts), files admin tasks citing the matching runbook, and proposes safe remediations.",
+      "acceptanceCriteria": [
+        "Sentinel is seeded as an agent row (module H, L0 default) scheduled frequently (config; e.g. every 30 min), allowlisted to the ops read tools (cron health, ops events, dead letters, system health) + write classes file_task/retry_job/requeue_dead_letter",
+        "Its prompt/charter (versioned in the repo, not the DB) instructs: correlate co-occurring failures into a single incident finding with a root-cause hypothesis, cite the matching /admin/ops-runbooks entry when one applies, and stay silent when everything is healthy (an empty-findings run is success)",
+        "Proposals it can file at L1: retry a specific failed job, requeue specific dead letters, create an admin task for anything needing hands — each with evidence (the correlated events) attached",
+        "Seeded test fixtures prove correlation: given N related synthetic failures (same subsystem, same window), the run outcome contains ONE incident finding referencing them, not N findings",
+        "Runs appear in Mission Control; a healthy-system run costs less than a configurable token floor (prompt engineered for cheap no-op paths)",
+        "Deno tests over the charter's assembly + fixture correlation; lint + check clean"
+      ],
+      "priority": 2340,
+      "passes": false,
+      "notes": "[AGENTIC-OS Phase 1][Module H — Sentinel] Read AGENTIC_OS.md §3.H. First domain agent — it also serves as the reference implementation for the seeding pattern (agent row migration + charter file + tool allowlist) that US-1594..1604 copy. Keep the charter file pattern reusable: charters/<agent-key>.ts or .md under services/edge-functions/src/agents/.",
+      "dependsOn": [
+        "US-1588",
+        "US-1587"
+      ],
+      "relevantPaths": [
+        "AGENTIC_OS.md",
+        "services/edge-functions/src/lib/ops-events.ts",
+        "services/edge-functions/src/lib/ops-dead-letters.ts",
+        "services/edge-functions/src/lib/ops-health.ts",
+        "services/edge-functions/src/lib/cron-runs.ts",
+        "src/pages/admin/ops-runbooks.tsx"
+      ]
+    },
+    {
+      "id": "US-1594",
+      "title": "Grading Quality agent: accuracy synthesis + info-value review routing",
+      "description": "As the operator, I want an agent that reads the grading telemetry I already collect (accuracy tracking, shadow results, calibration drift, review-queue stats) and turns it into a weekly memo plus review-queue routing proposals — the active-learning layer from AGENT_LEVELUP_ROADMAP §6.3.",
+      "acceptanceCriteria": [
+        "Agent seeded (module G, weekly schedule) with read tools over accuracy-tracking outputs, shadow-eval results, confidence-calibration state, and review-queue stats (add thin read tools where none exist — reads only, reusing existing libs)",
+        "Weekly memo outcome: what regressed / what improved per category and prompt version, calibration gaps, exemplar-pool coverage holes — persisted as the run outcome and included in the Operator Brief",
+        "L1 proposal: reorder the human-review queue by information value using the existing review-info-value machinery (a write tool wrapping it), with the ranking rationale as evidence",
+        "Prompt-version or threshold changes are NEVER executed by this agent: it may only file an admin task pointing at the existing shadow → eval gate → canary lifecycle with its supporting data",
+        "Deno tests with fixture telemetry proving the memo structure and that a threshold-change intent becomes a task, not an action; lint + check clean"
+      ],
+      "priority": 2339,
+      "passes": false,
+      "notes": "[AGENTIC-OS Phase 1][Module G — Grading Quality] Load the grading-engine skill FIRST (mandatory for any grading-adjacent code). Read AGENTIC_OS.md §3.G + §5 (no bypassing safety lifecycles).",
+      "dependsOn": [
+        "US-1588",
+        "US-1587"
+      ],
+      "relevantPaths": [
+        "AGENTIC_OS.md",
+        "services/edge-functions/src/lib/accuracy-tracking.ts",
+        "services/edge-functions/src/lib/grading-shadow.ts",
+        "services/edge-functions/src/lib/confidence-calibration.ts",
+        "services/edge-functions/src/lib/review-info-value.ts",
+        ".claude/skills/grading-engine/"
+      ]
+    },
+    {
+      "id": "US-1595",
+      "title": "Support Triage agent: queue prioritization, drafted replies, cluster alarms",
+      "description": "As the operator, I want an agent triaging the support inbox — classify and prioritize tickets, draft replies as approval-gated proposals, and detect issue clusters that should page Sentinel — so support latency drops without unsupervised sends.",
+      "acceptanceCriteria": [
+        "Agent seeded (module S) on a frequent schedule, reading ticket queue + KB via operator-scope tools (reuse the support-assistant engine's KB/tooling where possible)",
+        "Each triage run: new/unassigned tickets get category, severity, and a suggested KB article; results persisted where the admin support UI can render them (extend existing tables/fields, no parallel store)",
+        "Drafted replies are L1 proposals (action class draft_reply) — approving one sends through the existing support reply path; rejection with reason is captured for future eval data",
+        "Cluster detection: N similar tickets inside a window produces ONE escalation finding + an admin task tagged for Sentinel correlation (US-1613 formalizes the handoff; a tagged task suffices here)",
+        "User PII is minimized in transcripts (ticket ids + redacted excerpts, per log-redact); tenant-isolation test cases for any new endpoints",
+        "Deno tests with fixture tickets: classification output shape, cluster produces one finding; lint + check clean"
+      ],
+      "priority": 2338,
+      "passes": false,
+      "notes": "[AGENTIC-OS Phase 1][Module S — Support] Read AGENTIC_OS.md §3.S. The user-facing assistant (support-assistant-engine) already exists — this is the operator-side layer; reuse its config/tools rather than duplicating.",
+      "dependsOn": [
+        "US-1588",
+        "US-1587"
+      ],
+      "relevantPaths": [
+        "AGENTIC_OS.md",
+        "services/edge-functions/src/lib/support-assistant-engine.ts",
+        "services/edge-functions/src/lib/support-tools.ts",
+        "services/edge-functions/src/lib/support-escalation.ts",
+        "services/edge-functions/src/routes/admin-support-tickets.ts"
+      ]
+    },
+    {
+      "id": "US-1596",
+      "title": "Finance agent: reconciliation deltas, revenue anomalies, payout sanity",
+      "description": "As the operator, I want a daily financial watchdog reading billing-reconciliation results, revenue windows, credit-ledger movement, and payout runs — filing discrepancies with evidence and a materiality judgment — so money problems surface in hours, not at month-end.",
+      "acceptanceCriteria": [
+        "Agent seeded (module F, daily after the billing-reconciliation cron) with read tools over reconciliation results, revenue-window aggregates, credit-ledger summaries, affiliate/consignor payout run outcomes, and AI spend vs revenue",
+        "Daily outcome: discrepancies ranked by materiality with evidence (ids + amounts), revenue anomalies vs trailing baseline with a plain-language hypothesis, payout-run sanity verdict; quiet days produce an explicit all-clear",
+        "L1 proposals: create_admin_task for discrepancies needing hands; flag-account-for-review as a task (never a direct account action)",
+        "AI-spend-vs-revenue section reuses the ai-feature-profitability data rather than recomputing",
+        "Deno tests with fixture data: a seeded reconciliation delta appears ranked with evidence; all-clear path; lint + check clean"
+      ],
+      "priority": 2337,
+      "passes": false,
+      "notes": "[AGENTIC-OS Phase 1][Module F — Finance] Read AGENTIC_OS.md §3.F. Read-heavy by design: at L0/L1 this agent narrates and files — it never moves money or credits.",
+      "dependsOn": [
+        "US-1588",
+        "US-1587"
+      ],
+      "relevantPaths": [
+        "AGENTIC_OS.md",
+        "services/edge-functions/src/lib/billing-reconciliation.ts",
+        "services/edge-functions/src/lib/revenue-window.ts",
+        "services/edge-functions/src/lib/credit-ledger.ts",
+        "services/edge-functions/src/routes/admin-revenue.ts"
+      ]
+    },
+    {
+      "id": "US-1597",
+      "title": "Trust & Safety agent: queue triage, ring detection, action proposals",
+      "description": "As the operator, I want an agent triaging the moderation/fraud/abuse/passport-integrity queues by severity and pattern — summarizing coordinated behavior across accounts — with account-level actions permanently capped at propose-only.",
+      "acceptanceCriteria": [
+        "Agent seeded (module T) reading abuse signals, moderation queue, fraud/safety signals, and passport-integrity scan results via operator-scope tools",
+        "Triage outcome: queue items ranked by severity with rationale; cross-account pattern summaries (shared signals across accounts) as findings with evidence",
+        "Account-level actions (suspend, step-up requirement, claim denial) are L1 proposals AT MOST — the policy for this agent hard-caps those action classes at L1 regardless of promotion (enforced in its seeded autonomy config and asserted in a test)",
+        "Findings feed the existing admin surfaces (moderation/fraud pages) rather than a parallel queue — extend existing tables/fields where ranking is persisted",
+        "Deno tests: severity ranking shape on fixtures, the L1 hard-cap assertion; lint + check clean"
+      ],
+      "priority": 2336,
+      "passes": false,
+      "notes": "[AGENTIC-OS Phase 1][Module T — Trust & Safety] Read AGENTIC_OS.md §3.T. The L1 hard cap for account actions is a permanent design decision (see §2 ladder note) — encode it, don't parameterize it away.",
+      "dependsOn": [
+        "US-1588",
+        "US-1587"
+      ],
+      "relevantPaths": [
+        "AGENTIC_OS.md",
+        "services/edge-functions/src/lib/abuse-signals.ts",
+        "services/edge-functions/src/lib/moderation-queue.ts",
+        "services/edge-functions/src/routes/admin-fraud.ts",
+        "services/edge-functions/src/lib/passport-integrity.ts"
+      ]
+    },
+    {
+      "id": "US-1598",
+      "title": "Marketplace Ops agent: cross-tenant marketplace health & unstick proposals",
+      "description": "As the operator, I want an agent sweeping FlipDesk's operational surface — stuck publish batches, webhook backlog, sync-conflict pileups, orphan listings, compliance failures — producing a morning summary and safe unstick proposals.",
+      "acceptanceCriteria": [
+        "Agent seeded (module L, e.g. twice daily) with read tools over marketplace health, sync runs/conflicts, publish batch states, pending-webhook backlog depth, orphan-listing counts, and listing-compliance-health failures — operator-scope aggregates only",
+        "Morning-summary outcome: per-marketplace health verdict, backlog trends vs yesterday, the top stuck items with age, and which existing reclaim/sweep cron should have handled each (or why it can't)",
+        "L1 proposals: trigger the reconciliation sweep, retry a specific stuck batch via retry_job, file an admin task for connection-level problems (expired tokens needing user action)",
+        "Never mutates tenant listings/inventory directly — unstick paths go through existing jobs/sweeps only (assert in a test that its allowlist contains no tenant-data write tool)",
+        "Deno tests on fixture states: summary shape, stuck-batch proposal formation; lint + check clean"
+      ],
+      "priority": 2335,
+      "passes": false,
+      "notes": "[AGENTIC-OS Phase 1][Module L — Marketplace Ops] Read AGENTIC_OS.md §3.L + §5 (the OS supervises the platform, not users' businesses). Load the tenant-isolation skill for any new read tools over tenant tables — aggregates only.",
+      "dependsOn": [
+        "US-1588",
+        "US-1587"
+      ],
+      "relevantPaths": [
+        "AGENTIC_OS.md",
+        "services/edge-functions/src/lib/marketplace-health.ts",
+        "services/edge-functions/src/lib/sync-conflicts.ts",
+        "services/edge-functions/src/routes/admin-marketplace-ops.ts",
+        "services/edge-functions/src/routes/flipdesk-webhooks.ts"
+      ]
+    },
+    {
+      "id": "US-1599",
+      "title": "Marketing Portfolio agent: one supervisor over content, newsletter, and drip",
+      "description": "As the operator, I want an agent reviewing the three autonomous marketing engines as one portfolio — weekly performance review, cross-channel fatigue/cannibalization checks the per-engine tuners can't see, and next-week plan proposals.",
+      "acceptanceCriteria": [
+        "Agent seeded (module M, weekly before the content digest) reading content analytics, newsletter analytics + self-tuning state, drip analytics + conversion attribution, marketing-frequency/send-coordination data, and performance signals",
+        "Weekly outcome: per-channel scorecard, cross-channel findings (audience overlap fatigue, topic cannibalization between blog and newsletter, drip/broadcast collisions), and a ranked next-week focus list",
+        "L1 proposals: add topics to the newsletter/content topic banks (write tools wrapping the existing topic-bank machinery), adjust frequency caps via marketing-frequency config, pause a clearly-fatiguing sequence (as an admin task)",
+        "Does not touch individual sends or subscriber data — engine-level levers only; per-engine tuning (newsletter-tuning etc.) keeps running underneath",
+        "Deno tests: scorecard assembly on fixtures, a cross-channel collision fixture yields a finding; lint + check clean"
+      ],
+      "priority": 2334,
+      "passes": false,
+      "notes": "[AGENTIC-OS Phase 1][Module M — Marketing & Content] Read AGENTIC_OS.md §3.M. The engines already self-tune locally — this agent's value is exclusively the cross-engine view; resist duplicating per-engine analytics.",
+      "dependsOn": [
+        "US-1588",
+        "US-1587"
+      ],
+      "relevantPaths": [
+        "AGENTIC_OS.md",
+        "services/edge-functions/src/lib/marketing-coordinator.ts",
+        "services/edge-functions/src/lib/marketing-frequency.ts",
+        "services/edge-functions/src/lib/newsletter-tuning.ts",
+        "services/edge-functions/src/lib/drip-optimizer.ts",
+        "services/edge-functions/src/lib/performance-signals.ts"
+      ]
+    },
+    {
+      "id": "US-1600",
+      "title": "User Lifecycle agent: churn narratives, winback slates, activation stalls",
+      "description": "As the operator, I want an agent reading cohort-level lifecycle data (activation funnels, drip enrollment/conversion, trial expiries) that explains WHERE users stall and proposes winback/activation moves — judgment on top of the drip engine, not a second sender.",
+      "acceptanceCriteria": [
+        "Agent seeded (module U, weekly) with read tools over user_events aggregates, drip enrollment/goal/attribution stats, trial-expiry cohorts, and funnel/retention analytics — cohort aggregates only, never per-user PII in transcripts",
+        "Weekly outcome: activation-stall diagnosis (which step, which cohort, hypothesis), churn-risk narrative vs prior weeks, winback-opportunity sizing",
+        "L1 proposals: enroll a defined cohort in an existing drip campaign (write tool wrapping existing enrollment), propose a new drip variant as an admin task for the marketing agent/operator",
+        "All sends still flow through the drip engine + marketing-frequency caps — this agent never emails anyone directly",
+        "Deno tests: fixture funnels produce a stall diagnosis; PII-absence assertion on a sample transcript; lint + check clean"
+      ],
+      "priority": 2333,
+      "passes": false,
+      "notes": "[AGENTIC-OS Phase 1][Module U — User Lifecycle] Read AGENTIC_OS.md §3.U. Cohorts, not users: the tool layer must aggregate before the model ever sees data.",
+      "dependsOn": [
+        "US-1588",
+        "US-1587"
+      ],
+      "relevantPaths": [
+        "AGENTIC_OS.md",
+        "services/edge-functions/src/lib/user-events.ts",
+        "services/edge-functions/src/lib/drip-graph.ts",
+        "services/edge-functions/src/lib/drip-conversion.ts",
+        "services/edge-functions/src/routes/jobs-trial-expiry.ts"
+      ]
+    },
+    {
+      "id": "US-1601",
+      "title": "Pricing agent: repricing outcome review, margin guard, staleness watch",
+      "description": "As the operator, I want an agent auditing what the repricing/automation engines actually did — did drops sell, are any tenant rules behaving pathologically, are the price guide and condition curves going stale — so platform pricing intelligence stays trustworthy.",
+      "acceptanceCriteria": [
+        "Agent seeded (module P, e.g. every 2 days) with read tools over repricing suggestion/outcome stats, automation-rule execution aggregates, price-guide freshness metadata, and condition-curve/condition-index refresh state — cross-tenant aggregates only",
+        "Outcome: repricing efficacy read (drop→sale conversion vs holdout where measurable), pathological-pattern findings (e.g. rules ping-ponging prices, drops below margin floors) as evidence-backed findings, staleness report for price guide / curves",
+        "L1 proposals: refresh a stale price-guide segment (retry_job on the relevant refresh cron), file an admin task describing a pathological tenant rule (operator decides whether to contact the user; the agent never edits tenant rules)",
+        "Deno tests: fixture outcomes produce the efficacy read; a ping-pong fixture yields a finding; lint + check clean"
+      ],
+      "priority": 2332,
+      "passes": false,
+      "notes": "[AGENTIC-OS Phase 1][Module P — Pricing] Read AGENTIC_OS.md §3.P + §5 — tenant automations are user-owned; this agent audits and reports, it does not reach into them.",
+      "dependsOn": [
+        "US-1588",
+        "US-1587"
+      ],
+      "relevantPaths": [
+        "AGENTIC_OS.md",
+        "services/edge-functions/src/lib/repricing.ts",
+        "services/edge-functions/src/lib/price-guide.ts",
+        "services/edge-functions/src/lib/condition-curve.ts",
+        "services/edge-functions/src/routes/jobs-marketplace-events.ts"
+      ]
+    },
+    {
+      "id": "US-1602",
+      "title": "Growth agent: funnel anomaly narration + ranked experiment ideas",
+      "description": "As the operator, I want an agent that narrates funnel/retention movements (not just charts), watches referral/affiliate program health and growth-dispatch execution, and maintains a ranked slate of experiment ideas with expected impact.",
+      "acceptanceCriteria": [
+        "Agent seeded (module R, weekly) with read tools over funnel/retention analytics, referral/affiliate program stats, growth-dispatch run outcomes, and SEO/GSC summary data",
+        "Weekly outcome: what moved and a defensible why (correlating releases, campaigns, seasonality), program health verdicts, and a ranked experiment slate (hypothesis, lever, expected impact, measurement plan)",
+        "L1 proposals: file experiment briefs as admin tasks; queue a growth-dispatch action through its existing machinery where one applies",
+        "Experiment ideas persist across runs (revisits and re-ranks its own prior slate rather than starting fresh — store in run outcome and read the previous run)",
+        "Deno tests: fixture data yields narration + ranked slate shape; lint + check clean"
+      ],
+      "priority": 2331,
+      "passes": false,
+      "notes": "[AGENTIC-OS Phase 1][Module R — Revenue & Growth] Read AGENTIC_OS.md §3.R. Experiment EXECUTION governance is Module X (US-1609) — this agent generates and ranks; it does not start experiments.",
+      "dependsOn": [
+        "US-1588",
+        "US-1587"
+      ],
+      "relevantPaths": [
+        "AGENTIC_OS.md",
+        "services/edge-functions/src/routes/admin-analytics.ts",
+        "services/edge-functions/src/routes/admin-growth.ts",
+        "services/edge-functions/src/lib/referral-rewards.ts",
+        "services/edge-functions/src/lib/gsc-client.ts"
+      ]
+    },
+    {
+      "id": "US-1603",
+      "title": "CEO Brief: the north-star digest becomes a narrated weekly decision memo",
+      "description": "As the operator, I want the weekly north-star digest upgraded into a narrated brief — what moved, why (attributed to causes the fleet observed), what agents did about it, and the ONE decision that needs me this week — my Monday-morning read.",
+      "acceptanceCriteria": [
+        "A 'chief-analyst' agent (module Y, weekly, scheduled after the phase-1 agents' weekly runs) reads north-star metrics plus the LATEST run outcomes of the other seeded agents via a read tool over agent_runs",
+        "Brief structure: headline metrics vs last week → narrative of causes (citing which agent observed what) → fleet actions taken/pending → 'the one decision this week' block → risks on the horizon",
+        "Replaces/extends the jobs-north-star digest email (same recipients/prefs); persisted so Mission Control links to past briefs",
+        "Degrades gracefully when few agents have run (falls back to metrics + a note, never fabricates attribution)",
+        "Deno tests: assembly with full fixture fleet vs empty fleet; lint + check clean"
+      ],
+      "priority": 2330,
+      "passes": false,
+      "notes": "[AGENTIC-OS Phase 1][Module Y — Yield Analytics] Read AGENTIC_OS.md §3.Y. Honesty rule: attribution only when an agent actually observed the cause; otherwise say 'unattributed'.",
+      "dependsOn": [
+        "US-1588",
+        "US-1587"
+      ],
+      "relevantPaths": [
+        "AGENTIC_OS.md",
+        "services/edge-functions/src/routes/jobs-north-star.ts",
+        "services/edge-functions/src/lib/email-render.ts"
+      ]
+    },
+    {
+      "id": "US-1604",
+      "title": "Integrations Watchdog: vendor health, token fleet, rotation calendar",
+      "description": "As the operator, I want an agent watching every external dependency — Stripe/eBay/SES/Google/Apple error rates, circuit-breaker trips, OAuth token fleet health, and a key-rotation calendar — so integration decay is caught before users feel it.",
+      "acceptanceCriteria": [
+        "Agent seeded (module I, daily) with read tools over circuit-breaker states, vendor error aggregates from ops events/metrics, marketplace-connection token expiry horizons, and email deliverability (warmup state, suppression growth, bounce trends)",
+        "KEY_ROTATION.md's schedule is encoded as structured data (checked-in JSON or system settings) the agent reads to compute a rotation calendar with due/overdue items",
+        "Daily outcome: per-vendor health verdict with trend, token-fleet expiry forecast (how many eBay/Google connections expire in 7/30 days), rotation items due, deliverability watch",
+        "L1 proposals: admin task per overdue rotation (citing the KEY_ROTATION.md procedure), admin task for vendor degradation with the evidence window; never touches credentials itself",
+        "Deno tests: fixture breaker trips + expiring tokens produce the right findings; rotation-calendar computation; lint + check clean"
+      ],
+      "priority": 2329,
+      "passes": false,
+      "notes": "[AGENTIC-OS Phase 1][Module I — Integrations Watchdog] Read AGENTIC_OS.md §3.I. Credentials are read about, never read: tools expose expiry metadata and health, never secret material.",
+      "dependsOn": [
+        "US-1588",
+        "US-1587"
+      ],
+      "relevantPaths": [
+        "AGENTIC_OS.md",
+        "services/edge-functions/src/lib/circuit-breaker.ts",
+        "services/edge-functions/src/lib/marketplace-health.ts",
+        "services/edge-functions/src/lib/email-warmup.ts",
+        "KEY_ROTATION.md"
+      ]
+    },
+    {
+      "id": "US-1605",
+      "title": "Playbook engine: declarative, step-audited remediations agents can propose",
+      "description": "As the operator, I want runbooks codified as declarative playbooks (steps = registered tool calls + conditions) that agents propose and the kernel executes step-by-step with per-step audit — so approved remediations run the same way every time.",
+      "acceptanceCriteria": [
+        "Playbook format defined and stored in-repo (services/edge-functions/src/agents/playbooks/*.ts or .json): ordered steps referencing registered tools with params, optional condition guards between steps, and an abort-on-failure default",
+        "Kernel executor runs an approved playbook proposal step-by-step: each step gets its own audit-log entry + agent_run_steps row; a failed step halts execution and records partial completion honestly",
+        "New action class run_playbook wired into the policy ladder; playbook proposals show the full step list as evidence in the Mission Control inbox",
+        "Three seed playbooks codifying existing runbook procedures (e.g. stuck-submissions drain, dead-letter requeue batch, webhook-backlog recovery) — each references only existing jobs/tools",
+        "Sentinel's charter is updated to propose a matching playbook (instead of ad-hoc steps) when one exists",
+        "Deno tests: executor happy path, mid-playbook failure honesty, condition-guard skip; lint + check clean"
+      ],
+      "priority": 2320,
+      "passes": false,
+      "notes": "[AGENTIC-OS Phase 2][Module W — Playbooks] Read AGENTIC_OS.md §3.W. Playbooks live in the repo (reviewed like code), not in the DB — the DB holds executions, not definitions.",
+      "dependsOn": [
+        "US-1587"
+      ],
+      "relevantPaths": [
+        "AGENTIC_OS.md",
+        "services/edge-functions/src/lib/agent-kernel.ts",
+        "services/edge-functions/src/lib/agent-tools.ts",
+        "src/pages/admin/ops-runbooks.tsx"
+      ]
+    },
+    {
+      "id": "US-1606",
+      "title": "Agent memory: durable learnings assembled into context, curated and pruned",
+      "description": "As an agent, I want what I learned last month available this month — a small curated memory (learnings, decision log, entity notes) loaded into my context each run and pruned so it stays sharp — the Ralph LEARNINGS.md pattern, upgraded to the DB.",
+      "acceptanceCriteria": [
+        "Kernel loads an agent's top-N memory rows (by weight + recency, size-capped in tokens) into run context; the charter tells the model what memory is and how to use it",
+        "Agents emit memory writes in their structured output ({ kind, key, content }); the kernel persists them with dedup-by-key (update, don't append duplicates) and a hard per-agent row cap",
+        "Weekly curation pass (job or kernel-side): decays weights, drops rows unused for M runs, enforces the cap — pruning decisions are logged as ops events",
+        "Mission Control shows an agent's memory (read + operator delete for a bad memory)",
+        "Deno tests: assembly respects token cap, dedup-by-key, pruning behavior; lint + check clean"
+      ],
+      "priority": 2319,
+      "passes": false,
+      "notes": "[AGENTIC-OS Phase 2][Module K — Knowledge & Memory] Read AGENTIC_OS.md §3.K. Memory quality beats quantity — the caps are the feature; do not make them generous.",
+      "dependsOn": [
+        "US-1584"
+      ],
+      "relevantPaths": [
+        "AGENTIC_OS.md",
+        "services/edge-functions/src/lib/agent-kernel.ts",
+        "scripts/ralph/LEARNINGS.md"
+      ]
+    },
+    {
+      "id": "US-1607",
+      "title": "Agent evals: golden scenario suites gating trust in every agent",
+      "description": "As the operator, I want each agent tested against frozen golden scenarios (canned tool outputs → expected judgments) on every charter change and weekly in production — the grading-engine eval discipline applied to the fleet itself.",
+      "acceptanceCriteria": [
+        "Eval harness (services/edge-functions/src/lib/agent-eval.ts): runs an agent's charter against scenario fixtures (frozen tool responses injected via the registry), scores the structured output against expectations (required findings present, forbidden actions absent, proposal classes correct)",
+        "Golden scenarios live in-repo per agent (agents/evals/<agent-key>/*.json), minimum 3 per seeded agent at this story (happy/quiet day, incident day, trap day — a scenario where the correct behavior is to do nothing)",
+        "deno task runs the suite locally/CI; a weekly production job runs it and records results (pass rate per agent) visible in Mission Control",
+        "A failing eval emits a warning ops event and blocks autonomy promotion (consumed by US-1608)",
+        "Deno tests for the harness itself (scoring logic, injection mechanics); lint + check clean"
+      ],
+      "priority": 2318,
+      "passes": false,
+      "notes": "[AGENTIC-OS Phase 2][Module V — Verification & Evals] Read AGENTIC_OS.md §3.V. Copy the spirit of grading-eval.ts / listing-eval.ts. The 'trap day' scenario class is mandatory — agents must prove restraint, not just action.",
+      "dependsOn": [
+        "US-1584"
+      ],
+      "relevantPaths": [
+        "AGENTIC_OS.md",
+        "services/edge-functions/src/lib/grading-eval.ts",
+        "services/edge-functions/src/lib/listing-eval.ts",
+        "services/edge-functions/src/lib/agent-kernel.ts"
+      ]
+    },
+    {
+      "id": "US-1608",
+      "title": "Autonomy promotion: earned L2 via approval track record + eval gates",
+      "description": "As the operator, I want autonomy promotions computed from evidence — approval rates per (agent, action-class), eval pass state, incident history — and offered to me as proposals (promotion itself is never automatic), with demotion on rejection spikes automatic.",
+      "acceptanceCriteria": [
+        "A job computes per-(agent, action-class) stats from agent_proposals history: total decided, approval rate, recency; promotion eligibility per the ladder rule (≥20 approved, ≥90% approval, agent's eval suite passing, no policy breach in 14 days)",
+        "Eligible promotions are filed as proposals TO THE OPERATOR (a meta-proposal from the kernel/system agent): approving flips the autonomy level; the full evidence (stats, eval state) attaches",
+        "Automatic demotion: rejection-rate spike or any policy breach/budget breach demotes one level immediately (extends US-1586 recordPolicyBreach with the stats trigger) with an ops event + brief mention",
+        "Hard caps respected: action classes marked non-promotable (e.g. Trust & Safety account actions capped at L1 per US-1597) are never offered for promotion",
+        "Full promotion/demotion history queryable and shown on the Mission Control agent card",
+        "Deno tests: eligibility math, hard-cap exclusion, demotion trigger; lint + check clean"
+      ],
+      "priority": 2317,
+      "passes": false,
+      "notes": "[AGENTIC-OS Phase 2][Modules D+V] Read AGENTIC_OS.md §2 (ladder requirements are exactly these numbers) + §3.D/§3.V.",
+      "dependsOn": [
+        "US-1607",
+        "US-1590"
+      ],
+      "relevantPaths": [
+        "AGENTIC_OS.md",
+        "services/edge-functions/src/lib/agent-policy.ts",
+        "services/edge-functions/src/lib/agent-eval.ts",
+        "src/pages/admin/agents.tsx"
+      ]
+    },
+    {
+      "id": "US-1609",
+      "title": "Experiments Governor: one registry over every live A/B in the platform",
+      "description": "As the operator, I want a single view and governor over all concurrent experiments (newsletter A/B, drip variants, listing-prompt champion/challenger, staged grading rollouts): interference detection, sample-size honesty, adjudication memos, and stop-the-loser proposals.",
+      "acceptanceCriteria": [
+        "Read adapters normalize the live-experiment state from each engine (newsletter-ab, drip-optimizer variants, listing-prompt-promote, staged prompt rollout) into one registry shape: { surface, audience, variants, start, sample size, current read }",
+        "An experiments agent (module X, e.g. twice weekly) reviews the registry: flags interference (overlapping audiences on the same metric window), underpowered reads presented as wins, and stale experiments past their decision date",
+        "Adjudication memo per decidable experiment: verdict, confidence caveats, recommendation — L1 proposals to stop a clear loser or extend an underpowered test, executed via each engine's existing stop/extend mechanism (write tools wrapping them; where an engine has no such lever, an admin task)",
+        "Mission Control (or an admin page section) renders the unified registry with the agent's latest annotations",
+        "Deno tests: adapter normalization per engine fixture, an interference fixture yields the flag; lint + check clean"
+      ],
+      "priority": 2316,
+      "passes": false,
+      "notes": "[AGENTIC-OS Phase 2][Module X — Experiments Governor] Read AGENTIC_OS.md §3.X. The engines keep running their own A/B math — this governs portfolio-level honesty and collisions.",
+      "dependsOn": [
+        "US-1588",
+        "US-1587"
+      ],
+      "relevantPaths": [
+        "AGENTIC_OS.md",
+        "services/edge-functions/src/lib/newsletter-ab.ts",
+        "services/edge-functions/src/lib/drip-optimizer.ts",
+        "services/edge-functions/src/routes/jobs-listing-prompt-promote.ts",
+        "services/edge-functions/src/lib/canary-rollout.ts"
+      ]
+    },
+    {
+      "id": "US-1610",
+      "title": "Release agent: post-deploy verification and regression attribution",
+      "description": "As the operator, I want the hour after every deploy watched by an agent — smoke checks, error/latency vs pre-deploy baseline, canary state — with regressions filed against the offending commit range, so deploys stop needing a human hovering.",
+      "acceptanceCriteria": [
+        "Deploy detection: the agent (module Q) notices a release-tag change (commit SHA already tagged on observability events) or an explicit trigger, then runs a focused post-deploy review at T+10/T+60 minutes",
+        "Read tools: error-rate and latency aggregates windowed pre/post deploy, canary-rollout state, health/readiness history; a run_smoke write tool wraps the existing smoke script path executable from the edge context (or its closest server-side equivalent — document the choice)",
+        "Regression verdict compares post-deploy windows to baseline with explicit thresholds from config; a regression files an admin task with the commit range and the offending signal, and (L1) proposes a rollback admin task citing ROLLBACK.md",
+        "Clean deploys record an all-clear outcome mentioned in the next Operator Brief; no news is a deliverable",
+        "Deno tests: baseline-comparison math on fixtures (regression + clean), deploy-detection logic; lint + check clean"
+      ],
+      "priority": 2315,
+      "passes": false,
+      "notes": "[AGENTIC-OS Phase 2][Module Q — Quality & Release] Read AGENTIC_OS.md §3.Q. The agent never rolls back by itself — rollback is a human-executed procedure (ROLLBACK.md); it prepares the decision.",
+      "dependsOn": [
+        "US-1588",
+        "US-1587"
+      ],
+      "relevantPaths": [
+        "AGENTIC_OS.md",
+        "services/edge-functions/src/lib/observability.ts",
+        "services/edge-functions/src/lib/canary-rollout.ts",
+        "scripts/smoke-functions.mjs",
+        "ROLLBACK.md"
+      ]
+    },
+    {
+      "id": "US-1611",
+      "title": "Cron-fleet governance: runtime health of the 54-job schedule itself",
+      "description": "As the operator, I want the job fleet itself governed — missed ticks, duration creep, overlap risk, backlog growth — with a weekly fleet report and schedule-change proposals, extending the build-time drift guard into runtime.",
+      "acceptanceCriteria": [
+        "Analysis over cron_runs history (read tool or lib): per-job expected-vs-actual tick detection from CRON_REGISTRY schedules, duration trend (creep beyond a band), failure clustering, and overlap detection (jobs sharing resources running concurrently while degrading)",
+        "Weekly fleet report as an agent outcome (folded into the Sentinel charter or a small dedicated agent — implementer's choice, documented): fleet scorecard, worst offenders, missed-tick incidents",
+        "L1 proposals: schedule-adjustment admin tasks (with the specific Coolify task + suggested cron expression + COOLIFY.md pointer — Coolify config is human-applied), retry_job for one-off missed ticks",
+        "Missed-tick detection tolerates deploy windows and maintenance windows (reads maintenance state) without false alarms",
+        "Deno tests: missed-tick math against fixture schedules incl. maintenance-window suppression, duration-creep detection; lint + check clean"
+      ],
+      "priority": 2314,
+      "passes": false,
+      "notes": "[AGENTIC-OS Phase 2][Module J — Jobs Orchestrator] Read AGENTIC_OS.md §3.J. The registry knows the schedule (CRON_REGISTRY), the ledger knows reality (cron_runs) — this story is the diff between them, continuously.",
+      "dependsOn": [
+        "US-1588"
+      ],
+      "relevantPaths": [
+        "AGENTIC_OS.md",
+        "services/edge-functions/src/lib/cron-runs.ts",
+        "services/edge-functions/src/lib/maintenance.ts",
+        "services/edge-functions/COOLIFY.md"
+      ]
+    },
+    {
+      "id": "US-1612",
+      "title": "Ralph Governor: the OS maintains its own maker (prd + loop hygiene)",
+      "description": "As the operator, I want automated hygiene for the dev loop itself — prd.json lint (dependsOn cycles, id discipline, passes:true accumulation), LEARNINGS.md size guard, and a progress digest — so the backlog that builds the OS stays healthy without manual grooming.",
+      "acceptanceCriteria": [
+        "scripts/prd-lint.mjs validates prd.json: nextId > max id anywhere (including a targeted archive max-id probe without loading the whole archive), no dependsOn cycles or references to unknown/never-existing ids, no duplicate ids, required fields present; exits nonzero with a readable report",
+        "Accumulation guard: when passes:true stories exceed a threshold (default 50), the lint output includes the re-archive reminder WITH the stop-the-loop-first procedure verbatim (scripts/ralph/stop-ralph.* before any prd.json rewrite)",
+        "LEARNINGS.md size guard warns past a line threshold (it is read every Ralph iteration — size is cost)",
+        "Progress digest: scripts/prd-digest.mjs summarizes progress.txt + prd deltas since a given date (stories done, in flight, blocked) as terse markdown",
+        "prd-lint wired into npm run verify as a cheap early check; both scripts have vitest coverage over fixture prd files; lint/build clean"
+      ],
+      "priority": 2313,
+      "passes": false,
+      "notes": "[AGENTIC-OS Phase 2][Module Z — Zero-touch Dev Loop] Read AGENTIC_OS.md §3.Z and AGENT_LEVELUP_ROADMAP §2.6 (prd-ralph skill idea — this story is its executable half). Host-side scripts, NOT edge code. NEVER auto-rewrite prd.json — lint reports, humans (or a stopped-loop procedure) rewrite.",
+      "relevantPaths": [
+        "AGENTIC_OS.md",
+        "scripts/ralph/",
+        "scripts/verify.mjs",
+        "prd.json",
+        "AGENT_LEVELUP_ROADMAP.md"
+      ]
+    },
+    {
+      "id": "US-1613",
+      "title": "Agent-to-agent handoffs: findings become another agent's queued work",
+      "description": "As the operator, I want agents to hand each other work with provenance — Support's ticket-cluster finding queues an investigation for Sentinel; Sentinel's vendor finding queues the Integrations Watchdog — so cross-domain incidents get connected without me as the router.",
+      "acceptanceCriteria": [
+        "Handoff mechanism: a structured handoff in agent output ({ target_agent, kind, payload, evidence }) persists as a queued input the target agent's next run consumes (delivered via its context assembly), with a provenance chain (origin agent + run id) carried through",
+        "Handoffs are subject to policy: target must list the origin in config.accepts_handoffs_from; unaccepted handoffs downgrade to an admin task; a handoff can never carry an action authorization (the target still goes through its own proposal path)",
+        "Loop safety: a handoff chain carries a hop counter capped small (default 3); exceeding it files an admin task instead of another handoff",
+        "Wired example shipping in this story: Support cluster finding → Sentinel investigation (replacing the tagged-task stopgap from US-1595), and Sentinel vendor-degradation finding → Integrations Watchdog deep-dive",
+        "Mission Control run detail renders consumed handoffs (origin, payload summary); handoff events emit ops events",
+        "Deno tests: delivery on next run, unaccepted downgrade, hop-cap enforcement; lint + check clean"
+      ],
+      "priority": 2312,
+      "passes": false,
+      "notes": "[AGENTIC-OS Phase 2][Modules E+N] Read AGENTIC_OS.md §3.E. Handoffs move INFORMATION, never AUTHORITY — the receiving agent's own policy still governs anything it does with one.",
+      "dependsOn": [
+        "US-1587",
+        "US-1593",
+        "US-1595"
+      ],
+      "relevantPaths": [
+        "AGENTIC_OS.md",
+        "services/edge-functions/src/lib/agent-kernel.ts",
+        "services/edge-functions/src/lib/agent-policy.ts"
+      ]
     }
   ]
 }
