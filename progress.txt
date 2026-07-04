@@ -10998,3 +10998,16 @@ HELD: the frontend now READS the new view columns - apply before push OK.
   jsonb so the kernel stays generic for every later agent.
 COMMIT-ONLY MODE ACTIVE: migration introduced; holding pushes until the
 operator confirms 00353 applied.
+
+=== 2026-07-04 (Agentic OS loop): US-1584 (kernel run loop) ===
+- lib/agent-kernel.ts: ONE hardened runtime for every agent. Full DI
+  (db/model/budget/pause/tools/clock) -> 14 mocked-model deno tests.
+- Bounded tool-use loop: caps w/ defaults+ceilings, timeout on step/wall
+  breach with partial outcome, NEVER throws (unknown agent -> failed, no row).
+- Transcript: every step seq-ordered through log-redact (planted emails in
+  both directions proven scrubbed). Budget gate BEFORE every model call ->
+  clean 'skipped'. Pause short-circuits leave a ledger row; the global
+  agents.pause read is FAIL-CLOSED (error -> paused, missing -> running).
+- Output contract {summary, findings, proposals} enforced; malformed ->
+  'failed' with a forensic output step. Off-allowlist tool requests refused
+  in-band. deno lint/check clean.
