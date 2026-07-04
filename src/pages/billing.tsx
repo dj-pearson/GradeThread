@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
+import { ErrorState } from "@/components/ui/error-state";
 import { Separator } from "@/components/ui/separator";
 import {
   DropdownMenu,
@@ -22,6 +23,8 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { track } from "@/lib/analytics";
 import { markCheckoutPending } from "@/lib/checkout-pending";
+import { effectiveAiLimit } from "@/lib/ai-limit";
+import { useRedirectStore, CHECKOUT_INITIATED_KEY } from "@/stores/redirect-store";
 import { FLIPDESK_PLANS, GRADETHREAD_TIERS } from "@/lib/constants";
 import type { FlipdeskPlanKey } from "@/lib/constants";
 import {
@@ -76,7 +79,8 @@ function dateLabel(iso: string | null): string {
 }
 
 export function BillingPage() {
-  const { data: summary, isLoading } = useBillingSummary();
+  const { data: summary, isLoading, isError, refetch } = useBillingSummary();
+  const isRedirecting = useRedirectStore((s) => s.isRedirecting);
   const portal = useBillingPortal();
   const resume = useResumeSubscription();
   const uncancel = useUncancelSubscription();
@@ -101,6 +105,24 @@ export function BillingPage() {
   // later manual refresh doesn't re-trigger the poll.
   useEffect(() => {
     if (searchParams.get("checkout") !== "success") return;
+    // US-1631: fire the success toast/analytics/reconcile ONLY for a real
+    // checkout round-trip — a flag set when we redirected to Stripe, consumed
+    // here. Opening a bookmarked ?checkout=success URL (or hitting Back) has no
+    // flag, so it no longer re-fires the conversion event or re-toasts. We still
+    // strip the params below in every case.
+    let initiated = false;
+    try {
+      initiated = sessionStorage.getItem(CHECKOUT_INITIATED_KEY) === "1";
+      sessionStorage.removeItem(CHECKOUT_INITIATED_KEY);
+    } catch {
+      initiated = true; // storage unavailable → don't suppress a real return
+    }
+    if (!initiated) {
+      const next = new URLSearchParams(searchParams);
+      ["checkout", "product", "credits"].forEach((k) => next.delete(k));
+      setSearchParams(next, { replace: true });
+      return;
+    }
     const product = searchParams.get("product");
     if (product === "credit_pack") {
       const credits = Number.parseInt(searchParams.get("credits") ?? "", 10);
@@ -149,6 +171,24 @@ export function BillingPage() {
     // keying only on `summary` is intentional (re-running would reopen the picker).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [summary]);
+
+  // US-1631: a failed billing-summary fetch previously fell through to the
+  // skeleton branch below (summary undefined) and rendered loading skeletons
+  // FOREVER. Surface the error with a retry instead.
+  if (isError && !summary) {
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Billing"
+          subtitle="Manage your subscription and credits."
+        />
+        <ErrorState
+          title="Couldn't load your billing details"
+          onRetry={() => void refetch()}
+        />
+      </div>
+    );
+  }
 
   if (isLoading || !summary) {
     return (
@@ -216,7 +256,7 @@ export function BillingPage() {
               <DropdownMenuContent align="end">
                 <DropdownMenuItem
                   onClick={() => portal.mutate()}
-                  disabled={portal.isPending}
+                  disabled={portal.isPending || isRedirecting}
                 >
                   <ExternalLink className="mr-2 h-4 w-4" />
                   Open Stripe Portal
@@ -627,13 +667,6 @@ export function BillingPage() {
       <ActivityHistoryDialog open={activityOpen} onOpenChange={setActivityOpen} />
     </div>
   );
-}
-
-function effectiveAiLimit(planLimit: number, userLimit: number | null): number {
-  if (planLimit === -1 && userLimit == null) return -1;
-  if (planLimit === -1) return userLimit ?? -1;
-  if (userLimit == null) return planLimit;
-  return Math.min(planLimit, userLimit);
 }
 
 function TierPriceTile({ tierName, tier }: { tierName: string; tier: keyof typeof GRADETHREAD_TIERS }) {

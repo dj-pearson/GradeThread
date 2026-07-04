@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { FLIPDESK_PLANS } from "@/lib/constants";
 import type { FlipdeskPlanKey } from "@/lib/constants";
+import { effectiveAiLimit } from "@/lib/ai-limit";
 import { useBillingSummary } from "@/hooks/use-billing-summary";
 
 // ── usePlanUsage (US-209) ───────────────────────────────────────
@@ -69,8 +70,11 @@ export function usePlanUsage(): PlanUsage {
     const plan = (data.subscription.plan ?? "free") as FlipdeskPlanKey;
     const conf = FLIPDESK_PLANS[plan] ?? FLIPDESK_PLANS.free;
 
-    // AI limit: the plan default unless the user set a lower personal cap.
-    const aiLimit = data.usage.ai_action_limit ?? conf.aiActionsPerMonth;
+    // AI limit: the plan default, which a user's self-imposed cap may only
+    // LOWER (US-1631: shared effectiveAiLimit so this agrees with billing /
+    // settings / the usage meters — previously this used `userLimit ?? plan`,
+    // which would show a user cap set ABOVE the plan).
+    const aiLimit = effectiveAiLimit(conf.aiActionsPerMonth, data.usage.ai_action_limit ?? null);
 
     return {
       plan,

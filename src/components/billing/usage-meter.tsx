@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { effectiveAiLimit } from "@/lib/ai-limit";
 import { FLIPDESK_PLANS } from "@/lib/constants";
 import type { FlipdeskPlanKey } from "@/lib/constants";
 import { useBillingSummary } from "@/hooks/use-billing-summary";
@@ -142,11 +143,4 @@ export function UsageMeters({ className }: { className?: string }) {
       />
     </div>
   );
-}
-
-function effectiveAiLimit(planLimit: number, userLimit: number | null): number {
-  if (planLimit === -1 && userLimit == null) return -1;
-  if (planLimit === -1) return userLimit ?? -1;
-  if (userLimit == null) return planLimit;
-  return Math.min(planLimit, userLimit);
 }

@@ -11329,7 +11329,7 @@
       "title": "Web P2 · Billing/checkout duplication & missing error states",
       "description": "As a paying user, I want billing and checkout flows to not spawn duplicate sessions, to surface errors, and to compute my AI cap consistently, so that I'm not double-charged, stuck on skeletons, or silently capped at 0.",
       "priority": 2280,
-      "passes": false,
+      "passes": true,
       "notes": "[P2 batch][Source: CODE_REVIEW_2026-07-04.md §Web P2 + §Web P3] Four related billing/checkout correctness bugs grouped; each AC is independently verifiable.",
       "acceptanceCriteria": [
         "Latch a 'redirecting' flag on Stripe checkout/portal buttons so they stay disabled through the location.href redirect (src/hooks/use-billing-summary.ts:138-143)",

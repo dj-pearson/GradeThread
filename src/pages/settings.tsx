@@ -26,6 +26,7 @@ import {
 } from "@/lib/notification-preferences";
 import { buildAccountExport } from "@/lib/account-export";
 import { FLIPDESK_PLANS, PLANS, type PlanKey } from "@/lib/constants";
+import { effectiveAiLimit as computeEffectiveAiLimit } from "@/lib/ai-limit";
 import {
   Loader2,
   Upload,
@@ -187,7 +188,10 @@ export function SettingsPage() {
   const planAiLimit = flipdeskPlan
     ? FLIPDESK_PLANS[flipdeskPlan].aiActionsPerMonth
     : PLANS[(profile?.plan ?? "free") as PlanKey].aiActionsPerMonth;
-  const effectiveAiLimit = profile?.ai_action_limit ?? planAiLimit;
+  // US-1631: same min-of-plan-and-user-cap semantics as billing / usage meters
+  // (previously `userLimit ?? plan`, which disagreed when a user's cap exceeded
+  // the plan).
+  const effectiveAiLimit = computeEffectiveAiLimit(planAiLimit, profile?.ai_action_limit ?? null);
   const aiUsed = profile?.ai_actions_used_this_month ?? 0;
   const aiUnlimited = effectiveAiLimit < 0;
   const aiPct =
@@ -464,13 +468,20 @@ export function SettingsPage() {
 
   async function handleSaveAiSettings() {
     if (!user) return;
+    const trimmed = aiLimit.trim();
+    // US-1631: a blank field clears the personal cap (plan default). Otherwise
+    // require a whole number — previously `parseInt("abc") || 0` silently saved a
+    // HARD 0 cap (blocking ALL AI actions) on a typo. "0" is still allowed as an
+    // intentional "disable AI" cap.
+    if (trimmed !== "" && !/^\d+$/.test(trimmed)) {
+      toast.error(
+        "Enter a whole number for the AI action cap, or leave it blank for the plan default.",
+      );
+      return;
+    }
+    const limitVal = trimmed === "" ? null : Number.parseInt(trimmed, 10);
     setSavingAi(true);
     try {
-      const trimmed = aiLimit.trim();
-      const limitVal =
-        trimmed === ""
-          ? null
-          : Math.max(0, Number.parseInt(trimmed, 10) || 0);
       const { error } = await supabase
         .from("users")
         .update({
