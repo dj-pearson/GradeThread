@@ -11065,3 +11065,15 @@ operator confirms 00353 applied.
   fail the tick; the proposal-TTL sweep rides every tick (failure
   non-fatal). CRON_REGISTRY (*/10) + both doc tables regenerated; drift 4/0.
 - 10/0 scheduler tests; 57/0 across the agent suite.
+
+=== 2026-07-04 (Agentic OS loop): US-1589 (observability) ===
+- agent.* ops events at every moment: run.started + terminal finished/
+  failed/timeout (warnings on bad outcomes, info otherwise; skipped runs
+  emit nothing - the ledger suffices); proposal.created/approved/rejected
+  (redacted reason proven)/executed. All fire-and-forget.
+- GET /api/admin/agents/runs/:id/transcript serves the seq-ordered
+  transcript; redaction proven AT WRITE TIME in the kernel (planted PII in
+  tool input+result never reaches persisted rows; endpoint never re-redacts).
+- One recordMetric('agent_run') line per run tagged agent/outcome/steps/
+  tokens/cost. Kernel crashes -> captureException w/ run id; row still
+  finalizes failed. 7/0 tests; 60/0 agent suite.

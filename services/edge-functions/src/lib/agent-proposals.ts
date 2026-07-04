@@ -19,6 +19,7 @@ import { redact, redactError } from "./log-redact.ts";
 import { writeSystemAuditLog } from "./audit-log.ts";
 import { routeOpsEventToAdmins } from "./admin-notifications.ts";
 import { dispatchWriteIntent, type PolicyAgent } from "./agent-policy.ts";
+import { emitOpsEvent } from "./ops-events.ts";
 
 // ── Write tools (class 'write', reversible by design) ───────────────────────
 
@@ -232,10 +233,17 @@ export async function executeProposal(
   db: ProposalDb = defaultDb,
   writeDb: WriteDb = supabaseAdmin,
   now: () => Date = () => new Date(),
+  emit: typeof emitOpsEvent = emitOpsEvent,
 ): Promise<ExecuteOutcome> {
   const nowIso = now().toISOString();
   const claimed = await db.claimForExecution(proposalId, adminId, nowIso);
   if (!claimed) return { kind: "already_decided" };
+  // US-1589: the approval itself is an auditable moment.
+  void emit("agent.proposal.approved", "info", {
+    title: `Proposal ${proposalId} approved`,
+    source: "agent-proposals",
+    data: { proposal_id: proposalId, action_class: claimed.action_class },
+  }).catch(() => {});
 
   const expiresAt = claimed.expires_at as string | null;
   if (expiresAt && expiresAt < nowIso) {
@@ -264,6 +272,11 @@ export async function executeProposal(
       { ok: true, result },
       now().toISOString(),
     );
+    void emit("agent.proposal.executed", "info", {
+      title: `Proposal ${proposalId} executed (${toolName})`,
+      source: "agent-proposals",
+      data: { proposal_id: proposalId, tool: toolName, agent: agentKey },
+    }).catch(() => {});
     return { kind: "executed", result };
   } catch (err) {
     const error = redactError(err);
@@ -278,8 +291,22 @@ export async function rejectProposal(
   reason: string,
   db: ProposalDb = defaultDb,
   now: () => Date = () => new Date(),
+  emit: typeof emitOpsEvent = emitOpsEvent,
 ): Promise<boolean> {
-  return await db.rejectPending(proposalId, adminId, reason, now().toISOString());
+  const rejected = await db.rejectPending(
+    proposalId,
+    adminId,
+    reason,
+    now().toISOString(),
+  );
+  if (rejected) {
+    void emit("agent.proposal.rejected", "info", {
+      title: `Proposal ${proposalId} rejected: ${redact(reason).slice(0, 120)}`,
+      source: "agent-proposals",
+      data: { proposal_id: proposalId },
+    }).catch(() => {});
+  }
+  return rejected;
 }
 
 /** Sweep: past-TTL pending proposals become expired (idempotent). */

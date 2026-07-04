@@ -23,6 +23,8 @@ import { isAiBudgetExhausted } from "./ai-budget-gate.ts";
 import { redact, redactError } from "./log-redact.ts";
 import { computeCostUsd, toAiTokenUsage } from "./ai-usage.ts";
 import { isGlobalAgentPause } from "./agent-policy.ts";
+import { emitOpsEvent } from "./ops-events.ts";
+import { captureException, recordMetric } from "./observability.ts";
 
 // ── The output contract ──────────────────────────────────────────────────────
 
@@ -132,6 +134,12 @@ export interface KernelDeps {
   isGloballyPaused(): Promise<boolean>;
   tools: Record<string, AgentTool>;
   now(): number;
+  /** US-1589: agent.* activity-stream events (injectable for tests). */
+  emitEvent(
+    type: string,
+    severity: "info" | "warning" | "critical",
+    payload: { title: string; source?: string; data?: Record<string, unknown> },
+  ): Promise<void>;
 }
 
 const defaultDb: KernelDb = {
@@ -209,6 +217,7 @@ const defaultDeps: KernelDeps = {
   // ONE pause implementation across run start and write dispatch —
   // the policy engine's fail-closed reader (US-1586).
   isGloballyPaused: () => isGlobalAgentPause(),
+  emitEvent: (type, severity, payload) => emitOpsEvent(type, severity, payload),
   tools: {},
   now: () => Date.now(),
 };
@@ -293,6 +302,12 @@ async function execute(
     status: "running",
     started_at: new Date(startedAt).toISOString(),
   });
+  // US-1589: the activity stream sees every run begin (info — routine).
+  void deps.emitEvent("agent.run.started", "info", {
+    title: `Agent '${agent.key}' run started (${trigger})`,
+    source: "agent-kernel",
+    data: { agent: agent.key, run_id: runId, trigger },
+  }).catch(() => {});
 
   let seq = 0;
   let tokensIn = 0;
@@ -324,6 +339,7 @@ async function execute(
     outcome: Record<string, unknown> | null,
     error?: string,
   ): Promise<RunResult> => {
+    const durationMs = deps.now() - startedAt;
     await deps.db.updateRun(runId, {
       status,
       finished_at: new Date(deps.now()).toISOString(),
@@ -333,6 +349,36 @@ async function execute(
       outcome,
       ...(error ? { error: redact(error) } : {}),
     });
+    // US-1589: one metrics line per run, tagged by agent key.
+    recordMetric("agent_run", durationMs, {
+      agent: agent.key,
+      outcome: status,
+      steps: seq,
+      tokens_in: tokensIn,
+      tokens_out: tokensOut,
+      cost_usd: Number(costUsd.toFixed(4)),
+    });
+    // Terminal activity-stream event: failures/timeouts are warnings,
+    // routine completions info. Skips already ledgered at the start path.
+    const type = status === "succeeded"
+      ? "agent.run.finished"
+      : status === "timeout"
+      ? "agent.run.timeout"
+      : "agent.run.failed";
+    if (status !== "skipped") {
+      void deps.emitEvent(type, status === "succeeded" ? "info" : "warning", {
+        title: `Agent '${agent.key}' run ${status} ` +
+          `(${Math.round(durationMs / 1000)}s, $${costUsd.toFixed(4)})`,
+        source: "agent-kernel",
+        data: {
+          agent: agent.key,
+          run_id: runId,
+          duration_ms: durationMs,
+          cost_usd: Number(costUsd.toFixed(4)),
+          steps: seq,
+        },
+      }).catch(() => {});
+    }
     return { runId, status };
   };
 
@@ -467,6 +513,9 @@ async function execute(
       steps: seq,
     });
   } catch (err) {
+    // US-1589: kernel crashes are captured with the run id as context; the
+    // run row STILL finalizes as failed (the ledger never lies by omission).
+    captureException(err, { route: "agent-kernel.execute", correlationId: runId });
     return await finalize("failed", null, redactError(err));
   }
 }

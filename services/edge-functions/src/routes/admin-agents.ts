@@ -49,6 +49,33 @@ adminAgentsRoutes.get("/proposals", async (c) => {
   return c.json({ proposals: data ?? [] });
 });
 
+// GET /runs/:id/transcript — the full ordered transcript for the Mission
+// Control viewer. Step inputs/outputs were REDACTED AT WRITE TIME by the
+// kernel (US-1584 AC3) — this endpoint serves, it never re-redacts.
+adminAgentsRoutes.get("/runs/:id/transcript", async (c) => {
+  const id = c.req.param("id");
+  const [runRes, stepsRes] = await Promise.all([
+    supabaseAdmin
+      .from("agent_runs")
+      .select(
+        "id, trigger, status, started_at, finished_at, tokens_in, tokens_out, " +
+          "cost_usd, outcome, error, agents!inner(key, name)",
+      )
+      .eq("id", id)
+      .maybeSingle(),
+    supabaseAdmin
+      .from("agent_run_steps")
+      .select("seq, step_type, name, input, output, duration_ms, created_at")
+      .eq("run_id", id)
+      .order("seq", { ascending: true }),
+  ]);
+  if (runRes.error || stepsRes.error) {
+    return jsonError(c, 500, "Failed to load the transcript");
+  }
+  if (!runRes.data) return jsonError(c, 404, "Run not found");
+  return c.json({ run: runRes.data, steps: stepsRes.data ?? [] });
+});
+
 // POST /proposals/:id/approve — claim + execute exactly once.
 adminAgentsRoutes.post("/proposals/:id/approve", async (c) => {
   const id = c.req.param("id");

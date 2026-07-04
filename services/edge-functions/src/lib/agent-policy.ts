@@ -168,6 +168,7 @@ export async function dispatchWriteIntent(
   agent: PolicyAgent,
   intent: WriteIntent,
   db: PolicyDb = defaultDb,
+  emit: typeof emitOpsEvent = emitOpsEvent,
 ): Promise<DispatchOutcome> {
   if (await isExecutionHalted(agent, db)) {
     return { kind: "halted" };
@@ -215,6 +216,17 @@ export async function dispatchWriteIntent(
     idempotency_key: idempotencyKey,
     expires_at: intent.expiresAt ?? null,
   });
+  // US-1589: the activity stream sees every filed proposal.
+  void emit("agent.proposal.created", "info", {
+    title: `Agent '${agent.key}' proposed: ${intent.title}`,
+    source: "agent-policy",
+    data: {
+      agent: agent.key,
+      proposal_id: proposalId,
+      action_class: intent.actionClass,
+      downgraded,
+    },
+  }).catch(() => {});
   return { kind: "proposed", proposalId, downgraded };
 }
 

@@ -1821,3 +1821,71 @@ Deno.test("US-1587: write tools are inert without an approved-proposal context",
     assertEquals(refused, true, `${name} must refuse without a context`);
   }
 });
+
+Deno.test("US-1589: transcripts serve WRITE-TIME-redacted steps (the kernel is the choke point)", async () => {
+  // The transcript endpoint never re-redacts — so the guarantee lives at the
+  // kernel's recordStep. Prove PII in a tool result never reaches the row.
+  const { runAgent } = await import("../lib/agent-kernel.ts");
+  const steps: Array<Record<string, unknown>> = [];
+  await runAgent("sentinel", "manual", {
+    db: {
+      loadAgent: () =>
+        Promise.resolve({
+          id: "a1",
+          key: "sentinel",
+          status: "enabled",
+          config: { tool_allowlist: ["peek"] },
+        }),
+      insertRun: () => Promise.resolve("run-1"),
+      updateRun: () => Promise.resolve(),
+      insertStep: (row: Record<string, unknown>) => {
+        steps.push(row);
+        return Promise.resolve();
+      },
+    },
+    callModel: (() => {
+      let first = true;
+      return () => {
+        if (first) {
+          first = false;
+          return Promise.resolve({
+            stopReason: "tool_use",
+            content: [{ type: "tool_use", id: "t1", name: "peek", input: { email: "victim@example.com" } }],
+            tokensIn: 1,
+            tokensOut: 1,
+            costUsd: 0,
+          });
+        }
+        return Promise.resolve({
+          stopReason: "end_turn",
+          content: [{
+            type: "text",
+            text: JSON.stringify({ summary: "ok", findings: [], proposals: [] }),
+          }],
+          tokensIn: 1,
+          tokensOut: 1,
+          costUsd: 0,
+        });
+      };
+    })(),
+    isBudgetExhausted: () => Promise.resolve(false),
+    isGloballyPaused: () => Promise.resolve(false),
+    tools: {
+      peek: {
+        name: "peek",
+        description: "returns pii",
+        inputSchema: { type: "object", properties: {} },
+        run: () => Promise.resolve({ contact: "victim@example.com" }),
+      },
+    },
+    now: (() => {
+      let t = 0;
+      return () => (t += 5);
+    })(),
+    emitEvent: () => Promise.resolve(),
+    fileProposals: () => Promise.resolve({ filed: 0, dropped: 0, skipped: 0 }),
+  } as never);
+  const persisted = JSON.stringify(steps);
+  assertEquals(persisted.includes("victim@example.com"), false);
+  assertEquals(persisted.includes("[redacted:email]"), true);
+});

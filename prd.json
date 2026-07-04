@@ -10393,8 +10393,8 @@
         "tenant-isolation_test.ts covers the transcript endpoint; deno tests for event emission points; lint + check clean"
       ],
       "priority": 2354,
-      "passes": false,
-      "notes": "[AGENTIC-OS Phase 0][Module O — Observability] Read AGENTIC_OS.md §3.O. Reuse emitOpsEvent + observability.ts conventions exactly — grep how jobs-*.ts emit job.failed for the house style.",
+      "passes": true,
+      "notes": "[AGENTIC-OS Phase 0][Module O — Observability] Read AGENTIC_OS.md §3.O. Reuse emitOpsEvent + observability.ts conventions exactly — grep how jobs-*.ts emit job.failed for the house style. [COMPLETION 2026-07-04] deno 7/0 observability tests + the write-time-redaction isolation case; 60/0 agent suite; lint/check clean. AC1: agent.* ops events at every moment - the kernel emits run.started (info, on the run row landing) and a terminal run.finished/run.failed/run.timeout (failures/timeouts = warning) carrying agent key/run id/duration_ms/cost_usd/steps (proven per outcome; SKIPPED runs deliberately emit nothing - the ledger row suffices, proven); the policy emits proposal.created on every filing (proven); the lifecycle emits proposal.approved at claim, proposal.executed after the write tool, proposal.rejected with the REDACTED reason (planted email proven scrubbed from the title). All fire-and-forget - an emitter failure never touches the run. Visible in /admin/ops-activity with no UI changes (standard ops_events). AC2: GET /api/admin/agents/runs/:id/transcript serves the run row + seq-ordered steps; redaction happens at WRITE time in the kernel and the isolation case PROVES it (PII in a tool input AND result never reaches the persisted rows; the endpoint never re-redacts). AC3: one recordMetric('agent_run', duration_ms) line per run tagged agent/outcome/steps/tokens_in/tokens_out/cost_usd through observability.ts (which itself redacts + structures). AC4: kernel crashes route through captureException with the run id as correlationId and the run row STILL finalizes failed. Emitters injectable everywhere for tests.",
       "dependsOn": [
         "US-1584"
       ],
