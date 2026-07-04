@@ -11534,7 +11534,7 @@
       "title": "Payments P2 · Guard App Store lapse against active Stripe; refund duplicate per-grade payments",
       "description": "As a paying customer, I want a delayed Apple EXPIRED/REVOKE to not clobber a newer active Stripe sub, and a duplicate per-grade payment to be refunded/alerted, so that I keep what I paid for and never silently over-pay.",
       "priority": 2268,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Source: CODE_REVIEW_2026-07-04.md §Payments] Two payments P2s grouped.",
       "acceptanceCriteria": [
         "App Store EXPIRED/REVOKE skips lapse actions when the user has a live Stripe sub (mirror the sweep's lapseUser guard) instead of applying computeUserUpdate unconditionally (services/edge-functions/src/routes/appstore.ts:240-248)",

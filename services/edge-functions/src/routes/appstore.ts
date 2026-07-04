@@ -10,7 +10,10 @@ import { recordWebhookDeadLetter } from "../lib/webhook-dead-letter.ts";
 import { classifyProduct } from "../lib/appstore/products.ts";
 import { computeUserUpdate, type UsersBillingUpdate } from "../lib/appstore/reconcile.ts";
 import { computeConsumableGrant, isTransactionRevoked } from "../lib/appstore/grant-decision.ts";
-import { decideAppstorePrecedence } from "../lib/appstore/precedence.ts";
+import {
+  appstoreLapseSkippedByStripe,
+  decideAppstorePrecedence,
+} from "../lib/appstore/precedence.ts";
 import { routeNotification } from "../lib/appstore/notifications.ts";
 import { verifyNotification, verifyTransaction } from "../lib/appstore/verify.ts";
 import type { DecodedTransactionLite } from "../lib/appstore/types.ts";
@@ -300,6 +303,30 @@ appstoreWebhookRoutes.post("/", async (c) => {
       action,
       now: Date.now(),
     });
+
+    // US-1640: a DELAYED Apple EXPIRED/REVOKE must not clobber a Stripe
+    // subscription the user started in the meantime. computeUserUpdate always
+    // stamps billing_source='appstore' + flipdesk_plan='free' on a lapse, so
+    // applying it unconditionally would downgrade an active Stripe sub and steal
+    // its billing_source. If this notification LAPSES the user (→ canceled) but
+    // they now hold a live Stripe sub, skip the write — mirrors the expiry
+    // sweep's billing_source='appstore' guard and the verify-path precedence.
+    const isLapse = update.subscription_status === "canceled";
+    if (user && appstoreLapseSkippedByStripe(isLapse, user)) {
+      console.warn(
+        `[appstore] webhook: skipping ${note.notificationType} lapse for ${userId} — active Stripe subscription present`,
+      );
+      await recordAppstoreEvent(
+        userId,
+        note.notificationType,
+        note.notificationUUID,
+        user.flipdesk_plan ?? null,
+        user.flipdesk_plan ?? null, // unchanged — lapse skipped
+        { subtype: note.subtype, skipped: "active_stripe" },
+      );
+      return c.json({ ok: true });
+    }
+
     await applySubscription(userId, update);
     await recordAppstoreEvent(
       userId,

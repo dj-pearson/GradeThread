@@ -25,6 +25,8 @@ import { getPlanMatrix } from "../lib/pricing-config.ts";
 import { reconcileCustomerLink } from "../lib/stripe-customer.ts";
 import { shouldClearPendingDowngrade } from "../lib/pending-downgrade.ts";
 import { maybeQualifyReferral } from "../lib/referrals.ts";
+import { getStripe } from "../lib/stripe-client.ts";
+import { classifyPerGradeFlip } from "../lib/per-grade-flip.ts";
 import { recordWebhookDeadLetter } from "../lib/webhook-dead-letter.ts";
 import { captureException } from "../lib/observability.ts";
 import { notifyPlanDowngrade } from "../lib/plan-change-notify.ts";
@@ -1036,7 +1038,7 @@ async function handlePerGradePurchase(
     ? session.payment_intent
     : session.payment_intent?.id ?? null;
 
-  const { error: updateError } = await supabaseAdmin
+  const { data: flipped, error: updateError } = await supabaseAdmin
     .from("submissions")
     .update({
       payment_status: "paid_stripe",
@@ -1045,11 +1047,56 @@ async function handlePerGradePurchase(
     })
     .eq("id", submissionId)
     .eq("user_id", submissionOwnerId) // US-1637: owner-scoped, not the payer
-    .eq("payment_status", "unpaid"); // idempotency — don't overwrite if already paid
+    .eq("payment_status", "unpaid") // idempotency — don't overwrite if already paid
+    .select("id")
+    .maybeSingle();
 
   // US-397: a dropped "paid" flip leaves a paid grade unprocessed — retry on a
   // transient failure (the update is idempotent: it only matches 'unpaid').
   failIfDbError(updateError, `mark submission ${submissionId} paid`);
+
+  // US-1640: the paid-flip matched 0 rows. The Stripe dispatcher already deduped
+  // this event by event.id, so this is NOT a re-delivery — the submission is
+  // already paid by a DIFFERENT Checkout Session. Because the per-grade
+  // idempotency key is tier-scoped, one submission can mint up to 3 payable
+  // sessions, so a user can genuinely pay twice for the same grade. Refund THIS
+  // charge (a duplicate) instead of silently keeping the money + re-kicking
+  // grading. Never touch the submission's own payment state — the ORIGINAL
+  // charge legitimately paid for the grade.
+  if (!flipped) {
+    const { data: existingRaw } = await supabaseAdmin
+      .from("submissions")
+      .select("id, payment_status, stripe_payment_intent_id")
+      .eq("id", submissionId)
+      .eq("user_id", submissionOwnerId)
+      .maybeSingle();
+    const existing = existingRaw as
+      | { payment_status: string; stripe_payment_intent_id: string | null }
+      | null;
+    const outcome = classifyPerGradeFlip({
+      flipped: false,
+      existing,
+      currentPaymentIntentId: paymentIntentId,
+    });
+    if (outcome === "duplicate") {
+      await refundDuplicatePerGrade(
+        submissionOwnerId,
+        submissionId,
+        paymentIntentId,
+        session.id,
+      );
+    } else if (outcome === "missing") {
+      console.warn(
+        `[Webhook] per_grade: submission ${submissionId} not found for owner ${submissionOwnerId} — nothing to flip`,
+      );
+    } else {
+      // Same PI (a stray re-process) or a concurrent flip — no duplicate charge.
+      console.warn(
+        `[Webhook] per_grade: no-op flip for ${submissionId} (status=${existing?.payment_status ?? "?"}) — no duplicate refund`,
+      );
+    }
+    return; // already paid — don't re-kick grading
+  }
 
   console.log(`[Webhook] Submission ${submissionId} paid (${tier}); kicking grading pipeline`);
 
@@ -1063,6 +1110,72 @@ async function handlePerGradePurchase(
       err instanceof Error ? err.message : String(err),
     );
   });
+}
+
+// US-1640: refund a DUPLICATE per-grade payment. Refunds the CURRENT session's
+// charge (paymentIntentId) — NOT the submission's stored PI, which paid for the
+// grade the user keeps — keyed on the PI so a retry can't double-refund. On any
+// failure, alert loudly for operator follow-up rather than silently keeping the
+// duplicate charge. Never marks the submission refunded (the grade stays valid).
+async function refundDuplicatePerGrade(
+  ownerId: string,
+  submissionId: string,
+  paymentIntentId: string | null,
+  sessionId: string,
+): Promise<void> {
+  if (!paymentIntentId) {
+    console.error(
+      `[Webhook] per_grade DUPLICATE for ${submissionId} (session ${sessionId}) has no payment_intent to refund — needs manual review`,
+    );
+    void captureServer(ownerId, "billing.per_grade_duplicate_unrefundable", {
+      submission_id: submissionId,
+      session_id: sessionId,
+    });
+    return;
+  }
+  const stripe = getStripe();
+  if (!stripe) {
+    console.error(
+      `[Webhook] per_grade DUPLICATE for ${submissionId}: Stripe not configured — cannot refund ${paymentIntentId}`,
+    );
+    void captureServer(ownerId, "billing.per_grade_duplicate_unrefundable", {
+      submission_id: submissionId,
+      payment_intent: paymentIntentId,
+    });
+    return;
+  }
+  try {
+    const refund = await stripe.refunds.create(
+      {
+        payment_intent: paymentIntentId,
+        reason: "duplicate",
+        metadata: { submission_id: submissionId, refund_reason: "duplicate_per_grade" },
+      },
+      { idempotencyKey: `dup-per-grade:${paymentIntentId}` },
+    );
+    console.warn(
+      `[Webhook] per_grade DUPLICATE for ${submissionId}: refunded duplicate charge ${paymentIntentId} → ${refund.id}`,
+    );
+    void captureServer(ownerId, "billing.per_grade_duplicate_refunded", {
+      submission_id: submissionId,
+      payment_intent: paymentIntentId,
+      refund_id: refund.id,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    captureException(err, {
+      route: "webhooks.refundDuplicatePerGrade",
+      tags: { submissionId },
+    });
+    console.error(
+      `[Webhook] per_grade DUPLICATE refund FAILED for ${submissionId} (${paymentIntentId}): ${msg} — needs operator follow-up`,
+    );
+    void captureServer(ownerId, "billing.per_grade_duplicate_refund_failed", {
+      submission_id: submissionId,
+      payment_intent: paymentIntentId,
+      error: msg.slice(0, 200),
+    });
+  }
 }
 
 // ── Refund handler ───────────────────────────────────────────────
