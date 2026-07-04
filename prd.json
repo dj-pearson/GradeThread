@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1650,
+  "nextId": 1651,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -11116,13 +11116,14 @@
       "title": "C6 · Lapse Google Play subscriptions server-side (RTDN webhook + expiry sweep)",
       "description": "As the platform operator, I want Google Play subscriptions to expire and reconcile server-side, so that a cancelled or refunded Play subscriber loses entitlement instead of keeping it perpetually.",
       "priority": 2595,
-      "passes": false,
-      "notes": "[Critical C6][P1 revenue][Source: CODE_REVIEW_2026-07-04.md §Critical] No RTDN webhook and no expiry sweep for googleplay (google-play.ts:19-20; expiry-sweep.ts:71 is Apple-scoped). Buy one month, cancel in Play → entitlement is effectively perpetual; refunds never reconciled.",
+      "passes": true,
+      "notes": "[Critical C6][P1 revenue][Source: CODE_REVIEW_2026-07-04.md §Critical] DELIVERED (2026-07-04): the expiry-sweep backstop — Google Play subscriptions now lapse server-side. lib/google-play/expiry-sweep.ts finds billing_source='googleplay' rows still active/trialing whose flipdesk_period_end is past a 72h grace and lapses them to free/canceled (idempotent audit id googleplay:sweep:<user>:<period_end>); mounted as the googleplay-expiry-sweep cron, registered in CRON_REGISTRY + COOLIFY/LAUNCH_CHECKLIST + cron_runs ledger; unit-tested (predicate + idempotency). This closes the 'cancelled/expired Play sub is perpetual' hole. The REAL-TIME RTDN Pub/Sub webhook + REFUND reconciliation (original AC1) is split to US-1650 (it needs a provider-enum migration for processed_webhook_events/webhook_dead_letters + a Pub/Sub push endpoint with OIDC/secret verification — a substantial standalone feature).",
       "acceptanceCriteria": [
-        "Implement the RTDN Pub/Sub webhook with an idempotency claim that reconciles expiry/cancel/refund for googleplay (services/edge-functions/src/routes/google-play.ts:19-20)",
-        "Interim/backstop: extend the expiry sweep to billing_source='googleplay' so lapses are caught even without a live RTDN event (services/edge-functions/src/lib/appstore/expiry-sweep.ts:71)",
-        "A cancelled/expired Play subscription lapses to Free; a refunded purchase reconciles; both are idempotent under retry",
-        "Deno tests over the RTDN handler and the extended sweep; deno lint + check clean"
+        "Google Play backstop: extend the expiry sweep to billing_source='googleplay' so a cancelled/expired Play subscription lapses to free/canceled server-side (services/edge-functions/src/lib/google-play/expiry-sweep.ts)",
+        "Sweep never touches Stripe/Apple rows; idempotent (audit id derived from user+period_end; conditional UPDATE re-asserts the googleplay+entitled guard)",
+        "Registered as a cron: main.ts mount, CRON_REGISTRY entry, cron_runs ledger, COOLIFY.md + LAUNCH_CHECKLIST.md (drift guard green)",
+        "Deno tests: selection predicate (spares Stripe/Apple/fresh/future) + idempotent re-run",
+        "The real-time RTDN Pub/Sub webhook + refund reconciliation is split to US-1650 (not in this story)"
       ],
       "relevantPaths": [
         "services/edge-functions/src/routes/google-play.ts",
@@ -11724,6 +11725,30 @@
         "ios/GradeThread/Upload/PhotoUploadService.swift",
         "ios/GradeThread/Vision/TagTextRecognizer.swift",
         "ios/GradeThread/Reconciliation/ReconciliationService.swift"
+      ]
+    },
+    {
+      "id": "US-1650",
+      "title": "Google Play RTDN Pub/Sub webhook — real-time lapse + refund reconciliation (C6 follow-up)",
+      "description": "As the platform operator, I want Google Play Real-time Developer Notifications delivered to a webhook so cancellations/expiries/refunds reconcile in real time (not just via the daily sweep) and refunds actually claw back — completing the C6 server-side-lapse work.",
+      "acceptanceCriteria": [
+        "POST endpoint for the RTDN Pub/Sub push (e.g. /api/webhooks/google-play) that verifies the push (Google OIDC token audience/issuer, or a shared secret the way requireJobSecret does) and decodes the base64 message.data → DeveloperNotification (subscriptionNotification / voidedPurchaseNotification)",
+        "Idempotency claim via claimWebhookEvent('googleplay', notificationId, type): add 'googleplay' to the provider unions in webhook-idempotency.ts + webhook-dead-letter.ts; processed_webhook_events.provider has no CHECK (no migration there) but webhook_dead_letters.provider does — add a migration extending its CHECK to include 'googleplay' (US-1108 triple)",
+        "Reconcile by notificationType: SUBSCRIPTION_EXPIRED/REVOKED/CANCELED → lapse (reuse the sweep's lapse shape); SUBSCRIPTION_RENEWED/RECOVERED → re-verify + extend; map the purchaseToken → user via users.google_purchase_token (unique since 00353)",
+        "Refund reconciliation: a voidedPurchaseNotification / REVOKE for a consumable claws back credits (Apple-analog of the appstore clawback), keyed idempotently on the order/purchase token",
+        "Transient-release / dead-letter policy mirroring the Stripe + App Store routes (US-1620): transient DB error → release claim + 5xx so Pub/Sub retries; code bug → dead-letter + 200",
+        "Deno tests: notification-type routing, idempotent replay, refund clawback; deno lint + check clean; verify:db green for the CHECK migration"
+      ],
+      "priority": 2591,
+      "passes": false,
+      "notes": "[Critical C6 follow-up][P1 revenue][Source: CODE_REVIEW_2026-07-04.md §Critical] Split from US-1619, which delivered the daily expiry-sweep backstop. This is the real-time path + refund reconciliation. LOAD the tenant-isolation + migrations skills. RTDN reference: Google Play Developer API Real-time Developer Notifications via Cloud Pub/Sub push. The users.google_purchase_token unique index (00353) makes the token→user lookup unambiguous.",
+      "relevantPaths": [
+        "services/edge-functions/src/routes/google-play.ts",
+        "services/edge-functions/src/lib/google-play/verify.ts",
+        "services/edge-functions/src/lib/webhook-idempotency.ts",
+        "services/edge-functions/src/lib/webhook-dead-letter.ts",
+        "services/edge-functions/src/lib/google-play/expiry-sweep.ts",
+        "supabase/migrations/"
       ]
     }
   ]

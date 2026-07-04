@@ -131,6 +131,7 @@ export const CRON_REGISTRY: CronDef[] = [
   // US-811: App Store expiry backstop — lapse appstore-billed users whose Apple
   // expiry notification was lost (72h grace on stale period_end).
   { name: "appstore-expiry-sweep", label: "App Store expiry sweep", schedule: "45 1 * * *", category: "billing", endpoint: "/api/jobs/appstore-expiry-sweep", recorded: true },
+  { name: "googleplay-expiry-sweep", label: "Google Play expiry sweep", schedule: "50 1 * * *", category: "billing", endpoint: "/api/jobs/googleplay-expiry-sweep", recorded: true },
   // US-1145: hourly audit-log anomaly scan (impossible travel, burst actions).
   { name: "audit-anomaly-scan", label: "Audit anomaly scan", schedule: "5 * * * *", category: "safety", endpoint: "/api/jobs/audit-anomaly-scan", recorded: true },
   // US-893: Stripe-vs-DB reconciliation — precompute divergences for the admin console.

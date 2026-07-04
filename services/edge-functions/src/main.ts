@@ -121,6 +121,7 @@ import { handleCertIntegrityBackfillCron } from "./lib/cert-integrity-backfill.t
 import { handleDataRetentionCron } from "./lib/data-retention.ts";
 import { handleConditionIndexRefreshCron } from "./lib/condition-index.ts";
 import { handleAppstoreExpirySweepCron } from "./lib/appstore/expiry-sweep.ts";
+import { handleGooglePlayExpirySweepCron } from "./lib/google-play/expiry-sweep.ts";
 import { handleTrialExpiryCron } from "./routes/jobs-trial-expiry.ts";
 import { handleThumbnailBackfillCron } from "./routes/jobs-thumbnail-backfill.ts";
 import { handleConsignorPayoutsCron } from "./routes/jobs-consignor-payouts.ts";
@@ -1127,6 +1128,9 @@ app.post("/api/jobs/condition-index-refresh", (c) => handleConditionIndexRefresh
 // billed users to free when Apple's expiry notification was lost (stale
 // flipdesk_period_end past a 72h grace window). Handler enforces the job secret.
 app.post("/api/jobs/appstore-expiry-sweep", (c) => handleAppstoreExpirySweepCron(c));
+// US-1619 / C6: Google Play backstop — lapse cancelled/expired Play subscriptions
+// whose flipdesk_period_end is past the grace window (no RTDN webhook yet).
+app.post("/api/jobs/googleplay-expiry-sweep", (c) => handleGooglePlayExpirySweepCron(c));
 // US-383 daily trial-expiry downgrade cron. OUTSIDE /api/* JWT groups; the
 // handler enforces X-Internal-Job-Secret itself (mirrors the other crons).
 app.post("/api/jobs/trial-expiry", (c) => handleTrialExpiryCron(c));
