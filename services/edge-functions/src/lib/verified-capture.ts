@@ -128,6 +128,10 @@ export function evaluateVerifiedCapture(opts: {
   submittedAtMs: number;
   images: VerifiedCaptureImage[];
   crossUserReuse: boolean;
+  // US-1642: the vision pass's manipulation / screenshot-or-watermark signal.
+  // Provenance can't vouch for a tampered image, so a suspected manipulation
+  // WITHHOLDS the badge (positive-only — it never lowers a grade).
+  manipulationSuspected?: boolean;
   nowMs?: number;
 }): VerifiedCaptureResult {
   const now = opts.nowMs ?? opts.submittedAtMs;
@@ -156,6 +160,12 @@ export function evaluateVerifiedCapture(opts: {
       ...base,
       reasons: ["one or more photos reused from a different account"],
     };
+  }
+
+  // US-1642: the vision pass suspects manipulation or a screenshot/watermark —
+  // provenance can't vouch for a tampered image, so deny the badge.
+  if (opts.manipulationSuspected) {
+    return { ...base, reasons: ["image manipulation suspected"] };
   }
 
   const maxAgeMs = maxAge * 24 * 60 * 60 * 1000;

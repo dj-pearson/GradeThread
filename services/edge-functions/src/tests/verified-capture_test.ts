@@ -136,6 +136,21 @@ Deno.test("any image missing provenance → not verified (never penalized elsewh
   assertEquals(r.verified, false);
 });
 
+// US-1642: provenance can't vouch for a tampered image.
+Deno.test("suspected manipulation → not verified (badge withheld)", () => {
+  const r = evaluateVerifiedCapture({
+    optedIn: true,
+    submittedAtMs: SUBMIT,
+    // An otherwise-passing set (recent, consistent, unedited device) …
+    images: [img("front", iphone(RECENT)), img("back", iphone(RECENT))],
+    crossUserReuse: false,
+    manipulationSuspected: true, // … but the vision pass flagged manipulation.
+    nowMs: SUBMIT,
+  });
+  assertEquals(r.verified, false);
+  assert(r.reasons.some((x) => x.includes("manipulation")));
+});
+
 // ── Live Capture — fraud-proof grading mode (US-1283) ────────────────────────
 
 // A passing/failing standard Verified Capture result to compose with.

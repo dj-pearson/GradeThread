@@ -11572,7 +11572,7 @@
       "title": "Grading P2 · Fix min-of-caps composition, escalation image-drop cap, and brand injection via baselines",
       "description": "As the grading operator, I want provenance boosts to respect confidence caps, escalation re-grades to keep the partial-image cap, and seller brand text sanitized before baseline generation, so that stored confidence stays honest and the trusted prompt channel stays clean.",
       "priority": 2266,
-      "passes": false,
+      "passes": true,
       "notes": "[P2 batch][Source: CODE_REVIEW_2026-07-04.md §Grading] LOAD the grading-engine skill first. Three grading P2s grouped.",
       "acceptanceCriteria": [
         "Provenance boosts use min(conf + boost, capFloor) so they can't exceed the min-of-caps composition and pollute the US-1557 calibration loop; evaluateVerifiedCapture also respects manipulation_suspected (services/edge-functions/src/lib/grading-pipeline.ts:1632/1744/1851)",

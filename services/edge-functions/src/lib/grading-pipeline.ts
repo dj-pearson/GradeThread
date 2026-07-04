@@ -252,7 +252,12 @@ async function escalateGrade(
   // same item, so it sees the same trusted reference ("" → unchanged).
   baselineBlock = "",
 ): Promise<
-  { perImageResults: PerImageAnalysis[]; compositeResult: CompositeGradeResult } | null
+  {
+    perImageResults: PerImageAnalysis[];
+    compositeResult: CompositeGradeResult;
+    // US-1642: whether the escalation dropped an optional image (→ partial cap).
+    partialSuccess: boolean;
+  } | null
 > {
   const settled = await withImageBufferSlot(async () => {
     const imageDataPromises = images.map(async (image) => {
@@ -300,7 +305,7 @@ async function escalateGrade(
     }));
   });
 
-  const { usable, failedRequired } = partitionImageResults(
+  const { usable, failedRequired, failedOptional } = partitionImageResults(
     settled,
     REQUIRED_IMAGE_TYPES,
   );
@@ -328,7 +333,15 @@ async function escalateGrade(
     submissionId,
     baselineBlock,
   );
-  return { perImageResults, compositeResult };
+  // US-1642: surface whether the ESCALATION dropped an optional image. The
+  // caller ORs this into partialSuccess so a defect/detail image that failed to
+  // re-analyze on the escalation model still applies the partial-image cap +
+  // forced review, instead of shipping an incomplete escalated grade uncapped.
+  return {
+    perImageResults,
+    compositeResult,
+    partialSuccess: failedOptional.length > 0,
+  };
 }
 
 /**
@@ -1207,8 +1220,10 @@ export async function processSubmission(submissionId: string) {
       );
     }
 
-    // Only optional images failed — degrade gracefully (US-485).
-    const partialSuccess = failedOptional.length > 0;
+    // Only optional images failed — degrade gracefully (US-485). US-1642: `let`
+    // so an ESCALATION that drops an optional image can OR itself in (below),
+    // keeping the partial-image cap on the escalated grade too.
+    let partialSuccess = failedOptional.length > 0;
     if (partialSuccess) {
       console.warn(
         `[Pipeline] partial-success grade for ${submissionId}: dropped ` +
@@ -1401,6 +1416,10 @@ export async function processSubmission(submissionId: string) {
           if (escalated) {
             perImageResults = escalated.perImageResults;
             compositeResult = escalated.compositeResult;
+            // US-1642: OR the escalation's dropped-optional signal in so the
+            // partial-image cap + forced review below apply to an escalated
+            // grade built from an incomplete set (never ship it uncapped).
+            partialSuccess = partialSuccess || escalated.partialSuccess;
           } else {
             // Escalation couldn't produce a usable grade — drop the captured
             // first-pass usages so the ledger doesn't double-count this grade.
@@ -1644,6 +1663,13 @@ export async function processSubmission(submissionId: string) {
         exif: ((img as { exif?: Record<string, unknown> | null }).exif) ?? null,
       })),
       crossUserReuse: reuse.cross_user,
+      // US-1642: deny the provenance badge when the vision pass already suspects
+      // manipulation / a screenshot-or-watermark (available here from the
+      // composite `authenticity` computed above). The later forensic pass
+      // further penalizes confidence + tightens the ceiling; this closes the
+      // badge itself so provenance never vouches for a tampered image.
+      manipulationSuspected: authenticity.manipulation_suspected === true ||
+        authenticity.screenshot_or_watermark_detected === true,
       nowMs: Date.now(),
     });
     if (verifiedCapture.verified) {
