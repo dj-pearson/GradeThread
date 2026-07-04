@@ -141,6 +141,7 @@ const PUBLIC_API_ROUTERS = new Set<string>([
   // Provider / platform webhooks — signature- or secret-verified per handler.
   "/api/webhooks", // Stripe
   "/api/webhooks/appstore", // Apple App Store Server Notifications
+  "/api/webhooks/google-play", // Google Play RTDN (GOOGLE_RTDN_WEBHOOK_SECRET-verified)
   "/api/flipdesk/webhooks", // marketplace provider webhooks
   "/api/auth/hooks", // Supabase auth hooks (shared-secret verified)
   "/api/email", // SES/SNS bounce+engagement webhooks

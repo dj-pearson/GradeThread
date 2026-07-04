@@ -11736,7 +11736,7 @@
         "Deno tests: notification-type routing, idempotent replay, refund clawback; deno lint + check clean; verify:db green for the CHECK migration"
       ],
       "priority": 2591,
-      "passes": false,
+      "passes": true,
       "notes": "[Critical C6 follow-up][P1 revenue][Source: CODE_REVIEW_2026-07-04.md §Critical] Split from US-1619, which delivered the daily expiry-sweep backstop. This is the real-time path + refund reconciliation. LOAD the tenant-isolation + migrations skills. RTDN reference: Google Play Developer API Real-time Developer Notifications via Cloud Pub/Sub push. The users.google_purchase_token unique index (00353) makes the token→user lookup unambiguous.",
       "relevantPaths": [
         "services/edge-functions/src/routes/google-play.ts",

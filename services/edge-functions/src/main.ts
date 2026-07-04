@@ -10,6 +10,7 @@ import { emailSnsRoutes } from "./routes/email-sns.ts";
 import { emailEngagementRoutes } from "./routes/email-engagement.ts";
 import { paymentRoutes } from "./routes/payments.ts";
 import { appstoreVerifyRoutes, appstoreWebhookRoutes } from "./routes/appstore.ts";
+import { googlePlayRtdnRoutes } from "./routes/google-play-rtdn.ts";
 import { googlePlayVerifyRoutes } from "./routes/google-play.ts";
 import { apiKeyRoutes } from "./routes/api-keys.ts";
 import { apiV1Routes } from "./routes/api-v1.ts";
@@ -911,6 +912,8 @@ app.route("/api/email", emailSnsRoutes);
 // /api/email prefix with email-sns; the /o/:token & /c/:token paths don't collide.
 app.route("/api/email", emailEngagementRoutes);
 app.route("/api/webhooks/appstore", appstoreWebhookRoutes);
+// US-1650: Google Play RTDN Pub/Sub push (public, GOOGLE_RTDN_WEBHOOK_SECRET-verified).
+app.route("/api/webhooks/google-play", googlePlayRtdnRoutes);
 app.route("/api/keys", apiKeyRoutes);
 app.route("/api/passport", passportRoutes);
 app.route("/api/passport-identity", passportIdentityRoutes);

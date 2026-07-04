@@ -1,5 +1,25 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00354_dead_letter_googleplay_provider.sql (US-1650 / C6, 2026-07-04)
+
+**What:** extends the `webhook_dead_letters.provider` CHECK allow-list to include
+`'googleplay'` (was `stripe`/`ebay`/`appstore`/`content`), so the new Google Play
+RTDN webhook (`routes/google-play-rtdn.ts`) can durably dead-letter a
+non-transient failure like every other provider. `DROP CONSTRAINT IF EXISTS` +
+re-`ADD` (mirrors 00206); self-records '00354'.
+
+**Risk: LOW — no client-side reads; constraint-only.** No column/view/data
+change. The edge boot guard now expects **00354**.
+
+**⚠️ Apply order:** apply 00353 first (already held below), then 00354. After
+applying, redeploy the edge so its boot guard matches 00354. No `NOTIFY pgrst`
+needed. The RTDN webhook only reconciles at RUNTIME when Google delivers a
+notification, so nothing breaks pre-apply — but its dead-letter path would fail
+the CHECK until 00354 is applied, so apply it before enabling the Pub/Sub push.
+
+Also set `GOOGLE_RTDN_WEBHOOK_SECRET` on the edge and configure the Pub/Sub push
+endpoint as `…/api/webhooks/google-play?token=<that secret>`.
+
 ## ⏳ HELD: 00353_google_purchase_token_unique.sql (US-1614 / C1, 2026-07-04)
 
 **What:** a partial unique index

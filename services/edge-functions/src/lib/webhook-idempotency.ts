@@ -19,8 +19,17 @@ import { supabaseAdmin } from "./supabase.ts";
 
 export type WebhookClaimResult = "claimed" | "duplicate" | "error";
 
+// US-1650: 'googleplay' added for the Google Play RTDN Pub/Sub webhook.
+export type WebhookProvider =
+  | "stripe"
+  | "ebay"
+  | "appstore"
+  | "shopify"
+  | "depop"
+  | "googleplay";
+
 export interface WebhookEventInsert {
-  provider: "stripe" | "ebay" | "appstore" | "shopify" | "depop";
+  provider: WebhookProvider;
   event_id: string;
   event_type: string | null;
 }
@@ -37,7 +46,7 @@ const defaultInsert: WebhookEventInserter = async (row) => {
 };
 
 export async function claimWebhookEvent(
-  provider: "stripe" | "ebay" | "appstore" | "shopify" | "depop",
+  provider: WebhookProvider,
   eventId: string,
   eventType?: string,
   insert: WebhookEventInserter = defaultInsert,
@@ -92,7 +101,7 @@ export function failIfDbError(
 // only on a transient critical-handler failure (US-397); side effects are
 // idempotent on the Stripe object id (US-390) so the re-run is safe.
 export type WebhookEventDeleter = (
-  provider: "stripe" | "ebay" | "appstore" | "shopify" | "depop",
+  provider: WebhookProvider,
   eventId: string,
 ) => Promise<{ error: { message?: string } | null }>;
 
@@ -106,7 +115,7 @@ const defaultDelete: WebhookEventDeleter = async (provider, eventId) => {
 };
 
 export async function releaseWebhookEvent(
-  provider: "stripe" | "ebay" | "appstore" | "shopify" | "depop",
+  provider: WebhookProvider,
   eventId: string,
   del: WebhookEventDeleter = defaultDelete,
 ): Promise<void> {

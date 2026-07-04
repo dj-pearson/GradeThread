@@ -24,7 +24,9 @@ import { captureException } from "./observability.ts";
 import { redact } from "./log-redact.ts";
 
 export interface DeadLetterInput {
-  provider: "stripe" | "ebay" | "appstore";
+  // US-1650: 'googleplay' added for the Google Play RTDN webhook. 'content' is a
+  // valid DB value too (00206) but isn't dead-lettered through this path.
+  provider: "stripe" | "ebay" | "appstore" | "googleplay";
   eventId: string;
   eventType: string | null;
   /** The event payload (e.g. Stripe event.data.object). Redacted before storage. */
