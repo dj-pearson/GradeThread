@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1653,
+  "nextId": 1654,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -11552,11 +11552,10 @@
       "title": "Payments P3 · Idempotency & freshness hardening (discount packs, affiliate payouts, SNS, admin refunds)",
       "description": "As the payments operator, I want grant/transfer idempotency and webhook freshness tightened, so that discounted packs, affiliate payouts, and admin refunds can't double-apply and stale/forged webhooks are rejected.",
       "priority": 2144,
-      "passes": false,
-      "notes": "[P3 batch][Source: CODE_REVIEW_2026-07-04.md §Payments] Grouped payments hardening; each AC independently verifiable.",
+      "passes": true,
+      "notes": "[P3 batch][Source: CODE_REVIEW_2026-07-04.md §Payments] Grouped payments hardening; each AC independently verifiable. Affiliate-payout hardening (transfer-dedup + retry cap + float→cents migration) split to US-1653.",
       "acceptanceCriteria": [
         "100%-discount pack checkout falls back to session.id when payment_intent is null so grant idempotency isn't defeated (services/edge-functions/src/routes/payments.ts:546 + supabase/migrations/00092_grant_credits_idempotent.sql:52)",
-        "Affiliate payout lists transfers by metadata.payout_id before retry, adds a retry cap (stop retrying permanently-failing transfers forever), and stops carrying commission amount as float USD (services/edge-functions/src/lib/affiliate-payout.ts)",
         "SNS verification rejects messages older than ~1h (Timestamp freshness) and gates SES_SNS_SKIP_VERIFICATION on !isProduction() (services/edge-functions/src/lib/sns-verify.ts, email-sns.ts:43)",
         "Admin /charges/:id/refund partial refunds carry an idempotency key (services/edge-functions/src/routes/admin-billing.ts:807-815)",
         "deno lint + check clean; verify:db green if migration touched"
@@ -11789,6 +11788,29 @@
         "supabase/migrations/",
         "services/edge-functions/src/routes/notifications.ts",
         "services/edge-functions/src/lib/schema-version.ts",
+        "PENDING_MIGRATIONS.md"
+      ]
+    },
+    {
+      "id": "US-1653",
+      "title": "Affiliate payout hardening: transfer-dedup before retry, retry cap, integer-cents amounts",
+      "description": "As the payments operator, I want affiliate Stripe transfers to be safe to retry beyond Stripe's 24h idempotency window, to stop retrying permanently-failing payouts, and to stop carrying commission amounts as float USD, so a stuck payout can't double-transfer or drift by rounding.",
+      "priority": 2143,
+      "passes": false,
+      "notes": "[P3][Source: CODE_REVIEW_2026-07-04.md §Payments] Split out of US-1641 — the float→cents change is a data-model migration on affiliate_commissions/affiliate_payouts.amount (numeric(10,2)→integer cents) touching stored rows + all payout math, and the retry cap needs a retry_count column or a new status value (both migrations). LOAD the migrations skill. Do the transfer-dedup (no migration) even if the cents migration is deferred/held.",
+      "acceptanceCriteria": [
+        "Before RE-firing a transfer for an existing payout, look up whether a Stripe transfer already exists for it (list by destination + match metadata.payout_id, or a transfer_group set at create) and reconcile it as paid instead of creating a second transfer — closes the >24h-idempotency-window double-pay (services/edge-functions/src/lib/affiliate-payout.ts fireTransfer/retryAffiliatePayout)",
+        "Add a retry cap so a permanently-failing payout stops being auto-retried (retry_count column + cap, or an age-based cutoff in the sweep's open-payout query); stale ones are surfaced (metric/log) not silently dropped",
+        "Carry commission/payout amounts as integer cents end-to-end (migration: amount numeric(10,2)→integer cents on affiliate_commissions + affiliate_payouts, with the EXPECTED_SCHEMA_VERSION triple; refactor affiliate-payout-math.ts + accrual/payout/retry to cents). HELD migration — record in PENDING_MIGRATIONS.md",
+        "Deno tests for the pure retry-cap + cents math; deno lint + check clean; verify:db green"
+      ],
+      "dependsOn": [
+        "US-1641"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/lib/affiliate-payout.ts",
+        "services/edge-functions/src/lib/affiliate-payout-math.ts",
+        "supabase/migrations/",
         "PENDING_MIGRATIONS.md"
       ]
     }

@@ -963,20 +963,28 @@ async function handleCreditPackPurchase(
     ? session.payment_intent
     : session.payment_intent?.id ?? null;
 
+  // US-1641: a 100%-discount pack (a 100%-off promo code) settles with NO
+  // PaymentIntent (payment_intent = null). grant_grade_credits only dedups when
+  // p_stripe_payment_intent IS NOT NULL, so a null token defeated the grant's
+  // idempotency — a re-delivered webhook could double-grant. Fall back to the
+  // Checkout Session id (stable + unique per purchase); the 'cs_' prefix never
+  // collides with a 'pi_' payment-intent id in the shared column.
+  const grantIdempotencyToken = paymentIntentId ?? session.id;
+
   await recordEvent(
     userId,
     event.type,
     event.id,
     null,
     null,
-    { product: "credit_pack", credits, payment_intent: paymentIntentId },
+    { product: "credit_pack", credits, payment_intent: paymentIntentId, grant_token: grantIdempotencyToken },
   );
 
   const { data, error } = await supabaseAdmin.rpc("grant_grade_credits", {
     p_user_id: userId,
     p_credits: credits,
     p_reason: "pack_purchase",
-    p_stripe_payment_intent: paymentIntentId,
+    p_stripe_payment_intent: grantIdempotencyToken,
     p_notes: `Pack of ${credits} credits via session ${session.id}`,
   });
 
