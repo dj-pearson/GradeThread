@@ -11590,7 +11590,7 @@
       "title": "Grading P3 · Reconcile refund+graded, honor finalize errors, tighten peer-norm cohort and eval isolation",
       "description": "As the grading operator, I want the failure/finalize/peer-norm/eval edge cases fixed, so that refunds don't coexist with graded reports, finalize errors halt go-live, and measurements aren't confounded.",
       "priority": 2142,
-      "passes": false,
+      "passes": true,
       "notes": "[P3 batch][Source: CODE_REVIEW_2026-07-04.md §Grading] LOAD the grading-engine skill first. Grouped grading hardening.",
       "acceptanceCriteria": [
         "Pipeline failure handler no longer refunds a submission whose grade report was already inserted (avoid the 'refunded + graded' state nothing reconciles) (services/edge-functions/src/lib/grading-pipeline.ts:2216-2241)",

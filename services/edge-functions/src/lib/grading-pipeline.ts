@@ -785,7 +785,13 @@ export async function finalizeGradeReview(
 
   const overallScore = Number(r.overall_score);
   const nowIso = new Date().toISOString();
-  await supabaseAdmin
+  // US-1643: gate go-live on the finalize UPDATE actually succeeding. Previously
+  // its {error} was ignored, so a transient DB failure would leave the report
+  // UN-finalized yet still run go-live (public cert + item completion + FINAL
+  // notifications). The `.is("finalized_at", null)` filter also makes this
+  // atomic: exactly ONE finalize flips the row and proceeds, so a concurrent /
+  // retried call can't double-fire go-live.
+  const { data: finalized, error: finalizeErr } = await supabaseAdmin
     .from("grade_reports")
     .update({
       review_status: opts.modified ? "modified" : "approved",
@@ -797,7 +803,21 @@ export async function finalizeGradeReview(
       review_claimed_by: null,
       review_claimed_at: null,
     })
-    .eq("id", r.id);
+    .eq("id", r.id)
+    .is("finalized_at", null)
+    .select("id")
+    .maybeSingle();
+  if (finalizeErr) {
+    console.error(
+      `[Pipeline] finalizeGradeReview UPDATE failed for report ${r.id} — NOT going live: ${finalizeErr.message}`,
+    );
+    return { ok: false };
+  }
+  if (!finalized) {
+    // A concurrent finalize won the race and is (or already) running go-live —
+    // don't double-fire.
+    return { ok: true, alreadyFinal: true };
+  }
 
   const certUrl = r.certificate_id ? certificateUrl(r.certificate_id) : null;
   const linkedItemId = await applyTerminalCompletion(r.submission_id, {
@@ -2288,6 +2308,27 @@ export async function processSubmission(submissionId: string) {
       `[Pipeline] Grading pipeline FAILED for submission ${submissionId} | ` +
         `total_ms=${totalMs} | error=${errorMessage}`
     );
+
+    // US-1643: if a grade report was ALREADY inserted, the grade was produced and
+    // the failure is in a POST-grade side effect (notify / webhook / item-sync /
+    // finalize). Marking the submission 'failed', reversing the charge, syncing
+    // FlipDesk to 'failed', or telling the seller "grading failed" would all be
+    // wrong — they'd create a "refunded + graded" / "failed + graded" state
+    // nothing reconciles. The grade stands; just log the side-effect error and
+    // rethrow so the caller/reaper still sees it.
+    const { data: existingReport } = await supabaseAdmin
+      .from("grade_reports")
+      .select("id")
+      .eq("submission_id", submissionId)
+      .is("superseded_at", null)
+      .maybeSingle();
+    if (existingReport) {
+      console.warn(
+        `[Pipeline] submission ${submissionId} failed AFTER its grade report was inserted — ` +
+          `grade stands; NOT marking failed, reversing charge, or notifying failure. error=${errorMessage}`,
+      );
+      throw error;
+    }
 
     // Update submission status to 'failed'
     try {

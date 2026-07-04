@@ -232,6 +232,10 @@ export async function runEval(
         garmentInfo,
         compositeOverride,
         modelOverride,
+        undefined, // bucketKey
+        "", // baselineBlock
+        [], // verificationImages
+        true, // US-1643: eval measures the prompt — never the live exemplar block
       );
       const error = Math.abs(result.overall_score - row.expected_score);
 
@@ -506,13 +510,23 @@ export async function runPromptDryRun(
       await analyzeAll(undefined),
       await analyzeAll(override),
     ];
-    active = await compositeGrade(perImageActive, garmentInfo, undefined);
-    candidate = await compositeGrade(perImageCandidate, garmentInfo, undefined);
+    // US-1643: suppress the live exemplar block on BOTH legs (the trailing
+    // `true`) so the dry-run compares prompts, not exemplar presence.
+    active = await compositeGrade(
+      perImageActive, garmentInfo, undefined, undefined, undefined, "", [], true,
+    );
+    candidate = await compositeGrade(
+      perImageCandidate, garmentInfo, undefined, undefined, undefined, "", [], true,
+    );
   } else {
     // composite stage: per-image is shared; only the composite prompt differs.
     const perImage = await analyzeAll(undefined);
-    active = await compositeGrade(perImage, garmentInfo, undefined);
-    candidate = await compositeGrade(perImage, garmentInfo, override);
+    active = await compositeGrade(
+      perImage, garmentInfo, undefined, undefined, undefined, "", [], true,
+    );
+    candidate = await compositeGrade(
+      perImage, garmentInfo, override, undefined, undefined, "", [], true,
+    );
   }
 
   return {
