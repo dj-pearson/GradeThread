@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { seedCookieConsent } from "./consent";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -11,6 +12,12 @@ import { dirname, join } from "node:path";
 // It also pins the no-double-charge guard (AC#3): double-clicking "Submit for
 // Grading" must fire exactly ONE /api/grade/submit (US-774 added a synchronous
 // submit lock in new-submission.tsx).
+
+// The consent banner overlays fixed-bottom at z-100 and intercepts clicks
+// (see e2e/consent.ts) — seed a decision so it never mounts.
+test.beforeEach(async ({ page }) => {
+  await seedCookieConsent(page);
+});
 
 const USER_ID = "00000000-0000-0000-0000-000000000001";
 const SUB_ID = "44444444-4444-4444-4444-444444444444";

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { seedCookieConsent } from "./consent";
 
 // US-137: FlipDesk end-to-end lifecycle smoke test. Drives the reseller money
 // loop through the real SPA, with the backend mocked at the network boundary
@@ -18,6 +19,12 @@ import { expect, test, type Page } from "@playwright/test";
 //
 // The exhaustive fee/P&L/transition number-crunching lives in the deterministic
 // companion suite src/lib/__tests__/flipdesk-lifecycle.test.ts (runs in unit CI).
+
+// The consent banner overlays fixed-bottom at z-100 and intercepts clicks
+// (see e2e/consent.ts) — seed a decision so it never mounts.
+test.beforeEach(async ({ page }) => {
+  await seedCookieConsent(page);
+});
 
 const USER_ID = "00000000-0000-0000-0000-000000000001";
 

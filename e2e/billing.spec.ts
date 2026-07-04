@@ -1,7 +1,14 @@
 import { expect, test, type Page } from "@playwright/test";
+import { seedCookieConsent } from "./consent";
 
 // US-511: billing/checkout entry (AC#1) — an authenticated user can reach the
 // billing surface (the entry point for Stripe checkout). Backend mocked.
+
+// The consent banner overlays fixed-bottom at z-100 and intercepts clicks
+// (see e2e/consent.ts) — seed a decision so it never mounts.
+test.beforeEach(async ({ page }) => {
+  await seedCookieConsent(page);
+});
 
 function fakeJwt(): string {
   const b64 = (o: unknown) =>

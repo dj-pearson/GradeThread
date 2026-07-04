@@ -1,6 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
+import { seedCookieConsent } from "./consent";
 
 // US-511: public certificate view (AC#1) — mocked PostgREST so no live backend.
+
+// The consent banner overlays fixed-bottom at z-100 and intercepts clicks
+// (see e2e/consent.ts) — seed a decision so it never mounts.
+test.beforeEach(async ({ page }) => {
+  await seedCookieConsent(page);
+});
 
 const CERT_ID = "11111111-1111-1111-1111-111111111111";
 

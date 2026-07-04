@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { seedCookieConsent } from "./consent";
 
 // Regression guard for the AutoLister drafts → composer "Maximum update depth
 // exceeded" (React #185) error page: an inline `data: photos = []` query
@@ -10,6 +11,12 @@ import { expect, test, type Page } from "@playwright/test";
 // flipdesk-lifecycle.spec.ts) with data shaped like a real AutoLister batch:
 // a draft listing with batch_id + aspect_review entries, saved specifics, an
 // eBay category spec, and comps.
+
+// The consent banner overlays fixed-bottom at z-100 and intercepts clicks
+// (see e2e/consent.ts) — seed a decision so it never mounts.
+test.beforeEach(async ({ page }) => {
+  await seedCookieConsent(page);
+});
 
 const USER_ID = "00000000-0000-0000-0000-000000000001";
 const ITEM_ID = "11111111-1111-1111-1111-111111111111";
