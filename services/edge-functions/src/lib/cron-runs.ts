@@ -90,6 +90,8 @@ export const CRON_REGISTRY: CronDef[] = [
   // US-1557: weekly per-category review-threshold calibration (shadow-first).
   { name: "confidence-calibration", label: "Confidence calibration", schedule: "0 13 * * 0", category: "grading", endpoint: "/api/jobs/confidence-calibration", recorded: true },
   { name: "stuck-submissions", label: "Stuck-submission recovery", schedule: "*/10 * * * *", category: "grading", endpoint: "/api/jobs/stuck-submissions", recorded: true },
+  // US-1588: the Agentic OS heartbeat — runs due agents + sweeps proposal TTLs.
+  { name: "agent-tick", label: "Agentic OS tick", schedule: "*/10 * * * *", category: "agents", endpoint: "/api/jobs/agent-tick", recorded: true },
   { name: "push-token-prune", label: "Push-token prune", schedule: "0 3 * * *", category: "maintenance", endpoint: "/api/jobs/push-token-prune", recorded: true },
   { name: "sync-reaper", label: "eBay sync reaper", schedule: "*/15 * * * *", category: "sync", endpoint: "/api/jobs/sync-reaper", recorded: true },
   { name: "email-retry", label: "Email outbox retry", schedule: "*/5 * * * *", category: "email", endpoint: "/api/jobs/email-retry", recorded: true },

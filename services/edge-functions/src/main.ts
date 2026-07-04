@@ -132,6 +132,7 @@ import { handleNewsletterTopicBankRefillCron } from "./routes/jobs-newsletter-to
 import { handleNewsletterAbFinalizeCron } from "./routes/jobs-newsletter-ab.ts";
 import { handleNewsletterDispatchCron } from "./routes/jobs-newsletter-dispatch.ts";
 import { handleAbuseScanCron } from "./routes/jobs-abuse-scan.ts";
+import { handleAgentTickCron } from "./routes/jobs-agent-tick.ts";
 import { handlePassportIntegrityScanCron } from "./routes/jobs-passport-integrity-scan.ts";
 import { handlePassportBackfillCron } from "./routes/jobs-passport-backfill.ts";
 import { handleListingPromptPromoteCron } from "./routes/jobs-listing-prompt-promote.ts";
@@ -1161,6 +1162,8 @@ app.post("/api/jobs/newsletter-dispatch", (c) => handleNewsletterDispatchCron(c)
 // cross-account phash photo-reuse + submission-velocity signals. Idempotent
 // (dedupe_key); the handler enforces X-Internal-Job-Secret itself.
 app.post("/api/jobs/abuse-scan", (c) => handleAbuseScanCron(c));
+// US-1588: the Agentic OS heartbeat (due-agent runs + proposal-TTL sweep).
+app.post("/api/jobs/agent-tick", (c) => handleAgentTickCron(c));
 // US-1103 Garment Passport integrity scan — populates the integrity queue with
 // wear-reversal, duplicate-fingerprint-across-owners, rapid-reclaim and
 // token-replay anomalies. Idempotent (dedupe_key); the handler enforces

@@ -11053,3 +11053,15 @@ operator confirms 00353 applied.
 - Kernel files output.proposals through the policy engine w/ config TTL
   (72h default); ONE batched admin notification per run.
 - 10/0 lifecycle tests + 2 tenant-isolation cases; 53/0 agent+scope suites.
+
+=== 2026-07-04 (Agentic OS loop): US-1588 (agent scheduler) ===
+- /api/jobs/agent-tick on the EXISTING rails: job secret + 540s job_lock +
+  the /api/jobs/* ledger/job.failed chokepoint. Zero new infrastructure.
+- isAgentDue: cron exprs (via nextCronRun) AND interval_minutes; never-run
+  w/ cadence = due now; no schedule = never; unparseable = never (all
+  proven). Sequential runs under an 8-min budget; leftovers DEFERRED +
+  recorded (proven with a synthetic budget).
+- Global pause -> recorded no-op before any load; per-run failures never
+  fail the tick; the proposal-TTL sweep rides every tick (failure
+  non-fatal). CRON_REGISTRY (*/10) + both doc tables regenerated; drift 4/0.
+- 10/0 scheduler tests; 57/0 across the agent suite.
