@@ -56,6 +56,7 @@
 <rect x="0.9643" y="4.8214" width="0.1429" height="0.1429" fill="#fff"/>
 <rect x="0.6786" y="4.9643" width="0.1429" height="0.1429" fill="#fff"/>
 <rect x="0.8214" y="4.9643" width="0.1429" height="0.1429" fill="#fff"/>
+<rect x="3.4750" y="1.7550" width="0.5500" height="0.5500" rx="0.1100" fill="#0F3460"/><text x="3.7500" y="2.1180" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-weight="bold" font-size="0.2640" fill="#ffffff">G<tspan fill="#E94560">T</tspan></text>
 <text x="3.75" y="2.5" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="0.28" font-weight="bold" fill="#0F3460">GradeThread MeasureCard</text>
 <text x="3.75" y="2.85" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="0.16" fill="#1A1A2E">Lay this card flat BESIDE your garment - keep all four squares visible.</text>
 <text x="3.75" y="3.15" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="0.13" fill="#666">v1 - do not trim, fold, or laminate (gloss breaks detection)</text>

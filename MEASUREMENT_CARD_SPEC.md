@@ -77,3 +77,39 @@ CV reads.
 - Regenerate artwork only via `scripts/generate-measure-card.py` (requires
   `pip install opencv-python-headless numpy`) — it refuses to emit artwork the
   OpenCV detector can't decode at the declared centers.
+
+## Branding & custom designs (US-1570 addendum)
+
+The card is brandable — detection only constrains the markers, not the art.
+The v1 artwork now carries the GT logo mark; a richer designed card (for the
+mailed edition) is welcome under these rules:
+
+- **Free design zone**: the interior more than **0.25 in (the quiet zone)**
+  away from every marker's black border. Anything goes there — logos, color,
+  pattern. The four markers, their sizes, and their center positions are
+  INVARIANT (see Geometry above).
+- **Quiet zones stay paper-white.** No tints, watermarks, or borders touching
+  the 0.25 in ring around any marker — that ring is what lets the detector
+  find the marker edge on any garment background.
+- **Avoid marker-look-alikes**: no high-contrast black squares ~1 in with
+  white inner patterning elsewhere on the card (false-positive risk; the
+  validator will catch it, but don't make it try).
+- **Matte only** — gloss laminate breaks detection (see Print requirements).
+- **No recalibration is needed** for a redesign that keeps the geometry: the
+  calibration math reads only the marker centers. What IS required is
+  re-validation of the finished artwork:
+
+  ```bash
+  python scripts/generate-measure-card.py --validate path/to/final-artwork.png
+  ```
+
+  This asserts exactly ids 10–13 detect (a design element that swallows a
+  marker or false-positives fails loudly) and that the centers still form the
+  6×4 in rectangle within 0.05 in at any export DPI. If a design NEEDS the
+  geometry to move, that's a v2 card: new id set, new `geometry-v2.json`,
+  never a silent edit (see Versioning rules).
+
+The print-at-home Letter PDF self-documents its accuracy requirements ON the
+sheet: the "PRINT AT 100% / ACTUAL SIZE" banner, the ISO ID-1 credit-card
+scale-check box, and a 6.000 in reference ruler are all part of the printed
+page, so the instructions survive the download.

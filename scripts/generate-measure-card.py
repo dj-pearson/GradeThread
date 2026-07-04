@@ -87,6 +87,23 @@ def marker_svg(mid: int, cx: float, cy: float) -> str:
                 )
     return "\n".join(parts)
 
+# ── Brand logo (US-1570 addendum): navy rounded square + white G / red T, drawn
+# NATIVELY in each format so print output stays vector where possible. It
+# sits in the center free zone — the geometry contract keeps every design
+# element >= QUIET_ZONE away from the markers, so detection is unaffected
+# (re-validated below WITH the logo composited in).
+LOGO_SIZE = 0.55  # inches, square
+def logo_svg(cx: float, cy: float) -> str:
+    s = LOGO_SIZE
+    x0, y0 = cx - s / 2, cy - s / 2
+    return (
+        f'<rect x="{x0:.4f}" y="{y0:.4f}" width="{s:.4f}" height="{s:.4f}" '
+        f'rx="{s*0.2:.4f}" fill="#0F3460"/>'
+        f'<text x="{cx:.4f}" y="{cy + s*0.16:.4f}" text-anchor="middle" '
+        f'font-family="Helvetica, Arial, sans-serif" font-weight="bold" '
+        f'font-size="{s*0.48:.4f}" fill="#ffffff">G<tspan fill="#E94560">T</tspan></text>'
+    )
+
 label_y = CARD_H / 2
 svg = [
     f'<svg xmlns="http://www.w3.org/2000/svg" width="{CARD_W}in" height="{CARD_H}in" '
@@ -99,7 +116,8 @@ svg = [
 for mid in IDS:
     cx, cy = CENTERS[mid]
     svg.append(marker_svg(mid, cx, cy))
-# Center text block — plain vector text, kept well clear of quiet zones.
+# Center block — logo + text, kept well clear of quiet zones.
+svg.append(logo_svg(CARD_W / 2, label_y - 0.72))
 svg.append(
     f'<text x="{CARD_W/2}" y="{label_y - 0.25}" text-anchor="middle" '
     f'font-family="Helvetica, Arial, sans-serif" font-size="0.28" font-weight="bold" fill="#0F3460">'
@@ -153,6 +171,38 @@ def make_pdf(path: str, page_w_in: float, page_h_in: float, content_ops: str) ->
     with open(path, "wb") as f:
         f.write(out)
 
+def rrect_op(x_in, y_in, w_in, h_in, r_in, page_h_in, rgb):
+    """Rounded-rect fill via four Bezier corners (PDF has no native rrect)."""
+    k = 0.5523
+    x, y = x_in * 72, (page_h_in - y_in - h_in) * 72
+    w, h, r = w_in * 72, h_in * 72, r_in * 72
+    cr, cg, cb = rgb
+    ops = f"{cr} {cg} {cb} rg "
+    ops += f"{x+r:.2f} {y:.2f} m {x+w-r:.2f} {y:.2f} l "
+    ops += f"{x+w-r+k*r:.2f} {y:.2f} {x+w:.2f} {y+r-k*r:.2f} {x+w:.2f} {y+r:.2f} c "
+    ops += f"{x+w:.2f} {y+h-r:.2f} l "
+    ops += f"{x+w:.2f} {y+h-r+k*r:.2f} {x+w-r+k*r:.2f} {y+h:.2f} {x+w-r:.2f} {y+h:.2f} c "
+    ops += f"{x+r:.2f} {y+h:.2f} l "
+    ops += f"{x+r-k*r:.2f} {y+h:.2f} {x:.2f} {y+h-r+k*r:.2f} {x:.2f} {y+h-r:.2f} c "
+    ops += f"{x:.2f} {y+r:.2f} l "
+    ops += f"{x:.2f} {y+r-k*r:.2f} {x+r-k*r:.2f} {y:.2f} {x+r:.2f} {y:.2f} c f\n"
+    return ops
+
+def logo_ops(cx_in, cy_in, page_h_in):
+    """The GT mark: navy rounded square, white G, red T (vector)."""
+    s_in = LOGO_SIZE
+    x0, y0 = cx_in - s_in / 2, cy_in - s_in / 2
+    ops = rrect_op(x0, y0, s_in, s_in, s_in * 0.2, page_h_in, (0.059, 0.204, 0.376))
+    size_pt = s_in * 0.48 * 72
+    glyph_w_in = size_pt * 0.72 / 72  # Helvetica-Bold cap advance approx
+    gx = (cx_in - glyph_w_in) * 72
+    gy = (page_h_in - (cy_in + s_in * 0.16)) * 72
+    ops += (
+        f"BT /F1 {size_pt:.1f} Tf 1 1 1 rg {gx:.2f} {gy:.2f} Td (G) Tj "
+        f"0.914 0.271 0.376 rg (T) Tj ET\n"
+    )
+    return ops
+
 def rect_op(x_in, y_in, w_in, h_in, page_h_in, gray):
     # PDF origin is bottom-left; our coords are top-left.
     x, y = x_in * 72, (page_h_in - y_in - h_in) * 72
@@ -183,6 +233,7 @@ for mid in IDS:
 def centered_text(s, y_in, size_pt, page_w_in, page_h_in, gray="0"):
     w_in = len(s) * size_pt * 0.55 / 72
     return text_op((page_w_in - w_in) / 2, y_in, size_pt, s, page_h_in, gray)
+ops += logo_ops(CARD_W / 2, CARD_H / 2 - 0.72, CARD_H)
 ops += centered_text("GradeThread MeasureCard", CARD_H/2 - 0.18, 20, CARD_W, CARD_H)
 ops += centered_text("Lay this card flat BESIDE your garment - keep all four squares visible.", CARD_H/2 + 0.12, 10, CARD_W, CARD_H)
 ops += centered_text("v1 - do not trim, fold, or laminate (gloss breaks detection)", CARD_H/2 + 0.38, 8, CARD_W, CARD_H, gray="0.4")
@@ -199,6 +250,7 @@ ops += f"0.6 g 0.5 w {off_x*72:.2f} {(LH-off_y-CARD_H)*72:.2f} {CARD_W*72:.2f} {
 for mid in IDS:
     cx, cy = CENTERS[mid]
     ops += marker_ops(mid, cx, cy, LH, off_x, off_y)
+ops += logo_ops(LW / 2, off_y + CARD_H / 2 - 0.72, LH)
 ops += centered_text("GradeThread MeasureCard", off_y + CARD_H/2 - 0.18, 20, LW, LH)
 ops += centered_text("Lay this sheet flat BESIDE your garment - keep all four squares visible.", off_y + CARD_H/2 + 0.12, 10, LW, LH)
 # Self-check: exact credit-card box (3.370 x 2.125 in, ISO/IEC 7810 ID-1).
@@ -227,9 +279,19 @@ for mid in IDS:
     mimg = aruco.generateImageMarker(dic, mid, side)
     img[py:py + side, px:px + side] = mimg
 
+# Composite the brand logo into the validation raster (a dark filled square
+# approximates the worst case — proves interior artwork can't shadow or
+# false-positive the markers).
+ls = int(LOGO_SIZE * DPI)
+lx = int((CARD_W / 2 - LOGO_SIZE / 2) * DPI)
+ly = int((CARD_H / 2 - 0.72 - LOGO_SIZE / 2) * DPI)
+img[ly:ly + ls, lx:lx + ls] = 20  # near-black navy
+
 detector = aruco.ArucoDetector(dic, aruco.DetectorParameters())
 corners, ids, _ = detector.detectMarkers(img)
 found = sorted(int(i) for i in (ids.flatten() if ids is not None else []))
+# EXACTLY the four ids: a missing marker fails, and so does a false positive
+# from the interior artwork.
 assert found == sorted(IDS), f"detection failed: {found}"
 # Assert centers land where geometry says (within 2px @300dpi = ~0.007in).
 for c, mid in zip(corners, ids.flatten()):
@@ -248,3 +310,37 @@ for mid in IDS:
 
 print("OK: geometry-v1.json + SVG + 2 PDFs written;",
       f"detection validated ids={found} at expected centers (300dpi)")
+
+
+def validate_artwork(path: str) -> None:
+    """US-1570 addendum: validate FINISHED card artwork (a designer export) without
+    regenerating. Asserts: exactly ids 10-13 detected, and their centers form
+    the canonical 6x4in rectangle (scale-normalized, so any DPI works).
+    Usage: python scripts/generate-measure-card.py --validate final.png"""
+    art = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+    assert art is not None, f"unreadable image: {path}"
+    c2, i2, _ = detector.detectMarkers(art)
+    got = sorted(int(i) for i in (i2.flatten() if i2 is not None else []))
+    assert got == sorted(IDS), (
+        f"expected exactly ids {sorted(IDS)}, detected {got} — check quiet "
+        f"zones (>= {QUIET_ZONE}in white around every marker) and that the "
+        f"design adds no marker-like squares"
+    )
+    centers = {int(m): c[0].mean(axis=0) for c, m in zip(c2, i2.flatten())}
+    # Scale from the top edge (id 10 -> 11 spans RECT_W inches).
+    import math
+    px_per_in = math.dist(centers[10], centers[11]) / RECT_W
+    for a, b, exp in [(10, 11, RECT_W), (13, 12, RECT_W), (10, 13, RECT_H), (11, 12, RECT_H)]:
+        d_in = math.dist(centers[a], centers[b]) / px_per_in
+        assert abs(d_in - exp) < 0.05, (
+            f"edge {a}->{b} measures {d_in:.3f}in, expected {exp}in — the "
+            f"marker GEOMETRY moved; that requires a NEW card version (v2, "
+            f"new id set), not just re-validation"
+        )
+    print(f"OK: artwork {path} validated — ids {got}, geometry within 0.05in")
+
+
+if __name__ == "__main__":
+    import sys
+    if len(sys.argv) == 3 and sys.argv[1] == "--validate":
+        validate_artwork(sys.argv[2])
