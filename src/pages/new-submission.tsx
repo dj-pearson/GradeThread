@@ -489,6 +489,19 @@ export function NewSubmissionPage() {
     prevAllRequiredRef.current = hasAllRequiredPhotos;
   }, [hasAllRequiredPhotos, currentStep]);
 
+  // US-1627: once the seller first reaches the Photos step, keep PhotoUpload
+  // MOUNTED for the rest of the flow (hidden via CSS on other steps) instead of
+  // unmounting it on Review. Previously photos lived only in the child's slot
+  // state, so stepping Back from Review remounted an EMPTY uploader (while
+  // Continue stayed enabled off the parent's stale `photos`), and the retake/
+  // snap seed re-applied over the seller's replacements. Latching mount here —
+  // rather than rendering from step 0 — avoids the async retake/snap seed race
+  // (those Files are fetched before step 1) and guarantees a single seed.
+  const [hasEnteredPhotoStep, setHasEnteredPhotoStep] = useState(false);
+  useEffect(() => {
+    if (currentStep === 1) setHasEnteredPhotoStep(true);
+  }, [currentStep]);
+
   function handleGarmentInfoSubmit(info: GarmentInfo) {
     setGarmentInfo(info);
     setCurrentStep(1);
@@ -818,9 +831,11 @@ export function NewSubmissionPage() {
             </div>
           )}
 
-          {/* Step 2: Photos */}
-          {currentStep === 1 && (
-            <div className="space-y-6">
+          {/* Step 2: Photos — mounted once reached, then kept mounted and
+              hidden on other steps so staged photos survive Back from Review
+              (US-1627). */}
+          {hasEnteredPhotoStep && (
+            <div className={cn("space-y-6", currentStep !== 1 && "hidden")}>
               {snapFrontFile && (
                 <p className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs text-muted-foreground">
                   <BadgeCheck className="mr-1 inline h-3.5 w-3.5 text-brand-navy dark:text-foreground" />

@@ -11259,7 +11259,7 @@
       "title": "P1 · Preserve staged photos when stepping back from Review in new-submission",
       "description": "As a seller, I want my staged/replaced photos to persist when I go Back from Review, so that I don't lose them or have edits clobbered by the original list.",
       "priority": 2581,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][Source: CODE_REVIEW_2026-07-04.md §Web P1] Photos live only in child state and are never passed back down; 'Back' remounts empty while Continue stays enabled; the retake remount re-seeds the original photos over replacements.",
       "acceptanceCriteria": [
         "Lift slot state to the parent (controlled) OR keep the component mounted and hide via CSS (src/pages/new-submission.tsx:822-861 + src/components/submission/photo-upload.tsx:326-360)",
