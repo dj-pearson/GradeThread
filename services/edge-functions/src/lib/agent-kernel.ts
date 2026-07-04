@@ -113,6 +113,13 @@ export interface ModelTurn {
 
 export interface KernelDeps {
   db: KernelDb;
+  /** US-1587: file the run's proposals through the policy engine. */
+  fileProposals(
+    agent: { id: string; key: string; status: string; autonomy: Record<string, unknown> | null },
+    runId: string,
+    proposals: unknown[],
+    config: Record<string, unknown>,
+  ): Promise<{ filed: number; dropped: number; skipped: number }>;
   callModel(params: {
     model: string;
     system: string;
@@ -184,8 +191,19 @@ async function defaultCallModel(params: {
   };
 }
 
+async function defaultFileProposals(
+  agent: { id: string; key: string; status: string; autonomy: Record<string, unknown> | null },
+  runId: string,
+  proposals: unknown[],
+  config: Record<string, unknown>,
+) {
+  const { fileProposalsFromRun } = await import("./agent-proposals.ts");
+  return await fileProposalsFromRun(agent, runId, proposals, config);
+}
+
 const defaultDeps: KernelDeps = {
   db: defaultDb,
+  fileProposals: defaultFileProposals,
   callModel: defaultCallModel,
   isBudgetExhausted: isAiBudgetExhausted,
   // ONE pause implementation across run start and write dispatch —
@@ -420,7 +438,26 @@ async function execute(
         return await finalize("failed", null, "malformed agent output (contract violation)");
       }
       await recordStep("output", "final", null, output, 0);
-      return await finalize("succeeded", output as unknown as Record<string, unknown>);
+      // US-1587: the run's proposals ride the policy engine (per-class
+      // autonomy applies to each); the filing tally lands in the outcome.
+      let filing: { filed: number; dropped: number; skipped: number } | null = null;
+      if (output.proposals.length > 0) {
+        try {
+          filing = await deps.fileProposals(
+            { id: agent.id, key: agent.key, status: agent.status, autonomy: null },
+            runId,
+            output.proposals,
+            agent.config ?? {},
+          );
+        } catch (err) {
+          filing = { filed: 0, dropped: 0, skipped: output.proposals.length };
+          console.error(`[agent-kernel] proposal filing failed: ${redactError(err)}`);
+        }
+      }
+      return await finalize("succeeded", {
+        ...(output as unknown as Record<string, unknown>),
+        ...(filing ? { proposal_filing: filing } : {}),
+      });
     }
 
     // Step cap breached — the model never produced a final answer.

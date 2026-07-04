@@ -116,6 +116,8 @@ export interface WriteIntent {
   /** Cross-run dedup key; defaults to agent+class+title. */
   idempotencyKey?: string;
   runId?: string | null;
+  /** Proposal TTL — after this a pending proposal can never execute. */
+  expiresAt?: string | null;
 }
 
 export type DispatchOutcome =
@@ -211,6 +213,7 @@ export async function dispatchWriteIntent(
     },
     status: "pending",
     idempotency_key: idempotencyKey,
+    expires_at: intent.expiresAt ?? null,
   });
   return { kind: "proposed", proposalId, downgraded };
 }

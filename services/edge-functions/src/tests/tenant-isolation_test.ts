@@ -1773,3 +1773,51 @@ Deno.test("US-1565: task-board whitelists strip created_by/author_id and unknown
     ["completed_at", "project_id", "status", "title"],
   );
 });
+
+// ── US-1587: the agent-proposals inbox (operator table, admin-gated) ─────────
+// agent_proposals is SERVICE_ROLE_ONLY (rls-guard) — the isolation analog for
+// the admin routes is that decisions are ALWAYS stamped server-side from the
+// authenticated admin (decided_by can never arrive in a request body) and a
+// rejection cannot be filed without a reason.
+Deno.test("US-1587: proposal decisions stamp decided_by server-side, never from the body", async () => {
+  const { rejectProposal, executeProposal } = await import(
+    "../lib/agent-proposals.ts"
+  );
+  const decidedBy: string[] = [];
+  const db = {
+    claimForExecution(_id: string, adminId: string) {
+      decidedBy.push(adminId);
+      return Promise.resolve(null); // not pending — we only care about attribution
+    },
+    markExecuted: () => Promise.resolve(),
+    rejectPending(_id: string, adminId: string) {
+      decidedBy.push(adminId);
+      return Promise.resolve(true);
+    },
+    expirePending: () => Promise.resolve(0),
+  };
+  // The admin id comes from the ROUTE's authenticated context param — the
+  // lifecycle functions take it positionally and there is no body-derived
+  // path to it (the route reads c.get("userId"), see admin-agents.ts).
+  await executeProposal("p1", "authed-admin", db);
+  await rejectProposal("p1", "authed-admin", "reason", db);
+  assertEquals(decidedBy, ["authed-admin", "authed-admin"]);
+});
+
+Deno.test("US-1587: write tools are inert without an approved-proposal context", async () => {
+  const { WRITE_TOOLS } = await import("../lib/agent-proposals.ts");
+  // No proposal context = no hands — even with a live-looking db.
+  for (const name of Object.keys(WRITE_TOOLS)) {
+    let refused = false;
+    try {
+      await WRITE_TOOLS[name].run(
+        { job: "any", id: "any", title: "t", project_id: "p" },
+        undefined as never,
+        {} as never,
+      );
+    } catch {
+      refused = true;
+    }
+    assertEquals(refused, true, `${name} must refuse without a context`);
+  }
+});

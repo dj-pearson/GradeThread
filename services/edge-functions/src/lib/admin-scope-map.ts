@@ -151,6 +151,13 @@ export const ADMIN_ROUTER_SCOPES: AdminRouterScope[] = [
   },
   // ── platform ops ───────────────────────────────────────────────────────────
   {
+    file: "admin-agents.ts",
+    scope: "ops:write",
+    mode: "router",
+    rationale:
+      "US-1587: the Agentic OS proposals inbox — approving executes real ops writes.",
+  },
+  {
     file: "admin-config.ts",
     scope: "ops:write",
     mode: "router",

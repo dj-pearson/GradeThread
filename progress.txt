@@ -11038,3 +11038,18 @@ operator confirms 00353 applied.
   implementation (kernel suite still 14/0).
 - recordPolicyBreach: one-level demotion floored at L0, persisted preserving
   sibling classes, warning ops event. 10/0 policy tests; 33/0 agent suite.
+
+=== 2026-07-04 (Agentic OS loop): US-1587 (proposal lifecycle) ===
+- lib/agent-proposals.ts: exactly-once execution via the conditional
+  pending->approved claim (concurrent double-approve proven: one executed,
+  one already_decided); TTL re-checked at claim (expired-but-unswept can
+  never execute); rejected never executes; reasons required.
+- WRITE_TOOLS (separate registry, never model-visible): retry_job (signed
+  self-POST, slug-validated), requeue_dead_letter, create_admin_task (real
+  columns; agent attribution in body). All refuse without an
+  approved-proposal context (proven per tool).
+- routes/admin-agents.ts under ops:write, mounted + scope-mapped; inbox
+  sweeps expiry before rendering; decisions stamped server-side + audited.
+- Kernel files output.proposals through the policy engine w/ config TTL
+  (72h default); ONE batched admin notification per run.
+- 10/0 lifecycle tests + 2 tenant-isolation cases; 53/0 agent+scope suites.
