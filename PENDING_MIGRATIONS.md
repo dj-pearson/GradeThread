@@ -1,5 +1,31 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00357_agentic_os_kernel_schema.sql (US-1583 / AGENTIC-OS Phase 0, 2026-07-04)
+
+**What:** creates the five foundational Agentic OS operator tables — `agents`
+(registry: key/name/module_letter/status/autonomy jsonb/config jsonb),
+`agent_runs` (run ledger: status/tokens/cost/outcome), `agent_run_steps`
+(transcript: seq/step_type/input/output/duration), `agent_proposals` (approval
+queue: action_class/payload/evidence/status/idempotency_key unique), and
+`agent_memory` (agent_id/kind/key/content/weight). All uuid PKs, created_at/
+updated_at + `set_updated_at` triggers, and indexes (runs by agent+started_at
+desc, proposals by status, unique run_id+seq, unique agent_memory key).
+Idempotent (`CREATE TABLE IF NOT EXISTS` / `CREATE … IF NOT EXISTS`);
+self-records '00357'.
+
+**Risk: LOW — five NEW empty deny-all tables; no client reads, no data change.**
+All RLS-enabled with ZERO policies (service-role only, registered in
+SERVICE_ROLE_ONLY in rls-guard_test.ts); none has a `user_id` column. Fixed-set
+columns use text + CHECK (not Postgres ENUM) to stay cleanly idempotent. **No
+routes or kernel code ship in this story** (US-1584 builds the run loop), so
+nothing reads these at runtime yet — applying it is safe at any time. Edge boot
+guard now expects **00357**.
+
+**⚠️ Apply order:** apply after 00353→00356 (all held above). `NOTIFY pgrst,
+'reload schema';` after applying (new tables PostgREST would otherwise not know
+of — harmless here since the SPA never reads them, but keeps the runbook
+uniform). Redeploy the edge so its boot guard matches 00357.
+
 ## ⏳ HELD: 00356_public_cert_moderation_withhold.sql (US-1654 / DB-P2, 2026-07-04)
 
 **What:** `CREATE OR REPLACE VIEW public_grade_reports` reproducing every 00318

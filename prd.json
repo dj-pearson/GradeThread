@@ -10234,7 +10234,7 @@
         "npm run verify:db passes (throwaway local stack applies all migrations from scratch)"
       ],
       "priority": 2360,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 0][Module A — Agent Kernel] Read AGENTIC_OS.md §2 (guardrails) + §3.A first. Load the migrations skill AND the tenant-isolation skill before touching anything. autonomy jsonb shape: { \"<action_class>\": 0|1|2|3 } (L0 observe default). No routes or code in this story — schema only.",
       "relevantPaths": [
         "AGENTIC_OS.md",
