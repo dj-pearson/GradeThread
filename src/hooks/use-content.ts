@@ -195,8 +195,13 @@ export function useUpdateBlogPost(id: string) {
       );
       return data.post;
     },
-    onSuccess: (post) => {
-      qc.setQueryData(["blog_post", id], post);
+    onSuccess: () => {
+      // US-1633: the PATCH response omits tags (they're returned/stored
+      // separately), so caching it directly into ["blog_post", id] wiped the
+      // cached post's tags — and the NEXT save then read that tag-less cache and
+      // PATCHed with no tags, deleting them. Invalidate so the authoritative
+      // full post (with tags) is refetched instead.
+      qc.invalidateQueries({ queryKey: ["blog_post", id] });
       qc.invalidateQueries({ queryKey: ["blog_posts"] });
     },
     onError: (e: Error) => toast.error(e.message),

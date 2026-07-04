@@ -444,14 +444,24 @@ export function InventoryDetailPage() {
     // Mark ALL listings for this item as inactive (cross-listing cleanup)
     const activeListingIds = listings.filter((l) => l.is_active).map((l) => l.id);
     if (activeListingIds.length > 0) {
-      await supabase
+      const { error: deactivateError } = await supabase
         .from("listings")
         .update({ is_active: false } as never)
         .in("id", activeListingIds);
 
-      setListings((prev) =>
-        prev.map((l) => (activeListingIds.includes(l.id) ? { ...l, is_active: false } : l))
-      );
+      // US-1633: don't ignore this — if the sibling listings didn't deactivate,
+      // the sale is recorded but they still show active (cross-listing could
+      // sell twice). Warn and skip the optimistic local flip so the UI reflects
+      // reality (a refetch will show the true state).
+      if (deactivateError) {
+        toast.warning(
+          "Sale recorded, but couldn't deactivate the other listings — end them manually so the item isn't sold twice.",
+        );
+      } else {
+        setListings((prev) =>
+          prev.map((l) => (activeListingIds.includes(l.id) ? { ...l, is_active: false } : l))
+        );
+      }
     }
 
     // Update item status to 'sold'

@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1651,
+  "nextId": 1652,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -11372,17 +11372,16 @@
       "title": "Web P2 · Cache-invalidation & optimistic-update correctness batch",
       "description": "As a FlipDesk/content user, I want realtime, optimistic updates and writes to keep the cache correct, so that dashboards refresh, drags don't corrupt state, and saves don't wipe data.",
       "priority": 2276,
-      "passes": false,
-      "notes": "[P2 batch][Source: CODE_REVIEW_2026-07-04.md §Web P2] Grouped invalidation/optimistic-update correctness findings; each AC independently verifiable.",
+      "passes": true,
+      "notes": "[P2 batch][Source: CODE_REVIEW_2026-07-04.md §Web P2] DELIVERED: the 6 cache-invalidation / optimistic-update fixes. The 7th finding — grade/status sort only sorts the current page (submissions.tsx / inventory.tsx) — is split to US-1651: server-side sort by overall_score needs an embedded grade_reports join + foreign-table ordering, which is PostgREST-version-sensitive (the self-hosted prod PostgREST diverges from the local stack, per CLAUDE.md) and warrants isolated, verifiable treatment.",
       "acceptanceCriteria": [
-        "Grade-completion realtime invalidates the correct keys (currently two phantom keys → dashboard never refreshes) (src/hooks/use-realtime-submission.ts:44-45)",
-        "Kanban drag optimistic update calls cancelQueries and rolls back precisely instead of whole-array (src/pages/flipdesk/pipeline.tsx:352-376)",
-        "Photo-reconcile commit no longer counts failed uploads, orphans drafts, or marks the session committed on partial success (src/hooks/use-reconcile-commit.ts:72,190-244)",
-        "useUpdateBlogPost stops caching the tag-less PATCH response so the next save doesn't wipe tags (src/hooks/use-content.ts:198-200)",
-        "useBulkPublish poll is bounded and cancels on unmount instead of for(;;) (src/hooks/use-autolister.ts:172-206)",
+        "Grade-completion realtime invalidates the REAL dashboard key ['dashboard-submissions'] (the old ['recent-submissions']/['dashboard-stats'] were phantoms no query used) (src/hooks/use-realtime-submission.ts:44-45)",
+        "Kanban drag optimistic update calls cancelQueries first and rolls back ONLY the dragged item (not the whole-array snapshot) so a concurrent drag isn't reverted (src/pages/flipdesk/pipeline.tsx)",
+        "Photo-reconcile: session marked committed ONLY when every cluster fully succeeded with zero skips (was: any ok cluster); a new draft with zero uploaded photos is deleted instead of orphaned (src/hooks/use-reconcile-commit.ts)",
+        "useUpdateBlogPost invalidates ['blog_post', id] instead of caching the tag-less PATCH response (which wiped tags on the next save) (src/hooks/use-content.ts:198-200)",
+        "useBulkPublish poll is bounded (~20 min) and cancels on unmount instead of for(;;) (src/hooks/use-autolister.ts:172-206)",
         "Record Sale surfaces the bulk listing-deactivation error instead of ignoring it (src/pages/inventory-detail.tsx:416-426)",
-        "Grade/status sort is server-side so it sorts globally, not just the current page (src/pages/submissions.tsx:257-312, inventory.tsx:216-236)",
-        "tsc -b clean, eslint clean, build green"
+        "Server-side sort (submissions/inventory grade sort) is split to US-1651"
       ],
       "relevantPaths": [
         "src/hooks/use-realtime-submission.ts",
@@ -11749,6 +11748,25 @@
         "services/edge-functions/src/lib/webhook-dead-letter.ts",
         "services/edge-functions/src/lib/google-play/expiry-sweep.ts",
         "supabase/migrations/"
+      ]
+    },
+    {
+      "id": "US-1651",
+      "title": "Web P2 · Server-side sort for the submissions & inventory lists (US-1633 follow-up)",
+      "description": "As a seller sorting my submissions/inventory by grade or status, I want the sort applied across ALL rows, not just the current page — the list presents it as a global sort but only reorders the page in view.",
+      "acceptanceCriteria": [
+        "Submissions list: sorting by overall_score (grade) orders across the whole result set server-side, not just the current page — via an embedded grade_reports select + foreign-table .order() (respecting the active-report superseded_at filter) rather than the current client-side merged.sort() (src/pages/submissions.tsx:257-312)",
+        "Inventory list: the same server-side sort fix for its grade/status sort (src/pages/inventory.tsx:216-236)",
+        "Submissions/inventory that lack a grade (no report yet) still appear and sort deterministically (nulls last); pagination + count stay correct under the new sort",
+        "VERIFY against the self-hosted prod PostgREST behavior for embedded-resource ordering + filtering (CLAUDE.md warns local/prod PostgREST diverge on some operators) before relying on it; add a note if a fallback is needed",
+        "tsc + eslint clean; build green"
+      ],
+      "priority": 2275,
+      "passes": false,
+      "notes": "[P2][Source: CODE_REVIEW_2026-07-04.md §Web P2] Split from US-1633. Needs an embedded grade_reports join + foreign-table ordering (PostgREST-version-sensitive — verify on prod's self-hosted PostgREST, not just the local stack). Lower priority than the cache/optimistic fixes since the mis-sort is cosmetic (wrong order within a page), not data-losing.",
+      "relevantPaths": [
+        "src/pages/submissions.tsx",
+        "src/pages/inventory.tsx"
       ]
     }
   ]

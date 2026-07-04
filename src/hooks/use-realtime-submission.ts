@@ -38,11 +38,14 @@ export function useRealtimeSubmissions() {
         (payload) => {
           const row = payload.new as SubmissionChange;
 
-          // Invalidate submission-related queries
+          // Invalidate submission-related queries. US-1633: the previous
+          // ["recent-submissions"] / ["dashboard-stats"] keys were phantoms — no
+          // query used them, so a grade completing never refreshed the
+          // dashboard. The real key is ["dashboard-submissions", userId]
+          // (prefix-matched here).
           queryClient.invalidateQueries({ queryKey: ["submissions"] });
           queryClient.invalidateQueries({ queryKey: ["submission", row.id] });
-          queryClient.invalidateQueries({ queryKey: ["recent-submissions"] });
-          queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
+          queryClient.invalidateQueries({ queryKey: ["dashboard-submissions"] });
 
           // Notify user on completion
           if (row.status === "completed") {
