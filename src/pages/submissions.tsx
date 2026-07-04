@@ -47,6 +47,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { csvBlob, downloadBlob } from "@/lib/download";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/hooks/use-auth";
 import { fetchInChunks } from "@/lib/supabase-batch";
 import {
   GARMENT_TYPES,
@@ -212,6 +213,7 @@ interface DisputeWithSubmission extends DisputeRow {
 
 export function SubmissionsPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [exporting, setExporting] = useState(false);
   const [page, setPage] = useState(0);
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -323,7 +325,7 @@ export function SubmissionsPage() {
     isFetching: disputesFetching,
     refetch: refetchDisputes,
   } = useQuery({
-    queryKey: ["my-disputes"],
+    queryKey: ["my-disputes", user?.id],
     queryFn: async () => {
       // Fetch all user disputes
       const { data: disputes, error: disputeError } = await supabase

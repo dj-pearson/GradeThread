@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { supabase } from "@/lib/supabase";
+import { queryClient } from "@/lib/query-client";
 import { useAuthStore } from "@/stores/auth-store";
 import { redeemStoredAffiliateRef } from "@/lib/affiliate";
 import { sendWelcomeEmailOnce } from "@/lib/welcome-email";
@@ -182,6 +183,12 @@ function initAuth() {
         }
       }
     } else {
+      // SIGNED_OUT: sign-out is SPA navigation (no full reload), so the
+      // TanStack Query cache would otherwise survive with the previous user's
+      // data (staleTime 5min). Clear it so the next person to sign in on a
+      // shared browser never sees user A's finances/submissions/disputes
+      // without a fresh fetch (US-1617 / C4).
+      queryClient.clear();
       s.reset();
     }
   });

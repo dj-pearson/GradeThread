@@ -11079,7 +11079,7 @@
       "title": "C4 · Clear the query cache on sign-out and user-key per-user queries (same-device exposure)",
       "description": "As a user on a shared browser, I want my finances/submissions/disputes gone the instant I sign out, so that the next person to sign in never sees my data from a stale cache.",
       "priority": 2597,
-      "passes": false,
+      "passes": true,
       "notes": "[Critical C4][P1 PII exposure][Source: CODE_REVIEW_2026-07-04.md §Critical] Sign-out is SPA navigation (no reload), only Zustand is reset, and dozens of per-user query keys omit the user id (['finances-dashboard',period], ['dashboard-submissions'], ['my-disputes'], ['ebay_payouts'], ['api-keys'], …). With staleTime 5min, user B is served user A's data without a refetch. Copy user-keying from use-consignors.ts.",
       "acceptanceCriteria": [
         "queryClient.clear() runs in the SIGNED_OUT branch of onAuthStateChange (src/hooks/use-auth.ts:184-186; queryClient in src/main.tsx:39)",

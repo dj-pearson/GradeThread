@@ -271,8 +271,13 @@ export interface EbayPayoutsResponse {
   payouts?: EbayPayout[];
 }
 export function useEbayPayouts(enabled = true) {
+  // Key on the active workspace owner (falling back to the user) so a
+  // workspace-switch or a new sign-in on a shared browser never serves the
+  // prior tenant's payouts from cache (US-1617 / US-1624).
+  const activeWorkspaceOwnerId = useAuthStore((s) => s.activeWorkspaceOwnerId);
+  const user = useAuthStore((s) => s.user);
   return useQuery({
-    queryKey: ["ebay_payouts"],
+    queryKey: ["ebay_payouts", activeWorkspaceOwnerId ?? user?.id],
     enabled,
     staleTime: 30 * 60_000,
     queryFn: async (): Promise<EbayPayoutsResponse> => {

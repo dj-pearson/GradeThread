@@ -260,7 +260,7 @@ export function DashboardPage() {
     isFetching,
     refetch,
   } = useQuery({
-    queryKey: ["dashboard-submissions"],
+    queryKey: ["dashboard-submissions", profile?.id],
     queryFn: async () => {
       // Fetch total submission count (US-949: exclude superseded retakes — they
       // are history, not active submissions).
