@@ -74,7 +74,29 @@
           wait_for_update: 500,
         });
         gtag("js", new Date());
-        gtag("config", "G-CMDWCFC275");
+
+        // US-1635: never send a single-use auth token (from the branded
+        // confirm/recovery email link) to GA. Redact token_hash / access_token /
+        // etc. from the page_location we report — the browser URL keeps the token
+        // so the auth page can still verify it; only the analytics copy is scrubbed.
+        var __gtLoc = location.href;
+        try {
+          var __gtUrl = new URL(__gtLoc);
+          var __gtDrop = ["token_hash", "access_token", "refresh_token", "token", "code", "otp", "recovery_token", "confirmation_token"];
+          var __gtChanged = false;
+          for (var __gtI = 0; __gtI < __gtDrop.length; __gtI++) {
+            if (__gtUrl.searchParams.has(__gtDrop[__gtI])) {
+              __gtUrl.searchParams.set(__gtDrop[__gtI], "redacted");
+              __gtChanged = true;
+            }
+          }
+          if (__gtUrl.hash && /(access_token|refresh_token|token_hash)=/.test(__gtUrl.hash)) {
+            __gtUrl.hash = "";
+            __gtChanged = true;
+          }
+          if (__gtChanged) __gtLoc = __gtUrl.toString();
+        } catch (e) { /* leave __gtLoc as-is */ }
+        gtag("config", "G-CMDWCFC275", { page_location: __gtLoc });
 
         // gtag.js (~154 KiB) off the critical path: load it once the page is
         // idle so it never competes with LCP. The consent defaults + config

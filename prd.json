@@ -11425,7 +11425,7 @@
       "title": "Web security · Keep auth tokens out of analytics; escape all PDF-export cells",
       "description": "As a user, I want my single-use auth tokens never captured by GA/PostHog and every export cell escaped, so that a still-valid token can't leak into analytics and marketplace-sourced text can't inject HTML.",
       "priority": 2272,
-      "passes": false,
+      "passes": true,
       "notes": "[P2+P3][Source: CODE_REVIEW_2026-07-04.md §Web auth/client security] Two web-security findings grouped.",
       "acceptanceCriteria": [
         "Strip auth params via history.replaceState before any pageview, and add PostHog before_send / GA redaction for /auth/* so token_hash/recovery tokens never reach analytics (src/pages/auth-confirm.tsx:50-52, reset-password.tsx:167; index.html:62-97 GA page_location; src/lib/analytics.ts:92-99 PostHog $current_url)",

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { csvBlob, downloadBlob } from "@/lib/download";
+import { escapeHtml } from "@/lib/escape-html";
 import { fetchFinancesExport, type FinExportTxn } from "@/lib/finances-dashboard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -132,14 +133,17 @@ function generatePdfHtml(
     ["Net Profit", formatCurrency(summary.netProfit)],
   ];
 
+  // US-1635: escape EVERY cell — previously only itemTitle was (partially)
+  // escaped, so marketplace-sourced platform/category went in raw (self-XSS
+  // when this HTML is document.write()'n into a same-origin window).
   const transactionRows = transactions.map(
     (t) => `<tr>
-      <td>${t.date}</td>
-      <td>${t.type}</td>
-      <td>${t.category}</td>
-      <td style="text-align:right">${formatCurrency(t.amount)}</td>
-      <td>${t.itemTitle.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</td>
-      <td>${t.platform}</td>
+      <td>${escapeHtml(t.date)}</td>
+      <td>${escapeHtml(t.type)}</td>
+      <td>${escapeHtml(t.category)}</td>
+      <td style="text-align:right">${escapeHtml(formatCurrency(t.amount))}</td>
+      <td>${escapeHtml(t.itemTitle)}</td>
+      <td>${escapeHtml(t.platform)}</td>
     </tr>`
   );
 
@@ -165,7 +169,7 @@ function generatePdfHtml(
 </head>
 <body>
   <h1>GradeThread Financial Report</h1>
-  <div class="period">${startDate} to ${endDate}</div>
+  <div class="period">${escapeHtml(startDate)} to ${escapeHtml(endDate)}</div>
 
   <h2>Summary</h2>
   <table class="summary-table">
