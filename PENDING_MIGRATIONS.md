@@ -54,6 +54,18 @@ safe even before this is applied; the backfill just makes OLD drafts whole.
 (boot guard expects 00348).
 
 
+## ⏳ HELD: 00352_measure_corrections.sql (US-1580, 2026-07-03)
+
+**What:** `measure_corrections` operator table (correction-delta telemetry:
+class/key/proposed/final/delta/confidence — no photo content; deny-all RLS,
+service-role only). Idempotent; self-records '00352'.
+
+**Risk: LOW** (new deny-all table). Client reads nothing; the editor posts to
+the edge (boot-guarded on 00352). Apply after 00351, then
+`NOTIFY pgrst, 'reload schema';`.
+
+---
+
 ## ⏳ HELD: 00351_measure_card_requests.sql (US-1579, 2026-07-03)
 
 **What:** `measure_card_requests` operator table (mailed-card fulfillment

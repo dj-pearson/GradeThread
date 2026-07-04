@@ -2,6 +2,33 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-07-03
 
+## 2026-07-03 — US-1580 (accuracy eval harness + correction telemetry) — passes:true — ⚠️ MIGRATION HELD
+
+"Never claim accuracy you haven't measured" now has teeth:
+- lib/measure-eval-stats.ts: percentile/summarize (per class+key: n, misses,
+  p50/p95/max abs error, SIGNED bias) + releaseGate (p50<=0.25in AND
+  p95<=0.5in AND zero misses; a single 1-in-40 outlier survives p95 by
+  design, 3+ blow it — tested both ways).
+- scripts/measure-eval.ts: manifest-driven golden-set runner — real
+  calibrate + extract (data-URL photos, one vision call per garment, not
+  tenant-billed), per-key table + gate verdict + honest-copy reminder;
+  exit code IS the gate.
+- Migration 00352: measure_corrections deny-all operator table (deltas/
+  class/confidence ONLY — no photo content) + rls-guard registration.
+- POST /api/flipdesk/measure/correction: plausibility-bounded (0<in<200),
+  owner-stamped, capped 20 rows, never billed, never user-visible-fails.
+- Editor: snapshots the auto pass's proposals at seed time; Save posts
+  proposal-vs-final deltas for touched ai_measured keys + fires
+  measure_correction_saved (PostHog track()). Telemetry is a PESSIMISTIC
+  bound (accepted proposals go unlogged) — documented.
+- Copy: editor hint, extract toast, and the tools page all say ESTIMATED
+  from photo / review before listing until the gate + 30-day telemetry says
+  otherwise — flipping copy is a recorded human decision per
+  MEASUREMENT_ACCURACY.md (capture protocol, SQL, threshold review).
+- SPLIT: the physical >=20-garment tape-measured capture is operator work →
+  NEW US-1582 [OPERATOR] (agents skip it; all code/docs shipped here).
+VERIFIED LOCALLY: verify:db green; edge 2620/0; tsc/eslint clean.
+
 ## 2026-07-03 — US-1579 (MeasureCard distribution + fulfillment queue) — passes:true — ⚠️ MIGRATION HELD
 
 The operational layer that puts cards in sellers' hands:

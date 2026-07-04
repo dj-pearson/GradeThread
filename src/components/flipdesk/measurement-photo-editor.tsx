@@ -21,6 +21,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { track } from "@/lib/analytics";
 import { useMeasurementPrefs } from "@/stores/measurement-prefs";
 import {
   MEASUREMENT_TEMPLATES,
@@ -106,6 +107,11 @@ export function MeasurementPhotoEditor({
   const [imgDims, setImgDims] = useState<[number, number] | null>(null);
   const [busy, setBusy] = useState<"calibrate" | "extract" | "save" | null>(null);
   const dragRef = useRef<EndpointHit | null>(null);
+  // US-1580: the auto pass's proposed inches per key, snapshotted at seed
+  // time, so Save can log proposal-vs-final correction deltas (telemetry).
+  const proposalRef = useRef<
+    Record<string, { inches: number; confidence: number | null; flagged: boolean }>
+  >({});
   const svgRef = useRef<SVGSVGElement>(null);
 
   // Seed lines from the stored calibration whenever the photo (re)loads.
@@ -113,9 +119,21 @@ export function MeasurementPhotoEditor({
     if (!calib) return;
     const stored = calib.lines ?? {};
     const seeded: EditorLine[] = [];
+    const proposals: typeof proposalRef.current = {};
     for (const [key, l] of Object.entries(stored)) {
       seeded.push({ key, label: l.label, e1: l.e1, e2: l.e2 });
+      const src = aiSources?.[`measurements.${key}`] as
+        | { source?: string; confidence?: number; flagged?: boolean }
+        | undefined;
+      if (src?.source === "ai_measured") {
+        proposals[key] = {
+          inches: l.inches,
+          confidence: typeof src.confidence === "number" ? src.confidence : null,
+          flagged: src.flagged === true,
+        };
+      }
     }
+    proposalRef.current = proposals;
     setLines(seeded);
     setTouched(new Set());
   }, [photo?.id, calib?.lines && JSON.stringify(Object.keys(calib.lines))]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -172,7 +190,7 @@ export function MeasurementPhotoEditor({
       await qc.invalidateQueries({ queryKey: ["measure_photo", itemId] });
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       toast.success(
-        `Auto-measured ${(json.measurements ?? []).length} measurement(s) — drag any line to correct it.`,
+        `Estimated ${(json.measurements ?? []).length} measurement(s) from the photo — review each line before listing.`,
       );
     } finally {
       setBusy(null);
@@ -222,6 +240,35 @@ export function MeasurementPhotoEditor({
           .eq("id", itemId);
         if (itemErr) throw itemErr;
         onApply(nextValues, touchedKeys);
+        // US-1580: correction telemetry — proposal vs final for keys the auto
+        // pass had measured. Deltas/class/confidence only; fire-and-forget.
+        const corrections = touchedKeys.flatMap((key) => {
+          const prop = proposalRef.current[key];
+          const finalV = Number(nextValues[key]);
+          if (!prop || !Number.isFinite(finalV)) return [];
+          return [{
+            key,
+            proposed: prop.inches,
+            final: finalV,
+            confidence: prop.confidence,
+            flagged: prop.flagged,
+          }];
+        });
+        if (corrections.length > 0) {
+          void edgeFetch("/api/flipdesk/measure/correction", {
+            method: "POST",
+            json: { garment_class: group, corrections },
+          }).catch(() => {});
+          track("measure_correction_saved", {
+            garment_class: group,
+            corrections: corrections.length,
+            mean_abs_delta:
+              corrections.reduce(
+                (sum, c) => sum + Math.abs(c.final - c.proposed),
+                0,
+              ) / corrections.length,
+          });
+        }
       }
       // 3) Refresh the buyer-facing overlay photo (best-effort).
       void edgeFetch("/api/flipdesk/measure/overlay", {
@@ -430,9 +477,10 @@ export function MeasurementPhotoEditor({
             </div>
           )}
           <p className="text-[11px] text-muted-foreground">
-            Drag the circles onto the garment; values are true inches from the
-            MeasureCard plane. Saving updates the item&apos;s measurements and
-            regenerates the buyer-facing measurements photo.
+            Drag the circles onto the garment. Values are estimated from the
+            photo via the MeasureCard — review each before listing. Saving
+            updates the item&apos;s measurements and regenerates the
+            buyer-facing measurements photo.
           </p>
         </>
       )}

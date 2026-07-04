@@ -804,3 +804,74 @@ flipdeskMeasureRoutes.post("/card-downloaded", async (c) => {
   }
   return c.json({ ok: true, card_version: version });
 });
+
+// US-1580: correction telemetry — the production evidence behind the word
+// "accurate". The overlay editor posts, per saved measurement that the auto
+// pass had proposed, the delta between proposal and the seller's final value.
+// Deltas/class/confidence ONLY (no photo content, no free text); rows land in
+// the deny-all measure_corrections operator table and are read via the
+// documented SQL in MEASUREMENT_ACCURACY.md. Fire-and-forget from the client;
+// never billed.
+flipdeskMeasureRoutes.post("/correction", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+
+  let body: {
+    garment_class?: unknown;
+    card_version?: unknown;
+    corrections?: unknown;
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const garmentClass = typeof body.garment_class === "string"
+    ? body.garment_class.slice(0, 40)
+    : "";
+  if (!garmentClass) return c.json({ error: "garment_class is required" }, 400);
+  const cardVersion = Number.isInteger(body.card_version)
+    ? (body.card_version as number)
+    : null;
+
+  const list = Array.isArray(body.corrections) ? body.corrections : [];
+  const rows: Array<Record<string, unknown>> = [];
+  const plausible = (v: number) => Number.isFinite(v) && v > 0 && v < 200;
+  for (const raw of list.slice(0, 20)) {
+    if (!raw || typeof raw !== "object") continue;
+    const o = raw as {
+      key?: unknown;
+      proposed?: unknown;
+      final?: unknown;
+      confidence?: unknown;
+      flagged?: unknown;
+    };
+    const key = typeof o.key === "string" ? o.key.slice(0, 40) : "";
+    const proposed = Number(o.proposed);
+    const final = Number(o.final);
+    if (!key || !plausible(proposed) || !plausible(final)) continue;
+    const confidence = Number(o.confidence);
+    rows.push({
+      owner_user_id: ownerId,
+      garment_class: garmentClass,
+      measurement_key: key,
+      proposed_inches: proposed,
+      final_inches: final,
+      delta_inches: Math.round((final - proposed) * 100) / 100,
+      confidence: Number.isFinite(confidence)
+        ? Math.max(0, Math.min(1, confidence))
+        : null,
+      was_flagged: o.flagged === true,
+      card_version: cardVersion,
+    });
+  }
+  if (rows.length === 0) return c.json({ ok: true, recorded: 0 });
+
+  const { error } = await supabaseAdmin
+    .from("measure_corrections")
+    .insert(rows as never);
+  if (error) {
+    console.error("[flipdesk-measure] correction telemetry failed:", error.message);
+    // Telemetry must never surface as a user-facing failure.
+  }
+  return c.json({ ok: true, recorded: rows.length });
+});

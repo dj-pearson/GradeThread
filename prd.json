@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1582,
+  "nextId": 1583,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -10179,7 +10179,7 @@
     {
       "id": "US-1580",
       "priority": 2382,
-      "passes": false,
+      "passes": true,
       "title": "Measurement accuracy eval harness + correction telemetry (earning the word accurate)",
       "description": "As GradeThread, before we market photo measurements as accurate we need to KNOW the error distribution: a golden set of tape-measured garments the pipeline runs against on demand, plus production telemetry on how far users drag the auto lines — which doubles as training data for a future dedicated landmark model.",
       "acceptanceCriteria": [
@@ -10189,7 +10189,7 @@
         "An admin view (or documented SQL) surfaces the correction-delta distribution per garment class so we can see which measurements the auto pass gets wrong",
         "Documented threshold review: when 30 days of telemetry shows p95 <= 0.5in for a class, that class's copy may drop estimated (a recorded human decision, not automatic)"
       ],
-      "notes": "Same philosophy as the grading golden set: never claim accuracy you have not measured. The correction telemetry is also the labeled dataset that would let a Phase-3 trained landmark model (HRNet-style) replace the VLM-propose step if volume justifies it."
+      "notes": "Same philosophy as the grading golden set: never claim accuracy you have not measured. The correction telemetry is also the labeled dataset that would let a Phase-3 trained landmark model (HRNet-style) replace the VLM-propose step if volume justifies it. BUILT 2026-07-03 (code+docs complete): lib/measure-eval-stats.ts (percentile/summarize/releaseGate p50<=0.25 p95<=0.5 zero-miss; 1-in-40 outlier survives p95 by design, 3+ blow it) + scripts/measure-eval.ts (manifest-driven, real calibrate+extract via data URLs, per-class/key stats + gate exit code) + migration 00352 measure_corrections (deny-all operator table, rls-guard registered) + POST /api/flipdesk/measure/correction (deltas/class/confidence only, plausibility-bounded, owner-stamped, never billed — source-guard tested) + editor telemetry (proposal snapshot at seed, deltas on save, measure_correction_saved PostHog via track()) + estimated-from-photo copy across editor/toast/tools page + MEASUREMENT_ACCURACY.md (capture protocol, gate, pessimistic-bound SQL caveat, recorded-human-decision threshold review). The PHYSICAL golden-set capture (>=20 tape-measured garments) is operator work — split to US-1582."
     },
     {
       "id": "US-1581",
@@ -10208,6 +10208,20 @@
         "Billing page usage card is verified against a real flow in a test: one metered action moves usage.ai_actions_used_this_month by exactly 1 (and a failed model call refunds it)"
       ],
       "notes": "User-observed (2026-07-03): 'when I do listings and leverage AI it does not count against my allotment.' Two compounding causes: (a) the leaks above — intake-time photo roles/QA/group-verify are exactly the flows a heavy lister touches (scout, on closer read, already metered atomically via raw rpc calls — now unified on the lib helpers); (b) operator accounts are super_admin (plan-feature gates bypass) on a high-cap plan, so even metered actions barely dent the number. Do NOT add a super_admin quota bypass — operators should see real counts. AI_ACTION_LIMITS: free 25 / starter 200 / pro 750 / business 2000; reserve_ai_action is migration 00087."
+    },
+    {
+      "id": "US-1582",
+      "title": "[OPERATOR] MeasureCard golden-set capture + first accuracy-gate run",
+      "description": "As the operator, I tape-measure >= 20 real garments across the class schema, photograph each with a MeasureCard, and run the US-1580 eval to get our first real accuracy verdict.",
+      "acceptanceCriteria": [
+        ">= 20 garments captured per the MEASUREMENT_ACCURACY.md section-2 protocol (>= 4 each: top, bottom, dress, outerwear), photos + manifest.json in private storage (never the repo or a public bucket)",
+        "scripts/measure-eval.ts run against the set; full output (per-key stats + gate verdict) recorded in progress.txt",
+        "If the gate FAILS: file follow-up stories for the worst class/key pairs (the bias column says whether the model reads long or short)",
+        "If the gate PASSES: keep the estimated copy anyway until 30 days of production telemetry agrees (MEASUREMENT_ACCURACY.md section 5) — record the decision either way"
+      ],
+      "priority": 60,
+      "passes": false,
+      "notes": "[HUMAN/OPERATOR TASK — not automatable from this host: requires physical garments, a tape measure, and a printed MeasureCard. Ralph/agents should SKIP this story. Split from US-1580 (all code/docs shipped there).] "
     }
   ]
 }

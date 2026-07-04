@@ -124,9 +124,10 @@ export function FlipdeskMeasureCardPage() {
           MeasureCard
         </h1>
         <p className="text-sm text-muted-foreground">
-          The calibration card that turns one flat-lay photo into true-inch
-          garment measurements — auto-extracted, drag-adjustable, and printed
-          onto a clean buyer-facing measurements photo.
+          The calibration card that turns one flat-lay photo into garment
+          measurements, estimated from the photo — auto-extracted,
+          drag-adjustable (review before listing), and printed onto a clean
+          buyer-facing measurements photo.
         </p>
       </div>
 
