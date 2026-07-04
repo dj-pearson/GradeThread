@@ -3,7 +3,7 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { claimWebhookEvent } from "../lib/webhook-idempotency.ts";
 import { classifyProduct } from "../lib/appstore/products.ts";
 import { computeUserUpdate, type UsersBillingUpdate } from "../lib/appstore/reconcile.ts";
-import { computeConsumableGrant } from "../lib/appstore/grant-decision.ts";
+import { computeConsumableGrant, isTransactionRevoked } from "../lib/appstore/grant-decision.ts";
 import { decideAppstorePrecedence } from "../lib/appstore/precedence.ts";
 import { routeNotification } from "../lib/appstore/notifications.ts";
 import { verifyNotification, verifyTransaction } from "../lib/appstore/verify.ts";
@@ -80,6 +80,29 @@ async function grantCredits(
   return (data as number | null) ?? null;
 }
 
+// US-1615 / C2: claw back the credits granted for a refunded/revoked consumable
+// pack — the Apple analogue of the Stripe pack-refund clawback (webhooks.ts
+// clawbackCreditPack). Reuses the SAME row-locked, zero-clamped, idempotent
+// revoke_grade_credits RPC, keyed on the Apple transactionId so a replayed
+// REFUND/REVOKE notification (or a re-presented refunded transaction) debits the
+// wallet exactly once. Throws on a DB error so the caller can fail closed and
+// let Apple retry (once the webhook release policy lands — US-1620 / C7).
+async function clawbackConsumable(
+  userId: string,
+  txn: DecodedTransactionLite,
+  credits: number,
+): Promise<void> {
+  if (credits <= 0) return;
+  const { error } = await supabaseAdmin.rpc("revoke_grade_credits", {
+    p_user_id: userId,
+    p_credits: credits,
+    p_stripe_payment_intent: null,
+    p_notes: `Apple refund reversal for txn ${txn.transactionId}`,
+    p_idempotency_key: `appstore:pack-refund:${txn.transactionId}`,
+  });
+  if (error) throw new Error(`revoke_grade_credits (appstore) failed: ${error.message}`);
+}
+
 /** Audit row reusing flipdesk_subscription_events (stripe_event_id namespaced). */
 async function recordAppstoreEvent(
   userId: string,
@@ -126,6 +149,14 @@ appstoreVerifyRoutes.post("/verify", async (c) => {
   } catch (e) {
     console.error("[appstore] verifyTransaction failed:", e);
     return c.json({ error: "Could not verify the transaction." }, 400);
+  }
+
+  // US-1615 / C2: never entitle an already-refunded/revoked transaction. Apple
+  // stamps revocationDate once a purchase is refunded or family-revoked; a
+  // client re-presenting such a JWS to /verify must not (re-)grant credits or a
+  // plan. Covers both consumables and subscriptions.
+  if (isTransactionRevoked(txn)) {
+    return c.json({ error: "TRANSACTION_REVOKED" }, 400);
   }
 
   // Defense in depth (audit 2026-06-24): the client stamps appAccountToken with
@@ -233,6 +264,11 @@ appstoreWebhookRoutes.post("/", async (c) => {
   if (mapping.kind === "consumable") {
     if (action === "consumable_grant") {
       await grantCredits(userId, txn, computeConsumableGrant(txn, mapping).credits);
+    } else if (action === "revoke") {
+      // REFUND/REVOKE of a credit pack — claw the granted credits back (US-1615
+      // / C2). Without this the consumable branch only ever granted, so a
+      // buy→refund kept the credits.
+      await clawbackConsumable(userId, txn, computeConsumableGrant(txn, mapping).credits);
     }
     return c.json({ ok: true });
   }

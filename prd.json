@@ -11040,7 +11040,7 @@
       "title": "C2 · Claw back Apple credit-pack credits on REFUND/REVOKE",
       "description": "As the platform operator, I want refunded or revoked Apple consumable credit-pack transactions to remove the granted credits, so that a buyer can't buy a pack, refund it, and keep the credits.",
       "priority": 2599,
-      "passes": false,
+      "passes": true,
       "notes": "[Critical C2][P0 revenue][Source: CODE_REVIEW_2026-07-04.md §Critical] The consumable branch only ever grants; there is no Apple analog of Stripe's clawbackCreditPack, and DecodedTransactionLite doesn't carry revocationDate so /verify will even grant an already-refunded transaction. Buy credits_100 → refund → keep credits, repeatable.",
       "acceptanceCriteria": [
         "Handle the Apple 'revoke' notification for consumables: an RPC keyed on transactionId that removes granted credits, clamped like revoke_grade_credits (services/edge-functions/src/lib/appstore/notifications.ts:29-31)",
