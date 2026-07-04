@@ -11445,7 +11445,7 @@
       "title": "Web P3 · Hardening batch (local dates, swallowed errors, object-URL leak, tax float, CSV injection)",
       "description": "As a user, I want date defaults in my local timezone, error states surfaced, leaked resources freed, exact tax sums, and CSV cells neutralized, so that edge cases don't corrupt records or the UI.",
       "priority": 2150,
-      "passes": false,
+      "passes": true,
       "notes": "[P3 batch][Source: CODE_REVIEW_2026-07-04.md §Web P3] Grouped hardening findings; each AC independently verifiable.",
       "acceptanceCriteria": [
         "Date-only defaults derive local Y/M/D (toLocaleDateString('en-CA')) instead of toISOString() UTC so evening users don't record tomorrow's date (src/pages/inventory-add.tsx:50-52, inventory-detail.tsx, submissions.tsx:165 — also add the superseded_at filter to the CSV export)",

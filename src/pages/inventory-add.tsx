@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { todayLocalDate } from "@/lib/local-date";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -49,7 +50,9 @@ function formatLabel(value: string): string {
 }
 
 function todayString(): string {
-  return new Date().toISOString().split("T")[0] ?? "";
+  // US-1636: local calendar day, not UTC — an evening user west of UTC would
+  // otherwise default to tomorrow's date and break tax-year / payout matching.
+  return todayLocalDate();
 }
 
 export function InventoryAddPage() {

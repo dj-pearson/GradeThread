@@ -331,15 +331,20 @@ export function DashboardPage() {
       // Cheap index-only count (head: no rows transferred) preserves the
       // FlipdeskPromoCard's "do they have ANY inventory yet?" gate, independent
       // of the active-only candidate query below.
-      const { count: totalItemCount } = await supabase
+      // US-1636: surface query failures instead of swallowing them into a
+      // wrong zero-state (an errored count/select would render "no inventory"
+      // and hide the promo/suggestions with no error UI).
+      const { count: totalItemCount, error: countError } = await supabase
         .from("inventory_items")
         .select("id", { count: "exact", head: true });
-      const { data: itemsRaw } = await supabase
+      if (countError) throw countError;
+      const { data: itemsRaw, error: itemsError } = await supabase
         .from("inventory_items")
         .select("id, status, title, submission_id")
         .not("status", "in", "(sold,shipped,completed,returned)")
         .order("created_at", { ascending: false })
         .limit(SUGGESTION_CANDIDATE_CAP);
+      if (itemsError) throw itemsError;
       const items = (itemsRaw ?? []) as unknown as InventoryItemRow[];
 
       const itemIds = items.map((i) => i.id);
@@ -378,11 +383,13 @@ export function DashboardPage() {
   const { data: passportData } = useQuery({
     queryKey: ["dashboard-passports"],
     queryFn: async () => {
-      const { data, count } = await supabase
+      const { data, count, error } = await supabase
         .from("garments")
         .select("public_passport_slug", { count: "exact" })
         .order("created_at", { ascending: false })
         .limit(1);
+      // US-1636: surface the failure rather than reporting zero passports.
+      if (error) throw error;
       const rows = (data ?? []) as unknown as Pick<GarmentRow, "public_passport_slug">[];
       return { count: count ?? 0, latestSlug: rows[0]?.public_passport_slug ?? null };
     },

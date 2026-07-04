@@ -1,4 +1,5 @@
 import { useCallback, useMemo } from "react";
+import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { queryClient } from "@/lib/query-client";
 import { useAuthStore, deriveActiveRole } from "@/stores/auth-store";
@@ -45,12 +46,18 @@ export function useWorkspace() {
       queryClient.clear();
       setActiveOwnerId(ownerId);
       if (user?.id) {
-        await supabase
+        // US-1636: the switch already applied client-side (cache cleared +
+        // active owner set). Surface a failed PERSISTENCE so the user knows the
+        // choice won't survive a reload, rather than swallowing the write error.
+        const { error } = await supabase
           .from("users")
           .update({
             active_workspace_owner_id: ownerId === user.id ? null : ownerId,
           } as never)
           .eq("id", user.id);
+        if (error) {
+          toast.error("Switched workspace, but couldn't save it as your default.");
+        }
       }
     },
     [user?.id, workspaceOwnerId, setActiveOwnerId],

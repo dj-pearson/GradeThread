@@ -30,6 +30,10 @@ export function useSellThroughForecast(params: {
       setForecast(null);
       return;
     }
+    // US-1636: guard against a stale in-flight response landing after the
+    // params changed — without this, a slow older request could resolve after a
+    // newer one and overwrite the forecast with data for the wrong price/query.
+    let cancelled = false;
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(async () => {
       setLoading(true);
@@ -40,14 +44,15 @@ export function useSellThroughForecast(params: {
           silentGate: true,
         });
         const data = (await res.json().catch(() => null)) as { forecast?: SellThroughForecast } | null;
-        setForecast(data?.forecast ?? null);
+        if (!cancelled) setForecast(data?.forecast ?? null);
       } catch {
-        setForecast(null);
+        if (!cancelled) setForecast(null);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }, 700);
     return () => {
+      cancelled = true;
       if (timer.current) clearTimeout(timer.current);
     };
   }, [enabled, brand, q, grade, priceCents]);

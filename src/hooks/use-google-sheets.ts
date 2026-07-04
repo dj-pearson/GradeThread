@@ -141,7 +141,13 @@ export function useSyncNow() {
     },
     onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ["google_connection"] });
+      // US-1636: a 2-way sync can push/pull item, listing and brand data — not
+      // just the raw inventory list — so the derived caches must refresh too or
+      // the page shows pre-sync values until they go stale.
       qc.invalidateQueries({ queryKey: ["inventory"] });
+      qc.invalidateQueries({ queryKey: ["items_full"] });
+      qc.invalidateQueries({ queryKey: ["inventory-listings"] });
+      qc.invalidateQueries({ queryKey: ["inventory-brands"] });
       if (result.skipped) {
         toast.info("A sync is already running — try again in a moment.");
         return;

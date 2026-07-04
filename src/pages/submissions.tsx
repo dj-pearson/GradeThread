@@ -46,6 +46,8 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { csvBlob, downloadBlob } from "@/lib/download";
+import { escapeCsvCell } from "@/lib/items-csv";
+import { todayLocalDate, toLocalDate } from "@/lib/local-date";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
 import { fetchInChunks } from "@/lib/supabase-batch";
@@ -83,13 +85,6 @@ function LoadingSkeleton() {
       ))}
     </div>
   );
-}
-
-function escapeCsvField(value: string): string {
-  if (value.includes(",") || value.includes('"') || value.includes("\n")) {
-    return `"${value.replace(/"/g, '""')}"`;
-  }
-  return value;
 }
 
 async function exportSubmissionsCsv() {
@@ -163,7 +158,7 @@ async function exportSubmissionsCsv() {
       ? `${window.location.origin}/cert/${grade.certificate_id}`
       : "";
 
-    const dateStr = new Date(sub.created_at).toISOString().slice(0, 10);
+    const dateStr = toLocalDate(sub.created_at);
     const fields: string[] = [
       dateStr,
       sub.title,
@@ -180,14 +175,14 @@ async function exportSubmissionsCsv() {
       grade ? grade.odor_cleanliness_score.toFixed(1) : "",
       certUrl,
     ];
-    return fields.map(escapeCsvField);
+    return fields.map(escapeCsvCell);
   });
 
   const csvContent = [headers.join(","), ...rows.map((r) => r.join(","))].join(
     "\n"
   );
 
-  const dateStr = new Date().toISOString().split("T")[0];
+  const dateStr = todayLocalDate();
   downloadBlob(csvBlob(csvContent), `gradethread_export_${dateStr}.csv`);
 }
 
@@ -341,10 +336,13 @@ export function SubmissionsPage() {
 
       // Fetch grade reports to get submission IDs
       const gradeReportIds = disputeRows.map((d) => d.grade_report_id);
-      const { data: gradeReports } = await supabase
+      const { data: gradeReports, error: grError } = await supabase
         .from("grade_reports")
         .select("id, submission_id")
         .in("id", gradeReportIds);
+      // US-1636: surface a join failure instead of silently dropping every
+      // dispute's item title (which read as "unknown item").
+      if (grError) throw grError;
 
       const gradeReportRows = (gradeReports ?? []) as Array<{
         id: string;
@@ -356,10 +354,11 @@ export function SubmissionsPage() {
 
       // Fetch submission titles
       const submissionIds = gradeReportRows.map((gr) => gr.submission_id);
-      const { data: subs } = await supabase
+      const { data: subs, error: subsError } = await supabase
         .from("submissions")
         .select("id, title")
         .in("id", submissionIds);
+      if (subsError) throw subsError;
 
       const subRows = (subs ?? []) as Array<{ id: string; title: string }>;
       const subMap = new Map(subRows.map((s) => [s.id, s.title]));

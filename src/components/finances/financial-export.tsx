@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { csvBlob, downloadBlob } from "@/lib/download";
+import { escapeCsvCell } from "@/lib/items-csv";
 import { escapeHtml } from "@/lib/escape-html";
 import { fetchFinancesExport, type FinExportTxn } from "@/lib/finances-dashboard";
 import { Button } from "@/components/ui/button";
@@ -15,12 +16,9 @@ import {
 import { Download, FileText, FileSpreadsheet, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 
-function escapeCsvField(value: string): string {
-  if (value.includes(",") || value.includes('"') || value.includes("\n")) {
-    return `"${value.replace(/"/g, '""')}"`;
-  }
-  return value;
-}
+// US-1636: CSV cells go through the shared escaper, which also neutralizes
+// spreadsheet formula injection (=/+/-/@) from marketplace-sourced text.
+const escapeCsvField = escapeCsvCell;
 
 function formatCurrency(value: number): string {
   return new Intl.NumberFormat("en-US", {

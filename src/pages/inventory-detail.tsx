@@ -57,6 +57,7 @@ import {
 } from "@/lib/constants";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { supabase } from "@/lib/supabase";
+import { todayLocalDate } from "@/lib/local-date";
 import { toast } from "sonner";
 import type {
   InventoryItemRow,
@@ -189,7 +190,7 @@ export function InventoryDetailPage() {
   const [saleListingId, setSaleListingId] = useState<string>("none");
   const [salePrice, setSalePrice] = useState("");
   const [salePlatformFees, setSalePlatformFees] = useState("");
-  const [saleDate, setSaleDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [saleDate, setSaleDate] = useState(() => todayLocalDate());
   const [saleBuyerUsername, setSaleBuyerUsername] = useState("");
 
   // Record Shipment dialog state
@@ -200,7 +201,7 @@ export function InventoryDetailPage() {
   const [shipmentTrackingNumber, setShipmentTrackingNumber] = useState("");
   const [shipmentCost, setShipmentCost] = useState("");
   const [shipmentLabelCost, setShipmentLabelCost] = useState("");
-  const [shipmentDate, setShipmentDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [shipmentDate, setShipmentDate] = useState(() => todayLocalDate());
   const [shipmentWeightOz, setShipmentWeightOz] = useState("");
   const [deliveringShipmentId, setDeliveringShipmentId] = useState<string | null>(null);
   const [gradeReport, setGradeReport] = useState<GradeReportRow | null>(null);
@@ -478,7 +479,7 @@ export function InventoryDetailPage() {
     setSaleListingId("none");
     setSalePrice("");
     setSalePlatformFees("");
-    setSaleDate(new Date().toISOString().split("T")[0]);
+    setSaleDate(todayLocalDate());
     setSaleBuyerUsername("");
     setRecordSaleOpen(false);
     setRecordSaleSubmitting(false);
@@ -552,7 +553,7 @@ export function InventoryDetailPage() {
     setShipmentTrackingNumber("");
     setShipmentCost("");
     setShipmentLabelCost("");
-    setShipmentDate(new Date().toISOString().split("T")[0]);
+    setShipmentDate(todayLocalDate());
     setShipmentWeightOz("");
     setRecordShipmentOpen(false);
     setRecordShipmentSubmitting(false);
@@ -564,7 +565,7 @@ export function InventoryDetailPage() {
     if (!item) return;
     setDeliveringShipmentId(shipment.id);
 
-    const today = new Date().toISOString().split("T")[0];
+    const today = todayLocalDate();
     const { error: updateError } = await supabase
       .from("shipments")
       .update({ delivery_date: today } as never)
