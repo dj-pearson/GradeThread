@@ -11134,7 +11134,7 @@
       "title": "C7 · Don't permanently lose an App Store webhook event on handler failure",
       "description": "As the platform operator, I want a transient failure while processing an App Store notification to release the idempotency claim, so that Apple's retry actually reprocesses a REFUND/EXPIRED instead of hitting a duplicate no-op.",
       "priority": 2594,
-      "passes": false,
+      "passes": true,
       "notes": "[Critical C7][P1 revenue][Source: CODE_REVIEW_2026-07-04.md §Critical] appstore.ts:216-257 takes the idempotency claim before side-effects, but a handler throw isn't caught, the claim is never released, and Apple's retry hits 'duplicate' → 200 no-op. A transient DB blip during REFUND/EXPIRED leaves the user with paid entitlement. Copy the Stripe route's dead-letter policy.",
       "acceptanceCriteria": [
         "Wrap dispatch in the same transient-release / dead-letter policy the Stripe route uses (failIfDbError + releaseWebhookEvent) — services/edge-functions/src/routes/appstore.ts:216-257",

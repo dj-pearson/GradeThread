@@ -1,6 +1,12 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
-import { claimWebhookEvent } from "../lib/webhook-idempotency.ts";
+import {
+  claimWebhookEvent,
+  failIfDbError,
+  isTransientWebhookError,
+  releaseWebhookEvent,
+} from "../lib/webhook-idempotency.ts";
+import { recordWebhookDeadLetter } from "../lib/webhook-dead-letter.ts";
 import { classifyProduct } from "../lib/appstore/products.ts";
 import { computeUserUpdate, type UsersBillingUpdate } from "../lib/appstore/reconcile.ts";
 import { computeConsumableGrant, isTransactionRevoked } from "../lib/appstore/grant-decision.ts";
@@ -61,7 +67,10 @@ async function resolveUserId(txn: DecodedTransactionLite): Promise<string | null
 
 async function applySubscription(userId: string, update: UsersBillingUpdate): Promise<void> {
   const { error } = await supabaseAdmin.from("users").update(update).eq("id", userId);
-  if (error) throw new Error(`appstore subscription update failed: ${error.message}`);
+  // US-1620 / C7: a TRANSIENT DB error must surface as a TransientWebhookError so
+  // the webhook dispatcher releases the claim and Apple retries (rather than
+  // dropping the entitlement change with a swallowed 200).
+  failIfDbError(error, `appstore subscription update for user ${userId}`);
 }
 
 async function grantCredits(
@@ -76,7 +85,8 @@ async function grantCredits(
     p_original_transaction_id: txn.originalTransactionId,
     p_product_id: txn.productId,
   });
-  if (error) throw new Error(`grant_appstore_credits failed: ${error.message}`);
+  // US-1620 / C7: classify a DB error as transient so the webhook retries.
+  failIfDbError(error, `grant_appstore_credits for user ${userId}`);
   return (data as number | null) ?? null;
 }
 
@@ -100,7 +110,9 @@ async function clawbackConsumable(
     p_notes: `Apple refund reversal for txn ${txn.transactionId}`,
     p_idempotency_key: `appstore:pack-refund:${txn.transactionId}`,
   });
-  if (error) throw new Error(`revoke_grade_credits (appstore) failed: ${error.message}`);
+  // US-1620 / C7: classify a DB error as transient so the webhook retries and
+  // the refund clawback isn't silently dropped.
+  failIfDbError(error, `revoke_grade_credits (appstore) for user ${userId}`);
 }
 
 /** Audit row reusing flipdesk_subscription_events (stripe_event_id namespaced). */
@@ -248,47 +260,79 @@ appstoreWebhookRoutes.post("/", async (c) => {
   if (claim === "duplicate") return c.json({ ok: true });
   if (claim === "error") return c.json({ error: "claim failed" }, 500);
 
-  const action = routeNotification(note.notificationType, note.subtype);
-  const txn = note.transaction;
-  if (action === "ignore" || !txn) return c.json({ ok: true });
+  // US-1620 / C7: the claim is taken BEFORE side effects, so a handler failure
+  // must either release the claim (transient DB blip → Apple's retry
+  // reprocesses) or durably dead-letter (code bug → don't storm). Without this a
+  // transient failure during a REFUND/EXPIRED left the claim in place, so Apple's
+  // retry hit "duplicate" → 200 no-op and the user kept paid entitlement. Mirrors
+  // the Stripe route's transient-release / dead-letter policy (US-397/US-772).
+  try {
+    const action = routeNotification(note.notificationType, note.subtype);
+    const txn = note.transaction;
+    if (action === "ignore" || !txn) return c.json({ ok: true });
 
-  const mapping = classifyProduct(txn.productId);
-  if (!mapping) return c.json({ ok: true });
+    const mapping = classifyProduct(txn.productId);
+    if (!mapping) return c.json({ ok: true });
 
-  const userId = await resolveUserId(txn);
-  if (!userId) {
-    console.error(`[appstore] webhook: no user for txn ${txn.originalTransactionId}`);
-    return c.json({ ok: true });
-  }
-
-  if (mapping.kind === "consumable") {
-    if (action === "consumable_grant") {
-      await grantCredits(userId, txn, computeConsumableGrant(txn, mapping).credits);
-    } else if (action === "revoke") {
-      // REFUND/REVOKE of a credit pack — claw the granted credits back (US-1615
-      // / C2). Without this the consumable branch only ever granted, so a
-      // buy→refund kept the credits.
-      await clawbackConsumable(userId, txn, computeConsumableGrant(txn, mapping).credits);
+    const userId = await resolveUserId(txn);
+    if (!userId) {
+      console.error(`[appstore] webhook: no user for txn ${txn.originalTransactionId}`);
+      return c.json({ ok: true });
     }
+
+    if (mapping.kind === "consumable") {
+      if (action === "consumable_grant") {
+        await grantCredits(userId, txn, computeConsumableGrant(txn, mapping).credits);
+      } else if (action === "revoke") {
+        // REFUND/REVOKE of a credit pack — claw the granted credits back (US-1615
+        // / C2). Without this the consumable branch only ever granted, so a
+        // buy→refund kept the credits.
+        await clawbackConsumable(userId, txn, computeConsumableGrant(txn, mapping).credits);
+      }
+      return c.json({ ok: true });
+    }
+
+    const user = await loadBillingUser(userId);
+    const update = computeUserUpdate({
+      mapping,
+      txn,
+      renewal: note.renewal,
+      action,
+      now: Date.now(),
+    });
+    await applySubscription(userId, update);
+    await recordAppstoreEvent(
+      userId,
+      note.notificationType,
+      note.notificationUUID,
+      user?.flipdesk_plan ?? null,
+      update.flipdesk_plan,
+      { subtype: note.subtype },
+    );
+    return c.json({ ok: true });
+  } catch (err) {
+    const eventId = note.notificationUUID;
+    const eventType = note.notificationType;
+    if (isTransientWebhookError(err)) {
+      // Release so Apple's retry re-processes (side effects are idempotent:
+      // grants key on transactionId, clawbacks on appstore:pack-refund:<txnId>).
+      await releaseWebhookEvent("appstore", eventId);
+      console.error(
+        `[appstore] transient failure on ${eventType} (${eventId}): ${err.message} — released claim, Apple will retry`,
+      );
+      return c.json({ error: "Temporary error processing event; please retry." }, 500);
+    }
+    // Non-transient (code bug) — a retry can't fix it. Durably dead-letter BEFORE
+    // the 200 so the dropped event can never vanish with only a console line.
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[appstore] DROPPED ${eventType} (${eventId}) — non-transient: ${message}`);
+    await recordWebhookDeadLetter({
+      provider: "appstore",
+      eventId,
+      eventType,
+      payload: note,
+      errorMessage: message,
+    });
     return c.json({ ok: true });
   }
-
-  const user = await loadBillingUser(userId);
-  const update = computeUserUpdate({
-    mapping,
-    txn,
-    renewal: note.renewal,
-    action,
-    now: Date.now(),
-  });
-  await applySubscription(userId, update);
-  await recordAppstoreEvent(
-    userId,
-    note.notificationType,
-    note.notificationUUID,
-    user?.flipdesk_plan ?? null,
-    update.flipdesk_plan,
-    { subtype: note.subtype },
-  );
-  return c.json({ ok: true });
 });
