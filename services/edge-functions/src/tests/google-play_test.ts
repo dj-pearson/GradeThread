@@ -103,12 +103,21 @@ function fakeDeps(opts: {
   user?: GooglePlayBillingUser | null;
   info?: PlayPurchaseInfo;
   alreadyProcessed?: boolean;
+  /** userId currently holding the subscription token (null = unbound). */
+  tokenOwner?: string | null;
 }): { deps: GooglePlayDeps; rec: Rec } {
   const rec: Rec = { applied: [], claims: 0, grants: [], events: 0 };
   const deps: GooglePlayDeps = {
     verifyPurchase: () =>
       Promise.resolve(
-        opts.info ?? { valid: true, orderId: "GPA.x", expiryMillis: null, autoRenewing: false },
+        opts.info ??
+          {
+            valid: true,
+            orderId: "GPA.x",
+            expiryMillis: null,
+            autoRenewing: false,
+            obfuscatedExternalAccountId: null,
+          },
       ),
     loadBillingUser: () =>
       Promise.resolve(
@@ -116,6 +125,7 @@ function fakeDeps(opts: {
           ? { flipdesk_plan: "free", subscription_status: "none", billing_source: null, grade_credit_balance: 5 }
           : opts.user,
       ),
+    findSubscriptionTokenOwner: () => Promise.resolve(opts.tokenOwner ?? null),
     applySubscription: (_u, update) => {
       rec.applied.push(update);
       return Promise.resolve();
@@ -176,7 +186,13 @@ Deno.test("orchestration: active Stripe sub blocks a Play subscription", async (
 
 Deno.test("orchestration: invalid purchase → rejected, nothing granted", async () => {
   const { deps, rec } = fakeDeps({
-    info: { valid: false, orderId: null, expiryMillis: null, autoRenewing: false },
+    info: {
+      valid: false,
+      orderId: null,
+      expiryMillis: null,
+      autoRenewing: false,
+      obfuscatedExternalAccountId: null,
+    },
   });
   const r = await processGooglePlayPurchase(
     { userId: "u1", productId: "credits_10", purchaseToken: "t" },
@@ -190,7 +206,13 @@ Deno.test("orchestration: invalid purchase → rejected, nothing granted", async
 
 Deno.test("orchestration: valid subscription → plan applied + event recorded", async () => {
   const { deps, rec } = fakeDeps({
-    info: { valid: true, orderId: "GPA.s", expiryMillis: NOW + 86_400_000, autoRenewing: true },
+    info: {
+      valid: true,
+      orderId: "GPA.s",
+      expiryMillis: NOW + 86_400_000,
+      autoRenewing: true,
+      obfuscatedExternalAccountId: null,
+    },
   });
   const r = await processGooglePlayPurchase(
     { userId: "u1", productId: "flipdesk_business_yearly", purchaseToken: "tok" },
@@ -203,6 +225,98 @@ Deno.test("orchestration: valid subscription → plan applied + event recorded",
   assertEquals(r.interval, "yearly");
   assertEquals(rec.applied.length, 1);
   assertEquals(rec.events, 1);
+});
+
+// ── Account binding (US-1614) ───────────────────────────────────────
+
+Deno.test("parseSubscriptionV2 / parseProductPurchase surface obfuscatedExternalAccountId", () => {
+  const sub = parseSubscriptionV2({
+    subscriptionState: "SUBSCRIPTION_STATE_ACTIVE",
+    externalAccountIdentifiers: { obfuscatedExternalAccountId: "user-abc" },
+    lineItems: [{ expiryTime: "2026-08-01T00:00:00Z" }],
+  });
+  assertEquals(sub.obfuscatedExternalAccountId, "user-abc");
+  const prod = parseProductPurchase({
+    purchaseState: 0,
+    orderId: "GPA.9",
+    obfuscatedExternalAccountId: "user-xyz",
+  });
+  assertEquals(prod.obfuscatedExternalAccountId, "user-xyz");
+  // Absent → null (older clients).
+  assertEquals(parseProductPurchase({ purchaseState: 0 }).obfuscatedExternalAccountId, null);
+});
+
+Deno.test("binding: obfuscatedExternalAccountId for another user → account_mismatch, no grant", async () => {
+  const { deps, rec } = fakeDeps({
+    info: {
+      valid: true,
+      orderId: "GPA.s",
+      expiryMillis: NOW + 86_400_000,
+      autoRenewing: true,
+      obfuscatedExternalAccountId: "someone-else",
+    },
+  });
+  const r = await processGooglePlayPurchase(
+    { userId: "u1", productId: "flipdesk_pro_monthly", purchaseToken: "tok" },
+    deps,
+    NOW,
+  );
+  assert(!r.ok);
+  assertEquals(r.reason, "account_mismatch");
+  assertEquals(rec.applied.length, 0);
+  assertEquals(rec.grants.length, 0);
+});
+
+Deno.test("binding: matching obfuscatedExternalAccountId → entitles the caller", async () => {
+  const { deps, rec } = fakeDeps({
+    info: {
+      valid: true,
+      orderId: "GPA.s",
+      expiryMillis: NOW + 86_400_000,
+      autoRenewing: true,
+      obfuscatedExternalAccountId: "u1",
+    },
+  });
+  const r = await processGooglePlayPurchase(
+    { userId: "u1", productId: "flipdesk_pro_monthly", purchaseToken: "tok" },
+    deps,
+    NOW,
+  );
+  assert(r.ok);
+  assertEquals(r.plan, "pro");
+  assertEquals(rec.applied.length, 1);
+});
+
+Deno.test("binding: subscription token already owned by another user → account_mismatch", async () => {
+  const { deps, rec } = fakeDeps({ tokenOwner: "other-user" });
+  const r = await processGooglePlayPurchase(
+    { userId: "u1", productId: "flipdesk_pro_monthly", purchaseToken: "shared-tok" },
+    deps,
+    NOW,
+  );
+  assert(!r.ok);
+  assertEquals(r.reason, "account_mismatch");
+  assertEquals(rec.applied.length, 0);
+});
+
+Deno.test("binding: same-user re-verify (owner === caller) → renews normally", async () => {
+  const { deps, rec } = fakeDeps({
+    tokenOwner: "u1",
+    info: {
+      valid: true,
+      orderId: "GPA.s",
+      expiryMillis: NOW + 86_400_000,
+      autoRenewing: true,
+      obfuscatedExternalAccountId: null,
+    },
+  });
+  const r = await processGooglePlayPurchase(
+    { userId: "u1", productId: "flipdesk_pro_monthly", purchaseToken: "tok" },
+    deps,
+    NOW,
+  );
+  assert(r.ok);
+  assertEquals(rec.applied.length, 1);
 });
 
 Deno.test("orchestration: valid consumable (new) → credits granted exactly once", async () => {

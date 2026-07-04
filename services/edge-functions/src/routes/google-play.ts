@@ -37,6 +37,18 @@ const deps: GooglePlayDeps = {
     return (data as GooglePlayBillingUser | null) ?? null;
   },
 
+  findSubscriptionTokenOwner: async (purchaseToken) => {
+    // Who currently holds this Play subscription token? A row means the token is
+    // already bound to that account (US-1614). Scoped by the token itself, which
+    // is unique via idx_users_google_purchase_token.
+    const { data } = await supabaseAdmin
+      .from("users")
+      .select("id")
+      .eq("google_purchase_token", purchaseToken)
+      .maybeSingle();
+    return (data as { id: string } | null)?.id ?? null;
+  },
+
   applySubscription: async (userId, update: GoogleUsersBillingUpdate) => {
     const { error } = await supabaseAdmin.from("users").update(update).eq("id", userId);
     if (error) throw new Error(`google play subscription update failed: ${error.message}`);
@@ -133,6 +145,10 @@ googlePlayVerifyRoutes.post("/verify", async (c) => {
           { error: "ACTIVE_STRIPE_SUBSCRIPTION", action: "cancel_stripe_first" },
           409,
         );
+      case "account_mismatch":
+        // The purchase belongs to a different account (obfuscated id mismatch or
+        // the token is already claimed elsewhere) — never entitle the caller.
+        return c.json({ error: "PURCHASE_NOT_OWNED_BY_ACCOUNT" }, 403);
       case "invalid_purchase":
       default:
         return c.json({ error: "INVALID_PURCHASE" }, 400);

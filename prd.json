@@ -11022,7 +11022,7 @@
       "title": "C1 · Bind Google Play subscription tokens to one account (stop unlimited-account entitlement)",
       "description": "As the platform operator, I want a Google Play subscription purchase token to entitle exactly one account, so that a single purchase can't be shared to grant Business to N accounts.",
       "priority": 2600,
-      "passes": false,
+      "passes": true,
       "notes": "[Critical C1][P0 fraud/revenue][Source: CODE_REVIEW_2026-07-04.md §Critical] Unlike the App Store path, Play subscription verify only checks token validity with Google then entitles whoever calls; no obfuscatedExternalAccountId binding and users.google_purchase_token has no unique constraint. One purchase → share purchaseToken → N Business accounts, re-verifiable monthly.",
       "acceptanceCriteria": [
         "Stamp obfuscatedExternalAccountId = userId at purchase time and require it to match the caller in the Play subscription verify (services/edge-functions/src/lib/google-play/verify.ts:206-233)",

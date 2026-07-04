@@ -1,5 +1,26 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00353_google_purchase_token_unique.sql (US-1614 / C1, 2026-07-04)
+
+**What:** a partial unique index
+`idx_users_google_purchase_token ON users(google_purchase_token) WHERE google_purchase_token IS NOT NULL`.
+The DB backstop for binding a Google Play subscription purchaseToken to exactly
+one account (the edge verify path now also requires a matching
+`obfuscatedExternalAccountId` and refuses a token already claimed on another
+user's row).
+
+Idempotent (`CREATE UNIQUE INDEX IF NOT EXISTS`); self-records '00353'.
+
+**Risk: LOW — no client-side reads of new schema.** Purely an index; no column
+or view change. Edge boot guard expects 00353.
+
+**⚠️ Apply caveat:** if prod already has duplicate `google_purchase_token`
+values (the C1 exploit was used before this shipped), the index creation will
+FAIL — that's the correct signal to investigate/de-dupe first. Google Play
+billing is pre-launch, so no legitimate duplicates are expected. No
+`NOTIFY pgrst` needed (no schema surface change), but redeploy the edge so its
+boot guard matches 00353.
+
 ## ⏳ HELD: 00349_draft_review_lifecycle.sql (US-1568/US-1569, 2026-07-03)
 
 **What:** two changes in one transaction:
