@@ -11515,7 +11515,7 @@
       "title": "Edge · Close tenant-isolation test-coverage gaps and generalize the deny-by-default guard",
       "description": "As the security owner, I want a cross-tenant rejection case per route and a router-agnostic auth guard, so that the US-268 mandate is enforced and a new router that forgets auth can't ship uncaught.",
       "priority": 2146,
-      "passes": false,
+      "passes": true,
       "notes": "[Test coverage][Source: CODE_REVIEW_2026-07-04.md §Edge tenant isolation] workspace.ts (the C3 role-authz surface) has ZERO cases. LOAD the tenant-isolation skill first.",
       "acceptanceCriteria": [
         "Add tenant-isolation_test.ts cross-tenant/role rejection cases for workspace.ts (currently zero), notifications.ts, verified.ts, and passport.ts tags/:tagId/revoke",
