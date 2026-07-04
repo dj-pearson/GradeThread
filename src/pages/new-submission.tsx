@@ -530,16 +530,18 @@ export function NewSubmissionPage() {
   // Non-fatal: the submission stands on its own if linking fails.
   async function linkInventoryItem(submissionId: string) {
     if (!linkedItem) return;
-    try {
-      const updates: Record<string, unknown> = { submission_id: submissionId };
-      if (PRE_GRADE_STATUSES.has(linkedItem.status)) {
-        updates.status = "grading";
-      }
-      await supabase
-        .from("inventory_items")
-        .update(updates as never)
-        .eq("id", linkedItem.id);
-    } catch {
+    const updates: Record<string, unknown> = { submission_id: submissionId };
+    if (PRE_GRADE_STATUSES.has(linkedItem.status)) {
+      updates.status = "grading";
+    }
+    // US-1632: supabase-js returns { error }, it does NOT throw — so the old
+    // try/catch never fired and a failed link was silent (the warning was dead
+    // code). Read the error and surface it.
+    const { error } = await supabase
+      .from("inventory_items")
+      .update(updates as never)
+      .eq("id", linkedItem.id);
+    if (error) {
       toast.warning(
         "Submission created, but linking to the inventory item failed."
       );
@@ -630,7 +632,9 @@ export function NewSubmissionPage() {
         body: formData,
       });
 
-      const result = await response.json();
+      // US-1632: guard .json() — an HTML 502 from an infra blip isn't JSON and
+      // would otherwise throw a confusing SyntaxError instead of a clear error.
+      const result = await response.json().catch(() => ({}));
 
       if (!response.ok) {
         const message = result.error || "Submission failed";

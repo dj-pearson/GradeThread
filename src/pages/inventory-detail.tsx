@@ -209,6 +209,9 @@ export function InventoryDetailPage() {
 
   useEffect(() => {
     if (!id) return;
+    // US-1632: guard against an A→B navigation race so the old id's async
+    // continuations never write over the new item's page.
+    let cancelled = false;
 
     async function fetchData() {
       setLoading(true);
@@ -221,6 +224,7 @@ export function InventoryDetailPage() {
         .eq("id", id!)
         .single();
 
+      if (cancelled) return;
       if (itemError || !itemData) {
         setError("Inventory item not found.");
         setLoading(false);
@@ -235,6 +239,7 @@ export function InventoryDetailPage() {
         .eq("inventory_item_id", id!)
         .order("listed_at", { ascending: false });
 
+      if (cancelled) return;
       setListings((listingsRaw ?? []) as ListingRow[]);
 
       // Fetch sales
@@ -244,6 +249,7 @@ export function InventoryDetailPage() {
         .eq("inventory_item_id", id!)
         .order("sale_date", { ascending: false });
 
+      if (cancelled) return;
       setSales((salesRaw ?? []) as SaleRow[]);
 
       // Fetch shipments for all sales
@@ -256,17 +262,20 @@ export function InventoryDetailPage() {
           .in("sale_id", saleIds)
           .order("ship_date", { ascending: false });
 
+        if (cancelled) return;
         setShipments((shipmentsRaw ?? []) as ShipmentRow[]);
       }
 
-      // Fetch grade report if available
+      // Fetch grade report if available (US-1632: .maybeSingle() so a dangling
+      // grade_report_id doesn't error).
       const currentItem = itemData as InventoryItemRow;
       if (currentItem.grade_report_id) {
         const { data: gradeData } = await supabase
           .from("grade_reports")
           .select("*")
           .eq("id", currentItem.grade_report_id)
-          .single();
+          .maybeSingle();
+        if (cancelled) return;
         if (gradeData) {
           setGradeReport(gradeData as GradeReportRow);
         }
@@ -277,17 +286,22 @@ export function InventoryDetailPage() {
         .from("inventory_items")
         .select("*")
         .eq("user_id", currentItem.user_id);
+      if (cancelled) return;
       setAllUserItems((userItemsRaw ?? []) as InventoryItemRow[]);
 
       const { data: userSalesRaw } = await supabase
         .from("sales")
         .select("*");
+      if (cancelled) return;
       setAllUserSales((userSalesRaw ?? []) as SaleRow[]);
 
       setLoading(false);
     }
 
     fetchData();
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
 
   async function handleStatusUpdate(newStatus: string) {

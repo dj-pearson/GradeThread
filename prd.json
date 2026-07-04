@@ -11350,7 +11350,7 @@
       "title": "Web P2 · Detail-page fetch robustness (cancellation, swallowed errors, dispute .maybeSingle, token refresh)",
       "description": "As a user navigating detail pages, I want fetches to cancel on navigation, surface real errors, and not mistreat the normal zero-dispute case, so that I don't see 'Pending' forever or mid-batch 401s.",
       "priority": 2278,
-      "passes": false,
+      "passes": true,
       "notes": "[P2 batch][Source: CODE_REVIEW_2026-07-04.md §Web P2] Cluster of data-fetch robustness bugs across detail pages and bulk submission.",
       "acceptanceCriteria": [
         "submission-detail fetch: add a cancellation flag + reset on id change, check every Supabase error (five are swallowed), and use .maybeSingle() for the zero-dispute case (src/pages/submission-detail.tsx:304-393); apply the same to inventory-detail.tsx and certificate.tsx",
