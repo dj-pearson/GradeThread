@@ -52,6 +52,8 @@ struct ShareIntakeView: View {
         "defect1", "defect2", "defect3",
         "tag_2", "detail_2", "detail_3", "detail_4",
         "interior", "flatlay", "on_model",
+        // US-1571: the MeasureCard calibration-frame tag.
+        "measurement",
         "angle", "sole", "marking", "serial", "accessory",
         "certificate", "corner", "surface",
     ]
@@ -72,6 +74,7 @@ struct ShareIntakeView: View {
         case "interior": return "Interior"
         case "flatlay":  return "Flat lay"
         case "on_model": return "On model"
+        case "measurement": return "Measurement card"
         case "angle":       return "Angle / Profile"
         case "sole":        return "Sole"
         case "marking":     return "Markings"

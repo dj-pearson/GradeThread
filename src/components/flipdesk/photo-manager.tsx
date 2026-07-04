@@ -30,6 +30,7 @@ import { FLIPDESK_PHOTO_TYPES, PHOTO_TYPE_LABELS } from "@/lib/constants";
 import { PhotoEditorDialog } from "@/components/flipdesk/photo-editor-dialog";
 import { useRemoveBackground, useRemoveBgCapability } from "@/hooks/use-remove-bg";
 import { itemPhotoThumb } from "@/lib/images";
+import { persistRetag, persistDelete } from "@/lib/photo-mutations";
 import { useEbayReviseListing } from "@/hooks/use-ebay";
 import { cn } from "@/lib/utils";
 import type {
@@ -66,45 +67,6 @@ interface PhotoManagerProps {
    *  the current primary. Omit for surfaces where position 0 is the cover. */
   primaryPhotoId?: string | null;
   onPickPrimary?: (photoId: string) => void;
-}
-
-// US-1567 AC5: the retag/delete network round-trips, extracted behind a
-// minimal client shape so tests drive them through a mocked seam. The
-// component wrappers add the dirty flag + cache invalidation + toasts.
-export interface PhotoMutationClient {
-  // PromiseLike, not Promise: supabase-js query builders are thenables.
-  from(table: string): {
-    update(patch: unknown): {
-      eq(col: string, v: string): PromiseLike<{ error: unknown }>;
-    };
-    delete(): { eq(col: string, v: string): PromiseLike<{ error: unknown }> };
-  };
-  storage: {
-    from(bucket: string): { remove(paths: string[]): PromiseLike<unknown> };
-  };
-}
-
-export async function persistRetag(
-  client: PhotoMutationClient,
-  photo: Pick<ItemPhotoRow, "id">,
-  photoType: FlipdeskPhotoType,
-): Promise<void> {
-  const { error } = await client
-    .from("item_photos")
-    .update({ photo_type: photoType } as never)
-    .eq("id", photo.id);
-  if (error) throw error;
-}
-
-export async function persistDelete(
-  client: PhotoMutationClient,
-  photo: Pick<ItemPhotoRow, "id" | "storage_path">,
-): Promise<void> {
-  if (photo.storage_path) {
-    await client.storage.from("item-photos").remove([photo.storage_path]);
-  }
-  const { error } = await client.from("item_photos").delete().eq("id", photo.id);
-  if (error) throw error;
 }
 
 export function PhotoManager({

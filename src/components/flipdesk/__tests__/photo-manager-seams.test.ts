@@ -9,7 +9,7 @@ import {
   persistRetag,
   persistDelete,
   type PhotoMutationClient,
-} from "@/components/flipdesk/photo-manager";
+} from "@/lib/photo-mutations";
 
 interface Call {
   kind: string;

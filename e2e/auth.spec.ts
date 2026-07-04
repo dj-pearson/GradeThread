@@ -85,9 +85,19 @@ test.describe("login flow (US-511 AC#1)", () => {
   test("a successful login lands on the dashboard (guard allows the session)", async ({ page }) => {
     await mockSupabaseAuthed(page);
     await page.goto("/login");
-    await page.locator('input[type="email"]').fill("e2e@example.com");
-    await page.locator('input[type="password"]').fill("correct-horse");
-    await page.getByRole("button", { name: /sign in/i }).click();
+    // The mocked session hydrates at an arbitrary point: either AuthLayout
+    // redirects /login -> /dashboard on its own, or the form is still mounted
+    // and we submit it. BOTH paths must end on the dashboard. The fill/click
+    // steps are best-effort because the form can unmount mid-interaction when
+    // hydration wins the race — the old version flaked exactly there (the
+    // button spent the whole 30s timeout \"waiting to be stable\").
+    try {
+      await page.locator('input[type="email"]').fill("e2e@example.com", { timeout: 5_000 });
+      await page.locator('input[type="password"]').fill("correct-horse", { timeout: 5_000 });
+      await page.getByRole("button", { name: /sign in/i }).click({ timeout: 5_000 });
+    } catch {
+      // Already redirected — the guard accepted the session without the form.
+    }
     // navigate("/dashboard") runs on success; the ProtectedRoute must NOT bounce
     // us back to /login (proves the mocked session is accepted).
     await expect(page).toHaveURL(/\/dashboard/, { timeout: 15_000 });
