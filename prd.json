@@ -10258,7 +10258,7 @@
         "Deno unit tests with a mocked model client cover: happy path, step-cap kill, budget-gate refusal, pause short-circuit, malformed-output failure; deno lint + check clean"
       ],
       "priority": 2359,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 0][Module A — Agent Kernel] Read AGENTIC_OS.md §2 + §3.A. Proposals in the output contract are just data at this stage (persisted by US-1587's lifecycle; here they may be stored on outcome). No tools registered yet — the tool loop should accept an injected tool registry (US-1585) but function with an empty one.",
       "dependsOn": [
         "US-1583"
