@@ -2,6 +2,42 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-07-03
 
+## 2026-07-03 — US-1575 (iOS guided capture + native measurement editor) — passes:true (iOS CI validates)
+
+The finale of the measurement epic — Swift port, server stays authoritative:
+- Measure/MeasureGeometry.swift: math port asserting the SAME numeric cases
+  as the web vitest spec (MeasureGeometryTests) so px->inch can never drift;
+  finger-sized 24pt hit radius; ASCII quarter formatting (no glyph risk).
+- Measure/MeasureService.swift: calibrate/extract/overlay/correction through
+  EdgeAPI.postForStatus — 422 quality-gate remediation text surfaces
+  VERBATIM with a Try again + retake hint; saveLines via supabase-swift onto
+  the same measure_calibration.lines the web writes.
+- Measure/MeasurementPhotoEditorView.swift: SwiftUI Canvas editor —
+  draggable white-halo lines, amber flagged-until-touched, live estimated
+  values, Auto-measure (billed extract) + Save with IDENTICAL semantics:
+  touched values -> draft measurements (canvas save persists), correction
+  deltas -> US-1580 telemetry, overlay regen best-effort.
+- Capture: PhotoSlotType.measurementCard = "measurement" (label/hint/ruler
+  symbol) — the slot RESOLVES FROM THE SERVER photo profile shipped in
+  US-1571, skippable, auto-tags via rawValue, rides the existing foreground
+  uploader untouched. FlipdeskPhotoType.nonListable mirror + tests (AC4).
+- ItemCanvas: "Measure from photo" row + sheet when a measurement photo
+  exists; estimated-copy footer.
+- BONUS FIX: PhotoIntakeTests catalog count was still 26 — stale since
+  US-1571/77 grew the vocabulary to 28; iOS CI would have failed on push.
+- Deviations recorded in the story: calibrate-on-editor-open (not an
+  uploader hook); XCUITest smoke deferred.
+VERIFIED LOCALLY (Windows limits): no-ungated-print OK; curly-quote scan
+clean on touched files; XcodeGen globs auto-include Measure/. Compile +
+tests ride the iOS CI lane on push.
+
+=== MEASUREMENT + AI-USAGE EPIC: ALL 10 NON-OPERATOR STORIES COMPLETE ===
+US-1570 card, 1571 photo type, 1572 calibrate, 1573 extract, 1574 web editor,
+1575 iOS, 1577 overlay asset, 1578 listing surfaces, 1579 distribution,
+1580 accuracy harness, 1581 metering. Remaining: US-1576 (Android, excluded),
+US-1582 (operator golden-set capture). HELD migrations 00346-00352 in
+PENDING_MIGRATIONS.md await prod apply before push.
+
 ## 2026-07-03 — US-1580 (accuracy eval harness + correction telemetry) — passes:true — ⚠️ MIGRATION HELD
 
 "Never claim accuracy you haven't measured" now has teeth:

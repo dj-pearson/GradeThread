@@ -244,10 +244,12 @@ final class PhotoIntakeTests: XCTestCase {
                 "\(slot.rawValue) maps to \(slot.serverPhotoType), missing from FlipdeskPhotoType.all"
             )
         }
-        // And the catalog mirrors web FLIPDESK_PHOTO_TYPES (26 entries:
-        // the original 17, the 8 universal roles from migration 00230, plus
-        // the seller-reference `internal` type from US-1549).
-        XCTAssertEqual(FlipdeskPhotoType.all.count, 26)
+        // And the catalog mirrors web FLIPDESK_PHOTO_TYPES (28 entries:
+        // the original 17, the 8 universal roles from migration 00230, the
+        // seller-reference `internal` type from US-1549, and the US-1571/77
+        // `measurement` + `measurement_overlay` pair from migrations
+        // 00346/00350).
+        XCTAssertEqual(FlipdeskPhotoType.all.count, 28)
         XCTAssertEqual(FlipdeskPhotoType.label(for: "on_model"), "On model")
         XCTAssertEqual(FlipdeskPhotoType.label(for: "interior"), "Interior / Lining")
     }

@@ -39,6 +39,8 @@ struct ItemCanvasView: View {
     @State private var newCompSource = ""
     @State private var newCompURL = ""
     @State private var showingDiscardConfirmation = false
+    // US-1575: the MeasureCard photo being edited (sheet item).
+    @State private var measureEditorPhoto: LocalItemPhoto?
     @State private var showingPublishDialog = false
     @State private var showingPhotoManager = false
     // US-310: editing a GradeThread-published live listing is folded into Save —
@@ -357,6 +359,7 @@ struct ItemCanvasView: View {
             )
             .id(ItemPrepChecklist.Step.grade)
             measurementsSection(state: state)
+            measurePhotoRow(state: state)
                 .id(ItemPrepChecklist.Step.measurements)
             compsSection(state: state)
                 .id(ItemPrepChecklist.Step.comps)
@@ -1264,6 +1267,38 @@ struct ItemCanvasView: View {
         // US-705: each photo reads as "<type> photo" instead of an unlabeled image.
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(FlipdeskPhotoType.label(for: photo.photoType)) photo")
+    }
+
+    /// US-1575: entry into the photo-measurement editor — shown only when the
+    /// item has a MeasureCard shot (photo_type "measurement"). The editor
+    /// applies values back onto the same draft the manual rows edit; the
+    /// canvas save persists them.
+    @ViewBuilder
+    private func measurePhotoRow(state: ItemCanvasState) -> some View {
+        if let measurePhoto = allPhotos.last(where: { $0.photoType == "measurement" }) {
+            Section {
+                Button {
+                    AppRouter.haptic()
+                    measureEditorPhoto = measurePhoto
+                } label: {
+                    Label("Measure from photo", systemImage: "ruler")
+                }
+                .accessibilityHint("Opens the MeasureCard editor. Values are estimated from the photo.")
+            } footer: {
+                Text("Estimated from the MeasureCard photo - review before listing.")
+            }
+            .sheet(item: $measureEditorPhoto) { photo in
+                MeasurementPhotoEditorView(
+                    itemId: item.id,
+                    itemCategory: item.itemCategory,
+                    photo: photo,
+                    values: state.draft.measurements,
+                    onApply: { next in
+                        state.draft.measurements = next
+                    }
+                )
+            }
+        }
     }
 
     private func measurementsSection(state: ItemCanvasState) -> some View {

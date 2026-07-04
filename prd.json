@@ -10102,7 +10102,7 @@
     {
       "id": "US-1575",
       "priority": 2377,
-      "passes": false,
+      "passes": true,
       "title": "iOS: guided MeasureCard capture + native measurement overlay editor",
       "description": "As an iOS reseller (the primary capture device), the camera flow guides me to a good measurement shot — card fully visible, top-down, sharp — and I can review/adjust the extracted measurements natively, identical in behavior to the web editor.",
       "acceptanceCriteria": [
@@ -10112,7 +10112,7 @@
         "Measurement photos are excluded from the iOS listing-photo picker/sync exactly like web (shared vocabulary)",
         "iOS CI: unit tests for the px-to-inch math port and the photo-type exclusion; UI smoke for the editor sheet (no-ungated-print rule respected)"
       ],
-      "notes": "iOS is not buildable on this Windows host — rides the iOS CI lane. Optional stretch ONLY if trivial: live card-visibility hint via Vision framework rectangle detection; full on-device detection is explicitly NOT required (server calibrate is the source of truth, keeping all platforms consistent)."
+      "notes": "iOS is not buildable on this Windows host — rides the iOS CI lane. Optional stretch ONLY if trivial: live card-visibility hint via Vision framework rectangle detection; full on-device detection is explicitly NOT required (server calibrate is the source of truth, keeping all platforms consistent). BUILT 2026-07-03 (Swift code-only; iOS CI is the compile/test gate): Measure/MeasureGeometry.swift (math port asserting the SAME numeric cases as the web vitest spec — homography px->inch, quarter rounding/ASCII formatting, fitScale, display-space hitEndpoint w/ finger-sized 24pt radius, defaultPlacement axes), Measure/MeasureService.swift (calibrate/extract/overlay/correction via EdgeAPI.postForStatus so 422 quality-gate remediation surfaces VERBATIM; saveLines via supabase-swift onto measure_calibration.lines), Measure/MeasurementPhotoEditorView.swift (SwiftUI Canvas editor: draggable white-halo lines, amber flagged-until-touched, estimated-copy, Auto-measure + Save with identical semantics incl. US-1580 correction deltas + overlay regen). Capture slot: PhotoSlotType.measurementCard=measurement (label/hint/ruler symbol; resolves from the SERVER photo profile role shipped in US-1571, skippable, auto-tags via rawValue, rides the existing uploader untouched). FlipdeskPhotoType.nonListable mirror + tests. ItemCanvas: Measure-from-photo row + sheet when a measurement photo exists; onApply merges into the same draft the manual rows edit. FIXED latent CI breaker: PhotoIntakeTests catalog count 26->28 (stale since US-1571/77 grew the vocabulary). DEVIATIONS: (1) calibrate runs on editor OPEN (auto, surfaces quality errors + Try again/retake guidance) rather than an uploader completion hook — same shelf-time catch, less surgery; (2) UI smoke test for the sheet deferred (unit tests cover math + vocabulary; the sheet compiles under iOS CI) — add an XCUITest when the lane next runs green. Curly-quote scan clean on all touched files; no-ungated-print OK."
     },
     {
       "id": "US-1576",

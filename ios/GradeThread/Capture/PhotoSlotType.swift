@@ -36,6 +36,9 @@ public enum PhotoSlotType: String, CaseIterable, Identifiable, Hashable {
     case interior
     case flatlay
     case onModel = "on_model"
+    // US-1575 (migration 00346): the MeasureCard flat-lay frame. Skippable,
+    // never listed; the photo-measurement pipeline keys on this tag.
+    case measurementCard = "measurement"
     // Universal roles (migration 00230) used by non-clothing photo profiles.
     // Raw values equal the server photo_type strings so they round-trip.
     case angle
@@ -65,6 +68,7 @@ public enum PhotoSlotType: String, CaseIterable, Identifiable, Hashable {
         case .interior: return "Interior"
         case .flatlay:  return "Flat lay"
         case .onModel:  return "On model"
+        case .measurementCard: return "Measurement card"
         case .angle:       return "Angle / Profile"
         case .sole:        return "Sole"
         case .marking:     return "Markings"
@@ -100,6 +104,8 @@ public enum PhotoSlotType: String, CaseIterable, Identifiable, Hashable {
             return "Styled flat lay for the listing gallery"
         case .onModel:
             return "Worn on a model or mannequin"
+        case .measurementCard:
+            return "Garment flat, MeasureCard BESIDE it - all 4 squares visible, top-down"
         case .angle:
             return "Angled 3/4 view showing the silhouette"
         case .sole:
@@ -149,7 +155,7 @@ public enum PhotoSlotType: String, CaseIterable, Identifiable, Hashable {
         case .corner:      return "viewfinder"
         case .surface:     return "rays"
         case .measurementChest, .measurementWaist, .measurementLength,
-             .measurementSleeve, .measurementInseam:
+             .measurementSleeve, .measurementInseam, .measurementCard:
             return "ruler"
         }
     }
@@ -248,6 +254,16 @@ public enum FlipdeskPhotoType {
         // surfaces. Last on purpose.
         "internal",
     ]
+
+    /// Photo types that must never ride a listing — the client mirror of the
+    /// edge's NON_LISTABLE_PHOTO_TYPES (lib/item-photo-storage.ts). The edge
+    /// enforces at publish; this keeps iOS listing surfaces honest too.
+    public static let nonListable: Set<String> = ["internal", "measurement"]
+
+    /// True when a server `photo_type` never publishes to a marketplace.
+    public static func isNonListable(_ serverType: String) -> Bool {
+        nonListable.contains(serverType)
+    }
 
     /// Human label for a server `photo_type` string. Unknown values fall back
     /// to a de-underscored capitalization so new server types never render as
