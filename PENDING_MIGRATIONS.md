@@ -1,5 +1,21 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00353_agentic_os_kernel.sql (US-1583, 2026-07-04)
+
+**What:** the Agentic OS kernel — five NEW operator-only tables (agents,
+agent_runs, agent_run_steps, agent_proposals, agent_memory) + four new enums
+(agent_status, agent_run_status, agent_step_type, agent_proposal_status) +
+updated_at triggers. RLS enabled, NO policies (service-role only).
+
+**Risk: LOW.** Pure additive DDL — no existing table, view, or enum touched;
+nothing client-side reads these tables yet (the runtime/UI stories follow).
+The edge bumps EXPECTED_SCHEMA_VERSION to 00353, so the boot guard holds the
+next edge redeploy behind this being applied.
+
+**Apply order:** after 00350–00352. Then `NOTIFY pgrst, 'reload schema';`
+and redeploy the edge.
+
+
 ## ⏳ HELD: 00349_draft_review_lifecycle.sql (US-1568/US-1569, 2026-07-03)
 
 **What:** two changes in one transaction:

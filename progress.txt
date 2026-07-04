@@ -10986,3 +10986,15 @@ VERIFIED: tsc -b/eslint/vitest 1137/1137 (new seams suite) + build (47 pages);
 deno lint/check + my edge surface 57/0 (the 1 edge-suite failure is the
 CONCURRENT agent's uncommitted measure-extract WIP, untouched). ⚠️ 00348+00349
 HELD: the frontend now READS the new view columns - apply before push OK.
+
+=== 2026-07-04 (Agentic OS loop): US-1583 (kernel schema) ===
+- Migration 00353 (HELD): agents / agent_runs / agent_run_steps /
+  agent_proposals / agent_memory — uuid PKs, audited timestamps + triggers,
+  guarded enums, the exact AC column sets (autonomy-per-action-class jsonb,
+  proposal idempotency_key dedup, memory weight ranking), US-985-style
+  indexes. Operator-only: RLS-no-policies + rls-guard SERVICE_ROLE_ONLY
+  registration (13/0). EXPECTED_SCHEMA_VERSION -> 00353 same commit.
+- verify:db GREEN (fresh apply + reset-from-zero). Design: module state rides
+  jsonb so the kernel stays generic for every later agent.
+COMMIT-ONLY MODE ACTIVE: migration introduced; holding pushes until the
+operator confirms 00353 applied.

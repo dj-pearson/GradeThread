@@ -55,6 +55,14 @@ const PARENT_SCOPED = [
 // service-role (which bypasses RLS) reads/writes them. This is the most
 // restrictive configuration, not a gap.
 const SERVICE_ROLE_ONLY = new Set([
+  // US-1583: the Agentic OS kernel — agent registry, run ledger, step
+  // transcript, proposal queue, memory. Pure operator substrate; every access
+  // flows through the edge (Mission Control + the agent runtime).
+  "agents",
+  "agent_runs",
+  "agent_run_steps",
+  "agent_proposals",
+  "agent_memory",
   // US-1565: admin task board — internal operator tooling; client policies
   // dropped in 00344, all CRUD flows through /api/admin/tasks (edge boundary).
   "admin_task_projects",
