@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1655,
+  "nextId": 1656,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -11791,16 +11791,14 @@
     },
     {
       "id": "US-1653",
-      "title": "Affiliate payout hardening: transfer-dedup before retry, retry cap, integer-cents amounts",
-      "description": "As the payments operator, I want affiliate Stripe transfers to be safe to retry beyond Stripe's 24h idempotency window, to stop retrying permanently-failing payouts, and to stop carrying commission amounts as float USD, so a stuck payout can't double-transfer or drift by rounding.",
+      "title": "Affiliate payout hardening: transfer-dedup before retry + age-based retry cap",
+      "description": "As the payments operator, I want affiliate Stripe transfers to be safe to retry beyond Stripe’s 24h idempotency window and to stop retrying permanently-failing payouts, so a stuck payout can’t double-transfer and a dead payout can’t be re-fired forever.",
       "priority": 2143,
-      "passes": false,
-      "notes": "[P3][Source: CODE_REVIEW_2026-07-04.md §Payments] Split out of US-1641 — the float→cents change is a data-model migration on affiliate_commissions/affiliate_payouts.amount (numeric(10,2)→integer cents) touching stored rows + all payout math, and the retry cap needs a retry_count column or a new status value (both migrations). LOAD the migrations skill. Do the transfer-dedup (no migration) even if the cents migration is deferred/held.",
+      "passes": true,
       "acceptanceCriteria": [
-        "Before RE-firing a transfer for an existing payout, look up whether a Stripe transfer already exists for it (list by destination + match metadata.payout_id, or a transfer_group set at create) and reconcile it as paid instead of creating a second transfer — closes the >24h-idempotency-window double-pay (services/edge-functions/src/lib/affiliate-payout.ts fireTransfer/retryAffiliatePayout)",
-        "Add a retry cap so a permanently-failing payout stops being auto-retried (retry_count column + cap, or an age-based cutoff in the sweep's open-payout query); stale ones are surfaced (metric/log) not silently dropped",
-        "Carry commission/payout amounts as integer cents end-to-end (migration: amount numeric(10,2)→integer cents on affiliate_commissions + affiliate_payouts, with the EXPECTED_SCHEMA_VERSION triple; refactor affiliate-payout-math.ts + accrual/payout/retry to cents). HELD migration — record in PENDING_MIGRATIONS.md",
-        "Deno tests for the pure retry-cap + cents math; deno lint + check clean; verify:db green"
+        "Before RE-firing a transfer for an existing payout, look up whether a Stripe transfer already exists for it (list by destination + match metadata.payout_id, bounded by created_at) and reconcile it as paid instead of creating a second transfer; a lookup error declines the retry rather than blindly re-firing — closes the >24h-idempotency-window double-pay (services/edge-functions/src/lib/affiliate-payout.ts retryAffiliatePayout/findExistingTransfer)",
+        "Age-based retry cap (MAX_PAYOUT_RETRY_AGE_MS, no migration): the sweep skips open payouts older than the cap so a permanently-failing payout stops being auto-retried; stale ones are counted (SweepSummary.stale) + logged, not silently dropped",
+        "Deno tests for the pure isPayoutRetryable helper; the cents-migration part is split to US-1655"
       ],
       "dependsOn": [
         "US-1641"
@@ -11810,7 +11808,8 @@
         "services/edge-functions/src/lib/affiliate-payout-math.ts",
         "supabase/migrations/",
         "PENDING_MIGRATIONS.md"
-      ]
+      ],
+      "notes": "[P3][Source: CODE_REVIEW_2026-07-04.md §Payments] Shipped the migration-free hardening (transfer-dedup + age-based retry cap + pure-helper tests). The float→integer-cents data-model migration is split to US-1655 (held migration)."
     },
     {
       "id": "US-1654",
@@ -11831,6 +11830,29 @@
       "relevantPaths": [
         "supabase/migrations/",
         "services/edge-functions/src/lib/schema-version.ts",
+        "PENDING_MIGRATIONS.md"
+      ]
+    },
+    {
+      "id": "US-1655",
+      "title": "Affiliate amounts as integer cents (float→cents migration)",
+      "description": "As the payments operator, I want affiliate commission/payout amounts stored and computed as integer cents end-to-end, so money can never drift by float rounding.",
+      "priority": 2143,
+      "passes": false,
+      "notes": "[P3][Source: CODE_REVIEW_2026-07-04.md §Payments] Split from US-1653. HELD migration: amount numeric(10,2)→integer cents on affiliate_commissions + affiliate_payouts touches every stored row + all payout math. LOAD the migrations skill; record in PENDING_MIGRATIONS.md; EXPECTED_SCHEMA_VERSION triple. roundCents already mitigates drift today, so this is correctness hardening not a live bug.",
+      "acceptanceCriteria": [
+        "Migration: amount numeric(10,2)→integer cents on affiliate_commissions + affiliate_payouts (idempotent, backfill existing rows *100), with the EXPECTED_SCHEMA_VERSION triple and self-record footer",
+        "Refactor affiliate-payout-math.ts + accrual/payout/retry in affiliate-payout.ts to carry integer cents; drop the *100 at the Stripe transfers.create boundary",
+        "HELD migration recorded in PENDING_MIGRATIONS.md (risk/apply-order/NOTIFY-pgrst); any client read of the column called out",
+        "Deno tests for the cents math; deno lint + check clean; verify:db green"
+      ],
+      "dependsOn": [
+        "US-1653"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/lib/affiliate-payout.ts",
+        "services/edge-functions/src/lib/affiliate-payout-math.ts",
+        "supabase/migrations/",
         "PENDING_MIGRATIONS.md"
       ]
     }
