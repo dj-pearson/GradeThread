@@ -136,6 +136,7 @@ const FlipdeskCommunityInsightsPage = lazy(() => import("@/pages/flipdesk/commun
 const FlipdeskIntakePage = lazy(() => import("@/pages/flipdesk/intake").then(m => ({ default: m.FlipdeskIntakePage })));
 const FlipdeskImportPage = lazy(() => import("@/pages/flipdesk/import").then(m => ({ default: m.FlipdeskImportPage })));
 const FlipdeskMarketplacesPage = lazy(() => import("@/pages/flipdesk/marketplaces").then(m => ({ default: m.FlipdeskMarketplacesPage })));
+const FlipdeskMeasureCardPage = lazy(() => import("@/pages/flipdesk/measure-card").then(m => ({ default: m.FlipdeskMeasureCardPage })));
 const FlipdeskMarketplacesGooglePage = lazy(() => import("@/pages/flipdesk/marketplaces-google").then(m => ({ default: m.FlipdeskMarketplacesGooglePage })));
 const FlipdeskOffersPage = lazy(() => import("@/pages/flipdesk/offers").then(m => ({ default: m.FlipdeskOffersPage })));
 const FlipdeskPostSalePage = lazy(() => import("@/pages/flipdesk/post-sale").then(m => ({ default: m.FlipdeskPostSalePage })));
@@ -185,6 +186,7 @@ const AdminConditionIndexPage = lazy(() => import("@/pages/admin/condition-index
 const AdminUserDetailPage = lazy(() => import("@/pages/admin/user-detail").then(m => ({ default: m.AdminUserDetailPage })));
 const AdminDisputesPage = lazy(() => import("@/pages/admin/disputes").then(m => ({ default: m.AdminDisputesPage })));
 const AdminClaimsPage = lazy(() => import("@/pages/admin/claims").then(m => ({ default: m.AdminClaimsPage })));
+const AdminMeasureCardsPage = lazy(() => import("@/pages/admin/measure-cards").then(m => ({ default: m.AdminMeasureCardsPage })));
 const AdminSupportPage = lazy(() => import("@/pages/admin/support").then(m => ({ default: m.AdminSupportPage })));
 const AdminSupportTicketsPage = lazy(() => import("@/pages/admin/support-tickets").then(m => ({ default: m.AdminSupportTicketsPage })));
 const AdminCompliancePage = lazy(() => import("@/pages/admin/compliance").then(m => ({ default: m.AdminCompliancePage })));
@@ -463,6 +465,7 @@ export const router = createBrowserRouter([
               { path: "/dashboard/flipdesk/sources", element: <SuspenseWrapper><FlipdeskSourcesPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/consignment", element: <SuspenseWrapper><FlipdeskConsignmentPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/marketplaces", element: <SuspenseWrapper><FlipdeskMarketplacesPage /></SuspenseWrapper> },
+              { path: "/dashboard/flipdesk/measure-card", element: <SuspenseWrapper><FlipdeskMeasureCardPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/offers", element: <SuspenseWrapper><FlipdeskOffersPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/post-sale", element: <SuspenseWrapper><FlipdeskPostSalePage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/bulk-pricing", element: <SuspenseWrapper><FlipdeskBulkPricingPage /></SuspenseWrapper> },
@@ -517,6 +520,7 @@ export const router = createBrowserRouter([
               { path: "/admin/reviews", element: <SuspenseWrapper><AdminReviewsPage /></SuspenseWrapper> },
               { path: "/admin/disputes", element: <SuspenseWrapper><AdminDisputesPage /></SuspenseWrapper> },
               { path: "/admin/claims", element: <SuspenseWrapper><AdminClaimsPage /></SuspenseWrapper> },
+              { path: "/admin/measure-cards", element: <SuspenseWrapper><AdminMeasureCardsPage /></SuspenseWrapper> },
               { path: "/admin/support", element: <SuspenseWrapper><AdminSupportPage /></SuspenseWrapper> },
               { path: "/admin/support/:id", element: <SuspenseWrapper><AdminSupportPage /></SuspenseWrapper> },
               { path: "/admin/support-tickets", element: <SuspenseWrapper><AdminSupportTicketsPage /></SuspenseWrapper> },

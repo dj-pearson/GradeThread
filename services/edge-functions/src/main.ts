@@ -65,6 +65,7 @@ import { accessGateMiddleware } from "./lib/access-gate.ts";
 import { adminGradingRoutes } from "./routes/admin-grading.ts";
 import { adminDisputesRoutes } from "./routes/admin-disputes.ts";
 import { adminClaimsRoutes } from "./routes/admin-claims.ts";
+import { adminMeasureCardRoutes } from "./routes/admin-measure-cards.ts";
 import { guaranteePublicRoutes } from "./routes/guarantee-public.ts";
 import { adminSupportRoutes } from "./routes/admin-support.ts";
 import { adminSupportTicketsRoutes } from "./routes/admin-support-tickets.ts";
@@ -923,6 +924,8 @@ app.route("/api/admin/grading", adminGradingRoutes);
 app.route("/api/admin/disputes", adminDisputesRoutes);
 // US-867: buyer trust-guarantee claim review (admin + super_admin).
 app.route("/api/admin/claims", adminClaimsRoutes);
+// US-1579: MeasureCard mail-fulfillment queue (PII lives behind admin auth).
+app.route("/api/admin/measure-cards", adminMeasureCardRoutes);
 // US-839 admin support inbox — read/reply/resolve escalated AI-assistant
 // conversations. Service-role writes (human_agent message + status flips) that
 // would no-op under RLS as browser calls; notifies the user on reply/resolve.

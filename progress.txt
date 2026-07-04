@@ -2,6 +2,33 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-07-03
 
+## 2026-07-03 — US-1579 (MeasureCard distribution + fulfillment queue) — passes:true — ⚠️ MIGRATION HELD
+
+The operational layer that puts cards in sellers' hands:
+- Migration 00351: measure_card_requests (deny-all operator table per the
+  rls-guard convention — owner_user_id, SERVICE_ROLE_ONLY registration,
+  partial unique index = ONE active request per seller as the concurrency
+  backstop) + users.measure_card_version/measure_card_source for the
+  profile-side version record (future card revisions can target upgrade
+  messaging; calibrate already reads per-photo version from marker ids).
+- Seller surface /dashboard/flipdesk/measure-card (+ sidebar entry): what it
+  is, capture dos/donts, free print-at-home PDF (public/measure-card-letter-
+  v1.pdf; download stamps the profile via /card-downloaded, mail outranks
+  download), and the mailed-card request form for paid plans. Addresses go
+  ONE WAY: the seller API never echoes them (requestSummary strips PII —
+  source-guard tested).
+- Edge: GET/POST /api/flipdesk/measure/card-request (server-side plan gate,
+  409 one-active + 23505 race handling, owner-scoped queries) under the
+  existing measure/* rate limiter.
+- Operator: /admin/measure-cards page + /api/admin/measure-cards (list by
+  status, vendor CSV — deliberately NO owner ids in the export, bulk
+  exported→shipped; shipped stamps each profile source='mail'). RBAC:
+  requireScope('ops:write') + admin-scope-map entry (the US-1560 drift gate
+  caught the missing classification — good gate).
+- Growth announcement DRAFT COPY included in the story notes (operator sends).
+VERIFIED LOCALLY: verify:db fresh-apply green; edge 2615/0; vitest 1142/1142;
+tsc/eslint clean.
+
 ## 2026-07-03 — US-1578 (measurements ride every listing surface) — passes:true
 
 The store is provenance-agnostic by design, so this was wiring + guarantees:

@@ -8,6 +8,7 @@ import {
   Menu,
   MapPin,
   Plug,
+  Ruler,
   Scale,
   Upload,
   Gauge,
@@ -159,6 +160,8 @@ const navGroups: NavGroup[] = [
           // carries the reconciliation/payout flows, not just the photo tool.
           { to: "/dashboard/flipdesk/reconcile", icon: Scale, label: "Reconcile", end: false },
           { to: "/dashboard/flipdesk/repricing", icon: TrendingUp, label: "Repricing", end: false },
+          // US-1579: MeasureCard info + PDF download + mailed-card request.
+          { to: "/dashboard/flipdesk/measure-card", icon: Ruler, label: "MeasureCard", end: false },
         ],
       },
       {

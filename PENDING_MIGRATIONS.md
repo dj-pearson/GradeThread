@@ -54,6 +54,19 @@ safe even before this is applied; the backfill just makes OLD drafts whole.
 (boot guard expects 00348).
 
 
+## ⏳ HELD: 00351_measure_card_requests.sql (US-1579, 2026-07-03)
+
+**What:** `measure_card_requests` operator table (mailed-card fulfillment
+queue; deny-all RLS, service-role only, owner_user_id convention; partial
+unique index = one active request/seller) + `users.measure_card_version` /
+`users.measure_card_source` profile columns. Idempotent; self-records '00351'.
+
+**Risk: LOW** (new table + nullable user columns). Client reads NOTHING new
+directly — the tools page talks to the edge (card-request routes boot-guarded
+on 00351). Apply after 00350, then `NOTIFY pgrst, 'reload schema';`.
+
+---
+
 ## ⏳ HELD: 00350_measurement_overlay_photo_type.sql (US-1577, 2026-07-03)
 
 **What:** `ALTER TYPE public.flipdesk_photo_type ADD VALUE IF NOT EXISTS 'measurement_overlay';`

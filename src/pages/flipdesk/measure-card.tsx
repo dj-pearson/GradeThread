@@ -1,0 +1,278 @@
+// US-1579: the MeasureCard tools page — what the card is, how to shoot with
+// it, the free print-at-home PDF, and (paid plans) request-a-mailed-card.
+// Addresses go straight to the edge (deny-all operator table) and are never
+// echoed back — the status card shows progress only.
+
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  Check,
+  Download,
+  Loader2,
+  Mail,
+  Ruler,
+  X,
+} from "lucide-react";
+import { toast } from "sonner";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { edgeFetch } from "@/lib/edge-fetch";
+import { useAuth } from "@/hooks/use-auth";
+
+interface CardRequest {
+  id: string;
+  status: "requested" | "exported" | "shipped";
+  card_version: number;
+  requested_at: string;
+  shipped_at: string | null;
+}
+
+const CAPTURE_DOS = [
+  "Lay the garment flat and place the card BESIDE it (never on top)",
+  "Shoot top-down with all four black squares fully visible",
+  "Use even lighting — no hard shadows across the card",
+  "Keep the card flat; a bent card skews every measurement",
+];
+
+const CAPTURE_DONTS = [
+  "Don't crop or cover any corner square",
+  "Don't shoot at a steep angle — straight down beats artsy",
+  "Don't scale the print — the PDF must print at 100% size",
+];
+
+const STATUS_LABEL: Record<CardRequest["status"], string> = {
+  requested: "Requested — in the fulfillment queue",
+  exported: "Sent to the print vendor",
+  shipped: "Shipped",
+};
+
+export function FlipdeskMeasureCardPage() {
+  const { profile } = useAuth();
+  const qc = useQueryClient();
+  const plan = profile?.flipdesk_plan ?? "free";
+  const mailEligible = plan !== "free";
+
+  const { data: request = null, isLoading } = useQuery({
+    queryKey: ["measure_card_request"],
+    queryFn: async (): Promise<CardRequest | null> => {
+      const res = await edgeFetch("/api/flipdesk/measure/card-request");
+      if (!res.ok) return null;
+      const json = (await res.json()) as { request: CardRequest | null };
+      return json.request;
+    },
+  });
+
+  const [form, setForm] = useState({
+    ship_name: "",
+    address_line1: "",
+    address_line2: "",
+    city: "",
+    state: "",
+    postal_code: "",
+  });
+  const [submitting, setSubmitting] = useState(false);
+
+  function set(key: keyof typeof form, v: string) {
+    setForm((f) => ({ ...f, [key]: v }));
+  }
+
+  async function submitRequest(e: React.FormEvent) {
+    e.preventDefault();
+    setSubmitting(true);
+    try {
+      const res = await edgeFetch("/api/flipdesk/measure/card-request", {
+        method: "POST",
+        json: form,
+      });
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        toast.error(json.error ?? "Could not submit the request.");
+        return;
+      }
+      toast.success("Card request received — we'll mail it out shortly.");
+      await qc.invalidateQueries({ queryKey: ["measure_card_request"] });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function downloadPdf() {
+    // Stamp the profile record (best-effort) and open the bundled PDF.
+    void edgeFetch("/api/flipdesk/measure/card-downloaded", {
+      method: "POST",
+      json: {},
+    }).catch(() => {});
+    window.open("/measure-card-letter-v1.pdf", "_blank");
+  }
+
+  const activeRequest = request && request.status !== "shipped" ? request : null;
+
+  return (
+    <div className="mx-auto max-w-3xl space-y-6 p-4 md:p-6">
+      <div>
+        <h1 className="flex items-center gap-2 text-2xl font-bold">
+          <Ruler className="h-6 w-6" />
+          MeasureCard
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          The calibration card that turns one flat-lay photo into true-inch
+          garment measurements — auto-extracted, drag-adjustable, and printed
+          onto a clean buyer-facing measurements photo.
+        </p>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">How to shoot with it</CardTitle>
+          <CardDescription>
+            One photo: the garment flat, the card beside it, camera top-down.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-4 sm:grid-cols-2">
+          <ul className="space-y-1.5 text-sm">
+            {CAPTURE_DOS.map((d) => (
+              <li key={d} className="flex gap-2">
+                <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                {d}
+              </li>
+            ))}
+          </ul>
+          <ul className="space-y-1.5 text-sm">
+            {CAPTURE_DONTS.map((d) => (
+              <li key={d} className="flex gap-2">
+                <X className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                {d}
+              </li>
+            ))}
+          </ul>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Print at home (free)</CardTitle>
+          <CardDescription>
+            US-Letter PDF. Print at <strong>100% scale</strong> (no
+            &quot;fit to page&quot;) on matte paper, then verify with the
+            built-in credit-card check box before first use.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button onClick={downloadPdf}>
+            <Download className="mr-2 h-4 w-4" />
+            Download the print-at-home PDF
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Get a card mailed to you</CardTitle>
+          <CardDescription>
+            Professionally printed on rigid matte stock — the most accurate
+            option. Included with paid plans.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {isLoading ? (
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+          ) : activeRequest ? (
+            <div className="flex items-center gap-2 text-sm">
+              <Badge variant="outline" className="gap-1">
+                <Mail className="h-3 w-3" />
+                {STATUS_LABEL[activeRequest.status]}
+              </Badge>
+              <span className="text-muted-foreground">
+                Requested {new Date(activeRequest.requested_at).toLocaleDateString()}
+              </span>
+            </div>
+          ) : request?.status === "shipped" ? (
+            <p className="text-sm text-muted-foreground">
+              Your card (v{request.card_version}) shipped
+              {request.shipped_at
+                ? ` on ${new Date(request.shipped_at).toLocaleDateString()}`
+                : ""}
+              . Need another? Contact support.
+            </p>
+          ) : !mailEligible ? (
+            <p className="text-sm text-muted-foreground">
+              Mailed cards are included with paid plans — the print-at-home PDF
+              above works with the same pipeline, or upgrade to have one mailed.
+            </p>
+          ) : (
+            <form onSubmit={(e) => void submitRequest(e)} className="grid gap-3 sm:grid-cols-2">
+              <div className="sm:col-span-2 space-y-1">
+                <Label htmlFor="mc-name">Full name</Label>
+                <Input
+                  id="mc-name"
+                  value={form.ship_name}
+                  onChange={(e) => set("ship_name", e.target.value)}
+                  required
+                />
+              </div>
+              <div className="sm:col-span-2 space-y-1">
+                <Label htmlFor="mc-a1">Address line 1</Label>
+                <Input
+                  id="mc-a1"
+                  value={form.address_line1}
+                  onChange={(e) => set("address_line1", e.target.value)}
+                  required
+                />
+              </div>
+              <div className="sm:col-span-2 space-y-1">
+                <Label htmlFor="mc-a2">Address line 2 (optional)</Label>
+                <Input
+                  id="mc-a2"
+                  value={form.address_line2}
+                  onChange={(e) => set("address_line2", e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="mc-city">City</Label>
+                <Input
+                  id="mc-city"
+                  value={form.city}
+                  onChange={(e) => set("city", e.target.value)}
+                  required
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="mc-state">State</Label>
+                <Input
+                  id="mc-state"
+                  value={form.state}
+                  onChange={(e) => set("state", e.target.value)}
+                  required
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="mc-zip">ZIP</Label>
+                <Input
+                  id="mc-zip"
+                  value={form.postal_code}
+                  onChange={(e) => set("postal_code", e.target.value)}
+                  required
+                />
+              </div>
+              <div className="flex items-end">
+                <Button type="submit" disabled={submitting}>
+                  {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Request my card
+                </Button>
+              </div>
+            </form>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

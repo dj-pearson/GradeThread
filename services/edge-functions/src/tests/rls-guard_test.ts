@@ -67,6 +67,11 @@ const SERVICE_ROLE_ONLY = new Set([
   // both service-role; admins edit via /api/admin/grading/baselines. No tenant
   // data (brand + category knowledge only); the SPA never queries it directly.
   "garment_baselines",
+  // US-1579 MeasureCard mail-fulfillment queue: shipping addresses are PII, so
+  // deny-all by design — sellers go through /api/flipdesk/measure/card-request
+  // (edge, owner-scoped) and operators through /api/admin/measure-cards. Keyed
+  // by owner_user_id per the operator-table convention; the SPA never reads it.
+  "measure_card_requests",
   // US-146 Google Sheets OAuth CSRF state: RLS enabled, zero policies by design
   // (migration 00131 documents "all access via the service-role edge client").
   // Single-use + self-expiring; the SPA never reads it.

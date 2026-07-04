@@ -50,6 +50,13 @@ export const ADMIN_ROUTER_SCOPES: AdminRouterScope[] = [
     rationale: "Review queue, regrades, prompt/exemplar/eval management — all grade-outcome authority.",
   },
   {
+    file: "admin-measure-cards.ts",
+    scope: "ops:write",
+    mode: "router",
+    rationale:
+      "MeasureCard mail-fulfillment queue: shipping-address (PII) export + exported/shipped transitions are operator actions.",
+  },
+  {
     file: "admin-claims.ts",
     scope: "grading:review",
     mode: "router",

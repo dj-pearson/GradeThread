@@ -10163,7 +10163,7 @@
     {
       "id": "US-1579",
       "priority": 2381,
-      "passes": false,
+      "passes": true,
       "title": "MeasureCard distribution: in-app ordering, printable download, fulfillment queue, version tracking",
       "description": "As a subscriber, I can get a MeasureCard: download the print-at-home PDF instantly, or request a professionally printed card mailed to me (plan-gated). As the operator, I get a fulfillment queue I can export to my print/mail vendor, and the system knows which card version each user has.",
       "acceptanceCriteria": [
@@ -10174,7 +10174,7 @@
         "Education hook: one in-app announcement via the existing Growth broadcast system when the feature ships (draft copy included in the story; operator sends)",
         "Abuse guard: one active mail request per user + rate limit on the request endpoint"
       ],
-      "notes": "Fulfillment stays manual/vendor-side on purpose at this scale; the queue is just structured data. Shipping address is PII: operator table, service-role only, NEVER in item-photos or any public surface."
+      "notes": "Fulfillment stays manual/vendor-side on purpose at this scale; the queue is just structured data. Shipping address is PII: operator table, service-role only, NEVER in item-photos or any public surface. BUILT 2026-07-03: migration 00351 (measure_card_requests deny-all operator table w/ one-active partial unique index + users.measure_card_version/source) + rls-guard SERVICE_ROLE_ONLY registration. Seller: /dashboard/flipdesk/measure-card page (dos/donts, PDF download from public/measure-card-letter-v1.pdf + /card-downloaded stamp, mail-request form gated to paid plans; addresses never echoed back — requestSummary strips PII, source-guard tested). Edge: GET/POST /measure/card-request (plan gate server-side, 409 + 23505 race handling, owner-scoped) + /card-downloaded. Admin: /admin/measure-cards page + /api/admin/measure-cards routes (list, vendor CSV without owner ids, bulk exported/shipped; shipped stamps profile source=mail) — RBAC ops:write (admin-scope-map). ANNOUNCEMENT DRAFT (operator sends via Growth broadcast): title=\"Measure once, list everywhere — meet the MeasureCard\"; body=\"Take ONE flat-lay photo with the new MeasureCard beside your garment and GradeThread extracts true-inch measurements automatically — drag to fine-tune, and a clean annotated measurements photo is generated for your listings. Print yours free (FlipDesk -> MeasureCard) or get one mailed on paid plans.\" cta=/dashboard/flipdesk/measure-card. Edge 2615/0, vitest 1142/1142."
     },
     {
       "id": "US-1580",

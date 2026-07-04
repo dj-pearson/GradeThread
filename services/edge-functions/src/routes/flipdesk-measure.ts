@@ -636,3 +636,171 @@ flipdeskMeasureRoutes.post("/overlay", async (c) => {
     card_removed: crop ? "cropped" : "masked",
   });
 });
+
+// ── US-1579: MeasureCard distribution (seller side) ──────────────────
+//
+// The card itself is free to print (the letter-format PDF ships with the
+// frontend); mailed cards are a paid-plan perk fulfilled manually by the
+// operator from the /api/admin/measure-cards queue. Addresses are PII: they
+// live ONLY in measure_card_requests (deny-all operator table) and are never
+// echoed back through this API beyond what the seller themselves submitted.
+
+const ACTIVE_REQUEST_STATUSES = ["requested", "exported"] as const;
+
+/** Sanitized request shape returned to the seller (no address echo). */
+function requestSummary(row: {
+  id: string;
+  status: string;
+  card_version: number;
+  requested_at: string;
+  shipped_at: string | null;
+}) {
+  return {
+    id: row.id,
+    status: row.status,
+    card_version: row.card_version,
+    requested_at: row.requested_at,
+    shipped_at: row.shipped_at,
+  };
+}
+
+// The seller's latest mail request (any status) — drives the tools page.
+flipdeskMeasureRoutes.get("/card-request", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const { data, error } = await supabaseAdmin
+    .from("measure_card_requests")
+    .select("id, status, card_version, requested_at, shipped_at")
+    .eq("owner_user_id", ownerId)
+    .order("requested_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) return c.json({ error: "Could not load your request." }, 500);
+  return c.json({
+    request: data
+      ? requestSummary(data as Parameters<typeof requestSummary>[0])
+      : null,
+  });
+});
+
+// Request a mailed card. Paid plans only; one active request per seller.
+flipdeskMeasureRoutes.post("/card-request", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const field = (key: string, max: number): string =>
+    typeof body[key] === "string" ? (body[key] as string).trim().slice(0, max) : "";
+  const shipName = field("ship_name", 120);
+  const line1 = field("address_line1", 200);
+  const line2 = field("address_line2", 200);
+  const city = field("city", 120);
+  const state = field("state", 80);
+  const postal = field("postal_code", 20);
+  const country = field("country", 2).toUpperCase() || "US";
+  if (!shipName || !line1 || !city || !state || !postal) {
+    return c.json(
+      { error: "Name, address, city, state, and postal code are required." },
+      400,
+    );
+  }
+
+  // Plan gate (server-side; the page also hides the form for free plans).
+  const { data: userRow } = await supabaseAdmin
+    .from("users")
+    .select("flipdesk_plan")
+    .eq("id", ownerId)
+    .maybeSingle();
+  const plan = (userRow as { flipdesk_plan: string | null } | null)
+    ?.flipdesk_plan ?? "free";
+  if (plan === "free") {
+    return c.json(
+      {
+        error:
+          "Mailed MeasureCards are a paid-plan perk — download the free print-at-home PDF, or upgrade to have one mailed.",
+      },
+      403,
+    );
+  }
+
+  // Abuse guard: one active (unshipped) request per seller. The partial
+  // unique index backstops this check under concurrency.
+  const { data: active } = await supabaseAdmin
+    .from("measure_card_requests")
+    .select("id, status")
+    .eq("owner_user_id", ownerId)
+    .in("status", [...ACTIVE_REQUEST_STATUSES])
+    .limit(1);
+  if ((active ?? []).length > 0) {
+    return c.json(
+      { error: "You already have a card request in progress." },
+      409,
+    );
+  }
+
+  const { data: inserted, error: insErr } = await supabaseAdmin
+    .from("measure_card_requests")
+    .insert({
+      owner_user_id: ownerId,
+      plan_key: plan,
+      card_version: MEASURE_CARD_VERSIONS[MEASURE_CARD_VERSIONS.length - 1]
+        .version,
+      ship_name: shipName,
+      address_line1: line1,
+      address_line2: line2 || null,
+      city,
+      state,
+      postal_code: postal,
+      country,
+    } as never)
+    .select("id, status, card_version, requested_at, shipped_at")
+    .maybeSingle();
+  if (insErr) {
+    // 23505 = the partial unique index lost the race — same answer as above.
+    if (insErr.code === "23505") {
+      return c.json(
+        { error: "You already have a card request in progress." },
+        409,
+      );
+    }
+    return c.json({ error: "Could not save your request." }, 500);
+  }
+  return c.json(
+    {
+      ok: true,
+      request: requestSummary(
+        inserted as Parameters<typeof requestSummary>[0],
+      ),
+    },
+    201,
+  );
+});
+
+// Stamp the profile card-version record when the seller downloads the PDF
+// (US-1579 AC4). A mailed card ('mail', stamped at ship time) outranks a
+// download and is never downgraded.
+flipdeskMeasureRoutes.post("/card-downloaded", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const version =
+    MEASURE_CARD_VERSIONS[MEASURE_CARD_VERSIONS.length - 1].version;
+  const { data: userRow } = await supabaseAdmin
+    .from("users")
+    .select("measure_card_source")
+    .eq("id", ownerId)
+    .maybeSingle();
+  const source = (userRow as { measure_card_source: string | null } | null)
+    ?.measure_card_source;
+  if (source !== "mail") {
+    await supabaseAdmin
+      .from("users")
+      .update({
+        measure_card_version: version,
+        measure_card_source: "download",
+      } as never)
+      .eq("id", ownerId);
+  }
+  return c.json({ ok: true, card_version: version });
+});
