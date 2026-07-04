@@ -464,6 +464,12 @@ app.use("/api/support/assistant/*", workspaceMiddleware);
 // when a member is acting inside an owner's workspace. Sits after
 // authMiddleware. No-ops (workspaceOwnerId === userId) for solo users.
 app.use("/api/grade/*", workspaceMiddleware);
+// US-1637: per-grade checkout must resolve the workspace owner so a member can
+// pay to unlock the OWNER's submission (stored user_id = ownerId). Runs after
+// authMiddleware (mounted above); no-ops for solo users (workspaceOwnerId ===
+// userId). Other /api/payments/* routes read userId for the customer, so the
+// added workspace context is harmless to them.
+app.use("/api/payments/*", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/oauth/start", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/oauth/debug", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/disconnect", workspaceMiddleware);

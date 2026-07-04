@@ -115,6 +115,27 @@ Deno.test({
 });
 
 Deno.test({
+  // US-1637: per-grade checkout is now owner-scoped (workspaceMiddleware on
+  // /api/payments/*). A non-member B must not be able to mint a Checkout Session
+  // that unlocks A's submission — the owner-scoped ownership check (ownerId = B,
+  // no membership → no X-Workspace-Owner access to A) resolves to 404, never a
+  // session. The positive member-pays-for-owner flow is exercised by the
+  // fixture's workspace member; here we prove the denial edge.
+  name: "B cannot create a per-grade checkout for A's submission",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_SUBMISSION_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_SUBMISSION_ID")!;
+    const res = await fetch(`${BASE}/api/payments/gradethread/per-grade`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ submissionId: id, tier: "standard" }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST per-grade checkout");
+  },
+});
+
+Deno.test({
   // US-888: the Trust & Safety abuse-signals console is an OPERATOR surface.
   // A regular tenant must never read fraud/abuse signals raised about other
   // accounts (the signal evidence references cross-tenant submission/image ids).

@@ -11470,7 +11470,7 @@
       "title": "Edge P2 · Workspace-scope per-grade checkout; sweep retained originals + dispute evidence on account deletion",
       "description": "As a workspace member and a deleting user, I want per-grade checkout to work for member submissions and account deletion to actually remove my retained originals and dispute evidence, so that member flows don't 404 and GPS-bearing PII doesn't survive deletion.",
       "priority": 2270,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Source: CODE_REVIEW_2026-07-04.md §Edge tenant isolation] LOAD the tenant-isolation skill first. Two edge P2s grouped.",
       "acceptanceCriteria": [
         "Mount workspaceMiddleware on /api/payments/* and thread ownerId through the ownership check + metadata.user_id + webhook flip so member submissions (user_id = ownerId) no longer 404 on /per-grade (services/edge-functions/src/routes/payments.ts:612-624)",

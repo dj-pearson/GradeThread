@@ -1010,6 +1010,11 @@ async function handlePerGradePurchase(
 ) {
   const submissionId = session.metadata?.submission_id;
   const tier = session.metadata?.tier;
+  // US-1637: the submission belongs to the workspace OWNER (a member's per-grade
+  // purchase pays for the owner's submission). Fall back to userId (the payer)
+  // for solo purchases and any in-flight session minted before this field
+  // existed, preserving the prior behavior.
+  const submissionOwnerId = session.metadata?.submission_owner_id ?? userId;
 
   if (!submissionId || !tier) {
     console.error(`[Webhook] per_grade missing submission_id or tier (session=${session.id})`);
@@ -1039,7 +1044,7 @@ async function handlePerGradePurchase(
       stripe_payment_intent_id: paymentIntentId,
     })
     .eq("id", submissionId)
-    .eq("user_id", userId)
+    .eq("user_id", submissionOwnerId) // US-1637: owner-scoped, not the payer
     .eq("payment_status", "unpaid"); // idempotency — don't overwrite if already paid
 
   // US-397: a dropped "paid" flip leaves a paid grade unprocessed — retry on a
@@ -1214,6 +1219,9 @@ async function refundPerGrade(
     console.error(`[Webhook] per_grade refund missing submission_id (charge=${chargeId})`);
     return;
   }
+  // US-1637: withhold the grade from the OWNER's submission (member per-grade).
+  // Falls back to the payer for solo purchases / pre-field PaymentIntents.
+  const submissionOwnerId = meta.submission_owner_id ?? userId;
 
   await recordEvent(
     userId,
@@ -1225,7 +1233,7 @@ async function refundPerGrade(
   );
 
   // Tenant-scoped by user_id (US-268). maybeSingle + select confirms the
-  // submission actually belongs to this user before we touch its grade.
+  // submission actually belongs to this workspace before we touch its grade.
   const { data: updated, error } = await supabaseAdmin
     .from("submissions")
     .update({
@@ -1234,7 +1242,7 @@ async function refundPerGrade(
       flag_reason: "payment_refunded",
     })
     .eq("id", submissionId)
-    .eq("user_id", userId)
+    .eq("user_id", submissionOwnerId)
     .select("id")
     .maybeSingle();
 
@@ -1242,7 +1250,7 @@ async function refundPerGrade(
   // transient failure (the update is idempotent on submission_id+user_id).
   failIfDbError(error, `per_grade refund submission update (${submissionId})`);
   if (!updated) {
-    console.warn(`[Webhook] per_grade refund: submission ${submissionId} not found for user ${userId}`);
+    console.warn(`[Webhook] per_grade refund: submission ${submissionId} not found for owner ${submissionOwnerId}`);
     return;
   }
 
@@ -1298,7 +1306,8 @@ async function handleChargeDisputeCreated(event: Stripe.Event) {
       .from("submissions")
       .update({ flagged: true, flag_reason: "payment_disputed" })
       .eq("id", submissionId)
-      .eq("user_id", userId);
+      // US-1637: owner-scoped (member per-grade); falls back to the payer.
+      .eq("user_id", meta.submission_owner_id ?? userId);
   }
 
   void captureServer(userId ?? "unknown", "billing.dispute_created", {
@@ -1386,7 +1395,8 @@ async function handleChargeDisputeClosed(event: Stripe.Event) {
       .from("submissions")
       .update({ flagged: false, flag_reason: null })
       .eq("id", submissionId)
-      .eq("user_id", userId)
+      // US-1637: owner-scoped (member per-grade); falls back to the payer.
+      .eq("user_id", meta.submission_owner_id ?? userId)
       .eq("flag_reason", "payment_disputed");
     // US-397: a dropped flag-clear leaves a won grade needlessly flagged — retry.
     failIfDbError(error, `dispute won flag clear (${submissionId})`);
