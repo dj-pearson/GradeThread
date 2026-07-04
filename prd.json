@@ -11628,7 +11628,7 @@
       "title": "DB P3 · Register unlogged crons in cron_runs; add measure-route tenant-isolation tests",
       "description": "As the operator, I want every cron visible to the cron_runs ledger and the new measure routes covered by tenant tests, so that missed runs signal and scoping stays regression-protected.",
       "priority": 2140,
-      "passes": false,
+      "passes": true,
       "notes": "[P3 batch][Source: CODE_REVIEW_2026-07-04.md §Database RLS & durable jobs] Grouped DB hardening.",
       "acceptanceCriteria": [
         "ebay-publish-due, promoted-sync, leave-feedback, and sync/performance crons record to the cron_runs ledger so a missed run signals (services/edge-functions/src/main.ts:523-542)",

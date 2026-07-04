@@ -108,7 +108,8 @@ import { adminMarketplacePipelineRoutes } from "./routes/admin-marketplace-pipel
 import { adminConditionIndexRoutes } from "./routes/admin-condition-index.ts";
 import { adminAuditRoutes } from "./routes/admin-audit.ts";
 import { handleAuditAnomalyCron } from "./routes/jobs-audit-anomaly.ts";
-import { recordCronRun } from "./lib/cron-runs.ts";
+import { cronNameForPath, recordCronRun } from "./lib/cron-runs.ts";
+import { createMiddleware } from "hono/factory";
 import { emitOpsEvent } from "./lib/ops-events.ts";
 import { publicGradingRoutes } from "./routes/public-grading.ts";
 import { handleGradingMonitorCron } from "./lib/grading-monitor.ts";
@@ -577,6 +578,40 @@ app.use("/api/jobs/*", async (c, next) => {
     });
   }
 });
+
+// US-1645: the eBay crons run under /api/flipdesk/ebay/* (not /api/jobs/*), so
+// the recorder above never saw them and a missed run was invisible. Record them
+// too — resolving the canonical registry name from the path (their name differs
+// from the last path segment) so a missing/failed run signals in the cron_runs
+// ledger and the ops activity stream exactly like every /api/jobs/* cron. Gated
+// on the internal job secret + a registered path, so ordinary eBay traffic is a
+// no-op. Mounted only on the specific cron sub-paths.
+const recordEbayCron = createMiddleware(async (c, next) => {
+  const isCron = Boolean(c.req.header("X-Internal-Job-Secret"));
+  const startedMs = isCron ? Date.now() : 0;
+  await next();
+  if (!isCron) return;
+  const jobName = cronNameForPath(c.req.path);
+  if (!jobName) return; // not a registered cron path — don't record
+  const httpStatus = c.res.status;
+  const triggeredBy = c.req.header("X-Triggered-By")?.trim() || "schedule";
+  void recordCronRun({
+    jobName,
+    status: httpStatus >= 400 ? "error" : "success",
+    httpStatus,
+    durationMs: Date.now() - startedMs,
+    triggeredBy,
+  });
+  if (httpStatus >= 400) {
+    void emitOpsEvent("job.failed", "warning", {
+      title: `Background job "${jobName}" failed (HTTP ${httpStatus})`,
+      source: jobName,
+      data: { job: jobName, http_status: httpStatus, triggered_by: triggeredBy },
+    });
+  }
+});
+app.use("/api/flipdesk/ebay/jobs/*", recordEbayCron);
+app.use("/api/flipdesk/ebay/sync/performance", recordEbayCron);
 
 // Admin billing: user JWT auth, then admin role check
 app.use("/api/admin/*", authMiddleware);

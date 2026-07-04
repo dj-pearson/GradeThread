@@ -9,7 +9,9 @@ Deno.env.set(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
 );
 
-const { nextCronRun, CRON_REGISTRY } = await import("../lib/cron-runs.ts");
+const { nextCronRun, CRON_REGISTRY, cronNameForPath } = await import(
+  "../lib/cron-runs.ts"
+);
 
 const FROM = new Date("2026-06-12T10:02:00Z");
 
@@ -40,4 +42,39 @@ Deno.test("CRON_REGISTRY: every entry produces a computable next run", () => {
     const next = nextCronRun(def.schedule, FROM);
     assertEquals(typeof next, "string", `no next-run for ${def.name} (${def.schedule})`);
   }
+});
+
+// US-1645: the eBay crons record via cronNameForPath (their registry name
+// differs from the last path segment), so the resolver must map their endpoint
+// to the canonical name and ignore unregistered / unrecorded paths.
+Deno.test("cronNameForPath resolves recorded eBay cron endpoints to their registry name", () => {
+  assertEquals(
+    cronNameForPath("/api/flipdesk/ebay/jobs/publish-due"),
+    "ebay-publish-due",
+  );
+  assertEquals(
+    cronNameForPath("/api/flipdesk/ebay/jobs/promoted-sync"),
+    "ebay-promoted-sync",
+  );
+  assertEquals(
+    cronNameForPath("/api/flipdesk/ebay/jobs/leave-feedback"),
+    "ebay-leave-feedback",
+  );
+  assertEquals(
+    cronNameForPath("/api/flipdesk/ebay/sync/performance"),
+    "ebay-performance-sync",
+  );
+  // Trailing slash tolerated.
+  assertEquals(
+    cronNameForPath("/api/flipdesk/ebay/jobs/publish-due/"),
+    "ebay-publish-due",
+  );
+});
+
+Deno.test("cronNameForPath returns null for unregistered or unrecorded paths", () => {
+  // Not a cron path at all.
+  assertEquals(cronNameForPath("/api/flipdesk/ebay/listings/pull"), null);
+  // A registered-but-NOT-recorded cron must not record through this recorder.
+  assertEquals(cronNameForPath("/api/flipdesk/ebay/oauth/refresh"), null);
+  assertEquals(cronNameForPath("/api/flipdesk/nope"), null);
 });
