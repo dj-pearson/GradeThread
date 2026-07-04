@@ -173,7 +173,13 @@ Deno.test("orchestration: user not found → rejected", async () => {
 
 Deno.test("orchestration: active Stripe sub blocks a Play subscription", async () => {
   const { deps } = fakeDeps({
-    user: { flipdesk_plan: "pro", subscription_status: "active", billing_source: "stripe", grade_credit_balance: 0 },
+    user: {
+      flipdesk_plan: "pro",
+      subscription_status: "active",
+      billing_source: "stripe",
+      grade_credit_balance: 0,
+      flipdesk_subscription_id: "sub_123",
+    },
   });
   const r = await processGooglePlayPurchase(
     { userId: "u1", productId: "flipdesk_pro_monthly", purchaseToken: "t" },
@@ -182,6 +188,55 @@ Deno.test("orchestration: active Stripe sub blocks a Play subscription", async (
   );
   assert(!r.ok);
   assertEquals(r.reason, "blocked_active_stripe");
+});
+
+// US-1618 / C5: the gate is null-tolerant on billing_source (mirrors the App
+// Store precedence) — an active Stripe sub identified by flipdesk_subscription_id
+// blocks a Play purchase even before billing_source was ever stamped 'stripe'.
+Deno.test("orchestration: active Stripe sub with null billing_source still blocks Play", async () => {
+  const { deps } = fakeDeps({
+    user: {
+      flipdesk_plan: "pro",
+      subscription_status: "active",
+      billing_source: null,
+      grade_credit_balance: 0,
+      flipdesk_subscription_id: "sub_123",
+    },
+  });
+  const r = await processGooglePlayPurchase(
+    { userId: "u1", productId: "flipdesk_pro_monthly", purchaseToken: "t" },
+    deps,
+    NOW,
+  );
+  assert(!r.ok);
+  assertEquals(r.reason, "blocked_active_stripe");
+});
+
+// A Play purchase with NO Stripe subscription proceeds (no false block).
+Deno.test("orchestration: no Stripe sub → Play subscription proceeds past the gate", async () => {
+  const { deps } = fakeDeps({
+    user: {
+      flipdesk_plan: "free",
+      subscription_status: "none",
+      billing_source: null,
+      grade_credit_balance: 0,
+      flipdesk_subscription_id: null,
+    },
+    info: {
+      valid: true,
+      orderId: "GPA.s",
+      expiryMillis: NOW + 86_400_000,
+      autoRenewing: true,
+      obfuscatedExternalAccountId: null,
+    },
+  });
+  const r = await processGooglePlayPurchase(
+    { userId: "u1", productId: "flipdesk_pro_monthly", purchaseToken: "t" },
+    deps,
+    NOW,
+  );
+  assert(r.ok);
+  assertEquals(r.plan, "pro");
 });
 
 Deno.test("orchestration: invalid purchase → rejected, nothing granted", async () => {

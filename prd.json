@@ -11098,7 +11098,7 @@
       "title": "C5 · Set billing_source='stripe' so cross-processor customers aren't double-billed or locked out",
       "description": "As a cross-processor customer, I want my billing_source to reflect an active Stripe subscription, so that buying on Android doesn't double-bill me and moving from iOS to Stripe doesn't lock me out of plan changes or force-lapse me.",
       "priority": 2596,
-      "passes": false,
+      "passes": true,
       "notes": "[Critical C5][P1 revenue/lockout][Source: CODE_REVIEW_2026-07-04.md §Critical] webhooks.ts:548-587 never sets billing_source='stripe'. So (a) the Play 'active Stripe' precedence gate never fires → active Stripe subscriber buying on Android is double-billed (google-play/verify.ts:206-211); (b) a former iOS subscriber who moves to Stripe stays flagged 'appstore' → every plan change 409s, UI hides cancel/change, and the Apple expiry sweep can force-lapse a paying Stripe customer to Free.",
       "acceptanceCriteria": [
         "handleSubscriptionChange sets billing_source:'stripe' (at least on customer.subscription.created) — services/edge-functions/src/routes/webhooks.ts:548-587",

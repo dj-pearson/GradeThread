@@ -31,7 +31,9 @@ const deps: GooglePlayDeps = {
   loadBillingUser: async (userId) => {
     const { data } = await supabaseAdmin
       .from("users")
-      .select("flipdesk_plan, subscription_status, billing_source, grade_credit_balance")
+      .select(
+        "flipdesk_plan, subscription_status, billing_source, grade_credit_balance, flipdesk_subscription_id",
+      )
       .eq("id", userId)
       .maybeSingle();
     return (data as GooglePlayBillingUser | null) ?? null;

@@ -552,6 +552,13 @@ async function handleSubscriptionChange(event: Stripe.Event) {
       flipdesk_interval: interval,
       subscription_status: status,
       flipdesk_subscription_id: sub.id,
+      // US-1618 / C5: stamp the processor. This handler only runs for Stripe
+      // subscription events, so the user demonstrably bills via Stripe. Without
+      // it, billing_source stayed null/appstore — so the Play "active Stripe"
+      // double-billing gate never fired, and a former iOS subscriber who moved
+      // to Stripe stayed flagged 'appstore' (409 on every plan change; the Apple
+      // expiry sweep could force-lapse a paying Stripe customer).
+      billing_source: "stripe",
       flipdesk_period_end: periodEnd,
       flipdesk_pause_until: pauseUntil,
       flipdesk_cancel_at_period_end: sub.cancel_at_period_end ?? false,

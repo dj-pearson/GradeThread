@@ -23,6 +23,7 @@ import {
   computeGoogleUserUpdate,
   type GoogleUsersBillingUpdate,
 } from "./products.ts";
+import { decideAppstorePrecedence } from "../appstore/precedence.ts";
 
 const ANDROIDPUBLISHER_SCOPE = "https://www.googleapis.com/auth/androidpublisher";
 
@@ -154,6 +155,10 @@ export interface GooglePlayBillingUser {
   subscription_status: string | null;
   billing_source: string | null;
   grade_credit_balance: number | null;
+  // US-1618 / C5: the primary "has an entitling Stripe subscription" signal for
+  // the double-billing gate (mirrors the App Store precedence, which is
+  // null-tolerant on billing_source and keys off the subscription id).
+  flipdesk_subscription_id?: string | null;
 }
 
 export interface GooglePlayResult {
@@ -229,13 +234,13 @@ export async function processGooglePlayPurchase(
   if (!user) return { ok: false, kind: mapping.kind, reason: "user_not_found" };
 
   // Precedence: an active Stripe subscription owns the plan — route the user to
-  // cancel web billing first rather than double-charge (mirrors the App Store
-  // precedence rule).
-  if (
-    mapping.kind === "subscription" &&
-    user.billing_source === "stripe" &&
-    user.subscription_status === "active"
-  ) {
+  // cancel web billing first rather than double-charge. US-1618 / C5: reuse the
+  // SAME (processor-agnostic) predicate the App Store path uses so the two gates
+  // can't drift — it's null-tolerant on billing_source and keys off
+  // flipdesk_subscription_id + an entitling status (active/trialing/past_due),
+  // where the old exact billing_source==='stripe' && status==='active' check
+  // silently never fired (billing_source was never stamped 'stripe').
+  if (decideAppstorePrecedence(user, mapping.kind) === "block_active_stripe") {
     return { ok: false, kind: "subscription", reason: "blocked_active_stripe" };
   }
 
