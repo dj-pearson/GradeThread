@@ -11024,3 +11024,17 @@ operator confirms 00353 applied.
   redacted input; an audit failure never takes the tool down.
 - Injectable ToolDb -> 9 deno tests on a chainable fake; buildKernelTools
   plugs into the US-1584 kernel. lint/check clean.
+
+=== 2026-07-04 (Agentic OS loop): US-1586 (policy engine) ===
+- lib/agent-policy.ts: the L0-L3 autonomy ladder. resolveAutonomy takes
+  numbers or L-strings; ALL unknowns default L0 (matrix proven).
+- dispatchWriteIntent: L0 drops -> 'would have proposed' finding (the
+  promotion-evidence trail); L1 -> pending proposal w/ dedup key; L2/L3
+  downgrade to proposal with an explicit note until US-1587's execution
+  rails exist. All proven.
+- Kill switches FAIL-CLOSED at run start AND every write dispatch: global
+  agents.pause beats an enabled L3 agent; read failure halts, missing row
+  runs. The kernel now DELEGATES its pause read to the policy engine - one
+  implementation (kernel suite still 14/0).
+- recordPolicyBreach: one-level demotion floored at L0, persisted preserving
+  sibling classes, warning ops event. 10/0 policy tests; 33/0 agent suite.

@@ -22,6 +22,7 @@ import { getAnthropicClient, getDefaultModel } from "./ai-config.ts";
 import { isAiBudgetExhausted } from "./ai-budget-gate.ts";
 import { redact, redactError } from "./log-redact.ts";
 import { computeCostUsd, toAiTokenUsage } from "./ai-usage.ts";
+import { isGlobalAgentPause } from "./agent-policy.ts";
 
 // ── The output contract ──────────────────────────────────────────────────────
 
@@ -183,33 +184,13 @@ async function defaultCallModel(params: {
   };
 }
 
-/**
- * FAIL-CLOSED read of the global agents.pause switch: a READ ERROR pauses
- * (never run agents blind), a missing row means "not paused" (the switch
- * exists to stop the fleet, not to require ceremony before the first run).
- */
-async function readGlobalPause(): Promise<boolean> {
-  try {
-    const { data, error } = await supabaseAdmin
-      .from("system_settings")
-      .select("value")
-      .eq("key", "agents.pause")
-      .maybeSingle();
-    if (error) return true; // fail-closed
-    if (!data) return false; // switch not configured → running
-    const v = (data as { value: unknown }).value;
-    return v === true || v === "true" || (typeof v === "object" && v !== null &&
-      (v as Record<string, unknown>).enabled === true);
-  } catch {
-    return true; // fail-closed
-  }
-}
-
 const defaultDeps: KernelDeps = {
   db: defaultDb,
   callModel: defaultCallModel,
   isBudgetExhausted: isAiBudgetExhausted,
-  isGloballyPaused: readGlobalPause,
+  // ONE pause implementation across run start and write dispatch —
+  // the policy engine's fail-closed reader (US-1586).
+  isGloballyPaused: () => isGlobalAgentPause(),
   tools: {},
   now: () => Date.now(),
 };
