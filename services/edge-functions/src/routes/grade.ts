@@ -693,6 +693,11 @@ gradeRoutes.post("/pay/:id", async (c) => {
   }
   const userId = c.get("userId");
   const ownerId = c.get("workspaceOwnerId") ?? userId;
+  // US-1616 / C3: a read-only viewer must not spend the owner's grade credits.
+  // Mirrors the /submit gate — owner/admin/listing_manager/member qualify.
+  if ((c.get("workspaceRole") ?? "owner") === "viewer") {
+    return c.json({ error: "Viewers cannot pay for or start grades in this workspace" }, 403);
+  }
   const submissionId = c.req.param("id");
 
   let body: { tier?: string };
@@ -855,6 +860,11 @@ gradeRoutes.post("/snap", async (c) => {
   // Inline AI budget kill-switch (see /submit) — snap rides grading vision too.
   if (await isAiBudgetExhausted("grading")) {
     return c.json(aiBudgetExceededBody("grading"), 503);
+  }
+  // US-1616 / C3: Snap runs the (owner-billed) grading vision, so a read-only
+  // viewer must not be able to drain the workspace's AI budget with it.
+  if ((c.get("workspaceRole") ?? "owner") === "viewer") {
+    return c.json({ error: "Viewers cannot use Snap-to-Value in this workspace" }, 403);
   }
 
   let body: { image?: unknown; brand?: unknown; keyword?: unknown };
@@ -1025,6 +1035,11 @@ const MAX_DISPUTE_EVIDENCE = 8;
 gradeRoutes.post("/dispute", async (c) => {
   const userId = c.get("userId");
   const ownerId = c.get("workspaceOwnerId") ?? userId;
+  // US-1616 / C3: filing a dispute acts on the owner's grade report + can
+  // trigger refunds/credits — not a read-only viewer action.
+  if ((c.get("workspaceRole") ?? "owner") === "viewer") {
+    return c.json({ error: "Viewers cannot file disputes in this workspace" }, 403);
+  }
 
   let body: { gradeReportId?: unknown; reason?: unknown; images?: unknown };
   try {

@@ -10,6 +10,7 @@ import { Hono } from "hono";
 import Stripe from "stripe";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { failSafe } from "../lib/http-errors.ts";
+import { roleAtLeast } from "../lib/workspace-roles.ts";
 
 type ConsignmentEnv = {
   Variables: {
@@ -284,7 +285,12 @@ flipdeskConsignmentRoutes.get("/payouts", async (c) => {
 // POST /payouts — pay a consignor. When the consignor has an onboarded Connect
 // account a real Stripe transfer is sent; otherwise the payout is recorded as
 // pending so the balance is still tracked (e.g. cash / external payout).
+// US-1616 / C3: this moves the OWNER's money — require admin. Without this a
+// read-only viewer with a stale X-Workspace-Owner could trigger transfers.
 flipdeskConsignmentRoutes.post("/payouts", async (c) => {
+  if (!roleAtLeast(c.get("workspaceRole") ?? "owner", "admin")) {
+    return c.json({ error: "This action requires admin access or higher" }, 403);
+  }
   const userId = tenantId(c);
   const body = await c.req.json().catch(() => ({}));
 

@@ -30,6 +30,7 @@ import {
   withAiAction,
 } from "../lib/ai-metering.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
+import { roleAtLeast } from "../lib/workspace-roles.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
 import { acquireJobLock } from "../lib/job-lock.ts";
 import { featureDisabledBody, isFeatureEnabled } from "../lib/feature-flags.ts";
@@ -1896,7 +1897,12 @@ async function processPublishBatch(
 }
 
 // POST /publish-batch  Body: { item_ids: string[] }
+// US-1616 / C3: publishing lists the OWNER's inventory live on a marketplace —
+// require listing_manager+. A read-only viewer must not publish.
 flipdeskAutolisterRoutes.post("/publish-batch", async (c) => {
+  if (!roleAtLeast(c.get("workspaceRole") ?? "owner", "listing_manager")) {
+    return c.json({ error: "This action requires listing_manager access or higher" }, 403);
+  }
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
 
   let body: { item_ids?: unknown };
@@ -2032,6 +2038,9 @@ flipdeskAutolisterRoutes.get("/publish-batch/:id", async (c) => {
 
 // POST /publish-batch/:id/retry-failed — re-run ONLY the failed jobs in place.
 flipdeskAutolisterRoutes.post("/publish-batch/:id/retry-failed", async (c) => {
+  if (!roleAtLeast(c.get("workspaceRole") ?? "owner", "listing_manager")) {
+    return c.json({ error: "This action requires listing_manager access or higher" }, 403);
+  }
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   const batchId = c.req.param("id");
 
@@ -2079,6 +2088,9 @@ flipdeskAutolisterRoutes.post("/publish-batch/:id/retry-failed", async (c) => {
 // POST /publish-batch/:id/resume — user-triggered resume of a STRANDED batch
 // (jobs left 'pending'/'running' after the worker was interrupted by a restart).
 flipdeskAutolisterRoutes.post("/publish-batch/:id/resume", async (c) => {
+  if (!roleAtLeast(c.get("workspaceRole") ?? "owner", "listing_manager")) {
+    return c.json({ error: "This action requires listing_manager access or higher" }, 403);
+  }
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   const batchId = c.req.param("id");
 

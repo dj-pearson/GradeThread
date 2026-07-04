@@ -1773,3 +1773,67 @@ Deno.test("US-1565: task-board whitelists strip created_by/author_id and unknown
     ["completed_at", "project_id", "status", "title"],
   );
 });
+
+// ── US-1616 / C3: intra-workspace role enforcement ──────────────────
+//
+// A read-only VIEWER member acting inside the owner's workspace (via
+// X-Workspace-Owner) must be denied money-moving / publish / spend actions —
+// the workspaceRole is now enforced on these routes, not just computed. These
+// are live-integration cases gated on a seeded viewer membership:
+//   TEST_VIEWER_JWT           — a member of the owner's workspace with role=viewer
+//   TEST_WORKSPACE_OWNER_ID   — that owner's user id (the X-Workspace-Owner value)
+// They SKIP until the fixture seeds a viewer (the broader workspace.ts role
+// coverage + seed wiring is US-1639). A 2xx here is a FAIL.
+const VIEWER_JWT = Deno.env.get("TEST_VIEWER_JWT");
+const WS_OWNER = Deno.env.get("TEST_WORKSPACE_OWNER_ID");
+const VIEWER_READY = Boolean(BASE && VIEWER_JWT && WS_OWNER);
+
+function viewerHeaders(): HeadersInit {
+  return {
+    Authorization: `Bearer ${VIEWER_JWT}`,
+    "Content-Type": "application/json",
+    "X-Workspace-Owner": WS_OWNER!,
+  };
+}
+
+Deno.test({
+  name: "C3: viewer cannot POST a consignor payout (requires admin)",
+  ignore: !VIEWER_READY,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/consignment/payouts`, {
+      method: "POST",
+      headers: viewerHeaders(),
+      body: JSON.stringify({ consignor_id: "00000000-0000-0000-0000-000000000000", amount: 100 }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST consignment payout as viewer");
+  },
+});
+
+Deno.test({
+  name: "C3: viewer cannot publish a batch (requires listing_manager)",
+  ignore: !VIEWER_READY,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/autolister/publish-batch`, {
+      method: "POST",
+      headers: viewerHeaders(),
+      body: JSON.stringify({ item_ids: ["00000000-0000-0000-0000-000000000000"] }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST publish-batch as viewer");
+  },
+});
+
+Deno.test({
+  name: "C3: viewer cannot pay for a grade (drains owner credits)",
+  ignore: !VIEWER_READY,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/grade/pay/00000000-0000-0000-0000-000000000000`, {
+      method: "POST",
+      headers: viewerHeaders(),
+      body: JSON.stringify({ tier: "standard" }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST grade pay as viewer");
+  },
+});

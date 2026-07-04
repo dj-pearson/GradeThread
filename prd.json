@@ -11058,7 +11058,7 @@
       "title": "C3 · Enforce workspaceRole on FlipDesk write/spend routes (viewer must not move money)",
       "description": "As a workspace owner, I want read-only viewer members blocked from money-moving and publish actions, so that a viewer can't trigger a Stripe payout, drain my AI/grade credits, or publish my inventory live.",
       "priority": 2598,
-      "passes": false,
+      "passes": true,
       "notes": "[Critical C3][P1 privilege-escalation][Source: CODE_REVIEW_2026-07-04.md §Critical] requireWorkspaceRole exists (middleware/workspace.ts:121) but is never called. A viewer sends X-Workspace-Owner: <ownerId> and acts: /payouts is a real Stripe transfer, /pay drains credits, /publish-batch publishes live inventory.",
       "acceptanceCriteria": [
         "Apply requireWorkspaceRole(...) at the main.ts mounts: admin for payouts/disconnect, listing_manager for publish/reprice/CRUD (services/edge-functions/src/middleware/workspace.ts:121; flipdesk-consignment.ts:287 /payouts; flipdesk-autolister.ts:1899 /publish-batch)",

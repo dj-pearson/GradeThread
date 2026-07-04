@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { roleAtLeast } from "../lib/workspace-roles.ts";
 import { sanitizeRelativePath } from "../lib/oauth-redirect.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
@@ -228,6 +229,10 @@ flipdeskDepopRoutes.post("/disconnect", async (c) => {
     | string
     | undefined;
   if (!userId) return c.json({ error: "Unauthorized" }, 401);
+  // US-1616 / C3: marketplace disconnect is a workspace-wide teardown — admin only.
+  if (!roleAtLeast(c.get("workspaceRole") ?? "owner", "admin")) {
+    return c.json({ error: "This action requires admin access or higher" }, 403);
+  }
 
   const { error } = await supabaseAdmin
     .from("marketplace_connections")
