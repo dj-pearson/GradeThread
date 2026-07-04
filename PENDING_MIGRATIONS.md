@@ -1,5 +1,25 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00356_public_cert_moderation_withhold.sql (US-1654 / DB-P2, 2026-07-04)
+
+**What:** `CREATE OR REPLACE VIEW public_grade_reports` reproducing every 00318
+column verbatim, plus a LEFT JOIN to `submissions` and a WHERE predicate that
+mirrors `isCertificateWithheld` (excludes `status='pending_review'`, and flagged
+submissions unless `moderation_status='approved'`). Closes the bypass where a
+finalized-then-flagged certificate stayed readable via PostgREST / the SPA
+`/cert/:id` even though the edge endpoints 404 it. Self-records '00356'.
+
+**Risk: LOW — output columns UNCHANGED (only the row set narrows); no client
+projection change; no data change.** The view runs as its owner (bypasses the
+underlying RLS exactly as the existing view already does for grade_reports), so
+the submissions join needs no new grant. Edge boot guard now expects **00356**.
+
+**⚠️ Apply order:** apply after 00353/00354/00355. `NOTIFY pgrst, 'reload
+schema';` after applying (the view definition changed). Redeploy the edge so its
+boot guard matches 00356. No client code depends on the change (it only stops
+withheld rows appearing) — so applying it is safe at any time; do it before
+merging so the SPA `/cert/:id` stops rendering withheld grades.
+
 ## ⏳ HELD: 00355_dispute_admin_alerted_at.sql (US-1652, 2026-07-04)
 
 **What:** `ALTER TABLE disputes ADD COLUMN IF NOT EXISTS admin_alerted_at

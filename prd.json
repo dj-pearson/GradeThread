@@ -11817,7 +11817,7 @@
       "title": "Close public_grade_reports moderation-withhold bypass (view flag predicate) — HELD MIGRATION",
       "description": "As the moderation owner, I want a finalized-then-flagged certificate to be unreadable via the public_grade_reports view, so a withheld grade's score/tier/summary can't be read straight from PostgREST (or the SPA /cert/:id that reads the view).",
       "priority": 2141,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Source: CODE_REVIEW_2026-07-04.md §Database RLS & durable jobs] Split out of US-1644 because the fix is a schema-version-bumping migration → held-migration rule (can't push on this branch mid-loop without carrying it in a later push). LOAD the migrations skill. The view (00318) gates only on review_status; add a join to submissions.flagged / moderation_status so a flagged finalized cert drops out. The edge endpoints already 404 these; this closes the raw-PostgREST + SPA-direct-read path.",
       "acceptanceCriteria": [
         "New migration recreates public_grade_reports reproducing ALL current columns (00318 + any later additions) and adds the flag predicate: a row is excluded when its submission is flagged / moderation-withheld (join submissions on gr.submission_id; exclude flagged=true, and moderation_status if present)",
