@@ -9992,7 +9992,7 @@
     {
       "id": "US-1568",
       "priority": 2370,
-      "passes": false,
+      "passes": true,
       "title": "Draft lifecycle: AutoLister drafts drop off on review; Inventory→Drafts is the durable home",
       "description": "As a reseller, AutoLister drafts and Inventory→Drafts are two overlapping lists of the same items and neither reflects review progress: a draft I already reviewed still sits in AutoLister drafts. AutoLister drafts should be the 'AI-processed, not yet human-reviewed' queue; once I Save/approve a draft in the composer it should leave that queue and live only in Inventory→Drafts until it is published/listed.",
       "acceptanceCriteria": [
