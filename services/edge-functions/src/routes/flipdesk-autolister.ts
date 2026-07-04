@@ -1023,7 +1023,11 @@ flipdeskAutolisterRoutes.post("/classify-photos", async (c) => {
     if (!id || !path) {
       return c.json({ error: "Each photo needs an id and storage_path." }, 400);
     }
-    if (!path.startsWith(`${ownerId}/`)) {
+    // US-1638: these are STAGED photos (uploaded via /staging/upload →
+    // `${ownerId}/_staging/…`). Require the full staging prefix, not just the
+    // owner folder, matching the sibling /verify-groups check — so a path
+    // elsewhere in the owner's tree can't be smuggled in.
+    if (!path.startsWith(`${ownerId}/_staging/`)) {
       return c.json({ error: "A photo is not owned by the caller." }, 403);
     }
     const url = supabaseAdmin.storage.from("item-photos").getPublicUrl(path)
@@ -1181,7 +1185,9 @@ flipdeskAutolisterRoutes.post("/photo-qa", async (c) => {
         typeof (x as { id?: unknown }).id === "string" &&
         typeof (x as { storage_path?: unknown }).storage_path === "string"
       )
-      .filter((x) => x.storage_path.startsWith(`${ownerId}/`));
+      // US-1638: staged covers live under `${ownerId}/_staging/…` (see comment
+      // above) — require the full staging prefix, not just the owner folder.
+      .filter((x) => x.storage_path.startsWith(`${ownerId}/_staging/`));
     const uniqueCovers = [...new Map(covers.map((x) => [x.id, x])).values()];
     if (uniqueCovers.length === 0) {
       return c.json(

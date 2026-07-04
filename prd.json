@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1652,
+  "nextId": 1653,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -11487,12 +11487,12 @@
       "title": "Edge P3 · Tenant-isolation hardening batch (column whitelists, chokepoint scoping, oracles, staging paths)",
       "description": "As the security owner, I want the remaining edge tenant-isolation hardening items closed, so that column leaks, existence oracles, and loose write scopes don't become exploitable as the surface grows.",
       "priority": 2148,
-      "passes": false,
-      "notes": "[P3 batch][Source: CODE_REVIEW_2026-07-04.md §Edge tenant isolation] LOAD the tenant-isolation skill first. Verified not currently exploitable; each AC independently verifiable.",
+      "passes": true,
+      "notes": "[P3 batch][Source: CODE_REVIEW_2026-07-04.md §Edge tenant isolation] LOAD the tenant-isolation skill first. Verified not currently exploitable; each AC independently verifiable. admin_alerted_at dedup split to US-1652 (needs a new column → held migration).",
       "acceptanceCriteria": [
         "grade.ts:792 /status/:id whitelists returned columns instead of select('*') (stops leaking reviewed_by)",
         "lib/grade-billing.ts:252 runPaymentPrecedence adds .eq('user_id',…) at the chokepoint (not only .eq('id',…))",
-        "notifications.ts:568 /dispute-filed scopes the lookup and adds an admin_alerted_at guard (stops existence/status oracle + repeated admin email)",
+        "notifications.ts:568 /dispute-filed scopes the lookup to .eq('user_id',userId) (stops the existence/status oracle). NOTE: the admin_alerted_at dedup guard is split to US-1652 — it needs a new disputes column (held-migration rule).",
         "notifications.ts:733 /welcome moves behind auth (stops account-existence oracle from body userId)",
         "flipdesk-ai.ts:364 does the ownership check BEFORE inserting ai_enrichment_log (stops cross-tenant UUID-existence oracle)",
         "flipdesk-autolister.ts:1025/1183 use ${ownerId}/_staging/ not ${ownerId}/",
@@ -11767,6 +11767,29 @@
       "relevantPaths": [
         "src/pages/submissions.tsx",
         "src/pages/inventory.tsx"
+      ]
+    },
+    {
+      "id": "US-1652",
+      "title": "Dispute-filed admin-alert dedup (disputes.admin_alerted_at) — HELD MIGRATION",
+      "description": "As the platform admin, I want the dispute-filed alert (email + in-app) to fire at most once per dispute, so an owner re-POSTing /dispute-filed for their own open dispute can't spam the admin.",
+      "priority": 2147,
+      "passes": false,
+      "notes": "[P3][Source: CODE_REVIEW_2026-07-04.md §Edge tenant isolation] Split out of US-1638 because it needs a NEW disputes column, which triggers the held-migration rule (code referencing the column must NOT deploy before the SQL applies to prod). LOAD the migrations skill. The oracle-scope half of the original AC (scope the lookup to .eq('user_id',userId)) already shipped in US-1638.",
+      "acceptanceCriteria": [
+        "Migration adds disputes.admin_alerted_at timestamptz null (idempotent ADD COLUMN IF NOT EXISTS); EXPECTED_SCHEMA_VERSION bumped same commit; self-record footer; recorded in PENDING_MIGRATIONS.md (HELD until user applies to prod)",
+        "notifications.ts /dispute-filed sets admin_alerted_at on first alert and returns {ok:true, skipped:'already alerted'} when already set (no duplicate email / in-app)",
+        "The guard is race-safe: the flip is a conditional update (.is('admin_alerted_at', null)) so two concurrent calls email once",
+        "deno lint + check clean; migration held (not pushed) until user OK"
+      ],
+      "dependsOn": [
+        "US-1638"
+      ],
+      "relevantPaths": [
+        "supabase/migrations/",
+        "services/edge-functions/src/routes/notifications.ts",
+        "services/edge-functions/src/lib/schema-version.ts",
+        "PENDING_MIGRATIONS.md"
       ]
     }
   ]

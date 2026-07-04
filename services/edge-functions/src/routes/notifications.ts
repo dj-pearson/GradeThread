@@ -565,10 +565,15 @@ notificationRoutes.post("/dispute-filed", async (c) => {
   if (!disputeId) return c.json({ error: "disputeId is required" }, 400);
 
   try {
+    // US-1638: scope the lookup to the CALLER's own dispute. Without this, any
+    // authenticated user could pass an arbitrary disputeId and learn from the
+    // 404-vs-ok-vs-"not open" responses whether it exists and its status — an
+    // existence/status oracle over other tenants' disputes.
     const { data: dispute } = await supabaseAdmin
       .from("disputes")
       .select("id, status, reason, user_id, grade_report_id")
       .eq("id", disputeId)
+      .eq("user_id", userId)
       .single();
     if (!dispute) return c.json({ error: "Dispute not found" }, 404);
     // Only alert on a just-filed dispute (idempotent + not abusable on old ones).
@@ -727,20 +732,19 @@ notificationRoutes.post("/dispute-status", adminAuthMiddleware, async (c) => {
 
 /**
  * POST /welcome
- * Called after user signup to send a welcome email.
- * Body: { userId: string }
+ * Called on the first authenticated session to send a welcome email (once).
+ * US-1638: now AUTHENTICATED — the target is the verified caller (c.get userId),
+ * NOT a userId from the body. Taking the id from the body on an unauthenticated
+ * route was an account-existence oracle (getUserById → 404 probes which ids
+ * exist). Kept the IP rate-limit as belt-and-suspenders.
  */
 notificationRoutes.post("/welcome", async (c) => {
-  // IP-based rate limiting for unauthenticated endpoint
+  const userId = c.get("userId") as string | undefined;
+  if (!userId) return c.json({ error: "Sign-in required" }, 401);
+
   const ip = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
   if (!checkWelcomeRateLimit(ip)) {
     return c.json({ error: "Too many requests" }, 429);
-  }
-
-  const { userId } = await c.req.json<{ userId: string }>();
-
-  if (!userId) {
-    return c.json({ error: "userId is required" }, 400);
   }
 
   try {

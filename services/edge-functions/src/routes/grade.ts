@@ -794,9 +794,24 @@ gradeRoutes.get("/status/:id", async (c) => {
     submission.status === "completed" ||
     submission.status === "pending_review"
   ) {
+    // US-1638: whitelist tenant-facing columns instead of select("*"). The
+    // service-role client bypasses RLS, so "*" here handed the tenant internal
+    // ops/anti-fraud fields — reviewed_by/reviewed_at/review_due_at (the admin
+    // reviewer's identity + queue timing), forensic_analysis (explicitly never
+    // exposed), per_image_analysis (eval/training trace) and prompt_version.
     const { data: report } = await supabaseAdmin
       .from("grade_reports")
-      .select("*")
+      .select(
+        "id, submission_id, overall_score, grade_tier, fabric_condition_score, " +
+          "structural_integrity_score, cosmetic_appearance_score, " +
+          "functional_elements_score, odor_cleanliness_score, ai_summary, " +
+          "buyer_writeup, detailed_notes, detected_style_attributes, defects_found, " +
+          "confidence_score, needs_human_review, image_authenticity, " +
+          "verified_capture, original_photos, authenticity_assessment, " +
+          "human_reviewed, review_status, finalized_at, certificate_id, " +
+          "content_hash, content_signature, integrity_version, model_version, " +
+          "view_count, garment_id, created_at",
+      )
       .eq("submission_id", id)
       // US-479: a regraded submission keeps superseded history — return only the
       // active report.

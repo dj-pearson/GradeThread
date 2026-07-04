@@ -298,6 +298,9 @@ app.use("/api/notifications/dispute-status", authMiddleware);
 app.use("/api/notifications/dispute-filed", authMiddleware);
 app.use("/api/notifications/register", authMiddleware);
 app.use("/api/notifications/feedback", authMiddleware);
+// US-1638: /welcome now derives its target from the verified token (was an
+// unauthenticated body-userId → account-existence oracle).
+app.use("/api/notifications/welcome", authMiddleware);
 // Account data export / deletion — caller acts only on their own data. (US-275)
 app.use("/api/account/*", authMiddleware);
 // US-900: user-facing support ticket inbox — caller acts only on their own tickets.
