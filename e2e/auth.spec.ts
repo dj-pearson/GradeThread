@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { seedCookieConsent } from "./consent";
 
 // US-511: auth-guard redirects (AC#2) + login success/failure (AC#1), with the
 // Supabase auth + REST calls mocked so no live backend is needed.
@@ -63,6 +64,10 @@ async function mockSupabaseAuthed(page: Page) {
     route.fulfill({ status: 200, contentType: "application/json", body: "[]" }),
   );
 }
+
+test.beforeEach(async ({ page }) => {
+  await seedCookieConsent(page);
+});
 
 test.describe("auth guards (US-511 AC#2)", () => {
   test("unauthenticated /dashboard redirects to /login", async ({ page }) => {

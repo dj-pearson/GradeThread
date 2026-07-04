@@ -188,6 +188,8 @@ final class ShareInboxTests: XCTestCase {
             "defect1", "defect2", "defect3",
             "tag_2", "detail_2", "detail_3", "detail_4",
             "interior", "flatlay", "on_model",
+            // US-1571: the MeasureCard calibration-frame tag.
+            "measurement",
             "angle", "sole", "marking", "serial", "accessory",
             "certificate", "corner", "surface",
         ]
