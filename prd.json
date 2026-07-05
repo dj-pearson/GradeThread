@@ -10285,7 +10285,7 @@
         "Deno tests: schema rejection, allowlist rejection, one representative tool handler happy path; lint + check clean"
       ],
       "priority": 2358,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 0][Module A — Agent Kernel] Read AGENTIC_OS.md §2 guardrail 1–2. Load the tenant-isolation skill. Write tools intentionally deferred to US-1587 — v1 is read-only by design so the kernel can run at L0 immediately.",
       "dependsOn": [
         "US-1584"

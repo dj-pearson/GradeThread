@@ -27,6 +27,7 @@ import { computeCostUsd } from "./ai-usage.ts";
 import { isAiBudgetExhausted } from "./ai-budget-gate.ts";
 import { redact, redactError } from "./log-redact.ts";
 import { getSetting } from "./system-settings.ts";
+import { agentToolRegistry } from "./agent-tools.ts";
 
 // ── Config + caps ────────────────────────────────────────────────────────────
 
@@ -48,6 +49,9 @@ export const AGENTS_PAUSE_SETTING_KEY = "agents.pause";
 export interface AgentConfig {
   model?: string;
   system_prompt?: string;
+  // Per-agent tool allowlist. `tools` is the US-1585 name; `tool_allowlist` is
+  // accepted as an alias.
+  tools?: string[];
   tool_allowlist?: string[];
   max_steps?: number;
   max_output_tokens?: number;
@@ -559,7 +563,7 @@ export function prodKernelDeps(): KernelDeps {
     },
     makeStep: (agent, model, maxOutputTokens) => {
       const client = getAnthropicClient();
-      const tools = EMPTY_TOOL_REGISTRY.anthropicTools(agent);
+      const tools = agentToolRegistry.anthropicTools(agent);
       const system = typeof agent.config.system_prompt === "string" && agent.config.system_prompt
         ? agent.config.system_prompt
         : DEFAULT_SYSTEM_PROMPT;
@@ -590,7 +594,7 @@ export function prodKernelDeps(): KernelDeps {
         };
       };
     },
-    toolRegistry: EMPTY_TOOL_REGISTRY,
+    toolRegistry: agentToolRegistry,
     now: () => Date.now(),
   };
 }
