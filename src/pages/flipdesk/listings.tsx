@@ -35,6 +35,7 @@ import {
   Archive,
   Layers,
   CalendarClock,
+  Trash2,
 } from "lucide-react";
 import {
   Card,
@@ -123,6 +124,7 @@ import {
   usePublishToEbay,
   useSyncEbayListings,
 } from "@/hooks/use-ebay";
+import { useDeleteItem } from "@/hooks/use-items-full";
 import { scoreListability, maxCompPrice } from "@/lib/listability";
 import {
   MARKETPLACE_LABELS,
@@ -491,6 +493,7 @@ export function FlipdeskListingsPage() {
   const setSelected = useInventorySelection((s) => s.setSelected);
   const [busy, setBusy] = useState(false);
   const [endTarget, setEndTarget] = useState<ItemFullRow | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<ItemFullRow | null>(null);
   const [bulkDropPct, setBulkDropPct] = useState<string>("10");
   const [markListedItem, setMarkListedItem] = useState<ItemFullRow | null>(
     null,
@@ -504,6 +507,7 @@ export function FlipdeskListingsPage() {
   const syncEbay = useSyncEbayListings();
   const updatePrice = useEbayUpdateListingPrice();
   const endListingApi = useEbayEndListing();
+  const deleteItemApi = useDeleteItem();
   const publishApi = usePublishToEbay();
   const [bulkPublishProgress, setBulkPublishProgress] = useState<{
     done: number;
@@ -2833,17 +2837,35 @@ export function FlipdeskListingsPage() {
                             </TableCell>
                           )}
                           <TableCell onClick={(e) => e.stopPropagation()}>
-                            {it.link && (
-                              <a
-                                href={it.link}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex text-brand-red-text"
-                                aria-label="Open listing"
-                              >
-                                <ExternalLink className="h-3 w-3" />
-                              </a>
-                            )}
+                            <div className="flex items-center justify-end gap-1">
+                              {it.link && (
+                                <a
+                                  href={it.link}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex text-brand-red-text"
+                                  aria-label="Open listing"
+                                >
+                                  <ExternalLink className="h-3 w-3" />
+                                </a>
+                              )}
+                              {/* Delete a duplicate item. Hidden on terminal
+                                  accounting tabs (sold/shipped/returned) where a
+                                  hard delete is never appropriate; the server
+                                  still guards live listings + any sale. */}
+                              {!isSold && !isShipped && tab !== "returned" && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                                  onClick={() => setDeleteTarget(it)}
+                                  aria-label="Delete item"
+                                  title="Delete this item and its photos (for removing a duplicate)"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              )}
+                            </div>
                           </TableCell>
                         </TableRow>
                       );
@@ -3102,6 +3124,54 @@ export function FlipdeskListingsPage() {
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : null}
               Apply
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={!!deleteTarget}
+        onOpenChange={(o) => !o && !deleteItemApi.isPending && setDeleteTarget(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this item?</AlertDialogTitle>
+            <AlertDialogDescription>
+              "{deleteTarget?.item_title}" and its photos, drafts, and listing
+              records will be permanently deleted. This can't be undone. Use this
+              to remove a duplicate — to take a live listing down instead, End it;
+              to keep a sold item's records, Archive it.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteItemApi.isPending}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleteItemApi.isPending}
+              onClick={async (e) => {
+                // Keep the dialog open until the delete resolves so the user sees
+                // the spinner / a guard error, then close only on success.
+                e.preventDefault();
+                if (!deleteTarget) return;
+                const target = deleteTarget;
+                try {
+                  await deleteItemApi.mutateAsync({ itemId: target.id });
+                  toast.success(`Deleted "${target.item_title ?? "item"}".`);
+                  setDeleteTarget(null);
+                } catch (err) {
+                  const msg = err instanceof Error ? err.message : "Delete failed.";
+                  toast.error(msg);
+                }
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteItemApi.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="mr-2 h-4 w-4" />
+              )}
+              Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

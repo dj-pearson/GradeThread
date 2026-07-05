@@ -1,5 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
+import { edgeFetch } from "@/lib/edge-fetch";
 import { useAuthStore } from "@/stores/auth-store";
 import type { ItemFullRow } from "@/types/database";
 
@@ -52,6 +53,41 @@ export function useItemsFull() {
         .order("created_at", { ascending: false });
       if (error) throw error;
       return data ?? [];
+    },
+  });
+}
+
+// Hard-delete a whole inventory item (for removing a DUPLICATE) — distinct from
+// End (withdraws the eBay offer, keeps the draft) and Archive (a status change).
+// The server refuses items with a live listing or any sale (see the
+// DELETE /api/flipdesk/listings/item/:id guards) and returns a 409 with a
+// `code` the caller surfaces. On success every items_full consumer refreshes.
+export interface DeleteItemError extends Error {
+  status?: number;
+  code?: string;
+}
+
+export function useDeleteItem() {
+  const qc = useQueryClient();
+  return useMutation<{ ok: true; item_id: string }, DeleteItemError, { itemId: string }>({
+    mutationFn: async ({ itemId }) => {
+      const res = await edgeFetch(
+        `/api/flipdesk/listings/item/${encodeURIComponent(itemId)}`,
+        { method: "DELETE" },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err: DeleteItemError = new Error(json.error || "Delete failed.");
+        err.status = res.status;
+        err.code = json.code;
+        throw err;
+      }
+      return json as { ok: true; item_id: string };
+    },
+    onSuccess: () => {
+      // Prefix-invalidate ["items_full"] — this also covers the tab status counts
+      // (["items_full","status_counts",…]) so every consumer refreshes together.
+      qc.invalidateQueries({ queryKey: ["items_full"] });
     },
   });
 }

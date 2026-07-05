@@ -299,6 +299,23 @@ Deno.test({
 });
 
 Deno.test({
+  // Duplicate-item delete is scoped by user_id: the item is loaded AND deleted
+  // with .eq("user_id", ownerId), so B deleting A's item hits 0 rows and returns
+  // 404 (never a cascade-delete of A's item/photos/listings).
+  name: "B cannot delete A's inventory item",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const del = await fetch(`${BASE}/api/flipdesk/listings/item/${id}`, {
+      method: "DELETE",
+      headers: authHeaders(B_JWT!),
+    });
+    await del.body?.cancel();
+    assertDenied(del.status, "DELETE inventory item");
+  },
+});
+
+Deno.test({
   name: "B cannot delete A's API key (and the key survives)",
   ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_API_KEY_ID"),
   fn: async () => {

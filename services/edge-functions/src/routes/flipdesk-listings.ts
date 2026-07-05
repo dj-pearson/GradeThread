@@ -605,3 +605,104 @@ flipdeskListingsRoutes.post("/delist-confirm", async (c) => {
   if (upErr) return c.json({ error: "Could not confirm the delist." }, 500);
   return c.json({ ok: true, listing_id: listingId });
 });
+
+// Hard-delete an inventory item and everything that cascades from it (its
+// listings, item_photos, autolister jobs, …). Used to remove a DUPLICATE the
+// seller never wants — distinct from End (which withdraws the eBay offer but
+// keeps the item as a draft) and Archive (a status change that keeps the row).
+//
+// TWO GUARDS make this safe (both cascade FKs would otherwise silently destroy
+// real records):
+//   • a LIVE listing → refuse; deleting the item would orphan a live eBay
+//     listing buyers can still purchase. End it first.
+//   • any SALE → refuse; sales ON DELETE CASCADE and are accounting records.
+//     Archive the item instead.
+//
+// SECURITY (US-268): the item is loaded AND deleted scoped to the owner
+// (workspaceOwnerId ?? userId) — an id from the request alone never deletes
+// another tenant's row.
+flipdeskListingsRoutes.delete("/item/:id", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  if (!ownerId) return c.json({ error: "Unauthorized" }, 401);
+  const itemId = c.req.param("id");
+  if (!itemId) return c.json({ error: "item id is required" }, 400);
+
+  const { data: item } = await supabaseAdmin
+    .from("inventory_items")
+    .select("id, title")
+    .eq("id", itemId)
+    .eq("user_id", ownerId)
+    .maybeSingle();
+  if (!item) return c.json({ error: "Item not found." }, 404);
+
+  // GUARD 1: a live listing must be ended first (never orphan a live offer).
+  const { data: listings } = await supabaseAdmin
+    .from("listings")
+    .select("is_active, listing_status, platform_offer_id")
+    .eq("inventory_item_id", itemId);
+  const hasLive = (listings ?? []).some((l) => {
+    const row = l as {
+      is_active: boolean | null;
+      listing_status: string | null;
+      platform_offer_id: string | null;
+    };
+    return row.is_active === true ||
+      (!!row.platform_offer_id && row.listing_status !== "ended");
+  });
+  if (hasLive) {
+    return c.json({
+      error:
+        "This item has a live listing. End the listing first, then delete it.",
+      code: "has_live_listing",
+    }, 409);
+  }
+
+  // GUARD 2: never cascade-delete a sale (accounting record).
+  const { count: saleCount } = await supabaseAdmin
+    .from("sales")
+    .select("id", { count: "exact", head: true })
+    .eq("inventory_item_id", itemId);
+  if ((saleCount ?? 0) > 0) {
+    return c.json({
+      error:
+        "This item has sales history and can't be deleted. Archive it instead.",
+      code: "has_sales",
+    }, 409);
+  }
+
+  // Best-effort: remove the item's photo objects so the delete doesn't orphan
+  // files in the item-photos bucket (the item_photos ROWS cascade with the item).
+  const { data: photos } = await supabaseAdmin
+    .from("item_photos")
+    .select("storage_path, thumbnail_storage_path")
+    .eq("inventory_item_id", itemId);
+  const paths = ((photos ?? []) as Array<{
+    storage_path: string | null;
+    thumbnail_storage_path: string | null;
+  }>)
+    .flatMap((p) => [p.storage_path, p.thumbnail_storage_path])
+    .filter((p): p is string => !!p);
+  if (paths.length > 0) {
+    const { error: rmErr } = await supabaseAdmin.storage
+      .from("item-photos")
+      .remove(paths);
+    if (rmErr) {
+      // Non-fatal: an orphaned object is cosmetic; still delete the row.
+      console.warn(
+        "[flipdesk-listings] delete: photo storage cleanup failed (non-fatal):",
+        rmErr.message,
+      );
+    }
+  }
+
+  const { error: delErr } = await supabaseAdmin
+    .from("inventory_items")
+    .delete()
+    .eq("id", itemId)
+    .eq("user_id", ownerId);
+  if (delErr) {
+    console.error("[flipdesk-listings] delete item failed:", delErr.message);
+    return c.json({ error: "Delete failed. Please try again." }, 500);
+  }
+  return c.json({ ok: true, item_id: itemId });
+});
