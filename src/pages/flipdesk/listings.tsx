@@ -2144,7 +2144,7 @@ export function FlipdeskListingsPage() {
                               Price
                             </SortHeader>
                           </TableHead>
-                          <TableHead className="w-16 text-right">
+                          <TableHead className="hidden w-16 text-right 2xl:table-cell">
                             <SortHeader
                               field="listing_views"
                               align="right"
@@ -2154,7 +2154,7 @@ export function FlipdeskListingsPage() {
                               Views
                             </SortHeader>
                           </TableHead>
-                          <TableHead className="w-16 text-right">
+                          <TableHead className="hidden w-16 text-right 2xl:table-cell">
                             <SortHeader
                               field="listing_watchers"
                               align="right"
@@ -2164,8 +2164,8 @@ export function FlipdeskListingsPage() {
                               Watchers
                             </SortHeader>
                           </TableHead>
-                          <TableHead className="w-16 text-right">Impr.</TableHead>
-                          <TableHead className="w-16 text-right">CTR</TableHead>
+                          <TableHead className="hidden w-16 text-right 2xl:table-cell">Impr.</TableHead>
+                          <TableHead className="hidden w-16 text-right 2xl:table-cell">CTR</TableHead>
                           <TableHead className="w-20 text-right">
                             <SortHeader
                               field="list_date"
@@ -2201,7 +2201,9 @@ export function FlipdeskListingsPage() {
                         </>
                       )}
                       <TableHead className="w-24">Status</TableHead>
-                      <TableHead className="min-w-[140px]">Notes</TableHead>
+                      <TableHead className="hidden min-w-[140px] 2xl:table-cell">
+                        Notes
+                      </TableHead>
                       {(isDrafts || isActive) && (
                         <TableHead className="w-28">Platforms</TableHead>
                       )}
@@ -2502,16 +2504,16 @@ export function FlipdeskListingsPage() {
                                   onChange={(v) => updateListingPrice(it, v)}
                                 />
                               </TableCell>
-                              <TableCell className="text-right tabular-nums text-muted-foreground">
+                              <TableCell className="hidden text-right tabular-nums text-muted-foreground 2xl:table-cell">
                                 {it.listing_views ?? "—"}
                               </TableCell>
-                              <TableCell className="text-right tabular-nums text-muted-foreground">
+                              <TableCell className="hidden text-right tabular-nums text-muted-foreground 2xl:table-cell">
                                 {it.listing_watchers ?? "—"}
                               </TableCell>
-                              <TableCell className="text-right tabular-nums text-muted-foreground">
+                              <TableCell className="hidden text-right tabular-nums text-muted-foreground 2xl:table-cell">
                                 {metricsByItem?.get(it.id)?.impressions?.toLocaleString() ?? "—"}
                               </TableCell>
-                              <TableCell className="text-right tabular-nums text-muted-foreground">
+                              <TableCell className="hidden text-right tabular-nums text-muted-foreground 2xl:table-cell">
                                 {(() => {
                                   const ctr = metricsByItem?.get(it.id)?.ctr;
                                   return ctr == null ? "—" : `${(ctr * 100).toFixed(1)}%`;
@@ -2631,7 +2633,7 @@ export function FlipdeskListingsPage() {
                             />
                           </TableCell>
                           <TableCell
-                            className="text-muted-foreground"
+                            className="hidden text-muted-foreground 2xl:table-cell"
                             onClick={(e) => e.stopPropagation()}
                           >
                             <InlineCell
