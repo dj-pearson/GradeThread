@@ -10,11 +10,19 @@
 // an admin audit-log entry.
 
 import { Hono } from "hono";
+import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { jsonError } from "../lib/http-errors.ts";
 import { requireScope } from "../lib/scope-guard.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
+import { bustSettingCache } from "../lib/system-settings.ts";
 import { approveProposal, expireProposals, rejectProposal } from "../lib/agent-proposals.ts";
+
+// The global agents kill-switch key (mirrors AGENTS_PAUSE_SETTING_KEY in
+// lib/agent-kernel.ts — kept as a literal here to avoid importing the kernel +
+// its Anthropic SDK into the admin route).
+const AGENTS_PAUSE_KEY = "agents.pause";
+const SPEND_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 type AdminEnv = {
   Variables: { userId: string; adminRole: "admin" | "super_admin" };
@@ -28,12 +36,105 @@ adminAgentsRoutes.use("*", requireScope("ops:write"));
 // ── Registry + runs (read) ───────────────────────────────────────────────────
 
 adminAgentsRoutes.get("/agents", async (c) => {
-  const { data, error } = await supabaseAdmin
+  const { data: agents, error } = await supabaseAdmin
     .from("agents")
     .select("*")
     .order("key", { ascending: true });
   if (error) return jsonError(c, 500, "Failed to load agents");
-  return c.json({ agents: data ?? [] });
+  const list = (agents ?? []) as Array<{ id: string }>;
+  if (!list.length) return c.json({ agents: [] });
+
+  const sinceIso = new Date(Date.now() - SPEND_WINDOW_MS).toISOString();
+  const [runsRes, propsRes] = await Promise.all([
+    supabaseAdmin
+      .from("agent_runs")
+      .select("agent_id, status, cost_usd, started_at, finished_at, outcome")
+      .gte("started_at", sinceIso)
+      .order("started_at", { ascending: false }),
+    supabaseAdmin
+      .from("agent_proposals")
+      .select("agent_id")
+      .eq("status", "pending"),
+  ]);
+
+  const spend = new Map<string, number>();
+  const lastRun = new Map<string, { status: string; started_at: string | null; finished_at: string | null }>();
+  for (const r of (runsRes.data ?? []) as Array<Record<string, unknown>>) {
+    const aid = String(r.agent_id);
+    spend.set(aid, (spend.get(aid) ?? 0) + (typeof r.cost_usd === "number" ? r.cost_usd : 0));
+    if (!lastRun.has(aid)) {
+      lastRun.set(aid, {
+        status: String(r.status),
+        started_at: (r.started_at as string | null) ?? null,
+        finished_at: (r.finished_at as string | null) ?? null,
+      });
+    }
+  }
+  const pending = new Map<string, number>();
+  for (const p of (propsRes.data ?? []) as Array<{ agent_id: string }>) {
+    pending.set(p.agent_id, (pending.get(p.agent_id) ?? 0) + 1);
+  }
+
+  const enriched = list.map((a) => ({
+    ...a,
+    spend_7d_usd: Math.round((spend.get(a.id) ?? 0) * 10000) / 10000,
+    pending_proposals: pending.get(a.id) ?? 0,
+    last_run: lastRun.get(a.id) ?? null,
+  }));
+  return c.json({ agents: enriched });
+});
+
+// Per-agent pause / resume (agents.status).
+async function setAgentStatus(c: Context<AdminEnv>, status: "enabled" | "paused") {
+  const id = c.req.param("id");
+  const { data, error } = await supabaseAdmin
+    .from("agents")
+    .update({ status } as never)
+    .eq("id", id)
+    .select("id, key, status")
+    .maybeSingle();
+  if (error) return jsonError(c, 500, "Failed to update agent");
+  if (!data) return jsonError(c, 404, "Agent not found");
+  await writeAuditLog(c, {
+    action: status === "paused" ? "agent.paused" : "agent.resumed",
+    targetType: "agent",
+    targetId: id,
+    details: { status },
+  });
+  return c.json({ ok: true, agent: data });
+}
+
+adminAgentsRoutes.post("/agents/:id/pause", (c) => setAgentStatus(c, "paused"));
+adminAgentsRoutes.post("/agents/:id/resume", (c) => setAgentStatus(c, "enabled"));
+
+// Global kill switch (system setting agents.pause). Body: { paused: boolean }.
+adminAgentsRoutes.post("/global-pause", async (c) => {
+  const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+  if (typeof body.paused !== "boolean") return jsonError(c, 400, "paused (boolean) is required");
+  const paused = body.paused;
+  const { error } = await supabaseAdmin
+    .from("system_settings")
+    .upsert({ key: AGENTS_PAUSE_KEY, value: paused, updated_by: c.get("userId") }, { onConflict: "key" });
+  if (error) return jsonError(c, 500, "Failed to set global pause");
+  bustSettingCache(AGENTS_PAUSE_KEY);
+  await writeAuditLog(c, {
+    action: paused ? "agent.global_pause" : "agent.global_resume",
+    targetType: "system_setting",
+    targetId: AGENTS_PAUSE_KEY,
+    details: { paused },
+  });
+  return c.json({ ok: true, paused });
+});
+
+// Current global-pause state (for the console toggle).
+adminAgentsRoutes.get("/global-pause", async (c) => {
+  const { data } = await supabaseAdmin
+    .from("system_settings")
+    .select("value")
+    .eq("key", AGENTS_PAUSE_KEY)
+    .maybeSingle();
+  const paused = (data as { value?: unknown } | null)?.value === true;
+  return c.json({ paused });
 });
 
 adminAgentsRoutes.get("/runs", async (c) => {
