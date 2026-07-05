@@ -10465,7 +10465,7 @@
         "Deno tests for assembly logic (fixtures for busy day / quiet day / empty fleet); lint + check clean"
       ],
       "priority": 2351,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 0][Module N — Notifications & Operator Brief] Read AGENTIC_OS.md §3.N. Reuse the north-star-digest job's email assembly style as the template.",
       "dependsOn": [
         "US-1590"

@@ -66,6 +66,18 @@ interface AgentRow {
   daily_cap_usd: number;
   last_run: { status: string; started_at: string | null; finished_at: string | null } | null;
 }
+interface BriefEnvelope {
+  model: {
+    headline: string;
+    allQuiet: boolean;
+    fleetEmpty: boolean;
+    totalRuns: number;
+    totalSpendUsd: number;
+    pending: unknown[];
+    anomalies: unknown[];
+  };
+  generated_at: string;
+}
 interface RunRow {
   id: string;
   agent_id: string;
@@ -149,6 +161,11 @@ export function AdminAgentsPage() {
     queryKey: ["admin-agents-global-pause"],
     queryFn: () => getJson<{ paused: boolean }>("/api/admin/agents/global-pause"),
     refetchInterval: visible ? 30_000 : false,
+  });
+  const briefQuery = useQuery({
+    queryKey: ["admin-agents-brief"],
+    queryFn: () => getJson<{ brief: BriefEnvelope | null }>("/api/admin/agents/brief"),
+    staleTime: 5 * 60_000,
   });
 
   const [busy, setBusy] = useState<string | null>(null);
@@ -248,6 +265,29 @@ export function AdminAgentsPage() {
           </div>
         </CardHeader>
       </Card>
+
+      {/* Latest Daily Operator Brief (US-1592) */}
+      {briefQuery.data?.brief && (
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base">Latest operator brief</CardTitle>
+              <span className="text-xs text-muted-foreground">{briefQuery.data.brief.generated_at}</span>
+            </div>
+            <CardDescription>{briefQuery.data.brief.model.headline}</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap gap-2 text-xs">
+            <Badge variant="secondary">{briefQuery.data.brief.model.totalRuns} runs</Badge>
+            <Badge variant="secondary">${briefQuery.data.brief.model.totalSpendUsd.toFixed(2)}</Badge>
+            <Badge variant={briefQuery.data.brief.model.pending.length ? "default" : "outline"}>
+              {briefQuery.data.brief.model.pending.length} pending
+            </Badge>
+            <Badge variant={briefQuery.data.brief.model.anomalies.length ? "destructive" : "outline"}>
+              {briefQuery.data.brief.model.anomalies.length} anomalies
+            </Badge>
+          </CardContent>
+        </Card>
+      )}
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>

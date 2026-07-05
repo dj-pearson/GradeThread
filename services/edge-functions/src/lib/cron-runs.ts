@@ -102,6 +102,7 @@ export const CRON_REGISTRY: CronDef[] = [
   // US-1295: affiliate auto-payout sweep — accrue affiliate conversions + pay eligible balances over Stripe Connect.
   { name: "affiliate-payouts", label: "Affiliate auto-payouts", schedule: "15 */6 * * *", category: "growth", endpoint: "/api/jobs/affiliate-payouts", recorded: true },
   { name: "agent-tick", label: "Agentic OS agent tick", schedule: "*/10 * * * *", category: "agents", endpoint: "/api/jobs/agent-tick", recorded: true },
+  { name: "operator-brief", label: "Daily operator brief", schedule: "0 13 * * *", category: "agents", endpoint: "/api/jobs/operator-brief", recorded: true },
   // US-929: daily lifecycle email-journey tick (welcome / trial-nurture / win-back).
   { name: "journey-tick", label: "Lifecycle email-journey tick", schedule: "30 13 * * *", category: "growth", endpoint: "/api/jobs/journey-tick", recorded: true },
   // US-928: daily newsletter self-tuning — recompute topic/subject/send-hour weights from engagement.

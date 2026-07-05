@@ -132,6 +132,16 @@ adminAgentsRoutes.post("/global-pause", async (c) => {
   return c.json({ ok: true, paused });
 });
 
+// The latest persisted Daily Operator Brief (US-1592) for Mission Control.
+adminAgentsRoutes.get("/brief", async (c) => {
+  const { data } = await supabaseAdmin
+    .from("system_settings")
+    .select("value")
+    .eq("key", "agents.latest_brief")
+    .maybeSingle();
+  return c.json({ brief: (data as { value?: unknown } | null)?.value ?? null });
+});
+
 // Current global-pause state (for the console toggle).
 adminAgentsRoutes.get("/global-pause", async (c) => {
   const { data } = await supabaseAdmin

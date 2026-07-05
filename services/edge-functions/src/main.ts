@@ -130,6 +130,7 @@ import { handleThumbnailBackfillCron } from "./routes/jobs-thumbnail-backfill.ts
 import { handleConsignorPayoutsCron } from "./routes/jobs-consignor-payouts.ts";
 import { handleAffiliatePayoutsCron } from "./routes/jobs-affiliate-payouts.ts";
 import { handleAgentTickCron } from "./routes/jobs-agent-tick.ts";
+import { handleOperatorBriefCron } from "./routes/jobs-operator-brief.ts";
 import { handleJourneyTickCron } from "./routes/jobs-journey-tick.ts";
 import { handleNewsletterTuningCron } from "./routes/jobs-newsletter-tuning.ts";
 import { handleNewsletterTopicBankRefillCron } from "./routes/jobs-newsletter-topic-bank.ts";
@@ -1172,6 +1173,8 @@ app.post("/api/jobs/ai-budget-guardrails", (c) => handleAiBudgetCron(c));
 app.post("/api/jobs/stuck-submissions", (c) => handleStuckSubmissionsCron(c));
 // US-1588 Agentic OS scheduler: runs due agents on the shared cron rails.
 app.post("/api/jobs/agent-tick", (c) => handleAgentTickCron(c));
+// US-1592 Daily Operator Brief: one cross-agent digest to admins.
+app.post("/api/jobs/operator-brief", (c) => handleOperatorBriefCron(c));
 // US-795 push device-token prune. OUTSIDE the JWT groups; the handler enforces
 // X-Internal-Job-Secret itself. Deletes long-inactive (signed-out / dead-token)
 // rows so the table doesn't grow unbounded and send fan-outs stay cheap.
