@@ -30,6 +30,65 @@ import { aggregateJobStats, failingJobCount, isRunnableJob, type RawRun } from "
 import { CRON_REGISTRY, DEFAULT_JOB_SECRET_ENV } from "./cron-runs.ts";
 import { correlateIncidents, type Signal } from "./sentinel.ts";
 import { assembleGradingMemo, gatherGradingTelemetry } from "./grading-quality.ts";
+import { assembleFinanceMemo, type PayoutRow, type ReconFlag } from "./finance-agent.ts";
+import { assembleIntegrationsMemo, type RotationState } from "./integrations-watchdog.ts";
+import { type ActionRow, assemblePricingMemo, type CurveRow, type SuggestionRow } from "./pricing-agent.ts";
+import { assembleMarketplaceOpsMemo, type BatchRow } from "./marketplace-ops-agent.ts";
+import { type AbuseSignal, assembleTrustSafetyMemo } from "./trust-safety-agent.ts";
+import {
+  type AgentLatestRun,
+  assembleCeoBriefContext,
+  type MetricInput,
+  type PendingAction,
+} from "./ceo-brief.ts";
+import { assembleGrowthMemo } from "./growth-agent.ts";
+import { assembleCronFleetReport, type JobRun, type MaintenanceInterval } from "./cron-fleet-governance.ts";
+import {
+  assembleReleaseMemo,
+  compareRelease,
+  detectDeploy,
+  nextReleaseState,
+  type ReleaseMetrics,
+  type ReleaseState,
+} from "./release-verify.ts";
+import {
+  assembleExperimentsMemo,
+  type DripVariantRow,
+  type NewsletterAbRow,
+  normalizeDripVariants,
+  normalizeNewsletterAb,
+  normalizePromptRollout,
+  type PromptRolloutRow,
+} from "./experiments-governor.ts";
+import {
+  assembleTriageMemo,
+  type KbEntry,
+  normalizeClassification,
+  prepareExcerpt,
+  type TriageTicket,
+} from "./support-triage.ts";
+import {
+  assembleMarketingPortfolioMemo,
+  type ChannelWeek,
+  type CoordinationStats,
+  type SendDay,
+  type TopicItem,
+} from "./marketing-portfolio.ts";
+import {
+  assembleLifecycleMemo,
+  type CohortWeek,
+  type FunnelStep,
+  type TrialCohort,
+} from "./user-lifecycle.ts";
+import { type ReorderReviewQueueResult, reorderReviewQueue } from "./review-queue-order.ts";
+import { notifyUser } from "./notify.ts";
+import { bustSettingCache, getSetting } from "./system-settings.ts";
+import { marketingOptedOutEmail } from "./drip-graph.ts";
+
+// US-1599: the shared marketing send cap setting (mirrors marketing-coordinator's
+// FREQUENCY_CAP_SETTING; kept as a literal here to avoid importing the heavy
+// coordinator module into the tool registry).
+const MARKETING_FREQ_CAP_SETTING = "marketing_frequency_cap_per_day";
 import { resolveRevenueWindow } from "./revenue-window.ts";
 import { type AuditLogInput, writeSystemAuditLog } from "./audit-log.ts";
 import { redact, redactError } from "./log-redact.ts";
@@ -167,6 +226,102 @@ export interface ToolIO {
   rpc(name: string, args?: Record<string, unknown>): Promise<unknown>;
   audit(input: AuditLogInput): Promise<void>;
   now(): number;
+  // US-1604: operator-maintained map secret → last-rotated ISO (system_settings
+  // `security.key_rotation_state`). Metadata only — never any secret material.
+  fetchKeyRotationState(): Promise<RotationState>;
+  // US-1596: OPEN billing-reconciliation divergences (operator billing data).
+  fetchReconciliationFlags(limit: number): Promise<ReconFlag[]>;
+  // US-1596: recent affiliate + consignor payout-run outcomes since an ISO time.
+  fetchRecentPayouts(sinceIso: string): Promise<{ affiliate: PayoutRow[]; consignor: PayoutRow[] }>;
+  // US-1601: cross-tenant repricing suggestions, automation actions, and price-
+  // curve freshness (aggregate audit only — the agent never edits any of them).
+  fetchRepricingSuggestions(sinceIso: string): Promise<SuggestionRow[]>;
+  fetchAutomationActions(sinceIso: string): Promise<ActionRow[]>;
+  fetchCurveFreshness(): Promise<CurveRow[]>;
+  // US-1598: FlipDesk pipeline aggregates (operator-scope; counts + batch ids +
+  // ages only, never a raw tenant row or PII).
+  fetchListingBatches(): Promise<{ generation: BatchRow[]; publish: BatchRow[] }>;
+  countOpenSyncConflicts(): Promise<number>;
+  countOrphanSales(): Promise<number>;
+  // Backlog time-series watermark (system_settings operator bookkeeping) for the
+  // "vs yesterday" trend — read the prior point, record the current one.
+  fetchMarketplaceOpsBacklog(): Promise<number | null>;
+  persistMarketplaceOpsBacklog(total: number): Promise<void>;
+  // US-1597: open abuse signals (operator T&S data — ids + evidence, no PII) +
+  // open moderation / passport-integrity queue depths.
+  fetchAbuseSignals(limit: number): Promise<AbuseSignal[]>;
+  countOpenModerationFlags(): Promise<number>;
+  countOpenPassportIntegritySignals(): Promise<number>;
+  // US-1603: the CEO Brief bundle — the seeded fleet, north-star metrics (this
+  // week vs last), each agent's latest succeeded run summary, and pending
+  // proposals. Operator-scope aggregates + agent-run summaries only, no PII.
+  fetchCeoBriefData(nowMs: number): Promise<{
+    agents: Array<{ key: string; name: string }>;
+    metrics: MetricInput[];
+    latestRuns: AgentLatestRun[];
+    pendingProposals: PendingAction[];
+  }>;
+  // US-1602: referral-program volume in a window + the agent's own prior run
+  // outcome (the last experiment slate, for week-over-week continuity).
+  fetchReferralCounts(curStartIso: string, curEndIso: string, priorStartIso: string): Promise<{ current: number; prior: number }>;
+  fetchAgentPriorOutcome(agentId: string): Promise<unknown>;
+  // US-1611: maintenance windows overlapping the lookback (to suppress missed-
+  // tick false alarms). Open-ended windows → endMs Infinity.
+  fetchMaintenanceIntervals(sinceIso: string): Promise<MaintenanceInterval[]>;
+  // US-1610: the running release SHA (RELEASE_SHA env) + the persisted release
+  // verification state (last SHA + pre-deploy baseline). Operator bookkeeping.
+  releaseSha(): string | null;
+  fetchReleaseState(): Promise<ReleaseState | null>;
+  persistReleaseState(state: ReleaseState): Promise<void>;
+  // US-1610: run a lightweight in-process smoke (the internal /health endpoint).
+  runSmoke(): Promise<{ ok: boolean; status: number; error?: string }>;
+  // US-1609: live-experiment sources for the Experiments Governor. Each is
+  // best-effort (a missing/legacy engine returns []). No tenant data — these are
+  // platform-wide experiment definitions, not per-user rows.
+  fetchNewsletterAbTests(): Promise<NewsletterAbRow[]>;
+  fetchPromptRollouts(): Promise<PromptRolloutRow[]>;
+  fetchDripVariants(sinceIso: string): Promise<DripVariantRow[]>;
+  // US-1595: Support Triage sources + writes. Untriaged = open + unassigned +
+  // not-yet-triaged tickets with their first user message (excerpt); the KB
+  // catalog is the suggestion vocabulary. Reads carry raw text — the tool
+  // redacts via prepareExcerpt before it leaves the process.
+  fetchUntriagedTickets(limit: number): Promise<Array<{ id: string; subject: string; excerpt: string; created_at: string; priority: string; status: string }>>;
+  fetchKbCatalog(limit: number): Promise<KbEntry[]>;
+  // Write-side (approved proposals only): persist a classification batch onto the
+  // ticket rows, and send an operator-approved reply through the support path.
+  persistTicketTriage(
+    items: Array<{ ticket_id: string; category: string; severity: string; kb_slug: string | null }>,
+    nowIso: string,
+  ): Promise<{ updated: number }>;
+  sendSupportReply(
+    input: { ticketId: string; body: string; adminId: string },
+  ): Promise<{ ok: boolean; error?: string }>;
+  // US-1599: Marketing Portfolio cross-channel sources + engine-level writes.
+  // All operator/aggregate data — no per-subscriber rows. Reads are best-effort
+  // (a missing source returns an empty rollup).
+  fetchMarketingPortfolio(nowMs: number): Promise<{
+    weeks: ChannelWeek[];
+    topics: TopicItem[];
+    sendDays: SendDay[];
+    coordination: CoordinationStats;
+  }>;
+  addMarketingTopic(
+    input:
+      | { bank: "email"; pillar: string; angle: string; label: string; summary: string }
+      | { bank: "content"; surface: string; product: string; title: string; primary_keyword: string; angle: string | null },
+  ): Promise<{ inserted: boolean; id: string | null }>;
+  setMarketingFrequencyCap(capPerDay: number): Promise<{ cap_per_day: number }>;
+  // US-1600: User Lifecycle. Cohort-AGGREGATE reads (no per-user rows leave the
+  // seam) + a cohort-enroll write. enrollCohort resolves a whitelisted cohort
+  // server-side (never a model-supplied id list), honors marketing opt-out +
+  // already-enrolled dedup, and is hard-capped.
+  fetchUserLifecycle(nowMs: number): Promise<{
+    funnel: FunnelStep[];
+    current: CohortWeek;
+    prior: CohortWeek;
+    trialCohorts: TrialCohort[];
+  }>;
+  enrollCohort(input: { cohort: string; campaign: string; nowIso: string }): Promise<{ enrolled: number; cohort: string; campaign: string; error?: string }>;
   // ── Write-side (used only by executeWrite / approved proposals) ──
   // Re-fire a registered cron job by key over the internal job rails.
   runJob(jobKey: string): Promise<{ ok: boolean; status: number; error?: string }>;
@@ -178,6 +333,12 @@ export interface ToolIO {
   insertAdminTask(
     row: { project_id: string; title: string; body: string | null; priority: string; created_by: string | null },
   ): Promise<{ id: string } | null>;
+  // Recompute the info-value ranking of the pending human-review queue and
+  // persist the recommended order (US-1658). Grade-safe: never mutates a grade,
+  // prompt, threshold, or calibration — an advisory ordering artifact only.
+  reorderReviewQueue(
+    opts: { limit: number; authorizedBy: string; proposalId: string | null },
+  ): Promise<ReorderReviewQueueResult>;
 }
 
 export function prodToolIO(): ToolIO {
@@ -243,6 +404,659 @@ export function prodToolIO(): ToolIO {
     },
     audit: (input) => writeSystemAuditLog(input),
     now: () => Date.now(),
+    fetchKeyRotationState: async () => {
+      const { data } = await supabaseAdmin
+        .from("system_settings")
+        .select("value")
+        .eq("key", "security.key_rotation_state")
+        .maybeSingle();
+      const v = (data as { value?: unknown } | null)?.value;
+      return v && typeof v === "object" && !Array.isArray(v) ? v as RotationState : {};
+    },
+    fetchReconciliationFlags: async (limit) => {
+      const { data } = await supabaseAdmin
+        .from("billing_reconciliation_flags")
+        .select("subject_user_id, kind, db_status, expected_status, db_plan, expected_plan, detected_at")
+        .eq("status", "open")
+        .order("detected_at", { ascending: true })
+        .limit(limit);
+      return (data ?? []) as ReconFlag[];
+    },
+    fetchRecentPayouts: async (sinceIso) => {
+      const [{ data: aff }, { data: cons }] = await Promise.all([
+        supabaseAdmin.from("affiliate_payouts")
+          .select("status, amount, error, created_at").gte("created_at", sinceIso).limit(1000),
+        supabaseAdmin.from("consignor_payouts")
+          .select("status, amount, error, created_at").gte("created_at", sinceIso).limit(1000),
+      ]);
+      return {
+        affiliate: ((aff ?? []) as Array<Record<string, unknown>>).map((r) => ({
+          status: String(r.status), amount: Number(r.amount ?? 0),
+          error: (r.error as string | null) ?? null, created_at: String(r.created_at),
+        })),
+        consignor: ((cons ?? []) as Array<Record<string, unknown>>).map((r) => ({
+          status: String(r.status), amount: Number(r.amount ?? 0),
+          error: (r.error as string | null) ?? null, created_at: String(r.created_at),
+        })),
+      };
+    },
+    fetchRepricingSuggestions: async (sinceIso) => {
+      const { data } = await supabaseAdmin
+        .from("repricing_suggestions")
+        .select("listing_id, user_id, reason_code, status, suggested_price_cents, applied_at, created_at")
+        .gte("created_at", sinceIso)
+        .limit(5000);
+      return (data ?? []) as SuggestionRow[];
+    },
+    fetchAutomationActions: async (sinceIso) => {
+      const { data } = await supabaseAdmin
+        .from("flipdesk_automation_actions")
+        .select("rule_id, user_id, listing_id, action_type, created_at")
+        .gte("created_at", sinceIso)
+        .limit(5000);
+      return (data ?? []) as ActionRow[];
+    },
+    fetchCurveFreshness: async () => {
+      const { data } = await supabaseAdmin
+        .from("condition_price_curves")
+        .select("category_id, refreshed_at")
+        .order("refreshed_at", { ascending: true })
+        .limit(2000);
+      return (data ?? []) as CurveRow[];
+    },
+    fetchListingBatches: async () => {
+      const [{ data: gen }, { data: pub }] = await Promise.all([
+        supabaseAdmin.from("listing_generation_batches")
+          .select("id, status, updated_at").order("updated_at", { ascending: true }).limit(3000),
+        supabaseAdmin.from("listing_publish_batches")
+          .select("id, status, updated_at").order("updated_at", { ascending: true }).limit(3000),
+      ]);
+      return { generation: (gen ?? []) as BatchRow[], publish: (pub ?? []) as BatchRow[] };
+    },
+    countOpenSyncConflicts: async () => {
+      const { count } = await supabaseAdmin
+        .from("flipdesk_sync_conflicts")
+        .select("id", { count: "exact", head: true })
+        .is("resolved_at", null);
+      return count ?? 0;
+    },
+    countOrphanSales: async () => {
+      const { count } = await supabaseAdmin
+        .from("flipdesk_ebay_orphan_sales")
+        .select("id", { count: "exact", head: true });
+      return count ?? 0;
+    },
+    fetchMarketplaceOpsBacklog: async () => {
+      const { data } = await supabaseAdmin
+        .from("system_settings")
+        .select("value")
+        .eq("key", "marketplace_ops.backlog_snapshot")
+        .maybeSingle();
+      const v = (data as { value?: { total?: unknown } } | null)?.value?.total;
+      return typeof v === "number" && Number.isFinite(v) ? v : null;
+    },
+    persistMarketplaceOpsBacklog: async (total) => {
+      await supabaseAdmin.from("system_settings").upsert(
+        {
+          key: "marketplace_ops.backlog_snapshot",
+          value: { total, at: new Date().toISOString() },
+          value_type: "json",
+          default_value: { total: 0 },
+          description: "US-1598 Marketplace Ops agent backlog watermark (for the vs-yesterday trend)",
+          category: "flipdesk",
+        },
+        { onConflict: "key" },
+      );
+    },
+    fetchAbuseSignals: async (limit) => {
+      const { data } = await supabaseAdmin
+        .from("abuse_signals")
+        .select("id, signal_type, severity, subject_user_id, evidence, first_seen_at")
+        .eq("status", "open")
+        .order("first_seen_at", { ascending: true })
+        .limit(limit);
+      return (data ?? []) as AbuseSignal[];
+    },
+    countOpenModerationFlags: async () => {
+      const { count } = await supabaseAdmin
+        .from("content_moderation_flags")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "open");
+      return count ?? 0;
+    },
+    countOpenPassportIntegritySignals: async () => {
+      const { count } = await supabaseAdmin
+        .from("passport_integrity_signals")
+        .select("id", { count: "exact", head: true });
+      return count ?? 0;
+    },
+    fetchCeoBriefData: async (nowMs) => {
+      const WEEK = 7 * 24 * 3600_000;
+      const curStart = new Date(nowMs - WEEK).toISOString();
+      const priorStart = new Date(nowMs - 2 * WEEK).toISOString();
+      const nowIso = new Date(nowMs).toISOString();
+      // A cross-tenant count in [start, end) — operator KPI, never a row.
+      const countWindow = async (table: string, startIso: string, endIso: string): Promise<number> => {
+        const { count } = await supabaseAdmin
+          .from(table)
+          .select("id", { count: "exact", head: true })
+          .gte("created_at", startIso)
+          .lt("created_at", endIso);
+        return count ?? 0;
+      };
+      const metricSpecs: Array<{ name: string; table: string }> = [
+        { name: "New signups", table: "users" },
+        { name: "Grades issued", table: "grade_reports" },
+        { name: "Listings created", table: "listings" },
+      ];
+      const [agentRows, runRows, proposalRows, ...metricCounts] = await Promise.all([
+        supabaseAdmin.from("agents").select("id, key, name"),
+        supabaseAdmin.from("agent_runs")
+          .select("agent_id, status, outcome, finished_at")
+          .eq("status", "succeeded").gte("finished_at", priorStart)
+          .order("finished_at", { ascending: false }).limit(1000),
+        supabaseAdmin.from("agent_proposals")
+          .select("id, agent_id, title").eq("status", "pending").limit(200),
+        ...metricSpecs.flatMap((m) => [countWindow(m.table, curStart, nowIso), countWindow(m.table, priorStart, curStart)]),
+      ]);
+      const agents = ((agentRows.data ?? []) as Array<{ id: string; key: string; name: string }>);
+      const keyById = new Map(agents.map((a) => [a.id, a.key]));
+      const metrics: MetricInput[] = metricSpecs.map((m, i) => ({
+        name: m.name,
+        current: (metricCounts[i * 2] as number) ?? 0,
+        prior: (metricCounts[i * 2 + 1] as number) ?? 0,
+      }));
+      // Latest succeeded run per agent (rows are finished_at desc → first wins).
+      const seenAgent = new Set<string>();
+      const latestRuns: AgentLatestRun[] = [];
+      for (const r of (runRows.data ?? []) as Array<{ agent_id: string; status: string; outcome: unknown; finished_at: string | null }>) {
+        if (seenAgent.has(r.agent_id)) continue;
+        seenAgent.add(r.agent_id);
+        const summary = r.outcome && typeof r.outcome === "object"
+          ? (r.outcome as { summary?: unknown }).summary
+          : null;
+        latestRuns.push({
+          agent_key: keyById.get(r.agent_id) ?? "(unknown)",
+          status: r.status,
+          summary: typeof summary === "string" ? summary : null,
+          ran_at: r.finished_at,
+        });
+      }
+      const pendingProposals: PendingAction[] = ((proposalRows.data ?? []) as Array<{ id: string; agent_id: string; title: string }>)
+        .map((p) => ({ id: p.id, agent_key: keyById.get(p.agent_id) ?? "(unknown)", title: p.title }));
+      return { agents: agents.map((a) => ({ key: a.key, name: a.name })), metrics, latestRuns, pendingProposals };
+    },
+    fetchReferralCounts: async (curStartIso, curEndIso, priorStartIso) => {
+      const countWindow = async (startIso: string, endIso: string): Promise<number> => {
+        const { count } = await supabaseAdmin
+          .from("referral_events")
+          .select("id", { count: "exact", head: true })
+          .gte("created_at", startIso)
+          .lt("created_at", endIso);
+        return count ?? 0;
+      };
+      const [current, prior] = await Promise.all([
+        countWindow(curStartIso, curEndIso),
+        countWindow(priorStartIso, curStartIso),
+      ]);
+      return { current, prior };
+    },
+    fetchAgentPriorOutcome: async (agentId) => {
+      const { data } = await supabaseAdmin
+        .from("agent_runs")
+        .select("outcome")
+        .eq("agent_id", agentId)
+        .eq("status", "succeeded")
+        .order("finished_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      return (data as { outcome?: unknown } | null)?.outcome ?? null;
+    },
+    releaseSha: () => Deno.env.get("RELEASE_SHA") ?? null,
+    fetchReleaseState: async () => {
+      const { data } = await supabaseAdmin
+        .from("system_settings").select("value").eq("key", "release.verify_state").maybeSingle();
+      const v = (data as { value?: unknown } | null)?.value;
+      return v && typeof v === "object" && !Array.isArray(v) ? v as ReleaseState : null;
+    },
+    persistReleaseState: async (state) => {
+      await supabaseAdmin.from("system_settings").upsert(
+        {
+          key: "release.verify_state",
+          value: state,
+          value_type: "json",
+          default_value: { last_sha: null, baseline: null, checked_at: null },
+          description: "US-1610 release verification state (last SHA + pre-deploy health baseline)",
+          category: "agents",
+        },
+        { onConflict: "key" },
+      );
+    },
+    runSmoke: async () => {
+      const base = `http://localhost:${Deno.env.get("PORT") || "8787"}`;
+      try {
+        const res = await fetch(`${base}/health`, { signal: AbortSignal.timeout(15_000) });
+        return { ok: res.ok, status: res.status };
+      } catch (err) {
+        return { ok: false, status: 0, error: err instanceof Error ? err.message : "fetch_failed" };
+      }
+    },
+    fetchNewsletterAbTests: async () => {
+      // Only LIVE tests (ab_phase='testing'); the adapter filters again defensively.
+      const { data } = await supabaseAdmin
+        .from("newsletter_issues")
+        .select("id, ab_phase, ab_metric, subject_variants, ab_test_started_at, ab_measurement_hours, ab_winner_variant")
+        .eq("ab_phase", "testing")
+        .limit(100);
+      return ((data ?? []) as Array<Record<string, unknown>>).map((r) => ({
+        id: String(r.id),
+        ab_phase: String(r.ab_phase ?? "none"),
+        ab_metric: String(r.ab_metric ?? "open"),
+        subject_variants: Array.isArray(r.subject_variants) ? r.subject_variants as Array<{ id: string; subject?: string }> : [],
+        ab_test_started_at: (r.ab_test_started_at as string | null) ?? null,
+        ab_measurement_hours: (r.ab_measurement_hours as number | null) ?? null,
+        ab_winner_variant: (r.ab_winner_variant as string | null) ?? null,
+      }));
+    },
+    fetchPromptRollouts: async () => {
+      // Live grading-prompt canaries (US-896): is_canary with a 0<pct<100 slice.
+      const { data } = await supabaseAdmin
+        .from("ai_prompt_versions")
+        .select("version_name, stage, garment_scope, is_canary, rollout_percentage, rollout_started_at")
+        .eq("is_canary", true)
+        .limit(100);
+      return ((data ?? []) as Array<Record<string, unknown>>).map((r) => ({
+        version_name: String(r.version_name ?? ""),
+        stage: String(r.stage ?? ""),
+        garment_scope: (r.garment_scope as string | null) ?? null,
+        is_canary: Boolean(r.is_canary),
+        rollout_percentage: (r.rollout_percentage as number | null) ?? null,
+        rollout_started_at: (r.rollout_started_at as string | null) ?? null,
+      }));
+    },
+    fetchDripVariants: async (sinceIso) => {
+      // Aggregate enrollments in the window by (campaign, variant): sends = the
+      // enrolled cohort, conversions = those that converted. A/B arms only.
+      const { data } = await supabaseAdmin
+        .from("drip_enrollments")
+        .select("campaign, variant, enrolled_at, converted_at")
+        .gte("enrolled_at", sinceIso)
+        .not("variant", "is", null)
+        .limit(20000);
+      const rows = (data ?? []) as Array<{ campaign: string; variant: string | null; enrolled_at: string | null; converted_at: string | null }>;
+      const agg = new Map<string, DripVariantRow>();
+      for (const r of rows) {
+        if (!r.variant) continue;
+        const key = `${r.campaign}${r.variant}`;
+        const cur = agg.get(key) ?? { campaign: r.campaign, variant: r.variant, sends: 0, conversions: 0, started_at: r.enrolled_at };
+        cur.sends += 1;
+        if (r.converted_at) cur.conversions += 1;
+        if (r.enrolled_at && (!cur.started_at || r.enrolled_at < cur.started_at)) cur.started_at = r.enrolled_at;
+        agg.set(key, cur);
+      }
+      return [...agg.values()];
+    },
+    fetchUntriagedTickets: async (limit) => {
+      // New/unassigned open tickets that haven't been triaged yet.
+      const { data } = await supabaseAdmin
+        .from("support_tickets")
+        .select("id, subject, priority, status, created_at")
+        .in("status", ["open", "pending"])
+        .is("assigned_admin_id", null)
+        .is("triaged_at", null)
+        .order("created_at", { ascending: true })
+        .limit(limit);
+      const tickets = (data ?? []) as Array<{ id: string; subject: string; priority: string; status: string; created_at: string }>;
+      if (tickets.length === 0) return [];
+      // First user message per ticket for the excerpt (one query, then bucket).
+      const ids = tickets.map((t) => t.id);
+      const { data: msgs } = await supabaseAdmin
+        .from("support_ticket_messages")
+        .select("ticket_id, body, created_at, is_internal_note")
+        .in("ticket_id", ids)
+        .eq("is_internal_note", false)
+        .order("created_at", { ascending: true });
+      const firstBody = new Map<string, string>();
+      for (const m of (msgs ?? []) as Array<{ ticket_id: string; body: string }>) {
+        if (!firstBody.has(m.ticket_id)) firstBody.set(m.ticket_id, m.body ?? "");
+      }
+      return tickets.map((t) => ({
+        id: t.id,
+        subject: t.subject,
+        excerpt: firstBody.get(t.id) ?? "",
+        created_at: t.created_at,
+        priority: t.priority,
+        status: t.status,
+      }));
+    },
+    fetchKbCatalog: async (limit) => {
+      const { data } = await supabaseAdmin
+        .from("support_kb_articles")
+        .select("slug, title")
+        .eq("is_published", true)
+        .order("title", { ascending: true })
+        .limit(limit);
+      return ((data ?? []) as Array<{ slug: string; title: string }>).map((r) => ({ slug: String(r.slug), title: String(r.title) }));
+    },
+    persistTicketTriage: async (items, nowIso) => {
+      // Each write is id-scoped; a ticket id is operator-supplied via an approved
+      // proposal but we still update strictly by primary key (no cross-tenant
+      // surface — support_tickets has no workspace fan-out).
+      let updated = 0;
+      for (const it of items) {
+        const { error, count } = await supabaseAdmin
+          .from("support_tickets")
+          .update({
+            triage_category: it.category,
+            triage_severity: it.severity,
+            triage_kb_slug: it.kb_slug,
+            triaged_at: nowIso,
+          } as never, { count: "exact" })
+          .eq("id", it.ticket_id);
+        if (!error && (count ?? 0) > 0) updated++;
+      }
+      return { updated };
+    },
+    sendSupportReply: async ({ ticketId, body, adminId }) => {
+      const { data: ticket } = await supabaseAdmin
+        .from("support_tickets")
+        .select("id, user_id, subject, status")
+        .eq("id", ticketId)
+        .maybeSingle();
+      if (!ticket) return { ok: false, error: "ticket_not_found" };
+      const t = ticket as { user_id: string; subject: string; status: string };
+      const { error: insErr } = await supabaseAdmin
+        .from("support_ticket_messages")
+        .insert({ ticket_id: ticketId, author_user_id: adminId, body, is_internal_note: false } as never);
+      if (insErr) return { ok: false, error: "reply_insert_failed" };
+      // Bump activity + move an open/pending ticket to 'pending' (awaiting user),
+      // and assign to the approving admin — mirrors the /reply route (00223).
+      const updates: Record<string, unknown> = { assigned_admin_id: adminId, last_message_at: new Date().toISOString() };
+      if (t.status === "open" || t.status === "pending") updates.status = "pending";
+      await supabaseAdmin.from("support_tickets").update(updates as never).eq("id", ticketId);
+      // Notify the user (best-effort; a failed notify never fails the saved reply).
+      await notifyUser(t.user_id, {
+        type: "system",
+        title: "Support replied to your ticket",
+        message: "A support agent has replied. Open your support inbox to read it.",
+        link: "/dashboard/support",
+      }).catch(() => {});
+      return { ok: true };
+    },
+    fetchMarketingPortfolio: async (nowMs) => {
+      const WEEK = 7 * 86400_000;
+      const weekAgo = new Date(nowMs - WEEK).toISOString();
+      const twoWeeks = new Date(nowMs - 2 * WEEK).toISOString();
+      // Map a marketing_send_log source → the broadcast channel it belongs to.
+      const sourceChannel = (src: string): "newsletter" | "drip" | null =>
+        src === "weekly_newsletter" ? "newsletter" : (src === "trial_drip" || src === "win_back" || src === "journey") ? "drip" : null;
+
+      // ── Coordination + collision from marketing_send_log (last 2 weeks) ──
+      const { data: sendLog } = await supabaseAdmin
+        .from("marketing_send_log")
+        .select("recipient, source, sent_at")
+        .gte("sent_at", twoWeeks)
+        .limit(10000);
+      const logRows = (sendLog ?? []) as Array<{ recipient: string; source: string; sent_at: string }>;
+      // max sends any single recipient got in a day (the cap is per-recipient/day).
+      const perRecipientDay = new Map<string, number>();
+      // per-day set of distinct broadcast channels (this-week window) for collision.
+      const dayChannels = new Map<string, Set<"newsletter" | "drip">>();
+      // per-channel weekly volume (this vs prior week).
+      const vol = { newsletter: [0, 0], drip: [0, 0] };
+      for (const r of logRows) {
+        const ts = Date.parse(r.sent_at);
+        const day = r.sent_at.slice(0, 10);
+        perRecipientDay.set(`${r.recipient}|${day}`, (perRecipientDay.get(`${r.recipient}|${day}`) ?? 0) + 1);
+        const ch = sourceChannel(r.source);
+        if (ch) {
+          const idx = ts >= Date.parse(weekAgo) ? 0 : 1;
+          vol[ch][idx] += 1;
+          if (idx === 0) {
+            const set = dayChannels.get(day) ?? new Set();
+            set.add(ch);
+            dayChannels.set(day, set);
+          }
+        }
+      }
+      const maxObserved = perRecipientDay.size ? Math.max(...perRecipientDay.values()) : 0;
+      const capPerDay = await getSetting<number>(MARKETING_FREQ_CAP_SETTING, 1);
+      const coordination: CoordinationStats = {
+        cap_per_day: typeof capPerDay === "number" ? capPerDay : 1,
+        max_observed_per_day: maxObserved,
+        deferred_or_dropped: 0, // send-log records sends only; deferrals aren't logged here
+      };
+      const sendDays: SendDay[] = [...dayChannels.entries()].map(([date, chs]) => ({ date, channels: [...chs] }));
+
+      // ── Drip channel week (enrollments this vs prior week + conversions) ──
+      const { data: drip } = await supabaseAdmin
+        .from("drip_enrollments")
+        .select("enrolled_at, converted_at")
+        .gte("enrolled_at", twoWeeks)
+        .limit(20000);
+      let dThis = 0, dPrior = 0, dConv = 0;
+      for (const r of (drip ?? []) as Array<{ enrolled_at: string; converted_at: string | null }>) {
+        if (Date.parse(r.enrolled_at) >= Date.parse(weekAgo)) { dThis++; if (r.converted_at) dConv++; } else dPrior++;
+      }
+
+      // ── Newsletter channel week (issues sent this vs prior week) ──
+      const { data: issues } = await supabaseAdmin
+        .from("newsletter_issues")
+        .select("sent_at")
+        .gte("sent_at", twoWeeks)
+        .not("sent_at", "is", null)
+        .limit(500);
+      let nThis = 0, nPrior = 0;
+      for (const r of (issues ?? []) as Array<{ sent_at: string }>) {
+        if (Date.parse(r.sent_at) >= Date.parse(weekAgo)) nThis++; else nPrior++;
+      }
+
+      // ── Content channel week (topics consumed this vs prior week) ──
+      const { data: posts } = await supabaseAdmin
+        .from("content_topics")
+        .select("used_at")
+        .eq("status", "used")
+        .gte("used_at", twoWeeks)
+        .limit(1000);
+      let cThis = 0, cPrior = 0;
+      for (const r of (posts ?? []) as Array<{ used_at: string | null }>) {
+        if (r.used_at && Date.parse(r.used_at) >= Date.parse(weekAgo)) cThis++; else if (r.used_at) cPrior++;
+      }
+
+      const weeks: ChannelWeek[] = [
+        { channel: "content", volume: cThis, prior_volume: cPrior, engagement_rate: null, prior_engagement_rate: null, conversions: null },
+        { channel: "newsletter", volume: nThis, prior_volume: nPrior, engagement_rate: null, prior_engagement_rate: null, conversions: null },
+        { channel: "drip", volume: dThis, prior_volume: dPrior, engagement_rate: dThis > 0 ? Number((dConv / dThis).toFixed(4)) : null, prior_engagement_rate: null, conversions: dConv },
+      ];
+
+      // ── Cannibalization inputs: recent blog topics vs recent email angles ──
+      const { data: cTopics } = await supabaseAdmin
+        .from("content_topics")
+        .select("title, primary_keyword, secondary_keywords")
+        .gte("created_at", twoWeeks)
+        .limit(50);
+      const { data: eTopics } = await supabaseAdmin
+        .from("email_topic_bank")
+        .select("label, pillar, angle")
+        .eq("status", "active")
+        .order("last_used_at", { ascending: false, nullsFirst: false })
+        .limit(50);
+      const topics: TopicItem[] = [
+        ...((cTopics ?? []) as Array<{ title: string; primary_keyword: string; secondary_keywords: string[] }>).map((t) => ({
+          channel: "content" as const,
+          label: t.title,
+          keywords: [t.primary_keyword, ...(t.secondary_keywords ?? [])].filter(Boolean),
+        })),
+        ...((eTopics ?? []) as Array<{ label: string; pillar: string; angle: string }>).map((t) => ({
+          channel: "newsletter" as const,
+          label: t.label,
+          keywords: [t.pillar, ...String(t.angle ?? "").split(/[\s_-]+/)].filter(Boolean),
+        })),
+      ];
+
+      return { weeks, topics, sendDays, coordination };
+    },
+    addMarketingTopic: async (input) => {
+      if (input.bank === "email") {
+        // Evergreen newsletter bank; unique (pillar, angle) makes this idempotent.
+        const { data } = await supabaseAdmin
+          .from("email_topic_bank")
+          .upsert(
+            { pillar: input.pillar, angle: input.angle, label: input.label, summary: input.summary, source: "manual", status: "active" } as never,
+            { onConflict: "pillar,angle", ignoreDuplicates: true },
+          )
+          .select("id")
+          .maybeSingle();
+        return { inserted: !!data, id: (data as { id: string } | null)?.id ?? null };
+      }
+      // Blog topic queue (content_topics). generated_by=human, source=research.
+      const { data } = await supabaseAdmin
+        .from("content_topics")
+        .insert({
+          surface: input.surface,
+          product_focus: input.product,
+          title: input.title,
+          primary_keyword: input.primary_keyword,
+          angle: input.angle,
+          status: "queued",
+          generated_by: "human",
+        } as never)
+        .select("id")
+        .single();
+      return { inserted: !!data, id: (data as { id: string } | null)?.id ?? null };
+    },
+    setMarketingFrequencyCap: async (capPerDay) => {
+      await supabaseAdmin.from("system_settings").upsert(
+        {
+          key: MARKETING_FREQ_CAP_SETTING,
+          value: capPerDay,
+          value_type: "number",
+          default_value: 1,
+          description: "US-884/1599 shared marketing send cap per recipient per day",
+          category: "marketing",
+        } as never,
+        { onConflict: "key" },
+      );
+      bustSettingCache(MARKETING_FREQ_CAP_SETTING);
+      return { cap_per_day: capPerDay };
+    },
+    fetchUserLifecycle: async (nowMs) => {
+      const WEEK = 7 * 86400_000;
+      const weekAgoIso = new Date(nowMs - WEEK).toISOString();
+      const twoWeeksIso = new Date(nowMs - 2 * WEEK).toISOString();
+      const nowIso = new Date(nowMs).toISOString();
+      const in3dIso = new Date(nowMs + 3 * 86400_000).toISOString();
+      const in7dIso = new Date(nowMs + WEEK).toISOString();
+      const back30dIso = new Date(nowMs - 30 * 86400_000).toISOString();
+
+      // Activation funnel from the funnel_metrics RPC over a 30-day window
+      // (cohort counts only — the RPC returns aggregate step counts).
+      let funnel: FunnelStep[] = [];
+      try {
+        const { data } = await supabaseAdmin.rpc("funnel_metrics", { p_start: back30dIso, p_end: nowIso });
+        const steps = (data as { steps?: unknown } | null)?.steps;
+        if (Array.isArray(steps)) {
+          funnel = steps
+            .filter((s): s is Record<string, unknown> => !!s && typeof s === "object")
+            .map((s) => ({
+              key: typeof s.key === "string" ? s.key : String(s.label ?? ""),
+              label: typeof s.label === "string" ? s.label : String(s.key ?? ""),
+              count: typeof s.count === "number" && Number.isFinite(s.count) ? s.count : 0,
+            }));
+        }
+      } catch { /* no funnel data → empty */ }
+
+      // Drip cohort weeks (this vs prior) — aggregate counts, no user rows leave.
+      const { data: enr } = await supabaseAdmin
+        .from("drip_enrollments")
+        .select("enrolled_at, converted_at, exited_at, exit_reason")
+        .gte("enrolled_at", twoWeeksIso)
+        .limit(50000);
+      const mk = (): CohortWeek => ({ week: "", enrolled: 0, converted: 0, churned: 0 });
+      const current = mk(), prior = mk();
+      current.week = weekAgoIso.slice(0, 10);
+      prior.week = twoWeeksIso.slice(0, 10);
+      for (const r of (enr ?? []) as Array<{ enrolled_at: string; converted_at: string | null; exited_at: string | null; exit_reason: string | null }>) {
+        const bucket = Date.parse(r.enrolled_at) >= Date.parse(weekAgoIso) ? current : prior;
+        bucket.enrolled += 1;
+        if (r.converted_at) bucket.converted += 1;
+        else if (r.exited_at && r.exit_reason && r.exit_reason !== "converted") bucket.churned += 1;
+      }
+
+      // Trial-expiry cohorts — HEAD count queries (no rows returned = no PII).
+      const trialCohorts: TrialCohort[] = [];
+      try {
+        const [c3, c7, cExp] = await Promise.all([
+          supabaseAdmin.from("users").select("id", { count: "exact", head: true })
+            .eq("subscription_status", "trialing").gte("trial_ends_at", nowIso).lt("trial_ends_at", in3dIso),
+          supabaseAdmin.from("users").select("id", { count: "exact", head: true })
+            .eq("subscription_status", "trialing").gte("trial_ends_at", in3dIso).lt("trial_ends_at", in7dIso),
+          supabaseAdmin.from("users").select("id", { count: "exact", head: true })
+            .neq("subscription_status", "active").gte("trial_ends_at", back30dIso).lt("trial_ends_at", nowIso),
+        ]);
+        trialCohorts.push(
+          { bucket: "expiring_3d", count: c3.count ?? 0 },
+          { bucket: "expiring_7d", count: c7.count ?? 0 },
+          { bucket: "expired_unconverted", count: cExp.count ?? 0 },
+        );
+      } catch { /* count unavailable → cohorts stay empty */ }
+
+      return { funnel, current, prior, trialCohorts };
+    },
+    enrollCohort: async ({ cohort, campaign, nowIso }) => {
+      // Whitelisted campaign + cohort ONLY — never a model-supplied id list. The
+      // cohort is resolved server-side, marketing opt-outs excluded, already-
+      // enrolled deduped, and the batch is hard-capped.
+      const ENROLL_CAP = 500;
+      if (campaign !== "trial_conversion") return { enrolled: 0, cohort, campaign, error: "unknown_campaign" };
+      if (cohort !== "trial_expiring_7d") return { enrolled: 0, cohort, campaign, error: "unknown_cohort" };
+      const in7dIso = new Date(Date.parse(nowIso) + 7 * 86400_000).toISOString();
+      const { data: trialists } = await supabaseAdmin
+        .from("users")
+        .select("id, created_at, trial_ends_at, notification_preferences")
+        .eq("subscription_status", "trialing")
+        .gte("trial_ends_at", nowIso)
+        .lt("trial_ends_at", in7dIso)
+        .order("trial_ends_at", { ascending: true })
+        .limit(ENROLL_CAP);
+      const candidates = ((trialists ?? []) as Array<{ id: string; created_at: string | null; trial_ends_at: string | null; notification_preferences: Record<string, unknown> | null }>)
+        .filter((t) => !marketingOptedOutEmail(t.notification_preferences));
+      if (candidates.length === 0) return { enrolled: 0, cohort, campaign };
+      const ids = candidates.map((t) => t.id);
+      const { data: existing } = await supabaseAdmin
+        .from("drip_enrollments").select("user_id").eq("campaign", campaign).in("user_id", ids);
+      const already = new Set((existing ?? []).map((r) => (r as { user_id: string }).user_id));
+      const rows = candidates.filter((t) => !already.has(t.id)).map((t) => ({
+        user_id: t.id,
+        campaign,
+        enrolled_at: nowIso,
+        trial_started_at: t.created_at,
+        signup_week: t.created_at ? t.created_at.slice(0, 10) : null,
+        incentive_enabled: false,
+        next_evaluation_at: nowIso,
+      }));
+      if (rows.length === 0) return { enrolled: 0, cohort, campaign };
+      const { data: inserted } = await supabaseAdmin
+        .from("drip_enrollments")
+        .upsert(rows as never, { onConflict: "user_id,campaign", ignoreDuplicates: true })
+        .select("id");
+      return { enrolled: (inserted ?? []).length, cohort, campaign };
+    },
+    fetchMaintenanceIntervals: async (sinceIso) => {
+      // Windows active now OR that ended within the lookback still suppress ticks
+      // that fell inside their past interval.
+      const { data } = await supabaseAdmin
+        .from("maintenance_windows")
+        .select("starts_at, ends_at, is_active")
+        .or(`ends_at.is.null,ends_at.gte.${sinceIso}`)
+        .limit(200);
+      return ((data ?? []) as Array<{ starts_at: string | null; ends_at: string | null; is_active: boolean }>)
+        .filter((w) => w.is_active || w.ends_at !== null)
+        .map((w) => ({
+          startMs: w.starts_at ? Date.parse(w.starts_at) : -Infinity,
+          endMs: w.ends_at ? Date.parse(w.ends_at) : Infinity,
+        }));
+    },
     runJob: async (jobKey) => {
       // Only registered, runnable cron jobs — never an arbitrary URL.
       if (!isRunnableJob(jobKey)) return { ok: false, status: 0, error: "unknown_or_unrunnable_job" };
@@ -314,6 +1128,13 @@ export function prodToolIO(): ToolIO {
         .single();
       return (data as { id: string } | null) ?? null;
     },
+    reorderReviewQueue: (opts) =>
+      reorderReviewQueue({
+        limit: opts.limit,
+        nowMs: Date.now(),
+        computedBy: opts.authorizedBy,
+        proposalId: opts.proposalId,
+      }),
   };
 }
 
@@ -598,6 +1419,317 @@ const TOOL_LIST: AgentToolDef[] = [
       };
     },
   },
+  {
+    name: "get_integrations_health",
+    description: "Integrations Watchdog memo (US-1604): pre-assembled vendor health verdicts (from ops events), the OAuth token-fleet expiry forecast (expired / 7d / 30d by marketplace), the key-rotation calendar (overdue / due-soon / baseline-needed, from KEY_ROTATION.md encoded as data), and an email deliverability watch. Read-about-credentials only — expiry metadata + cadences, never secret material.",
+    class: "read",
+    inputSchema: {
+      type: "object",
+      properties: { since_hours: { type: "integer", minimum: 1, maximum: 168, description: "ops-event window for vendor health" } },
+    },
+    handler: async (input, ctx) => {
+      const sinceHours = typeof input.since_hours === "number" ? input.since_hours : 24;
+      const sinceIso = new Date(ctx.now - sinceHours * 3600_000).toISOString();
+      const [connections, opsEvents, emailDead, rotationState] = await Promise.all([
+        ctx.io.fetchMarketplaceConnections(),
+        ctx.io.fetchOpsEvents({ sinceIso, limit: 200 }),
+        ctx.io.fetchEmailDeadLetters(500),
+        ctx.io.fetchKeyRotationState(),
+      ]);
+      const memo = assembleIntegrationsMemo({
+        connections,
+        opsEvents: opsEvents.map((e) => ({
+          type: e.type,
+          severity: e.severity,
+          source: e.source,
+          created_at: e.created_at,
+        })),
+        rotationState,
+        emailDeadLetters: emailDead.length,
+        nowMs: ctx.now,
+      });
+      return { memo };
+    },
+  },
+  {
+    name: "get_finance_health",
+    description: "Finance agent memo (US-1596): open billing-reconciliation divergences ranked by materiality (with evidence), affiliate + consignor payout-run sanity, a current-vs-trailing revenue delta, and the AI-spend-vs-revenue profitability doc (reuses the ai_profitability RPC). Read-only — the agent narrates and files tasks; it never moves money.",
+    class: "read",
+    inputSchema: {
+      type: "object",
+      properties: { since_days: { type: "integer", minimum: 1, maximum: 90, description: "payout-run lookback window" } },
+    },
+    handler: async (input, ctx) => {
+      const sinceDays = clampInt(input.since_days, 7, 1, 90);
+      const sinceIso = new Date(ctx.now - sinceDays * 24 * 3600_000).toISOString();
+      // Two trailing 30-day windows for the revenue baseline comparison.
+      const WIN = 30 * 24 * 3600_000;
+      const curEnd = new Date(ctx.now).toISOString();
+      const curStart = new Date(ctx.now - WIN).toISOString();
+      const priorStart = new Date(ctx.now - 2 * WIN).toISOString();
+      const [reconFlags, payouts, revenueCurrent, revenuePrior, aiProfitability] = await Promise.all([
+        ctx.io.fetchReconciliationFlags(500),
+        ctx.io.fetchRecentPayouts(sinceIso),
+        ctx.io.rpc("revenue_dashboard", { p_start: curStart, p_end: curEnd, p_granularity: "day" }),
+        ctx.io.rpc("revenue_dashboard", { p_start: priorStart, p_end: curStart, p_granularity: "day" }),
+        ctx.io.rpc("ai_profitability", { p_period: "30d" }),
+      ]);
+      const memo = assembleFinanceMemo({
+        reconFlags,
+        affiliatePayouts: payouts.affiliate,
+        consignorPayouts: payouts.consignor,
+        revenueCurrent,
+        revenuePrior,
+        aiProfitability,
+        nowMs: ctx.now,
+      });
+      return { memo };
+    },
+  },
+  {
+    name: "get_pricing_health",
+    description: "Pricing agent memo (US-1601): cross-tenant repricing efficacy (apply-rate by reason code), ping-ponging listings (applied prices oscillating), churning automation rules, and price-guide / condition-curve staleness. Aggregates only — the agent audits and reports; it never edits a tenant's rules or prices.",
+    class: "read",
+    inputSchema: {
+      type: "object",
+      properties: { since_days: { type: "integer", minimum: 1, maximum: 90, description: "lookback window for suggestions + rule actions" } },
+    },
+    handler: async (input, ctx) => {
+      const sinceDays = clampInt(input.since_days, 14, 1, 90);
+      const sinceIso = new Date(ctx.now - sinceDays * 24 * 3600_000).toISOString();
+      const [suggestions, actions, curves] = await Promise.all([
+        ctx.io.fetchRepricingSuggestions(sinceIso),
+        ctx.io.fetchAutomationActions(sinceIso),
+        ctx.io.fetchCurveFreshness(),
+      ]);
+      const memo = assemblePricingMemo({ suggestions, actions, curves, nowMs: ctx.now });
+      return { memo };
+    },
+  },
+  {
+    name: "get_marketplace_ops_health",
+    description: "Marketplace Ops agent memo (US-1598): per-marketplace connection verdicts, generation + publish batch backlog (stuck/failed counts + the top stuck items with age and the reclaim cron that owns each), open sync-conflict + orphan-sale counts, and the backlog trend vs the prior run. Operator-scope aggregates only — no raw tenant rows or PII. Unstick paths go through existing reclaim/sweep jobs.",
+    class: "read",
+    inputSchema: { type: "object", properties: {} },
+    handler: async (_input, ctx) => {
+      const [connections, batches, openSyncConflicts, orphanSales, priorBacklogTotal] = await Promise.all([
+        ctx.io.fetchMarketplaceConnections(),
+        ctx.io.fetchListingBatches(),
+        ctx.io.countOpenSyncConflicts(),
+        ctx.io.countOrphanSales(),
+        ctx.io.fetchMarketplaceOpsBacklog(),
+      ]);
+      const memo = assembleMarketplaceOpsMemo({
+        connections,
+        generationBatches: batches.generation,
+        publishBatches: batches.publish,
+        openSyncConflicts,
+        orphanSales,
+        priorBacklogTotal,
+        nowMs: ctx.now,
+      });
+      // Record this run's backlog as the next run's "yesterday" (operator
+      // bookkeeping only — a single integer watermark, no tenant data).
+      await ctx.io.persistMarketplaceOpsBacklog(memo.backlog.total).catch(() => {});
+      return { memo };
+    },
+  },
+  {
+    name: "get_trust_safety_health",
+    description: "Trust & Safety agent memo (US-1597): open abuse signals ranked by severity (with rationale), cross-account rings (shared payment / phash / disposable-email signals spanning >=2 accounts, with the linked account ids as evidence), and open moderation + passport-integrity queue depths. Operator-scope ids + evidence only — no emails, titles, or image bytes.",
+    class: "read",
+    inputSchema: {
+      type: "object",
+      properties: { limit: { type: "integer", minimum: 1, maximum: 2000, description: "max open abuse signals to rank" } },
+    },
+    handler: async (input, ctx) => {
+      const limit = clampInt(input.limit, 500, 1, 2000);
+      const [abuseSignals, openModerationFlags, openPassportIntegritySignals] = await Promise.all([
+        ctx.io.fetchAbuseSignals(limit),
+        ctx.io.countOpenModerationFlags(),
+        ctx.io.countOpenPassportIntegritySignals(),
+      ]);
+      const memo = assembleTrustSafetyMemo({
+        abuseSignals,
+        openModerationFlags,
+        openPassportIntegritySignals,
+        nowMs: ctx.now,
+      });
+      return { memo };
+    },
+  },
+  {
+    name: "get_ceo_brief",
+    description: "CEO Brief context (US-1603): headline north-star metrics this week vs last, each seeded agent's LATEST succeeded-run summary (for attribution), pending fleet proposals, and coverage / degraded flags. Attribution is only permitted for agents that actually ran — assembled honestly so the narrator never fabricates a cause.",
+    class: "read",
+    inputSchema: { type: "object", properties: {} },
+    handler: async (_input, ctx) => {
+      const data = await ctx.io.fetchCeoBriefData(ctx.now);
+      const context = assembleCeoBriefContext({
+        nowMs: ctx.now,
+        agents: data.agents,
+        metrics: data.metrics,
+        latestRuns: data.latestRuns,
+        pendingProposals: data.pendingProposals,
+      });
+      return { context };
+    },
+  },
+  {
+    name: "get_growth_health",
+    description: "Growth agent memo (US-1602): the acquisition funnel (funnel_metrics) with step-to-step conversions, the worst drop-off ('cliff'), week-over-week conversion regressions, referral-program health, and the PRIOR run's experiment slate for continuity. Aggregates only. The agent narrates + ranks experiment ideas; it does not start experiments.",
+    class: "read",
+    inputSchema: { type: "object", properties: {} },
+    handler: async (_input, ctx) => {
+      const WEEK = 7 * 24 * 3600_000;
+      const curEnd = new Date(ctx.now).toISOString();
+      const curStart = new Date(ctx.now - WEEK).toISOString();
+      const priorStart = new Date(ctx.now - 2 * WEEK).toISOString();
+      const [currentFunnel, priorFunnel, referrals, priorSlate] = await Promise.all([
+        ctx.io.rpc("funnel_metrics", { p_start: curStart, p_end: curEnd }),
+        ctx.io.rpc("funnel_metrics", { p_start: priorStart, p_end: curStart }),
+        ctx.io.fetchReferralCounts(curStart, curEnd, priorStart),
+        ctx.io.fetchAgentPriorOutcome(ctx.agentId),
+      ]);
+      const memo = assembleGrowthMemo({
+        currentFunnel,
+        priorFunnel,
+        referralsCurrent: referrals.current,
+        referralsPrior: referrals.prior,
+        priorSlate,
+      });
+      return { memo };
+    },
+  },
+  {
+    name: "get_cron_fleet_health",
+    description: "Cron-fleet governance report (US-1611): the diff between the CRON_REGISTRY schedule and cron_runs reality — per-job missed-tick detection (a scheduled slot with no run), duration creep, and a fleet scorecard of stalled/slow jobs. Missed ticks inside a maintenance window are suppressed (no false alarms). Read-only.",
+    class: "read",
+    inputSchema: {
+      type: "object",
+      properties: { lookback_hours: { type: "integer", minimum: 1, maximum: 168, description: "window for missed-tick + creep analysis" } },
+    },
+    handler: async (input, ctx) => {
+      const lookbackHours = clampInt(input.lookback_hours, 24, 1, 168);
+      const lookbackMs = lookbackHours * 3600_000;
+      const sinceIso = new Date(ctx.now - lookbackMs).toISOString();
+      const [runs, maintenance] = await Promise.all([
+        ctx.io.fetchCronRuns(20000),
+        ctx.io.fetchMaintenanceIntervals(sinceIso),
+      ]);
+      const runsByJob: Record<string, JobRun[]> = {};
+      for (const r of runs) {
+        (runsByJob[r.job_name] ??= []).push({ created_at: r.created_at, duration_ms: r.duration_ms });
+      }
+      const report = assembleCronFleetReport({
+        registry: CRON_REGISTRY,
+        runsByJob,
+        maintenance,
+        nowMs: ctx.now,
+        lookbackMs,
+      });
+      return { report };
+    },
+  },
+  {
+    name: "get_release_health",
+    description: "Release verification memo (US-1610): detects a deploy (RELEASE_SHA change) and, when one is found, compares post-deploy health metrics (24h cron failures, webhook + email dead-letter depths) to the pre-deploy baseline against config thresholds — a regression, a clean verdict, or no-deploy. Read-only; the agent never rolls back.",
+    class: "read",
+    inputSchema: { type: "object", properties: {} },
+    handler: async (_input, ctx) => {
+      const currentSha = ctx.io.releaseSha();
+      const [state, runs, webhooks, emails] = await Promise.all([
+        ctx.io.fetchReleaseState(),
+        ctx.io.fetchCronRuns(4000),
+        ctx.io.fetchWebhookDeadLetters(500),
+        ctx.io.fetchEmailDeadLetters(500),
+      ]);
+      const since = ctx.now - 24 * 3600_000;
+      const jobFailures = runs.filter((r) =>
+        (r.status === "failed" || r.status === "error") && Date.parse(r.created_at) >= since
+      ).length;
+      const metrics: ReleaseMetrics = { job_failures_24h: jobFailures, webhook_dlq: webhooks.length, email_dlq: emails.length };
+      const deploy = detectDeploy(currentSha, state?.last_sha ?? null);
+      const comparison = deploy.deployed
+        ? compareRelease(state?.baseline ?? null, metrics)
+        : { regressions: [], regressed: false, comparable: false };
+      const memo = assembleReleaseMemo(deploy, metrics, comparison);
+      // Roll the baseline forward (operator bookkeeping — no tenant data).
+      await ctx.io.persistReleaseState(nextReleaseState(deploy, metrics, new Date(ctx.now).toISOString())).catch(() => {});
+      return { memo };
+    },
+  },
+  {
+    name: "get_experiments_registry",
+    description: "Experiments Governor memo (US-1609): a unified registry of every LIVE A/B across three engines (newsletter subject tests, grading-prompt canaries, drip variants) plus three portfolio checks — interference (same audience + metric, overlapping windows), underpowered reads presented as wins, and experiments past their decision date. Read-only; the agent never stops/promotes an experiment.",
+    class: "read",
+    inputSchema: { type: "object", properties: {} },
+    handler: async (_input, ctx) => {
+      const sinceIso = new Date(ctx.now - 30 * 86400_000).toISOString(); // drip cohort window
+      const [newsletter, prompts, drip] = await Promise.all([
+        ctx.io.fetchNewsletterAbTests().catch(() => [] as NewsletterAbRow[]),
+        ctx.io.fetchPromptRollouts().catch(() => [] as PromptRolloutRow[]),
+        ctx.io.fetchDripVariants(sinceIso).catch(() => [] as DripVariantRow[]),
+      ]);
+      const registry = [
+        ...normalizeNewsletterAb(newsletter),
+        ...normalizePromptRollout(prompts),
+        ...normalizeDripVariants(drip),
+      ];
+      const memo = assembleExperimentsMemo(registry, ctx.now);
+      return { memo };
+    },
+  },
+  {
+    name: "get_support_triage",
+    description: "Support Triage memo (US-1595): new/unassigned open tickets awaiting triage (id, subject, a PII-REDACTED excerpt, current priority, age), any detected issue clusters (N similar tickets in a window → one Sentinel-correlation candidate), and the KB article catalog (slug + title) to suggest from. Read-only; classification + replies are approval-gated proposals the agent emits.",
+    class: "read",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: { type: "integer", minimum: 1, maximum: 100, description: "max untriaged tickets to pull" },
+      },
+    },
+    handler: async (input, ctx) => {
+      const limit = clampInt(input.limit, 40, 1, 100);
+      const [rawTickets, kb] = await Promise.all([
+        ctx.io.fetchUntriagedTickets(limit),
+        ctx.io.fetchKbCatalog(60),
+      ]);
+      const tickets: TriageTicket[] = rawTickets.map((t) => ({
+        id: t.id,
+        subject: prepareExcerpt(t.subject), // subjects can carry PII too
+        excerpt: prepareExcerpt(t.excerpt),
+        created_ms: Date.parse(t.created_at) || ctx.now,
+        priority: t.priority,
+        status: t.status,
+      }));
+      const memo = assembleTriageMemo(tickets, kb, ctx.now);
+      return { memo };
+    },
+  },
+  {
+    name: "get_marketing_portfolio",
+    description: "Marketing Portfolio memo (US-1599): a per-channel scorecard (content, newsletter, drip — weekly volume + engagement trend + conversions) plus the CROSS-CHANNEL signals the per-engine tuners can't see — audience fatigue (combined send pressure vs the cap), topic cannibalization (blog vs newsletter keyword overlap), and same-day channel collisions — and a ranked next-week focus list. Engine-level aggregates only; no per-subscriber data. Read-only.",
+    class: "read",
+    inputSchema: { type: "object", properties: {} },
+    handler: async (_input, ctx) => {
+      const { weeks, topics, sendDays, coordination } = await ctx.io.fetchMarketingPortfolio(ctx.now);
+      const memo = assembleMarketingPortfolioMemo(weeks, topics, sendDays, coordination);
+      return { memo };
+    },
+  },
+  {
+    name: "get_user_lifecycle",
+    description: "User Lifecycle memo (US-1600): COHORT-LEVEL only — an activation-stall diagnosis (which funnel step + hypothesis), a churn-risk narrative vs the prior week (conversion/churn deltas), and winback sizing (expired-unconverted reachable + trials expiring soon). The tool aggregates before returning; NO per-user row, id, or PII is ever included. Read-only.",
+    class: "read",
+    inputSchema: { type: "object", properties: {} },
+    handler: async (_input, ctx) => {
+      const { funnel, current, prior, trialCohorts } = await ctx.io.fetchUserLifecycle(ctx.now);
+      const memo = assembleLifecycleMemo(funnel, current, prior, trialCohorts);
+      return { memo };
+    },
+  },
 
   // ── Write tools (class 'write') — NEVER exposed to the run loop; executed
   //    ONLY via executeWrite on the approved-proposal path (US-1587). Each is
@@ -666,6 +1798,185 @@ const TOOL_LIST: AgentToolDef[] = [
       return { task_id: task?.id ?? null };
     },
   },
+  {
+    name: "run_smoke",
+    description: "Run a lightweight in-process smoke check (the internal /health endpoint) to actively verify a release. Reversible/read-only in effect; returns ok + HTTP status.",
+    class: "write",
+    inputSchema: { type: "object", properties: {} },
+    handler: async (_input, ctx) => {
+      if (!ctx.authorizedBy) return { error: { code: "unauthorized", message: "write requires an approved proposal" } };
+      return await ctx.io.runSmoke();
+    },
+  },
+  {
+    name: "persist_ticket_triage",
+    description:
+      "Persist a batch of Support Triage classifications (US-1595) onto the support_tickets rows the admin support UI renders — category, severity, suggested KB slug + a triaged_at stamp. Advisory metadata only: it NEVER changes a ticket's status, assignee, or priority, and never sends a message. Each item is validated (known category/severity, KB slug must exist) and invalid items are skipped.",
+    class: "write",
+    inputSchema: {
+      type: "object",
+      properties: {
+        items: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              ticket_id: { type: "string" },
+              category: { type: "string" },
+              severity: { type: "string" },
+              kb_slug: { type: ["string", "null"] },
+            },
+            required: ["ticket_id", "category", "severity"],
+          },
+        },
+      },
+      required: ["items"],
+    },
+    handler: async (input, ctx) => {
+      if (!ctx.authorizedBy) return { error: { code: "unauthorized", message: "write requires an approved proposal" } };
+      const rawItems = Array.isArray(input.items) ? input.items : [];
+      // Validate against the live KB catalog so a hallucinated slug never persists.
+      const kb = await ctx.io.fetchKbCatalog(200);
+      const knownSlugs = new Set(kb.map((k) => k.slug));
+      const items = rawItems
+        .map((it) => normalizeClassification(it, knownSlugs))
+        .filter((x): x is NonNullable<typeof x> => x !== null)
+        .map((x) => ({ ticket_id: x.ticket_id, category: x.category, severity: x.severity, kb_slug: x.kb_slug }));
+      if (items.length === 0) return { updated: 0, skipped: rawItems.length };
+      const { updated } = await ctx.io.persistTicketTriage(items, new Date(ctx.now).toISOString());
+      return { updated, skipped: rawItems.length - items.length };
+    },
+  },
+  {
+    name: "send_support_reply",
+    description:
+      "Send an operator-APPROVED support reply (US-1595). Inserts the drafted reply as a public ticket message through the normal support path (bumps the ticket to 'pending', assigns the approving operator, notifies the customer). Only ever runs on an approved draft_reply proposal — the agent never sends unsupervised. Sends the body verbatim; no editing here.",
+    class: "write",
+    inputSchema: {
+      type: "object",
+      properties: {
+        ticket_id: { type: "string" },
+        body: { type: "string" },
+      },
+      required: ["ticket_id", "body"],
+    },
+    handler: async (input, ctx) => {
+      if (!ctx.authorizedBy) return { error: { code: "unauthorized", message: "write requires an approved proposal" } };
+      const ticketId = typeof input.ticket_id === "string" ? input.ticket_id : "";
+      const body = typeof input.body === "string" ? input.body.trim() : "";
+      if (!ticketId || !body) return { error: { code: "invalid", message: "ticket_id and body are required" } };
+      return await ctx.io.sendSupportReply({ ticketId, body, adminId: ctx.authorizedBy });
+    },
+  },
+  {
+    name: "add_marketing_topic",
+    description:
+      "Add ONE topic to a marketing topic bank (US-1599) — the newsletter evergreen bank (bank:'email') or the blog topic queue (bank:'content'). Engine-level lever: it queues an angle the per-engine assembler will draw from; it does NOT write or send anything to a subscriber. Email bank is idempotent on (pillar, angle).",
+    class: "write",
+    inputSchema: {
+      type: "object",
+      properties: {
+        bank: { type: "string", enum: ["email", "content"] },
+        // email bank
+        pillar: { type: "string" },
+        angle: { type: "string" },
+        label: { type: "string" },
+        summary: { type: "string" },
+        // content bank
+        surface: { type: "string", enum: ["blog", "social"] },
+        product: { type: "string", enum: ["gradethread", "flipdesk", "both"] },
+        title: { type: "string" },
+        primary_keyword: { type: "string" },
+      },
+      required: ["bank"],
+    },
+    handler: async (input, ctx) => {
+      if (!ctx.authorizedBy) return { error: { code: "unauthorized", message: "write requires an approved proposal" } };
+      if (input.bank === "email") {
+        const pillar = typeof input.pillar === "string" ? input.pillar.trim() : "";
+        const angle = typeof input.angle === "string" ? input.angle.trim() : "";
+        const label = typeof input.label === "string" ? input.label.trim() : "";
+        if (!pillar || !angle || !label) return { error: { code: "invalid", message: "email topic needs pillar, angle, label" } };
+        return await ctx.io.addMarketingTopic({ bank: "email", pillar, angle, label, summary: typeof input.summary === "string" ? input.summary : "" });
+      }
+      if (input.bank === "content") {
+        const surface = input.surface === "blog" || input.surface === "social" ? input.surface : "";
+        const product = ["gradethread", "flipdesk", "both"].includes(String(input.product)) ? String(input.product) : "";
+        const title = typeof input.title === "string" ? input.title.trim() : "";
+        const primaryKeyword = typeof input.primary_keyword === "string" ? input.primary_keyword.trim() : "";
+        if (!surface || !product || !title || !primaryKeyword) {
+          return { error: { code: "invalid", message: "content topic needs surface, product, title, primary_keyword" } };
+        }
+        return await ctx.io.addMarketingTopic({
+          bank: "content",
+          surface,
+          product,
+          title,
+          primary_keyword: primaryKeyword,
+          angle: typeof input.angle === "string" ? input.angle : null,
+        });
+      }
+      return { error: { code: "invalid", message: "bank must be 'email' or 'content'" } };
+    },
+  },
+  {
+    name: "set_marketing_frequency_cap",
+    description:
+      "Set the shared marketing send cap per recipient per day (US-1599 / US-884). Engine-level lever: it changes the coordination cap every marketing engine already honors; it touches no send or subscriber. Clamped to 1..10. Use to relieve audience fatigue.",
+    class: "write",
+    inputSchema: {
+      type: "object",
+      properties: { cap_per_day: { type: "integer", minimum: 1, maximum: 10 } },
+      required: ["cap_per_day"],
+    },
+    handler: async (input, ctx) => {
+      if (!ctx.authorizedBy) return { error: { code: "unauthorized", message: "write requires an approved proposal" } };
+      const cap = clampInt(input.cap_per_day, 1, 1, 10);
+      return await ctx.io.setMarketingFrequencyCap(cap);
+    },
+  },
+  {
+    name: "enroll_cohort",
+    description:
+      "Enrol a DEFINED cohort in an EXISTING drip campaign (US-1600). The cohort is resolved server-side from a whitelist (never a model-supplied user list) — marketing opt-outs are excluded, already-enrolled users are deduped, and the batch is hard-capped. All delivery still flows through the drip engine + the marketing-frequency caps; this sends nothing itself. v1 supports cohort 'trial_expiring_7d' into campaign 'trial_conversion'.",
+    class: "write",
+    inputSchema: {
+      type: "object",
+      properties: {
+        cohort: { type: "string", description: "a supported cohort key (e.g. trial_expiring_7d)" },
+        campaign: { type: "string", description: "an existing drip campaign (e.g. trial_conversion)" },
+      },
+      required: ["cohort", "campaign"],
+    },
+    handler: async (input, ctx) => {
+      if (!ctx.authorizedBy) return { error: { code: "unauthorized", message: "write requires an approved proposal" } };
+      const cohort = typeof input.cohort === "string" ? input.cohort.trim() : "";
+      const campaign = typeof input.campaign === "string" ? input.campaign.trim() : "";
+      if (!cohort || !campaign) return { error: { code: "invalid", message: "cohort and campaign are required" } };
+      return await ctx.io.enrollCohort({ cohort, campaign, nowIso: new Date(ctx.now).toISOString() });
+    },
+  },
+  {
+    name: "reorder_review_queue",
+    description:
+      "Recompute the information-value ranking of the pending human-review queue (US-1558 active-learning routing) and persist the recommended order + rationale as an advisory artifact so high-signal reviews surface first. Grade-safe: NEVER changes a grade, prompt, confidence threshold, or calibration — ordering only, and the queue keeps its SLA starvation guard.",
+    class: "write",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: { type: "integer", minimum: 1, maximum: 500, description: "max pending reviews to rank" },
+      },
+    },
+    handler: async (input, ctx) => {
+      if (!ctx.authorizedBy) return { error: { code: "unauthorized", message: "write requires an approved proposal" } };
+      const limit = clampInt(input.limit, 200, 1, 500);
+      return await ctx.io.reorderReviewQueue({
+        limit,
+        authorizedBy: ctx.authorizedBy,
+        proposalId: ctx.proposalId ?? null,
+      });
+    },
+  },
 ];
 
 // Map an agent_proposals.action_class → the write tool that executes it.
@@ -673,6 +1984,25 @@ export const ACTION_CLASS_TO_TOOL: Record<string, string> = {
   retry_job: "retry_job",
   requeue_dead_letter: "requeue_dead_letter",
   file_task: "create_admin_task",
+  // US-1658: the Grading Quality agent's review-queue reorder (adjust_queue).
+  adjust_queue: "reorder_review_queue",
+  // US-1597: Trust & Safety account actions route to an admin task on the fraud
+  // console (never an auto-suspend); hard-capped at L1 so a human always signs
+  // off. The proposal payload carries the {title, body} create_admin_task needs.
+  suspend_account: "create_admin_task",
+  require_step_up: "create_admin_task",
+  deny_claim: "create_admin_task",
+  // US-1610: the Release agent's active smoke check.
+  run_smoke: "run_smoke",
+  // US-1595: Support Triage — persist a classification batch; a drafted reply
+  // sends through the support path on approval.
+  triage_tickets: "persist_ticket_triage",
+  draft_reply: "send_support_reply",
+  // US-1599: Marketing Portfolio engine-level levers.
+  add_marketing_topic: "add_marketing_topic",
+  adjust_frequency: "set_marketing_frequency_cap",
+  // US-1600: User Lifecycle cohort enrollment (delivery stays in the drip engine).
+  enroll_cohort: "enroll_cohort",
 };
 
 export const AGENT_TOOLS: readonly AgentToolDef[] = TOOL_LIST;

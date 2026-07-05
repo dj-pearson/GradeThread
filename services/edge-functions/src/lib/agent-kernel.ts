@@ -31,6 +31,26 @@ import { getSetting } from "./system-settings.ts";
 import { agentToolRegistry } from "./agent-tools.ts";
 import { applyWritePolicy, recordPolicyBreach } from "./agent-policy.ts";
 import { DEFAULT_PROPOSAL_TTL_HOURS, persistProposals } from "./agent-proposals.ts";
+import {
+  applyMemoryWrites,
+  formatMemoryBlock,
+  MEMORY_ROW_CAP,
+  type MemoryRow,
+  type MemoryWrite,
+  parseMemoryWrites,
+  selectMemoryForContext,
+} from "./agent-memory.ts";
+import {
+  formatHandoffBlock,
+  HANDOFF_QUEUE_CONTEXT_CAP,
+  type HandoffProvenanceHop,
+  inheritedProvenance,
+  parseHandoffIntents,
+  type QueuedHandoff,
+  routeHandoff,
+  selectHandoffsForContext,
+  summarizeConsumed,
+} from "./agent-handoffs.ts";
 import type { ProposalDraft } from "./agent-policy.ts";
 import { notifyAdminsProposalsFiled } from "./admin-notifications.ts";
 import { emitOpsEvent } from "./ops-events.ts";
@@ -119,6 +139,12 @@ export interface AgentOutcome {
   summary: string;
   findings: unknown[];
   proposals: unknown[];
+  // US-1606: optional durable-memory writes the agent emitted this run
+  // ({ kind, key, content }); persisted dedup-by-key under a hard cap.
+  memory?: unknown[];
+  // US-1613: optional handoffs the agent emitted this run
+  // ({ target_agent, kind, payload, evidence }); routed via acceptance + hop cap.
+  handoffs?: unknown[];
   // Set on a non-clean finish (timeout / budget-skip / pause) so downstream
   // consumers can tell a partial outcome from a validated one.
   partial?: boolean;
@@ -151,7 +177,17 @@ export function parseAgentOutcome(text: string): OutcomeParse {
   if (!Array.isArray(o.proposals)) return { ok: false, error: "proposals must be an array" };
   return {
     ok: true,
-    outcome: { summary: o.summary, findings: o.findings, proposals: o.proposals },
+    outcome: {
+      summary: o.summary,
+      findings: o.findings,
+      proposals: o.proposals,
+      // US-1606: optional memory writes (absent/malformed → left undefined; the
+      // kernel validates each entry via parseMemoryWrites before persisting).
+      ...(Array.isArray(o.memory) ? { memory: o.memory } : {}),
+      // US-1613: optional handoffs (validated via parseHandoffIntents + routed
+      // through acceptance/hop-cap policy before any delivery).
+      ...(Array.isArray(o.handoffs) ? { handoffs: o.handoffs } : {}),
+    },
   };
 }
 
@@ -253,6 +289,22 @@ export interface KernelDeps {
   notifyProposalsFiled: (agentKey: string, runId: string, count: number) => Promise<void>;
   // Emit an agent.* ops event (US-1589). Fire-and-forget.
   emitEvent: (type: string, severity: AgentEventSeverity, data: Record<string, unknown>) => void;
+  // US-1606: durable memory. loadMemory returns the agent's stored rows (the
+  // kernel selects + injects the top-N); persistMemory upserts the run's writes
+  // dedup-by-key and enforces the row cap. Both best-effort (never fail a run).
+  loadMemory: (agentId: string) => Promise<MemoryRow[]>;
+  persistMemory: (agentId: string, writes: MemoryWrite[]) => Promise<void>;
+  // US-1613: agent-to-agent handoffs. loadHandoffs returns the queued handoffs
+  // targeting this agent (consumed on this run); markHandoffsConsumed stamps them
+  // with the run id; loadHandoffPolicy reads the TARGET's accepts_handoffs_from;
+  // deliverHandoff queues an accepted handoff; fileHandoffTask files an admin task
+  // for a downgraded (unaccepted / hop-capped) handoff. All best-effort — a
+  // handoff failure never fails the run.
+  loadHandoffs: (agentKey: string) => Promise<QueuedHandoff[]>;
+  markHandoffsConsumed: (ids: string[], runId: string) => Promise<void>;
+  loadHandoffPolicy: (targetAgentKey: string) => Promise<{ acceptsFrom: string[] } | null>;
+  deliverHandoff: (handoff: QueuedHandoff) => Promise<void>;
+  fileHandoffTask: (task: { title: string; body: string; priority: string }) => Promise<void>;
   now: () => number;
 }
 
@@ -404,9 +456,42 @@ export async function runAgent(
     (typeof agent.config.system_prompt === "string" && agent.config.system_prompt
       ? agent.config.system_prompt
       : DEFAULT_SYSTEM_PROMPT);
-  const messages: Anthropic.MessageParam[] = [
-    { role: "user", content: `System context: ${systemPrompt}\n\nBegin your run for trigger "${trigger}".` },
-  ];
+
+  // US-1606: inject the agent's top-N durable memory (best-effort — a load
+  // failure or empty memory leaves the prompt byte-identical to before).
+  let memoryBlock = "";
+  try {
+    const rows = await d.loadMemory(agent.id);
+    memoryBlock = formatMemoryBlock(selectMemoryForContext(rows));
+  } catch {
+    memoryBlock = "";
+  }
+
+  // US-1613: consume any queued handoffs targeting this agent — inject them into
+  // context, stamp them consumed with this run id, and remember the deepest
+  // provenance chain so anything this run hands ONWARD carries the full origin.
+  // Best-effort: a handoff failure leaves the prompt (and inherited chain) empty.
+  let handoffBlock = "";
+  let consumedProvenance: HandoffProvenanceHop[] = [];
+  let consumedHandoffs: QueuedHandoff[] = [];
+  try {
+    const queued = selectHandoffsForContext(await d.loadHandoffs(agent.key));
+    if (queued.length) {
+      consumedHandoffs = queued;
+      handoffBlock = formatHandoffBlock(queued);
+      consumedProvenance = inheritedProvenance(queued);
+      const ids = queued.map((h) => h.id).filter((x): x is string => typeof x === "string");
+      if (ids.length) await d.markHandoffsConsumed(ids, runId).catch(() => {});
+    }
+  } catch {
+    handoffBlock = "";
+  }
+
+  const blocks = [memoryBlock, handoffBlock].filter(Boolean).join("\n\n");
+  const context = blocks
+    ? `System context: ${systemPrompt}\n\n${blocks}\n\nBegin your run for trigger "${trigger}".`
+    : `System context: ${systemPrompt}\n\nBegin your run for trigger "${trigger}".`;
+  const messages: Anthropic.MessageParam[] = [{ role: "user", content: context }];
 
   let tokensIn = 0;
   let tokensOut = 0;
@@ -414,6 +499,21 @@ export async function runAgent(
 
   // US-1589: the run has truly begun (past the pause/kill gate).
   d.emitEvent("agent.run.started", "info", { agent: agentKey, run_id: runId, trigger, model });
+
+  // US-1613: record consumed handoffs to the transcript (Mission Control renders
+  // this output step) + an ops event, so a handed-off run is auditable to source.
+  if (consumedHandoffs.length) {
+    const summary = summarizeConsumed(consumedHandoffs);
+    await d.recordStep(runId, {
+      seq: seq++,
+      stepType: "output",
+      name: "handoffs_consumed",
+      input: null,
+      output: { redacted: redact({ consumed: summary }) },
+      durationMs: 0,
+    }).catch(() => {});
+    d.emitEvent("agent.handoff.consumed", "info", { agent: agentKey, run_id: runId, count: summary.length, consumed: summary });
+  }
 
   const costOf = (): number =>
     computeCostUsd({
@@ -572,6 +672,56 @@ export async function runAgent(
       }
     } catch (err) {
       console.warn(`[agent-kernel] persistProposals failed for run ${runId}: ${redactError(err)}`);
+    }
+  }
+
+  // US-1606: persist any durable-memory writes the agent emitted (dedup-by-key +
+  // cap enforced in persistMemory). Best-effort — never fails the run.
+  const memoryWrites: MemoryWrite[] = parseMemoryWrites(parsed.outcome.memory);
+  if (memoryWrites.length) {
+    try {
+      await d.persistMemory(agent.id, memoryWrites);
+    } catch (err) {
+      console.warn(`[agent-kernel] persistMemory failed for run ${runId}: ${redactError(err)}`);
+    }
+  }
+
+  // US-1613: route any handoffs the agent emitted. Each is checked against the
+  // TARGET's acceptance list + the hop cap: accepted → queued for the target's
+  // next run (with the provenance chain extended by this agent); unaccepted or
+  // hop-capped → downgraded to an admin task so the finding is never lost. A
+  // handoff carries INFORMATION only; the target still runs its own policy.
+  // Best-effort — a delivery failure never fails this run.
+  const intents = parseHandoffIntents(parsed.outcome.handoffs);
+  if (intents.length) {
+    const origin = { agent: agentKey, runId, inherited: consumedProvenance };
+    for (const intent of intents) {
+      try {
+        const policy = await d.loadHandoffPolicy(intent.target_agent);
+        // Unknown target or missing config → treat as accepting nobody (downgrade).
+        const route = routeHandoff(intent, origin, { acceptsFrom: policy?.acceptsFrom ?? [] });
+        if (route.decision === "deliver") {
+          await d.deliverHandoff(route.handoff);
+          d.emitEvent("agent.handoff.delivered", "info", {
+            agent: agentKey,
+            run_id: runId,
+            target: intent.target_agent,
+            kind: intent.kind,
+            hop: route.handoff.hop,
+          });
+        } else {
+          await d.fileHandoffTask(route.task);
+          d.emitEvent("agent.handoff.downgraded", "warning", {
+            agent: agentKey,
+            run_id: runId,
+            target: intent.target_agent,
+            kind: intent.kind,
+            reason: route.reason,
+          });
+        }
+      } catch (err) {
+        console.warn(`[agent-kernel] handoff routing failed for run ${runId}: ${redactError(err)}`);
+      }
     }
   }
 
@@ -737,6 +887,111 @@ export function prodKernelDeps(): KernelDeps {
         source: "agent-kernel",
         data,
       });
+    },
+    loadMemory: async (agentId) => {
+      const { data } = await supabaseAdmin
+        .from("agent_memory")
+        .select("id, kind, key, content, weight, updated_at")
+        .eq("agent_id", agentId)
+        .order("weight", { ascending: false })
+        .limit(MEMORY_ROW_CAP);
+      return (data ?? []) as MemoryRow[];
+    },
+    persistMemory: async (agentId, writes) => {
+      if (!writes.length) return;
+      const { data } = await supabaseAdmin
+        .from("agent_memory")
+        .select("id, kind, key, content, weight, updated_at")
+        .eq("agent_id", agentId);
+      const existing = (data ?? []) as MemoryRow[];
+      const { rows, evicted, upserts } = applyMemoryWrites(existing, writes, { nowIso: new Date().toISOString() });
+      const surviving = new Set(rows.map((r) => `${r.kind} ${r.key}`));
+      const toUpsert = upserts
+        .filter((u) => surviving.has(`${u.kind} ${u.key}`))
+        .map((u) => ({ agent_id: agentId, kind: u.kind, key: u.key, content: u.content, weight: u.weight, updated_at: u.updated_at }));
+      if (toUpsert.length) {
+        await supabaseAdmin.from("agent_memory").upsert(toUpsert as never, { onConflict: "agent_id,kind,key" });
+      }
+      const evictIds = evicted.map((e) => e.id).filter((x): x is string => typeof x === "string");
+      if (evictIds.length) {
+        await supabaseAdmin.from("agent_memory").delete().in("id", evictIds);
+      }
+    },
+    loadHandoffs: async (agentKey) => {
+      // Queued handoffs targeting this agent, oldest first (FIFO fair).
+      const { data } = await supabaseAdmin
+        .from("agent_handoffs")
+        .select("id, target_agent, origin_agent, origin_run_id, kind, payload, evidence, hop, provenance, status, created_at")
+        .eq("target_agent", agentKey)
+        .eq("status", "queued")
+        .order("created_at", { ascending: true })
+        .limit(HANDOFF_QUEUE_CONTEXT_CAP);
+      return ((data ?? []) as Array<Record<string, unknown>>).map((r) => ({
+        id: String(r.id),
+        target_agent: String(r.target_agent),
+        origin_agent: String(r.origin_agent),
+        origin_run_id: (r.origin_run_id as string | null) ?? null,
+        kind: String(r.kind),
+        payload: r.payload ?? null,
+        evidence: r.evidence ?? null,
+        hop: typeof r.hop === "number" ? r.hop : Number(r.hop) || 1,
+        provenance: Array.isArray(r.provenance) ? r.provenance as HandoffProvenanceHop[] : [],
+        status: String(r.status ?? "queued"),
+        created_at: (r.created_at as string | null) ?? undefined,
+      }));
+    },
+    markHandoffsConsumed: async (ids, consumedRunId) => {
+      if (!ids.length) return;
+      await supabaseAdmin
+        .from("agent_handoffs")
+        .update({ status: "consumed", consumed_run_id: consumedRunId, consumed_at: new Date().toISOString() } as never)
+        .in("id", ids)
+        .eq("status", "queued");
+    },
+    loadHandoffPolicy: async (targetAgentKey) => {
+      const { data } = await supabaseAdmin
+        .from("agents")
+        .select("config")
+        .eq("key", targetAgentKey)
+        .maybeSingle();
+      if (!data) return null;
+      const cfg = ((data as { config?: Record<string, unknown> }).config) ?? {};
+      const raw = cfg.accepts_handoffs_from;
+      const acceptsFrom = Array.isArray(raw) ? raw.filter((x): x is string => typeof x === "string") : [];
+      return { acceptsFrom };
+    },
+    deliverHandoff: async (handoff) => {
+      await supabaseAdmin.from("agent_handoffs").insert({
+        target_agent: handoff.target_agent,
+        origin_agent: handoff.origin_agent,
+        origin_run_id: handoff.origin_run_id,
+        kind: handoff.kind,
+        payload: handoff.payload,
+        evidence: handoff.evidence,
+        hop: handoff.hop,
+        provenance: handoff.provenance,
+        status: "queued",
+      } as never);
+    },
+    fileHandoffTask: async (task) => {
+      // Downgraded handoff → an admin task on the standing Agent Proposals project,
+      // so an unaccepted / hop-capped finding is escalated, never dropped.
+      const TITLE = "Agent Proposals";
+      const { data: found } = await supabaseAdmin
+        .from("admin_task_projects").select("id").eq("title", TITLE).maybeSingle();
+      let projectId = (found as { id: string } | null)?.id ?? null;
+      if (!projectId) {
+        const { data: created } = await supabaseAdmin
+          .from("admin_task_projects").insert({ title: TITLE } as never).select("id").single();
+        projectId = (created as { id: string } | null)?.id ?? null;
+      }
+      if (!projectId) return;
+      await supabaseAdmin.from("admin_tasks").insert({
+        project_id: projectId,
+        title: task.title,
+        body: task.body,
+        priority: task.priority,
+      } as never);
     },
     now: () => Date.now(),
   };

@@ -58,6 +58,7 @@ import {
   getScoreColor,
 } from "@/lib/constants";
 import type { SubmissionRow, GradeReportRow, DisputeRow } from "@/types/database";
+import { orderIdsByScore, pageSlice, reorderByIds } from "@/lib/list-sort";
 
 const PAGE_SIZE = 20;
 
@@ -237,6 +238,77 @@ export function SubmissionsPage() {
       sortDirection,
     ],
     queryFn: async () => {
+      // Fetch the active grade report (overall_score + grade_tier) for a set of
+      // submission ids, keyed by submission_id. US-479: only the non-superseded
+      // report per submission.
+      const fetchGradeMap = async (
+        ids: string[]
+      ): Promise<Record<string, Pick<GradeReportRow, "overall_score" | "grade_tier">>> => {
+        if (ids.length === 0) return {};
+        const { data: reports } = await supabase
+          .from("grade_reports")
+          .select("submission_id, overall_score, grade_tier")
+          .in("submission_id", ids)
+          .is("superseded_at", null);
+        const rows = (reports ?? []) as Array<
+          Pick<GradeReportRow, "overall_score" | "grade_tier"> & { submission_id: string }
+        >;
+        return Object.fromEntries(
+          rows.map((r) => [
+            r.submission_id,
+            { overall_score: r.overall_score, grade_tier: r.grade_tier },
+          ])
+        );
+      };
+
+      // ── Grade sort (US-1651): the sort key lives in grade_reports, so a single
+      // paged query would only reorder the page in view. Order across the WHOLE
+      // result set here (nulls last) using bedrock queries — prod-safe, no
+      // embedded foreign-table `.order()` (which diverges local↔prod PostgREST).
+      if (sortField === "overall_score") {
+        let idQuery = supabase
+          .from("submissions")
+          .select("id, status")
+          .is("superseded_at", null);
+        if (statusFilter !== "all") idQuery = idQuery.eq("status", statusFilter);
+        if (garmentTypeFilter !== "all") idQuery = idQuery.eq("garment_type", garmentTypeFilter);
+        const { data: idRows, error: idErr } = await idQuery;
+        if (idErr) throw idErr;
+        const all = (idRows ?? []) as Array<Pick<SubmissionRow, "id" | "status">>;
+
+        // Scores for the completed submissions across the full set.
+        const scoreMap = await fetchGradeMap(
+          all.filter((s) => s.status === "completed").map((s) => s.id)
+        );
+        const scoreById: Record<string, number | null | undefined> = {};
+        for (const s of all) scoreById[s.id] = scoreMap[s.id]?.overall_score;
+
+        const orderedIds = orderIdsByScore(
+          all.map((s) => s.id),
+          scoreById,
+          sortDirection
+        );
+        const totalCount = orderedIds.length;
+        const pageIds = pageSlice(orderedIds, page, PAGE_SIZE);
+        if (pageIds.length === 0) return { submissions: [], totalCount };
+
+        // Materialize the page's full rows, then restore the global order.
+        const { data: pageRows, error } = await supabase
+          .from("submissions")
+          .select("*")
+          .in("id", pageIds);
+        if (error) throw error;
+        const byId = new Map(
+          (pageRows ?? []).map((s) => [(s as SubmissionRow).id, s as SubmissionRow])
+        );
+        const merged: SubmissionWithGrade[] = reorderByIds(pageIds, byId).map((s) => ({
+          ...s,
+          grade_report: scoreMap[s.id] ?? null,
+        }));
+        return { submissions: merged, totalCount };
+      }
+
+      // ── Default sort (created_at): a single paged, server-ordered query. ──
       let query = supabase
         .from("submissions")
         .select("*", { count: "exact" })
@@ -261,52 +333,14 @@ export function SubmissionsPage() {
 
       const submissionRows = (submissions ?? []) as SubmissionRow[];
 
-      // Fetch grade reports for completed submissions
-      const completedIds = submissionRows
-        .filter((s) => s.status === "completed")
-        .map((s) => s.id);
-
-      let gradeMap: Record<
-        string,
-        Pick<GradeReportRow, "overall_score" | "grade_tier">
-      > = {};
-
-      if (completedIds.length > 0) {
-        const { data: reports } = await supabase
-          .from("grade_reports")
-          .select("submission_id, overall_score, grade_tier")
-          .in("submission_id", completedIds)
-          .is("superseded_at", null); // US-479: active report per submission
-
-        const reportRows = (reports ?? []) as Array<
-          Pick<GradeReportRow, "overall_score" | "grade_tier"> & {
-            submission_id: string;
-          }
-        >;
-
-        gradeMap = Object.fromEntries(
-          reportRows.map((r) => [
-            r.submission_id,
-            { overall_score: r.overall_score, grade_tier: r.grade_tier },
-          ])
-        );
-      }
+      const gradeMap = await fetchGradeMap(
+        submissionRows.filter((s) => s.status === "completed").map((s) => s.id)
+      );
 
       const merged: SubmissionWithGrade[] = submissionRows.map((s) => ({
         ...s,
         grade_report: gradeMap[s.id] ?? null,
       }));
-
-      // Sort by grade if requested
-      if (sortField === "overall_score") {
-        merged.sort((a, b) => {
-          const aScore = a.grade_report?.overall_score ?? -1;
-          const bScore = b.grade_report?.overall_score ?? -1;
-          return sortDirection === "asc"
-            ? aScore - bScore
-            : bScore - aScore;
-        });
-      }
 
       return { submissions: merged, totalCount: count ?? 0 };
     },

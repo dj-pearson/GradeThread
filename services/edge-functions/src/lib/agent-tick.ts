@@ -18,6 +18,8 @@ import { expireProposals } from "./agent-proposals.ts";
 import { getSetting } from "./system-settings.ts";
 import { supabaseAdmin } from "./supabase.ts";
 import { AGENTS_PAUSE_SETTING_KEY } from "./agent-kernel.ts";
+import { runMemoryCuration } from "./agent-memory-curation.ts";
+import { runAutonomyPromotionPass } from "./autonomy-promotion-pass.ts";
 
 // The tick's own wall-clock budget — comfortably under the 10-min cadence and
 // the job-lock lease so a slow batch never overruns into the next tick.
@@ -79,6 +81,13 @@ export interface AgentTickDeps {
   loadEnabledAgents: () => Promise<TickAgent[]>;
   runAgent: (key: string) => Promise<{ status: string }>;
   expireProposals: () => Promise<number>;
+  // US-1606: kernel-side weekly memory curation (gated by a watermark, so it
+  // runs at most once/week even though the tick fires every 10 min). Returns the
+  // pruned count, or null when skipped this tick.
+  maybeCurateMemory: () => Promise<number | null>;
+  // US-1608: kernel-side DAILY autonomy promotion/demotion pass (watermark-gated).
+  // Returns { promotions_proposed, demotions } or null when skipped this tick.
+  maybePromoteAutonomy: () => Promise<{ promotions_proposed: number; demotions: number } | null>;
   now: () => number;
   budgetMs: number;
 }
@@ -90,6 +99,8 @@ export interface AgentTickSummary {
   deferred: number;
   failed: number;
   expiredProposals: number;
+  curatedMemory: number | null;
+  autonomy: { promotions_proposed: number; demotions: number } | null;
   results: Array<{ key: string; status: string }>;
 }
 
@@ -102,6 +113,8 @@ export async function runAgentTick(deps: Partial<AgentTickDeps> = {}): Promise<A
     deferred: 0,
     failed: 0,
     expiredProposals: 0,
+    curatedMemory: null,
+    autonomy: null,
     results: [],
   };
 
@@ -115,6 +128,8 @@ export async function runAgentTick(deps: Partial<AgentTickDeps> = {}): Promise<A
   if (paused) return { ...empty, paused: true };
 
   const expiredProposals = await d.expireProposals().catch(() => 0);
+  const curatedMemory = await d.maybeCurateMemory().catch(() => null);
+  const autonomy = await d.maybePromoteAutonomy().catch(() => null);
   const agents = await d.loadEnabledAgents();
   const nowMs = d.now();
   const due = selectDueAgents(agents, nowMs);
@@ -141,7 +156,7 @@ export async function runAgentTick(deps: Partial<AgentTickDeps> = {}): Promise<A
     }
   }
   const deferred = due.length - i;
-  return { paused: false, due: due.length, ran, deferred, failed, expiredProposals, results };
+  return { paused: false, due: due.length, ran, deferred, failed, expiredProposals, curatedMemory, autonomy, results };
 }
 
 export function prodAgentTickDeps(): AgentTickDeps {
@@ -174,6 +189,47 @@ export function prodAgentTickDeps(): AgentTickDeps {
     },
     runAgent: (key) => runAgent(key, "cron"),
     expireProposals: () => expireProposals(),
+    maybeCurateMemory: async () => {
+      // Weekly gate via a system_settings watermark — the tick fires every 10
+      // min, but curation runs at most once a week.
+      const key = "agents.memory_curation_last";
+      const last = await getSetting<number>(key, 0);
+      const nowMs = Date.now();
+      if (nowMs - (typeof last === "number" ? last : 0) < 7 * 24 * 3600_000) return null;
+      const summary = await runMemoryCuration();
+      await supabaseAdmin.from("system_settings").upsert(
+        {
+          key,
+          value: nowMs,
+          value_type: "number",
+          default_value: 0,
+          description: "US-1606 last kernel-side agent-memory curation (epoch ms)",
+          category: "agents",
+        },
+        { onConflict: "key" },
+      );
+      return summary.pruned;
+    },
+    maybePromoteAutonomy: async () => {
+      // Daily gate via a system_settings watermark.
+      const key = "agents.autonomy_pass_last";
+      const last = await getSetting<number>(key, 0);
+      const nowMs = Date.now();
+      if (nowMs - (typeof last === "number" ? last : 0) < 24 * 3600_000) return null;
+      const summary = await runAutonomyPromotionPass(nowMs);
+      await supabaseAdmin.from("system_settings").upsert(
+        {
+          key,
+          value: nowMs,
+          value_type: "number",
+          default_value: 0,
+          description: "US-1608 last kernel-side autonomy promotion/demotion pass (epoch ms)",
+          category: "agents",
+        },
+        { onConflict: "key" },
+      );
+      return summary;
+    },
     now: () => Date.now(),
     budgetMs: DEFAULT_TICK_BUDGET_MS,
   };

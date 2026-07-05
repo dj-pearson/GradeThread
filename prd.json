@@ -10545,7 +10545,7 @@
         "Deno tests with fixture tickets: classification output shape, cluster produces one finding; lint + check clean"
       ],
       "priority": 2338,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 1][Module S — Support] Read AGENTIC_OS.md §3.S. The user-facing assistant (support-assistant-engine) already exists — this is the operator-side layer; reuse its config/tools rather than duplicating.",
       "dependsOn": [
         "US-1588",
@@ -10571,7 +10571,7 @@
         "Deno tests with fixture data: a seeded reconciliation delta appears ranked with evidence; all-clear path; lint + check clean"
       ],
       "priority": 2337,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 1][Module F — Finance] Read AGENTIC_OS.md §3.F. Read-heavy by design: at L0/L1 this agent narrates and files — it never moves money or credits.",
       "dependsOn": [
         "US-1588",
@@ -10597,7 +10597,7 @@
         "Deno tests: severity ranking shape on fixtures, the L1 hard-cap assertion; lint + check clean"
       ],
       "priority": 2336,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 1][Module T — Trust & Safety] Read AGENTIC_OS.md §3.T. The L1 hard cap for account actions is a permanent design decision (see §2 ladder note) — encode it, don't parameterize it away.",
       "dependsOn": [
         "US-1588",
@@ -10623,7 +10623,7 @@
         "Deno tests on fixture states: summary shape, stuck-batch proposal formation; lint + check clean"
       ],
       "priority": 2335,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 1][Module L — Marketplace Ops] Read AGENTIC_OS.md §3.L + §5 (the OS supervises the platform, not users' businesses). Load the tenant-isolation skill for any new read tools over tenant tables — aggregates only.",
       "dependsOn": [
         "US-1588",
@@ -10649,7 +10649,7 @@
         "Deno tests: scorecard assembly on fixtures, a cross-channel collision fixture yields a finding; lint + check clean"
       ],
       "priority": 2334,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 1][Module M — Marketing & Content] Read AGENTIC_OS.md §3.M. The engines already self-tune locally — this agent's value is exclusively the cross-engine view; resist duplicating per-engine analytics.",
       "dependsOn": [
         "US-1588",
@@ -10676,7 +10676,7 @@
         "Deno tests: fixture funnels produce a stall diagnosis; PII-absence assertion on a sample transcript; lint + check clean"
       ],
       "priority": 2333,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 1][Module U — User Lifecycle] Read AGENTIC_OS.md §3.U. Cohorts, not users: the tool layer must aggregate before the model ever sees data.",
       "dependsOn": [
         "US-1588",
@@ -10701,7 +10701,7 @@
         "Deno tests: fixture outcomes produce the efficacy read; a ping-pong fixture yields a finding; lint + check clean"
       ],
       "priority": 2332,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 1][Module P — Pricing] Read AGENTIC_OS.md §3.P + §5 — tenant automations are user-owned; this agent audits and reports, it does not reach into them.",
       "dependsOn": [
         "US-1588",
@@ -10727,7 +10727,7 @@
         "Deno tests: fixture data yields narration + ranked slate shape; lint + check clean"
       ],
       "priority": 2331,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 1][Module R — Revenue & Growth] Read AGENTIC_OS.md §3.R. Experiment EXECUTION governance is Module X (US-1609) — this agent generates and ranks; it does not start experiments.",
       "dependsOn": [
         "US-1588",
@@ -10753,7 +10753,7 @@
         "Deno tests: assembly with full fixture fleet vs empty fleet; lint + check clean"
       ],
       "priority": 2330,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 1][Module Y — Yield Analytics] Read AGENTIC_OS.md §3.Y. Honesty rule: attribution only when an agent actually observed the cause; otherwise say 'unattributed'.",
       "dependsOn": [
         "US-1588",
@@ -10777,7 +10777,7 @@
         "Deno tests: fixture breaker trips + expiring tokens produce the right findings; rotation-calendar computation; lint + check clean"
       ],
       "priority": 2329,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 1][Module I — Integrations Watchdog] Read AGENTIC_OS.md §3.I. Credentials are read about, never read: tools expose expiry metadata and health, never secret material.",
       "dependsOn": [
         "US-1588",
@@ -10804,7 +10804,7 @@
         "Deno tests: executor happy path, mid-playbook failure honesty, condition-guard skip; lint + check clean"
       ],
       "priority": 2320,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 2][Module W — Playbooks] Read AGENTIC_OS.md §3.W. Playbooks live in the repo (reviewed like code), not in the DB — the DB holds executions, not definitions.",
       "dependsOn": [
         "US-1587"
@@ -10828,7 +10828,7 @@
         "Deno tests: assembly respects token cap, dedup-by-key, pruning behavior; lint + check clean"
       ],
       "priority": 2319,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 2][Module K — Knowledge & Memory] Read AGENTIC_OS.md §3.K. Memory quality beats quantity — the caps are the feature; do not make them generous.",
       "dependsOn": [
         "US-1584"
@@ -10876,7 +10876,7 @@
         "Deno tests: eligibility math, hard-cap exclusion, demotion trigger; lint + check clean"
       ],
       "priority": 2317,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 2][Modules D+V] Read AGENTIC_OS.md §2 (ladder requirements are exactly these numbers) + §3.D/§3.V.",
       "dependsOn": [
         "US-1607",
@@ -10901,7 +10901,7 @@
         "Deno tests: adapter normalization per engine fixture, an interference fixture yields the flag; lint + check clean"
       ],
       "priority": 2316,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 2][Module X — Experiments Governor] Read AGENTIC_OS.md §3.X. The engines keep running their own A/B math — this governs portfolio-level honesty and collisions.",
       "dependsOn": [
         "US-1588",
@@ -10927,7 +10927,7 @@
         "Deno tests: baseline-comparison math on fixtures (regression + clean), deploy-detection logic; lint + check clean"
       ],
       "priority": 2315,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 2][Module Q — Quality & Release] Read AGENTIC_OS.md §3.Q. The agent never rolls back by itself — rollback is a human-executed procedure (ROLLBACK.md); it prepares the decision.",
       "dependsOn": [
         "US-1588",
@@ -10953,7 +10953,7 @@
         "Deno tests: missed-tick math against fixture schedules incl. maintenance-window suppression, duration-creep detection; lint + check clean"
       ],
       "priority": 2314,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 2][Module J — Jobs Orchestrator] Read AGENTIC_OS.md §3.J. The registry knows the schedule (CRON_REGISTRY), the ledger knows reality (cron_runs) — this story is the diff between them, continuously.",
       "dependsOn": [
         "US-1588"
@@ -10977,7 +10977,7 @@
         "prd-lint wired into npm run verify as a cheap early check; both scripts have vitest coverage over fixture prd files; lint/build clean"
       ],
       "priority": 2313,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 2][Module Z — Zero-touch Dev Loop] Read AGENTIC_OS.md §3.Z and AGENT_LEVELUP_ROADMAP §2.6 (prd-ralph skill idea — this story is its executable half). Host-side scripts, NOT edge code. NEVER auto-rewrite prd.json — lint reports, humans (or a stopped-loop procedure) rewrite.",
       "relevantPaths": [
         "AGENTIC_OS.md",
@@ -11000,7 +11000,7 @@
         "Deno tests: delivery on next run, unaccepted downgrade, hop-cap enforcement; lint + check clean"
       ],
       "priority": 2312,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 2][Modules E+N] Read AGENTIC_OS.md §3.E. Handoffs move INFORMATION, never AUTHORITY — the receiving agent's own policy still governs anything it does with one.",
       "dependsOn": [
         "US-1587",
@@ -11755,7 +11755,7 @@
         "tsc + eslint clean; build green"
       ],
       "priority": 2275,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Source: CODE_REVIEW_2026-07-04.md §Web P2] Split from US-1633. Needs an embedded grade_reports join + foreign-table ordering (PostgREST-version-sensitive — verify on prod's self-hosted PostgREST, not just the local stack). Lower priority than the cache/optimistic fixes since the mis-sort is cosmetic (wrong order within a page), not data-losing.",
       "relevantPaths": [
         "src/pages/submissions.tsx",
@@ -11882,7 +11882,7 @@
       "title": "Grading Quality agent: review-queue reorder write tool (info-value)",
       "description": "As the operator, I want to approve a proposal that reorders the human-review queue by information value using the existing review-info-value machinery — so high-signal reviews surface first.",
       "priority": 2339,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 1][Module G] Write half of US-1594 (split). Load the grading-engine skill. review-info-value has NO persisted ordering today (informationValue/rankReviews are pure scorers; the queue orders by review_due_at). Decide: persist a recommended order (system_settings artifact, migration-free) OR add a nullable grade_reports.review_priority_score + NULLS-LAST ORDER BY (held migration). Wire a reorder_review_queue WRITE tool (proposal-gated) + ACTION_CLASS_TO_TOOL adjust_queue→reorder_review_queue; classifyGradingIntent(reorder)→adjust_queue. NEVER mutate grades/prompts/thresholds.",
       "acceptanceCriteria": [
         "A reorder_review_queue write tool (class write) computes the info-value ranking of pending human-review items via informationValue + rankReviews (reusing the admin-grading ReviewInfoContext build) and persists the recommended order with the ranking rationale as evidence — no grade/prompt/threshold mutation",

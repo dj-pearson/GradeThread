@@ -279,6 +279,10 @@ const SERVICE_ROLE_ONLY = new Set([
   "agent_run_steps",
   "agent_proposals",
   "agent_memory",
+  // US-1613: agent-to-agent handoffs — deny-all, service-role only. Keys are
+  // internal (target/origin agent keys + run ids); the payload is the emitting
+  // agent's finding, no tenant data. Read/written only by the kernel.
+  "agent_handoffs",
 ]);
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.

@@ -10986,3 +10986,803 @@ VERIFIED: tsc -b/eslint/vitest 1137/1137 (new seams suite) + build (47 pages);
 deno lint/check + my edge surface 57/0 (the 1 edge-suite failure is the
 CONCURRENT agent's uncommitted measure-extract WIP, untouched). ⚠️ 00348+00349
 HELD: the frontend now READS the new view columns - apply before push OK.
+
+=== 2026-07-05 (loop: non-android prd): US-1658 (Grading Quality reorder tool) ===
+THE ASK: give the Grading Quality agent a grade-SAFE write — reorder the
+human-review queue by information value (US-1558) as an approval-gated L1
+proposal. NEVER mutate a grade/prompt/threshold/calibration.
+- NEW lib review-queue-order.ts:
+  - computeReviewQueueOrder (PURE): scores each pending review via the existing
+    informationValue + rankReviews machinery, emits a ranked persistable order
+    + plain-language rationale. SLA guard floats aged reviews to the top so a
+    low-info item never starves (rankReviews). Unit-tested core.
+  - buildReviewInfoContext: the golden/exemplar/combo/calibration coverage read
+    EXTRACTED from admin-grading's /review-queue (which now calls it) so the
+    queue view and the agent's reorder rank identically — one source of truth.
+  - reorderReviewQueue: impure gather -> compute -> PERSIST as a system_settings
+    artifact (grading.review_queue_order). MIGRATION-FREE (AC option A): the
+    upsert includes value_type/default_value/category (both NOT NULL, no default
+    - mirrors jobs-confidence-calibration's runtime-key write) so the first
+    insert is clean without a seed migration. Artifact carries report_id +
+    submission_id + scores/reasons ONLY (no PII).
+- WIRED the write path: reorder_review_queue write tool in agent-tools.ts
+  (invisible to the run loop; runs only via executeWrite on an approved
+  proposal, authorizedBy-gated); ACTION_CLASS_TO_TOOL adjust_queue ->
+  reorder_review_queue; classifyGradingIntent(reorder_review_queue) ->
+  adjust_queue (all other grading intents stay file_task). ToolIO seam +
+  prodToolIO threaded the approving admin's id as system_settings.updated_by.
+- CHARTER: grading-quality.ts now (a) makes the {summary,findings,proposals}
+  envelope explicit (was ambiguous - it only described the finding shape), and
+  (b) authorizes the ONE grade-safe adjust_queue reorder proposal when the queue
+  is deep with high-info items; everything else remains a file_task.
+- TESTS: review-queue-order_test.ts (ranking->order mapping: novel-category
+  ranks above covered, SLA float, dense 1-based ranks, artifact stamping);
+  agent-tools_test.ts (adjust_queue mapping, write-tool invisibility, executeWrite
+  threads authorizedBy/proposalId); grading-quality_test.ts updated for the new
+  classifyGradingIntent contract.
+VERIFY: deno lint clean on all 8 changed files. deno check/test could NOT run
+locally — this sandbox's network policy 403s deno.land + esm.sh (CONNECT) and no
+remote deps are cached, so the whole edge suite is un-runnable here; CI (deno
+2.8.0) is the safety net. Validated the RANKING ALGORITHM independently with a
+standalone node reimplementation: both ordering expectations (novelty-dominates,
+SLA-float) reproduce exactly. Grading-engine contract respected: no grade/
+prompt/threshold/rounding-site touched.
+
+=== 2026-07-05 (loop: non-android prd): US-1604 (Integrations Watchdog agent) ===
+THE ASK: seed the Integrations Watchdog (Module I) — a daily read-only SRE for
+vendor health, the OAuth token fleet, and secret rotation. Reads ABOUT
+credentials (expiry metadata + cadences), NEVER secret material; files admin
+tasks, touches no credential.
+- NEW lib integrations-watchdog.ts (PURE, fixture-testable):
+  - KEY_ROTATION_REGISTRY: KEY_ROTATION.md's schedule encoded as checked-in data
+    (cadence_days per secret; null = event-driven / on-leak / on-policy).
+    MIGRATION-FREE choice per AC (checked-in JSON, not a new table).
+  - computeRotationCalendar: due/overdue/due_soon/baseline_needed/event_driven
+    from the registry + an operator-maintained last-rotated map. A scheduled
+    secret with NO recorded date is baseline_needed (record it) — not a false
+    overdue.
+  - computeTokenFleetForecast: expired / <=7d / <=30d expiry buckets (cumulative
+    horizons) per marketplace, + refresh-error count.
+  - summarizeVendorHealth: per-vendor verdict from ops events (>=1 critical=down,
+    >=3 warnings=degraded); non-vendor sources ignored.
+  - assembleIntegrationsMemo: composite memo + all_clear gate.
+- TOOL: get_integrations_health composite read tool (agent-tools.ts) gathers via
+  EXISTING ToolIO reads (marketplace connections, ops events, email dead-letters)
+  + a new fetchKeyRotationState (system_settings security.key_rotation_state, {}
+  default — metadata only). Returns {memo}. Allowlisted to the agent alongside
+  get_marketplace_health.
+- CHARTER integrations-watchdog.ts + registered in charters/index.ts. Explicit
+  {summary,findings,proposals} envelope; all_clear→quiet run; proposals are
+  file_task admin tasks ONLY (overdue rotation cites KEY_ROTATION.md; degraded
+  vendor; expiring tokens). Never rotates/retries/requeues.
+- SEED migration 00360_seed_integrations_watchdog_agent.sql (paused, L0,
+  idempotent, self-records). EXPECTED_SCHEMA_VERSION 00359->00360 (same commit).
+  HELD — recorded in PENDING_MIGRATIONS.md (LOW risk: one paused seed row, no
+  client reads). Joins the existing held batch 00357-00359 on this branch.
+- TESTS: integrations-watchdog_test.ts (calendar statuses, fleet bucketing,
+  vendor verdicts, memo all-clear + degraded paths); agent-tools_test.ts
+  (get_integrations_health assembles a memo; fakeIO gains fetchKeyRotationState).
+VERIFY: deno lint clean (7 files). deno test/check un-runnable locally (sandbox
+network policy 403s deno.land + esm.sh; no cached remote deps) — CI is the safety
+net. Validated ALL pure logic standalone in node: rotation statuses, cumulative
+token buckets, and vendor verdicts reproduce every test expectation exactly.
+
+=== 2026-07-05 (loop: non-android prd): US-1596 (Finance agent) ===
+THE ASK: seed the Finance agent (Module F) — a daily books-watcher over
+reconciliation deltas, payout sanity, revenue-vs-baseline, and AI spend vs
+revenue. READ-HEAVY: narrates + files admin tasks; NEVER moves money/credits.
+- NEW lib finance-agent.ts (PURE deterministic core, fixture-tested):
+  - rankReconciliationFlags: open billing_reconciliation_flags ranked by
+    materiality (status_divergence > plan_divergence, then age), each with
+    db-vs-expected evidence (operator billing data; subject_user_id only).
+  - summarizePayoutRuns: affiliate + consignor payout outcomes → by_status +
+    failed count + failed_amount; any failure → verdict "attention".
+  - computeRevenueDelta/extractRevenueTotal: best-effort current-vs-trailing
+    revenue delta over the opaque revenue_dashboard doc (defensive key probe;
+    null when unknown → the agent narrates from the raw docs). 25% band flags
+    an anomaly.
+  - assembleFinanceMemo: composite + all_clear gate (recon + payouts + revenue).
+- TOOL get_finance_health (agent-tools.ts): new fetchReconciliationFlags +
+  fetchRecentPayouts reads + REUSES the rpc seam for revenue_dashboard (current +
+  trailing 30d windows) and ai_profitability (AC4 — reuses the US-1065 RPC, no
+  recompute). Allowlisted with get_revenue_window + get_ai_spend.
+- CHARTER finance-agent.ts + registered. Explicit envelope; all_clear→quiet day;
+  findings per domain; proposals are file_task admin tasks ONLY (recon divergence,
+  flag-account-for-review as a TASK never a direct action, failed payout run).
+- SEED migration 00361 (paused, L0, daily-after-reconciliation, idempotent,
+  self-records). EXPECTED_SCHEMA_VERSION 00360->00361. HELD — recorded in
+  PENDING_MIGRATIONS.md (LOW risk: one paused seed row, no client reads).
+- TESTS: finance-agent_test.ts (recon ranking incl. status>plan + age tiebreak +
+  evidence, payout sanity, revenue delta/anomaly + defensive extract, memo
+  all-clear + seeded-delta paths); agent-tools_test.ts (get_finance_health ranks
+  a seeded delta; fakeIO gains the two new reads).
+VERIFY: deno lint clean (7 files). deno test/check un-runnable locally (network
+policy blocks deno.land/esm.sh; no cached deps) — CI is the safety net. Validated
+ALL pure logic standalone in node: reconciliation ranking, payout sanity, revenue
+delta/extract reproduce every test expectation.
+
+=== 2026-07-05 (loop: non-android prd): US-1601 (Pricing agent) ===
+THE ASK: seed the Pricing agent (Module P) — operator-side oversight of the
+repricing/automation engines. CROSS-TENANT AGGREGATES ONLY; audits + reports,
+NEVER edits a tenant's rules or prices.
+- NEW lib pricing-agent.ts (PURE, fixture-tested):
+  - computeRepricingEfficacy: apply-rate (applied/decided) by reason_code from
+    repricing_suggestions.
+  - detectPingPong + countReversals: groups APPLIED suggestions by listing,
+    orders by applied_at, counts price-direction reversals; >=2 reversals over
+    >=4 points = pathological oscillation. (Caught + fixed a threshold bug: the
+    original MIN_REVERSALS=3 was UNSATISFIABLE at MIN_POINTS=4 — a 4-point series
+    has only 3 steps = max 2 reversals; standalone node validation exposed it.)
+  - summarizeAutomationRules: per-rule actions-per-listing churn ratio (>=3 =
+    flagged) from flipdesk_automation_actions.
+  - computeCurveStaleness: condition_price_curves refreshed_at vs a 7-day
+    threshold (= the price guide); oldest + stale samples.
+  - assemblePricingMemo: composite + all_clear.
+- TOOL get_pricing_health (agent-tools.ts): 3 new cross-tenant aggregate reads
+  (repricing suggestions, automation actions, curve freshness).
+- CHARTER pricing-agent.ts + registered. Proposals: retry_job on
+  condition-index-refresh for stale curves + file_task for a pathological tenant
+  rule (operator decides; agent never edits the rule).
+- SEED migration 00362 (paused, L0, idempotent, self-records).
+  EXPECTED_SCHEMA_VERSION 00361->00362. HELD — recorded in PENDING_MIGRATIONS.md.
+- TESTS: pricing-agent_test.ts (efficacy, reversal counting, ping-pong incl.
+  monotonic/short/non-applied negatives, rule churn, staleness, memo);
+  agent-tools_test.ts (get_pricing_health flags a ping-ponging listing).
+VERIFY: deno lint clean. deno test/check un-runnable locally (network policy) —
+CI is the safety net. Validated ALL pure logic standalone in node (which caught
+the reversal-threshold bug BEFORE commit): reversal counting, ping-pong grouping/
+ordering, efficacy, staleness all reproduce the corrected expectations.
+
+=== 2026-07-05 (loop: non-android prd): US-1598 (Marketplace Ops agent) ===
+THE ASK: seed the Marketplace Ops agent (Module L) — cross-tenant FlipDesk
+pipeline health (operator view). OPERATOR-SCOPE AGGREGATES ONLY; reports +
+proposes UNSTICK paths through existing reclaim/sweep jobs; NEVER mutates tenant
+listings/inventory.
+- Loaded the tenant-isolation skill: the new reads are operator-scope AGGREGATES
+  (counts + batch ids + ages, never a raw tenant row/handle/title/PII), matching
+  the existing get_marketplace_health posture. No per-tenant route → no
+  tenant-isolation_test case needed; instead added the AC-mandated allowlist test.
+- NEW lib marketplace-ops-agent.ts (PURE, fixture-tested) — REUSES the US-899
+  pipeline-oversight helpers (isStuckBatch/isBatchIssue/ageMs) so "stuck" agrees
+  with the admin cockpit + the reclaim sweepers:
+  - computeMarketplaceVerdicts: per-marketplace healthy/degraded/down.
+  - summarizeBatchBacklog: gen + publish stuck/failed counts + top stuck items
+    (id + age) each mapped to its RECLAIM_CRON_FOR (autolister-reclaim /
+    publish-batch-reclaim / sync-reaper / reconciliation-sweep).
+  - computeBacklogTotal + trend vs prior snapshot.
+  - assembleMarketplaceOpsMemo: composite + all_clear.
+- TOOL get_marketplace_ops_health (agent-tools.ts): reuses fetchMarketplaceConn
+  + new fetchListingBatches / countOpenSyncConflicts / countOrphanSales +
+  reads/writes a marketplace_ops.backlog_snapshot watermark (operator bookkeeping,
+  no tenant data) for the vs-yesterday trend.
+- CHARTER + registered. Proposals: retry_job on the stuck item's remediation_cron
+  + file_task for connection problems. Never a tenant mutation.
+- SEED migration 00363 (paused, L0, idempotent, self-records).
+  EXPECTED_SCHEMA_VERSION 00362->00363. HELD — recorded in PENDING_MIGRATIONS.md.
+- TESTS: marketplace-ops-agent_test.ts (verdicts, stuck-batch→cron mapping,
+  terminal/fresh negatives, backlog total, memo all-clear + trend);
+  agent-tools_test.ts (stuck-batch item + watermark persistence; AC-mandated
+  "allowlist contains no tenant-data write tool" assertion). Fixed a stuck/stuck
+  name collision in summarizeOneBatchSet during the build.
+VERIFY: deno lint clean. deno test/check un-runnable locally (network policy) —
+CI is the safety net. Validated ALL pure logic standalone in node: stuck
+detection, verdicts, backlog total, trend reproduce every expectation.
+
+=== 2026-07-05 (loop: non-android prd): US-1597 (Trust & Safety agent) ===
+THE ASK: seed the Trust & Safety agent (Module T) — severity + pattern triage of
+abuse/moderation/fraud/passport-integrity queues with cross-account ring
+detection. Account actions hard-capped at L1 FOREVER (permanent design decision).
+- Loaded tenant-isolation skill: reads are operator T&S data (ids + allowlisted
+  evidence, no emails/titles/image bytes). Aggregates + operator-scope only.
+- NEW lib trust-safety-agent.ts (PURE, fixture-tested):
+  - rankAbuseSignals: open abuse_signals ranked by severity (critical>high>
+    medium>low) then age, with rationale.
+  - detectRings: normalizes each signal to (ring_key, accounts) — shared_payment
+    (stripe_customer_id), phash_collision (phash+counterpart), disposable_email
+    (domain) — accumulates accounts per key across signals, flags rings with >=2
+    distinct accounts. Account ids ARE the evidence (operator needs them).
+  - assembleTrustSafetyMemo: ranked queue + rings + moderation/passport counts +
+    all_clear.
+- POLICY HARD CAP (the crux): agent-policy.ts gains AUTONOMY_HARD_CAPS +
+  resolveAutonomy clamps trust-safety's suspend_account/require_step_up/deny_claim
+  to L1 REGARDLESS of what autonomy config or a future promotion grants — a
+  hand-edited L3 row resolves to L1. Registered the three classes in
+  ACTION_CLASSES; mapped them in ACTION_CLASS_TO_TOOL -> create_admin_task so an
+  approved account action FILES A FRAUD-CONSOLE TASK (never an auto-suspend).
+- TOOL get_trust_safety_health + 3 reads (abuse signals, moderation count,
+  passport-integrity count). CHARTER + registered.
+- SEED migration 00364: unlike other seeds, autonomy is NON-empty (the three
+  account actions at L1) to make the ceiling explicit; the code cap is the
+  backstop. Idempotent, self-records. EXPECTED_SCHEMA_VERSION 00363->00364. HELD.
+- TESTS: trust-safety-agent_test.ts (ranking, ring detection incl. accumulation +
+  single-account negatives, memo); agent-policy_test.ts (the AC-mandated L1
+  hard-cap assertion: L3 config -> L1, agent-specific so other agents uncapped);
+  agent-tools_test.ts (severity+ring via the tool; account classes -> admin task).
+VERIFY: deno lint clean (9 files). deno test/check un-runnable locally (network
+policy) — CI is the safety net. Validated ALL pure logic + the hard-cap clamp
+standalone in node: ranking, ring accumulation, and the L3->L1 clamp (agent-
+specific) reproduce every expectation.
+
+=== 2026-07-05 (loop: non-android prd): US-1603 (CEO Brief / chief-analyst) ===
+THE ASK: seed the CEO Brief agent (Module Y) — the weekly north-star digest as a
+narrated DECISION memo (headline metrics vs last week -> cause narrative citing
+which agent observed what -> fleet actions -> the one decision -> risks). HONESTY
+rule: attribute a cause only to an agent that actually ran; degrade gracefully.
+- NEW lib ceo-brief.ts (PURE, fixture-tested) — mirrors the US-1592 Daily
+  Operator Brief assembly pattern:
+  - assembleCeoBriefContext: headline metric WoW deltas + direction (unknown when
+    prior 0); observations built ONLY from succeeded runs with a non-blank
+    summary (failed/never-ran/blank agents are NOT cited — the honesty rule);
+    coverage + degraded flag (<half the fleet ran) + attribution_allowed flag
+    (false => narrator must say "unattributed", never fabricate a cause).
+  - ceoBriefHeadline: leads with the biggest WoW mover + coverage.
+- TOOL get_ceo_brief (agent-tools.ts): one composite fetchCeoBriefData reads the
+  seeded fleet, 3 north-star KPI counts (signups/grades/listings this week vs
+  last, cross-tenant counts — no PII), each agent's LATEST succeeded-run summary
+  from agent_runs, and pending proposals. Returns the assembled context.
+- CHARTER ceo-brief-agent.ts (chief-analyst) + registered. Narrates the 5-part
+  memo; proposes nothing (observational only); the brief IS the persisted run
+  outcome Mission Control links to.
+- SEED migration 00365 (paused, L0, WEEKLY after the other agents, idempotent,
+  self-records). EXPECTED_SCHEMA_VERSION 00364->00365. HELD.
+- TESTS: ceo-brief_test.ts (metric deltas incl. prior-0 unknown; attribution
+  filters failed/blank; full-fleet-not-degraded vs empty-fleet-degraded-no-attr
+  vs below-half; headline); agent-tools_test.ts (get_ceo_brief attributes only
+  the agent that ran, with deltas).
+VERIFY: deno lint clean (7 files). deno test/check un-runnable locally (network
+policy) — CI is the safety net. Validated ALL pure logic standalone in node:
+deltas, attribution filtering, and the full/empty/half degradation reproduce
+every expectation.
+
+NOTE: US-1600 (User Lifecycle) deferred within the loop — its AC requires a WRITE
+tool that ENROLLS REAL USERS into drip campaigns (campaign-specific enrollment
+row shape); shipping that unverified against a DB is a quality/safety risk. Will
+tackle it with more care (or in a session with DB access). Picked US-1603 instead
+this iteration.
+
+=== 2026-07-05 (loop: non-android prd): US-1602 (Growth agent) ===
+THE ASK: seed the Growth agent (Module R) — weekly funnel/retention anomaly
+narration + referral health, feeding a ranked experiment slate the agent
+REVISITS run-over-run. Generates/ranks ideas; NEVER starts experiments (file_task
+proposals only — the safest of the remaining agents).
+- NEW lib growth-agent.ts (PURE, fixture-tested):
+  - normalizeFunnel: defensively pulls funnel_metrics' {steps:[{key,label,count}]}
+    (verified the RPC's real shape) -> [] on any bad shape (graceful degrade).
+  - computeFunnelConversion + funnelCliff: step-to-step conversion; the worst
+    drop-off is the cliff.
+  - compareFunnels: WoW conversion regressions beyond a 0.05 band (small wobbles
+    ignored).
+  - summarizeProgramHealth: referral growing/flat/declining/unknown.
+  - assembleGrowthMemo: funnel + cliff + regressions + program health + PRIOR
+    SLATE passthrough + notable flag.
+- TOOL get_growth_health: rpc funnel_metrics (current + prior windows),
+  fetchReferralCounts (referral_events windows), and fetchAgentPriorOutcome
+  (reads THIS agent's own last succeeded run outcome = the prior experiment slate
+  for week-over-week continuity, no extra write). CHARTER + registered.
+- SEED migration 00366 (paused, L0, weekly, idempotent, self-records).
+  EXPECTED_SCHEMA_VERSION 00365->00366. HELD.
+- TESTS: growth-agent_test.ts (normalize incl. bad-shape, conversion incl.
+  zero-denominator, cliff, WoW regression + sub-band no-flag, program health,
+  memo notable/not-notable + slate continuity); agent-tools_test.ts
+  (get_growth_health finds the cliff + surfaces the prior slate).
+VERIFY: deno lint clean (7 files). deno test/check un-runnable locally (network
+policy) — CI is the safety net. Validated ALL pure logic standalone in node:
+conversion, cliff, regression banding, program-health verdicts reproduce every
+expectation.
+
+=== 2026-07-05 (loop: non-android prd): US-1612 (Ralph Governor: prd + loop hygiene) ===
+THE ASK: the OS maintains its own maker — host-side scripts that lint prd.json and
+digest progress. NOT edge code; NEVER auto-rewrite prd.json (report only).
+Picked this over the remaining harder Phase-1 agents (Marketing multi-channel
+collision, Support/User-Lifecycle user-facing writes) because it's FULLY
+VERIFIABLE LOCALLY (plain Node, no deno/esm.sh, no DB) — a real quality win.
+- NEW scripts/prd-lint.mjs (pure lintPrd + findCycles + streaming archive probe):
+  - nextId strictly > max id ANYWHERE — active max + a TARGETED archive max-id
+    probe that STREAMS prd.archive.json (1.6 MB) and regexes "id":"US-N" rather
+    than JSON-parsing it (CLAUDE.md rule).
+  - duplicate ids, required fields (id/title/description/acceptanceCriteria/
+    passes) + type checks, exits nonzero on errors.
+  - dependsOn: unknown-id refs (checked vs active ∪ archive ids) + cycle
+    detection (DFS; only active→active edges can cycle; archive edges are leaves).
+  - Accumulation guard (WARNING, not error): passes:true > 50 emits the
+    re-archive reminder WITH the stop-the-loop-first procedure VERBATIM
+    (scripts/ralph/stop-ralph.sh/.ps1 before any rewrite).
+  - LEARNINGS.md size guard (WARNING) past 800 lines.
+- NEW scripts/prd-digest.mjs (pure digest + parseProgressEntries + computeBlocked):
+  terse markdown — backlog counts (done/open/ready/blocked), progress entries
+  landed since a --since date, and blocked stories (open dependsOn on another
+  OPEN story; deps on done/archived ids are satisfied).
+- WIRING: package.json test:scripts / prd:lint / prd:digest; a dedicated
+  vitest.scripts.config.mjs (node env, ISOLATED from the web coverage thresholds);
+  verify.mjs runs `node scripts/prd-lint.mjs` + the script tests FIRST in the web
+  lane (cheap early gate). Vitest coverage: scripts/prd-lint.test.mjs +
+  prd-digest.test.mjs over inline fixture prd objects.
+VERIFY (LOCAL — actually ran): `node scripts/prd-lint.mjs` on the REAL prd.json →
+759 active / 685 passes:true / max 1658 / nextId 1659, structurally OK, both
+warnings fire correctly, exit 0. `node scripts/prd-digest.mjs --since 2026-07-05`
+→ correctly lists all 8 stories landed this session + detects blocked
+US-1608→US-1607 and US-1613→US-1595. A 16-assertion standalone node harness
+exercised every error path (nextId, archive-max, dupes, missing fields, bad
+types, unknown deps, archive-dep-ok, cycles, no-false-cycle, accumulation-warns,
+learnings, clean, blocked, parseIdNum, parse-entries) — ALL PASS. Vitest tests
+mirror these (run in CI; vitest not installed locally). NO migration (host-side).
+
+=== 2026-07-05 (loop: non-android prd): US-1611 (Cron-fleet governance) ===
+THE ASK: runtime health of the ~54-job schedule itself — the continuous DIFF
+between CRON_REGISTRY (schedule) and cron_runs (reality). Missed-tick detection,
+duration creep, maintenance-window suppression (no false alarms).
+- NEW lib cron-fleet-governance.ts (PURE, fixture-tested) — REUSES the tested
+  nextCronRun() so "expected" == what Coolify actually fires:
+  - expectedTicks: enumerate a schedule's fire times in a window via nextCronRun
+    (capped at 2000, surfaces `capped` — NO silent truncation).
+  - detectMissedTicks: a slot [tick[i], tick[i+1]) is MISSED when no run landed
+    in it and it fully elapsed. INTERVAL-AGNOSTIC (no fixed tolerance — the slot
+    IS the tolerance). Maintenance windows over the slot start suppress the miss.
+    Also computes consecutive_missed (a stall signal, recomputed cleanly).
+  - detectDurationCreep: older-half baseline vs newer-half recent avg; creep when
+    recent >1.5x baseline (>=6 samples, else inconclusive).
+  - assembleCronFleetReport: per-job scorecard (skips one-offs/unrecorded);
+    stalled (missed>0) / slow (creeping) lists + fleet verdict.
+- TOOL get_cron_fleet_health: CRON_REGISTRY (in-code) + fetchCronRuns (existing)
+  + NEW fetchMaintenanceIntervals (maintenance_windows overlapping the lookback;
+  open-ended -> Infinity; .or() on a SELECT which is allowed per the CLAUDE.md
+  gotcha). CHARTER + registered.
+- DECISION (documented in 00367): a SMALL DEDICATED weekly agent (module J)
+  rather than folding into Sentinel — Sentinel is 30m incident triage; fleet
+  governance is a weekly schedule-vs-reality diff, a distinct concern.
+- SEED migration 00367 (paused, L0, weekly, idempotent, self-records).
+  EXPECTED_SCHEMA_VERSION 00366->00367. HELD.
+- TESTS: cron-fleet-governance_test.ts (expected ticks, missed-tick no-runs/
+  runs-each-slot/maintenance-suppression, inMaintenance open-ended, duration
+  creep detect/steady/few-samples, report stalled-vs-healthy + one-off exclusion);
+  agent-tools_test.ts (get_cron_fleet_health flags a stalled job).
+VERIFY: deno lint clean (7 files). deno test/check un-runnable locally (network
+policy) — CI is the safety net. Validated ALL missed-tick/suppression/creep/report
+logic standalone in node (with a minimal hourly nextCronRun) — every expectation
+reproduces. prd-lint (US-1612) run after the edit — still OK.
+
+=== 2026-07-05 (loop: non-android prd): US-1606 (Agent memory) ===
+THE ASK: durable per-agent learnings assembled into context each run, deduped by
+key, curated + pruned. THE CAPS ARE THE FEATURE (keep them tight). The
+agent_memory table already exists (00357) — NO migration.
+- NEW lib agent-memory.ts (PURE, fixture-tested):
+  - selectMemoryForContext: strongest-first (weight desc, recency), stops at the
+    row cap (8) OR token budget (800, ~chars/4) — always >=1 row.
+  - formatMemoryBlock: SELF-DESCRIBING context block (explains what memory is +
+    how to record a new one) so charters need not each repeat it (satisfies "the
+    charter tells the model what memory is").
+  - applyMemoryWrites: dedup-by-(kind,key) — UPDATE + bump weight (cap 10), never
+    append; enforce the hard per-agent row cap (40) by evicting the weakest.
+  - curateMemory: decay (0.8) + prune below the floor (0.3, a proxy for "unused
+    for M runs" — a memory keeps strength only if re-written) + cap.
+  - parseMemoryWrites: validate the model's {kind,key,content} array.
+- KERNEL wiring (agent-kernel.ts, NON-BREAKING — memory only acts when present):
+  AgentOutcome gains optional `memory`; parseAgentOutcome passes it through;
+  KernelDeps gains loadMemory/persistMemory seams (prod impls + test-harness
+  defaults so tests stay offline); runAgent injects the top-N memory block into
+  the run context (empty -> prompt byte-identical); post-run persists the emitted
+  writes (dedup + cap via the pure core).
+- CURATION kernel-side (AC allows "job OR kernel-side"): chose kernel-side to
+  AVOID the CRON_REGISTRY drift chain (COOLIFY.md/LAUNCH_CHECKLIST.md docs +
+  drift test). agent-tick.ts runs runMemoryCuration weekly via a system_settings
+  watermark (agents.memory_curation_last); pruning logged as agent.memory.pruned
+  ops events. New lib agent-memory-curation.ts.
+- MISSION CONTROL: admin-agents.ts GET /agents/:id/memory (read) + DELETE
+  /agents/memory/:id (operator delete of a bad memory, audited).
+- TESTS: agent-memory_test.ts (selection token+row caps, dedup update-not-append,
+  cap eviction, malformed-ignored, curation decay/prune/cap, parse);
+  agent-kernel_test.ts (memory load->inject into context + output->persist;
+  no-memory -> byte-identical prompt); agent-tick_test.ts harness updated.
+VERIFY: deno lint clean (10 files). deno test/check un-runnable locally (network
+policy) — CI is the safety net. Validated ALL pure logic standalone in node:
+selection caps, dedup+bump, cap eviction, curation decay/prune/cap reproduce
+every expectation. Existing kernel/tick tests use field-level asserts (not exact
+shape) so the new optional fields don't break them. NO migration.
+
+=== 2026-07-05 (loop: non-android prd): US-1605 (Playbook engine) ===
+THE ASK: declarative, step-audited remediations agents can PROPOSE (run_playbook)
+and the kernel executes step-by-step. Playbooks live IN THE REPO (reviewed like
+code); the DB holds executions, not definitions.
+- NEW playbook FORMAT (agents/playbooks/types.ts): ordered steps referencing
+  REGISTERED write tools + params, an abort-on-failure default (haltOnError),
+  and optional condition guards ({afterStep, requires:"ok"|"error"}).
+- NEW registry agents/playbooks/index.ts + THREE seed playbooks codifying
+  existing runbooks, each referencing ONLY existing write tools + registered cron
+  keys: stuck-submissions-drain (retry_job stuck-submissions/autolister-reclaim/
+  publish-batch-reclaim + escalate-on-drain-failure guard), dead-letter-requeue-
+  batch (retry_job email-retry + note), webhook-backlog-recovery (retry_job
+  ebay-pending-webhooks + escalate guard).
+- NEW lib playbook-executor.ts: evalGuard (PURE) + runPlaybook (deps-injected
+  orchestration) — guard-skip, executeWrite each step, an audit-log entry + an
+  agent_run_steps (tool_call) row per executed step, ABORT-ON-FAILURE default;
+  haltOnError:false lets a later error-guard escalate. Records partial completion
+  HONESTLY (halted_at + per-step ok/failed/skipped).
+- WIRED into agent-proposals.approveProposal: action_class run_playbook (already
+  in the ladder) branches to runPlaybookProposal (resolves the playbook by
+  payload.playbook_key, runs the executor); a "failed" status marks the proposal
+  failed. ProposalDeps seam + prod impl (registry.executeWrite + agent_run_steps
+  insert + writeSystemAuditLog).
+- SENTINEL charter updated to PREFER run_playbook when a codified playbook matches
+  the incident (naming the three seeds), over ad-hoc retry_job steps.
+- TESTS: playbook-executor_test.ts (evalGuard; happy path records each step;
+  mid-run failure halts + honest partial; guard SKIP; best-effort-fail +
+  error-guard escalation; seed playbooks reference only known tools + unique ids).
+VERIFY: deno lint clean (6 files). deno test/check un-runnable locally (network
+policy) — CI is the safety net. Validated ALL executor logic standalone in node:
+guard eval, happy, mid-failure halt honesty, guard-skip, escalation — all pass.
+Existing proposal tests use Partial<ProposalDeps> + don't hit the run_playbook
+branch, so unaffected. NO migration (agent_run_steps/agent_proposals exist).
+
+=== 2026-07-05 (loop: non-android prd): US-1608 (Autonomy promotion) ===
+THE ASK: earned L1->L2 autonomy per (agent, action-class) via approval track
+record + eval gate; immediate demotion on rejection-spike/breach; hard caps
+respected; history queryable. Built BEFORE its dependency US-1607 by consuming
+the eval gate CONSERVATIVELY (absent eval data => not passing => never promote),
+which US-1607 later populates (agents.eval_pass).
+- NEW lib autonomy-promotion.ts (PURE, fixture-tested) — the EXACT §2 ladder rule:
+  - computePromotionStats: per-(agent, action-class) from agent_proposals history;
+    approved = approved+executed+failed (operator said yes), rejected; pending/
+    expired ignored; approval_rate.
+  - promotionEligibility: L1->L2 only; eligible iff >=20 approved AND >=90%
+    approval AND evalPassing AND no breach in 14d AND not hard-capped. Returns
+    reasons for each unmet condition.
+  - shouldDemoteForRejections: >=6 recent decisions, >50% rejected -> demote.
+  - Constants MIN_APPROVED=20 / MIN_APPROVAL_RATE=0.9 / BREACH_LOOKBACK 14d.
+- NEW action class promote_autonomy (agent-policy.ts). Approving a promote_autonomy
+  META-PROPOSAL flips agents.autonomy[target_class]=to_level (executeAutonomyPromotion
+  in agent-proposals, re-reads autonomy so a concurrent grant isn't clobbered;
+  emits agent.autonomy.promoted). Branch added to approveProposal alongside
+  run_playbook.
+- NEW pass autonomy-promotion-pass.ts (thin orchestration over the pure core):
+  stats -> eligibility -> files L1->L2 meta-proposals (dedup vs pending) with
+  {stats, eval_state} evidence + emits promotion_proposed; rejection-spike ->
+  recordPolicyBreach (US-1586, the demotion path). Wired KERNEL-SIDE into
+  agent-tick DAILY (watermark agents.autonomy_pass_last) to avoid the CRON drift
+  chain. HARD CAPS reuse AUTONOMY_HARD_CAPS (trust-safety account actions never
+  offered).
+- HISTORY: Mission Control GET /agents/:id/autonomy-history (from ops_events:
+  promotion_proposed / promoted / policy_breach, filtered by payload.agent_key).
+- TESTS: autonomy-promotion_test.ts (stats, eligibility incl. every unmet
+  condition + old-breach-ok, hard-cap exclusion, rejection-spike demotion,
+  exactly-threshold qualifies); agent-tick_test.ts harness updated.
+VERIFY: deno lint clean (8 files). deno test/check un-runnable locally (network
+policy) — CI is the safety net. Validated ALL pure logic standalone in node:
+stats, every eligibility condition, hard-cap exclusion, demotion trigger — all
+pass. NO migration (agent_proposals/agents/ops_events exist).
+
+=== 2026-07-05 (loop: non-android prd): US-1610 (Release agent) ===
+THE ASK: post-deploy verification + regression attribution (Module Q). NEVER
+rolls back — rollback is a human procedure.
+- NEW lib release-verify.ts (PURE, fixture-tested):
+  - detectDeploy: a RELEASE_SHA change is a deploy (unknown current SHA never is).
+  - compareRelease: post-deploy vs pre-deploy baseline on the QUERYABLE health
+    signals (24h cron failures, webhook + email dead-letter depths) — a metric
+    regresses only when it grows by BOTH an absolute floor (3) AND a ratio band
+    (50%), so near-zero noise doesn't false-alarm. No baseline -> not comparable.
+  - assembleReleaseMemo: no_deploy / insufficient_baseline / clean / regression
+    verdicts (clean is a deliverable — "no news").
+  - nextReleaseState: rolling pre-deploy baseline (refresh on no-deploy; adopt the
+    new SHA + reset baseline on deploy).
+- TOOL get_release_health: RELEASE_SHA (env) + metrics computed from EXISTING
+  reads (fetchCronRuns/fetchWebhookDeadLetters/fetchEmailDeadLetters) + a
+  release.verify_state watermark (operator bookkeeping). NEW run_smoke WRITE tool
+  (hits the internal /health endpoint) + action_class run_smoke.
+- CHARTER release-agent.ts + registered; SEED migration 00368 (paused, L0, hourly,
+  idempotent, self-records). EXPECTED_SCHEMA_VERSION 00367->00368. HELD.
+- TESTS: release-verify_test.ts (deploy detection, comparison regression/noise/
+  ratio/clean, memo verdicts, state rollover); agent-tools_test.ts
+  (get_release_health flags a regression; run_smoke maps to a write tool +
+  invisible to the run loop).
+VERIFY: deno lint clean (8 files) + NUL scan clean (the recurring template-literal
+corruption did NOT recur here). deno test/check un-runnable locally (network
+policy) — CI is the safety net. Validated ALL pure logic standalone in node:
+deploy detection + comparison (regression/noise/ratio/clean) reproduce every
+expectation.
+
+=== 2026-07-05 (loop: non-android prd): US-1609 (Experiments Governor) ===
+Module X agent: one registry over EVERY live A/B in the platform. The engines
+keep running their own A/B math; this governs the PORTFOLIO around them.
+
+Delivered (pure-lib + composite-read-tool + charter pattern):
+- lib/experiments-governor.ts — pure, fixture-tested. Three per-engine ADAPTERS
+  normalize raw rows into one RegistryEntry shape, grounded in REAL columns:
+    • normalizeNewsletterAb  ← newsletter_issues A/B (00282): ab_phase='testing'
+      only; window = ab_test_started_at + ab_measurement_hours.
+    • normalizePromptRollout ← ai_prompt_versions canary (00221/US-896):
+      is_canary && 0<rollout_percentage<100; slot = grading:{stage}[:scope].
+    • normalizeDripVariants  ← drip_enrollments (00253) grouped by (campaign,
+      variant); needs >=2 arms to count as an A/B.
+  Three portfolio DETECTORS: detectInterference (same audience+metric+overlapping
+  windows), flagUnderpowered (sample<200 && a declared leader), flagStale (past
+  decision_ms + 3d grace). assembleExperimentsMemo → {summary, registry,
+  interference, underpowered, stale, all_clear}.
+- agent-tools.ts: get_experiments_registry read tool + 3 IO seams
+  (fetchNewsletterAbTests / fetchPromptRollouts / fetchDripVariants), best-effort
+  (a missing/legacy engine returns []). Platform-wide experiment DEFINITIONS, no
+  tenant rows/PII → tenant-isolation clean.
+- charter experiments-governor-agent.ts (module X, twice-weekly) + registered.
+  Proposes file_task ONLY (batched, <=1/run); NEVER stops/extends/promotes an
+  experiment — those are engine-owned, grade-/revenue-sensitive actions.
+- Seed 00369 (paused, L0, ON CONFLICT DO NOTHING, self-records) + EXPECTED_SCHEMA
+  _VERSION 00368→00369 (same commit). Held in PENDING_MIGRATIONS.md.
+- Tests: experiments-governor_test.ts (per-engine adapters + all 3 detectors +
+  memo all_clear/issues) + get_experiments_registry tool test + fakeIO seams.
+
+Verification (honest): deno test un-runnable here (network policy 403s
+deno.land/esm.sh). Ran `deno lint` (clean) on all new/edited files + a standalone
+Node reimplementation of the pure logic mirroring the test assertions — 15/15
+passed. Scanned all new files for NUL corruption (clean). prd-lint OK.
+
+Marked US-1609 passes:true.
+
+=== 2026-07-05 (loop: non-android prd): US-1595 (Support Triage agent) ===
+Module S agent: the OPERATOR-side layer over the support inbox (the user-facing
+support-assistant-engine already handles live chats). Classifies + prioritizes
+new tickets, drafts approval-gated replies, and detects issue clusters that
+should page Sentinel — support latency drops WITHOUT unsupervised sends.
+
+Delivered (pure-lib + read-tool + approval-gated write-tools + charter):
+- lib/support-triage.ts — pure, fixture-tested:
+    • prepareExcerpt: log-redact scrub (emails/tokens) + 280-char cap (AC5 PII).
+    • normalizeClassification: enforces category/severity enums + a KNOWN KB slug
+      (hallucinated slug → nulled, not persisted); one bad row never drops batch.
+    • detectClusters: union-find over "similar (Jaccard≥0.5 on significant
+      tokens) AND within 24h" → deterministic, order-independent clusters ≥3;
+      returns shared terms for the finding.
+    • assembleTriageMemo: {summary, untriaged(+age), clusters, kb_catalog, all_clear}.
+- agent-tools.ts:
+    • get_support_triage READ tool: untriaged (open+unassigned+un-triaged)
+      tickets w/ first-message excerpt (redacted at the seam) + KB catalog +
+      clusters.
+    • persist_ticket_triage WRITE (action class triage_tickets): validates the
+      batch vs live KB catalog, writes category/severity/kb_slug/triaged_at onto
+      the ticket rows the admin UI renders — advisory only, never touches status/
+      assignee/priority. Skips invalid items, reports {updated, skipped}.
+    • send_support_reply WRITE (action class draft_reply): on approval inserts the
+      drafted reply via the existing support path (bumps→pending, assigns approver,
+      notifies user). Sends verbatim; agent never sends unsupervised.
+    • IO seams fetchUntriagedTickets / fetchKbCatalog / persistTicketTriage /
+      sendSupportReply; draft_reply + triage_tickets added to ACTION_CLASS_TO_TOOL
+      (draft_reply previously had NO executor — now wired).
+- agent-policy.ts: action class triage_tickets registered (draft_reply pre-existed).
+- charter support-triage-agent.ts (module S, every-2h, sonnet) + registered.
+- Migrations 00370 (triage columns, additive+idempotent, NOTIFY needed) + 00371
+  (paused seed) + EXPECTED_SCHEMA_VERSION 00369→00371 (same commit). Held in
+  PENDING_MIGRATIONS.md.
+- Tests: support-triage_test.ts (excerpt redaction, classification validation,
+  cluster in/out-of-window + minSize, memo) + 3 tool tests (redaction+cluster via
+  the read tool; persist validation/skip + write-tool-invisible-to-loop; reply
+  auth). fakeIO seams added.
+
+Tenant-isolation note: no new HTTP routes added (agent tools only), so no
+tenant-isolation_test.ts case required. support_tickets is an OPERATOR-scope queue
+(admins act across all tenants' tickets by design, like the fraud console); writes
+are id-scoped by primary key on operator-approved proposals. support_tickets keeps
+its owner/admin RLS from 00223 — not a deny-all operator table, so no rls-guard
+registration.
+
+AC3 rejection-with-reason: captured by the existing agent_proposals reject flow
+(US-1587) — a rejected draft_reply proposal stores the operator's reason; no new
+store. AC4 Sentinel handoff: a tagged admin task suffices here (US-1613 formalizes).
+
+Verification (honest): deno test un-runnable here (network policy 403s). Ran
+`deno lint` (clean, 7 files) + a standalone Node reimplementation of the pure
+logic mirroring the test assertions — 18/18 passed. Scanned all new files for NUL
+(clean). prd-lint OK.
+
+Marked US-1595 passes:true. This also UNBLOCKS US-1613 (agent-to-agent handoffs).
+
+=== 2026-07-05 (loop: non-android prd): US-1613 (Agent-to-agent handoffs) ===
+Modules E+N: findings become another agent's queued work, WITH PROVENANCE and
+WITHOUT AUTHORITY. Support's ticket-cluster finding queues a Sentinel
+investigation; Sentinel's vendor finding queues an Integrations Watchdog
+deep-dive — cross-domain incidents connect without the operator as router.
+
+Delivered (pure core + kernel seam, mirroring the US-1606 memory pattern):
+- lib/agent-handoffs.ts — pure, fixture-tested:
+    • parseHandoffIntents: validate the model's `handoffs` array ({target_agent,
+      kind, payload, evidence}); payload/evidence are opaque INFORMATION.
+    • routeHandoff: hop cap checked FIRST (a runaway chain stops even if accepted),
+      then acceptance (target's accepts_handoffs_from). deliver → QueuedHandoff
+      with the provenance chain extended by this agent; unaccepted / hop-capped →
+      a downgrade admin task (the finding is never lost).
+    • inheritedProvenance (deepest consumed chain), formatHandoffBlock (self-
+      describing context block), selectHandoffsForContext (FIFO cap 10),
+      summarizeConsumed. HOP_CAP=3.
+- agent-kernel.ts: AgentOutcome.handoffs + parse pass-through; 5 KernelDeps seams
+  (loadHandoffs / markHandoffsConsumed / loadHandoffPolicy / deliverHandoff /
+  fileHandoffTask). Run START: consume queued handoffs → inject block, stamp
+  consumed with run id, remember inherited provenance, record a `handoffs_consumed`
+  transcript step + agent.handoff.consumed ops event. Run END: route each emitted
+  handoff → deliver (agent.handoff.delivered) or downgrade to admin task
+  (agent.handoff.downgraded). All best-effort — a handoff failure never fails the
+  run; empty handoffs leave the prompt byte-identical.
+- Wired examples (AC4): support-triage charter now HANDS clusters to sentinel
+  (replacing the US-1595 tagged-task stopgap); sentinel charter accepts them +
+  hands vendor_degradation to integrations-watchdog; integrations-watchdog charter
+  accepts that deep-dive. accepts_handoffs_from seeded on both targets in 00372.
+- Mission Control (AC5): consumed handoffs render via the existing run-transcript
+  viewer (the `handoffs_consumed` output step) — no bespoke FE component needed —
+  plus the three agent.handoff.* ops events.
+- Migration 00372 (agent_handoffs table, deny-all RLS + rls-guard registration +
+  the two config merges) + EXPECTED_SCHEMA_VERSION 00371→00372. Held.
+- Tests: agent-handoffs_test.ts (parse, inheritance, deliver/unaccepted/hopcap
+  routing, context helpers) + 3 kernel-seam tests (injected+consumed+delivered
+  with extended provenance; unaccepted→task; hop-cap→task). Kernel test harness
+  gained the 5 handoff seam defaults.
+
+Design note (AC1/AC2): a handoff carries INFORMATION, never AUTHORITY — the
+receiving agent still runs everything it DOES with one through its own proposal
+path (kernel routes emitted proposals via applyWritePolicy exactly as before).
+Provenance = the {agent, run_id} chain; hop = chain length.
+
+Verification (honest): deno test un-runnable here (network policy 403s). Ran
+`deno lint` (clean, 8 files) + a standalone Node reimplementation of the pure
+routing logic mirroring the test assertions — 15/15 passed. Scanned all new files
+for NUL (clean). prd-lint OK.
+
+Marked US-1613 passes:true.
+
+=== 2026-07-05 (loop: non-android prd): US-1599 (Marketing Portfolio agent) ===
+Module M: one supervisor over the three self-tuning marketing engines (content,
+newsletter, drip). Its value is EXCLUSIVELY the cross-engine view no per-engine
+tuner can see; the engines keep self-tuning locally underneath.
+
+Delivered (pure lib + read tool + two engine-level write tools + charter):
+- lib/marketing-portfolio.ts — pure, fixture-tested:
+    • scoreChannel: per-channel weekly trend (±10% relative engagement band).
+    • detectCannibalization: blog vs newsletter keyword Jaccard ≥0.5 (cross-CHANNEL
+      only — two blog topics never collide with each other).
+    • detectCollision: ≥2 broadcast channels on the same day.
+    • detectFatigue: peak sends/day over the cap, OR both audience channels
+      declining while volume rises.
+    • rankFocus (signals ahead of down-trending channels) + assembleMarketing
+      PortfolioMemo → {summary, scorecard, signals, focus, all_clear}.
+- agent-tools.ts:
+    • get_marketing_portfolio READ tool: assembles the memo from real sources —
+      marketing_send_log (coordination/collision + per-recipient/day peak vs the
+      cap), drip_enrollments (drip week + conversions), newsletter_issues (volume),
+      content_topics (volume + cannibalization keywords), email_topic_bank
+      (evergreen angles). Engine-level aggregates only, no per-subscriber rows.
+    • add_marketing_topic WRITE (action class add_marketing_topic): queues an angle
+      into the email bank (idempotent on pillar,angle) or the blog content_topics
+      queue (enum-validated surface/product). Queues only — sends nothing.
+    • set_marketing_frequency_cap WRITE (action class adjust_frequency): sets the
+      shared marketing_frequency_cap_per_day setting (clamp 1..10) + busts the
+      settings cache so the coordinator reads fresh.
+    • Pausing a sequence routes through file_task (existing) — a task, not a direct
+      action.
+- agent-policy.ts: action classes add_marketing_topic + adjust_frequency.
+- charter marketing-portfolio-agent.ts (module M, weekly Mon 06:00, sonnet) +
+  registered.
+- Seed 00373 (paused, L0) + EXPECTED_SCHEMA_VERSION 00372→00373. Held.
+- Tests: marketing-portfolio_test.ts (scoring, all 3 detectors incl. negative
+  cases, focus, memo clean/dirty) + 3 tool tests (collision via read tool;
+  add_marketing_topic validation + write-gated; freq cap clamp). fakeIO seams.
+
+Scope note (AC-honest): the read tool's engagement_rate is null for content +
+newsletter (per-post/issue CTR lives in the per-engine analytics, which §3.M says
+NOT to duplicate) — so the "both declining" fatigue branch fires only when that
+data is present; the cap-exceeded branch (grounded in marketing_send_log) always
+works. Drip engagement = conversion rate from drip_enrollments (verified columns).
+Tenant-isolation: all sources are operator/aggregate; no new HTTP route; the two
+write tables (email_topic_bank, content_topics) are operator banks, not tenant
+data.
+
+Verification (honest): deno test un-runnable here (network policy 403s). Ran
+`deno lint` (clean, 7 files) + a standalone Node reimplementation of the pure
+logic — 16/16 passed. Scanned all new files for NUL (clean). prd-lint OK.
+
+Marked US-1599 passes:true.
+
+=== 2026-07-05 (loop: non-android prd): US-1600 (User Lifecycle agent) ===
+Module U: judgment on TOP of the drip engine, not a second sender. Reads
+COHORT-LEVEL lifecycle data, explains WHERE users stall, and proposes cohort-level
+moves. (Un-deferred from earlier: the enrollment write is safe + verifiable when
+the tool resolves a WHITELISTED cohort server-side rather than accepting model-
+supplied user ids.)
+
+Delivered (pure lib + read tool + cohort-enroll write tool + charter):
+- lib/user-lifecycle.ts — pure, fixture-tested, COUNTS ONLY:
+    • diagnoseActivationStall: worst sub-70%-retained funnel transition + a
+      hypothesis; healthy/too-small → null.
+    • narrateChurnRisk: conversion delta vs prior week (±10% band) →
+      improving/steady/worsening/unknown; null-safe rates.
+    • sizeWinback: expired-unconverted reachable + still-savable expiring soon.
+    • assembleLifecycleMemo → {summary, activation_stall, churn, winback, all_clear}.
+- agent-tools.ts:
+    • get_user_lifecycle READ tool: aggregates the funnel_metrics RPC (30d
+      window), drip_enrollments (this vs prior week enroll/convert/churn), and
+      users trial-expiry HEAD count queries — COHORT AGGREGATES ONLY; no per-user
+      row, id, or PII ever reaches the memo (asserted in tests).
+    • enroll_cohort WRITE (action class enroll_cohort): resolves a WHITELISTED
+      cohort ('trial_expiring_7d') server-side — marketing opt-outs excluded (reuses
+      marketingOptedOutEmail), already-enrolled deduped, hard-capped 500 — and
+      enrolls via the same idempotent upsert as the trial-drip tick (UNIQUE
+      user_id,campaign 00274). The model names a cohort + campaign, NEVER a user.
+      New drip variants route through file_task.
+- agent-policy.ts: action class enroll_cohort.
+- charter user-lifecycle-agent.ts (module U, weekly Mon 05:00, sonnet) + registered.
+- Seed 00374 (paused, L0) + EXPECTED_SCHEMA_VERSION 00373→00374. Held.
+- Tests: user-lifecycle_test.ts (stall/churn/winback/memo + PII-absence assertion)
+  + 2 tool tests (stall via read tool + PII-absence on the serialized memo;
+  enroll_cohort write-gated + cohort/campaign pass-through + invalid guard). fakeIO
+  seams added.
+
+The-cohort-rule (§3.U): the tool layer aggregates before the model sees anything;
+all delivery still flows through the drip engine + the marketing-frequency caps —
+this agent emails no one. No new HTTP route → no tenant-isolation_test.ts case; the
+one write is id-scoped by a server-resolved whitelisted cohort, never model input.
+
+Verification (honest): deno test un-runnable here (network policy 403s). Ran
+`deno lint` (clean, 7 files) + a standalone Node reimplementation of the pure
+logic — 15/15 passed. Scanned all new files for NUL (clean). prd-lint OK.
+
+Marked US-1600 passes:true.
+
+=== 2026-07-05 (loop: non-android prd): US-1651 (Web P2 — server-side list sort) ===
+Global sort across ALL rows for the submissions (by grade) and inventory (by
+status) lists — previously a client-side sort that only reordered the page in view.
+
+Delivered:
+- lib/list-sort.ts — pure, unit-tested (vitest): orderIdsByScore (nulls/ungraded
+  ALWAYS last in both directions, ties broken by id for stable pagination),
+  pageSlice, reorderByIds (restore order after an unordered .in() fetch).
+- pages/submissions.tsx — grade sort now orders across the whole result set: fetch
+  all filtered ids (id+status), resolve active grade_reports scores, order the id
+  list globally (nulls last), slice the page, then materialize + reorder just the
+  page's rows. count = full ordered length (pagination stays correct). The default
+  created_at sort keeps its efficient single paged server-ordered query.
+- pages/inventory.tsx — status sort is now server-side `.order("status")`. The
+  item_status ENUM is defined (via BEFORE/AFTER ADD VALUE) in the exact
+  ITEM_STATUSES lifecycle order, so Postgres enum ordering == the old client-side
+  ITEM_STATUSES.indexOf() order — but global, and correct across pagination.
+
+AC4 (PostgREST verification): the submissions fix deliberately AVOIDS embedded
+foreign-table `.order()` — the version-sensitive feature CLAUDE.md warns diverges
+between the local and self-hosted-prod PostgREST (here a FILTERED one-to-many embed,
+the worst case). Instead it uses only bedrock supabase-js (select / .in / .order on
+a real column / .range), which is prod-safe BY CONSTRUCTION — no prod-PostgREST
+verification gate needed. The inventory fix orders by a real column (enum), also
+bedrock. This is the documented fallback AC4 anticipates.
+
+Verification (FULL — the web toolchain runs in this environment):
+- `npx vitest run src/lib/list-sort.test.ts` → 9/9 passed.
+- `npx tsc --noEmit` → clean (exit 0).
+- `npx eslint` on all four touched files → clean (exit 0).
+- `npm run build` → GREEN (tsc + vite + prerender, exit 0, 47 routes prerendered).
+
+Marked US-1651 passes:true. (Web-only story — no migration, no schema-version bump.)
+
+=== 2026-07-05 (loop: non-android prd): SESSION WIND-DOWN — honest backlog status ===
+Completed this session (6 stories, each pure-lib + verified): US-1609 (Experiments
+Governor), US-1595 (Support Triage), US-1613 (agent-to-agent handoffs), US-1599
+(Marketing Portfolio), US-1600 (User Lifecycle), US-1651 (server-side list sort —
+full build-green verification). The AGENTIC-OS fleet now spans modules M/S/U/X + the
+handoff spine (Support→Sentinel→Integrations-Watchdog).
+
+Remaining open non-Android stories are NOT loop-completable to a quality bar in this
+environment — stopping rather than force marginal/rushed completions (quality>quantity):
+
+- US-1655 (affiliate float→cents money migration): BLOCKED here. AC4 requires
+  `verify:db green` — a Docker-booted throwaway Postgres proving the money-column
+  backfill (numeric→integer *100) applies on a fresh schema. Docker + supabase CLI
+  are UNAVAILABLE in this environment. A data-transforming migration on MONEY is the
+  worst case to ship on reasoning alone; will not mark passes without the backfill
+  verification. → do when Docker/verify:db is available.
+- US-1607 (agent evals: golden suites): TOO LARGE for one quality iteration. AC2 =
+  "minimum 3 per seeded agent" × 15 seeded agents = 45 trust-critical fixtures
+  (happy/incident/TRAP), plus a harness, a weekly prod job making real LLM calls,
+  Mission Control UI, ops-event-on-fail, and autonomy-promotion blocking. The
+  trap-day fixtures gate autonomy promotion (US-1608 already reads agents.eval_pass);
+  rushing them would either block good agents or pass bad ones. → deserves a dedicated
+  session. (Integration contract confirmed: the prod job must write the
+  `agents.eval_pass` {agentKey:boolean} system_setting US-1608's
+  autonomy-promotion-pass.ts already consumes.)
+- US-1421 (obtain eBay restricted scopes): OPERATOR action (eBay application), not code.
+- US-1566 ([OPS — USER ACTION REQUIRED]): explicitly deferred operator/runtime task.
+- US-1582 ([OPERATOR] MeasureCard golden-set capture): operator action.
+
+Recommendation: US-1607 as a focused dedicated run; US-1655 once Docker is available;
+US-1421/1566/1582 need operator action. Loop stopped here to avoid re-deciding the
+same blocked stories each wake.

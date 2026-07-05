@@ -1,0 +1,226 @@
+// US-1611 / AGENTIC-OS Phase 2 (Module J): cron-fleet governance — the diff
+// between the SCHEDULE (CRON_REGISTRY) and REALITY (cron_runs), continuously.
+// Detects missed ticks (a scheduled slot with no run), duration creep, and
+// tolerates maintenance windows so a planned pause is never a false alarm.
+//
+// PURE + fixture-tested. Reuses the existing, tested nextCronRun() so "expected"
+// here means exactly what the Coolify scheduler fires. The tool supplies the
+// reads (cron_runs + active maintenance windows); this module is the analysis.
+
+import { type CronDef, nextCronRun } from "./cron-runs.ts";
+
+const MINUTE = 60_000;
+
+// ── Expected ticks (schedule → fire times in a window) ───────────────────────
+
+export interface ExpectedTicks {
+  ticks: number[]; // ms, ascending, within (fromMs, toMs]
+  capped: boolean; // true if we hit the cap and stopped (NO silent truncation)
+}
+
+// Enumerate a schedule's fire times in (fromMs, toMs] via nextCronRun. Capped so
+// a per-minute schedule over a long window can't run away; `capped` is surfaced.
+export function expectedTicks(schedule: string, fromMs: number, toMs: number, cap = 2000): ExpectedTicks {
+  const ticks: number[] = [];
+  let cursor = fromMs;
+  for (let i = 0; i < cap; i++) {
+    const next = nextCronRun(schedule, new Date(cursor));
+    if (!next) break;
+    const t = Date.parse(next);
+    if (!Number.isFinite(t) || t > toMs) break;
+    ticks.push(t);
+    cursor = t; // nextCronRun starts at the whole minute AFTER `from` → advances
+  }
+  return { ticks, capped: ticks.length >= cap };
+}
+
+// ── Maintenance suppression ──────────────────────────────────────────────────
+
+export interface MaintenanceInterval {
+  startMs: number; // -Infinity ⇒ open-started
+  endMs: number; // Infinity ⇒ open-ended
+}
+
+export function inMaintenance(tMs: number, intervals: readonly MaintenanceInterval[]): boolean {
+  return intervals.some((w) => tMs >= w.startMs && tMs < w.endMs);
+}
+
+// ── Missed-tick detection ────────────────────────────────────────────────────
+
+export interface MissedTickResult {
+  expected: number; // complete slots evaluated
+  missed: number; // slots with no run (excluding maintenance-suppressed)
+  suppressed: number; // slots skipped because a maintenance window covered them
+  missed_ticks: number[]; // the missed slot start times (ms)
+  consecutive_missed: number; // trailing run of missed slots (a stall signal)
+  last_run_ms: number | null;
+  capped: boolean;
+}
+
+// A scheduled slot is [tick[i], tick[i+1]); it is MISSED when no run landed in it
+// and the slot fully elapsed (tick[i+1] <= now). Maintenance windows over the
+// slot start suppress the miss. Interval-agnostic — no fixed tolerance needed.
+export function detectMissedTicks(params: {
+  schedule: string;
+  runMs: readonly number[]; // run timestamps (ms), any order
+  nowMs: number;
+  lookbackMs?: number;
+  maintenance?: readonly MaintenanceInterval[];
+}): MissedTickResult {
+  const lookbackMs = params.lookbackMs ?? 24 * 60 * MINUTE;
+  const maintenance = params.maintenance ?? [];
+  const { ticks, capped } = expectedTicks(params.schedule, params.nowMs - lookbackMs, params.nowMs);
+  const runs = [...params.runMs].filter((t) => Number.isFinite(t)).sort((a, b) => a - b);
+  const lastRun = runs.length ? runs[runs.length - 1] : null;
+
+  let expected = 0, missed = 0, suppressed = 0;
+  const missedTicks: number[] = [];
+  for (let i = 0; i < ticks.length - 1; i++) {
+    const slotStart = ticks[i], slotEnd = ticks[i + 1];
+    if (slotEnd > params.nowMs) break; // slot not fully elapsed yet
+    expected++;
+    const ran = runs.some((r) => r >= slotStart && r < slotEnd);
+    if (ran) continue;
+    if (inMaintenance(slotStart, maintenance)) {
+      suppressed++;
+      continue;
+    }
+    missed++;
+    missedTicks.push(slotStart);
+  }
+  // Consecutive-missed = the trailing run of missed slots ending at the latest
+  // fully-elapsed slot (computed cleanly from the end).
+  let consecutive = 0;
+  for (let i = ticks.length - 2; i >= 0; i--) {
+    const slotStart = ticks[i], slotEnd = ticks[i + 1];
+    if (slotEnd > params.nowMs) continue;
+    const ran = runs.some((r) => r >= slotStart && r < slotEnd);
+    if (ran) break;
+    if (inMaintenance(slotStart, maintenance)) continue; // maintenance doesn't break the count but isn't a miss
+    consecutive++;
+  }
+
+  return {
+    expected,
+    missed,
+    suppressed,
+    missed_ticks: missedTicks,
+    consecutive_missed: consecutive,
+    last_run_ms: lastRun,
+    capped,
+  };
+}
+
+// ── Duration creep ───────────────────────────────────────────────────────────
+
+export interface DurationCreep {
+  samples: number;
+  baseline_ms: number | null; // avg of the older half
+  recent_ms: number | null; // avg of the newer half
+  creep_pct: number | null; // (recent - baseline) / baseline
+  creeping: boolean;
+}
+
+export const DURATION_CREEP_BAND = 0.5; // recent avg > 1.5x baseline avg
+const CREEP_MIN_SAMPLES = 6;
+
+// Split durations (CHRONOLOGICAL) into older-half baseline vs newer-half recent;
+// flag creep when recent averages materially higher. Pure.
+export function detectDurationCreep(
+  durationsChrono: readonly number[],
+  band = DURATION_CREEP_BAND,
+): DurationCreep {
+  const d = durationsChrono.filter((x) => typeof x === "number" && Number.isFinite(x) && x >= 0);
+  if (d.length < CREEP_MIN_SAMPLES) {
+    return { samples: d.length, baseline_ms: null, recent_ms: null, creep_pct: null, creeping: false };
+  }
+  const mid = Math.floor(d.length / 2);
+  const avg = (arr: number[]) => arr.reduce((s, x) => s + x, 0) / arr.length;
+  const baseline = avg(d.slice(0, mid));
+  const recent = avg(d.slice(mid));
+  const creepPct = baseline > 0 ? Number(((recent - baseline) / baseline).toFixed(4)) : null;
+  return {
+    samples: d.length,
+    baseline_ms: Math.round(baseline),
+    recent_ms: Math.round(recent),
+    creep_pct: creepPct,
+    creeping: creepPct !== null && creepPct >= band,
+  };
+}
+
+// ── Fleet report ─────────────────────────────────────────────────────────────
+
+export interface JobRun {
+  created_at: string;
+  duration_ms: number | null;
+}
+
+export interface JobScorecard {
+  name: string;
+  label: string;
+  schedule: string;
+  category: string;
+  verdict: "healthy" | "slow" | "stalled";
+  missed: number;
+  consecutive_missed: number;
+  suppressed: number;
+  last_run_ms: number | null;
+  duration: DurationCreep;
+}
+
+export interface CronFleetReport {
+  summary: string;
+  jobs_total: number;
+  stalled: JobScorecard[];
+  slow: JobScorecard[];
+  scorecards: JobScorecard[];
+  all_clear: boolean;
+}
+
+export function assembleCronFleetReport(params: {
+  registry: readonly CronDef[];
+  runsByJob: Record<string, JobRun[]>;
+  maintenance: readonly MaintenanceInterval[];
+  nowMs: number;
+  lookbackMs?: number;
+}): CronFleetReport {
+  const scorecards: JobScorecard[] = [];
+  for (const def of params.registry) {
+    if (!def.recorded || def.oneOff) continue; // one-offs + unrecorded jobs have no expected cadence
+    const runs = (params.runsByJob[def.name] ?? []).slice().sort(
+      (a, b) => Date.parse(a.created_at) - Date.parse(b.created_at),
+    );
+    const runMs = runs.map((r) => Date.parse(r.created_at)).filter(Number.isFinite);
+    const missed = detectMissedTicks({
+      schedule: def.schedule,
+      runMs,
+      nowMs: params.nowMs,
+      lookbackMs: params.lookbackMs,
+      maintenance: params.maintenance,
+    });
+    const duration = detectDurationCreep(runs.map((r) => r.duration_ms ?? NaN).filter((x) => Number.isFinite(x)));
+    const verdict: JobScorecard["verdict"] = missed.missed > 0 ? "stalled" : duration.creeping ? "slow" : "healthy";
+    scorecards.push({
+      name: def.name,
+      label: def.label,
+      schedule: def.schedule,
+      category: def.category,
+      verdict,
+      missed: missed.missed,
+      consecutive_missed: missed.consecutive_missed,
+      suppressed: missed.suppressed,
+      last_run_ms: missed.last_run_ms,
+      duration,
+    });
+  }
+
+  const stalled = scorecards.filter((s) => s.verdict === "stalled").sort((a, b) => b.consecutive_missed - a.consecutive_missed);
+  const slow = scorecards.filter((s) => s.verdict === "slow").sort((a, b) => (b.duration.creep_pct ?? 0) - (a.duration.creep_pct ?? 0));
+  const allClear = stalled.length === 0 && slow.length === 0;
+
+  const summary = allClear
+    ? `Cron fleet healthy: ${scorecards.length} recorded jobs, all ticking on schedule.`
+    : `${stalled.length} stalled, ${slow.length} slow of ${scorecards.length} recorded jobs.`;
+
+  return { summary, jobs_total: scorecards.length, stalled, slow, scorecards, all_clear: allClear };
+}

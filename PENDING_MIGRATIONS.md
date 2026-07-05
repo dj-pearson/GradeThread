@@ -1,5 +1,276 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00374_seed_user_lifecycle_agent.sql (US-1600 / AGENTIC-OS Phase 1, 2026-07-05)
+
+**What:** seeds ONE `agents` row — the User Lifecycle agent (module U),
+`status='paused'`, `autonomy='{}'` (L0), config = WEEKLY (Mon 05:00) / sonnet
+model / read-only allowlist (get_user_lifecycle) / $2 cap. Cohort-level lifecycle
+analyst: activation-stall diagnosis, churn narrative, winback sizing. Proposes
+cohort-level moves only — enroll_cohort (wraps the existing drip enrollment for a
+WHITELISTED cohort 'trial_expiring_7d' into campaign 'trial_conversion'; marketing
+opt-outs excluded, already-enrolled deduped, hard-capped at 500) or a file_task
+for a new drip variant. NEVER emails anyone (drip engine + frequency caps own
+delivery). Prompt in the repo charter. `ON CONFLICT (key) DO NOTHING`. Self-records
+'00374'.
+
+**Risk: LOW — one paused seed row into the operator agents table (00357).** No
+schema change beyond the seed. The read tool aggregates cohort COUNTS only
+(funnel_metrics RPC, drip_enrollments, users trial-expiry HEAD counts) — no
+per-user rows reach the model. enroll_cohort reuses the same idempotent upsert as
+the trial-drip tick (UNIQUE user_id,campaign from 00274). No client read. Edge boot
+guard now expects **00374**.
+
+**⚠️ Apply order:** after 00357–00373. Data-only (no `NOTIFY pgrst` needed).
+Redeploy the edge so its boot guard matches 00374.
+
+## ⏳ HELD: 00373_seed_marketing_portfolio_agent.sql (US-1599 / AGENTIC-OS Phase 1, 2026-07-05)
+
+**What:** seeds ONE `agents` row — the Marketing Portfolio agent (module M),
+`status='paused'`, `autonomy='{}'` (L0), config = WEEKLY (Mon 06:00) / sonnet
+model / read-only allowlist (get_marketing_portfolio) / $2 cap. One supervisor
+over the three self-tuning marketing engines; its value is the cross-engine view
+(audience fatigue, blog/newsletter cannibalization, same-day collisions). Proposes
+engine-level levers only — add_marketing_topic (email_topic_bank 00290 /
+content_topics 00041), adjust_frequency (marketing_frequency_cap_per_day setting),
+or a file_task to pause a sequence. Prompt in the repo charter. `ON CONFLICT (key)
+DO NOTHING`. Self-records '00373'.
+
+**Risk: LOW — one paused seed row into the operator agents table (00357).** No
+schema change beyond the seed; the tool reads/writes existing tables
+(marketing_send_log, drip_enrollments, newsletter_issues, content_topics,
+email_topic_bank) + the frequency setting. No client read. Edge boot guard now
+expects **00373**.
+
+**⚠️ Apply order:** after 00357–00372. Data-only (no `NOTIFY pgrst` needed).
+Redeploy the edge so its boot guard matches 00373.
+
+## ⏳ HELD: 00372_agent_handoffs.sql (US-1613 / AGENTIC-OS Phase 2, 2026-07-05)
+
+**What:** creates `agent_handoffs` — the queue for agent-to-agent handoffs
+(target_agent, origin_agent, origin_run_id, kind, payload, evidence, hop,
+provenance jsonb, status queued|consumed, consumed_run_id/at). Deny-all RLS,
+service-role only (mirrors agent_memory 00357); registered in rls-guard_test.ts
+SERVICE_ROLE_ONLY. Partial index on (target_agent, created_at) WHERE
+status='queued'. Also merges `accepts_handoffs_from` into two existing agent
+configs — sentinel accepts ['support-triage'], integrations-watchdog accepts
+['sentinel'] (jsonb ||, guarded by NOT (config ? 'accepts_handoffs_from') for
+idempotency; a no-op if those rows aren't seeded yet).
+
+**Risk: LOW.** New operator table (no tenant data — agent keys + run ids + the
+emitting agent's finding payload) + two idempotent config merges. No client read.
+The kernel reads/writes it entirely server-side. Edge boot guard now expects
+**00372**.
+
+**⚠️ Apply order:** after 00357–00371 (FKs to agent_runs from 00357; the config
+merges target sentinel/integrations-watchdog rows seeded earlier). `NOTIFY pgrst,
+'reload schema';` IS needed (new table). Redeploy the edge so its boot guard
+matches 00372.
+
+## ⏳ HELD: 00370–00371 Support Triage (US-1595 / AGENTIC-OS Phase 1, 2026-07-05)
+
+**00370_support_ticket_triage_fields.sql — What:** adds four NULLable advisory
+columns to `support_tickets` — `triage_category` (CHECK billing|grading|technical|
+account|shipping|other), `triage_severity` (CHECK low|normal|high|urgent),
+`triage_kb_slug` (text, references support_kb_articles.slug BY VALUE — no FK), and
+`triaged_at timestamptz` — plus a partial index on (triage_severity,
+last_message_at) for open/pending rows. Additive + idempotent. NO RLS change:
+support_tickets already restricts SELECT to owner/admin and allows no client
+writes (service-role only, 00223).
+
+**00371_seed_support_triage_agent.sql — What:** seeds ONE `agents` row — the
+Support Triage agent (module S), `status='paused'`, `autonomy='{}'` (L0), config =
+every-2h / sonnet model / read-only allowlist (get_support_triage) / $3 cap.
+Classifies + prioritizes new tickets, drafts approval-gated replies (draft_reply →
+send_support_reply), persists classifications (triage_tickets → persist_ticket_
+triage, onto the 00370 columns), and files cluster escalations for Sentinel
+(file_task). NEVER sends a reply or changes a ticket itself. `ON CONFLICT (key) DO
+NOTHING`. Self-records '00371'.
+
+**Risk: LOW.** 00370 is additive columns on an existing table (no backfill, no
+client read of the new columns yet — the admin support UI renders them once the
+frontend adds them, but nothing breaks in the meantime). 00371 is one paused seed
+row. Edge boot guard now expects **00371**.
+
+**⚠️ Apply order:** 00370 THEN 00371 (the seed's comment references the columns),
+after 00357–00369. `NOTIFY pgrst, 'reload schema';` IS needed (00370 adds
+columns). Redeploy the edge so its boot guard matches 00371.
+
+## ⏳ HELD: 00369_seed_experiments_governor_agent.sql (US-1609 / AGENTIC-OS Phase 2, 2026-07-05)
+
+**What:** seeds ONE `agents` row — the Experiments Governor (module X),
+`status='paused'`, `autonomy='{}'` (L0), config = twice-weekly (Mon/Thu 07:00) /
+haiku model / read-only allowlist (get_experiments_registry) / $1 cap. Unifies
+every LIVE A/B across three engines (newsletter subject tests, grading-prompt
+canaries, drip variants) into one registry and flags portfolio issues:
+interference (same audience + metric, overlapping windows), underpowered "wins",
+and experiments past their decision date. Files an admin task (file_task) with a
+concrete remedy; NEVER stops/extends/promotes an experiment itself. Prompt lives
+in the repo charter. `ON CONFLICT (key) DO NOTHING` (idempotent). Self-records
+'00369'.
+
+**Risk: LOW — one seed row into the operator agents table (00357).** No client
+reads. Seeded PAUSED. The get_experiments_registry tool reads existing columns
+only — `newsletter_issues` A/B fields (00282), `ai_prompt_versions` canary fields
+(00221), `drip_enrollments` (00253) — no new schema beyond this seed row. Edge
+boot guard now expects **00369**.
+
+**⚠️ Apply order:** apply after 00357–00368. Data-only (no `NOTIFY pgrst` needed).
+Redeploy the edge so its boot guard matches 00369.
+
+## ⏳ HELD: 00368_seed_release_agent.sql (US-1610 / AGENTIC-OS Phase 2, 2026-07-05)
+
+**What:** seeds ONE `agents` row — the Release agent (module Q), `status='paused'`,
+`autonomy='{}'` (L0), config = hourly / haiku model / read-only allowlist
+(get_release_health) / $1 cap. Detects a RELEASE_SHA change, compares post-deploy
+health to a pre-deploy baseline, files a regression admin task (file_task) or an
+all-clear; may propose run_smoke. NEVER rolls back. Prompt lives in the repo
+charter. `ON CONFLICT (key) DO NOTHING` (idempotent). Self-records '00368'.
+
+**Risk: LOW — one seed row into the operator agents table (00357).** No client
+reads. Seeded PAUSED. Edge boot guard now expects **00368**. NOTE: the
+get_release_health tool lazily upserts a `release.verify_state` system_settings
+row at runtime (SHA + baseline watermark) — no migration needed.
+
+**⚠️ Apply order:** apply after 00357–00367. Data-only (no `NOTIFY pgrst` needed).
+Redeploy the edge so its boot guard matches 00368.
+
+## ⏳ HELD: 00367_seed_cron_governance_agent.sql (US-1611 / AGENTIC-OS Phase 2, 2026-07-05)
+
+**What:** seeds ONE `agents` row — the Cron Governance agent (module J),
+`status='paused'`, `autonomy='{}'` (L0), config = WEEKLY schedule / sonnet model /
+read-only allowlist (get_cron_fleet_health + get_cron_health) / $1 cap. It diffs
+CRON_REGISTRY vs cron_runs (missed ticks, maintenance-suppressed; duration creep)
+and files schedule-adjustment admin tasks (file_task) once an operator grants L1;
+it NEVER changes Coolify config. The prompt lives in the repo charter. `ON CONFLICT
+(key) DO NOTHING` (idempotent). Self-records '00367'.
+
+**Risk: LOW — one seed row into the operator agents table (00357).** No client
+reads. Seeded PAUSED. Edge boot guard now expects **00367**.
+
+**⚠️ Apply order:** apply after 00357–00366. Data-only (no `NOTIFY pgrst` needed).
+Redeploy the edge so its boot guard matches 00367.
+
+## ⏳ HELD: 00366_seed_growth_agent.sql (US-1602 / AGENTIC-OS Phase 1, 2026-07-05)
+
+**What:** seeds ONE `agents` row — the Growth agent (module R), `status='paused'`,
+`autonomy='{}'` (L0), config = WEEKLY schedule / sonnet model / read-only allowlist
+(get_growth_health) / $2 cap. Narrates funnel anomalies + referral health and
+files experiment briefs as admin tasks (file_task) once an operator grants L1; it
+generates/ranks ideas but never starts experiments. The prompt lives in the repo
+charter. `ON CONFLICT (key) DO NOTHING` (idempotent). Self-records '00366'.
+
+**Risk: LOW — one seed row into the operator agents table (00357).** No client
+reads. Seeded PAUSED. Edge boot guard now expects **00366**.
+
+**⚠️ Apply order:** apply after 00357–00365. Data-only (no `NOTIFY pgrst` needed).
+Redeploy the edge so its boot guard matches 00366.
+
+## ⏳ HELD: 00365_seed_ceo_brief_agent.sql (US-1603 / AGENTIC-OS Phase 1, 2026-07-05)
+
+**What:** seeds ONE `agents` row — the CEO Brief chief-analyst (module Y),
+`status='paused'`, `autonomy='{}'` (L0), config = WEEKLY schedule / sonnet model /
+read-only allowlist (get_ceo_brief) / $2 cap. Scheduled after the other weekly
+agents so it can cite their runs. It narrates north-star metrics + the fleet's
+latest run outcomes into a decision memo (honest attribution / graceful
+degradation); it proposes nothing to execute. The prompt lives in the repo
+charter. `ON CONFLICT (key) DO NOTHING` (idempotent). Self-records '00365'.
+
+**Risk: LOW — one seed row into the operator agents table (00357).** No client
+reads. Seeded PAUSED. Edge boot guard now expects **00365**.
+
+**⚠️ Apply order:** apply after 00357–00364. Data-only (no `NOTIFY pgrst` needed).
+Redeploy the edge so its boot guard matches 00365.
+
+## ⏳ HELD: 00364_seed_trust_safety_agent.sql (US-1597 / AGENTIC-OS Phase 1, 2026-07-05)
+
+**What:** seeds ONE `agents` row — the Trust & Safety agent (module T),
+`status='paused'`, config = daily / sonnet / read-only allowlist
+(get_trust_safety_health) / $2 daily cap. UNLIKE the other seeds, its `autonomy`
+map is non-empty: it explicitly sets the account-action classes (suspend_account,
+require_step_up, deny_claim) at **L1** to make the hard ceiling visible. The
+policy engine (AUTONOMY_HARD_CAPS in agent-policy.ts) ALSO clamps them to L1
+regardless of any later promotion — a permanent design decision. Approving one
+files an admin task on the fraud console; it never suspends anyone directly. The
+prompt lives in the repo charter. `ON CONFLICT (key) DO NOTHING` (idempotent).
+Self-records '00364'.
+
+**Risk: LOW — one seed row into the operator agents table (00357).** No client
+reads. Seeded PAUSED. Edge boot guard now expects **00364**.
+
+**⚠️ Apply order:** apply after 00357–00363. Data-only (no `NOTIFY pgrst` needed).
+Redeploy the edge so its boot guard matches 00364.
+
+## ⏳ HELD: 00363_seed_marketplace_ops_agent.sql (US-1598 / AGENTIC-OS Phase 1, 2026-07-05)
+
+**What:** seeds ONE `agents` row — the Marketplace Ops agent (module L),
+`status='paused'`, `autonomy='{}'` (L0), config = daily schedule / sonnet model /
+read-only allowlist (get_marketplace_ops_health + get_marketplace_health) / $2
+daily cap. The prompt lives in the repo charter
+(`agents/charters/marketplace-ops-agent.ts`). It reads OPERATOR-SCOPE AGGREGATES
+only and can propose reclaim-cron retry_jobs + file admin tasks once an operator
+grants L1; it NEVER mutates tenant listings/inventory. `ON CONFLICT (key) DO
+NOTHING` (idempotent). Self-records '00363'.
+
+**Risk: LOW — one seed row into the operator agents table (00357).** No client
+reads. Seeded PAUSED. Edge boot guard now expects **00363**. NOTE: the agent's
+get_marketplace_ops_health tool also upserts a `marketplace_ops.backlog_snapshot`
+system_settings row at RUNTIME (operator backlog watermark) — created lazily on
+first run, no migration needed.
+
+**⚠️ Apply order:** apply after 00357–00362. Data-only (no `NOTIFY pgrst` needed).
+Redeploy the edge so its boot guard matches 00363.
+
+## ⏳ HELD: 00362_seed_pricing_agent.sql (US-1601 / AGENTIC-OS Phase 1, 2026-07-05)
+
+**What:** seeds ONE `agents` row — the Pricing agent (module P), `status='paused'`,
+`autonomy='{}'` (L0), config = daily schedule / sonnet model / read-only allowlist
+(get_pricing_health) / $2 daily cap. The prompt lives in the repo charter
+(`agents/charters/pricing-agent.ts`). It audits cross-tenant aggregates and can
+propose a curve-refresh retry_job + file admin tasks once an operator grants L1;
+it NEVER edits a tenant's rules or prices. `ON CONFLICT (key) DO NOTHING`
+(idempotent). Self-records '00362'.
+
+**Risk: LOW — one seed row into the operator agents table (00357).** No client
+reads. Seeded PAUSED, so it does nothing until an operator enables it. Edge boot
+guard now expects **00362**.
+
+**⚠️ Apply order:** apply after 00357–00361. Data-only (no `NOTIFY pgrst` needed).
+Redeploy the edge so its boot guard matches 00362.
+
+## ⏳ HELD: 00361_seed_finance_agent.sql (US-1596 / AGENTIC-OS Phase 1, 2026-07-05)
+
+**What:** seeds ONE `agents` row — the Finance agent (module F), `status='paused'`,
+`autonomy='{}'` (L0), config = daily schedule / sonnet model / read-only allowlist
+(get_finance_health + get_revenue_window + get_ai_spend) / $2 daily cap. The prompt
+lives in the repo charter (`agents/charters/finance-agent.ts`). It has NO write
+tools of its own — it can only file admin tasks (file_task) once an operator grants
+L1; it never moves money or credits. `ON CONFLICT (key) DO NOTHING` (idempotent).
+Self-records '00361'.
+
+**Risk: LOW — one seed row into the operator agents table (00357).** No client
+reads. Seeded PAUSED, so it does nothing until an operator enables it. Edge boot
+guard now expects **00361**.
+
+**⚠️ Apply order:** apply after 00357–00360. Data-only (no `NOTIFY pgrst` needed).
+Redeploy the edge so its boot guard matches 00361.
+
+## ⏳ HELD: 00360_seed_integrations_watchdog_agent.sql (US-1604 / AGENTIC-OS Phase 1, 2026-07-05)
+
+**What:** seeds ONE `agents` row — the Integrations Watchdog agent (module I),
+`status='paused'`, `autonomy='{}'` (L0), config = daily schedule / haiku model /
+read-only allowlist (get_integrations_health + get_marketplace_health) / $1 daily
+cap. The prompt lives in the repo charter
+(`agents/charters/integrations-watchdog.ts`). It has NO write tools of its own —
+it can only file admin tasks (file_task) once an operator grants L1. `ON CONFLICT
+(key) DO NOTHING` (idempotent). Self-records '00360'.
+
+**Risk: LOW — one seed row into the operator agents table (00357).** No client
+reads. Seeded PAUSED, so it does nothing until an operator enables it. Edge boot
+guard now expects **00360**.
+
+**⚠️ Apply order:** apply after 00357/00358/00359. Data-only (no `NOTIFY pgrst`
+needed). Redeploy the edge so its boot guard matches 00360.
+
 ## ⏳ HELD: 00359_seed_grading_quality_agent.sql (US-1594 / AGENTIC-OS Phase 1, 2026-07-05)
 
 **What:** seeds ONE `agents` row — the Grading Quality agent (module G),

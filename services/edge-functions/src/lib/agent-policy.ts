@@ -32,12 +32,45 @@ export const ACTION_CLASSES = [
   "draft_reply",
   "adjust_queue",
   "run_playbook",
+  // US-1597 (Module T) account-level actions — HARD-CAPPED at L1 (see below).
+  "suspend_account",
+  "require_step_up",
+  "deny_claim",
+  // US-1608 meta-proposal: approving flips an agent's autonomy for a class.
+  "promote_autonomy",
+  // US-1610 Release agent: run an active smoke check.
+  "run_smoke",
+  // US-1595 Support Triage: persist a batch of ticket classifications onto the
+  // ticket rows the support UI renders (draft_reply already exists above).
+  "triage_tickets",
+  // US-1599 Marketing Portfolio: add a topic to a topic bank; adjust the shared
+  // marketing frequency cap. Engine-level levers only (never a send/subscriber).
+  "add_marketing_topic",
+  "adjust_frequency",
+  // US-1600 User Lifecycle: enrol a DEFINED cohort in an existing drip campaign
+  // (the drip engine + frequency caps still own delivery; never a direct send).
+  "enroll_cohort",
 ] as const;
 export type KnownActionClass = typeof ACTION_CLASSES[number];
 
 export function isKnownActionClass(v: string): v is KnownActionClass {
   return (ACTION_CLASSES as readonly string[]).includes(v);
 }
+
+// ── Permanent per-(agent, action-class) autonomy hard caps ───────────────────
+//
+// A PERMANENT design decision, NOT a tunable (AGENTIC_OS.md §2 ladder note): the
+// Trust & Safety agent's account-level actions can never exceed L1 (a human
+// always approves a suspension / step-up / claim denial), regardless of what the
+// agents.autonomy config or any future promotion grants. resolveAutonomy clamps
+// to this cap — so even a hand-edited autonomy row of L3 resolves to L1.
+export const AUTONOMY_HARD_CAPS: Record<string, Record<string, AutonomyLevel>> = {
+  "trust-safety": {
+    suspend_account: 1,
+    require_step_up: 1,
+    deny_claim: 1,
+  },
+};
 
 // ── The autonomy ladder ──────────────────────────────────────────────────────
 
@@ -48,9 +81,13 @@ export type AutonomyLevel = 0 | 1 | 2 | 3;
 export function resolveAutonomy(agent: AgentRow, actionClass: string): AutonomyLevel {
   const raw = (agent.autonomy ?? {})[actionClass];
   const n = typeof raw === "number" ? raw : Number(raw);
-  if (!Number.isFinite(n) || n <= 0) return 0;
-  if (n >= 3) return 3;
-  return Math.floor(n) as AutonomyLevel;
+  let level: AutonomyLevel;
+  if (!Number.isFinite(n) || n <= 0) level = 0;
+  else if (n >= 3) level = 3;
+  else level = Math.floor(n) as AutonomyLevel;
+  // Permanent hard cap (US-1597): clamp regardless of what the config granted.
+  const cap = AUTONOMY_HARD_CAPS[agent.key]?.[actionClass];
+  return cap !== undefined && level > cap ? cap : level;
 }
 
 // ── Write-intent dispatch ────────────────────────────────────────────────────
