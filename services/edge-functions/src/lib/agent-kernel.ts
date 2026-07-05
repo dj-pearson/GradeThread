@@ -24,11 +24,12 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { supabaseAdmin } from "./supabase.ts";
 import { getAnthropicClient, getDefaultModel } from "./ai-config.ts";
 import { computeCostUsd } from "./ai-usage.ts";
-import { isAiBudgetExhausted } from "./ai-budget-gate.ts";
+import { agentBudgetFeature, checkAgentBudget } from "./agent-budget.ts";
+import { enterAiFeature } from "./ai-feature-context.ts";
 import { redact, redactError } from "./log-redact.ts";
 import { getSetting } from "./system-settings.ts";
 import { agentToolRegistry } from "./agent-tools.ts";
-import { applyWritePolicy } from "./agent-policy.ts";
+import { applyWritePolicy, recordPolicyBreach } from "./agent-policy.ts";
 import { DEFAULT_PROPOSAL_TTL_HOURS, persistProposals } from "./agent-proposals.ts";
 import type { ProposalDraft } from "./agent-policy.ts";
 import { notifyAdminsProposalsFiled } from "./admin-notifications.ts";
@@ -231,7 +232,10 @@ export interface KernelDeps {
   // Global kill-switch read. The kernel treats a THROW as paused (fail-closed);
   // a normal false/true is honored as-is.
   getGlobalPause: () => Promise<boolean>;
-  isBudgetExhausted: (feature: string) => Promise<boolean>;
+  // Budget governor (US-1591): is this agent over budget right now?
+  checkBudget: (agentKey: string, config: AgentConfig) => Promise<{ exhausted: boolean; reason: string | null }>;
+  // Mid-run budget breach → pause + demote + alert.
+  onBudgetBreach: (agent: AgentRow, reason: string) => Promise<void>;
   createRun: (agentId: string, trigger: string) => Promise<string | null>;
   recordStep: (runId: string, step: StepRecord) => Promise<void>;
   finalizeRun: (runId: string, patch: RunFinalize) => Promise<void>;
@@ -387,9 +391,10 @@ export async function runAgent(
   // 3. Run the bounded tool-use loop.
   const caps = resolveCaps(agent.config);
   const model = resolveAgentModel(agent.config);
-  const budgetFeature = typeof agent.config.budget_feature === "string"
-    ? agent.config.budget_feature
-    : "agent-kernel";
+  // US-1591: tag the AI-feature context so every model call this run makes
+  // records to the ai_usage_events ledger under this agent's feature — the
+  // per-agent spend line, the fleet rollup, and budget enforcement all read it.
+  enterAiFeature(agentBudgetFeature(agentKey));
   const startedAt = d.now();
   const step = d.makeStep(agent, model, caps.maxOutputTokens);
 
@@ -426,9 +431,16 @@ export async function runAgent(
       if (iteration >= caps.maxSteps) {
         return finalize(partialFinish("timeout", "max_steps_exceeded", tokensIn, tokensOut, costOf()));
       }
-      // Budget gate BEFORE every model call (AC4).
-      if (await d.isBudgetExhausted(budgetFeature)) {
-        return finalize(partialFinish("skipped", "budget_exhausted", tokensIn, tokensOut, costOf()));
+      // Budget governor BEFORE every model call (US-1591). Exhausted at the
+      // START → refuse to run (skipped, no side effects). Exhausted MID-RUN
+      // (after ≥1 model call) → a breach: pause + demote + alert, then halt.
+      const budget = await d.checkBudget(agentKey, agent.config);
+      if (budget.exhausted) {
+        if (iteration === 0) {
+          return finalize(partialFinish("skipped", "budget_exhausted", tokensIn, tokensOut, costOf()));
+        }
+        await d.onBudgetBreach(agent, budget.reason ?? "budget_breach").catch(() => {});
+        return finalize(partialFinish("skipped", "budget_breach", tokensIn, tokensOut, costOf()));
       }
 
       const t0 = d.now();
@@ -619,7 +631,19 @@ export function prodKernelDeps(): KernelDeps {
       };
     },
     getGlobalPause: () => getSetting<boolean>(AGENTS_PAUSE_SETTING_KEY, false),
-    isBudgetExhausted: (feature) => isAiBudgetExhausted(feature),
+    checkBudget: (key, config) => checkAgentBudget(key, config),
+    onBudgetBreach: async (agent, reason) => {
+      // Halt the agent immediately (agents.status) so it stops accruing spend.
+      await supabaseAdmin.from("agents").update({ status: "paused" } as never).eq("id", agent.id);
+      // Record a policy breach (US-1586 demotion + a warning ops event).
+      await recordPolicyBreach(agent, "budget", `budget_breach:${reason}`).catch(() => {});
+      // A critical ops event fans out to admins — the admin notification.
+      emitOpsEvent("agent.budget_breach", "critical", {
+        title: `Agent ${agent.key} paused — daily budget breached (${reason})`,
+        source: "agent-budget",
+        data: { agent_key: agent.key, agent_id: agent.id, reason },
+      });
+    },
     createRun: async (agentId, trigger) => {
       const { data } = await supabaseAdmin
         .from("agent_runs")

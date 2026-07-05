@@ -41,7 +41,7 @@ adminAgentsRoutes.get("/agents", async (c) => {
     .select("*")
     .order("key", { ascending: true });
   if (error) return jsonError(c, 500, "Failed to load agents");
-  const list = (agents ?? []) as Array<{ id: string }>;
+  const list = (agents ?? []) as Array<{ id: string; config?: { budget_usd_daily?: number } }>;
   if (!list.length) return c.json({ agents: [] });
 
   const sinceIso = new Date(Date.now() - SPEND_WINDOW_MS).toISOString();
@@ -75,12 +75,18 @@ adminAgentsRoutes.get("/agents", async (c) => {
     pending.set(p.agent_id, (pending.get(p.agent_id) ?? 0) + 1);
   }
 
-  const enriched = list.map((a) => ({
-    ...a,
-    spend_7d_usd: Math.round((spend.get(a.id) ?? 0) * 10000) / 10000,
-    pending_proposals: pending.get(a.id) ?? 0,
-    last_run: lastRun.get(a.id) ?? null,
-  }));
+  const enriched = list.map((a) => {
+    // US-1591: per-agent daily cap (config, else the conservative default of $2).
+    const configured = a.config?.budget_usd_daily;
+    const dailyCap = typeof configured === "number" && configured > 0 ? configured : 2;
+    return {
+      ...a,
+      spend_7d_usd: Math.round((spend.get(a.id) ?? 0) * 10000) / 10000,
+      pending_proposals: pending.get(a.id) ?? 0,
+      daily_cap_usd: dailyCap,
+      last_run: lastRun.get(a.id) ?? null,
+    };
+  });
   return c.json({ agents: enriched });
 });
 

@@ -63,6 +63,7 @@ interface AgentRow {
   config: Record<string, unknown>;
   spend_7d_usd: number;
   pending_proposals: number;
+  daily_cap_usd: number;
   last_run: { status: string; started_at: string | null; finished_at: string | null } | null;
 }
 interface RunRow {
@@ -351,7 +352,8 @@ function AgentCard(
               : "never"}
           </div>
           <div>
-            <span className="text-foreground">7-day spend:</span> ${agent.spend_7d_usd.toFixed(4)}
+            <span className="text-foreground">Spend:</span> ${agent.spend_7d_usd.toFixed(4)} / 7d
+            <span className="text-muted-foreground"> · cap ${agent.daily_cap_usd.toFixed(2)}/day</span>
           </div>
           <div>
             <span className="text-foreground">Pending:</span> {agent.pending_proposals} proposal

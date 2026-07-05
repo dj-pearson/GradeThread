@@ -58,7 +58,8 @@ function harness(
   const deps: Partial<KernelDeps> = {
     loadAgent: () => Promise.resolve(over.agent ?? AGENT),
     getGlobalPause: over.getGlobalPause ?? (() => Promise.resolve(false)),
-    isBudgetExhausted: over.isBudgetExhausted ?? (() => Promise.resolve(false)),
+    checkBudget: over.checkBudget ?? (() => Promise.resolve({ exhausted: false, reason: null })),
+    onBudgetBreach: over.onBudgetBreach ?? (() => Promise.resolve()),
     createRun: over.createRun ?? (() => Promise.resolve("run-1")),
     recordStep: (_runId, s) => {
       steps.push(s);
@@ -143,14 +144,41 @@ Deno.test("runAgent: a tool-looping agent is killed at the step cap as 'timeout'
 
 // ── Budget refusal ───────────────────────────────────────────────────────────
 
-Deno.test("runAgent: an exhausted budget skips cleanly before any model call", async () => {
+Deno.test("runAgent: an exhausted budget at START skips cleanly before any model call", async () => {
   const h = harness(() => Promise.resolve(endTurn("{}")), {
-    isBudgetExhausted: () => Promise.resolve(true),
+    checkBudget: () => Promise.resolve({ exhausted: true, reason: "agent_daily_cap" }),
   });
   const res = await runAgent("sentinel", "cron", h.deps);
   assertEquals(res.status, "skipped");
   assertEquals(res.outcome?.reason, "budget_exhausted");
-  assertEquals(h.stepCalls(), 0); // never called the model
+  assertEquals(h.stepCalls(), 0); // never called the model, no breach side-effects
+});
+
+Deno.test("runAgent: a MID-RUN budget breach halts + fires the breach side-effects", async () => {
+  // Under budget on the first check (run starts), over budget on the second.
+  let checks = 0;
+  const breaches: string[] = [];
+  const h = harness(
+    // Keep asking for a tool so a second budget check happens.
+    () => Promise.resolve(toolTurn()),
+    {
+      checkBudget: () => {
+        checks++;
+        return Promise.resolve(
+          checks >= 2 ? { exhausted: true, reason: "agent_daily_cap" } : { exhausted: false, reason: null },
+        );
+      },
+      onBudgetBreach: (_agent, reason) => {
+        breaches.push(reason);
+        return Promise.resolve();
+      },
+    },
+  );
+  const res = await runAgent("sentinel", "cron", h.deps);
+  assertEquals(res.status, "skipped");
+  assertEquals(res.outcome?.reason, "budget_breach");
+  assertEquals(h.stepCalls(), 1); // one model call happened before the breach
+  assertEquals(breaches, ["agent_daily_cap"]); // the breach side-effect fired once
 });
 
 // ── Pause short-circuit ──────────────────────────────────────────────────────

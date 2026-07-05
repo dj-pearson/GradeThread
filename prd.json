@@ -10440,7 +10440,7 @@
         "Deno tests: refusal at exhausted budget, breach halt + pause side-effects; lint + check clean"
       ],
       "priority": 2352,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 0][Module B — Budget Governor] Read AGENTIC_OS.md §3.B. Reuse ai-budget/ai-budget-gate/jobs-ai-budget wiring — do NOT build a parallel metering system.",
       "dependsOn": [
         "US-1590"
