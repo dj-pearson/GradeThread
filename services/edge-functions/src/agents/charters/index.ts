@@ -13,6 +13,7 @@ import { FINANCE_AGENT_CHARTER } from "./finance-agent.ts";
 import { PRICING_AGENT_CHARTER } from "./pricing-agent.ts";
 import { MARKETPLACE_OPS_CHARTER } from "./marketplace-ops-agent.ts";
 import { TRUST_SAFETY_CHARTER } from "./trust-safety-agent.ts";
+import { CEO_BRIEF_CHARTER } from "./ceo-brief-agent.ts";
 
 export type { AgentCharter };
 
@@ -24,6 +25,7 @@ const CHARTERS: Record<string, AgentCharter> = {
   [PRICING_AGENT_CHARTER.key]: PRICING_AGENT_CHARTER,
   [MARKETPLACE_OPS_CHARTER.key]: MARKETPLACE_OPS_CHARTER,
   [TRUST_SAFETY_CHARTER.key]: TRUST_SAFETY_CHARTER,
+  [CEO_BRIEF_CHARTER.key]: CEO_BRIEF_CHARTER,
 };
 
 export function charterFor(agentKey: string): AgentCharter | null {

@@ -35,6 +35,12 @@ import { assembleIntegrationsMemo, type RotationState } from "./integrations-wat
 import { type ActionRow, assemblePricingMemo, type CurveRow, type SuggestionRow } from "./pricing-agent.ts";
 import { assembleMarketplaceOpsMemo, type BatchRow } from "./marketplace-ops-agent.ts";
 import { type AbuseSignal, assembleTrustSafetyMemo } from "./trust-safety-agent.ts";
+import {
+  type AgentLatestRun,
+  assembleCeoBriefContext,
+  type MetricInput,
+  type PendingAction,
+} from "./ceo-brief.ts";
 import { type ReorderReviewQueueResult, reorderReviewQueue } from "./review-queue-order.ts";
 import { resolveRevenueWindow } from "./revenue-window.ts";
 import { type AuditLogInput, writeSystemAuditLog } from "./audit-log.ts";
@@ -199,6 +205,15 @@ export interface ToolIO {
   fetchAbuseSignals(limit: number): Promise<AbuseSignal[]>;
   countOpenModerationFlags(): Promise<number>;
   countOpenPassportIntegritySignals(): Promise<number>;
+  // US-1603: the CEO Brief bundle — the seeded fleet, north-star metrics (this
+  // week vs last), each agent's latest succeeded run summary, and pending
+  // proposals. Operator-scope aggregates + agent-run summaries only, no PII.
+  fetchCeoBriefData(nowMs: number): Promise<{
+    agents: Array<{ key: string; name: string }>;
+    metrics: MetricInput[];
+    latestRuns: AgentLatestRun[];
+    pendingProposals: PendingAction[];
+  }>;
   // ── Write-side (used only by executeWrite / approved proposals) ──
   // Re-fire a registered cron job by key over the internal job rails.
   runJob(jobKey: string): Promise<{ ok: boolean; status: number; error?: string }>;
@@ -406,6 +421,62 @@ export function prodToolIO(): ToolIO {
         .from("passport_integrity_signals")
         .select("id", { count: "exact", head: true });
       return count ?? 0;
+    },
+    fetchCeoBriefData: async (nowMs) => {
+      const WEEK = 7 * 24 * 3600_000;
+      const curStart = new Date(nowMs - WEEK).toISOString();
+      const priorStart = new Date(nowMs - 2 * WEEK).toISOString();
+      const nowIso = new Date(nowMs).toISOString();
+      // A cross-tenant count in [start, end) — operator KPI, never a row.
+      const countWindow = async (table: string, startIso: string, endIso: string): Promise<number> => {
+        const { count } = await supabaseAdmin
+          .from(table)
+          .select("id", { count: "exact", head: true })
+          .gte("created_at", startIso)
+          .lt("created_at", endIso);
+        return count ?? 0;
+      };
+      const metricSpecs: Array<{ name: string; table: string }> = [
+        { name: "New signups", table: "users" },
+        { name: "Grades issued", table: "grade_reports" },
+        { name: "Listings created", table: "listings" },
+      ];
+      const [agentRows, runRows, proposalRows, ...metricCounts] = await Promise.all([
+        supabaseAdmin.from("agents").select("id, key, name"),
+        supabaseAdmin.from("agent_runs")
+          .select("agent_id, status, outcome, finished_at")
+          .eq("status", "succeeded").gte("finished_at", priorStart)
+          .order("finished_at", { ascending: false }).limit(1000),
+        supabaseAdmin.from("agent_proposals")
+          .select("id, agent_id, title").eq("status", "pending").limit(200),
+        ...metricSpecs.flatMap((m) => [countWindow(m.table, curStart, nowIso), countWindow(m.table, priorStart, curStart)]),
+      ]);
+      const agents = ((agentRows.data ?? []) as Array<{ id: string; key: string; name: string }>);
+      const keyById = new Map(agents.map((a) => [a.id, a.key]));
+      const metrics: MetricInput[] = metricSpecs.map((m, i) => ({
+        name: m.name,
+        current: (metricCounts[i * 2] as number) ?? 0,
+        prior: (metricCounts[i * 2 + 1] as number) ?? 0,
+      }));
+      // Latest succeeded run per agent (rows are finished_at desc → first wins).
+      const seenAgent = new Set<string>();
+      const latestRuns: AgentLatestRun[] = [];
+      for (const r of (runRows.data ?? []) as Array<{ agent_id: string; status: string; outcome: unknown; finished_at: string | null }>) {
+        if (seenAgent.has(r.agent_id)) continue;
+        seenAgent.add(r.agent_id);
+        const summary = r.outcome && typeof r.outcome === "object"
+          ? (r.outcome as { summary?: unknown }).summary
+          : null;
+        latestRuns.push({
+          agent_key: keyById.get(r.agent_id) ?? "(unknown)",
+          status: r.status,
+          summary: typeof summary === "string" ? summary : null,
+          ran_at: r.finished_at,
+        });
+      }
+      const pendingProposals: PendingAction[] = ((proposalRows.data ?? []) as Array<{ id: string; agent_id: string; title: string }>)
+        .map((p) => ({ id: p.id, agent_key: keyById.get(p.agent_id) ?? "(unknown)", title: p.title }));
+      return { agents: agents.map((a) => ({ key: a.key, name: a.name })), metrics, latestRuns, pendingProposals };
     },
     runJob: async (jobKey) => {
       // Only registered, runnable cron jobs — never an arbitrary URL.
@@ -906,6 +977,23 @@ const TOOL_LIST: AgentToolDef[] = [
         nowMs: ctx.now,
       });
       return { memo };
+    },
+  },
+  {
+    name: "get_ceo_brief",
+    description: "CEO Brief context (US-1603): headline north-star metrics this week vs last, each seeded agent's LATEST succeeded-run summary (for attribution), pending fleet proposals, and coverage / degraded flags. Attribution is only permitted for agents that actually ran — assembled honestly so the narrator never fabricates a cause.",
+    class: "read",
+    inputSchema: { type: "object", properties: {} },
+    handler: async (_input, ctx) => {
+      const data = await ctx.io.fetchCeoBriefData(ctx.now);
+      const context = assembleCeoBriefContext({
+        nowMs: ctx.now,
+        agents: data.agents,
+        metrics: data.metrics,
+        latestRuns: data.latestRuns,
+        pendingProposals: data.pendingProposals,
+      });
+      return { context };
     },
   },
 

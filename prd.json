@@ -10753,7 +10753,7 @@
         "Deno tests: assembly with full fixture fleet vs empty fleet; lint + check clean"
       ],
       "priority": 2330,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 1][Module Y — Yield Analytics] Read AGENTIC_OS.md §3.Y. Honesty rule: attribution only when an agent actually observed the cause; otherwise say 'unattributed'.",
       "dependsOn": [
         "US-1588",

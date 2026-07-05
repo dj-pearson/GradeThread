@@ -42,6 +42,7 @@ function fakeIO(over: Partial<ToolIO> = {}): { io: ToolIO; audits: AuditLogInput
     fetchAbuseSignals: () => Promise.resolve([]),
     countOpenModerationFlags: () => Promise.resolve(0),
     countOpenPassportIntegritySignals: () => Promise.resolve(0),
+    fetchCeoBriefData: () => Promise.resolve({ agents: [], metrics: [], latestRuns: [], pendingProposals: [] }),
     runJob: () => Promise.resolve({ ok: true, status: 200 }),
     requeueEmailDeadLetter: () => Promise.resolve(true),
     resolveAgentTaskProject: () => Promise.resolve("proj-1"),
@@ -239,6 +240,29 @@ Deno.test("US-1604: get_integrations_health assembles a memo from the reads", as
   };
   assertEquals(res.memo?.token_fleet?.expired, 1);
   assertEquals(res.memo?.all_clear, false);
+});
+
+// ── US-1603: get_ceo_brief context ───────────────────────────────────────────
+
+Deno.test("US-1603: get_ceo_brief attributes only agents that ran, with metric deltas", async () => {
+  const { io } = fakeIO({
+    fetchCeoBriefData: () =>
+      Promise.resolve({
+        agents: [{ key: "finance", name: "Finance" }, { key: "sentinel", name: "Sentinel" }],
+        metrics: [{ name: "Grades issued", current: 120, prior: 100 }],
+        latestRuns: [{ agent_key: "finance", status: "succeeded", summary: "1 reconciliation delta", ran_at: null }],
+        pendingProposals: [],
+      }),
+  });
+  const reg = createAgentToolRegistry(io);
+  const a = agent(["get_ceo_brief"]);
+  const res = await reg.execute(a, "get_ceo_brief", {}) as {
+    context?: { observations?: Array<{ agent_key: string }>; headline_metrics?: Array<{ direction: string }>; attribution_allowed?: boolean };
+  };
+  assertEquals(res.context?.observations?.length, 1); // only finance ran
+  assertEquals(res.context?.observations?.[0].agent_key, "finance");
+  assertEquals(res.context?.headline_metrics?.[0].direction, "up");
+  assertEquals(res.context?.attribution_allowed, true);
 });
 
 // ── US-1597: get_trust_safety_health + account-action routing ────────────────

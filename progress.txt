@@ -11202,3 +11202,40 @@ VERIFY: deno lint clean (9 files). deno test/check un-runnable locally (network
 policy) — CI is the safety net. Validated ALL pure logic + the hard-cap clamp
 standalone in node: ranking, ring accumulation, and the L3->L1 clamp (agent-
 specific) reproduce every expectation.
+
+=== 2026-07-05 (loop: non-android prd): US-1603 (CEO Brief / chief-analyst) ===
+THE ASK: seed the CEO Brief agent (Module Y) — the weekly north-star digest as a
+narrated DECISION memo (headline metrics vs last week -> cause narrative citing
+which agent observed what -> fleet actions -> the one decision -> risks). HONESTY
+rule: attribute a cause only to an agent that actually ran; degrade gracefully.
+- NEW lib ceo-brief.ts (PURE, fixture-tested) — mirrors the US-1592 Daily
+  Operator Brief assembly pattern:
+  - assembleCeoBriefContext: headline metric WoW deltas + direction (unknown when
+    prior 0); observations built ONLY from succeeded runs with a non-blank
+    summary (failed/never-ran/blank agents are NOT cited — the honesty rule);
+    coverage + degraded flag (<half the fleet ran) + attribution_allowed flag
+    (false => narrator must say "unattributed", never fabricate a cause).
+  - ceoBriefHeadline: leads with the biggest WoW mover + coverage.
+- TOOL get_ceo_brief (agent-tools.ts): one composite fetchCeoBriefData reads the
+  seeded fleet, 3 north-star KPI counts (signups/grades/listings this week vs
+  last, cross-tenant counts — no PII), each agent's LATEST succeeded-run summary
+  from agent_runs, and pending proposals. Returns the assembled context.
+- CHARTER ceo-brief-agent.ts (chief-analyst) + registered. Narrates the 5-part
+  memo; proposes nothing (observational only); the brief IS the persisted run
+  outcome Mission Control links to.
+- SEED migration 00365 (paused, L0, WEEKLY after the other agents, idempotent,
+  self-records). EXPECTED_SCHEMA_VERSION 00364->00365. HELD.
+- TESTS: ceo-brief_test.ts (metric deltas incl. prior-0 unknown; attribution
+  filters failed/blank; full-fleet-not-degraded vs empty-fleet-degraded-no-attr
+  vs below-half; headline); agent-tools_test.ts (get_ceo_brief attributes only
+  the agent that ran, with deltas).
+VERIFY: deno lint clean (7 files). deno test/check un-runnable locally (network
+policy) — CI is the safety net. Validated ALL pure logic standalone in node:
+deltas, attribution filtering, and the full/empty/half degradation reproduce
+every expectation.
+
+NOTE: US-1600 (User Lifecycle) deferred within the loop — its AC requires a WRITE
+tool that ENROLLS REAL USERS into drip campaigns (campaign-specific enrollment
+row shape); shipping that unverified against a DB is a quality/safety risk. Will
+tackle it with more care (or in a session with DB access). Picked US-1603 instead
+this iteration.

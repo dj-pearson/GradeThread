@@ -1,5 +1,21 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00365_seed_ceo_brief_agent.sql (US-1603 / AGENTIC-OS Phase 1, 2026-07-05)
+
+**What:** seeds ONE `agents` row — the CEO Brief chief-analyst (module Y),
+`status='paused'`, `autonomy='{}'` (L0), config = WEEKLY schedule / sonnet model /
+read-only allowlist (get_ceo_brief) / $2 cap. Scheduled after the other weekly
+agents so it can cite their runs. It narrates north-star metrics + the fleet's
+latest run outcomes into a decision memo (honest attribution / graceful
+degradation); it proposes nothing to execute. The prompt lives in the repo
+charter. `ON CONFLICT (key) DO NOTHING` (idempotent). Self-records '00365'.
+
+**Risk: LOW — one seed row into the operator agents table (00357).** No client
+reads. Seeded PAUSED. Edge boot guard now expects **00365**.
+
+**⚠️ Apply order:** apply after 00357–00364. Data-only (no `NOTIFY pgrst` needed).
+Redeploy the edge so its boot guard matches 00365.
+
 ## ⏳ HELD: 00364_seed_trust_safety_agent.sql (US-1597 / AGENTIC-OS Phase 1, 2026-07-05)
 
 **What:** seeds ONE `agents` row — the Trust & Safety agent (module T),
