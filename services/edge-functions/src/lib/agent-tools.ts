@@ -31,6 +31,7 @@ import { CRON_REGISTRY, DEFAULT_JOB_SECRET_ENV } from "./cron-runs.ts";
 import { correlateIncidents, type Signal } from "./sentinel.ts";
 import { assembleGradingMemo, gatherGradingTelemetry } from "./grading-quality.ts";
 import { assembleFinanceMemo, type PayoutRow, type ReconFlag } from "./finance-agent.ts";
+import { centsToDollars } from "./affiliate-payout-math.ts";
 import { assembleIntegrationsMemo, type RotationState } from "./integrations-watchdog.ts";
 import { type ActionRow, assemblePricingMemo, type CurveRow, type SuggestionRow } from "./pricing-agent.ts";
 import { assembleMarketplaceOpsMemo, type BatchRow } from "./marketplace-ops-agent.ts";
@@ -430,8 +431,11 @@ export function prodToolIO(): ToolIO {
           .select("status, amount, error, created_at").gte("created_at", sinceIso).limit(1000),
       ]);
       return {
+        // affiliate_payouts.amount is INTEGER CENTS since US-1655 — convert to USD
+        // dollars so the finance memo's dollar math matches consignor_payouts
+        // (still numeric dollars) and its $-formatted output.
         affiliate: ((aff ?? []) as Array<Record<string, unknown>>).map((r) => ({
-          status: String(r.status), amount: Number(r.amount ?? 0),
+          status: String(r.status), amount: centsToDollars(Number(r.amount ?? 0)),
           error: (r.error as string | null) ?? null, created_at: String(r.created_at),
         })),
         consignor: ((cons ?? []) as Array<Record<string, unknown>>).map((r) => ({

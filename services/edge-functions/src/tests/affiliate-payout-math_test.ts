@@ -3,8 +3,10 @@
 import { assertEquals } from "@std/assert";
 import {
   type AffiliatePayoutConfig,
+  centsToDollars,
   crossesTaxThreshold,
   DEFAULT_AFFILIATE_PAYOUT_CONFIG,
+  dollarsToCents,
   isPastHold,
   isPayoutRetryable,
   MAX_PAYOUT_RETRY_AGE_MS,
@@ -21,9 +23,38 @@ const active: AffiliatePayoutConfig = {
   tax_threshold_usd: 600,
 };
 
+// ── Money units (US-1655: integer cents) ─────────────────────────────────────
+
+Deno.test("dollarsToCents: converts USD to integer cents, killing float drift", () => {
+  assertEquals(dollarsToCents(5), 500);
+  assertEquals(dollarsToCents(25), 2500);
+  assertEquals(dollarsToCents(0), 0);
+  assertEquals(dollarsToCents(0.1), 10);
+  // 0.1 + 0.2 = 0.30000000000000004 in binary float → must land on exactly 30¢.
+  assertEquals(dollarsToCents(0.1 + 0.2), 30);
+  assertEquals(dollarsToCents(4.99), 499);
+  // Non-finite → 0 (never NaN into a money column).
+  assertEquals(dollarsToCents(Number.NaN), 0);
+  assertEquals(dollarsToCents(Infinity), 0);
+});
+
+Deno.test("centsToDollars: converts integer cents back to USD dollars", () => {
+  assertEquals(centsToDollars(500), 5);
+  assertEquals(centsToDollars(2500), 25);
+  assertEquals(centsToDollars(12345), 123.45);
+  assertEquals(centsToDollars(0), 0);
+  assertEquals(centsToDollars(Number.NaN), 0);
+});
+
+Deno.test("dollars↔cents round-trips exactly for representative amounts", () => {
+  for (const usd of [0, 0.1, 5, 25, 123.45, 599.99, 600]) {
+    assertEquals(centsToDollars(dollarsToCents(usd)), usd);
+  }
+});
+
 // ── Accrual on conversion ────────────────────────────────────────────────────
 
-Deno.test("planAccrual: an affiliate conversion accrues the configured rate", () => {
+Deno.test("planAccrual: an affiliate conversion accrues the configured rate (in cents)", () => {
   assertEquals(
     planAccrual({
       attributionSource: "affiliate",
@@ -31,7 +62,14 @@ Deno.test("planAccrual: an affiliate conversion accrues the configured rate", ()
       rate: active.commission_per_conversion,
       alreadyAccrued: false,
     }),
-    { action: "accrue", amount: 5 },
+    { action: "accrue", amount: 500 }, // $5.00 → 500¢
+  );
+});
+
+Deno.test("planAccrual: a fractional-dollar rate accrues exact cents", () => {
+  assertEquals(
+    planAccrual({ attributionSource: "affiliate", mode: "batched", rate: 4.99, alreadyAccrued: false }),
+    { action: "accrue", amount: 499 },
   );
 });
 
@@ -65,31 +103,38 @@ Deno.test("planAccrual: an already-accrued conversion is a no-op (idempotent)", 
 
 // ── Idempotent payout decision ───────────────────────────────────────────────
 
-Deno.test("planPayout: an onboarded balance over the minimum pays out", () => {
+Deno.test("planPayout: an onboarded balance over the minimum pays out (cents)", () => {
   assertEquals(
-    planPayout({ eligibleBalance: 30, minimum: 25, onboarded: true }),
-    { action: "pay", amount: 30 },
+    planPayout({ eligibleBalanceCents: 3000, minimum: 25, onboarded: true }),
+    { action: "pay", amount: 3000 }, // $30.00 balance, $25.00 minimum
+  );
+});
+
+Deno.test("planPayout: a balance exactly at the minimum pays out (inclusive)", () => {
+  assertEquals(
+    planPayout({ eligibleBalanceCents: 2500, minimum: 25, onboarded: true }),
+    { action: "pay", amount: 2500 },
   );
 });
 
 Deno.test("planPayout: a zero eligible balance is skipped (idempotent re-run)", () => {
-  // After a payout claims the commissions, a second run sees $0 → never re-pays.
+  // After a payout claims the commissions, a second run sees 0¢ → never re-pays.
   assertEquals(
-    planPayout({ eligibleBalance: 0, minimum: 25, onboarded: true }),
+    planPayout({ eligibleBalanceCents: 0, minimum: 25, onboarded: true }),
     { action: "skip", reason: "no_balance" },
   );
 });
 
 Deno.test("planPayout: a balance below the minimum is held", () => {
   assertEquals(
-    planPayout({ eligibleBalance: 10, minimum: 25, onboarded: true }),
+    planPayout({ eligibleBalanceCents: 1000, minimum: 25, onboarded: true }),
     { action: "skip", reason: "below_minimum" },
   );
 });
 
 Deno.test("planPayout: a not-yet-onboarded affiliate is held, not paid", () => {
   assertEquals(
-    planPayout({ eligibleBalance: 100, minimum: 25, onboarded: false }),
+    planPayout({ eligibleBalanceCents: 10000, minimum: 25, onboarded: false }),
     { action: "skip", reason: "not_onboarded" },
   );
 });
@@ -134,12 +179,13 @@ Deno.test("isPayoutRetryable: honors an explicit maxAge override", () => {
 
 // ── 1099 threshold flag ──────────────────────────────────────────────────────
 
-Deno.test("crossesTaxThreshold: flags at/over the threshold, not below", () => {
-  assertEquals(crossesTaxThreshold(599.99, 600), false);
-  assertEquals(crossesTaxThreshold(600, 600), true);
-  assertEquals(crossesTaxThreshold(1200, 600), true);
+Deno.test("crossesTaxThreshold: flags at/over the threshold, not below (paidYtd in cents)", () => {
+  // paidYtd is integer cents; threshold is USD dollars.
+  assertEquals(crossesTaxThreshold(59_999, 600), false); // $599.99 < $600
+  assertEquals(crossesTaxThreshold(60_000, 600), true); // $600.00 == $600
+  assertEquals(crossesTaxThreshold(120_000, 600), true); // $1200 > $600
   // A 0/negative threshold disables the flag.
-  assertEquals(crossesTaxThreshold(1000, 0), false);
+  assertEquals(crossesTaxThreshold(100_000, 0), false);
 });
 
 // ── Config normalization ─────────────────────────────────────────────────────

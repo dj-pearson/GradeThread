@@ -24,7 +24,6 @@
 import Stripe from "stripe";
 import { supabaseAdmin } from "./supabase.ts";
 import { getSetting } from "./system-settings.ts";
-import { roundCents } from "./consignor-payout-math.ts";
 import {
   AFFILIATE_PAYOUT_CONFIG_KEY,
   type AffiliatePayoutConfig,
@@ -38,6 +37,17 @@ import {
 
 const SWEEP_LOOKBACK_DAYS = 60;
 const SWEEP_LIMIT = 500;
+
+// Sum a set of ledger rows' amounts. Since US-1655 the affiliate ledger stores
+// INTEGER CENTS, so the sum is exact integer cents (no float rounding needed);
+// each row is coerced defensively — a null/garbage amount contributes 0.
+function sumCents(rows: ReadonlyArray<{ amount: number | null }>): number {
+  return rows.reduce(
+    (acc, r) =>
+      acc + (typeof r.amount === "number" && Number.isFinite(r.amount) ? Math.round(r.amount) : 0),
+    0,
+  );
+}
 
 export async function getAffiliatePayoutConfig(): Promise<AffiliatePayoutConfig> {
   const raw = await getSetting<unknown>(
@@ -65,7 +75,7 @@ function getStripe(): Stripe | null {
 
 export interface AccrueResult {
   accrued: boolean;
-  amount?: number;
+  amount?: number; // integer cents (US-1655) when accrued
   reason?: string;
 }
 
@@ -164,9 +174,7 @@ export async function processAffiliatePayout(
     .is("payout_id", null)
     .lte("hold_until", nowIso);
   const rows = (rowsRaw ?? []) as Array<{ amount: number | null }>;
-  const balance = roundCents(
-    rows.reduce((acc, r) => acc + (typeof r.amount === "number" ? r.amount : 0), 0),
-  );
+  const balance = sumCents(rows); // integer cents (US-1655)
 
   const account = await loadAccount(affiliateUserId);
   const stripe = opts.stripe !== undefined ? opts.stripe : getStripe();
@@ -174,7 +182,7 @@ export async function processAffiliatePayout(
     account?.stripe_connect_account_id && account?.payouts_enabled && stripe,
   );
 
-  const plan = planPayout({ eligibleBalance: balance, minimum: config.minimum_payout, onboarded });
+  const plan = planPayout({ eligibleBalanceCents: balance, minimum: config.minimum_payout, onboarded });
   if (plan.action === "skip") {
     return {
       outcome: plan.reason === "not_onboarded" ? "queued" : "skipped",
@@ -210,9 +218,7 @@ export async function processAffiliatePayout(
     await supabaseAdmin.from("affiliate_payouts").update({ status: "canceled" }).eq("id", payoutId);
     return { outcome: "skipped", affiliateUserId, payoutId, reason: "no_balance" };
   }
-  const claimedSum = roundCents(
-    claimed.reduce((acc, r) => acc + (typeof r.amount === "number" ? r.amount : 0), 0),
-  );
+  const claimedSum = sumCents(claimed); // integer cents (US-1655)
   await supabaseAdmin.from("affiliate_payouts").update({ amount: claimedSum }).eq("id", payoutId);
 
   return await fireTransfer({
@@ -253,9 +259,7 @@ async function retryAffiliatePayout(
     .select("amount")
     .eq("payout_id", payoutId);
   const linked = (linkedRaw ?? []) as Array<{ amount: number | null }>;
-  const amount = roundCents(
-    linked.reduce((acc, r) => acc + (typeof r.amount === "number" ? r.amount : 0), 0),
-  );
+  const amount = sumCents(linked); // integer cents (US-1655)
   if (amount <= 0) {
     // Orphan/empty payout — cancel it; the accrued balance gets re-batched.
     await supabaseAdmin.from("affiliate_payouts").update({ status: "canceled" }).eq("id", payoutId);
@@ -354,6 +358,8 @@ async function findExistingTransfer(
 
 // Fire (or retry) the Stripe transfer for a payout row. Idempotency key
 // `affiliate_payout_<id>` ⇒ a retry of the SAME row never double-pays.
+// `amount` is INTEGER CENTS (US-1655) — the same minor unit Stripe expects, so
+// it's passed straight through (no *100). Math.round is a defensive coercion.
 async function fireTransfer(args: {
   payoutId: string;
   affiliateUserId: string;
@@ -365,7 +371,7 @@ async function fireTransfer(args: {
   try {
     const transfer = await stripe.transfers.create(
       {
-        amount: Math.round(amount * 100),
+        amount: Math.round(amount),
         currency: "usd",
         destination: accountId,
         metadata: { affiliate_user_id: affiliateUserId, payout_id: payoutId, source: "auto" },

@@ -9,6 +9,30 @@ import { roundCents } from "./consignor-payout-math.ts";
 
 export { roundCents };
 
+// ── Money units (US-1655) ────────────────────────────────────────────────────
+//
+// The affiliate LEDGER (affiliate_commissions.amount, affiliate_payouts.amount)
+// stores INTEGER CENTS so money can never drift by binary-float rounding. The
+// CONFIG (commission_per_conversion, minimum_payout, tax_threshold_usd) stays in
+// USD dollars in system_settings — it's human-edited. Convert config dollars →
+// cents at the decision boundary (planAccrual/planPayout/crossesTaxThreshold),
+// and convert ledger cents → dollars only at the client/JSON boundary
+// (routes/affiliate.ts, the finance-agent feed). Everything in between is
+// integer cents.
+
+// USD dollars → integer cents. Rounds through cents first (half-up, killing
+// 0.1+0.2 float drift) then to a whole cent. Non-finite → 0.
+export function dollarsToCents(usd: number): number {
+  if (!Number.isFinite(usd)) return 0;
+  return Math.round(roundCents(usd) * 100);
+}
+
+// Integer cents → USD dollars (for display / the API contract). Non-finite → 0.
+export function centsToDollars(cents: number): number {
+  if (!Number.isFinite(cents)) return 0;
+  return Math.round(cents) / 100;
+}
+
 // 'off'    → the engine is disabled (no accrual, no payout).
 // 'batched'→ the affiliate-payouts cron accrues conversions + pays eligible
 //            balances over Stripe Connect.
@@ -64,11 +88,14 @@ export type AccrualPlan =
     action: "skip";
     reason: "not_affiliate" | "disabled" | "zero_rate" | "already_accrued";
   }
+  // amount is INTEGER CENTS (the ledger unit) — the config USD rate converted.
   | { action: "accrue"; amount: number };
 
 // Decide whether a converted referral earns an affiliate commission. Only
 // referrals attributed to the affiliate channel accrue; a $0 rate or a disabled
 // engine accrues nothing; an already-accrued conversion is a no-op (idempotent).
+// `rate` is the config commission in USD dollars; the returned amount is the
+// equivalent integer cents (US-1655).
 export function planAccrual(args: {
   attributionSource: string | null | undefined;
   mode: AffiliatePayoutMode;
@@ -79,7 +106,7 @@ export function planAccrual(args: {
   if (alreadyAccrued) return { action: "skip", reason: "already_accrued" };
   if (attributionSource !== "affiliate") return { action: "skip", reason: "not_affiliate" };
   if (mode === "off") return { action: "skip", reason: "disabled" };
-  const amount = roundCents(rate);
+  const amount = dollarsToCents(rate);
   if (amount <= 0) return { action: "skip", reason: "zero_rate" };
   return { action: "accrue", amount };
 }
@@ -88,20 +115,23 @@ export function planAccrual(args: {
 
 export type PayoutPlan =
   | { action: "skip"; reason: "no_balance" | "below_minimum" | "not_onboarded" }
+  // amount is INTEGER CENTS (the eligible balance to transfer).
   | { action: "pay"; amount: number };
 
 // Decide whether to pay out an affiliate's eligible (accrued, past-hold) balance.
 // Order matters: nothing to pay → skip; below the minimum threshold → hold;
 // not yet onboarded to Stripe Connect → hold (the balance keeps accruing). Only
 // an onboarded affiliate whose balance clears the minimum is paid.
+// `eligibleBalanceCents` is the ledger sum in integer cents; `minimum` is the
+// config threshold in USD dollars (converted to cents for the compare) (US-1655).
 export function planPayout(args: {
-  eligibleBalance: number;
+  eligibleBalanceCents: number;
   minimum: number;
   onboarded: boolean;
 }): PayoutPlan {
-  const balance = roundCents(args.eligibleBalance);
+  const balance = Math.round(args.eligibleBalanceCents);
   if (balance <= 0) return { action: "skip", reason: "no_balance" };
-  if (balance < roundCents(args.minimum)) return { action: "skip", reason: "below_minimum" };
+  if (balance < dollarsToCents(args.minimum)) return { action: "skip", reason: "below_minimum" };
   if (!args.onboarded) return { action: "skip", reason: "not_onboarded" };
   return { action: "pay", amount: balance };
 }
@@ -136,7 +166,9 @@ export function isPayoutRetryable(
 }
 
 // 1099 reporting flag: has the affiliate been paid at/over the threshold this
-// (calendar) year. A 0/negative threshold disables the flag.
-export function crossesTaxThreshold(paidYtd: number, threshold: number): boolean {
-  return threshold > 0 && roundCents(paidYtd) >= roundCents(threshold);
+// (calendar) year. `paidYtdCents` is the ledger sum in integer cents; `thresholdUsd`
+// is the config threshold in USD dollars. A 0/negative threshold disables the flag.
+export function crossesTaxThreshold(paidYtdCents: number, thresholdUsd: number): boolean {
+  const threshold = dollarsToCents(thresholdUsd);
+  return threshold > 0 && Math.round(paidYtdCents) >= threshold;
 }

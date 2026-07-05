@@ -11834,8 +11834,8 @@
       "title": "Affiliate amounts as integer cents (float→cents migration)",
       "description": "As the payments operator, I want affiliate commission/payout amounts stored and computed as integer cents end-to-end, so money can never drift by float rounding.",
       "priority": 2143,
-      "passes": false,
-      "notes": "[P3][Source: CODE_REVIEW_2026-07-04.md §Payments] Split from US-1653. HELD migration: amount numeric(10,2)→integer cents on affiliate_commissions + affiliate_payouts touches every stored row + all payout math. LOAD the migrations skill; record in PENDING_MIGRATIONS.md; EXPECTED_SCHEMA_VERSION triple. roundCents already mitigates drift today, so this is correctness hardening not a live bug.",
+      "passes": true,
+      "notes": "[P3][Source: CODE_REVIEW_2026-07-04.md §Payments] Split from US-1653. DONE 2026-07-05: 00375 converts affiliate_commissions.amount + affiliate_payouts.amount numeric(10,2)→integer cents (backfill *100, guarded on data_type='numeric' so a re-run can't double-multiply). Engine (affiliate-payout.ts) carries integer cents end-to-end + drops the *100 at stripe.transfers.create; dollarsToCents/centsToDollars added to affiliate-payout-math.ts; routes/affiliate.ts + agent-tools.ts convert cents→dollars at the API/finance-agent boundary so the client contract + consignor-dollar math are unchanged. HELD in PENDING_MIGRATIONS.md. verify:db green; 22/22 math tests; deno lint clean (pre-existing agent-tools.ts:1825 PropSchema type error from US-1595 is unrelated). EXPECTED_SCHEMA_VERSION=00375 triple.",
       "acceptanceCriteria": [
         "Migration: amount numeric(10,2)→integer cents on affiliate_commissions + affiliate_payouts (idempotent, backfill existing rows *100), with the EXPECTED_SCHEMA_VERSION triple and self-record footer",
         "Refactor affiliate-payout-math.ts + accrual/payout/retry in affiliate-payout.ts to carry integer cents; drop the *100 at the Stripe transfers.create boundary",

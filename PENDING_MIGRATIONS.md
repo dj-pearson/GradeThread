@@ -1,5 +1,40 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00375_affiliate_amounts_integer_cents.sql (US-1655, 2026-07-05)
+
+**What:** converts `affiliate_commissions.amount` and `affiliate_payouts.amount`
+from `numeric(10,2)` (USD dollars) to `integer` (cents), backfilling every
+existing row by `round(amount * 100)`. `CHECK (amount >= 0)` and `DEFAULT 0`
+carry over unchanged. The edge engine (`lib/affiliate-payout.ts`) now carries
+integer cents end-to-end and drops the `*100` at the `stripe.transfers.create`
+boundary (cents are the minor unit Stripe already expects). Self-records '00375'.
+
+**Risk: MEDIUM — money-transforming column type change on existing rows.** The
+transform runs `amount * 100` on live data, so it is guarded on
+`data_type='numeric'`: once the column is already `integer` the `DO` block is a
+no-op, making a re-run (apply-prod-migrations.sh re-runs the whole directory)
+safe — it can NEVER double-multiply. Proven locally: verify:db green (fresh
+from-zero apply reaches 00375) + a direct scratch-table proof
+($5.00→500, $12.34→1234, $0.10→10, $599.99→59999, $0→0; a second run leaves them
+unchanged). The affiliate engine ships `mode:'off'` by default, so in practice
+these tables are empty in prod today — the backfill is a safety net, not a live
+data move, but it is correct either way.
+
+**⚠️ CLIENT READ — converted at the API boundary, NOT client-side:** the web
+(`src/pages/referrals.tsx`) renders `payouts.balance.*`, `payouts.tax.*`, and
+`payouts.payouts[].amount` as USD currency. The route `routes/affiliate.ts` now
+converts cents→dollars at the JSON boundary (via `centsToDollars`), so the client
+contract is UNCHANGED and no frontend edit is required. The finance-agent feed
+(`lib/agent-tools.ts fetchRecentPayouts`) likewise converts affiliate cents→dollars
+so its dollar math stays consistent with `consignor_payouts` (still numeric
+dollars — NOT touched by this migration). **Because the contract is preserved,
+the frontend auto-deploy on push is safe even before the SQL is applied** — but
+apply the SQL first anyway so the edge boot guard (now **00375**) doesn't crash-loop.
+
+**⚠️ Apply order:** after 00310 (the affiliate tables) and 00374. `NOTIFY pgrst,
+'reload schema';` IS needed (column type changed). Redeploy the edge so its boot
+guard matches 00375.
+
 ## ⏳ HELD: 00374_seed_user_lifecycle_agent.sql (US-1600 / AGENTIC-OS Phase 1, 2026-07-05)
 
 **What:** seeds ONE `agents` row — the User Lifecycle agent (module U),

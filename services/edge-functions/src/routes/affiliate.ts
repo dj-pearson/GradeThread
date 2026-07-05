@@ -17,6 +17,7 @@ import Stripe from "stripe";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { ensureCode } from "./referrals.ts";
 import {
+  centsToDollars,
   crossesTaxThreshold,
   isPastHold,
 } from "../lib/affiliate-payout-math.ts";
@@ -253,19 +254,22 @@ affiliateRoutes.get("/payouts", async (c) => {
     status: string;
     hold_until: string | null;
   }>;
-  let accruedPayable = 0;
-  let accruedHeld = 0;
-  let paid = 0;
+  // amount is INTEGER CENTS since US-1655 — sum in cents, convert at the JSON edge.
+  let accruedPayableCents = 0;
+  let accruedHeldCents = 0;
+  let paidCents = 0;
   for (const row of commissions) {
-    const amt = typeof row.amount === "number" ? row.amount : 0;
+    const amt = typeof row.amount === "number" && Number.isFinite(row.amount)
+      ? Math.round(row.amount)
+      : 0;
     if (row.status === "paid") {
-      paid += amt;
+      paidCents += amt;
     } else if (row.status === "accrued") {
       const holdMs = row.hold_until ? Date.parse(row.hold_until) : null;
       if (isPastHold(Number.isFinite(holdMs as number) ? (holdMs as number) : null, nowMs)) {
-        accruedPayable += amt;
+        accruedPayableCents += amt;
       } else {
-        accruedHeld += amt;
+        accruedHeldCents += amt;
       }
     }
   }
@@ -275,10 +279,13 @@ affiliateRoutes.get("/payouts", async (c) => {
     status: string;
     paid_at: string | null;
   }>;
-  // 1099 reporting flag = USD actually paid out this calendar year.
-  const paidThisYear = payouts
+  // 1099 reporting flag = actually paid out this calendar year (integer cents).
+  const paidThisYearCents = payouts
     .filter((p) => p.status === "paid" && p.paid_at && p.paid_at >= yearStart)
-    .reduce((acc, p) => acc + (typeof p.amount === "number" ? p.amount : 0), 0);
+    .reduce(
+      (acc, p) => acc + (typeof p.amount === "number" && Number.isFinite(p.amount) ? Math.round(p.amount) : 0),
+      0,
+    );
 
   const acct = acctRaw as
     | { stripe_connect_account_id: string | null; payouts_enabled: boolean | null }
@@ -294,15 +301,20 @@ affiliateRoutes.get("/payouts", async (c) => {
       payouts_enabled: Boolean(acct?.payouts_enabled),
     },
     balance: {
-      accrued_payable: Math.round(accruedPayable * 100) / 100,
-      accrued_held: Math.round(accruedHeld * 100) / 100,
-      paid: Math.round(paid * 100) / 100,
+      accrued_payable: centsToDollars(accruedPayableCents),
+      accrued_held: centsToDollars(accruedHeldCents),
+      paid: centsToDollars(paidCents),
     },
     tax: {
       threshold: config.tax_threshold_usd,
-      paid_this_year: Math.round(paidThisYear * 100) / 100,
-      reaches_1099_threshold: crossesTaxThreshold(paidThisYear, config.tax_threshold_usd),
+      paid_this_year: centsToDollars(paidThisYearCents),
+      reaches_1099_threshold: crossesTaxThreshold(paidThisYearCents, config.tax_threshold_usd),
     },
-    payouts: payoutsRaw ?? [],
+    // amount is stored in integer cents (US-1655); convert to USD dollars for the
+    // client contract (referrals.tsx renders payouts[].amount as currency).
+    payouts: ((payoutsRaw ?? []) as Array<Record<string, unknown>>).map((p) => ({
+      ...p,
+      amount: centsToDollars(typeof p.amount === "number" ? p.amount : 0),
+    })),
   });
 });

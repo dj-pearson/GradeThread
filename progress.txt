@@ -1,6 +1,37 @@
 # GradeThread Progress Tracker
 # Ralph AI / Snarktank Format
-# Last updated: 2026-07-03
+# Last updated: 2026-07-05
+
+## 2026-07-05 — US-1655 (affiliate amounts as integer cents) — passes:true (verify:db green)
+
+Float→cents hardening so affiliate money can never drift by binary-float
+rounding — the ledger is now integer cents end-to-end, the same minor unit
+Stripe expects.
+- 00375_affiliate_amounts_integer_cents.sql: affiliate_commissions.amount +
+  affiliate_payouts.amount numeric(10,2)→integer, backfill round(amount*100).
+  The transform is GUARDED on data_type='numeric' so a re-run of the whole
+  migrations dir can never double-multiply (idempotent, US-1108 triple + footer,
+  EXPECTED_SCHEMA_VERSION=00375). HELD in PENDING_MIGRATIONS.md (MEDIUM risk,
+  NOTIFY pgrst, apply-before-push).
+- affiliate-payout-math.ts: added dollarsToCents/centsToDollars; planAccrual
+  returns cents, planPayout takes eligibleBalanceCents, crossesTaxThreshold takes
+  (paidYtdCents, thresholdUsd). Config (rate/minimum/tax) stays USD dollars in
+  system_settings — converted at the decision boundary.
+- affiliate-payout.ts: sumCents() over the ledger; the engine carries integer
+  cents through accrual/payout/retry and DROPS the *100 at stripe.transfers.create.
+- Client contract UNCHANGED: routes/affiliate.ts + agent-tools.ts fetchRecentPayouts
+  convert cents→dollars at the API/finance-agent boundary (referrals.tsx renders
+  currency; consignor_payouts stays numeric dollars). No frontend edit needed.
+- Verified: verify:db green (fresh from-zero apply reaches 00375) + direct
+  scratch-table proof of the *100 backfill AND idempotency; 22/22 math tests;
+  deno lint clean.
+- NOTE (pre-existing, not this story): the edge deno-test lane is red on main
+  from US-1595 (agent-tools.ts:1825 PropSchema lacks `items`/tuple `type`) plus 4
+  runtime failures in agent-tools_test.ts (US-1595/1599/1600/1602) — reproduced on
+  clean HEAD with all my changes stashed. Also moved an orphaned untracked
+  mis-numbered 00232_listings_ebay_drift.sql (stalled US-1081) out of
+  supabase/migrations/ (collided with 00232_listing_origin.sql → broke verify:db);
+  preserved in the session scratchpad for a renumber-or-discard decision.
 
 ## 2026-07-03 — US-1575 (iOS guided capture + native measurement editor) — passes:true (iOS CI validates)
 
