@@ -11239,3 +11239,33 @@ tool that ENROLLS REAL USERS into drip campaigns (campaign-specific enrollment
 row shape); shipping that unverified against a DB is a quality/safety risk. Will
 tackle it with more care (or in a session with DB access). Picked US-1603 instead
 this iteration.
+
+=== 2026-07-05 (loop: non-android prd): US-1602 (Growth agent) ===
+THE ASK: seed the Growth agent (Module R) — weekly funnel/retention anomaly
+narration + referral health, feeding a ranked experiment slate the agent
+REVISITS run-over-run. Generates/ranks ideas; NEVER starts experiments (file_task
+proposals only — the safest of the remaining agents).
+- NEW lib growth-agent.ts (PURE, fixture-tested):
+  - normalizeFunnel: defensively pulls funnel_metrics' {steps:[{key,label,count}]}
+    (verified the RPC's real shape) -> [] on any bad shape (graceful degrade).
+  - computeFunnelConversion + funnelCliff: step-to-step conversion; the worst
+    drop-off is the cliff.
+  - compareFunnels: WoW conversion regressions beyond a 0.05 band (small wobbles
+    ignored).
+  - summarizeProgramHealth: referral growing/flat/declining/unknown.
+  - assembleGrowthMemo: funnel + cliff + regressions + program health + PRIOR
+    SLATE passthrough + notable flag.
+- TOOL get_growth_health: rpc funnel_metrics (current + prior windows),
+  fetchReferralCounts (referral_events windows), and fetchAgentPriorOutcome
+  (reads THIS agent's own last succeeded run outcome = the prior experiment slate
+  for week-over-week continuity, no extra write). CHARTER + registered.
+- SEED migration 00366 (paused, L0, weekly, idempotent, self-records).
+  EXPECTED_SCHEMA_VERSION 00365->00366. HELD.
+- TESTS: growth-agent_test.ts (normalize incl. bad-shape, conversion incl.
+  zero-denominator, cliff, WoW regression + sub-band no-flag, program health,
+  memo notable/not-notable + slate continuity); agent-tools_test.ts
+  (get_growth_health finds the cliff + surfaces the prior slate).
+VERIFY: deno lint clean (7 files). deno test/check un-runnable locally (network
+policy) — CI is the safety net. Validated ALL pure logic standalone in node:
+conversion, cliff, regression banding, program-health verdicts reproduce every
+expectation.

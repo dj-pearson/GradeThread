@@ -41,6 +41,7 @@ import {
   type MetricInput,
   type PendingAction,
 } from "./ceo-brief.ts";
+import { assembleGrowthMemo } from "./growth-agent.ts";
 import { type ReorderReviewQueueResult, reorderReviewQueue } from "./review-queue-order.ts";
 import { resolveRevenueWindow } from "./revenue-window.ts";
 import { type AuditLogInput, writeSystemAuditLog } from "./audit-log.ts";
@@ -214,6 +215,10 @@ export interface ToolIO {
     latestRuns: AgentLatestRun[];
     pendingProposals: PendingAction[];
   }>;
+  // US-1602: referral-program volume in a window + the agent's own prior run
+  // outcome (the last experiment slate, for week-over-week continuity).
+  fetchReferralCounts(curStartIso: string, curEndIso: string, priorStartIso: string): Promise<{ current: number; prior: number }>;
+  fetchAgentPriorOutcome(agentId: string): Promise<unknown>;
   // ── Write-side (used only by executeWrite / approved proposals) ──
   // Re-fire a registered cron job by key over the internal job rails.
   runJob(jobKey: string): Promise<{ ok: boolean; status: number; error?: string }>;
@@ -477,6 +482,32 @@ export function prodToolIO(): ToolIO {
       const pendingProposals: PendingAction[] = ((proposalRows.data ?? []) as Array<{ id: string; agent_id: string; title: string }>)
         .map((p) => ({ id: p.id, agent_key: keyById.get(p.agent_id) ?? "(unknown)", title: p.title }));
       return { agents: agents.map((a) => ({ key: a.key, name: a.name })), metrics, latestRuns, pendingProposals };
+    },
+    fetchReferralCounts: async (curStartIso, curEndIso, priorStartIso) => {
+      const countWindow = async (startIso: string, endIso: string): Promise<number> => {
+        const { count } = await supabaseAdmin
+          .from("referral_events")
+          .select("id", { count: "exact", head: true })
+          .gte("created_at", startIso)
+          .lt("created_at", endIso);
+        return count ?? 0;
+      };
+      const [current, prior] = await Promise.all([
+        countWindow(curStartIso, curEndIso),
+        countWindow(priorStartIso, curStartIso),
+      ]);
+      return { current, prior };
+    },
+    fetchAgentPriorOutcome: async (agentId) => {
+      const { data } = await supabaseAdmin
+        .from("agent_runs")
+        .select("outcome")
+        .eq("agent_id", agentId)
+        .eq("status", "succeeded")
+        .order("finished_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      return (data as { outcome?: unknown } | null)?.outcome ?? null;
     },
     runJob: async (jobKey) => {
       // Only registered, runnable cron jobs — never an arbitrary URL.
@@ -994,6 +1025,32 @@ const TOOL_LIST: AgentToolDef[] = [
         pendingProposals: data.pendingProposals,
       });
       return { context };
+    },
+  },
+  {
+    name: "get_growth_health",
+    description: "Growth agent memo (US-1602): the acquisition funnel (funnel_metrics) with step-to-step conversions, the worst drop-off ('cliff'), week-over-week conversion regressions, referral-program health, and the PRIOR run's experiment slate for continuity. Aggregates only. The agent narrates + ranks experiment ideas; it does not start experiments.",
+    class: "read",
+    inputSchema: { type: "object", properties: {} },
+    handler: async (_input, ctx) => {
+      const WEEK = 7 * 24 * 3600_000;
+      const curEnd = new Date(ctx.now).toISOString();
+      const curStart = new Date(ctx.now - WEEK).toISOString();
+      const priorStart = new Date(ctx.now - 2 * WEEK).toISOString();
+      const [currentFunnel, priorFunnel, referrals, priorSlate] = await Promise.all([
+        ctx.io.rpc("funnel_metrics", { p_start: curStart, p_end: curEnd }),
+        ctx.io.rpc("funnel_metrics", { p_start: priorStart, p_end: curStart }),
+        ctx.io.fetchReferralCounts(curStart, curEnd, priorStart),
+        ctx.io.fetchAgentPriorOutcome(ctx.agentId),
+      ]);
+      const memo = assembleGrowthMemo({
+        currentFunnel,
+        priorFunnel,
+        referralsCurrent: referrals.current,
+        referralsPrior: referrals.prior,
+        priorSlate,
+      });
+      return { memo };
     },
   },
 

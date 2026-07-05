@@ -43,6 +43,8 @@ function fakeIO(over: Partial<ToolIO> = {}): { io: ToolIO; audits: AuditLogInput
     countOpenModerationFlags: () => Promise.resolve(0),
     countOpenPassportIntegritySignals: () => Promise.resolve(0),
     fetchCeoBriefData: () => Promise.resolve({ agents: [], metrics: [], latestRuns: [], pendingProposals: [] }),
+    fetchReferralCounts: () => Promise.resolve({ current: 0, prior: 0 }),
+    fetchAgentPriorOutcome: () => Promise.resolve(null),
     runJob: () => Promise.resolve({ ok: true, status: 200 }),
     requeueEmailDeadLetter: () => Promise.resolve(true),
     resolveAgentTaskProject: () => Promise.resolve("proj-1"),
@@ -240,6 +242,32 @@ Deno.test("US-1604: get_integrations_health assembles a memo from the reads", as
   };
   assertEquals(res.memo?.token_fleet?.expired, 1);
   assertEquals(res.memo?.all_clear, false);
+});
+
+// ── US-1602: get_growth_health memo ──────────────────────────────────────────
+
+Deno.test("US-1602: get_growth_health finds the funnel cliff + surfaces the prior slate", async () => {
+  const funnel = (subscribed: number) => ({
+    steps: [
+      { key: "signed_up", label: "Signed up", count: 1000 },
+      { key: "submitted", label: "First submission", count: 400 },
+      { key: "graded", label: "First grade", count: 380 },
+      { key: "subscribed", label: "Subscribed", count: subscribed },
+    ],
+  });
+  const { io } = fakeIO({
+    rpc: (name) => Promise.resolve(name === "funnel_metrics" ? funnel(40) : null),
+    fetchAgentPriorOutcome: () => Promise.resolve({ findings: [{ type: "experiment_slate", items: ["idea A"] }] }),
+  });
+  const reg = createAgentToolRegistry(io);
+  const a = agent(["get_growth_health"]);
+  const res = await reg.execute(a, "get_growth_health", {}) as {
+    memo?: { cliff?: { from: string; to: string }; prior_slate?: unknown };
+  };
+  // signed_up→submitted is 0.4, the worst drop-off.
+  assertEquals(res.memo?.cliff?.from, "signed_up");
+  assertEquals(res.memo?.cliff?.to, "submitted");
+  assert(res.memo?.prior_slate !== null); // continuity: prior run surfaced
 });
 
 // ── US-1603: get_ceo_brief context ───────────────────────────────────────────

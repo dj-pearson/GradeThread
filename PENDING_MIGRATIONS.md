@@ -1,5 +1,20 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00366_seed_growth_agent.sql (US-1602 / AGENTIC-OS Phase 1, 2026-07-05)
+
+**What:** seeds ONE `agents` row — the Growth agent (module R), `status='paused'`,
+`autonomy='{}'` (L0), config = WEEKLY schedule / sonnet model / read-only allowlist
+(get_growth_health) / $2 cap. Narrates funnel anomalies + referral health and
+files experiment briefs as admin tasks (file_task) once an operator grants L1; it
+generates/ranks ideas but never starts experiments. The prompt lives in the repo
+charter. `ON CONFLICT (key) DO NOTHING` (idempotent). Self-records '00366'.
+
+**Risk: LOW — one seed row into the operator agents table (00357).** No client
+reads. Seeded PAUSED. Edge boot guard now expects **00366**.
+
+**⚠️ Apply order:** apply after 00357–00365. Data-only (no `NOTIFY pgrst` needed).
+Redeploy the edge so its boot guard matches 00366.
+
 ## ⏳ HELD: 00365_seed_ceo_brief_agent.sql (US-1603 / AGENTIC-OS Phase 1, 2026-07-05)
 
 **What:** seeds ONE `agents` row — the CEO Brief chief-analyst (module Y),
