@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   AlertTriangle,
   Camera,
+  ImagePlus,
   Ruler,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -53,7 +54,8 @@ import {
 import { useEbayConnection } from "@/hooks/use-ebay";
 import { ReconcilePanel } from "@/components/flipdesk/reconcile-panel";
 import { VirtualList } from "@/components/flipdesk/virtual-list";
-import type { PhotoQaIssue } from "@/types/database";
+import { PhotoUploader } from "@/components/flipdesk/photo-uploader";
+import type { ItemCategory, ItemStatus, PhotoQaIssue } from "@/types/database";
 import { cn } from "@/lib/utils";
 
 // AutoLister queue / progress view (US-318). Polls the batch until it finishes,
@@ -132,6 +134,13 @@ export function FlipdeskAutolisterQueuePage() {
   const [queueFilter, setQueueFilter] = useState<"all" | "ready" | "review" | "failed">("all");
   const [queueSort, setQueueSort] = useState<"confidence" | "price" | "status">("confidence");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // Add-photos dialog: the draft whose photos are being edited in place (fixes a
+  // missing required photo without leaving the cockpit), plus whether the set
+  // actually changed while it was open (so we only re-score QA when it did).
+  const [photoItem, setPhotoItem] = useState<
+    { id: string; title: string; category: ItemCategory | null; status: ItemStatus | null } | null
+  >(null);
+  const photosDirtyRef = useRef(false);
 
   const runPhotoQa = useRunPhotoQa();
 
@@ -145,6 +154,9 @@ export function FlipdeskAutolisterQueuePage() {
     qaIssues: PhotoQaIssue[];
     /** US-1578: informational — the item carries flat measurements. */
     hasMeasurements: boolean;
+    /** Feed the in-cockpit "Add photos" uploader the right slot profile + status. */
+    category: ItemCategory | null;
+    status: ItemStatus | null;
   }
   const { data: itemMeta = {} } = useQuery<Record<string, ItemMeta>>({
     queryKey: ["autolister_item_meta", batchId, itemIds.length],
@@ -156,7 +168,7 @@ export function FlipdeskAutolisterQueuePage() {
       for (let i = 0; i < itemIds.length; i += CHUNK) {
         const { data: rows } = await supabase
           .from("inventory_items")
-          .select("id, title, photo_qa_score, photo_qa_issues, measurements")
+          .select("id, title, photo_qa_score, photo_qa_issues, measurements, category, status")
           .in("id", itemIds.slice(i, i + CHUNK));
         for (
           const r of (rows ?? []) as Array<{
@@ -165,6 +177,8 @@ export function FlipdeskAutolisterQueuePage() {
             photo_qa_score: number | null;
             photo_qa_issues: PhotoQaIssue[] | null;
             measurements: Record<string, unknown> | null;
+            category: ItemCategory | null;
+            status: ItemStatus | null;
           }>
         ) {
           map[r.id] = {
@@ -173,6 +187,8 @@ export function FlipdeskAutolisterQueuePage() {
             qaIssues: r.photo_qa_issues ?? [],
             hasMeasurements: !!r.measurements &&
               Object.keys(r.measurements).length > 0,
+            category: r.category ?? null,
+            status: r.status ?? null,
           };
         }
       }
@@ -554,6 +570,23 @@ export function FlipdeskAutolisterQueuePage() {
     }
   }
 
+  // Close the add-photos dialog. If the photo set changed while it was open,
+  // re-score just that item so its "Photos NN" badge (and issue tooltip) reflect
+  // the new photos — an open/close with no edits costs no QA call.
+  async function closePhotoDialog() {
+    const edited = photoItem;
+    const dirty = photosDirtyRef.current;
+    setPhotoItem(null);
+    photosDirtyRef.current = false;
+    if (!edited || !dirty) return;
+    try {
+      await runPhotoQa.mutateAsync({ itemIds: [edited.id] });
+      await queryClient.invalidateQueries({ queryKey: ["autolister_item_meta"] });
+    } catch {
+      /* useRunPhotoQa surfaces the error toast; the photos are already saved */
+    }
+  }
+
   async function retryFailed() {
     if (failedItemIds.length === 0 || !batchId) return;
     // In-place retry: re-runs only the failed jobs in this batch and
@@ -869,6 +902,29 @@ export function FlipdeskAutolisterQueuePage() {
 
               {/* US-537: photo readiness — nudge a reshoot before publish. */}
               <PhotoQaBadge meta={itemMeta[job.inventory_item_id]} />
+              {/* Add or replace this draft's photos in place — fixes a missing
+                  required photo without a round-trip to the composer. */}
+              {job.status === "success" && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 shrink-0 gap-1 px-2 text-xs text-muted-foreground"
+                  onClick={() => {
+                    const m = itemMeta[job.inventory_item_id];
+                    photosDirtyRef.current = false;
+                    setPhotoItem({
+                      id: job.inventory_item_id,
+                      title: titleOf(job.inventory_item_id),
+                      category: m?.category ?? null,
+                      status: m?.status ?? null,
+                    });
+                  }}
+                  title="Add or replace this draft's photos"
+                >
+                  <ImagePlus className="h-3 w-3" />
+                  Add photos
+                </Button>
+              )}
               <MeasurementsBadge
                 has={itemMeta[job.inventory_item_id]?.hasMeasurements}
               />
@@ -975,6 +1031,46 @@ export function FlipdeskAutolisterQueuePage() {
         loading={preflightLoading}
         onConfirm={confirmPublish}
       />
+
+      {/* Add-photos in place: the full shared uploader (required slots, compression,
+          EXIF strip, background removal) in a dialog so a seller can fix a missing
+          required photo from the cockpit. On close we re-score QA only if the set
+          changed (photosDirtyRef). */}
+      <Dialog
+        open={photoItem != null}
+        onOpenChange={(open) => {
+          if (!open) void closePhotoDialog();
+        }}
+      >
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="truncate">
+              Photos{photoItem ? ` — ${photoItem.title}` : ""}
+            </DialogTitle>
+            <DialogDescription>
+              Add or replace this draft's photos. Required slots are marked; the
+              row's photo score refreshes when you close.
+            </DialogDescription>
+          </DialogHeader>
+          {photoItem && (
+            <div className="max-h-[70vh] overflow-y-auto pr-1">
+              <PhotoUploader
+                itemId={photoItem.id}
+                currentStatus={photoItem.status ?? undefined}
+                category={photoItem.category}
+                onChange={() => {
+                  photosDirtyRef.current = true;
+                }}
+              />
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => void closePhotoDialog()}>
+              Done
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

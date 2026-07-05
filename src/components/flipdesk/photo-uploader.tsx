@@ -38,6 +38,7 @@ export function PhotoUploader({
   itemId,
   currentStatus,
   category,
+  onChange,
 }: {
   itemId: string;
   currentStatus?: ItemStatus;
@@ -47,6 +48,13 @@ export function PhotoUploader({
    * clothing flows are unchanged.
    */
   category?: ItemCategory | null;
+  /**
+   * Fired after the item's photo set actually changes (a successful upload,
+   * delete, or in-place edit). Lets a host (e.g. the AutoLister cockpit dialog)
+   * know it should re-run photo QA / refresh indicators only when something
+   * really changed — an open-then-close with no edits fires nothing.
+   */
+  onChange?: () => void;
 }) {
   const user = useAuthStore((s) => s.user);
   const { workspaceOwnerId } = useWorkspace();
@@ -230,6 +238,7 @@ export function PhotoUploader({
       }
 
       await qc.invalidateQueries({ queryKey: ["item_photos", itemId] });
+      onChange?.();
       const savedPct = ((1 - body.size / originalSize) * 100).toFixed(0);
       const sizeNote =
         body.size < originalSize && originalSize > 100 * 1024
@@ -259,6 +268,7 @@ export function PhotoUploader({
         .eq("id", photo.id);
       if (error) throw error;
       await qc.invalidateQueries({ queryKey: ["item_photos", itemId] });
+      onChange?.();
     } catch (err) {
       toast.error(
         `Delete failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -286,6 +296,7 @@ export function PhotoUploader({
       .eq("id", editingPhoto.id);
     if (dbErr) throw dbErr;
     await qc.invalidateQueries({ queryKey: ["item_photos", itemId] });
+    onChange?.();
     toast.success("Photo updated.");
     setEditingPhoto(null);
   }
