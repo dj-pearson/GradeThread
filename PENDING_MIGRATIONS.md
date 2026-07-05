@@ -1,5 +1,21 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00359_seed_grading_quality_agent.sql (US-1594 / AGENTIC-OS Phase 1, 2026-07-05)
+
+**What:** seeds ONE `agents` row — the Grading Quality agent (module G),
+`status='paused'`, `autonomy='{}'` (L0), config = weekly schedule / sonnet model
+/ read-only allowlist (get_grading_quality + get_review_queue_stats) / $2 daily
+cap. The prompt lives in the repo charter (`agents/charters/grading-quality.ts`).
+It has NO grading write tools — it can never mutate grading config. `ON CONFLICT
+(key) DO NOTHING` (idempotent). Self-records '00359'.
+
+**Risk: LOW — one seed row into the operator agents table (00357).** No client
+reads. Seeded PAUSED, so it does nothing until an operator enables it. Edge boot
+guard now expects **00359**.
+
+**⚠️ Apply order:** apply after 00357/00358. Data-only (no `NOTIFY pgrst`
+needed). Redeploy the edge so its boot guard matches 00359.
+
 ## ⏳ HELD: 00358_seed_sentinel_agent.sql (US-1593 / AGENTIC-OS Phase 1, 2026-07-05)
 
 **What:** seeds ONE `agents` row — the Sentinel health/incident agent (module H),

@@ -29,6 +29,7 @@ import { supabaseAdmin } from "./supabase.ts";
 import { aggregateJobStats, failingJobCount, isRunnableJob, type RawRun } from "./ops-jobs.ts";
 import { CRON_REGISTRY, DEFAULT_JOB_SECRET_ENV } from "./cron-runs.ts";
 import { correlateIncidents, type Signal } from "./sentinel.ts";
+import { assembleGradingMemo, gatherGradingTelemetry } from "./grading-quality.ts";
 import { resolveRevenueWindow } from "./revenue-window.ts";
 import { type AuditLogInput, writeSystemAuditLog } from "./audit-log.ts";
 import { redact, redactError } from "./log-redact.ts";
@@ -533,6 +534,16 @@ const TOOL_LIST: AgentToolDef[] = [
     handler: async (_input, ctx) => {
       const health = (await ctx.io.rpc("system_health")) as { queues?: Record<string, unknown> } | null;
       return { queues: health?.queues ?? {} };
+    },
+  },
+  {
+    name: "get_grading_quality",
+    description: "Weekly grading-quality telemetry pre-assembled into a memo: per-category + per-prompt-version accuracy (MAE/agreement), what regressed vs improved, calibration gaps, exemplar-pool coverage holes, and review-queue depth. Read-only; the Grading Quality agent's primary input.",
+    class: "read",
+    inputSchema: { type: "object", properties: {} },
+    handler: async () => {
+      const telemetry = await gatherGradingTelemetry();
+      return { memo: assembleGradingMemo(telemetry), telemetry };
     },
   },
   {

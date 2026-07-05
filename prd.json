@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1658,
+  "nextId": 1659,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -10508,18 +10508,17 @@
     },
     {
       "id": "US-1594",
-      "title": "Grading Quality agent: accuracy synthesis + info-value review routing",
-      "description": "As the operator, I want an agent that reads the grading telemetry I already collect (accuracy tracking, shadow results, calibration drift, review-queue stats) and turns it into a weekly memo plus review-queue routing proposals — the active-learning layer from AGENT_LEVELUP_ROADMAP §6.3.",
+      "title": "Grading Quality agent: accuracy synthesis + weekly memo (read + lifecycle-safe)",
+      "description": "As the operator, I want an agent that reads the grading telemetry I already collect (accuracy tracking, shadow results, calibration drift, review-queue stats, exemplar coverage) and turns it into a weekly memo — and that can NEVER execute a grading-config change, only file an admin task pointing at the shadow→eval→canary lifecycle.",
       "acceptanceCriteria": [
-        "Agent seeded (module G, weekly schedule) with read tools over accuracy-tracking outputs, shadow-eval results, confidence-calibration state, and review-queue stats (add thin read tools where none exist — reads only, reusing existing libs)",
-        "Weekly memo outcome: what regressed / what improved per category and prompt version, calibration gaps, exemplar-pool coverage holes — persisted as the run outcome and included in the Operator Brief",
-        "L1 proposal: reorder the human-review queue by information value using the existing review-info-value machinery (a write tool wrapping it), with the ranking rationale as evidence",
-        "Prompt-version or threshold changes are NEVER executed by this agent: it may only file an admin task pointing at the existing shadow → eval gate → canary lifecycle with its supporting data",
-        "Deno tests with fixture telemetry proving the memo structure and that a threshold-change intent becomes a task, not an action; lint + check clean"
+        "Agent seeded (module G, weekly schedule) with read tools over accuracy-tracking, shadow-eval, confidence-calibration, review-queue stats, and exemplar coverage (a get_grading_quality read tool bundling them + the existing ops reads; reads only, reusing existing libs)",
+        "Weekly memo outcome (pure assembleGradingMemo): what regressed / improved per category + prompt version, calibration gaps, exemplar-pool coverage holes, review-queue depth — persisted as the run outcome (so the Operator Brief includes it)",
+        "Prompt-version / threshold / calibration / exemplar changes are NEVER executed by this agent: classifyGradingIntent maps every grading-config change to a file_task pointing at the existing shadow→eval→canary lifecycle with its supporting data. The agent has NO grading write tools.",
+        "Deno tests with fixture telemetry proving the memo structure and that a threshold-change intent classifies as file_task (task, not action); lint + check clean"
       ],
       "priority": 2339,
-      "passes": false,
-      "notes": "[AGENTIC-OS Phase 1][Module G — Grading Quality] Load the grading-engine skill FIRST (mandatory for any grading-adjacent code). Read AGENTIC_OS.md §3.G + §5 (no bypassing safety lifecycles).",
+      "passes": true,
+      "notes": "[AGENTIC-OS Phase 1][Module G] Read half (split). Load the grading-engine skill. The L1 review-queue REORDER write tool (review-info-value machinery + its persistence) is US-1658 — safety-sensitive, needs its own verified change.",
       "dependsOn": [
         "US-1588",
         "US-1587"
@@ -11876,6 +11875,29 @@
         "services/edge-functions/src/main.ts",
         "services/edge-functions/src/lib/admin-notifications.ts",
         "services/edge-functions/src/lib/agent-proposals.ts"
+      ]
+    },
+    {
+      "id": "US-1658",
+      "title": "Grading Quality agent: review-queue reorder write tool (info-value)",
+      "description": "As the operator, I want to approve a proposal that reorders the human-review queue by information value using the existing review-info-value machinery — so high-signal reviews surface first.",
+      "priority": 2339,
+      "passes": false,
+      "notes": "[AGENTIC-OS Phase 1][Module G] Write half of US-1594 (split). Load the grading-engine skill. review-info-value has NO persisted ordering today (informationValue/rankReviews are pure scorers; the queue orders by review_due_at). Decide: persist a recommended order (system_settings artifact, migration-free) OR add a nullable grade_reports.review_priority_score + NULLS-LAST ORDER BY (held migration). Wire a reorder_review_queue WRITE tool (proposal-gated) + ACTION_CLASS_TO_TOOL adjust_queue→reorder_review_queue; classifyGradingIntent(reorder)→adjust_queue. NEVER mutate grades/prompts/thresholds.",
+      "acceptanceCriteria": [
+        "A reorder_review_queue write tool (class write) computes the info-value ranking of pending human-review items via informationValue + rankReviews (reusing the admin-grading ReviewInfoContext build) and persists the recommended order with the ranking rationale as evidence — no grade/prompt/threshold mutation",
+        "ACTION_CLASS_TO_TOOL maps adjust_queue→reorder_review_queue; classifyGradingIntent(reorder_review_queue) returns adjust_queue so the Grading Quality agent can file it as an L1 proposal",
+        "If a persisted-order column is chosen: a held migration adds a NULLABLE grade_reports.review_priority_score with a backward-compatible NULLS-LAST ORDER BY (unset = today's behavior); recorded in PENDING_MIGRATIONS.md",
+        "Deno tests for the ranking→persisted-order mapping; grading-engine checklist respected; lint + check clean"
+      ],
+      "dependsOn": [
+        "US-1594"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/lib/review-info-value.ts",
+        "services/edge-functions/src/lib/grading-quality.ts",
+        "services/edge-functions/src/lib/agent-tools.ts",
+        "services/edge-functions/src/routes/admin-grading.ts"
       ]
     }
   ]
