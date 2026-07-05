@@ -38,6 +38,8 @@ export const ACTION_CLASSES = [
   "deny_claim",
   // US-1608 meta-proposal: approving flips an agent's autonomy for a class.
   "promote_autonomy",
+  // US-1610 Release agent: run an active smoke check.
+  "run_smoke",
 ] as const;
 export type KnownActionClass = typeof ACTION_CLASSES[number];
 

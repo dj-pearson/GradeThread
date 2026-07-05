@@ -46,6 +46,10 @@ function fakeIO(over: Partial<ToolIO> = {}): { io: ToolIO; audits: AuditLogInput
     fetchReferralCounts: () => Promise.resolve({ current: 0, prior: 0 }),
     fetchAgentPriorOutcome: () => Promise.resolve(null),
     fetchMaintenanceIntervals: () => Promise.resolve([]),
+    releaseSha: () => "sha-current",
+    fetchReleaseState: () => Promise.resolve(null),
+    persistReleaseState: () => Promise.resolve(),
+    runSmoke: () => Promise.resolve({ ok: true, status: 200 }),
     runJob: () => Promise.resolve({ ok: true, status: 200 }),
     requeueEmailDeadLetter: () => Promise.resolve(true),
     resolveAgentTaskProject: () => Promise.resolve("proj-1"),
@@ -243,6 +247,37 @@ Deno.test("US-1604: get_integrations_health assembles a memo from the reads", as
   };
   assertEquals(res.memo?.token_fleet?.expired, 1);
   assertEquals(res.memo?.all_clear, false);
+});
+
+// ── US-1610: get_release_health + run_smoke ──────────────────────────────────
+
+Deno.test("US-1610: get_release_health flags a regression after a detected deploy", async () => {
+  const failedRuns = Array.from({ length: 12 }, () => ({
+    job_name: "x", status: "failed", http_status: 500, duration_ms: 1, rows_processed: 0, triggered_by: "schedule", created_at: new Date(NOW - 60_000).toISOString(),
+  }));
+  const { io } = fakeIO({
+    releaseSha: () => "new-sha",
+    fetchReleaseState: () => Promise.resolve({ last_sha: "old-sha", baseline: { job_failures_24h: 1, webhook_dlq: 0, email_dlq: 0 }, checked_at: null }),
+    fetchCronRuns: () => Promise.resolve(failedRuns),
+  });
+  const reg = createAgentToolRegistry(io);
+  const a = agent(["get_release_health"]);
+  const res = await reg.execute(a, "get_release_health", {}) as {
+    memo?: { verdict?: string; deploy?: { deployed?: boolean }; comparison?: { regressed?: boolean } };
+  };
+  assertEquals(res.memo?.deploy?.deployed, true);
+  assertEquals(res.memo?.verdict, "regression"); // 1 → 12 job failures
+  assertEquals(res.memo?.comparison?.regressed, true);
+});
+
+Deno.test("US-1610: run_smoke maps to a write tool + is invisible to the run loop", async () => {
+  const { ACTION_CLASS_TO_TOOL } = await import("../lib/agent-tools.ts");
+  assertEquals(ACTION_CLASS_TO_TOOL.run_smoke, "run_smoke");
+  const reg = createAgentToolRegistry(fakeIO().io);
+  const a = agent(["run_smoke", "get_release_health"]);
+  assertEquals(reg.anthropicTools(a).map((t) => t.name), ["get_release_health"]);
+  const res = await reg.executeWrite("run_smoke", {}, { authorizedBy: "admin-1" }) as { ok?: boolean };
+  assertEquals(res.ok, true);
 });
 
 // ── US-1611: get_cron_fleet_health report ────────────────────────────────────

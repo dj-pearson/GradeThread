@@ -1,5 +1,22 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00368_seed_release_agent.sql (US-1610 / AGENTIC-OS Phase 2, 2026-07-05)
+
+**What:** seeds ONE `agents` row — the Release agent (module Q), `status='paused'`,
+`autonomy='{}'` (L0), config = hourly / haiku model / read-only allowlist
+(get_release_health) / $1 cap. Detects a RELEASE_SHA change, compares post-deploy
+health to a pre-deploy baseline, files a regression admin task (file_task) or an
+all-clear; may propose run_smoke. NEVER rolls back. Prompt lives in the repo
+charter. `ON CONFLICT (key) DO NOTHING` (idempotent). Self-records '00368'.
+
+**Risk: LOW — one seed row into the operator agents table (00357).** No client
+reads. Seeded PAUSED. Edge boot guard now expects **00368**. NOTE: the
+get_release_health tool lazily upserts a `release.verify_state` system_settings
+row at runtime (SHA + baseline watermark) — no migration needed.
+
+**⚠️ Apply order:** apply after 00357–00367. Data-only (no `NOTIFY pgrst` needed).
+Redeploy the edge so its boot guard matches 00368.
+
 ## ⏳ HELD: 00367_seed_cron_governance_agent.sql (US-1611 / AGENTIC-OS Phase 2, 2026-07-05)
 
 **What:** seeds ONE `agents` row — the Cron Governance agent (module J),

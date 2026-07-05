@@ -11449,3 +11449,32 @@ VERIFY: deno lint clean (8 files). deno test/check un-runnable locally (network
 policy) — CI is the safety net. Validated ALL pure logic standalone in node:
 stats, every eligibility condition, hard-cap exclusion, demotion trigger — all
 pass. NO migration (agent_proposals/agents/ops_events exist).
+
+=== 2026-07-05 (loop: non-android prd): US-1610 (Release agent) ===
+THE ASK: post-deploy verification + regression attribution (Module Q). NEVER
+rolls back — rollback is a human procedure.
+- NEW lib release-verify.ts (PURE, fixture-tested):
+  - detectDeploy: a RELEASE_SHA change is a deploy (unknown current SHA never is).
+  - compareRelease: post-deploy vs pre-deploy baseline on the QUERYABLE health
+    signals (24h cron failures, webhook + email dead-letter depths) — a metric
+    regresses only when it grows by BOTH an absolute floor (3) AND a ratio band
+    (50%), so near-zero noise doesn't false-alarm. No baseline -> not comparable.
+  - assembleReleaseMemo: no_deploy / insufficient_baseline / clean / regression
+    verdicts (clean is a deliverable — "no news").
+  - nextReleaseState: rolling pre-deploy baseline (refresh on no-deploy; adopt the
+    new SHA + reset baseline on deploy).
+- TOOL get_release_health: RELEASE_SHA (env) + metrics computed from EXISTING
+  reads (fetchCronRuns/fetchWebhookDeadLetters/fetchEmailDeadLetters) + a
+  release.verify_state watermark (operator bookkeeping). NEW run_smoke WRITE tool
+  (hits the internal /health endpoint) + action_class run_smoke.
+- CHARTER release-agent.ts + registered; SEED migration 00368 (paused, L0, hourly,
+  idempotent, self-records). EXPECTED_SCHEMA_VERSION 00367->00368. HELD.
+- TESTS: release-verify_test.ts (deploy detection, comparison regression/noise/
+  ratio/clean, memo verdicts, state rollover); agent-tools_test.ts
+  (get_release_health flags a regression; run_smoke maps to a write tool +
+  invisible to the run loop).
+VERIFY: deno lint clean (8 files) + NUL scan clean (the recurring template-literal
+corruption did NOT recur here). deno test/check un-runnable locally (network
+policy) — CI is the safety net. Validated ALL pure logic standalone in node:
+deploy detection + comparison (regression/noise/ratio/clean) reproduce every
+expectation.

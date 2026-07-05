@@ -43,6 +43,14 @@ import {
 } from "./ceo-brief.ts";
 import { assembleGrowthMemo } from "./growth-agent.ts";
 import { assembleCronFleetReport, type JobRun, type MaintenanceInterval } from "./cron-fleet-governance.ts";
+import {
+  assembleReleaseMemo,
+  compareRelease,
+  detectDeploy,
+  nextReleaseState,
+  type ReleaseMetrics,
+  type ReleaseState,
+} from "./release-verify.ts";
 import { type ReorderReviewQueueResult, reorderReviewQueue } from "./review-queue-order.ts";
 import { resolveRevenueWindow } from "./revenue-window.ts";
 import { type AuditLogInput, writeSystemAuditLog } from "./audit-log.ts";
@@ -223,6 +231,13 @@ export interface ToolIO {
   // US-1611: maintenance windows overlapping the lookback (to suppress missed-
   // tick false alarms). Open-ended windows → endMs Infinity.
   fetchMaintenanceIntervals(sinceIso: string): Promise<MaintenanceInterval[]>;
+  // US-1610: the running release SHA (RELEASE_SHA env) + the persisted release
+  // verification state (last SHA + pre-deploy baseline). Operator bookkeeping.
+  releaseSha(): string | null;
+  fetchReleaseState(): Promise<ReleaseState | null>;
+  persistReleaseState(state: ReleaseState): Promise<void>;
+  // US-1610: run a lightweight in-process smoke (the internal /health endpoint).
+  runSmoke(): Promise<{ ok: boolean; status: number; error?: string }>;
   // ── Write-side (used only by executeWrite / approved proposals) ──
   // Re-fire a registered cron job by key over the internal job rails.
   runJob(jobKey: string): Promise<{ ok: boolean; status: number; error?: string }>;
@@ -512,6 +527,35 @@ export function prodToolIO(): ToolIO {
         .limit(1)
         .maybeSingle();
       return (data as { outcome?: unknown } | null)?.outcome ?? null;
+    },
+    releaseSha: () => Deno.env.get("RELEASE_SHA") ?? null,
+    fetchReleaseState: async () => {
+      const { data } = await supabaseAdmin
+        .from("system_settings").select("value").eq("key", "release.verify_state").maybeSingle();
+      const v = (data as { value?: unknown } | null)?.value;
+      return v && typeof v === "object" && !Array.isArray(v) ? v as ReleaseState : null;
+    },
+    persistReleaseState: async (state) => {
+      await supabaseAdmin.from("system_settings").upsert(
+        {
+          key: "release.verify_state",
+          value: state,
+          value_type: "json",
+          default_value: { last_sha: null, baseline: null, checked_at: null },
+          description: "US-1610 release verification state (last SHA + pre-deploy health baseline)",
+          category: "agents",
+        },
+        { onConflict: "key" },
+      );
+    },
+    runSmoke: async () => {
+      const base = `http://localhost:${Deno.env.get("PORT") || "8787"}`;
+      try {
+        const res = await fetch(`${base}/health`, { signal: AbortSignal.timeout(15_000) });
+        return { ok: res.ok, status: res.status };
+      } catch (err) {
+        return { ok: false, status: 0, error: err instanceof Error ? err.message : "fetch_failed" };
+      }
     },
     fetchMaintenanceIntervals: async (sinceIso) => {
       // Windows active now OR that ended within the lookback still suppress ticks
@@ -1102,6 +1146,34 @@ const TOOL_LIST: AgentToolDef[] = [
       return { report };
     },
   },
+  {
+    name: "get_release_health",
+    description: "Release verification memo (US-1610): detects a deploy (RELEASE_SHA change) and, when one is found, compares post-deploy health metrics (24h cron failures, webhook + email dead-letter depths) to the pre-deploy baseline against config thresholds — a regression, a clean verdict, or no-deploy. Read-only; the agent never rolls back.",
+    class: "read",
+    inputSchema: { type: "object", properties: {} },
+    handler: async (_input, ctx) => {
+      const currentSha = ctx.io.releaseSha();
+      const [state, runs, webhooks, emails] = await Promise.all([
+        ctx.io.fetchReleaseState(),
+        ctx.io.fetchCronRuns(4000),
+        ctx.io.fetchWebhookDeadLetters(500),
+        ctx.io.fetchEmailDeadLetters(500),
+      ]);
+      const since = ctx.now - 24 * 3600_000;
+      const jobFailures = runs.filter((r) =>
+        (r.status === "failed" || r.status === "error") && Date.parse(r.created_at) >= since
+      ).length;
+      const metrics: ReleaseMetrics = { job_failures_24h: jobFailures, webhook_dlq: webhooks.length, email_dlq: emails.length };
+      const deploy = detectDeploy(currentSha, state?.last_sha ?? null);
+      const comparison = deploy.deployed
+        ? compareRelease(state?.baseline ?? null, metrics)
+        : { regressions: [], regressed: false, comparable: false };
+      const memo = assembleReleaseMemo(deploy, metrics, comparison);
+      // Roll the baseline forward (operator bookkeeping — no tenant data).
+      await ctx.io.persistReleaseState(nextReleaseState(deploy, metrics, new Date(ctx.now).toISOString())).catch(() => {});
+      return { memo };
+    },
+  },
 
   // ── Write tools (class 'write') — NEVER exposed to the run loop; executed
   //    ONLY via executeWrite on the approved-proposal path (US-1587). Each is
@@ -1171,6 +1243,16 @@ const TOOL_LIST: AgentToolDef[] = [
     },
   },
   {
+    name: "run_smoke",
+    description: "Run a lightweight in-process smoke check (the internal /health endpoint) to actively verify a release. Reversible/read-only in effect; returns ok + HTTP status.",
+    class: "write",
+    inputSchema: { type: "object", properties: {} },
+    handler: async (_input, ctx) => {
+      if (!ctx.authorizedBy) return { error: { code: "unauthorized", message: "write requires an approved proposal" } };
+      return await ctx.io.runSmoke();
+    },
+  },
+  {
     name: "reorder_review_queue",
     description:
       "Recompute the information-value ranking of the pending human-review queue (US-1558 active-learning routing) and persist the recommended order + rationale as an advisory artifact so high-signal reviews surface first. Grade-safe: NEVER changes a grade, prompt, confidence threshold, or calibration — ordering only, and the queue keeps its SLA starvation guard.",
@@ -1206,6 +1288,8 @@ export const ACTION_CLASS_TO_TOOL: Record<string, string> = {
   suspend_account: "create_admin_task",
   require_step_up: "create_admin_task",
   deny_claim: "create_admin_task",
+  // US-1610: the Release agent's active smoke check.
+  run_smoke: "run_smoke",
 };
 
 export const AGENT_TOOLS: readonly AgentToolDef[] = TOOL_LIST;
