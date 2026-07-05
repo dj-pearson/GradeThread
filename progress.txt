@@ -11674,3 +11674,48 @@ Verification (honest): deno test un-runnable here (network policy 403s). Ran
 logic — 16/16 passed. Scanned all new files for NUL (clean). prd-lint OK.
 
 Marked US-1599 passes:true.
+
+=== 2026-07-05 (loop: non-android prd): US-1600 (User Lifecycle agent) ===
+Module U: judgment on TOP of the drip engine, not a second sender. Reads
+COHORT-LEVEL lifecycle data, explains WHERE users stall, and proposes cohort-level
+moves. (Un-deferred from earlier: the enrollment write is safe + verifiable when
+the tool resolves a WHITELISTED cohort server-side rather than accepting model-
+supplied user ids.)
+
+Delivered (pure lib + read tool + cohort-enroll write tool + charter):
+- lib/user-lifecycle.ts — pure, fixture-tested, COUNTS ONLY:
+    • diagnoseActivationStall: worst sub-70%-retained funnel transition + a
+      hypothesis; healthy/too-small → null.
+    • narrateChurnRisk: conversion delta vs prior week (±10% band) →
+      improving/steady/worsening/unknown; null-safe rates.
+    • sizeWinback: expired-unconverted reachable + still-savable expiring soon.
+    • assembleLifecycleMemo → {summary, activation_stall, churn, winback, all_clear}.
+- agent-tools.ts:
+    • get_user_lifecycle READ tool: aggregates the funnel_metrics RPC (30d
+      window), drip_enrollments (this vs prior week enroll/convert/churn), and
+      users trial-expiry HEAD count queries — COHORT AGGREGATES ONLY; no per-user
+      row, id, or PII ever reaches the memo (asserted in tests).
+    • enroll_cohort WRITE (action class enroll_cohort): resolves a WHITELISTED
+      cohort ('trial_expiring_7d') server-side — marketing opt-outs excluded (reuses
+      marketingOptedOutEmail), already-enrolled deduped, hard-capped 500 — and
+      enrolls via the same idempotent upsert as the trial-drip tick (UNIQUE
+      user_id,campaign 00274). The model names a cohort + campaign, NEVER a user.
+      New drip variants route through file_task.
+- agent-policy.ts: action class enroll_cohort.
+- charter user-lifecycle-agent.ts (module U, weekly Mon 05:00, sonnet) + registered.
+- Seed 00374 (paused, L0) + EXPECTED_SCHEMA_VERSION 00373→00374. Held.
+- Tests: user-lifecycle_test.ts (stall/churn/winback/memo + PII-absence assertion)
+  + 2 tool tests (stall via read tool + PII-absence on the serialized memo;
+  enroll_cohort write-gated + cohort/campaign pass-through + invalid guard). fakeIO
+  seams added.
+
+The-cohort-rule (§3.U): the tool layer aggregates before the model sees anything;
+all delivery still flows through the drip engine + the marketing-frequency caps —
+this agent emails no one. No new HTTP route → no tenant-isolation_test.ts case; the
+one write is id-scoped by a server-resolved whitelisted cohort, never model input.
+
+Verification (honest): deno test un-runnable here (network policy 403s). Ran
+`deno lint` (clean, 7 files) + a standalone Node reimplementation of the pure
+logic — 15/15 passed. Scanned all new files for NUL (clean). prd-lint OK.
+
+Marked US-1600 passes:true.

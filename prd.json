@@ -10676,7 +10676,7 @@
         "Deno tests: fixture funnels produce a stall diagnosis; PII-absence assertion on a sample transcript; lint + check clean"
       ],
       "priority": 2333,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 1][Module U — User Lifecycle] Read AGENTIC_OS.md §3.U. Cohorts, not users: the tool layer must aggregate before the model ever sees data.",
       "dependsOn": [
         "US-1588",

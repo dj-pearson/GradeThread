@@ -1,5 +1,28 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00374_seed_user_lifecycle_agent.sql (US-1600 / AGENTIC-OS Phase 1, 2026-07-05)
+
+**What:** seeds ONE `agents` row — the User Lifecycle agent (module U),
+`status='paused'`, `autonomy='{}'` (L0), config = WEEKLY (Mon 05:00) / sonnet
+model / read-only allowlist (get_user_lifecycle) / $2 cap. Cohort-level lifecycle
+analyst: activation-stall diagnosis, churn narrative, winback sizing. Proposes
+cohort-level moves only — enroll_cohort (wraps the existing drip enrollment for a
+WHITELISTED cohort 'trial_expiring_7d' into campaign 'trial_conversion'; marketing
+opt-outs excluded, already-enrolled deduped, hard-capped at 500) or a file_task
+for a new drip variant. NEVER emails anyone (drip engine + frequency caps own
+delivery). Prompt in the repo charter. `ON CONFLICT (key) DO NOTHING`. Self-records
+'00374'.
+
+**Risk: LOW — one paused seed row into the operator agents table (00357).** No
+schema change beyond the seed. The read tool aggregates cohort COUNTS only
+(funnel_metrics RPC, drip_enrollments, users trial-expiry HEAD counts) — no
+per-user rows reach the model. enroll_cohort reuses the same idempotent upsert as
+the trial-drip tick (UNIQUE user_id,campaign from 00274). No client read. Edge boot
+guard now expects **00374**.
+
+**⚠️ Apply order:** after 00357–00373. Data-only (no `NOTIFY pgrst` needed).
+Redeploy the edge so its boot guard matches 00374.
+
 ## ⏳ HELD: 00373_seed_marketing_portfolio_agent.sql (US-1599 / AGENTIC-OS Phase 1, 2026-07-05)
 
 **What:** seeds ONE `agents` row — the Marketing Portfolio agent (module M),

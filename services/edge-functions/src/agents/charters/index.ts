@@ -20,6 +20,7 @@ import { RELEASE_AGENT_CHARTER } from "./release-agent.ts";
 import { EXPERIMENTS_GOVERNOR_CHARTER } from "./experiments-governor-agent.ts";
 import { SUPPORT_TRIAGE_CHARTER } from "./support-triage-agent.ts";
 import { MARKETING_PORTFOLIO_CHARTER } from "./marketing-portfolio-agent.ts";
+import { USER_LIFECYCLE_CHARTER } from "./user-lifecycle-agent.ts";
 
 export type { AgentCharter };
 
@@ -38,6 +39,7 @@ const CHARTERS: Record<string, AgentCharter> = {
   [EXPERIMENTS_GOVERNOR_CHARTER.key]: EXPERIMENTS_GOVERNOR_CHARTER,
   [SUPPORT_TRIAGE_CHARTER.key]: SUPPORT_TRIAGE_CHARTER,
   [MARKETING_PORTFOLIO_CHARTER.key]: MARKETING_PORTFOLIO_CHARTER,
+  [USER_LIFECYCLE_CHARTER.key]: USER_LIFECYCLE_CHARTER,
 };
 
 export function charterFor(agentKey: string): AgentCharter | null {

@@ -60,6 +60,8 @@ function fakeIO(over: Partial<ToolIO> = {}): { io: ToolIO; audits: AuditLogInput
     fetchMarketingPortfolio: () => Promise.resolve({ weeks: [], topics: [], sendDays: [], coordination: { cap_per_day: 1, max_observed_per_day: 0, deferred_or_dropped: 0 } }),
     addMarketingTopic: () => Promise.resolve({ inserted: true, id: "topic-1" }),
     setMarketingFrequencyCap: (cap) => Promise.resolve({ cap_per_day: cap }),
+    fetchUserLifecycle: () => Promise.resolve({ funnel: [], current: { week: "", enrolled: 0, converted: 0, churned: 0 }, prior: { week: "", enrolled: 0, converted: 0, churned: 0 }, trialCohorts: [] }),
+    enrollCohort: (i) => Promise.resolve({ enrolled: 3, cohort: i.cohort, campaign: i.campaign }),
     runJob: () => Promise.resolve({ ok: true, status: 200 }),
     requeueEmailDeadLetter: () => Promise.resolve(true),
     resolveAgentTaskProject: () => Promise.resolve("proj-1"),
@@ -423,6 +425,50 @@ Deno.test("US-1599: set_marketing_frequency_cap clamps to 1..10", async () => {
   const reg = createAgentToolRegistry(io);
   await reg.executeWrite("set_marketing_frequency_cap", { cap_per_day: 99 }, { authorizedBy: "admin-1" });
   assertEquals(seen, 10); // clamped
+});
+
+// ── US-1600: User Lifecycle tools ────────────────────────────────────────────
+
+Deno.test("US-1600: get_user_lifecycle surfaces a stall + returns no per-user rows", async () => {
+  const { io } = fakeIO({
+    fetchUserLifecycle: () => Promise.resolve({
+      funnel: [
+        { key: "signed_up", label: "Signed up", count: 1000 },
+        { key: "submitted", label: "First submission", count: 300 }, // 30% → the stall
+        { key: "graded", label: "First grade", count: 290 },
+      ],
+      current: { week: "2026-06-29", enrolled: 100, converted: 20, churned: 30 },
+      prior: { week: "2026-06-22", enrolled: 100, converted: 30, churned: 20 },
+      trialCohorts: [{ bucket: "expired_unconverted", count: 42 }],
+    }),
+  });
+  const reg = createAgentToolRegistry(io);
+  const res = await reg.execute(agent(["get_user_lifecycle"]), "get_user_lifecycle", {}) as {
+    memo?: { activation_stall?: { step_to: string } | null; churn?: { risk: string }; winback?: { reachable: number }; all_clear?: boolean };
+  };
+  assertEquals(res.memo?.activation_stall?.step_to, "submitted");
+  assertEquals(res.memo?.churn?.risk, "worsening"); // 20% vs 30% prior
+  assertEquals(res.memo?.winback?.reachable, 42);
+  assertEquals(res.memo?.all_clear, false);
+  // PII-absence: the serialized memo carries only cohort counts, no id/email keys.
+  const json = JSON.stringify(res.memo);
+  assert(!/user_id|email|"id"/.test(json));
+});
+
+Deno.test("US-1600: enroll_cohort is write-gated + passes the cohort/campaign through", async () => {
+  const { ACTION_CLASS_TO_TOOL } = await import("../lib/agent-tools.ts");
+  assertEquals(ACTION_CLASS_TO_TOOL.enroll_cohort, "enroll_cohort");
+  let seen: { cohort: string; campaign: string } | null = null;
+  const { io } = fakeIO({ enrollCohort: (i) => { seen = { cohort: i.cohort, campaign: i.campaign }; return Promise.resolve({ enrolled: 5, cohort: i.cohort, campaign: i.campaign }); } });
+  const reg = createAgentToolRegistry(io);
+  // Invisible to the run loop.
+  assertEquals(reg.anthropicTools(agent(["enroll_cohort", "get_user_lifecycle"])).map((t) => t.name), ["get_user_lifecycle"]);
+  const res = await reg.executeWrite("enroll_cohort", { cohort: "trial_expiring_7d", campaign: "trial_conversion" }, { authorizedBy: "admin-1" }) as { enrolled?: number };
+  assertEquals(res.enrolled, 5);
+  assertEquals(seen, { cohort: "trial_expiring_7d", campaign: "trial_conversion" });
+  // Missing fields → invalid, no enrollment.
+  const bad = await reg.executeWrite("enroll_cohort", { cohort: "" }, { authorizedBy: "admin-1" }) as { error?: { code: string } };
+  assertEquals(bad.error?.code, "invalid");
 });
 
 // ── US-1611: get_cron_fleet_health report ────────────────────────────────────

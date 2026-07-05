@@ -47,6 +47,9 @@ export const ACTION_CLASSES = [
   // marketing frequency cap. Engine-level levers only (never a send/subscriber).
   "add_marketing_topic",
   "adjust_frequency",
+  // US-1600 User Lifecycle: enrol a DEFINED cohort in an existing drip campaign
+  // (the drip engine + frequency caps still own delivery; never a direct send).
+  "enroll_cohort",
 ] as const;
 export type KnownActionClass = typeof ACTION_CLASSES[number];
 

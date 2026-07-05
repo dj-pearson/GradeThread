@@ -74,9 +74,16 @@ import {
   type SendDay,
   type TopicItem,
 } from "./marketing-portfolio.ts";
+import {
+  assembleLifecycleMemo,
+  type CohortWeek,
+  type FunnelStep,
+  type TrialCohort,
+} from "./user-lifecycle.ts";
 import { type ReorderReviewQueueResult, reorderReviewQueue } from "./review-queue-order.ts";
 import { notifyUser } from "./notify.ts";
 import { bustSettingCache, getSetting } from "./system-settings.ts";
+import { marketingOptedOutEmail } from "./drip-graph.ts";
 
 // US-1599: the shared marketing send cap setting (mirrors marketing-coordinator's
 // FREQUENCY_CAP_SETTING; kept as a literal here to avoid importing the heavy
@@ -304,6 +311,17 @@ export interface ToolIO {
       | { bank: "content"; surface: string; product: string; title: string; primary_keyword: string; angle: string | null },
   ): Promise<{ inserted: boolean; id: string | null }>;
   setMarketingFrequencyCap(capPerDay: number): Promise<{ cap_per_day: number }>;
+  // US-1600: User Lifecycle. Cohort-AGGREGATE reads (no per-user rows leave the
+  // seam) + a cohort-enroll write. enrollCohort resolves a whitelisted cohort
+  // server-side (never a model-supplied id list), honors marketing opt-out +
+  // already-enrolled dedup, and is hard-capped.
+  fetchUserLifecycle(nowMs: number): Promise<{
+    funnel: FunnelStep[];
+    current: CohortWeek;
+    prior: CohortWeek;
+    trialCohorts: TrialCohort[];
+  }>;
+  enrollCohort(input: { cohort: string; campaign: string; nowIso: string }): Promise<{ enrolled: number; cohort: string; campaign: string; error?: string }>;
   // ── Write-side (used only by executeWrite / approved proposals) ──
   // Re-fire a registered cron job by key over the internal job rails.
   runJob(jobKey: string): Promise<{ ok: boolean; status: number; error?: string }>;
@@ -921,6 +939,108 @@ export function prodToolIO(): ToolIO {
       );
       bustSettingCache(MARKETING_FREQ_CAP_SETTING);
       return { cap_per_day: capPerDay };
+    },
+    fetchUserLifecycle: async (nowMs) => {
+      const WEEK = 7 * 86400_000;
+      const weekAgoIso = new Date(nowMs - WEEK).toISOString();
+      const twoWeeksIso = new Date(nowMs - 2 * WEEK).toISOString();
+      const nowIso = new Date(nowMs).toISOString();
+      const in3dIso = new Date(nowMs + 3 * 86400_000).toISOString();
+      const in7dIso = new Date(nowMs + WEEK).toISOString();
+      const back30dIso = new Date(nowMs - 30 * 86400_000).toISOString();
+
+      // Activation funnel from the funnel_metrics RPC over a 30-day window
+      // (cohort counts only — the RPC returns aggregate step counts).
+      let funnel: FunnelStep[] = [];
+      try {
+        const { data } = await supabaseAdmin.rpc("funnel_metrics", { p_start: back30dIso, p_end: nowIso });
+        const steps = (data as { steps?: unknown } | null)?.steps;
+        if (Array.isArray(steps)) {
+          funnel = steps
+            .filter((s): s is Record<string, unknown> => !!s && typeof s === "object")
+            .map((s) => ({
+              key: typeof s.key === "string" ? s.key : String(s.label ?? ""),
+              label: typeof s.label === "string" ? s.label : String(s.key ?? ""),
+              count: typeof s.count === "number" && Number.isFinite(s.count) ? s.count : 0,
+            }));
+        }
+      } catch { /* no funnel data → empty */ }
+
+      // Drip cohort weeks (this vs prior) — aggregate counts, no user rows leave.
+      const { data: enr } = await supabaseAdmin
+        .from("drip_enrollments")
+        .select("enrolled_at, converted_at, exited_at, exit_reason")
+        .gte("enrolled_at", twoWeeksIso)
+        .limit(50000);
+      const mk = (): CohortWeek => ({ week: "", enrolled: 0, converted: 0, churned: 0 });
+      const current = mk(), prior = mk();
+      current.week = weekAgoIso.slice(0, 10);
+      prior.week = twoWeeksIso.slice(0, 10);
+      for (const r of (enr ?? []) as Array<{ enrolled_at: string; converted_at: string | null; exited_at: string | null; exit_reason: string | null }>) {
+        const bucket = Date.parse(r.enrolled_at) >= Date.parse(weekAgoIso) ? current : prior;
+        bucket.enrolled += 1;
+        if (r.converted_at) bucket.converted += 1;
+        else if (r.exited_at && r.exit_reason && r.exit_reason !== "converted") bucket.churned += 1;
+      }
+
+      // Trial-expiry cohorts — HEAD count queries (no rows returned = no PII).
+      const trialCohorts: TrialCohort[] = [];
+      try {
+        const [c3, c7, cExp] = await Promise.all([
+          supabaseAdmin.from("users").select("id", { count: "exact", head: true })
+            .eq("subscription_status", "trialing").gte("trial_ends_at", nowIso).lt("trial_ends_at", in3dIso),
+          supabaseAdmin.from("users").select("id", { count: "exact", head: true })
+            .eq("subscription_status", "trialing").gte("trial_ends_at", in3dIso).lt("trial_ends_at", in7dIso),
+          supabaseAdmin.from("users").select("id", { count: "exact", head: true })
+            .neq("subscription_status", "active").gte("trial_ends_at", back30dIso).lt("trial_ends_at", nowIso),
+        ]);
+        trialCohorts.push(
+          { bucket: "expiring_3d", count: c3.count ?? 0 },
+          { bucket: "expiring_7d", count: c7.count ?? 0 },
+          { bucket: "expired_unconverted", count: cExp.count ?? 0 },
+        );
+      } catch { /* count unavailable → cohorts stay empty */ }
+
+      return { funnel, current, prior, trialCohorts };
+    },
+    enrollCohort: async ({ cohort, campaign, nowIso }) => {
+      // Whitelisted campaign + cohort ONLY — never a model-supplied id list. The
+      // cohort is resolved server-side, marketing opt-outs excluded, already-
+      // enrolled deduped, and the batch is hard-capped.
+      const ENROLL_CAP = 500;
+      if (campaign !== "trial_conversion") return { enrolled: 0, cohort, campaign, error: "unknown_campaign" };
+      if (cohort !== "trial_expiring_7d") return { enrolled: 0, cohort, campaign, error: "unknown_cohort" };
+      const in7dIso = new Date(Date.parse(nowIso) + 7 * 86400_000).toISOString();
+      const { data: trialists } = await supabaseAdmin
+        .from("users")
+        .select("id, created_at, trial_ends_at, notification_preferences")
+        .eq("subscription_status", "trialing")
+        .gte("trial_ends_at", nowIso)
+        .lt("trial_ends_at", in7dIso)
+        .order("trial_ends_at", { ascending: true })
+        .limit(ENROLL_CAP);
+      const candidates = ((trialists ?? []) as Array<{ id: string; created_at: string | null; trial_ends_at: string | null; notification_preferences: Record<string, unknown> | null }>)
+        .filter((t) => !marketingOptedOutEmail(t.notification_preferences));
+      if (candidates.length === 0) return { enrolled: 0, cohort, campaign };
+      const ids = candidates.map((t) => t.id);
+      const { data: existing } = await supabaseAdmin
+        .from("drip_enrollments").select("user_id").eq("campaign", campaign).in("user_id", ids);
+      const already = new Set((existing ?? []).map((r) => (r as { user_id: string }).user_id));
+      const rows = candidates.filter((t) => !already.has(t.id)).map((t) => ({
+        user_id: t.id,
+        campaign,
+        enrolled_at: nowIso,
+        trial_started_at: t.created_at,
+        signup_week: t.created_at ? t.created_at.slice(0, 10) : null,
+        incentive_enabled: false,
+        next_evaluation_at: nowIso,
+      }));
+      if (rows.length === 0) return { enrolled: 0, cohort, campaign };
+      const { data: inserted } = await supabaseAdmin
+        .from("drip_enrollments")
+        .upsert(rows as never, { onConflict: "user_id,campaign", ignoreDuplicates: true })
+        .select("id");
+      return { enrolled: (inserted ?? []).length, cohort, campaign };
     },
     fetchMaintenanceIntervals: async (sinceIso) => {
       // Windows active now OR that ended within the lookback still suppress ticks
@@ -1599,6 +1719,17 @@ const TOOL_LIST: AgentToolDef[] = [
       return { memo };
     },
   },
+  {
+    name: "get_user_lifecycle",
+    description: "User Lifecycle memo (US-1600): COHORT-LEVEL only — an activation-stall diagnosis (which funnel step + hypothesis), a churn-risk narrative vs the prior week (conversion/churn deltas), and winback sizing (expired-unconverted reachable + trials expiring soon). The tool aggregates before returning; NO per-user row, id, or PII is ever included. Read-only.",
+    class: "read",
+    inputSchema: { type: "object", properties: {} },
+    handler: async (_input, ctx) => {
+      const { funnel, current, prior, trialCohorts } = await ctx.io.fetchUserLifecycle(ctx.now);
+      const memo = assembleLifecycleMemo(funnel, current, prior, trialCohorts);
+      return { memo };
+    },
+  },
 
   // ── Write tools (class 'write') — NEVER exposed to the run loop; executed
   //    ONLY via executeWrite on the approved-proposal path (US-1587). Each is
@@ -1805,6 +1936,27 @@ const TOOL_LIST: AgentToolDef[] = [
     },
   },
   {
+    name: "enroll_cohort",
+    description:
+      "Enrol a DEFINED cohort in an EXISTING drip campaign (US-1600). The cohort is resolved server-side from a whitelist (never a model-supplied user list) — marketing opt-outs are excluded, already-enrolled users are deduped, and the batch is hard-capped. All delivery still flows through the drip engine + the marketing-frequency caps; this sends nothing itself. v1 supports cohort 'trial_expiring_7d' into campaign 'trial_conversion'.",
+    class: "write",
+    inputSchema: {
+      type: "object",
+      properties: {
+        cohort: { type: "string", description: "a supported cohort key (e.g. trial_expiring_7d)" },
+        campaign: { type: "string", description: "an existing drip campaign (e.g. trial_conversion)" },
+      },
+      required: ["cohort", "campaign"],
+    },
+    handler: async (input, ctx) => {
+      if (!ctx.authorizedBy) return { error: { code: "unauthorized", message: "write requires an approved proposal" } };
+      const cohort = typeof input.cohort === "string" ? input.cohort.trim() : "";
+      const campaign = typeof input.campaign === "string" ? input.campaign.trim() : "";
+      if (!cohort || !campaign) return { error: { code: "invalid", message: "cohort and campaign are required" } };
+      return await ctx.io.enrollCohort({ cohort, campaign, nowIso: new Date(ctx.now).toISOString() });
+    },
+  },
+  {
     name: "reorder_review_queue",
     description:
       "Recompute the information-value ranking of the pending human-review queue (US-1558 active-learning routing) and persist the recommended order + rationale as an advisory artifact so high-signal reviews surface first. Grade-safe: NEVER changes a grade, prompt, confidence threshold, or calibration — ordering only, and the queue keeps its SLA starvation guard.",
@@ -1849,6 +2001,8 @@ export const ACTION_CLASS_TO_TOOL: Record<string, string> = {
   // US-1599: Marketing Portfolio engine-level levers.
   add_marketing_topic: "add_marketing_topic",
   adjust_frequency: "set_marketing_frequency_cap",
+  // US-1600: User Lifecycle cohort enrollment (delivery stays in the drip engine).
+  enroll_cohort: "enroll_cohort",
 };
 
 export const AGENT_TOOLS: readonly AgentToolDef[] = TOOL_LIST;
