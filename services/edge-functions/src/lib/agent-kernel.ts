@@ -28,6 +28,7 @@ import { isAiBudgetExhausted } from "./ai-budget-gate.ts";
 import { redact, redactError } from "./log-redact.ts";
 import { getSetting } from "./system-settings.ts";
 import { agentToolRegistry } from "./agent-tools.ts";
+import { applyWritePolicy } from "./agent-policy.ts";
 
 // ── Config + caps ────────────────────────────────────────────────────────────
 
@@ -457,12 +458,29 @@ export async function runAgent(
     });
   }
 
+  // Route any emitted write intents through the policy engine (US-1586): L0 /
+  // paused proposals become findings; L1+ become pending proposal drafts. The
+  // pause switch is re-read fail-closed here — the "checked at each write
+  // dispatch" half of the kill-switch guarantee.
+  let writePaused: boolean;
+  try {
+    writePaused = await d.getGlobalPause();
+  } catch {
+    writePaused = true;
+  }
+  const routed = applyWritePolicy(agent, parsed.outcome, { paused: writePaused });
+  const outcome: AgentOutcome = {
+    ...parsed.outcome,
+    findings: routed.findings,
+    proposals: routed.proposals,
+  };
+
   await d.recordStep(runId, {
     seq: seq++,
     stepType: "output",
     name: "output",
     input: null,
-    output: { redacted: redact(parsed.outcome) },
+    output: { redacted: redact(outcome) },
     durationMs: 0,
   }).catch(() => {});
 
@@ -471,7 +489,7 @@ export async function runAgent(
     tokensIn,
     tokensOut,
     costUsd: costOf(),
-    outcome: parsed.outcome,
+    outcome,
     error: null,
   });
 }

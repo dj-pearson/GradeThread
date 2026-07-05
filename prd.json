@@ -10312,7 +10312,7 @@
         "Deno tests: ladder resolution + default, global pause precedence over per-agent state, demotion floor at L0; lint + check clean"
       ],
       "priority": 2357,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 0][Module D — Decision Policies] Read AGENTIC_OS.md §2 (the ladder table) + §3.D. Promotion automation is US-1608 — this story is resolution/demotion/kill only.",
       "dependsOn": [
         "US-1584"
