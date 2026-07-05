@@ -11719,3 +11719,37 @@ Verification (honest): deno test un-runnable here (network policy 403s). Ran
 logic — 15/15 passed. Scanned all new files for NUL (clean). prd-lint OK.
 
 Marked US-1600 passes:true.
+
+=== 2026-07-05 (loop: non-android prd): US-1651 (Web P2 — server-side list sort) ===
+Global sort across ALL rows for the submissions (by grade) and inventory (by
+status) lists — previously a client-side sort that only reordered the page in view.
+
+Delivered:
+- lib/list-sort.ts — pure, unit-tested (vitest): orderIdsByScore (nulls/ungraded
+  ALWAYS last in both directions, ties broken by id for stable pagination),
+  pageSlice, reorderByIds (restore order after an unordered .in() fetch).
+- pages/submissions.tsx — grade sort now orders across the whole result set: fetch
+  all filtered ids (id+status), resolve active grade_reports scores, order the id
+  list globally (nulls last), slice the page, then materialize + reorder just the
+  page's rows. count = full ordered length (pagination stays correct). The default
+  created_at sort keeps its efficient single paged server-ordered query.
+- pages/inventory.tsx — status sort is now server-side `.order("status")`. The
+  item_status ENUM is defined (via BEFORE/AFTER ADD VALUE) in the exact
+  ITEM_STATUSES lifecycle order, so Postgres enum ordering == the old client-side
+  ITEM_STATUSES.indexOf() order — but global, and correct across pagination.
+
+AC4 (PostgREST verification): the submissions fix deliberately AVOIDS embedded
+foreign-table `.order()` — the version-sensitive feature CLAUDE.md warns diverges
+between the local and self-hosted-prod PostgREST (here a FILTERED one-to-many embed,
+the worst case). Instead it uses only bedrock supabase-js (select / .in / .order on
+a real column / .range), which is prod-safe BY CONSTRUCTION — no prod-PostgREST
+verification gate needed. The inventory fix orders by a real column (enum), also
+bedrock. This is the documented fallback AC4 anticipates.
+
+Verification (FULL — the web toolchain runs in this environment):
+- `npx vitest run src/lib/list-sort.test.ts` → 9/9 passed.
+- `npx tsc --noEmit` → clean (exit 0).
+- `npx eslint` on all four touched files → clean (exit 0).
+- `npm run build` → GREEN (tsc + vite + prerender, exit 0, 47 routes prerendered).
+
+Marked US-1651 passes:true. (Web-only story — no migration, no schema-version bump.)

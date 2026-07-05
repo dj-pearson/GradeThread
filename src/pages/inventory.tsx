@@ -212,9 +212,18 @@ export function InventoryPage() {
         query = query.eq("brand", brandFilter);
       }
 
-      // Map sort field to actual column for DB sorting
+      // US-1651: sort server-side across ALL rows, not just the current page.
+      // `status` is a real column and the item_status ENUM is defined in the
+      // ITEM_STATUSES lifecycle order (Postgres orders an enum by its declared
+      // sort order), so `.order("status")` yields the same lifecycle ordering the
+      // old client-side ITEM_STATUSES.indexOf() sort did — but globally. Ordering
+      // by a column is bedrock PostgREST (no local↔prod divergence).
       const orderColumn =
-        sortField === "acquired_price" ? "acquired_price" : "created_at";
+        sortField === "acquired_price"
+          ? "acquired_price"
+          : sortField === "status"
+          ? "status"
+          : "created_at";
       query = query
         .order(orderColumn, { ascending: sortDirection === "asc" })
         .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
@@ -224,16 +233,6 @@ export function InventoryPage() {
       if (error) throw error;
 
       const itemRows = (items ?? []) as InventoryItemRow[];
-
-      // Client-side sort for status if needed
-      if (sortField === "status") {
-        const statusOrder = ITEM_STATUSES as readonly string[];
-        itemRows.sort((a, b) => {
-          const aIdx = statusOrder.indexOf(a.status);
-          const bIdx = statusOrder.indexOf(b.status);
-          return sortDirection === "asc" ? aIdx - bIdx : bIdx - aIdx;
-        });
-      }
 
       return { items: itemRows, totalCount: count ?? 0 };
     },

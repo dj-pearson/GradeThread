@@ -11755,7 +11755,7 @@
         "tsc + eslint clean; build green"
       ],
       "priority": 2275,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Source: CODE_REVIEW_2026-07-04.md §Web P2] Split from US-1633. Needs an embedded grade_reports join + foreign-table ordering (PostgREST-version-sensitive — verify on prod's self-hosted PostgREST, not just the local stack). Lower priority than the cache/optimistic fixes since the mis-sort is cosmetic (wrong order within a page), not data-losing.",
       "relevantPaths": [
         "src/pages/submissions.tsx",
