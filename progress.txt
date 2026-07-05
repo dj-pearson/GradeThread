@@ -11753,3 +11753,36 @@ Verification (FULL — the web toolchain runs in this environment):
 - `npm run build` → GREEN (tsc + vite + prerender, exit 0, 47 routes prerendered).
 
 Marked US-1651 passes:true. (Web-only story — no migration, no schema-version bump.)
+
+=== 2026-07-05 (loop: non-android prd): SESSION WIND-DOWN — honest backlog status ===
+Completed this session (6 stories, each pure-lib + verified): US-1609 (Experiments
+Governor), US-1595 (Support Triage), US-1613 (agent-to-agent handoffs), US-1599
+(Marketing Portfolio), US-1600 (User Lifecycle), US-1651 (server-side list sort —
+full build-green verification). The AGENTIC-OS fleet now spans modules M/S/U/X + the
+handoff spine (Support→Sentinel→Integrations-Watchdog).
+
+Remaining open non-Android stories are NOT loop-completable to a quality bar in this
+environment — stopping rather than force marginal/rushed completions (quality>quantity):
+
+- US-1655 (affiliate float→cents money migration): BLOCKED here. AC4 requires
+  `verify:db green` — a Docker-booted throwaway Postgres proving the money-column
+  backfill (numeric→integer *100) applies on a fresh schema. Docker + supabase CLI
+  are UNAVAILABLE in this environment. A data-transforming migration on MONEY is the
+  worst case to ship on reasoning alone; will not mark passes without the backfill
+  verification. → do when Docker/verify:db is available.
+- US-1607 (agent evals: golden suites): TOO LARGE for one quality iteration. AC2 =
+  "minimum 3 per seeded agent" × 15 seeded agents = 45 trust-critical fixtures
+  (happy/incident/TRAP), plus a harness, a weekly prod job making real LLM calls,
+  Mission Control UI, ops-event-on-fail, and autonomy-promotion blocking. The
+  trap-day fixtures gate autonomy promotion (US-1608 already reads agents.eval_pass);
+  rushing them would either block good agents or pass bad ones. → deserves a dedicated
+  session. (Integration contract confirmed: the prod job must write the
+  `agents.eval_pass` {agentKey:boolean} system_setting US-1608's
+  autonomy-promotion-pass.ts already consumes.)
+- US-1421 (obtain eBay restricted scopes): OPERATOR action (eBay application), not code.
+- US-1566 ([OPS — USER ACTION REQUIRED]): explicitly deferred operator/runtime task.
+- US-1582 ([OPERATOR] MeasureCard golden-set capture): operator action.
+
+Recommendation: US-1607 as a focused dedicated run; US-1655 once Docker is available;
+US-1421/1566/1582 need operator action. Loop stopped here to avoid re-deciding the
+same blocked stories each wake.
