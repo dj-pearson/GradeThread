@@ -1,5 +1,27 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00372_agent_handoffs.sql (US-1613 / AGENTIC-OS Phase 2, 2026-07-05)
+
+**What:** creates `agent_handoffs` — the queue for agent-to-agent handoffs
+(target_agent, origin_agent, origin_run_id, kind, payload, evidence, hop,
+provenance jsonb, status queued|consumed, consumed_run_id/at). Deny-all RLS,
+service-role only (mirrors agent_memory 00357); registered in rls-guard_test.ts
+SERVICE_ROLE_ONLY. Partial index on (target_agent, created_at) WHERE
+status='queued'. Also merges `accepts_handoffs_from` into two existing agent
+configs — sentinel accepts ['support-triage'], integrations-watchdog accepts
+['sentinel'] (jsonb ||, guarded by NOT (config ? 'accepts_handoffs_from') for
+idempotency; a no-op if those rows aren't seeded yet).
+
+**Risk: LOW.** New operator table (no tenant data — agent keys + run ids + the
+emitting agent's finding payload) + two idempotent config merges. No client read.
+The kernel reads/writes it entirely server-side. Edge boot guard now expects
+**00372**.
+
+**⚠️ Apply order:** after 00357–00371 (FKs to agent_runs from 00357; the config
+merges target sentinel/integrations-watchdog rows seeded earlier). `NOTIFY pgrst,
+'reload schema';` IS needed (new table). Redeploy the edge so its boot guard
+matches 00372.
+
 ## ⏳ HELD: 00370–00371 Support Triage (US-1595 / AGENTIC-OS Phase 1, 2026-07-05)
 
 **00370_support_ticket_triage_fields.sql — What:** adds four NULLable advisory

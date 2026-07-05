@@ -83,6 +83,12 @@ function harness(
     // US-1606: memory seams — default to empty/no-op so tests stay offline.
     loadMemory: over.loadMemory ?? (() => Promise.resolve([])),
     persistMemory: over.persistMemory ?? (() => Promise.resolve()),
+    // US-1613: handoff seams — default to empty/no-op so tests stay offline.
+    loadHandoffs: over.loadHandoffs ?? (() => Promise.resolve([])),
+    markHandoffsConsumed: over.markHandoffsConsumed ?? (() => Promise.resolve()),
+    loadHandoffPolicy: over.loadHandoffPolicy ?? (() => Promise.resolve({ acceptsFrom: [] })),
+    deliverHandoff: over.deliverHandoff ?? (() => Promise.resolve()),
+    fileHandoffTask: over.fileHandoffTask ?? (() => Promise.resolve()),
     now: over.now ?? (() => (clock += 10)),
   };
   return { deps, steps, finalized, events, stepCalls: () => stepCalls };
@@ -169,6 +175,85 @@ Deno.test("runAgent: no memory loaded → context byte-identical to the memory-f
   await runAgent("sentinel", "cron", h.deps);
   assert(!seenContext.includes("MEMORY"));
   assert(seenContext.startsWith("System context:"));
+});
+
+// ── US-1613: agent-to-agent handoffs ─────────────────────────────────────────
+
+Deno.test("runAgent: a queued handoff is injected, consumed, and delivered onward with extended provenance", async () => {
+  let seenContext = "";
+  let consumed: { ids: string[]; runId: string } | null = null;
+  let delivered: { target_agent: string; hop: number; provenance: Array<{ agent: string }> } | null = null;
+  const step: KernelStepFn = (messages) => {
+    seenContext = typeof messages[0]?.content === "string" ? messages[0].content : "";
+    // Sentinel consumes the Support cluster handoff, then hands a vendor deep-dive to the watchdog.
+    return Promise.resolve(endTurn(
+      '{"summary":"incident","findings":[],"proposals":[],"handoffs":[{"target_agent":"integrations-watchdog","kind":"vendor_degradation","payload":{"vendor":"ebay"},"evidence":{}}]}',
+    ));
+  };
+  const h = harness(step, {
+    loadHandoffs: (key) =>
+      Promise.resolve(key === "sentinel"
+        ? [{ id: "ho-1", target_agent: "sentinel", origin_agent: "support-triage", origin_run_id: "r0", kind: "ticket_cluster", payload: { count: 4 }, evidence: null, hop: 1, provenance: [{ agent: "support-triage", run_id: "r0" }] }]
+        : []),
+    markHandoffsConsumed: (ids, runId) => { consumed = { ids, runId }; return Promise.resolve(); },
+    loadHandoffPolicy: (target) => Promise.resolve(target === "integrations-watchdog" ? { acceptsFrom: ["sentinel"] } : { acceptsFrom: [] }),
+    deliverHandoff: (ho) => { delivered = { target_agent: ho.target_agent, hop: ho.hop, provenance: ho.provenance }; return Promise.resolve(); },
+  });
+  const res = await runAgent("sentinel", "cron", h.deps);
+  assertEquals(res.status, "succeeded");
+  // The queued handoff was injected into context + marked consumed with this run.
+  assert(seenContext.includes("HANDOFFS"));
+  assert(seenContext.includes("support-triage"));
+  assertEquals(consumed, { ids: ["ho-1"], runId: "run-1" });
+  // The emitted handoff was delivered, chain extended support-triage → sentinel (hop 2).
+  assert(delivered !== null);
+  assertEquals((delivered as { target_agent: string }).target_agent, "integrations-watchdog");
+  assertEquals((delivered as { hop: number }).hop, 2);
+  assertEquals((delivered as { provenance: Array<{ agent: string }> }).provenance.map((p) => p.agent), ["support-triage", "sentinel"]);
+  // A consumed-handoff transcript step + the ops events fired.
+  assert(h.steps.some((s) => s.name === "handoffs_consumed"));
+  assertEquals(h.events.map((e) => e.type).includes("agent.handoff.consumed"), true);
+  assertEquals(h.events.map((e) => e.type).includes("agent.handoff.delivered"), true);
+});
+
+Deno.test("runAgent: an unaccepted handoff downgrades to an admin task, not a delivery", async () => {
+  let delivered = 0;
+  let task: { title: string } | null = null;
+  const step: KernelStepFn = () =>
+    Promise.resolve(endTurn('{"summary":"x","findings":[],"proposals":[],"handoffs":[{"target_agent":"finance","kind":"note","payload":{}}]}'));
+  const h = harness(step, {
+    loadHandoffPolicy: () => Promise.resolve({ acceptsFrom: [] }), // finance accepts nobody
+    deliverHandoff: () => { delivered++; return Promise.resolve(); },
+    fileHandoffTask: (t) => { task = t; return Promise.resolve(); },
+  });
+  const res = await runAgent("sentinel", "cron", h.deps);
+  assertEquals(res.status, "succeeded");
+  assertEquals(delivered, 0);
+  assert(task !== null);
+  assert((task as { title: string }).title.includes("Unaccepted handoff"));
+  assertEquals(h.events.map((e) => e.type).includes("agent.handoff.downgraded"), true);
+});
+
+Deno.test("runAgent: a handoff that would exceed the hop cap downgrades to a task", async () => {
+  let delivered = 0;
+  let task: { title: string } | null = null;
+  // The consumed handoff already sits at the cap; one more hop exceeds it.
+  const deepChain = [{ agent: "a", run_id: "r1" }, { agent: "b", run_id: "r2" }, { agent: "c", run_id: "r3" }];
+  const step: KernelStepFn = () =>
+    Promise.resolve(endTurn('{"summary":"x","findings":[],"proposals":[],"handoffs":[{"target_agent":"integrations-watchdog","kind":"vendor_degradation","payload":{}}]}'));
+  const h = harness(step, {
+    loadHandoffs: (key) => Promise.resolve(key === "sentinel"
+      ? [{ id: "ho-9", target_agent: "sentinel", origin_agent: "c", origin_run_id: "r3", kind: "k", payload: null, evidence: null, hop: 3, provenance: deepChain }]
+      : []),
+    loadHandoffPolicy: () => Promise.resolve({ acceptsFrom: ["sentinel"] }), // even accepted…
+    deliverHandoff: () => { delivered++; return Promise.resolve(); },
+    fileHandoffTask: (t) => { task = t; return Promise.resolve(); },
+  });
+  const res = await runAgent("sentinel", "cron", h.deps);
+  assertEquals(res.status, "succeeded");
+  assertEquals(delivered, 0); // …the hop cap still stops it
+  assert(task !== null);
+  assert((task as { title: string }).title.includes("chain too long"));
 });
 
 // ── Step-cap kill ────────────────────────────────────────────────────────────

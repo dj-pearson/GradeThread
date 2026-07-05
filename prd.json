@@ -11000,7 +11000,7 @@
         "Deno tests: delivery on next run, unaccepted downgrade, hop-cap enforcement; lint + check clean"
       ],
       "priority": 2312,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 2][Modules E+N] Read AGENTIC_OS.md §3.E. Handoffs move INFORMATION, never AUTHORITY — the receiving agent's own policy still governs anything it does with one.",
       "dependsOn": [
         "US-1587",

@@ -11571,3 +11571,54 @@ logic mirroring the test assertions — 18/18 passed. Scanned all new files for 
 (clean). prd-lint OK.
 
 Marked US-1595 passes:true. This also UNBLOCKS US-1613 (agent-to-agent handoffs).
+
+=== 2026-07-05 (loop: non-android prd): US-1613 (Agent-to-agent handoffs) ===
+Modules E+N: findings become another agent's queued work, WITH PROVENANCE and
+WITHOUT AUTHORITY. Support's ticket-cluster finding queues a Sentinel
+investigation; Sentinel's vendor finding queues an Integrations Watchdog
+deep-dive — cross-domain incidents connect without the operator as router.
+
+Delivered (pure core + kernel seam, mirroring the US-1606 memory pattern):
+- lib/agent-handoffs.ts — pure, fixture-tested:
+    • parseHandoffIntents: validate the model's `handoffs` array ({target_agent,
+      kind, payload, evidence}); payload/evidence are opaque INFORMATION.
+    • routeHandoff: hop cap checked FIRST (a runaway chain stops even if accepted),
+      then acceptance (target's accepts_handoffs_from). deliver → QueuedHandoff
+      with the provenance chain extended by this agent; unaccepted / hop-capped →
+      a downgrade admin task (the finding is never lost).
+    • inheritedProvenance (deepest consumed chain), formatHandoffBlock (self-
+      describing context block), selectHandoffsForContext (FIFO cap 10),
+      summarizeConsumed. HOP_CAP=3.
+- agent-kernel.ts: AgentOutcome.handoffs + parse pass-through; 5 KernelDeps seams
+  (loadHandoffs / markHandoffsConsumed / loadHandoffPolicy / deliverHandoff /
+  fileHandoffTask). Run START: consume queued handoffs → inject block, stamp
+  consumed with run id, remember inherited provenance, record a `handoffs_consumed`
+  transcript step + agent.handoff.consumed ops event. Run END: route each emitted
+  handoff → deliver (agent.handoff.delivered) or downgrade to admin task
+  (agent.handoff.downgraded). All best-effort — a handoff failure never fails the
+  run; empty handoffs leave the prompt byte-identical.
+- Wired examples (AC4): support-triage charter now HANDS clusters to sentinel
+  (replacing the US-1595 tagged-task stopgap); sentinel charter accepts them +
+  hands vendor_degradation to integrations-watchdog; integrations-watchdog charter
+  accepts that deep-dive. accepts_handoffs_from seeded on both targets in 00372.
+- Mission Control (AC5): consumed handoffs render via the existing run-transcript
+  viewer (the `handoffs_consumed` output step) — no bespoke FE component needed —
+  plus the three agent.handoff.* ops events.
+- Migration 00372 (agent_handoffs table, deny-all RLS + rls-guard registration +
+  the two config merges) + EXPECTED_SCHEMA_VERSION 00371→00372. Held.
+- Tests: agent-handoffs_test.ts (parse, inheritance, deliver/unaccepted/hopcap
+  routing, context helpers) + 3 kernel-seam tests (injected+consumed+delivered
+  with extended provenance; unaccepted→task; hop-cap→task). Kernel test harness
+  gained the 5 handoff seam defaults.
+
+Design note (AC1/AC2): a handoff carries INFORMATION, never AUTHORITY — the
+receiving agent still runs everything it DOES with one through its own proposal
+path (kernel routes emitted proposals via applyWritePolicy exactly as before).
+Provenance = the {agent, run_id} chain; hop = chain length.
+
+Verification (honest): deno test un-runnable here (network policy 403s). Ran
+`deno lint` (clean, 8 files) + a standalone Node reimplementation of the pure
+routing logic mirroring the test assertions — 15/15 passed. Scanned all new files
+for NUL (clean). prd-lint OK.
+
+Marked US-1613 passes:true.
