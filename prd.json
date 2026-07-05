@@ -10362,7 +10362,7 @@
         "Deno tests: due-selection logic, per-tick budget deferral, pause no-op; lint + check clean"
       ],
       "priority": 2355,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 0][Module J — Jobs Orchestrator] Read AGENTIC_OS.md §3.J. Follow the durable-jobs skill contract (lock, bounded batch, defer-not-drop). Add the Coolify scheduled-task row to COOLIFY.md via the generator, and note the new task in LAUNCH_CHECKLIST.md's scheduled-tasks section if one exists.",
       "dependsOn": [
         "US-1584",
