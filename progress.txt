@@ -28,10 +28,14 @@ Stripe expects.
 - NOTE (pre-existing, not this story): the edge deno-test lane is red on main
   from US-1595 (agent-tools.ts:1825 PropSchema lacks `items`/tuple `type`) plus 4
   runtime failures in agent-tools_test.ts (US-1595/1599/1600/1602) — reproduced on
-  clean HEAD with all my changes stashed. Also moved an orphaned untracked
-  mis-numbered 00232_listings_ebay_drift.sql (stalled US-1081) out of
-  supabase/migrations/ (collided with 00232_listing_origin.sql → broke verify:db);
-  preserved in the session scratchpad for a renumber-or-discard decision.
+  clean HEAD with all my changes stashed. Also DISCARDED an orphaned untracked
+  mis-numbered 00232_listings_ebay_drift.sql (stalled US-1081) that collided with
+  00232_listing_origin.sql → broke verify:db. It had no self-record footer (never
+  touched applied_migrations, so invisible to the boot guard — only local
+  verify:db saw it) and the ebay_drift column it adds is referenced by ZERO code,
+  so discarding was correct. If apply-prod-migrations.sh ran while it sat in the
+  dir, prod may have an inert listings.ebay_drift column; drop with
+  `ALTER TABLE public.listings DROP COLUMN IF EXISTS ebay_drift; NOTIFY pgrst, 'reload schema';`
 
 ## 2026-07-03 — US-1575 (iOS guided capture + native measurement editor) — passes:true (iOS CI validates)
 
