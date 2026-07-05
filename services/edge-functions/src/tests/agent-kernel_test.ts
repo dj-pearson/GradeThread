@@ -37,6 +37,7 @@ interface Harness {
   deps: Partial<KernelDeps>;
   steps: StepRecord[];
   finalized: RunFinalize[];
+  events: Array<{ type: string; severity: string }>;
   stepCalls: () => number;
 }
 
@@ -47,6 +48,7 @@ function harness(
 ): Harness {
   const steps: StepRecord[] = [];
   const finalized: RunFinalize[] = [];
+  const events: Array<{ type: string; severity: string }> = [];
   let stepCalls = 0;
   const wrappedStep: KernelStepFn = (m) => {
     stepCalls++;
@@ -72,9 +74,14 @@ function harness(
       isAllowed: () => false,
       execute: () => Promise.reject(new Error("no tools")),
     },
+    persistProposals: over.persistProposals ?? (() => Promise.resolve(0)),
+    notifyProposalsFiled: over.notifyProposalsFiled ?? (() => Promise.resolve()),
+    emitEvent: over.emitEvent ?? ((type, severity) => {
+      events.push({ type, severity });
+    }),
     now: over.now ?? (() => (clock += 10)),
   };
-  return { deps, steps, finalized, stepCalls: () => stepCalls };
+  return { deps, steps, finalized, events, stepCalls: () => stepCalls };
 }
 
 function endTurn(text: string): KernelModelStep {
@@ -113,6 +120,8 @@ Deno.test("runAgent: happy path returns a validated outcome and succeeds", async
   // model_call + output steps recorded.
   assertEquals(h.steps.map((s) => s.stepType), ["model_call", "output"]);
   assertEquals(h.finalized.at(-1)?.status, "succeeded");
+  // US-1589: run.started then run.finished emitted.
+  assertEquals(h.events.map((e) => e.type), ["agent.run.started", "agent.run.finished"]);
 });
 
 // ── Step-cap kill ────────────────────────────────────────────────────────────
@@ -128,6 +137,8 @@ Deno.test("runAgent: a tool-looping agent is killed at the step cap as 'timeout'
   assertEquals(res.outcome?.partial, true);
   // Exactly maxSteps model calls were made before the cap tripped.
   assertEquals(h.stepCalls(), 2);
+  // US-1589: a timeout terminal event.
+  assertEquals(h.events.at(-1)?.type, "agent.run.timeout");
 });
 
 // ── Budget refusal ───────────────────────────────────────────────────────────
@@ -153,6 +164,8 @@ Deno.test("runAgent: the global pause switch short-circuits to a skipped run", a
   assertEquals(res.outcome?.reason, "globally_paused");
   assertEquals(h.stepCalls(), 0);
   assert(res.runId !== null); // a run row was still created + finalized
+  // US-1589: a paused run never emits run.started; only the skipped terminal.
+  assertEquals(h.events.map((e) => e.type), ["agent.run.skipped"]);
 });
 
 Deno.test("runAgent: a paused agent status short-circuits to skipped", async () => {

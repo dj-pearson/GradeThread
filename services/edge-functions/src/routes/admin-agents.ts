@@ -49,6 +49,25 @@ adminAgentsRoutes.get("/runs", async (c) => {
   return c.json({ runs: data ?? [] });
 });
 
+// US-1589: a run's full ordered transcript for the Mission Control viewer. Step
+// input/output were redacted at WRITE time by the kernel (log-redact) — returned
+// as-is, never re-redacted.
+adminAgentsRoutes.get("/runs/:id", async (c) => {
+  const id = c.req.param("id");
+  const { data: run } = await supabaseAdmin
+    .from("agent_runs")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (!run) return jsonError(c, 404, "Run not found");
+  const { data: steps } = await supabaseAdmin
+    .from("agent_run_steps")
+    .select("*")
+    .eq("run_id", id)
+    .order("seq", { ascending: true });
+  return c.json({ run, steps: steps ?? [] });
+});
+
 // ── Proposals (list) ─────────────────────────────────────────────────────────
 
 adminAgentsRoutes.get("/proposals", async (c) => {

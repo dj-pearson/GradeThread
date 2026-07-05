@@ -32,6 +32,11 @@ import { applyWritePolicy } from "./agent-policy.ts";
 import { DEFAULT_PROPOSAL_TTL_HOURS, persistProposals } from "./agent-proposals.ts";
 import type { ProposalDraft } from "./agent-policy.ts";
 import { notifyAdminsProposalsFiled } from "./admin-notifications.ts";
+import { emitOpsEvent } from "./ops-events.ts";
+import { captureException, recordMetric } from "./observability.ts";
+
+// The severities the agent.* ops events use.
+export type AgentEventSeverity = "info" | "warning" | "critical";
 
 // ── Config + caps ────────────────────────────────────────────────────────────
 
@@ -241,6 +246,8 @@ export interface KernelDeps {
   ) => Promise<number>;
   // Notify admins of newly-filed proposals, batched per run (US-1657).
   notifyProposalsFiled: (agentKey: string, runId: string, count: number) => Promise<void>;
+  // Emit an agent.* ops event (US-1589). Fire-and-forget.
+  emitEvent: (type: string, severity: AgentEventSeverity, data: Record<string, unknown>) => void;
   now: () => number;
 }
 
@@ -302,12 +309,50 @@ export async function runAgent(
   }
   if (!runId) return { ...empty, reason: "run_row_failed" };
 
+  // Captured once (agent is a `let` — TS won't keep the non-null narrowing inside
+  // the finalize closure). Observability keys off these.
+  const agentKey = agent.key;
+  const runStartMs = d.now();
+  let seq = 0;
+
   const finalize = async (patch: RunFinalize): Promise<RunResult> => {
     try {
       await d.finalizeRun(runId!, patch);
     } catch (err) {
       console.warn(`[agent-kernel] finalizeRun failed for run ${runId}: ${redactError(err)}`);
     }
+    // US-1589: a terminal agent.run.* ops event + a metric line, per outcome.
+    const durationMs = d.now() - runStartMs;
+    const evType = patch.status === "succeeded"
+      ? "agent.run.finished"
+      : patch.status === "failed"
+      ? "agent.run.failed"
+      : patch.status === "timeout"
+      ? "agent.run.timeout"
+      : "agent.run.skipped";
+    const evSeverity: AgentEventSeverity = patch.status === "failed" || patch.status === "timeout"
+      ? "warning"
+      : "info";
+    d.emitEvent(evType, evSeverity, {
+      agent: agentKey,
+      run_id: runId,
+      status: patch.status,
+      duration_ms: durationMs,
+      steps: seq,
+      tokens_in: patch.tokensIn,
+      tokens_out: patch.tokensOut,
+      cost_usd: patch.costUsd,
+      reason: patch.outcome?.reason ?? null,
+    });
+    recordMetric("agent.run", 1, {
+      agent: agentKey,
+      outcome: patch.status,
+      duration_ms: durationMs,
+      steps: seq,
+      tokens_in: patch.tokensIn,
+      tokens_out: patch.tokensOut,
+      cost_usd: patch.costUsd,
+    });
     return {
       runId,
       status: patch.status,
@@ -357,8 +402,10 @@ export async function runAgent(
 
   let tokensIn = 0;
   let tokensOut = 0;
-  let seq = 0;
   let finalText: string | null = null;
+
+  // US-1589: the run has truly begun (past the pause/kill gate).
+  d.emitEvent("agent.run.started", "info", { agent: agentKey, run_id: runId, trigger, model });
 
   const costOf = (): number =>
     computeCostUsd({
@@ -440,7 +487,14 @@ export async function runAgent(
     }
   } catch (err) {
     // Any unexpected error (model call, tool, persistence) → clean 'failed'.
+    // US-1589: route the crash through captureException with the run id, but the
+    // run row still finalizes as 'failed'.
     console.warn(`[agent-kernel] run ${runId} errored: ${redactError(err)}`);
+    captureException(err, {
+      route: "agent-kernel",
+      level: "error",
+      tags: { run_id: runId, agent: agentKey },
+    });
     return finalize({
       status: "failed",
       tokensIn,
@@ -497,7 +551,10 @@ export async function runAgent(
       : DEFAULT_PROPOSAL_TTL_HOURS;
     try {
       const filed = await d.persistProposals(agent.id, runId, routed.proposals, ttlHours);
-      if (filed > 0) await d.notifyProposalsFiled(agent.key, runId, filed);
+      if (filed > 0) {
+        await d.notifyProposalsFiled(agentKey, runId, filed);
+        d.emitEvent("agent.proposal.created", "info", { agent: agentKey, run_id: runId, count: filed });
+      }
     } catch (err) {
       console.warn(`[agent-kernel] persistProposals failed for run ${runId}: ${redactError(err)}`);
     }
@@ -645,6 +702,14 @@ export function prodKernelDeps(): KernelDeps {
       persistProposals(agentId, runId, drafts, ttlHours),
     notifyProposalsFiled: (agentKey, runId, count) =>
       notifyAdminsProposalsFiled(agentKey, runId, count),
+    emitEvent: (type, severity, data) => {
+      const key = typeof data.agent === "string" ? data.agent : "agent";
+      emitOpsEvent(type, severity, {
+        title: `${type} — ${key}`,
+        source: "agent-kernel",
+        data,
+      });
+    },
     now: () => Date.now(),
   };
 }

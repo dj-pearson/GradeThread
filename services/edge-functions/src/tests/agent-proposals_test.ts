@@ -106,6 +106,7 @@ Deno.test("persistProposals: stamps a TTL expiry and passes rows through", async
 function claimHarness(initial: ProposalRow) {
   let current = { ...initial };
   let runCalls = 0;
+  const events: string[] = [];
   const deps: Partial<ProposalDeps> = {
     now: () => NOW,
     loadProposal: () => Promise.resolve({ ...current }),
@@ -124,8 +125,11 @@ function claimHarness(initial: ProposalRow) {
       runCalls++;
       return Promise.resolve({ ok: true, status: 202 });
     },
+    emitEvent: (type) => {
+      events.push(type);
+    },
   };
-  return { deps, runCalls: () => runCalls, state: () => current };
+  return { deps, runCalls: () => runCalls, state: () => current, events: () => events };
 }
 
 Deno.test("approveProposal: a concurrent double-approve executes EXACTLY once", async () => {
@@ -140,6 +144,8 @@ Deno.test("approveProposal: a concurrent double-approve executes EXACTLY once", 
   assertEquals(executed.length, 1);
   assertEquals(lost.length, 1);
   assertEquals(h.state().status, "executed");
+  // US-1589: the winner emits approved then executed (the loser emits nothing).
+  assertEquals(h.events(), ["agent.proposal.approved", "agent.proposal.executed"]);
 });
 
 Deno.test("approveProposal: a write-tool soft error marks the proposal failed", async () => {
@@ -172,6 +178,7 @@ Deno.test("rejectProposal: claims pending→rejected; a decided one is refused",
   const h = claimHarness(row());
   const ok = await rejectProposal("p1", "admin", "not needed", h.deps);
   assertEquals(ok, { ok: true, status: "rejected" });
+  assertEquals(h.events(), ["agent.proposal.rejected"]);
   // Second reject loses the claim → not_pending.
   const again = await rejectProposal("p1", "admin", "again", h.deps);
   assertEquals(again.ok, false);

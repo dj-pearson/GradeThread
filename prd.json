@@ -10390,7 +10390,7 @@
         "tenant-isolation_test.ts covers the transcript endpoint; deno tests for event emission points; lint + check clean"
       ],
       "priority": 2354,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 0][Module O — Observability] Read AGENTIC_OS.md §3.O. Reuse emitOpsEvent + observability.ts conventions exactly — grep how jobs-*.ts emit job.failed for the house style.",
       "dependsOn": [
         "US-1584"

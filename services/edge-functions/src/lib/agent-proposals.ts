@@ -21,6 +21,9 @@ import type { ProposalDraft } from "./agent-policy.ts";
 import { ACTION_CLASS_TO_TOOL, agentToolRegistry } from "./agent-tools.ts";
 import { supabaseAdmin } from "./supabase.ts";
 import { redactError } from "./log-redact.ts";
+import { emitOpsEvent } from "./ops-events.ts";
+
+type ProposalEventSeverity = "info" | "warning" | "critical";
 
 export const DEFAULT_PROPOSAL_TTL_HOURS = 72;
 
@@ -84,6 +87,8 @@ export interface ProposalDeps {
     payload: unknown,
     ctx: { authorizedBy: string; proposalId: string },
   ) => Promise<unknown>;
+  // Emit an agent.proposal.* ops event (US-1589). Fire-and-forget.
+  emitEvent: (type: string, severity: ProposalEventSeverity, data: Record<string, unknown>) => void;
   now: () => number;
 }
 
@@ -135,6 +140,8 @@ export function prodProposalDeps(): ProposalDeps {
       return (data as unknown[] | null)?.length ?? 0;
     },
     runWriteTool: (toolName, payload, ctx) => agentToolRegistry.executeWrite(toolName, payload, ctx),
+    emitEvent: (type, severity, data) =>
+      emitOpsEvent(type, severity, { title: type, source: "agent-proposals", data }),
     now: () => Date.now(),
   };
 }
@@ -203,16 +210,32 @@ export async function approveProposal(
   });
   if (!claimed) return { ok: false, reason: "already_decided" };
 
+  d.emitEvent("agent.proposal.approved", "info", {
+    proposal_id: proposalId,
+    action_class: claimed.action_class,
+    decided_by: adminId,
+  });
+
   // Only the claim winner reaches here → execute exactly once.
   const toolName = ACTION_CLASS_TO_TOOL[claimed.action_class] ?? claimed.action_class;
   try {
     const result = await d.runWriteTool(toolName, claimed.payload, { authorizedBy: adminId, proposalId });
     const failed = isToolError(result);
     await d.finalizeExecution(proposalId, failed ? "failed" : "executed", result);
+    d.emitEvent("agent.proposal.executed", failed ? "warning" : "info", {
+      proposal_id: proposalId,
+      action_class: claimed.action_class,
+      status: failed ? "failed" : "executed",
+    });
     return { ok: true, status: failed ? "failed" : "executed", result };
   } catch (err) {
     const result = { error: redactError(err) };
     await d.finalizeExecution(proposalId, "failed", result);
+    d.emitEvent("agent.proposal.executed", "warning", {
+      proposal_id: proposalId,
+      action_class: claimed.action_class,
+      status: "failed",
+    });
     return { ok: true, status: "failed", result };
   }
 }
@@ -229,7 +252,14 @@ export async function rejectProposal(
     decided_at: new Date(d.now()).toISOString(),
     decide_reason: reason,
   });
-  if (claimed) return { ok: true, status: "rejected" };
+  if (claimed) {
+    d.emitEvent("agent.proposal.rejected", "info", {
+      proposal_id: proposalId,
+      action_class: claimed.action_class,
+      decided_by: adminId,
+    });
+    return { ok: true, status: "rejected" };
+  }
   const existing = await d.loadProposal(proposalId);
   if (!existing) return { ok: false, reason: "not_found" };
   return { ok: false, reason: `not_pending:${existing.status}` };
