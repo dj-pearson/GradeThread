@@ -78,7 +78,11 @@ export const CONDITION_ENUM_TO_ID: Record<EbayCondition, string> = {
   NEW_OTHER: "1500",
   NEW_WITH_DEFECTS: "1750",
   LIKE_NEW: "2750",
+  // Granular pre-owned apparel conditions (2990/3010). 3000 (USED_EXCELLENT) is
+  // the middle "Pre-owned - Good" tier that these bracket.
+  PRE_OWNED_EXCELLENT: "2990",
   USED_EXCELLENT: "3000",
+  PRE_OWNED_FAIR: "3010",
   USED_VERY_GOOD: "4000",
   USED_GOOD: "5000",
   USED_ACCEPTABLE: "6000",
@@ -98,7 +102,9 @@ const CONDITION_ID_LABEL: Record<string, string> = {
   "2030": "Good refurbished",
   "2500": "Seller refurbished",
   "2750": "Like new",
+  "2990": "Pre-owned - Excellent",
   "3000": "Used / pre-owned",
+  "3010": "Pre-owned - Fair",
   "4000": "Very good",
   "5000": "Good",
   "6000": "Acceptable",
@@ -148,7 +154,9 @@ const CONDITION_QUALITY_ORDER: readonly string[] = [
   "1500", // New without tags
   "1750", // New with defects
   "2750", // Like new
-  "3000", // Used / pre-owned — Excellent
+  "2990", // Pre-owned - Excellent (apparel)
+  "3000", // Used / pre-owned  (apparel: "Pre-owned - Good")
+  "3010", // Pre-owned - Fair   (apparel)
   "4000", // Very good
   "5000", // Good
   "6000", // Acceptable
@@ -204,6 +212,62 @@ export function remapConditionForCategory(
     if (best === null || rank < best.rank) best = { rank, cond };
   }
   return best ? best.cond : null;
+}
+
+export interface CategoryConditionOption {
+  /** The emittable eBay condition enum (what the Inventory API takes). */
+  value: EbayCondition;
+  /** The eBay numeric conditionId this enum maps to. */
+  id: string;
+  /** Human label for the id (category-neutral). */
+  label: string;
+}
+
+/**
+ * Turn a category's allowed conditionIds (from getItemConditionPolicies) into the
+ * SELECTABLE condition options for the composer's dropdown: only ids we can emit
+ * (have an enum), ordered best→worst by quality, de-duped. `allowedLabels` lists
+ * every allowed condition's label (including any we can't emit yet, e.g. refurb
+ * tiers) so the UI can explain what the category accepts. An empty allow-list
+ * (unrestricted category) yields empty arrays — the caller falls back to the full
+ * static option list.
+ */
+export function conditionOptionsForCategory(
+  allowedConditionIds: string[],
+): { options: CategoryConditionOption[]; allowedLabels: string[] } {
+  if (!allowedConditionIds || allowedConditionIds.length === 0) {
+    return { options: [], allowedLabels: [] };
+  }
+  // eBay's granular pre-owned APPAREL family (2990 Excellent / 3010 Fair) only
+  // ever appears in clothing leaves. When it does, the shared id 3000 is labeled
+  // "Pre-owned - Good" (not the generic "Used / pre-owned"), and calling both
+  // 2990 and 3000 "Excellent" would be a confusing duplicate — so relabel 3000
+  // for this category. Detected purely from the allow-list shape (no eBay name
+  // fetch / no migration needed).
+  const apparelFamily = allowedConditionIds.includes("2990") ||
+    allowedConditionIds.includes("3010");
+  const labelFor = (id: string): string =>
+    apparelFamily && id === "3000" ? "Pre-owned - Good" : labelForConditionId(id);
+
+  // Order allowed ids by quality (best→worst); ids outside the known order
+  // (shouldn't happen) trail in their original order.
+  const ordered = [
+    ...CONDITION_QUALITY_ORDER.filter((id) => allowedConditionIds.includes(id)),
+    ...allowedConditionIds.filter((id) => !CONDITION_QUALITY_ORDER.includes(id)),
+  ];
+  const seen = new Set<string>();
+  const options: CategoryConditionOption[] = [];
+  for (const id of ordered) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const value = CONDITION_ID_TO_ENUM[id];
+    if (!value) continue; // e.g. refurbished tiers we don't emit — not selectable
+    options.push({ value, id, label: labelFor(id) });
+  }
+  const allowedLabels = allowedConditionIds
+    .map(labelFor)
+    .filter((v, i, a) => a.indexOf(v) === i);
+  return { options, allowedLabels };
 }
 
 // ── Image reachability ─────────────────────────────────────────────────

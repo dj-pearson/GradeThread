@@ -136,6 +136,7 @@ import {
   reachabilityBlocker,
   validateConditionForCategory,
   remapConditionForCategory,
+  conditionOptionsForCategory,
 } from "../lib/publish-preflight.ts";
 import {
   getAllActiveEbaySelling,
@@ -1476,6 +1477,41 @@ flipdeskEbayRoutes.get("/category/:id/aspects", async (c) => {
   } catch (err) {
     console.error("[flipdesk-ebay] category aspects failed:", err);
     return c.json({ error: "Category aspects fetch failed" }, 502);
+  }
+});
+
+// Category-aware CONDITION options for the composer. Many apparel leaves accept
+// only {1000,1500,1750,2990,3000,3010} and reject the legacy USED_* tiers, so a
+// fixed dropdown offers conditions eBay then rejects at publish. This returns the
+// SELECTABLE conditions for the leaf (best→worst, only ones we can emit) plus the
+// full allowed-label list. `restricted:false` (unrestricted / unknown category)
+// tells the client to fall back to its full static option list.
+// App-token metadata (read-through cached in ebay_category_condition_policies) —
+// no seller OAuth or tenant data involved.
+flipdeskEbayRoutes.get("/category/:id/conditions", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const categoryId = c.req.param("id");
+  if (!categoryId) {
+    return c.json({ error: "category id is required" }, 400);
+  }
+  try {
+    const { conditionIds, cached } = await getItemConditionPolicies(categoryId);
+    const { options, allowedLabels } = conditionOptionsForCategory(conditionIds);
+    return c.json({
+      categoryId,
+      restricted: conditionIds.length > 0,
+      conditionIds,
+      options,
+      allowedLabels,
+      cached,
+    });
+  } catch (err) {
+    // Advisory — never block the composer on a policy-fetch hiccup. The client
+    // falls back to the full static option list on any non-200.
+    console.error("[flipdesk-ebay] category conditions failed:", err);
+    return c.json({ error: "Category conditions fetch failed" }, 502);
   }
 });
 

@@ -110,6 +110,7 @@ import {
   type ListingFormatValue,
 } from "@/components/flipdesk/listing-format-controls";
 import {
+  useEbayCategoryConditions,
   useEbayConnection,
   useEbayPolicies,
   useEbayReviseListing,
@@ -457,6 +458,38 @@ export function FlipdeskComposerPage() {
     listing?.platform_category_id ??
     ebayMapping?.ebay_category_id ??
     null;
+
+  // eBay condition/category awareness: many apparel leaves (Dresses, Women's
+  // Sweaters, …) accept only {New, New other, New with defects, Pre-owned -
+  // Excellent/Good/Fair} and REJECT the legacy USED_* tiers — a fixed list would
+  // offer conditions eBay bounces at publish. Drive the dropdown off the leaf's
+  // allowed conditions; fall back to the full static list when the category is
+  // unknown/unrestricted or the (advisory) fetch fails.
+  const { data: categoryConditions } = useEbayCategoryConditions(resolvedCategoryId);
+  const conditionOptions = useMemo<{ value: string; label: string }[]>(() => {
+    const base =
+      categoryConditions?.restricted && categoryConditions.options.length > 0
+        ? categoryConditions.options.map((o) => ({ value: o.value, label: o.label }))
+        : EBAY_CONDITION_OPTIONS.map((o) => ({ value: o.value, label: o.label }));
+    // Never silently drop a value already chosen (by the seller or the AI) that
+    // isn't in the category's allowed set — keep it selectable with a marker so
+    // the seller can see it and pick a valid one instead.
+    if (ebayCondition && !base.some((o) => o.value === ebayCondition)) {
+      base.push({
+        value: ebayCondition,
+        label: `${conditionLabel(ebayCondition)} — not accepted by this category`,
+      });
+    }
+    return base;
+  }, [categoryConditions, ebayCondition]);
+  // The chosen condition is rejected by this leaf's allow-list (drives an inline
+  // warning under the dropdown so publish doesn't surprise the seller).
+  const conditionRejected = Boolean(
+    ebayCondition &&
+      categoryConditions?.restricted &&
+      categoryConditions.options.length > 0 &&
+      !categoryConditions.options.some((o) => o.value === ebayCondition),
+  );
 
   // US-561: fetch the category-suggested ad rate and, only when the seller has
   // no rate yet, seed the box with it — never clobbering an explicit edit.
@@ -1229,19 +1262,34 @@ export function FlipdeskComposerPage() {
             <CardContent className="space-y-3">
               <div className="space-y-1.5">
                 <Label htmlFor="ebay-condition">eBay condition</Label>
+                {/* bg-background/text-foreground (not bg-transparent) + the global
+                    `select option` rule keep the native list legible in dark mode. */}
                 <select
                   id="ebay-condition"
                   value={ebayCondition}
                   onChange={(e) => setEbayCondition(e.target.value)}
-                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 >
                   <option value="">Select condition…</option>
-                  {EBAY_CONDITION_OPTIONS.map((o) => (
+                  {conditionOptions.map((o) => (
                     <option key={o.value} value={o.value}>
                       {o.label}
                     </option>
                   ))}
                 </select>
+                {conditionRejected && (
+                  <p className="text-xs text-destructive">
+                    This condition isn't accepted by the selected eBay category —
+                    pick one of the allowed conditions above, or eBay will reject
+                    the listing at publish.
+                  </p>
+                )}
+                {categoryConditions?.restricted &&
+                  categoryConditions.allowedLabels.length > 0 && (
+                    <p className="text-[11px] text-muted-foreground">
+                      This category accepts: {categoryConditions.allowedLabels.join(", ")}.
+                    </p>
+                  )}
                 {aiSnapshot && (
                   <AiDiffChip
                     changed={textChanged(aiSnapshot.ebay_condition, ebayCondition)}

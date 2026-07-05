@@ -115,6 +115,49 @@ export function useEbayPolicies(enabled = true) {
   });
 }
 
+// Category-aware eBay condition options for the composer dropdown. Many apparel
+// leaves (Dresses, Women's Sweaters, …) accept only {1000,1500,1750,2990,3000,
+// 3010} and reject the legacy USED_* tiers, so a fixed list offers conditions
+// eBay rejects at publish. This returns the SELECTABLE conditions for the leaf
+// (best→worst, with eBay's category-correct labels). `restricted:false` or a null
+// result → the composer falls back to its full static option list.
+export interface EbayCategoryConditionOption {
+  value: string; // the emittable eBay condition enum
+  id: string; // eBay numeric conditionId
+  label: string; // category-correct human label
+}
+export interface EbayCategoryConditions {
+  categoryId: string;
+  restricted: boolean;
+  conditionIds: string[];
+  options: EbayCategoryConditionOption[];
+  allowedLabels: string[];
+}
+
+export function useEbayCategoryConditions(
+  categoryId: string | null | undefined,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: ["ebay_category_conditions", categoryId],
+    enabled: enabled && !!categoryId,
+    staleTime: 60 * 60_000, // condition policies are effectively static
+    retry: false,
+    queryFn: async (): Promise<EbayCategoryConditions | null> => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/category/${
+          encodeURIComponent(categoryId!)
+        }/conditions`,
+        { headers: await ebayHeaders() },
+      );
+      // Advisory only — on any non-200 the composer falls back to the static
+      // list rather than surfacing an error or blocking condition entry.
+      if (!res.ok) return null;
+      return (await res.json()) as EbayCategoryConditions;
+    },
+  });
+}
+
 // US-1473: account-level eBay health (Seller Standards + customer-service
 // defect metrics). `access:false` means Sell Analytics isn't granted — the card
 // shows a reconnect affordance rather than an error.

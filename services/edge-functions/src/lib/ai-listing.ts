@@ -114,7 +114,15 @@ export const EBAY_CONDITION_VALUES = [
   "NEW_OTHER",
   "NEW_WITH_DEFECTS",
   "LIKE_NEW",
+  // eBay's granular PRE-OWNED apparel conditions (ids 2990 / 3010). Many clothing
+  // leaves (Dresses, Women's Sweaters, …) accept ONLY {1000,1500,1750,2990,3000,
+  // 3010} and reject the legacy USED_VERY_GOOD/GOOD/ACCEPTABLE (4000/5000/6000),
+  // so without these two enums a genuinely pre-owned garment had no acceptable
+  // condition to publish. 2990 = "Pre-owned - Excellent", 3010 = "Pre-owned -
+  // Fair"; the middle tier "Pre-owned - Good" reuses USED_EXCELLENT (id 3000).
+  "PRE_OWNED_EXCELLENT",
   "USED_EXCELLENT",
+  "PRE_OWNED_FAIR",
   "USED_VERY_GOOD",
   "USED_GOOD",
   "USED_ACCEPTABLE",

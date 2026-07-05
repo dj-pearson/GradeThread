@@ -318,7 +318,14 @@ export const EBAY_CONDITION_OPTIONS: { value: string; label: string }[] = [
   { value: "NEW_OTHER", label: "New without tags" },
   { value: "NEW_WITH_DEFECTS", label: "New with defects" },
   { value: "LIKE_NEW", label: "Like new" },
+  // eBay's granular pre-owned apparel conditions (ids 2990 / 3010). Most clothing
+  // leaves accept only {1000,1500,1750,2990,3000,3010}. The "(apparel)" hint
+  // disambiguates them from the generic USED_* tiers in this fallback list; when
+  // a category is known, the composer replaces this list with eBay's own
+  // category-correct labels (see useEbayCategoryConditions).
+  { value: "PRE_OWNED_EXCELLENT", label: "Pre-owned — Excellent (apparel)" },
   { value: "USED_EXCELLENT", label: "Pre-owned — Excellent" },
+  { value: "PRE_OWNED_FAIR", label: "Pre-owned — Fair (apparel)" },
   { value: "USED_VERY_GOOD", label: "Pre-owned — Very good" },
   { value: "USED_GOOD", label: "Pre-owned — Good" },
   { value: "USED_ACCEPTABLE", label: "Pre-owned — Acceptable" },

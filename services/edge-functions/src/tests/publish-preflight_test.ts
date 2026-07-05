@@ -5,6 +5,7 @@ import { assertEquals } from "@std/assert";
 import {
   checkImageReachability,
   CONDITION_ENUM_TO_ID,
+  conditionOptionsForCategory,
   dedupeAndCapImages,
   EBAY_MAX_IMAGES,
   imageCapBlocker,
@@ -12,6 +13,73 @@ import {
   remapConditionForCategory,
   validateConditionForCategory,
 } from "../lib/publish-preflight.ts";
+
+// ── apparel condition family (2990/3010) — the Dress/Women's-Sweaters set ──────
+
+// The exact allow-list eBay returns for apparel leaves like Dresses.
+const APPAREL_CONDITIONS = ["1000", "1500", "1750", "2990", "3000", "3010"];
+
+Deno.test("apparel enums map to the right conditionIds (2990/3010)", () => {
+  assertEquals(CONDITION_ENUM_TO_ID.PRE_OWNED_EXCELLENT, "2990");
+  assertEquals(CONDITION_ENUM_TO_ID.PRE_OWNED_FAIR, "3010");
+});
+
+Deno.test("apparel condition is accepted (no blocker) in an apparel category", () => {
+  assertEquals(validateConditionForCategory("PRE_OWNED_EXCELLENT", APPAREL_CONDITIONS), null);
+  assertEquals(validateConditionForCategory("PRE_OWNED_FAIR", APPAREL_CONDITIONS), null);
+});
+
+Deno.test("apparel remap never overstates: LIKE_NEW → nearest worse allowed (Pre-owned Excellent)", () => {
+  // Like new (2750) is rejected by apparel → step DOWN to the nearest allowed of
+  // equal-or-worse quality: 2990 (PRE_OWNED_EXCELLENT). Never jumps to a NEW_* id.
+  assertEquals(remapConditionForCategory("LIKE_NEW", APPAREL_CONDITIONS), "PRE_OWNED_EXCELLENT");
+});
+
+Deno.test("apparel remap never overstates: USED_EXCELLENT(3000) stays, not upgraded to 2990", () => {
+  // 3000 is allowed → unchanged (never jump UP to Excellent/2990).
+  assertEquals(remapConditionForCategory("USED_EXCELLENT", APPAREL_CONDITIONS), "USED_EXCELLENT");
+});
+
+Deno.test("legacy USED_GOOD in an apparel category → safe block (never a cross-family overstate)", () => {
+  // "Good" (5000) is a LEGACY tier; the apparel set shares id 3000 for a
+  // different meaning, so there's no safe linear remap. Rather than risk
+  // overstating, remap returns null and validate surfaces the fixable blocker —
+  // the seller then picks a real apparel condition from the (now category-aware)
+  // dropdown.
+  assertEquals(remapConditionForCategory("USED_GOOD", APPAREL_CONDITIONS), null);
+  const msg = validateConditionForCategory("USED_GOOD", APPAREL_CONDITIONS);
+  assertEquals(typeof msg, "string");
+  assertEquals(msg!.includes("Change the condition in the composer"), true);
+});
+
+Deno.test("conditionOptionsForCategory: apparel set → selectable options, best→worst, 3000='Good'", () => {
+  const { options, allowedLabels } = conditionOptionsForCategory(APPAREL_CONDITIONS);
+  assertEquals(
+    options.map((o) => o.value),
+    [
+      "NEW",
+      "NEW_OTHER",
+      "NEW_WITH_DEFECTS",
+      "PRE_OWNED_EXCELLENT",
+      "USED_EXCELLENT",
+      "PRE_OWNED_FAIR",
+    ],
+  );
+  // In the apparel family the shared id 3000 is labeled "Pre-owned - Good"
+  // (not the generic "Used / pre-owned") so it doesn't duplicate 2990's label.
+  assertEquals(options.find((o) => o.value === "USED_EXCELLENT")?.label, "Pre-owned - Good");
+  assertEquals(options.find((o) => o.value === "PRE_OWNED_EXCELLENT")?.label, "Pre-owned - Excellent");
+  assertEquals(allowedLabels.includes("Pre-owned - Fair"), true);
+});
+
+Deno.test("conditionOptionsForCategory: empty allow-list → empty (caller uses static list)", () => {
+  assertEquals(conditionOptionsForCategory([]), { options: [], allowedLabels: [] });
+});
+
+Deno.test("conditionOptionsForCategory: non-apparel keeps 3000 as the generic 'Used / pre-owned'", () => {
+  const { options } = conditionOptionsForCategory(["1000", "3000", "4000", "5000"]);
+  assertEquals(options.find((o) => o.value === "USED_EXCELLENT")?.label, "Used / pre-owned");
+});
 
 // ── image cap / de-dup / order ─────────────────────────────────────────
 

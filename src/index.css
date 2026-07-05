@@ -204,6 +204,16 @@
   body {
     @apply bg-background text-foreground font-sans antialiased;
   }
+  /* Native <select> popups: several composer/bulk-edit selects use a
+     bg-transparent trigger, which left the <option> list white-on-white (only
+     readable on hover) in dark mode. Force theme-correct option colors + a
+     matching color-scheme so the native widget renders legibly in both themes. */
+  select {
+    color-scheme: light dark;
+  }
+  select option {
+    @apply bg-background text-foreground;
+  }
 }
 
 /* Typography for legal / long-form policy pages */
