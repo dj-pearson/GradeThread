@@ -50,6 +50,9 @@ function fakeIO(over: Partial<ToolIO> = {}): { io: ToolIO; audits: AuditLogInput
     fetchReleaseState: () => Promise.resolve(null),
     persistReleaseState: () => Promise.resolve(),
     runSmoke: () => Promise.resolve({ ok: true, status: 200 }),
+    fetchNewsletterAbTests: () => Promise.resolve([]),
+    fetchPromptRollouts: () => Promise.resolve([]),
+    fetchDripVariants: () => Promise.resolve([]),
     runJob: () => Promise.resolve({ ok: true, status: 200 }),
     requeueEmailDeadLetter: () => Promise.resolve(true),
     resolveAgentTaskProject: () => Promise.resolve("proj-1"),
@@ -278,6 +281,36 @@ Deno.test("US-1610: run_smoke maps to a write tool + is invisible to the run loo
   assertEquals(reg.anthropicTools(a).map((t) => t.name), ["get_release_health"]);
   const res = await reg.executeWrite("run_smoke", {}, { authorizedBy: "admin-1" }) as { ok?: boolean };
   assertEquals(res.ok, true);
+});
+
+// ── US-1609: get_experiments_registry memo ───────────────────────────────────
+
+Deno.test("US-1609: get_experiments_registry unifies engines + flags interference", async () => {
+  const startIso = new Date(NOW - 2 * 86400_000).toISOString();
+  const { io } = fakeIO({
+    // A newsletter subject test measuring opens on the subscriber audience…
+    fetchNewsletterAbTests: () => Promise.resolve([{
+      id: "iss-1",
+      ab_phase: "testing",
+      ab_metric: "open",
+      subject_variants: [{ id: "a", subject: "A" }, { id: "b", subject: "B" }],
+      ab_test_started_at: startIso,
+      ab_measurement_hours: 48,
+      ab_winner_variant: null,
+    }]),
+    fetchPromptRollouts: () => Promise.resolve([]),
+    fetchDripVariants: () => Promise.resolve([]),
+  });
+  const reg = createAgentToolRegistry(io);
+  const a = agent(["get_experiments_registry"]);
+  const res = await reg.execute(a, "get_experiments_registry", {}) as {
+    memo?: { registry?: Array<{ engine: string }>; all_clear?: boolean };
+  };
+  // One live experiment normalized from the newsletter engine; no second test on
+  // the same audience+metric, so all_clear.
+  assertEquals(res.memo?.registry?.length, 1);
+  assertEquals(res.memo?.registry?.[0].engine, "newsletter-ab");
+  assertEquals(res.memo?.all_clear, true);
 });
 
 // ── US-1611: get_cron_fleet_health report ────────────────────────────────────

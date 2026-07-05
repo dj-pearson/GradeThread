@@ -10901,7 +10901,7 @@
         "Deno tests: adapter normalization per engine fixture, an interference fixture yields the flag; lint + check clean"
       ],
       "priority": 2316,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 2][Module X — Experiments Governor] Read AGENTIC_OS.md §3.X. The engines keep running their own A/B math — this governs portfolio-level honesty and collisions.",
       "dependsOn": [
         "US-1588",

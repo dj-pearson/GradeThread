@@ -17,6 +17,7 @@ import { CEO_BRIEF_CHARTER } from "./ceo-brief-agent.ts";
 import { GROWTH_AGENT_CHARTER } from "./growth-agent.ts";
 import { CRON_GOVERNANCE_CHARTER } from "./cron-governance-agent.ts";
 import { RELEASE_AGENT_CHARTER } from "./release-agent.ts";
+import { EXPERIMENTS_GOVERNOR_CHARTER } from "./experiments-governor-agent.ts";
 
 export type { AgentCharter };
 
@@ -32,6 +33,7 @@ const CHARTERS: Record<string, AgentCharter> = {
   [GROWTH_AGENT_CHARTER.key]: GROWTH_AGENT_CHARTER,
   [CRON_GOVERNANCE_CHARTER.key]: CRON_GOVERNANCE_CHARTER,
   [RELEASE_AGENT_CHARTER.key]: RELEASE_AGENT_CHARTER,
+  [EXPERIMENTS_GOVERNOR_CHARTER.key]: EXPERIMENTS_GOVERNOR_CHARTER,
 };
 
 export function charterFor(agentKey: string): AgentCharter | null {

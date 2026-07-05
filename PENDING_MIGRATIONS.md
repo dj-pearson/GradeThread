@@ -1,5 +1,27 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00369_seed_experiments_governor_agent.sql (US-1609 / AGENTIC-OS Phase 2, 2026-07-05)
+
+**What:** seeds ONE `agents` row — the Experiments Governor (module X),
+`status='paused'`, `autonomy='{}'` (L0), config = twice-weekly (Mon/Thu 07:00) /
+haiku model / read-only allowlist (get_experiments_registry) / $1 cap. Unifies
+every LIVE A/B across three engines (newsletter subject tests, grading-prompt
+canaries, drip variants) into one registry and flags portfolio issues:
+interference (same audience + metric, overlapping windows), underpowered "wins",
+and experiments past their decision date. Files an admin task (file_task) with a
+concrete remedy; NEVER stops/extends/promotes an experiment itself. Prompt lives
+in the repo charter. `ON CONFLICT (key) DO NOTHING` (idempotent). Self-records
+'00369'.
+
+**Risk: LOW — one seed row into the operator agents table (00357).** No client
+reads. Seeded PAUSED. The get_experiments_registry tool reads existing columns
+only — `newsletter_issues` A/B fields (00282), `ai_prompt_versions` canary fields
+(00221), `drip_enrollments` (00253) — no new schema beyond this seed row. Edge
+boot guard now expects **00369**.
+
+**⚠️ Apply order:** apply after 00357–00368. Data-only (no `NOTIFY pgrst` needed).
+Redeploy the edge so its boot guard matches 00369.
+
 ## ⏳ HELD: 00368_seed_release_agent.sql (US-1610 / AGENTIC-OS Phase 2, 2026-07-05)
 
 **What:** seeds ONE `agents` row — the Release agent (module Q), `status='paused'`,

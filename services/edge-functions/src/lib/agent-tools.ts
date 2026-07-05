@@ -51,6 +51,15 @@ import {
   type ReleaseMetrics,
   type ReleaseState,
 } from "./release-verify.ts";
+import {
+  assembleExperimentsMemo,
+  type DripVariantRow,
+  type NewsletterAbRow,
+  normalizeDripVariants,
+  normalizeNewsletterAb,
+  normalizePromptRollout,
+  type PromptRolloutRow,
+} from "./experiments-governor.ts";
 import { type ReorderReviewQueueResult, reorderReviewQueue } from "./review-queue-order.ts";
 import { resolveRevenueWindow } from "./revenue-window.ts";
 import { type AuditLogInput, writeSystemAuditLog } from "./audit-log.ts";
@@ -238,6 +247,12 @@ export interface ToolIO {
   persistReleaseState(state: ReleaseState): Promise<void>;
   // US-1610: run a lightweight in-process smoke (the internal /health endpoint).
   runSmoke(): Promise<{ ok: boolean; status: number; error?: string }>;
+  // US-1609: live-experiment sources for the Experiments Governor. Each is
+  // best-effort (a missing/legacy engine returns []). No tenant data — these are
+  // platform-wide experiment definitions, not per-user rows.
+  fetchNewsletterAbTests(): Promise<NewsletterAbRow[]>;
+  fetchPromptRollouts(): Promise<PromptRolloutRow[]>;
+  fetchDripVariants(sinceIso: string): Promise<DripVariantRow[]>;
   // ── Write-side (used only by executeWrite / approved proposals) ──
   // Re-fire a registered cron job by key over the internal job rails.
   runJob(jobKey: string): Promise<{ ok: boolean; status: number; error?: string }>;
@@ -556,6 +571,61 @@ export function prodToolIO(): ToolIO {
       } catch (err) {
         return { ok: false, status: 0, error: err instanceof Error ? err.message : "fetch_failed" };
       }
+    },
+    fetchNewsletterAbTests: async () => {
+      // Only LIVE tests (ab_phase='testing'); the adapter filters again defensively.
+      const { data } = await supabaseAdmin
+        .from("newsletter_issues")
+        .select("id, ab_phase, ab_metric, subject_variants, ab_test_started_at, ab_measurement_hours, ab_winner_variant")
+        .eq("ab_phase", "testing")
+        .limit(100);
+      return ((data ?? []) as Array<Record<string, unknown>>).map((r) => ({
+        id: String(r.id),
+        ab_phase: String(r.ab_phase ?? "none"),
+        ab_metric: String(r.ab_metric ?? "open"),
+        subject_variants: Array.isArray(r.subject_variants) ? r.subject_variants as Array<{ id: string; subject?: string }> : [],
+        ab_test_started_at: (r.ab_test_started_at as string | null) ?? null,
+        ab_measurement_hours: (r.ab_measurement_hours as number | null) ?? null,
+        ab_winner_variant: (r.ab_winner_variant as string | null) ?? null,
+      }));
+    },
+    fetchPromptRollouts: async () => {
+      // Live grading-prompt canaries (US-896): is_canary with a 0<pct<100 slice.
+      const { data } = await supabaseAdmin
+        .from("ai_prompt_versions")
+        .select("version_name, stage, garment_scope, is_canary, rollout_percentage, rollout_started_at")
+        .eq("is_canary", true)
+        .limit(100);
+      return ((data ?? []) as Array<Record<string, unknown>>).map((r) => ({
+        version_name: String(r.version_name ?? ""),
+        stage: String(r.stage ?? ""),
+        garment_scope: (r.garment_scope as string | null) ?? null,
+        is_canary: Boolean(r.is_canary),
+        rollout_percentage: (r.rollout_percentage as number | null) ?? null,
+        rollout_started_at: (r.rollout_started_at as string | null) ?? null,
+      }));
+    },
+    fetchDripVariants: async (sinceIso) => {
+      // Aggregate enrollments in the window by (campaign, variant): sends = the
+      // enrolled cohort, conversions = those that converted. A/B arms only.
+      const { data } = await supabaseAdmin
+        .from("drip_enrollments")
+        .select("campaign, variant, enrolled_at, converted_at")
+        .gte("enrolled_at", sinceIso)
+        .not("variant", "is", null)
+        .limit(20000);
+      const rows = (data ?? []) as Array<{ campaign: string; variant: string | null; enrolled_at: string | null; converted_at: string | null }>;
+      const agg = new Map<string, DripVariantRow>();
+      for (const r of rows) {
+        if (!r.variant) continue;
+        const key = `${r.campaign}${r.variant}`;
+        const cur = agg.get(key) ?? { campaign: r.campaign, variant: r.variant, sends: 0, conversions: 0, started_at: r.enrolled_at };
+        cur.sends += 1;
+        if (r.converted_at) cur.conversions += 1;
+        if (r.enrolled_at && (!cur.started_at || r.enrolled_at < cur.started_at)) cur.started_at = r.enrolled_at;
+        agg.set(key, cur);
+      }
+      return [...agg.values()];
     },
     fetchMaintenanceIntervals: async (sinceIso) => {
       // Windows active now OR that ended within the lookback still suppress ticks
@@ -1171,6 +1241,27 @@ const TOOL_LIST: AgentToolDef[] = [
       const memo = assembleReleaseMemo(deploy, metrics, comparison);
       // Roll the baseline forward (operator bookkeeping — no tenant data).
       await ctx.io.persistReleaseState(nextReleaseState(deploy, metrics, new Date(ctx.now).toISOString())).catch(() => {});
+      return { memo };
+    },
+  },
+  {
+    name: "get_experiments_registry",
+    description: "Experiments Governor memo (US-1609): a unified registry of every LIVE A/B across three engines (newsletter subject tests, grading-prompt canaries, drip variants) plus three portfolio checks — interference (same audience + metric, overlapping windows), underpowered reads presented as wins, and experiments past their decision date. Read-only; the agent never stops/promotes an experiment.",
+    class: "read",
+    inputSchema: { type: "object", properties: {} },
+    handler: async (_input, ctx) => {
+      const sinceIso = new Date(ctx.now - 30 * 86400_000).toISOString(); // drip cohort window
+      const [newsletter, prompts, drip] = await Promise.all([
+        ctx.io.fetchNewsletterAbTests().catch(() => [] as NewsletterAbRow[]),
+        ctx.io.fetchPromptRollouts().catch(() => [] as PromptRolloutRow[]),
+        ctx.io.fetchDripVariants(sinceIso).catch(() => [] as DripVariantRow[]),
+      ]);
+      const registry = [
+        ...normalizeNewsletterAb(newsletter),
+        ...normalizePromptRollout(prompts),
+        ...normalizeDripVariants(drip),
+      ];
+      const memo = assembleExperimentsMemo(registry, ctx.now);
       return { memo };
     },
   },

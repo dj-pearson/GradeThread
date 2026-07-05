@@ -11478,3 +11478,39 @@ corruption did NOT recur here). deno test/check un-runnable locally (network
 policy) — CI is the safety net. Validated ALL pure logic standalone in node:
 deploy detection + comparison (regression/noise/ratio/clean) reproduce every
 expectation.
+
+=== 2026-07-05 (loop: non-android prd): US-1609 (Experiments Governor) ===
+Module X agent: one registry over EVERY live A/B in the platform. The engines
+keep running their own A/B math; this governs the PORTFOLIO around them.
+
+Delivered (pure-lib + composite-read-tool + charter pattern):
+- lib/experiments-governor.ts — pure, fixture-tested. Three per-engine ADAPTERS
+  normalize raw rows into one RegistryEntry shape, grounded in REAL columns:
+    • normalizeNewsletterAb  ← newsletter_issues A/B (00282): ab_phase='testing'
+      only; window = ab_test_started_at + ab_measurement_hours.
+    • normalizePromptRollout ← ai_prompt_versions canary (00221/US-896):
+      is_canary && 0<rollout_percentage<100; slot = grading:{stage}[:scope].
+    • normalizeDripVariants  ← drip_enrollments (00253) grouped by (campaign,
+      variant); needs >=2 arms to count as an A/B.
+  Three portfolio DETECTORS: detectInterference (same audience+metric+overlapping
+  windows), flagUnderpowered (sample<200 && a declared leader), flagStale (past
+  decision_ms + 3d grace). assembleExperimentsMemo → {summary, registry,
+  interference, underpowered, stale, all_clear}.
+- agent-tools.ts: get_experiments_registry read tool + 3 IO seams
+  (fetchNewsletterAbTests / fetchPromptRollouts / fetchDripVariants), best-effort
+  (a missing/legacy engine returns []). Platform-wide experiment DEFINITIONS, no
+  tenant rows/PII → tenant-isolation clean.
+- charter experiments-governor-agent.ts (module X, twice-weekly) + registered.
+  Proposes file_task ONLY (batched, <=1/run); NEVER stops/extends/promotes an
+  experiment — those are engine-owned, grade-/revenue-sensitive actions.
+- Seed 00369 (paused, L0, ON CONFLICT DO NOTHING, self-records) + EXPECTED_SCHEMA
+  _VERSION 00368→00369 (same commit). Held in PENDING_MIGRATIONS.md.
+- Tests: experiments-governor_test.ts (per-engine adapters + all 3 detectors +
+  memo all_clear/issues) + get_experiments_registry tool test + fakeIO seams.
+
+Verification (honest): deno test un-runnable here (network policy 403s
+deno.land/esm.sh). Ran `deno lint` (clean) on all new/edited files + a standalone
+Node reimplementation of the pure logic mirroring the test assertions — 15/15
+passed. Scanned all new files for NUL corruption (clean). prd-lint OK.
+
+Marked US-1609 passes:true.
