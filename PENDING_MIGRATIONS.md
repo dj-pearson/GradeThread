@@ -1,5 +1,26 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00373_seed_marketing_portfolio_agent.sql (US-1599 / AGENTIC-OS Phase 1, 2026-07-05)
+
+**What:** seeds ONE `agents` row — the Marketing Portfolio agent (module M),
+`status='paused'`, `autonomy='{}'` (L0), config = WEEKLY (Mon 06:00) / sonnet
+model / read-only allowlist (get_marketing_portfolio) / $2 cap. One supervisor
+over the three self-tuning marketing engines; its value is the cross-engine view
+(audience fatigue, blog/newsletter cannibalization, same-day collisions). Proposes
+engine-level levers only — add_marketing_topic (email_topic_bank 00290 /
+content_topics 00041), adjust_frequency (marketing_frequency_cap_per_day setting),
+or a file_task to pause a sequence. Prompt in the repo charter. `ON CONFLICT (key)
+DO NOTHING`. Self-records '00373'.
+
+**Risk: LOW — one paused seed row into the operator agents table (00357).** No
+schema change beyond the seed; the tool reads/writes existing tables
+(marketing_send_log, drip_enrollments, newsletter_issues, content_topics,
+email_topic_bank) + the frequency setting. No client read. Edge boot guard now
+expects **00373**.
+
+**⚠️ Apply order:** after 00357–00372. Data-only (no `NOTIFY pgrst` needed).
+Redeploy the edge so its boot guard matches 00373.
+
 ## ⏳ HELD: 00372_agent_handoffs.sql (US-1613 / AGENTIC-OS Phase 2, 2026-07-05)
 
 **What:** creates `agent_handoffs` — the queue for agent-to-agent handoffs

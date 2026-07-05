@@ -43,6 +43,10 @@ export const ACTION_CLASSES = [
   // US-1595 Support Triage: persist a batch of ticket classifications onto the
   // ticket rows the support UI renders (draft_reply already exists above).
   "triage_tickets",
+  // US-1599 Marketing Portfolio: add a topic to a topic bank; adjust the shared
+  // marketing frequency cap. Engine-level levers only (never a send/subscriber).
+  "add_marketing_topic",
+  "adjust_frequency",
 ] as const;
 export type KnownActionClass = typeof ACTION_CLASSES[number];
 

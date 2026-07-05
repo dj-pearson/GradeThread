@@ -11622,3 +11622,55 @@ routing logic mirroring the test assertions — 15/15 passed. Scanned all new fi
 for NUL (clean). prd-lint OK.
 
 Marked US-1613 passes:true.
+
+=== 2026-07-05 (loop: non-android prd): US-1599 (Marketing Portfolio agent) ===
+Module M: one supervisor over the three self-tuning marketing engines (content,
+newsletter, drip). Its value is EXCLUSIVELY the cross-engine view no per-engine
+tuner can see; the engines keep self-tuning locally underneath.
+
+Delivered (pure lib + read tool + two engine-level write tools + charter):
+- lib/marketing-portfolio.ts — pure, fixture-tested:
+    • scoreChannel: per-channel weekly trend (±10% relative engagement band).
+    • detectCannibalization: blog vs newsletter keyword Jaccard ≥0.5 (cross-CHANNEL
+      only — two blog topics never collide with each other).
+    • detectCollision: ≥2 broadcast channels on the same day.
+    • detectFatigue: peak sends/day over the cap, OR both audience channels
+      declining while volume rises.
+    • rankFocus (signals ahead of down-trending channels) + assembleMarketing
+      PortfolioMemo → {summary, scorecard, signals, focus, all_clear}.
+- agent-tools.ts:
+    • get_marketing_portfolio READ tool: assembles the memo from real sources —
+      marketing_send_log (coordination/collision + per-recipient/day peak vs the
+      cap), drip_enrollments (drip week + conversions), newsletter_issues (volume),
+      content_topics (volume + cannibalization keywords), email_topic_bank
+      (evergreen angles). Engine-level aggregates only, no per-subscriber rows.
+    • add_marketing_topic WRITE (action class add_marketing_topic): queues an angle
+      into the email bank (idempotent on pillar,angle) or the blog content_topics
+      queue (enum-validated surface/product). Queues only — sends nothing.
+    • set_marketing_frequency_cap WRITE (action class adjust_frequency): sets the
+      shared marketing_frequency_cap_per_day setting (clamp 1..10) + busts the
+      settings cache so the coordinator reads fresh.
+    • Pausing a sequence routes through file_task (existing) — a task, not a direct
+      action.
+- agent-policy.ts: action classes add_marketing_topic + adjust_frequency.
+- charter marketing-portfolio-agent.ts (module M, weekly Mon 06:00, sonnet) +
+  registered.
+- Seed 00373 (paused, L0) + EXPECTED_SCHEMA_VERSION 00372→00373. Held.
+- Tests: marketing-portfolio_test.ts (scoring, all 3 detectors incl. negative
+  cases, focus, memo clean/dirty) + 3 tool tests (collision via read tool;
+  add_marketing_topic validation + write-gated; freq cap clamp). fakeIO seams.
+
+Scope note (AC-honest): the read tool's engagement_rate is null for content +
+newsletter (per-post/issue CTR lives in the per-engine analytics, which §3.M says
+NOT to duplicate) — so the "both declining" fatigue branch fires only when that
+data is present; the cap-exceeded branch (grounded in marketing_send_log) always
+works. Drip engagement = conversion rate from drip_enrollments (verified columns).
+Tenant-isolation: all sources are operator/aggregate; no new HTTP route; the two
+write tables (email_topic_bank, content_topics) are operator banks, not tenant
+data.
+
+Verification (honest): deno test un-runnable here (network policy 403s). Ran
+`deno lint` (clean, 7 files) + a standalone Node reimplementation of the pure
+logic — 16/16 passed. Scanned all new files for NUL (clean). prd-lint OK.
+
+Marked US-1599 passes:true.

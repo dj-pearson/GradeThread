@@ -57,6 +57,9 @@ function fakeIO(over: Partial<ToolIO> = {}): { io: ToolIO; audits: AuditLogInput
     fetchKbCatalog: () => Promise.resolve([]),
     persistTicketTriage: (items) => Promise.resolve({ updated: items.length }),
     sendSupportReply: () => Promise.resolve({ ok: true }),
+    fetchMarketingPortfolio: () => Promise.resolve({ weeks: [], topics: [], sendDays: [], coordination: { cap_per_day: 1, max_observed_per_day: 0, deferred_or_dropped: 0 } }),
+    addMarketingTopic: () => Promise.resolve({ inserted: true, id: "topic-1" }),
+    setMarketingFrequencyCap: (cap) => Promise.resolve({ cap_per_day: cap }),
     runJob: () => Promise.resolve({ ok: true, status: 200 }),
     requeueEmailDeadLetter: () => Promise.resolve(true),
     resolveAgentTaskProject: () => Promise.resolve("proj-1"),
@@ -374,6 +377,52 @@ Deno.test("US-1595: send_support_reply refuses without an approved proposal", as
   const reg = createAgentToolRegistry(fakeIO().io);
   const res = await reg.executeWrite("send_support_reply", { ticket_id: "t1", body: "Hello" }, { authorizedBy: "admin-1" }) as { ok?: boolean };
   assertEquals(res.ok, true);
+});
+
+// ── US-1599: Marketing Portfolio tools ───────────────────────────────────────
+
+Deno.test("US-1599: get_marketing_portfolio surfaces a cross-channel collision", async () => {
+  const { io } = fakeIO({
+    fetchMarketingPortfolio: () => Promise.resolve({
+      weeks: [
+        { channel: "newsletter", volume: 2, prior_volume: 2, engagement_rate: 0.3, prior_engagement_rate: 0.3, conversions: null },
+        { channel: "drip", volume: 50, prior_volume: 40, engagement_rate: 0.1, prior_engagement_rate: 0.1, conversions: 5 },
+      ],
+      topics: [],
+      sendDays: [{ date: "2026-07-02", channels: ["newsletter", "drip"] }], // collision
+      coordination: { cap_per_day: 1, max_observed_per_day: 1, deferred_or_dropped: 0 },
+    }),
+  });
+  const reg = createAgentToolRegistry(io);
+  const res = await reg.execute(agent(["get_marketing_portfolio"]), "get_marketing_portfolio", {}) as {
+    memo?: { signals?: Array<{ type: string }>; all_clear?: boolean; scorecard?: unknown[] };
+  };
+  assertEquals(res.memo?.scorecard?.length, 2);
+  assertEquals(res.memo?.all_clear, false);
+  assert((res.memo?.signals ?? []).some((s) => s.type === "channel_collision"));
+});
+
+Deno.test("US-1599: add_marketing_topic validates the bank + is write-gated", async () => {
+  const { ACTION_CLASS_TO_TOOL } = await import("../lib/agent-tools.ts");
+  assertEquals(ACTION_CLASS_TO_TOOL.add_marketing_topic, "add_marketing_topic");
+  assertEquals(ACTION_CLASS_TO_TOOL.adjust_frequency, "set_marketing_frequency_cap");
+  const reg = createAgentToolRegistry(fakeIO().io);
+  // Invisible to the run loop.
+  assertEquals(reg.anthropicTools(agent(["add_marketing_topic", "get_marketing_portfolio"])).map((t) => t.name), ["get_marketing_portfolio"]);
+  // Missing required content fields → invalid, no write.
+  const bad = await reg.executeWrite("add_marketing_topic", { bank: "content", title: "x" }, { authorizedBy: "admin-1" }) as { error?: { code: string } };
+  assertEquals(bad.error?.code, "invalid");
+  // Valid email topic → inserted.
+  const ok = await reg.executeWrite("add_marketing_topic", { bank: "email", pillar: "pricing", angle: "comp-basics", label: "How comps work" }, { authorizedBy: "admin-1" }) as { inserted?: boolean };
+  assertEquals(ok.inserted, true);
+});
+
+Deno.test("US-1599: set_marketing_frequency_cap clamps to 1..10", async () => {
+  let seen = -1;
+  const { io } = fakeIO({ setMarketingFrequencyCap: (c) => { seen = c; return Promise.resolve({ cap_per_day: c }); } });
+  const reg = createAgentToolRegistry(io);
+  await reg.executeWrite("set_marketing_frequency_cap", { cap_per_day: 99 }, { authorizedBy: "admin-1" });
+  assertEquals(seen, 10); // clamped
 });
 
 // ── US-1611: get_cron_fleet_health report ────────────────────────────────────

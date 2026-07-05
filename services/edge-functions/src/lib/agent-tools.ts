@@ -67,8 +67,21 @@ import {
   prepareExcerpt,
   type TriageTicket,
 } from "./support-triage.ts";
+import {
+  assembleMarketingPortfolioMemo,
+  type ChannelWeek,
+  type CoordinationStats,
+  type SendDay,
+  type TopicItem,
+} from "./marketing-portfolio.ts";
 import { type ReorderReviewQueueResult, reorderReviewQueue } from "./review-queue-order.ts";
 import { notifyUser } from "./notify.ts";
+import { bustSettingCache, getSetting } from "./system-settings.ts";
+
+// US-1599: the shared marketing send cap setting (mirrors marketing-coordinator's
+// FREQUENCY_CAP_SETTING; kept as a literal here to avoid importing the heavy
+// coordinator module into the tool registry).
+const MARKETING_FREQ_CAP_SETTING = "marketing_frequency_cap_per_day";
 import { resolveRevenueWindow } from "./revenue-window.ts";
 import { type AuditLogInput, writeSystemAuditLog } from "./audit-log.ts";
 import { redact, redactError } from "./log-redact.ts";
@@ -276,6 +289,21 @@ export interface ToolIO {
   sendSupportReply(
     input: { ticketId: string; body: string; adminId: string },
   ): Promise<{ ok: boolean; error?: string }>;
+  // US-1599: Marketing Portfolio cross-channel sources + engine-level writes.
+  // All operator/aggregate data — no per-subscriber rows. Reads are best-effort
+  // (a missing source returns an empty rollup).
+  fetchMarketingPortfolio(nowMs: number): Promise<{
+    weeks: ChannelWeek[];
+    topics: TopicItem[];
+    sendDays: SendDay[];
+    coordination: CoordinationStats;
+  }>;
+  addMarketingTopic(
+    input:
+      | { bank: "email"; pillar: string; angle: string; label: string; summary: string }
+      | { bank: "content"; surface: string; product: string; title: string; primary_keyword: string; angle: string | null },
+  ): Promise<{ inserted: boolean; id: string | null }>;
+  setMarketingFrequencyCap(capPerDay: number): Promise<{ cap_per_day: number }>;
   // ── Write-side (used only by executeWrite / approved proposals) ──
   // Re-fire a registered cron job by key over the internal job rails.
   runJob(jobKey: string): Promise<{ ok: boolean; status: number; error?: string }>;
@@ -736,6 +764,163 @@ export function prodToolIO(): ToolIO {
         link: "/dashboard/support",
       }).catch(() => {});
       return { ok: true };
+    },
+    fetchMarketingPortfolio: async (nowMs) => {
+      const WEEK = 7 * 86400_000;
+      const weekAgo = new Date(nowMs - WEEK).toISOString();
+      const twoWeeks = new Date(nowMs - 2 * WEEK).toISOString();
+      // Map a marketing_send_log source → the broadcast channel it belongs to.
+      const sourceChannel = (src: string): "newsletter" | "drip" | null =>
+        src === "weekly_newsletter" ? "newsletter" : (src === "trial_drip" || src === "win_back" || src === "journey") ? "drip" : null;
+
+      // ── Coordination + collision from marketing_send_log (last 2 weeks) ──
+      const { data: sendLog } = await supabaseAdmin
+        .from("marketing_send_log")
+        .select("recipient, source, sent_at")
+        .gte("sent_at", twoWeeks)
+        .limit(10000);
+      const logRows = (sendLog ?? []) as Array<{ recipient: string; source: string; sent_at: string }>;
+      // max sends any single recipient got in a day (the cap is per-recipient/day).
+      const perRecipientDay = new Map<string, number>();
+      // per-day set of distinct broadcast channels (this-week window) for collision.
+      const dayChannels = new Map<string, Set<"newsletter" | "drip">>();
+      // per-channel weekly volume (this vs prior week).
+      const vol = { newsletter: [0, 0], drip: [0, 0] };
+      for (const r of logRows) {
+        const ts = Date.parse(r.sent_at);
+        const day = r.sent_at.slice(0, 10);
+        perRecipientDay.set(`${r.recipient}|${day}`, (perRecipientDay.get(`${r.recipient}|${day}`) ?? 0) + 1);
+        const ch = sourceChannel(r.source);
+        if (ch) {
+          const idx = ts >= Date.parse(weekAgo) ? 0 : 1;
+          vol[ch][idx] += 1;
+          if (idx === 0) {
+            const set = dayChannels.get(day) ?? new Set();
+            set.add(ch);
+            dayChannels.set(day, set);
+          }
+        }
+      }
+      const maxObserved = perRecipientDay.size ? Math.max(...perRecipientDay.values()) : 0;
+      const capPerDay = await getSetting<number>(MARKETING_FREQ_CAP_SETTING, 1);
+      const coordination: CoordinationStats = {
+        cap_per_day: typeof capPerDay === "number" ? capPerDay : 1,
+        max_observed_per_day: maxObserved,
+        deferred_or_dropped: 0, // send-log records sends only; deferrals aren't logged here
+      };
+      const sendDays: SendDay[] = [...dayChannels.entries()].map(([date, chs]) => ({ date, channels: [...chs] }));
+
+      // ── Drip channel week (enrollments this vs prior week + conversions) ──
+      const { data: drip } = await supabaseAdmin
+        .from("drip_enrollments")
+        .select("enrolled_at, converted_at")
+        .gte("enrolled_at", twoWeeks)
+        .limit(20000);
+      let dThis = 0, dPrior = 0, dConv = 0;
+      for (const r of (drip ?? []) as Array<{ enrolled_at: string; converted_at: string | null }>) {
+        if (Date.parse(r.enrolled_at) >= Date.parse(weekAgo)) { dThis++; if (r.converted_at) dConv++; } else dPrior++;
+      }
+
+      // ── Newsletter channel week (issues sent this vs prior week) ──
+      const { data: issues } = await supabaseAdmin
+        .from("newsletter_issues")
+        .select("sent_at")
+        .gte("sent_at", twoWeeks)
+        .not("sent_at", "is", null)
+        .limit(500);
+      let nThis = 0, nPrior = 0;
+      for (const r of (issues ?? []) as Array<{ sent_at: string }>) {
+        if (Date.parse(r.sent_at) >= Date.parse(weekAgo)) nThis++; else nPrior++;
+      }
+
+      // ── Content channel week (topics consumed this vs prior week) ──
+      const { data: posts } = await supabaseAdmin
+        .from("content_topics")
+        .select("used_at")
+        .eq("status", "used")
+        .gte("used_at", twoWeeks)
+        .limit(1000);
+      let cThis = 0, cPrior = 0;
+      for (const r of (posts ?? []) as Array<{ used_at: string | null }>) {
+        if (r.used_at && Date.parse(r.used_at) >= Date.parse(weekAgo)) cThis++; else if (r.used_at) cPrior++;
+      }
+
+      const weeks: ChannelWeek[] = [
+        { channel: "content", volume: cThis, prior_volume: cPrior, engagement_rate: null, prior_engagement_rate: null, conversions: null },
+        { channel: "newsletter", volume: nThis, prior_volume: nPrior, engagement_rate: null, prior_engagement_rate: null, conversions: null },
+        { channel: "drip", volume: dThis, prior_volume: dPrior, engagement_rate: dThis > 0 ? Number((dConv / dThis).toFixed(4)) : null, prior_engagement_rate: null, conversions: dConv },
+      ];
+
+      // ── Cannibalization inputs: recent blog topics vs recent email angles ──
+      const { data: cTopics } = await supabaseAdmin
+        .from("content_topics")
+        .select("title, primary_keyword, secondary_keywords")
+        .gte("created_at", twoWeeks)
+        .limit(50);
+      const { data: eTopics } = await supabaseAdmin
+        .from("email_topic_bank")
+        .select("label, pillar, angle")
+        .eq("status", "active")
+        .order("last_used_at", { ascending: false, nullsFirst: false })
+        .limit(50);
+      const topics: TopicItem[] = [
+        ...((cTopics ?? []) as Array<{ title: string; primary_keyword: string; secondary_keywords: string[] }>).map((t) => ({
+          channel: "content" as const,
+          label: t.title,
+          keywords: [t.primary_keyword, ...(t.secondary_keywords ?? [])].filter(Boolean),
+        })),
+        ...((eTopics ?? []) as Array<{ label: string; pillar: string; angle: string }>).map((t) => ({
+          channel: "newsletter" as const,
+          label: t.label,
+          keywords: [t.pillar, ...String(t.angle ?? "").split(/[\s_-]+/)].filter(Boolean),
+        })),
+      ];
+
+      return { weeks, topics, sendDays, coordination };
+    },
+    addMarketingTopic: async (input) => {
+      if (input.bank === "email") {
+        // Evergreen newsletter bank; unique (pillar, angle) makes this idempotent.
+        const { data } = await supabaseAdmin
+          .from("email_topic_bank")
+          .upsert(
+            { pillar: input.pillar, angle: input.angle, label: input.label, summary: input.summary, source: "manual", status: "active" } as never,
+            { onConflict: "pillar,angle", ignoreDuplicates: true },
+          )
+          .select("id")
+          .maybeSingle();
+        return { inserted: !!data, id: (data as { id: string } | null)?.id ?? null };
+      }
+      // Blog topic queue (content_topics). generated_by=human, source=research.
+      const { data } = await supabaseAdmin
+        .from("content_topics")
+        .insert({
+          surface: input.surface,
+          product_focus: input.product,
+          title: input.title,
+          primary_keyword: input.primary_keyword,
+          angle: input.angle,
+          status: "queued",
+          generated_by: "human",
+        } as never)
+        .select("id")
+        .single();
+      return { inserted: !!data, id: (data as { id: string } | null)?.id ?? null };
+    },
+    setMarketingFrequencyCap: async (capPerDay) => {
+      await supabaseAdmin.from("system_settings").upsert(
+        {
+          key: MARKETING_FREQ_CAP_SETTING,
+          value: capPerDay,
+          value_type: "number",
+          default_value: 1,
+          description: "US-884/1599 shared marketing send cap per recipient per day",
+          category: "marketing",
+        } as never,
+        { onConflict: "key" },
+      );
+      bustSettingCache(MARKETING_FREQ_CAP_SETTING);
+      return { cap_per_day: capPerDay };
     },
     fetchMaintenanceIntervals: async (sinceIso) => {
       // Windows active now OR that ended within the lookback still suppress ticks
@@ -1403,6 +1588,17 @@ const TOOL_LIST: AgentToolDef[] = [
       return { memo };
     },
   },
+  {
+    name: "get_marketing_portfolio",
+    description: "Marketing Portfolio memo (US-1599): a per-channel scorecard (content, newsletter, drip — weekly volume + engagement trend + conversions) plus the CROSS-CHANNEL signals the per-engine tuners can't see — audience fatigue (combined send pressure vs the cap), topic cannibalization (blog vs newsletter keyword overlap), and same-day channel collisions — and a ranked next-week focus list. Engine-level aggregates only; no per-subscriber data. Read-only.",
+    class: "read",
+    inputSchema: { type: "object", properties: {} },
+    handler: async (_input, ctx) => {
+      const { weeks, topics, sendDays, coordination } = await ctx.io.fetchMarketingPortfolio(ctx.now);
+      const memo = assembleMarketingPortfolioMemo(weeks, topics, sendDays, coordination);
+      return { memo };
+    },
+  },
 
   // ── Write tools (class 'write') — NEVER exposed to the run loop; executed
   //    ONLY via executeWrite on the approved-proposal path (US-1587). Each is
@@ -1542,6 +1738,73 @@ const TOOL_LIST: AgentToolDef[] = [
     },
   },
   {
+    name: "add_marketing_topic",
+    description:
+      "Add ONE topic to a marketing topic bank (US-1599) — the newsletter evergreen bank (bank:'email') or the blog topic queue (bank:'content'). Engine-level lever: it queues an angle the per-engine assembler will draw from; it does NOT write or send anything to a subscriber. Email bank is idempotent on (pillar, angle).",
+    class: "write",
+    inputSchema: {
+      type: "object",
+      properties: {
+        bank: { type: "string", enum: ["email", "content"] },
+        // email bank
+        pillar: { type: "string" },
+        angle: { type: "string" },
+        label: { type: "string" },
+        summary: { type: "string" },
+        // content bank
+        surface: { type: "string", enum: ["blog", "social"] },
+        product: { type: "string", enum: ["gradethread", "flipdesk", "both"] },
+        title: { type: "string" },
+        primary_keyword: { type: "string" },
+      },
+      required: ["bank"],
+    },
+    handler: async (input, ctx) => {
+      if (!ctx.authorizedBy) return { error: { code: "unauthorized", message: "write requires an approved proposal" } };
+      if (input.bank === "email") {
+        const pillar = typeof input.pillar === "string" ? input.pillar.trim() : "";
+        const angle = typeof input.angle === "string" ? input.angle.trim() : "";
+        const label = typeof input.label === "string" ? input.label.trim() : "";
+        if (!pillar || !angle || !label) return { error: { code: "invalid", message: "email topic needs pillar, angle, label" } };
+        return await ctx.io.addMarketingTopic({ bank: "email", pillar, angle, label, summary: typeof input.summary === "string" ? input.summary : "" });
+      }
+      if (input.bank === "content") {
+        const surface = input.surface === "blog" || input.surface === "social" ? input.surface : "";
+        const product = ["gradethread", "flipdesk", "both"].includes(String(input.product)) ? String(input.product) : "";
+        const title = typeof input.title === "string" ? input.title.trim() : "";
+        const primaryKeyword = typeof input.primary_keyword === "string" ? input.primary_keyword.trim() : "";
+        if (!surface || !product || !title || !primaryKeyword) {
+          return { error: { code: "invalid", message: "content topic needs surface, product, title, primary_keyword" } };
+        }
+        return await ctx.io.addMarketingTopic({
+          bank: "content",
+          surface,
+          product,
+          title,
+          primary_keyword: primaryKeyword,
+          angle: typeof input.angle === "string" ? input.angle : null,
+        });
+      }
+      return { error: { code: "invalid", message: "bank must be 'email' or 'content'" } };
+    },
+  },
+  {
+    name: "set_marketing_frequency_cap",
+    description:
+      "Set the shared marketing send cap per recipient per day (US-1599 / US-884). Engine-level lever: it changes the coordination cap every marketing engine already honors; it touches no send or subscriber. Clamped to 1..10. Use to relieve audience fatigue.",
+    class: "write",
+    inputSchema: {
+      type: "object",
+      properties: { cap_per_day: { type: "integer", minimum: 1, maximum: 10 } },
+      required: ["cap_per_day"],
+    },
+    handler: async (input, ctx) => {
+      if (!ctx.authorizedBy) return { error: { code: "unauthorized", message: "write requires an approved proposal" } };
+      const cap = clampInt(input.cap_per_day, 1, 1, 10);
+      return await ctx.io.setMarketingFrequencyCap(cap);
+    },
+  },
+  {
     name: "reorder_review_queue",
     description:
       "Recompute the information-value ranking of the pending human-review queue (US-1558 active-learning routing) and persist the recommended order + rationale as an advisory artifact so high-signal reviews surface first. Grade-safe: NEVER changes a grade, prompt, confidence threshold, or calibration — ordering only, and the queue keeps its SLA starvation guard.",
@@ -1583,6 +1846,9 @@ export const ACTION_CLASS_TO_TOOL: Record<string, string> = {
   // sends through the support path on approval.
   triage_tickets: "persist_ticket_triage",
   draft_reply: "send_support_reply",
+  // US-1599: Marketing Portfolio engine-level levers.
+  add_marketing_topic: "add_marketing_topic",
+  adjust_frequency: "set_marketing_frequency_cap",
 };
 
 export const AGENT_TOOLS: readonly AgentToolDef[] = TOOL_LIST;
