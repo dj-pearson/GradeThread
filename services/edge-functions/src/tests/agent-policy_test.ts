@@ -39,6 +39,20 @@ Deno.test("resolveAutonomy: default L0, reads grant, clamps out-of-range", () =>
   assertEquals(resolveAutonomy(mk({ retry_job: "nonsense" }), "retry_job"), 0); // garbage → L0
 });
 
+// US-1597: the Trust & Safety account-action HARD CAP — L1 forever, regardless
+// of what the autonomy config (or a future promotion) grants.
+Deno.test("resolveAutonomy: trust-safety account actions are hard-capped at L1", () => {
+  const ts = (autonomy: Record<string, unknown>): AgentRow => ({ ...mk(autonomy), key: "trust-safety" });
+  for (const cls of ["suspend_account", "require_step_up", "deny_claim"]) {
+    assertEquals(resolveAutonomy(ts({ [cls]: 3 }), cls), 1); // L3 config → clamped to L1
+    assertEquals(resolveAutonomy(ts({ [cls]: 2 }), cls), 1); // L2 → L1
+    assertEquals(resolveAutonomy(ts({ [cls]: 1 }), cls), 1); // L1 stays L1
+    assertEquals(resolveAutonomy(ts({}), cls), 0); // ungranted still L0 (cap is a ceiling)
+  }
+  // The cap is agent-specific: another agent with the same class is NOT capped.
+  assertEquals(resolveAutonomy(mk({ suspend_account: 3 }), "suspend_account"), 3); // sentinel, uncapped
+});
+
 // ── Dispatch by level ────────────────────────────────────────────────────────
 
 Deno.test("dispatchWriteIntent: L0 drops to a would_propose finding", () => {

@@ -11167,3 +11167,38 @@ listings/inventory.
 VERIFY: deno lint clean. deno test/check un-runnable locally (network policy) —
 CI is the safety net. Validated ALL pure logic standalone in node: stuck
 detection, verdicts, backlog total, trend reproduce every expectation.
+
+=== 2026-07-05 (loop: non-android prd): US-1597 (Trust & Safety agent) ===
+THE ASK: seed the Trust & Safety agent (Module T) — severity + pattern triage of
+abuse/moderation/fraud/passport-integrity queues with cross-account ring
+detection. Account actions hard-capped at L1 FOREVER (permanent design decision).
+- Loaded tenant-isolation skill: reads are operator T&S data (ids + allowlisted
+  evidence, no emails/titles/image bytes). Aggregates + operator-scope only.
+- NEW lib trust-safety-agent.ts (PURE, fixture-tested):
+  - rankAbuseSignals: open abuse_signals ranked by severity (critical>high>
+    medium>low) then age, with rationale.
+  - detectRings: normalizes each signal to (ring_key, accounts) — shared_payment
+    (stripe_customer_id), phash_collision (phash+counterpart), disposable_email
+    (domain) — accumulates accounts per key across signals, flags rings with >=2
+    distinct accounts. Account ids ARE the evidence (operator needs them).
+  - assembleTrustSafetyMemo: ranked queue + rings + moderation/passport counts +
+    all_clear.
+- POLICY HARD CAP (the crux): agent-policy.ts gains AUTONOMY_HARD_CAPS +
+  resolveAutonomy clamps trust-safety's suspend_account/require_step_up/deny_claim
+  to L1 REGARDLESS of what autonomy config or a future promotion grants — a
+  hand-edited L3 row resolves to L1. Registered the three classes in
+  ACTION_CLASSES; mapped them in ACTION_CLASS_TO_TOOL -> create_admin_task so an
+  approved account action FILES A FRAUD-CONSOLE TASK (never an auto-suspend).
+- TOOL get_trust_safety_health + 3 reads (abuse signals, moderation count,
+  passport-integrity count). CHARTER + registered.
+- SEED migration 00364: unlike other seeds, autonomy is NON-empty (the three
+  account actions at L1) to make the ceiling explicit; the code cap is the
+  backstop. Idempotent, self-records. EXPECTED_SCHEMA_VERSION 00363->00364. HELD.
+- TESTS: trust-safety-agent_test.ts (ranking, ring detection incl. accumulation +
+  single-account negatives, memo); agent-policy_test.ts (the AC-mandated L1
+  hard-cap assertion: L3 config -> L1, agent-specific so other agents uncapped);
+  agent-tools_test.ts (severity+ring via the tool; account classes -> admin task).
+VERIFY: deno lint clean (9 files). deno test/check un-runnable locally (network
+policy) — CI is the safety net. Validated ALL pure logic + the hard-cap clamp
+standalone in node: ranking, ring accumulation, and the L3->L1 clamp (agent-
+specific) reproduce every expectation.

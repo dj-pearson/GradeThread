@@ -10597,7 +10597,7 @@
         "Deno tests: severity ranking shape on fixtures, the L1 hard-cap assertion; lint + check clean"
       ],
       "priority": 2336,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 1][Module T — Trust & Safety] Read AGENTIC_OS.md §3.T. The L1 hard cap for account actions is a permanent design decision (see §2 ladder note) — encode it, don't parameterize it away.",
       "dependsOn": [
         "US-1588",

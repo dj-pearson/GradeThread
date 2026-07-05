@@ -1,5 +1,24 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00364_seed_trust_safety_agent.sql (US-1597 / AGENTIC-OS Phase 1, 2026-07-05)
+
+**What:** seeds ONE `agents` row — the Trust & Safety agent (module T),
+`status='paused'`, config = daily / sonnet / read-only allowlist
+(get_trust_safety_health) / $2 daily cap. UNLIKE the other seeds, its `autonomy`
+map is non-empty: it explicitly sets the account-action classes (suspend_account,
+require_step_up, deny_claim) at **L1** to make the hard ceiling visible. The
+policy engine (AUTONOMY_HARD_CAPS in agent-policy.ts) ALSO clamps them to L1
+regardless of any later promotion — a permanent design decision. Approving one
+files an admin task on the fraud console; it never suspends anyone directly. The
+prompt lives in the repo charter. `ON CONFLICT (key) DO NOTHING` (idempotent).
+Self-records '00364'.
+
+**Risk: LOW — one seed row into the operator agents table (00357).** No client
+reads. Seeded PAUSED. Edge boot guard now expects **00364**.
+
+**⚠️ Apply order:** apply after 00357–00363. Data-only (no `NOTIFY pgrst` needed).
+Redeploy the edge so its boot guard matches 00364.
+
 ## ⏳ HELD: 00363_seed_marketplace_ops_agent.sql (US-1598 / AGENTIC-OS Phase 1, 2026-07-05)
 
 **What:** seeds ONE `agents` row — the Marketplace Ops agent (module L),

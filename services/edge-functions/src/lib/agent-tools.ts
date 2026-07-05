@@ -34,6 +34,7 @@ import { assembleFinanceMemo, type PayoutRow, type ReconFlag } from "./finance-a
 import { assembleIntegrationsMemo, type RotationState } from "./integrations-watchdog.ts";
 import { type ActionRow, assemblePricingMemo, type CurveRow, type SuggestionRow } from "./pricing-agent.ts";
 import { assembleMarketplaceOpsMemo, type BatchRow } from "./marketplace-ops-agent.ts";
+import { type AbuseSignal, assembleTrustSafetyMemo } from "./trust-safety-agent.ts";
 import { type ReorderReviewQueueResult, reorderReviewQueue } from "./review-queue-order.ts";
 import { resolveRevenueWindow } from "./revenue-window.ts";
 import { type AuditLogInput, writeSystemAuditLog } from "./audit-log.ts";
@@ -193,6 +194,11 @@ export interface ToolIO {
   // "vs yesterday" trend — read the prior point, record the current one.
   fetchMarketplaceOpsBacklog(): Promise<number | null>;
   persistMarketplaceOpsBacklog(total: number): Promise<void>;
+  // US-1597: open abuse signals (operator T&S data — ids + evidence, no PII) +
+  // open moderation / passport-integrity queue depths.
+  fetchAbuseSignals(limit: number): Promise<AbuseSignal[]>;
+  countOpenModerationFlags(): Promise<number>;
+  countOpenPassportIntegritySignals(): Promise<number>;
   // ── Write-side (used only by executeWrite / approved proposals) ──
   // Re-fire a registered cron job by key over the internal job rails.
   runJob(jobKey: string): Promise<{ ok: boolean; status: number; error?: string }>;
@@ -378,6 +384,28 @@ export function prodToolIO(): ToolIO {
         },
         { onConflict: "key" },
       );
+    },
+    fetchAbuseSignals: async (limit) => {
+      const { data } = await supabaseAdmin
+        .from("abuse_signals")
+        .select("id, signal_type, severity, subject_user_id, evidence, first_seen_at")
+        .eq("status", "open")
+        .order("first_seen_at", { ascending: true })
+        .limit(limit);
+      return (data ?? []) as AbuseSignal[];
+    },
+    countOpenModerationFlags: async () => {
+      const { count } = await supabaseAdmin
+        .from("content_moderation_flags")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "open");
+      return count ?? 0;
+    },
+    countOpenPassportIntegritySignals: async () => {
+      const { count } = await supabaseAdmin
+        .from("passport_integrity_signals")
+        .select("id", { count: "exact", head: true });
+      return count ?? 0;
     },
     runJob: async (jobKey) => {
       // Only registered, runnable cron jobs — never an arbitrary URL.
@@ -856,6 +884,30 @@ const TOOL_LIST: AgentToolDef[] = [
       return { memo };
     },
   },
+  {
+    name: "get_trust_safety_health",
+    description: "Trust & Safety agent memo (US-1597): open abuse signals ranked by severity (with rationale), cross-account rings (shared payment / phash / disposable-email signals spanning >=2 accounts, with the linked account ids as evidence), and open moderation + passport-integrity queue depths. Operator-scope ids + evidence only — no emails, titles, or image bytes.",
+    class: "read",
+    inputSchema: {
+      type: "object",
+      properties: { limit: { type: "integer", minimum: 1, maximum: 2000, description: "max open abuse signals to rank" } },
+    },
+    handler: async (input, ctx) => {
+      const limit = clampInt(input.limit, 500, 1, 2000);
+      const [abuseSignals, openModerationFlags, openPassportIntegritySignals] = await Promise.all([
+        ctx.io.fetchAbuseSignals(limit),
+        ctx.io.countOpenModerationFlags(),
+        ctx.io.countOpenPassportIntegritySignals(),
+      ]);
+      const memo = assembleTrustSafetyMemo({
+        abuseSignals,
+        openModerationFlags,
+        openPassportIntegritySignals,
+        nowMs: ctx.now,
+      });
+      return { memo };
+    },
+  },
 
   // ── Write tools (class 'write') — NEVER exposed to the run loop; executed
   //    ONLY via executeWrite on the approved-proposal path (US-1587). Each is
@@ -954,6 +1006,12 @@ export const ACTION_CLASS_TO_TOOL: Record<string, string> = {
   file_task: "create_admin_task",
   // US-1658: the Grading Quality agent's review-queue reorder (adjust_queue).
   adjust_queue: "reorder_review_queue",
+  // US-1597: Trust & Safety account actions route to an admin task on the fraud
+  // console (never an auto-suspend); hard-capped at L1 so a human always signs
+  // off. The proposal payload carries the {title, body} create_admin_task needs.
+  suspend_account: "create_admin_task",
+  require_step_up: "create_admin_task",
+  deny_claim: "create_admin_task",
 };
 
 export const AGENT_TOOLS: readonly AgentToolDef[] = TOOL_LIST;

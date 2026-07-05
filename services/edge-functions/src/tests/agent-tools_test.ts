@@ -39,6 +39,9 @@ function fakeIO(over: Partial<ToolIO> = {}): { io: ToolIO; audits: AuditLogInput
     countOrphanSales: () => Promise.resolve(0),
     fetchMarketplaceOpsBacklog: () => Promise.resolve(null),
     persistMarketplaceOpsBacklog: () => Promise.resolve(),
+    fetchAbuseSignals: () => Promise.resolve([]),
+    countOpenModerationFlags: () => Promise.resolve(0),
+    countOpenPassportIntegritySignals: () => Promise.resolve(0),
     runJob: () => Promise.resolve({ ok: true, status: 200 }),
     requeueEmailDeadLetter: () => Promise.resolve(true),
     resolveAgentTaskProject: () => Promise.resolve("proj-1"),
@@ -236,6 +239,34 @@ Deno.test("US-1604: get_integrations_health assembles a memo from the reads", as
   };
   assertEquals(res.memo?.token_fleet?.expired, 1);
   assertEquals(res.memo?.all_clear, false);
+});
+
+// ── US-1597: get_trust_safety_health + account-action routing ────────────────
+
+Deno.test("US-1597: get_trust_safety_health ranks by severity + detects a ring", async () => {
+  const at = (d: number) => new Date(NOW - d * 86400_000).toISOString();
+  const { io } = fakeIO({
+    fetchAbuseSignals: () =>
+      Promise.resolve([
+        { id: "s1", signal_type: "submission_velocity", severity: "low", subject_user_id: "uA", evidence: {}, first_seen_at: at(1) },
+        { id: "s2", signal_type: "shared_payment", severity: "high", subject_user_id: "uA", evidence: { stripe_customer_id: "cus_1", account_user_ids: ["uB", "uC"] }, first_seen_at: at(2) },
+      ]),
+  });
+  const reg = createAgentToolRegistry(io);
+  const a = agent(["get_trust_safety_health"]);
+  const res = await reg.execute(a, "get_trust_safety_health", {}) as {
+    memo?: { all_clear?: boolean; ranked_queue?: Array<{ id: string }>; rings?: Array<{ account_count: number }> };
+  };
+  assertEquals(res.memo?.all_clear, false);
+  assertEquals(res.memo?.ranked_queue?.[0].id, "s2"); // high outranks low
+  assertEquals(res.memo?.rings?.[0].account_count, 3); // uA + uB + uC
+});
+
+Deno.test("US-1597: account-action classes route to an admin task (never auto-suspend)", async () => {
+  const { ACTION_CLASS_TO_TOOL } = await import("../lib/agent-tools.ts");
+  for (const cls of ["suspend_account", "require_step_up", "deny_claim"]) {
+    assertEquals(ACTION_CLASS_TO_TOOL[cls], "create_admin_task");
+  }
 });
 
 // ── US-1598: get_marketplace_ops_health + allowlist safety ───────────────────
