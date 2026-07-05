@@ -10876,7 +10876,7 @@
         "Deno tests: eligibility math, hard-cap exclusion, demotion trigger; lint + check clean"
       ],
       "priority": 2317,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 2][Modules D+V] Read AGENTIC_OS.md §2 (ladder requirements are exactly these numbers) + §3.D/§3.V.",
       "dependsOn": [
         "US-1607",

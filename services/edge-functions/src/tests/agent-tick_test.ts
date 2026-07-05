@@ -68,6 +68,7 @@ function baseDeps(over: Partial<AgentTickDeps> = {}): {
       return Promise.resolve(2);
     },
     maybeCurateMemory: () => Promise.resolve(null),
+    maybePromoteAutonomy: () => Promise.resolve(null),
     now: () => NOW,
     budgetMs: 8 * 60 * 1000,
     ...over,

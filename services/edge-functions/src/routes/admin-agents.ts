@@ -181,6 +181,24 @@ adminAgentsRoutes.get("/agents/:id/memory", async (c) => {
   return c.json({ memory: data ?? [] });
 });
 
+// US-1608: an agent's promotion/demotion history (from ops_events) for the
+// Mission Control agent card — promotions proposed/applied + policy-breach demotions.
+adminAgentsRoutes.get("/agents/:id/autonomy-history", async (c) => {
+  const agentKey = c.req.query("key");
+  const { data, error } = await supabaseAdmin
+    .from("ops_events")
+    .select("id, type, severity, title, payload, created_at")
+    .in("type", ["agent.autonomy.promotion_proposed", "agent.autonomy.promoted", "agent.policy_breach"])
+    .order("created_at", { ascending: false })
+    .limit(100);
+  if (error) return jsonError(c, 500, "Failed to load autonomy history");
+  // Filter to this agent by key from the event payload (events carry agent_key).
+  const rows = ((data ?? []) as Array<{ payload?: { agent_key?: string } }>).filter(
+    (e) => !agentKey || e.payload?.agent_key === agentKey,
+  );
+  return c.json({ history: rows });
+});
+
 // US-1606: operator delete of a bad memory row (by id).
 adminAgentsRoutes.delete("/agents/memory/:memoryId", async (c) => {
   const memoryId = c.req.param("memoryId");

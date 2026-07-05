@@ -11412,3 +11412,40 @@ policy) — CI is the safety net. Validated ALL executor logic standalone in nod
 guard eval, happy, mid-failure halt honesty, guard-skip, escalation — all pass.
 Existing proposal tests use Partial<ProposalDeps> + don't hit the run_playbook
 branch, so unaffected. NO migration (agent_run_steps/agent_proposals exist).
+
+=== 2026-07-05 (loop: non-android prd): US-1608 (Autonomy promotion) ===
+THE ASK: earned L1->L2 autonomy per (agent, action-class) via approval track
+record + eval gate; immediate demotion on rejection-spike/breach; hard caps
+respected; history queryable. Built BEFORE its dependency US-1607 by consuming
+the eval gate CONSERVATIVELY (absent eval data => not passing => never promote),
+which US-1607 later populates (agents.eval_pass).
+- NEW lib autonomy-promotion.ts (PURE, fixture-tested) — the EXACT §2 ladder rule:
+  - computePromotionStats: per-(agent, action-class) from agent_proposals history;
+    approved = approved+executed+failed (operator said yes), rejected; pending/
+    expired ignored; approval_rate.
+  - promotionEligibility: L1->L2 only; eligible iff >=20 approved AND >=90%
+    approval AND evalPassing AND no breach in 14d AND not hard-capped. Returns
+    reasons for each unmet condition.
+  - shouldDemoteForRejections: >=6 recent decisions, >50% rejected -> demote.
+  - Constants MIN_APPROVED=20 / MIN_APPROVAL_RATE=0.9 / BREACH_LOOKBACK 14d.
+- NEW action class promote_autonomy (agent-policy.ts). Approving a promote_autonomy
+  META-PROPOSAL flips agents.autonomy[target_class]=to_level (executeAutonomyPromotion
+  in agent-proposals, re-reads autonomy so a concurrent grant isn't clobbered;
+  emits agent.autonomy.promoted). Branch added to approveProposal alongside
+  run_playbook.
+- NEW pass autonomy-promotion-pass.ts (thin orchestration over the pure core):
+  stats -> eligibility -> files L1->L2 meta-proposals (dedup vs pending) with
+  {stats, eval_state} evidence + emits promotion_proposed; rejection-spike ->
+  recordPolicyBreach (US-1586, the demotion path). Wired KERNEL-SIDE into
+  agent-tick DAILY (watermark agents.autonomy_pass_last) to avoid the CRON drift
+  chain. HARD CAPS reuse AUTONOMY_HARD_CAPS (trust-safety account actions never
+  offered).
+- HISTORY: Mission Control GET /agents/:id/autonomy-history (from ops_events:
+  promotion_proposed / promoted / policy_breach, filtered by payload.agent_key).
+- TESTS: autonomy-promotion_test.ts (stats, eligibility incl. every unmet
+  condition + old-breach-ok, hard-cap exclusion, rejection-spike demotion,
+  exactly-threshold qualifies); agent-tick_test.ts harness updated.
+VERIFY: deno lint clean (8 files). deno test/check un-runnable locally (network
+policy) — CI is the safety net. Validated ALL pure logic standalone in node:
+stats, every eligibility condition, hard-cap exclusion, demotion trigger — all
+pass. NO migration (agent_proposals/agents/ops_events exist).

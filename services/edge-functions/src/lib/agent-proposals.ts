@@ -96,6 +96,13 @@ export interface ProposalDeps {
     payload: unknown,
     ctx: { authorizedBy: string; proposalId: string; runId: string | null },
   ) => Promise<PlaybookRunResult | { error: { code: string; message: string } }>;
+  // US-1608: execute an approved promote_autonomy meta-proposal — flip the
+  // agent's autonomy for the target action-class to the proposed level.
+  executeAutonomyPromotion: (
+    agentId: string,
+    payload: unknown,
+    authorizedBy: string,
+  ) => Promise<{ ok: boolean } | { error: { code: string; message: string } }>;
   // Emit an agent.proposal.* ops event (US-1589). Fire-and-forget.
   emitEvent: (type: string, severity: ProposalEventSeverity, data: Record<string, unknown>) => void;
   now: () => number;
@@ -171,6 +178,33 @@ export function prodProposalDeps(): ProposalDeps {
         audit: (input) => writeSystemAuditLog(input),
         now: () => Date.now(),
       });
+    },
+    executeAutonomyPromotion: async (agentId, payload, authorizedBy) => {
+      const p = payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : {};
+      const cls = typeof p.target_action_class === "string" ? p.target_action_class : null;
+      const toLevel = typeof p.to_level === "number" ? p.to_level : null;
+      if (!cls || toLevel === null || toLevel < 1 || toLevel > 3) {
+        return { error: { code: "invalid_promotion", message: "target_action_class + to_level (1..3) required" } };
+      }
+      // Re-read current autonomy so a concurrent grant isn't clobbered wholesale.
+      const { data: row } = await supabaseAdmin.from("agents").select("key, autonomy").eq("id", agentId).maybeSingle();
+      if (!row) return { error: { code: "agent_not_found", message: "agent not found" } };
+      const agent = row as { key: string; autonomy: Record<string, unknown> | null };
+      const next = { ...(agent.autonomy ?? {}), [cls]: toLevel };
+      const { error } = await supabaseAdmin.from("agents").update({ autonomy: next } as never).eq("id", agentId);
+      if (error) return { error: { code: "update_failed", message: error.message } };
+      await writeSystemAuditLog({
+        action: "agent.autonomy.promoted",
+        targetType: "agent",
+        targetId: agentId,
+        details: { agent_key: agent.key, action_class: cls, to_level: toLevel, authorized_by: authorizedBy },
+      }).catch(() => {});
+      emitOpsEvent("agent.autonomy.promoted", "info", {
+        title: `Autonomy promoted: ${agent.key} · ${cls} → L${toLevel}`,
+        source: "agent-proposals",
+        data: { agent_key: agent.key, action_class: cls, to_level: toLevel },
+      });
+      return { ok: true };
     },
     emitEvent: (type, severity, data) =>
       emitOpsEvent(type, severity, { title: type, source: "agent-proposals", data }),
@@ -250,11 +284,16 @@ export async function approveProposal(
 
   // Only the claim winner reaches here → execute exactly once.
   try {
-    // US-1605: a run_playbook proposal executes step-by-step, not via a single
-    // write tool; its "failed" status (a halted step) marks the proposal failed.
-    const result = claimed.action_class === "run_playbook"
-      ? await d.runPlaybookProposal(claimed.payload, { authorizedBy: adminId, proposalId, runId: claimed.run_id })
-      : await d.runWriteTool(ACTION_CLASS_TO_TOOL[claimed.action_class] ?? claimed.action_class, claimed.payload, { authorizedBy: adminId, proposalId });
+    // US-1605 run_playbook executes step-by-step; US-1608 promote_autonomy flips
+    // the agent's autonomy; everything else runs a single registered write tool.
+    let result: unknown;
+    if (claimed.action_class === "run_playbook") {
+      result = await d.runPlaybookProposal(claimed.payload, { authorizedBy: adminId, proposalId, runId: claimed.run_id });
+    } else if (claimed.action_class === "promote_autonomy") {
+      result = await d.executeAutonomyPromotion(claimed.agent_id, claimed.payload, adminId);
+    } else {
+      result = await d.runWriteTool(ACTION_CLASS_TO_TOOL[claimed.action_class] ?? claimed.action_class, claimed.payload, { authorizedBy: adminId, proposalId });
+    }
     const failed = isToolError(result) ||
       (!!result && typeof result === "object" && (result as { status?: unknown }).status === "failed");
     await d.finalizeExecution(proposalId, failed ? "failed" : "executed", result);
