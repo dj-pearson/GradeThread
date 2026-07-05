@@ -1,0 +1,398 @@
+// One-off: insert the Cross-Listing Automation epic (A→Z, US-1659→US-1684) into
+// prd.json and bump nextId. Idempotent — refuses to run twice. See
+// CROSSLIST_AUTOMATION.md for the module map each story cites.
+import fs from "node:fs";
+
+const FILE = "prd.json";
+const raw = fs.readFileSync(FILE, "utf8");
+const hadTrailingNewline = raw.endsWith("\n");
+const prd = JSON.parse(raw);
+
+const START_ID = 1659; // must equal prd.nextId
+if (prd.nextId !== START_ID) {
+  throw new Error(`Expected nextId ${START_ID}, found ${prd.nextId} — aborting.`);
+}
+if (prd.userStories.some((s) => s.id === "US-1659")) {
+  throw new Error("US-1659 already present — epic already inserted; aborting.");
+}
+
+const DOC = "CROSSLIST_AUTOMATION.md";
+const ADAPTERS = "services/edge-functions/src/lib/marketplace-adapters/";
+const note = (letter, body) =>
+  `[CROSSLIST] Module ${letter} — see ${DOC} §3. ${body}`;
+
+// letter, title, description, acceptanceCriteria[], notes, dependsOn[], relevantPaths[]
+const defs = [
+  ["A",
+    "Cross-listing epic foundation: platform-capability registry, union expansion & schema",
+    "Lay the shared foundation for the Cross-Listing Automation epic. Expand the CrossListingPlatform union and add a capability matrix that records, per marketplace, whether it is reached via a sanctioned API or via the user-side browser extension, and which lifecycle operations (publish/update/delist/syncListings/syncOrders) each supports. Add the migration for new marketplace_connections provider rows and any listings columns the new platforms need. This unblocks every other story in the epic.",
+    [
+      "CrossListingPlatform union in marketplace-adapters/types.ts extended with 'etsy' | 'grailed' | 'vinted' | 'whatnot'; CROSS_LISTING_PLATFORMS and isCrossListingPlatform updated; all existing switch/registry sites compile.",
+      "A PLATFORM_CAPABILITIES map (new file) declares for each platform: integration kind ('api' | 'extension'), and the supported lifecycle ops; a unit test asserts every platform in the union has an entry.",
+      "Idempotent migration adds support for the new providers in marketplace_connections (and any listings columns), with EXPECTED_SCHEMA_VERSION bumped in the same commit and the self-record footer (migrations skill).",
+      "registry (index.ts) returns a typed notImplemented() stub for etsy/grailed/vinted/whatnot so callers behave exactly as they do for poshmark today — no caller changes required.",
+    ],
+    note("A", "Extends the existing MarketplaceAdapter registry; does NOT change flipdesk-listings.ts callers. Load the `migrations` skill (schema change) and keep the union the single source of truth."),
+    [],
+    [ADAPTERS + "types.ts", ADAPTERS + "index.ts", ADAPTERS + "stub.ts", "supabase/migrations/", "services/edge-functions/src/lib/schema-version.ts"],
+  ],
+  ["B",
+    "Extension transport contract: signed job envelope, extension_jobs table & edge routes",
+    "Introduce the transport that lets the FlipDesk SaaS hand a listing/delist job to the user-side browser extension without ever touching a marketplace API server-side. Define a signed, short-TTL job envelope delivered via chrome.runtime.onMessageExternal, backed by an extension_jobs table and edge routes to enqueue, claim (by the paired extension), and report results.",
+    [
+      "A new extension_jobs table (migration, US-1108 triple) stores per-job: owner, marketplace, action, payload ref, status (pending/claimed/succeeded/failed), attempts, result, created/updated_at; tenant/operator-scoped per the tenant-isolation skill.",
+      "Edge routes under /api/flipdesk/extension/* to mint a signed job, let the paired extension claim the next job for that owner, and report success/failure; each route is owner-scoped and gets a case in tenant-isolation_test.ts.",
+      "The job envelope is signed (HMAC) and TTL'd; a tampered or expired envelope is rejected; unit tests cover sign/verify/expiry.",
+      "No marketplace credentials or cookies appear anywhere in the envelope or table — only the listing payload and IDs.",
+    ],
+    note("B", "This is the NEW transport for the extension tier; it presents the same adapter surface to the pipeline. Load `tenant-isolation` (new edge routes + table) and `migrations`."),
+    ["US-1659"],
+    ["services/edge-functions/src/routes/flipdesk-listings.ts", "services/edge-functions/src/lib/", "supabase/migrations/", "services/edge-functions/src/tests/tenant-isolation_test.ts"],
+  ],
+  ["C",
+    "Cross-listing security & session model: no server-side secrets + per-marketplace consent gate",
+    "Codify and test the security invariants of the extension tier: FlipDesk never persists marketplace passwords or session cookies server-side, and no extension recipe may run for a (user, marketplace) pair until that user has recorded consent and accepted the per-marketplace ToS disclosure.",
+    [
+      "A migration adds a marketplace_consent record (owner, marketplace, accepted_at, tos_version); tenant-scoped; US-1108 triple.",
+      "An enqueue guard rejects any extension job for a (user, marketplace) with no current consent row, returning an actionable error the composer can surface.",
+      "An invariant test asserts no code path writes a marketplace password or session cookie to any table or log (grep-style guard test in services/edge-functions/src/tests).",
+      "Consent is versioned so a ToS-disclosure change re-prompts the user.",
+    ],
+    note("C", "Design rule #1 (user-side, never server-side). Pairs with Module Y (the consent UX). Load `tenant-isolation` + `migrations`."),
+    ["US-1659"],
+    ["supabase/migrations/", "services/edge-functions/src/routes/", "services/edge-functions/src/tests/"],
+  ],
+  ["D",
+    "Etsy adapter: connect + token refresh (Open API v3, OAuth 2.0)",
+    "Begin the sanctioned Etsy integration — the one API-less-list exception with a genuine official public API. Implement the connect (OAuth 2.0 authorization-code) and refreshToken methods of the MarketplaceAdapter for Etsy, storing the app x-api-key usage and per-owner tokens/scopes in marketplace_connections.",
+    [
+      "etsy adapter connect() returns the Etsy OAuth consent URL with the required scopes (incl. listings_w) and CSRF state; the callback exchanges the code for tokens stored in marketplace_connections, tenant-scoped.",
+      "refreshToken() refreshes the Etsy access token and updates the stored row; expiry handling covered by tests.",
+      "All Etsy requests carry the x-api-key header and (for user-scoped calls) the OAuth Bearer token, against api.etsy.com/v3.",
+      "connect/refresh failures return the typed AdapterResult false branch (never throw); a tenant-isolation_test.ts case covers the callback route.",
+    ],
+    note("D", "Etsy is API-tier (server-side), same class as eBay/Shopify. Mirror the existing ebay.ts adapter structure. Load `tenant-isolation`."),
+    ["US-1659"],
+    [ADAPTERS + "ebay.ts", ADAPTERS + "shopify.ts", ADAPTERS + "types.ts", "services/edge-functions/src/routes/flipdesk-listings.ts"],
+  ],
+  ["E",
+    "Etsy adapter: publish / update / delist listings via Open API v3",
+    "Implement the listing lifecycle for Etsy: create a draft listing from a FlipDesk draft, upload its images, update a live listing, and delist. Uses createDraftListing (requires listings_w scope) and the Etsy listing/image endpoints.",
+    [
+      "publish() maps a FlipDesk draft (via mapDraftToListing) to an Etsy draft listing, creates it, uploads ordered photos, and records the platform listing id + URL on the listings row.",
+      "updateListing() applies price/field changes to a live Etsy listing idempotently.",
+      "delist() ends/deactivates the Etsy listing and clears its live state locally.",
+      "Etsy-specific validation blockers (e.g. required taxonomy/attributes) return via the AdapterResult blockers[] rather than a generic failure; covered by tests.",
+    ],
+    note("E", "Depends on the Etsy connect/refresh from Module D. Keep mapDraftToListing pure."),
+    ["US-1662"],
+    [ADAPTERS + "ebay.ts", ADAPTERS + "types.ts"],
+  ],
+  ["F",
+    "Etsy adapter: syncListings + syncOrders + webhooks",
+    "Close the Etsy loop: pull live Etsy listings and recent orders into the local tables, and register Etsy webhooks so sales/inventory changes propagate (enabling sold-elsewhere delist across the API tier).",
+    [
+      "syncListings() pulls the owner's active Etsy listings into the local listings/inventory tables, reconciling ids.",
+      "syncOrders() pulls recent Etsy orders into the local sales tables, tenant-scoped.",
+      "Etsy webhook/receipt polling (whichever Etsy supports) updates order/inventory state; a webhook route (if used) verifies signatures and has a tenant-isolation_test.ts case.",
+      "A reclaim/cron entry (CRON_REGISTRY) drives periodic Etsy sync consistent with the durable-jobs pattern.",
+    ],
+    note("F", "Completes the Etsy API-tier adapter. Load `durable-jobs` (sync cron) + `tenant-isolation`."),
+    ["US-1663"],
+    [ADAPTERS + "etsy.ts", "services/edge-functions/src/lib/cron-runs.ts", "services/edge-functions/src/routes/flipdesk-webhooks.ts"],
+  ],
+  ["G",
+    "Depop partner API adapter: connect (OAuth 2.0 + PKCE, sandbox, approval-gated)",
+    "Implement the sanctioned Depop path — the private partner Selling API (partnerapi.depop.com), gated by business@depop.com approval. Build the connect method behind a depop_partner_api feature flag so it is inert until FlipDesk is approved, and test against the Depop sandbox.",
+    [
+      "depop adapter connect() implements OAuth 2.0 Authorization Code + PKCE requesting products/orders/offers/shop scopes; tokens stored in marketplace_connections, tenant-scoped.",
+      "The whole partner path is behind a depop_partner_api feature flag (fail-closed): with the flag off, Depop remains the extension-fallback path (Module Q), not a broken API attempt.",
+      "Sandbox base URL is configurable so integration runs against Depop's sandbox without touching production.",
+      "refreshToken() handles PKCE token refresh; callback route has a tenant-isolation_test.ts case.",
+    ],
+    note("G", "Depop is API-tier but APPROVAL-GATED; ships dark behind a flag. Module Q is the extension fallback for unapproved users. Load `tenant-isolation`."),
+    ["US-1659"],
+    [ADAPTERS + "depop.ts", "services/edge-functions/src/lib/feature-flags.ts", ADAPTERS + "types.ts"],
+  ],
+  ["H",
+    "Depop partner API adapter: publish / update / delist (products upsert)",
+    "Implement the Depop listing lifecycle against the partner API: create/update via the PUT /api/v1/products/{sku} upsert endpoint, and delist via the products surface. Guarded by the depop_partner_api flag.",
+    [
+      "publish() maps a FlipDesk draft to a Depop product and upserts it via PUT /api/v1/products/{sku}; records platform id + URL.",
+      "updateListing() re-upserts changed fields idempotently.",
+      "delist() removes/deactivates the Depop product.",
+      "All calls no-op with a clear disabled result when depop_partner_api is off; covered by tests.",
+    ],
+    note("H", "Depends on Module G connect. Same feature-flag gating."),
+    ["US-1665"],
+    [ADAPTERS + "depop.ts", ADAPTERS + "types.ts"],
+  ],
+  ["I",
+    "Depop partner API adapter: syncOrders + mark-as-shipped + webhooks",
+    "Complete the Depop API-tier adapter: pull orders, mark parcels shipped, and register Depop order webhooks for real-time updates. Flag-gated.",
+    [
+      "syncOrders() pulls Depop orders into local sales tables, tenant-scoped.",
+      "A mark-as-shipped call (POST .../parcels/{parcel_id}/mark-as-shipped/) is wired from the fulfillment flow.",
+      "Depop webhooks are registered and verified; the webhook route has a tenant-isolation_test.ts case.",
+      "Periodic sync respects the durable-jobs cron pattern; flag-gated off cleanly.",
+    ],
+    note("I", "Completes the Depop API tier. Load `durable-jobs` + `tenant-isolation`."),
+    ["US-1666"],
+    [ADAPTERS + "depop.ts", "services/edge-functions/src/lib/cron-runs.ts"],
+  ],
+  ["J",
+    "Shopify adapter: complete syncListings + syncOrders (wire the current 501s)",
+    "Finish the already-partly-wired Shopify adapter by implementing syncListings and syncOrders, which currently return 501 — bringing Shopify to full lifecycle parity (create → inventory → orders → fulfill → delist) on the sanctioned API tier.",
+    [
+      "syncListings() pulls the shop's products into local tables via the GraphQL Admin API, reconciling ids (bulk operations for shops with >250 records).",
+      "syncOrders() pulls recent Shopify orders into local sales tables, tenant-scoped.",
+      "Cost-based rate-limit backoff (THROTTLED handling) is respected.",
+      "Existing Shopify publish/update/delist tests still pass; new sync paths covered.",
+    ],
+    note("J", "Fills the two remaining Shopify 501s (see shopify.ts:271 noted in the codebase). API-tier; independent of the extension work."),
+    ["US-1659"],
+    [ADAPTERS + "shopify.ts", "services/edge-functions/src/lib/cron-runs.ts"],
+  ],
+  ["K",
+    "Browser extension MV3 scaffold + device-token pairing to FlipDesk",
+    "Stand up the user-side browser extension (Manifest V3) that is the entire mechanism for the API-less marketplaces. Ship the manifest with host permissions for the target marketplace domains, a background service worker, an options page, and a one-time device-token pairing flow that links the installed extension to a FlipDesk account.",
+    [
+      "A new extension workspace (e.g. apps/extension or extension/) builds an MV3 bundle with host_permissions for poshmark.com, mercari.com, grailed.com, vinted.com, whatnot.com (and depop.com for the fallback), plus externally_connectable to the FlipDesk origin.",
+      "A one-time pairing flow exchanges a short-lived FlipDesk device code for a stored extension token; the SaaS records the paired device (tenant-scoped).",
+      "The background service worker can receive a signed job (Module B envelope) via onMessageExternal, verify it, and route it to the right recipe (stubbed here).",
+      "Options page shows pairing status and per-marketplace enable toggles; no marketplace credentials are ever requested or stored.",
+    ],
+    note("K", "The extension runs in the USER's browser. Depends on the transport (B) and security model (C). Keep it a separate build target from the Vite web app."),
+    ["US-1660", "US-1661"],
+    ["package.json", "services/edge-functions/src/routes/flipdesk-listings.ts"],
+  ],
+  ["L",
+    "Extension UI-driver engine: server-fetched selector manifest + throttled recipe primitive",
+    "Build the reusable engine every marketplace recipe uses: a per-marketplace selector manifest fetched from the FlipDesk server (so UI changes are data, not code), plus a primitive that fills fields, clicks buttons, and uploads photos on the live page with human-like throttling. Recipes are thin declarative configs over this engine.",
+    [
+      "A selector manifest (versioned, per marketplace) is fetched from a FlipDesk edge route and cached; the engine resolves fields by manifest entry, not hard-coded selectors.",
+      "A fill/click/upload primitive drives the real DOM with waits (WebDriverWait-style) and randomized human-like delays between actions (default 1-2s, configurable).",
+      "A `recipe` abstraction defines an ordered step list (navigate, fill, upload, submit, capture-result) that the engine executes against the live logged-in page.",
+      "Engine unit tests run against fixture DOMs; no marketplace API calls anywhere (pure UI automation).",
+    ],
+    note("L", "Design rule #3 (UI is data). This is the shared core for Modules M–R. Selector manifest served by an edge route (Module V governs its lifecycle)."),
+    ["US-1669"],
+    ["services/edge-functions/src/routes/flipdesk-listings.ts"],
+  ],
+  ["M",
+    "Poshmark recipe: create & publish a listing under the user's session",
+    "Implement the Poshmark listing recipe over the UI-driver engine: from a FlipDesk job, drive Poshmark's own create-listing form (fields + photo upload + submit) in the user's logged-in browser session, then capture the resulting listing id/URL.",
+    [
+      "The recipe fills Poshmark's create-listing form from the mapped draft (title, description, category, size, brand, price), uploads ordered photos, and submits.",
+      "The resulting Poshmark listing id/URL is captured and reported back via the Module B result path.",
+      "Human-like throttling (Module L) is applied; the recipe pauses and reports if it hits a login wall or challenge (full handling in Module U).",
+      "Recipe steps reference the server selector manifest (Module V), not inline selectors.",
+    ],
+    note("M", "Highest-value, highest-scrutiny marketplace. Delist/relist safeguards are Module T; do NOT auto-delist here."),
+    ["US-1670"],
+    [ADAPTERS + "poshmark.ts"],
+  ],
+  ["N",
+    "Mercari recipe: create & publish a listing under the user's session",
+    "Implement the Mercari create-listing recipe over the UI-driver engine, running in the user's logged-in browser session.",
+    [
+      "The recipe fills Mercari's create-listing form from the mapped draft, uploads photos, and submits.",
+      "The Mercari listing id/URL is captured and reported back.",
+      "Throttling applied; pauses + reports on challenge/login wall.",
+      "Selectors come from the server manifest.",
+    ],
+    note("N", "Mercari has historically shipped anti-automation checks; expect selector churn (Module V) and treat breakage as a data fix."),
+    ["US-1670"],
+    [ADAPTERS + "mercari.ts"],
+  ],
+  ["O",
+    "Grailed recipe: create & publish a listing under the user's session",
+    "Implement the Grailed create-listing recipe over the UI-driver engine.",
+    [
+      "The recipe fills Grailed's create-listing form from the mapped draft, uploads photos, and submits.",
+      "The Grailed listing id/URL is captured and reported back.",
+      "Throttling applied; pauses + reports on challenge.",
+      "Selectors come from the server manifest.",
+    ],
+    note("O", "Grailed has no API of any kind; extension is the only path. mapDraftToListing for grailed added in Module A."),
+    ["US-1670"],
+    [ADAPTERS + "types.ts"],
+  ],
+  ["P",
+    "Vinted recipe: create & publish a listing under the user's session",
+    "Implement the Vinted create-listing recipe over the UI-driver engine.",
+    [
+      "The recipe fills Vinted's create-listing form from the mapped draft, uploads photos, and submits.",
+      "The Vinted listing id/URL is captured and reported back.",
+      "Throttling applied; pauses + reports on challenge.",
+      "Selectors come from the server manifest.",
+    ],
+    note("P", "Vinted's buyer-pays-fees model means no seller fees but watch listing-field differences; mapping added in Module A."),
+    ["US-1670"],
+    [ADAPTERS + "types.ts"],
+  ],
+  ["Q",
+    "Depop extension fallback recipe (for users not approved for the partner API)",
+    "Provide a Depop create-listing recipe over the UI-driver engine as the fallback for users/instances not approved for the Depop partner API (Module G). The registry prefers the API adapter when depop_partner_api is on, else routes to this recipe.",
+    [
+      "The recipe fills Depop's create-listing form from the mapped draft, uploads photos, and submits, capturing id/URL.",
+      "The Depop registry entry chooses API (flag on + connected) vs extension fallback (flag off) transparently to callers.",
+      "Throttling + challenge handling as per Modules L/U.",
+      "Selectors from the server manifest.",
+    ],
+    note("Q", "Complements Module G/H: API when approved, extension otherwise — one Depop surface to callers."),
+    ["US-1670", "US-1665"],
+    [ADAPTERS + "depop.ts"],
+  ],
+  ["R",
+    "Whatnot capability spike + gating + stub recipe",
+    "Whatnot is livestream-selling-centric, so a generic create-listing form flow may not exist. Rather than assume, run a scoped spike to determine what (if any) UI listing flow the extension can drive, gate the capability accordingly, and ship a stub that clearly reports 'not supported yet' where it can't.",
+    [
+      "A short written findings note (in CROSSLIST_AUTOMATION.md or a linked doc) records what Whatnot supports for non-livestream listing via the web UI.",
+      "The capability matrix (Module A) marks Whatnot's supported ops accurately (likely limited).",
+      "Where no reliable flow exists, the recipe returns a typed not-supported result the composer surfaces honestly (no silent failure).",
+      "If a viable form flow is found, a minimal create recipe ships; otherwise the story delivers the gated stub + findings.",
+    ],
+    note("R", "Spike-and-gate, not force-fit. Honest capability reporting over a brittle guess."),
+    ["US-1670"],
+    ["CROSSLIST_AUTOMATION.md", ADAPTERS + "types.ts"],
+  ],
+  ["S",
+    "Sale-triggered auto-delist + sold-elsewhere sync via extension polling",
+    "Implement cross-marketplace sold-elsewhere sync: when an item sells on one connected marketplace, delist its siblings on the others so it is not double-sold. For the extension tier this polls each connected marketplace's UI on a cadence while the user's browser is open; the API tier uses its webhooks/sync.",
+    [
+      "On a sale detected (via API webhook/sync for the API tier, or extension poll for the extension tier), the item's sibling listings on other marketplaces are queued for delist.",
+      "Extension polling cadence is bounded and only runs while the browser is open; the user is told their computer must be on for extension-side sync (as Vendoo/PrimeLister require).",
+      "Delist actions route through Module T's safeguards (never an unbounded relist loop).",
+      "Reconciliation records which sibling was delisted and why; covered by tests.",
+    ],
+    note("S", "The riskiest surface — feeds directly into Poshmark's excessive-removal detection. Module T gates it. Load `durable-jobs`."),
+    ["US-1671", "US-1672"],
+    ["services/edge-functions/src/routes/flipdesk-reconciliation.ts", "services/edge-functions/src/lib/cron-runs.ts"],
+  ],
+  ["T",
+    "Poshmark Excessive-Listing-Removal safeguards (60-day guard, delist rate-limit, user-initiated)",
+    "Encode Poshmark's May-2025 anti-automation policy directly into the delist/relist path so FlipDesk does not get its users suspended: bar mass removals, block relisting the same item within 60 days, rate-limit delist actions, and keep delisting user-initiated/conservative with warnings surfaced.",
+    [
+      "A guard blocks re-listing the same item on Poshmark within 60 days of its removal and records the window.",
+      "Delist actions are rate-limited per account per period; bursts are refused with an actionable message.",
+      "Sold-elsewhere delisting is allowed (Poshmark permits deleting sold items) but framed as user-initiated/confirmed rather than silent mass automation.",
+      "The composer/pipeline surfaces the policy warning and any restriction state; unit tests cover the 60-day and rate-limit guards.",
+    ],
+    note("T", "See CROSSLIST_AUTOMATION.md §2. This is a correctness/compliance guard, not a nicety — false-positive suspensions are documented."),
+    ["US-1677"],
+    ["services/edge-functions/src/routes/flipdesk-reconciliation.ts", ADAPTERS + "poshmark.ts"],
+  ],
+  ["U",
+    "Anti-detection & resilience: randomized delays, per-action caps, challenge handling",
+    "Harden every extension recipe against bot-detection and breakage: randomized human-like delays with jitter, per-session action caps, exponential backoff, and detection of CAPTCHAs/login walls/challenge pages that pauses the recipe and notifies the user instead of hammering the site.",
+    [
+      "All recipe actions draw from a randomized delay distribution (not fixed intervals) with per-session and per-hour action caps.",
+      "A challenge detector recognizes CAPTCHA/login-wall/anomaly pages and pauses the job, reporting a 'needs your attention' state (never retries blindly).",
+      "Backoff escalates on repeated failures; a circuit-breaker halts a recipe that keeps failing.",
+      "Behavior is covered by tests against fixture challenge pages.",
+    ],
+    note("U", "Industry posture: user session + human-like throttling + pause-on-challenge. Feeds ban-risk telemetry (Module X)."),
+    ["US-1670"],
+    [ADAPTERS + "types.ts"],
+  ],
+  ["V",
+    "Selector-drift maintenance harness: versioned server manifest + recipe health checks",
+    "Make marketplace UI changes a fast data fix rather than an extension re-release: serve a versioned selector manifest from FlipDesk, add per-recipe health checks that detect when selectors no longer resolve, and emit breakage telemetry so operators can push a manifest update.",
+    [
+      "The selector manifest is served from a versioned edge route with per-marketplace entries; the extension fetches the latest without a store update.",
+      "A health check per recipe validates that required selectors resolve on the live page and reports a structured 'recipe broken' signal when they don't.",
+      "Breakage emits an ops event (ops-events) so operators are alerted; a dashboard tile shows per-recipe health (feeds Module X).",
+      "An operator can publish a new manifest version that clients pick up on next fetch; covered by tests.",
+    ],
+    note("V", "Design rule #3. The maintenance treadmill made cheap. Load `durable-jobs`/ops-events patterns; new edge route needs tenant/operator scoping."),
+    ["US-1670"],
+    ["services/edge-functions/src/lib/ops-events.ts", "services/edge-functions/src/routes/flipdesk-listings.ts"],
+  ],
+  ["W",
+    "Extension↔SaaS reconciliation: report listing ids/URLs & status into the pipeline",
+    "Close the loop between the extension and the SaaS: results from every recipe (platform listing id, URL, success/error) flow back into the listings rows and the FlipDesk pipeline UI so the composer reflects true per-marketplace state.",
+    [
+      "Recipe results update the listings row (platform id, URL, status) via the Module B report route, tenant-scoped.",
+      "The pipeline/composer UI shows per-marketplace publish state (published/failed/needs-attention) with the captured URL.",
+      "Failures surface the recipe's structured reason (challenge, selector-broken, validation) not a generic error.",
+      "A tenant-isolation_test.ts case covers the report route.",
+    ],
+    note("W", "Makes the extension tier observable to the user in the existing pipeline UI. Load `tenant-isolation`."),
+    ["US-1671", "US-1672"],
+    ["services/edge-functions/src/routes/flipdesk-listings.ts", "src/pages/flipdesk/"],
+  ],
+  ["X",
+    "Ban-risk telemetry + operator dashboard + alerts",
+    "Give operators visibility into the ban-risk surface: aggregate per-user challenge/suspension/recipe-breakage signals into an admin dashboard with alerting, so a spike (e.g. many Poshmark challenges after a UI change) is caught early.",
+    [
+      "Challenge/suspension/breakage signals from Modules U and V are recorded per (user, marketplace) and aggregated.",
+      "An /admin dashboard tile/page shows cross-listing health: recipe health, challenge rates, suspected suspensions.",
+      "Threshold alerts (email/webhook via the existing ops alert routing) fire on a spike; tunable via system settings.",
+      "Tenant/operator-scoped; covered by tests.",
+    ],
+    note("X", "Reuses ops-events + admin-notifications + system-settings alert routing (see AGENTIC_OS.md rails). Load `tenant-isolation`."),
+    ["US-1679", "US-1680"],
+    ["services/edge-functions/src/lib/ops-events.ts", "src/pages/admin/", "services/edge-functions/src/routes/"],
+  ],
+  ["Y",
+    "Consent, ToS & legal UX + data-handling disclosure (per marketplace)",
+    "Ship the user-facing consent and disclosure experience backing Module C: before enabling a marketplace recipe, the user sees a per-marketplace disclosure (the extension runs in their browser under their session; they are responsible for that marketplace's ToS; FlipDesk stores no marketplace passwords or cookies) and records acceptance.",
+    [
+      "A per-marketplace consent modal in the composer/settings states the user-side automation model, user ToS responsibility, and FlipDesk's no-credential-storage stance; acceptance writes the Module C consent row.",
+      "The disclosure copy is versioned; a version bump re-prompts.",
+      "Enabling a recipe is blocked until consent is recorded (enforced by the Module C enqueue guard).",
+      "Legal/data-handling docs updated (repo doc, e.g. SECURITY.md/GARMENT_PASSPORT_PRIVACY.md pointer) to describe the extension data flow.",
+    ],
+    note("Y", "The UX half of Module C. Toasts via sonner; per repo conventions. No form libs."),
+    ["US-1661"],
+    ["src/pages/flipdesk/", "src/components/", "SECURITY.md"],
+  ],
+  ["Z",
+    "Extension distribution & release governance (Web Store, auto-update, per-recipe kill switches)",
+    "Operationalize the extension: publish to the Chrome Web Store with auto-update, wire per-marketplace recipe feature-flag kill switches so any recipe can be disabled instantly without a store release, and document the release/rollback process.",
+    [
+      "A build/release pipeline produces the packaged extension and documents the Chrome Web Store submission + auto-update flow.",
+      "Each marketplace recipe is behind a feature flag (feature-flags/system-settings) so it can be killed fleet-wide within the cache TTL — no store release needed.",
+      "A rollback/runbook doc covers disabling a recipe, pushing a selector manifest fix (Module V), and store re-submission.",
+      "The global cross-listing kill switch disables the whole extension tier at once; covered by a smoke check.",
+    ],
+    note("Z", "Mirrors the AGENTIC_OS kill-switch discipline: data-driven disable beats a code redeploy. Load `migrations` if the flag seed is a migration."),
+    ["US-1669", "US-1680"],
+    ["services/edge-functions/src/lib/feature-flags.ts", "services/edge-functions/COOLIFY.md"],
+  ],
+];
+
+let priority = 1200;
+const idFor = (letter) => `US-${START_ID + defs.findIndex((d) => d[0] === letter)}`;
+
+const stories = defs.map(([letter, title, description, ac, notes, deps, paths], i) => {
+  const story = {
+    id: `US-${START_ID + i}`,
+    title,
+    description,
+    acceptanceCriteria: ac,
+    priority: priority - i * 5,
+    passes: false,
+    notes,
+    dependsOn: deps,
+  };
+  if (paths && paths.length) story.relevantPaths = paths;
+  return story;
+});
+
+// sanity: every dependsOn id is within the epic or already exists
+const knownIds = new Set(prd.userStories.map((s) => s.id).concat(stories.map((s) => s.id)));
+for (const s of stories) {
+  for (const d of s.dependsOn) {
+    if (!knownIds.has(d)) throw new Error(`${s.id} dependsOn unknown ${d}`);
+  }
+}
+
+prd.userStories.push(...stories);
+prd.nextId = START_ID + stories.length; // 1685
+
+let out = JSON.stringify(prd, null, 2);
+if (hadTrailingNewline) out += "\n";
+fs.writeFileSync(FILE, out);
+console.log(`Inserted ${stories.length} stories US-${START_ID}..US-${START_ID + stories.length - 1}; nextId now ${prd.nextId}`);
