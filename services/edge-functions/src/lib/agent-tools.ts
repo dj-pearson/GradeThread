@@ -106,6 +106,11 @@ interface PropSchema {
   minimum?: number;
   maximum?: number;
   description?: string;
+  // Nested JSON-schema shapes: `items` for an array's element schema, and
+  // `properties`/`required` for a nested object (US-1595 persist_ticket_triage).
+  items?: PropSchema;
+  properties?: Record<string, PropSchema>;
+  required?: string[];
 }
 
 export type Validation =
@@ -1824,7 +1829,7 @@ const TOOL_LIST: AgentToolDef[] = [
               ticket_id: { type: "string" },
               category: { type: "string" },
               severity: { type: "string" },
-              kb_slug: { type: ["string", "null"] },
+              kb_slug: { type: "string", description: "a KB article slug, or null" },
             },
             required: ["ticket_id", "category", "severity"],
           },
