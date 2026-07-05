@@ -29,6 +29,8 @@ import { redact, redactError } from "./log-redact.ts";
 import { getSetting } from "./system-settings.ts";
 import { agentToolRegistry } from "./agent-tools.ts";
 import { applyWritePolicy } from "./agent-policy.ts";
+import { DEFAULT_PROPOSAL_TTL_HOURS, persistProposals } from "./agent-proposals.ts";
+import type { ProposalDraft } from "./agent-policy.ts";
 
 // ── Config + caps ────────────────────────────────────────────────────────────
 
@@ -60,6 +62,8 @@ export interface AgentConfig {
   budget_feature?: string;
   budget_usd_daily?: number;
   schedule?: string;
+  // TTL (hours) for proposals this agent files (US-1587).
+  proposal_ttl_hours?: number;
   [k: string]: unknown;
 }
 
@@ -227,6 +231,13 @@ export interface KernelDeps {
   finalizeRun: (runId: string, patch: RunFinalize) => Promise<void>;
   makeStep: (agent: AgentRow, model: string, maxOutputTokens: number) => KernelStepFn;
   toolRegistry: AgentToolRegistry;
+  // Persist an agent's filed proposal drafts (US-1587). Returns the count filed.
+  persistProposals: (
+    agentId: string,
+    runId: string,
+    drafts: ProposalDraft[],
+    ttlHours: number,
+  ) => Promise<number>;
   now: () => number;
 }
 
@@ -475,6 +486,19 @@ export async function runAgent(
     proposals: routed.proposals,
   };
 
+  // Persist filed proposals to agent_proposals (pending, TTL from config) — the
+  // idempotency_key dedup makes a re-run non-duplicating (US-1587). Best-effort.
+  if (routed.proposals.length) {
+    const ttlHours = typeof agent.config.proposal_ttl_hours === "number"
+      ? agent.config.proposal_ttl_hours
+      : DEFAULT_PROPOSAL_TTL_HOURS;
+    try {
+      await d.persistProposals(agent.id, runId, routed.proposals, ttlHours);
+    } catch (err) {
+      console.warn(`[agent-kernel] persistProposals failed for run ${runId}: ${redactError(err)}`);
+    }
+  }
+
   await d.recordStep(runId, {
     seq: seq++,
     stepType: "output",
@@ -613,6 +637,8 @@ export function prodKernelDeps(): KernelDeps {
       };
     },
     toolRegistry: agentToolRegistry,
+    persistProposals: (agentId, runId, drafts, ttlHours) =>
+      persistProposals(agentId, runId, drafts, ttlHours),
     now: () => Date.now(),
   };
 }

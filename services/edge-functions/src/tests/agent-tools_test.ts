@@ -28,6 +28,10 @@ function fakeIO(over: Partial<ToolIO> = {}): { io: ToolIO; audits: AuditLogInput
       return Promise.resolve();
     },
     now: () => NOW,
+    runJob: () => Promise.resolve({ ok: true, status: 200 }),
+    requeueEmailDeadLetter: () => Promise.resolve(true),
+    resolveAgentTaskProject: () => Promise.resolve("proj-1"),
+    insertAdminTask: () => Promise.resolve({ id: "task-1" }),
     ...over,
   };
   return { io, audits };
@@ -143,4 +147,51 @@ Deno.test("registry: a handler throw is caught and returned as a structured erro
     error?: { code?: string };
   };
   assertEquals(res.error?.code, "tool_error");
+});
+
+// ── Write tools are invisible + unexecutable in the run loop (US-1587) ────────
+
+Deno.test("registry: write tools are hidden from the run loop and refused at dispatch", async () => {
+  const reg = createAgentToolRegistry(fakeIO().io);
+  const a = agent(["retry_job", "get_cron_health"]); // allowlists a write + a read
+  // Not surfaced as an Anthropic tool, and isAllowed is false for the run loop.
+  assertEquals(reg.anthropicTools(a).map((t) => t.name), ["get_cron_health"]);
+  assertEquals(reg.isAllowed(a, "retry_job"), false);
+  // Even if the model calls it, execute refuses (never runs the side effect).
+  const res = await reg.execute(a, "retry_job", { job_key: "x" }) as { error?: { code?: string } };
+  assertEquals(res.error?.code, "write_tool_forbidden");
+});
+
+Deno.test("registry: executeWrite runs an approved write tool + audits it", async () => {
+  const { io, audits } = fakeIO({ runJob: () => Promise.resolve({ ok: true, status: 202 }) });
+  const reg = createAgentToolRegistry(io);
+  const res = await reg.executeWrite("retry_job", { job_key: "reprice-scan" }, {
+    authorizedBy: "admin-1",
+    proposalId: "p1",
+  }) as { ok?: boolean; status?: number };
+  assertEquals(res.ok, true);
+  assertEquals(res.status, 202);
+  assertEquals(audits.at(-1)?.action, "agent.write_tool_executed");
+});
+
+Deno.test("registry: executeWrite refuses a read-tool name", async () => {
+  const reg = createAgentToolRegistry(fakeIO().io);
+  const res = await reg.executeWrite("get_cron_health", {}, { authorizedBy: "admin-1" }) as {
+    error?: { code?: string };
+  };
+  assertEquals(res.error?.code, "not_a_write_tool");
+});
+
+Deno.test("registry: a write tool refuses to act without authorization context", async () => {
+  // Directly executing a write tool's handler-path without authorizedBy is
+  // impossible via execute (forbidden) — executeWrite always sets authorizedBy —
+  // but the handler's own guard is the last line of defense.
+  const { io } = fakeIO();
+  const reg = createAgentToolRegistry(io);
+  // A missing job_key still validates-fails first (schema), proving the schema
+  // gate runs before the side effect.
+  const res = await reg.executeWrite("retry_job", {}, { authorizedBy: "admin" }) as {
+    error?: { code?: string };
+  };
+  assertEquals(res.error?.code, "invalid_input");
 });

@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1656,
+  "nextId": 1658,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -10326,20 +10326,17 @@
     },
     {
       "id": "US-1587",
-      "title": "Proposal lifecycle: approvals, execution, first write tools",
-      "description": "As the operator, I want agent write-actions to land as structured proposals I can approve or reject from the admin API — with approved actions executed exactly once by the kernel — so agents get hands only through my sign-off.",
+      "title": "Proposal lifecycle engine: persistence, approve-once execution, write tools, expiry",
+      "description": "As the operator, I want the agent proposal lifecycle ENGINE — proposals persisted from run output with idempotency dedup, approve-once execution through registered write tools, TTL expiry, and write tools that refuse to run outside an approved-proposal context — so the operator sign-off surface (US-1657) has a hardened, exactly-once substrate to drive.",
       "acceptanceCriteria": [
-        "Kernel persists proposals from run output to agent_proposals (pending, TTL default 72h from config); duplicate suppression via idempotency_key so a re-run doesn't re-file the same proposal",
-        "routes/admin-agents.ts (mounted under /api/admin/agents, standard admin JWT + RBAC scope): list proposals (filter by status/agent), approve, reject (reason required); decisions record decided_by/decided_at and write audit-log entries",
-        "Approval executes the payload through a registered WRITE tool with the proposal id as idempotency key: execution happens exactly once even under concurrent/double approval calls; result → agent_proposals.result, status → executed/failed",
-        "First write tools (class 'write', reversible by design): retry_job (re-POST a registered /api/jobs/* endpoint via the internal job secret), requeue_dead_letter (existing dead-letter machinery), create_admin_task; write tools refuse to run outside an approved-proposal or L2+ policy context",
-        "Expiry sweep marks past-TTL pending proposals 'expired' (wired into the agent tick or a small job); expired/rejected proposals can never execute",
-        "New pending proposals trigger an admin notification (existing admin-notifications lib), batched per run",
-        "tenant-isolation_test.ts gains cases for the new admin route; deno tests cover approve-once semantics and expiry; lint + check clean"
+        "lib/agent-proposals.ts: the kernel persists proposals from run output to agent_proposals (pending, TTL default 72h from config); duplicate suppression via idempotency_key so a re-run does not re-file the same proposal",
+        "Approve-once execution: approveProposal claims pending->approved via a race-safe conditional UPDATE (WHERE status=pending) so execution happens exactly once under concurrent/double approval; the payload runs through a registered WRITE tool with the proposal id as idempotency key; result->agent_proposals.result, status->executed/failed. rejectProposal (reason) and expireProposals (past-TTL pending->expired) included; expired/rejected can never execute (canExecute guards on status+expiry)",
+        "First write tools (class write, reversible): retry_job (re-POST a CRON_REGISTRY endpoint via the internal job secret, never an arbitrary URL), requeue_dead_letter (email dead-letter re-queue), create_admin_task; write tools are invisible to the run loop (anthropicTools/isAllowed read-only) and only execute via the executor executeWrite path (refuse outside an approved-proposal context)",
+        "Deno tests: persistence idempotency, approve-once semantics (concurrent claim -> single execute), expiry, write-tool-refused-in-run; lint + check clean"
       ],
       "priority": 2356,
-      "passes": false,
-      "notes": "[AGENTIC-OS Phase 0][Module E — Escalation & Approvals] Read AGENTIC_OS.md §3.E. Load the tenant-isolation skill (new edge route rule). retry_job must only accept endpoints present in CRON_REGISTRY — never an arbitrary URL.",
+      "passes": true,
+      "notes": "[AGENTIC-OS Phase 0][Module E] Engine half of the original US-1587 (split). The admin HTTP route (list/approve/reject) + admin notifications is US-1657. retry_job only accepts CRON_REGISTRY endpoints.",
       "dependsOn": [
         "US-1585",
         "US-1586"
@@ -11854,6 +11851,31 @@
         "services/edge-functions/src/lib/affiliate-payout-math.ts",
         "supabase/migrations/",
         "PENDING_MIGRATIONS.md"
+      ]
+    },
+    {
+      "id": "US-1657",
+      "title": "Proposal admin surface: /api/admin/agents list/approve/reject + notifications",
+      "description": "As the operator, I want to list, approve, and reject agent proposals from the admin API (standard admin JWT + ops:write scope), with decisions audited and new pending proposals notified — the operator sign-off surface over the US-1587 lifecycle engine.",
+      "priority": 2356,
+      "passes": false,
+      "notes": "[AGENTIC-OS Phase 0][Module E] Transport half of US-1587 (split). Mirror routes/admin-tasks.ts; requireScope ops:write whole-router; register in lib/admin-scope-map.ts (admin-scope-coverage_test gate); mount /api/admin/agents in main.ts. Decisions call agent-proposals approve/reject + writeAuditLog. New pending proposals -> admin-notifications (batched per run). ops:write already seeded, no migration.",
+      "acceptanceCriteria": [
+        "routes/admin-agents.ts (mounted /api/admin/agents, inherits admin JWT+AAL2 from the /api/admin/* group; requireScope ops:write on the whole router): GET proposals (filter by status/agent), GET agents+runs, POST proposals/:id/approve, POST proposals/:id/reject (reason required)",
+        "approve/reject call the US-1587 engine (approveProposal/rejectProposal), stamp decided_by from c.get(userId) server-side, and write an admin audit-log entry",
+        "New pending proposals trigger an admin notification via the existing admin-notifications lib, batched per run (emitted from the kernel/tick when proposals are filed)",
+        "lib/admin-scope-map.ts gains the admin-agents.ts entry (scope ops:write, mode router); main.ts mounts the router; admin-scope-coverage_test passes",
+        "deno lint + check clean"
+      ],
+      "dependsOn": [
+        "US-1587"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/routes/admin-agents.ts",
+        "services/edge-functions/src/lib/admin-scope-map.ts",
+        "services/edge-functions/src/main.ts",
+        "services/edge-functions/src/lib/admin-notifications.ts",
+        "services/edge-functions/src/lib/agent-proposals.ts"
       ]
     }
   ]

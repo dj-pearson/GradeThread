@@ -26,7 +26,8 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { AgentRow, AgentToolRegistry } from "./agent-kernel.ts";
 import { supabaseAdmin } from "./supabase.ts";
-import { aggregateJobStats, failingJobCount, type RawRun } from "./ops-jobs.ts";
+import { aggregateJobStats, failingJobCount, isRunnableJob, type RawRun } from "./ops-jobs.ts";
+import { CRON_REGISTRY, DEFAULT_JOB_SECRET_ENV } from "./cron-runs.ts";
 import { resolveRevenueWindow } from "./revenue-window.ts";
 import { type AuditLogInput, writeSystemAuditLog } from "./audit-log.ts";
 import { redact, redactError } from "./log-redact.ts";
@@ -109,6 +110,10 @@ export interface ToolContext {
   agentKey: string;
   agentId: string;
   now: number;
+  // Set ONLY on the executeWrite (approved-proposal) path — a write tool refuses
+  // to act unless it is present.
+  authorizedBy?: string | null;
+  proposalId?: string | null;
 }
 
 export interface AgentToolDef {
@@ -159,6 +164,17 @@ export interface ToolIO {
   rpc(name: string, args?: Record<string, unknown>): Promise<unknown>;
   audit(input: AuditLogInput): Promise<void>;
   now(): number;
+  // ── Write-side (used only by executeWrite / approved proposals) ──
+  // Re-fire a registered cron job by key over the internal job rails.
+  runJob(jobKey: string): Promise<{ ok: boolean; status: number; error?: string }>;
+  // Re-queue an email dead-letter (status dead_letter → pending). Returns
+  // whether a row was actually re-queued.
+  requeueEmailDeadLetter(id: string): Promise<boolean>;
+  // Resolve (find-or-create) the standing "Agent Proposals" task project id.
+  resolveAgentTaskProject(): Promise<string | null>;
+  insertAdminTask(
+    row: { project_id: string; title: string; body: string | null; priority: string; created_by: string | null },
+  ): Promise<{ id: string } | null>;
 }
 
 export function prodToolIO(): ToolIO {
@@ -224,6 +240,77 @@ export function prodToolIO(): ToolIO {
     },
     audit: (input) => writeSystemAuditLog(input),
     now: () => Date.now(),
+    runJob: async (jobKey) => {
+      // Only registered, runnable cron jobs — never an arbitrary URL.
+      if (!isRunnableJob(jobKey)) return { ok: false, status: 0, error: "unknown_or_unrunnable_job" };
+      const def = CRON_REGISTRY.find((d) => d.name === jobKey);
+      if (!def) return { ok: false, status: 0, error: "not_registered" };
+      const secret = Deno.env.get(def.secretEnv ?? DEFAULT_JOB_SECRET_ENV);
+      if (!secret) return { ok: false, status: 503, error: "job_secret_unconfigured" };
+      const base = `http://localhost:${Deno.env.get("PORT") || "8787"}`;
+      try {
+        const res = await fetch(`${base}${def.endpoint}`, {
+          method: "POST",
+          headers: { "X-Internal-Job-Secret": secret, "X-Triggered-By": "agent:proposal" },
+          signal: AbortSignal.timeout(120_000),
+        });
+        return { ok: res.ok, status: res.status };
+      } catch (err) {
+        return { ok: false, status: 0, error: err instanceof Error ? err.message : "fetch_failed" };
+      }
+    },
+    requeueEmailDeadLetter: async (id) => {
+      const { data: row } = await supabaseAdmin
+        .from("email_deliveries")
+        .select("attempts")
+        .eq("id", id)
+        .eq("status", "dead_letter")
+        .maybeSingle();
+      if (!row) return false;
+      const attempts = (row as { attempts?: number }).attempts ?? 0;
+      const { data } = await supabaseAdmin
+        .from("email_deliveries")
+        .update({
+          status: "pending",
+          next_attempt_at: new Date().toISOString(),
+          max_attempts: attempts + 3,
+          last_error: null,
+        } as never)
+        .eq("id", id)
+        .eq("status", "dead_letter")
+        .select("id")
+        .maybeSingle();
+      return !!data;
+    },
+    resolveAgentTaskProject: async () => {
+      const TITLE = "Agent Proposals";
+      const { data: found } = await supabaseAdmin
+        .from("admin_task_projects")
+        .select("id")
+        .eq("title", TITLE)
+        .maybeSingle();
+      if (found) return (found as { id: string }).id;
+      const { data: created } = await supabaseAdmin
+        .from("admin_task_projects")
+        .insert({ title: TITLE } as never)
+        .select("id")
+        .single();
+      return (created as { id: string } | null)?.id ?? null;
+    },
+    insertAdminTask: async (row) => {
+      const { data } = await supabaseAdmin
+        .from("admin_tasks")
+        .insert({
+          project_id: row.project_id,
+          title: row.title,
+          body: row.body,
+          priority: row.priority,
+          created_by: row.created_by,
+        } as never)
+        .select("id")
+        .single();
+      return (data as { id: string } | null) ?? null;
+    },
   };
 }
 
@@ -442,7 +529,82 @@ const TOOL_LIST: AgentToolDef[] = [
       };
     },
   },
+
+  // ── Write tools (class 'write') — NEVER exposed to the run loop; executed
+  //    ONLY via executeWrite on the approved-proposal path (US-1587). Each is
+  //    reversible/compensatable by design. ──
+  {
+    name: "retry_job",
+    description: "Re-fire a registered scheduled job (cron) by its key over the internal job rails. Only jobs present in the cron registry are accepted.",
+    class: "write",
+    inputSchema: {
+      type: "object",
+      properties: { job_key: { type: "string", description: "the registered cron job name" } },
+      required: ["job_key"],
+    },
+    handler: async (input, ctx) => {
+      if (!ctx.authorizedBy) return { error: { code: "unauthorized", message: "write requires an approved proposal" } };
+      const jobKey = String(input.job_key);
+      const r = await ctx.io.runJob(jobKey);
+      return { job: jobKey, ...r };
+    },
+  },
+  {
+    name: "requeue_dead_letter",
+    description: "Re-queue a dead-lettered delivery so the retry machinery re-attempts it. v1 supports email dead-letters.",
+    class: "write",
+    inputSchema: {
+      type: "object",
+      properties: {
+        source: { type: "string", enum: ["email", "webhook"] },
+        id: { type: "string" },
+      },
+      required: ["source", "id"],
+    },
+    handler: async (input, ctx) => {
+      if (!ctx.authorizedBy) return { error: { code: "unauthorized", message: "write requires an approved proposal" } };
+      if (input.source !== "email") {
+        return { error: { code: "unsupported", message: "webhook replay is not supported via the agent tool in v1; use the admin console" } };
+      }
+      const requeued = await ctx.io.requeueEmailDeadLetter(String(input.id));
+      return { source: "email", id: String(input.id), requeued };
+    },
+  },
+  {
+    name: "create_admin_task",
+    description: "File an admin task (in the standing 'Agent Proposals' project) for an operator to action.",
+    class: "write",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string" },
+        body: { type: "string" },
+        priority: { type: "string", enum: ["low", "medium", "high"] },
+      },
+      required: ["title"],
+    },
+    handler: async (input, ctx) => {
+      if (!ctx.authorizedBy) return { error: { code: "unauthorized", message: "write requires an approved proposal" } };
+      const projectId = await ctx.io.resolveAgentTaskProject();
+      if (!projectId) return { error: { code: "no_project", message: "could not resolve the Agent Proposals project" } };
+      const task = await ctx.io.insertAdminTask({
+        project_id: projectId,
+        title: String(input.title),
+        body: typeof input.body === "string" ? input.body : null,
+        priority: typeof input.priority === "string" ? input.priority : "medium",
+        created_by: ctx.authorizedBy ?? null,
+      });
+      return { task_id: task?.id ?? null };
+    },
+  },
 ];
+
+// Map an agent_proposals.action_class → the write tool that executes it.
+export const ACTION_CLASS_TO_TOOL: Record<string, string> = {
+  retry_job: "retry_job",
+  requeue_dead_letter: "requeue_dead_letter",
+  file_task: "create_admin_task",
+};
 
 export const AGENT_TOOLS: readonly AgentToolDef[] = TOOL_LIST;
 const BY_NAME = new Map(TOOL_LIST.map((t) => [t.name, t]));
@@ -453,25 +615,45 @@ function allowlistOf(agent: AgentRow): string[] {
   return Array.isArray(t) ? t.filter((x): x is string => typeof x === "string") : [];
 }
 
+// The kernel's AgentToolRegistry, plus the executeWrite path the proposal
+// executor (US-1587) uses to run an approved write action.
+export interface AgentToolRegistryV2 extends AgentToolRegistry {
+  executeWrite(
+    name: string,
+    input: unknown,
+    ctx: { authorizedBy: string; proposalId?: string | null },
+  ): Promise<unknown>;
+}
+
 // ── The registry (implements the kernel's AgentToolRegistry seam) ────────────
 
-export function createAgentToolRegistry(io: ToolIO = prodToolIO()): AgentToolRegistry {
+export function createAgentToolRegistry(io: ToolIO = prodToolIO()): AgentToolRegistryV2 {
+  // The run loop only ever sees READ tools — write tools are invisible + never
+  // executable there (they run only via executeWrite on an approved proposal).
+  const isReadAllowed = (agent: AgentRow, name: string): boolean => {
+    const tool = BY_NAME.get(name);
+    return !!tool && tool.class === "read" && allowlistOf(agent).includes(name);
+  };
   return {
     anthropicTools(agent: AgentRow): Anthropic.Tool[] {
       const allow = new Set(allowlistOf(agent));
-      return TOOL_LIST.filter((t) => allow.has(t.name)).map((t) => ({
+      return TOOL_LIST.filter((t) => t.class === "read" && allow.has(t.name)).map((t) => ({
         name: t.name,
         description: t.description,
         input_schema: t.inputSchema as Anthropic.Tool["input_schema"],
       }));
     },
     isAllowed(agent: AgentRow, name: string): boolean {
-      return BY_NAME.has(name) && allowlistOf(agent).includes(name);
+      return isReadAllowed(agent, name);
     },
     async execute(agent: AgentRow, name: string, rawInput: unknown): Promise<unknown> {
       const tool = BY_NAME.get(name);
       if (!tool || !allowlistOf(agent).includes(name)) {
         return { error: { code: "tool_not_allowed", message: `tool not allowed: ${name}` } };
+      }
+      // A write tool can never run from the run loop — only via executeWrite.
+      if (tool.class !== "read") {
+        return { error: { code: "write_tool_forbidden", message: "write tools require an approved proposal" } };
       }
       const input = rawInput && typeof rawInput === "object" && !Array.isArray(rawInput)
         ? rawInput as Record<string, unknown>
@@ -500,8 +682,45 @@ export function createAgentToolRegistry(io: ToolIO = prodToolIO()): AgentToolReg
         return { error: { code: "tool_error", message: redactError(err) } };
       }
     },
+    // Execute an approved write action. NOT allowlist-gated (operator approval is
+    // the authorization); validates the tool exists + is a write tool, audits,
+    // and runs the handler with the authorized context. Lets the handler throw
+    // so the proposal executor can mark the proposal failed.
+    async executeWrite(name: string, rawInput: unknown, ctx): Promise<unknown> {
+      const tool = BY_NAME.get(name);
+      if (!tool || tool.class !== "write") {
+        return { error: { code: "not_a_write_tool", message: `not a write tool: ${name}` } };
+      }
+      const input = rawInput && typeof rawInput === "object" && !Array.isArray(rawInput)
+        ? rawInput as Record<string, unknown>
+        : {};
+      const v = validateToolInput(tool.inputSchema, input);
+      if (!v.ok) {
+        return { error: { code: "invalid_input", message: "input failed schema validation", details: v.errors } };
+      }
+      await io.audit({
+        action: "agent.write_tool_executed",
+        targetType: "agent_tool",
+        targetId: name,
+        details: {
+          tool: name,
+          proposal_id: ctx.proposalId ?? null,
+          authorized_by: ctx.authorizedBy,
+          input: redact(v.value),
+        },
+      }).catch(() => {});
+      const tctx: ToolContext = {
+        io,
+        agentKey: "",
+        agentId: "",
+        now: io.now(),
+        authorizedBy: ctx.authorizedBy,
+        proposalId: ctx.proposalId ?? null,
+      };
+      return await tool.handler(v.value, tctx);
+    },
   };
 }
 
 // Default production registry (empty-IO-free): wired to the real infrastructure.
-export const agentToolRegistry: AgentToolRegistry = createAgentToolRegistry();
+export const agentToolRegistry: AgentToolRegistryV2 = createAgentToolRegistry();
