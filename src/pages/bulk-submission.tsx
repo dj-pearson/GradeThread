@@ -23,7 +23,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
-import { edgeApiUrl } from "@/lib/edge-api";
+import { edgeFetch } from "@/lib/edge-fetch";
 import {
   Table,
   TableBody,
@@ -40,8 +40,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useAuth } from "@/hooks/use-auth";
-import { useWorkspace } from "@/hooks/use-workspace";
-import { supabase } from "@/lib/supabase";
 import { parseSheet } from "@/lib/csv";
 import { readZip, baseName, type ZipEntry } from "@/lib/zip";
 import { compressImage } from "@/lib/image-utils";
@@ -140,10 +138,11 @@ function validateRow(
 
 export function BulkSubmissionPage() {
   const { profile } = useAuth();
-  const { workspaceOwnerId } = useWorkspace();
   const navigate = useNavigate();
   const csvInputRef = useRef<HTMLInputElement>(null);
   const zipInputRef = useRef<HTMLInputElement>(null);
+  // US-1625: synchronous double-submit guard (see handleSubmit).
+  const submitLockRef = useRef(false);
 
   const [csvName, setCsvName] = useState<string>("");
   const [zipName, setZipName] = useState<string>("");
@@ -286,6 +285,12 @@ export function BulkSubmissionPage() {
 
   async function handleSubmit() {
     if (validRows.length === 0) return;
+    // US-1625: reject a re-entrant double-click synchronously. `disabled={isSubmitting}`
+    // only applies on the NEXT render, so two clicks in one frame would both run
+    // this loop and POST every row twice (double charge). Mirrors the submitLockRef
+    // fix in new-submission.tsx (US-774).
+    if (submitLockRef.current) return;
+    submitLockRef.current = true;
     setIsSubmitting(true);
     setResult(null);
     setProgress({ current: 0, total: validRows.length });
@@ -294,15 +299,6 @@ export function BulkSubmissionPage() {
     let submitted = 0;
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) {
-        toast.error("You must be logged in to submit garments.");
-        setIsSubmitting(false);
-        return;
-      }
-
-      const baseUrl = edgeApiUrl();
-
       for (let i = 0; i < validRows.length; i++) {
         const row = validRows[i]!;
         setProgress({ current: i, total: validRows.length });
@@ -328,18 +324,19 @@ export function BulkSubmissionPage() {
             formData.append("phashes", phash);
           }
 
-          const headers: Record<string, string> = {
-            Authorization: `Bearer ${session.access_token}`,
-          };
-          if (workspaceOwnerId) {
-            headers["X-Workspace-Owner"] = workspaceOwnerId;
-          }
-          const response = await fetch(`${baseUrl}/api/grade/submit`, {
+          // US-1632: route through edgeFetch so EACH row gets a freshly-minted
+          // access token (and a 401-refresh-retry) — the old code grabbed one
+          // token before the loop, so a long batch 401'd mid-way once it lapsed.
+          // silentGate: a per-row cap is collected as a row error below, not a
+          // modal per row. edgeFetch also adds X-Workspace-Owner.
+          const response = await edgeFetch("/api/grade/submit", {
             method: "POST",
-            headers,
             body: formData,
+            silentGate: true,
           });
-          const json = await response.json();
+          // US-1632: guard .json() — an HTML 502 from an infra blip isn't JSON
+          // and would otherwise throw a confusing SyntaxError mid-batch.
+          const json = await response.json().catch(() => ({} as { error?: string }));
           if (!response.ok) {
             throw new Error(json.error || "Submission failed");
           }
@@ -375,6 +372,7 @@ export function BulkSubmissionPage() {
         err instanceof Error ? err.message : "Bulk upload failed."
       );
     } finally {
+      submitLockRef.current = false;
       setIsSubmitting(false);
     }
   }

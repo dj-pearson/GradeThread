@@ -804,15 +804,22 @@ adminBillingRoutes.post("/charges/:id/refund", async (c) => {
   if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
 
   try {
-    const refund = await stripe.refunds.create({
-      charge: chargeId,
-      ...(amount ? { amount } : {}),
-      reason: "requested_by_customer",
-      metadata: {
-        admin_id: adminId,
-        ...(refundReason ? { admin_reason: refundReason } : {}),
+    const refund = await stripe.refunds.create(
+      {
+        charge: chargeId,
+        ...(amount ? { amount } : {}),
+        reason: "requested_by_customer",
+        metadata: {
+          admin_id: adminId,
+          ...(refundReason ? { admin_reason: refundReason } : {}),
+        },
       },
-    });
+      // US-1641: idempotency so a double-click / retry can't issue a second
+      // refund. Keyed on (charge, amount) — a distinct partial amount still goes
+      // through, but an identical resubmit within Stripe's 24h window is replayed,
+      // not re-charged.
+      { idempotencyKey: `admin-refund:${chargeId}:${amount ?? "full"}` },
+    );
 
     await auditLog(c, "admin.refund_charge", "charge", chargeId, {
       refund_id: refund.id,

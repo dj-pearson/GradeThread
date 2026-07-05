@@ -35,6 +35,9 @@ export interface CommitResult {
   ok: boolean;
   detail: string;
   itemId?: string;
+  /** Photos that couldn't be uploaded (e.g. restored placeholders). US-1633:
+   * the session is only marked committed when every cluster has zero skips. */
+  skipped?: number;
 }
 
 function extForBlobType(mimeType: string, fallback: string): string {
@@ -147,7 +150,7 @@ async function uploadOnePhoto(
 async function resolveItemId(
   cluster: CommitCluster,
   workspaceOwnerId: string,
-): Promise<{ itemId: string; currentStatus: ItemStatus }> {
+): Promise<{ itemId: string; currentStatus: ItemStatus; createdNew: boolean }> {
   if (cluster.linkItemId) {
     // Re-verify ownership: RLS only returns rows the caller owns, so a missing
     // row here means it isn't theirs (or doesn't exist).
@@ -159,7 +162,7 @@ async function resolveItemId(
     if (error) throw error;
     if (!data) throw new Error("That item no longer exists or isn't yours.");
     const row = data as { id: string; status: ItemStatus };
-    return { itemId: row.id, currentStatus: row.status };
+    return { itemId: row.id, currentStatus: row.status, createdNew: false };
   }
 
   const { data, error } = await supabase
@@ -173,7 +176,7 @@ async function resolveItemId(
     .single();
   if (error) throw error;
   const row = data as { id: string; status: ItemStatus };
-  return { itemId: row.id, currentStatus: row.status };
+  return { itemId: row.id, currentStatus: row.status, createdNew: true };
 }
 
 /**
@@ -187,7 +190,7 @@ export async function commitCluster(
   sessionId: string | null,
 ): Promise<CommitResult> {
   try {
-    const { itemId, currentStatus } = await resolveItemId(cluster, workspaceOwnerId);
+    const { itemId, currentStatus, createdNew } = await resolveItemId(cluster, workspaceOwnerId);
 
     let uploaded = 0;
     let skipped = 0;
@@ -197,6 +200,24 @@ export async function commitCluster(
       if (ok) uploaded += 1;
       else skipped += 1;
       sort += 1;
+    }
+
+    // US-1633: a freshly-created draft that ended up with ZERO uploaded photos
+    // (e.g. every photo was a restored placeholder) is an orphan — delete it and
+    // report failure instead of leaving an empty draft littering the pipeline.
+    if (createdNew && uploaded === 0) {
+      await supabase
+        .from("inventory_items")
+        .delete()
+        .eq("id", itemId)
+        .eq("user_id", workspaceOwnerId);
+      return {
+        clusterId: cluster.clusterId,
+        title: cluster.label,
+        ok: false,
+        skipped,
+        detail: "No photos could be uploaded — re-add them and try again.",
+      };
     }
 
     // Advance to "photographed" if the required set is satisfied (consider both
@@ -211,7 +232,7 @@ export async function commitCluster(
       skipped > 0
         ? `${uploaded} uploaded, ${skipped} skipped (re-add those photos)`
         : `${uploaded} photo${uploaded === 1 ? "" : "s"} → ${cluster.linkItemId ? "linked item" : "new draft"}`;
-    return { clusterId: cluster.clusterId, title: cluster.label, ok: true, detail, itemId };
+    return { clusterId: cluster.clusterId, title: cluster.label, ok: true, detail, itemId, skipped };
   } catch (err) {
     return {
       clusterId: cluster.clusterId,
@@ -236,7 +257,14 @@ export async function commitClusters(
   for (const cluster of clusters) {
     results.push(await commitCluster(cluster, workspaceOwnerId, sessionId));
   }
-  if (sessionId && results.some((r) => r.ok)) {
+  // US-1633: only mark the session committed when EVERY cluster fully succeeded
+  // with no skipped photos. Previously any single ok cluster committed the whole
+  // session, so a partial run (failed clusters / skipped photos) could no longer
+  // be retried — those photos were orphaned. Leaving it open lets the user
+  // re-commit the incomplete clusters.
+  const fullyCommitted =
+    results.length > 0 && results.every((r) => r.ok && (r.skipped ?? 0) === 0);
+  if (sessionId && fullyCommitted) {
     await supabase
       .from("flipdesk_reconcile_sessions")
       .update({ status: "committed" } as never)

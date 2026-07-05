@@ -78,17 +78,48 @@ export function useRunDelist() {
         listingUrl: item.listing_url,
       });
 
-      // Whether the extension ended it or degraded to manual, clear the queue
-      // stamp so it stops nagging (the row is already marked ended locally).
-      const confirm = await edgeFetch("/api/flipdesk/listings/delist-confirm", {
-        method: "POST",
-        json: { listing_id: item.listing_id },
-      });
-      if (!confirm.ok) {
-        const j = await confirm.json().catch(() => ({}));
-        throw new Error((j as { error?: string }).error ?? "Could not clear the delist.");
+      // US-1629: clear the queue stamp ONLY on a real success. Previously this
+      // fired unconditionally — so a hard failure (res.ok === false: the
+      // extension couldn't end the listing) still dropped the row off the queue
+      // while the cross-listing was STILL LIVE, risking a double sale. On a hard
+      // failure we leave the stamp so it's retryable; a manual degrade
+      // (res.manual) also keeps the stamp — the seller clears it via
+      // useMarkDelistDone once they've ended it by hand.
+      if (res.ok) {
+        const confirm = await edgeFetch("/api/flipdesk/listings/delist-confirm", {
+          method: "POST",
+          json: { listing_id: item.listing_id },
+        });
+        if (!confirm.ok) {
+          const j = await confirm.json().catch(() => ({}));
+          throw new Error((j as { error?: string }).error ?? "Could not clear the delist.");
+        }
       }
       return { ok: res.ok, manual: res.manual, error: res.error };
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["pending_delists"] });
+      void qc.invalidateQueries({ queryKey: ["item_listing_platforms"] });
+    },
+  });
+}
+
+// US-1629: explicit "I ended this listing myself" — clears the queue stamp for a
+// manual path (degraded extension, no saved URL, or a non-extension platform) so
+// it stops nagging. Distinct from useRunDelist, which only auto-clears on a real
+// extension success and never on a hard failure (which would risk a double sale).
+export function useMarkDelistDone() {
+  const qc = useQueryClient();
+  return useMutation<void, Error, string>({
+    mutationFn: async (listingId) => {
+      const res = await edgeFetch("/api/flipdesk/listings/delist-confirm", {
+        method: "POST",
+        json: { listing_id: listingId },
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error((j as { error?: string }).error ?? "Could not clear the delist.");
+      }
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["pending_delists"] });

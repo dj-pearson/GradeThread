@@ -168,9 +168,6 @@ export function SubmissionDetailPage() {
   const [disputePhotos, setDisputePhotos] = useState<File[]>([]);
   const [submittingDispute, setSubmittingDispute] = useState(false);
 
-  // Subscribe to realtime status updates for this submission
-  useRealtimeSubmission(id);
-
   const refetchData = useCallback(async () => {
     if (!id) return;
     const { data: sub } = await supabase
@@ -190,6 +187,11 @@ export function SubmissionDetailPage() {
       .maybeSingle();
     if (reportData) setGradeReport(reportData);
   }, [id]);
+
+  // Subscribe to realtime status updates for this submission (US-1628: pass
+  // refetchData so the useState-held submission actually refreshes on change —
+  // resolving the "we'll let you know the moment it's official" banner live).
+  useRealtimeSubmission(id, refetchData);
 
   // ── Auto-retry payment after a mid-flow credit-pack purchase (US-207) ──
   //
@@ -281,7 +283,11 @@ export function SubmissionDetailPage() {
       visible &&
       (!submissionStatus ||
         submissionStatus === "processing" ||
-        submissionStatus === "pending")
+        submissionStatus === "pending" ||
+        // US-1628: keep polling while a grade awaits human review, so the
+        // "we'll let you know the moment it's official" banner resolves without
+        // a hard refresh even if the realtime event is missed.
+        submissionStatus === "pending_review")
     ) {
       refetchData();
       const interval = setInterval(refetchData, 5000);
@@ -303,10 +309,21 @@ export function SubmissionDetailPage() {
 
   useEffect(() => {
     if (!id) return;
+    // US-1632: guard against an A→B navigation race — the old id's async
+    // continuations must not write state over the new page.
+    let cancelled = false;
 
     async function fetchData() {
       setLoading(true);
       setError(null);
+      // Reset stale detail state on id change so B never briefly shows A's
+      // grade/dispute/images while it loads.
+      setSubmission(null);
+      setGradeReport(null);
+      setDispute(null);
+      setLinkedItem(null);
+      setImages([]);
+      setImageUrls({});
 
       // Fetch submission
       const { data: sub, error: subError } = await supabase
@@ -315,6 +332,7 @@ export function SubmissionDetailPage() {
         .eq("id", id!)
         .single();
 
+      if (cancelled) return;
       if (subError || !sub) {
         setError("Submission not found.");
         setLoading(false);
@@ -324,23 +342,34 @@ export function SubmissionDetailPage() {
 
       // Fetch grade report (US-479: active report only — a regraded submission
       // keeps superseded history, which would break .single()).
-      const { data: reportData } = await supabase
+      const { data: reportData, error: reportError } = await supabase
         .from("grade_reports")
         .select("*")
         .eq("submission_id", id!)
         .is("superseded_at", null)
         .maybeSingle();
 
+      if (cancelled) return;
+      // US-1632: a TRANSIENT error here (maybeSingle doesn't error on "no report
+      // yet", so this is a real DB/network failure) previously was swallowed,
+      // leaving a completed grade stuck on "Grade Report Pending" forever.
+      // Surface it so the user can retry.
+      if (reportError) {
+        setError("Couldn't load the grade report. Please try again.");
+        setLoading(false);
+        return;
+      }
       if (reportData) {
         setGradeReport(reportData);
       }
 
-      // Fetch a linked inventory item, if any
+      // Fetch a linked inventory item, if any (non-fatal — optional).
       const { data: linkedItemData } = await supabase
         .from("inventory_items")
         .select("*")
         .eq("submission_id", id!)
         .maybeSingle();
+      if (cancelled) return;
       if (linkedItemData) {
         setLinkedItem(linkedItemData as InventoryItemRow);
       }
@@ -351,6 +380,7 @@ export function SubmissionDetailPage() {
         .select("*")
         .eq("submission_id", id!);
 
+      if (cancelled) return;
       const imagesData = (imagesRaw ?? []) as SubmissionImageRow[];
       if (imagesData.length > 0) {
         const sorted = [...imagesData].sort(
@@ -369,27 +399,34 @@ export function SubmissionDetailPage() {
             urls[img.id] = urlData.signedUrl;
           }
         }
+        if (cancelled) return;
         setImageUrls(urls);
       }
 
-      // Fetch existing dispute for this grade report
+      // Fetch existing dispute for this grade report. US-1632: .maybeSingle() —
+      // the normal zero-dispute case is NOT an error (.single() threw PGRST116).
       if (reportData) {
         const reportId = (reportData as GradeReportRow).id;
         const { data: disputeData } = await supabase
           .from("disputes")
           .select("*")
           .eq("grade_report_id", reportId)
-          .single();
+          .maybeSingle();
 
+        if (cancelled) return;
         if (disputeData) {
           setDispute(disputeData as DisputeRow);
         }
       }
 
+      if (cancelled) return;
       setLoading(false);
     }
 
     fetchData();
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
 
   const canDispute =

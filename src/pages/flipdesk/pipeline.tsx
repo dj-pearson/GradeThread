@@ -350,7 +350,10 @@ export function FlipdeskPipelinePage() {
     }
 
     // Optimistic update: write the new status into the cache, then save.
-    const prevItems = items;
+    // US-1633: cancel any in-flight ["items_full"] refetch first, or it could
+    // land after the optimistic write and clobber it.
+    const originalStatus = item.status;
+    await qc.cancelQueries({ queryKey: ["items_full"] });
     qc.setQueryData<ItemFullRow[]>(["items_full", user?.id], (old) =>
       (old ?? []).map((i) =>
         i.id === itemId ? { ...i, status: targetStatus } : i,
@@ -369,8 +372,13 @@ export function FlipdeskPipelinePage() {
       // Light invalidation so timestamps refresh on next paint.
       await qc.invalidateQueries({ queryKey: ["items_full"] });
     } catch (err) {
-      // Rollback on failure.
-      qc.setQueryData(["items_full", user?.id], prevItems);
+      // US-1633: roll back ONLY the dragged item (not the whole array snapshot),
+      // so a concurrent drag/edit of a DIFFERENT item isn't reverted with it.
+      qc.setQueryData<ItemFullRow[]>(["items_full", user?.id], (old) =>
+        (old ?? []).map((i) =>
+          i.id === itemId ? { ...i, status: originalStatus } : i,
+        ),
+      );
       const msg = err instanceof Error ? err.message : String(err);
       toast.error(`Move failed: ${msg}`);
     }

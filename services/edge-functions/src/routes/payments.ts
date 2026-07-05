@@ -13,6 +13,12 @@ import { CATALOG_VERSION, serializeCatalog } from "../lib/appstore/products.ts";
 type PaymentsEnv = {
   Variables: {
     userId: string;
+    // US-1637: set by workspaceMiddleware (mounted on /api/payments/*). Equals
+    // userId for a solo user / the owner; for a member acting in someone else's
+    // workspace it's the OWNER's id. Per-grade checkout scopes the submission
+    // ownership check + the paid-flip to this, so a member's submissions (stored
+    // user_id = ownerId) aren't stranded with a 404.
+    workspaceOwnerId?: string;
   };
 };
 
@@ -571,6 +577,12 @@ paymentRoutes.post("/gradethread/credit-pack", async (c) => {
 // One-time Checkout that, on success, unlocks just this submission.
 async function perGradeCheckout(c: Ctx) {
   const userId = c.get("userId");
+  // US-1637: the submission belongs to the workspace OWNER — a member's
+  // submissions are stored user_id = ownerId. Scope the ownership check + the
+  // downstream paid-flip to the owner so a member's per-grade checkout no longer
+  // 404s. The PAYER stays the member (their Stripe customer is charged); only
+  // the submission is owner-scoped, carried to the webhook via submission_owner_id.
+  const ownerId = c.get("workspaceOwnerId") ?? userId;
 
   let body: { submissionId?: string; tier?: string };
   try {
@@ -608,12 +620,13 @@ async function perGradeCheckout(c: Ctx) {
     );
   }
 
-  // Verify the submission belongs to this user and isn't already paid.
+  // Verify the submission belongs to this workspace (owner-scoped) and isn't
+  // already paid.
   const { data: submission, error: submissionError } = await supabaseAdmin
     .from("submissions")
     .select("id, user_id, status")
     .eq("id", submissionId)
-    .eq("user_id", userId)
+    .eq("user_id", ownerId)
     .single();
 
   if (submissionError || !submission) {
@@ -647,7 +660,10 @@ async function perGradeCheckout(c: Ctx) {
             quantity: 1,
           }],
       metadata: {
+        // user_id = PAYER (drives customer linking + billing attribution in the
+        // webhook); submission_owner_id = whose submission this unlocks (US-1637).
         user_id: userId,
+        submission_owner_id: ownerId,
         product: "per_grade",
         submission_id: submissionId,
         tier,
@@ -655,7 +671,11 @@ async function perGradeCheckout(c: Ctx) {
       },
       payment_intent_data: {
         metadata: {
+          // Mirror onto the PaymentIntent — Checkout stores app metadata here,
+          // so the refund/dispute handlers (which read PI metadata) can resolve
+          // the submission owner too.
           user_id: userId,
+          submission_owner_id: ownerId,
           product: "per_grade",
           submission_id: submissionId,
           tier,

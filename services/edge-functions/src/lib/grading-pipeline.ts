@@ -25,6 +25,7 @@ import {
   fetchPeerDistribution,
   type PeerNormConfig,
 } from "./peer-norm.ts";
+import { reconcileNeedsReview } from "./ai-config.ts";
 import { getSetting } from "./system-settings.ts";
 import { assessAuthenticity, type AuthenticityAssessment } from "./ai-authenticity.ts";
 import { runShadowGrades } from "./grading-shadow.ts";
@@ -251,7 +252,12 @@ async function escalateGrade(
   // same item, so it sees the same trusted reference ("" → unchanged).
   baselineBlock = "",
 ): Promise<
-  { perImageResults: PerImageAnalysis[]; compositeResult: CompositeGradeResult } | null
+  {
+    perImageResults: PerImageAnalysis[];
+    compositeResult: CompositeGradeResult;
+    // US-1642: whether the escalation dropped an optional image (→ partial cap).
+    partialSuccess: boolean;
+  } | null
 > {
   const settled = await withImageBufferSlot(async () => {
     const imageDataPromises = images.map(async (image) => {
@@ -299,7 +305,7 @@ async function escalateGrade(
     }));
   });
 
-  const { usable, failedRequired } = partitionImageResults(
+  const { usable, failedRequired, failedOptional } = partitionImageResults(
     settled,
     REQUIRED_IMAGE_TYPES,
   );
@@ -327,7 +333,15 @@ async function escalateGrade(
     submissionId,
     baselineBlock,
   );
-  return { perImageResults, compositeResult };
+  // US-1642: surface whether the ESCALATION dropped an optional image. The
+  // caller ORs this into partialSuccess so a defect/detail image that failed to
+  // re-analyze on the escalation model still applies the partial-image cap +
+  // forced review, instead of shipping an incomplete escalated grade uncapped.
+  return {
+    perImageResults,
+    compositeResult,
+    partialSuccess: failedOptional.length > 0,
+  };
 }
 
 /**
@@ -771,7 +785,13 @@ export async function finalizeGradeReview(
 
   const overallScore = Number(r.overall_score);
   const nowIso = new Date().toISOString();
-  await supabaseAdmin
+  // US-1643: gate go-live on the finalize UPDATE actually succeeding. Previously
+  // its {error} was ignored, so a transient DB failure would leave the report
+  // UN-finalized yet still run go-live (public cert + item completion + FINAL
+  // notifications). The `.is("finalized_at", null)` filter also makes this
+  // atomic: exactly ONE finalize flips the row and proceeds, so a concurrent /
+  // retried call can't double-fire go-live.
+  const { data: finalized, error: finalizeErr } = await supabaseAdmin
     .from("grade_reports")
     .update({
       review_status: opts.modified ? "modified" : "approved",
@@ -783,7 +803,21 @@ export async function finalizeGradeReview(
       review_claimed_by: null,
       review_claimed_at: null,
     })
-    .eq("id", r.id);
+    .eq("id", r.id)
+    .is("finalized_at", null)
+    .select("id")
+    .maybeSingle();
+  if (finalizeErr) {
+    console.error(
+      `[Pipeline] finalizeGradeReview UPDATE failed for report ${r.id} — NOT going live: ${finalizeErr.message}`,
+    );
+    return { ok: false };
+  }
+  if (!finalized) {
+    // A concurrent finalize won the race and is (or already) running go-live —
+    // don't double-fire.
+    return { ok: true, alreadyFinal: true };
+  }
 
   const certUrl = r.certificate_id ? certificateUrl(r.certificate_id) : null;
   const linkedItemId = await applyTerminalCompletion(r.submission_id, {
@@ -1206,8 +1240,10 @@ export async function processSubmission(submissionId: string) {
       );
     }
 
-    // Only optional images failed — degrade gracefully (US-485).
-    const partialSuccess = failedOptional.length > 0;
+    // Only optional images failed — degrade gracefully (US-485). US-1642: `let`
+    // so an ESCALATION that drops an optional image can OR itself in (below),
+    // keeping the partial-image cap on the escalated grade too.
+    let partialSuccess = failedOptional.length > 0;
     if (partialSuccess) {
       console.warn(
         `[Pipeline] partial-success grade for ${submissionId}: dropped ` +
@@ -1400,6 +1436,10 @@ export async function processSubmission(submissionId: string) {
           if (escalated) {
             perImageResults = escalated.perImageResults;
             compositeResult = escalated.compositeResult;
+            // US-1642: OR the escalation's dropped-optional signal in so the
+            // partial-image cap + forced review below apply to an escalated
+            // grade built from an incomplete set (never ship it uncapped).
+            partialSuccess = partialSuccess || escalated.partialSuccess;
           } else {
             // Escalation couldn't produce a usable grade — drop the captured
             // first-pass usages so the ledger doesn't double-count this grade.
@@ -1443,6 +1483,17 @@ export async function processSubmission(submissionId: string) {
       compositeResult.needs_human_review = true;
     }
 
+    // US-1622 / C9: a running ceiling on confidence that every post-composite
+    // LOWERING event (a verification-discrepancy shave, a peer-norm cap, a
+    // forensic-tamper shave) tightens. The provenance BOOSTS below
+    // (verified-capture / live-capture / verified-360) are clamped to this
+    // ceiling, so a boost can never lift confidence back over a floor a lowering
+    // event established — and the review gate re-derivation at the end then
+    // catches any grade whose EFFECTIVE confidence still ended below threshold.
+    // Honors the grading contract: "never raise confidence post-composite" past
+    // where a penalty put it.
+    let confidenceCeiling = partialSuccess ? PARTIAL_IMAGE_CONFIDENCE_CAP : 1;
+
     // --- Step 6: Create grade report record ---
     const certificateId = crypto.randomUUID();
     // PSA-style public verification number (00307) — the plain-text key that
@@ -1482,6 +1533,9 @@ export async function processSubmission(submissionId: string) {
         compositeResult.confidence_score -
           Math.min(0.2, 0.1 * discrepancies.length),
       );
+      // US-1622 / C9: this shave is a floor a later provenance boost must not
+      // cross — even a single discrepancy that drops confidence below threshold.
+      confidenceCeiling = Math.min(confidenceCeiling, compositeResult.confidence_score);
       if (discrepancies.length >= 2) compositeResult.needs_human_review = true;
       console.log(
         `[Pipeline] visual verification found ${discrepancies.length} discrepancy(ies) ` +
@@ -1518,6 +1572,8 @@ export async function processSubmission(submissionId: string) {
             compositeResult.confidence_score,
             verdict.confidenceCap,
           );
+          // US-1622 / C9: the peer-norm cap is a floor boosts can't cross.
+          confidenceCeiling = Math.min(confidenceCeiling, compositeResult.confidence_score);
           compositeResult.needs_human_review = true;
           detailedNotes["peer_norm"] = verdict.reason ?? "peer_norm outlier";
           console.log(
@@ -1627,12 +1683,22 @@ export async function processSubmission(submissionId: string) {
         exif: ((img as { exif?: Record<string, unknown> | null }).exif) ?? null,
       })),
       crossUserReuse: reuse.cross_user,
+      // US-1642: deny the provenance badge when the vision pass already suspects
+      // manipulation / a screenshot-or-watermark (available here from the
+      // composite `authenticity` computed above). The later forensic pass
+      // further penalizes confidence + tightens the ceiling; this closes the
+      // badge itself so provenance never vouches for a tampered image.
+      manipulationSuspected: authenticity.manipulation_suspected === true ||
+        authenticity.screenshot_or_watermark_detected === true,
       nowMs: Date.now(),
     });
     if (verifiedCapture.verified) {
       // Bump confidence (never down), respecting the partial-image ceiling so an
       // incomplete image set can't be boosted past its review cap.
-      const ceiling = partialSuccess ? PARTIAL_IMAGE_CONFIDENCE_CAP : 1;
+      // US-1622 / C9: clamp the provenance boost to the running confidence
+      // ceiling (tightened by any post-composite lowering event), not just the
+      // partial-image cap — so a boost can't lift confidence back over a floor.
+      const ceiling = confidenceCeiling;
       compositeResult.confidence_score = Math.min(
         ceiling,
         Math.max(
@@ -1705,6 +1771,8 @@ export async function processSubmission(submissionId: string) {
           0,
           compositeResult.confidence_score - fusedTamper.confidence_penalty,
         );
+        // US-1622 / C9: manipulation evidence is a floor boosts can't cross.
+        confidenceCeiling = Math.min(confidenceCeiling, compositeResult.confidence_score);
       }
       detailedNotes["forensic_analysis"] = fusedTamper.tells.length > 0
         ? `${fusedTamper.summary} Tells: ${fusedTamper.tells.join("; ")}.`
@@ -1739,7 +1807,10 @@ export async function processSubmission(submissionId: string) {
       // boost over the standard Verified Capture boost already added above (a
       // live_verified result implies verifiedCapture.verified). Respect the
       // partial-image ceiling so an incomplete set can't be boosted past its cap.
-      const ceiling = partialSuccess ? PARTIAL_IMAGE_CONFIDENCE_CAP : 1;
+      // US-1622 / C9: clamp the provenance boost to the running confidence
+      // ceiling (tightened by any post-composite lowering event), not just the
+      // partial-image cap — so a boost can't lift confidence back over a floor.
+      const ceiling = confidenceCeiling;
       const extra = Math.max(0, liveCaptureBoost() - verifiedCaptureBoost());
       compositeResult.confidence_score = Math.min(
         ceiling,
@@ -1847,7 +1918,10 @@ export async function processSubmission(submissionId: string) {
         verified_360: true,
         coverage_source: "geometric_360",
       };
-      const ceiling = partialSuccess ? PARTIAL_IMAGE_CONFIDENCE_CAP : 1;
+      // US-1622 / C9: clamp the provenance boost to the running confidence
+      // ceiling (tightened by any post-composite lowering event), not just the
+      // partial-image cap — so a boost can't lift confidence back over a floor.
+      const ceiling = confidenceCeiling;
       compositeResult.confidence_score = Math.min(
         ceiling,
         compositeResult.confidence_score + verified360Boost(),
@@ -1861,6 +1935,19 @@ export async function processSubmission(submissionId: string) {
       // Not a flag, not a penalty; the 2D coverage stands.
       detailedNotes["verified_360"] = `${verified360.reasons.join("; ")}.`;
     }
+
+    // US-1622 / C9: FINAL review-gate re-derivation — after EVERY post-composite
+    // adjustment (penalties AND provenance boosts). The initial gate was computed
+    // once inside compositeGrade; a later confidence-lowering event (a single
+    // verification discrepancy, a peer-norm cap, a forensic shave) could drop the
+    // effective confidence below the review threshold without setting the flag,
+    // and a provenance boost could otherwise auto-finalize (publish a cert for)
+    // that grade. The confidenceCeiling above already stops the boost from lifting
+    // confidence back over the floor; this catches whatever still landed short.
+    compositeResult.needs_human_review = reconcileNeedsReview(
+      compositeResult.needs_human_review,
+      compositeResult.confidence_score,
+    );
 
     // US-333 + US-1279: tamper-evident integrity. Hash the canonical
     // (already-public) grade fields and sign the hash if CERT_SIGNING_KEY is set.
@@ -2221,6 +2308,27 @@ export async function processSubmission(submissionId: string) {
       `[Pipeline] Grading pipeline FAILED for submission ${submissionId} | ` +
         `total_ms=${totalMs} | error=${errorMessage}`
     );
+
+    // US-1643: if a grade report was ALREADY inserted, the grade was produced and
+    // the failure is in a POST-grade side effect (notify / webhook / item-sync /
+    // finalize). Marking the submission 'failed', reversing the charge, syncing
+    // FlipDesk to 'failed', or telling the seller "grading failed" would all be
+    // wrong — they'd create a "refunded + graded" / "failed + graded" state
+    // nothing reconciles. The grade stands; just log the side-effect error and
+    // rethrow so the caller/reaper still sees it.
+    const { data: existingReport } = await supabaseAdmin
+      .from("grade_reports")
+      .select("id")
+      .eq("submission_id", submissionId)
+      .is("superseded_at", null)
+      .maybeSingle();
+    if (existingReport) {
+      console.warn(
+        `[Pipeline] submission ${submissionId} failed AFTER its grade report was inserted — ` +
+          `grade stands; NOT marking failed, reversing charge, or notifying failure. error=${errorMessage}`,
+      );
+      throw error;
+    }
 
     // Update submission status to 'failed'
     try {

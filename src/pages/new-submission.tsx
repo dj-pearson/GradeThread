@@ -489,6 +489,19 @@ export function NewSubmissionPage() {
     prevAllRequiredRef.current = hasAllRequiredPhotos;
   }, [hasAllRequiredPhotos, currentStep]);
 
+  // US-1627: once the seller first reaches the Photos step, keep PhotoUpload
+  // MOUNTED for the rest of the flow (hidden via CSS on other steps) instead of
+  // unmounting it on Review. Previously photos lived only in the child's slot
+  // state, so stepping Back from Review remounted an EMPTY uploader (while
+  // Continue stayed enabled off the parent's stale `photos`), and the retake/
+  // snap seed re-applied over the seller's replacements. Latching mount here —
+  // rather than rendering from step 0 — avoids the async retake/snap seed race
+  // (those Files are fetched before step 1) and guarantees a single seed.
+  const [hasEnteredPhotoStep, setHasEnteredPhotoStep] = useState(false);
+  useEffect(() => {
+    if (currentStep === 1) setHasEnteredPhotoStep(true);
+  }, [currentStep]);
+
   function handleGarmentInfoSubmit(info: GarmentInfo) {
     setGarmentInfo(info);
     setCurrentStep(1);
@@ -517,16 +530,18 @@ export function NewSubmissionPage() {
   // Non-fatal: the submission stands on its own if linking fails.
   async function linkInventoryItem(submissionId: string) {
     if (!linkedItem) return;
-    try {
-      const updates: Record<string, unknown> = { submission_id: submissionId };
-      if (PRE_GRADE_STATUSES.has(linkedItem.status)) {
-        updates.status = "grading";
-      }
-      await supabase
-        .from("inventory_items")
-        .update(updates as never)
-        .eq("id", linkedItem.id);
-    } catch {
+    const updates: Record<string, unknown> = { submission_id: submissionId };
+    if (PRE_GRADE_STATUSES.has(linkedItem.status)) {
+      updates.status = "grading";
+    }
+    // US-1632: supabase-js returns { error }, it does NOT throw — so the old
+    // try/catch never fired and a failed link was silent (the warning was dead
+    // code). Read the error and surface it.
+    const { error } = await supabase
+      .from("inventory_items")
+      .update(updates as never)
+      .eq("id", linkedItem.id);
+    if (error) {
       toast.warning(
         "Submission created, but linking to the inventory item failed."
       );
@@ -617,7 +632,9 @@ export function NewSubmissionPage() {
         body: formData,
       });
 
-      const result = await response.json();
+      // US-1632: guard .json() — an HTML 502 from an infra blip isn't JSON and
+      // would otherwise throw a confusing SyntaxError instead of a clear error.
+      const result = await response.json().catch(() => ({}));
 
       if (!response.ok) {
         const message = result.error || "Submission failed";
@@ -818,9 +835,11 @@ export function NewSubmissionPage() {
             </div>
           )}
 
-          {/* Step 2: Photos */}
-          {currentStep === 1 && (
-            <div className="space-y-6">
+          {/* Step 2: Photos — mounted once reached, then kept mounted and
+              hidden on other steps so staged photos survive Back from Review
+              (US-1627). */}
+          {hasEnteredPhotoStep && (
+            <div className={cn("space-y-6", currentStep !== 1 && "hidden")}>
               {snapFrontFile && (
                 <p className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs text-muted-foreground">
                   <BadgeCheck className="mr-1 inline h-3.5 w-3.5 text-brand-navy dark:text-foreground" />

@@ -234,6 +234,11 @@ export async function fetchPeerDistribution(args: {
       )
       .eq("submissions.garment_category", category)
       .is("superseded_at", null)
+      // US-1643: only FINALIZED grades form the peer cohort. A preliminary AI
+      // grade (review_status='pending', finalized_at IS NULL) isn't official yet
+      // and could still be corrected on review, so including it would let
+      // un-vetted grades skew the peer-norm outlier check.
+      .not("finalized_at", "is", null)
       .order("created_at", { ascending: false })
       .limit(PEER_SCAN_LIMIT);
     if (error) return null;

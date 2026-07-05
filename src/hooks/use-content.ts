@@ -1,7 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { supabase } from "@/lib/supabase";
-import { edgeApiUrl } from "@/lib/edge-api";
+import { edgeFetch } from "@/lib/edge-fetch";
 import { track } from "@/lib/analytics";
 import type {
   BlogPostListRow,
@@ -19,29 +18,19 @@ import type {
   TopicStatus,
 } from "@/types/database";
 
-// All content hooks share this auth header. Admin-only routes are gated
-// on the edge by adminAuthMiddleware; a non-admin session will 403.
-async function authHeader(): Promise<string> {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session?.access_token) throw new Error("You must be signed in.");
-  return `Bearer ${session.access_token}`;
-}
-
+// All content hooks fetch through edgeFetch. US-1634: this mints a FRESH access
+// token per request and retries once on a 401 with a force-refreshed token —
+// the old authHeader() sent getSession()'s possibly-expired token with no retry,
+// so an admin whose tab lapsed past the 1h token boundary got a dead 401.
+// Admin-only routes are gated on the edge by adminAuthMiddleware (non-admin → 403).
 async function jfetch<T>(
   path: string,
   init?: RequestInit & { json?: unknown },
 ): Promise<T> {
-  const headers: Record<string, string> = {
-    Authorization: await authHeader(),
-    "Content-Type": "application/json",
-    ...((init?.headers as Record<string, string>) ?? {}),
-  };
-  const res = await fetch(`${edgeApiUrl()}${path}`, {
+  const res = await edgeFetch(path, {
     ...init,
-    headers,
-    body: init?.json !== undefined ? JSON.stringify(init.json) : init?.body,
+    json: init?.json,
+    silentGate: true,
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -195,8 +184,13 @@ export function useUpdateBlogPost(id: string) {
       );
       return data.post;
     },
-    onSuccess: (post) => {
-      qc.setQueryData(["blog_post", id], post);
+    onSuccess: () => {
+      // US-1633: the PATCH response omits tags (they're returned/stored
+      // separately), so caching it directly into ["blog_post", id] wiped the
+      // cached post's tags — and the NEXT save then read that tag-less cache and
+      // PATCHed with no tags, deleting them. Invalidate so the authoritative
+      // full post (with tags) is refetched instead.
+      qc.invalidateQueries({ queryKey: ["blog_post", id] });
       qc.invalidateQueries({ queryKey: ["blog_posts"] });
     },
     onError: (e: Error) => toast.error(e.message),

@@ -34,11 +34,11 @@ export async function handleAffiliatePayoutsCron(c: Context): Promise<Response> 
   }
   try {
     const summary = await sweepAffiliatePayouts();
-    if (summary.accrued > 0 || summary.scanned > 0) {
+    if (summary.accrued > 0 || summary.scanned > 0 || summary.stale > 0) {
       console.log(
         `[affiliate-payouts] accrued=${summary.accrued} scanned=${summary.scanned} ` +
           `transferred=${summary.transferred} queued=${summary.queued} ` +
-          `failed=${summary.failed} skipped=${summary.skipped}`,
+          `failed=${summary.failed} skipped=${summary.skipped} stale=${summary.stale}`,
       );
     }
     return c.json({ ok: true, ...summary });

@@ -333,6 +333,19 @@ export function PhotoUpload({
 
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
+  // US-1636: previews are object URLs. Replace/remove revoke the old one, but
+  // navigating away with photos still staged leaked every live preview. Mirror
+  // the current slots into a ref so an unmount-only cleanup can revoke them all.
+  const slotsRef = useRef(slots);
+  slotsRef.current = slots;
+  useEffect(() => {
+    return () => {
+      for (const slot of slotsRef.current.values()) {
+        if (slot.preview) URL.revokeObjectURL(slot.preview);
+      }
+    };
+  }, []);
+
   // US-947: which slot (if any) is mid live-capture, plus a one-time
   // feature-detect so the "Take photo" affordance only appears where
   // getUserMedia is actually available (secure context + camera-capable

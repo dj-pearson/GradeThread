@@ -1,9 +1,10 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "react-router-dom";
 import { HelmetProvider } from "react-helmet-async";
 import { router } from "@/routes";
+import { queryClient } from "@/lib/query-client";
 import { initAnalyticsFromStoredConsent } from "@/lib/analytics";
 import { initSentry } from "@/lib/sentry";
 import "@/index.css";
@@ -32,15 +33,6 @@ initSentry();
 // who already opted in get analytics restored here; first-time visitors see the
 // cookie banner (rendered in RootLayout) and stay un-tracked until they accept.
 initAnalyticsFromStoredConsent();
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 5 * 60 * 1000, // 5 minutes
-      retry: 1,
-    },
-  },
-});
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

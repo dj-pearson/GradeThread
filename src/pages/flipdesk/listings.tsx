@@ -33,6 +33,8 @@ import {
   SlidersHorizontal,
   CheckCircle2,
   Archive,
+  Layers,
+  CalendarClock,
 } from "lucide-react";
 import {
   Card,
@@ -130,11 +132,31 @@ import {
 import { cn } from "@/lib/utils";
 import { itemPhotoThumb } from "@/lib/images";
 import type {
+  AspectReviewEntry,
   ItemFullRow,
   ItemStatus,
   ListingInsert,
   ListingPlatform,
 } from "@/types/database";
+
+// US-1568: draft listing metadata not on items_full (from the listings table).
+interface DraftMetaRow {
+  inventory_item_id: string;
+  listing_price: number | null;
+  price_is_estimated: boolean | null;
+  price_comp_source: string | null;
+  aspect_review: AspectReviewEntry[] | null;
+  batch_id: string | null;
+  scheduled_publish_at: string | null;
+}
+interface DraftMeta {
+  listingPrice: number | null;
+  priceIsEstimated: boolean;
+  priceCompSource: string | null;
+  aspectCount: number;
+  batchId: string | null;
+  scheduledPublishAt: string | null;
+}
 
 type SortPreset = "listability" | "oldest" | "best_roi" | "highest_comp";
 type SoldFilter = "all" | "awaiting_payout" | "discrepancy" | "d7" | "d30" | "ytd";
@@ -656,6 +678,42 @@ export function FlipdeskListingsPage() {
           status: row.listing_status,
         });
         map.set(row.inventory_item_id, arr);
+      }
+      return map;
+    },
+  });
+
+  // US-1568 AC3: the listing-level draft metadata the AutoLister cockpit shows
+  // (price + "estimated" badge, aspect_review count, batch link, scheduled-drop
+  // date) that ISN'T on the items_full view. Mirror the platformsByItem pattern:
+  // a secondary `listings` read keyed by inventory_item_id, only when the Drafts
+  // tab is active. RLS scopes it to the caller's own listings.
+  const { data: draftMetaByItem } = useQuery({
+    queryKey: ["item_draft_meta", user?.id],
+    enabled: !!user && isDrafts,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async (): Promise<Map<string, DraftMeta>> => {
+      const { data, error } = await supabase
+        .from("listings")
+        .select(
+          "inventory_item_id, listing_price, price_is_estimated, price_comp_source, aspect_review, batch_id, scheduled_publish_at",
+        )
+        .eq("listing_status", "draft")
+        .not("batch_id", "is", null);
+      if (error) throw error;
+      const map = new Map<string, DraftMeta>();
+      for (const row of (data ?? []) as DraftMetaRow[]) {
+        // One draft per item in practice; if several, the first (any) is fine.
+        if (!map.has(row.inventory_item_id)) {
+          map.set(row.inventory_item_id, {
+            listingPrice: row.listing_price,
+            priceIsEstimated: row.price_is_estimated === true,
+            priceCompSource: row.price_comp_source ?? null,
+            aspectCount: Array.isArray(row.aspect_review) ? row.aspect_review.length : 0,
+            batchId: row.batch_id ?? null,
+            scheduledPublishAt: row.scheduled_publish_at ?? null,
+          });
+        }
       }
       return map;
     },
@@ -2151,6 +2209,10 @@ export function FlipdeskListingsPage() {
                           Actions
                         </TableHead>
                       )}
+                      {/* US-1568 AC3: draft price / batch / schedule parity. */}
+                      {tab === "drafts" && (
+                        <TableHead className="w-40">Draft</TableHead>
+                      )}
                       {tab === "drafts" && (
                         <TableHead className="w-32 text-right" />
                       )}
@@ -2263,15 +2325,20 @@ export function FlipdeskListingsPage() {
                                   ? (it.listing_title ?? it.item_title)
                                   : it.item_title}
                               </span>
-                              {tab === "drafts" && it.listing_needs_review && (
-                                <Badge
-                                  variant="outline"
-                                  className="shrink-0 border-amber-400 px-1.5 py-0 text-[10px] text-amber-700 dark:text-amber-300"
-                                  title="The AI flagged fields to double-check before publishing"
-                                >
-                                  Needs review
-                                </Badge>
-                              )}
+                              {tab === "drafts" && it.listing_needs_review && (() => {
+                                // US-1568 AC3: show the aspect_review count ("N to
+                                // fix") like the AutoLister cockpit, when known.
+                                const n = draftMetaByItem?.get(it.id)?.aspectCount ?? 0;
+                                return (
+                                  <Badge
+                                    variant="outline"
+                                    className="shrink-0 border-amber-400 px-1.5 py-0 text-[10px] text-amber-700 dark:text-amber-300"
+                                    title="The AI flagged fields to double-check before publishing"
+                                  >
+                                    {n > 0 ? `${n} to fix` : "Needs review"}
+                                  </Badge>
+                                );
+                              })()}
                               {it.grade_value != null && (
                                 <Badge
                                   variant="secondary"
@@ -2654,6 +2721,51 @@ export function FlipdeskListingsPage() {
                               </div>
                             </TableCell>
                           )}
+                          {tab === "drafts" && (() => {
+                            // US-1568 AC3: the draft's generated price (+ "est."
+                            // badge), batch link, and scheduled-drop date — the
+                            // listing-level info the AutoLister cockpit shows.
+                            const dm = draftMetaByItem?.get(it.id);
+                            const price = dm?.listingPrice ?? it.list_price;
+                            return (
+                              <TableCell onClick={(e) => e.stopPropagation()}>
+                                <div className="flex flex-col items-start gap-0.5 text-[11px]">
+                                  <span className="inline-flex items-center gap-1 font-mono tabular-nums">
+                                    {price != null ? `$${price.toFixed(2)}` : "—"}
+                                    {dm?.priceIsEstimated && (
+                                      <Badge
+                                        variant="outline"
+                                        className="px-1 py-0 text-[9px]"
+                                        title={
+                                          dm.priceCompSource === "active_asking"
+                                            ? "Based on active asking prices (not sold comps) — may run high. Verify before publishing."
+                                            : "AI estimate — verify before publishing"
+                                        }
+                                      >
+                                        est.
+                                      </Badge>
+                                    )}
+                                  </span>
+                                  {dm?.scheduledPublishAt && (
+                                    <span className="inline-flex items-center gap-1 text-muted-foreground">
+                                      <CalendarClock className="h-3 w-3" />
+                                      {new Date(dm.scheduledPublishAt).toLocaleDateString()}
+                                    </span>
+                                  )}
+                                  {dm?.batchId && (
+                                    <Link
+                                      to={`/dashboard/flipdesk/autolister/queue?batch=${dm.batchId}`}
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="inline-flex items-center gap-1 text-brand-red-text hover:underline"
+                                      title="Open this batch (publish all / bulk edit)"
+                                    >
+                                      <Layers className="h-3 w-3" /> Queue
+                                    </Link>
+                                  )}
+                                </div>
+                              </TableCell>
+                            );
+                          })()}
                           {tab === "drafts" && (
                             <TableCell
                               className="text-right"

@@ -316,6 +316,12 @@ export const ADMIN_ROUTER_SCOPES: AdminRouterScope[] = [
     mode: "router",
     rationale: "Internal task-board CRUD (US-1565) — operational tooling; writes stamped with the acting admin.",
   },
+  {
+    file: "admin-agents.ts",
+    scope: "ops:write",
+    mode: "router",
+    rationale: "US-1657 agent proposal sign-off: approve/reject executes operational write tools (retry jobs, requeue dead letters, file tasks); decisions stamped with the acting admin.",
+  },
   // ── read-only aggregates (deliberately role-gated) ─────────────────────────
   {
     file: "admin-dashboard.ts",

@@ -22,6 +22,7 @@ interface AppleTransactionPayload {
   expiresDate?: number;
   appAccountToken?: string;
   environment?: string;
+  revocationDate?: number;
 }
 interface AppleRenewalPayload {
   autoRenewStatus?: number;
@@ -128,6 +129,7 @@ function toLite(p: AppleTransactionPayload): DecodedTransactionLite {
     expiresDate: p.expiresDate ?? null,
     appAccountToken: p.appAccountToken ?? null,
     environment: p.environment ?? null,
+    revocationDate: p.revocationDate ?? null,
   };
 }
 

@@ -268,6 +268,17 @@ const SERVICE_ROLE_ONLY = new Set([
   // already-verified guarantee_claims row), a grading-quality surface, not
   // client-readable user data.
   "claim_accuracy_signals",
+  // US-1583 Agentic OS kernel (migration 00357). All five RLS-enabled with zero
+  // policies by design — operator substrate for the governed agent fleet,
+  // read/written ONLY by the edge service-role client (the agent kernel + the
+  // role-gated /api/admin/agents Mission Control endpoints); the SPA never reads
+  // the raw rows. No tenant owner column (agent_id/run_id are internal keys;
+  // agent_proposals.decided_by is the deciding operator, not a tenant key).
+  "agents",
+  "agent_runs",
+  "agent_run_steps",
+  "agent_proposals",
+  "agent_memory",
 ]);
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.

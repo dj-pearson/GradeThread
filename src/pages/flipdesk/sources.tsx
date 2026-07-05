@@ -161,6 +161,10 @@ export function FlipdeskSourcesPage() {
       if (dErr) throw dErr;
       await qc.invalidateQueries({ queryKey: ["sources"] });
       await qc.invalidateQueries({ queryKey: ["items_full"] });
+      // US-1636: the per-source item-count widget on this page keys off its own
+      // query — refresh it too so the deleted source's row/count disappears
+      // instead of lingering until stale.
+      await qc.invalidateQueries({ queryKey: ["inventory_items_source_counts"] });
       toast.success(`Deleted "${target.name}".`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

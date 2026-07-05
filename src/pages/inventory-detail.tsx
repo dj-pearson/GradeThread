@@ -1,5 +1,6 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   AlertTriangle,
@@ -56,6 +57,7 @@ import {
 } from "@/lib/constants";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { supabase } from "@/lib/supabase";
+import { todayLocalDate } from "@/lib/local-date";
 import { toast } from "sonner";
 import type {
   InventoryItemRow,
@@ -154,6 +156,17 @@ function LoadingSkeleton() {
 export function InventoryDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  // US-1630: this page mutates inventory/listing/sale state via plain supabase
+  // writes and only updates its OWN local useState — so the cached queries other
+  // surfaces read (the FlipDesk pipeline, the inventory list/brands) stayed
+  // stale for up to 15 min (e.g. an item shown "Listed" after it was sold).
+  // Invalidate the shared keys after every state-changing write.
+  const invalidateInventoryCaches = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["items_full"] });
+    queryClient.invalidateQueries({ queryKey: ["inventory"] });
+    queryClient.invalidateQueries({ queryKey: ["inventory-listings"] });
+  }, [queryClient]);
   const [item, setItem] = useState<InventoryItemRow | null>(null);
   const [listings, setListings] = useState<ListingRow[]>([]);
   const [sales, setSales] = useState<SaleRow[]>([]);
@@ -177,7 +190,7 @@ export function InventoryDetailPage() {
   const [saleListingId, setSaleListingId] = useState<string>("none");
   const [salePrice, setSalePrice] = useState("");
   const [salePlatformFees, setSalePlatformFees] = useState("");
-  const [saleDate, setSaleDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [saleDate, setSaleDate] = useState(() => todayLocalDate());
   const [saleBuyerUsername, setSaleBuyerUsername] = useState("");
 
   // Record Shipment dialog state
@@ -188,7 +201,7 @@ export function InventoryDetailPage() {
   const [shipmentTrackingNumber, setShipmentTrackingNumber] = useState("");
   const [shipmentCost, setShipmentCost] = useState("");
   const [shipmentLabelCost, setShipmentLabelCost] = useState("");
-  const [shipmentDate, setShipmentDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [shipmentDate, setShipmentDate] = useState(() => todayLocalDate());
   const [shipmentWeightOz, setShipmentWeightOz] = useState("");
   const [deliveringShipmentId, setDeliveringShipmentId] = useState<string | null>(null);
   const [gradeReport, setGradeReport] = useState<GradeReportRow | null>(null);
@@ -197,6 +210,9 @@ export function InventoryDetailPage() {
 
   useEffect(() => {
     if (!id) return;
+    // US-1632: guard against an A→B navigation race so the old id's async
+    // continuations never write over the new item's page.
+    let cancelled = false;
 
     async function fetchData() {
       setLoading(true);
@@ -209,6 +225,7 @@ export function InventoryDetailPage() {
         .eq("id", id!)
         .single();
 
+      if (cancelled) return;
       if (itemError || !itemData) {
         setError("Inventory item not found.");
         setLoading(false);
@@ -223,6 +240,7 @@ export function InventoryDetailPage() {
         .eq("inventory_item_id", id!)
         .order("listed_at", { ascending: false });
 
+      if (cancelled) return;
       setListings((listingsRaw ?? []) as ListingRow[]);
 
       // Fetch sales
@@ -232,6 +250,7 @@ export function InventoryDetailPage() {
         .eq("inventory_item_id", id!)
         .order("sale_date", { ascending: false });
 
+      if (cancelled) return;
       setSales((salesRaw ?? []) as SaleRow[]);
 
       // Fetch shipments for all sales
@@ -244,17 +263,20 @@ export function InventoryDetailPage() {
           .in("sale_id", saleIds)
           .order("ship_date", { ascending: false });
 
+        if (cancelled) return;
         setShipments((shipmentsRaw ?? []) as ShipmentRow[]);
       }
 
-      // Fetch grade report if available
+      // Fetch grade report if available (US-1632: .maybeSingle() so a dangling
+      // grade_report_id doesn't error).
       const currentItem = itemData as InventoryItemRow;
       if (currentItem.grade_report_id) {
         const { data: gradeData } = await supabase
           .from("grade_reports")
           .select("*")
           .eq("id", currentItem.grade_report_id)
-          .single();
+          .maybeSingle();
+        if (cancelled) return;
         if (gradeData) {
           setGradeReport(gradeData as GradeReportRow);
         }
@@ -265,17 +287,22 @@ export function InventoryDetailPage() {
         .from("inventory_items")
         .select("*")
         .eq("user_id", currentItem.user_id);
+      if (cancelled) return;
       setAllUserItems((userItemsRaw ?? []) as InventoryItemRow[]);
 
       const { data: userSalesRaw } = await supabase
         .from("sales")
         .select("*");
+      if (cancelled) return;
       setAllUserSales((userSalesRaw ?? []) as SaleRow[]);
 
       setLoading(false);
     }
 
     fetchData();
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
 
   async function handleStatusUpdate(newStatus: string) {
@@ -291,6 +318,7 @@ export function InventoryDetailPage() {
       toast.error("Failed to update status.");
     } else {
       setItem({ ...item, status: newStatus as ItemStatus });
+      invalidateInventoryCaches();
       toast.success(`Status updated to ${formatLabel(newStatus)}.`);
     }
     setUpdatingStatus(false);
@@ -349,6 +377,7 @@ export function InventoryDetailPage() {
     setPlatformListingId("");
     setAddListingOpen(false);
     setAddListingSubmitting(false);
+    invalidateInventoryCaches();
     toast.success(`Listing added on ${formatPlatform(listingPlatform)}.`);
   }
 
@@ -367,6 +396,7 @@ export function InventoryDetailPage() {
       setListings((prev) =>
         prev.map((l) => (l.id === listing.id ? { ...l, is_active: newActive } : l))
       );
+      invalidateInventoryCaches();
       toast.success(`Listing marked as ${newActive ? "active" : "inactive"}.`);
     }
     setTogglingListingId(null);
@@ -415,14 +445,24 @@ export function InventoryDetailPage() {
     // Mark ALL listings for this item as inactive (cross-listing cleanup)
     const activeListingIds = listings.filter((l) => l.is_active).map((l) => l.id);
     if (activeListingIds.length > 0) {
-      await supabase
+      const { error: deactivateError } = await supabase
         .from("listings")
         .update({ is_active: false } as never)
         .in("id", activeListingIds);
 
-      setListings((prev) =>
-        prev.map((l) => (activeListingIds.includes(l.id) ? { ...l, is_active: false } : l))
-      );
+      // US-1633: don't ignore this — if the sibling listings didn't deactivate,
+      // the sale is recorded but they still show active (cross-listing could
+      // sell twice). Warn and skip the optimistic local flip so the UI reflects
+      // reality (a refetch will show the true state).
+      if (deactivateError) {
+        toast.warning(
+          "Sale recorded, but couldn't deactivate the other listings — end them manually so the item isn't sold twice.",
+        );
+      } else {
+        setListings((prev) =>
+          prev.map((l) => (activeListingIds.includes(l.id) ? { ...l, is_active: false } : l))
+        );
+      }
     }
 
     // Update item status to 'sold'
@@ -439,10 +479,11 @@ export function InventoryDetailPage() {
     setSaleListingId("none");
     setSalePrice("");
     setSalePlatformFees("");
-    setSaleDate(new Date().toISOString().split("T")[0]);
+    setSaleDate(todayLocalDate());
     setSaleBuyerUsername("");
     setRecordSaleOpen(false);
     setRecordSaleSubmitting(false);
+    invalidateInventoryCaches();
     toast.success("Sale recorded successfully.");
   }
 
@@ -512,10 +553,11 @@ export function InventoryDetailPage() {
     setShipmentTrackingNumber("");
     setShipmentCost("");
     setShipmentLabelCost("");
-    setShipmentDate(new Date().toISOString().split("T")[0]);
+    setShipmentDate(todayLocalDate());
     setShipmentWeightOz("");
     setRecordShipmentOpen(false);
     setRecordShipmentSubmitting(false);
+    invalidateInventoryCaches();
     toast.success("Shipment recorded successfully.");
   }
 
@@ -523,7 +565,7 @@ export function InventoryDetailPage() {
     if (!item) return;
     setDeliveringShipmentId(shipment.id);
 
-    const today = new Date().toISOString().split("T")[0];
+    const today = todayLocalDate();
     const { error: updateError } = await supabase
       .from("shipments")
       .update({ delivery_date: today } as never)

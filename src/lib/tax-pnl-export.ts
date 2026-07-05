@@ -129,11 +129,14 @@ export function buildTaxPnlRows(
     .sort((a, b) => a.saleDate.localeCompare(b.saleDate));
 }
 
-// Period totals = plain sum over the rows, so the summary always reconciles to
-// the per-item P&L (and therefore to the underlying sales rows).
+// Period totals must reconcile to the sum of the PRINTED detail rows. The
+// detail prints each value at cent precision (.toFixed(2)), so summing the raw
+// floats let the summary disagree with "add up the column" by a cent (US-1636).
+// Accumulate in integer cents at the same precision the rows print, then divide
+// back — the summary now equals the visible column sum exactly.
 export function sumTaxPnl(rows: TaxPnlRow[]): TaxPnlTotals {
-  const t: TaxPnlTotals = {
-    count: 0,
+  const cents = (n: number) => Math.round(n * 100);
+  const c = {
     revenue: 0,
     cogs: 0,
     fees: 0,
@@ -142,17 +145,27 @@ export function sumTaxPnl(rows: TaxPnlRow[]): TaxPnlTotals {
     otherCosts: 0,
     net: 0,
   };
+  let count = 0;
   for (const r of rows) {
-    t.count += 1;
-    t.revenue += r.revenue;
-    t.cogs += r.cogs;
-    t.fees += r.fees;
-    t.shippingCost += r.shippingCost;
-    t.gradingCost += r.gradingCost;
-    t.otherCosts += r.otherCosts;
-    t.net += r.net;
+    count += 1;
+    c.revenue += cents(r.revenue);
+    c.cogs += cents(r.cogs);
+    c.fees += cents(r.fees);
+    c.shippingCost += cents(r.shippingCost);
+    c.gradingCost += cents(r.gradingCost);
+    c.otherCosts += cents(r.otherCosts);
+    c.net += cents(r.net);
   }
-  return t;
+  return {
+    count,
+    revenue: c.revenue / 100,
+    cogs: c.cogs / 100,
+    fees: c.fees / 100,
+    shippingCost: c.shippingCost / 100,
+    gradingCost: c.gradingCost / 100,
+    otherCosts: c.otherCosts / 100,
+    net: c.net / 100,
+  };
 }
 
 // Distinct category / brand values present in the rows, for the filter

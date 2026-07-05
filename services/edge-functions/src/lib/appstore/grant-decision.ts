@@ -23,3 +23,13 @@ export function computeConsumableGrant(
     productId: txn.productId,
   };
 }
+
+/**
+ * True when Apple has refunded/revoked this transaction (revocationDate set), so
+ * it must NOT entitle. The interactive /verify path checks this so a client
+ * cannot re-present an already-refunded JWS to (re-)grant credits or a plan.
+ * US-1615 / C2.
+ */
+export function isTransactionRevoked(txn: DecodedTransactionLite): boolean {
+  return txn.revocationDate != null;
+}

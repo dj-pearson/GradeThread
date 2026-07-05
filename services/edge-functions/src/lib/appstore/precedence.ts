@@ -52,3 +52,21 @@ export function appstoreSubscriptionBlocksStripe(
     APPSTORE_ENTITLING_STATUSES.has(user.subscription_status ?? "")
   );
 }
+
+// US-1640: a DELAYED App Store EXPIRED/REVOKE must not clobber a Stripe
+// subscription the user started in the meantime. A lapse notification would
+// downgrade the user to free + stamp billing_source='appstore'; if they now
+// hold a live Stripe sub, the webhook must SKIP the write (mirrors the expiry
+// sweep's billing_source='appstore' guard). Returns true ⇒ skip the lapse.
+// `lapses` = the notification would downgrade the user (computed update →
+// subscription_status 'canceled'). A non-lapse (renewal/re-entitle) is never
+// skipped here.
+export function appstoreLapseSkippedByStripe(
+  lapses: boolean,
+  user: BillingUserRow,
+): boolean {
+  return (
+    lapses &&
+    decideAppstorePrecedence(user, "subscription") === "block_active_stripe"
+  );
+}

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Loader2, Package } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -13,6 +14,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { todayLocalDate } from "@/lib/local-date";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -48,11 +50,14 @@ function formatLabel(value: string): string {
 }
 
 function todayString(): string {
-  return new Date().toISOString().split("T")[0] ?? "";
+  // US-1636: local calendar day, not UTC — an evening user west of UTC would
+  // otherwise default to tomorrow's date and break tax-year / payout matching.
+  return todayLocalDate();
 }
 
 export function InventoryAddPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { user } = useAuth();
   const { workspaceOwnerId, can } = useWorkspace();
   const [submitting, setSubmitting] = useState(false);
@@ -112,6 +117,13 @@ export function InventoryAddPage() {
       if (error) throw error;
 
       const item = data as Pick<InventoryItemRow, "id">;
+
+      // US-1630: a new item must appear in the list the user lands on — the
+      // inventory list, brand filter, and pipeline (items_full) all read cached
+      // queries, so invalidate them before navigating away.
+      queryClient.invalidateQueries({ queryKey: ["inventory"] });
+      queryClient.invalidateQueries({ queryKey: ["inventory-brands"] });
+      queryClient.invalidateQueries({ queryKey: ["items_full"] });
 
       toast.success("Item added to inventory!");
 

@@ -34,6 +34,25 @@ describe("escapeCsvCell", () => {
     expect(escapeCsvCell('he said "hi"')).toBe('"he said ""hi"""');
     expect(escapeCsvCell("line1\nline2")).toBe('"line1\nline2"');
   });
+
+  // US-1636: spreadsheet formula-injection neutralization.
+  it("prefixes a formula-triggering cell with an apostrophe", () => {
+    expect(escapeCsvCell("=HYPERLINK(evil)")).toBe("'=HYPERLINK(evil)");
+    expect(escapeCsvCell("+1234x")).toBe("'+1234x");
+    expect(escapeCsvCell("@SUM(A1)")).toBe("'@SUM(A1)");
+  });
+
+  it("leaves genuine numbers (incl. negatives) intact so money columns still compute", () => {
+    expect(escapeCsvCell(-5)).toBe("-5");
+    expect(escapeCsvCell("-5.00")).toBe("-5.00");
+    expect(escapeCsvCell("-1234.56")).toBe("-1234.56");
+    expect(escapeCsvCell(42)).toBe("42");
+  });
+
+  it("neutralizes a dangerous leading char even inside a quoted cell", () => {
+    // Starts with '=' → apostrophe-prefixed, AND contains a comma → quoted.
+    expect(escapeCsvCell("=1,2")).toBe(`"'=1,2"`);
+  });
 });
 
 describe("downloadItemsCsv", () => {

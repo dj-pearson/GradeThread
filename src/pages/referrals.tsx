@@ -183,6 +183,11 @@ export function ReferralsPage() {
       toast.success("Referral code applied!");
       setRedeemCode("");
       qc.invalidateQueries({ queryKey: ["referrals-me"] });
+    } catch (err) {
+      // US-1634: edgeFetch throws on a network error / expired session — without
+      // a catch this was a silent unhandled rejection (the button just stopped
+      // spinning with no feedback).
+      toast.error(err instanceof Error ? err.message : "Couldn't redeem that code.");
     } finally {
       setRedeeming(false);
     }
@@ -255,6 +260,9 @@ export function ReferralsPage() {
       );
       setCampaignCode("");
       qc.invalidateQueries({ queryKey: ["referrals-me"] });
+    } catch (err) {
+      // US-1634: surface a thrown error instead of a silent unhandled rejection.
+      toast.error(err instanceof Error ? err.message : "Couldn't redeem that code.");
     } finally {
       setRedeemingCampaign(false);
     }
@@ -288,6 +296,11 @@ export function ReferralsPage() {
       }
       toast.success(enabled ? "You're on the leaderboard!" : "Removed from the leaderboard.");
       qc.invalidateQueries({ queryKey: ["referrals-me"] });
+    } catch (err) {
+      // US-1634: surface a thrown error instead of a silent unhandled rejection.
+      toast.error(
+        err instanceof Error ? err.message : "Couldn't update your leaderboard settings.",
+      );
     } finally {
       setSavingLeaderboard(false);
     }

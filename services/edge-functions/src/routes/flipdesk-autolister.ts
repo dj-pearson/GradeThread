@@ -30,8 +30,10 @@ import {
   withAiAction,
 } from "../lib/ai-metering.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
+import { roleAtLeast } from "../lib/workspace-roles.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
 import { acquireJobLock } from "../lib/job-lock.ts";
+import { isBatchHeartbeatFresh } from "../lib/batch-heartbeat.ts";
 import { featureDisabledBody, isFeatureEnabled } from "../lib/feature-flags.ts";
 import {
   buildTemplateListingPatch,
@@ -1022,7 +1024,11 @@ flipdeskAutolisterRoutes.post("/classify-photos", async (c) => {
     if (!id || !path) {
       return c.json({ error: "Each photo needs an id and storage_path." }, 400);
     }
-    if (!path.startsWith(`${ownerId}/`)) {
+    // US-1638: these are STAGED photos (uploaded via /staging/upload →
+    // `${ownerId}/_staging/…`). Require the full staging prefix, not just the
+    // owner folder, matching the sibling /verify-groups check — so a path
+    // elsewhere in the owner's tree can't be smuggled in.
+    if (!path.startsWith(`${ownerId}/_staging/`)) {
       return c.json({ error: "A photo is not owned by the caller." }, 403);
     }
     const url = supabaseAdmin.storage.from("item-photos").getPublicUrl(path)
@@ -1180,7 +1186,9 @@ flipdeskAutolisterRoutes.post("/photo-qa", async (c) => {
         typeof (x as { id?: unknown }).id === "string" &&
         typeof (x as { storage_path?: unknown }).storage_path === "string"
       )
-      .filter((x) => x.storage_path.startsWith(`${ownerId}/`));
+      // US-1638: staged covers live under `${ownerId}/_staging/…` (see comment
+      // above) — require the full staging prefix, not just the owner folder.
+      .filter((x) => x.storage_path.startsWith(`${ownerId}/_staging/`));
     const uniqueCovers = [...new Map(covers.map((x) => [x.id, x])).values()];
     if (uniqueCovers.length === 0) {
       return c.json(
@@ -1479,13 +1487,30 @@ flipdeskAutolisterRoutes.post("/batch/:id/resume", async (c) => {
 
   const { data: batch, error: batchErr } = await supabaseAdmin
     .from("listing_generation_batches")
-    .select("id, use_comps")
+    .select("id, use_comps, status, updated_at")
     .eq("id", batchId)
     .eq("user_id", ownerId)
     .maybeSingle();
   if (batchErr) return c.json({ error: "Could not load batch." }, 500);
   if (!batch) return c.json({ error: "Batch not found" }, 404);
-  const useComps = (batch as { use_comps?: boolean }).use_comps !== false;
+  const batchRow = batch as {
+    use_comps?: boolean;
+    status?: string;
+    updated_at?: string;
+  };
+  const useComps = batchRow.use_comps !== false;
+
+  // US-1644: refuse to resume while a live worker is still progressing. The
+  // batch's updated_at is a heartbeat (bumped on every progress roll-up); if it's
+  // FRESH, a worker owns this batch and resetting its jobs to 'pending' would let
+  // a second worker double-run them (double reserveAiAction spend). Only a
+  // genuinely-stranded batch (stale heartbeat) is resumable on demand.
+  if (isBatchHeartbeatFresh(batchRow.status, batchRow.updated_at, BATCH_STALE_MS, Date.now())) {
+    return c.json(
+      { error: "This batch is still running — give it a few minutes." },
+      409,
+    );
+  }
 
   const gated = await requireFlipdesk(c, { feature: "autolister", userId: ownerId });
   if (gated) return gated;
@@ -1493,13 +1518,32 @@ flipdeskAutolisterRoutes.post("/batch/:id/resume", async (c) => {
   if (!quota.ok) return c.json(quota.body, quota.status);
   const limit = quota.limit;
 
-  // Non-terminal jobs = the ones that never finished. Reset to 'pending' so the
-  // worker's claim picks them up cleanly.
+  // US-1644: reset ONLY the safe jobs — pending jobs, and 'running' jobs whose
+  // heartbeat is stale (a dead worker's orphans). A FRESH 'running' job is owned
+  // by a live worker; flipping it to 'pending' would let a second worker claim
+  // and double-run it. Sequential conditional updates (never `.or()` on an
+  // UPDATE — US-1552). processBatch's own claim is staleness-guarded too, but the
+  // reset must not destroy that protection.
+  const jobStaleBefore = new Date(Date.now() - JOB_STALE_MS).toISOString();
+  await supabaseAdmin
+    .from("listing_generation_jobs")
+    .update({ status: "pending", error: null })
+    .eq("batch_id", batchId)
+    .eq("status", "pending");
+  await supabaseAdmin
+    .from("listing_generation_jobs")
+    .update({ status: "pending", error: null })
+    .eq("batch_id", batchId)
+    .eq("status", "running")
+    .lt("updated_at", jobStaleBefore);
+
+  // Re-read the now-resettable set (everything currently 'pending' for this batch)
+  // to drive processBatch. A fresh 'running' job we left alone is excluded.
   const { data: openJobs, error: jobsErr } = await supabaseAdmin
     .from("listing_generation_jobs")
     .select("id, inventory_item_id, attempts")
     .eq("batch_id", batchId)
-    .in("status", ["pending", "running"]);
+    .eq("status", "pending");
   if (jobsErr) return c.json({ error: "Could not load jobs." }, 500);
   const jobs = (openJobs ?? []) as Array<
     { id: string; inventory_item_id: string; attempts: number }
@@ -1512,10 +1556,6 @@ flipdeskAutolisterRoutes.post("/batch/:id/resume", async (c) => {
     .from("listing_generation_batches")
     .update({ status: "running", error: null })
     .eq("id", batchId);
-  await supabaseAdmin
-    .from("listing_generation_jobs")
-    .update({ status: "pending", error: null })
-    .in("id", jobs.map((j) => j.id));
 
   void processBatch(batchId, ownerId, jobs, useComps, limit).catch((err) =>
     console.error("[flipdesk-autolister] resume batch crashed:", err)
@@ -1896,7 +1936,12 @@ async function processPublishBatch(
 }
 
 // POST /publish-batch  Body: { item_ids: string[] }
+// US-1616 / C3: publishing lists the OWNER's inventory live on a marketplace —
+// require listing_manager+. A read-only viewer must not publish.
 flipdeskAutolisterRoutes.post("/publish-batch", async (c) => {
+  if (!roleAtLeast(c.get("workspaceRole") ?? "owner", "listing_manager")) {
+    return c.json({ error: "This action requires listing_manager access or higher" }, 403);
+  }
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
 
   let body: { item_ids?: unknown };
@@ -2032,6 +2077,9 @@ flipdeskAutolisterRoutes.get("/publish-batch/:id", async (c) => {
 
 // POST /publish-batch/:id/retry-failed — re-run ONLY the failed jobs in place.
 flipdeskAutolisterRoutes.post("/publish-batch/:id/retry-failed", async (c) => {
+  if (!roleAtLeast(c.get("workspaceRole") ?? "owner", "listing_manager")) {
+    return c.json({ error: "This action requires listing_manager access or higher" }, 403);
+  }
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   const batchId = c.req.param("id");
 
@@ -2079,12 +2127,15 @@ flipdeskAutolisterRoutes.post("/publish-batch/:id/retry-failed", async (c) => {
 // POST /publish-batch/:id/resume — user-triggered resume of a STRANDED batch
 // (jobs left 'pending'/'running' after the worker was interrupted by a restart).
 flipdeskAutolisterRoutes.post("/publish-batch/:id/resume", async (c) => {
+  if (!roleAtLeast(c.get("workspaceRole") ?? "owner", "listing_manager")) {
+    return c.json({ error: "This action requires listing_manager access or higher" }, 403);
+  }
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   const batchId = c.req.param("id");
 
   const { data: batch, error: batchErr } = await supabaseAdmin
     .from("listing_publish_batches")
-    .select("id")
+    .select("id, status, updated_at")
     .eq("id", batchId)
     .eq("user_id", ownerId)
     .maybeSingle();
@@ -2094,11 +2145,38 @@ flipdeskAutolisterRoutes.post("/publish-batch/:id/resume", async (c) => {
   const gated = await requireFlipdesk(c, { feature: "autolister", userId: ownerId });
   if (gated) return gated;
 
+  // US-1644: refuse to resume while a live worker is still progressing (fresh
+  // batch heartbeat) — resetting 'running' jobs to 'pending' would let a second
+  // worker double-run them.
+  const pubBatch = batch as { status?: string; updated_at?: string };
+  if (isBatchHeartbeatFresh(pubBatch.status, pubBatch.updated_at, PUBLISH_BATCH_STALE_MS, Date.now())) {
+    return c.json(
+      { error: "This batch is still running — give it a few minutes." },
+      409,
+    );
+  }
+
+  // US-1644: reset pending jobs + only STALE 'running' orphans (never a
+  // fresh-running job a live worker owns). Sequential conditional updates
+  // (no `.or()` on an UPDATE — US-1552).
+  const pubJobStaleBefore = new Date(Date.now() - PUBLISH_JOB_STALE_MS).toISOString();
+  await supabaseAdmin
+    .from("listing_publish_jobs")
+    .update({ status: "pending", error: null })
+    .eq("batch_id", batchId)
+    .eq("status", "pending");
+  await supabaseAdmin
+    .from("listing_publish_jobs")
+    .update({ status: "pending", error: null })
+    .eq("batch_id", batchId)
+    .eq("status", "running")
+    .lt("updated_at", pubJobStaleBefore);
+
   const { data: openJobs, error: jobsErr } = await supabaseAdmin
     .from("listing_publish_jobs")
     .select("id, inventory_item_id, attempts")
     .eq("batch_id", batchId)
-    .in("status", ["pending", "running"]);
+    .eq("status", "pending");
   if (jobsErr) return c.json({ error: "Could not load jobs." }, 500);
   const jobs = (openJobs ?? []) as Array<
     { id: string; inventory_item_id: string; attempts: number }
@@ -2111,10 +2189,6 @@ flipdeskAutolisterRoutes.post("/publish-batch/:id/resume", async (c) => {
     .from("listing_publish_batches")
     .update({ status: "running", error: null })
     .eq("id", batchId);
-  await supabaseAdmin
-    .from("listing_publish_jobs")
-    .update({ status: "pending", error: null })
-    .in("id", jobs.map((j) => j.id));
 
   void processPublishBatch(batchId, ownerId, jobs).catch((err) =>
     console.error("[flipdesk-autolister] resume publish batch crashed:", err)

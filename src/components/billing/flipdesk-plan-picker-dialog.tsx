@@ -19,6 +19,7 @@ import {
   useFlipdeskSubscribe,
   useBillingPortal,
 } from "@/hooks/use-billing-summary";
+import { useRedirectStore } from "@/stores/redirect-store";
 import { DowngradePreviewDialog } from "@/components/billing/downgrade-preview-dialog";
 import { track } from "@/lib/analytics";
 import { cn } from "@/lib/utils";
@@ -76,6 +77,7 @@ export function FlipdeskPlanPickerDialog({
 }: FlipdeskPlanPickerDialogProps) {
   const { data: summary } = useBillingSummary();
   const subscribe = useFlipdeskSubscribe();
+  const isRedirecting = useRedirectStore((s) => s.isRedirecting);
   const portal = useBillingPortal();
 
   const currentPlan = (summary?.subscription.plan ?? "free") as FlipdeskPlanKey;
@@ -172,7 +174,8 @@ export function FlipdeskPlanPickerDialog({
 
             const isLoading =
               (subscribe.isPending && subscribe.variables?.plan === planKey) ||
-              portal.isPending;
+              portal.isPending ||
+              isRedirecting;
 
             return (
               <Card

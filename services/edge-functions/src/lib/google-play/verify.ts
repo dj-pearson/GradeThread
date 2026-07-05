@@ -23,6 +23,7 @@ import {
   computeGoogleUserUpdate,
   type GoogleUsersBillingUpdate,
 } from "./products.ts";
+import { decideAppstorePrecedence } from "../appstore/precedence.ts";
 
 const ANDROIDPUBLISHER_SCOPE = "https://www.googleapis.com/auth/androidpublisher";
 
@@ -47,6 +48,15 @@ export interface PlayPurchaseInfo {
   expiryMillis: number | null;
   /** Subscriptions: whether auto-renew is on (false = cancelled, access to end). */
   autoRenewing: boolean;
+  /**
+   * The obfuscatedExternalAccountId the Android client stamped on the purchase
+   * (BillingFlowParams.setObfuscatedAccountId = the GradeThread userId), echoed
+   * back by the Play Developer API. Used to bind a purchase to exactly one
+   * account so a shared token can't entitle N accounts (US-1614). null when the
+   * client didn't set it (older builds) — the binding falls back to the
+   * per-token uniqueness claim on users.google_purchase_token.
+   */
+  obfuscatedExternalAccountId: string | null;
 }
 
 // ── Response parsing (pure, exported for tests) ─────────────────────
@@ -61,6 +71,7 @@ export function parseSubscriptionV2(json: unknown): PlayPurchaseInfo {
   const o = (json ?? {}) as {
     subscriptionState?: string;
     latestOrderId?: string;
+    externalAccountIdentifiers?: { obfuscatedExternalAccountId?: string };
     lineItems?: Array<{
       expiryTime?: string;
       autoRenewingPlan?: { autoRenewEnabled?: boolean };
@@ -74,18 +85,25 @@ export function parseSubscriptionV2(json: unknown): PlayPurchaseInfo {
     orderId: o.latestOrderId ?? null,
     expiryMillis: Number.isFinite(expiryMillis) ? (expiryMillis as number) : null,
     autoRenewing: line?.autoRenewingPlan?.autoRenewEnabled === true,
+    obfuscatedExternalAccountId:
+      o.externalAccountIdentifiers?.obfuscatedExternalAccountId?.trim() || null,
   };
 }
 
 /** Parse a Play Developer API products purchase response. purchaseState 0 =
  * Purchased, 1 = Canceled, 2 = Pending. */
 export function parseProductPurchase(json: unknown): PlayPurchaseInfo {
-  const o = (json ?? {}) as { purchaseState?: number; orderId?: string };
+  const o = (json ?? {}) as {
+    purchaseState?: number;
+    orderId?: string;
+    obfuscatedExternalAccountId?: string;
+  };
   return {
     valid: o.purchaseState === 0,
     orderId: o.orderId ?? null,
     expiryMillis: null,
     autoRenewing: false,
+    obfuscatedExternalAccountId: o.obfuscatedExternalAccountId?.trim() || null,
   };
 }
 
@@ -137,6 +155,10 @@ export interface GooglePlayBillingUser {
   subscription_status: string | null;
   billing_source: string | null;
   grade_credit_balance: number | null;
+  // US-1618 / C5: the primary "has an entitling Stripe subscription" signal for
+  // the double-billing gate (mirrors the App Store precedence, which is
+  // null-tolerant on billing_source and keys off the subscription id).
+  flipdesk_subscription_id?: string | null;
 }
 
 export interface GooglePlayResult {
@@ -151,7 +173,11 @@ export interface GooglePlayResult {
     | "user_not_found"
     | "invalid_purchase"
     | "already_processed"
-    | "blocked_active_stripe";
+    | "blocked_active_stripe"
+    // The purchase is bound to a different account — either its
+    // obfuscatedExternalAccountId names another user, or the token is already
+    // claimed on another user's row. Never entitles the caller (US-1614).
+    | "account_mismatch";
 }
 
 export interface GooglePlayDeps {
@@ -161,6 +187,13 @@ export interface GooglePlayDeps {
     kind: "subscription" | "consumable",
   ): Promise<PlayPurchaseInfo>;
   loadBillingUser(userId: string): Promise<GooglePlayBillingUser | null>;
+  /**
+   * Return the userId that currently holds this subscription purchase token on
+   * their users row (users.google_purchase_token), or null if unbound. Used to
+   * reject a token that's already claimed by another account before we attempt
+   * the (uniquely-indexed) write (US-1614).
+   */
+  findSubscriptionTokenOwner(purchaseToken: string): Promise<string | null>;
   applySubscription(userId: string, update: GoogleUsersBillingUpdate): Promise<void>;
   /**
    * Idempotency gate: INSERT into google_processed_purchases ON CONFLICT
@@ -201,20 +234,41 @@ export async function processGooglePlayPurchase(
   if (!user) return { ok: false, kind: mapping.kind, reason: "user_not_found" };
 
   // Precedence: an active Stripe subscription owns the plan — route the user to
-  // cancel web billing first rather than double-charge (mirrors the App Store
-  // precedence rule).
-  if (
-    mapping.kind === "subscription" &&
-    user.billing_source === "stripe" &&
-    user.subscription_status === "active"
-  ) {
+  // cancel web billing first rather than double-charge. US-1618 / C5: reuse the
+  // SAME (processor-agnostic) predicate the App Store path uses so the two gates
+  // can't drift — it's null-tolerant on billing_source and keys off
+  // flipdesk_subscription_id + an entitling status (active/trialing/past_due),
+  // where the old exact billing_source==='stripe' && status==='active' check
+  // silently never fired (billing_source was never stamped 'stripe').
+  if (decideAppstorePrecedence(user, mapping.kind) === "block_active_stripe") {
     return { ok: false, kind: "subscription", reason: "blocked_active_stripe" };
   }
 
   const info = await deps.verifyPurchase(ctx.productId, ctx.purchaseToken, mapping.kind);
   if (!info.valid) return { ok: false, kind: mapping.kind, reason: "invalid_purchase" };
 
+  // Account binding (US-1614): a purchase entitles exactly ONE account. If the
+  // Android client stamped an obfuscatedExternalAccountId (= the purchaser's
+  // userId), it MUST match the caller — otherwise a shared purchaseToken would
+  // let anyone re-verify and get entitled. Older clients omit it; those fall
+  // back to the per-token uniqueness claim below (subscriptions) / the
+  // consumable ledger.
+  if (
+    info.obfuscatedExternalAccountId &&
+    info.obfuscatedExternalAccountId !== ctx.userId
+  ) {
+    return { ok: false, kind: mapping.kind, reason: "account_mismatch" };
+  }
+
   if (mapping.kind === "subscription") {
+    // Uniqueness claim: if this token is already bound to a different user's
+    // row, refuse rather than move the entitlement (or throw on the unique
+    // index). Same-user re-verify (owner === caller) is the normal renewal path.
+    const owner = await deps.findSubscriptionTokenOwner(ctx.purchaseToken);
+    if (owner && owner !== ctx.userId) {
+      return { ok: false, kind: "subscription", reason: "account_mismatch" };
+    }
+
     const update = computeGoogleUserUpdate({
       mapping,
       productId: ctx.productId,

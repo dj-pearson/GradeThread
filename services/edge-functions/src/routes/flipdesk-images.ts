@@ -1,6 +1,9 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
-import { downloadItemPhoto } from "../lib/item-photo-storage.ts";
+import {
+  downloadItemPhoto,
+  SENSITIVE_ITEM_PHOTO_TYPES,
+} from "../lib/item-photo-storage.ts";
 import {
   headR2Object,
   isR2Configured,
@@ -97,6 +100,20 @@ flipdeskImageRoutes.post("/remove-bg", async (c) => {
   };
   if (photo.inventory_items.user_id !== userId) {
     return c.json({ error: "Photo not found" }, 404);
+  }
+  // US-1638: never run a SENSITIVE close-up (size/care label, second tag,
+  // grading certificate — US-979) through remove-bg. Its source lives in the
+  // PRIVATE bucket, but the background-removed derivative is written to the
+  // PUBLIC item-photos bucket with a public URL — which would expose PII
+  // (serials, receipts, certificate numbers) that must never be public.
+  if (SENSITIVE_ITEM_PHOTO_TYPES.has(photo.photo_type ?? "")) {
+    return c.json(
+      {
+        error:
+          "Background removal isn't available for label, tag, or certificate photos.",
+      },
+      422,
+    );
   }
   if (!photo.storage_path) {
     return c.json(

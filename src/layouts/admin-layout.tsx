@@ -23,6 +23,7 @@ import {
   Lightbulb,
   BookOpen,
   Activity,
+  Bot,
   SlidersHorizontal,
   Megaphone,
   Layers,
@@ -162,6 +163,8 @@ const growthNavItems = [
 // super_admin access; the Run-now action is additionally super_admin + MFA
 // step-up gated server-side.
 const opsNavItems = [
+  // US-1590 Agentic OS Mission Control — the agent fleet console.
+  { to: "/admin/agents", icon: Bot, label: "Mission Control", end: false },
   // US-906 real-time activity feed + critical-event alerting. List/ack is admin;
   // editing alert channels / sending a test is super_admin + step-up gated.
   { to: "/admin/ops/activity", icon: Activity, label: "Activity Feed", end: false },

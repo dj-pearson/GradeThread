@@ -16,6 +16,8 @@
 // hardening it sends no PII/IP (see src/lib/sentry.ts), so it runs under
 // legitimate interest for security + reliability, which does not require consent.
 
+import { redactSensitiveUrl } from "./redact-url";
+
 declare global {
   interface Window {
     gtag?: (...args: unknown[]) => void;
@@ -95,6 +97,24 @@ async function startAnalyticsTools() {
       api_host: import.meta.env.VITE_POSTHOG_HOST || "https://us.i.posthog.com",
       loaded: (ph) => {
         if (import.meta.env.DEV) ph.opt_out_capturing();
+      },
+      // US-1635: redact single-use auth tokens from any URL property before the
+      // event is sent — an /auth/* pageview would otherwise ship a still-valid
+      // token_hash to PostHog.
+      sanitize_properties: (props: Record<string, unknown>) => {
+        for (
+          const k of [
+            "$current_url",
+            "$referrer",
+            "$pathname",
+            "$initial_current_url",
+            "$initial_referrer",
+          ]
+        ) {
+          const v = props[k];
+          if (typeof v === "string") props[k] = redactSensitiveUrl(v);
+        }
+        return props;
       },
     });
   } else if (posthogStarted) {

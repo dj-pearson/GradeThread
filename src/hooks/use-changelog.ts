@@ -1,7 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { supabase } from "@/lib/supabase";
-import { edgeApiUrl } from "@/lib/edge-api";
+import { edgeFetch } from "@/lib/edge-fetch";
 
 // US-916: admin hooks for the product "What's New" changelog. All routes are
 // gated on the edge by adminAuthMiddleware (admin JWT + AAL2); a non-admin
@@ -40,27 +39,16 @@ export interface ChangelogInput {
   status?: ChangelogStatus;
 }
 
-async function authHeader(): Promise<string> {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session?.access_token) throw new Error("You must be signed in.");
-  return `Bearer ${session.access_token}`;
-}
-
+// US-1634: fetch through edgeFetch — a fresh token per request + a 401-refresh
+// retry, instead of getSession()'s possibly-expired token with no retry.
 async function jfetch<T>(
   path: string,
   init?: RequestInit & { json?: unknown },
 ): Promise<T> {
-  const headers: Record<string, string> = {
-    Authorization: await authHeader(),
-    "Content-Type": "application/json",
-    ...((init?.headers as Record<string, string>) ?? {}),
-  };
-  const res = await fetch(`${edgeApiUrl()}${path}`, {
+  const res = await edgeFetch(path, {
     ...init,
-    headers,
-    body: init?.json !== undefined ? JSON.stringify(init.json) : init?.body,
+    json: init?.json,
+    silentGate: true,
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {

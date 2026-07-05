@@ -1,5 +1,6 @@
 import { useState, lazy, Suspense } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/use-auth";
 import { fetchFinancesDashboard } from "@/lib/finances-dashboard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -95,13 +96,14 @@ function formatCurrency(value: number): string {
 }
 
 export function FinancesPage() {
+  const { user } = useAuth();
   const [period, setPeriod] = useState<Period>("all_time");
   const periodStart = getPeriodStartDate(period);
 
   // One RPC round-trip per period: Postgres returns every summary metric and
   // chart series pre-aggregated (US-403). No raw tables cross the wire.
   const { data, isLoading, isError, isFetching, refetch } = useQuery({
-    queryKey: ["finances-dashboard", period],
+    queryKey: ["finances-dashboard", period, user?.id],
     queryFn: () => fetchFinancesDashboard(periodStart),
     staleTime: 5 * 60 * 1000,
   });

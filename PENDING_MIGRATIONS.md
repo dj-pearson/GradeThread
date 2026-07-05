@@ -1,5 +1,142 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00359_seed_grading_quality_agent.sql (US-1594 / AGENTIC-OS Phase 1, 2026-07-05)
+
+**What:** seeds ONE `agents` row — the Grading Quality agent (module G),
+`status='paused'`, `autonomy='{}'` (L0), config = weekly schedule / sonnet model
+/ read-only allowlist (get_grading_quality + get_review_queue_stats) / $2 daily
+cap. The prompt lives in the repo charter (`agents/charters/grading-quality.ts`).
+It has NO grading write tools — it can never mutate grading config. `ON CONFLICT
+(key) DO NOTHING` (idempotent). Self-records '00359'.
+
+**Risk: LOW — one seed row into the operator agents table (00357).** No client
+reads. Seeded PAUSED, so it does nothing until an operator enables it. Edge boot
+guard now expects **00359**.
+
+**⚠️ Apply order:** apply after 00357/00358. Data-only (no `NOTIFY pgrst`
+needed). Redeploy the edge so its boot guard matches 00359.
+
+## ⏳ HELD: 00358_seed_sentinel_agent.sql (US-1593 / AGENTIC-OS Phase 1, 2026-07-05)
+
+**What:** seeds ONE `agents` row — the Sentinel health/incident agent (module H),
+`status='paused'`, `autonomy='{}'` (L0), config = schedule 30m / haiku model /
+read-tool allowlist (get_incidents + ops reads) / $1 daily cap / 8 max steps.
+The prompt lives in the repo charter (`agents/charters/sentinel.ts`), not the
+row. `ON CONFLICT (key) DO NOTHING` (idempotent; never disturbs later operator
+edits). Self-records '00358'.
+
+**Risk: LOW — one seed row into a brand-new operator table (00357).** No client
+reads. The agent is seeded PAUSED, so it does nothing until an operator enables
+it in Mission Control. Edge boot guard now expects **00358**.
+
+**⚠️ Apply order:** apply after 00357 (the agents table must exist first). No
+`NOTIFY pgrst` strictly needed (no schema surface change — data only), but
+harmless. Redeploy the edge so its boot guard matches 00358.
+
+## ⏳ HELD: 00357_agentic_os_kernel_schema.sql (US-1583 / AGENTIC-OS Phase 0, 2026-07-04)
+
+**What:** creates the five foundational Agentic OS operator tables — `agents`
+(registry: key/name/module_letter/status/autonomy jsonb/config jsonb),
+`agent_runs` (run ledger: status/tokens/cost/outcome), `agent_run_steps`
+(transcript: seq/step_type/input/output/duration), `agent_proposals` (approval
+queue: action_class/payload/evidence/status/idempotency_key unique), and
+`agent_memory` (agent_id/kind/key/content/weight). All uuid PKs, created_at/
+updated_at + `set_updated_at` triggers, and indexes (runs by agent+started_at
+desc, proposals by status, unique run_id+seq, unique agent_memory key).
+Idempotent (`CREATE TABLE IF NOT EXISTS` / `CREATE … IF NOT EXISTS`);
+self-records '00357'.
+
+**Risk: LOW — five NEW empty deny-all tables; no client reads, no data change.**
+All RLS-enabled with ZERO policies (service-role only, registered in
+SERVICE_ROLE_ONLY in rls-guard_test.ts); none has a `user_id` column. Fixed-set
+columns use text + CHECK (not Postgres ENUM) to stay cleanly idempotent. **No
+routes or kernel code ship in this story** (US-1584 builds the run loop), so
+nothing reads these at runtime yet — applying it is safe at any time. Edge boot
+guard now expects **00357**.
+
+**⚠️ Apply order:** apply after 00353→00356 (all held above). `NOTIFY pgrst,
+'reload schema';` after applying (new tables PostgREST would otherwise not know
+of — harmless here since the SPA never reads them, but keeps the runbook
+uniform). Redeploy the edge so its boot guard matches 00357.
+
+## ⏳ HELD: 00356_public_cert_moderation_withhold.sql (US-1654 / DB-P2, 2026-07-04)
+
+**What:** `CREATE OR REPLACE VIEW public_grade_reports` reproducing every 00318
+column verbatim, plus a LEFT JOIN to `submissions` and a WHERE predicate that
+mirrors `isCertificateWithheld` (excludes `status='pending_review'`, and flagged
+submissions unless `moderation_status='approved'`). Closes the bypass where a
+finalized-then-flagged certificate stayed readable via PostgREST / the SPA
+`/cert/:id` even though the edge endpoints 404 it. Self-records '00356'.
+
+**Risk: LOW — output columns UNCHANGED (only the row set narrows); no client
+projection change; no data change.** The view runs as its owner (bypasses the
+underlying RLS exactly as the existing view already does for grade_reports), so
+the submissions join needs no new grant. Edge boot guard now expects **00356**.
+
+**⚠️ Apply order:** apply after 00353/00354/00355. `NOTIFY pgrst, 'reload
+schema';` after applying (the view definition changed). Redeploy the edge so its
+boot guard matches 00356. No client code depends on the change (it only stops
+withheld rows appearing) — so applying it is safe at any time; do it before
+merging so the SPA `/cert/:id` stops rendering withheld grades.
+
+## ⏳ HELD: 00355_dispute_admin_alerted_at.sql (US-1652, 2026-07-04)
+
+**What:** `ALTER TABLE disputes ADD COLUMN IF NOT EXISTS admin_alerted_at
+timestamptz`. The dedup gate for the dispute-filed admin alert — the handler
+claims it with a race-safe conditional UPDATE (`WHERE admin_alerted_at IS NULL`)
+so the alert fires at most once per dispute. Self-records '00355'.
+
+**Risk: LOW — additive nullable column; no client reads.** No backfill (NULL =
+"never alerted", correct for existing open disputes). Edge boot guard now expects
+**00355**.
+
+**⚠️ Apply order:** apply after 00353/00354. The edge code reads/writes
+`admin_alerted_at` at RUNTIME only when `/dispute-filed` is called — an update
+targeting a missing column would 42703-fail that request, so apply 00355 before
+this edge build deploys. `NOTIFY pgrst, 'reload schema';` after applying (a new
+column PostgREST must expose). Redeploy the edge so its boot guard matches 00355.
+
+## ⏳ HELD: 00354_dead_letter_googleplay_provider.sql (US-1650 / C6, 2026-07-04)
+
+**What:** extends the `webhook_dead_letters.provider` CHECK allow-list to include
+`'googleplay'` (was `stripe`/`ebay`/`appstore`/`content`), so the new Google Play
+RTDN webhook (`routes/google-play-rtdn.ts`) can durably dead-letter a
+non-transient failure like every other provider. `DROP CONSTRAINT IF EXISTS` +
+re-`ADD` (mirrors 00206); self-records '00354'.
+
+**Risk: LOW — no client-side reads; constraint-only.** No column/view/data
+change. The edge boot guard now expects **00354**.
+
+**⚠️ Apply order:** apply 00353 first (already held below), then 00354. After
+applying, redeploy the edge so its boot guard matches 00354. No `NOTIFY pgrst`
+needed. The RTDN webhook only reconciles at RUNTIME when Google delivers a
+notification, so nothing breaks pre-apply — but its dead-letter path would fail
+the CHECK until 00354 is applied, so apply it before enabling the Pub/Sub push.
+
+Also set `GOOGLE_RTDN_WEBHOOK_SECRET` on the edge and configure the Pub/Sub push
+endpoint as `…/api/webhooks/google-play?token=<that secret>`.
+
+## ⏳ HELD: 00353_google_purchase_token_unique.sql (US-1614 / C1, 2026-07-04)
+
+**What:** a partial unique index
+`idx_users_google_purchase_token ON users(google_purchase_token) WHERE google_purchase_token IS NOT NULL`.
+The DB backstop for binding a Google Play subscription purchaseToken to exactly
+one account (the edge verify path now also requires a matching
+`obfuscatedExternalAccountId` and refuses a token already claimed on another
+user's row).
+
+Idempotent (`CREATE UNIQUE INDEX IF NOT EXISTS`); self-records '00353'.
+
+**Risk: LOW — no client-side reads of new schema.** Purely an index; no column
+or view change. Edge boot guard expects 00353.
+
+**⚠️ Apply caveat:** if prod already has duplicate `google_purchase_token`
+values (the C1 exploit was used before this shipped), the index creation will
+FAIL — that's the correct signal to investigate/de-dupe first. Google Play
+billing is pre-launch, so no legitimate duplicates are expected. No
+`NOTIFY pgrst` needed (no schema surface change), but redeploy the edge so its
+boot guard matches 00353.
+
 ## ⏳ HELD: 00349_draft_review_lifecycle.sql (US-1568/US-1569, 2026-07-03)
 
 **What:** two changes in one transaction:

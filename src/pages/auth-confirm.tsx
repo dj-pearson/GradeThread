@@ -7,6 +7,7 @@ import {
 } from "@/lib/auth";
 import { PENDING_INVITE_KEY } from "@/pages/accept-invite";
 import { RETURN_TO_KEY, sanitizeReturnTo } from "@/lib/return-to";
+import { stripSensitiveParams } from "@/lib/redact-url";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -60,6 +61,15 @@ export function AuthConfirmPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [resendBusy, setResendBusy] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
+
+  // US-1635: scrub the single-use token_hash from the visible URL once React has
+  // read it (above). React Router keeps its own copy in searchParams, so verify
+  // still works; this just stops the token lingering in history / the Referer
+  // header / a later SPA pageview. Runs once on mount.
+  useEffect(() => {
+    const { url, changed } = stripSensitiveParams(window.location.href);
+    if (changed) window.history.replaceState(window.history.state, "", url);
+  }, []);
 
   const goAfterVerify = useCallback(() => {
     // Same precedence as auth-callback: finish a pending workspace invite, then

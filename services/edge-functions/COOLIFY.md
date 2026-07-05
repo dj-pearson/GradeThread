@@ -197,6 +197,7 @@ curl -fsS -X POST -H "X-Internal-Job-Secret: $<SECRET_ENV>" http://localhost:878
 |---|---|---|---|---|
 | abuse-scan | `0 */6 * * *` | `/api/jobs/abuse-scan` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | affiliate-payouts | `15 */6 * * *` | `/api/jobs/affiliate-payouts` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| agent-tick | `*/10 * * * *` | `/api/jobs/agent-tick` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | ai-budget-guardrails | `*/15 * * * *` | `/api/jobs/ai-budget-guardrails` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | appstore-expiry-sweep | `45 1 * * *` | `/api/jobs/appstore-expiry-sweep` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | audit-anomaly-scan | `5 * * * *` | `/api/jobs/audit-anomaly-scan` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
@@ -213,16 +214,17 @@ curl -fsS -X POST -H "X-Internal-Job-Secret: $<SECRET_ENV>" http://localhost:878
 | content-watchdog | `0 */3 * * *` | `/api/jobs/content-watchdog` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | data-retention | `0 4 * * *` | `/api/jobs/data-retention` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | drip-tick | `0 * * * *` | `/api/drip/tick` | `$DRIP_INTERNAL_JOB_SECRET` |  |
-| ebay-leave-feedback | `0 10 * * *` | `/api/flipdesk/ebay/jobs/leave-feedback` | `$FLIPDESK_INTERNAL_JOB_SECRET` | 200; no-op unless system setting feedback.auto_leave=true; not in the cron_runs ledger |
+| ebay-leave-feedback | `0 10 * * *` | `/api/flipdesk/ebay/jobs/leave-feedback` | `$FLIPDESK_INTERNAL_JOB_SECRET` | 200; no-op unless system setting feedback.auto_leave=true |
 | ebay-orders-sync | `*/30 * * * *` | `/api/flipdesk/ebay/listings/pull` | `$FLIPDESK_INTERNAL_JOB_SECRET` | not in the cron_runs ledger |
 | ebay-pending-webhooks | `*/15 * * * *` | `/api/jobs/ebay-pending-webhooks` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
-| ebay-performance-sync | `0 */6 * * *` | `/api/flipdesk/ebay/sync/performance` | `$FLIPDESK_INTERNAL_JOB_SECRET` | not in the cron_runs ledger |
-| ebay-promoted-sync | `0 */6 * * *` | `/api/flipdesk/ebay/jobs/promoted-sync` | `$FLIPDESK_INTERNAL_JOB_SECRET` | not in the cron_runs ledger |
-| ebay-publish-due | `*/5 * * * *` | `/api/flipdesk/ebay/jobs/publish-due` | `$FLIPDESK_INTERNAL_JOB_SECRET` | not in the cron_runs ledger |
+| ebay-performance-sync | `0 */6 * * *` | `/api/flipdesk/ebay/sync/performance` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| ebay-promoted-sync | `0 */6 * * *` | `/api/flipdesk/ebay/jobs/promoted-sync` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| ebay-publish-due | `*/5 * * * *` | `/api/flipdesk/ebay/jobs/publish-due` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | ebay-token-refresh | `0 * * * *` | `/api/flipdesk/ebay/oauth/refresh` | `$FLIPDESK_INTERNAL_JOB_SECRET` | not in the cron_runs ledger |
 | email-retry | `*/5 * * * *` | `/api/jobs/email-retry` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | exemplar-assembly | `0 12 * * 0` | `/api/jobs/exemplar-assembly` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | google-sheet-sync | `*/5 * * * *` | `/api/flipdesk/google/sync/push` | `$FLIPDESK_INTERNAL_JOB_SECRET` | not in the cron_runs ledger |
+| googleplay-expiry-sweep | `50 1 * * *` | `/api/jobs/googleplay-expiry-sweep` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | grading-monitor | `0 */12 * * *` | `/api/jobs/grading-monitor` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | growth-dispatch | `*/15 * * * *` | `/api/jobs/growth-dispatch` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | gsc-sync | `30 6 * * *` | `/api/jobs/gsc-sync` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
@@ -237,6 +239,7 @@ curl -fsS -X POST -H "X-Internal-Job-Secret: $<SECRET_ENV>" http://localhost:878
 | newsletter-topic-bank-refill | `0 5 * * 1` | `/api/jobs/newsletter-topic-bank-refill` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | newsletter-tuning | `45 12 * * *` | `/api/jobs/newsletter-tuning` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | north-star-digest | `0 14 * * 1` | `/api/jobs/north-star-digest` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| operator-brief | `0 13 * * *` | `/api/jobs/operator-brief` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | passport-backfill | `*/15 * * * *` | `/api/jobs/passport-backfill` | `$FLIPDESK_INTERNAL_JOB_SECRET` | ONE-OFF at launch (idempotent; disable once drained) |
 | passport-integrity-scan | `0 */6 * * *` | `/api/jobs/passport-integrity-scan` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | photo-archive | `0 4 * * *` | `/api/flipdesk/images/archive` | `$FLIPDESK_INTERNAL_JOB_SECRET` | not in the cron_runs ledger |
@@ -250,7 +253,7 @@ curl -fsS -X POST -H "X-Internal-Job-Secret: $<SECRET_ENV>" http://localhost:878
 | thumbnail-backfill | `*/5 * * * *` | `/api/jobs/thumbnail-backfill` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | trial-expiry | `15 0 * * *` | `/api/jobs/trial-expiry` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 
-_54 scheduled jobs. Default healthy response: 200 `{"ok":true,...}` (idle runs report skipped/zero counts). Generated from `src/lib/cron-runs.ts` CRON_REGISTRY — do not hand-edit._
+_57 scheduled jobs. Default healthy response: 200 `{"ok":true,...}` (idle runs report skipped/zero counts). Generated from `src/lib/cron-runs.ts` CRON_REGISTRY — do not hand-edit._
 <!-- cron-registry:end -->
 
 > **Cadence notes (US-496):**

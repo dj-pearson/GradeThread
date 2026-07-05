@@ -112,6 +112,29 @@ export function isPastHold(holdUntilMs: number | null | undefined, nowMs: number
   return holdUntilMs <= nowMs;
 }
 
+// ── Retry cap (pure) ────────────────────────────────────────────────────────
+//
+// A payout whose transfer keeps failing (bad Connect account, permanent Stripe
+// rejection) would otherwise be re-fired by every sweep forever. Cap the retry
+// window by age: once a payout is older than MAX_PAYOUT_RETRY_AGE_MS it's
+// considered permanently stuck and the sweep stops auto-retrying it (surfacing
+// it as a stale count rather than silently dropping it, so an operator can
+// investigate/settle it manually). 14 days comfortably covers transient Stripe
+// outages and Connect-onboarding lag while bounding the runaway-retry blast.
+export const MAX_PAYOUT_RETRY_AGE_MS = 14 * 24 * 60 * 60 * 1000;
+
+// Should an open (pending/failed) payout still be auto-retried? False once it's
+// older than the cap. A missing/garbage created_at is treated as retryable
+// (fail-open: a readable age is required to declare something stale).
+export function isPayoutRetryable(
+  createdAtMs: number | null | undefined,
+  nowMs: number,
+  maxAgeMs: number = MAX_PAYOUT_RETRY_AGE_MS,
+): boolean {
+  if (typeof createdAtMs !== "number" || !Number.isFinite(createdAtMs)) return true;
+  return nowMs - createdAtMs <= maxAgeMs;
+}
+
 // 1099 reporting flag: has the affiliate been paid at/over the threshold this
 // (calendar) year. A 0/negative threshold disables the flag.
 export function crossesTaxThreshold(paidYtd: number, threshold: number): boolean {

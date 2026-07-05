@@ -2,6 +2,7 @@
 
 import { assertEquals } from "@std/assert";
 import {
+  appstoreLapseSkippedByStripe,
   appstoreSubscriptionBlocksStripe,
   decideAppstorePrecedence,
 } from "../lib/appstore/precedence.ts";
@@ -83,6 +84,39 @@ Deno.test("Stripe mutation proceeds when App Store sub is not entitling", () => 
   assertEquals(appstoreSubscriptionBlocksStripe({}), false);
   assertEquals(
     appstoreSubscriptionBlocksStripe({ billing_source: null, subscription_status: "active" }),
+    false,
+  );
+});
+
+// ── US-1640: a delayed Apple EXPIRED/REVOKE must skip lapse when Stripe is live ──
+
+Deno.test("US-1640: delayed Apple lapse is skipped when a live Stripe sub exists", () => {
+  const stripeUser = {
+    flipdesk_subscription_id: "sub_x",
+    subscription_status: "active",
+    billing_source: "stripe",
+  };
+  // A lapsing notification (EXPIRED/REVOKE → canceled) must be a no-op.
+  assertEquals(appstoreLapseSkippedByStripe(true, stripeUser), true);
+  // A non-lapse (renewal / re-entitle) is never skipped by this guard.
+  assertEquals(appstoreLapseSkippedByStripe(false, stripeUser), false);
+});
+
+Deno.test("US-1640: Apple lapse still applies for a genuine App Store user", () => {
+  const appleUser = {
+    flipdesk_subscription_id: null,
+    subscription_status: "active",
+    billing_source: "appstore",
+  };
+  // No Stripe sub → the lapse must proceed (not skipped).
+  assertEquals(appstoreLapseSkippedByStripe(true, appleUser), false);
+  // A canceled Stripe sub doesn't protect against a lapse either.
+  assertEquals(
+    appstoreLapseSkippedByStripe(true, {
+      flipdesk_subscription_id: "sub_x",
+      subscription_status: "canceled",
+      billing_source: "stripe",
+    }),
     false,
   );
 });

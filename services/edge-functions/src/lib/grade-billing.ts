@@ -252,7 +252,11 @@ export async function runPaymentPrecedence(
       await supabaseAdmin
         .from("submissions")
         .update({ payment_status: "included", paid_at: new Date().toISOString() })
-        .eq("id", submissionId);
+        .eq("id", submissionId)
+        // US-1638: defense-in-depth at the charging chokepoint — every caller
+        // owner-verifies first, but scope the paid-flip to the charged account
+        // so a submissionId can never mark a DIFFERENT tenant's submission paid.
+        .eq("user_id", userId);
       // Zero-delta audit row, balance unchanged. US-398: balance_after is NULL
       // here — snapshotting user.grade_credit_balance was a NON-atomic read that
       // could drift if a concurrent debit/grant landed between read and insert.

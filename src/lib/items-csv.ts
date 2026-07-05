@@ -1,12 +1,29 @@
 import { csvBlob, downloadBlob } from "@/lib/download";
 import type { ItemFullRow } from "@/types/database";
 
-// Escapes a single CSV cell. Wraps in quotes only when the value contains
-// a comma, quote, or newline — keeps clean values un-quoted for readability
-// when the file is opened in Excel or Sheets.
+// US-1636: neutralize CSV / spreadsheet formula injection. Excel & Google
+// Sheets execute a cell whose text begins with = + - @ (or a leading tab / CR),
+// so a marketplace-sourced title/category/platform like `=HYPERLINK(...)` or
+// `=cmd|...` would run on open. Prefix such a cell with an apostrophe so the
+// spreadsheet treats it as literal text. Genuine numeric values (including
+// negative amounts like -5.00) are left intact so money columns still compute.
+export function neutralizeCsvFormula(s: string): string {
+  if (s === "") return s;
+  if (/^[=+\-@\t\r]/.test(s) && !isPlainNumber(s)) return `'${s}`;
+  return s;
+}
+
+function isPlainNumber(s: string): boolean {
+  const t = s.trim();
+  return t !== "" && Number.isFinite(Number(t));
+}
+
+// Escapes a single CSV cell. Neutralizes formula-injection first, then wraps in
+// quotes only when the value contains a comma, quote, or newline — keeps clean
+// values un-quoted for readability when the file is opened in Excel or Sheets.
 export function escapeCsvCell(value: unknown): string {
   if (value == null) return "";
-  const s = String(value);
+  const s = neutralizeCsvFormula(String(value));
   if (s.includes(",") || s.includes('"') || s.includes("\n")) {
     return `"${s.replace(/"/g, '""')}"`;
   }

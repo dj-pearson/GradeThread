@@ -12,6 +12,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { CREDIT_PACKS, GRADETHREAD_TIERS } from "@/lib/constants";
 import type { CreditPackSize } from "@/lib/constants";
 import { useBillingSummary, useBuyCreditPack } from "@/hooks/use-billing-summary";
+import { useRedirectStore } from "@/stores/redirect-store";
 import { track } from "@/lib/analytics";
 import { cn } from "@/lib/utils";
 import { Loader2, Sparkles } from "lucide-react";
@@ -61,6 +62,7 @@ export function CreditPackDialog({
 }: CreditPackDialogProps) {
   const { data: summary } = useBillingSummary();
   const buyPack = useBuyCreditPack();
+  const isRedirecting = useRedirectStore((s) => s.isRedirecting);
 
   const balance = summary?.grades.credit_balance ?? 0;
 
@@ -134,7 +136,7 @@ export function CreditPackDialog({
                         returnPath,
                       });
                     }}
-                    disabled={buyPack.isPending}
+                    disabled={buyPack.isPending || isRedirecting}
                   >
                     {isBuying ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
