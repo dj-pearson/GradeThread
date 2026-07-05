@@ -85,3 +85,29 @@ export async function routeOpsEventToAdmins(
     });
   }
 }
+
+// US-1657: notify all admins that an agent filed N proposals awaiting sign-off.
+// ONE notification per run (batched). Explicit recipient list forces delivery
+// (an "info"-severity, non-job.failed event would otherwise be suppressed).
+// Best-effort — never throws.
+export async function notifyAdminsProposalsFiled(
+  agentKey: string,
+  runId: string,
+  count: number,
+): Promise<void> {
+  if (count <= 0) return;
+  try {
+    const admins = await loadAllAdminIds();
+    if (!admins.length) return;
+    await routeOpsEventToAdmins({
+      type: "agent.proposals_filed",
+      severity: "info",
+      title: `${agentKey}: ${count} new proposal${count === 1 ? "" : "s"} awaiting review`,
+      link: "/admin/agents",
+      opsEventId: null,
+      notifyAdminIds: admins,
+    });
+  } catch {
+    // best-effort
+  }
+}

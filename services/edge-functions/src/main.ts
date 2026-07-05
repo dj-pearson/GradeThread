@@ -88,6 +88,7 @@ import { adminSettingsRoutes } from "./routes/admin-settings.ts";
 import { adminBulkRoutes } from "./routes/admin-bulk.ts";
 import { adminDashboardRoutes } from "./routes/admin-dashboard.ts";
 import { adminTasksRoutes } from "./routes/admin-tasks.ts";
+import { adminAgentsRoutes } from "./routes/admin-agents.ts";
 import { adminModerationRoutes } from "./routes/admin-moderation.ts";
 import { adminFraudRoutes } from "./routes/admin-fraud.ts";
 import { adminSafetyRoutes } from "./routes/admin-safety.ts";
@@ -1064,6 +1065,8 @@ app.route("/api/admin/bulk", adminBulkRoutes);
 // US-1565: dashboard/system aggregates + task-board CRUD through the edge boundary.
 app.route("/api/admin/dashboard", adminDashboardRoutes);
 app.route("/api/admin/tasks", adminTasksRoutes);
+// US-1657 Agentic OS proposal sign-off (list/approve/reject) — ops:write, audited
+app.route("/api/admin/agents", adminAgentsRoutes);
 // US-476/477 admin content moderation (approve/reject/ban) — audited
 // service-role routes (admin JWT + AAL2 via the /api/admin/* group).
 app.route("/api/admin/moderation", adminModerationRoutes);

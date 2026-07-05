@@ -31,6 +31,7 @@ import { agentToolRegistry } from "./agent-tools.ts";
 import { applyWritePolicy } from "./agent-policy.ts";
 import { DEFAULT_PROPOSAL_TTL_HOURS, persistProposals } from "./agent-proposals.ts";
 import type { ProposalDraft } from "./agent-policy.ts";
+import { notifyAdminsProposalsFiled } from "./admin-notifications.ts";
 
 // ── Config + caps ────────────────────────────────────────────────────────────
 
@@ -238,6 +239,8 @@ export interface KernelDeps {
     drafts: ProposalDraft[],
     ttlHours: number,
   ) => Promise<number>;
+  // Notify admins of newly-filed proposals, batched per run (US-1657).
+  notifyProposalsFiled: (agentKey: string, runId: string, count: number) => Promise<void>;
   now: () => number;
 }
 
@@ -493,7 +496,8 @@ export async function runAgent(
       ? agent.config.proposal_ttl_hours
       : DEFAULT_PROPOSAL_TTL_HOURS;
     try {
-      await d.persistProposals(agent.id, runId, routed.proposals, ttlHours);
+      const filed = await d.persistProposals(agent.id, runId, routed.proposals, ttlHours);
+      if (filed > 0) await d.notifyProposalsFiled(agent.key, runId, filed);
     } catch (err) {
       console.warn(`[agent-kernel] persistProposals failed for run ${runId}: ${redactError(err)}`);
     }
@@ -639,6 +643,8 @@ export function prodKernelDeps(): KernelDeps {
     toolRegistry: agentToolRegistry,
     persistProposals: (agentId, runId, drafts, ttlHours) =>
       persistProposals(agentId, runId, drafts, ttlHours),
+    notifyProposalsFiled: (agentKey, runId, count) =>
+      notifyAdminsProposalsFiled(agentKey, runId, count),
     now: () => Date.now(),
   };
 }

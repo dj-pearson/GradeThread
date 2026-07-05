@@ -11858,7 +11858,7 @@
       "title": "Proposal admin surface: /api/admin/agents list/approve/reject + notifications",
       "description": "As the operator, I want to list, approve, and reject agent proposals from the admin API (standard admin JWT + ops:write scope), with decisions audited and new pending proposals notified — the operator sign-off surface over the US-1587 lifecycle engine.",
       "priority": 2356,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 0][Module E] Transport half of US-1587 (split). Mirror routes/admin-tasks.ts; requireScope ops:write whole-router; register in lib/admin-scope-map.ts (admin-scope-coverage_test gate); mount /api/admin/agents in main.ts. Decisions call agent-proposals approve/reject + writeAuditLog. New pending proposals -> admin-notifications (batched per run). ops:write already seeded, no migration.",
       "acceptanceCriteria": [
         "routes/admin-agents.ts (mounted /api/admin/agents, inherits admin JWT+AAL2 from the /api/admin/* group; requireScope ops:write on the whole router): GET proposals (filter by status/agent), GET agents+runs, POST proposals/:id/approve, POST proposals/:id/reject (reason required)",
