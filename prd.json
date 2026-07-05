@@ -10828,7 +10828,7 @@
         "Deno tests: assembly respects token cap, dedup-by-key, pruning behavior; lint + check clean"
       ],
       "priority": 2319,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 2][Module K — Knowledge & Memory] Read AGENTIC_OS.md §3.K. Memory quality beats quantity — the caps are the feature; do not make them generous.",
       "dependsOn": [
         "US-1584"

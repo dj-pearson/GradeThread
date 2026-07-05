@@ -31,6 +31,15 @@ import { getSetting } from "./system-settings.ts";
 import { agentToolRegistry } from "./agent-tools.ts";
 import { applyWritePolicy, recordPolicyBreach } from "./agent-policy.ts";
 import { DEFAULT_PROPOSAL_TTL_HOURS, persistProposals } from "./agent-proposals.ts";
+import {
+  applyMemoryWrites,
+  formatMemoryBlock,
+  MEMORY_ROW_CAP,
+  type MemoryRow,
+  type MemoryWrite,
+  parseMemoryWrites,
+  selectMemoryForContext,
+} from "./agent-memory.ts";
 import type { ProposalDraft } from "./agent-policy.ts";
 import { notifyAdminsProposalsFiled } from "./admin-notifications.ts";
 import { emitOpsEvent } from "./ops-events.ts";
@@ -119,6 +128,9 @@ export interface AgentOutcome {
   summary: string;
   findings: unknown[];
   proposals: unknown[];
+  // US-1606: optional durable-memory writes the agent emitted this run
+  // ({ kind, key, content }); persisted dedup-by-key under a hard cap.
+  memory?: unknown[];
   // Set on a non-clean finish (timeout / budget-skip / pause) so downstream
   // consumers can tell a partial outcome from a validated one.
   partial?: boolean;
@@ -151,7 +163,14 @@ export function parseAgentOutcome(text: string): OutcomeParse {
   if (!Array.isArray(o.proposals)) return { ok: false, error: "proposals must be an array" };
   return {
     ok: true,
-    outcome: { summary: o.summary, findings: o.findings, proposals: o.proposals },
+    outcome: {
+      summary: o.summary,
+      findings: o.findings,
+      proposals: o.proposals,
+      // US-1606: optional memory writes (absent/malformed → left undefined; the
+      // kernel validates each entry via parseMemoryWrites before persisting).
+      ...(Array.isArray(o.memory) ? { memory: o.memory } : {}),
+    },
   };
 }
 
@@ -253,6 +272,11 @@ export interface KernelDeps {
   notifyProposalsFiled: (agentKey: string, runId: string, count: number) => Promise<void>;
   // Emit an agent.* ops event (US-1589). Fire-and-forget.
   emitEvent: (type: string, severity: AgentEventSeverity, data: Record<string, unknown>) => void;
+  // US-1606: durable memory. loadMemory returns the agent's stored rows (the
+  // kernel selects + injects the top-N); persistMemory upserts the run's writes
+  // dedup-by-key and enforces the row cap. Both best-effort (never fail a run).
+  loadMemory: (agentId: string) => Promise<MemoryRow[]>;
+  persistMemory: (agentId: string, writes: MemoryWrite[]) => Promise<void>;
   now: () => number;
 }
 
@@ -404,9 +428,20 @@ export async function runAgent(
     (typeof agent.config.system_prompt === "string" && agent.config.system_prompt
       ? agent.config.system_prompt
       : DEFAULT_SYSTEM_PROMPT);
-  const messages: Anthropic.MessageParam[] = [
-    { role: "user", content: `System context: ${systemPrompt}\n\nBegin your run for trigger "${trigger}".` },
-  ];
+
+  // US-1606: inject the agent's top-N durable memory (best-effort — a load
+  // failure or empty memory leaves the prompt byte-identical to before).
+  let memoryBlock = "";
+  try {
+    const rows = await d.loadMemory(agent.id);
+    memoryBlock = formatMemoryBlock(selectMemoryForContext(rows));
+  } catch {
+    memoryBlock = "";
+  }
+  const context = memoryBlock
+    ? `System context: ${systemPrompt}\n\n${memoryBlock}\n\nBegin your run for trigger "${trigger}".`
+    : `System context: ${systemPrompt}\n\nBegin your run for trigger "${trigger}".`;
+  const messages: Anthropic.MessageParam[] = [{ role: "user", content: context }];
 
   let tokensIn = 0;
   let tokensOut = 0;
@@ -575,6 +610,17 @@ export async function runAgent(
     }
   }
 
+  // US-1606: persist any durable-memory writes the agent emitted (dedup-by-key +
+  // cap enforced in persistMemory). Best-effort — never fails the run.
+  const memoryWrites: MemoryWrite[] = parseMemoryWrites(parsed.outcome.memory);
+  if (memoryWrites.length) {
+    try {
+      await d.persistMemory(agent.id, memoryWrites);
+    } catch (err) {
+      console.warn(`[agent-kernel] persistMemory failed for run ${runId}: ${redactError(err)}`);
+    }
+  }
+
   await d.recordStep(runId, {
     seq: seq++,
     stepType: "output",
@@ -737,6 +783,35 @@ export function prodKernelDeps(): KernelDeps {
         source: "agent-kernel",
         data,
       });
+    },
+    loadMemory: async (agentId) => {
+      const { data } = await supabaseAdmin
+        .from("agent_memory")
+        .select("id, kind, key, content, weight, updated_at")
+        .eq("agent_id", agentId)
+        .order("weight", { ascending: false })
+        .limit(MEMORY_ROW_CAP);
+      return (data ?? []) as MemoryRow[];
+    },
+    persistMemory: async (agentId, writes) => {
+      if (!writes.length) return;
+      const { data } = await supabaseAdmin
+        .from("agent_memory")
+        .select("id, kind, key, content, weight, updated_at")
+        .eq("agent_id", agentId);
+      const existing = (data ?? []) as MemoryRow[];
+      const { rows, evicted, upserts } = applyMemoryWrites(existing, writes, { nowIso: new Date().toISOString() });
+      const surviving = new Set(rows.map((r) => `${r.kind} ${r.key}`));
+      const toUpsert = upserts
+        .filter((u) => surviving.has(`${u.kind} ${u.key}`))
+        .map((u) => ({ agent_id: agentId, kind: u.kind, key: u.key, content: u.content, weight: u.weight, updated_at: u.updated_at }));
+      if (toUpsert.length) {
+        await supabaseAdmin.from("agent_memory").upsert(toUpsert as never, { onConflict: "agent_id,kind,key" });
+      }
+      const evictIds = evicted.map((e) => e.id).filter((x): x is string => typeof x === "string");
+      if (evictIds.length) {
+        await supabaseAdmin.from("agent_memory").delete().in("id", evictIds);
+      }
     },
     now: () => Date.now(),
   };

@@ -166,6 +166,35 @@ adminAgentsRoutes.get("/runs", async (c) => {
   return c.json({ runs: data ?? [] });
 });
 
+// US-1606: an agent's durable memory (strongest first) for the Mission Control
+// card. Operator data (agent_memory is deny-all RLS, service-role only).
+adminAgentsRoutes.get("/agents/:id/memory", async (c) => {
+  const agentId = c.req.param("id");
+  const { data, error } = await supabaseAdmin
+    .from("agent_memory")
+    .select("id, kind, key, content, weight, updated_at")
+    .eq("agent_id", agentId)
+    .order("weight", { ascending: false })
+    .order("updated_at", { ascending: false })
+    .limit(100);
+  if (error) return jsonError(c, 500, "Failed to load agent memory");
+  return c.json({ memory: data ?? [] });
+});
+
+// US-1606: operator delete of a bad memory row (by id).
+adminAgentsRoutes.delete("/agents/memory/:memoryId", async (c) => {
+  const memoryId = c.req.param("memoryId");
+  const { error } = await supabaseAdmin.from("agent_memory").delete().eq("id", memoryId);
+  if (error) return jsonError(c, 500, "Failed to delete memory");
+  await writeAuditLog(c, {
+    action: "agent.memory_deleted",
+    targetType: "agent_memory",
+    targetId: memoryId,
+    details: { memory_id: memoryId },
+  });
+  return c.json({ ok: true });
+});
+
 // US-1589: a run's full ordered transcript for the Mission Control viewer. Step
 // input/output were redacted at WRITE time by the kernel (log-redact) — returned
 // as-is, never re-redacted.

@@ -80,6 +80,9 @@ function harness(
     emitEvent: over.emitEvent ?? ((type, severity) => {
       events.push({ type, severity });
     }),
+    // US-1606: memory seams — default to empty/no-op so tests stay offline.
+    loadMemory: over.loadMemory ?? (() => Promise.resolve([])),
+    persistMemory: over.persistMemory ?? (() => Promise.resolve()),
     now: over.now ?? (() => (clock += 10)),
   };
   return { deps, steps, finalized, events, stepCalls: () => stepCalls };
@@ -123,6 +126,49 @@ Deno.test("runAgent: happy path returns a validated outcome and succeeds", async
   assertEquals(h.finalized.at(-1)?.status, "succeeded");
   // US-1589: run.started then run.finished emitted.
   assertEquals(h.events.map((e) => e.type), ["agent.run.started", "agent.run.finished"]);
+});
+
+// ── US-1606: memory load → inject, output → persist ──────────────────────────
+
+Deno.test("runAgent: injects loaded memory into the run context + persists emitted writes", async () => {
+  let seenContext = "";
+  let persisted: { agentId: string; writes: unknown[] } | null = null;
+  const step: KernelStepFn = (messages) => {
+    seenContext = typeof messages[0]?.content === "string" ? messages[0].content : "";
+    return Promise.resolve(
+      endTurn('{"summary":"ok","findings":[],"proposals":[],"memory":[{"kind":"fact","key":"seller_tz","content":"UTC"}]}'),
+    );
+  };
+  const h = harness(step, {
+    loadMemory: () =>
+      Promise.resolve([
+        { kind: "fact", key: "known_ring", content: "cus_42 spans 3 accts", weight: 5, updated_at: "2026-07-01T00:00:00.000Z" },
+      ]),
+    persistMemory: (agentId, writes) => {
+      persisted = { agentId, writes };
+      return Promise.resolve();
+    },
+  });
+  const res = await runAgent("sentinel", "cron", h.deps);
+  assertEquals(res.status, "succeeded");
+  // The loaded memory was injected into the model's context.
+  assert(seenContext.includes("MEMORY"));
+  assert(seenContext.includes("known_ring"));
+  // The emitted write was parsed + handed to persistMemory.
+  assert(persisted !== null);
+  assertEquals((persisted as { writes: Array<{ key: string }> }).writes[0].key, "seller_tz");
+});
+
+Deno.test("runAgent: no memory loaded → context byte-identical to the memory-free prompt", async () => {
+  let seenContext = "";
+  const step: KernelStepFn = (messages) => {
+    seenContext = typeof messages[0]?.content === "string" ? messages[0].content : "";
+    return Promise.resolve(endTurn('{"summary":"ok","findings":[],"proposals":[]}'));
+  };
+  const h = harness(step, { loadMemory: () => Promise.resolve([]) });
+  await runAgent("sentinel", "cron", h.deps);
+  assert(!seenContext.includes("MEMORY"));
+  assert(seenContext.startsWith("System context:"));
 });
 
 // ── Step-cap kill ────────────────────────────────────────────────────────────

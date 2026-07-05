@@ -11340,3 +11340,41 @@ VERIFY: deno lint clean (7 files). deno test/check un-runnable locally (network
 policy) — CI is the safety net. Validated ALL missed-tick/suppression/creep/report
 logic standalone in node (with a minimal hourly nextCronRun) — every expectation
 reproduces. prd-lint (US-1612) run after the edit — still OK.
+
+=== 2026-07-05 (loop: non-android prd): US-1606 (Agent memory) ===
+THE ASK: durable per-agent learnings assembled into context each run, deduped by
+key, curated + pruned. THE CAPS ARE THE FEATURE (keep them tight). The
+agent_memory table already exists (00357) — NO migration.
+- NEW lib agent-memory.ts (PURE, fixture-tested):
+  - selectMemoryForContext: strongest-first (weight desc, recency), stops at the
+    row cap (8) OR token budget (800, ~chars/4) — always >=1 row.
+  - formatMemoryBlock: SELF-DESCRIBING context block (explains what memory is +
+    how to record a new one) so charters need not each repeat it (satisfies "the
+    charter tells the model what memory is").
+  - applyMemoryWrites: dedup-by-(kind,key) — UPDATE + bump weight (cap 10), never
+    append; enforce the hard per-agent row cap (40) by evicting the weakest.
+  - curateMemory: decay (0.8) + prune below the floor (0.3, a proxy for "unused
+    for M runs" — a memory keeps strength only if re-written) + cap.
+  - parseMemoryWrites: validate the model's {kind,key,content} array.
+- KERNEL wiring (agent-kernel.ts, NON-BREAKING — memory only acts when present):
+  AgentOutcome gains optional `memory`; parseAgentOutcome passes it through;
+  KernelDeps gains loadMemory/persistMemory seams (prod impls + test-harness
+  defaults so tests stay offline); runAgent injects the top-N memory block into
+  the run context (empty -> prompt byte-identical); post-run persists the emitted
+  writes (dedup + cap via the pure core).
+- CURATION kernel-side (AC allows "job OR kernel-side"): chose kernel-side to
+  AVOID the CRON_REGISTRY drift chain (COOLIFY.md/LAUNCH_CHECKLIST.md docs +
+  drift test). agent-tick.ts runs runMemoryCuration weekly via a system_settings
+  watermark (agents.memory_curation_last); pruning logged as agent.memory.pruned
+  ops events. New lib agent-memory-curation.ts.
+- MISSION CONTROL: admin-agents.ts GET /agents/:id/memory (read) + DELETE
+  /agents/memory/:id (operator delete of a bad memory, audited).
+- TESTS: agent-memory_test.ts (selection token+row caps, dedup update-not-append,
+  cap eviction, malformed-ignored, curation decay/prune/cap, parse);
+  agent-kernel_test.ts (memory load->inject into context + output->persist;
+  no-memory -> byte-identical prompt); agent-tick_test.ts harness updated.
+VERIFY: deno lint clean (10 files). deno test/check un-runnable locally (network
+policy) — CI is the safety net. Validated ALL pure logic standalone in node:
+selection caps, dedup+bump, cap eviction, curation decay/prune/cap reproduce
+every expectation. Existing kernel/tick tests use field-level asserts (not exact
+shape) so the new optional fields don't break them. NO migration.
