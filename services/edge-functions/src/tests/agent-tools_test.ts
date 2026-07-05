@@ -45,6 +45,7 @@ function fakeIO(over: Partial<ToolIO> = {}): { io: ToolIO; audits: AuditLogInput
     fetchCeoBriefData: () => Promise.resolve({ agents: [], metrics: [], latestRuns: [], pendingProposals: [] }),
     fetchReferralCounts: () => Promise.resolve({ current: 0, prior: 0 }),
     fetchAgentPriorOutcome: () => Promise.resolve(null),
+    fetchMaintenanceIntervals: () => Promise.resolve([]),
     runJob: () => Promise.resolve({ ok: true, status: 200 }),
     requeueEmailDeadLetter: () => Promise.resolve(true),
     resolveAgentTaskProject: () => Promise.resolve("proj-1"),
@@ -242,6 +243,21 @@ Deno.test("US-1604: get_integrations_health assembles a memo from the reads", as
   };
   assertEquals(res.memo?.token_fleet?.expired, 1);
   assertEquals(res.memo?.all_clear, false);
+});
+
+// ── US-1611: get_cron_fleet_health report ────────────────────────────────────
+
+Deno.test("US-1611: get_cron_fleet_health flags a stalled recorded job", async () => {
+  // autolister-reclaim is */5; with NO recent runs it's stalled over the window.
+  const { io } = fakeIO({ fetchCronRuns: () => Promise.resolve([]) });
+  const reg = createAgentToolRegistry(io);
+  const a = agent(["get_cron_fleet_health"]);
+  const res = await reg.execute(a, "get_cron_fleet_health", { lookback_hours: 6 }) as {
+    report?: { all_clear?: boolean; stalled?: Array<{ name: string; missed: number }> };
+  };
+  assertEquals(res.report?.all_clear, false);
+  assert((res.report?.stalled?.length ?? 0) > 0);
+  assert((res.report?.stalled ?? []).every((s) => s.missed > 0));
 });
 
 // ── US-1602: get_growth_health memo ──────────────────────────────────────────

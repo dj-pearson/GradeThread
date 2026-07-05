@@ -11306,3 +11306,37 @@ exercised every error path (nextId, archive-max, dupes, missing fields, bad
 types, unknown deps, archive-dep-ok, cycles, no-false-cycle, accumulation-warns,
 learnings, clean, blocked, parseIdNum, parse-entries) — ALL PASS. Vitest tests
 mirror these (run in CI; vitest not installed locally). NO migration (host-side).
+
+=== 2026-07-05 (loop: non-android prd): US-1611 (Cron-fleet governance) ===
+THE ASK: runtime health of the ~54-job schedule itself — the continuous DIFF
+between CRON_REGISTRY (schedule) and cron_runs (reality). Missed-tick detection,
+duration creep, maintenance-window suppression (no false alarms).
+- NEW lib cron-fleet-governance.ts (PURE, fixture-tested) — REUSES the tested
+  nextCronRun() so "expected" == what Coolify actually fires:
+  - expectedTicks: enumerate a schedule's fire times in a window via nextCronRun
+    (capped at 2000, surfaces `capped` — NO silent truncation).
+  - detectMissedTicks: a slot [tick[i], tick[i+1]) is MISSED when no run landed
+    in it and it fully elapsed. INTERVAL-AGNOSTIC (no fixed tolerance — the slot
+    IS the tolerance). Maintenance windows over the slot start suppress the miss.
+    Also computes consecutive_missed (a stall signal, recomputed cleanly).
+  - detectDurationCreep: older-half baseline vs newer-half recent avg; creep when
+    recent >1.5x baseline (>=6 samples, else inconclusive).
+  - assembleCronFleetReport: per-job scorecard (skips one-offs/unrecorded);
+    stalled (missed>0) / slow (creeping) lists + fleet verdict.
+- TOOL get_cron_fleet_health: CRON_REGISTRY (in-code) + fetchCronRuns (existing)
+  + NEW fetchMaintenanceIntervals (maintenance_windows overlapping the lookback;
+  open-ended -> Infinity; .or() on a SELECT which is allowed per the CLAUDE.md
+  gotcha). CHARTER + registered.
+- DECISION (documented in 00367): a SMALL DEDICATED weekly agent (module J)
+  rather than folding into Sentinel — Sentinel is 30m incident triage; fleet
+  governance is a weekly schedule-vs-reality diff, a distinct concern.
+- SEED migration 00367 (paused, L0, weekly, idempotent, self-records).
+  EXPECTED_SCHEMA_VERSION 00366->00367. HELD.
+- TESTS: cron-fleet-governance_test.ts (expected ticks, missed-tick no-runs/
+  runs-each-slot/maintenance-suppression, inMaintenance open-ended, duration
+  creep detect/steady/few-samples, report stalled-vs-healthy + one-off exclusion);
+  agent-tools_test.ts (get_cron_fleet_health flags a stalled job).
+VERIFY: deno lint clean (7 files). deno test/check un-runnable locally (network
+policy) — CI is the safety net. Validated ALL missed-tick/suppression/creep/report
+logic standalone in node (with a minimal hourly nextCronRun) — every expectation
+reproduces. prd-lint (US-1612) run after the edit — still OK.

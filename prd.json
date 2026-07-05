@@ -10953,7 +10953,7 @@
         "Deno tests: missed-tick math against fixture schedules incl. maintenance-window suppression, duration-creep detection; lint + check clean"
       ],
       "priority": 2314,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 2][Module J — Jobs Orchestrator] Read AGENTIC_OS.md §3.J. The registry knows the schedule (CRON_REGISTRY), the ledger knows reality (cron_runs) — this story is the diff between them, continuously.",
       "dependsOn": [
         "US-1588"

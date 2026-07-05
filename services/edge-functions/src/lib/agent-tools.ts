@@ -42,6 +42,7 @@ import {
   type PendingAction,
 } from "./ceo-brief.ts";
 import { assembleGrowthMemo } from "./growth-agent.ts";
+import { assembleCronFleetReport, type JobRun, type MaintenanceInterval } from "./cron-fleet-governance.ts";
 import { type ReorderReviewQueueResult, reorderReviewQueue } from "./review-queue-order.ts";
 import { resolveRevenueWindow } from "./revenue-window.ts";
 import { type AuditLogInput, writeSystemAuditLog } from "./audit-log.ts";
@@ -219,6 +220,9 @@ export interface ToolIO {
   // outcome (the last experiment slate, for week-over-week continuity).
   fetchReferralCounts(curStartIso: string, curEndIso: string, priorStartIso: string): Promise<{ current: number; prior: number }>;
   fetchAgentPriorOutcome(agentId: string): Promise<unknown>;
+  // US-1611: maintenance windows overlapping the lookback (to suppress missed-
+  // tick false alarms). Open-ended windows → endMs Infinity.
+  fetchMaintenanceIntervals(sinceIso: string): Promise<MaintenanceInterval[]>;
   // ── Write-side (used only by executeWrite / approved proposals) ──
   // Re-fire a registered cron job by key over the internal job rails.
   runJob(jobKey: string): Promise<{ ok: boolean; status: number; error?: string }>;
@@ -508,6 +512,21 @@ export function prodToolIO(): ToolIO {
         .limit(1)
         .maybeSingle();
       return (data as { outcome?: unknown } | null)?.outcome ?? null;
+    },
+    fetchMaintenanceIntervals: async (sinceIso) => {
+      // Windows active now OR that ended within the lookback still suppress ticks
+      // that fell inside their past interval.
+      const { data } = await supabaseAdmin
+        .from("maintenance_windows")
+        .select("starts_at, ends_at, is_active")
+        .or(`ends_at.is.null,ends_at.gte.${sinceIso}`)
+        .limit(200);
+      return ((data ?? []) as Array<{ starts_at: string | null; ends_at: string | null; is_active: boolean }>)
+        .filter((w) => w.is_active || w.ends_at !== null)
+        .map((w) => ({
+          startMs: w.starts_at ? Date.parse(w.starts_at) : -Infinity,
+          endMs: w.ends_at ? Date.parse(w.ends_at) : Infinity,
+        }));
     },
     runJob: async (jobKey) => {
       // Only registered, runnable cron jobs — never an arbitrary URL.
@@ -1051,6 +1070,36 @@ const TOOL_LIST: AgentToolDef[] = [
         priorSlate,
       });
       return { memo };
+    },
+  },
+  {
+    name: "get_cron_fleet_health",
+    description: "Cron-fleet governance report (US-1611): the diff between the CRON_REGISTRY schedule and cron_runs reality — per-job missed-tick detection (a scheduled slot with no run), duration creep, and a fleet scorecard of stalled/slow jobs. Missed ticks inside a maintenance window are suppressed (no false alarms). Read-only.",
+    class: "read",
+    inputSchema: {
+      type: "object",
+      properties: { lookback_hours: { type: "integer", minimum: 1, maximum: 168, description: "window for missed-tick + creep analysis" } },
+    },
+    handler: async (input, ctx) => {
+      const lookbackHours = clampInt(input.lookback_hours, 24, 1, 168);
+      const lookbackMs = lookbackHours * 3600_000;
+      const sinceIso = new Date(ctx.now - lookbackMs).toISOString();
+      const [runs, maintenance] = await Promise.all([
+        ctx.io.fetchCronRuns(20000),
+        ctx.io.fetchMaintenanceIntervals(sinceIso),
+      ]);
+      const runsByJob: Record<string, JobRun[]> = {};
+      for (const r of runs) {
+        (runsByJob[r.job_name] ??= []).push({ created_at: r.created_at, duration_ms: r.duration_ms });
+      }
+      const report = assembleCronFleetReport({
+        registry: CRON_REGISTRY,
+        runsByJob,
+        maintenance,
+        nowMs: ctx.now,
+        lookbackMs,
+      });
+      return { report };
     },
   },
 

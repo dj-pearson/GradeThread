@@ -1,5 +1,21 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00367_seed_cron_governance_agent.sql (US-1611 / AGENTIC-OS Phase 2, 2026-07-05)
+
+**What:** seeds ONE `agents` row — the Cron Governance agent (module J),
+`status='paused'`, `autonomy='{}'` (L0), config = WEEKLY schedule / sonnet model /
+read-only allowlist (get_cron_fleet_health + get_cron_health) / $1 cap. It diffs
+CRON_REGISTRY vs cron_runs (missed ticks, maintenance-suppressed; duration creep)
+and files schedule-adjustment admin tasks (file_task) once an operator grants L1;
+it NEVER changes Coolify config. The prompt lives in the repo charter. `ON CONFLICT
+(key) DO NOTHING` (idempotent). Self-records '00367'.
+
+**Risk: LOW — one seed row into the operator agents table (00357).** No client
+reads. Seeded PAUSED. Edge boot guard now expects **00367**.
+
+**⚠️ Apply order:** apply after 00357–00366. Data-only (no `NOTIFY pgrst` needed).
+Redeploy the edge so its boot guard matches 00367.
+
 ## ⏳ HELD: 00366_seed_growth_agent.sql (US-1602 / AGENTIC-OS Phase 1, 2026-07-05)
 
 **What:** seeds ONE `agents` row — the Growth agent (module R), `status='paused'`,
