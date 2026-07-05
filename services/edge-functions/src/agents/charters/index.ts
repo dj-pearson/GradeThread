@@ -9,6 +9,7 @@ import type { AgentCharter } from "./types.ts";
 import { SENTINEL_CHARTER } from "./sentinel.ts";
 import { GRADING_QUALITY_CHARTER } from "./grading-quality.ts";
 import { INTEGRATIONS_WATCHDOG_CHARTER } from "./integrations-watchdog.ts";
+import { FINANCE_AGENT_CHARTER } from "./finance-agent.ts";
 
 export type { AgentCharter };
 
@@ -16,6 +17,7 @@ const CHARTERS: Record<string, AgentCharter> = {
   [SENTINEL_CHARTER.key]: SENTINEL_CHARTER,
   [GRADING_QUALITY_CHARTER.key]: GRADING_QUALITY_CHARTER,
   [INTEGRATIONS_WATCHDOG_CHARTER.key]: INTEGRATIONS_WATCHDOG_CHARTER,
+  [FINANCE_AGENT_CHARTER.key]: FINANCE_AGENT_CHARTER,
 };
 
 export function charterFor(agentKey: string): AgentCharter | null {

@@ -29,6 +29,8 @@ function fakeIO(over: Partial<ToolIO> = {}): { io: ToolIO; audits: AuditLogInput
     },
     now: () => NOW,
     fetchKeyRotationState: () => Promise.resolve({}),
+    fetchReconciliationFlags: () => Promise.resolve([]),
+    fetchRecentPayouts: () => Promise.resolve({ affiliate: [], consignor: [] }),
     runJob: () => Promise.resolve({ ok: true, status: 200 }),
     requeueEmailDeadLetter: () => Promise.resolve(true),
     resolveAgentTaskProject: () => Promise.resolve("proj-1"),
@@ -226,6 +228,28 @@ Deno.test("US-1604: get_integrations_health assembles a memo from the reads", as
   };
   assertEquals(res.memo?.token_fleet?.expired, 1);
   assertEquals(res.memo?.all_clear, false);
+});
+
+// ── US-1596: get_finance_health composite read tool ──────────────────────────
+
+Deno.test("US-1596: get_finance_health ranks reconciliation deltas + is not all-clear", async () => {
+  const { io } = fakeIO({
+    fetchReconciliationFlags: () =>
+      Promise.resolve([
+        { subject_user_id: "u1", kind: "plan_divergence", db_status: "active", expected_status: "active", db_plan: "pro", expected_plan: "starter", detected_at: new Date(NOW - 5 * 86400_000).toISOString() },
+        { subject_user_id: "u2", kind: "status_divergence", db_status: "active", expected_status: "canceled", db_plan: "pro", expected_plan: "pro", detected_at: new Date(NOW - 1 * 86400_000).toISOString() },
+      ]),
+    rpc: (name) => Promise.resolve(name === "revenue_dashboard" ? { total_revenue: 100 } : {}),
+  });
+  const reg = createAgentToolRegistry(io);
+  const a = agent(["get_finance_health"]);
+  const res = await reg.execute(a, "get_finance_health", {}) as {
+    memo?: { all_clear?: boolean; reconciliation?: { open?: number; ranked?: Array<{ kind: string }> } };
+  };
+  assertEquals(res.memo?.all_clear, false);
+  assertEquals(res.memo?.reconciliation?.open, 2);
+  // status_divergence outranks plan_divergence despite being newer.
+  assertEquals(res.memo?.reconciliation?.ranked?.[0].kind, "status_divergence");
 });
 
 // ── US-1658: reorder_review_queue write tool ─────────────────────────────────

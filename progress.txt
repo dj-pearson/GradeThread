@@ -11066,3 +11066,37 @@ VERIFY: deno lint clean (7 files). deno test/check un-runnable locally (sandbox
 network policy 403s deno.land + esm.sh; no cached remote deps) — CI is the safety
 net. Validated ALL pure logic standalone in node: rotation statuses, cumulative
 token buckets, and vendor verdicts reproduce every test expectation exactly.
+
+=== 2026-07-05 (loop: non-android prd): US-1596 (Finance agent) ===
+THE ASK: seed the Finance agent (Module F) — a daily books-watcher over
+reconciliation deltas, payout sanity, revenue-vs-baseline, and AI spend vs
+revenue. READ-HEAVY: narrates + files admin tasks; NEVER moves money/credits.
+- NEW lib finance-agent.ts (PURE deterministic core, fixture-tested):
+  - rankReconciliationFlags: open billing_reconciliation_flags ranked by
+    materiality (status_divergence > plan_divergence, then age), each with
+    db-vs-expected evidence (operator billing data; subject_user_id only).
+  - summarizePayoutRuns: affiliate + consignor payout outcomes → by_status +
+    failed count + failed_amount; any failure → verdict "attention".
+  - computeRevenueDelta/extractRevenueTotal: best-effort current-vs-trailing
+    revenue delta over the opaque revenue_dashboard doc (defensive key probe;
+    null when unknown → the agent narrates from the raw docs). 25% band flags
+    an anomaly.
+  - assembleFinanceMemo: composite + all_clear gate (recon + payouts + revenue).
+- TOOL get_finance_health (agent-tools.ts): new fetchReconciliationFlags +
+  fetchRecentPayouts reads + REUSES the rpc seam for revenue_dashboard (current +
+  trailing 30d windows) and ai_profitability (AC4 — reuses the US-1065 RPC, no
+  recompute). Allowlisted with get_revenue_window + get_ai_spend.
+- CHARTER finance-agent.ts + registered. Explicit envelope; all_clear→quiet day;
+  findings per domain; proposals are file_task admin tasks ONLY (recon divergence,
+  flag-account-for-review as a TASK never a direct action, failed payout run).
+- SEED migration 00361 (paused, L0, daily-after-reconciliation, idempotent,
+  self-records). EXPECTED_SCHEMA_VERSION 00360->00361. HELD — recorded in
+  PENDING_MIGRATIONS.md (LOW risk: one paused seed row, no client reads).
+- TESTS: finance-agent_test.ts (recon ranking incl. status>plan + age tiebreak +
+  evidence, payout sanity, revenue delta/anomaly + defensive extract, memo
+  all-clear + seeded-delta paths); agent-tools_test.ts (get_finance_health ranks
+  a seeded delta; fakeIO gains the two new reads).
+VERIFY: deno lint clean (7 files). deno test/check un-runnable locally (network
+policy blocks deno.land/esm.sh; no cached deps) — CI is the safety net. Validated
+ALL pure logic standalone in node: reconciliation ranking, payout sanity, revenue
+delta/extract reproduce every test expectation.

@@ -1,5 +1,22 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00361_seed_finance_agent.sql (US-1596 / AGENTIC-OS Phase 1, 2026-07-05)
+
+**What:** seeds ONE `agents` row — the Finance agent (module F), `status='paused'`,
+`autonomy='{}'` (L0), config = daily schedule / sonnet model / read-only allowlist
+(get_finance_health + get_revenue_window + get_ai_spend) / $2 daily cap. The prompt
+lives in the repo charter (`agents/charters/finance-agent.ts`). It has NO write
+tools of its own — it can only file admin tasks (file_task) once an operator grants
+L1; it never moves money or credits. `ON CONFLICT (key) DO NOTHING` (idempotent).
+Self-records '00361'.
+
+**Risk: LOW — one seed row into the operator agents table (00357).** No client
+reads. Seeded PAUSED, so it does nothing until an operator enables it. Edge boot
+guard now expects **00361**.
+
+**⚠️ Apply order:** apply after 00357–00360. Data-only (no `NOTIFY pgrst` needed).
+Redeploy the edge so its boot guard matches 00361.
+
 ## ⏳ HELD: 00360_seed_integrations_watchdog_agent.sql (US-1604 / AGENTIC-OS Phase 1, 2026-07-05)
 
 **What:** seeds ONE `agents` row — the Integrations Watchdog agent (module I),

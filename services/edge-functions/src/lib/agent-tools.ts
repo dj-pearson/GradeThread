@@ -30,6 +30,7 @@ import { aggregateJobStats, failingJobCount, isRunnableJob, type RawRun } from "
 import { CRON_REGISTRY, DEFAULT_JOB_SECRET_ENV } from "./cron-runs.ts";
 import { correlateIncidents, type Signal } from "./sentinel.ts";
 import { assembleGradingMemo, gatherGradingTelemetry } from "./grading-quality.ts";
+import { assembleFinanceMemo, type PayoutRow, type ReconFlag } from "./finance-agent.ts";
 import { assembleIntegrationsMemo, type RotationState } from "./integrations-watchdog.ts";
 import { type ReorderReviewQueueResult, reorderReviewQueue } from "./review-queue-order.ts";
 import { resolveRevenueWindow } from "./revenue-window.ts";
@@ -172,6 +173,10 @@ export interface ToolIO {
   // US-1604: operator-maintained map secret → last-rotated ISO (system_settings
   // `security.key_rotation_state`). Metadata only — never any secret material.
   fetchKeyRotationState(): Promise<RotationState>;
+  // US-1596: OPEN billing-reconciliation divergences (operator billing data).
+  fetchReconciliationFlags(limit: number): Promise<ReconFlag[]>;
+  // US-1596: recent affiliate + consignor payout-run outcomes since an ISO time.
+  fetchRecentPayouts(sinceIso: string): Promise<{ affiliate: PayoutRow[]; consignor: PayoutRow[] }>;
   // ── Write-side (used only by executeWrite / approved proposals) ──
   // Re-fire a registered cron job by key over the internal job rails.
   runJob(jobKey: string): Promise<{ ok: boolean; status: number; error?: string }>;
@@ -262,6 +267,33 @@ export function prodToolIO(): ToolIO {
         .maybeSingle();
       const v = (data as { value?: unknown } | null)?.value;
       return v && typeof v === "object" && !Array.isArray(v) ? v as RotationState : {};
+    },
+    fetchReconciliationFlags: async (limit) => {
+      const { data } = await supabaseAdmin
+        .from("billing_reconciliation_flags")
+        .select("subject_user_id, kind, db_status, expected_status, db_plan, expected_plan, detected_at")
+        .eq("status", "open")
+        .order("detected_at", { ascending: true })
+        .limit(limit);
+      return (data ?? []) as ReconFlag[];
+    },
+    fetchRecentPayouts: async (sinceIso) => {
+      const [{ data: aff }, { data: cons }] = await Promise.all([
+        supabaseAdmin.from("affiliate_payouts")
+          .select("status, amount, error, created_at").gte("created_at", sinceIso).limit(1000),
+        supabaseAdmin.from("consignor_payouts")
+          .select("status, amount, error, created_at").gte("created_at", sinceIso).limit(1000),
+      ]);
+      return {
+        affiliate: ((aff ?? []) as Array<Record<string, unknown>>).map((r) => ({
+          status: String(r.status), amount: Number(r.amount ?? 0),
+          error: (r.error as string | null) ?? null, created_at: String(r.created_at),
+        })),
+        consignor: ((cons ?? []) as Array<Record<string, unknown>>).map((r) => ({
+          status: String(r.status), amount: Number(r.amount ?? 0),
+          error: (r.error as string | null) ?? null, created_at: String(r.created_at),
+        })),
+      };
     },
     runJob: async (jobKey) => {
       // Only registered, runnable cron jobs — never an arbitrary URL.
@@ -652,6 +684,41 @@ const TOOL_LIST: AgentToolDef[] = [
         })),
         rotationState,
         emailDeadLetters: emailDead.length,
+        nowMs: ctx.now,
+      });
+      return { memo };
+    },
+  },
+  {
+    name: "get_finance_health",
+    description: "Finance agent memo (US-1596): open billing-reconciliation divergences ranked by materiality (with evidence), affiliate + consignor payout-run sanity, a current-vs-trailing revenue delta, and the AI-spend-vs-revenue profitability doc (reuses the ai_profitability RPC). Read-only — the agent narrates and files tasks; it never moves money.",
+    class: "read",
+    inputSchema: {
+      type: "object",
+      properties: { since_days: { type: "integer", minimum: 1, maximum: 90, description: "payout-run lookback window" } },
+    },
+    handler: async (input, ctx) => {
+      const sinceDays = clampInt(input.since_days, 7, 1, 90);
+      const sinceIso = new Date(ctx.now - sinceDays * 24 * 3600_000).toISOString();
+      // Two trailing 30-day windows for the revenue baseline comparison.
+      const WIN = 30 * 24 * 3600_000;
+      const curEnd = new Date(ctx.now).toISOString();
+      const curStart = new Date(ctx.now - WIN).toISOString();
+      const priorStart = new Date(ctx.now - 2 * WIN).toISOString();
+      const [reconFlags, payouts, revenueCurrent, revenuePrior, aiProfitability] = await Promise.all([
+        ctx.io.fetchReconciliationFlags(500),
+        ctx.io.fetchRecentPayouts(sinceIso),
+        ctx.io.rpc("revenue_dashboard", { p_start: curStart, p_end: curEnd, p_granularity: "day" }),
+        ctx.io.rpc("revenue_dashboard", { p_start: priorStart, p_end: curStart, p_granularity: "day" }),
+        ctx.io.rpc("ai_profitability", { p_period: "30d" }),
+      ]);
+      const memo = assembleFinanceMemo({
+        reconFlags,
+        affiliatePayouts: payouts.affiliate,
+        consignorPayouts: payouts.consignor,
+        revenueCurrent,
+        revenuePrior,
+        aiProfitability,
         nowMs: ctx.now,
       });
       return { memo };
