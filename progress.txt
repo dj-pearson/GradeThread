@@ -11269,3 +11269,40 @@ VERIFY: deno lint clean (7 files). deno test/check un-runnable locally (network
 policy) — CI is the safety net. Validated ALL pure logic standalone in node:
 conversion, cliff, regression banding, program-health verdicts reproduce every
 expectation.
+
+=== 2026-07-05 (loop: non-android prd): US-1612 (Ralph Governor: prd + loop hygiene) ===
+THE ASK: the OS maintains its own maker — host-side scripts that lint prd.json and
+digest progress. NOT edge code; NEVER auto-rewrite prd.json (report only).
+Picked this over the remaining harder Phase-1 agents (Marketing multi-channel
+collision, Support/User-Lifecycle user-facing writes) because it's FULLY
+VERIFIABLE LOCALLY (plain Node, no deno/esm.sh, no DB) — a real quality win.
+- NEW scripts/prd-lint.mjs (pure lintPrd + findCycles + streaming archive probe):
+  - nextId strictly > max id ANYWHERE — active max + a TARGETED archive max-id
+    probe that STREAMS prd.archive.json (1.6 MB) and regexes "id":"US-N" rather
+    than JSON-parsing it (CLAUDE.md rule).
+  - duplicate ids, required fields (id/title/description/acceptanceCriteria/
+    passes) + type checks, exits nonzero on errors.
+  - dependsOn: unknown-id refs (checked vs active ∪ archive ids) + cycle
+    detection (DFS; only active→active edges can cycle; archive edges are leaves).
+  - Accumulation guard (WARNING, not error): passes:true > 50 emits the
+    re-archive reminder WITH the stop-the-loop-first procedure VERBATIM
+    (scripts/ralph/stop-ralph.sh/.ps1 before any rewrite).
+  - LEARNINGS.md size guard (WARNING) past 800 lines.
+- NEW scripts/prd-digest.mjs (pure digest + parseProgressEntries + computeBlocked):
+  terse markdown — backlog counts (done/open/ready/blocked), progress entries
+  landed since a --since date, and blocked stories (open dependsOn on another
+  OPEN story; deps on done/archived ids are satisfied).
+- WIRING: package.json test:scripts / prd:lint / prd:digest; a dedicated
+  vitest.scripts.config.mjs (node env, ISOLATED from the web coverage thresholds);
+  verify.mjs runs `node scripts/prd-lint.mjs` + the script tests FIRST in the web
+  lane (cheap early gate). Vitest coverage: scripts/prd-lint.test.mjs +
+  prd-digest.test.mjs over inline fixture prd objects.
+VERIFY (LOCAL — actually ran): `node scripts/prd-lint.mjs` on the REAL prd.json →
+759 active / 685 passes:true / max 1658 / nextId 1659, structurally OK, both
+warnings fire correctly, exit 0. `node scripts/prd-digest.mjs --since 2026-07-05`
+→ correctly lists all 8 stories landed this session + detects blocked
+US-1608→US-1607 and US-1613→US-1595. A 16-assertion standalone node harness
+exercised every error path (nextId, archive-max, dupes, missing fields, bad
+types, unknown deps, archive-dep-ok, cycles, no-false-cycle, accumulation-warns,
+learnings, clean, blocked, parseIdNum, parse-entries) — ALL PASS. Vitest tests
+mirror these (run in CI; vitest not installed locally). NO migration (host-side).

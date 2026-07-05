@@ -57,6 +57,10 @@ function run(name, cmd, opts = {}) {
 
 // ── Web (Node) — mirrors ci.yml "build" job ──────────────────────────────────
 if (on("web")) {
+  // US-1612: cheap prd.json hygiene gate FIRST — catches a bad nextId / dep
+  // cycle / dup id before the expensive lanes run.
+  run("web: prd-lint", "node scripts/prd-lint.mjs");
+  run("web: script tests (prd-lint/digest)", "npm run test:scripts");
   run("web: eslint", "npm run lint");
   run("web: tsc -b", "npx tsc -b");
   // Build BEFORE vitest: the prerender suite validates dist/, and CI runs it
