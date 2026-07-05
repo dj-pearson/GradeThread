@@ -36,8 +36,8 @@ import { supabaseAdmin } from "./supabase.ts";
 import { edgeEnv } from "./env.ts";
 
 // Bump this in the SAME commit that adds a migration. = highest NNNNN in
-// supabase/migrations/. (00357_agentic_os_kernel_schema.sql)
-export const EXPECTED_SCHEMA_VERSION = "00357";
+// supabase/migrations/. (00358_seed_sentinel_agent.sql)
+export const EXPECTED_SCHEMA_VERSION = "00358";
 
 export type SchemaVersionComparison = "match" | "behind" | "ahead" | "unknown";
 

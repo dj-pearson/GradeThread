@@ -35,6 +35,7 @@ import type { ProposalDraft } from "./agent-policy.ts";
 import { notifyAdminsProposalsFiled } from "./admin-notifications.ts";
 import { emitOpsEvent } from "./ops-events.ts";
 import { captureException, recordMetric } from "./observability.ts";
+import { charterFor } from "../agents/charters/index.ts";
 
 // The severities the agent.* ops events use.
 export type AgentEventSeverity = "info" | "warning" | "critical";
@@ -398,9 +399,11 @@ export async function runAgent(
   const startedAt = d.now();
   const step = d.makeStep(agent, model, caps.maxOutputTokens);
 
-  const systemPrompt = typeof agent.config.system_prompt === "string" && agent.config.system_prompt
-    ? agent.config.system_prompt
-    : DEFAULT_SYSTEM_PROMPT;
+  // US-1593: prefer the repo-versioned charter, then config, then the default.
+  const systemPrompt = charterFor(agentKey)?.systemPrompt ??
+    (typeof agent.config.system_prompt === "string" && agent.config.system_prompt
+      ? agent.config.system_prompt
+      : DEFAULT_SYSTEM_PROMPT);
   const messages: Anthropic.MessageParam[] = [
     { role: "user", content: `System context: ${systemPrompt}\n\nBegin your run for trigger "${trigger}".` },
   ];
@@ -691,9 +694,10 @@ export function prodKernelDeps(): KernelDeps {
     makeStep: (agent, model, maxOutputTokens) => {
       const client = getAnthropicClient();
       const tools = agentToolRegistry.anthropicTools(agent);
-      const system = typeof agent.config.system_prompt === "string" && agent.config.system_prompt
-        ? agent.config.system_prompt
-        : DEFAULT_SYSTEM_PROMPT;
+      const system = charterFor(agent.key)?.systemPrompt ??
+        (typeof agent.config.system_prompt === "string" && agent.config.system_prompt
+          ? agent.config.system_prompt
+          : DEFAULT_SYSTEM_PROMPT);
       return async (messages) => {
         const resp = await client.messages.create({
           model,

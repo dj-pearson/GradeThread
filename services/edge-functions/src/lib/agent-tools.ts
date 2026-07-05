@@ -28,6 +28,7 @@ import type { AgentRow, AgentToolRegistry } from "./agent-kernel.ts";
 import { supabaseAdmin } from "./supabase.ts";
 import { aggregateJobStats, failingJobCount, isRunnableJob, type RawRun } from "./ops-jobs.ts";
 import { CRON_REGISTRY, DEFAULT_JOB_SECRET_ENV } from "./cron-runs.ts";
+import { correlateIncidents, type Signal } from "./sentinel.ts";
 import { resolveRevenueWindow } from "./revenue-window.ts";
 import { type AuditLogInput, writeSystemAuditLog } from "./audit-log.ts";
 import { redact, redactError } from "./log-redact.ts";
@@ -136,6 +137,7 @@ interface OpsEventRow {
   acknowledged_at: string | null;
 }
 interface DeadLetterRow {
+  id: string | null;
   provider: string | null;
   last_error: string | null;
   attempt_count: number | null;
@@ -203,7 +205,7 @@ export function prodToolIO(): ToolIO {
     fetchWebhookDeadLetters: async (limit) => {
       const { data } = await supabaseAdmin
         .from("webhook_dead_letters")
-        .select("provider, last_error, attempt_count, created_at")
+        .select("id, provider, last_error, attempt_count, created_at")
         .eq("status", "unresolved")
         .order("created_at", { ascending: true })
         .limit(limit);
@@ -212,7 +214,7 @@ export function prodToolIO(): ToolIO {
     fetchEmailDeadLetters: async (limit) => {
       const { data } = await supabaseAdmin
         .from("email_deliveries")
-        .select("last_error, attempt_count, created_at")
+        .select("id, last_error, attempt_count, created_at")
         .eq("status", "dead_letter")
         .order("created_at", { ascending: true })
         .limit(limit);
@@ -413,11 +415,67 @@ const TOOL_LIST: AgentToolDef[] = [
         oldest_age_seconds: oldestAgeSeconds,
         samples: all.slice(0, 10).map((r) => ({
           source: r.source,
+          id: r.id,
           provider: r.provider ?? "unknown",
           attempt_count: r.attempt_count ?? 0,
           last_error: r.last_error ? redact(r.last_error) : null,
         })),
       };
+    },
+  },
+  {
+    name: "get_incidents",
+    description: "Correlated incidents: co-occurring cron failures, unresolved dead letters, and warning/critical ops events already grouped by subsystem + time window into a small set of root-cause incidents (Sentinel's primary input). Empty list = healthy.",
+    class: "read",
+    inputSchema: {
+      type: "object",
+      properties: {
+        since_hours: { type: "integer", minimum: 1, maximum: 168 },
+        window_minutes: { type: "integer", minimum: 1, maximum: 720 },
+      },
+    },
+    handler: async (input, ctx) => {
+      const sinceHours = typeof input.since_hours === "number" ? input.since_hours : 24;
+      const sinceMs = ctx.now - sinceHours * 3600_000;
+      const windowMs = (typeof input.window_minutes === "number" ? input.window_minutes : 30) * 60_000;
+
+      const [runs, webhooks, emails, events] = await Promise.all([
+        ctx.io.fetchCronRuns(4000),
+        ctx.io.fetchWebhookDeadLetters(200),
+        ctx.io.fetchEmailDeadLetters(200),
+        ctx.io.fetchOpsEvents({ severity: undefined, sinceIso: new Date(sinceMs).toISOString(), limit: 200 }),
+      ]);
+
+      const signals: Signal[] = [];
+      for (const r of runs) {
+        if (r.status !== "failed") continue;
+        if (Date.parse(r.created_at) < sinceMs) continue;
+        signals.push({ subsystem: r.job_name, kind: "cron_failure", ref: r.job_name, at: r.created_at });
+      }
+      for (const d of [...webhooks, ...emails]) {
+        if (Date.parse(d.created_at) < sinceMs) continue;
+        const source = d.provider === "email" ? "email" : "webhook";
+        signals.push({
+          subsystem: `${source}:${d.provider ?? "unknown"}`,
+          kind: "dead_letter",
+          ref: d.id ?? "",
+          at: d.created_at,
+          detail: d.last_error ? redact(d.last_error) : undefined,
+        });
+      }
+      for (const e of events) {
+        if (e.severity !== "warning" && e.severity !== "critical") continue;
+        signals.push({
+          subsystem: e.source ?? e.type,
+          kind: "ops_event",
+          ref: e.id,
+          at: e.created_at,
+          detail: e.title ?? e.type,
+        });
+      }
+
+      const incidents = correlateIncidents(signals, windowMs);
+      return { incident_count: incidents.length, incidents };
     },
   },
   {

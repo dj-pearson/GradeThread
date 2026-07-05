@@ -1,5 +1,22 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00358_seed_sentinel_agent.sql (US-1593 / AGENTIC-OS Phase 1, 2026-07-05)
+
+**What:** seeds ONE `agents` row — the Sentinel health/incident agent (module H),
+`status='paused'`, `autonomy='{}'` (L0), config = schedule 30m / haiku model /
+read-tool allowlist (get_incidents + ops reads) / $1 daily cap / 8 max steps.
+The prompt lives in the repo charter (`agents/charters/sentinel.ts`), not the
+row. `ON CONFLICT (key) DO NOTHING` (idempotent; never disturbs later operator
+edits). Self-records '00358'.
+
+**Risk: LOW — one seed row into a brand-new operator table (00357).** No client
+reads. The agent is seeded PAUSED, so it does nothing until an operator enables
+it in Mission Control. Edge boot guard now expects **00358**.
+
+**⚠️ Apply order:** apply after 00357 (the agents table must exist first). No
+`NOTIFY pgrst` strictly needed (no schema surface change — data only), but
+harmless. Redeploy the edge so its boot guard matches 00358.
+
 ## ⏳ HELD: 00357_agentic_os_kernel_schema.sql (US-1583 / AGENTIC-OS Phase 0, 2026-07-04)
 
 **What:** creates the five foundational Agentic OS operator tables — `agents`

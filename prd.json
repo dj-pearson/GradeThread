@@ -10491,7 +10491,7 @@
         "Deno tests over the charter's assembly + fixture correlation; lint + check clean"
       ],
       "priority": 2340,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 1][Module H — Sentinel] Read AGENTIC_OS.md §3.H. First domain agent — it also serves as the reference implementation for the seeding pattern (agent row migration + charter file + tool allowlist) that US-1594..1604 copy. Keep the charter file pattern reusable: charters/<agent-key>.ts or .md under services/edge-functions/src/agents/.",
       "dependsOn": [
         "US-1588",
