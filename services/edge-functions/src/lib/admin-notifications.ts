@@ -92,7 +92,7 @@ export async function routeOpsEventToAdmins(
 // Best-effort — never throws.
 export async function notifyAdminsProposalsFiled(
   agentKey: string,
-  runId: string,
+  _runId: string,
   count: number,
 ): Promise<void> {
   if (count <= 0) return;

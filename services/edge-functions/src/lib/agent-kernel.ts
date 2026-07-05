@@ -314,9 +314,9 @@ export async function runAgent(
   }
   if (!runId) return { ...empty, reason: "run_row_failed" };
 
-  // Captured once (agent is a `let` — TS won't keep the non-null narrowing inside
-  // the finalize closure). Observability keys off these.
-  const agentKey = agent.key;
+  // `agentKey` (the runAgent param) === agent.key (loadAgent found it by key), and
+  // stays valid inside the finalize closure where `agent` (a `let`) loses its
+  // non-null narrowing. Observability keys off it + runStartMs/seq.
   const runStartMs = d.now();
   let seq = 0;
 
