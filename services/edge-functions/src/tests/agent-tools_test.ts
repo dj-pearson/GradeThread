@@ -32,6 +32,14 @@ function fakeIO(over: Partial<ToolIO> = {}): { io: ToolIO; audits: AuditLogInput
     requeueEmailDeadLetter: () => Promise.resolve(true),
     resolveAgentTaskProject: () => Promise.resolve("proj-1"),
     insertAdminTask: () => Promise.resolve({ id: "task-1" }),
+    reorderReviewQueue: () =>
+      Promise.resolve({
+        persisted: true,
+        count: 0,
+        setting_key: "grading.review_queue_order",
+        rationale: "No pending reviews to reorder.",
+        top: [],
+      }),
     ...over,
   };
   return { io, audits };
@@ -197,4 +205,47 @@ Deno.test("registry: a write tool refuses to act without authorization context",
     error?: { code?: string };
   };
   assertEquals(res.error?.code, "invalid_input");
+});
+
+// ── US-1658: reorder_review_queue write tool ─────────────────────────────────
+
+Deno.test("US-1658: adjust_queue maps to the reorder_review_queue write tool", async () => {
+  const { ACTION_CLASS_TO_TOOL } = await import("../lib/agent-tools.ts");
+  assertEquals(ACTION_CLASS_TO_TOOL.adjust_queue, "reorder_review_queue");
+});
+
+Deno.test("US-1658: reorder_review_queue is a write tool — invisible to the run loop", () => {
+  const reg = createAgentToolRegistry(fakeIO().io);
+  // Even if an agent allowlists it, a write tool is never surfaced or runnable.
+  const a = agent(["reorder_review_queue", "get_cron_health"]);
+  assertEquals(reg.anthropicTools(a).map((t) => t.name), ["get_cron_health"]);
+  assertEquals(reg.isAllowed(a, "reorder_review_queue"), false);
+});
+
+Deno.test("US-1658: executeWrite(reorder_review_queue) runs on the approved path + passes authorization", async () => {
+  let seen: { limit: number; authorizedBy: string; proposalId: string | null } | null = null;
+  const { io, audits } = fakeIO({
+    reorderReviewQueue: (opts) => {
+      seen = opts;
+      return Promise.resolve({
+        persisted: true,
+        count: 3,
+        setting_key: "grading.review_queue_order",
+        rationale: "Reordered 3 pending reviews by information value.",
+        top: [{ rank: 1, report_id: "r1", info_value: 0.7, sla_floated: false }],
+      });
+    },
+  });
+  const reg = createAgentToolRegistry(io);
+  const res = await reg.executeWrite("reorder_review_queue", { limit: 50 }, {
+    authorizedBy: "admin-9",
+    proposalId: "prop-42",
+  }) as { persisted?: boolean; count?: number };
+  assertEquals(res.persisted, true);
+  assertEquals(res.count, 3);
+  // The approving admin + proposal are threaded to the impure orchestration.
+  assertEquals(seen!.authorizedBy, "admin-9");
+  assertEquals(seen!.proposalId, "prop-42");
+  assertEquals(seen!.limit, 50); // schema-clamped default path preserved the input
+  assertEquals(audits.at(-1)?.action, "agent.write_tool_executed");
 });

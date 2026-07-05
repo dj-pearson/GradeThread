@@ -148,12 +148,13 @@ export type GradingChangeKind =
   | string;
 
 // Map a grading-change intent to the ONLY dispositions this agent may take.
-// v1: EVERYTHING is a file_task — the agent has no grading write tools, and any
-// prompt/threshold/calibration/exemplar change MUST travel the shadow→eval→
-// canary lifecycle a human drives. (US-1658 will make reorder_review_queue an
-// executable adjust_queue proposal.)
-export function classifyGradingIntent(_kind: GradingChangeKind): "adjust_queue" | "file_task" {
-  return "file_task";
+// The one executable class is reorder_review_queue → adjust_queue (US-1658): a
+// grade-safe, approval-gated reorder of the human-review queue by information
+// value. EVERYTHING else is a file_task — the agent has no grading write tools,
+// and any prompt/threshold/calibration/exemplar change MUST travel the
+// shadow→eval→canary lifecycle a human drives.
+export function classifyGradingIntent(kind: GradingChangeKind): "adjust_queue" | "file_task" {
+  return kind === "reorder_review_queue" ? "adjust_queue" : "file_task";
 }
 
 // ── Impure gather (over the existing read libs) ──────────────────────────────

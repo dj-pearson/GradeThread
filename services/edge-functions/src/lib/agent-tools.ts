@@ -30,6 +30,7 @@ import { aggregateJobStats, failingJobCount, isRunnableJob, type RawRun } from "
 import { CRON_REGISTRY, DEFAULT_JOB_SECRET_ENV } from "./cron-runs.ts";
 import { correlateIncidents, type Signal } from "./sentinel.ts";
 import { assembleGradingMemo, gatherGradingTelemetry } from "./grading-quality.ts";
+import { type ReorderReviewQueueResult, reorderReviewQueue } from "./review-queue-order.ts";
 import { resolveRevenueWindow } from "./revenue-window.ts";
 import { type AuditLogInput, writeSystemAuditLog } from "./audit-log.ts";
 import { redact, redactError } from "./log-redact.ts";
@@ -178,6 +179,12 @@ export interface ToolIO {
   insertAdminTask(
     row: { project_id: string; title: string; body: string | null; priority: string; created_by: string | null },
   ): Promise<{ id: string } | null>;
+  // Recompute the info-value ranking of the pending human-review queue and
+  // persist the recommended order (US-1658). Grade-safe: never mutates a grade,
+  // prompt, threshold, or calibration — an advisory ordering artifact only.
+  reorderReviewQueue(
+    opts: { limit: number; authorizedBy: string; proposalId: string | null },
+  ): Promise<ReorderReviewQueueResult>;
 }
 
 export function prodToolIO(): ToolIO {
@@ -314,6 +321,13 @@ export function prodToolIO(): ToolIO {
         .single();
       return (data as { id: string } | null) ?? null;
     },
+    reorderReviewQueue: (opts) =>
+      reorderReviewQueue({
+        limit: opts.limit,
+        nowMs: Date.now(),
+        computedBy: opts.authorizedBy,
+        proposalId: opts.proposalId,
+      }),
   };
 }
 
@@ -666,6 +680,27 @@ const TOOL_LIST: AgentToolDef[] = [
       return { task_id: task?.id ?? null };
     },
   },
+  {
+    name: "reorder_review_queue",
+    description:
+      "Recompute the information-value ranking of the pending human-review queue (US-1558 active-learning routing) and persist the recommended order + rationale as an advisory artifact so high-signal reviews surface first. Grade-safe: NEVER changes a grade, prompt, confidence threshold, or calibration — ordering only, and the queue keeps its SLA starvation guard.",
+    class: "write",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: { type: "integer", minimum: 1, maximum: 500, description: "max pending reviews to rank" },
+      },
+    },
+    handler: async (input, ctx) => {
+      if (!ctx.authorizedBy) return { error: { code: "unauthorized", message: "write requires an approved proposal" } };
+      const limit = clampInt(input.limit, 200, 1, 500);
+      return await ctx.io.reorderReviewQueue({
+        limit,
+        authorizedBy: ctx.authorizedBy,
+        proposalId: ctx.proposalId ?? null,
+      });
+    },
+  },
 ];
 
 // Map an agent_proposals.action_class → the write tool that executes it.
@@ -673,6 +708,8 @@ export const ACTION_CLASS_TO_TOOL: Record<string, string> = {
   retry_job: "retry_job",
   requeue_dead_letter: "requeue_dead_letter",
   file_task: "create_admin_task",
+  // US-1658: the Grading Quality agent's review-queue reorder (adjust_queue).
+  adjust_queue: "reorder_review_queue",
 };
 
 export const AGENT_TOOLS: readonly AgentToolDef[] = TOOL_LIST;

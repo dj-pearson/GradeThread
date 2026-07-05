@@ -11882,7 +11882,7 @@
       "title": "Grading Quality agent: review-queue reorder write tool (info-value)",
       "description": "As the operator, I want to approve a proposal that reorders the human-review queue by information value using the existing review-info-value machinery — so high-signal reviews surface first.",
       "priority": 2339,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 1][Module G] Write half of US-1594 (split). Load the grading-engine skill. review-info-value has NO persisted ordering today (informationValue/rankReviews are pure scorers; the queue orders by review_due_at). Decide: persist a recommended order (system_settings artifact, migration-free) OR add a nullable grade_reports.review_priority_score + NULLS-LAST ORDER BY (held migration). Wire a reorder_review_queue WRITE tool (proposal-gated) + ACTION_CLASS_TO_TOOL adjust_queue→reorder_review_queue; classifyGradingIntent(reorder)→adjust_queue. NEVER mutate grades/prompts/thresholds.",
       "acceptanceCriteria": [
         "A reorder_review_queue write tool (class write) computes the info-value ranking of pending human-review items via informationValue + rankReviews (reusing the admin-grading ReviewInfoContext build) and persists the recommended order with the ranking rationale as evidence — no grade/prompt/threshold mutation",

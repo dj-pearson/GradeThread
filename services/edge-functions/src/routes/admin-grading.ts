@@ -4,14 +4,13 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import {
   CALIBRATION_SETTING_KEY,
   EMPTY_CALIBRATION,
-  thresholdForCategory,
   type CalibrationSetting,
 } from "../lib/confidence-calibration.ts";
 import {
-  defectComboKey,
   informationValue,
   type ReviewInfoContext,
 } from "../lib/review-info-value.ts";
+import { buildReviewInfoContext } from "../lib/review-queue-order.ts";
 import { getSetting } from "../lib/system-settings.ts";
 import { reviewConfidenceThreshold } from "../lib/ai-config.ts";
 import { failSafe } from "../lib/http-errors.ts";
@@ -1778,60 +1777,9 @@ adminGradingRoutes.get("/review-queue", async (c) => {
 
   // US-1558: information-value context — golden-set + exemplar coverage per
   // category, recent defect-combo frequencies, and the US-1557 calibrated
-  // thresholds. Three bounded reads; all best-effort (a miss just flattens
-  // that factor).
-  const goldenByCategory: Record<string, number> = {};
-  const exemplarsByCategory: Record<string, number> = {};
-  const comboCounts: Record<string, number> = {};
-  let calibration = EMPTY_CALIBRATION;
-  try {
-    const [{ data: goldenRows }, { data: exemplarRows }, { data: recentReports }] =
-      await Promise.all([
-        supabaseAdmin.from("grading_eval_cases").select("garment_category")
-          .eq("is_active", true).limit(2000),
-        supabaseAdmin.from("grading_exemplar_sets").select("exemplars")
-          .eq("is_active", true).limit(10),
-        supabaseAdmin.from("grade_reports").select("defects_found")
-          .order("created_at", { ascending: false }).limit(300),
-      ]);
-    for (const row of (goldenRows ?? []) as Array<{ garment_category: string }>) {
-      const cat = (row.garment_category ?? "").toLowerCase();
-      goldenByCategory[cat] = (goldenByCategory[cat] ?? 0) + 1;
-    }
-    for (const row of (exemplarRows ?? []) as Array<{ exemplars: unknown }>) {
-      if (!Array.isArray(row.exemplars)) continue;
-      for (const ex of row.exemplars as Array<{ garment_category?: string }>) {
-        const cat = (ex.garment_category ?? "").toLowerCase();
-        if (!cat) continue;
-        exemplarsByCategory[cat] = (exemplarsByCategory[cat] ?? 0) + 1;
-      }
-    }
-    for (const row of (recentReports ?? []) as Array<{ defects_found: unknown }>) {
-      const types = Array.isArray(row.defects_found)
-        ? (row.defects_found as Array<{ defect_type?: string }>)
-          .map((d) => d?.defect_type ?? "").filter(Boolean)
-        : [];
-      const key = defectComboKey(types);
-      comboCounts[key] = (comboCounts[key] ?? 0) + 1;
-    }
-    calibration = await getSetting<CalibrationSetting>(
-      CALIBRATION_SETTING_KEY,
-      EMPTY_CALIBRATION,
-    );
-  } catch (err) {
-    console.warn(
-      "[admin-grading] info-value context failed (scores flatten):",
-      err instanceof Error ? err.message : String(err),
-    );
-  }
-  const flatThreshold = reviewConfidenceThreshold();
-  const infoCtx: ReviewInfoContext = {
-    goldenByCategory,
-    exemplarsByCategory,
-    comboCounts,
-    thresholdForCategory: (category) =>
-      thresholdForCategory(calibration, category, flatThreshold).threshold,
-  };
+  // thresholds. Shared with the reorder_review_queue write tool (US-1658) so
+  // the queue view and the agent's reorder rank identically.
+  const infoCtx: ReviewInfoContext = await buildReviewInfoContext();
 
   const now = Date.now();
   const items = reports.map((r) => {

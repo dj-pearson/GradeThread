@@ -10986,3 +10986,44 @@ VERIFIED: tsc -b/eslint/vitest 1137/1137 (new seams suite) + build (47 pages);
 deno lint/check + my edge surface 57/0 (the 1 edge-suite failure is the
 CONCURRENT agent's uncommitted measure-extract WIP, untouched). ⚠️ 00348+00349
 HELD: the frontend now READS the new view columns - apply before push OK.
+
+=== 2026-07-05 (loop: non-android prd): US-1658 (Grading Quality reorder tool) ===
+THE ASK: give the Grading Quality agent a grade-SAFE write — reorder the
+human-review queue by information value (US-1558) as an approval-gated L1
+proposal. NEVER mutate a grade/prompt/threshold/calibration.
+- NEW lib review-queue-order.ts:
+  - computeReviewQueueOrder (PURE): scores each pending review via the existing
+    informationValue + rankReviews machinery, emits a ranked persistable order
+    + plain-language rationale. SLA guard floats aged reviews to the top so a
+    low-info item never starves (rankReviews). Unit-tested core.
+  - buildReviewInfoContext: the golden/exemplar/combo/calibration coverage read
+    EXTRACTED from admin-grading's /review-queue (which now calls it) so the
+    queue view and the agent's reorder rank identically — one source of truth.
+  - reorderReviewQueue: impure gather -> compute -> PERSIST as a system_settings
+    artifact (grading.review_queue_order). MIGRATION-FREE (AC option A): the
+    upsert includes value_type/default_value/category (both NOT NULL, no default
+    - mirrors jobs-confidence-calibration's runtime-key write) so the first
+    insert is clean without a seed migration. Artifact carries report_id +
+    submission_id + scores/reasons ONLY (no PII).
+- WIRED the write path: reorder_review_queue write tool in agent-tools.ts
+  (invisible to the run loop; runs only via executeWrite on an approved
+  proposal, authorizedBy-gated); ACTION_CLASS_TO_TOOL adjust_queue ->
+  reorder_review_queue; classifyGradingIntent(reorder_review_queue) ->
+  adjust_queue (all other grading intents stay file_task). ToolIO seam +
+  prodToolIO threaded the approving admin's id as system_settings.updated_by.
+- CHARTER: grading-quality.ts now (a) makes the {summary,findings,proposals}
+  envelope explicit (was ambiguous - it only described the finding shape), and
+  (b) authorizes the ONE grade-safe adjust_queue reorder proposal when the queue
+  is deep with high-info items; everything else remains a file_task.
+- TESTS: review-queue-order_test.ts (ranking->order mapping: novel-category
+  ranks above covered, SLA float, dense 1-based ranks, artifact stamping);
+  agent-tools_test.ts (adjust_queue mapping, write-tool invisibility, executeWrite
+  threads authorizedBy/proposalId); grading-quality_test.ts updated for the new
+  classifyGradingIntent contract.
+VERIFY: deno lint clean on all 8 changed files. deno check/test could NOT run
+locally — this sandbox's network policy 403s deno.land + esm.sh (CONNECT) and no
+remote deps are cached, so the whole edge suite is un-runnable here; CI (deno
+2.8.0) is the safety net. Validated the RANKING ALGORITHM independently with a
+standalone node reimplementation: both ordering expectations (novelty-dominates,
+SLA-float) reproduce exactly. Grading-engine contract respected: no grade/
+prompt/threshold/rounding-site touched.

@@ -70,8 +70,13 @@ Deno.test("assembleGradingMemo: disabled calibration is one gap, not one per cat
 
 // ── Lifecycle safety ─────────────────────────────────────────────────────────
 
-Deno.test("classifyGradingIntent: EVERY grading change is a file_task (never executed)", () => {
-  for (const kind of ["prompt_version", "threshold", "calibration", "exemplar", "reorder_review_queue", "anything"]) {
+Deno.test("classifyGradingIntent: every grading-config change is a file_task (never executed)", () => {
+  for (const kind of ["prompt_version", "threshold", "calibration", "exemplar", "anything"]) {
     assertEquals(classifyGradingIntent(kind), "file_task");
   }
+});
+
+// US-1658: the review-queue reorder is the ONE grade-safe executable class.
+Deno.test("classifyGradingIntent: reorder_review_queue is an adjust_queue proposal", () => {
+  assertEquals(classifyGradingIntent("reorder_review_queue"), "adjust_queue");
 });
