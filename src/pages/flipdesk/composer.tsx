@@ -80,6 +80,7 @@ import {
 import type { AspectSourceMap } from "@/lib/aspect-provenance";
 import { EbayCategoryPicker } from "@/components/flipdesk/ebay-category-picker";
 import { ConditionIndexValueHint } from "@/components/flipdesk/condition-index-value-hint";
+import { GradeThisItemCard } from "@/components/flipdesk/grade-this-item-card";
 import { AiDiffChip } from "@/components/flipdesk/ai-diff-chip";
 import { PhotoManager } from "@/components/flipdesk/photo-manager";
 import { PhotoUploader } from "@/components/flipdesk/photo-uploader";
@@ -1822,6 +1823,13 @@ export function FlipdeskComposerPage() {
               />
             </CardContent>
           </Card>
+
+          {/* Grade this item — restores the "Submit for grading" action in the
+              drafts editor (it lived on the item canvas, which the AutoLister/
+              Inventory drafts consolidation routed around). Self-contained: shows
+              the existing grade + certificate when graded, submission status when
+              in flight, or the tier picker + Submit when eligible. */}
+          <GradeThisItemCard item={item} />
 
           {/* Description */}
           <Card>
