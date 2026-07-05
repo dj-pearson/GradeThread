@@ -20,8 +20,11 @@
 import type { ProposalDraft } from "./agent-policy.ts";
 import { ACTION_CLASS_TO_TOOL, agentToolRegistry } from "./agent-tools.ts";
 import { supabaseAdmin } from "./supabase.ts";
-import { redactError } from "./log-redact.ts";
+import { redact, redactError } from "./log-redact.ts";
 import { emitOpsEvent } from "./ops-events.ts";
+import { playbookFor } from "../agents/playbooks/index.ts";
+import { type PlaybookRunResult, runPlaybook } from "./playbook-executor.ts";
+import { writeSystemAuditLog } from "./audit-log.ts";
 
 type ProposalEventSeverity = "info" | "warning" | "critical";
 
@@ -87,6 +90,12 @@ export interface ProposalDeps {
     payload: unknown,
     ctx: { authorizedBy: string; proposalId: string },
   ) => Promise<unknown>;
+  // US-1605: execute an approved run_playbook proposal step-by-step. Returns the
+  // honest partial report; a "failed" status marks the proposal failed.
+  runPlaybookProposal: (
+    payload: unknown,
+    ctx: { authorizedBy: string; proposalId: string; runId: string | null },
+  ) => Promise<PlaybookRunResult | { error: { code: string; message: string } }>;
   // Emit an agent.proposal.* ops event (US-1589). Fire-and-forget.
   emitEvent: (type: string, severity: ProposalEventSeverity, data: Record<string, unknown>) => void;
   now: () => number;
@@ -140,6 +149,29 @@ export function prodProposalDeps(): ProposalDeps {
       return (data as unknown[] | null)?.length ?? 0;
     },
     runWriteTool: (toolName, payload, ctx) => agentToolRegistry.executeWrite(toolName, payload, ctx),
+    runPlaybookProposal: async (payload, ctx) => {
+      const key = payload && typeof payload === "object" && !Array.isArray(payload)
+        ? (payload as { playbook_key?: unknown }).playbook_key
+        : undefined;
+      const playbook = typeof key === "string" ? playbookFor(key) : null;
+      if (!playbook) return { error: { code: "unknown_playbook", message: `no such playbook: ${String(key)}` } };
+      return await runPlaybook(playbook, { authorizedBy: ctx.authorizedBy, proposalId: ctx.proposalId, runId: ctx.runId }, {
+        executeWrite: (tool, params, wctx) => agentToolRegistry.executeWrite(tool, params, wctx),
+        recordStep: async (row) => {
+          await supabaseAdmin.from("agent_run_steps").insert({
+            run_id: row.runId,
+            seq: row.seq,
+            step_type: "tool_call",
+            name: row.name,
+            input: redact(row.input),
+            output: redact(row.output),
+            duration_ms: row.durationMs,
+          } as never);
+        },
+        audit: (input) => writeSystemAuditLog(input),
+        now: () => Date.now(),
+      });
+    },
     emitEvent: (type, severity, data) =>
       emitOpsEvent(type, severity, { title: type, source: "agent-proposals", data }),
     now: () => Date.now(),
@@ -217,10 +249,14 @@ export async function approveProposal(
   });
 
   // Only the claim winner reaches here → execute exactly once.
-  const toolName = ACTION_CLASS_TO_TOOL[claimed.action_class] ?? claimed.action_class;
   try {
-    const result = await d.runWriteTool(toolName, claimed.payload, { authorizedBy: adminId, proposalId });
-    const failed = isToolError(result);
+    // US-1605: a run_playbook proposal executes step-by-step, not via a single
+    // write tool; its "failed" status (a halted step) marks the proposal failed.
+    const result = claimed.action_class === "run_playbook"
+      ? await d.runPlaybookProposal(claimed.payload, { authorizedBy: adminId, proposalId, runId: claimed.run_id })
+      : await d.runWriteTool(ACTION_CLASS_TO_TOOL[claimed.action_class] ?? claimed.action_class, claimed.payload, { authorizedBy: adminId, proposalId });
+    const failed = isToolError(result) ||
+      (!!result && typeof result === "object" && (result as { status?: unknown }).status === "failed");
     await d.finalizeExecution(proposalId, failed ? "failed" : "executed", result);
     d.emitEvent("agent.proposal.executed", failed ? "warning" : "info", {
       proposal_id: proposalId,

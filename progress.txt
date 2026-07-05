@@ -11378,3 +11378,37 @@ policy) — CI is the safety net. Validated ALL pure logic standalone in node:
 selection caps, dedup+bump, cap eviction, curation decay/prune/cap reproduce
 every expectation. Existing kernel/tick tests use field-level asserts (not exact
 shape) so the new optional fields don't break them. NO migration.
+
+=== 2026-07-05 (loop: non-android prd): US-1605 (Playbook engine) ===
+THE ASK: declarative, step-audited remediations agents can PROPOSE (run_playbook)
+and the kernel executes step-by-step. Playbooks live IN THE REPO (reviewed like
+code); the DB holds executions, not definitions.
+- NEW playbook FORMAT (agents/playbooks/types.ts): ordered steps referencing
+  REGISTERED write tools + params, an abort-on-failure default (haltOnError),
+  and optional condition guards ({afterStep, requires:"ok"|"error"}).
+- NEW registry agents/playbooks/index.ts + THREE seed playbooks codifying
+  existing runbooks, each referencing ONLY existing write tools + registered cron
+  keys: stuck-submissions-drain (retry_job stuck-submissions/autolister-reclaim/
+  publish-batch-reclaim + escalate-on-drain-failure guard), dead-letter-requeue-
+  batch (retry_job email-retry + note), webhook-backlog-recovery (retry_job
+  ebay-pending-webhooks + escalate guard).
+- NEW lib playbook-executor.ts: evalGuard (PURE) + runPlaybook (deps-injected
+  orchestration) — guard-skip, executeWrite each step, an audit-log entry + an
+  agent_run_steps (tool_call) row per executed step, ABORT-ON-FAILURE default;
+  haltOnError:false lets a later error-guard escalate. Records partial completion
+  HONESTLY (halted_at + per-step ok/failed/skipped).
+- WIRED into agent-proposals.approveProposal: action_class run_playbook (already
+  in the ladder) branches to runPlaybookProposal (resolves the playbook by
+  payload.playbook_key, runs the executor); a "failed" status marks the proposal
+  failed. ProposalDeps seam + prod impl (registry.executeWrite + agent_run_steps
+  insert + writeSystemAuditLog).
+- SENTINEL charter updated to PREFER run_playbook when a codified playbook matches
+  the incident (naming the three seeds), over ad-hoc retry_job steps.
+- TESTS: playbook-executor_test.ts (evalGuard; happy path records each step;
+  mid-run failure halts + honest partial; guard SKIP; best-effort-fail +
+  error-guard escalation; seed playbooks reference only known tools + unique ids).
+VERIFY: deno lint clean (6 files). deno test/check un-runnable locally (network
+policy) — CI is the safety net. Validated ALL executor logic standalone in node:
+guard eval, happy, mid-failure halt honesty, guard-skip, escalation — all pass.
+Existing proposal tests use Partial<ProposalDeps> + don't hit the run_playbook
+branch, so unaffected. NO migration (agent_run_steps/agent_proposals exist).

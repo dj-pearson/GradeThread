@@ -10804,7 +10804,7 @@
         "Deno tests: executor happy path, mid-playbook failure honesty, condition-guard skip; lint + check clean"
       ],
       "priority": 2320,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 2][Module W — Playbooks] Read AGENTIC_OS.md §3.W. Playbooks live in the repo (reviewed like code), not in the DB — the DB holds executions, not definitions.",
       "dependsOn": [
         "US-1587"
