@@ -25,6 +25,8 @@ import { getPlanMatrix } from "../lib/pricing-config.ts";
 import { reconcileCustomerLink } from "../lib/stripe-customer.ts";
 import { shouldClearPendingDowngrade } from "../lib/pending-downgrade.ts";
 import { maybeQualifyReferral } from "../lib/referrals.ts";
+import { getStripe } from "../lib/stripe-client.ts";
+import { classifyPerGradeFlip } from "../lib/per-grade-flip.ts";
 import { recordWebhookDeadLetter } from "../lib/webhook-dead-letter.ts";
 import { captureException } from "../lib/observability.ts";
 import { notifyPlanDowngrade } from "../lib/plan-change-notify.ts";
@@ -552,6 +554,13 @@ async function handleSubscriptionChange(event: Stripe.Event) {
       flipdesk_interval: interval,
       subscription_status: status,
       flipdesk_subscription_id: sub.id,
+      // US-1618 / C5: stamp the processor. This handler only runs for Stripe
+      // subscription events, so the user demonstrably bills via Stripe. Without
+      // it, billing_source stayed null/appstore — so the Play "active Stripe"
+      // double-billing gate never fired, and a former iOS subscriber who moved
+      // to Stripe stayed flagged 'appstore' (409 on every plan change; the Apple
+      // expiry sweep could force-lapse a paying Stripe customer).
+      billing_source: "stripe",
       flipdesk_period_end: periodEnd,
       flipdesk_pause_until: pauseUntil,
       flipdesk_cancel_at_period_end: sub.cancel_at_period_end ?? false,
@@ -954,20 +963,28 @@ async function handleCreditPackPurchase(
     ? session.payment_intent
     : session.payment_intent?.id ?? null;
 
+  // US-1641: a 100%-discount pack (a 100%-off promo code) settles with NO
+  // PaymentIntent (payment_intent = null). grant_grade_credits only dedups when
+  // p_stripe_payment_intent IS NOT NULL, so a null token defeated the grant's
+  // idempotency — a re-delivered webhook could double-grant. Fall back to the
+  // Checkout Session id (stable + unique per purchase); the 'cs_' prefix never
+  // collides with a 'pi_' payment-intent id in the shared column.
+  const grantIdempotencyToken = paymentIntentId ?? session.id;
+
   await recordEvent(
     userId,
     event.type,
     event.id,
     null,
     null,
-    { product: "credit_pack", credits, payment_intent: paymentIntentId },
+    { product: "credit_pack", credits, payment_intent: paymentIntentId, grant_token: grantIdempotencyToken },
   );
 
   const { data, error } = await supabaseAdmin.rpc("grant_grade_credits", {
     p_user_id: userId,
     p_credits: credits,
     p_reason: "pack_purchase",
-    p_stripe_payment_intent: paymentIntentId,
+    p_stripe_payment_intent: grantIdempotencyToken,
     p_notes: `Pack of ${credits} credits via session ${session.id}`,
   });
 
@@ -1003,6 +1020,11 @@ async function handlePerGradePurchase(
 ) {
   const submissionId = session.metadata?.submission_id;
   const tier = session.metadata?.tier;
+  // US-1637: the submission belongs to the workspace OWNER (a member's per-grade
+  // purchase pays for the owner's submission). Fall back to userId (the payer)
+  // for solo purchases and any in-flight session minted before this field
+  // existed, preserving the prior behavior.
+  const submissionOwnerId = session.metadata?.submission_owner_id ?? userId;
 
   if (!submissionId || !tier) {
     console.error(`[Webhook] per_grade missing submission_id or tier (session=${session.id})`);
@@ -1024,7 +1046,7 @@ async function handlePerGradePurchase(
     ? session.payment_intent
     : session.payment_intent?.id ?? null;
 
-  const { error: updateError } = await supabaseAdmin
+  const { data: flipped, error: updateError } = await supabaseAdmin
     .from("submissions")
     .update({
       payment_status: "paid_stripe",
@@ -1032,12 +1054,57 @@ async function handlePerGradePurchase(
       stripe_payment_intent_id: paymentIntentId,
     })
     .eq("id", submissionId)
-    .eq("user_id", userId)
-    .eq("payment_status", "unpaid"); // idempotency — don't overwrite if already paid
+    .eq("user_id", submissionOwnerId) // US-1637: owner-scoped, not the payer
+    .eq("payment_status", "unpaid") // idempotency — don't overwrite if already paid
+    .select("id")
+    .maybeSingle();
 
   // US-397: a dropped "paid" flip leaves a paid grade unprocessed — retry on a
   // transient failure (the update is idempotent: it only matches 'unpaid').
   failIfDbError(updateError, `mark submission ${submissionId} paid`);
+
+  // US-1640: the paid-flip matched 0 rows. The Stripe dispatcher already deduped
+  // this event by event.id, so this is NOT a re-delivery — the submission is
+  // already paid by a DIFFERENT Checkout Session. Because the per-grade
+  // idempotency key is tier-scoped, one submission can mint up to 3 payable
+  // sessions, so a user can genuinely pay twice for the same grade. Refund THIS
+  // charge (a duplicate) instead of silently keeping the money + re-kicking
+  // grading. Never touch the submission's own payment state — the ORIGINAL
+  // charge legitimately paid for the grade.
+  if (!flipped) {
+    const { data: existingRaw } = await supabaseAdmin
+      .from("submissions")
+      .select("id, payment_status, stripe_payment_intent_id")
+      .eq("id", submissionId)
+      .eq("user_id", submissionOwnerId)
+      .maybeSingle();
+    const existing = existingRaw as
+      | { payment_status: string; stripe_payment_intent_id: string | null }
+      | null;
+    const outcome = classifyPerGradeFlip({
+      flipped: false,
+      existing,
+      currentPaymentIntentId: paymentIntentId,
+    });
+    if (outcome === "duplicate") {
+      await refundDuplicatePerGrade(
+        submissionOwnerId,
+        submissionId,
+        paymentIntentId,
+        session.id,
+      );
+    } else if (outcome === "missing") {
+      console.warn(
+        `[Webhook] per_grade: submission ${submissionId} not found for owner ${submissionOwnerId} — nothing to flip`,
+      );
+    } else {
+      // Same PI (a stray re-process) or a concurrent flip — no duplicate charge.
+      console.warn(
+        `[Webhook] per_grade: no-op flip for ${submissionId} (status=${existing?.payment_status ?? "?"}) — no duplicate refund`,
+      );
+    }
+    return; // already paid — don't re-kick grading
+  }
 
   console.log(`[Webhook] Submission ${submissionId} paid (${tier}); kicking grading pipeline`);
 
@@ -1051,6 +1118,72 @@ async function handlePerGradePurchase(
       err instanceof Error ? err.message : String(err),
     );
   });
+}
+
+// US-1640: refund a DUPLICATE per-grade payment. Refunds the CURRENT session's
+// charge (paymentIntentId) — NOT the submission's stored PI, which paid for the
+// grade the user keeps — keyed on the PI so a retry can't double-refund. On any
+// failure, alert loudly for operator follow-up rather than silently keeping the
+// duplicate charge. Never marks the submission refunded (the grade stays valid).
+async function refundDuplicatePerGrade(
+  ownerId: string,
+  submissionId: string,
+  paymentIntentId: string | null,
+  sessionId: string,
+): Promise<void> {
+  if (!paymentIntentId) {
+    console.error(
+      `[Webhook] per_grade DUPLICATE for ${submissionId} (session ${sessionId}) has no payment_intent to refund — needs manual review`,
+    );
+    void captureServer(ownerId, "billing.per_grade_duplicate_unrefundable", {
+      submission_id: submissionId,
+      session_id: sessionId,
+    });
+    return;
+  }
+  const stripe = getStripe();
+  if (!stripe) {
+    console.error(
+      `[Webhook] per_grade DUPLICATE for ${submissionId}: Stripe not configured — cannot refund ${paymentIntentId}`,
+    );
+    void captureServer(ownerId, "billing.per_grade_duplicate_unrefundable", {
+      submission_id: submissionId,
+      payment_intent: paymentIntentId,
+    });
+    return;
+  }
+  try {
+    const refund = await stripe.refunds.create(
+      {
+        payment_intent: paymentIntentId,
+        reason: "duplicate",
+        metadata: { submission_id: submissionId, refund_reason: "duplicate_per_grade" },
+      },
+      { idempotencyKey: `dup-per-grade:${paymentIntentId}` },
+    );
+    console.warn(
+      `[Webhook] per_grade DUPLICATE for ${submissionId}: refunded duplicate charge ${paymentIntentId} → ${refund.id}`,
+    );
+    void captureServer(ownerId, "billing.per_grade_duplicate_refunded", {
+      submission_id: submissionId,
+      payment_intent: paymentIntentId,
+      refund_id: refund.id,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    captureException(err, {
+      route: "webhooks.refundDuplicatePerGrade",
+      tags: { submissionId },
+    });
+    console.error(
+      `[Webhook] per_grade DUPLICATE refund FAILED for ${submissionId} (${paymentIntentId}): ${msg} — needs operator follow-up`,
+    );
+    void captureServer(ownerId, "billing.per_grade_duplicate_refund_failed", {
+      submission_id: submissionId,
+      payment_intent: paymentIntentId,
+      error: msg.slice(0, 200),
+    });
+  }
 }
 
 // ── Refund handler ───────────────────────────────────────────────
@@ -1207,6 +1340,9 @@ async function refundPerGrade(
     console.error(`[Webhook] per_grade refund missing submission_id (charge=${chargeId})`);
     return;
   }
+  // US-1637: withhold the grade from the OWNER's submission (member per-grade).
+  // Falls back to the payer for solo purchases / pre-field PaymentIntents.
+  const submissionOwnerId = meta.submission_owner_id ?? userId;
 
   await recordEvent(
     userId,
@@ -1218,7 +1354,7 @@ async function refundPerGrade(
   );
 
   // Tenant-scoped by user_id (US-268). maybeSingle + select confirms the
-  // submission actually belongs to this user before we touch its grade.
+  // submission actually belongs to this workspace before we touch its grade.
   const { data: updated, error } = await supabaseAdmin
     .from("submissions")
     .update({
@@ -1227,7 +1363,7 @@ async function refundPerGrade(
       flag_reason: "payment_refunded",
     })
     .eq("id", submissionId)
-    .eq("user_id", userId)
+    .eq("user_id", submissionOwnerId)
     .select("id")
     .maybeSingle();
 
@@ -1235,7 +1371,7 @@ async function refundPerGrade(
   // transient failure (the update is idempotent on submission_id+user_id).
   failIfDbError(error, `per_grade refund submission update (${submissionId})`);
   if (!updated) {
-    console.warn(`[Webhook] per_grade refund: submission ${submissionId} not found for user ${userId}`);
+    console.warn(`[Webhook] per_grade refund: submission ${submissionId} not found for owner ${submissionOwnerId}`);
     return;
   }
 
@@ -1291,7 +1427,8 @@ async function handleChargeDisputeCreated(event: Stripe.Event) {
       .from("submissions")
       .update({ flagged: true, flag_reason: "payment_disputed" })
       .eq("id", submissionId)
-      .eq("user_id", userId);
+      // US-1637: owner-scoped (member per-grade); falls back to the payer.
+      .eq("user_id", meta.submission_owner_id ?? userId);
   }
 
   void captureServer(userId ?? "unknown", "billing.dispute_created", {
@@ -1379,7 +1516,8 @@ async function handleChargeDisputeClosed(event: Stripe.Event) {
       .from("submissions")
       .update({ flagged: false, flag_reason: null })
       .eq("id", submissionId)
-      .eq("user_id", userId)
+      // US-1637: owner-scoped (member per-grade); falls back to the payer.
+      .eq("user_id", meta.submission_owner_id ?? userId)
       .eq("flag_reason", "payment_disputed");
     // US-397: a dropped flag-clear leaves a won grade needlessly flagged — retry.
     failIfDbError(error, `dispute won flag clear (${submissionId})`);

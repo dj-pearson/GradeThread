@@ -7,6 +7,7 @@ import {
 } from "@/components/ui/popover";
 import { FLIPDESK_PLANS } from "@/lib/constants";
 import type { FlipdeskPlanKey } from "@/lib/constants";
+import { effectiveAiLimit } from "@/lib/ai-limit";
 import { useBillingSummary } from "@/hooks/use-billing-summary";
 import { cn } from "@/lib/utils";
 
@@ -20,13 +21,6 @@ interface Cap {
   label: string;
   used: number;
   limit: number;
-}
-
-function effectiveAiLimit(planLimit: number, userLimit: number | null): number {
-  if (planLimit === -1 && userLimit == null) return -1;
-  if (planLimit === -1) return userLimit ?? -1;
-  if (userLimit == null) return planLimit;
-  return Math.min(planLimit, userLimit);
 }
 
 function pct(c: Cap): number {

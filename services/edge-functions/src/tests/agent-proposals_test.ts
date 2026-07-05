@@ -1,262 +1,199 @@
-// US-1587: the proposal lifecycle — approve-once under concurrency, expiry
-// (sweep + claim-time refusal), reject-with-reason, write-tool context
-// refusal, and run filing with the batched notification.
+// US-1587: proposal lifecycle engine — persistence idempotency, approve-once
+// execution (concurrent claim → single execute), expiry, reject. Types erased;
+// runtime values dynamic-imported after env prime (agent-proposals.ts pulls in
+// supabase.ts via prodProposalDeps + agent-tools).
 import { assert, assertEquals } from "@std/assert";
+import type { ProposalDeps, ProposalRow } from "../lib/agent-proposals.ts";
+import type { ProposalDraft } from "../lib/agent-policy.ts";
 
 Deno.env.set("SUPABASE_URL", Deno.env.get("SUPABASE_URL") ?? "http://localhost:54321");
-Deno.env.set(
-  "SUPABASE_SERVICE_ROLE_KEY",
-  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
-);
-import type { ProposalDb } from "../lib/agent-proposals.ts";
+Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-key");
 const {
-  DEFAULT_PROPOSAL_TTL_HOURS,
-  executeProposal,
-  expireStaleProposals,
-  fileProposalsFromRun,
+  approveProposal,
+  canExecute,
+  expireProposals,
+  isExpired,
+  persistProposals,
   rejectProposal,
-  WRITE_TOOLS,
 } = await import("../lib/agent-proposals.ts");
 
-// ── Fake proposal db with REAL conditional-claim semantics ───────────────────
+const NOW = 1_700_000_000_000;
+const HOUR = 3600_000;
 
-interface Row {
-  id: string;
-  status: string;
-  action_class: string;
-  payload: Record<string, unknown>;
-  expires_at: string | null;
-  agents: { key: string };
-  result?: unknown;
-  decide_reason?: string;
+function draft(key: string | null): ProposalDraft {
+  return {
+    agent_id: "a1",
+    action_class: "retry_job",
+    title: "Retry billing-reconciliation",
+    summary: null,
+    payload: { job_key: "billing-reconciliation" },
+    evidence: null,
+    status: "pending",
+    idempotency_key: key,
+    policy: { level: 2, note: null, would_execute: true },
+  };
 }
 
-function fakeDb(rows: Row[]): ProposalDb {
+function row(over: Partial<ProposalRow> = {}): ProposalRow {
   return {
-    claimForExecution(id, _adminId, _nowIso) {
-      const row = rows.find((r) => r.id === id);
-      // The conditional update: only a PENDING row claims.
-      if (!row || row.status !== "pending") return Promise.resolve(null);
-      row.status = "approved";
-      return Promise.resolve({ ...row });
-    },
-    markExecuted(id, status, result) {
-      const row = rows.find((r) => r.id === id)!;
-      row.status = status;
-      row.result = result;
-      return Promise.resolve();
-    },
-    rejectPending(id, _adminId, reason) {
-      const row = rows.find((r) => r.id === id);
-      if (!row || row.status !== "pending") return Promise.resolve(false);
-      row.status = "rejected";
-      row.decide_reason = reason;
-      return Promise.resolve(true);
-    },
-    expirePending(nowIso) {
+    id: "p1",
+    agent_id: "a1",
+    run_id: "r1",
+    action_class: "retry_job",
+    title: "t",
+    summary: null,
+    payload: { job_key: "billing-reconciliation" },
+    status: "pending",
+    expires_at: null,
+    idempotency_key: "k1",
+    executed_at: null,
+    result: null,
+    ...over,
+  };
+}
+
+// ── Pure helpers ─────────────────────────────────────────────────────────────
+
+Deno.test("isExpired / canExecute", () => {
+  assertEquals(isExpired(null, NOW), false); // null never expires
+  assertEquals(isExpired(new Date(NOW - 1).toISOString(), NOW), true);
+  assertEquals(isExpired(new Date(NOW + HOUR).toISOString(), NOW), false);
+  assertEquals(canExecute("approved", new Date(NOW + HOUR).toISOString(), NOW), true);
+  assertEquals(canExecute("approved", new Date(NOW - 1).toISOString(), NOW), false); // expired
+  assertEquals(canExecute("pending", null, NOW), false); // not approved
+});
+
+// ── Persistence idempotency ──────────────────────────────────────────────────
+
+Deno.test("persistProposals: idempotency_key dedups a re-run", async () => {
+  const seen = new Set<string>();
+  const deps: Partial<ProposalDeps> = {
+    now: () => NOW,
+    insertProposals: (rows) => {
       let n = 0;
-      for (const row of rows) {
-        if (row.status === "pending" && row.expires_at && row.expires_at < nowIso) {
-          row.status = "expired";
-          n += 1;
-        }
+      for (const r of rows) {
+        const k = r.idempotency_key as string | null;
+        if (k && seen.has(k)) continue; // simulate the UNIQUE constraint
+        if (k) seen.add(k);
+        n++;
       }
       return Promise.resolve(n);
     },
   };
-}
+  const drafts = [draft("k1"), draft("k2")];
+  assertEquals(await persistProposals("a1", "r1", drafts, 72, deps), 2);
+  assertEquals(await persistProposals("a1", "r1", drafts, 72, deps), 0); // re-run → all dup
+});
 
-function pendingRow(overrides: Partial<Row> = {}): Row {
-  return {
-    id: "p1",
-    status: "pending",
-    action_class: "requeue_dead_letter",
-    payload: { tool: "requeue_dead_letter", args: { id: "dl-1" } },
-    expires_at: "2099-01-01T00:00:00Z",
-    agents: { key: "sentinel" },
-    ...overrides,
+Deno.test("persistProposals: stamps a TTL expiry and passes rows through", async () => {
+  let captured: Record<string, unknown>[] = [];
+  const deps: Partial<ProposalDeps> = {
+    now: () => NOW,
+    insertProposals: (rows) => {
+      captured = rows;
+      return Promise.resolve(rows.length);
+    },
   };
-}
+  await persistProposals("a1", "r1", [draft("k1")], 48, deps);
+  assertEquals(captured.length, 1);
+  assertEquals(captured[0].status, "pending");
+  assertEquals(captured[0].expires_at, new Date(NOW + 48 * HOUR).toISOString());
+  assertEquals(captured[0].run_id, "r1");
+});
 
-// Chainable fake for the write tools' db access.
-// deno-lint-ignore no-explicit-any
-function fakeWriteDb(result: any) {
-  // deno-lint-ignore no-explicit-any
-  const chain: any = {
-    from: () => chain,
-    update: () => chain,
-    insert: () => chain,
-    eq: () => chain,
-    in: () => chain,
-    select: () => chain,
-    maybeSingle: () => Promise.resolve(result),
-    single: () => Promise.resolve(result),
+// ── Approve-once execution ───────────────────────────────────────────────────
+
+function claimHarness(initial: ProposalRow) {
+  let current = { ...initial };
+  let runCalls = 0;
+  const events: string[] = [];
+  const deps: Partial<ProposalDeps> = {
+    now: () => NOW,
+    loadProposal: () => Promise.resolve({ ...current }),
+    claimStatus: (_id, from, to, patch) => {
+      if (current.status === from) {
+        current = { ...current, status: to, ...patch } as ProposalRow;
+        return Promise.resolve({ ...current });
+      }
+      return Promise.resolve(null); // lost the atomic claim
+    },
+    finalizeExecution: (_id, status, result) => {
+      current = { ...current, status, result } as ProposalRow;
+      return Promise.resolve();
+    },
+    runWriteTool: () => {
+      runCalls++;
+      return Promise.resolve({ ok: true, status: 202 });
+    },
+    emitEvent: (type) => {
+      events.push(type);
+    },
   };
-  return chain;
+  return { deps, runCalls: () => runCalls, state: () => current, events: () => events };
 }
 
-// ── Approve-once ─────────────────────────────────────────────────────────────
-
-Deno.test("approval executes exactly once — a concurrent double-approve loses cleanly", async () => {
-  const rows = [pendingRow()];
-  const db = fakeDb(rows);
-  const writeDb = fakeWriteDb({ data: { id: "dl-1" }, error: null });
-
-  const [first, second] = await Promise.all([
-    executeProposal("p1", "admin-1", db, writeDb),
-    executeProposal("p1", "admin-2", db, writeDb),
+Deno.test("approveProposal: a concurrent double-approve executes EXACTLY once", async () => {
+  const h = claimHarness(row());
+  const [a, b] = await Promise.all([
+    approveProposal("p1", "admin", h.deps),
+    approveProposal("p1", "admin", h.deps),
   ]);
-  const kinds = [first.kind, second.kind].sort();
-  assertEquals(kinds, ["already_decided", "executed"]);
-  assertEquals(rows[0].status, "executed");
+  assertEquals(h.runCalls(), 1); // the write tool ran once
+  const executed = [a, b].filter((r) => r.status === "executed");
+  const lost = [a, b].filter((r) => r.reason === "already_decided");
+  assertEquals(executed.length, 1);
+  assertEquals(lost.length, 1);
+  assertEquals(h.state().status, "executed");
+  // US-1589: the winner emits approved then executed (the loser emits nothing).
+  assertEquals(h.events(), ["agent.proposal.approved", "agent.proposal.executed"]);
 });
 
-Deno.test("a rejected proposal can never execute", async () => {
-  const rows = [pendingRow()];
-  const db = fakeDb(rows);
-  assert(await rejectProposal("p1", "admin-1", "not worth the risk", db));
-  assertEquals(rows[0].status, "rejected");
-
-  const outcome = await executeProposal("p1", "admin-1", db, fakeWriteDb({}));
-  assertEquals(outcome.kind, "already_decided");
-  assertEquals(rows[0].status, "rejected"); // untouched
+Deno.test("approveProposal: a write-tool soft error marks the proposal failed", async () => {
+  const h = claimHarness(row());
+  h.deps.runWriteTool = () => Promise.resolve({ error: { code: "unknown_job" } });
+  const res = await approveProposal("p1", "admin", h.deps);
+  assertEquals(res.status, "failed");
+  assertEquals(h.state().status, "failed");
 });
 
-// ── Expiry ───────────────────────────────────────────────────────────────────
-
-Deno.test("the sweep expires past-TTL pending proposals only", async () => {
-  const rows = [
-    pendingRow({ id: "old", expires_at: "2020-01-01T00:00:00Z" }),
-    pendingRow({ id: "fresh", expires_at: "2099-01-01T00:00:00Z" }),
-    pendingRow({ id: "done", status: "executed", expires_at: "2020-01-01T00:00:00Z" }),
-  ];
-  const swept = await expireStaleProposals(fakeDb(rows));
-  assertEquals(swept, 1);
-  assertEquals(rows.find((r) => r.id === "old")!.status, "expired");
-  assertEquals(rows.find((r) => r.id === "fresh")!.status, "pending");
-  assertEquals(rows.find((r) => r.id === "done")!.status, "executed");
+Deno.test("approveProposal: an expired proposal is refused and never executes", async () => {
+  const h = claimHarness(row({ expires_at: new Date(NOW - 1).toISOString() }));
+  const res = await approveProposal("p1", "admin", h.deps);
+  assertEquals(res.ok, false);
+  assertEquals(res.reason, "expired");
+  assertEquals(h.runCalls(), 0);
 });
 
-Deno.test("an expired-but-unswept proposal is refused at claim time", async () => {
-  const rows = [pendingRow({ expires_at: "2020-01-01T00:00:00Z" })];
-  const outcome = await executeProposal("p1", "admin-1", fakeDb(rows), fakeWriteDb({}));
-  assertEquals(outcome.kind, "expired");
-  assertEquals(rows[0].status, "expired");
+Deno.test("approveProposal: a missing proposal → not_found", async () => {
+  const res = await approveProposal("ghost", "admin", {
+    now: () => NOW,
+    loadProposal: () => Promise.resolve(null),
+  });
+  assertEquals(res.reason, "not_found");
 });
 
-// ── Execution outcomes ───────────────────────────────────────────────────────
+// ── Reject ───────────────────────────────────────────────────────────────────
 
-Deno.test("a failing write tool records failed with the redacted error", async () => {
-  const rows = [pendingRow()];
-  const outcome = await executeProposal(
-    "p1",
-    "admin-1",
-    fakeDb(rows),
-    fakeWriteDb({ data: null, error: null }), // requeue finds nothing
-  );
-  assertEquals(outcome.kind, "failed");
-  assertEquals(rows[0].status, "failed");
-  assert(String((rows[0].result as { error: string }).error).includes("dl-1"));
+Deno.test("rejectProposal: claims pending→rejected; a decided one is refused", async () => {
+  const h = claimHarness(row());
+  const ok = await rejectProposal("p1", "admin", "not needed", h.deps);
+  assertEquals(ok, { ok: true, status: "rejected" });
+  assertEquals(h.events(), ["agent.proposal.rejected"]);
+  // Second reject loses the claim → not_pending.
+  const again = await rejectProposal("p1", "admin", "again", h.deps);
+  assertEquals(again.ok, false);
+  assert((again.reason ?? "").startsWith("not_pending"));
 });
 
-Deno.test("an unknown payload tool fails without throwing", async () => {
-  const rows = [pendingRow({ payload: { tool: "rm_rf_prod", args: {} } })];
-  const outcome = await executeProposal("p1", "a", fakeDb(rows), fakeWriteDb({}));
-  assertEquals(outcome.kind, "failed");
-  assert(outcome.kind === "failed" && outcome.error.includes("unknown write tool"));
-});
+// ── Expiry sweep ─────────────────────────────────────────────────────────────
 
-// ── Write-tool context refusal ───────────────────────────────────────────────
-
-Deno.test("write tools refuse to run without an approved-proposal context", async () => {
-  for (const tool of Object.values(WRITE_TOOLS)) {
-    let threw = false;
-    try {
-      await tool.run(
-        {},
-        undefined as unknown as { proposalId: string; agentKey: string },
-        fakeWriteDb({}),
-      );
-    } catch (err) {
-      threw = true;
-      assert(String(err).includes("approved-proposal"));
-    }
-    assert(threw, `${tool.name} ran without a context`);
-  }
-});
-
-Deno.test("retry_job validates the slug before touching the network", async () => {
-  let threw = false;
-  try {
-    await WRITE_TOOLS.retry_job.run(
-      { job: "../secrets" },
-      { proposalId: "p1", agentKey: "sentinel" },
-      fakeWriteDb({}),
-    );
-  } catch (err) {
-    threw = true;
-    assert(String(err).includes("invalid job slug"));
-  }
-  assert(threw);
-});
-
-// ── Filing from a run ────────────────────────────────────────────────────────
-
-Deno.test("filing validates entries, applies TTL, and batches ONE notification", async () => {
-  const dispatched: Array<Record<string, unknown>> = [];
-  const notifications: Array<Record<string, unknown>> = [];
-  const now = new Date("2026-07-04T00:00:00Z");
-
-  const tally = await fileProposalsFromRun(
-    { id: "a1", key: "sentinel", status: "enabled", autonomy: { retry_job: 1 } },
-    "run-1",
-    [
-      { action_class: "retry_job", title: "Retry A", summary: "s", payload: {} },
-      { action_class: "retry_job", title: "Retry B", summary: "s", payload: {} },
-      { title: "malformed — no class" },
-    ],
-    { proposal_ttl_hours: 48 },
-    {
-      dispatch: (agent, intent) => {
-        dispatched.push({ agent: agent.key, ...intent });
-        return Promise.resolve({ kind: "proposed", proposalId: "x", downgraded: false });
-      },
-      notify: (input) => {
-        notifications.push(input as unknown as Record<string, unknown>);
-        return Promise.resolve();
-      },
-      now: () => now,
+Deno.test("expireProposals: returns the count expired", async () => {
+  const res = await expireProposals({
+    now: () => NOW,
+    expirePast: (nowIso) => {
+      assertEquals(nowIso, new Date(NOW).toISOString());
+      return Promise.resolve(4);
     },
-  );
-
-  assertEquals(tally, { filed: 2, dropped: 0, skipped: 1 });
-  // TTL applied: 48h from now.
-  assertEquals(dispatched[0].expiresAt, "2026-07-06T00:00:00.000Z");
-  // ONE notification for the whole run, naming the count.
-  assertEquals(notifications.length, 1);
-  assert(String(notifications[0].title).includes("2 proposals"));
-  assertEquals(DEFAULT_PROPOSAL_TTL_HOURS, 72);
-});
-
-Deno.test("L0 suppressions count as dropped and trigger NO notification", async () => {
-  const notifications: unknown[] = [];
-  const tally = await fileProposalsFromRun(
-    { id: "a1", key: "sentinel", status: "enabled", autonomy: null },
-    "run-1",
-    [{ action_class: "retry_job", title: "T", summary: "s" }],
-    {},
-    {
-      dispatch: () =>
-        Promise.resolve({
-          kind: "dropped",
-          finding: { note: "would have proposed: T" },
-        }),
-      notify: (input) => {
-        notifications.push(input);
-        return Promise.resolve();
-      },
-    },
-  );
-  assertEquals(tally, { filed: 0, dropped: 1, skipped: 0 });
-  assertEquals(notifications.length, 0);
+  });
+  assertEquals(res, 4);
 });

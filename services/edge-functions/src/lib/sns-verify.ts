@@ -75,6 +75,30 @@ export function buildStringToSign(msg: SnsMessage): string | null {
   return out;
 }
 
+// US-1641: SNS messages carry a Timestamp. Reject anything older than this so a
+// captured-but-valid message can't be replayed hours later to forge a
+// suppression. AWS delivers within seconds; 1h is generous slack for clock skew
+// and retries.
+export const SNS_MAX_AGE_MS = 60 * 60 * 1000;
+
+/**
+ * True iff the message Timestamp is present, ISO-parseable, and within
+ * `maxAgeMs` of `nowMs` (bounded in BOTH directions so a far-future timestamp is
+ * rejected too). Pure — the clock is injected so it's unit-testable.
+ */
+export function isSnsTimestampFresh(
+  msg: SnsMessage,
+  nowMs: number,
+  maxAgeMs: number = SNS_MAX_AGE_MS,
+): boolean {
+  const ts = msg.Timestamp;
+  if (typeof ts !== "string") return false;
+  const t = Date.parse(ts);
+  if (Number.isNaN(t)) return false;
+  const age = nowMs - t;
+  return age <= maxAgeMs && age >= -maxAgeMs;
+}
+
 /** True iff the signing-cert URL is an https AWS SNS endpoint. */
 export function isValidSigningCertUrl(url: string): boolean {
   let u: URL;
@@ -183,6 +207,9 @@ function extractSpki(der: Uint8Array): Uint8Array | null {
 export async function verifySnsSignature(msg: SnsMessage): Promise<boolean> {
   const stringToSign = buildStringToSign(msg);
   if (!stringToSign) return false;
+  // US-1641: replay guard — reject stale (or far-future) messages before the
+  // cert fetch + RSA verify.
+  if (!isSnsTimestampFresh(msg, Date.now())) return false;
   const sig = msg.Signature;
   const certUrl = signingCertUrl(msg);
   if (typeof sig !== "string" || !certUrl) return false;

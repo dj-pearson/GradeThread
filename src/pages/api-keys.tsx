@@ -28,6 +28,7 @@ import { Key, Plus, Copy, Trash2, Check, Loader2, AlertTriangle, Crown, ShieldCh
 import { toast } from "sonner";
 import { Link, useNavigate } from "react-router-dom";
 import { usePlanUsage } from "@/hooks/use-plan-usage";
+import { useAuth } from "@/hooks/use-auth";
 import { FLIPDESK_PLANS } from "@/lib/constants";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { ApiUsagePanel } from "@/components/api/api-usage-panel";
@@ -69,6 +70,7 @@ function formatDateTime(dateStr: string): string {
 export function ApiKeysPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [createOpen, setCreateOpen] = useState(false);
   const [revokeKeyId, setRevokeKeyId] = useState<string | null>(null);
   const [newKeyName, setNewKeyName] = useState("");
@@ -87,7 +89,7 @@ export function ApiKeysPage() {
   const hasApiAccess = FLIPDESK_PLANS[plan]?.gateFlags.apiAccess ?? false;
 
   const { data: keys, isLoading } = useQuery<ApiKeyItem[]>({
-    queryKey: ["api-keys"],
+    queryKey: ["api-keys", user?.id],
     queryFn: async () => {
       const res = await edgeFetch("/api/keys");
       if (!res.ok) {

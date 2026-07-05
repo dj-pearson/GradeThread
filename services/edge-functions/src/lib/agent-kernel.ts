@@ -1,521 +1,743 @@
-// US-1584: the Agentic OS kernel run loop. ONE hardened, budgeted runtime
-// executes every registered agent: assemble context, run a bounded Claude
-// tool-use loop, record every step to agent_run_steps, persist a structured
-// outcome to agent_runs. Domain agents (US-1593+) are DATA — a registry row
-// with a prompt, a tool allowlist, and caps — never bespoke loops.
+// US-1584 / AGENTIC-OS Phase 0 (Module A — Agent Kernel): the single run loop.
 //
-// Hard rules encoded here:
-//  - caps from config with safe defaults (steps 24, wall-clock 5 min, output
-//    tokens 4096); a breach kills the loop, records 'timeout' with a partial
-//    outcome, and NEVER throws to the caller;
-//  - every model call passes the ai-budget gate FIRST; a refusal ends the
-//    run cleanly as 'skipped' with the reason in outcome;
-//  - a paused agent or the global agents.pause setting short-circuits to a
-//    'skipped' row — and the pause read is FAIL-CLOSED (unreadable → paused);
-//  - every step's input/output goes through log-redact before persisting;
-//  - the final output must match { summary, findings[], proposals[] } or the
-//    run records 'failed'.
+// runAgent(agentKey, trigger) is the hardened, budgeted runtime every domain
+// agent shares (AGENTIC_OS.md §2 guardrails, §3.A). It: loads the agent, honors
+// the pause kill-switches, creates an agent_runs row, runs a BOUNDED Claude
+// tool-use loop (max steps / output tokens / wall-clock), records every model
+// and tool step to agent_run_steps (PII-redacted), gates each model call on the
+// ai-budget kill-switch, validates the final structured output, and finalizes
+// the run with status + tokens + cost. It NEVER throws to the caller — every
+// terminal path (success, timeout, budget-skip, pause-skip, malformed-failure,
+// unexpected-error) resolves to a finalized run row and a RunResult.
+//
+// Testability: all impure edges (agent load, run/step persistence, the model
+// step, the tool registry, the budget + pause reads, the clock) are injected via
+// KernelDeps. prodKernelDeps() wires the real infrastructure; the unit tests
+// drive a mocked model client. This mirrors the pure-core + injected-deps split
+// used by affiliate-payout.ts and support-assistant-engine.ts.
+//
+// SECURITY (US-268): agents/agent_runs/agent_run_steps are operator tables
+// (deny-all RLS, service-role only). No tenant data flows through the kernel;
+// reads are keyed by the agent key / the run id the kernel itself created.
 
 import type Anthropic from "@anthropic-ai/sdk";
 import { supabaseAdmin } from "./supabase.ts";
 import { getAnthropicClient, getDefaultModel } from "./ai-config.ts";
-import { isAiBudgetExhausted } from "./ai-budget-gate.ts";
+import { computeCostUsd } from "./ai-usage.ts";
+import { agentBudgetFeature, checkAgentBudget } from "./agent-budget.ts";
+import { enterAiFeature } from "./ai-feature-context.ts";
 import { redact, redactError } from "./log-redact.ts";
-import { computeCostUsd, toAiTokenUsage } from "./ai-usage.ts";
-import { isGlobalAgentPause } from "./agent-policy.ts";
+import { getSetting } from "./system-settings.ts";
+import { agentToolRegistry } from "./agent-tools.ts";
+import { applyWritePolicy, recordPolicyBreach } from "./agent-policy.ts";
+import { DEFAULT_PROPOSAL_TTL_HOURS, persistProposals } from "./agent-proposals.ts";
+import type { ProposalDraft } from "./agent-policy.ts";
+import { notifyAdminsProposalsFiled } from "./admin-notifications.ts";
 import { emitOpsEvent } from "./ops-events.ts";
 import { captureException, recordMetric } from "./observability.ts";
+import { charterFor } from "../agents/charters/index.ts";
+
+// The severities the agent.* ops events use.
+export type AgentEventSeverity = "info" | "warning" | "critical";
+
+// ── Config + caps ────────────────────────────────────────────────────────────
+
+// Models an agent may run on. An unknown/unset config.model falls back to the
+// platform default rather than trusting an arbitrary string into messages.create.
+export const AGENT_MODEL_ALLOWLIST = [
+  "claude-opus-4-8",
+  "claude-sonnet-5",
+  "claude-sonnet-4-6",
+  "claude-haiku-4-5-20251001",
+];
+
+export const DEFAULT_MAX_STEPS = 24;
+export const DEFAULT_MAX_OUTPUT_TOKENS = 2048;
+export const DEFAULT_MAX_WALL_CLOCK_MS = 5 * 60 * 1000; // 5 min
+// The global kill-switch (system_settings). True → every agent short-circuits.
+export const AGENTS_PAUSE_SETTING_KEY = "agents.pause";
+
+export interface AgentConfig {
+  model?: string;
+  system_prompt?: string;
+  // Per-agent tool allowlist. `tools` is the US-1585 name; `tool_allowlist` is
+  // accepted as an alias.
+  tools?: string[];
+  tool_allowlist?: string[];
+  max_steps?: number;
+  max_output_tokens?: number;
+  max_wall_clock_ms?: number;
+  budget_feature?: string;
+  budget_usd_daily?: number;
+  schedule?: string;
+  // TTL (hours) for proposals this agent files (US-1587).
+  proposal_ttl_hours?: number;
+  [k: string]: unknown;
+}
+
+export interface AgentRow {
+  id: string;
+  key: string;
+  name: string;
+  module_letter: string | null;
+  status: "enabled" | "paused" | string;
+  autonomy: Record<string, unknown>;
+  config: AgentConfig;
+}
+
+export interface ResolvedCaps {
+  maxSteps: number;
+  maxOutputTokens: number;
+  maxWallClockMs: number;
+}
+
+// Positive-integer coerce with a floor of 1 and a fallback for garbage.
+function posInt(v: unknown, fallback: number): number {
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) && n >= 1 ? Math.floor(n) : fallback;
+}
+
+// Resolve the per-run hard caps from config, with the safe defaults (pure).
+export function resolveCaps(config: AgentConfig): ResolvedCaps {
+  return {
+    maxSteps: posInt(config.max_steps, DEFAULT_MAX_STEPS),
+    maxOutputTokens: posInt(config.max_output_tokens, DEFAULT_MAX_OUTPUT_TOKENS),
+    maxWallClockMs: posInt(config.max_wall_clock_ms, DEFAULT_MAX_WALL_CLOCK_MS),
+  };
+}
+
+// Pick the model: config.model if allowlisted, else the platform default (pure).
+export function resolveAgentModel(config: AgentConfig): string {
+  const m = config.model;
+  if (typeof m === "string" && AGENT_MODEL_ALLOWLIST.includes(m)) return m;
+  return getDefaultModel();
+}
 
 // ── The output contract ──────────────────────────────────────────────────────
 
-export interface AgentOutput {
+export interface AgentOutcome {
   summary: string;
   findings: unknown[];
   proposals: unknown[];
+  // Set on a non-clean finish (timeout / budget-skip / pause) so downstream
+  // consumers can tell a partial outcome from a validated one.
+  partial?: boolean;
+  reason?: string;
 }
 
-/** Validate the agent's final answer. Null = malformed (run records failed). */
-export function validateAgentOutput(raw: unknown): AgentOutput | null {
-  if (raw == null || typeof raw !== "object" || Array.isArray(raw)) return null;
-  const o = raw as Record<string, unknown>;
-  if (typeof o.summary !== "string" || o.summary.trim() === "") return null;
-  if (!Array.isArray(o.findings)) return null;
-  if (!Array.isArray(o.proposals)) return null;
-  return { summary: o.summary, findings: o.findings, proposals: o.proposals };
-}
+export type OutcomeParse =
+  | { ok: true; outcome: AgentOutcome }
+  | { ok: false; error: string };
 
-/** Extract the contract from the final model text (JSON, fenced or bare). */
-export function parseAgentOutputText(text: string): AgentOutput | null {
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const candidate = (fenced ? fenced[1] : text).trim();
+// Parse + validate the agent's final text as the { summary, findings, proposals }
+// contract (pure). Tolerates a ```json code fence and leading/trailing prose by
+// extracting the first balanced object. Anything that isn't the exact shape
+// (summary:string, findings:array, proposals:array) is a hard failure.
+export function parseAgentOutcome(text: string): OutcomeParse {
+  const raw = extractJsonObject(text);
+  if (raw === null) return { ok: false, error: "no JSON object in output" };
+  let parsed: unknown;
   try {
-    return validateAgentOutput(JSON.parse(candidate));
-  } catch {
-    return null;
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    return { ok: false, error: `JSON parse failed: ${err instanceof Error ? err.message : "invalid"}` };
   }
-}
-
-// ── Tool surface (filled by the US-1585 registry) ───────────────────────────
-
-export interface AgentTool {
-  name: string;
-  description: string;
-  // JSON Schema for the tool input (Anthropic tools format).
-  inputSchema: Record<string, unknown>;
-  run(input: Record<string, unknown>): Promise<unknown>;
-}
-
-// ── Caps ─────────────────────────────────────────────────────────────────────
-
-export interface AgentCaps {
-  maxSteps: number;
-  maxWallClockMs: number;
-  maxOutputTokens: number;
-}
-
-export function capsFromConfig(config: Record<string, unknown>): AgentCaps {
-  const n = (v: unknown, dflt: number, max: number): number => {
-    const parsed = typeof v === "number" && Number.isFinite(v) ? v : dflt;
-    return Math.max(1, Math.min(parsed, max));
-  };
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { ok: false, error: "output is not an object" };
+  }
+  const o = parsed as Record<string, unknown>;
+  if (typeof o.summary !== "string") return { ok: false, error: "summary must be a string" };
+  if (!Array.isArray(o.findings)) return { ok: false, error: "findings must be an array" };
+  if (!Array.isArray(o.proposals)) return { ok: false, error: "proposals must be an array" };
   return {
-    maxSteps: n(config.max_steps, 24, 100),
-    maxWallClockMs: n(config.max_wall_clock_ms, 5 * 60_000, 30 * 60_000),
-    maxOutputTokens: n(config.max_output_tokens, 4096, 16_384),
+    ok: true,
+    outcome: { summary: o.summary, findings: o.findings, proposals: o.proposals },
   };
 }
 
-// ── Injectable dependencies (tests mock the lot) ────────────────────────────
-
-interface AgentRow {
-  id: string;
-  key: string;
-  status: string;
-  config: Record<string, unknown>;
+// Extract the first balanced {...} run from text (handles ```json fences + prose).
+function extractJsonObject(text: string): string | null {
+  if (typeof text !== "string") return null;
+  const start = text.indexOf("{");
+  if (start < 0) return null;
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === "\\") esc = true;
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') inStr = true;
+    else if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return null;
 }
 
-export interface KernelDb {
-  loadAgent(key: string): Promise<AgentRow | null>;
-  insertRun(row: Record<string, unknown>): Promise<string>; // returns run id
-  updateRun(id: string, patch: Record<string, unknown>): Promise<void>;
-  insertStep(row: Record<string, unknown>): Promise<void>;
-}
+// ── Model step + tool registry seams ─────────────────────────────────────────
 
-export interface ModelTurn {
-  // Mirrors the Anthropic response surface the loop consumes.
+export interface KernelModelStep {
+  text: string;
+  toolUses: Array<{ id: string; name: string; input: unknown }>;
   stopReason: string | null;
-  content: Array<
-    | { type: "text"; text: string }
-    | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
-  >;
+  usage: { inputTokens: number; outputTokens: number };
+  assistantContent: Anthropic.ContentBlockParam[];
+}
+
+export type KernelStepFn = (messages: Anthropic.MessageParam[]) => Promise<KernelModelStep>;
+
+// The tool registry is built by US-1585; the kernel only needs this surface and
+// works against an empty one (the agent then runs read-only and just emits an
+// outcome). isAllowed composes the agent's own allowlist with the registry.
+export interface AgentToolRegistry {
+  anthropicTools(agent: AgentRow): Anthropic.Tool[];
+  isAllowed(agent: AgentRow, name: string): boolean;
+  execute(agent: AgentRow, name: string, input: unknown): Promise<unknown>;
+}
+
+export const EMPTY_TOOL_REGISTRY: AgentToolRegistry = {
+  anthropicTools: () => [],
+  isAllowed: () => false,
+  execute: (_a, name) => Promise.reject(new Error(`tool not available: ${name}`)),
+};
+
+// ── Deps ─────────────────────────────────────────────────────────────────────
+
+export interface StepRecord {
+  seq: number;
+  stepType: "model_call" | "tool_call" | "output";
+  name: string | null;
+  input: unknown;
+  output: unknown;
+  durationMs: number;
+}
+
+export interface RunFinalize {
+  status: RunStatus;
+  tokensIn: number;
+  tokensOut: number;
+  costUsd: number;
+  outcome: AgentOutcome | null;
+  error: string | null;
+}
+
+export interface KernelDeps {
+  loadAgent: (agentKey: string) => Promise<AgentRow | null>;
+  // Global kill-switch read. The kernel treats a THROW as paused (fail-closed);
+  // a normal false/true is honored as-is.
+  getGlobalPause: () => Promise<boolean>;
+  // Budget governor (US-1591): is this agent over budget right now?
+  checkBudget: (agentKey: string, config: AgentConfig) => Promise<{ exhausted: boolean; reason: string | null }>;
+  // Mid-run budget breach → pause + demote + alert.
+  onBudgetBreach: (agent: AgentRow, reason: string) => Promise<void>;
+  createRun: (agentId: string, trigger: string) => Promise<string | null>;
+  recordStep: (runId: string, step: StepRecord) => Promise<void>;
+  finalizeRun: (runId: string, patch: RunFinalize) => Promise<void>;
+  makeStep: (agent: AgentRow, model: string, maxOutputTokens: number) => KernelStepFn;
+  toolRegistry: AgentToolRegistry;
+  // Persist an agent's filed proposal drafts (US-1587). Returns the count filed.
+  persistProposals: (
+    agentId: string,
+    runId: string,
+    drafts: ProposalDraft[],
+    ttlHours: number,
+  ) => Promise<number>;
+  // Notify admins of newly-filed proposals, batched per run (US-1657).
+  notifyProposalsFiled: (agentKey: string, runId: string, count: number) => Promise<void>;
+  // Emit an agent.* ops event (US-1589). Fire-and-forget.
+  emitEvent: (type: string, severity: AgentEventSeverity, data: Record<string, unknown>) => void;
+  now: () => number;
+}
+
+export type RunStatus = "succeeded" | "failed" | "timeout" | "skipped";
+
+export interface RunResult {
+  runId: string | null;
+  status: RunStatus;
+  outcome: AgentOutcome | null;
+  reason?: string;
   tokensIn: number;
   tokensOut: number;
   costUsd: number;
 }
 
-export interface KernelDeps {
-  db: KernelDb;
-  /** US-1587: file the run's proposals through the policy engine. */
-  fileProposals(
-    agent: { id: string; key: string; status: string; autonomy: Record<string, unknown> | null },
-    runId: string,
-    proposals: unknown[],
-    config: Record<string, unknown>,
-  ): Promise<{ filed: number; dropped: number; skipped: number }>;
-  callModel(params: {
-    model: string;
-    system: string;
-    messages: Anthropic.MessageParam[];
-    tools: Anthropic.Tool[];
-    maxTokens: number;
-  }): Promise<ModelTurn>;
-  isBudgetExhausted(feature: string): Promise<boolean>;
-  /** FAIL-CLOSED global pause: true when paused OR the read failed. */
-  isGloballyPaused(): Promise<boolean>;
-  tools: Record<string, AgentTool>;
-  now(): number;
-  /** US-1589: agent.* activity-stream events (injectable for tests). */
-  emitEvent(
-    type: string,
-    severity: "info" | "warning" | "critical",
-    payload: { title: string; source?: string; data?: Record<string, unknown> },
-  ): Promise<void>;
-}
-
-const defaultDb: KernelDb = {
-  async loadAgent(key) {
-    const { data, error } = await supabaseAdmin
-      .from("agents")
-      .select("id, key, status, config")
-      .eq("key", key)
-      .maybeSingle();
-    if (error) throw new Error(`agent load failed: ${error.message}`);
-    return (data as AgentRow | null) ?? null;
-  },
-  async insertRun(row) {
-    const { data, error } = await supabaseAdmin
-      .from("agent_runs")
-      .insert(row)
-      .select("id")
-      .single();
-    if (error) throw new Error(`run insert failed: ${error.message}`);
-    return (data as { id: string }).id;
-  },
-  async updateRun(id, patch) {
-    const { error } = await supabaseAdmin
-      .from("agent_runs")
-      .update(patch)
-      .eq("id", id);
-    if (error) throw new Error(`run update failed: ${error.message}`);
-  },
-  async insertStep(row) {
-    const { error } = await supabaseAdmin.from("agent_run_steps").insert(row);
-    if (error) throw new Error(`step insert failed: ${error.message}`);
-  },
-};
-
-async function defaultCallModel(params: {
-  model: string;
-  system: string;
-  messages: Anthropic.MessageParam[];
-  tools: Anthropic.Tool[];
-  maxTokens: number;
-}): Promise<ModelTurn> {
-  const client = getAnthropicClient();
-  const response = await client.messages.create({
-    model: params.model,
-    max_tokens: params.maxTokens,
-    system: params.system,
-    messages: params.messages,
-    ...(params.tools.length > 0 ? { tools: params.tools } : {}),
-  });
-  const usage = toAiTokenUsage(params.model, response.usage);
-  return {
-    stopReason: response.stop_reason,
-    content: response.content as ModelTurn["content"],
-    tokensIn: usage.inputTokens + usage.cacheCreationTokens + usage.cacheReadTokens,
-    tokensOut: usage.outputTokens,
-    costUsd: computeCostUsd(usage),
-  };
-}
-
-async function defaultFileProposals(
-  agent: { id: string; key: string; status: string; autonomy: Record<string, unknown> | null },
-  runId: string,
-  proposals: unknown[],
-  config: Record<string, unknown>,
-) {
-  const { fileProposalsFromRun } = await import("./agent-proposals.ts");
-  return await fileProposalsFromRun(agent, runId, proposals, config);
-}
-
-const defaultDeps: KernelDeps = {
-  db: defaultDb,
-  fileProposals: defaultFileProposals,
-  callModel: defaultCallModel,
-  isBudgetExhausted: isAiBudgetExhausted,
-  // ONE pause implementation across run start and write dispatch —
-  // the policy engine's fail-closed reader (US-1586).
-  isGloballyPaused: () => isGlobalAgentPause(),
-  emitEvent: (type, severity, payload) => emitOpsEvent(type, severity, payload),
-  tools: {},
-  now: () => Date.now(),
-};
+const DEFAULT_SYSTEM_PROMPT =
+  "You are a GradeThread operations agent. Gather context using the tools you " +
+  "are given (read-only unless told otherwise), reason about what you find, and " +
+  "then STOP. Your final message MUST be a single JSON object and nothing else, " +
+  'of the exact shape {"summary": string, "findings": array, "proposals": array}. ' +
+  "summary is a short operator-facing paragraph; findings are notable " +
+  "observations; proposals are structured write-actions for a human to approve " +
+  "(leave empty unless you are explicitly authorized to propose actions).";
 
 // ── The run loop ─────────────────────────────────────────────────────────────
-
-export interface RunResult {
-  runId: string | null;
-  status: "succeeded" | "failed" | "timeout" | "skipped";
-}
 
 export async function runAgent(
   agentKey: string,
   trigger: string,
-  overrides: Partial<KernelDeps> = {},
+  deps: Partial<KernelDeps> = {},
 ): Promise<RunResult> {
-  const deps: KernelDeps = { ...defaultDeps, ...overrides };
+  const d = { ...prodKernelDeps(), ...deps };
+  const empty: RunResult = {
+    runId: null,
+    status: "skipped",
+    outcome: null,
+    tokensIn: 0,
+    tokensOut: 0,
+    costUsd: 0,
+  };
+
+  // 1. Load the agent. A missing/unknown key is a no-op skip (no row to FK to).
+  let agent: AgentRow | null;
   try {
-    return await execute(agentKey, trigger, deps);
+    agent = await d.loadAgent(agentKey);
   } catch (err) {
-    // The kernel NEVER throws to the caller (schedulers must survive
-    // anything). A failure this far out means bookkeeping itself broke.
-    console.error(`[agent-kernel] ${agentKey}: ${redactError(err)}`);
-    return { runId: null, status: "failed" };
+    console.warn(`[agent-kernel] load failed for ${agentKey}: ${redactError(err)}`);
+    return { ...empty, reason: "load_failed" };
   }
-}
+  if (!agent) return { ...empty, reason: "agent_not_found" };
 
-async function execute(
-  agentKey: string,
-  trigger: string,
-  deps: KernelDeps,
-): Promise<RunResult> {
-  const agent = await deps.db.loadAgent(agentKey);
-  if (!agent) {
-    console.error(`[agent-kernel] unknown agent key: ${agentKey}`);
-    return { runId: null, status: "failed" };
+  // Create the run row up front so every terminal path finalizes one uniform row.
+  let runId: string | null;
+  try {
+    runId = await d.createRun(agent.id, trigger);
+  } catch (err) {
+    console.warn(`[agent-kernel] createRun failed for ${agentKey}: ${redactError(err)}`);
+    runId = null;
   }
+  if (!runId) return { ...empty, reason: "run_row_failed" };
 
-  // Pause short-circuits still leave a ledger row — silence is not a record.
-  const globallyPaused = await deps.isGloballyPaused();
-  if (agent.status === "paused" || globallyPaused) {
-    const reason = globallyPaused ? "global agents.pause" : "agent paused";
-    const runId = await deps.db.insertRun({
-      agent_id: agent.id,
-      trigger,
-      status: "skipped",
-      started_at: new Date(deps.now()).toISOString(),
-      finished_at: new Date(deps.now()).toISOString(),
-      outcome: { reason },
-    });
-    return { runId, status: "skipped" };
-  }
-
-  const caps = capsFromConfig(agent.config ?? {});
-  const model = typeof agent.config?.model === "string"
-    ? (agent.config.model as string)
-    : getDefaultModel();
-  const budgetFeature = typeof agent.config?.budget_feature === "string"
-    ? (agent.config.budget_feature as string)
-    : "agents";
-  const systemPrompt = typeof agent.config?.system_prompt === "string"
-    ? (agent.config.system_prompt as string)
-    : `You are the ${agent.key} agent for GradeThread's operations.`;
-
-  // Allowlist-validated tool surface: config names ∩ the registered tools.
-  const allowlist = Array.isArray(agent.config?.tool_allowlist)
-    ? (agent.config.tool_allowlist as string[])
-    : [];
-  const tools = allowlist
-    .map((name) => deps.tools[name])
-    .filter((t): t is AgentTool => t != null);
-  const anthropicTools: Anthropic.Tool[] = tools.map((t) => ({
-    name: t.name,
-    description: t.description,
-    input_schema: t.inputSchema as Anthropic.Tool["input_schema"],
-  }));
-
-  const startedAt = deps.now();
-  const runId = await deps.db.insertRun({
-    agent_id: agent.id,
-    trigger,
-    status: "running",
-    started_at: new Date(startedAt).toISOString(),
-  });
-  // US-1589: the activity stream sees every run begin (info — routine).
-  void deps.emitEvent("agent.run.started", "info", {
-    title: `Agent '${agent.key}' run started (${trigger})`,
-    source: "agent-kernel",
-    data: { agent: agent.key, run_id: runId, trigger },
-  }).catch(() => {});
-
+  // `agentKey` (the param) is already a stable string in scope for the finalize
+  // closure and equals agent.key here (loadAgent matched on it). Observability
+  // keys off it directly — no separate capture needed.
+  const runStartMs = d.now();
   let seq = 0;
-  let tokensIn = 0;
-  let tokensOut = 0;
-  let costUsd = 0;
 
-  const recordStep = async (
-    stepType: "model_call" | "tool_call" | "output",
-    name: string,
-    input: unknown,
-    output: unknown,
-    durationMs: number,
-  ) => {
-    seq += 1;
-    await deps.db.insertStep({
-      run_id: runId,
-      seq,
-      step_type: stepType,
-      name,
-      // PII never reaches the transcript (US-1584 AC3).
-      input: input == null ? null : { redacted: redact(input) },
-      output: output == null ? null : { redacted: redact(output) },
-      duration_ms: Math.round(durationMs),
-    });
-  };
-
-  const finalize = async (
-    status: RunResult["status"],
-    outcome: Record<string, unknown> | null,
-    error?: string,
-  ): Promise<RunResult> => {
-    const durationMs = deps.now() - startedAt;
-    await deps.db.updateRun(runId, {
-      status,
-      finished_at: new Date(deps.now()).toISOString(),
-      tokens_in: tokensIn,
-      tokens_out: tokensOut,
-      cost_usd: Number(costUsd.toFixed(4)),
-      outcome,
-      ...(error ? { error: redact(error) } : {}),
-    });
-    // US-1589: one metrics line per run, tagged by agent key.
-    recordMetric("agent_run", durationMs, {
-      agent: agent.key,
-      outcome: status,
-      steps: seq,
-      tokens_in: tokensIn,
-      tokens_out: tokensOut,
-      cost_usd: Number(costUsd.toFixed(4)),
-    });
-    // Terminal activity-stream event: failures/timeouts are warnings,
-    // routine completions info. Skips already ledgered at the start path.
-    const type = status === "succeeded"
-      ? "agent.run.finished"
-      : status === "timeout"
-      ? "agent.run.timeout"
-      : "agent.run.failed";
-    if (status !== "skipped") {
-      void deps.emitEvent(type, status === "succeeded" ? "info" : "warning", {
-        title: `Agent '${agent.key}' run ${status} ` +
-          `(${Math.round(durationMs / 1000)}s, $${costUsd.toFixed(4)})`,
-        source: "agent-kernel",
-        data: {
-          agent: agent.key,
-          run_id: runId,
-          duration_ms: durationMs,
-          cost_usd: Number(costUsd.toFixed(4)),
-          steps: seq,
-        },
-      }).catch(() => {});
+  const finalize = async (patch: RunFinalize): Promise<RunResult> => {
+    try {
+      await d.finalizeRun(runId!, patch);
+    } catch (err) {
+      console.warn(`[agent-kernel] finalizeRun failed for run ${runId}: ${redactError(err)}`);
     }
-    return { runId, status };
+    // US-1589: a terminal agent.run.* ops event + a metric line, per outcome.
+    const durationMs = d.now() - runStartMs;
+    const evType = patch.status === "succeeded"
+      ? "agent.run.finished"
+      : patch.status === "failed"
+      ? "agent.run.failed"
+      : patch.status === "timeout"
+      ? "agent.run.timeout"
+      : "agent.run.skipped";
+    const evSeverity: AgentEventSeverity = patch.status === "failed" || patch.status === "timeout"
+      ? "warning"
+      : "info";
+    d.emitEvent(evType, evSeverity, {
+      agent: agentKey,
+      run_id: runId,
+      status: patch.status,
+      duration_ms: durationMs,
+      steps: seq,
+      tokens_in: patch.tokensIn,
+      tokens_out: patch.tokensOut,
+      cost_usd: patch.costUsd,
+      reason: patch.outcome?.reason ?? null,
+    });
+    recordMetric("agent.run", 1, {
+      agent: agentKey,
+      outcome: patch.status,
+      duration_ms: durationMs,
+      steps: seq,
+      tokens_in: patch.tokensIn,
+      tokens_out: patch.tokensOut,
+      cost_usd: patch.costUsd,
+    });
+    return {
+      runId,
+      status: patch.status,
+      outcome: patch.outcome,
+      reason: patch.outcome?.reason,
+      tokensIn: patch.tokensIn,
+      tokensOut: patch.tokensOut,
+      costUsd: patch.costUsd,
+    };
   };
 
+  // 2. Pause kill-switches (AC5): global setting (fail-closed on read error) OR
+  //    the agent's own paused status → skip.
+  let globallyPaused: boolean;
+  try {
+    globallyPaused = await d.getGlobalPause();
+  } catch {
+    globallyPaused = true; // fail-closed: an unreadable switch means "paused".
+  }
+  if (globallyPaused || agent.status === "paused") {
+    const reason = globallyPaused ? "globally_paused" : "agent_paused";
+    return finalize({
+      status: "skipped",
+      tokensIn: 0,
+      tokensOut: 0,
+      costUsd: 0,
+      outcome: { summary: `Skipped: ${reason}`, findings: [], proposals: [], partial: true, reason },
+      error: null,
+    });
+  }
+
+  // 3. Run the bounded tool-use loop.
+  const caps = resolveCaps(agent.config);
+  const model = resolveAgentModel(agent.config);
+  // US-1591: tag the AI-feature context so every model call this run makes
+  // records to the ai_usage_events ledger under this agent's feature — the
+  // per-agent spend line, the fleet rollup, and budget enforcement all read it.
+  enterAiFeature(agentBudgetFeature(agentKey));
+  const startedAt = d.now();
+  const step = d.makeStep(agent, model, caps.maxOutputTokens);
+
+  // US-1593: prefer the repo-versioned charter, then config, then the default.
+  const systemPrompt = charterFor(agentKey)?.systemPrompt ??
+    (typeof agent.config.system_prompt === "string" && agent.config.system_prompt
+      ? agent.config.system_prompt
+      : DEFAULT_SYSTEM_PROMPT);
   const messages: Anthropic.MessageParam[] = [
-    {
-      role: "user",
-      content:
-        `Trigger: ${trigger}. Run your checks now. When finished, reply with ` +
-        `ONLY a JSON object matching {"summary": string, "findings": [], "proposals": []}.`,
-    },
+    { role: "user", content: `System context: ${systemPrompt}\n\nBegin your run for trigger "${trigger}".` },
   ];
 
-  try {
-    for (let step = 0; step < caps.maxSteps; step++) {
-      // Wall-clock breach → timeout with whatever we have (partial outcome).
-      if (deps.now() - startedAt > caps.maxWallClockMs) {
-        return await finalize("timeout", {
-          partial: true,
-          reason: `wall clock exceeded ${caps.maxWallClockMs}ms`,
-          steps: seq,
-        });
-      }
+  let tokensIn = 0;
+  let tokensOut = 0;
+  let finalText: string | null = null;
 
-      // Budget gate BEFORE every model call — a refusal is a clean skip.
-      if (await deps.isBudgetExhausted(budgetFeature)) {
-        return await finalize("skipped", {
-          reason: `ai budget exhausted for feature '${budgetFeature}'`,
-          steps: seq,
-        });
-      }
+  // US-1589: the run has truly begun (past the pause/kill gate).
+  d.emitEvent("agent.run.started", "info", { agent: agentKey, run_id: runId, trigger, model });
 
-      const t0 = deps.now();
-      const turn = await deps.callModel({
-        model,
-        system: systemPrompt,
-        messages,
-        tools: anthropicTools,
-        maxTokens: caps.maxOutputTokens,
-      });
-      tokensIn += turn.tokensIn;
-      tokensOut += turn.tokensOut;
-      costUsd += turn.costUsd;
-      await recordStep(
-        "model_call",
-        model,
-        { messageCount: messages.length },
-        turn.content,
-        deps.now() - t0,
-      );
-
-      const toolUses = turn.content.filter(
-        (b): b is Extract<ModelTurn["content"][number], { type: "tool_use" }> =>
-          b.type === "tool_use",
-      );
-
-      if (turn.stopReason === "tool_use" && toolUses.length > 0) {
-        messages.push({
-          role: "assistant",
-          content: turn.content as Anthropic.ContentBlockParam[],
-        });
-        const results: Anthropic.ToolResultBlockParam[] = [];
-        for (const use of toolUses) {
-          const tool = tools.find((t) => t.name === use.name);
-          const tt0 = deps.now();
-          let resultContent: string;
-          if (!tool) {
-            // Model asked for something off-allowlist — refuse, don't crash.
-            resultContent = JSON.stringify({
-              error: `tool '${use.name}' is not on this agent's allowlist`,
-            });
-          } else {
-            try {
-              resultContent = JSON.stringify(await tool.run(use.input));
-            } catch (err) {
-              resultContent = JSON.stringify({ error: redactError(err) });
-            }
-          }
-          await recordStep(
-            "tool_call",
-            use.name,
-            use.input,
-            resultContent,
-            deps.now() - tt0,
-          );
-          results.push({
-            type: "tool_result",
-            tool_use_id: use.id,
-            content: resultContent,
-          });
-        }
-        messages.push({ role: "user", content: results });
-        continue;
-      }
-
-      // Final turn: enforce the output contract.
-      const text = turn.content
-        .filter((b): b is { type: "text"; text: string } => b.type === "text")
-        .map((b) => b.text)
-        .join("\n");
-      const output = parseAgentOutputText(text);
-      if (!output) {
-        await recordStep("output", "malformed", null, text.slice(0, 2000), 0);
-        return await finalize("failed", null, "malformed agent output (contract violation)");
-      }
-      await recordStep("output", "final", null, output, 0);
-      // US-1587: the run's proposals ride the policy engine (per-class
-      // autonomy applies to each); the filing tally lands in the outcome.
-      let filing: { filed: number; dropped: number; skipped: number } | null = null;
-      if (output.proposals.length > 0) {
-        try {
-          filing = await deps.fileProposals(
-            { id: agent.id, key: agent.key, status: agent.status, autonomy: null },
-            runId,
-            output.proposals,
-            agent.config ?? {},
-          );
-        } catch (err) {
-          filing = { filed: 0, dropped: 0, skipped: output.proposals.length };
-          console.error(`[agent-kernel] proposal filing failed: ${redactError(err)}`);
-        }
-      }
-      return await finalize("succeeded", {
-        ...(output as unknown as Record<string, unknown>),
-        ...(filing ? { proposal_filing: filing } : {}),
-      });
-    }
-
-    // Step cap breached — the model never produced a final answer.
-    return await finalize("timeout", {
-      partial: true,
-      reason: `step cap ${caps.maxSteps} exceeded`,
-      steps: seq,
+  const costOf = (): number =>
+    computeCostUsd({
+      model,
+      inputTokens: tokensIn,
+      outputTokens: tokensOut,
+      cacheCreationTokens: 0,
+      cacheReadTokens: 0,
     });
+
+  try {
+    for (let iteration = 0; ; iteration++) {
+      // Wall-clock cap (AC2).
+      if (d.now() - startedAt > caps.maxWallClockMs) {
+        return finalize(partialFinish("timeout", "wall_clock_exceeded", tokensIn, tokensOut, costOf()));
+      }
+      // Step cap (AC2).
+      if (iteration >= caps.maxSteps) {
+        return finalize(partialFinish("timeout", "max_steps_exceeded", tokensIn, tokensOut, costOf()));
+      }
+      // Budget governor BEFORE every model call (US-1591). Exhausted at the
+      // START → refuse to run (skipped, no side effects). Exhausted MID-RUN
+      // (after ≥1 model call) → a breach: pause + demote + alert, then halt.
+      const budget = await d.checkBudget(agentKey, agent.config);
+      if (budget.exhausted) {
+        if (iteration === 0) {
+          return finalize(partialFinish("skipped", "budget_exhausted", tokensIn, tokensOut, costOf()));
+        }
+        await d.onBudgetBreach(agent, budget.reason ?? "budget_breach").catch(() => {});
+        return finalize(partialFinish("skipped", "budget_breach", tokensIn, tokensOut, costOf()));
+      }
+
+      const t0 = d.now();
+      const s = await step(messages);
+      tokensIn += s.usage.inputTokens;
+      tokensOut += s.usage.outputTokens;
+      await d.recordStep(runId, {
+        seq: seq++,
+        stepType: "model_call",
+        name: model,
+        input: { redacted: redact(messages) },
+        output: { redacted: redact({ text: s.text, toolUses: s.toolUses, stopReason: s.stopReason }) },
+        durationMs: d.now() - t0,
+      });
+
+      // Terminal turn: the model stopped asking for tools → this is the output.
+      if (s.stopReason !== "tool_use" || s.toolUses.length === 0) {
+        finalText = s.text;
+        break;
+      }
+
+      // Otherwise execute each requested tool and feed the results back.
+      messages.push({ role: "assistant", content: s.assistantContent });
+      const toolResults: Anthropic.ContentBlockParam[] = [];
+      for (const tu of s.toolUses) {
+        const tt0 = d.now();
+        let output: unknown;
+        let isError = false;
+        if (!d.toolRegistry.isAllowed(agent, tu.name)) {
+          output = { error: `tool not allowed: ${tu.name}` };
+          isError = true;
+        } else {
+          try {
+            output = await d.toolRegistry.execute(agent, tu.name, tu.input);
+          } catch (err) {
+            output = { error: redactError(err) };
+            isError = true;
+          }
+        }
+        await d.recordStep(runId, {
+          seq: seq++,
+          stepType: "tool_call",
+          name: tu.name,
+          input: { redacted: redact(tu.input) },
+          output: { redacted: redact(output) },
+          durationMs: d.now() - tt0,
+        });
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: tu.id,
+          content: redact(output),
+          ...(isError ? { is_error: true } : {}),
+        });
+      }
+      messages.push({ role: "user", content: toolResults });
+    }
   } catch (err) {
-    // US-1589: kernel crashes are captured with the run id as context; the
-    // run row STILL finalizes as failed (the ledger never lies by omission).
-    captureException(err, { route: "agent-kernel.execute", correlationId: runId });
-    return await finalize("failed", null, redactError(err));
+    // Any unexpected error (model call, tool, persistence) → clean 'failed'.
+    // US-1589: route the crash through captureException with the run id, but the
+    // run row still finalizes as 'failed'.
+    console.warn(`[agent-kernel] run ${runId} errored: ${redactError(err)}`);
+    captureException(err, {
+      route: "agent-kernel",
+      level: "error",
+      tags: { run_id: runId, agent: agentKey },
+    });
+    return finalize({
+      status: "failed",
+      tokensIn,
+      tokensOut,
+      costUsd: costOf(),
+      outcome: null,
+      error: redactError(err),
+    });
   }
+
+  // 4. Validate the structured output contract (AC6).
+  const parsed = parseAgentOutcome(finalText ?? "");
+  if (!parsed.ok) {
+    await d.recordStep(runId, {
+      seq: seq++,
+      stepType: "output",
+      name: "invalid_output",
+      input: { redacted: redact(finalText ?? "") },
+      output: { error: parsed.error },
+      durationMs: 0,
+    }).catch(() => {});
+    return finalize({
+      status: "failed",
+      tokensIn,
+      tokensOut,
+      costUsd: costOf(),
+      outcome: null,
+      error: `malformed output: ${parsed.error}`,
+    });
+  }
+
+  // Route any emitted write intents through the policy engine (US-1586): L0 /
+  // paused proposals become findings; L1+ become pending proposal drafts. The
+  // pause switch is re-read fail-closed here — the "checked at each write
+  // dispatch" half of the kill-switch guarantee.
+  let writePaused: boolean;
+  try {
+    writePaused = await d.getGlobalPause();
+  } catch {
+    writePaused = true;
+  }
+  const routed = applyWritePolicy(agent, parsed.outcome, { paused: writePaused });
+  const outcome: AgentOutcome = {
+    ...parsed.outcome,
+    findings: routed.findings,
+    proposals: routed.proposals,
+  };
+
+  // Persist filed proposals to agent_proposals (pending, TTL from config) — the
+  // idempotency_key dedup makes a re-run non-duplicating (US-1587). Best-effort.
+  if (routed.proposals.length) {
+    const ttlHours = typeof agent.config.proposal_ttl_hours === "number"
+      ? agent.config.proposal_ttl_hours
+      : DEFAULT_PROPOSAL_TTL_HOURS;
+    try {
+      const filed = await d.persistProposals(agent.id, runId, routed.proposals, ttlHours);
+      if (filed > 0) {
+        await d.notifyProposalsFiled(agentKey, runId, filed);
+        d.emitEvent("agent.proposal.created", "info", { agent: agentKey, run_id: runId, count: filed });
+      }
+    } catch (err) {
+      console.warn(`[agent-kernel] persistProposals failed for run ${runId}: ${redactError(err)}`);
+    }
+  }
+
+  await d.recordStep(runId, {
+    seq: seq++,
+    stepType: "output",
+    name: "output",
+    input: null,
+    output: { redacted: redact(outcome) },
+    durationMs: 0,
+  }).catch(() => {});
+
+  return finalize({
+    status: "succeeded",
+    tokensIn,
+    tokensOut,
+    costUsd: costOf(),
+    outcome,
+    error: null,
+  });
+}
+
+function partialFinish(
+  status: RunStatus,
+  reason: string,
+  tokensIn: number,
+  tokensOut: number,
+  costUsd: number,
+): RunFinalize {
+  return {
+    status,
+    tokensIn,
+    tokensOut,
+    costUsd,
+    outcome: { summary: `Run halted: ${reason}`, findings: [], proposals: [], partial: true, reason },
+    error: status === "failed" ? reason : null,
+  };
+}
+
+// ── Production deps ──────────────────────────────────────────────────────────
+
+export function prodKernelDeps(): KernelDeps {
+  return {
+    loadAgent: async (agentKey) => {
+      const { data } = await supabaseAdmin
+        .from("agents")
+        .select("id, key, name, module_letter, status, autonomy, config")
+        .eq("key", agentKey)
+        .maybeSingle();
+      if (!data) return null;
+      const row = data as Record<string, unknown>;
+      return {
+        id: String(row.id),
+        key: String(row.key),
+        name: String(row.name),
+        module_letter: (row.module_letter as string | null) ?? null,
+        status: String(row.status),
+        autonomy: (row.autonomy as Record<string, unknown>) ?? {},
+        config: (row.config as AgentConfig) ?? {},
+      };
+    },
+    getGlobalPause: () => getSetting<boolean>(AGENTS_PAUSE_SETTING_KEY, false),
+    checkBudget: (key, config) => checkAgentBudget(key, config),
+    onBudgetBreach: async (agent, reason) => {
+      // Halt the agent immediately (agents.status) so it stops accruing spend.
+      await supabaseAdmin.from("agents").update({ status: "paused" } as never).eq("id", agent.id);
+      // Record a policy breach (US-1586 demotion + a warning ops event).
+      await recordPolicyBreach(agent, "budget", `budget_breach:${reason}`).catch(() => {});
+      // A critical ops event fans out to admins — the admin notification.
+      emitOpsEvent("agent.budget_breach", "critical", {
+        title: `Agent ${agent.key} paused — daily budget breached (${reason})`,
+        source: "agent-budget",
+        data: { agent_key: agent.key, agent_id: agent.id, reason },
+      });
+    },
+    createRun: async (agentId, trigger) => {
+      const { data } = await supabaseAdmin
+        .from("agent_runs")
+        .insert(
+          {
+            agent_id: agentId,
+            trigger,
+            status: "running",
+            started_at: new Date().toISOString(),
+          } as never,
+        )
+        .select("id")
+        .single();
+      return (data as { id: string } | null)?.id ?? null;
+    },
+    recordStep: async (runId, step) => {
+      await supabaseAdmin.from("agent_run_steps").insert(
+        {
+          run_id: runId,
+          seq: step.seq,
+          step_type: step.stepType,
+          name: step.name,
+          input: step.input,
+          output: step.output,
+          duration_ms: step.durationMs,
+        } as never,
+      );
+    },
+    finalizeRun: async (runId, patch) => {
+      await supabaseAdmin
+        .from("agent_runs")
+        .update(
+          {
+            status: patch.status,
+            tokens_in: patch.tokensIn,
+            tokens_out: patch.tokensOut,
+            cost_usd: patch.costUsd,
+            outcome: patch.outcome,
+            error: patch.error,
+            finished_at: new Date().toISOString(),
+          } as never,
+        )
+        .eq("id", runId);
+    },
+    makeStep: (agent, model, maxOutputTokens) => {
+      const client = getAnthropicClient();
+      const tools = agentToolRegistry.anthropicTools(agent);
+      const system = charterFor(agent.key)?.systemPrompt ??
+        (typeof agent.config.system_prompt === "string" && agent.config.system_prompt
+          ? agent.config.system_prompt
+          : DEFAULT_SYSTEM_PROMPT);
+      return async (messages) => {
+        const resp = await client.messages.create({
+          model,
+          max_tokens: maxOutputTokens,
+          system,
+          tools,
+          messages,
+        });
+        const toolUses = resp.content
+          .filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use")
+          .map((b) => ({ id: b.id, name: b.name, input: b.input }));
+        const text = resp.content
+          .filter((b): b is Anthropic.TextBlock => b.type === "text")
+          .map((b) => b.text)
+          .join("");
+        return {
+          text,
+          toolUses,
+          stopReason: resp.stop_reason,
+          usage: {
+            inputTokens: resp.usage.input_tokens,
+            outputTokens: resp.usage.output_tokens,
+          },
+          assistantContent: resp.content as Anthropic.ContentBlockParam[],
+        };
+      };
+    },
+    toolRegistry: agentToolRegistry,
+    persistProposals: (agentId, runId, drafts, ttlHours) =>
+      persistProposals(agentId, runId, drafts, ttlHours),
+    notifyProposalsFiled: (agentKey, runId, count) =>
+      notifyAdminsProposalsFiled(agentKey, runId, count),
+    emitEvent: (type, severity, data) => {
+      const key = typeof data.agent === "string" ? data.agent : "agent";
+      emitOpsEvent(type, severity, {
+        title: `${type} — ${key}`,
+        source: "agent-kernel",
+        data,
+      });
+    },
+    now: () => Date.now(),
+  };
 }

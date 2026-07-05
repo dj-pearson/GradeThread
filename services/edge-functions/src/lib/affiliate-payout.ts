@@ -30,6 +30,7 @@ import {
   type AffiliatePayoutConfig,
   type AffiliatePayoutMode,
   DEFAULT_AFFILIATE_PAYOUT_CONFIG,
+  isPayoutRetryable,
   normalizeAffiliatePayoutConfig,
   planAccrual,
   planPayout,
@@ -234,11 +235,11 @@ async function retryAffiliatePayout(
 ): Promise<ProcessResult> {
   const { data: payoutRaw } = await supabaseAdmin
     .from("affiliate_payouts")
-    .select("id, affiliate_user_id, status")
+    .select("id, affiliate_user_id, status, created_at")
     .eq("id", payoutId)
     .maybeSingle();
   const payout = payoutRaw as
-    | { id: string; affiliate_user_id: string; status: string }
+    | { id: string; affiliate_user_id: string; status: string; created_at: string | null }
     | null;
   if (!payout) return { outcome: "skipped", affiliateUserId: "", reason: "payout_not_found" };
   const affiliateUserId = payout.affiliate_user_id;
@@ -267,13 +268,88 @@ async function retryAffiliatePayout(
   );
   if (!onboarded) return { outcome: "queued", affiliateUserId, payoutId, reason: "not_onboarded" };
 
+  const accountId = account!.stripe_connect_account_id!;
+
+  // Transfer-dedup (US-1653): Stripe's idempotency key only dedupes for ~24h, so
+  // a payout that fails AFTER Stripe actually created the transfer (a network
+  // blip on our side) and then gets retried >24h later would create a SECOND
+  // transfer under a fresh idempotency scope — a real double-pay. Before
+  // re-firing, ask Stripe whether a transfer for THIS payout already exists; if
+  // so, reconcile the row as paid instead of transferring again. A lookup error
+  // is treated as "unsafe to retry now" (skip) rather than blindly re-firing.
+  const createdAtMs = payout.created_at ? Date.parse(payout.created_at) : NaN;
+  const lookup = await findExistingTransfer(stripe!, accountId, payoutId, createdAtMs);
+  if (lookup.error) {
+    return { outcome: "skipped", affiliateUserId, payoutId, reason: `transfer_lookup_failed: ${lookup.error}` };
+  }
+  if (lookup.transfer) {
+    await supabaseAdmin
+      .from("affiliate_payouts")
+      .update({
+        amount,
+        status: "paid",
+        stripe_transfer_id: lookup.transfer.id,
+        paid_at: new Date().toISOString(),
+        error: null,
+      })
+      .eq("id", payoutId)
+      .eq("affiliate_user_id", affiliateUserId);
+    return { outcome: "transferred", affiliateUserId, payoutId, amount, reason: "reconciled_existing" };
+  }
+
   return await fireTransfer({
     payoutId,
     affiliateUserId,
     amount,
-    accountId: account!.stripe_connect_account_id!,
+    accountId,
     stripe: stripe!,
   });
+}
+
+// Look up whether a Stripe transfer already exists for this payout, matching on
+// metadata.payout_id (set by fireTransfer at create). Scans transfers to the
+// affiliate's destination created at/after the payout row (a bounded window —
+// the transfer can't predate the payout). Returns the transfer if found, or an
+// `error` string on any Stripe failure so the caller can decline to re-fire
+// rather than risk a double-pay on an unreadable state.
+async function findExistingTransfer(
+  stripe: Stripe,
+  accountId: string,
+  payoutId: string,
+  createdAtMs: number,
+): Promise<{ transfer: Stripe.Transfer | null; error?: string }> {
+  // Bound the scan to transfers created no earlier than the payout row (minus a
+  // small clock-skew cushion). Fall back to unbounded-by-time if created_at is
+  // unreadable — correctness (finding the dup) outranks the query bound.
+  const createdGte = Number.isFinite(createdAtMs)
+    ? Math.floor((createdAtMs - 5 * 60 * 1000) / 1000)
+    : undefined;
+  // Explicit page walk (bounded) rather than the SDK async-iterator, so a
+  // destination with a large transfer history can't spin the sweep. The target
+  // transfer is created within seconds of the payout row, so with a time-bounded
+  // newest-first list it lands on the first page in practice.
+  const MAX_PAGES = 5;
+  let startingAfter: string | undefined;
+  try {
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const res = await stripe.transfers.list({
+        destination: accountId,
+        ...(createdGte !== undefined ? { created: { gte: createdGte } } : {}),
+        ...(startingAfter ? { starting_after: startingAfter } : {}),
+        limit: 100,
+      });
+      for (const transfer of res.data) {
+        if (transfer.metadata?.payout_id === payoutId) {
+          return { transfer };
+        }
+      }
+      if (!res.has_more || res.data.length === 0) break;
+      startingAfter = res.data[res.data.length - 1].id;
+    }
+    return { transfer: null };
+  } catch (err) {
+    return { transfer: null, error: err instanceof Error ? err.message : "list_failed" };
+  }
 }
 
 // Fire (or retry) the Stripe transfer for a payout row. Idempotency key
@@ -329,6 +405,9 @@ export interface SweepSummary {
   queued: number;
   skipped: number;
   failed: number;
+  // Open payouts too old to auto-retry (US-1653 retry cap) — surfaced, not
+  // silently dropped, so an operator can settle them manually.
+  stale: number;
 }
 
 // The affiliate-payouts cron. Three phases, all idempotent:
@@ -344,6 +423,7 @@ export async function sweepAffiliatePayouts(): Promise<SweepSummary> {
     queued: 0,
     skipped: 0,
     failed: 0,
+    stale: 0,
   };
 
   // (a) Backfill: recent affiliate conversions that have no commission row yet.
@@ -371,13 +451,25 @@ export async function sweepAffiliatePayouts(): Promise<SweepSummary> {
     else summary.skipped += 1;
   };
 
-  // (b) Retry open payouts (same idempotency key).
+  // (b) Retry open payouts (same idempotency key), but skip ones past the retry
+  // cap (US-1653) so a permanently-failing payout can't be re-fired forever.
+  // Stale ones are counted + logged, not silently dropped.
+  const nowMs = Date.now();
   const { data: openRaw } = await supabaseAdmin
     .from("affiliate_payouts")
-    .select("id")
+    .select("id, created_at")
     .in("status", ["pending", "failed"])
     .limit(SWEEP_LIMIT);
-  for (const p of (openRaw ?? []) as Array<{ id: string }>) {
+  for (const p of (openRaw ?? []) as Array<{ id: string; created_at: string | null }>) {
+    const createdAtMs = p.created_at ? Date.parse(p.created_at) : NaN;
+    if (!isPayoutRetryable(createdAtMs, nowMs)) {
+      summary.stale += 1;
+      console.warn(
+        `[affiliate-payout] payout ${p.id} past retry cap (created ${p.created_at}) — ` +
+          `no longer auto-retried; settle manually`,
+      );
+      continue;
+    }
     tally(await retryAffiliatePayout(p.id, stripe));
   }
 

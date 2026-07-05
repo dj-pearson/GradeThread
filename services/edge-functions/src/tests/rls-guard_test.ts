@@ -55,14 +55,6 @@ const PARENT_SCOPED = [
 // service-role (which bypasses RLS) reads/writes them. This is the most
 // restrictive configuration, not a gap.
 const SERVICE_ROLE_ONLY = new Set([
-  // US-1583: the Agentic OS kernel — agent registry, run ledger, step
-  // transcript, proposal queue, memory. Pure operator substrate; every access
-  // flows through the edge (Mission Control + the agent runtime).
-  "agents",
-  "agent_runs",
-  "agent_run_steps",
-  "agent_proposals",
-  "agent_memory",
   // US-1565: admin task board — internal operator tooling; client policies
   // dropped in 00344, all CRUD flows through /api/admin/tasks (edge boundary).
   "admin_task_projects",
@@ -276,6 +268,17 @@ const SERVICE_ROLE_ONLY = new Set([
   // already-verified guarantee_claims row), a grading-quality surface, not
   // client-readable user data.
   "claim_accuracy_signals",
+  // US-1583 Agentic OS kernel (migration 00357). All five RLS-enabled with zero
+  // policies by design — operator substrate for the governed agent fleet,
+  // read/written ONLY by the edge service-role client (the agent kernel + the
+  // role-gated /api/admin/agents Mission Control endpoints); the SPA never reads
+  // the raw rows. No tenant owner column (agent_id/run_id are internal keys;
+  // agent_proposals.decided_by is the deciding operator, not a tenant key).
+  "agents",
+  "agent_runs",
+  "agent_run_steps",
+  "agent_proposals",
+  "agent_memory",
 ]);
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.

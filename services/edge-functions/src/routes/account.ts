@@ -21,6 +21,27 @@ type AccountEnv = {
 
 export const accountRoutes = new Hono<AccountEnv>();
 
+// US-1637: collect every submission-images object owned by a deleting account so
+// {deleted:true} means the bytes are actually gone. Pure + exported so the sweep
+// is unit-testable (account-deletion-sweep_test.ts). Includes:
+//   • storage_path — the served (metadata-stripped) image, and
+//   • original_storage_path — the EXIF/GPS-INTACT original retained for
+//     forensics (US-339); omitting it left GPS-bearing PII behind, and
+//   • disputes.evidence_paths — filer-attached evidence, also in this bucket.
+// De-duplicated so a path present twice isn't removed twice.
+export function collectSubmissionImagePaths(
+  subImages: { storage_path: string | null; original_storage_path: string | null }[],
+  disputes: { evidence_paths: string[] | null }[],
+): string[] {
+  const imagePaths = subImages
+    .flatMap((r) => [r.storage_path, r.original_storage_path])
+    .filter((p): p is string => !!p);
+  const evidencePaths = disputes
+    .flatMap((r) => r.evidence_paths ?? [])
+    .filter((p): p is string => typeof p === "string" && p.length > 0);
+  return [...new Set([...imagePaths, ...evidencePaths])];
+}
+
 // ── MFA recovery codes (US-374) ────────────────────────────────────────────
 //
 // All three endpoints are tenant-scoped to c.var.userId (the verified caller),
@@ -352,23 +373,33 @@ accountRoutes.post("/delete", async (c) => {
   const subIds = (subs.data ?? []).map((r) => (r as { id: string }).id);
   const itemIds = (items.data ?? []).map((r) => (r as { id: string }).id);
 
-  const [subImgs, itemPhotos] = await Promise.all([
+  const [subImgs, itemPhotos, disputeRows] = await Promise.all([
+    // US-1637: also sweep original_storage_path — the metadata-INTACT original
+    // (EXIF/GPS deliberately preserved for forensics, US-339). Selecting only
+    // storage_path left GPS-bearing PII in the bucket after "deletion".
     subIds.length
-      ? supabaseAdmin.from("submission_images").select("storage_path").in("submission_id", subIds)
-      : Promise.resolve({ data: [] as { storage_path: string }[] }),
+      ? supabaseAdmin
+        .from("submission_images")
+        .select("storage_path, original_storage_path")
+        .in("submission_id", subIds)
+      : Promise.resolve({ data: [] as { storage_path: string; original_storage_path: string | null }[] }),
     itemIds.length
       ? supabaseAdmin.from("item_photos").select("storage_path").in("inventory_item_id", itemIds)
       : Promise.resolve({ data: [] as { storage_path: string }[] }),
+    // US-1637: dispute evidence photos also live in submission-images and were
+    // never swept — the account owns them via disputes.user_id.
+    supabaseAdmin.from("disputes").select("evidence_paths").eq("user_id", userId),
   ]);
 
-  const subImgPaths = (subImgs.data ?? [])
-    .map((r) => (r as { storage_path: string | null }).storage_path)
-    .filter((p): p is string => !!p);
+  const submissionImagePaths = collectSubmissionImagePaths(
+    (subImgs.data ?? []) as { storage_path: string | null; original_storage_path: string | null }[],
+    (disputeRows.data ?? []) as { evidence_paths: string[] | null }[],
+  );
   const itemPhotoPaths = (itemPhotos.data ?? [])
     .map((r) => (r as { storage_path: string | null }).storage_path)
     .filter((p): p is string => !!p);
 
-  await removeAll("submission-images", subImgPaths);
+  await removeAll("submission-images", submissionImagePaths);
   await removeAll("item-photos", itemPhotoPaths);
   const storagePurged = true;
 

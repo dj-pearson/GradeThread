@@ -38,11 +38,14 @@ export function useRealtimeSubmissions() {
         (payload) => {
           const row = payload.new as SubmissionChange;
 
-          // Invalidate submission-related queries
+          // Invalidate submission-related queries. US-1633: the previous
+          // ["recent-submissions"] / ["dashboard-stats"] keys were phantoms — no
+          // query used them, so a grade completing never refreshed the
+          // dashboard. The real key is ["dashboard-submissions", userId]
+          // (prefix-matched here).
           queryClient.invalidateQueries({ queryKey: ["submissions"] });
           queryClient.invalidateQueries({ queryKey: ["submission", row.id] });
-          queryClient.invalidateQueries({ queryKey: ["recent-submissions"] });
-          queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
+          queryClient.invalidateQueries({ queryKey: ["dashboard-submissions"] });
 
           // Notify user on completion
           if (row.status === "completed") {
@@ -74,7 +77,15 @@ export function useRealtimeSubmissions() {
  * Subscribes to realtime status changes for a single submission.
  * Use on the submission detail page.
  */
-export function useRealtimeSubmission(submissionId: string | undefined) {
+export function useRealtimeSubmission(
+  submissionId: string | undefined,
+  // US-1628: the detail page holds its submission in useState, not useQuery, so
+  // invalidating ["submission", id] matched nothing and the "we'll let you know
+  // the moment it's official" banner never resolved without a hard refresh. Pass
+  // an onChange so the page can refetch its own state on a realtime UPDATE. The
+  // key invalidation is kept for any useQuery consumers.
+  onChange?: (row: SubmissionChange) => void,
+) {
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -90,8 +101,9 @@ export function useRealtimeSubmission(submissionId: string | undefined) {
           table: "submissions",
           filter: `id=eq.${submissionId}`,
         },
-        () => {
+        (payload) => {
           queryClient.invalidateQueries({ queryKey: ["submission", submissionId] });
+          onChange?.(payload.new as SubmissionChange);
         }
       )
       .subscribe();
@@ -99,5 +111,5 @@ export function useRealtimeSubmission(submissionId: string | undefined) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [submissionId, queryClient]);
+  }, [submissionId, queryClient, onChange]);
 }

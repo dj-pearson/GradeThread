@@ -87,9 +87,16 @@ export async function flushIntakeQueue(
   for (let i = 0; i < queued.length; i++) {
     const record = queued[i]!;
     try {
+      // US-1634: idempotent replay. The old code did a plain insert with no
+      // idempotency key, so a re-flush (the insert succeeded server-side but the
+      // response was lost → catch → row stays queued) OR two tabs flushing at
+      // once (the lock is per-tab) inserted the SAME intake twice — a duplicate
+      // inventory item. Use the stable queue-record id as the item id and
+      // upsert-ignore-duplicates so a replay is a no-op.
+      const payload = { ...record.payload, id: record.id } as never;
       const { error } = await supabase
         .from("inventory_items")
-        .insert(record.payload as never);
+        .upsert(payload, { onConflict: "id", ignoreDuplicates: true });
       if (error) throw error;
       await removeQueuedIntake(record.id);
       synced++;

@@ -5,6 +5,7 @@ import { TurnstileWidget, captchaRequired } from "@/components/auth/turnstile";
 import { supabase } from "@/lib/supabase";
 import { checkPassword, PASSWORD_HINT } from "@/lib/password-policy";
 import { readAuthError } from "@/lib/auth-error";
+import { stripSensitiveParams } from "@/lib/redact-url";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -147,6 +148,14 @@ function UpdatePasswordForm() {
   // exists. A valid reset link establishes one (detectSessionInUrl) and fires
   // PASSWORD_RECOVERY; without it the link is invalid/expired.
   const [phase, setPhase] = useState<"checking" | "ready" | "expired">("checking");
+
+  // US-1635: scrub the single-use recovery token from the visible URL once read.
+  // React Router keeps searchParams internally, so the verify below still works;
+  // this stops the token lingering in history / Referer / a later SPA pageview.
+  useEffect(() => {
+    const { url, changed } = stripSensitiveParams(window.location.href);
+    if (changed) window.history.replaceState(window.history.state, "", url);
+  }, []);
 
   useEffect(() => {
     // US-1436: an expired/invalid recovery link comes back with an

@@ -2,7 +2,7 @@
 
 import { assertEquals } from "@std/assert";
 import { computeUserUpdate } from "../lib/appstore/reconcile.ts";
-import { computeConsumableGrant } from "../lib/appstore/grant-decision.ts";
+import { computeConsumableGrant, isTransactionRevoked } from "../lib/appstore/grant-decision.ts";
 import type { DecodedTransactionLite } from "../lib/appstore/types.ts";
 
 const NOW = 1_700_000_000_000; // epoch ms
@@ -87,4 +87,11 @@ Deno.test("computeConsumableGrant extracts credits + ids", () => {
     originalTransactionId: "o9",
     productId: "com.gradethread.credits.25",
   });
+});
+
+// US-1615 / C2 — a refunded/revoked transaction must not entitle.
+Deno.test("isTransactionRevoked: revocationDate set → true, absent/null → false", () => {
+  assertEquals(isTransactionRevoked(txn({ revocationDate: NOW })), true);
+  assertEquals(isTransactionRevoked(txn({ revocationDate: null })), false);
+  assertEquals(isTransactionRevoked(txn()), false); // field absent
 });

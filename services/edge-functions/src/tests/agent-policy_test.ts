@@ -1,191 +1,153 @@
-// US-1586: the autonomy ladder — resolution + defaults, kill-switch
-// precedence, write-intent dispatch per level, and breach demotion.
+// US-1586: agent policy engine — the autonomy ladder, kill-switch precedence,
+// and demotion. Types are erased; runtime values dynamic-imported after the env
+// is primed (agent-policy.ts pulls in supabase.ts). Mirrors agent-kernel_test.ts.
 import { assert, assertEquals } from "@std/assert";
+import type { AgentRow } from "../lib/agent-kernel.ts";
+import type { PolicyDeps, AutonomyLevel } from "../lib/agent-policy.ts";
 
 Deno.env.set("SUPABASE_URL", Deno.env.get("SUPABASE_URL") ?? "http://localhost:54321");
-Deno.env.set(
-  "SUPABASE_SERVICE_ROLE_KEY",
-  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
-);
-import type { PolicyAgent, PolicyDb } from "../lib/agent-policy.ts";
+Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-key");
 const {
-  ACTION_CLASSES,
+  applyWritePolicy,
   dispatchWriteIntent,
-  isExecutionHalted,
-  isGlobalAgentPause,
   recordPolicyBreach,
   resolveAutonomy,
+  resolveHalt,
 } = await import("../lib/agent-policy.ts");
 
-function agent(
-  autonomy: Record<string, unknown> | null = null,
-  status = "enabled",
-): PolicyAgent {
-  return { id: "a1", key: "sentinel", status, autonomy };
-}
-
-interface FakeState {
-  settings: Record<string, unknown>;
-  settingsThrow?: boolean;
-  proposals: Array<Record<string, unknown>>;
-  autonomyWrites: Array<{ agentId: string; autonomy: Record<string, unknown> }>;
-}
-
-function fakeDb(state: FakeState): PolicyDb {
+function mk(autonomy: Record<string, unknown>, status = "enabled"): AgentRow {
   return {
-    readSetting(key) {
-      if (state.settingsThrow) return Promise.reject(new Error("db down"));
-      return Promise.resolve(state.settings[key]);
-    },
-    upsertProposal(row) {
-      state.proposals.push(row);
-      return Promise.resolve(`prop-${state.proposals.length}`);
-    },
-    persistAutonomy(agentId, autonomy) {
-      state.autonomyWrites.push({ agentId, autonomy });
-      return Promise.resolve();
-    },
+    id: "a1",
+    key: "sentinel",
+    name: "Sentinel",
+    module_letter: "H",
+    status,
+    autonomy,
+    config: {},
   };
 }
 
-const INTENT = {
-  actionClass: "retry_job",
-  title: "Retry the payout sync job",
-  summary: "3 consecutive failures with the same transient error.",
-  payload: { tool: "retry_job", args: { job: "payout-sync" } },
-};
+const intent = { actionClass: "retry_job", title: "Retry billing-reconciliation" };
 
-// ── Ladder resolution ────────────────────────────────────────────────────────
+// ── Ladder resolution + default ──────────────────────────────────────────────
 
-Deno.test("resolveAutonomy: numbers, L-strings, defaults, garbage", () => {
-  assertEquals(resolveAutonomy(agent({ retry_job: 2 }), "retry_job"), 2);
-  assertEquals(resolveAutonomy(agent({ retry_job: "L3" }), "retry_job"), 3);
-  assertEquals(resolveAutonomy(agent({ retry_job: "1" }), "retry_job"), 1);
-  // Unknown class, missing map, malformed values → ALWAYS L0.
-  assertEquals(resolveAutonomy(agent({ retry_job: 2 }), "draft_reply"), 0);
-  assertEquals(resolveAutonomy(agent(null), "retry_job"), 0);
-  assertEquals(resolveAutonomy(agent({ retry_job: "yes" }), "retry_job"), 0);
-  assertEquals(resolveAutonomy(agent({ retry_job: 7 }), "retry_job"), 0);
-  assertEquals(resolveAutonomy(agent({ retry_job: -1 }), "retry_job"), 0);
+Deno.test("resolveAutonomy: default L0, reads grant, clamps out-of-range", () => {
+  assertEquals(resolveAutonomy(mk({}), "retry_job"), 0); // ungranted → L0
+  assertEquals(resolveAutonomy(mk({ retry_job: 2 }), "retry_job"), 2);
+  assertEquals(resolveAutonomy(mk({ retry_job: 9 }), "retry_job"), 3); // clamp high
+  assertEquals(resolveAutonomy(mk({ retry_job: -1 }), "retry_job"), 0); // clamp low
+  assertEquals(resolveAutonomy(mk({ retry_job: "nonsense" }), "retry_job"), 0); // garbage → L0
 });
 
-Deno.test("the action-class taxonomy carries the six charter classes", () => {
-  for (
-    const cls of [
-      "file_task",
-      "retry_job",
-      "requeue_dead_letter",
-      "draft_reply",
-      "adjust_queue",
-      "run_playbook",
-    ]
-  ) {
-    assert((ACTION_CLASSES as readonly string[]).includes(cls), cls);
-  }
+// ── Dispatch by level ────────────────────────────────────────────────────────
+
+Deno.test("dispatchWriteIntent: L0 drops to a would_propose finding", () => {
+  const r = dispatchWriteIntent(mk({}), intent, { paused: false });
+  assertEquals(r.disposition, "dropped");
+  assert(r.disposition === "dropped" && r.finding.reason === "L0_observe");
 });
 
-// ── Kill switches ────────────────────────────────────────────────────────────
-
-Deno.test("global pause halts even an ENABLED agent (precedence)", async () => {
-  const db = fakeDb({ settings: { "agents.pause": true }, proposals: [], autonomyWrites: [] });
-  assert(await isExecutionHalted(agent({ retry_job: 3 }), db));
-  const outcome = await dispatchWriteIntent(agent({ retry_job: 3 }), INTENT, db);
-  assertEquals(outcome.kind, "halted");
+Deno.test("dispatchWriteIntent: L1 becomes a pending proposal (no note)", () => {
+  const r = dispatchWriteIntent(mk({ retry_job: 1 }), intent, { paused: false });
+  assert(r.disposition === "proposal");
+  assertEquals(r.proposal.status, "pending");
+  assertEquals(r.note, null);
+  assertEquals(r.proposal.policy.would_execute, false);
 });
 
-Deno.test("per-agent pause halts without consulting the global switch", async () => {
-  const db = fakeDb({ settings: {}, proposals: [], autonomyWrites: [] });
-  assert(await isExecutionHalted(agent({}, "paused"), db));
+Deno.test("dispatchWriteIntent: L2/L3 proposal carries the deferred-execution note", () => {
+  const r = dispatchWriteIntent(mk({ retry_job: 3 }), intent, { paused: false });
+  assert(r.disposition === "proposal");
+  assert((r.note ?? "").includes("deferred"));
+  assertEquals(r.proposal.policy.would_execute, true);
 });
 
-Deno.test("a settings read FAILURE halts (fail-closed); a missing row runs", async () => {
-  const broken = fakeDb({
-    settings: {},
-    settingsThrow: true,
-    proposals: [],
-    autonomyWrites: [],
-  });
-  assertEquals(await isGlobalAgentPause(broken), true);
-
-  const absent = fakeDb({ settings: {}, proposals: [], autonomyWrites: [] });
-  assertEquals(await isGlobalAgentPause(absent), false);
+Deno.test("dispatchWriteIntent: global pause takes precedence over an L3 grant", () => {
+  // Even a fully-trusted (L3), enabled agent is dropped when globally paused.
+  const r = dispatchWriteIntent(mk({ retry_job: 3 }, "enabled"), intent, { paused: true });
+  assertEquals(r.disposition, "dropped");
+  assert(r.disposition === "dropped" && r.finding.reason === "paused");
 });
 
-// ── Dispatch per level ───────────────────────────────────────────────────────
-
-Deno.test("L0: the intent is dropped and recorded as a would-have finding", async () => {
-  const state: FakeState = { settings: {}, proposals: [], autonomyWrites: [] };
-  const outcome = await dispatchWriteIntent(agent({}), INTENT, fakeDb(state));
-  assertEquals(outcome.kind, "dropped");
-  if (outcome.kind === "dropped") {
-    assert(String(outcome.finding.note).includes("would have proposed"));
-    assertEquals(outcome.finding.action_class, "retry_job");
-  }
-  assertEquals(state.proposals.length, 0); // nothing persisted
+Deno.test("dispatchWriteIntent: a per-agent paused status also drops", () => {
+  const r = dispatchWriteIntent(mk({ retry_job: 3 }, "paused"), intent, { paused: false });
+  assertEquals(r.disposition, "dropped");
 });
 
-Deno.test("L1: the intent becomes a pending proposal with a dedup key", async () => {
-  const state: FakeState = { settings: {}, proposals: [], autonomyWrites: [] };
-  const outcome = await dispatchWriteIntent(
-    agent({ retry_job: 1 }),
-    INTENT,
-    fakeDb(state),
+// ── Kill-switch resolution ───────────────────────────────────────────────────
+
+Deno.test("resolveHalt: global pause beats per-agent state; enabled+no-global runs", () => {
+  assertEquals(resolveHalt(mk({}, "enabled"), true), { halted: true, reason: "globally_paused" });
+  assertEquals(resolveHalt(mk({}, "paused"), false), { halted: true, reason: "agent_paused" });
+  assertEquals(resolveHalt(mk({}, "enabled"), false), { halted: false, reason: null });
+  // Global precedence even when the agent itself is also paused.
+  assertEquals(resolveHalt(mk({}, "paused"), true).reason, "globally_paused");
+});
+
+// ── applyWritePolicy (kernel hook) ───────────────────────────────────────────
+
+Deno.test("applyWritePolicy: L0 proposals → findings; L1 kept; invalid surfaced", () => {
+  const agent = mk({ retry_job: 1 }); // L1 for retry_job, L0 for everything else
+  const outcome = {
+    findings: ["pre-existing"],
+    proposals: [
+      { action_class: "retry_job", title: "retry X" }, // L1 → kept
+      { action_class: "file_task", title: "file Y" }, // L0 → finding
+      { title: "missing action_class" }, // invalid → finding
+    ],
+  };
+  const routed = applyWritePolicy(agent, outcome, { paused: false });
+  assertEquals(routed.proposals.length, 1);
+  assertEquals(routed.proposals[0].action_class, "retry_job");
+  // original 1 finding + L0 drop + invalid = 3
+  assertEquals(routed.findings.length, 3);
+});
+
+Deno.test("applyWritePolicy: when paused, even an L2 proposal is dropped to a finding", () => {
+  const agent = mk({ retry_job: 2 });
+  const routed = applyWritePolicy(
+    agent,
+    { findings: [], proposals: [{ action_class: "retry_job", title: "retry" }] },
+    { paused: true },
   );
-  assertEquals(outcome.kind, "proposed");
-  if (outcome.kind === "proposed") assertEquals(outcome.downgraded, false);
-  const row = state.proposals[0];
-  assertEquals(row.status, "pending");
-  assertEquals(row.action_class, "retry_job");
-  assertEquals(row.idempotency_key, "sentinel:retry_job:Retry the payout sync job");
+  assertEquals(routed.proposals.length, 0);
+  assertEquals(routed.findings.length, 1);
 });
 
-Deno.test("L2/L3 downgrade to a proposal WITH the downgrade note (pre-US-1587)", async () => {
-  const state: FakeState = { settings: {}, proposals: [], autonomyWrites: [] };
-  const outcome = await dispatchWriteIntent(
-    agent({ retry_job: "L3" }),
-    INTENT,
-    fakeDb(state),
-  );
-  assertEquals(outcome.kind, "proposed");
-  if (outcome.kind === "proposed") assertEquals(outcome.downgraded, true);
-  const evidence = state.proposals[0].evidence as Record<string, string>;
-  assert(evidence.autonomy_note.includes("L3"));
-  assert(evidence.autonomy_note.includes("downgraded"));
-});
+// ── Demotion (floor at L0) ───────────────────────────────────────────────────
 
-// ── Breach demotion ──────────────────────────────────────────────────────────
-
-Deno.test("a breach demotes one level, persists, and emits a warning", async () => {
-  const state: FakeState = { settings: {}, proposals: [], autonomyWrites: [] };
-  const events: Array<{ type: string; severity: string; title: string }> = [];
-  const demoted = await recordPolicyBreach(
-    agent({ retry_job: 2, draft_reply: 1 }),
-    "retry_job",
-    "executed against the wrong job",
-    fakeDb(state),
-    // deno-lint-ignore no-explicit-any
-    ((type: string, severity: string, payload: any) => {
-      events.push({ type, severity, title: payload.title });
+function capturingDeps(): { deps: Partial<PolicyDeps>; saved: Array<Record<string, unknown>>; events: string[] } {
+  const saved: Array<Record<string, unknown>> = [];
+  const events: string[] = [];
+  const deps: Partial<PolicyDeps> = {
+    loadAutonomy: () => Promise.resolve({}),
+    saveAutonomy: (_id, autonomy) => {
+      saved.push(autonomy);
       return Promise.resolve();
-    }) as never,
-  );
-  assertEquals(demoted, 1);
-  // The OTHER class's level is untouched.
-  assertEquals(state.autonomyWrites[0].autonomy, { retry_job: 1, draft_reply: 1 });
-  assertEquals(events[0].type, "agent_policy_breach");
-  assertEquals(events[0].severity, "warning");
-  assert(events[0].title.includes("L1"));
+    },
+    emitBreachEvent: (_agent, actionClass) => {
+      events.push(actionClass);
+      return Promise.resolve();
+    },
+  };
+  return { deps, saved, events };
+}
+
+Deno.test("recordPolicyBreach: demotes one level and persists + emits", async () => {
+  const agent = mk({ retry_job: 2 });
+  const cap = capturingDeps();
+  // loadAutonomy returns fresh copy so the class is preserved.
+  cap.deps.loadAutonomy = () => Promise.resolve({ retry_job: 2 });
+  const res = await recordPolicyBreach(agent, "retry_job", "test", cap.deps);
+  assertEquals(res, { from: 2 as AutonomyLevel, to: 1 as AutonomyLevel });
+  assertEquals(cap.saved.at(-1)?.retry_job, 1);
+  assertEquals(cap.events, ["retry_job"]); // a warning event was emitted
 });
 
-Deno.test("demotion floors at L0 — never negative", async () => {
-  const state: FakeState = { settings: {}, proposals: [], autonomyWrites: [] };
-  const demoted = await recordPolicyBreach(
-    agent({}), // already L0 by default
-    "retry_job",
-    "still misbehaving",
-    fakeDb(state),
-    (() => Promise.resolve()) as never,
-  );
-  assertEquals(demoted, 0);
-  assertEquals(state.autonomyWrites[0].autonomy.retry_job, 0);
+Deno.test("recordPolicyBreach: floors at L0 (an already-L0 class stays L0)", async () => {
+  const agent = mk({ retry_job: 0 });
+  const cap = capturingDeps();
+  const res = await recordPolicyBreach(agent, "retry_job", "test", cap.deps);
+  assertEquals(res, { from: 0 as AutonomyLevel, to: 0 as AutonomyLevel });
+  assertEquals(cap.saved.at(-1)?.retry_job, 0);
 });

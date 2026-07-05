@@ -115,6 +115,27 @@ Deno.test({
 });
 
 Deno.test({
+  // US-1637: per-grade checkout is now owner-scoped (workspaceMiddleware on
+  // /api/payments/*). A non-member B must not be able to mint a Checkout Session
+  // that unlocks A's submission — the owner-scoped ownership check (ownerId = B,
+  // no membership → no X-Workspace-Owner access to A) resolves to 404, never a
+  // session. The positive member-pays-for-owner flow is exercised by the
+  // fixture's workspace member; here we prove the denial edge.
+  name: "B cannot create a per-grade checkout for A's submission",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_SUBMISSION_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_SUBMISSION_ID")!;
+    const res = await fetch(`${BASE}/api/payments/gradethread/per-grade`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ submissionId: id, tier: "standard" }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST per-grade checkout");
+  },
+});
+
+Deno.test({
   // US-888: the Trust & Safety abuse-signals console is an OPERATOR surface.
   // A regular tenant must never read fraud/abuse signals raised about other
   // accounts (the signal evidence references cross-tenant submission/image ids).
@@ -1774,118 +1795,265 @@ Deno.test("US-1565: task-board whitelists strip created_by/author_id and unknown
   );
 });
 
-// ── US-1587: the agent-proposals inbox (operator table, admin-gated) ─────────
-// agent_proposals is SERVICE_ROLE_ONLY (rls-guard) — the isolation analog for
-// the admin routes is that decisions are ALWAYS stamped server-side from the
-// authenticated admin (decided_by can never arrive in a request body) and a
-// rejection cannot be filed without a reason.
-Deno.test("US-1587: proposal decisions stamp decided_by server-side, never from the body", async () => {
-  const { rejectProposal, executeProposal } = await import(
-    "../lib/agent-proposals.ts"
-  );
-  const decidedBy: string[] = [];
-  const db = {
-    claimForExecution(_id: string, adminId: string) {
-      decidedBy.push(adminId);
-      return Promise.resolve(null); // not pending — we only care about attribution
-    },
-    markExecuted: () => Promise.resolve(),
-    rejectPending(_id: string, adminId: string) {
-      decidedBy.push(adminId);
-      return Promise.resolve(true);
-    },
-    expirePending: () => Promise.resolve(0),
+// ── US-1616 / C3: intra-workspace role enforcement ──────────────────
+//
+// A read-only VIEWER member acting inside the owner's workspace (via
+// X-Workspace-Owner) must be denied money-moving / publish / spend actions —
+// the workspaceRole is now enforced on these routes, not just computed. These
+// are live-integration cases gated on a seeded viewer membership:
+//   TEST_VIEWER_JWT           — a member of the owner's workspace with role=viewer
+//   TEST_WORKSPACE_OWNER_ID   — that owner's user id (the X-Workspace-Owner value)
+// They SKIP until the fixture seeds a viewer (the broader workspace.ts role
+// coverage + seed wiring is US-1639). A 2xx here is a FAIL.
+const VIEWER_JWT = Deno.env.get("TEST_VIEWER_JWT");
+const WS_OWNER = Deno.env.get("TEST_WORKSPACE_OWNER_ID");
+const VIEWER_READY = Boolean(BASE && VIEWER_JWT && WS_OWNER);
+
+function viewerHeaders(): HeadersInit {
+  return {
+    Authorization: `Bearer ${VIEWER_JWT}`,
+    "Content-Type": "application/json",
+    "X-Workspace-Owner": WS_OWNER!,
   };
-  // The admin id comes from the ROUTE's authenticated context param — the
-  // lifecycle functions take it positionally and there is no body-derived
-  // path to it (the route reads c.get("userId"), see admin-agents.ts).
-  await executeProposal("p1", "authed-admin", db);
-  await rejectProposal("p1", "authed-admin", "reason", db);
-  assertEquals(decidedBy, ["authed-admin", "authed-admin"]);
+}
+
+Deno.test({
+  name: "C3: viewer cannot POST a consignor payout (requires admin)",
+  ignore: !VIEWER_READY,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/consignment/payouts`, {
+      method: "POST",
+      headers: viewerHeaders(),
+      body: JSON.stringify({ consignor_id: "00000000-0000-0000-0000-000000000000", amount: 100 }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST consignment payout as viewer");
+  },
 });
 
-Deno.test("US-1587: write tools are inert without an approved-proposal context", async () => {
-  const { WRITE_TOOLS } = await import("../lib/agent-proposals.ts");
-  // No proposal context = no hands — even with a live-looking db.
-  for (const name of Object.keys(WRITE_TOOLS)) {
-    let refused = false;
-    try {
-      await WRITE_TOOLS[name].run(
-        { job: "any", id: "any", title: "t", project_id: "p" },
-        undefined as never,
-        {} as never,
-      );
-    } catch {
-      refused = true;
-    }
-    assertEquals(refused, true, `${name} must refuse without a context`);
-  }
+Deno.test({
+  name: "C3: viewer cannot publish a batch (requires listing_manager)",
+  ignore: !VIEWER_READY,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/autolister/publish-batch`, {
+      method: "POST",
+      headers: viewerHeaders(),
+      body: JSON.stringify({ item_ids: ["00000000-0000-0000-0000-000000000000"] }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST publish-batch as viewer");
+  },
 });
 
-Deno.test("US-1589: transcripts serve WRITE-TIME-redacted steps (the kernel is the choke point)", async () => {
-  // The transcript endpoint never re-redacts — so the guarantee lives at the
-  // kernel's recordStep. Prove PII in a tool result never reaches the row.
-  const { runAgent } = await import("../lib/agent-kernel.ts");
-  const steps: Array<Record<string, unknown>> = [];
-  await runAgent("sentinel", "manual", {
-    db: {
-      loadAgent: () =>
-        Promise.resolve({
-          id: "a1",
-          key: "sentinel",
-          status: "enabled",
-          config: { tool_allowlist: ["peek"] },
-        }),
-      insertRun: () => Promise.resolve("run-1"),
-      updateRun: () => Promise.resolve(),
-      insertStep: (row: Record<string, unknown>) => {
-        steps.push(row);
-        return Promise.resolve();
-      },
-    },
-    callModel: (() => {
-      let first = true;
-      return () => {
-        if (first) {
-          first = false;
-          return Promise.resolve({
-            stopReason: "tool_use",
-            content: [{ type: "tool_use", id: "t1", name: "peek", input: { email: "victim@example.com" } }],
-            tokensIn: 1,
-            tokensOut: 1,
-            costUsd: 0,
-          });
-        }
-        return Promise.resolve({
-          stopReason: "end_turn",
-          content: [{
-            type: "text",
-            text: JSON.stringify({ summary: "ok", findings: [], proposals: [] }),
-          }],
-          tokensIn: 1,
-          tokensOut: 1,
-          costUsd: 0,
-        });
-      };
-    })(),
-    isBudgetExhausted: () => Promise.resolve(false),
-    isGloballyPaused: () => Promise.resolve(false),
-    tools: {
-      peek: {
-        name: "peek",
-        description: "returns pii",
-        inputSchema: { type: "object", properties: {} },
-        run: () => Promise.resolve({ contact: "victim@example.com" }),
-      },
-    },
-    now: (() => {
-      let t = 0;
-      return () => (t += 5);
-    })(),
-    emitEvent: () => Promise.resolve(),
-    fileProposals: () => Promise.resolve({ filed: 0, dropped: 0, skipped: 0 }),
-  } as never);
-  const persisted = JSON.stringify(steps);
-  assertEquals(persisted.includes("victim@example.com"), false);
-  assertEquals(persisted.includes("[redacted:email]"), true);
+Deno.test({
+  name: "C3: viewer cannot pay for a grade (drains owner credits)",
+  ignore: !VIEWER_READY,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/grade/pay/00000000-0000-0000-0000-000000000000`, {
+      method: "POST",
+      headers: viewerHeaders(),
+      body: JSON.stringify({ tier: "standard" }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST grade pay as viewer");
+  },
+});
+
+// ── US-1639: workspace.ts role-authz coverage (was ZERO cases) ────────────────
+//
+// The workspace-management writes are admin-gated (roleAtLeast(role,"admin")).
+// A viewer member acting in the owner's workspace must be denied all of them.
+// The memberId is a throwaway zero-UUID — the role gate rejects BEFORE any row
+// lookup, so a real id isn't needed to prove the denial.
+const ZERO_UUID = "00000000-0000-0000-0000-000000000000";
+
+Deno.test({
+  name: "US-1639: viewer cannot invite a workspace member (requires admin)",
+  ignore: !VIEWER_READY,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/workspace/invitations`, {
+      method: "POST",
+      headers: viewerHeaders(),
+      body: JSON.stringify({ email: "x@example.com", role: "member" }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST workspace invitation as viewer");
+  },
+});
+
+Deno.test({
+  name: "US-1639: viewer cannot change a member's role (requires admin)",
+  ignore: !VIEWER_READY,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/workspace/members/${ZERO_UUID}/role`, {
+      method: "PATCH",
+      headers: viewerHeaders(),
+      body: JSON.stringify({ role: "admin" }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "PATCH member role as viewer");
+  },
+});
+
+Deno.test({
+  name: "US-1639: viewer cannot remove a workspace member (requires admin)",
+  ignore: !VIEWER_READY,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/workspace/members/${ZERO_UUID}/remove`, {
+      method: "POST",
+      headers: viewerHeaders(),
+      body: JSON.stringify({}),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST member remove as viewer");
+  },
+});
+
+Deno.test({
+  name: "US-1639: viewer cannot change the workspace MFA policy (requires admin)",
+  ignore: !VIEWER_READY,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/workspace/mfa-policy`, {
+      method: "PUT",
+      headers: viewerHeaders(),
+      body: JSON.stringify({ required_role: "admin" }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "PUT workspace mfa-policy as viewer");
+  },
+});
+
+// A non-member B carrying A's X-Workspace-Owner header must be rejected by
+// workspaceMiddleware (workspace_access_revoked) before any handler runs. Reuses
+// the viewer fixture's owner id as a workspace B is provably NOT a member of.
+function foreignWorkspaceHeaders(): HeadersInit {
+  return {
+    Authorization: `Bearer ${B_JWT}`,
+    "Content-Type": "application/json",
+    "X-Workspace-Owner": WS_OWNER!,
+  };
+}
+
+Deno.test({
+  name: "US-1639: non-member B cannot act in A's workspace (invitations)",
+  ignore: !CONFIGURED || !WS_OWNER,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/workspace/invitations`, {
+      method: "POST",
+      headers: foreignWorkspaceHeaders(),
+      body: JSON.stringify({ email: "x@example.com", role: "member" }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST workspace invitation as non-member");
+  },
+});
+
+// ── US-1639: notifications.ts cross-tenant cases (was zero) ───────────────────
+
+// POST /dispute-filed is scoped to the caller's own dispute (US-1638). A foreign
+// / non-owned disputeId resolves to no row → 404, never an existence/status
+// oracle. A zero-UUID is guaranteed not-owned, so no seeded id is needed.
+Deno.test({
+  name: "US-1639: B cannot trigger a dispute-filed alert for a dispute they don't own",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/notifications/dispute-filed`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ disputeId: ZERO_UUID }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST dispute-filed for a non-owned dispute");
+  },
+});
+
+// POST /dispute-status is an ADMIN endpoint (adminAuthMiddleware). A regular
+// tenant must never resolve another user's dispute status through it.
+Deno.test({
+  name: "US-1639: non-admin B cannot read a dispute's status via /dispute-status",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/notifications/dispute-status`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ disputeId: ZERO_UUID, status: "resolved" }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST dispute-status as non-admin");
+  },
+});
+
+// ── US-1639: verified.ts — the write must require auth ────────────────────────
+//
+// The verified profile is strictly self-scoped (c.get("userId")); it has no
+// foreign-id write surface. The isolation property worth guarding is that the
+// write — which feeds PUBLIC listing embeds — is never reachable unauthenticated.
+Deno.test({
+  name: "US-1639: verified profile write requires authentication",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/verified/profile`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ display_name: "anon" }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "PUT verified profile unauthenticated");
+  },
+});
+
+// ── US-1639: passport tag revoke is tenant-scoped ─────────────────────────────
+//
+// POST /garments/:id/tags/:tagId/revoke scopes by created_by = ownerId, so B
+// revoking a tag on A's garment resolves to no row → 404. A zero-UUID tagId is
+// fine — the created_by scope denies before the tag is found.
+Deno.test({
+  name: "US-1639: B cannot revoke a passport tag on A's garment",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_GARMENT_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_GARMENT_ID")!;
+    const res = await fetch(
+      `${BASE}/api/passport/garments/${id}/tags/${ZERO_UUID}/revoke`,
+      { method: "POST", headers: authHeaders(B_JWT!), body: JSON.stringify({}) },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "POST passport tag revoke (A's garment)");
+  },
+});
+
+// ── US-1639: flipdesk-measure card-request (US-268 workspace scope) ───────────
+//
+// GET/POST /card-request self-scope to workspaceOwnerId. A non-member B carrying
+// A's X-Workspace-Owner header is rejected by workspaceMiddleware before the
+// handler reads or writes any measure_card_requests row.
+Deno.test({
+  name: "US-1639: non-member B cannot read A's mailed-card request",
+  ignore: !CONFIGURED || !WS_OWNER,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/measure/card-request`, {
+      headers: foreignWorkspaceHeaders(),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "GET measure card-request as non-member");
+  },
+});
+
+Deno.test({
+  name: "US-1639: non-member B cannot request a mailed card in A's workspace",
+  ignore: !CONFIGURED || !WS_OWNER,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/measure/card-request`, {
+      method: "POST",
+      headers: foreignWorkspaceHeaders(),
+      body: JSON.stringify({
+        ship_name: "X",
+        address_line1: "1 St",
+        city: "Y",
+        state: "CA",
+        postal_code: "90000",
+      }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST measure card-request as non-member");
+  },
 });

@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { supabase } from "@/lib/supabase";
+import { queryClient } from "@/lib/query-client";
 import { useAuthStore } from "@/stores/auth-store";
 import { redeemStoredAffiliateRef } from "@/lib/affiliate";
 import { sendWelcomeEmailOnce } from "@/lib/welcome-email";
@@ -107,14 +108,26 @@ async function loadProfileAndWorkspaces(
           ? stored
           : null;
       store.setActiveWorkspaceOwnerId(validStored ?? userId);
-    } catch {
-      store.setProfile(null);
-      store.setWorkspaces([]);
-      store.setActiveWorkspaceOwnerId(null);
-    } finally {
-      store.setIsLoading(false);
+      // US-1636: only stamp the dedup window on SUCCESS. A transient failure
+      // must stay retryable — stamping it here (in a finally) suppressed the
+      // retry for LOAD_DEDUP_MS, so a momentary blip left the user stuck on a
+      // stale/empty profile.
       lastLoadedUserId = userId;
       lastLoadedAt = Date.now();
+    } catch {
+      // US-1636: a transient profile-load failure must NOT clobber a
+      // previously-loaded good profile — nulling it flips a paid user to "free"
+      // and lets settings forms save empty over real data. Only hard-reset on
+      // the very first load, when there's nothing good to preserve; otherwise
+      // keep the existing profile/workspaces and leave the dedup window
+      // unstamped so the next auth event / mount retries immediately.
+      if (!useAuthStore.getState().profile) {
+        store.setProfile(null);
+        store.setWorkspaces([]);
+        store.setActiveWorkspaceOwnerId(null);
+      }
+    } finally {
+      store.setIsLoading(false);
     }
   })();
 
@@ -182,6 +195,12 @@ function initAuth() {
         }
       }
     } else {
+      // SIGNED_OUT: sign-out is SPA navigation (no full reload), so the
+      // TanStack Query cache would otherwise survive with the previous user's
+      // data (staleTime 5min). Clear it so the next person to sign in on a
+      // shared browser never sees user A's finances/submissions/disputes
+      // without a fresh fetch (US-1617 / C4).
+      queryClient.clear();
       s.reset();
     }
   });

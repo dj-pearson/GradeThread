@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1614,
+  "nextId": 1659,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -9992,7 +9992,7 @@
     {
       "id": "US-1568",
       "priority": 2370,
-      "passes": false,
+      "passes": true,
       "title": "Draft lifecycle: AutoLister drafts drop off on review; Inventory→Drafts is the durable home",
       "description": "As a reseller, AutoLister drafts and Inventory→Drafts are two overlapping lists of the same items and neither reflects review progress: a draft I already reviewed still sits in AutoLister drafts. AutoLister drafts should be the 'AI-processed, not yet human-reviewed' queue; once I Save/approve a draft in the composer it should leave that queue and live only in Inventory→Drafts until it is published/listed.",
       "acceptanceCriteria": [
@@ -10235,7 +10235,7 @@
       ],
       "priority": 2360,
       "passes": true,
-      "notes": "[AGENTIC-OS Phase 0][Module A — Agent Kernel] Read AGENTIC_OS.md §2 (guardrails) + §3.A first. Load the migrations skill AND the tenant-isolation skill before touching anything. autonomy jsonb shape: { \"<action_class>\": 0|1|2|3 } (L0 observe default). No routes or code in this story — schema only. [COMPLETION 2026-07-04] Migration 00353_agentic_os_kernel.sql (HELD until operator applies). The five kernel tables exactly per AC: agents (key unique, module_letter, status enum enabled/paused, autonomy jsonb per action-class w/ unknown-defaults-L0 documented, config jsonb for schedule/allowlist/model/budget_usd_daily), agent_runs (trigger, 6-state status enum, token/cost columns numeric(10,4), outcome jsonb, agent+started_at DESC index + status index), agent_run_steps (run FK CASCADE, seq w/ UNIQUE(run_id,seq), step_type enum model_call/tool_call/output, input/output jsonb, duration_ms), agent_proposals (action_class, payload+evidence jsonb, 6-state status enum, expires_at, decided_by/at/reason audit, idempotency_key UNIQUE for cross-run dedup, executed_at+result, status+created_at and agent+created_at indexes), agent_memory (kind/key/content/weight/last_used_at, UNIQUE(agent_id,kind,key), weight-DESC index for assembly ranking). uuid PKs, created_at/updated_at + the shared set_updated_at trigger on all five (DROP IF EXISTS before CREATE). Triple: guarded enum creates (duplicate_object swallow), IF NOT EXISTS everywhere, EXPECTED_SCHEMA_VERSION -> 00353 same commit, self-record footer. Operator-only: RLS enabled with NO policies on all five + registered in rls-guard SERVICE_ROLE_ONLY (13/0 incl. schema-version sync). verify:db GREEN: fresh-stack apply + reset-from-zero both pass. Design note: module-specific state rides jsonb, never per-agent tables - the kernel stays generic for US-1584+.",
+      "notes": "[AGENTIC-OS Phase 0][Module A — Agent Kernel] Read AGENTIC_OS.md §2 (guardrails) + §3.A first. Load the migrations skill AND the tenant-isolation skill before touching anything. autonomy jsonb shape: { \"<action_class>\": 0|1|2|3 } (L0 observe default). No routes or code in this story — schema only.",
       "relevantPaths": [
         "AGENTIC_OS.md",
         "supabase/migrations/",
@@ -10259,7 +10259,7 @@
       ],
       "priority": 2359,
       "passes": true,
-      "notes": "[AGENTIC-OS Phase 0][Module A — Agent Kernel] Read AGENTIC_OS.md §2 + §3.A. Proposals in the output contract are just data at this stage (persisted by US-1587's lifecycle; here they may be stored on outcome). No tools registered yet — the tool loop should accept an injected tool registry (US-1585) but function with an empty one. [COMPLETION 2026-07-04] lib/agent-kernel.ts, deno test 14/0 + lint/check clean. runAgent(agentKey, trigger, deps?) with FULL dependency injection (db/callModel/budget/pause/tools/clock) so every invariant tests against mocks. AC1: run row created (running) -> bounded Claude tool-use loop -> finalize with status+tokens+cost_usd(4dp); model from agents.config.model falling back to getDefaultModel(); tool surface = config.tool_allowlist INTERSECT the registered tools map (an off-allowlist model request is REFUSED as a tool_result error, not crashed - proven). AC2: caps from config w/ safe defaults+ceilings (steps 24/100, wall-clock 5m/30m, output tokens 4096/16k; garbage tolerated - proven); step-cap and wall-clock breaches finalize 'timeout' with {partial:true, reason, steps} and runAgent NEVER throws (outer catch -> failed result; unknown agent -> failed WITHOUT a row - proven). AC3: every model_call/tool_call/output recorded to agent_run_steps in seq order (proven: 1..4 for the tool round-trip) with inputs/outputs through log-redact (proven: planted emails in BOTH directions -> [redacted:email], raw never persisted). AC4: isAiBudgetExhausted(config.budget_feature ?? 'agents') gates BEFORE every model call; refusal finalizes 'skipped' with the reason (proven: zero model calls). AC5: paused agent OR global agents.pause -> a skipped RUN ROW (silence is not a record - proven both); the global read is FAIL-CLOSED (query error -> paused; missing row -> running - documented distinction). AC6: {summary, findings[], proposals[]} validated (matrix proven; fenced+bare JSON parse); malformed -> 'failed' + a truncated output step for forensics. Test-harness note: static imports hoist above env seeds, so the test uses a type-only import + dynamic value import.",
+      "notes": "[AGENTIC-OS Phase 0][Module A — Agent Kernel] Read AGENTIC_OS.md §2 + §3.A. Proposals in the output contract are just data at this stage (persisted by US-1587's lifecycle; here they may be stored on outcome). No tools registered yet — the tool loop should accept an injected tool registry (US-1585) but function with an empty one.",
       "dependsOn": [
         "US-1583"
       ],
@@ -10286,7 +10286,7 @@
       ],
       "priority": 2358,
       "passes": true,
-      "notes": "[AGENTIC-OS Phase 0][Module A — Agent Kernel] Read AGENTIC_OS.md §2 guardrail 1–2. Load the tenant-isolation skill. Write tools intentionally deferred to US-1587 — v1 is read-only by design so the kernel can run at L0 immediately. [COMPLETION 2026-07-04] lib/agent-tools.ts, deno test 9/0 + lint/check clean. AC1: RegisteredTool {name, description, class read|write, inputSchema, handler(input, db)} with a minimal JSON-schema validator (type/required/enum/unknown-field; the exact subset the tools use - full violation matrix proven, each error NAMES the field so the model can self-correct); invalid input returns structured {error} via dispatch and the run continues (proven). AC2: nine v1 read tools, every handler GROUNDED against the real migration schemas (cron_runs.job_name/status success|skipped, ops_events.type/title/severity, webhook_dead_letters.status unresolved/error_message, ai_usage_events.phase/cost_usd, marketplace_connections.marketplace/refresh_error/token_expires_at, human_reviews.adjusted_score-null pending, sales.sale_price/sale_date, support_tickets.status) - get_cron_health per-job aggregation proven (runs/failures/latest-newest-wins); get_marketplace_health proven cross-tenant AGGREGATE-only (no user_id/handle/token in the payload). AC3: allowlist enforced TWICE - buildKernelTools exposes only the allowlisted slice (ghost names invisible - proven) AND dispatchTool re-rejects at dispatch (proven). AC4: every invocation writes writeSystemAuditLog({action: agent_tool_invocation, agent, tool, redacted input capped 500}) - proven, and an audit-write FAILURE never takes the tool down (proven). AC5: every handler is an operator-scope aggregate (counts/sums/redacted previews; ops-event titles + dead-letter errors pass through redact). Injectable db (ToolDb) so tests run against a chainable fake; buildKernelTools plugs directly into the US-1584 kernel's tools map.",
+      "notes": "[AGENTIC-OS Phase 0][Module A — Agent Kernel] Read AGENTIC_OS.md §2 guardrail 1–2. Load the tenant-isolation skill. Write tools intentionally deferred to US-1587 — v1 is read-only by design so the kernel can run at L0 immediately.",
       "dependsOn": [
         "US-1584"
       ],
@@ -10313,7 +10313,7 @@
       ],
       "priority": 2357,
       "passes": true,
-      "notes": "[AGENTIC-OS Phase 0][Module D — Decision Policies] Read AGENTIC_OS.md §2 (the ladder table) + §3.D. Promotion automation is US-1608 — this story is resolution/demotion/kill only. [COMPLETION 2026-07-04] lib/agent-policy.ts, deno test 10/0 (33/0 across the agent suite) + lint/check clean. AC1: ACTION_CLASSES extensible const (the six charter classes + notify + config_write, presence pinned); resolveAutonomy accepts numbers AND L-strings ('L2'/'2'), everything unknown/malformed/out-of-range defaults L0 (full matrix proven - new capabilities are born observe-only). AC2: dispatchWriteIntent by level - L0 DROPS and returns a suppressed_write_intent finding with the 'would have proposed X' note (the promotion-evidence trail for US-1608; nothing persisted - proven); L1 upserts a pending agent_proposals row with the agent:class:title idempotency key (proven); L2/L3 DOWNGRADE to proposal with an explicit autonomy_note naming the held level + US-1587 (proven) - autonomy is never exercised before the rails that audit it exist. AC3: kill switches FAIL-CLOSED and checked at run start AND at every write dispatch - global agents.pause halts an enabled L3 agent (precedence proven), per-agent status=paused halts without consulting global (proven), a settings READ FAILURE halts while a MISSING row runs (both proven); the kernel's run-start check now DELEGATES to isGlobalAgentPause so there is exactly ONE pause implementation (kernel suite still 14/0). AC4: recordPolicyBreach demotes exactly one level floored at L0 (proven incl. already-L0), persists via PolicyDb preserving other classes' levels (proven), and emits an agent_policy_breach warning ops event with a redacted reason (proven). Injectable PolicyDb + emitter for tests.",
+      "notes": "[AGENTIC-OS Phase 0][Module D — Decision Policies] Read AGENTIC_OS.md §2 (the ladder table) + §3.D. Promotion automation is US-1608 — this story is resolution/demotion/kill only.",
       "dependsOn": [
         "US-1584"
       ],
@@ -10326,20 +10326,17 @@
     },
     {
       "id": "US-1587",
-      "title": "Proposal lifecycle: approvals, execution, first write tools",
-      "description": "As the operator, I want agent write-actions to land as structured proposals I can approve or reject from the admin API — with approved actions executed exactly once by the kernel — so agents get hands only through my sign-off.",
+      "title": "Proposal lifecycle engine: persistence, approve-once execution, write tools, expiry",
+      "description": "As the operator, I want the agent proposal lifecycle ENGINE — proposals persisted from run output with idempotency dedup, approve-once execution through registered write tools, TTL expiry, and write tools that refuse to run outside an approved-proposal context — so the operator sign-off surface (US-1657) has a hardened, exactly-once substrate to drive.",
       "acceptanceCriteria": [
-        "Kernel persists proposals from run output to agent_proposals (pending, TTL default 72h from config); duplicate suppression via idempotency_key so a re-run doesn't re-file the same proposal",
-        "routes/admin-agents.ts (mounted under /api/admin/agents, standard admin JWT + RBAC scope): list proposals (filter by status/agent), approve, reject (reason required); decisions record decided_by/decided_at and write audit-log entries",
-        "Approval executes the payload through a registered WRITE tool with the proposal id as idempotency key: execution happens exactly once even under concurrent/double approval calls; result → agent_proposals.result, status → executed/failed",
-        "First write tools (class 'write', reversible by design): retry_job (re-POST a registered /api/jobs/* endpoint via the internal job secret), requeue_dead_letter (existing dead-letter machinery), create_admin_task; write tools refuse to run outside an approved-proposal or L2+ policy context",
-        "Expiry sweep marks past-TTL pending proposals 'expired' (wired into the agent tick or a small job); expired/rejected proposals can never execute",
-        "New pending proposals trigger an admin notification (existing admin-notifications lib), batched per run",
-        "tenant-isolation_test.ts gains cases for the new admin route; deno tests cover approve-once semantics and expiry; lint + check clean"
+        "lib/agent-proposals.ts: the kernel persists proposals from run output to agent_proposals (pending, TTL default 72h from config); duplicate suppression via idempotency_key so a re-run does not re-file the same proposal",
+        "Approve-once execution: approveProposal claims pending->approved via a race-safe conditional UPDATE (WHERE status=pending) so execution happens exactly once under concurrent/double approval; the payload runs through a registered WRITE tool with the proposal id as idempotency key; result->agent_proposals.result, status->executed/failed. rejectProposal (reason) and expireProposals (past-TTL pending->expired) included; expired/rejected can never execute (canExecute guards on status+expiry)",
+        "First write tools (class write, reversible): retry_job (re-POST a CRON_REGISTRY endpoint via the internal job secret, never an arbitrary URL), requeue_dead_letter (email dead-letter re-queue), create_admin_task; write tools are invisible to the run loop (anthropicTools/isAllowed read-only) and only execute via the executor executeWrite path (refuse outside an approved-proposal context)",
+        "Deno tests: persistence idempotency, approve-once semantics (concurrent claim -> single execute), expiry, write-tool-refused-in-run; lint + check clean"
       ],
       "priority": 2356,
       "passes": true,
-      "notes": "[AGENTIC-OS Phase 0][Module E — Escalation & Approvals] Read AGENTIC_OS.md §3.E. Load the tenant-isolation skill (new edge route rule). retry_job must only accept endpoints present in CRON_REGISTRY — never an arbitrary URL. [COMPLETION 2026-07-04] lib/agent-proposals.ts + routes/admin-agents.ts + kernel/policy wiring; deno 10/0 lifecycle + 2 tenant-isolation cases + 53/0 across the agent+scope suites; lint/check clean. AC1: the kernel files output.proposals through fileProposalsFromRun (injectable dep) -> the policy engine per entry (per-class autonomy applies to EACH), TTL from config.proposal_ttl_hours default 72h (capped 30d) landing in expires_at; malformed entries skipped; the filing tally rides the run outcome; idempotency_key dedup carried from US-1586. AC2: routes/admin-agents.ts behind requireScope(ops:write) + AdminEnv, mounted /api/admin/agents, registered in admin-scope-map (coverage guard green): GET /proposals (status/agent filters, sweep-first so an expired row never renders executable), approve, reject (reason REQUIRED -> 400); decisions stamp decided_by/decided_at SERVER-SIDE from the authed context (isolation case proves no body-derived path) + audit-log entries. AC3: EXACTLY-ONCE via the conditional pending->approved claim - concurrent double-approve proven to yield one executed + one already_decided; result -> agent_proposals.result, executed/failed statuses; TTL RE-CHECKED at claim so expired-but-unswept can never execute (proven); rejected can never execute (proven). AC4: WRITE_TOOLS separate registry (never in the model's tool list) - retry_job (self-POST /api/jobs/* w/ FLIPDESK_INTERNAL_JOB_SECRET, slug-validated BEFORE network - proven), requeue_dead_letter (webhook_dead_letters -> pending, tolerant of both status vocabularies), create_admin_task (real admin_tasks columns; agent attribution in the body since created_by is a users FK); ALL refuse without an approved-proposal context (proven per tool + isolation case). AC5: expireStaleProposals sweep (pending+past-TTL only - proven) runs on every inbox list; the agent tick (US-1588) adds the scheduled call. AC6: ONE batched routeOpsEventToAdmins notification per run naming the count (proven; L0-suppressed runs notify nothing - proven).",
+      "notes": "[AGENTIC-OS Phase 0][Module E] Engine half of the original US-1587 (split). The admin HTTP route (list/approve/reject) + admin notifications is US-1657. retry_job only accepts CRON_REGISTRY endpoints.",
       "dependsOn": [
         "US-1585",
         "US-1586"
@@ -10366,7 +10363,7 @@
       ],
       "priority": 2355,
       "passes": true,
-      "notes": "[AGENTIC-OS Phase 0][Module J — Jobs Orchestrator] Read AGENTIC_OS.md §3.J. Follow the durable-jobs skill contract (lock, bounded batch, defer-not-drop). Add the Coolify scheduled-task row to COOLIFY.md via the generator, and note the new task in LAUNCH_CHECKLIST.md's scheduled-tasks section if one exists. [COMPLETION 2026-07-04] lib/agent-scheduler.ts + routes/jobs-agent-tick.ts; deno 10/0 scheduler tests (57/0 agent suite) + cron-registry drift 4/0; lint/check clean. AC1: POST /api/jobs/agent-tick behind requireJobSecret + acquireJobLock('agent-tick', 540s lease - under the cadence so a hung tick can't overlap but a crashed holder frees before two misses); isAgentDue supports BOTH cron expressions (via the existing nextCronRun from the last start - hourly matrix proven) and interval_minutes (proven); a never-run agent WITH a cadence is due immediately, NO schedule is never due (cadence is opt-in - proven), an unparseable cron is never-due not a crash (proven); due agents run SEQUENTIALLY via runAgent under a wall-clock budget (default 8 min) with leftovers DEFERRED + recorded in the outcome and a console warning (proven: 1s budget, 700ms runs -> two ran, one deferred). AC2: CRON_REGISTRY entry (*/10, category 'agents') + COOLIFY.md AND LAUNCH_CHECKLIST.md regenerated between the markers via scripts/render-cron-docs.ts; the drift test passes. AC3: the cron_runs ledger + job.failed ops event ride the EXISTING /api/jobs/* middleware chokepoint (zero new infrastructure); individual agent-run failures never fail the tick (kernel never throws; proven) - only bookkeeping errors 500. AC4: global agents.pause -> a recorded no-op that short-circuits BEFORE any load (proven). BONUS: the US-1587 proposal-TTL sweep rides every tick, failure non-fatal (proven).",
+      "notes": "[AGENTIC-OS Phase 0][Module J — Jobs Orchestrator] Read AGENTIC_OS.md §3.J. Follow the durable-jobs skill contract (lock, bounded batch, defer-not-drop). Add the Coolify scheduled-task row to COOLIFY.md via the generator, and note the new task in LAUNCH_CHECKLIST.md's scheduled-tasks section if one exists.",
       "dependsOn": [
         "US-1584",
         "US-1586"
@@ -10394,7 +10391,7 @@
       ],
       "priority": 2354,
       "passes": true,
-      "notes": "[AGENTIC-OS Phase 0][Module O — Observability] Read AGENTIC_OS.md §3.O. Reuse emitOpsEvent + observability.ts conventions exactly — grep how jobs-*.ts emit job.failed for the house style. [COMPLETION 2026-07-04] deno 7/0 observability tests + the write-time-redaction isolation case; 60/0 agent suite; lint/check clean. AC1: agent.* ops events at every moment - the kernel emits run.started (info, on the run row landing) and a terminal run.finished/run.failed/run.timeout (failures/timeouts = warning) carrying agent key/run id/duration_ms/cost_usd/steps (proven per outcome; SKIPPED runs deliberately emit nothing - the ledger row suffices, proven); the policy emits proposal.created on every filing (proven); the lifecycle emits proposal.approved at claim, proposal.executed after the write tool, proposal.rejected with the REDACTED reason (planted email proven scrubbed from the title). All fire-and-forget - an emitter failure never touches the run. Visible in /admin/ops-activity with no UI changes (standard ops_events). AC2: GET /api/admin/agents/runs/:id/transcript serves the run row + seq-ordered steps; redaction happens at WRITE time in the kernel and the isolation case PROVES it (PII in a tool input AND result never reaches the persisted rows; the endpoint never re-redacts). AC3: one recordMetric('agent_run', duration_ms) line per run tagged agent/outcome/steps/tokens_in/tokens_out/cost_usd through observability.ts (which itself redacts + structures). AC4: kernel crashes route through captureException with the run id as correlationId and the run row STILL finalizes failed. Emitters injectable everywhere for tests.",
+      "notes": "[AGENTIC-OS Phase 0][Module O — Observability] Read AGENTIC_OS.md §3.O. Reuse emitOpsEvent + observability.ts conventions exactly — grep how jobs-*.ts emit job.failed for the house style.",
       "dependsOn": [
         "US-1584"
       ],
@@ -10417,7 +10414,7 @@
         "Follows the existing admin console patterns (shadcn, TanStack Query, loading/error/empty states, sonner toasts); npx tsc --noEmit, build, lint, and vitest clean"
       ],
       "priority": 2353,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 0][Module C — Command Center] Read AGENTIC_OS.md §3.C. Mirror the structure of an existing rich admin page (e.g. src/pages/admin/jobs.tsx or ops-jobs.tsx) rather than inventing new patterns.",
       "dependsOn": [
         "US-1587",
@@ -10443,7 +10440,7 @@
         "Deno tests: refusal at exhausted budget, breach halt + pause side-effects; lint + check clean"
       ],
       "priority": 2352,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 0][Module B — Budget Governor] Read AGENTIC_OS.md §3.B. Reuse ai-budget/ai-budget-gate/jobs-ai-budget wiring — do NOT build a parallel metering system.",
       "dependsOn": [
         "US-1590"
@@ -10468,7 +10465,7 @@
         "Deno tests for assembly logic (fixtures for busy day / quiet day / empty fleet); lint + check clean"
       ],
       "priority": 2351,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 0][Module N — Notifications & Operator Brief] Read AGENTIC_OS.md §3.N. Reuse the north-star-digest job's email assembly style as the template.",
       "dependsOn": [
         "US-1590"
@@ -10494,7 +10491,7 @@
         "Deno tests over the charter's assembly + fixture correlation; lint + check clean"
       ],
       "priority": 2340,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 1][Module H — Sentinel] Read AGENTIC_OS.md §3.H. First domain agent — it also serves as the reference implementation for the seeding pattern (agent row migration + charter file + tool allowlist) that US-1594..1604 copy. Keep the charter file pattern reusable: charters/<agent-key>.ts or .md under services/edge-functions/src/agents/.",
       "dependsOn": [
         "US-1588",
@@ -10511,18 +10508,17 @@
     },
     {
       "id": "US-1594",
-      "title": "Grading Quality agent: accuracy synthesis + info-value review routing",
-      "description": "As the operator, I want an agent that reads the grading telemetry I already collect (accuracy tracking, shadow results, calibration drift, review-queue stats) and turns it into a weekly memo plus review-queue routing proposals — the active-learning layer from AGENT_LEVELUP_ROADMAP §6.3.",
+      "title": "Grading Quality agent: accuracy synthesis + weekly memo (read + lifecycle-safe)",
+      "description": "As the operator, I want an agent that reads the grading telemetry I already collect (accuracy tracking, shadow results, calibration drift, review-queue stats, exemplar coverage) and turns it into a weekly memo — and that can NEVER execute a grading-config change, only file an admin task pointing at the shadow→eval→canary lifecycle.",
       "acceptanceCriteria": [
-        "Agent seeded (module G, weekly schedule) with read tools over accuracy-tracking outputs, shadow-eval results, confidence-calibration state, and review-queue stats (add thin read tools where none exist — reads only, reusing existing libs)",
-        "Weekly memo outcome: what regressed / what improved per category and prompt version, calibration gaps, exemplar-pool coverage holes — persisted as the run outcome and included in the Operator Brief",
-        "L1 proposal: reorder the human-review queue by information value using the existing review-info-value machinery (a write tool wrapping it), with the ranking rationale as evidence",
-        "Prompt-version or threshold changes are NEVER executed by this agent: it may only file an admin task pointing at the existing shadow → eval gate → canary lifecycle with its supporting data",
-        "Deno tests with fixture telemetry proving the memo structure and that a threshold-change intent becomes a task, not an action; lint + check clean"
+        "Agent seeded (module G, weekly schedule) with read tools over accuracy-tracking, shadow-eval, confidence-calibration, review-queue stats, and exemplar coverage (a get_grading_quality read tool bundling them + the existing ops reads; reads only, reusing existing libs)",
+        "Weekly memo outcome (pure assembleGradingMemo): what regressed / improved per category + prompt version, calibration gaps, exemplar-pool coverage holes, review-queue depth — persisted as the run outcome (so the Operator Brief includes it)",
+        "Prompt-version / threshold / calibration / exemplar changes are NEVER executed by this agent: classifyGradingIntent maps every grading-config change to a file_task pointing at the existing shadow→eval→canary lifecycle with its supporting data. The agent has NO grading write tools.",
+        "Deno tests with fixture telemetry proving the memo structure and that a threshold-change intent classifies as file_task (task, not action); lint + check clean"
       ],
       "priority": 2339,
-      "passes": false,
-      "notes": "[AGENTIC-OS Phase 1][Module G — Grading Quality] Load the grading-engine skill FIRST (mandatory for any grading-adjacent code). Read AGENTIC_OS.md §3.G + §5 (no bypassing safety lifecycles).",
+      "passes": true,
+      "notes": "[AGENTIC-OS Phase 1][Module G] Read half (split). Load the grading-engine skill. The L1 review-queue REORDER write tool (review-info-value machinery + its persistence) is US-1658 — safety-sensitive, needs its own verified change.",
       "dependsOn": [
         "US-1588",
         "US-1587"
@@ -11015,6 +11011,893 @@
         "AGENTIC_OS.md",
         "services/edge-functions/src/lib/agent-kernel.ts",
         "services/edge-functions/src/lib/agent-policy.ts"
+      ]
+    },
+    {
+      "id": "US-1614",
+      "title": "C1 · Bind Google Play subscription tokens to one account (stop unlimited-account entitlement)",
+      "description": "As the platform operator, I want a Google Play subscription purchase token to entitle exactly one account, so that a single purchase can't be shared to grant Business to N accounts.",
+      "priority": 2600,
+      "passes": true,
+      "notes": "[Critical C1][P0 fraud/revenue][Source: CODE_REVIEW_2026-07-04.md §Critical] Unlike the App Store path, Play subscription verify only checks token validity with Google then entitles whoever calls; no obfuscatedExternalAccountId binding and users.google_purchase_token has no unique constraint. One purchase → share purchaseToken → N Business accounts, re-verifiable monthly.",
+      "acceptanceCriteria": [
+        "Stamp obfuscatedExternalAccountId = userId at purchase time and require it to match the caller in the Play subscription verify (services/edge-functions/src/lib/google-play/verify.ts:206-233)",
+        "Add a uniqueness claim so a given purchaseToken maps to exactly one user (unique constraint on users.google_purchase_token or an equivalent claim table); a second account presenting the same token is rejected",
+        "A verify call whose obfuscatedExternalAccountId does not match the authenticated caller returns a non-entitling error (mirror the App Store appAccountToken ownership check)",
+        "Deno tests cover: token bound to the wrong account is rejected, re-verify by the owner still works, second-account replay is denied; deno lint + check clean"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/lib/google-play/verify.ts",
+        "services/edge-functions/src/routes/google-play.ts"
+      ]
+    },
+    {
+      "id": "US-1615",
+      "title": "C2 · Claw back Apple credit-pack credits on REFUND/REVOKE",
+      "description": "As the platform operator, I want refunded or revoked Apple consumable credit-pack transactions to remove the granted credits, so that a buyer can't buy a pack, refund it, and keep the credits.",
+      "priority": 2599,
+      "passes": true,
+      "notes": "[Critical C2][P0 revenue][Source: CODE_REVIEW_2026-07-04.md §Critical] The consumable branch only ever grants; there is no Apple analog of Stripe's clawbackCreditPack, and DecodedTransactionLite doesn't carry revocationDate so /verify will even grant an already-refunded transaction. Buy credits_100 → refund → keep credits, repeatable.",
+      "acceptanceCriteria": [
+        "Handle the Apple 'revoke' notification for consumables: an RPC keyed on transactionId that removes granted credits, clamped like revoke_grade_credits (services/edge-functions/src/lib/appstore/notifications.ts:29-31)",
+        "Add revocationDate to DecodedTransactionLite and have verifyTransaction reject/withhold grant for an already-refunded transaction (services/edge-functions/src/routes/appstore.ts:233-238)",
+        "Clawback is idempotent and clamped: credits never go negative and a duplicate revoke notification is a no-op",
+        "Deno tests: refund after grant zeroes the pack, double-revoke is idempotent, verify of a revoked transaction does not grant; deno lint + check clean"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/routes/appstore.ts",
+        "services/edge-functions/src/lib/appstore/notifications.ts"
+      ]
+    },
+    {
+      "id": "US-1616",
+      "title": "C3 · Enforce workspaceRole on FlipDesk write/spend routes (viewer must not move money)",
+      "description": "As a workspace owner, I want read-only viewer members blocked from money-moving and publish actions, so that a viewer can't trigger a Stripe payout, drain my AI/grade credits, or publish my inventory live.",
+      "priority": 2598,
+      "passes": true,
+      "notes": "[Critical C3][P1 privilege-escalation][Source: CODE_REVIEW_2026-07-04.md §Critical] requireWorkspaceRole exists (middleware/workspace.ts:121) but is never called. A viewer sends X-Workspace-Owner: <ownerId> and acts: /payouts is a real Stripe transfer, /pay drains credits, /publish-batch publishes live inventory.",
+      "acceptanceCriteria": [
+        "Apply requireWorkspaceRole(...) at the main.ts mounts: admin for payouts/disconnect, listing_manager for publish/reprice/CRUD (services/edge-functions/src/middleware/workspace.ts:121; flipdesk-consignment.ts:287 /payouts; flipdesk-autolister.ts:1899 /publish-batch)",
+        "Add an explicit viewer 403 to grade.ts /pay/:id, /snap, and /dispute (services/edge-functions/src/routes/grade.ts:684)",
+        "A viewer member calling any protected write/spend route receives 403; owner/admin/listing_manager (as appropriate) still succeed",
+        "Add tenant-isolation_test.ts cases proving viewer is denied on payouts, publish-batch, and /pay; deno lint + check clean"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/middleware/workspace.ts",
+        "services/edge-functions/src/routes/flipdesk-consignment.ts",
+        "services/edge-functions/src/routes/flipdesk-autolister.ts",
+        "services/edge-functions/src/routes/grade.ts",
+        "services/edge-functions/src/main.ts"
+      ]
+    },
+    {
+      "id": "US-1617",
+      "title": "C4 · Clear the query cache on sign-out and user-key per-user queries (same-device exposure)",
+      "description": "As a user on a shared browser, I want my finances/submissions/disputes gone the instant I sign out, so that the next person to sign in never sees my data from a stale cache.",
+      "priority": 2597,
+      "passes": true,
+      "notes": "[Critical C4][P1 PII exposure][Source: CODE_REVIEW_2026-07-04.md §Critical] Sign-out is SPA navigation (no reload), only Zustand is reset, and dozens of per-user query keys omit the user id (['finances-dashboard',period], ['dashboard-submissions'], ['my-disputes'], ['ebay_payouts'], ['api-keys'], …). With staleTime 5min, user B is served user A's data without a refetch. Copy user-keying from use-consignors.ts.",
+      "acceptanceCriteria": [
+        "queryClient.clear() runs in the SIGNED_OUT branch of onAuthStateChange (src/hooks/use-auth.ts:184-186; queryClient in src/main.tsx:39)",
+        "Every per-user query key includes user.id (audit and fix ['finances-dashboard'], ['dashboard-submissions'], ['my-disputes'], ['ebay_payouts'], ['api-keys'], and siblings — pattern from src/hooks/use-consignors.ts)",
+        "After sign-out then sign-in as a different user on the same tab, no previous-user data renders before a fresh fetch resolves",
+        "tsc -b clean, eslint clean, build green"
+      ],
+      "relevantPaths": [
+        "src/hooks/use-auth.ts",
+        "src/main.tsx",
+        "src/hooks/use-consignors.ts"
+      ]
+    },
+    {
+      "id": "US-1618",
+      "title": "C5 · Set billing_source='stripe' so cross-processor customers aren't double-billed or locked out",
+      "description": "As a cross-processor customer, I want my billing_source to reflect an active Stripe subscription, so that buying on Android doesn't double-bill me and moving from iOS to Stripe doesn't lock me out of plan changes or force-lapse me.",
+      "priority": 2596,
+      "passes": true,
+      "notes": "[Critical C5][P1 revenue/lockout][Source: CODE_REVIEW_2026-07-04.md §Critical] webhooks.ts:548-587 never sets billing_source='stripe'. So (a) the Play 'active Stripe' precedence gate never fires → active Stripe subscriber buying on Android is double-billed (google-play/verify.ts:206-211); (b) a former iOS subscriber who moves to Stripe stays flagged 'appstore' → every plan change 409s, UI hides cancel/change, and the Apple expiry sweep can force-lapse a paying Stripe customer to Free.",
+      "acceptanceCriteria": [
+        "handleSubscriptionChange sets billing_source:'stripe' (at least on customer.subscription.created) — services/edge-functions/src/routes/webhooks.ts:548-587",
+        "The Google Play precedence gate uses the Apple-style null-tolerant predicate so an active Stripe sub blocks/flags a Play purchase (services/edge-functions/src/lib/google-play/verify.ts:206-211)",
+        "A Stripe subscriber is no longer flagged 'appstore': plan change/cancel works and the Apple expiry sweep no longer lapses them",
+        "Deno tests: subscription.created stamps stripe, Play purchase by an active Stripe user is gated; deno lint + check clean"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/routes/webhooks.ts",
+        "services/edge-functions/src/lib/google-play/verify.ts"
+      ]
+    },
+    {
+      "id": "US-1619",
+      "title": "C6 · Lapse Google Play subscriptions server-side (RTDN webhook + expiry sweep)",
+      "description": "As the platform operator, I want Google Play subscriptions to expire and reconcile server-side, so that a cancelled or refunded Play subscriber loses entitlement instead of keeping it perpetually.",
+      "priority": 2595,
+      "passes": true,
+      "notes": "[Critical C6][P1 revenue][Source: CODE_REVIEW_2026-07-04.md §Critical] DELIVERED (2026-07-04): the expiry-sweep backstop — Google Play subscriptions now lapse server-side. lib/google-play/expiry-sweep.ts finds billing_source='googleplay' rows still active/trialing whose flipdesk_period_end is past a 72h grace and lapses them to free/canceled (idempotent audit id googleplay:sweep:<user>:<period_end>); mounted as the googleplay-expiry-sweep cron, registered in CRON_REGISTRY + COOLIFY/LAUNCH_CHECKLIST + cron_runs ledger; unit-tested (predicate + idempotency). This closes the 'cancelled/expired Play sub is perpetual' hole. The REAL-TIME RTDN Pub/Sub webhook + REFUND reconciliation (original AC1) is split to US-1650 (it needs a provider-enum migration for processed_webhook_events/webhook_dead_letters + a Pub/Sub push endpoint with OIDC/secret verification — a substantial standalone feature).",
+      "acceptanceCriteria": [
+        "Google Play backstop: extend the expiry sweep to billing_source='googleplay' so a cancelled/expired Play subscription lapses to free/canceled server-side (services/edge-functions/src/lib/google-play/expiry-sweep.ts)",
+        "Sweep never touches Stripe/Apple rows; idempotent (audit id derived from user+period_end; conditional UPDATE re-asserts the googleplay+entitled guard)",
+        "Registered as a cron: main.ts mount, CRON_REGISTRY entry, cron_runs ledger, COOLIFY.md + LAUNCH_CHECKLIST.md (drift guard green)",
+        "Deno tests: selection predicate (spares Stripe/Apple/fresh/future) + idempotent re-run",
+        "The real-time RTDN Pub/Sub webhook + refund reconciliation is split to US-1650 (not in this story)"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/routes/google-play.ts",
+        "services/edge-functions/src/lib/appstore/expiry-sweep.ts"
+      ]
+    },
+    {
+      "id": "US-1620",
+      "title": "C7 · Don't permanently lose an App Store webhook event on handler failure",
+      "description": "As the platform operator, I want a transient failure while processing an App Store notification to release the idempotency claim, so that Apple's retry actually reprocesses a REFUND/EXPIRED instead of hitting a duplicate no-op.",
+      "priority": 2594,
+      "passes": true,
+      "notes": "[Critical C7][P1 revenue][Source: CODE_REVIEW_2026-07-04.md §Critical] appstore.ts:216-257 takes the idempotency claim before side-effects, but a handler throw isn't caught, the claim is never released, and Apple's retry hits 'duplicate' → 200 no-op. A transient DB blip during REFUND/EXPIRED leaves the user with paid entitlement. Copy the Stripe route's dead-letter policy.",
+      "acceptanceCriteria": [
+        "Wrap dispatch in the same transient-release / dead-letter policy the Stripe route uses (failIfDbError + releaseWebhookEvent) — services/edge-functions/src/routes/appstore.ts:216-257",
+        "A transient DB error during dispatch releases the claim so Apple's retry reprocesses; a genuine duplicate still no-ops",
+        "Permanent-failure events land in the dead-letter path rather than silently 200-ing",
+        "Deno tests: transient error releases claim (retry reprocesses), duplicate is a no-op, poison event dead-letters; deno lint + check clean"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/routes/appstore.ts"
+      ]
+    },
+    {
+      "id": "US-1621",
+      "title": "C8 · Persist the iOS photo upload queue and survive mid-batch app kill",
+      "description": "As an iOS seller, I want my queued garment photos to survive the app being killed mid-upload, so that a background jetsam never leaves an item with missing photos and no way to retry.",
+      "priority": 2593,
+      "passes": false,
+      "notes": "[Critical C8][P1 data-loss][Source: CODE_REVIEW_2026-07-04.md §iOS] PhotoUploadStore queue is a plain in-memory dict (PhotoUploadStore.swift:13); the crash-recovery draft is cleared the moment tasks enqueue not upload (PhotoIntakeView.swift:830-838); durable mutations are only written on failure paths; nothing rescans at launch; the foreground upload takes no background-task assertion. Replay is already idempotent by deterministic photo_id.",
+      "acceptanceCriteria": [
+        "Persist queued upload tasks (or write the LocalPendingMutation at enqueue time) and re-enqueue them at launch — ios/GradeThread/Upload/PhotoUploadStore.swift:13, Capture/PhotoIntakeView.swift:830-838",
+        "Do NOT clear the crash-recovery draft until uploads actually succeed",
+        "Wrap the serial drain in beginBackgroundTask so a backgrounded batch gets time to finish",
+        "Replay stays idempotent via the existing deterministic photo_id; a mid-batch kill leaves no orphaned item-with-no-photos-and-no-retry state",
+        "iOS CI (macOS runner) build/test green; python3 ios/Scripts/no-ungated-print.py clean"
+      ],
+      "relevantPaths": [
+        "ios/GradeThread/Upload/PhotoUploadStore.swift",
+        "ios/GradeThread/Capture/PhotoIntakeView.swift"
+      ]
+    },
+    {
+      "id": "US-1622",
+      "title": "C9 · Re-derive the human-review gate after all post-composite confidence adjustments",
+      "description": "As the grading operator, I want a grade whose effective confidence fell below the review threshold to always route to human review, so that provenance boosts can't auto-finalize and publish a certificate for a below-threshold grade.",
+      "priority": 2592,
+      "passes": true,
+      "notes": "[Critical C9][P1 grading-integrity][Source: CODE_REVIEW_2026-07-04.md §Grading] The review gate is computed once inside compositeGrade; the pipeline then shaves confidence for a verification discrepancy (without re-checking the 0.75 gate) and later adds provenance boosts back. A 0.70-effective, contradiction-found grade can be boosted to 0.90 and published with no human review. Violates the grading-engine contract (confidence<0.75→review; never raise confidence post-composite). LOAD the grading-engine skill first.",
+      "acceptanceCriteria": [
+        "Re-derive needs_human_review ||= confidence_score < reviewConfidenceThreshold() AFTER all post-composite adjustments (services/edge-functions/src/lib/grading-pipeline.ts:1476-1490, 1632-1653)",
+        "Any confidence-lowering event (e.g. verification discrepancy) becomes a floor that later provenance boosts cannot cross",
+        "A grade whose effective confidence is <0.75 at any point cannot auto-finalize / publish a certificate",
+        "Deno tests: discrepancy-then-boost still routes to review; rounding-lockstep unchanged; deno lint + check clean"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/lib/grading-pipeline.ts"
+      ]
+    },
+    {
+      "id": "US-1623",
+      "title": "P1 · Add the ten dead eBay endpoints to the edge auth whitelist",
+      "description": "As a signed-in seller, I want the eBay analytics/compliance/finances/catalog/promotions endpoints to work, so that they stop returning 401 unconditionally even when I'm authenticated.",
+      "priority": 2585,
+      "passes": true,
+      "notes": "[P1][Source: CODE_REVIEW_2026-07-04.md §Database RLS & durable jobs] main.ts:331-361 omits app.use(authMiddleware) for ten flipdesk-ebay.ts routes (analytics/account-health, compliance/*, finances/payouts*, catalog/match|adopt, promotions), so userId is never set and they fail closed to 401 for signed-in users too. CI misses it because flipdesk-auth-coverage_test.ts only checks each router prefix has ≥1 auth line. All are live SPA call sites.",
+      "acceptanceCriteria": [
+        "Add the missing app.use(authMiddleware) lines for the ten endpoints (services/edge-functions/src/main.ts:331-361)",
+        "Each of the ten endpoints (analytics/account-health, compliance/*, finances/payouts*, catalog/match, catalog/adopt, promotions) authenticates and serves a signed-in seller instead of 401",
+        "Harden the guard so this class can't recur: either invert to wildcard-auth + explicit public exceptions, or make the coverage test diff declared paths vs the whitelist (services/edge-functions/src/routes/flipdesk-auth-coverage_test.ts)",
+        "Deno tests prove each endpoint requires and accepts auth; deno lint + check clean"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/main.ts",
+        "services/edge-functions/src/routes/flipdesk-ebay.ts",
+        "services/edge-functions/src/routes/flipdesk-auth-coverage_test.ts"
+      ]
+    },
+    {
+      "id": "US-1624",
+      "title": "P1 · Owner-key workspace-scoped queries so switching shows the right tenant's data",
+      "description": "As a workspace member, I want automations/repricing/sheets/eBay queries to refetch on workspace switch, so that I never see or mutate the previous workspace's data.",
+      "priority": 2584,
+      "passes": true,
+      "notes": "[P1][Source: CODE_REVIEW_2026-07-04.md §Web P1] switchWorkspace only sets Zustand; no invalidation. Query keys omit the owner, so a member switching workspaces sees (and can mutate) the prior workspace's automation rules and repricing nudges.",
+      "acceptanceCriteria": [
+        "Key affected queries on activeWorkspaceOwnerId ?? user.id and/or invalidate them in switchWorkspace (src/hooks/use-automations.ts:84, use-repricing.ts:57,70, use-google-sheets.ts:61, most of use-ebay.ts)",
+        "After switching workspaces the UI shows the new workspace's data with no stale prior-workspace rows and no cross-workspace mutation",
+        "tsc -b clean, eslint clean, build green"
+      ],
+      "relevantPaths": [
+        "src/hooks/use-automations.ts",
+        "src/hooks/use-repricing.ts",
+        "src/hooks/use-google-sheets.ts",
+        "src/hooks/use-ebay.ts"
+      ]
+    },
+    {
+      "id": "US-1625",
+      "title": "P1 · Add a synchronous double-submit lock to bulk submission",
+      "description": "As a seller submitting a bulk batch, I want a double-click to not POST every row twice, so that I'm not double-charged.",
+      "priority": 2583,
+      "passes": true,
+      "notes": "[P1][Source: CODE_REVIEW_2026-07-04.md §Web P1] disabled={isSubmitting} only applies next render; new-submission.tsx fixed this with submitLockRef (US-774) but bulk never got it. Two clicks in one frame POST every row twice.",
+      "acceptanceCriteria": [
+        "Add the same synchronous submitLockRef pattern used in new-submission.tsx to bulk submit (src/pages/bulk-submission.tsx:287-291)",
+        "Two clicks within one frame result in exactly one submission per row",
+        "tsc -b clean, eslint clean, build green"
+      ],
+      "relevantPaths": [
+        "src/pages/bulk-submission.tsx",
+        "src/pages/new-submission.tsx"
+      ]
+    },
+    {
+      "id": "US-1626",
+      "title": "P1 · Stop compressImage from double-applying EXIF orientation",
+      "description": "As a seller, I want my uploaded garment photos to keep their correct orientation, so that they don't come out sideways/upside-down everywhere compressImage runs.",
+      "priority": 2582,
+      "passes": true,
+      "notes": "[P1][Source: CODE_REVIEW_2026-07-04.md §Web P1] loadImage decodes via a plain <img> (browsers already bake in orientation), then the manual transform rotates again. Hits every surface via compressImage.",
+      "acceptanceCriteria": [
+        "Remove the double rotation: delete the manual orientation transform OR decode with createImageBitmap(file,{imageOrientation:'none'}) (src/lib/image-utils.ts:423-480)",
+        "An EXIF-oriented photo compresses to the correct upright orientation across all compressImage call sites",
+        "Add/adjust a unit test for orientation handling; tsc -b clean, eslint clean, build green"
+      ],
+      "relevantPaths": [
+        "src/lib/image-utils.ts"
+      ]
+    },
+    {
+      "id": "US-1627",
+      "title": "P1 · Preserve staged photos when stepping back from Review in new-submission",
+      "description": "As a seller, I want my staged/replaced photos to persist when I go Back from Review, so that I don't lose them or have edits clobbered by the original list.",
+      "priority": 2581,
+      "passes": true,
+      "notes": "[P1][Source: CODE_REVIEW_2026-07-04.md §Web P1] Photos live only in child state and are never passed back down; 'Back' remounts empty while Continue stays enabled; the retake remount re-seeds the original photos over replacements.",
+      "acceptanceCriteria": [
+        "Lift slot state to the parent (controlled) OR keep the component mounted and hide via CSS (src/pages/new-submission.tsx:822-861 + src/components/submission/photo-upload.tsx:326-360)",
+        "Stepping Back to photos then forward preserves staged photos and any replacements; Continue reflects real photo state",
+        "tsc -b clean, eslint clean, build green"
+      ],
+      "relevantPaths": [
+        "src/pages/new-submission.tsx",
+        "src/components/submission/photo-upload.tsx"
+      ]
+    },
+    {
+      "id": "US-1628",
+      "title": "P1 · Fix detail-page realtime so pending_review resolves without a hard refresh",
+      "description": "As a seller watching a submission, I want the 'we'll let you know the moment it's official' banner to resolve live, so that I don't have to hard-refresh to see the grade go official.",
+      "priority": 2580,
+      "passes": true,
+      "notes": "[P1][Source: CODE_REVIEW_2026-07-04.md §Web P1] The page uses useState not useQuery, so invalidating [\"submission\",id] matches nothing and the fallback poll excludes pending_review.",
+      "acceptanceCriteria": [
+        "Add an onChange callback (or convert to useQuery) so realtime updates reach the page (src/hooks/use-realtime-submission.ts:94 + src/pages/submission-detail.tsx)",
+        "Include pending_review in the fallback poll",
+        "A submission transitioning to official updates the banner/state live without a hard refresh",
+        "tsc -b clean, eslint clean, build green"
+      ],
+      "relevantPaths": [
+        "src/hooks/use-realtime-submission.ts",
+        "src/pages/submission-detail.tsx"
+      ]
+    },
+    {
+      "id": "US-1629",
+      "title": "P1 · Only clear the auto-delist stamp on a real delist success",
+      "description": "As a cross-lister, I want a still-live cross-listing to stay on the delist queue when the extension hard-fails, so that it can't sell twice — while manual paths can still be cleared.",
+      "priority": 2579,
+      "passes": true,
+      "notes": "[P1][Source: CODE_REVIEW_2026-07-04.md §Web P1] delist-confirm fires unconditionally even when sendDelistToLister resolved {ok:false}, so a still-live cross-listing drops off the queue and can sell twice; conversely the manual paths never clear and nag forever.",
+      "acceptanceCriteria": [
+        "Confirm delist only on a real {ok:true} success (src/hooks/use-pending-delists.ts:74-91)",
+        "Add an explicit 'mark done' affordance for manual delist paths so they stop nagging",
+        "A hard-failed delist stays queued; a real success clears; a manual completion can be acknowledged",
+        "tsc -b clean, eslint clean, build green"
+      ],
+      "relevantPaths": [
+        "src/hooks/use-pending-delists.ts"
+      ]
+    },
+    {
+      "id": "US-1630",
+      "title": "P1 · Invalidate queries after FlipDesk inventory add/sale/detail writes",
+      "description": "As a FlipDesk reseller, I want the pipeline and inventory lists to reflect a new item or a recorded sale immediately, so that I don't see stale 'Listed' status or re-add a duplicate.",
+      "priority": 2578,
+      "passes": true,
+      "notes": "[P1][Source: CODE_REVIEW_2026-07-04.md §Web P1] inventory-detail.tsx:285-296 (and 4 other sites) has no useQueryClient — recording a sale leaves the pipeline showing 'Listed' for up to 15 min; inventory-add.tsx:106-126 invalidates nothing so a new item is missing from the list.",
+      "acceptanceCriteria": [
+        "inventory-detail write paths invalidate ['items_full'], ['inventory'], ['inventory-listings'] (src/pages/inventory-detail.tsx:285-296 and the 4 sibling sites)",
+        "inventory-add invalidates ['inventory'], ['inventory-brands'], ['items_full'] (src/pages/inventory-add.tsx:106-126)",
+        "Recording a sale updates the pipeline status immediately; a newly added item appears in the list the user lands on",
+        "tsc -b clean, eslint clean, build green"
+      ],
+      "relevantPaths": [
+        "src/pages/inventory-detail.tsx",
+        "src/pages/inventory-add.tsx"
+      ]
+    },
+    {
+      "id": "US-1631",
+      "title": "Web P2 · Billing/checkout duplication & missing error states",
+      "description": "As a paying user, I want billing and checkout flows to not spawn duplicate sessions, to surface errors, and to compute my AI cap consistently, so that I'm not double-charged, stuck on skeletons, or silently capped at 0.",
+      "priority": 2280,
+      "passes": true,
+      "notes": "[P2 batch][Source: CODE_REVIEW_2026-07-04.md §Web P2 + §Web P3] Four related billing/checkout correctness bugs grouped; each AC is independently verifiable.",
+      "acceptanceCriteria": [
+        "Latch a 'redirecting' flag on Stripe checkout/portal buttons so they stay disabled through the location.href redirect (src/hooks/use-billing-summary.ts:138-143)",
+        "Billing page handles isError with a retry instead of rendering skeletons forever (src/pages/billing.tsx:153-166)",
+        "Checkout-success toast/analytics/reconcile no longer replay from bare URL params (bookmark re-fires the loop + inflates conversion metrics) (src/pages/billing.tsx:102-131)",
+        "Self-imposed AI-cap semantics agree across surfaces and non-numeric input does not save as a hard 0 cap (src/hooks/use-plan-usage.ts:73 vs billing.tsx:632-637; src/pages/settings.tsx:469-473)",
+        "tsc -b clean, eslint clean, build green"
+      ],
+      "relevantPaths": [
+        "src/hooks/use-billing-summary.ts",
+        "src/pages/billing.tsx",
+        "src/hooks/use-plan-usage.ts",
+        "src/pages/settings.tsx"
+      ]
+    },
+    {
+      "id": "US-1632",
+      "title": "Web P2 · Detail-page fetch robustness (cancellation, swallowed errors, dispute .maybeSingle, token refresh)",
+      "description": "As a user navigating detail pages, I want fetches to cancel on navigation, surface real errors, and not mistreat the normal zero-dispute case, so that I don't see 'Pending' forever or mid-batch 401s.",
+      "priority": 2278,
+      "passes": true,
+      "notes": "[P2 batch][Source: CODE_REVIEW_2026-07-04.md §Web P2] Cluster of data-fetch robustness bugs across detail pages and bulk submission.",
+      "acceptanceCriteria": [
+        "submission-detail fetch: add a cancellation flag + reset on id change, check every Supabase error (five are swallowed), and use .maybeSingle() for the zero-dispute case (src/pages/submission-detail.tsx:304-393); apply the same to inventory-detail.tsx and certificate.tsx",
+        "Bulk submission refreshes the auth token per row (or routes through edgeFetch) instead of fetching once before a long batch, and guards response.json() against HTML 502s (src/pages/bulk-submission.tsx:297-341; also new-submission.tsx:620)",
+        "linkInventoryItem reads {error} from supabase-js (it returns {error}, doesn't throw) so the failure toast is no longer dead code and the item actually links (src/pages/new-submission.tsx:518-534)",
+        "A transient error on a completed grade no longer renders 'Grade Report Pending' forever; A→B navigation no longer interleaves state",
+        "tsc -b clean, eslint clean, build green"
+      ],
+      "relevantPaths": [
+        "src/pages/submission-detail.tsx",
+        "src/pages/inventory-detail.tsx",
+        "src/pages/certificate.tsx",
+        "src/pages/bulk-submission.tsx",
+        "src/pages/new-submission.tsx"
+      ]
+    },
+    {
+      "id": "US-1633",
+      "title": "Web P2 · Cache-invalidation & optimistic-update correctness batch",
+      "description": "As a FlipDesk/content user, I want realtime, optimistic updates and writes to keep the cache correct, so that dashboards refresh, drags don't corrupt state, and saves don't wipe data.",
+      "priority": 2276,
+      "passes": true,
+      "notes": "[P2 batch][Source: CODE_REVIEW_2026-07-04.md §Web P2] DELIVERED: the 6 cache-invalidation / optimistic-update fixes. The 7th finding — grade/status sort only sorts the current page (submissions.tsx / inventory.tsx) — is split to US-1651: server-side sort by overall_score needs an embedded grade_reports join + foreign-table ordering, which is PostgREST-version-sensitive (the self-hosted prod PostgREST diverges from the local stack, per CLAUDE.md) and warrants isolated, verifiable treatment.",
+      "acceptanceCriteria": [
+        "Grade-completion realtime invalidates the REAL dashboard key ['dashboard-submissions'] (the old ['recent-submissions']/['dashboard-stats'] were phantoms no query used) (src/hooks/use-realtime-submission.ts:44-45)",
+        "Kanban drag optimistic update calls cancelQueries first and rolls back ONLY the dragged item (not the whole-array snapshot) so a concurrent drag isn't reverted (src/pages/flipdesk/pipeline.tsx)",
+        "Photo-reconcile: session marked committed ONLY when every cluster fully succeeded with zero skips (was: any ok cluster); a new draft with zero uploaded photos is deleted instead of orphaned (src/hooks/use-reconcile-commit.ts)",
+        "useUpdateBlogPost invalidates ['blog_post', id] instead of caching the tag-less PATCH response (which wiped tags on the next save) (src/hooks/use-content.ts:198-200)",
+        "useBulkPublish poll is bounded (~20 min) and cancels on unmount instead of for(;;) (src/hooks/use-autolister.ts:172-206)",
+        "Record Sale surfaces the bulk listing-deactivation error instead of ignoring it (src/pages/inventory-detail.tsx:416-426)",
+        "Server-side sort (submissions/inventory grade sort) is split to US-1651"
+      ],
+      "relevantPaths": [
+        "src/hooks/use-realtime-submission.ts",
+        "src/pages/flipdesk/pipeline.tsx",
+        "src/hooks/use-reconcile-commit.ts",
+        "src/hooks/use-content.ts",
+        "src/hooks/use-autolister.ts",
+        "src/pages/inventory-detail.tsx",
+        "src/pages/submissions.tsx",
+        "src/pages/inventory.tsx"
+      ]
+    },
+    {
+      "id": "US-1634",
+      "title": "Web P2 · Remaining resilience findings (token retry, silent rejections, idempotency, snap upload, sync toast)",
+      "description": "As a user across admin/referrals/offline/snap/eBay-sync surfaces, I want expired-token retries, caught rejections, idempotent replays, compressed snap uploads, and a resolvable sync state, so that these flows don't silently fail or hang.",
+      "priority": 2274,
+      "passes": true,
+      "notes": "[P2 batch][Source: CODE_REVIEW_2026-07-04.md §Web P2] Remaining web P2 resilience findings grouped.",
+      "acceptanceCriteria": [
+        "Admin content/changelog/sheet/Shopify hooks refresh a possibly-expired token and retry on 401 (src/hooks/use-content.ts, use-changelog.ts, use-sheet-import.ts, use-shopify.ts)",
+        "Referrals redeem/campaign/leaderboard add a catch (currently try/finally with no catch → silent unhandled rejection) (src/pages/referrals.tsx:168-293)",
+        "Offline intake queue replay is idempotent (add an idempotency key; current per-tab lock allows duplicate replays) (src/lib/offline-queue.ts:87-99)",
+        "Snap-to-Value validates+compresses before upload and stops pushing a full data URI into router history state (src/pages/snap.tsx:36-43,176-186)",
+        "eBay sync completion no longer compares client clock to server timestamp and has a failure path so it can't hang on a permanent 'syncing…' toast (src/pages/flipdesk/marketplaces.tsx:999-1036)",
+        "tsc -b clean, eslint clean, build green"
+      ],
+      "relevantPaths": [
+        "src/hooks/use-content.ts",
+        "src/hooks/use-changelog.ts",
+        "src/hooks/use-sheet-import.ts",
+        "src/hooks/use-shopify.ts",
+        "src/pages/referrals.tsx",
+        "src/lib/offline-queue.ts",
+        "src/pages/snap.tsx",
+        "src/pages/flipdesk/marketplaces.tsx"
+      ]
+    },
+    {
+      "id": "US-1635",
+      "title": "Web security · Keep auth tokens out of analytics; escape all PDF-export cells",
+      "description": "As a user, I want my single-use auth tokens never captured by GA/PostHog and every export cell escaped, so that a still-valid token can't leak into analytics and marketplace-sourced text can't inject HTML.",
+      "priority": 2272,
+      "passes": true,
+      "notes": "[P2+P3][Source: CODE_REVIEW_2026-07-04.md §Web auth/client security] Two web-security findings grouped.",
+      "acceptanceCriteria": [
+        "Strip auth params via history.replaceState before any pageview, and add PostHog before_send / GA redaction for /auth/* so token_hash/recovery tokens never reach analytics (src/pages/auth-confirm.tsx:50-52, reset-password.tsx:167; index.html:62-97 GA page_location; src/lib/analytics.ts:92-99 PostHog $current_url)",
+        "Financial PDF export escapeHtml()s EVERY cell — platform/category (marketplace-sourced) currently go in raw before document.write (src/components/finances/financial-export.tsx:135-143; match esc() in src/pages/flipdesk/reconciliation.tsx:684)",
+        "tsc -b clean, eslint clean, build green"
+      ],
+      "relevantPaths": [
+        "src/pages/auth-confirm.tsx",
+        "src/pages/reset-password.tsx",
+        "src/lib/analytics.ts",
+        "index.html",
+        "src/components/finances/financial-export.tsx"
+      ]
+    },
+    {
+      "id": "US-1636",
+      "title": "Web P3 · Hardening batch (local dates, swallowed errors, object-URL leak, tax float, CSV injection)",
+      "description": "As a user, I want date defaults in my local timezone, error states surfaced, leaked resources freed, exact tax sums, and CSV cells neutralized, so that edge cases don't corrupt records or the UI.",
+      "priority": 2150,
+      "passes": true,
+      "notes": "[P3 batch][Source: CODE_REVIEW_2026-07-04.md §Web P3] Grouped hardening findings; each AC independently verifiable.",
+      "acceptanceCriteria": [
+        "Date-only defaults derive local Y/M/D (toLocaleDateString('en-CA')) instead of toISOString() UTC so evening users don't record tomorrow's date (src/pages/inventory-add.tsx:50-52, inventory-detail.tsx, submissions.tsx:165 — also add the superseded_at filter to the CSV export)",
+        "Dashboard inventory/passport and disputes-join queries surface errors instead of swallowing them into a wrong zero-state (src/pages/dashboard.tsx:334-387)",
+        "Auth profile-load failure no longer nukes profile/workspaces or stamps the dedup window (paid user shows free, retry suppressed); settings forms can't save empty over real data (src/hooks/use-auth.ts:110-118)",
+        "Photo-preview object URLs are revoked on unmount, not only on replace/remove (src/components/submission/photo-upload.tsx:413-493)",
+        "Tax P&L summary sums with the printed-row precision so it can't disagree by a cent (src/lib/tax-pnl-export.ts:145-228)",
+        "CSV formula-injection (=/+/-/@) is neutralized in financial-export.tsx and the submissions CSV escaper; assorted stale-invalidation/swallowed-write gaps addressed (use-google-sheets.ts:143, flipdesk/sources.tsx:157, use-workspace.ts:36, inventory.tsx:461, use-forecast.ts:33, settings.tsx:495)",
+        "tsc -b clean, eslint clean, build green"
+      ],
+      "relevantPaths": [
+        "src/pages/inventory-add.tsx",
+        "src/pages/dashboard.tsx",
+        "src/hooks/use-auth.ts",
+        "src/components/submission/photo-upload.tsx",
+        "src/lib/tax-pnl-export.ts",
+        "src/components/finances/financial-export.tsx"
+      ]
+    },
+    {
+      "id": "US-1637",
+      "title": "Edge P2 · Workspace-scope per-grade checkout; sweep retained originals + dispute evidence on account deletion",
+      "description": "As a workspace member and a deleting user, I want per-grade checkout to work for member submissions and account deletion to actually remove my retained originals and dispute evidence, so that member flows don't 404 and GPS-bearing PII doesn't survive deletion.",
+      "priority": 2270,
+      "passes": true,
+      "notes": "[P2][Source: CODE_REVIEW_2026-07-04.md §Edge tenant isolation] LOAD the tenant-isolation skill first. Two edge P2s grouped.",
+      "acceptanceCriteria": [
+        "Mount workspaceMiddleware on /api/payments/* and thread ownerId through the ownership check + metadata.user_id + webhook flip so member submissions (user_id = ownerId) no longer 404 on /per-grade (services/edge-functions/src/routes/payments.ts:612-624)",
+        "Account deletion's caller-scoped removeAll sweep includes submission_images.original_storage_path (EXIF/GPS intact) and disputes.evidence_paths, not just storage_path — so {deleted:true} means the objects are actually gone (services/edge-functions/src/routes/account.ts:355-371)",
+        "Add/extend tenant-isolation_test.ts cases for the member per-grade flow and the deletion sweep; deno lint + check clean"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/routes/payments.ts",
+        "services/edge-functions/src/routes/account.ts"
+      ]
+    },
+    {
+      "id": "US-1638",
+      "title": "Edge P3 · Tenant-isolation hardening batch (column whitelists, chokepoint scoping, oracles, staging paths)",
+      "description": "As the security owner, I want the remaining edge tenant-isolation hardening items closed, so that column leaks, existence oracles, and loose write scopes don't become exploitable as the surface grows.",
+      "priority": 2148,
+      "passes": true,
+      "notes": "[P3 batch][Source: CODE_REVIEW_2026-07-04.md §Edge tenant isolation] LOAD the tenant-isolation skill first. Verified not currently exploitable; each AC independently verifiable. admin_alerted_at dedup split to US-1652 (needs a new column → held migration).",
+      "acceptanceCriteria": [
+        "grade.ts:792 /status/:id whitelists returned columns instead of select('*') (stops leaking reviewed_by)",
+        "lib/grade-billing.ts:252 runPaymentPrecedence adds .eq('user_id',…) at the chokepoint (not only .eq('id',…))",
+        "notifications.ts:568 /dispute-filed scopes the lookup to .eq('user_id',userId) (stops the existence/status oracle). NOTE: the admin_alerted_at dedup guard is split to US-1652 — it needs a new disputes column (held-migration rule).",
+        "notifications.ts:733 /welcome moves behind auth (stops account-existence oracle from body userId)",
+        "flipdesk-ai.ts:364 does the ownership check BEFORE inserting ai_enrichment_log (stops cross-tenant UUID-existence oracle)",
+        "flipdesk-autolister.ts:1025/1183 use ${ownerId}/_staging/ not ${ownerId}/",
+        "flipdesk-listings.ts:287 /cross-push adds .eq('user_id',ownerId) (free via 00146)",
+        "flipdesk-images.ts:53 /remove-bg blocks sensitive photo_types (tag/certificate) from the public bucket",
+        "deno lint + check clean"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/routes/grade.ts",
+        "services/edge-functions/src/lib/grade-billing.ts",
+        "services/edge-functions/src/routes/notifications.ts",
+        "services/edge-functions/src/routes/flipdesk-ai.ts",
+        "services/edge-functions/src/routes/flipdesk-autolister.ts",
+        "services/edge-functions/src/routes/flipdesk-listings.ts",
+        "services/edge-functions/src/routes/flipdesk-images.ts"
+      ]
+    },
+    {
+      "id": "US-1639",
+      "title": "Edge · Close tenant-isolation test-coverage gaps and generalize the deny-by-default guard",
+      "description": "As the security owner, I want a cross-tenant rejection case per route and a router-agnostic auth guard, so that the US-268 mandate is enforced and a new router that forgets auth can't ship uncaught.",
+      "priority": 2146,
+      "passes": true,
+      "notes": "[Test coverage][Source: CODE_REVIEW_2026-07-04.md §Edge tenant isolation] workspace.ts (the C3 role-authz surface) has ZERO cases. LOAD the tenant-isolation skill first.",
+      "acceptanceCriteria": [
+        "Add tenant-isolation_test.ts cross-tenant/role rejection cases for workspace.ts (currently zero), notifications.ts, verified.ts, and passport.ts tags/:tagId/revoke",
+        "Generalize the deny-by-default guard beyond /api/flipdesk/* so a new router elsewhere that forgets auth is caught (services/edge-functions/src/routes/flipdesk-auth-coverage_test.ts:35)",
+        "Add tenant-isolation_test.ts cases for the new measure routes (services/edge-functions/src/routes/flipdesk-measure.ts:668,686)",
+        "deno lint + check + test clean"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/middleware/workspace.ts",
+        "services/edge-functions/src/routes/flipdesk-auth-coverage_test.ts",
+        "services/edge-functions/src/routes/flipdesk-measure.ts"
+      ]
+    },
+    {
+      "id": "US-1640",
+      "title": "Payments P2 · Guard App Store lapse against active Stripe; refund duplicate per-grade payments",
+      "description": "As a paying customer, I want a delayed Apple EXPIRED/REVOKE to not clobber a newer active Stripe sub, and a duplicate per-grade payment to be refunded/alerted, so that I keep what I paid for and never silently over-pay.",
+      "priority": 2268,
+      "passes": true,
+      "notes": "[P2][Source: CODE_REVIEW_2026-07-04.md §Payments] Two payments P2s grouped.",
+      "acceptanceCriteria": [
+        "App Store EXPIRED/REVOKE skips lapse actions when the user has a live Stripe sub (mirror the sweep's lapseUser guard) instead of applying computeUserUpdate unconditionally (services/edge-functions/src/routes/appstore.ts:240-248)",
+        "Per-grade checkout auto-refunds (or records pending_refunds + alerts) when a per_grade paid-flip matches 0 rows, so a duplicate payment for the same submission isn't silently kept (services/edge-functions/src/routes/payments.ts:25-31 + webhooks.ts:1027-1040)",
+        "Deno tests: delayed Apple lapse with active Stripe is a no-op; second per-grade payment triggers refund/alert; deno lint + check clean"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/routes/appstore.ts",
+        "services/edge-functions/src/routes/payments.ts",
+        "services/edge-functions/src/routes/webhooks.ts"
+      ]
+    },
+    {
+      "id": "US-1641",
+      "title": "Payments P3 · Idempotency & freshness hardening (discount packs, affiliate payouts, SNS, admin refunds)",
+      "description": "As the payments operator, I want grant/transfer idempotency and webhook freshness tightened, so that discounted packs, affiliate payouts, and admin refunds can't double-apply and stale/forged webhooks are rejected.",
+      "priority": 2144,
+      "passes": true,
+      "notes": "[P3 batch][Source: CODE_REVIEW_2026-07-04.md §Payments] Grouped payments hardening; each AC independently verifiable. Affiliate-payout hardening (transfer-dedup + retry cap + float→cents migration) split to US-1653.",
+      "acceptanceCriteria": [
+        "100%-discount pack checkout falls back to session.id when payment_intent is null so grant idempotency isn't defeated (services/edge-functions/src/routes/payments.ts:546 + supabase/migrations/00092_grant_credits_idempotent.sql:52)",
+        "SNS verification rejects messages older than ~1h (Timestamp freshness) and gates SES_SNS_SKIP_VERIFICATION on !isProduction() (services/edge-functions/src/lib/sns-verify.ts, email-sns.ts:43)",
+        "Admin /charges/:id/refund partial refunds carry an idempotency key (services/edge-functions/src/routes/admin-billing.ts:807-815)",
+        "deno lint + check clean; verify:db green if migration touched"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/routes/payments.ts",
+        "services/edge-functions/src/lib/affiliate-payout.ts",
+        "services/edge-functions/src/lib/sns-verify.ts",
+        "services/edge-functions/src/routes/admin-billing.ts"
+      ]
+    },
+    {
+      "id": "US-1642",
+      "title": "Grading P2 · Fix min-of-caps composition, escalation image-drop cap, and brand injection via baselines",
+      "description": "As the grading operator, I want provenance boosts to respect confidence caps, escalation re-grades to keep the partial-image cap, and seller brand text sanitized before baseline generation, so that stored confidence stays honest and the trusted prompt channel stays clean.",
+      "priority": 2266,
+      "passes": true,
+      "notes": "[P2 batch][Source: CODE_REVIEW_2026-07-04.md §Grading] LOAD the grading-engine skill first. Three grading P2s grouped.",
+      "acceptanceCriteria": [
+        "Provenance boosts use min(conf + boost, capFloor) so they can't exceed the min-of-caps composition and pollute the US-1557 calibration loop; evaluateVerifiedCapture also respects manipulation_suspected (services/edge-functions/src/lib/grading-pipeline.ts:1632/1744/1851)",
+        "Escalation re-grade ORs failedOptional into partialSuccess so a dropped optional image applies the partial-image cap and forced review instead of shipping uncapped (services/edge-functions/src/lib/grading-pipeline.ts:302-308)",
+        "garment-baselines.ts sanitizes seller brand (sanitizeSellerText) before generation and validates/moderates the brief before caching, closing the indirect-injection path around the US-346 fence (services/edge-functions/src/lib/garment-baselines.ts:79-96)",
+        "Deno tests cover capped boost, escalation partial cap, and brand sanitization; deno lint + check clean"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/lib/grading-pipeline.ts",
+        "services/edge-functions/src/lib/garment-baselines.ts"
+      ]
+    },
+    {
+      "id": "US-1643",
+      "title": "Grading P3 · Reconcile refund+graded, honor finalize errors, tighten peer-norm cohort and eval isolation",
+      "description": "As the grading operator, I want the failure/finalize/peer-norm/eval edge cases fixed, so that refunds don't coexist with graded reports, finalize errors halt go-live, and measurements aren't confounded.",
+      "priority": 2142,
+      "passes": true,
+      "notes": "[P3 batch][Source: CODE_REVIEW_2026-07-04.md §Grading] LOAD the grading-engine skill first. Grouped grading hardening.",
+      "acceptanceCriteria": [
+        "Pipeline failure handler no longer refunds a submission whose grade report was already inserted (avoid the 'refunded + graded' state nothing reconciles) (services/edge-functions/src/lib/grading-pipeline.ts:2216-2241)",
+        "finalizeGradeReview checks the finalize UPDATE's {error} and does not proceed to go-live on failure (services/edge-functions/src/lib/grading-pipeline.ts:774-786)",
+        "Peer-norm cohort excludes non-finalized preliminary grades (add .not('finalized_at','is',null)) (services/edge-functions/src/lib/peer-norm.ts:230-238)",
+        "Eval/dry-run composite legs exclude the live exemplar block so measurements aren't confounded (services/edge-functions/src/lib/ai-grading.ts:1774-1780, grading-eval.ts:230-515)",
+        "Deno tests cover each; deno lint + check clean"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/lib/grading-pipeline.ts",
+        "services/edge-functions/src/lib/peer-norm.ts",
+        "services/edge-functions/src/lib/ai-grading.ts",
+        "services/edge-functions/src/lib/grading-eval.ts"
+      ]
+    },
+    {
+      "id": "US-1644",
+      "title": "DB P2 · Close the moderation-withhold view bypass and the resume double-run",
+      "description": "As the moderation/operator owner, I want a flagged certificate unreadable via the public view and resume to not restart live jobs, so that withheld grades stay hidden and items aren't regenerated concurrently.",
+      "priority": 2264,
+      "passes": true,
+      "notes": "[P2 batch][Source: CODE_REVIEW_2026-07-04.md §Database RLS & durable jobs] LOAD the migrations skill for the view change and the durable-jobs skill for the resume fix. Two DB P2s grouped. View-migration (moderation-withhold bypass) split to US-1654 (held migration).",
+      "acceptanceCriteria": [
+        "User resume endpoints only reset stale jobs: add .lt('updated_at', jobStaleBefore) / refuse resume while the batch heartbeat is fresh, so a running job isn't reset to pending and double-run (services/edge-functions/src/routes/flipdesk-autolister.ts:1511-1519, 2110-2117)",
+        "Deno tests for the resume staleness guard; deno lint + check clean"
+      ],
+      "relevantPaths": [
+        "supabase/migrations/00318_public_cert_coverage.sql",
+        "services/edge-functions/src/routes/flipdesk-autolister.ts",
+        "services/edge-functions/src/lib/schema-version.ts"
+      ]
+    },
+    {
+      "id": "US-1645",
+      "title": "DB P3 · Register unlogged crons in cron_runs; add measure-route tenant-isolation tests",
+      "description": "As the operator, I want every cron visible to the cron_runs ledger and the new measure routes covered by tenant tests, so that missed runs signal and scoping stays regression-protected.",
+      "priority": 2140,
+      "passes": true,
+      "notes": "[P3 batch][Source: CODE_REVIEW_2026-07-04.md §Database RLS & durable jobs] Grouped DB hardening.",
+      "acceptanceCriteria": [
+        "ebay-publish-due, promoted-sync, leave-feedback, and sync/performance crons record to the cron_runs ledger so a missed run signals (services/edge-functions/src/main.ts:523-542)",
+        "New measure routes get tenant-isolation_test.ts cases (correctly scoped today; add the regression net) (services/edge-functions/src/routes/flipdesk-measure.ts:668,686)",
+        "deno lint + check + test clean"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/main.ts",
+        "services/edge-functions/src/routes/flipdesk-measure.ts"
+      ]
+    },
+    {
+      "id": "US-1646",
+      "title": "iOS core P2 · Compress share imports, clear per-account state on sign-out, fix signOut order & tmp paths",
+      "description": "As an iOS seller, I want share-imported photos compressed, my drafts/searches/filters cleared on sign-out, the refresh token revoked, and queued uploads survive container relocation, so that uploads are fast, accounts don't bleed state, and offline uploads don't get orphaned.",
+      "priority": 2262,
+      "passes": false,
+      "notes": "[P2 batch][Source: CODE_REVIEW_2026-07-04.md §iOS core] Grouped iOS core P2s. The share-extension full-res-in-memory sibling is P1 (jetsam) and is resolved by the same compression fix.",
+      "acceptanceCriteria": [
+        "Share-imported photos run PhotoCompressor-equivalent downscaling in the extension so they don't upload at full 3–10 MB resolution (also resolves the P1 full-res-in-memory jetsam) (ios/GradeThread/Share/ShareViewController.swift:133 → ShareInboxConsumer.swift:6-8)",
+        "The .signedOut sweep also clears IntakeDraftStore, PhotoDraftStore, RecentSearchStore, and SavedFilterStore (ios/GradeThread/ContentView.swift:105-156)",
+        "signOut() calls the SDK sign-out (short timeout) BEFORE wiping the keychain so the server-side refresh-token revoke isn't skipped (ios/GradeThread/Auth/AuthStore.swift:293-307; match deleteAccount() ordering at line 325)",
+        "Queued upload mutations persist a path relative to the staging dir (prefer Application Support over purgeable tmp/) so an app update/container relocation or tmp purge doesn't cause missingLocalFile loss (ios/GradeThread/Upload/PhotoUploadService.swift:679,700 + SyncEngine.swift:1430)",
+        "iOS CI (macOS runner) build/test green; no-ungated-print.py clean"
+      ],
+      "relevantPaths": [
+        "ios/GradeThread/Share/ShareViewController.swift",
+        "ios/GradeThread/Share/ShareInboxConsumer.swift",
+        "ios/GradeThread/ContentView.swift",
+        "ios/GradeThread/Auth/AuthStore.swift",
+        "ios/GradeThread/Upload/PhotoUploadService.swift"
+      ]
+    },
+    {
+      "id": "US-1647",
+      "title": "iOS core P3 · Tenant-key the EdgeAPI cache; fix ShareExtension default slot spill",
+      "description": "As an iOS user, I want the response cache scoped/flushed per tenant and share-imported photos to default into garment slots, so that no latent cross-tenant caching lands and photos don't spill into measurement slots.",
+      "priority": 2138,
+      "passes": false,
+      "notes": "[P3 batch][Source: CODE_REVIEW_2026-07-04.md §iOS core] Grouped iOS core P3s.",
+      "acceptanceCriteria": [
+        "EdgeAPI response cache is tenant-keyed and flushed on sign-out/workspace-switch (latent; no tenant-scoped endpoint is cached today) (ios/GradeThread/.../EdgeAPI.swift:384)",
+        "ShareExtension default slot assignment no longer spills into measurement_* slots after the US-1571 mirror reorder (ios/GradeThread/Share/ShareIntakeView.swift:32-53)",
+        "iOS CI (macOS runner) build/test green; no-ungated-print.py clean"
+      ],
+      "relevantPaths": [
+        "ios/GradeThread/Networking/EdgeAPI.swift",
+        "ios/GradeThread/Share/ShareIntakeView.swift"
+      ]
+    },
+    {
+      "id": "US-1648",
+      "title": "iOS features P2 · Fix sensitive-slot race, idempotent creates, publish-dismiss desync, in-flight guards, price persist, temp sweep, OCR double-resume",
+      "description": "As an iOS seller, I want capture/reconcile/publish/post-sale flows to be race-safe and idempotent, so that a tag photo never lands in the public bucket, retries don't duplicate, and successful publishes/edits persist.",
+      "priority": 2260,
+      "passes": false,
+      "notes": "[P2 batch][Source: CODE_REVIEW_2026-07-04.md §iOS feature flows] Grouped iOS feature P2s; each AC independently verifiable. The sensitive-slot race inverts US-979 (public/private bucket) — highest-value item in this batch.",
+      "acceptanceCriteria": [
+        "Pin let slot = store.activeSlot synchronously before the capture Task so a slot-strip tap mid-compress can't record a sensitive tag photo as 'front' and push it to the public item-photos bucket (ios/GradeThread/Capture/PhotoIntakeView.swift:948-960 + PhotoIntakeStore.swift:81-86)",
+        "Reconciliation 'Create item' mints a client id and upserts (idempotent) instead of inserting, so a retry doesn't duplicate inventory items (ios/GradeThread/.../ReconciliationService.swift:70-116)",
+        "PublishDialog toolbar Close and swipe-dismiss call onPublished(response) after a successful publish so the item isn't left 'unpublished' locally (US-1513 desync) (ios/GradeThread/.../PublishDialog.swift:286-288 + ItemCanvasView.swift:395-405)",
+        "Cancellation/dispute decisions reuse the US-1497 in-flight re-entry guard (keyed on cancelId/paymentDisputeId) so 'Approve & cancel' can't fire twice (ios/GradeThread/.../PostSaleStore.swift:121-157)",
+        "Publish composer inline price fix persists: write listing_price/target_price in the UPDATE branch and fix the false 'saved when you publish' copy / unconditional validate block (ios/GradeThread/.../ListingDraftService.swift:105-171 + services/edge-functions/src/routes/flipdesk-ebay.ts:8294)",
+        "24h stale-temp sweep skips files referenced by any pending .uploadPhoto mutation so offline-queued uploads aren't deleted out from under them (ios/GradeThread/Upload/PhotoUploadService.swift:762-774)",
+        "TagTextRecognizer adds a one-shot resume guard so a Vision failure that both calls the completion handler and throws can't resume the same continuation twice (process abort) (ios/GradeThread/Vision/TagTextRecognizer.swift:39-76)",
+        "iOS CI (macOS runner) build/test green; no-ungated-print.py clean"
+      ],
+      "relevantPaths": [
+        "ios/GradeThread/Capture/PhotoIntakeView.swift",
+        "ios/GradeThread/Capture/PhotoIntakeStore.swift",
+        "ios/GradeThread/Vision/TagTextRecognizer.swift",
+        "services/edge-functions/src/routes/flipdesk-ebay.ts"
+      ]
+    },
+    {
+      "id": "US-1649",
+      "title": "iOS features P3 · Upload progress plumbing, OCR threading, disk-full telemetry, orphan-count efficiency",
+      "description": "As an iOS seller, I want real upload progress, non-blocking OCR, disk-full errors surfaced, and efficient orphan counting, so that the UI is honest and doesn't stall or waste bandwidth.",
+      "priority": 2136,
+      "passes": false,
+      "notes": "[P3 batch][Source: CODE_REVIEW_2026-07-04.md §iOS feature flows] Grouped iOS feature P3s.",
+      "acceptanceCriteria": [
+        "Wire a session delegate so upload progress reflects real bytes instead of staying 0% (dead plumbing) (ios/GradeThread/Upload/PhotoUploadService.swift:51-59,404-412)",
+        ".accurate OCR no longer runs synchronously inside an actor method blocking a cooperative-pool thread (ios/GradeThread/Vision/TagTextRecognizer.swift:70-76)",
+        "Disk-full capture surfaces an error + telemetry instead of being silently dropped (ios/GradeThread/Upload/PhotoUploadService.swift:211,735-746)",
+        "countOrphans uses count:.exact, head:true instead of downloading every unmatched row (ios/GradeThread/.../ReconciliationService.swift:33-43)",
+        "iOS CI (macOS runner) build/test green; no-ungated-print.py clean"
+      ],
+      "relevantPaths": [
+        "ios/GradeThread/Upload/PhotoUploadService.swift",
+        "ios/GradeThread/Vision/TagTextRecognizer.swift",
+        "ios/GradeThread/Reconciliation/ReconciliationService.swift"
+      ]
+    },
+    {
+      "id": "US-1650",
+      "title": "Google Play RTDN Pub/Sub webhook — real-time lapse + refund reconciliation (C6 follow-up)",
+      "description": "As the platform operator, I want Google Play Real-time Developer Notifications delivered to a webhook so cancellations/expiries/refunds reconcile in real time (not just via the daily sweep) and refunds actually claw back — completing the C6 server-side-lapse work.",
+      "acceptanceCriteria": [
+        "POST endpoint for the RTDN Pub/Sub push (e.g. /api/webhooks/google-play) that verifies the push (Google OIDC token audience/issuer, or a shared secret the way requireJobSecret does) and decodes the base64 message.data → DeveloperNotification (subscriptionNotification / voidedPurchaseNotification)",
+        "Idempotency claim via claimWebhookEvent('googleplay', notificationId, type): add 'googleplay' to the provider unions in webhook-idempotency.ts + webhook-dead-letter.ts; processed_webhook_events.provider has no CHECK (no migration there) but webhook_dead_letters.provider does — add a migration extending its CHECK to include 'googleplay' (US-1108 triple)",
+        "Reconcile by notificationType: SUBSCRIPTION_EXPIRED/REVOKED/CANCELED → lapse (reuse the sweep's lapse shape); SUBSCRIPTION_RENEWED/RECOVERED → re-verify + extend; map the purchaseToken → user via users.google_purchase_token (unique since 00353)",
+        "Refund reconciliation: a voidedPurchaseNotification / REVOKE for a consumable claws back credits (Apple-analog of the appstore clawback), keyed idempotently on the order/purchase token",
+        "Transient-release / dead-letter policy mirroring the Stripe + App Store routes (US-1620): transient DB error → release claim + 5xx so Pub/Sub retries; code bug → dead-letter + 200",
+        "Deno tests: notification-type routing, idempotent replay, refund clawback; deno lint + check clean; verify:db green for the CHECK migration"
+      ],
+      "priority": 2591,
+      "passes": true,
+      "notes": "[Critical C6 follow-up][P1 revenue][Source: CODE_REVIEW_2026-07-04.md §Critical] Split from US-1619, which delivered the daily expiry-sweep backstop. This is the real-time path + refund reconciliation. LOAD the tenant-isolation + migrations skills. RTDN reference: Google Play Developer API Real-time Developer Notifications via Cloud Pub/Sub push. The users.google_purchase_token unique index (00353) makes the token→user lookup unambiguous.",
+      "relevantPaths": [
+        "services/edge-functions/src/routes/google-play.ts",
+        "services/edge-functions/src/lib/google-play/verify.ts",
+        "services/edge-functions/src/lib/webhook-idempotency.ts",
+        "services/edge-functions/src/lib/webhook-dead-letter.ts",
+        "services/edge-functions/src/lib/google-play/expiry-sweep.ts",
+        "supabase/migrations/"
+      ]
+    },
+    {
+      "id": "US-1651",
+      "title": "Web P2 · Server-side sort for the submissions & inventory lists (US-1633 follow-up)",
+      "description": "As a seller sorting my submissions/inventory by grade or status, I want the sort applied across ALL rows, not just the current page — the list presents it as a global sort but only reorders the page in view.",
+      "acceptanceCriteria": [
+        "Submissions list: sorting by overall_score (grade) orders across the whole result set server-side, not just the current page — via an embedded grade_reports select + foreign-table .order() (respecting the active-report superseded_at filter) rather than the current client-side merged.sort() (src/pages/submissions.tsx:257-312)",
+        "Inventory list: the same server-side sort fix for its grade/status sort (src/pages/inventory.tsx:216-236)",
+        "Submissions/inventory that lack a grade (no report yet) still appear and sort deterministically (nulls last); pagination + count stay correct under the new sort",
+        "VERIFY against the self-hosted prod PostgREST behavior for embedded-resource ordering + filtering (CLAUDE.md warns local/prod PostgREST diverge on some operators) before relying on it; add a note if a fallback is needed",
+        "tsc + eslint clean; build green"
+      ],
+      "priority": 2275,
+      "passes": false,
+      "notes": "[P2][Source: CODE_REVIEW_2026-07-04.md §Web P2] Split from US-1633. Needs an embedded grade_reports join + foreign-table ordering (PostgREST-version-sensitive — verify on prod's self-hosted PostgREST, not just the local stack). Lower priority than the cache/optimistic fixes since the mis-sort is cosmetic (wrong order within a page), not data-losing.",
+      "relevantPaths": [
+        "src/pages/submissions.tsx",
+        "src/pages/inventory.tsx"
+      ]
+    },
+    {
+      "id": "US-1652",
+      "title": "Dispute-filed admin-alert dedup (disputes.admin_alerted_at) — HELD MIGRATION",
+      "description": "As the platform admin, I want the dispute-filed alert (email + in-app) to fire at most once per dispute, so an owner re-POSTing /dispute-filed for their own open dispute can't spam the admin.",
+      "priority": 2147,
+      "passes": true,
+      "notes": "[P3][Source: CODE_REVIEW_2026-07-04.md §Edge tenant isolation] Split out of US-1638 because it needs a NEW disputes column, which triggers the held-migration rule (code referencing the column must NOT deploy before the SQL applies to prod). LOAD the migrations skill. The oracle-scope half of the original AC (scope the lookup to .eq('user_id',userId)) already shipped in US-1638.",
+      "acceptanceCriteria": [
+        "Migration adds disputes.admin_alerted_at timestamptz null (idempotent ADD COLUMN IF NOT EXISTS); EXPECTED_SCHEMA_VERSION bumped same commit; self-record footer; recorded in PENDING_MIGRATIONS.md (HELD until user applies to prod)",
+        "notifications.ts /dispute-filed sets admin_alerted_at on first alert and returns {ok:true, skipped:'already alerted'} when already set (no duplicate email / in-app)",
+        "The guard is race-safe: the flip is a conditional update (.is('admin_alerted_at', null)) so two concurrent calls email once",
+        "deno lint + check clean; migration held (not pushed) until user OK"
+      ],
+      "dependsOn": [
+        "US-1638"
+      ],
+      "relevantPaths": [
+        "supabase/migrations/",
+        "services/edge-functions/src/routes/notifications.ts",
+        "services/edge-functions/src/lib/schema-version.ts",
+        "PENDING_MIGRATIONS.md"
+      ]
+    },
+    {
+      "id": "US-1653",
+      "title": "Affiliate payout hardening: transfer-dedup before retry + age-based retry cap",
+      "description": "As the payments operator, I want affiliate Stripe transfers to be safe to retry beyond Stripe’s 24h idempotency window and to stop retrying permanently-failing payouts, so a stuck payout can’t double-transfer and a dead payout can’t be re-fired forever.",
+      "priority": 2143,
+      "passes": true,
+      "acceptanceCriteria": [
+        "Before RE-firing a transfer for an existing payout, look up whether a Stripe transfer already exists for it (list by destination + match metadata.payout_id, bounded by created_at) and reconcile it as paid instead of creating a second transfer; a lookup error declines the retry rather than blindly re-firing — closes the >24h-idempotency-window double-pay (services/edge-functions/src/lib/affiliate-payout.ts retryAffiliatePayout/findExistingTransfer)",
+        "Age-based retry cap (MAX_PAYOUT_RETRY_AGE_MS, no migration): the sweep skips open payouts older than the cap so a permanently-failing payout stops being auto-retried; stale ones are counted (SweepSummary.stale) + logged, not silently dropped",
+        "Deno tests for the pure isPayoutRetryable helper; the cents-migration part is split to US-1655"
+      ],
+      "dependsOn": [
+        "US-1641"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/lib/affiliate-payout.ts",
+        "services/edge-functions/src/lib/affiliate-payout-math.ts",
+        "supabase/migrations/",
+        "PENDING_MIGRATIONS.md"
+      ],
+      "notes": "[P3][Source: CODE_REVIEW_2026-07-04.md §Payments] Shipped the migration-free hardening (transfer-dedup + age-based retry cap + pure-helper tests). The float→integer-cents data-model migration is split to US-1655 (held migration)."
+    },
+    {
+      "id": "US-1654",
+      "title": "Close public_grade_reports moderation-withhold bypass (view flag predicate) — HELD MIGRATION",
+      "description": "As the moderation owner, I want a finalized-then-flagged certificate to be unreadable via the public_grade_reports view, so a withheld grade's score/tier/summary can't be read straight from PostgREST (or the SPA /cert/:id that reads the view).",
+      "priority": 2141,
+      "passes": true,
+      "notes": "[P2][Source: CODE_REVIEW_2026-07-04.md §Database RLS & durable jobs] Split out of US-1644 because the fix is a schema-version-bumping migration → held-migration rule (can't push on this branch mid-loop without carrying it in a later push). LOAD the migrations skill. The view (00318) gates only on review_status; add a join to submissions.flagged / moderation_status so a flagged finalized cert drops out. The edge endpoints already 404 these; this closes the raw-PostgREST + SPA-direct-read path.",
+      "acceptanceCriteria": [
+        "New migration recreates public_grade_reports reproducing ALL current columns (00318 + any later additions) and adds the flag predicate: a row is excluded when its submission is flagged / moderation-withheld (join submissions on gr.submission_id; exclude flagged=true, and moderation_status if present)",
+        "US-1108 triple: idempotent CREATE OR REPLACE VIEW / EXPECTED_SCHEMA_VERSION bumped same commit / self-record footer; verify:db green",
+        "Recorded in PENDING_MIGRATIONS.md (HELD: apply to prod BEFORE pushing; view-only change, no client column dependency, so no frontend breakage on apply)",
+        "Verify the SPA /cert/:id (reads the view directly) no longer renders a withheld grade after apply; deno lint + check clean"
+      ],
+      "dependsOn": [
+        "US-1644"
+      ],
+      "relevantPaths": [
+        "supabase/migrations/",
+        "services/edge-functions/src/lib/schema-version.ts",
+        "PENDING_MIGRATIONS.md"
+      ]
+    },
+    {
+      "id": "US-1655",
+      "title": "Affiliate amounts as integer cents (float→cents migration)",
+      "description": "As the payments operator, I want affiliate commission/payout amounts stored and computed as integer cents end-to-end, so money can never drift by float rounding.",
+      "priority": 2143,
+      "passes": false,
+      "notes": "[P3][Source: CODE_REVIEW_2026-07-04.md §Payments] Split from US-1653. HELD migration: amount numeric(10,2)→integer cents on affiliate_commissions + affiliate_payouts touches every stored row + all payout math. LOAD the migrations skill; record in PENDING_MIGRATIONS.md; EXPECTED_SCHEMA_VERSION triple. roundCents already mitigates drift today, so this is correctness hardening not a live bug.",
+      "acceptanceCriteria": [
+        "Migration: amount numeric(10,2)→integer cents on affiliate_commissions + affiliate_payouts (idempotent, backfill existing rows *100), with the EXPECTED_SCHEMA_VERSION triple and self-record footer",
+        "Refactor affiliate-payout-math.ts + accrual/payout/retry in affiliate-payout.ts to carry integer cents; drop the *100 at the Stripe transfers.create boundary",
+        "HELD migration recorded in PENDING_MIGRATIONS.md (risk/apply-order/NOTIFY-pgrst); any client read of the column called out",
+        "Deno tests for the cents math; deno lint + check clean; verify:db green"
+      ],
+      "dependsOn": [
+        "US-1653"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/lib/affiliate-payout.ts",
+        "services/edge-functions/src/lib/affiliate-payout-math.ts",
+        "supabase/migrations/",
+        "PENDING_MIGRATIONS.md"
+      ]
+    },
+    {
+      "id": "US-1657",
+      "title": "Proposal admin surface: /api/admin/agents list/approve/reject + notifications",
+      "description": "As the operator, I want to list, approve, and reject agent proposals from the admin API (standard admin JWT + ops:write scope), with decisions audited and new pending proposals notified — the operator sign-off surface over the US-1587 lifecycle engine.",
+      "priority": 2356,
+      "passes": true,
+      "notes": "[AGENTIC-OS Phase 0][Module E] Transport half of US-1587 (split). Mirror routes/admin-tasks.ts; requireScope ops:write whole-router; register in lib/admin-scope-map.ts (admin-scope-coverage_test gate); mount /api/admin/agents in main.ts. Decisions call agent-proposals approve/reject + writeAuditLog. New pending proposals -> admin-notifications (batched per run). ops:write already seeded, no migration.",
+      "acceptanceCriteria": [
+        "routes/admin-agents.ts (mounted /api/admin/agents, inherits admin JWT+AAL2 from the /api/admin/* group; requireScope ops:write on the whole router): GET proposals (filter by status/agent), GET agents+runs, POST proposals/:id/approve, POST proposals/:id/reject (reason required)",
+        "approve/reject call the US-1587 engine (approveProposal/rejectProposal), stamp decided_by from c.get(userId) server-side, and write an admin audit-log entry",
+        "New pending proposals trigger an admin notification via the existing admin-notifications lib, batched per run (emitted from the kernel/tick when proposals are filed)",
+        "lib/admin-scope-map.ts gains the admin-agents.ts entry (scope ops:write, mode router); main.ts mounts the router; admin-scope-coverage_test passes",
+        "deno lint + check clean"
+      ],
+      "dependsOn": [
+        "US-1587"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/routes/admin-agents.ts",
+        "services/edge-functions/src/lib/admin-scope-map.ts",
+        "services/edge-functions/src/main.ts",
+        "services/edge-functions/src/lib/admin-notifications.ts",
+        "services/edge-functions/src/lib/agent-proposals.ts"
+      ]
+    },
+    {
+      "id": "US-1658",
+      "title": "Grading Quality agent: review-queue reorder write tool (info-value)",
+      "description": "As the operator, I want to approve a proposal that reorders the human-review queue by information value using the existing review-info-value machinery — so high-signal reviews surface first.",
+      "priority": 2339,
+      "passes": false,
+      "notes": "[AGENTIC-OS Phase 1][Module G] Write half of US-1594 (split). Load the grading-engine skill. review-info-value has NO persisted ordering today (informationValue/rankReviews are pure scorers; the queue orders by review_due_at). Decide: persist a recommended order (system_settings artifact, migration-free) OR add a nullable grade_reports.review_priority_score + NULLS-LAST ORDER BY (held migration). Wire a reorder_review_queue WRITE tool (proposal-gated) + ACTION_CLASS_TO_TOOL adjust_queue→reorder_review_queue; classifyGradingIntent(reorder)→adjust_queue. NEVER mutate grades/prompts/thresholds.",
+      "acceptanceCriteria": [
+        "A reorder_review_queue write tool (class write) computes the info-value ranking of pending human-review items via informationValue + rankReviews (reusing the admin-grading ReviewInfoContext build) and persists the recommended order with the ranking rationale as evidence — no grade/prompt/threshold mutation",
+        "ACTION_CLASS_TO_TOOL maps adjust_queue→reorder_review_queue; classifyGradingIntent(reorder_review_queue) returns adjust_queue so the Grading Quality agent can file it as an L1 proposal",
+        "If a persisted-order column is chosen: a held migration adds a NULLABLE grade_reports.review_priority_score with a backward-compatible NULLS-LAST ORDER BY (unset = today's behavior); recorded in PENDING_MIGRATIONS.md",
+        "Deno tests for the ranking→persisted-order mapping; grading-engine checklist respected; lint + check clean"
+      ],
+      "dependsOn": [
+        "US-1594"
+      ],
+      "relevantPaths": [
+        "services/edge-functions/src/lib/review-info-value.ts",
+        "services/edge-functions/src/lib/grading-quality.ts",
+        "services/edge-functions/src/lib/agent-tools.ts",
+        "services/edge-functions/src/routes/admin-grading.ts"
       ]
     }
   ]

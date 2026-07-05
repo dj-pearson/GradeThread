@@ -289,6 +289,10 @@ flipdeskListingsRoutes.post("/cross-push", async (c) => {
       .select("id")
       .eq("draft_id", groupId)
       .eq("platform", platform)
+      // US-1638: defense-in-depth — groupId already derives from the
+      // owner-verified draft, but scope the sibling lookup to the tenant too
+      // (free + index-backed via listings.user_id, migration 00146).
+      .eq("user_id", ownerId)
       .maybeSingle();
     let rowId = (existing as { id: string } | null)?.id ?? null;
     if (rowId) {
@@ -303,7 +307,8 @@ flipdeskListingsRoutes.post("/cross-push", async (c) => {
       await supabaseAdmin
         .from("listings")
         .update(update)
-        .eq("id", rowId);
+        .eq("id", rowId)
+        .eq("user_id", ownerId); // US-1638: tenant-scope the sibling update too
     } else {
       const { data: created, error: insErr } = await supabaseAdmin
         .from("listings")

@@ -1,437 +1,795 @@
-// US-1585: the agent tool registry — agents see the world ONLY through these
-// typed, allowlisted, audited tools. v1 is read-only: every handler is an
-// operator-scope AGGREGATE (counts, sums, previews) so no tool can return raw
-// tenant PII, and every invocation is attributable (audit-log row + the
-// kernel's agent_run_steps transcript).
+// US-1585 / AGENTIC-OS Phase 0 (Module A): the agent tool registry v1.
 //
-// Mechanics:
-//  - input is validated against the tool's JSON schema BEFORE the handler
-//    runs; invalid input returns a structured { error } to the model and the
-//    run continues (the model can correct itself);
-//  - the per-agent allowlist (agents.config.tool_allowlist) filters the
-//    model-visible tool list in the kernel AND is re-checked at dispatch, so
-//    a hallucinated call to an off-list tool is rejected even if it slips in;
-//  - handlers take an injectable client so tests never touch a live DB.
+// Agents see the world ONLY through this typed, allowlisted, audited registry
+// (AGENTIC_OS.md §2 guardrails 1–2). v1 ships READ-ONLY tools that wrap EXISTING
+// operator libraries / RPCs — no agent can mutate anything and every access is
+// attributable. Write tools are deferred to US-1587 so the kernel can run at L0
+// (observe) immediately.
+//
+// Each tool: { name, description, inputSchema (JSON schema), class, handler }.
+// Dispatch (execute):
+//   1. allowlist gate — a tool not in agents.config.tools is invisible in the
+//      model's tool list AND rejected here if called anyway (defense in depth);
+//   2. schema validation — invalid input returns a STRUCTURED tool error to the
+//      model (the run continues), never throws;
+//   3. audit — every genuine invocation writes an admin_audit_log entry
+//      (agent key, tool, redacted input) via the system actor, in addition to
+//      the agent_run_steps row the kernel already records;
+//   4. handler — an operator-scope read; a throw is caught and returned as a
+//      structured error.
+//
+// SECURITY (US-268 / tenant-isolation skill): handlers read OPERATOR tables and
+// RPCs only. The one multi-tenant table touched (marketplace_connections) is
+// returned as cross-tenant AGGREGATE counts — never raw rows, ids, handles, or
+// any user PII. All reads use the service-role client at operator scope.
 
+import type Anthropic from "@anthropic-ai/sdk";
+import type { AgentRow, AgentToolRegistry } from "./agent-kernel.ts";
 import { supabaseAdmin } from "./supabase.ts";
-import { redact } from "./log-redact.ts";
-import { writeSystemAuditLog } from "./audit-log.ts";
-import type { AgentTool } from "./agent-kernel.ts";
+import { aggregateJobStats, failingJobCount, isRunnableJob, type RawRun } from "./ops-jobs.ts";
+import { CRON_REGISTRY, DEFAULT_JOB_SECRET_ENV } from "./cron-runs.ts";
+import { correlateIncidents, type Signal } from "./sentinel.ts";
+import { assembleGradingMemo, gatherGradingTelemetry } from "./grading-quality.ts";
+import { resolveRevenueWindow } from "./revenue-window.ts";
+import { type AuditLogInput, writeSystemAuditLog } from "./audit-log.ts";
+import { redact, redactError } from "./log-redact.ts";
 
-// ── Minimal JSON-schema validation (the subset our tools use) ───────────────
+// ── JSON-schema (minimal) validation ─────────────────────────────────────────
 
-export interface ToolSchema {
+export interface JsonSchema {
   type: "object";
-  properties: Record<
-    string,
-    { type: "string" | "number" | "integer" | "boolean"; enum?: readonly string[]; description?: string }
-  >;
-  required?: readonly string[];
+  properties?: Record<string, PropSchema>;
+  required?: string[];
+}
+interface PropSchema {
+  type: "string" | "number" | "integer" | "boolean" | "array" | "object";
+  enum?: unknown[];
+  minimum?: number;
+  maximum?: number;
+  description?: string;
 }
 
-/** Null = valid; otherwise a human-readable error the model can act on. */
-export function validateToolInput(
-  schema: ToolSchema,
-  input: unknown,
-): string | null {
-  if (input == null || typeof input !== "object" || Array.isArray(input)) {
-    return "input must be a JSON object";
+export type Validation =
+  | { ok: true; value: Record<string, unknown> }
+  | { ok: false; errors: string[] };
+
+function typeOk(v: unknown, t: PropSchema["type"]): boolean {
+  switch (t) {
+    case "string":
+      return typeof v === "string";
+    case "boolean":
+      return typeof v === "boolean";
+    case "number":
+      return typeof v === "number" && Number.isFinite(v);
+    case "integer":
+      return typeof v === "number" && Number.isInteger(v);
+    case "array":
+      return Array.isArray(v);
+    case "object":
+      return v !== null && typeof v === "object" && !Array.isArray(v);
   }
-  const obj = input as Record<string, unknown>;
-  for (const key of schema.required ?? []) {
-    if (obj[key] === undefined || obj[key] === null) {
-      return `missing required field '${key}'`;
-    }
-  }
-  for (const [key, value] of Object.entries(obj)) {
-    const prop = schema.properties[key];
-    if (!prop) return `unknown field '${key}'`;
-    if (value === undefined || value === null) continue;
-    const t = prop.type;
-    if (t === "integer") {
-      if (typeof value !== "number" || !Number.isInteger(value)) {
-        return `field '${key}' must be an integer`;
-      }
-    } else if (typeof value !== t) {
-      return `field '${key}' must be a ${t}`;
-    }
-    if (prop.enum && !prop.enum.includes(value as string)) {
-      return `field '${key}' must be one of: ${prop.enum.join(", ")}`;
-    }
-  }
-  return null;
 }
 
-// ── Registry types ───────────────────────────────────────────────────────────
+// Lenient validator: enforces required keys, per-prop type / enum / range on
+// PROVIDED keys, and ignores unknown keys. Enough to reject malformed model
+// input without pulling a full JSON-schema dependency.
+export function validateToolInput(schema: JsonSchema, input: Record<string, unknown>): Validation {
+  const errors: string[] = [];
+  for (const req of schema.required ?? []) {
+    if (!(req in input) || input[req] === undefined || input[req] === null) {
+      errors.push(`missing required "${req}"`);
+    }
+  }
+  for (const [key, spec] of Object.entries(schema.properties ?? {})) {
+    if (!(key in input) || input[key] === undefined) continue;
+    const v = input[key];
+    if (!typeOk(v, spec.type)) {
+      errors.push(`"${key}" must be ${spec.type}`);
+      continue;
+    }
+    if (spec.enum && !spec.enum.includes(v)) {
+      errors.push(`"${key}" must be one of ${JSON.stringify(spec.enum)}`);
+    }
+    if (typeof v === "number") {
+      if (typeof spec.minimum === "number" && v < spec.minimum) errors.push(`"${key}" < ${spec.minimum}`);
+      if (typeof spec.maximum === "number" && v > spec.maximum) errors.push(`"${key}" > ${spec.maximum}`);
+    }
+  }
+  return errors.length ? { ok: false, errors } : { ok: true, value: input };
+}
 
-/** The narrow query surface handlers use (test-fakeable). */
-// deno-lint-ignore no-explicit-any
-export type ToolDb = any;
+function clampInt(v: unknown, dflt: number, min: number, max: number): number {
+  const n = typeof v === "number" && Number.isFinite(v) ? Math.floor(v) : dflt;
+  return Math.min(max, Math.max(min, n));
+}
 
-export interface RegisteredTool {
+// ── Tool definitions ─────────────────────────────────────────────────────────
+
+export type ToolClass = "read" | "write";
+
+export interface ToolContext {
+  io: ToolIO;
+  agentKey: string;
+  agentId: string;
+  now: number;
+  // Set ONLY on the executeWrite (approved-proposal) path — a write tool refuses
+  // to act unless it is present.
+  authorizedBy?: string | null;
+  proposalId?: string | null;
+}
+
+export interface AgentToolDef {
   name: string;
   description: string;
-  class: "read" | "write";
-  inputSchema: ToolSchema;
-  handler(input: Record<string, unknown>, db: ToolDb): Promise<unknown>;
+  inputSchema: JsonSchema;
+  class: ToolClass;
+  handler: (input: Record<string, unknown>, ctx: ToolContext) => Promise<unknown>;
 }
 
-function windowStartIso(input: Record<string, unknown>, defaultHours: number): string {
-  const hours = typeof input.window_hours === "number" && input.window_hours > 0
-    ? Math.min(input.window_hours, 24 * 30)
-    : defaultHours;
-  return new Date(Date.now() - hours * 3_600_000).toISOString();
+// ── IO seam (DI for tests) ───────────────────────────────────────────────────
+
+interface OpsEventRow {
+  id: string;
+  type: string;
+  severity: string;
+  title: string | null;
+  source: string | null;
+  created_at: string;
+  acknowledged_at: string | null;
+}
+interface DeadLetterRow {
+  id: string | null;
+  provider: string | null;
+  last_error: string | null;
+  attempt_count: number | null;
+  created_at: string;
+}
+interface ConnRow {
+  marketplace: string | null;
+  is_active: boolean | null;
+  token_expires_at: string | null;
+  refresh_error: string | null;
 }
 
-const WINDOW_PROP = {
-  window_hours: {
-    type: "number" as const,
-    description: "Lookback window in hours (default varies per tool, max 720).",
-  },
-};
+export interface ToolIO {
+  fetchCronRuns(limit: number): Promise<RawRun[]>;
+  fetchOpsEvents(opts: {
+    severity?: string;
+    type?: string;
+    unacknowledged?: boolean;
+    sinceIso?: string;
+    limit: number;
+  }): Promise<OpsEventRow[]>;
+  fetchWebhookDeadLetters(limit: number): Promise<DeadLetterRow[]>;
+  fetchEmailDeadLetters(limit: number): Promise<DeadLetterRow[]>;
+  countSupportTickets(status: string): Promise<number>;
+  fetchMarketplaceConnections(): Promise<ConnRow[]>;
+  rpc(name: string, args?: Record<string, unknown>): Promise<unknown>;
+  audit(input: AuditLogInput): Promise<void>;
+  now(): number;
+  // ── Write-side (used only by executeWrite / approved proposals) ──
+  // Re-fire a registered cron job by key over the internal job rails.
+  runJob(jobKey: string): Promise<{ ok: boolean; status: number; error?: string }>;
+  // Re-queue an email dead-letter (status dead_letter → pending). Returns
+  // whether a row was actually re-queued.
+  requeueEmailDeadLetter(id: string): Promise<boolean>;
+  // Resolve (find-or-create) the standing "Agent Proposals" task project id.
+  resolveAgentTaskProject(): Promise<string | null>;
+  insertAdminTask(
+    row: { project_id: string; title: string; body: string | null; priority: string; created_by: string | null },
+  ): Promise<{ id: string } | null>;
+}
 
-// ── The v1 read tools ────────────────────────────────────────────────────────
-
-export const AGENT_TOOLS: Record<string, RegisteredTool> = {
-  get_cron_health: {
-    name: "get_cron_health",
-    description:
-      "Recent cron-job outcomes: per job, the latest status, last finish time, and failure count in the window.",
-    class: "read",
-    inputSchema: { type: "object", properties: { ...WINDOW_PROP } },
-    async handler(input, db) {
-      const since = windowStartIso(input, 24);
-      const { data, error } = await db
+export function prodToolIO(): ToolIO {
+  return {
+    fetchCronRuns: async (limit) => {
+      const { data } = await supabaseAdmin
         .from("cron_runs")
-        .select("job_name, status, created_at, duration_ms")
-        .gte("created_at", since)
+        .select("job_name, status, http_status, duration_ms, rows_processed, triggered_by, created_at")
         .order("created_at", { ascending: false })
-        .limit(1000);
-      if (error) return { error: error.message };
-      const byJob = new Map<
-        string,
-        { latest: string; latestAt: string; failures: number; runs: number }
-      >();
-      for (const row of (data ?? []) as Array<Record<string, string>>) {
-        const entry = byJob.get(row.job_name) ?? {
-          latest: row.status,
-          latestAt: row.created_at,
-          failures: 0,
-          runs: 0,
-        };
-        entry.runs += 1;
-        if (row.status !== "success" && row.status !== "skipped") entry.failures += 1;
-        byJob.set(row.job_name, entry);
+        .limit(limit);
+      return (data ?? []) as RawRun[];
+    },
+    fetchOpsEvents: async (opts) => {
+      let q = supabaseAdmin
+        .from("ops_events")
+        .select("id, type, severity, title, source, created_at, acknowledged_at")
+        .order("created_at", { ascending: false })
+        .limit(opts.limit);
+      if (opts.severity) q = q.eq("severity", opts.severity);
+      if (opts.type) q = q.eq("type", opts.type);
+      if (opts.unacknowledged) q = q.is("acknowledged_at", null);
+      if (opts.sinceIso) q = q.gte("created_at", opts.sinceIso);
+      const { data } = await q;
+      return (data ?? []) as OpsEventRow[];
+    },
+    fetchWebhookDeadLetters: async (limit) => {
+      const { data } = await supabaseAdmin
+        .from("webhook_dead_letters")
+        .select("id, provider, last_error, attempt_count, created_at")
+        .eq("status", "unresolved")
+        .order("created_at", { ascending: true })
+        .limit(limit);
+      return (data ?? []) as DeadLetterRow[];
+    },
+    fetchEmailDeadLetters: async (limit) => {
+      const { data } = await supabaseAdmin
+        .from("email_deliveries")
+        .select("id, last_error, attempt_count, created_at")
+        .eq("status", "dead_letter")
+        .order("created_at", { ascending: true })
+        .limit(limit);
+      return ((data ?? []) as Array<Omit<DeadLetterRow, "provider">>).map((r) => ({
+        provider: "email",
+        ...r,
+      }));
+    },
+    countSupportTickets: async (status) => {
+      const { count } = await supabaseAdmin
+        .from("support_tickets")
+        .select("id", { count: "exact", head: true })
+        .eq("status", status);
+      return count ?? 0;
+    },
+    fetchMarketplaceConnections: async () => {
+      const { data } = await supabaseAdmin
+        .from("marketplace_connections")
+        .select("marketplace, is_active, token_expires_at, refresh_error");
+      return (data ?? []) as ConnRow[];
+    },
+    rpc: async (name, args) => {
+      const { data } = await supabaseAdmin.rpc(name, (args ?? {}) as never);
+      return data;
+    },
+    audit: (input) => writeSystemAuditLog(input),
+    now: () => Date.now(),
+    runJob: async (jobKey) => {
+      // Only registered, runnable cron jobs — never an arbitrary URL.
+      if (!isRunnableJob(jobKey)) return { ok: false, status: 0, error: "unknown_or_unrunnable_job" };
+      const def = CRON_REGISTRY.find((d) => d.name === jobKey);
+      if (!def) return { ok: false, status: 0, error: "not_registered" };
+      const secret = Deno.env.get(def.secretEnv ?? DEFAULT_JOB_SECRET_ENV);
+      if (!secret) return { ok: false, status: 503, error: "job_secret_unconfigured" };
+      const base = `http://localhost:${Deno.env.get("PORT") || "8787"}`;
+      try {
+        const res = await fetch(`${base}${def.endpoint}`, {
+          method: "POST",
+          headers: { "X-Internal-Job-Secret": secret, "X-Triggered-By": "agent:proposal" },
+          signal: AbortSignal.timeout(120_000),
+        });
+        return { ok: res.ok, status: res.status };
+      } catch (err) {
+        return { ok: false, status: 0, error: err instanceof Error ? err.message : "fetch_failed" };
       }
-      return { since, jobs: Object.fromEntries(byJob) };
+    },
+    requeueEmailDeadLetter: async (id) => {
+      const { data: row } = await supabaseAdmin
+        .from("email_deliveries")
+        .select("attempts")
+        .eq("id", id)
+        .eq("status", "dead_letter")
+        .maybeSingle();
+      if (!row) return false;
+      const attempts = (row as { attempts?: number }).attempts ?? 0;
+      const { data } = await supabaseAdmin
+        .from("email_deliveries")
+        .update({
+          status: "pending",
+          next_attempt_at: new Date().toISOString(),
+          max_attempts: attempts + 3,
+          last_error: null,
+        } as never)
+        .eq("id", id)
+        .eq("status", "dead_letter")
+        .select("id")
+        .maybeSingle();
+      return !!data;
+    },
+    resolveAgentTaskProject: async () => {
+      const TITLE = "Agent Proposals";
+      const { data: found } = await supabaseAdmin
+        .from("admin_task_projects")
+        .select("id")
+        .eq("title", TITLE)
+        .maybeSingle();
+      if (found) return (found as { id: string }).id;
+      const { data: created } = await supabaseAdmin
+        .from("admin_task_projects")
+        .insert({ title: TITLE } as never)
+        .select("id")
+        .single();
+      return (created as { id: string } | null)?.id ?? null;
+    },
+    insertAdminTask: async (row) => {
+      const { data } = await supabaseAdmin
+        .from("admin_tasks")
+        .insert({
+          project_id: row.project_id,
+          title: row.title,
+          body: row.body,
+          priority: row.priority,
+          created_by: row.created_by,
+        } as never)
+        .select("id")
+        .single();
+      return (data as { id: string } | null) ?? null;
+    },
+  };
+}
+
+// ── The read tools (v1) ──────────────────────────────────────────────────────
+
+const TOOL_LIST: AgentToolDef[] = [
+  {
+    name: "get_cron_health",
+    description: "Recent scheduled-job (cron) health: per-job last status, success rate, and consecutive failures, plus a count of currently-failing jobs.",
+    class: "read",
+    inputSchema: {
+      type: "object",
+      properties: { limit: { type: "integer", minimum: 1, maximum: 20000, description: "rows of cron history to scan" } },
+    },
+    handler: async (input, ctx) => {
+      const runs = await ctx.io.fetchCronRuns(clampInt(input.limit, 4000, 1, 20000));
+      const summaries = aggregateJobStats(runs, new Date(ctx.now));
+      return {
+        failing: failingJobCount(summaries),
+        jobs: summaries.map((s) => ({
+          name: s.name,
+          last_status: s.last_status,
+          success_rate: s.success_rate,
+          consecutive_failures: s.consecutive_failures,
+          last_run_at: s.last_run_at,
+        })),
+      };
     },
   },
-
-  get_ops_events: {
+  {
     name: "get_ops_events",
-    description:
-      "Operational events in a window, filterable by minimum severity. Returns counts by severity plus the most recent event summaries.",
+    description: "A filterable window of operational events (info/warning/critical). Filter by severity, type, unacknowledged-only, and a recent-hours window.",
     class: "read",
     inputSchema: {
       type: "object",
       properties: {
-        ...WINDOW_PROP,
-        min_severity: { type: "string", enum: ["info", "warning", "critical"] },
+        severity: { type: "string", enum: ["info", "warning", "critical"] },
+        type: { type: "string" },
+        unacknowledged: { type: "boolean" },
+        since_hours: { type: "integer", minimum: 1, maximum: 720 },
+        limit: { type: "integer", minimum: 1, maximum: 200 },
       },
     },
-    async handler(input, db) {
-      const since = windowStartIso(input, 24);
-      let query = db
-        .from("ops_events")
-        .select("severity, type, title, created_at")
-        .gte("created_at", since)
-        .order("created_at", { ascending: false })
-        .limit(200);
-      if (input.min_severity === "critical") {
-        query = query.eq("severity", "critical");
-      } else if (input.min_severity === "warning") {
-        query = query.in("severity", ["warning", "critical"]);
-      }
-      const { data, error } = await query;
-      if (error) return { error: error.message };
-      const rows = (data ?? []) as Array<Record<string, string>>;
-      const counts: Record<string, number> = {};
-      for (const r of rows) counts[r.severity] = (counts[r.severity] ?? 0) + 1;
+    handler: async (input, ctx) => {
+      const sinceHours = typeof input.since_hours === "number" ? input.since_hours : undefined;
+      const sinceIso = sinceHours ? new Date(ctx.now - sinceHours * 3600_000).toISOString() : undefined;
+      const rows = await ctx.io.fetchOpsEvents({
+        severity: typeof input.severity === "string" ? input.severity : undefined,
+        type: typeof input.type === "string" ? input.type : undefined,
+        unacknowledged: input.unacknowledged === true,
+        sinceIso,
+        limit: clampInt(input.limit, 50, 1, 200),
+      });
+      // Return sanitized fields only — never the raw payload (may carry PII).
       return {
-        since,
-        counts,
-        recent: rows.slice(0, 25).map((r) => ({
-          severity: r.severity,
-          type: r.type,
-          title: redact(r.title ?? "").slice(0, 300),
-          at: r.created_at,
+        count: rows.length,
+        events: rows.map((e) => ({
+          id: e.id,
+          type: e.type,
+          severity: e.severity,
+          title: e.title,
+          source: e.source,
+          created_at: e.created_at,
+          acknowledged: e.acknowledged_at !== null,
         })),
       };
     },
   },
-
-  get_dead_letters: {
+  {
     name: "get_dead_letters",
-    description:
-      "Unresolved dead-lettered work (failed webhooks/jobs awaiting replay): count plus redacted previews of the newest entries.",
+    description: "Unresolved webhook + email dead-letters as aggregate counts by source/provider, with the oldest age and redacted last-error samples.",
     class: "read",
-    inputSchema: { type: "object", properties: { ...WINDOW_PROP } },
-    async handler(input, db) {
-      const since = windowStartIso(input, 24 * 7);
-      const { data, error, count } = await db
-        .from("webhook_dead_letters")
-        .select("provider, event_type, error_message, created_at", { count: "exact" })
-        .eq("status", "unresolved")
-        .gte("created_at", since)
-        .order("created_at", { ascending: false })
-        .limit(20);
-      if (error) return { error: error.message };
+    inputSchema: {
+      type: "object",
+      properties: { limit: { type: "integer", minimum: 1, maximum: 500 } },
+    },
+    handler: async (input, ctx) => {
+      const limit = clampInt(input.limit, 200, 1, 500);
+      const [webhooks, emails] = await Promise.all([
+        ctx.io.fetchWebhookDeadLetters(limit),
+        ctx.io.fetchEmailDeadLetters(limit),
+      ]);
+      const all = [
+        ...webhooks.map((r) => ({ source: "webhook", ...r })),
+        ...emails.map((r) => ({ source: "email", ...r })),
+      ];
+      const byProvider: Record<string, number> = {};
+      let oldestAgeSeconds = 0;
+      for (const r of all) {
+        const key = `${r.source}:${r.provider ?? "unknown"}`;
+        byProvider[key] = (byProvider[key] ?? 0) + 1;
+        const age = Math.floor((ctx.now - Date.parse(r.created_at)) / 1000);
+        if (Number.isFinite(age) && age > oldestAgeSeconds) oldestAgeSeconds = age;
+      }
       return {
-        since,
-        unresolved: count ?? (data ?? []).length,
-        recent: ((data ?? []) as Array<Record<string, string>>).map((r) => ({
-          provider: r.provider,
-          eventType: r.event_type,
-          error: redact(r.error_message ?? "").slice(0, 200),
-          at: r.created_at,
+        total: all.length,
+        webhook: webhooks.length,
+        email: emails.length,
+        by_provider: byProvider,
+        oldest_age_seconds: oldestAgeSeconds,
+        samples: all.slice(0, 10).map((r) => ({
+          source: r.source,
+          id: r.id,
+          provider: r.provider ?? "unknown",
+          attempt_count: r.attempt_count ?? 0,
+          last_error: r.last_error ? redact(r.last_error) : null,
         })),
       };
     },
   },
+  {
+    name: "get_incidents",
+    description: "Correlated incidents: co-occurring cron failures, unresolved dead letters, and warning/critical ops events already grouped by subsystem + time window into a small set of root-cause incidents (Sentinel's primary input). Empty list = healthy.",
+    class: "read",
+    inputSchema: {
+      type: "object",
+      properties: {
+        since_hours: { type: "integer", minimum: 1, maximum: 168 },
+        window_minutes: { type: "integer", minimum: 1, maximum: 720 },
+      },
+    },
+    handler: async (input, ctx) => {
+      const sinceHours = typeof input.since_hours === "number" ? input.since_hours : 24;
+      const sinceMs = ctx.now - sinceHours * 3600_000;
+      const windowMs = (typeof input.window_minutes === "number" ? input.window_minutes : 30) * 60_000;
 
-  get_system_health: {
+      const [runs, webhooks, emails, events] = await Promise.all([
+        ctx.io.fetchCronRuns(4000),
+        ctx.io.fetchWebhookDeadLetters(200),
+        ctx.io.fetchEmailDeadLetters(200),
+        ctx.io.fetchOpsEvents({ severity: undefined, sinceIso: new Date(sinceMs).toISOString(), limit: 200 }),
+      ]);
+
+      const signals: Signal[] = [];
+      for (const r of runs) {
+        if (r.status !== "failed") continue;
+        if (Date.parse(r.created_at) < sinceMs) continue;
+        signals.push({ subsystem: r.job_name, kind: "cron_failure", ref: r.job_name, at: r.created_at });
+      }
+      for (const d of [...webhooks, ...emails]) {
+        if (Date.parse(d.created_at) < sinceMs) continue;
+        const source = d.provider === "email" ? "email" : "webhook";
+        signals.push({
+          subsystem: `${source}:${d.provider ?? "unknown"}`,
+          kind: "dead_letter",
+          ref: d.id ?? "",
+          at: d.created_at,
+          detail: d.last_error ? redact(d.last_error) : undefined,
+        });
+      }
+      for (const e of events) {
+        if (e.severity !== "warning" && e.severity !== "critical") continue;
+        signals.push({
+          subsystem: e.source ?? e.type,
+          kind: "ops_event",
+          ref: e.id,
+          at: e.created_at,
+          detail: e.title ?? e.type,
+        });
+      }
+
+      const incidents = correlateIncidents(signals, windowMs);
+      return { incident_count: incidents.length, incidents };
+    },
+  },
+  {
     name: "get_system_health",
-    description:
-      "One composite health snapshot: cron failures, critical ops events, and unresolved dead letters over the last 24h.",
+    description: "Overall platform health metrics (queues, latency, error rates) from the system_health aggregate.",
     class: "read",
     inputSchema: { type: "object", properties: {} },
-    async handler(_input, db) {
-      const since = new Date(Date.now() - 24 * 3_600_000).toISOString();
-      const [cron, events, dead] = await Promise.all([
-        db.from("cron_runs").select("id", { count: "exact", head: true })
-          .not("status", "in", "(success,skipped)").gte("created_at", since),
-        db.from("ops_events").select("id", { count: "exact", head: true })
-          .eq("severity", "critical").gte("created_at", since),
-        db.from("webhook_dead_letters").select("id", { count: "exact", head: true })
-          .eq("status", "unresolved"),
-      ]);
-      const err = cron.error ?? events.error ?? dead.error;
-      if (err) return { error: err.message };
-      return {
-        since,
-        cron_failures_24h: cron.count ?? 0,
-        critical_events_24h: events.count ?? 0,
-        unresolved_dead_letters: dead.count ?? 0,
-      };
-    },
+    handler: (_input, ctx) => ctx.io.rpc("system_health"),
   },
-
-  get_ai_spend: {
+  {
     name: "get_ai_spend",
-    description:
-      "AI spend aggregated by feature over a window: call counts, tokens, and cost in USD.",
+    description: "AI budget status per feature: limit, current spend, percent, and whether it has breached. Optionally filter to one feature.",
     class: "read",
-    inputSchema: { type: "object", properties: { ...WINDOW_PROP } },
-    async handler(input, db) {
-      const since = windowStartIso(input, 24);
-      const { data, error } = await db
-        .from("ai_usage_events")
-        .select("phase, cost_usd, input_tokens, output_tokens")
-        .gte("created_at", since)
-        .limit(10_000);
-      if (error) return { error: error.message };
-      const byFeature: Record<
-        string,
-        { calls: number; costUsd: number; tokensIn: number; tokensOut: number }
-      > = {};
-      for (const row of (data ?? []) as Array<Record<string, number | string>>) {
-        const f = String(row.phase ?? "unknown");
-        const agg = byFeature[f] ?? { calls: 0, costUsd: 0, tokensIn: 0, tokensOut: 0 };
-        agg.calls += 1;
-        agg.costUsd += Number(row.cost_usd ?? 0);
-        agg.tokensIn += Number(row.input_tokens ?? 0);
-        agg.tokensOut += Number(row.output_tokens ?? 0);
-        byFeature[f] = agg;
-      }
-      for (const agg of Object.values(byFeature)) {
-        agg.costUsd = Number(agg.costUsd.toFixed(4));
-      }
-      return { since, byFeature };
+    inputSchema: {
+      type: "object",
+      properties: { feature: { type: "string" } },
     },
-  },
-
-  get_support_ticket_stats: {
-    name: "get_support_ticket_stats",
-    description:
-      "Support queue shape: ticket counts by status plus how many arrived in the window. Aggregates only.",
-    class: "read",
-    inputSchema: { type: "object", properties: { ...WINDOW_PROP } },
-    async handler(input, db) {
-      const since = windowStartIso(input, 24);
-      const { data, error } = await db
-        .from("support_tickets")
-        .select("status, created_at")
-        .limit(10_000);
-      if (error) return { error: error.message };
-      const rows = (data ?? []) as Array<Record<string, string>>;
-      const byStatus: Record<string, number> = {};
-      let newInWindow = 0;
-      for (const r of rows) {
-        byStatus[r.status] = (byStatus[r.status] ?? 0) + 1;
-        if (r.created_at >= since) newInWindow += 1;
-      }
-      return { since, byStatus, newInWindow, total: rows.length };
-    },
-  },
-
-  get_review_queue_stats: {
-    name: "get_review_queue_stats",
-    description:
-      "Human grading-review queue: pending review count and how many grades were flagged for review in the window.",
-    class: "read",
-    inputSchema: { type: "object", properties: { ...WINDOW_PROP } },
-    async handler(input, db) {
-      const since = windowStartIso(input, 24);
-      const [pending, flagged] = await Promise.all([
-        db.from("human_reviews").select("id", { count: "exact", head: true })
-          .is("adjusted_score", null),
-        db.from("grade_reports").select("id", { count: "exact", head: true })
-          .eq("needs_human_review", true).gte("created_at", since),
-      ]);
-      const err = pending.error ?? flagged.error;
-      if (err) return { error: err.message };
+    handler: async (input, ctx) => {
+      const rows = (await ctx.io.rpc("ai_budget_status")) as Array<Record<string, unknown>> | null;
+      const list = Array.isArray(rows) ? rows : [];
+      const feature = typeof input.feature === "string" ? input.feature : null;
+      const filtered = feature ? list.filter((r) => r.feature === feature) : list;
       return {
-        since,
-        pending_reviews: pending.count ?? 0,
-        flagged_in_window: flagged.count ?? 0,
+        budgets: filtered.map((r) => ({
+          feature: r.feature,
+          period: r.period,
+          limit_usd: r.limitUsd,
+          spend_usd: r.spendUsd,
+          pct: r.pct,
+          breached: r.breached,
+          action: r.action,
+          enabled: r.enabled,
+        })),
+      };
+    },
+  },
+  {
+    name: "get_support_ticket_stats",
+    description: "Support ticket queue counts by status (open, pending) and the active backlog total.",
+    class: "read",
+    inputSchema: { type: "object", properties: {} },
+    handler: async (_input, ctx) => {
+      const [open, pending] = await Promise.all([
+        ctx.io.countSupportTickets("open"),
+        ctx.io.countSupportTickets("pending"),
+      ]);
+      return { open, pending, active_total: open + pending };
+    },
+  },
+  {
+    name: "get_review_queue_stats",
+    description: "Grading human-review queue depth (open reviews awaiting a human) from the system_health aggregate.",
+    class: "read",
+    inputSchema: { type: "object", properties: {} },
+    handler: async (_input, ctx) => {
+      const health = (await ctx.io.rpc("system_health")) as { queues?: Record<string, unknown> } | null;
+      return { queues: health?.queues ?? {} };
+    },
+  },
+  {
+    name: "get_grading_quality",
+    description: "Weekly grading-quality telemetry pre-assembled into a memo: per-category + per-prompt-version accuracy (MAE/agreement), what regressed vs improved, calibration gaps, exemplar-pool coverage holes, and review-queue depth. Read-only; the Grading Quality agent's primary input.",
+    class: "read",
+    inputSchema: { type: "object", properties: {} },
+    handler: async () => {
+      const telemetry = await gatherGradingTelemetry();
+      return { memo: assembleGradingMemo(telemetry), telemetry };
+    },
+  },
+  {
+    name: "get_revenue_window",
+    description: "Revenue dashboard aggregate over a named period (mtd, qtd, or ytd). Returns the resolved window plus the server-aggregated revenue document.",
+    class: "read",
+    inputSchema: {
+      type: "object",
+      properties: { period: { type: "string", enum: ["mtd", "qtd", "ytd"] } },
+    },
+    handler: async (input, ctx) => {
+      const w = resolveRevenueWindow({
+        period: typeof input.period === "string" ? input.period : "mtd",
+        now: new Date(ctx.now),
+      });
+      const revenue = await ctx.io.rpc("revenue_dashboard", {
+        p_start: w.start,
+        p_end: w.end,
+        p_granularity: w.granularity,
+      });
+      return { window: w, revenue };
+    },
+  },
+  {
+    name: "get_marketplace_health",
+    description: "Cross-tenant marketplace-connection health as AGGREGATE counts (by marketplace and by state: active, inactive, error, expiring-soon). No per-seller rows or PII.",
+    class: "read",
+    inputSchema: { type: "object", properties: {} },
+    handler: async (_input, ctx) => {
+      const conns = await ctx.io.fetchMarketplaceConnections();
+      const soonMs = 7 * 24 * 3600_000;
+      const byMarketplace: Record<string, number> = {};
+      let active = 0, inactive = 0, withError = 0, expiringSoon = 0;
+      for (const c of conns) {
+        const mk = c.marketplace ?? "unknown";
+        byMarketplace[mk] = (byMarketplace[mk] ?? 0) + 1;
+        if (c.is_active) active++;
+        else inactive++;
+        if (c.refresh_error) withError++;
+        if (c.token_expires_at) {
+          const dt = Date.parse(c.token_expires_at) - ctx.now;
+          if (dt > 0 && dt < soonMs) expiringSoon++;
+        }
+      }
+      return {
+        total: conns.length,
+        active,
+        inactive,
+        with_error: withError,
+        expiring_soon: expiringSoon,
+        by_marketplace: byMarketplace,
       };
     },
   },
 
-  get_revenue_window: {
-    name: "get_revenue_window",
-    description:
-      "Marketplace revenue over a window: sale count and gross sale total in USD. Aggregates only — no per-user rows.",
-    class: "read",
-    inputSchema: { type: "object", properties: { ...WINDOW_PROP } },
-    async handler(input, db) {
-      const since = windowStartIso(input, 24 * 7);
-      const { data, error } = await db
-        .from("sales")
-        .select("sale_price, sale_date")
-        .gte("sale_date", since)
-        .limit(10_000);
-      if (error) return { error: error.message };
-      const rows = (data ?? []) as Array<{ sale_price: number | null }>;
-      const gross = rows.reduce((sum, r) => sum + Number(r.sale_price ?? 0), 0);
-      return { since, sales: rows.length, gross_usd: Number(gross.toFixed(2)) };
+  // ── Write tools (class 'write') — NEVER exposed to the run loop; executed
+  //    ONLY via executeWrite on the approved-proposal path (US-1587). Each is
+  //    reversible/compensatable by design. ──
+  {
+    name: "retry_job",
+    description: "Re-fire a registered scheduled job (cron) by its key over the internal job rails. Only jobs present in the cron registry are accepted.",
+    class: "write",
+    inputSchema: {
+      type: "object",
+      properties: { job_key: { type: "string", description: "the registered cron job name" } },
+      required: ["job_key"],
+    },
+    handler: async (input, ctx) => {
+      if (!ctx.authorizedBy) return { error: { code: "unauthorized", message: "write requires an approved proposal" } };
+      const jobKey = String(input.job_key);
+      const r = await ctx.io.runJob(jobKey);
+      return { job: jobKey, ...r };
     },
   },
-
-  get_marketplace_health: {
-    name: "get_marketplace_health",
-    description:
-      "Marketplace connection fleet health: connection counts by platform and how many carry a refresh error or an expired access token. Cross-tenant AGGREGATES only.",
-    class: "read",
-    inputSchema: { type: "object", properties: {} },
-    async handler(_input, db) {
-      const { data, error } = await db
-        .from("marketplace_connections")
-        .select("marketplace, is_active, refresh_error, token_expires_at")
-        .limit(10_000);
-      if (error) return { error: error.message };
-      const now = new Date().toISOString();
-      const byPlatform: Record<
-        string,
-        { total: number; active: number; refreshErrors: number; tokenExpired: number }
-      > = {};
-      for (const row of (data ?? []) as Array<Record<string, string | boolean | null>>) {
-        const p = String(row.marketplace ?? "unknown");
-        const agg = byPlatform[p] ??
-          { total: 0, active: 0, refreshErrors: 0, tokenExpired: 0 };
-        agg.total += 1;
-        if (row.is_active) agg.active += 1;
-        if (row.refresh_error) agg.refreshErrors += 1;
-        if (
-          typeof row.token_expires_at === "string" &&
-          row.token_expires_at < now
-        ) agg.tokenExpired += 1;
-        byPlatform[p] = agg;
+  {
+    name: "requeue_dead_letter",
+    description: "Re-queue a dead-lettered delivery so the retry machinery re-attempts it. v1 supports email dead-letters.",
+    class: "write",
+    inputSchema: {
+      type: "object",
+      properties: {
+        source: { type: "string", enum: ["email", "webhook"] },
+        id: { type: "string" },
+      },
+      required: ["source", "id"],
+    },
+    handler: async (input, ctx) => {
+      if (!ctx.authorizedBy) return { error: { code: "unauthorized", message: "write requires an approved proposal" } };
+      if (input.source !== "email") {
+        return { error: { code: "unsupported", message: "webhook replay is not supported via the agent tool in v1; use the admin console" } };
       }
-      return { byPlatform };
+      const requeued = await ctx.io.requeueEmailDeadLetter(String(input.id));
+      return { source: "email", id: String(input.id), requeued };
     },
   },
+  {
+    name: "create_admin_task",
+    description: "File an admin task (in the standing 'Agent Proposals' project) for an operator to action.",
+    class: "write",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string" },
+        body: { type: "string" },
+        priority: { type: "string", enum: ["low", "medium", "high"] },
+      },
+      required: ["title"],
+    },
+    handler: async (input, ctx) => {
+      if (!ctx.authorizedBy) return { error: { code: "unauthorized", message: "write requires an approved proposal" } };
+      const projectId = await ctx.io.resolveAgentTaskProject();
+      if (!projectId) return { error: { code: "no_project", message: "could not resolve the Agent Proposals project" } };
+      const task = await ctx.io.insertAdminTask({
+        project_id: projectId,
+        title: String(input.title),
+        body: typeof input.body === "string" ? input.body : null,
+        priority: typeof input.priority === "string" ? input.priority : "medium",
+        created_by: ctx.authorizedBy ?? null,
+      });
+      return { task_id: task?.id ?? null };
+    },
+  },
+];
+
+// Map an agent_proposals.action_class → the write tool that executes it.
+export const ACTION_CLASS_TO_TOOL: Record<string, string> = {
+  retry_job: "retry_job",
+  requeue_dead_letter: "requeue_dead_letter",
+  file_task: "create_admin_task",
 };
 
-// ── Dispatch: allowlist + validation + audit ────────────────────────────────
+export const AGENT_TOOLS: readonly AgentToolDef[] = TOOL_LIST;
+const BY_NAME = new Map(TOOL_LIST.map((t) => [t.name, t]));
 
-export interface DispatchResult {
-  ok: boolean;
-  result: unknown;
+// The per-agent allowlist: `config.tools` (US-1585) or the `tool_allowlist` alias.
+function allowlistOf(agent: AgentRow): string[] {
+  const t = agent.config?.tools ?? agent.config?.tool_allowlist;
+  return Array.isArray(t) ? t.filter((x): x is string => typeof x === "string") : [];
 }
 
-export async function dispatchTool(
-  agentKey: string,
-  toolName: string,
-  allowlist: readonly string[],
-  input: Record<string, unknown>,
-  db: ToolDb = supabaseAdmin,
-  audit: (entry: {
-    action: string;
-    targetType: string;
-    details: Record<string, unknown>;
-  }) => Promise<void> = writeSystemAuditLog,
-): Promise<DispatchResult> {
-  const tool = AGENT_TOOLS[toolName];
-  // Allowlist re-check at dispatch (AC3): invisibility in the model's tool
-  // list is the first line; this is the second.
-  if (!tool || !allowlist.includes(toolName)) {
-    return {
-      ok: false,
-      result: { error: `tool '${toolName}' is not on this agent's allowlist` },
-    };
-  }
-  const validationError = validateToolInput(tool.inputSchema, input);
-  if (validationError) {
-    return { ok: false, result: { error: `invalid input: ${validationError}` } };
-  }
-  // Attribution: every invocation is auditable even outside run transcripts.
-  try {
-    await audit({
-      action: "agent_tool_invocation",
-      targetType: "agent_tool",
-      details: {
-        agent: agentKey,
-        tool: toolName,
-        input: redact(input).slice(0, 500),
-      },
-    });
-  } catch {
-    // Best-effort: the audit trail must never take the tool down with it.
-  }
-  const result = await tool.handler(input, db);
-  return { ok: true, result };
+// The kernel's AgentToolRegistry, plus the executeWrite path the proposal
+// executor (US-1587) uses to run an approved write action.
+export interface AgentToolRegistryV2 extends AgentToolRegistry {
+  executeWrite(
+    name: string,
+    input: unknown,
+    ctx: { authorizedBy: string; proposalId?: string | null },
+  ): Promise<unknown>;
 }
 
-/**
- * The kernel-facing surface: the agent's allowlisted slice of the registry,
- * each tool wrapped with validation + audit via dispatchTool.
- */
-export function buildKernelTools(
-  agentKey: string,
-  allowlist: readonly string[],
-  db: ToolDb = supabaseAdmin,
-): Record<string, AgentTool> {
-  const out: Record<string, AgentTool> = {};
-  for (const name of allowlist) {
-    const tool = AGENT_TOOLS[name];
-    if (!tool) continue; // unknown names are simply invisible
-    out[name] = {
-      name: tool.name,
-      description: tool.description,
-      inputSchema: tool.inputSchema as unknown as Record<string, unknown>,
-      run: async (input) => (await dispatchTool(agentKey, name, allowlist, input, db)).result,
-    };
-  }
-  return out;
+// ── The registry (implements the kernel's AgentToolRegistry seam) ────────────
+
+export function createAgentToolRegistry(io: ToolIO = prodToolIO()): AgentToolRegistryV2 {
+  // The run loop only ever sees READ tools — write tools are invisible + never
+  // executable there (they run only via executeWrite on an approved proposal).
+  const isReadAllowed = (agent: AgentRow, name: string): boolean => {
+    const tool = BY_NAME.get(name);
+    return !!tool && tool.class === "read" && allowlistOf(agent).includes(name);
+  };
+  return {
+    anthropicTools(agent: AgentRow): Anthropic.Tool[] {
+      const allow = new Set(allowlistOf(agent));
+      return TOOL_LIST.filter((t) => t.class === "read" && allow.has(t.name)).map((t) => ({
+        name: t.name,
+        description: t.description,
+        input_schema: t.inputSchema as Anthropic.Tool["input_schema"],
+      }));
+    },
+    isAllowed(agent: AgentRow, name: string): boolean {
+      return isReadAllowed(agent, name);
+    },
+    async execute(agent: AgentRow, name: string, rawInput: unknown): Promise<unknown> {
+      const tool = BY_NAME.get(name);
+      if (!tool || !allowlistOf(agent).includes(name)) {
+        return { error: { code: "tool_not_allowed", message: `tool not allowed: ${name}` } };
+      }
+      // A write tool can never run from the run loop — only via executeWrite.
+      if (tool.class !== "read") {
+        return { error: { code: "write_tool_forbidden", message: "write tools require an approved proposal" } };
+      }
+      const input = rawInput && typeof rawInput === "object" && !Array.isArray(rawInput)
+        ? rawInput as Record<string, unknown>
+        : {};
+      const v = validateToolInput(tool.inputSchema, input);
+      if (!v.ok) {
+        return { error: { code: "invalid_input", message: "input failed schema validation", details: v.errors } };
+      }
+      // Audit every genuine invocation (AC4) — best-effort, redacted input.
+      await io.audit({
+        action: "agent.tool_invoked",
+        targetType: "agent_tool",
+        targetId: name,
+        details: {
+          agent_key: agent.key,
+          agent_id: agent.id,
+          tool: name,
+          tool_class: tool.class,
+          input: redact(v.value),
+        },
+      }).catch(() => {});
+      const ctx: ToolContext = { io, agentKey: agent.key, agentId: agent.id, now: io.now() };
+      try {
+        return await tool.handler(v.value, ctx);
+      } catch (err) {
+        return { error: { code: "tool_error", message: redactError(err) } };
+      }
+    },
+    // Execute an approved write action. NOT allowlist-gated (operator approval is
+    // the authorization); validates the tool exists + is a write tool, audits,
+    // and runs the handler with the authorized context. Lets the handler throw
+    // so the proposal executor can mark the proposal failed.
+    async executeWrite(name: string, rawInput: unknown, ctx): Promise<unknown> {
+      const tool = BY_NAME.get(name);
+      if (!tool || tool.class !== "write") {
+        return { error: { code: "not_a_write_tool", message: `not a write tool: ${name}` } };
+      }
+      const input = rawInput && typeof rawInput === "object" && !Array.isArray(rawInput)
+        ? rawInput as Record<string, unknown>
+        : {};
+      const v = validateToolInput(tool.inputSchema, input);
+      if (!v.ok) {
+        return { error: { code: "invalid_input", message: "input failed schema validation", details: v.errors } };
+      }
+      await io.audit({
+        action: "agent.write_tool_executed",
+        targetType: "agent_tool",
+        targetId: name,
+        details: {
+          tool: name,
+          proposal_id: ctx.proposalId ?? null,
+          authorized_by: ctx.authorizedBy,
+          input: redact(v.value),
+        },
+      }).catch(() => {});
+      const tctx: ToolContext = {
+        io,
+        agentKey: "",
+        agentId: "",
+        now: io.now(),
+        authorizedBy: ctx.authorizedBy,
+        proposalId: ctx.proposalId ?? null,
+      };
+      return await tool.handler(v.value, tctx);
+    },
+  };
 }
+
+// Default production registry (empty-IO-free): wired to the real infrastructure.
+export const agentToolRegistry: AgentToolRegistryV2 = createAgentToolRegistry();

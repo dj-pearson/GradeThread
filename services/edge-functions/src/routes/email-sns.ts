@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { applySesFeedback } from "../lib/email-suppression.ts";
 import { type SnsMessage, verifySnsSignature } from "../lib/sns-verify.ts";
 import { captureException, recordMetric } from "../lib/observability.ts";
+import { isProduction } from "../lib/env.ts";
 
 // US-914: SES bounce/complaint feedback via SNS — the canonical, signature-
 // verified ingestion endpoint.
@@ -38,9 +39,12 @@ emailSnsRoutes.post("/ses-notifications", async (c) => {
     return c.json({ received: true, ignored: true });
   }
 
-  // Signature verification (fail closed). An operator can disable it for a
-  // controlled environment with no outbound cert fetch (SES_SNS_SKIP_VERIFICATION).
-  const skipVerify = Deno.env.get("SES_SNS_SKIP_VERIFICATION")?.trim() === "true";
+  // Signature verification (fail closed). An operator can disable it ONLY in a
+  // non-production environment (no outbound cert fetch during local/dev). US-1641:
+  // the flag is gated on !isProduction() so a stray SES_SNS_SKIP_VERIFICATION=true
+  // in prod can't silently turn this public endpoint into a forgeable one.
+  const skipVerify = !isProduction() &&
+    Deno.env.get("SES_SNS_SKIP_VERIFICATION")?.trim() === "true";
   if (!skipVerify) {
     const valid = await verifySnsSignature(envelope);
     if (!valid) {

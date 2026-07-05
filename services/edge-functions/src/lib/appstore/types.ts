@@ -13,6 +13,13 @@ export interface DecodedTransactionLite {
   appAccountToken?: string | null;
   /** "Sandbox" | "Production". */
   environment?: string | null;
+  /**
+   * Refund/revoke timestamp (epoch ms) — set by Apple once a transaction has
+   * been refunded or family-revoked. Present on REFUND/REVOKE notifications and
+   * on a re-presented already-refunded transaction. Non-null ⇒ the transaction
+   * must NOT entitle (grant credits / a plan). US-1615 / C2.
+   */
+  revocationDate?: number | null;
 }
 
 export interface DecodedRenewalLite {

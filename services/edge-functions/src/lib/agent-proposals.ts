@@ -1,287 +1,242 @@
-// US-1587: the proposal lifecycle — agent write-actions land as structured
-// proposals; approval executes the payload through a registered WRITE tool
-// EXACTLY ONCE; rejection requires a reason; expiry closes the window.
+// US-1587 / AGENTIC-OS Phase 0 (Module E): the proposal lifecycle ENGINE.
 //
-// Exactly-once mechanics: the approval CLAIM is a conditional update
-// (status pending → approved) — under concurrent double-approval only one
-// caller's update matches a row; the loser sees "already decided". The TTL
-// is re-checked at claim time so an expired-but-unswept proposal can never
-// execute.
+// Agent write-actions land as structured proposals (agent_proposals). This
+// module owns the lifecycle: persist (from run output, idempotency-deduped),
+// approve-once EXECUTE through a registered write tool, reject, and TTL-expire.
+// The admin HTTP sign-off surface (list/approve/reject endpoints) is US-1657 —
+// it drives these functions.
 //
-// Write tools are a SEPARATE registry from the read tools (US-1585): they
-// are never exposed to the model's tool list, and each handler REFUSES to
-// run without an execution context (an approved proposal id) — hands only
-// through sign-off until L2+ direct execution arrives (US-1608 promotes,
-// this file executes).
+// EXACTLY-ONCE (AC2): approval CLAIMS the row pending→approved via a race-safe
+// conditional UPDATE (WHERE status='pending'). Only the winner of that atomic
+// claim proceeds to execute, and the write tool runs with the proposal id as
+// idempotency key — so a double/concurrent approve can never double-execute.
+// Expired/rejected proposals can never execute (the claim only matches pending,
+// and approve refuses an expired row).
+//
+// SECURITY (US-268): agent_proposals is an operator table (deny-all RLS,
+// service-role only). Reads/writes are keyed by the proposal id; there is no
+// tenant data here.
 
+import type { ProposalDraft } from "./agent-policy.ts";
+import { ACTION_CLASS_TO_TOOL, agentToolRegistry } from "./agent-tools.ts";
 import { supabaseAdmin } from "./supabase.ts";
-import { redact, redactError } from "./log-redact.ts";
-import { writeSystemAuditLog } from "./audit-log.ts";
-import { routeOpsEventToAdmins } from "./admin-notifications.ts";
-import { dispatchWriteIntent, type PolicyAgent } from "./agent-policy.ts";
+import { redactError } from "./log-redact.ts";
 import { emitOpsEvent } from "./ops-events.ts";
 
-// ── Write tools (class 'write', reversible by design) ───────────────────────
+type ProposalEventSeverity = "info" | "warning" | "critical";
 
-export interface WriteToolContext {
-  /** The approved proposal this execution is authorized by. REQUIRED. */
-  proposalId: string;
-  agentKey: string;
+export const DEFAULT_PROPOSAL_TTL_HOURS = 72;
+
+export interface ProposalRow {
+  id: string;
+  agent_id: string;
+  run_id: string | null;
+  action_class: string;
+  title: string;
+  summary: string | null;
+  payload: unknown;
+  status: string;
+  expires_at: string | null;
+  idempotency_key: string | null;
+  executed_at: string | null;
+  result: unknown;
 }
 
-export interface WriteTool {
-  name: string;
-  description: string;
-  class: "write";
-  run(
-    args: Record<string, unknown>,
-    ctx: WriteToolContext,
-    db: WriteDb,
-  ): Promise<unknown>;
+// ── Pure helpers ─────────────────────────────────────────────────────────────
+
+export function computeExpiryIso(nowMs: number, ttlHours: number): string {
+  const hours = Number.isFinite(ttlHours) && ttlHours > 0 ? ttlHours : DEFAULT_PROPOSAL_TTL_HOURS;
+  return new Date(nowMs + hours * 3600_000).toISOString();
 }
 
-/** Narrow injectable surface (tests fake it). */
-// deno-lint-ignore no-explicit-any
-export type WriteDb = any;
-
-const JOB_SLUG = /^[a-z0-9-]{2,64}$/;
-
-async function selfJobPost(job: string): Promise<{ status: number; body: string }> {
-  const secret = Deno.env.get("FLIPDESK_INTERNAL_JOB_SECRET") ?? "";
-  if (!secret) throw new Error("FLIPDESK_INTERNAL_JOB_SECRET is not configured");
-  const base = Deno.env.get("EDGE_SELF_URL") ??
-    `http://127.0.0.1:${Deno.env.get("PORT") ?? "8787"}`;
-  const res = await fetch(`${base}/api/jobs/${job}`, {
-    method: "POST",
-    headers: { "X-Internal-Job-Secret": secret },
-  });
-  const body = (await res.text()).slice(0, 500);
-  return { status: res.status, body: redact(body) };
+// A null expiry never expires (an explicitly indefinite proposal).
+export function isExpired(expiresAtIso: string | null, nowMs: number): boolean {
+  if (!expiresAtIso) return false;
+  const t = Date.parse(expiresAtIso);
+  return Number.isFinite(t) && t < nowMs;
 }
 
-export const WRITE_TOOLS: Record<string, WriteTool> = {
-  retry_job: {
-    name: "retry_job",
-    description:
-      "Re-POST a registered /api/jobs/* endpoint via the internal job secret. Reversible: jobs are idempotent by contract.",
-    class: "write",
-    async run(args, ctx) {
-      requireContext(ctx);
-      const job = String(args.job ?? "");
-      if (!JOB_SLUG.test(job)) {
-        throw new Error(`invalid job slug '${job}'`);
+// A proposal may execute only while approved and un-expired.
+export function canExecute(status: string, expiresAtIso: string | null, nowMs: number): boolean {
+  return status === "approved" && !isExpired(expiresAtIso, nowMs);
+}
+
+// A write tool returns { error: … } on a soft failure; detect it as "failed".
+function isToolError(result: unknown): boolean {
+  return !!result && typeof result === "object" && !Array.isArray(result) &&
+    "error" in (result as Record<string, unknown>);
+}
+
+// ── Deps seam (DI for tests) ─────────────────────────────────────────────────
+
+export interface ProposalDeps {
+  insertProposals: (rows: Record<string, unknown>[]) => Promise<number>;
+  loadProposal: (id: string) => Promise<ProposalRow | null>;
+  // Race-safe conditional status transition. Updates WHERE id=? AND status=from,
+  // returns the updated row if THIS call won the claim, else null.
+  claimStatus: (
+    id: string,
+    from: string,
+    to: string,
+    patch: Record<string, unknown>,
+  ) => Promise<ProposalRow | null>;
+  finalizeExecution: (id: string, status: "executed" | "failed", result: unknown) => Promise<void>;
+  expirePast: (nowIso: string) => Promise<number>;
+  runWriteTool: (
+    toolName: string,
+    payload: unknown,
+    ctx: { authorizedBy: string; proposalId: string },
+  ) => Promise<unknown>;
+  // Emit an agent.proposal.* ops event (US-1589). Fire-and-forget.
+  emitEvent: (type: string, severity: ProposalEventSeverity, data: Record<string, unknown>) => void;
+  now: () => number;
+}
+
+export function prodProposalDeps(): ProposalDeps {
+  return {
+    insertProposals: async (rows) => {
+      let inserted = 0;
+      for (const row of rows) {
+        const { error } = await supabaseAdmin.from("agent_proposals").insert(row as never);
+        if (!error) inserted++;
+        // 23505 = the UNIQUE(idempotency_key) fired — a re-run's duplicate. No-op.
+        else if ((error as { code?: string }).code !== "23505") {
+          console.warn(`[agent-proposals] insert failed: ${error.message}`);
+        }
       }
-      const { status, body } = await selfJobPost(job);
-      if (status >= 400) throw new Error(`job '${job}' returned HTTP ${status}: ${body}`);
-      return { job, status, body };
+      return inserted;
     },
-  },
-
-  requeue_dead_letter: {
-    name: "requeue_dead_letter",
-    description:
-      "Push a dead-lettered webhook back to pending so the existing replay machinery re-processes it. Reversible: a re-failure dead-letters again.",
-    class: "write",
-    async run(args, ctx, db) {
-      requireContext(ctx);
-      const id = String(args.id ?? "");
-      if (!id) throw new Error("dead-letter id is required");
-      const { data, error } = await db
-        .from("webhook_dead_letters")
-        .update({ status: "pending" })
+    loadProposal: async (id) => {
+      const { data } = await supabaseAdmin
+        .from("agent_proposals")
+        .select("id, agent_id, run_id, action_class, title, summary, payload, status, expires_at, idempotency_key, executed_at, result")
         .eq("id", id)
-        .in("status", ["unresolved", "dead_letter"])
-        .select("id")
         .maybeSingle();
-      if (error) throw new Error(error.message);
-      if (!data) throw new Error(`dead letter ${id} not found or already handled`);
-      return { requeued: id };
+      return (data as ProposalRow | null) ?? null;
     },
-  },
-
-  create_admin_task: {
-    name: "create_admin_task",
-    description:
-      "File a card on the admin task board. Reversible: tasks can be archived.",
-    class: "write",
-    async run(args, ctx, db) {
-      requireContext(ctx);
-      const title = String(args.title ?? "").trim();
-      if (!title) throw new Error("title is required");
-      const projectId = String(args.project_id ?? "");
-      if (!projectId) throw new Error("project_id is required");
-      const attribution = `
-
-— filed by agent '${ctx.agentKey}' via proposal ${ctx.proposalId}`;
-      const body = (typeof args.body === "string" ? args.body.slice(0, 4000) : "") +
-        attribution;
-      const { data, error } = await db
-        .from("admin_tasks")
-        .insert({
-          project_id: projectId,
-          title: title.slice(0, 200),
-          body,
-          status: "todo",
-          created_by: null, // agent-filed; attribution lives in the body
-        })
-        .select("id")
-        .single();
-      if (error) throw new Error(error.message);
-      return { taskId: (data as { id: string }).id };
+    claimStatus: async (id, from, to, patch) => {
+      const { data } = await supabaseAdmin
+        .from("agent_proposals")
+        .update({ status: to, ...patch } as never)
+        .eq("id", id)
+        .eq("status", from)
+        .select("id, agent_id, run_id, action_class, title, summary, payload, status, expires_at, idempotency_key, executed_at, result")
+        .maybeSingle();
+      return (data as ProposalRow | null) ?? null;
     },
-  },
-};
-
-function requireContext(ctx: WriteToolContext | undefined): void {
-  if (!ctx || !ctx.proposalId) {
-    // The whole point: no approved proposal, no hands.
-    throw new Error("write tools require an approved-proposal execution context");
-  }
+    finalizeExecution: async (id, status, result) => {
+      await supabaseAdmin
+        .from("agent_proposals")
+        .update({ status, result, executed_at: new Date().toISOString() } as never)
+        .eq("id", id);
+    },
+    expirePast: async (nowIso) => {
+      const { data } = await supabaseAdmin
+        .from("agent_proposals")
+        .update({ status: "expired" } as never)
+        .eq("status", "pending")
+        .lt("expires_at", nowIso)
+        .select("id");
+      return (data as unknown[] | null)?.length ?? 0;
+    },
+    runWriteTool: (toolName, payload, ctx) => agentToolRegistry.executeWrite(toolName, payload, ctx),
+    emitEvent: (type, severity, data) =>
+      emitOpsEvent(type, severity, { title: type, source: "agent-proposals", data }),
+    now: () => Date.now(),
+  };
 }
 
-// ── The lifecycle ────────────────────────────────────────────────────────────
+// ── Persist (from run output) ────────────────────────────────────────────────
 
-export interface ProposalDb {
-  /** Conditional claim: pending → approved. Null = not claimable. */
-  claimForExecution(
-    id: string,
-    adminId: string,
-    nowIso: string,
-  ): Promise<Record<string, unknown> | null>;
-  markExecuted(
-    id: string,
-    status: "executed" | "failed" | "expired",
-    result: Record<string, unknown> | null,
-    nowIso: string,
-  ): Promise<void>;
-  rejectPending(
-    id: string,
-    adminId: string,
-    reason: string,
-    nowIso: string,
-  ): Promise<boolean>;
-  expirePending(nowIso: string): Promise<number>;
+// Persist an agent run's proposal drafts as pending agent_proposals with a TTL.
+// Idempotency-deduped by idempotency_key (a re-run's same proposal loses on the
+// UNIQUE constraint and is a no-op). Returns the number newly filed.
+export async function persistProposals(
+  agentId: string,
+  runId: string | null,
+  drafts: ProposalDraft[],
+  ttlHours: number = DEFAULT_PROPOSAL_TTL_HOURS,
+  deps: Partial<ProposalDeps> = {},
+): Promise<number> {
+  const d = { ...prodProposalDeps(), ...deps };
+  if (!drafts.length) return 0;
+  const expiresAt = computeExpiryIso(d.now(), ttlHours);
+  const rows = drafts.map((p) => ({
+    agent_id: p.agent_id || agentId,
+    run_id: runId,
+    action_class: p.action_class,
+    title: p.title,
+    summary: p.summary,
+    payload: p.payload ?? {},
+    evidence: p.evidence ?? null,
+    status: "pending",
+    expires_at: expiresAt,
+    idempotency_key: p.idempotency_key,
+  }));
+  return await d.insertProposals(rows);
 }
 
-const defaultDb: ProposalDb = {
-  async claimForExecution(id, adminId, nowIso) {
-    const { data, error } = await supabaseAdmin
-      .from("agent_proposals")
-      .update({ status: "approved", decided_by: adminId, decided_at: nowIso })
-      .eq("id", id)
-      .eq("status", "pending")
-      .select("id, action_class, payload, expires_at, agent_id, agents(key)")
-      .maybeSingle();
-    if (error) throw new Error(error.message);
-    return (data as Record<string, unknown> | null) ?? null;
-  },
-  async markExecuted(id, status, result, nowIso) {
-    const { error } = await supabaseAdmin
-      .from("agent_proposals")
-      .update({
-        status,
-        result,
-        ...(status === "executed" || status === "failed"
-          ? { executed_at: nowIso }
-          : {}),
-      })
-      .eq("id", id);
-    if (error) throw new Error(error.message);
-  },
-  async rejectPending(id, adminId, reason, nowIso) {
-    const { data, error } = await supabaseAdmin
-      .from("agent_proposals")
-      .update({
-        status: "rejected",
-        decided_by: adminId,
-        decided_at: nowIso,
-        decide_reason: reason,
-      })
-      .eq("id", id)
-      .eq("status", "pending")
-      .select("id")
-      .maybeSingle();
-    if (error) throw new Error(error.message);
-    return data != null;
-  },
-  async expirePending(nowIso) {
-    const { data, error } = await supabaseAdmin
-      .from("agent_proposals")
-      .update({ status: "expired" })
-      .eq("status", "pending")
-      .lt("expires_at", nowIso)
-      .select("id");
-    if (error) throw new Error(error.message);
-    return (data ?? []).length;
-  },
-};
+// ── Decisions ────────────────────────────────────────────────────────────────
 
-export type ExecuteOutcome =
-  | { kind: "executed"; result: unknown }
-  | { kind: "failed"; error: string }
-  | { kind: "already_decided" }
-  | { kind: "expired" };
+export interface DecisionResult {
+  ok: boolean;
+  status?: "executed" | "failed" | "rejected";
+  reason?: string;
+  result?: unknown;
+}
 
-/**
- * Approve + execute exactly once. The conditional claim is the concurrency
- * guard; the TTL re-check means an expired proposal can never execute even
- * if the sweep hasn't run yet.
- */
-export async function executeProposal(
+// Approve + execute EXACTLY ONCE. The pending→approved claim is the atomic gate:
+// a concurrent/double approve loses the claim and never executes.
+export async function approveProposal(
   proposalId: string,
   adminId: string,
-  db: ProposalDb = defaultDb,
-  writeDb: WriteDb = supabaseAdmin,
-  now: () => Date = () => new Date(),
-  emit: typeof emitOpsEvent = emitOpsEvent,
-): Promise<ExecuteOutcome> {
-  const nowIso = now().toISOString();
-  const claimed = await db.claimForExecution(proposalId, adminId, nowIso);
-  if (!claimed) return { kind: "already_decided" };
-  // US-1589: the approval itself is an auditable moment.
-  void emit("agent.proposal.approved", "info", {
-    title: `Proposal ${proposalId} approved`,
-    source: "agent-proposals",
-    data: { proposal_id: proposalId, action_class: claimed.action_class },
-  }).catch(() => {});
+  deps: Partial<ProposalDeps> = {},
+): Promise<DecisionResult> {
+  const d = { ...prodProposalDeps(), ...deps };
+  const nowMs = d.now();
 
-  const expiresAt = claimed.expires_at as string | null;
-  if (expiresAt && expiresAt < nowIso) {
-    await db.markExecuted(proposalId, "expired", null, nowIso);
-    return { kind: "expired" };
+  const existing = await d.loadProposal(proposalId);
+  if (!existing) return { ok: false, reason: "not_found" };
+  if (isExpired(existing.expires_at, nowMs)) {
+    // Best-effort latch it to 'expired' so it can't be approved later.
+    await d.claimStatus(proposalId, "pending", "expired", {}).catch(() => {});
+    return { ok: false, reason: "expired" };
   }
+  if (existing.status !== "pending") return { ok: false, reason: `not_pending:${existing.status}` };
 
-  const payload = (claimed.payload ?? {}) as Record<string, unknown>;
-  const toolName = String(payload.tool ?? "");
-  const args = (payload.args ?? {}) as Record<string, unknown>;
-  const agentKey = String(
-    (claimed.agents as { key?: string } | null)?.key ?? "unknown",
-  );
-  const tool = WRITE_TOOLS[toolName];
-  if (!tool) {
-    const error = `unknown write tool '${toolName}'`;
-    await db.markExecuted(proposalId, "failed", { error }, nowIso);
-    return { kind: "failed", error };
-  }
+  const claimed = await d.claimStatus(proposalId, "pending", "approved", {
+    decided_by: adminId,
+    decided_at: new Date(nowMs).toISOString(),
+  });
+  if (!claimed) return { ok: false, reason: "already_decided" };
 
+  d.emitEvent("agent.proposal.approved", "info", {
+    proposal_id: proposalId,
+    action_class: claimed.action_class,
+    decided_by: adminId,
+  });
+
+  // Only the claim winner reaches here → execute exactly once.
+  const toolName = ACTION_CLASS_TO_TOOL[claimed.action_class] ?? claimed.action_class;
   try {
-    const result = await tool.run(args, { proposalId, agentKey }, writeDb);
-    await db.markExecuted(
-      proposalId,
-      "executed",
-      { ok: true, result },
-      now().toISOString(),
-    );
-    void emit("agent.proposal.executed", "info", {
-      title: `Proposal ${proposalId} executed (${toolName})`,
-      source: "agent-proposals",
-      data: { proposal_id: proposalId, tool: toolName, agent: agentKey },
-    }).catch(() => {});
-    return { kind: "executed", result };
+    const result = await d.runWriteTool(toolName, claimed.payload, { authorizedBy: adminId, proposalId });
+    const failed = isToolError(result);
+    await d.finalizeExecution(proposalId, failed ? "failed" : "executed", result);
+    d.emitEvent("agent.proposal.executed", failed ? "warning" : "info", {
+      proposal_id: proposalId,
+      action_class: claimed.action_class,
+      status: failed ? "failed" : "executed",
+    });
+    return { ok: true, status: failed ? "failed" : "executed", result };
   } catch (err) {
-    const error = redactError(err);
-    await db.markExecuted(proposalId, "failed", { error }, now().toISOString());
-    return { kind: "failed", error };
+    const result = { error: redactError(err) };
+    await d.finalizeExecution(proposalId, "failed", result);
+    d.emitEvent("agent.proposal.executed", "warning", {
+      proposal_id: proposalId,
+      action_class: claimed.action_class,
+      status: "failed",
+    });
+    return { ok: true, status: "failed", result };
   }
 }
 
@@ -289,131 +244,30 @@ export async function rejectProposal(
   proposalId: string,
   adminId: string,
   reason: string,
-  db: ProposalDb = defaultDb,
-  now: () => Date = () => new Date(),
-  emit: typeof emitOpsEvent = emitOpsEvent,
-): Promise<boolean> {
-  const rejected = await db.rejectPending(
-    proposalId,
-    adminId,
-    reason,
-    now().toISOString(),
-  );
-  if (rejected) {
-    void emit("agent.proposal.rejected", "info", {
-      title: `Proposal ${proposalId} rejected: ${redact(reason).slice(0, 120)}`,
-      source: "agent-proposals",
-      data: { proposal_id: proposalId },
-    }).catch(() => {});
-  }
-  return rejected;
-}
-
-/** Sweep: past-TTL pending proposals become expired (idempotent). */
-export async function expireStaleProposals(
-  db: ProposalDb = defaultDb,
-  now: () => Date = () => new Date(),
-): Promise<number> {
-  return await db.expirePending(now().toISOString());
-}
-
-// ── Filing from a run (the kernel calls this) ────────────────────────────────
-
-export interface RunProposal {
-  action_class?: unknown;
-  title?: unknown;
-  summary?: unknown;
-  payload?: unknown;
-  evidence?: unknown;
-}
-
-export const DEFAULT_PROPOSAL_TTL_HOURS = 72;
-
-/**
- * File the proposals from a succeeded run's output through the policy
- * engine (per-class autonomy applies to EACH). Malformed entries are
- * skipped, filed count returns for the run outcome, and ONE batched admin
- * notification covers the whole run.
- */
-export async function fileProposalsFromRun(
-  agent: PolicyAgent,
-  runId: string,
-  proposals: unknown[],
-  config: Record<string, unknown>,
-  deps: {
-    dispatch?: typeof dispatchWriteIntent;
-    notify?: typeof routeOpsEventToAdmins;
-    now?: () => Date;
-  } = {},
-): Promise<{ filed: number; dropped: number; skipped: number }> {
-  const dispatch = deps.dispatch ?? dispatchWriteIntent;
-  const notify = deps.notify ?? routeOpsEventToAdmins;
-  const nowFn = deps.now ?? (() => new Date());
-  const ttlHours = typeof config.proposal_ttl_hours === "number" &&
-      config.proposal_ttl_hours > 0
-    ? Math.min(config.proposal_ttl_hours, 24 * 30)
-    : DEFAULT_PROPOSAL_TTL_HOURS;
-  const expiresAt = new Date(nowFn().getTime() + ttlHours * 3_600_000)
-    .toISOString();
-
-  let filed = 0;
-  let dropped = 0;
-  let skipped = 0;
-  for (const raw of proposals) {
-    const p = raw as RunProposal;
-    if (
-      typeof p?.action_class !== "string" || typeof p?.title !== "string" ||
-      typeof p?.summary !== "string"
-    ) {
-      skipped += 1;
-      continue;
-    }
-    const outcome = await dispatch(agent, {
-      actionClass: p.action_class,
-      title: p.title.slice(0, 200),
-      summary: p.summary.slice(0, 2000),
-      payload: (p.payload ?? {}) as Record<string, unknown>,
-      evidence: (p.evidence ?? {}) as Record<string, unknown>,
-      runId,
-      expiresAt,
+  deps: Partial<ProposalDeps> = {},
+): Promise<DecisionResult> {
+  const d = { ...prodProposalDeps(), ...deps };
+  const claimed = await d.claimStatus(proposalId, "pending", "rejected", {
+    decided_by: adminId,
+    decided_at: new Date(d.now()).toISOString(),
+    decide_reason: reason,
+  });
+  if (claimed) {
+    d.emitEvent("agent.proposal.rejected", "info", {
+      proposal_id: proposalId,
+      action_class: claimed.action_class,
+      decided_by: adminId,
     });
-    if (outcome.kind === "proposed") filed += 1;
-    else dropped += 1; // L0 suppression or a halt
+    return { ok: true, status: "rejected" };
   }
-
-  if (filed > 0) {
-    // Batched per run: one notification no matter how many proposals.
-    try {
-      await notify({
-        type: "agent_proposals_pending",
-        severity: "warning",
-        title:
-          `Agent '${agent.key}' filed ${filed} proposal${filed === 1 ? "" : "s"} awaiting review`,
-        link: "/admin/agents?tab=proposals",
-        opsEventId: null,
-      });
-    } catch {
-      // Notification is best-effort; the inbox is the source of truth.
-    }
-  }
-  return { filed, dropped, skipped };
+  const existing = await d.loadProposal(proposalId);
+  if (!existing) return { ok: false, reason: "not_found" };
+  return { ok: false, reason: `not_pending:${existing.status}` };
 }
 
-/** Audit helper shared by the admin routes. */
-export async function auditProposalDecision(
-  adminId: string,
-  proposalId: string,
-  decision: "approved" | "rejected",
-  extra: Record<string, unknown> = {},
-): Promise<void> {
-  try {
-    await writeSystemAuditLog({
-      action: `agent_proposal_${decision}`,
-      targetType: "agent_proposal",
-      targetId: proposalId,
-      details: { admin: adminId, ...extra },
-    });
-  } catch {
-    // Best-effort.
-  }
+// Mark past-TTL pending proposals 'expired'. Wired into the agent tick / a small
+// job (US-1588). Returns the number expired.
+export async function expireProposals(deps: Partial<ProposalDeps> = {}): Promise<number> {
+  const d = { ...prodProposalDeps(), ...deps };
+  return await d.expirePast(new Date(d.now()).toISOString());
 }

@@ -237,6 +237,22 @@ flipdeskAiRoutes.post("/extract", async (c) => {
     return c.json({ error: "Provide text or photos." }, 400);
   }
 
+  // US-1638: when an item_id is supplied, verify it belongs to this workspace
+  // BEFORE any DB write keyed on it (the ai_enrichment_log insert below and the
+  // canonical-attribute persistence). Skipping this made a foreign item_id a
+  // cross-tenant UUID-existence oracle (the FK insert would succeed/fail
+  // depending on whether the row exists) and wrote a log row against another
+  // tenant's item. Fail fast — before the AI spend, too.
+  if (itemId) {
+    const { data: ownedItem } = await supabaseAdmin
+      .from("inventory_items")
+      .select("id")
+      .eq("id", itemId)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (!ownedItem) return c.json({ error: "Item not found" }, 404);
+  }
+
   // US-826 diagnostics: the success path is sampled out of the access log, so a
   // 200 that extracts nothing is otherwise invisible (the iOS canvas just lands
   // on an "Untitled" item with no error). Log entry unconditionally so a failed

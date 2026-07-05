@@ -1,38 +1,37 @@
-// US-1588: the Agentic OS heartbeat — POST /api/jobs/agent-tick.
+// US-1588 / AGENTIC-OS Phase 0 (Module J): the agent scheduler cron.
 //
-// Zero new infrastructure: the same X-Internal-Job-Secret gate, the same
-// job_locks lease, the same cron_runs ledger + job.failed ops-event
-// chokepoint (both via the /api/jobs/* middleware in main.ts). Every 10
-// minutes it sweeps expired proposals and runs the due agents sequentially
-// under a wall-clock budget; leftovers defer to the next tick.
-//
-// Individual agent-run failures never fail the tick (the kernel never
-// throws); a NON-200 here means the tick's own bookkeeping broke.
+// POST /api/jobs/agent-tick — mounted OUTSIDE the /api/* JWT groups, gated by
+// X-Internal-Job-Secret (same pattern as the other 54 crons). The /api/jobs/*
+// middleware records the run to cron_runs automatically and emits the standard
+// job.failed ops event on a non-2xx. The tick itself (lib/agent-tick.ts) honors
+// the global pause, expires stale proposals, and runs due agents under a
+// per-tick wall-clock budget; an individual agent-run failure never fails it.
 
 import type { Context } from "hono";
 import { requireJobSecret } from "../lib/job-auth.ts";
 import { acquireJobLock } from "../lib/job-lock.ts";
-import { runAgentTick } from "../lib/agent-scheduler.ts";
-import { redactError } from "../lib/log-redact.ts";
+import { runAgentTick } from "../lib/agent-tick.ts";
 
 export async function handleAgentTickCron(c: Context): Promise<Response> {
   if (!(await requireJobSecret(c))) {
     return c.json({ error: "Unauthorized" }, 401);
   }
 
-  // Lease slightly under the 10-minute cadence so a hung tick can't overlap
-  // the next one, but a crashed holder frees up before two are missed.
+  // Overlap guard: a 9-min lease (< the 10-min cadence) so two ticks can't run
+  // the same agents concurrently.
   const lock = await acquireJobLock("agent-tick", 540);
   if (!lock.acquired) {
     return c.json({ ok: true, skipped: true, reason: lock.reason });
   }
   try {
-    const outcome = await runAgentTick();
-    return c.json({ ok: true, ...outcome });
+    const summary = await runAgentTick();
+    if (summary.paused) {
+      return c.json({ ok: true, skipped: true, reason: "paused" });
+    }
+    return c.json({ ok: true, ...summary });
   } catch (err) {
-    // Bookkeeping broke → 500 → the middleware records error + job.failed.
-    console.error(`[agent-tick] ${redactError(err)}`);
-    return c.json({ ok: false, error: "agent tick failed" }, 500);
+    console.error("[agent-tick] tick failed:", err instanceof Error ? err.message : String(err));
+    return c.json({ error: "Agent tick failed" }, 500);
   } finally {
     await lock.release();
   }

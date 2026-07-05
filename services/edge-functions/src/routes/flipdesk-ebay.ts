@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { roleAtLeast } from "../lib/workspace-roles.ts";
 import {
   filterListablePhotos,
   SENSITIVE_ITEM_PHOTO_TYPES,
@@ -468,6 +469,11 @@ flipdeskEbayRoutes.post("/disconnect", async (c) => {
     | string
     | undefined;
   if (!userId) return c.json({ error: "Unauthorized" }, 401);
+  // US-1616 / C3: disconnecting the marketplace is an integration teardown that
+  // affects the whole workspace — require admin, not a read-only viewer.
+  if (!roleAtLeast(c.get("workspaceRole") ?? "owner", "admin")) {
+    return c.json({ error: "This action requires admin access or higher" }, 403);
+  }
 
   // US-1507: a specific connection to disconnect. iOS (multi-account) sends this
   // so it disconnects only the tapped account; when absent, disconnect ALL the

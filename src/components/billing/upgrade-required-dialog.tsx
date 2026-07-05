@@ -16,6 +16,7 @@ import { FlipdeskPlanPickerDialog } from "@/components/billing/flipdesk-plan-pic
 import { CreditPackDialog } from "@/components/billing/credit-pack-dialog";
 import { CREDIT_PACKS, FLIPDESK_PLANS, GRADETHREAD_TIERS } from "@/lib/constants";
 import { useBuyCreditPack } from "@/hooks/use-billing-summary";
+import { useRedirectStore } from "@/stores/redirect-store";
 import { track } from "@/lib/analytics";
 import type { CreditPackSize } from "@/lib/constants";
 import { ArrowRight, Loader2, Lock, ShoppingCart, Sparkles } from "lucide-react";
@@ -60,6 +61,7 @@ export function UpgradeRequiredDialog() {
   const [planPickerOpen, setPlanPickerOpen] = useState(false);
   const [creditPackOpen, setCreditPackOpen] = useState(false);
   const buyPack = useBuyCreditPack();
+  const isRedirecting = useRedirectStore((s) => s.isRedirecting);
 
   if (!reason || !requiredPlan) {
     return (
@@ -190,7 +192,7 @@ export function UpgradeRequiredDialog() {
                       trackHard("pack");
                       buyPack.mutate({ packSize: pack.credits as CreditPackSize });
                     }}
-                    disabled={buyPack.isPending}
+                    disabled={buyPack.isPending || isRedirecting}
                     className="group rounded-md border border-border p-3 text-left transition-colors hover:border-brand-navy hover:bg-muted/40 disabled:opacity-60"
                   >
                     <div className="text-lg font-semibold tabular-nums">

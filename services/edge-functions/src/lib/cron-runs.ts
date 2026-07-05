@@ -90,8 +90,6 @@ export const CRON_REGISTRY: CronDef[] = [
   // US-1557: weekly per-category review-threshold calibration (shadow-first).
   { name: "confidence-calibration", label: "Confidence calibration", schedule: "0 13 * * 0", category: "grading", endpoint: "/api/jobs/confidence-calibration", recorded: true },
   { name: "stuck-submissions", label: "Stuck-submission recovery", schedule: "*/10 * * * *", category: "grading", endpoint: "/api/jobs/stuck-submissions", recorded: true },
-  // US-1588: the Agentic OS heartbeat — runs due agents + sweeps proposal TTLs.
-  { name: "agent-tick", label: "Agentic OS tick", schedule: "*/10 * * * *", category: "agents", endpoint: "/api/jobs/agent-tick", recorded: true },
   { name: "push-token-prune", label: "Push-token prune", schedule: "0 3 * * *", category: "maintenance", endpoint: "/api/jobs/push-token-prune", recorded: true },
   { name: "sync-reaper", label: "eBay sync reaper", schedule: "*/15 * * * *", category: "sync", endpoint: "/api/jobs/sync-reaper", recorded: true },
   { name: "email-retry", label: "Email outbox retry", schedule: "*/5 * * * *", category: "email", endpoint: "/api/jobs/email-retry", recorded: true },
@@ -103,6 +101,8 @@ export const CRON_REGISTRY: CronDef[] = [
   { name: "consignor-payouts", label: "Consignor auto-payouts", schedule: "*/30 * * * *", category: "flipdesk", endpoint: "/api/jobs/consignor-payouts", recorded: true },
   // US-1295: affiliate auto-payout sweep — accrue affiliate conversions + pay eligible balances over Stripe Connect.
   { name: "affiliate-payouts", label: "Affiliate auto-payouts", schedule: "15 */6 * * *", category: "growth", endpoint: "/api/jobs/affiliate-payouts", recorded: true },
+  { name: "agent-tick", label: "Agentic OS agent tick", schedule: "*/10 * * * *", category: "agents", endpoint: "/api/jobs/agent-tick", recorded: true },
+  { name: "operator-brief", label: "Daily operator brief", schedule: "0 13 * * *", category: "agents", endpoint: "/api/jobs/operator-brief", recorded: true },
   // US-929: daily lifecycle email-journey tick (welcome / trial-nurture / win-back).
   { name: "journey-tick", label: "Lifecycle email-journey tick", schedule: "30 13 * * *", category: "growth", endpoint: "/api/jobs/journey-tick", recorded: true },
   // US-928: daily newsletter self-tuning — recompute topic/subject/send-hour weights from engagement.
@@ -133,6 +133,7 @@ export const CRON_REGISTRY: CronDef[] = [
   // US-811: App Store expiry backstop — lapse appstore-billed users whose Apple
   // expiry notification was lost (72h grace on stale period_end).
   { name: "appstore-expiry-sweep", label: "App Store expiry sweep", schedule: "45 1 * * *", category: "billing", endpoint: "/api/jobs/appstore-expiry-sweep", recorded: true },
+  { name: "googleplay-expiry-sweep", label: "Google Play expiry sweep", schedule: "50 1 * * *", category: "billing", endpoint: "/api/jobs/googleplay-expiry-sweep", recorded: true },
   // US-1145: hourly audit-log anomaly scan (impossible travel, burst actions).
   { name: "audit-anomaly-scan", label: "Audit anomaly scan", schedule: "5 * * * *", category: "safety", endpoint: "/api/jobs/audit-anomaly-scan", recorded: true },
   // US-893: Stripe-vs-DB reconciliation — precompute divergences for the admin console.
@@ -158,22 +159,36 @@ export const CRON_REGISTRY: CronDef[] = [
   // Served under /api/flipdesk/* — not in the ledger (next-run still computed).
   { name: "ebay-token-refresh", label: "eBay token refresh", schedule: "0 * * * *", category: "sync", endpoint: "/api/flipdesk/ebay/oauth/refresh", recorded: false },
   { name: "ebay-orders-sync", label: "eBay listings/orders sync", schedule: "*/30 * * * *", category: "sync", endpoint: "/api/flipdesk/ebay/listings/pull", recorded: false },
-  { name: "ebay-performance-sync", label: "eBay performance sync", schedule: "0 */6 * * *", category: "sync", endpoint: "/api/flipdesk/ebay/sync/performance", recorded: false },
-  { name: "ebay-publish-due", label: "Scheduled publish-due", schedule: "*/5 * * * *", category: "publish", endpoint: "/api/flipdesk/ebay/jobs/publish-due", recorded: false },
+  // US-1645: recorded via the eBay-cron recorder (cronNameForPath) so a missed
+  // run signals in the cron_runs ledger.
+  { name: "ebay-performance-sync", label: "eBay performance sync", schedule: "0 */6 * * *", category: "sync", endpoint: "/api/flipdesk/ebay/sync/performance", recorded: true },
+  { name: "ebay-publish-due", label: "Scheduled publish-due", schedule: "*/5 * * * *", category: "publish", endpoint: "/api/flipdesk/ebay/jobs/publish-due", recorded: true },
   { name: "google-sheet-sync", label: "Google Sheet sync", schedule: "*/5 * * * *", category: "sync", endpoint: "/api/flipdesk/google/sync/push", recorded: false },
   // Nightly photo archive sweep (cold-storage old originals).
   { name: "photo-archive", label: "Photo archive sweep", schedule: "0 4 * * *", category: "maintenance", endpoint: "/api/flipdesk/images/archive", recorded: false },
   // Payout reconciliation sweep (auto-link payout rows to sales).
   { name: "reconciliation-sweep", label: "Payout reconciliation sweep", schedule: "0 5 * * *", category: "flipdesk", endpoint: "/api/flipdesk/reconciliation/run", recorded: false },
   // US-1047: auto leave-feedback (no-op unless system setting feedback.auto_leave).
-  { name: "ebay-leave-feedback", label: "eBay auto leave-feedback", schedule: "0 10 * * *", category: "sync", endpoint: "/api/flipdesk/ebay/jobs/leave-feedback", recorded: false, healthy: "200; no-op unless system setting feedback.auto_leave=true" },
+  { name: "ebay-leave-feedback", label: "eBay auto leave-feedback", schedule: "0 10 * * *", category: "sync", endpoint: "/api/flipdesk/ebay/jobs/leave-feedback", recorded: true, healthy: "200; no-op unless system setting feedback.auto_leave=true" },
   // US-561: promoted-listings performance sync.
-  { name: "ebay-promoted-sync", label: "eBay promoted-listings sync", schedule: "0 */6 * * *", category: "sync", endpoint: "/api/flipdesk/ebay/jobs/promoted-sync", recorded: false },
+  { name: "ebay-promoted-sync", label: "eBay promoted-listings sync", schedule: "0 */6 * * *", category: "sync", endpoint: "/api/flipdesk/ebay/jobs/promoted-sync", recorded: true },
   // US-852: autonomous content tick — its OWN secret; idle returns skipped:true.
   { name: "content-tick", label: "Content scheduler tick", schedule: "0 * * * *", category: "content", endpoint: "/api/content/scheduler/tick", recorded: false, secretEnv: "CONTENT_INTERNAL_JOB_SECRET", healthy: "200 with skipped:true when idle (cadence gate) — NOT ok:true" },
   // US-882: weekly content digest email to admins.
   { name: "content-digest", label: "Content weekly digest", schedule: "0 14 * * 1", category: "content", endpoint: "/api/content/scheduler/digest", recorded: false, secretEnv: "CONTENT_INTERNAL_JOB_SECRET" },
 ];
+
+// US-1645: resolve a request path to its CRON_REGISTRY job name (by exact
+// endpoint), or null when the path isn't a recorded cron. The /api/jobs/*
+// recorder derives the name from the last path segment, but crons served
+// elsewhere (the eBay crons under /api/flipdesk/ebay/*) have a name that differs
+// from their last segment ("ebay-publish-due" vs ".../publish-due"), so their
+// recorder resolves the canonical registry name through this.
+export function cronNameForPath(path: string): string | null {
+  const clean = path.replace(/\/+$/, "");
+  const def = CRON_REGISTRY.find((d) => d.recorded && d.endpoint === clean);
+  return def ? def.name : null;
+}
 
 // ── Minimal cron next-run computation ────────────────────────────────
 // Supports the subset used above: '*', '*/n', comma lists, and single ints per

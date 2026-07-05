@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useAuthStore } from "@/stores/auth-store";
+import { useRedirectStore } from "@/stores/redirect-store";
 import { markCheckoutPending } from "@/lib/checkout-pending";
 import type {
   FlipdeskPlanKey,
@@ -138,7 +139,7 @@ export function useFlipdeskSubscribe() {
     onSuccess: (data) => {
       // New subscription → Stripe Checkout redirect.
       if (data.url) {
-        window.location.href = data.url;
+        useRedirectStore.getState().redirectTo(data.url);
         return;
       }
       // Existing subscription was modified in place (upgrade / interval swap).
@@ -177,7 +178,7 @@ export function useBuyCreditPack() {
       return json;
     },
     onSuccess: (data) => {
-      if (data.url) window.location.href = data.url;
+      if (data.url) useRedirectStore.getState().redirectTo(data.url);
     },
     onError: (err) => toast.error(err.message),
   });
@@ -342,7 +343,7 @@ export function useBillingPortal() {
       return json;
     },
     onSuccess: (data) => {
-      if (data.url) window.location.href = data.url;
+      if (data.url) useRedirectStore.getState().redirectTo(data.url);
     },
     onError: (err) => toast.error(err.message),
   });

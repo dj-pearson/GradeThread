@@ -11,7 +11,8 @@ import { assert, assertEquals } from "@std/assert";
 Deno.env.set("SUPABASE_URL", "http://localhost:54321");
 Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "test-service-role-key");
 
-const { buildStringToSign, isValidSigningCertUrl } = await import("../lib/sns-verify.ts");
+const { buildStringToSign, isValidSigningCertUrl, isSnsTimestampFresh, SNS_MAX_AGE_MS } =
+  await import("../lib/sns-verify.ts");
 
 Deno.test("buildStringToSign: Notification uses the documented field order", () => {
   const s = buildStringToSign({
@@ -72,4 +73,31 @@ Deno.test("isValidSigningCertUrl: only https AWS SNS hosts pass", () => {
   assert(!isValidSigningCertUrl("https://evil.com/cert.pem"));
   assert(!isValidSigningCertUrl("https://sns.us-east-1.amazonaws.com.evil.com/cert.pem"));
   assert(!isValidSigningCertUrl("not a url"));
+});
+
+// US-1641: Timestamp freshness (replay guard).
+Deno.test("isSnsTimestampFresh: accepts a recent message, rejects a stale one", () => {
+  const now = Date.parse("2026-06-20T12:00:00.000Z");
+  // 5 minutes old → fresh.
+  assert(
+    isSnsTimestampFresh({ Timestamp: "2026-06-20T11:55:00.000Z" }, now),
+  );
+  // Just under the 1h window → fresh.
+  assert(
+    isSnsTimestampFresh({ Timestamp: new Date(now - SNS_MAX_AGE_MS + 1000).toISOString() }, now),
+  );
+  // Over 1h old → stale (replayed).
+  assert(
+    !isSnsTimestampFresh({ Timestamp: new Date(now - SNS_MAX_AGE_MS - 1000).toISOString() }, now),
+  );
+});
+
+Deno.test("isSnsTimestampFresh: rejects a far-future or unparseable/missing timestamp", () => {
+  const now = Date.parse("2026-06-20T12:00:00.000Z");
+  // Far-future (beyond skew allowance) → rejected.
+  assert(
+    !isSnsTimestampFresh({ Timestamp: new Date(now + SNS_MAX_AGE_MS + 1000).toISOString() }, now),
+  );
+  assert(!isSnsTimestampFresh({ Timestamp: "not-a-date" }, now));
+  assert(!isSnsTimestampFresh({}, now));
 });

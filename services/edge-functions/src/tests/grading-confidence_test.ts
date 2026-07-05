@@ -128,3 +128,18 @@ Deno.test("policy: low model confidence alone still routes to review", () => {
   assertEquals(r.finalConfidence, 0.4);
   assert(r.needsHumanReview);
 });
+
+// US-1622 / C9: the review-gate re-derivation after post-composite adjustments.
+Deno.test("reconcileNeedsReview: below-threshold forces review; boosts never un-gate", async () => {
+  const { reconcileNeedsReview } = await import("../lib/ai-config.ts");
+  const T = 0.75;
+  // Effective confidence below threshold → review, even with no prior flag
+  // (e.g. a lone verification-discrepancy shave that didn't itself set the flag).
+  assertEquals(reconcileNeedsReview(false, 0.70, T), true);
+  // At/above threshold and not previously flagged → no forced review.
+  assertEquals(reconcileNeedsReview(false, 0.75, T), false);
+  assertEquals(reconcileNeedsReview(false, 0.92, T), false);
+  // A prior flag is sticky — a provenance boost that lifted confidence back over
+  // the threshold must NOT un-gate an already-flagged grade.
+  assertEquals(reconcileNeedsReview(true, 0.92, T), true);
+});

@@ -224,6 +224,24 @@ export function reviewConfidenceThreshold(): number {
   return Number.isFinite(n) && n > 0 && n <= 1 ? n : fallback;
 }
 
+/**
+ * US-1622 / C9: re-derive whether a grade needs human review from its EFFECTIVE
+ * confidence after all post-composite adjustments. Two invariants:
+ *   • a grade already flagged stays flagged — provenance boosts never un-gate a
+ *     grade (confidence is never "raised out of" review post-composite);
+ *   • a grade whose effective confidence ended below the review threshold is
+ *     forced to review, even if no single earlier event set the flag (e.g. a
+ *     lone verification-discrepancy shave).
+ * Pure, so the gate invariant is unit-tested independent of the pipeline.
+ */
+export function reconcileNeedsReview(
+  priorNeedsReview: boolean,
+  effectiveConfidence: number,
+  threshold: number = reviewConfidenceThreshold(),
+): boolean {
+  return priorNeedsReview || effectiveConfidence < threshold;
+}
+
 let anthropicClient: Anthropic | null = null;
 
 // US-414: route EVERY non-streaming messages.create through the process-wide

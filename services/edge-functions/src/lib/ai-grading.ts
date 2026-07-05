@@ -1710,6 +1710,20 @@ export function normalizeVerificationDiscrepancies(raw: unknown): string[] {
     .slice(0, 10);
 }
 
+// US-1067/US-1643: the LIVE, active few-shot exemplar block is appended to the
+// composite system prompt ONLY when grading a real submission with the active
+// prompt (no override) AND not explicitly suppressed. Any eval / dry-run /
+// shadow leg (override set, OR suppressExemplars) measures the prompt itself, so
+// the block must never leak in — otherwise the "active" leg would carry it while
+// the candidate leg (override) wouldn't, confounding the comparison. Pure +
+// exported so the rule is unit-tested.
+export function shouldAppendActiveExemplars(
+  hasPromptOverride: boolean,
+  suppressExemplars: boolean,
+): boolean {
+  return !hasPromptOverride && !suppressExemplars;
+}
+
 export async function compositeGrade(
   perImageResults: PerImageAnalysis[],
   garmentInfo: GarmentInfo,
@@ -1726,6 +1740,12 @@ export async function compositeGrade(
   // US-1537: bounded photo set for the visual verification pass ([] →
   // text-only composite, byte-identical behavior). "+visual" suffix when used.
   verificationImages: VerificationImage[] = [],
+  // US-1643: eval / dry-run legs set this so the LIVE, active exemplar block is
+  // NEVER auto-appended — even on the "active"/code-default leg that passes no
+  // promptOverride. Without it the active leg carries the exemplar block while
+  // the candidate (override) leg doesn't, confounding the comparison. Default
+  // false → real grading behavior byte-identical.
+  suppressExemplars = false,
 ): Promise<CompositeGradeResult> {
   const client = getAnthropicClient();
   const startTime = Date.now();
@@ -1772,7 +1792,7 @@ export async function compositeGrade(
   // An override path (eval / dry-run / shadow) measures the prompt itself, so the
   // block is never auto-appended there.
   let systemText = prompt.text;
-  if (!promptOverride) {
+  if (shouldAppendActiveExemplars(promptOverride !== undefined, suppressExemplars)) {
     const exemplarBlock = await getActiveExemplarBlock(
       garmentInfo.garment_category || null,
     );

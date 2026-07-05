@@ -294,10 +294,15 @@ export function CertificatePage() {
 
   useEffect(() => {
     if (!id) return;
+    // US-1632: guard against an A→B certificate navigation race so the old id's
+    // async continuations never write over the new page.
+    let cancelled = false;
 
     async function fetchCertificate() {
       setLoading(true);
       setError(null);
+      setGradeReport(null);
+      setPassportSlug(null);
 
       // US-348: read the column-restricted public_grade_reports view, not the
       // base table. Anonymous viewers get only public-safe certificate fields.
@@ -307,6 +312,7 @@ export function CertificatePage() {
         .eq("certificate_id", id!)
         .single();
 
+      if (cancelled) return;
       if (reportError || !reportData) {
         setError("Certificate not found");
         setLoading(false);
@@ -323,6 +329,7 @@ export function CertificatePage() {
         .select("passport_slug")
         .eq("certificate_id", id!)
         .maybeSingle();
+      if (cancelled) return;
       if (passportLink) {
         setPassportSlug((passportLink as { passport_slug: string }).passport_slug);
       }
@@ -347,6 +354,7 @@ export function CertificatePage() {
         const certRes = await fetch(
           `${edgeApiUrl()}/api/content/public/certificates/${encodeURIComponent(id!)}`,
         );
+        if (cancelled) return;
         if (certRes.ok) {
           const { certificate } = (await certRes.json()) as {
             certificate?: {
@@ -396,10 +404,14 @@ export function CertificatePage() {
         /* network/edge down — the grade + scores still render from the view */
       }
 
+      if (cancelled) return;
       setLoading(false);
     }
 
     fetchCertificate();
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
 
   if (loading) {

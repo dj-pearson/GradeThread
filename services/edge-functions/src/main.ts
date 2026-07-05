@@ -10,6 +10,7 @@ import { emailSnsRoutes } from "./routes/email-sns.ts";
 import { emailEngagementRoutes } from "./routes/email-engagement.ts";
 import { paymentRoutes } from "./routes/payments.ts";
 import { appstoreVerifyRoutes, appstoreWebhookRoutes } from "./routes/appstore.ts";
+import { googlePlayRtdnRoutes } from "./routes/google-play-rtdn.ts";
 import { googlePlayVerifyRoutes } from "./routes/google-play.ts";
 import { apiKeyRoutes } from "./routes/api-keys.ts";
 import { apiV1Routes } from "./routes/api-v1.ts";
@@ -109,7 +110,8 @@ import { adminMarketplacePipelineRoutes } from "./routes/admin-marketplace-pipel
 import { adminConditionIndexRoutes } from "./routes/admin-condition-index.ts";
 import { adminAuditRoutes } from "./routes/admin-audit.ts";
 import { handleAuditAnomalyCron } from "./routes/jobs-audit-anomaly.ts";
-import { recordCronRun } from "./lib/cron-runs.ts";
+import { cronNameForPath, recordCronRun } from "./lib/cron-runs.ts";
+import { createMiddleware } from "hono/factory";
 import { emitOpsEvent } from "./lib/ops-events.ts";
 import { publicGradingRoutes } from "./routes/public-grading.ts";
 import { handleGradingMonitorCron } from "./lib/grading-monitor.ts";
@@ -122,17 +124,19 @@ import { handleCertIntegrityBackfillCron } from "./lib/cert-integrity-backfill.t
 import { handleDataRetentionCron } from "./lib/data-retention.ts";
 import { handleConditionIndexRefreshCron } from "./lib/condition-index.ts";
 import { handleAppstoreExpirySweepCron } from "./lib/appstore/expiry-sweep.ts";
+import { handleGooglePlayExpirySweepCron } from "./lib/google-play/expiry-sweep.ts";
 import { handleTrialExpiryCron } from "./routes/jobs-trial-expiry.ts";
 import { handleThumbnailBackfillCron } from "./routes/jobs-thumbnail-backfill.ts";
 import { handleConsignorPayoutsCron } from "./routes/jobs-consignor-payouts.ts";
 import { handleAffiliatePayoutsCron } from "./routes/jobs-affiliate-payouts.ts";
+import { handleAgentTickCron } from "./routes/jobs-agent-tick.ts";
+import { handleOperatorBriefCron } from "./routes/jobs-operator-brief.ts";
 import { handleJourneyTickCron } from "./routes/jobs-journey-tick.ts";
 import { handleNewsletterTuningCron } from "./routes/jobs-newsletter-tuning.ts";
 import { handleNewsletterTopicBankRefillCron } from "./routes/jobs-newsletter-topic-bank.ts";
 import { handleNewsletterAbFinalizeCron } from "./routes/jobs-newsletter-ab.ts";
 import { handleNewsletterDispatchCron } from "./routes/jobs-newsletter-dispatch.ts";
 import { handleAbuseScanCron } from "./routes/jobs-abuse-scan.ts";
-import { handleAgentTickCron } from "./routes/jobs-agent-tick.ts";
 import { handlePassportIntegrityScanCron } from "./routes/jobs-passport-integrity-scan.ts";
 import { handlePassportBackfillCron } from "./routes/jobs-passport-backfill.ts";
 import { handleListingPromptPromoteCron } from "./routes/jobs-listing-prompt-promote.ts";
@@ -299,6 +303,9 @@ app.use("/api/notifications/dispute-status", authMiddleware);
 app.use("/api/notifications/dispute-filed", authMiddleware);
 app.use("/api/notifications/register", authMiddleware);
 app.use("/api/notifications/feedback", authMiddleware);
+// US-1638: /welcome now derives its target from the verified token (was an
+// unauthenticated body-userId → account-existence oracle).
+app.use("/api/notifications/welcome", authMiddleware);
 // Account data export / deletion — caller acts only on their own data. (US-275)
 app.use("/api/account/*", authMiddleware);
 // US-900: user-facing support ticket inbox — caller acts only on their own tickets.
@@ -339,6 +346,16 @@ app.use("/api/flipdesk/ebay/payouts/*", authMiddleware);
 app.use("/api/flipdesk/ebay/comps", authMiddleware);
 app.use("/api/flipdesk/ebay/policies", authMiddleware);
 app.use("/api/flipdesk/ebay/policies/*", authMiddleware);
+// US-1623: these eBay sub-paths were missing from the per-path whitelist, so
+// authMiddleware never ran and the handlers (which read
+// workspaceOwnerId ?? userId) failed closed to 401 for signed-in sellers too.
+// Analytics, compliance, seller finances, catalog match/adopt, and promotions.
+app.use("/api/flipdesk/ebay/analytics/*", authMiddleware);
+app.use("/api/flipdesk/ebay/compliance/*", authMiddleware);
+app.use("/api/flipdesk/ebay/finances/*", authMiddleware);
+app.use("/api/flipdesk/ebay/catalog/*", authMiddleware);
+app.use("/api/flipdesk/ebay/promotions", authMiddleware);
+app.use("/api/flipdesk/ebay/promotions/*", authMiddleware);
 // US-561: Promoted Listings ad-rate suggestion + performance sync (the
 // /jobs/* promoted sync uses the job secret instead).
 app.use("/api/flipdesk/ebay/marketing/*", authMiddleware);
@@ -455,6 +472,12 @@ app.use("/api/support/assistant/*", workspaceMiddleware);
 // when a member is acting inside an owner's workspace. Sits after
 // authMiddleware. No-ops (workspaceOwnerId === userId) for solo users.
 app.use("/api/grade/*", workspaceMiddleware);
+// US-1637: per-grade checkout must resolve the workspace owner so a member can
+// pay to unlock the OWNER's submission (stored user_id = ownerId). Runs after
+// authMiddleware (mounted above); no-ops for solo users (workspaceOwnerId ===
+// userId). Other /api/payments/* routes read userId for the customer, so the
+// added workspace context is harmless to them.
+app.use("/api/payments/*", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/oauth/start", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/oauth/debug", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/disconnect", workspaceMiddleware);
@@ -464,6 +487,14 @@ app.use("/api/flipdesk/ebay/payouts/*", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/comps", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/policies", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/policies/*", workspaceMiddleware);
+// US-1623: workspace scope for the newly-authed eBay sub-paths (they resolve
+// the tenant via workspaceOwnerId ?? userId), matching the other eBay routes.
+app.use("/api/flipdesk/ebay/analytics/*", workspaceMiddleware);
+app.use("/api/flipdesk/ebay/compliance/*", workspaceMiddleware);
+app.use("/api/flipdesk/ebay/finances/*", workspaceMiddleware);
+app.use("/api/flipdesk/ebay/catalog/*", workspaceMiddleware);
+app.use("/api/flipdesk/ebay/promotions", workspaceMiddleware);
+app.use("/api/flipdesk/ebay/promotions/*", workspaceMiddleware);
 // US-673: best offers + send-offer + buyer messages.
 app.use("/api/flipdesk/ebay/negotiation/*", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/messages", workspaceMiddleware);
@@ -551,6 +582,40 @@ app.use("/api/jobs/*", async (c, next) => {
     });
   }
 });
+
+// US-1645: the eBay crons run under /api/flipdesk/ebay/* (not /api/jobs/*), so
+// the recorder above never saw them and a missed run was invisible. Record them
+// too — resolving the canonical registry name from the path (their name differs
+// from the last path segment) so a missing/failed run signals in the cron_runs
+// ledger and the ops activity stream exactly like every /api/jobs/* cron. Gated
+// on the internal job secret + a registered path, so ordinary eBay traffic is a
+// no-op. Mounted only on the specific cron sub-paths.
+const recordEbayCron = createMiddleware(async (c, next) => {
+  const isCron = Boolean(c.req.header("X-Internal-Job-Secret"));
+  const startedMs = isCron ? Date.now() : 0;
+  await next();
+  if (!isCron) return;
+  const jobName = cronNameForPath(c.req.path);
+  if (!jobName) return; // not a registered cron path — don't record
+  const httpStatus = c.res.status;
+  const triggeredBy = c.req.header("X-Triggered-By")?.trim() || "schedule";
+  void recordCronRun({
+    jobName,
+    status: httpStatus >= 400 ? "error" : "success",
+    httpStatus,
+    durationMs: Date.now() - startedMs,
+    triggeredBy,
+  });
+  if (httpStatus >= 400) {
+    void emitOpsEvent("job.failed", "warning", {
+      title: `Background job "${jobName}" failed (HTTP ${httpStatus})`,
+      source: jobName,
+      data: { job: jobName, http_status: httpStatus, triggered_by: triggeredBy },
+    });
+  }
+});
+app.use("/api/flipdesk/ebay/jobs/*", recordEbayCron);
+app.use("/api/flipdesk/ebay/sync/performance", recordEbayCron);
 
 // Admin billing: user JWT auth, then admin role check
 app.use("/api/admin/*", authMiddleware);
@@ -850,6 +915,8 @@ app.route("/api/email", emailSnsRoutes);
 // /api/email prefix with email-sns; the /o/:token & /c/:token paths don't collide.
 app.route("/api/email", emailEngagementRoutes);
 app.route("/api/webhooks/appstore", appstoreWebhookRoutes);
+// US-1650: Google Play RTDN Pub/Sub push (public, GOOGLE_RTDN_WEBHOOK_SECRET-verified).
+app.route("/api/webhooks/google-play", googlePlayRtdnRoutes);
 app.route("/api/keys", apiKeyRoutes);
 app.route("/api/passport", passportRoutes);
 app.route("/api/passport-identity", passportIdentityRoutes);
@@ -1000,7 +1067,7 @@ app.route("/api/admin/bulk", adminBulkRoutes);
 // US-1565: dashboard/system aggregates + task-board CRUD through the edge boundary.
 app.route("/api/admin/dashboard", adminDashboardRoutes);
 app.route("/api/admin/tasks", adminTasksRoutes);
-// US-1587: the Agentic OS proposals inbox (list/approve/reject).
+// US-1657 Agentic OS proposal sign-off (list/approve/reject) — ops:write, audited
 app.route("/api/admin/agents", adminAgentsRoutes);
 // US-476/477 admin content moderation (approve/reject/ban) — audited
 // service-role routes (admin JWT + AAL2 via the /api/admin/* group).
@@ -1104,6 +1171,10 @@ app.post("/api/jobs/ai-budget-guardrails", (c) => handleAiBudgetCron(c));
 // enforces X-Internal-Job-Secret itself. Fails orphaned 'processing' grades and
 // reverses their charge so a crash/redeploy can't strand paid work.
 app.post("/api/jobs/stuck-submissions", (c) => handleStuckSubmissionsCron(c));
+// US-1588 Agentic OS scheduler: runs due agents on the shared cron rails.
+app.post("/api/jobs/agent-tick", (c) => handleAgentTickCron(c));
+// US-1592 Daily Operator Brief: one cross-agent digest to admins.
+app.post("/api/jobs/operator-brief", (c) => handleOperatorBriefCron(c));
 // US-795 push device-token prune. OUTSIDE the JWT groups; the handler enforces
 // X-Internal-Job-Secret itself. Deletes long-inactive (signed-out / dead-token)
 // rows so the table doesn't grow unbounded and send fan-outs stay cheap.
@@ -1131,6 +1202,9 @@ app.post("/api/jobs/condition-index-refresh", (c) => handleConditionIndexRefresh
 // billed users to free when Apple's expiry notification was lost (stale
 // flipdesk_period_end past a 72h grace window). Handler enforces the job secret.
 app.post("/api/jobs/appstore-expiry-sweep", (c) => handleAppstoreExpirySweepCron(c));
+// US-1619 / C6: Google Play backstop — lapse cancelled/expired Play subscriptions
+// whose flipdesk_period_end is past the grace window (no RTDN webhook yet).
+app.post("/api/jobs/googleplay-expiry-sweep", (c) => handleGooglePlayExpirySweepCron(c));
 // US-383 daily trial-expiry downgrade cron. OUTSIDE /api/* JWT groups; the
 // handler enforces X-Internal-Job-Secret itself (mirrors the other crons).
 app.post("/api/jobs/trial-expiry", (c) => handleTrialExpiryCron(c));
@@ -1162,8 +1236,6 @@ app.post("/api/jobs/newsletter-dispatch", (c) => handleNewsletterDispatchCron(c)
 // cross-account phash photo-reuse + submission-velocity signals. Idempotent
 // (dedupe_key); the handler enforces X-Internal-Job-Secret itself.
 app.post("/api/jobs/abuse-scan", (c) => handleAbuseScanCron(c));
-// US-1588: the Agentic OS heartbeat (due-agent runs + proposal-TTL sweep).
-app.post("/api/jobs/agent-tick", (c) => handleAgentTickCron(c));
 // US-1103 Garment Passport integrity scan — populates the integrity queue with
 // wear-reversal, duplicate-fingerprint-across-owners, rapid-reclaim and
 // token-replay anomalies. Idempotent (dedupe_key); the handler enforces

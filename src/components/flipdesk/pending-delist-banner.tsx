@@ -7,6 +7,7 @@ import type { ListingPlatform } from "@/types/database";
 import { isListerAvailable } from "@/lib/lister-extension";
 import {
   type PendingDelist,
+  useMarkDelistDone,
   usePendingDelists,
   useRunDelist,
 } from "@/hooks/use-pending-delists";
@@ -25,15 +26,20 @@ function platformLabel(p: string): string {
 export function PendingDelistBanner() {
   const { data: pending = [] } = usePendingDelists();
   const runDelist = useRunDelist();
+  const markDone = useMarkDelistDone();
 
   if (pending.length === 0) return null;
 
   const extensionReady = isListerAvailable();
+  const busy = runDelist.isPending || markDone.isPending;
 
   const handleEnd = async (item: PendingDelist) => {
     try {
       const res = await runDelist.mutateAsync(item);
       if (res.manual || !res.ok) {
+        // US-1629: the extension couldn't end it — the stamp is intentionally
+        // NOT cleared (the listing may still be live), so warn and leave it
+        // queued for a retry or a manual "Mark ended".
         toast.warning(
           res.error ?? `End the ${platformLabel(item.platform)} listing manually.`,
         );
@@ -42,6 +48,17 @@ export function PendingDelistBanner() {
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Delist failed.");
+    }
+  };
+
+  // US-1629: explicit manual clear — the seller ended the listing themselves
+  // (no extension / degraded), so drop it off the queue on their say-so.
+  const handleMarkDone = async (item: PendingDelist) => {
+    try {
+      await markDone.mutateAsync(item.listing_id);
+      toast.success(`Marked ${platformLabel(item.platform)} as ended.`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not update the queue.");
     }
   };
 
@@ -86,21 +103,47 @@ export function PendingDelistBanner() {
                     Open
                   </a>
                 )}
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7"
-                  disabled={runDelist.isPending}
-                  onClick={() => void handleEnd(item)}
-                >
-                  {runDelist.isPending ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : extensionReady ? (
-                    "End listing"
-                  ) : (
-                    "Mark ended"
-                  )}
-                </Button>
+                {extensionReady ? (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7"
+                      disabled={busy}
+                      onClick={() => void handleEnd(item)}
+                    >
+                      {runDelist.isPending ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        "End listing"
+                      )}
+                    </Button>
+                    {/* US-1629: fallback manual clear if the extension can't end it. */}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 text-xs text-muted-foreground"
+                      disabled={busy}
+                      onClick={() => void handleMarkDone(item)}
+                    >
+                      Mark ended
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7"
+                    disabled={busy}
+                    onClick={() => void handleMarkDone(item)}
+                  >
+                    {markDone.isPending ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      "Mark ended"
+                    )}
+                  </Button>
+                )}
               </div>
             </li>
           ))}

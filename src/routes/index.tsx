@@ -198,6 +198,7 @@ const AdminNotificationsPage = lazy(() => import("@/pages/admin/notifications").
 const AdminJobsPage = lazy(() => import("@/pages/admin/jobs").then(m => ({ default: m.AdminJobsPage })));
 const AdminOpsHealthPage = lazy(() => import("@/pages/admin/ops-health").then(m => ({ default: m.AdminOpsHealthPage })));
 const AdminOpsJobsPage = lazy(() => import("@/pages/admin/ops-jobs").then(m => ({ default: m.AdminOpsJobsPage })));
+const AdminAgentsPage = lazy(() => import("@/pages/admin/agents").then(m => ({ default: m.AdminAgentsPage })));
 const AdminOpsDeadLettersPage = lazy(() => import("@/pages/admin/ops-dead-letters").then(m => ({ default: m.AdminOpsDeadLettersPage })));
 const AdminOpsActivityPage = lazy(() => import("@/pages/admin/ops-activity").then(m => ({ default: m.AdminOpsActivityPage })));
 const AdminOpsRunbooksPage = lazy(() => import("@/pages/admin/ops-runbooks").then(m => ({ default: m.AdminOpsRunbooksPage })));
@@ -561,6 +562,7 @@ export const router = createBrowserRouter([
               { path: "/admin/ops/activity", element: <SuspenseWrapper><AdminOpsActivityPage /></SuspenseWrapper> },
               { path: "/admin/ops/health", element: <SuspenseWrapper><AdminOpsHealthPage /></SuspenseWrapper> },
               { path: "/admin/ops/jobs", element: <SuspenseWrapper><AdminOpsJobsPage /></SuspenseWrapper> },
+              { path: "/admin/agents", element: <SuspenseWrapper><AdminAgentsPage /></SuspenseWrapper> },
               { path: "/admin/ops/dead-letters", element: <SuspenseWrapper><AdminOpsDeadLettersPage /></SuspenseWrapper> },
               { path: "/admin/ops/settings", element: <SuspenseWrapper><AdminSettingsRegistryPage /></SuspenseWrapper> },
               // US-908 granular RBAC scope management (admin read; super_admin + step-up to edit).

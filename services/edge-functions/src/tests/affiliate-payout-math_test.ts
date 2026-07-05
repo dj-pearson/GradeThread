@@ -6,6 +6,8 @@ import {
   crossesTaxThreshold,
   DEFAULT_AFFILIATE_PAYOUT_CONFIG,
   isPastHold,
+  isPayoutRetryable,
+  MAX_PAYOUT_RETRY_AGE_MS,
   normalizeAffiliatePayoutConfig,
   planAccrual,
   planPayout,
@@ -102,6 +104,32 @@ Deno.test("isPastHold: a future hold is not yet payable; a past hold is", () => 
   // A missing/garbage hold is treated as already elapsed.
   assertEquals(isPastHold(null, now), true);
   assertEquals(isPastHold(undefined, now), true);
+});
+
+// ── Retry cap (US-1653) ──────────────────────────────────────────────────────
+
+Deno.test("isPayoutRetryable: within the cap retries; past it stops", () => {
+  const now = 10 * MAX_PAYOUT_RETRY_AGE_MS; // arbitrary "now" comfortably past 0
+  // Just created → retryable.
+  assertEquals(isPayoutRetryable(now, now), true);
+  // Exactly at the cap boundary → still retryable (inclusive).
+  assertEquals(isPayoutRetryable(now - MAX_PAYOUT_RETRY_AGE_MS, now), true);
+  // One ms past the cap → stale, no longer retried.
+  assertEquals(isPayoutRetryable(now - MAX_PAYOUT_RETRY_AGE_MS - 1, now), false);
+});
+
+Deno.test("isPayoutRetryable: a missing/garbage created_at fails open (retryable)", () => {
+  const now = 1_000_000;
+  assertEquals(isPayoutRetryable(null, now), true);
+  assertEquals(isPayoutRetryable(undefined, now), true);
+  assertEquals(isPayoutRetryable(Number.NaN, now), true);
+});
+
+Deno.test("isPayoutRetryable: honors an explicit maxAge override", () => {
+  const now = 1_000_000;
+  const oneDay = 24 * 60 * 60 * 1000;
+  assertEquals(isPayoutRetryable(now - oneDay, now, 2 * oneDay), true);
+  assertEquals(isPayoutRetryable(now - 3 * oneDay, now, 2 * oneDay), false);
 });
 
 // ── 1099 threshold flag ──────────────────────────────────────────────────────

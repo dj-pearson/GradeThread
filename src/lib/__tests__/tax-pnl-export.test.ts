@@ -8,6 +8,7 @@ import {
   distinctValues,
   taxPnlCsvText,
   type TaxPnlItemMeta,
+  type TaxPnlRow,
 } from "@/lib/tax-pnl-export";
 
 // Minimal SaleRow factory — only the fields the P&L reads matter; everything
@@ -200,6 +201,40 @@ describe("sumTaxPnl reconciles to the underlying rows", () => {
       totals.gradingCost -
       totals.otherCosts;
     expect(identity).toBeCloseTo(totals.net, 10);
+  });
+
+  // US-1636: the summary must reconcile to the SUM OF THE PRINTED rows (each
+  // detail cell is .toFixed(2)). Raw-float summation could disagree by a cent.
+  it("summary equals the sum of the cent-rounded detail rows", () => {
+    const mkRow = (over: Partial<TaxPnlRow>): TaxPnlRow => ({
+      saleId: "s",
+      itemId: "i",
+      saleDate: "2026-01-01",
+      title: "t",
+      category: "c",
+      brand: "b",
+      salePrice: 0,
+      shippingCollected: 0,
+      revenue: 0,
+      cogs: 0,
+      fees: 0,
+      shippingCost: 0,
+      gradingCost: 0,
+      otherCosts: 0,
+      net: 0,
+      ...over,
+    });
+    // Three rows whose fee value is 0.014 → each prints as "0.01", so the
+    // printed column sums to 0.03; raw-float summation gives 0.042 → "0.04".
+    const rows = [
+      mkRow({ fees: 0.014, revenue: 0.014 }),
+      mkRow({ fees: 0.014, revenue: 0.014 }),
+      mkRow({ fees: 0.014, revenue: 0.014 }),
+    ];
+    const totals = sumTaxPnl(rows);
+    const printedFeeSum = rows.reduce((a, r) => a + Number(r.fees.toFixed(2)), 0);
+    expect(totals.fees).toBeCloseTo(printedFeeSum, 10); // 0.03, not 0.04
+    expect(totals.fees.toFixed(2)).toBe("0.03");
   });
 
   it("empty input yields zeroed totals", () => {

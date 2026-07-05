@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
@@ -122,6 +122,16 @@ interface PublishJobRow {
 export function useBulkPublish() {
   const [results, setResults] = useState<Record<string, BulkPublishItemResult>>({});
   const [running, setRunning] = useState(false);
+  // US-1633: stop the poll loop when the component unmounts (the durable server
+  // batch keeps going regardless) so it doesn't run forever / setState after
+  // unmount. Also a hard poll cap so a stuck batch can't spin indefinitely.
+  const cancelledRef = useRef(false);
+  useEffect(() => {
+    cancelledRef.current = false;
+    return () => {
+      cancelledRef.current = true;
+    };
+  }, []);
 
   const run = useCallback(async (items: BulkPublishItem[]) => {
     if (items.length === 0) return;
@@ -169,8 +179,11 @@ export function useBulkPublish() {
 
     // 2. Poll the batch until it terminalizes, mapping jobs → per-item results.
     //    Closing the tab here doesn't stop the publish — the server owns it.
-    for (;;) {
+    //    US-1633: bounded (~20 min at 1.5s) and unmount-cancellable.
+    const MAX_POLLS = 800;
+    for (let poll = 0; poll < MAX_POLLS; poll++) {
       await new Promise((r) => setTimeout(r, 1500));
+      if (cancelledRef.current) return; // unmounted — stop touching state
       let json: {
         batch?: { status?: string };
         jobs?: PublishJobRow[];
@@ -182,6 +195,7 @@ export function useBulkPublish() {
       } catch {
         continue;
       }
+      if (cancelledRef.current) return;
 
       const jobs = json.jobs ?? [];
       setResults(() =>
@@ -204,6 +218,15 @@ export function useBulkPublish() {
         finish(failed, jobs.length || items.length);
         return;
       }
+    }
+    // US-1633: hit the poll cap without terminalizing — the durable server batch
+    // is still running; stop the local spinner and tell the user it'll finish
+    // server-side rather than polling forever.
+    if (!cancelledRef.current) {
+      setRunning(false);
+      toast.info(
+        "Publishing is taking longer than expected — it will finish on the server. Refresh later to see the results.",
+      );
     }
   }, []);
 
