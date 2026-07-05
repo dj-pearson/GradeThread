@@ -1,5 +1,22 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00360_seed_integrations_watchdog_agent.sql (US-1604 / AGENTIC-OS Phase 1, 2026-07-05)
+
+**What:** seeds ONE `agents` row — the Integrations Watchdog agent (module I),
+`status='paused'`, `autonomy='{}'` (L0), config = daily schedule / haiku model /
+read-only allowlist (get_integrations_health + get_marketplace_health) / $1 daily
+cap. The prompt lives in the repo charter
+(`agents/charters/integrations-watchdog.ts`). It has NO write tools of its own —
+it can only file admin tasks (file_task) once an operator grants L1. `ON CONFLICT
+(key) DO NOTHING` (idempotent). Self-records '00360'.
+
+**Risk: LOW — one seed row into the operator agents table (00357).** No client
+reads. Seeded PAUSED, so it does nothing until an operator enables it. Edge boot
+guard now expects **00360**.
+
+**⚠️ Apply order:** apply after 00357/00358/00359. Data-only (no `NOTIFY pgrst`
+needed). Redeploy the edge so its boot guard matches 00360.
+
 ## ⏳ HELD: 00359_seed_grading_quality_agent.sql (US-1594 / AGENTIC-OS Phase 1, 2026-07-05)
 
 **What:** seeds ONE `agents` row — the Grading Quality agent (module G),

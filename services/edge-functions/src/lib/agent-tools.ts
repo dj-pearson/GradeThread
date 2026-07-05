@@ -30,6 +30,7 @@ import { aggregateJobStats, failingJobCount, isRunnableJob, type RawRun } from "
 import { CRON_REGISTRY, DEFAULT_JOB_SECRET_ENV } from "./cron-runs.ts";
 import { correlateIncidents, type Signal } from "./sentinel.ts";
 import { assembleGradingMemo, gatherGradingTelemetry } from "./grading-quality.ts";
+import { assembleIntegrationsMemo, type RotationState } from "./integrations-watchdog.ts";
 import { type ReorderReviewQueueResult, reorderReviewQueue } from "./review-queue-order.ts";
 import { resolveRevenueWindow } from "./revenue-window.ts";
 import { type AuditLogInput, writeSystemAuditLog } from "./audit-log.ts";
@@ -168,6 +169,9 @@ export interface ToolIO {
   rpc(name: string, args?: Record<string, unknown>): Promise<unknown>;
   audit(input: AuditLogInput): Promise<void>;
   now(): number;
+  // US-1604: operator-maintained map secret → last-rotated ISO (system_settings
+  // `security.key_rotation_state`). Metadata only — never any secret material.
+  fetchKeyRotationState(): Promise<RotationState>;
   // ── Write-side (used only by executeWrite / approved proposals) ──
   // Re-fire a registered cron job by key over the internal job rails.
   runJob(jobKey: string): Promise<{ ok: boolean; status: number; error?: string }>;
@@ -250,6 +254,15 @@ export function prodToolIO(): ToolIO {
     },
     audit: (input) => writeSystemAuditLog(input),
     now: () => Date.now(),
+    fetchKeyRotationState: async () => {
+      const { data } = await supabaseAdmin
+        .from("system_settings")
+        .select("value")
+        .eq("key", "security.key_rotation_state")
+        .maybeSingle();
+      const v = (data as { value?: unknown } | null)?.value;
+      return v && typeof v === "object" && !Array.isArray(v) ? v as RotationState : {};
+    },
     runJob: async (jobKey) => {
       // Only registered, runnable cron jobs — never an arbitrary URL.
       if (!isRunnableJob(jobKey)) return { ok: false, status: 0, error: "unknown_or_unrunnable_job" };
@@ -610,6 +623,38 @@ const TOOL_LIST: AgentToolDef[] = [
         expiring_soon: expiringSoon,
         by_marketplace: byMarketplace,
       };
+    },
+  },
+  {
+    name: "get_integrations_health",
+    description: "Integrations Watchdog memo (US-1604): pre-assembled vendor health verdicts (from ops events), the OAuth token-fleet expiry forecast (expired / 7d / 30d by marketplace), the key-rotation calendar (overdue / due-soon / baseline-needed, from KEY_ROTATION.md encoded as data), and an email deliverability watch. Read-about-credentials only — expiry metadata + cadences, never secret material.",
+    class: "read",
+    inputSchema: {
+      type: "object",
+      properties: { since_hours: { type: "integer", minimum: 1, maximum: 168, description: "ops-event window for vendor health" } },
+    },
+    handler: async (input, ctx) => {
+      const sinceHours = typeof input.since_hours === "number" ? input.since_hours : 24;
+      const sinceIso = new Date(ctx.now - sinceHours * 3600_000).toISOString();
+      const [connections, opsEvents, emailDead, rotationState] = await Promise.all([
+        ctx.io.fetchMarketplaceConnections(),
+        ctx.io.fetchOpsEvents({ sinceIso, limit: 200 }),
+        ctx.io.fetchEmailDeadLetters(500),
+        ctx.io.fetchKeyRotationState(),
+      ]);
+      const memo = assembleIntegrationsMemo({
+        connections,
+        opsEvents: opsEvents.map((e) => ({
+          type: e.type,
+          severity: e.severity,
+          source: e.source,
+          created_at: e.created_at,
+        })),
+        rotationState,
+        emailDeadLetters: emailDead.length,
+        nowMs: ctx.now,
+      });
+      return { memo };
     },
   },
 

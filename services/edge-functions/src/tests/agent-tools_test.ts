@@ -28,6 +28,7 @@ function fakeIO(over: Partial<ToolIO> = {}): { io: ToolIO; audits: AuditLogInput
       return Promise.resolve();
     },
     now: () => NOW,
+    fetchKeyRotationState: () => Promise.resolve({}),
     runJob: () => Promise.resolve({ ok: true, status: 200 }),
     requeueEmailDeadLetter: () => Promise.resolve(true),
     resolveAgentTaskProject: () => Promise.resolve("proj-1"),
@@ -205,6 +206,26 @@ Deno.test("registry: a write tool refuses to act without authorization context",
     error?: { code?: string };
   };
   assertEquals(res.error?.code, "invalid_input");
+});
+
+// ── US-1604: get_integrations_health composite read tool ─────────────────────
+
+Deno.test("US-1604: get_integrations_health assembles a memo from the reads", async () => {
+  const { io } = fakeIO({
+    fetchMarketplaceConnections: () =>
+      Promise.resolve([
+        // Expired eBay token → should surface in the forecast + break all-clear.
+        { marketplace: "ebay", is_active: true, token_expires_at: new Date(NOW - 3600_000).toISOString(), refresh_error: null },
+      ]),
+    fetchKeyRotationState: () => Promise.resolve({}),
+  });
+  const reg = createAgentToolRegistry(io);
+  const a = agent(["get_integrations_health"]);
+  const res = await reg.execute(a, "get_integrations_health", {}) as {
+    memo?: { token_fleet?: { expired?: number }; all_clear?: boolean };
+  };
+  assertEquals(res.memo?.token_fleet?.expired, 1);
+  assertEquals(res.memo?.all_clear, false);
 });
 
 // ── US-1658: reorder_review_queue write tool ─────────────────────────────────

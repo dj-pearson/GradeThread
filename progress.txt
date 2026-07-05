@@ -11027,3 +11027,42 @@ remote deps are cached, so the whole edge suite is un-runnable here; CI (deno
 standalone node reimplementation: both ordering expectations (novelty-dominates,
 SLA-float) reproduce exactly. Grading-engine contract respected: no grade/
 prompt/threshold/rounding-site touched.
+
+=== 2026-07-05 (loop: non-android prd): US-1604 (Integrations Watchdog agent) ===
+THE ASK: seed the Integrations Watchdog (Module I) — a daily read-only SRE for
+vendor health, the OAuth token fleet, and secret rotation. Reads ABOUT
+credentials (expiry metadata + cadences), NEVER secret material; files admin
+tasks, touches no credential.
+- NEW lib integrations-watchdog.ts (PURE, fixture-testable):
+  - KEY_ROTATION_REGISTRY: KEY_ROTATION.md's schedule encoded as checked-in data
+    (cadence_days per secret; null = event-driven / on-leak / on-policy).
+    MIGRATION-FREE choice per AC (checked-in JSON, not a new table).
+  - computeRotationCalendar: due/overdue/due_soon/baseline_needed/event_driven
+    from the registry + an operator-maintained last-rotated map. A scheduled
+    secret with NO recorded date is baseline_needed (record it) — not a false
+    overdue.
+  - computeTokenFleetForecast: expired / <=7d / <=30d expiry buckets (cumulative
+    horizons) per marketplace, + refresh-error count.
+  - summarizeVendorHealth: per-vendor verdict from ops events (>=1 critical=down,
+    >=3 warnings=degraded); non-vendor sources ignored.
+  - assembleIntegrationsMemo: composite memo + all_clear gate.
+- TOOL: get_integrations_health composite read tool (agent-tools.ts) gathers via
+  EXISTING ToolIO reads (marketplace connections, ops events, email dead-letters)
+  + a new fetchKeyRotationState (system_settings security.key_rotation_state, {}
+  default — metadata only). Returns {memo}. Allowlisted to the agent alongside
+  get_marketplace_health.
+- CHARTER integrations-watchdog.ts + registered in charters/index.ts. Explicit
+  {summary,findings,proposals} envelope; all_clear→quiet run; proposals are
+  file_task admin tasks ONLY (overdue rotation cites KEY_ROTATION.md; degraded
+  vendor; expiring tokens). Never rotates/retries/requeues.
+- SEED migration 00360_seed_integrations_watchdog_agent.sql (paused, L0,
+  idempotent, self-records). EXPECTED_SCHEMA_VERSION 00359->00360 (same commit).
+  HELD — recorded in PENDING_MIGRATIONS.md (LOW risk: one paused seed row, no
+  client reads). Joins the existing held batch 00357-00359 on this branch.
+- TESTS: integrations-watchdog_test.ts (calendar statuses, fleet bucketing,
+  vendor verdicts, memo all-clear + degraded paths); agent-tools_test.ts
+  (get_integrations_health assembles a memo; fakeIO gains fetchKeyRotationState).
+VERIFY: deno lint clean (7 files). deno test/check un-runnable locally (sandbox
+network policy 403s deno.land + esm.sh; no cached remote deps) — CI is the safety
+net. Validated ALL pure logic standalone in node: rotation statuses, cumulative
+token buckets, and vendor verdicts reproduce every test expectation exactly.
