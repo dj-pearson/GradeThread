@@ -1,5 +1,25 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00363_seed_marketplace_ops_agent.sql (US-1598 / AGENTIC-OS Phase 1, 2026-07-05)
+
+**What:** seeds ONE `agents` row — the Marketplace Ops agent (module L),
+`status='paused'`, `autonomy='{}'` (L0), config = daily schedule / sonnet model /
+read-only allowlist (get_marketplace_ops_health + get_marketplace_health) / $2
+daily cap. The prompt lives in the repo charter
+(`agents/charters/marketplace-ops-agent.ts`). It reads OPERATOR-SCOPE AGGREGATES
+only and can propose reclaim-cron retry_jobs + file admin tasks once an operator
+grants L1; it NEVER mutates tenant listings/inventory. `ON CONFLICT (key) DO
+NOTHING` (idempotent). Self-records '00363'.
+
+**Risk: LOW — one seed row into the operator agents table (00357).** No client
+reads. Seeded PAUSED. Edge boot guard now expects **00363**. NOTE: the agent's
+get_marketplace_ops_health tool also upserts a `marketplace_ops.backlog_snapshot`
+system_settings row at RUNTIME (operator backlog watermark) — created lazily on
+first run, no migration needed.
+
+**⚠️ Apply order:** apply after 00357–00362. Data-only (no `NOTIFY pgrst` needed).
+Redeploy the edge so its boot guard matches 00363.
+
 ## ⏳ HELD: 00362_seed_pricing_agent.sql (US-1601 / AGENTIC-OS Phase 1, 2026-07-05)
 
 **What:** seeds ONE `agents` row — the Pricing agent (module P), `status='paused'`,

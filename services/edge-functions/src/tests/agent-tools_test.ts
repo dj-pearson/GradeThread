@@ -34,6 +34,11 @@ function fakeIO(over: Partial<ToolIO> = {}): { io: ToolIO; audits: AuditLogInput
     fetchRepricingSuggestions: () => Promise.resolve([]),
     fetchAutomationActions: () => Promise.resolve([]),
     fetchCurveFreshness: () => Promise.resolve([]),
+    fetchListingBatches: () => Promise.resolve({ generation: [], publish: [] }),
+    countOpenSyncConflicts: () => Promise.resolve(0),
+    countOrphanSales: () => Promise.resolve(0),
+    fetchMarketplaceOpsBacklog: () => Promise.resolve(null),
+    persistMarketplaceOpsBacklog: () => Promise.resolve(),
     runJob: () => Promise.resolve({ ok: true, status: 200 }),
     requeueEmailDeadLetter: () => Promise.resolve(true),
     resolveAgentTaskProject: () => Promise.resolve("proj-1"),
@@ -231,6 +236,43 @@ Deno.test("US-1604: get_integrations_health assembles a memo from the reads", as
   };
   assertEquals(res.memo?.token_fleet?.expired, 1);
   assertEquals(res.memo?.all_clear, false);
+});
+
+// ── US-1598: get_marketplace_ops_health + allowlist safety ───────────────────
+
+Deno.test("US-1598: get_marketplace_ops_health forms a stuck-batch item with its reclaim cron", async () => {
+  const stale = new Date(NOW - 60 * 60_000).toISOString(); // 60m > 15m stuck window
+  let persisted = -1;
+  const { io } = fakeIO({
+    fetchListingBatches: () =>
+      Promise.resolve({ generation: [{ id: "b1", status: "running", updated_at: stale }], publish: [] }),
+    persistMarketplaceOpsBacklog: (t: number) => {
+      persisted = t;
+      return Promise.resolve();
+    },
+  });
+  const reg = createAgentToolRegistry(io);
+  const a = agent(["get_marketplace_ops_health"]);
+  const res = await reg.execute(a, "get_marketplace_ops_health", {}) as {
+    memo?: { all_clear?: boolean; stuck_items?: Array<{ id: string; remediation_cron: string }>; backlog?: { total?: number } };
+  };
+  assertEquals(res.memo?.all_clear, false);
+  assertEquals(res.memo?.stuck_items?.[0].id, "b1");
+  assertEquals(res.memo?.stuck_items?.[0].remediation_cron, "autolister-reclaim");
+  assertEquals(persisted, res.memo?.backlog?.total); // watermark recorded
+});
+
+Deno.test("US-1598: the marketplace-ops allowlist contains no tenant-data write tool", () => {
+  const reg = createAgentToolRegistry(fakeIO().io);
+  // The seeded allowlist (mirrors migration 00363).
+  const a = { ...agent(["get_marketplace_ops_health", "get_marketplace_health"]), key: "marketplace-ops" };
+  // Every allowlisted tool is a READ tool surfaced to the run loop; a write tool
+  // would be invisible (anthropicTools filters to read) AND rejected by execute.
+  const surfaced = reg.anthropicTools(a).map((t) => t.name).sort();
+  assertEquals(surfaced, ["get_marketplace_health", "get_marketplace_ops_health"]);
+  for (const name of ["reorder_review_queue", "retry_job", "create_admin_task", "requeue_dead_letter"]) {
+    assertEquals(reg.isAllowed(a, name), false); // no write tool is allowed
+  }
 });
 
 // ── US-1601: get_pricing_health composite read tool ──────────────────────────

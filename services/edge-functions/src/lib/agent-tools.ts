@@ -33,6 +33,7 @@ import { assembleGradingMemo, gatherGradingTelemetry } from "./grading-quality.t
 import { assembleFinanceMemo, type PayoutRow, type ReconFlag } from "./finance-agent.ts";
 import { assembleIntegrationsMemo, type RotationState } from "./integrations-watchdog.ts";
 import { type ActionRow, assemblePricingMemo, type CurveRow, type SuggestionRow } from "./pricing-agent.ts";
+import { assembleMarketplaceOpsMemo, type BatchRow } from "./marketplace-ops-agent.ts";
 import { type ReorderReviewQueueResult, reorderReviewQueue } from "./review-queue-order.ts";
 import { resolveRevenueWindow } from "./revenue-window.ts";
 import { type AuditLogInput, writeSystemAuditLog } from "./audit-log.ts";
@@ -183,6 +184,15 @@ export interface ToolIO {
   fetchRepricingSuggestions(sinceIso: string): Promise<SuggestionRow[]>;
   fetchAutomationActions(sinceIso: string): Promise<ActionRow[]>;
   fetchCurveFreshness(): Promise<CurveRow[]>;
+  // US-1598: FlipDesk pipeline aggregates (operator-scope; counts + batch ids +
+  // ages only, never a raw tenant row or PII).
+  fetchListingBatches(): Promise<{ generation: BatchRow[]; publish: BatchRow[] }>;
+  countOpenSyncConflicts(): Promise<number>;
+  countOrphanSales(): Promise<number>;
+  // Backlog time-series watermark (system_settings operator bookkeeping) for the
+  // "vs yesterday" trend — read the prior point, record the current one.
+  fetchMarketplaceOpsBacklog(): Promise<number | null>;
+  persistMarketplaceOpsBacklog(total: number): Promise<void>;
   // ── Write-side (used only by executeWrite / approved proposals) ──
   // Re-fire a registered cron job by key over the internal job rails.
   runJob(jobKey: string): Promise<{ ok: boolean; status: number; error?: string }>;
@@ -324,6 +334,50 @@ export function prodToolIO(): ToolIO {
         .order("refreshed_at", { ascending: true })
         .limit(2000);
       return (data ?? []) as CurveRow[];
+    },
+    fetchListingBatches: async () => {
+      const [{ data: gen }, { data: pub }] = await Promise.all([
+        supabaseAdmin.from("listing_generation_batches")
+          .select("id, status, updated_at").order("updated_at", { ascending: true }).limit(3000),
+        supabaseAdmin.from("listing_publish_batches")
+          .select("id, status, updated_at").order("updated_at", { ascending: true }).limit(3000),
+      ]);
+      return { generation: (gen ?? []) as BatchRow[], publish: (pub ?? []) as BatchRow[] };
+    },
+    countOpenSyncConflicts: async () => {
+      const { count } = await supabaseAdmin
+        .from("flipdesk_sync_conflicts")
+        .select("id", { count: "exact", head: true })
+        .is("resolved_at", null);
+      return count ?? 0;
+    },
+    countOrphanSales: async () => {
+      const { count } = await supabaseAdmin
+        .from("flipdesk_ebay_orphan_sales")
+        .select("id", { count: "exact", head: true });
+      return count ?? 0;
+    },
+    fetchMarketplaceOpsBacklog: async () => {
+      const { data } = await supabaseAdmin
+        .from("system_settings")
+        .select("value")
+        .eq("key", "marketplace_ops.backlog_snapshot")
+        .maybeSingle();
+      const v = (data as { value?: { total?: unknown } } | null)?.value?.total;
+      return typeof v === "number" && Number.isFinite(v) ? v : null;
+    },
+    persistMarketplaceOpsBacklog: async (total) => {
+      await supabaseAdmin.from("system_settings").upsert(
+        {
+          key: "marketplace_ops.backlog_snapshot",
+          value: { total, at: new Date().toISOString() },
+          value_type: "json",
+          default_value: { total: 0 },
+          description: "US-1598 Marketplace Ops agent backlog watermark (for the vs-yesterday trend)",
+          category: "flipdesk",
+        },
+        { onConflict: "key" },
+      );
     },
     runJob: async (jobKey) => {
       // Only registered, runnable cron jobs — never an arbitrary URL.
@@ -771,6 +825,34 @@ const TOOL_LIST: AgentToolDef[] = [
         ctx.io.fetchCurveFreshness(),
       ]);
       const memo = assemblePricingMemo({ suggestions, actions, curves, nowMs: ctx.now });
+      return { memo };
+    },
+  },
+  {
+    name: "get_marketplace_ops_health",
+    description: "Marketplace Ops agent memo (US-1598): per-marketplace connection verdicts, generation + publish batch backlog (stuck/failed counts + the top stuck items with age and the reclaim cron that owns each), open sync-conflict + orphan-sale counts, and the backlog trend vs the prior run. Operator-scope aggregates only — no raw tenant rows or PII. Unstick paths go through existing reclaim/sweep jobs.",
+    class: "read",
+    inputSchema: { type: "object", properties: {} },
+    handler: async (_input, ctx) => {
+      const [connections, batches, openSyncConflicts, orphanSales, priorBacklogTotal] = await Promise.all([
+        ctx.io.fetchMarketplaceConnections(),
+        ctx.io.fetchListingBatches(),
+        ctx.io.countOpenSyncConflicts(),
+        ctx.io.countOrphanSales(),
+        ctx.io.fetchMarketplaceOpsBacklog(),
+      ]);
+      const memo = assembleMarketplaceOpsMemo({
+        connections,
+        generationBatches: batches.generation,
+        publishBatches: batches.publish,
+        openSyncConflicts,
+        orphanSales,
+        priorBacklogTotal,
+        nowMs: ctx.now,
+      });
+      // Record this run's backlog as the next run's "yesterday" (operator
+      // bookkeeping only — a single integer watermark, no tenant data).
+      await ctx.io.persistMarketplaceOpsBacklog(memo.backlog.total).catch(() => {});
       return { memo };
     },
   },

@@ -11132,3 +11132,38 @@ VERIFY: deno lint clean. deno test/check un-runnable locally (network policy) �
 CI is the safety net. Validated ALL pure logic standalone in node (which caught
 the reversal-threshold bug BEFORE commit): reversal counting, ping-pong grouping/
 ordering, efficacy, staleness all reproduce the corrected expectations.
+
+=== 2026-07-05 (loop: non-android prd): US-1598 (Marketplace Ops agent) ===
+THE ASK: seed the Marketplace Ops agent (Module L) — cross-tenant FlipDesk
+pipeline health (operator view). OPERATOR-SCOPE AGGREGATES ONLY; reports +
+proposes UNSTICK paths through existing reclaim/sweep jobs; NEVER mutates tenant
+listings/inventory.
+- Loaded the tenant-isolation skill: the new reads are operator-scope AGGREGATES
+  (counts + batch ids + ages, never a raw tenant row/handle/title/PII), matching
+  the existing get_marketplace_health posture. No per-tenant route → no
+  tenant-isolation_test case needed; instead added the AC-mandated allowlist test.
+- NEW lib marketplace-ops-agent.ts (PURE, fixture-tested) — REUSES the US-899
+  pipeline-oversight helpers (isStuckBatch/isBatchIssue/ageMs) so "stuck" agrees
+  with the admin cockpit + the reclaim sweepers:
+  - computeMarketplaceVerdicts: per-marketplace healthy/degraded/down.
+  - summarizeBatchBacklog: gen + publish stuck/failed counts + top stuck items
+    (id + age) each mapped to its RECLAIM_CRON_FOR (autolister-reclaim /
+    publish-batch-reclaim / sync-reaper / reconciliation-sweep).
+  - computeBacklogTotal + trend vs prior snapshot.
+  - assembleMarketplaceOpsMemo: composite + all_clear.
+- TOOL get_marketplace_ops_health (agent-tools.ts): reuses fetchMarketplaceConn
+  + new fetchListingBatches / countOpenSyncConflicts / countOrphanSales +
+  reads/writes a marketplace_ops.backlog_snapshot watermark (operator bookkeeping,
+  no tenant data) for the vs-yesterday trend.
+- CHARTER + registered. Proposals: retry_job on the stuck item's remediation_cron
+  + file_task for connection problems. Never a tenant mutation.
+- SEED migration 00363 (paused, L0, idempotent, self-records).
+  EXPECTED_SCHEMA_VERSION 00362->00363. HELD — recorded in PENDING_MIGRATIONS.md.
+- TESTS: marketplace-ops-agent_test.ts (verdicts, stuck-batch→cron mapping,
+  terminal/fresh negatives, backlog total, memo all-clear + trend);
+  agent-tools_test.ts (stuck-batch item + watermark persistence; AC-mandated
+  "allowlist contains no tenant-data write tool" assertion). Fixed a stuck/stuck
+  name collision in summarizeOneBatchSet during the build.
+VERIFY: deno lint clean. deno test/check un-runnable locally (network policy) —
+CI is the safety net. Validated ALL pure logic standalone in node: stuck
+detection, verdicts, backlog total, trend reproduce every expectation.

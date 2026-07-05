@@ -11,6 +11,7 @@ import { GRADING_QUALITY_CHARTER } from "./grading-quality.ts";
 import { INTEGRATIONS_WATCHDOG_CHARTER } from "./integrations-watchdog.ts";
 import { FINANCE_AGENT_CHARTER } from "./finance-agent.ts";
 import { PRICING_AGENT_CHARTER } from "./pricing-agent.ts";
+import { MARKETPLACE_OPS_CHARTER } from "./marketplace-ops-agent.ts";
 
 export type { AgentCharter };
 
@@ -20,6 +21,7 @@ const CHARTERS: Record<string, AgentCharter> = {
   [INTEGRATIONS_WATCHDOG_CHARTER.key]: INTEGRATIONS_WATCHDOG_CHARTER,
   [FINANCE_AGENT_CHARTER.key]: FINANCE_AGENT_CHARTER,
   [PRICING_AGENT_CHARTER.key]: PRICING_AGENT_CHARTER,
+  [MARKETPLACE_OPS_CHARTER.key]: MARKETPLACE_OPS_CHARTER,
 };
 
 export function charterFor(agentKey: string): AgentCharter | null {

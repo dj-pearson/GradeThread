@@ -10623,7 +10623,7 @@
         "Deno tests on fixture states: summary shape, stuck-batch proposal formation; lint + check clean"
       ],
       "priority": 2335,
-      "passes": false,
+      "passes": true,
       "notes": "[AGENTIC-OS Phase 1][Module L — Marketplace Ops] Read AGENTIC_OS.md §3.L + §5 (the OS supervises the platform, not users' businesses). Load the tenant-isolation skill for any new read tools over tenant tables — aggregates only.",
       "dependsOn": [
         "US-1588",
