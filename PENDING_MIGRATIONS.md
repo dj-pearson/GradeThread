@@ -1,5 +1,34 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00370–00371 Support Triage (US-1595 / AGENTIC-OS Phase 1, 2026-07-05)
+
+**00370_support_ticket_triage_fields.sql — What:** adds four NULLable advisory
+columns to `support_tickets` — `triage_category` (CHECK billing|grading|technical|
+account|shipping|other), `triage_severity` (CHECK low|normal|high|urgent),
+`triage_kb_slug` (text, references support_kb_articles.slug BY VALUE — no FK), and
+`triaged_at timestamptz` — plus a partial index on (triage_severity,
+last_message_at) for open/pending rows. Additive + idempotent. NO RLS change:
+support_tickets already restricts SELECT to owner/admin and allows no client
+writes (service-role only, 00223).
+
+**00371_seed_support_triage_agent.sql — What:** seeds ONE `agents` row — the
+Support Triage agent (module S), `status='paused'`, `autonomy='{}'` (L0), config =
+every-2h / sonnet model / read-only allowlist (get_support_triage) / $3 cap.
+Classifies + prioritizes new tickets, drafts approval-gated replies (draft_reply →
+send_support_reply), persists classifications (triage_tickets → persist_ticket_
+triage, onto the 00370 columns), and files cluster escalations for Sentinel
+(file_task). NEVER sends a reply or changes a ticket itself. `ON CONFLICT (key) DO
+NOTHING`. Self-records '00371'.
+
+**Risk: LOW.** 00370 is additive columns on an existing table (no backfill, no
+client read of the new columns yet — the admin support UI renders them once the
+frontend adds them, but nothing breaks in the meantime). 00371 is one paused seed
+row. Edge boot guard now expects **00371**.
+
+**⚠️ Apply order:** 00370 THEN 00371 (the seed's comment references the columns),
+after 00357–00369. `NOTIFY pgrst, 'reload schema';` IS needed (00370 adds
+columns). Redeploy the edge so its boot guard matches 00371.
+
 ## ⏳ HELD: 00369_seed_experiments_governor_agent.sql (US-1609 / AGENTIC-OS Phase 2, 2026-07-05)
 
 **What:** seeds ONE `agents` row — the Experiments Governor (module X),

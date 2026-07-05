@@ -53,6 +53,10 @@ function fakeIO(over: Partial<ToolIO> = {}): { io: ToolIO; audits: AuditLogInput
     fetchNewsletterAbTests: () => Promise.resolve([]),
     fetchPromptRollouts: () => Promise.resolve([]),
     fetchDripVariants: () => Promise.resolve([]),
+    fetchUntriagedTickets: () => Promise.resolve([]),
+    fetchKbCatalog: () => Promise.resolve([]),
+    persistTicketTriage: (items) => Promise.resolve({ updated: items.length }),
+    sendSupportReply: () => Promise.resolve({ ok: true }),
     runJob: () => Promise.resolve({ ok: true, status: 200 }),
     requeueEmailDeadLetter: () => Promise.resolve(true),
     resolveAgentTaskProject: () => Promise.resolve("proj-1"),
@@ -311,6 +315,65 @@ Deno.test("US-1609: get_experiments_registry unifies engines + flags interferenc
   assertEquals(res.memo?.registry?.length, 1);
   assertEquals(res.memo?.registry?.[0].engine, "newsletter-ab");
   assertEquals(res.memo?.all_clear, true);
+});
+
+// ── US-1595: Support Triage tools ────────────────────────────────────────────
+
+Deno.test("US-1595: get_support_triage redacts excerpts + surfaces a cluster", async () => {
+  const t = (id: string, subject: string, excerpt: string) => ({
+    id, subject, excerpt, created_at: new Date(NOW - 3600_000).toISOString(), priority: "normal", status: "open",
+  });
+  const { io } = fakeIO({
+    fetchUntriagedTickets: () => Promise.resolve([
+      t("t1", "Payout missing", "My payout reconciliation never arrived, email me at user@example.com"),
+      t("t2", "Payout reconciliation broken", "payout reconciliation shows wrong total again"),
+      t("t3", "Reconciliation payout issue", "the payout reconciliation total is broken for me too"),
+      t("t4", "Login help", "cannot reset my grading password"),
+    ]),
+    fetchKbCatalog: () => Promise.resolve([{ slug: "payouts", title: "Payouts" }]),
+  });
+  const reg = createAgentToolRegistry(io);
+  const a = agent(["get_support_triage"]);
+  const res = await reg.execute(a, "get_support_triage", {}) as {
+    memo?: { untriaged?: Array<{ excerpt: string }>; clusters?: Array<{ size: number }>; all_clear?: boolean; kb_catalog?: unknown[] };
+  };
+  assertEquals(res.memo?.untriaged?.length, 4);
+  // The email in t1's excerpt is scrubbed by log-redact before it leaves.
+  assert(res.memo?.untriaged?.every((u) => !u.excerpt.includes("user@example.com")));
+  // t1/t2/t3 share 'payout'+'reconciliation' within the window → one cluster ≥3.
+  assertEquals(res.memo?.clusters?.length, 1);
+  assert((res.memo?.clusters?.[0].size ?? 0) >= 3);
+  assertEquals(res.memo?.all_clear, false);
+});
+
+Deno.test("US-1595: persist_ticket_triage validates + skips bad items; needs approval", async () => {
+  const { ACTION_CLASS_TO_TOOL } = await import("../lib/agent-tools.ts");
+  assertEquals(ACTION_CLASS_TO_TOOL.triage_tickets, "persist_ticket_triage");
+  assertEquals(ACTION_CLASS_TO_TOOL.draft_reply, "send_support_reply");
+  let persisted: unknown[] = [];
+  const { io } = fakeIO({
+    fetchKbCatalog: () => Promise.resolve([{ slug: "payouts", title: "Payouts" }]),
+    persistTicketTriage: (items) => { persisted = items; return Promise.resolve({ updated: items.length }); },
+  });
+  const reg = createAgentToolRegistry(io);
+  // Write tool is invisible to the run loop.
+  assertEquals(reg.anthropicTools(agent(["persist_ticket_triage", "get_support_triage"])).map((t) => t.name), ["get_support_triage"]);
+  const res = await reg.executeWrite("persist_ticket_triage", {
+    items: [
+      { ticket_id: "t1", category: "billing", severity: "high", kb_slug: "payouts" }, // valid
+      { ticket_id: "t2", category: "billing", severity: "high", kb_slug: "nope" }, // slug dropped → still valid, kb_slug null
+      { ticket_id: "t3", category: "bogus", severity: "high", kb_slug: null }, // invalid category → skipped
+    ],
+  }, { authorizedBy: "admin-1" }) as { updated?: number; skipped?: number };
+  assertEquals(res.updated, 2);
+  assertEquals(res.skipped, 1);
+  assertEquals((persisted[1] as { kb_slug: unknown }).kb_slug, null); // unknown slug nulled
+});
+
+Deno.test("US-1595: send_support_reply refuses without an approved proposal", async () => {
+  const reg = createAgentToolRegistry(fakeIO().io);
+  const res = await reg.executeWrite("send_support_reply", { ticket_id: "t1", body: "Hello" }, { authorizedBy: "admin-1" }) as { ok?: boolean };
+  assertEquals(res.ok, true);
 });
 
 // ── US-1611: get_cron_fleet_health report ────────────────────────────────────

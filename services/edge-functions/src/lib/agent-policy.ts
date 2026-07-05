@@ -40,6 +40,9 @@ export const ACTION_CLASSES = [
   "promote_autonomy",
   // US-1610 Release agent: run an active smoke check.
   "run_smoke",
+  // US-1595 Support Triage: persist a batch of ticket classifications onto the
+  // ticket rows the support UI renders (draft_reply already exists above).
+  "triage_tickets",
 ] as const;
 export type KnownActionClass = typeof ACTION_CLASSES[number];
 

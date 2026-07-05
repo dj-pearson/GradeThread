@@ -60,7 +60,15 @@ import {
   normalizePromptRollout,
   type PromptRolloutRow,
 } from "./experiments-governor.ts";
+import {
+  assembleTriageMemo,
+  type KbEntry,
+  normalizeClassification,
+  prepareExcerpt,
+  type TriageTicket,
+} from "./support-triage.ts";
 import { type ReorderReviewQueueResult, reorderReviewQueue } from "./review-queue-order.ts";
+import { notifyUser } from "./notify.ts";
 import { resolveRevenueWindow } from "./revenue-window.ts";
 import { type AuditLogInput, writeSystemAuditLog } from "./audit-log.ts";
 import { redact, redactError } from "./log-redact.ts";
@@ -253,6 +261,21 @@ export interface ToolIO {
   fetchNewsletterAbTests(): Promise<NewsletterAbRow[]>;
   fetchPromptRollouts(): Promise<PromptRolloutRow[]>;
   fetchDripVariants(sinceIso: string): Promise<DripVariantRow[]>;
+  // US-1595: Support Triage sources + writes. Untriaged = open + unassigned +
+  // not-yet-triaged tickets with their first user message (excerpt); the KB
+  // catalog is the suggestion vocabulary. Reads carry raw text — the tool
+  // redacts via prepareExcerpt before it leaves the process.
+  fetchUntriagedTickets(limit: number): Promise<Array<{ id: string; subject: string; excerpt: string; created_at: string; priority: string; status: string }>>;
+  fetchKbCatalog(limit: number): Promise<KbEntry[]>;
+  // Write-side (approved proposals only): persist a classification batch onto the
+  // ticket rows, and send an operator-approved reply through the support path.
+  persistTicketTriage(
+    items: Array<{ ticket_id: string; category: string; severity: string; kb_slug: string | null }>,
+    nowIso: string,
+  ): Promise<{ updated: number }>;
+  sendSupportReply(
+    input: { ticketId: string; body: string; adminId: string },
+  ): Promise<{ ok: boolean; error?: string }>;
   // ── Write-side (used only by executeWrite / approved proposals) ──
   // Re-fire a registered cron job by key over the internal job rails.
   runJob(jobKey: string): Promise<{ ok: boolean; status: number; error?: string }>;
@@ -626,6 +649,93 @@ export function prodToolIO(): ToolIO {
         agg.set(key, cur);
       }
       return [...agg.values()];
+    },
+    fetchUntriagedTickets: async (limit) => {
+      // New/unassigned open tickets that haven't been triaged yet.
+      const { data } = await supabaseAdmin
+        .from("support_tickets")
+        .select("id, subject, priority, status, created_at")
+        .in("status", ["open", "pending"])
+        .is("assigned_admin_id", null)
+        .is("triaged_at", null)
+        .order("created_at", { ascending: true })
+        .limit(limit);
+      const tickets = (data ?? []) as Array<{ id: string; subject: string; priority: string; status: string; created_at: string }>;
+      if (tickets.length === 0) return [];
+      // First user message per ticket for the excerpt (one query, then bucket).
+      const ids = tickets.map((t) => t.id);
+      const { data: msgs } = await supabaseAdmin
+        .from("support_ticket_messages")
+        .select("ticket_id, body, created_at, is_internal_note")
+        .in("ticket_id", ids)
+        .eq("is_internal_note", false)
+        .order("created_at", { ascending: true });
+      const firstBody = new Map<string, string>();
+      for (const m of (msgs ?? []) as Array<{ ticket_id: string; body: string }>) {
+        if (!firstBody.has(m.ticket_id)) firstBody.set(m.ticket_id, m.body ?? "");
+      }
+      return tickets.map((t) => ({
+        id: t.id,
+        subject: t.subject,
+        excerpt: firstBody.get(t.id) ?? "",
+        created_at: t.created_at,
+        priority: t.priority,
+        status: t.status,
+      }));
+    },
+    fetchKbCatalog: async (limit) => {
+      const { data } = await supabaseAdmin
+        .from("support_kb_articles")
+        .select("slug, title")
+        .eq("is_published", true)
+        .order("title", { ascending: true })
+        .limit(limit);
+      return ((data ?? []) as Array<{ slug: string; title: string }>).map((r) => ({ slug: String(r.slug), title: String(r.title) }));
+    },
+    persistTicketTriage: async (items, nowIso) => {
+      // Each write is id-scoped; a ticket id is operator-supplied via an approved
+      // proposal but we still update strictly by primary key (no cross-tenant
+      // surface — support_tickets has no workspace fan-out).
+      let updated = 0;
+      for (const it of items) {
+        const { error, count } = await supabaseAdmin
+          .from("support_tickets")
+          .update({
+            triage_category: it.category,
+            triage_severity: it.severity,
+            triage_kb_slug: it.kb_slug,
+            triaged_at: nowIso,
+          } as never, { count: "exact" })
+          .eq("id", it.ticket_id);
+        if (!error && (count ?? 0) > 0) updated++;
+      }
+      return { updated };
+    },
+    sendSupportReply: async ({ ticketId, body, adminId }) => {
+      const { data: ticket } = await supabaseAdmin
+        .from("support_tickets")
+        .select("id, user_id, subject, status")
+        .eq("id", ticketId)
+        .maybeSingle();
+      if (!ticket) return { ok: false, error: "ticket_not_found" };
+      const t = ticket as { user_id: string; subject: string; status: string };
+      const { error: insErr } = await supabaseAdmin
+        .from("support_ticket_messages")
+        .insert({ ticket_id: ticketId, author_user_id: adminId, body, is_internal_note: false } as never);
+      if (insErr) return { ok: false, error: "reply_insert_failed" };
+      // Bump activity + move an open/pending ticket to 'pending' (awaiting user),
+      // and assign to the approving admin — mirrors the /reply route (00223).
+      const updates: Record<string, unknown> = { assigned_admin_id: adminId, last_message_at: new Date().toISOString() };
+      if (t.status === "open" || t.status === "pending") updates.status = "pending";
+      await supabaseAdmin.from("support_tickets").update(updates as never).eq("id", ticketId);
+      // Notify the user (best-effort; a failed notify never fails the saved reply).
+      await notifyUser(t.user_id, {
+        type: "system",
+        title: "Support replied to your ticket",
+        message: "A support agent has replied. Open your support inbox to read it.",
+        link: "/dashboard/support",
+      }).catch(() => {});
+      return { ok: true };
     },
     fetchMaintenanceIntervals: async (sinceIso) => {
       // Windows active now OR that ended within the lookback still suppress ticks
@@ -1265,6 +1375,34 @@ const TOOL_LIST: AgentToolDef[] = [
       return { memo };
     },
   },
+  {
+    name: "get_support_triage",
+    description: "Support Triage memo (US-1595): new/unassigned open tickets awaiting triage (id, subject, a PII-REDACTED excerpt, current priority, age), any detected issue clusters (N similar tickets in a window → one Sentinel-correlation candidate), and the KB article catalog (slug + title) to suggest from. Read-only; classification + replies are approval-gated proposals the agent emits.",
+    class: "read",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: { type: "integer", minimum: 1, maximum: 100, description: "max untriaged tickets to pull" },
+      },
+    },
+    handler: async (input, ctx) => {
+      const limit = clampInt(input.limit, 40, 1, 100);
+      const [rawTickets, kb] = await Promise.all([
+        ctx.io.fetchUntriagedTickets(limit),
+        ctx.io.fetchKbCatalog(60),
+      ]);
+      const tickets: TriageTicket[] = rawTickets.map((t) => ({
+        id: t.id,
+        subject: prepareExcerpt(t.subject), // subjects can carry PII too
+        excerpt: prepareExcerpt(t.excerpt),
+        created_ms: Date.parse(t.created_at) || ctx.now,
+        priority: t.priority,
+        status: t.status,
+      }));
+      const memo = assembleTriageMemo(tickets, kb, ctx.now);
+      return { memo };
+    },
+  },
 
   // ── Write tools (class 'write') — NEVER exposed to the run loop; executed
   //    ONLY via executeWrite on the approved-proposal path (US-1587). Each is
@@ -1344,6 +1482,66 @@ const TOOL_LIST: AgentToolDef[] = [
     },
   },
   {
+    name: "persist_ticket_triage",
+    description:
+      "Persist a batch of Support Triage classifications (US-1595) onto the support_tickets rows the admin support UI renders — category, severity, suggested KB slug + a triaged_at stamp. Advisory metadata only: it NEVER changes a ticket's status, assignee, or priority, and never sends a message. Each item is validated (known category/severity, KB slug must exist) and invalid items are skipped.",
+    class: "write",
+    inputSchema: {
+      type: "object",
+      properties: {
+        items: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              ticket_id: { type: "string" },
+              category: { type: "string" },
+              severity: { type: "string" },
+              kb_slug: { type: ["string", "null"] },
+            },
+            required: ["ticket_id", "category", "severity"],
+          },
+        },
+      },
+      required: ["items"],
+    },
+    handler: async (input, ctx) => {
+      if (!ctx.authorizedBy) return { error: { code: "unauthorized", message: "write requires an approved proposal" } };
+      const rawItems = Array.isArray(input.items) ? input.items : [];
+      // Validate against the live KB catalog so a hallucinated slug never persists.
+      const kb = await ctx.io.fetchKbCatalog(200);
+      const knownSlugs = new Set(kb.map((k) => k.slug));
+      const items = rawItems
+        .map((it) => normalizeClassification(it, knownSlugs))
+        .filter((x): x is NonNullable<typeof x> => x !== null)
+        .map((x) => ({ ticket_id: x.ticket_id, category: x.category, severity: x.severity, kb_slug: x.kb_slug }));
+      if (items.length === 0) return { updated: 0, skipped: rawItems.length };
+      const { updated } = await ctx.io.persistTicketTriage(items, new Date(ctx.now).toISOString());
+      return { updated, skipped: rawItems.length - items.length };
+    },
+  },
+  {
+    name: "send_support_reply",
+    description:
+      "Send an operator-APPROVED support reply (US-1595). Inserts the drafted reply as a public ticket message through the normal support path (bumps the ticket to 'pending', assigns the approving operator, notifies the customer). Only ever runs on an approved draft_reply proposal — the agent never sends unsupervised. Sends the body verbatim; no editing here.",
+    class: "write",
+    inputSchema: {
+      type: "object",
+      properties: {
+        ticket_id: { type: "string" },
+        body: { type: "string" },
+      },
+      required: ["ticket_id", "body"],
+    },
+    handler: async (input, ctx) => {
+      if (!ctx.authorizedBy) return { error: { code: "unauthorized", message: "write requires an approved proposal" } };
+      const ticketId = typeof input.ticket_id === "string" ? input.ticket_id : "";
+      const body = typeof input.body === "string" ? input.body.trim() : "";
+      if (!ticketId || !body) return { error: { code: "invalid", message: "ticket_id and body are required" } };
+      return await ctx.io.sendSupportReply({ ticketId, body, adminId: ctx.authorizedBy });
+    },
+  },
+  {
     name: "reorder_review_queue",
     description:
       "Recompute the information-value ranking of the pending human-review queue (US-1558 active-learning routing) and persist the recommended order + rationale as an advisory artifact so high-signal reviews surface first. Grade-safe: NEVER changes a grade, prompt, confidence threshold, or calibration — ordering only, and the queue keeps its SLA starvation guard.",
@@ -1381,6 +1579,10 @@ export const ACTION_CLASS_TO_TOOL: Record<string, string> = {
   deny_claim: "create_admin_task",
   // US-1610: the Release agent's active smoke check.
   run_smoke: "run_smoke",
+  // US-1595: Support Triage — persist a classification batch; a drafted reply
+  // sends through the support path on approval.
+  triage_tickets: "persist_ticket_triage",
+  draft_reply: "send_support_reply",
 };
 
 export const AGENT_TOOLS: readonly AgentToolDef[] = TOOL_LIST;

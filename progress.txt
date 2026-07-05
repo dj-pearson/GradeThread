@@ -11514,3 +11514,60 @@ Node reimplementation of the pure logic mirroring the test assertions — 15/15
 passed. Scanned all new files for NUL corruption (clean). prd-lint OK.
 
 Marked US-1609 passes:true.
+
+=== 2026-07-05 (loop: non-android prd): US-1595 (Support Triage agent) ===
+Module S agent: the OPERATOR-side layer over the support inbox (the user-facing
+support-assistant-engine already handles live chats). Classifies + prioritizes
+new tickets, drafts approval-gated replies, and detects issue clusters that
+should page Sentinel — support latency drops WITHOUT unsupervised sends.
+
+Delivered (pure-lib + read-tool + approval-gated write-tools + charter):
+- lib/support-triage.ts — pure, fixture-tested:
+    • prepareExcerpt: log-redact scrub (emails/tokens) + 280-char cap (AC5 PII).
+    • normalizeClassification: enforces category/severity enums + a KNOWN KB slug
+      (hallucinated slug → nulled, not persisted); one bad row never drops batch.
+    • detectClusters: union-find over "similar (Jaccard≥0.5 on significant
+      tokens) AND within 24h" → deterministic, order-independent clusters ≥3;
+      returns shared terms for the finding.
+    • assembleTriageMemo: {summary, untriaged(+age), clusters, kb_catalog, all_clear}.
+- agent-tools.ts:
+    • get_support_triage READ tool: untriaged (open+unassigned+un-triaged)
+      tickets w/ first-message excerpt (redacted at the seam) + KB catalog +
+      clusters.
+    • persist_ticket_triage WRITE (action class triage_tickets): validates the
+      batch vs live KB catalog, writes category/severity/kb_slug/triaged_at onto
+      the ticket rows the admin UI renders — advisory only, never touches status/
+      assignee/priority. Skips invalid items, reports {updated, skipped}.
+    • send_support_reply WRITE (action class draft_reply): on approval inserts the
+      drafted reply via the existing support path (bumps→pending, assigns approver,
+      notifies user). Sends verbatim; agent never sends unsupervised.
+    • IO seams fetchUntriagedTickets / fetchKbCatalog / persistTicketTriage /
+      sendSupportReply; draft_reply + triage_tickets added to ACTION_CLASS_TO_TOOL
+      (draft_reply previously had NO executor — now wired).
+- agent-policy.ts: action class triage_tickets registered (draft_reply pre-existed).
+- charter support-triage-agent.ts (module S, every-2h, sonnet) + registered.
+- Migrations 00370 (triage columns, additive+idempotent, NOTIFY needed) + 00371
+  (paused seed) + EXPECTED_SCHEMA_VERSION 00369→00371 (same commit). Held in
+  PENDING_MIGRATIONS.md.
+- Tests: support-triage_test.ts (excerpt redaction, classification validation,
+  cluster in/out-of-window + minSize, memo) + 3 tool tests (redaction+cluster via
+  the read tool; persist validation/skip + write-tool-invisible-to-loop; reply
+  auth). fakeIO seams added.
+
+Tenant-isolation note: no new HTTP routes added (agent tools only), so no
+tenant-isolation_test.ts case required. support_tickets is an OPERATOR-scope queue
+(admins act across all tenants' tickets by design, like the fraud console); writes
+are id-scoped by primary key on operator-approved proposals. support_tickets keeps
+its owner/admin RLS from 00223 — not a deny-all operator table, so no rls-guard
+registration.
+
+AC3 rejection-with-reason: captured by the existing agent_proposals reject flow
+(US-1587) — a rejected draft_reply proposal stores the operator's reason; no new
+store. AC4 Sentinel handoff: a tagged admin task suffices here (US-1613 formalizes).
+
+Verification (honest): deno test un-runnable here (network policy 403s). Ran
+`deno lint` (clean, 7 files) + a standalone Node reimplementation of the pure
+logic mirroring the test assertions — 18/18 passed. Scanned all new files for NUL
+(clean). prd-lint OK.
+
+Marked US-1595 passes:true. This also UNBLOCKS US-1613 (agent-to-agent handoffs).
