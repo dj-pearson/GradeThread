@@ -314,9 +314,9 @@ export async function runAgent(
   }
   if (!runId) return { ...empty, reason: "run_row_failed" };
 
-  // `agentKey` (the param) is already a stable string in scope for the finalize
-  // closure and equals agent.key here (loadAgent matched on it). Observability
-  // keys off it directly — no separate capture needed.
+  // `agentKey` (the runAgent param) === agent.key (loadAgent found it by key), and
+  // stays valid inside the finalize closure where `agent` (a `let`) loses its
+  // non-null narrowing. Observability keys off it + runStartMs/seq.
   const runStartMs = d.now();
   let seq = 0;
 

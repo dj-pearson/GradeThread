@@ -1,7 +1,7 @@
 // US-1588: agent scheduler tick — due-selection, per-tick budget deferral, and
 // the global-pause no-op. Types erased; runtime values dynamic-imported after
 // env prime (agent-tick.ts pulls in supabase.ts / the kernel).
-import { assert, assertEquals } from "@std/assert";
+import { assertEquals } from "@std/assert";
 import type { AgentTickDeps, TickAgent } from "../lib/agent-tick.ts";
 
 Deno.env.set("SUPABASE_URL", Deno.env.get("SUPABASE_URL") ?? "http://localhost:54321");
