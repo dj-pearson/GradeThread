@@ -11100,3 +11100,35 @@ VERIFY: deno lint clean (7 files). deno test/check un-runnable locally (network
 policy blocks deno.land/esm.sh; no cached deps) — CI is the safety net. Validated
 ALL pure logic standalone in node: reconciliation ranking, payout sanity, revenue
 delta/extract reproduce every test expectation.
+
+=== 2026-07-05 (loop: non-android prd): US-1601 (Pricing agent) ===
+THE ASK: seed the Pricing agent (Module P) — operator-side oversight of the
+repricing/automation engines. CROSS-TENANT AGGREGATES ONLY; audits + reports,
+NEVER edits a tenant's rules or prices.
+- NEW lib pricing-agent.ts (PURE, fixture-tested):
+  - computeRepricingEfficacy: apply-rate (applied/decided) by reason_code from
+    repricing_suggestions.
+  - detectPingPong + countReversals: groups APPLIED suggestions by listing,
+    orders by applied_at, counts price-direction reversals; >=2 reversals over
+    >=4 points = pathological oscillation. (Caught + fixed a threshold bug: the
+    original MIN_REVERSALS=3 was UNSATISFIABLE at MIN_POINTS=4 — a 4-point series
+    has only 3 steps = max 2 reversals; standalone node validation exposed it.)
+  - summarizeAutomationRules: per-rule actions-per-listing churn ratio (>=3 =
+    flagged) from flipdesk_automation_actions.
+  - computeCurveStaleness: condition_price_curves refreshed_at vs a 7-day
+    threshold (= the price guide); oldest + stale samples.
+  - assemblePricingMemo: composite + all_clear.
+- TOOL get_pricing_health (agent-tools.ts): 3 new cross-tenant aggregate reads
+  (repricing suggestions, automation actions, curve freshness).
+- CHARTER pricing-agent.ts + registered. Proposals: retry_job on
+  condition-index-refresh for stale curves + file_task for a pathological tenant
+  rule (operator decides; agent never edits the rule).
+- SEED migration 00362 (paused, L0, idempotent, self-records).
+  EXPECTED_SCHEMA_VERSION 00361->00362. HELD — recorded in PENDING_MIGRATIONS.md.
+- TESTS: pricing-agent_test.ts (efficacy, reversal counting, ping-pong incl.
+  monotonic/short/non-applied negatives, rule churn, staleness, memo);
+  agent-tools_test.ts (get_pricing_health flags a ping-ponging listing).
+VERIFY: deno lint clean. deno test/check un-runnable locally (network policy) —
+CI is the safety net. Validated ALL pure logic standalone in node (which caught
+the reversal-threshold bug BEFORE commit): reversal counting, ping-pong grouping/
+ordering, efficacy, staleness all reproduce the corrected expectations.

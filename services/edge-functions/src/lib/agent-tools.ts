@@ -32,6 +32,7 @@ import { correlateIncidents, type Signal } from "./sentinel.ts";
 import { assembleGradingMemo, gatherGradingTelemetry } from "./grading-quality.ts";
 import { assembleFinanceMemo, type PayoutRow, type ReconFlag } from "./finance-agent.ts";
 import { assembleIntegrationsMemo, type RotationState } from "./integrations-watchdog.ts";
+import { type ActionRow, assemblePricingMemo, type CurveRow, type SuggestionRow } from "./pricing-agent.ts";
 import { type ReorderReviewQueueResult, reorderReviewQueue } from "./review-queue-order.ts";
 import { resolveRevenueWindow } from "./revenue-window.ts";
 import { type AuditLogInput, writeSystemAuditLog } from "./audit-log.ts";
@@ -177,6 +178,11 @@ export interface ToolIO {
   fetchReconciliationFlags(limit: number): Promise<ReconFlag[]>;
   // US-1596: recent affiliate + consignor payout-run outcomes since an ISO time.
   fetchRecentPayouts(sinceIso: string): Promise<{ affiliate: PayoutRow[]; consignor: PayoutRow[] }>;
+  // US-1601: cross-tenant repricing suggestions, automation actions, and price-
+  // curve freshness (aggregate audit only — the agent never edits any of them).
+  fetchRepricingSuggestions(sinceIso: string): Promise<SuggestionRow[]>;
+  fetchAutomationActions(sinceIso: string): Promise<ActionRow[]>;
+  fetchCurveFreshness(): Promise<CurveRow[]>;
   // ── Write-side (used only by executeWrite / approved proposals) ──
   // Re-fire a registered cron job by key over the internal job rails.
   runJob(jobKey: string): Promise<{ ok: boolean; status: number; error?: string }>;
@@ -294,6 +300,30 @@ export function prodToolIO(): ToolIO {
           error: (r.error as string | null) ?? null, created_at: String(r.created_at),
         })),
       };
+    },
+    fetchRepricingSuggestions: async (sinceIso) => {
+      const { data } = await supabaseAdmin
+        .from("repricing_suggestions")
+        .select("listing_id, user_id, reason_code, status, suggested_price_cents, applied_at, created_at")
+        .gte("created_at", sinceIso)
+        .limit(5000);
+      return (data ?? []) as SuggestionRow[];
+    },
+    fetchAutomationActions: async (sinceIso) => {
+      const { data } = await supabaseAdmin
+        .from("flipdesk_automation_actions")
+        .select("rule_id, user_id, listing_id, action_type, created_at")
+        .gte("created_at", sinceIso)
+        .limit(5000);
+      return (data ?? []) as ActionRow[];
+    },
+    fetchCurveFreshness: async () => {
+      const { data } = await supabaseAdmin
+        .from("condition_price_curves")
+        .select("category_id, refreshed_at")
+        .order("refreshed_at", { ascending: true })
+        .limit(2000);
+      return (data ?? []) as CurveRow[];
     },
     runJob: async (jobKey) => {
       // Only registered, runnable cron jobs — never an arbitrary URL.
@@ -721,6 +751,26 @@ const TOOL_LIST: AgentToolDef[] = [
         aiProfitability,
         nowMs: ctx.now,
       });
+      return { memo };
+    },
+  },
+  {
+    name: "get_pricing_health",
+    description: "Pricing agent memo (US-1601): cross-tenant repricing efficacy (apply-rate by reason code), ping-ponging listings (applied prices oscillating), churning automation rules, and price-guide / condition-curve staleness. Aggregates only — the agent audits and reports; it never edits a tenant's rules or prices.",
+    class: "read",
+    inputSchema: {
+      type: "object",
+      properties: { since_days: { type: "integer", minimum: 1, maximum: 90, description: "lookback window for suggestions + rule actions" } },
+    },
+    handler: async (input, ctx) => {
+      const sinceDays = clampInt(input.since_days, 14, 1, 90);
+      const sinceIso = new Date(ctx.now - sinceDays * 24 * 3600_000).toISOString();
+      const [suggestions, actions, curves] = await Promise.all([
+        ctx.io.fetchRepricingSuggestions(sinceIso),
+        ctx.io.fetchAutomationActions(sinceIso),
+        ctx.io.fetchCurveFreshness(),
+      ]);
+      const memo = assemblePricingMemo({ suggestions, actions, curves, nowMs: ctx.now });
       return { memo };
     },
   },

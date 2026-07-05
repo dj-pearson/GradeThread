@@ -31,6 +31,9 @@ function fakeIO(over: Partial<ToolIO> = {}): { io: ToolIO; audits: AuditLogInput
     fetchKeyRotationState: () => Promise.resolve({}),
     fetchReconciliationFlags: () => Promise.resolve([]),
     fetchRecentPayouts: () => Promise.resolve({ affiliate: [], consignor: [] }),
+    fetchRepricingSuggestions: () => Promise.resolve([]),
+    fetchAutomationActions: () => Promise.resolve([]),
+    fetchCurveFreshness: () => Promise.resolve([]),
     runJob: () => Promise.resolve({ ok: true, status: 200 }),
     requeueEmailDeadLetter: () => Promise.resolve(true),
     resolveAgentTaskProject: () => Promise.resolve("proj-1"),
@@ -228,6 +231,28 @@ Deno.test("US-1604: get_integrations_health assembles a memo from the reads", as
   };
   assertEquals(res.memo?.token_fleet?.expired, 1);
   assertEquals(res.memo?.all_clear, false);
+});
+
+// ── US-1601: get_pricing_health composite read tool ──────────────────────────
+
+Deno.test("US-1601: get_pricing_health flags a ping-ponging listing", async () => {
+  const at = (m: number) => new Date(NOW - m).toISOString();
+  const s = (price: number, ms: number) => ({
+    listing_id: "L1", user_id: "u1", reason_code: "UNDERPRICED", status: "applied",
+    suggested_price_cents: price, applied_at: at(ms), created_at: at(ms),
+  });
+  const { io } = fakeIO({
+    // Oscillating applied prices: 1000 -> 1200 -> 900 -> 1300 (2 reversals).
+    fetchRepricingSuggestions: () =>
+      Promise.resolve([s(1000, 4e6), s(1200, 3e6), s(900, 2e6), s(1300, 1e6)]),
+  });
+  const reg = createAgentToolRegistry(io);
+  const a = agent(["get_pricing_health"]);
+  const res = await reg.execute(a, "get_pricing_health", {}) as {
+    memo?: { all_clear?: boolean; ping_pong?: Array<{ listing_id: string }> };
+  };
+  assertEquals(res.memo?.all_clear, false);
+  assertEquals(res.memo?.ping_pong?.[0].listing_id, "L1");
 });
 
 // ── US-1596: get_finance_health composite read tool ──────────────────────────

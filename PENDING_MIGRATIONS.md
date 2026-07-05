@@ -1,5 +1,22 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00362_seed_pricing_agent.sql (US-1601 / AGENTIC-OS Phase 1, 2026-07-05)
+
+**What:** seeds ONE `agents` row — the Pricing agent (module P), `status='paused'`,
+`autonomy='{}'` (L0), config = daily schedule / sonnet model / read-only allowlist
+(get_pricing_health) / $2 daily cap. The prompt lives in the repo charter
+(`agents/charters/pricing-agent.ts`). It audits cross-tenant aggregates and can
+propose a curve-refresh retry_job + file admin tasks once an operator grants L1;
+it NEVER edits a tenant's rules or prices. `ON CONFLICT (key) DO NOTHING`
+(idempotent). Self-records '00362'.
+
+**Risk: LOW — one seed row into the operator agents table (00357).** No client
+reads. Seeded PAUSED, so it does nothing until an operator enables it. Edge boot
+guard now expects **00362**.
+
+**⚠️ Apply order:** apply after 00357–00361. Data-only (no `NOTIFY pgrst` needed).
+Redeploy the edge so its boot guard matches 00362.
+
 ## ⏳ HELD: 00361_seed_finance_agent.sql (US-1596 / AGENTIC-OS Phase 1, 2026-07-05)
 
 **What:** seeds ONE `agents` row — the Finance agent (module F), `status='paused'`,
