@@ -20,6 +20,7 @@
 
 import { glossaryRoutes } from "./glossary";
 import { resellerGlossaryRoutes } from "./reseller-glossary";
+import { flipdeskLandingRoutes } from "./flipdesk-landing";
 
 export const SITE_URL = "https://gradethread.com";
 
@@ -447,6 +448,9 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
   // per term (EUC, VGUC, NWT vs NWOT, death pile, comps, SNAD…). Auto-flow into
   // the manifest/sitemap/IndexNow/prerender like the tier/factor spokes above.
   ...resellerGlossaryRoutes(),
+  // FlipDesk conversion landing pages (US-1675 money + US-1676 feature):
+  // /flipdesk/{inventory-management,autolister,crosslisting,comps,bookkeeping}.
+  ...flipdeskLandingRoutes(),
 ];
 
 // US-427: per-route social share image (Open Graph / Twitter). High-value

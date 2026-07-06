@@ -53,12 +53,15 @@ import {
   resellerTermBreadcrumbItems,
   resellerGlossaryHubJsonLd,
   resellerGlossaryHubBreadcrumbItems,
+  flipdeskLandingJsonLd,
+  flipdeskLandingBreadcrumbItems,
 } from "@/pages/marketing/marketing-jsonld";
 import { getGlossaryEntryByPath } from "@/lib/seo/glossary";
 import {
   getResellerTermByPath,
   isResellerGlossaryHubPath,
 } from "@/lib/seo/reseller-glossary";
+import { getFlipdeskLandingByPath } from "@/lib/seo/flipdesk-landing";
 import { twitterSiteHandle, twitterCreatorHandle } from "@/lib/seo/social";
 
 function escapeAttr(s: string): string {
@@ -126,6 +129,16 @@ export function jsonLdForRoute(path: string): JsonLd[] {
   }
   const route = PUBLIC_ROUTES.find((r) => r.path === path);
   if (!route) return [];
+  // FlipDesk landing pages (US-1675/1676): Organization + 3-level breadcrumb +
+  // SoftwareApplication + FAQPage, matching the live landing page.
+  const flipdeskLanding = getFlipdeskLandingByPath(path);
+  if (flipdeskLanding) {
+    return [
+      organizationLd(),
+      breadcrumbLd(flipdeskLandingBreadcrumbItems(flipdeskLanding)),
+      ...flipdeskLandingJsonLd(flipdeskLanding),
+    ];
+  }
   // Reseller glossary hub (US-1671): Organization + 2-level breadcrumb +
   // DefinedTermSet + hub FAQ, matching what the live hub page emits.
   if (isResellerGlossaryHubPath(path)) {

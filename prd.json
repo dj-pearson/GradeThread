@@ -12142,8 +12142,8 @@
         "Indexable routes; full content in initial HTML; build + eslint clean"
       ],
       "priority": 1675,
-      "passes": false,
-      "notes": "[P1][SEO2.0][SEO][conversion] Plan §1 B3/B4 + §3 + §9. Tiny volume, enormous CPC = high-LTV; organic rank saves $20–47/click."
+      "passes": true,
+      "notes": "[P1][SEO2.0][SEO][conversion] Plan §1 B3/B4 + §3 + §9. Tiny volume, enormous CPC = high-LTV; organic rank saves $20–47/click. | DONE 2026-07-06: /flipdesk/inventory-management (targets \"clothing inventory management software\" $20-47 CPC) + /flipdesk/autolister (targets \"ai ebay listing generator\") — job-to-be-done landing pages, front-loaded titles, full content in initial HTML, SoftwareApplication JSON-LD (applicationCategory BusinessApplication, AggregateOffer $0-99 from FLIPDESK_PLANS, NO aggregateRating — no real reviews) + FAQPage + breadcrumb. Prerendered; honest claims map to shipped gates."
     },
     {
       "id": "US-1676",
@@ -12155,8 +12155,8 @@
         "Indexable routes; full content in initial HTML; build + eslint clean"
       ],
       "priority": 1676,
-      "passes": false,
-      "notes": "[P1][SEO2.0][SEO][conversion] Plan §1 B2/B3/B5 + §2 Hub2. Declining head terms — position on the differentiated angle."
+      "passes": true,
+      "notes": "[P1][SEO2.0][SEO][conversion] Plan §1 B2/B3/B5 + §2 Hub2. Declining head terms — position on the differentiated angle. | DONE 2026-07-06: /flipdesk/crosslisting (B2), /flipdesk/comps (comp-pull feature), /flipdesk/bookkeeping (payout reconciliation/profit tracker) — same SoftwareApplication+FAQPage pattern, one job-to-be-done each, honest feature claims (crosslist via Lister extension; condition-aware comps; per-sale reconciliation). Shared data-driven page component (flipdesk-landing.tsx) + data module. Prerendered, build+lint+311 tests green."
     },
     {
       "id": "US-1677",

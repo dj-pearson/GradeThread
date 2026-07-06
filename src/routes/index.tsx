@@ -96,6 +96,7 @@ const HowItWorksPage = lazy(() => import("@/pages/marketing/how-it-works").then(
 const PricingPage = lazy(() => import("@/pages/marketing/pricing").then(m => ({ default: m.PricingPage })));
 const ForResellersPage = lazy(() => import("@/pages/marketing/for-resellers").then(m => ({ default: m.ForResellersPage })));
 const FlipDeskPage = lazy(() => import("@/pages/marketing/flipdesk").then(m => ({ default: m.FlipDeskPage })));
+const FlipdeskLandingPage = lazy(() => import("@/pages/marketing/flipdesk-landing").then(m => ({ default: m.FlipdeskLandingPage })));
 const SellUsedClothesEbayPage = lazy(() => import("@/pages/marketing/sell-used-clothes-ebay").then(m => ({ default: m.SellUsedClothesEbayPage })));
 const FaqPage = lazy(() => import("@/pages/marketing/faq").then(m => ({ default: m.FaqPage })));
 const ConditionGradingPage = lazy(() => import("@/pages/marketing/condition-grading").then(m => ({ default: m.ConditionGradingPage })));
@@ -338,6 +339,12 @@ export const router = createBrowserRouter([
       { path: "/pricing", element: <SuspenseWrapper><PricingPage /></SuspenseWrapper> },
       { path: "/for-resellers", element: <SuspenseWrapper><ForResellersPage /></SuspenseWrapper> },
       { path: "/flipdesk", element: <SuspenseWrapper><FlipDeskPage /></SuspenseWrapper> },
+      // US-1675/1676: FlipDesk conversion landing pages (one data-driven page).
+      { path: "/flipdesk/inventory-management", element: <SuspenseWrapper><FlipdeskLandingPage /></SuspenseWrapper> },
+      { path: "/flipdesk/autolister", element: <SuspenseWrapper><FlipdeskLandingPage /></SuspenseWrapper> },
+      { path: "/flipdesk/crosslisting", element: <SuspenseWrapper><FlipdeskLandingPage /></SuspenseWrapper> },
+      { path: "/flipdesk/comps", element: <SuspenseWrapper><FlipdeskLandingPage /></SuspenseWrapper> },
+      { path: "/flipdesk/bookkeeping", element: <SuspenseWrapper><FlipdeskLandingPage /></SuspenseWrapper> },
       { path: "/sell-used-clothes-ebay", element: <SuspenseWrapper><SellUsedClothesEbayPage /></SuspenseWrapper> },
       { path: "/faq", element: <SuspenseWrapper><FaqPage /></SuspenseWrapper> },
       { path: "/condition-grading", element: <SuspenseWrapper><ConditionGradingPage /></SuspenseWrapper> },

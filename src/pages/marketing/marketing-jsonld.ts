@@ -27,6 +27,8 @@ import {
   resellerTermTrail,
   type ResellerTerm,
 } from "@/lib/seo/reseller-glossary";
+import { FLIPDESK_PLANS } from "@/lib/constants";
+import type { FlipdeskLanding } from "@/lib/seo/flipdesk-landing";
 import { absoluteUrl } from "@/lib/seo/public-routes";
 import { LANDING_FAQS } from "@/pages/landing-faqs";
 import { SITE_URL } from "@/lib/seo/public-routes";
@@ -282,6 +284,58 @@ export function resellerGlossaryHubBreadcrumbItems(): Array<{
     { name: "GradeThread", url: `${SITE_URL}/` },
     { name: "Condition glossary", url: `${SITE_URL}${RESELLER_GLOSSARY_HUB_PATH}` },
   ];
+}
+
+// ── /flipdesk/* landing pages (US-1675 money + US-1676 feature) ─────
+// Each emits a SoftwareApplication (its own @id, applicationCategory
+// BusinessApplication, offers = the real FlipDesk price range; NO aggregateRating
+// — we have no real reviews) + an FAQPage + a 3-level breadcrumb.
+
+/** Absolute breadcrumb items for a FlipDesk landing page (GradeThread → FlipDesk → page). */
+export function flipdeskLandingBreadcrumbItems(
+  landing: FlipdeskLanding,
+): Array<{ name: string; url: string }> {
+  return [
+    { name: "GradeThread", url: `${SITE_URL}/` },
+    { name: "FlipDesk", url: `${SITE_URL}/flipdesk` },
+    { name: landing.h1, url: `${SITE_URL}${landing.path}` },
+  ];
+}
+
+/** SoftwareApplication offers range, derived from the real FLIPDESK_PLANS tiers. */
+function flipdeskOffers(): Record<string, unknown> {
+  const prices = Object.values(FLIPDESK_PLANS).map(
+    (p) => p.priceMonthlyCents / 100,
+  );
+  return {
+    "@type": "AggregateOffer",
+    priceCurrency: "USD",
+    lowPrice: String(Math.min(...prices)),
+    highPrice: String(Math.max(...prices)),
+    offerCount: prices.length,
+  };
+}
+
+export function flipdeskLandingJsonLd(landing: FlipdeskLanding): JsonLd[] {
+  const url = absoluteUrl(landing.path);
+  const app: JsonLd = {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "@id": `${url}#software`,
+    name: landing.appName,
+    applicationCategory: "BusinessApplication",
+    operatingSystem: "Web",
+    url,
+    description: landing.appDescription,
+    isPartOf: { "@type": "WebSite", url: `${SITE_URL}/` },
+    publisher: { "@type": "Organization", name: "GradeThread", url: `${SITE_URL}/` },
+    featureList: landing.featureList,
+    offers: flipdeskOffers(),
+  };
+  // NB: the BreadcrumbList is emitted ONCE by MarketingLayout (live) / head-builder
+  // (prerender) via flipdeskLandingBreadcrumbItems() — not here — to avoid a
+  // double breadcrumb (US-423 pattern).
+  return [app, faqPageLd(landing.faqs)];
 }
 
 // ── /transparency (US-326) ──────────────────────────────────────────

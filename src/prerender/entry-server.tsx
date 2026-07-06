@@ -69,6 +69,8 @@ import {
   RESELLER_GLOSSARY_HUB_PATH,
   resellerTermPath,
 } from "@/lib/seo/reseller-glossary";
+import { FLIPDESK_LANDINGS } from "@/lib/seo/flipdesk-landing";
+import { FlipdeskLandingPage } from "@/pages/marketing/flipdesk-landing";
 
 // Static map of prerenderable routes → page element.
 const PAGES: Record<string, React.ReactNode> = {
@@ -136,6 +138,13 @@ const PAGES: Record<string, React.ReactNode> = {
     RESELLER_TERMS.map((t) => [
       resellerTermPath(t.slug),
       <ResellerGlossaryTermPage key={t.slug} slug={t.slug} />,
+    ]),
+  ),
+  // FlipDesk landing pages (US-1675 / US-1676).
+  ...Object.fromEntries(
+    FLIPDESK_LANDINGS.map((l) => [
+      l.path,
+      <FlipdeskLandingPage key={l.slug} slug={l.slug} />,
     ]),
   ),
 };
