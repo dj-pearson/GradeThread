@@ -12221,8 +12221,8 @@
         "Runbook for adding new schema types to the linter"
       ],
       "priority": 1681,
-      "passes": false,
-      "notes": "[P1][SEO2.0][technical] Plan §4.9. Guardrail so pSEO scale stays schema-clean."
+      "passes": true,
+      "notes": "[P1][SEO2.0][technical] Plan §4.9. Guardrail so pSEO scale stays schema-clean. | DONE 2026-07-06: jsonld-lint.ts validates schema.org JSON-LD per @type (valid @context/@type, no undefined/NaN, per-type required props; Product itemCondition must be a real OfferItemCondition + additionalProperty PropertyValue + bounded Rating; offers validated when present). CI guard jsonld-schema-lint.test.ts lints every registered route + dynamic cert/passport Product nodes, asserts AC required types covered (DefinedTermSet/DefinedTerm/HowTo/Article/SoftwareApplication/Product), w/ negative controls. Runbook docs/STRUCTURED_DATA_LINT.md. 107 tests green."
     },
     {
       "id": "US-1682",
