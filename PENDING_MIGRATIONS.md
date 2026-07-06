@@ -1,5 +1,31 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00378_seed_reseller_blog_and_topics.sql (blog seed, 2026-07-06)
+
+**What:** pure DATA seed (no schema change). Inserts 4 fully-written **draft**
+`blog_posts` (status='draft', generated_by='human') plus ~40 `content_topics`
+(status='queued') derived from the July 2026 Reddit-research titles, re-angled to
+GradeThread/FlipDesk. Self-records '00378'.
+
+**Apply order: AFTER 00377.** This stacks on the still-held Vinted enum migration
+— run `scripts/apply-prod-migrations.sh` (idempotent, applies the tail in NNNNN
+order) so 00377 then 00378 land together.
+
+**Risk: LOW — additive INSERTs only.** Idempotent: `blog_posts` via
+`ON CONFLICT (slug) DO NOTHING`, `content_topics` via `WHERE NOT EXISTS` on the
+`(surface, product_focus, lower(primary_keyword))` dedup key. Re-running is a
+no-op. No new table/column/enum → **no `NOTIFY pgrst, 'reload schema'` needed**
+(schema shape is unchanged; only rows added).
+
+**⚠️ CLIENT READ:** the 4 posts are `status='draft'`, so the anon SSR (published-
+only RLS) will NOT surface them until an admin publishes — the frontend
+auto-deploy on push is safe. The only hard requirement is the edge boot guard:
+apply the SQL (so `applied_migrations` reaches **00378**) BEFORE the next Coolify
+edge redeploy, since `EXPECTED_SCHEMA_VERSION` is now `00378`.
+
+**Review the drafts:** /admin/content/blog/editor — publish when ready. The rest
+sit in the topic bank for the autonomous scheduler.
+
 ## ⏳ HELD: 00377_listing_platform_vinted.sql (US-1663, 2026-07-05)
 
 **What:** adds the value `'vinted'` to the `public.listing_platform` enum. Vinted
