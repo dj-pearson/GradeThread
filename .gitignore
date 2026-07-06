@@ -118,3 +118,8 @@ assets/Natural Emotions.m4a
 
 hf_*
 kling*
+.ds-sync/
+ds-bundle/
+.design-sync/.cache/
+.design-sync/learnings/
+.design-sync/node_modules

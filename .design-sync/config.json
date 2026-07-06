@@ -1,0 +1,23 @@
+{
+  "projectId": "ecc963ed-7984-44b3-a304-25a07bf346a1",
+  "pkg": "gradethread",
+  "globalName": "GradeThread",
+  "shape": "package",
+  "srcDir": "src/components/ui",
+  "tsconfig": "tsconfig.json",
+  "cssEntry": "dist/assets/index-BmBJitGf.css",
+  "extraFonts": [
+    "public/fonts/inter-latin.woff2",
+    "public/fonts/inter-latin-ext.woff2",
+    "public/fonts/outfit-latin.woff2",
+    "public/fonts/outfit-latin-ext.woff2"
+  ],
+  "guidelinesGlob": [
+    "docs/COPY_STYLE_GUIDE.md",
+    "docs/ACCESSIBILITY_CONTRAST.md"
+  ],
+  "overrides": {
+    "Dialog": { "cardMode": "single", "viewport": "440x300" }
+  },
+  "readmeHeader": ".design-sync/conventions.md"
+}
