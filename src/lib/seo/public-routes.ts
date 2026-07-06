@@ -22,6 +22,8 @@ import { glossaryRoutes } from "./glossary";
 import { resellerGlossaryRoutes } from "./reseller-glossary";
 import { flipdeskLandingRoutes } from "./flipdesk-landing";
 import { resellingRoutes } from "./reselling-guides";
+import { flawLibraryRoutes } from "./flaw-library";
+import { garmentGuideRoutes } from "./garment-guides";
 
 export const SITE_URL = "https://gradethread.com";
 
@@ -488,6 +490,10 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
   ...flipdeskLandingRoutes(),
   // Reselling pillar + TOFU guides (US-1688): /reselling + /reselling/<slug>.
   ...resellingRoutes(),
+  // Flaw library pSEO (US-1683): /grading/flaws hub + /grading/flaws/<flaw>.
+  ...flawLibraryRoutes(),
+  // Garment-type grading guides pSEO (US-1682): /grading/guides hub + per garment.
+  ...garmentGuideRoutes(),
 ];
 
 // US-427: per-route social share image (Open Graph / Twitter). High-value

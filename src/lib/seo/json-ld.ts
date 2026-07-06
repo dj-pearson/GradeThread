@@ -456,6 +456,52 @@ export function resellerGlossarySetLd(
   };
 }
 
+// ── Flaw library DefinedTermSet (US-1683) ───────────────────────────
+// The clothing-flaw vocabulary (pilling, moth holes, crocking…) as one named,
+// citable set, anchored on the /grading/flaws hub. Each flaw page emits its own
+// DefinedTerm (linked here) alongside an Article.
+export const FLAW_LIBRARY_SET_ID = `${SITE_URL}/grading/flaws#flaws`;
+
+/** DefinedTerm for a single flaw page, linked to the flaw-library set. */
+export function flawDefinedTermLd(e: ResellerDefinedTermInput): JsonLd {
+  return {
+    "@context": "https://schema.org",
+    "@type": "DefinedTerm",
+    name: e.term,
+    ...(e.alternateNames && e.alternateNames.length
+      ? { alternateName: e.alternateNames.length === 1 ? e.alternateNames[0] : e.alternateNames }
+      : {}),
+    description: e.definition,
+    url: `${SITE_URL}${e.path}`,
+    inDefinedTermSet: FLAW_LIBRARY_SET_ID,
+  } as JsonLd;
+}
+
+/** DefinedTermSet for the flaw-library hub. */
+export function flawLibrarySetLd(
+  entries: ReadonlyArray<ResellerDefinedTermInput>,
+): JsonLd {
+  return {
+    "@context": "https://schema.org",
+    "@type": "DefinedTermSet",
+    "@id": FLAW_LIBRARY_SET_ID,
+    name: "GradeThread Clothing Flaw Library",
+    description:
+      "The vocabulary of clothing flaws GradeThread's condition grading detects — pilling, moth holes, sun fading, pit stains, crocking, seam stress and more — each with how it affects the 1.0–10.0 condition grade.",
+    url: `${SITE_URL}/grading/flaws`,
+    hasDefinedTerm: entries.map((e) => ({
+      "@type": "DefinedTerm",
+      name: e.term,
+      ...(e.alternateNames && e.alternateNames.length
+        ? { alternateName: e.alternateNames.length === 1 ? e.alternateNames[0] : e.alternateNames }
+        : {}),
+      description: e.definition,
+      url: `${SITE_URL}${e.path}`,
+      inDefinedTermSet: FLAW_LIBRARY_SET_ID,
+    })),
+  };
+}
+
 // ── The named Grading Scale: its own DefinedTermSet (US-1664) ────────
 // Stable @id for the canonical scale set, anchored on the /grading/scale pillar.
 // Distinct from the /condition-grading vocabulary glossary set above: this set IS

@@ -12235,8 +12235,8 @@
         "Indexable routes; build + schema-lint clean"
       ],
       "priority": 1682,
-      "passes": false,
-      "notes": "[P2][SEO2.0][pSEO][GEO] Plan §5 P2. Proprietary flaw taxonomy rendered as content — the good kind of pSEO."
+      "passes": true,
+      "notes": "[P2][SEO2.0][pSEO][GEO] Plan §5 P2. Proprietary flaw taxonomy rendered as content — the good kind of pSEO. | DONE 2026-07-06: /grading/guides hub + 32 garment guides (denim/leather jacket, knit/cashmere sweater, graphic/vintage tee, dress-shirt, hoodie, activewear-leggings, wool/puffer/down/fleece/rain coat+vest+jacket, blazer/wool-suit, silk/linen blouse+shirt, chino/corduroy/workwear/jeans/joggers/denim-shorts, skirts, dresses, polo, flannel, cardigan, tank, jumpsuit). Each: garment-specific criteria + ordered HowTo steps (the proprietary rubric = ≥50% unique editorial), graded examples table, deep-links to the flaw library, FAQ; HowTo + FAQPage schema. Merged identical-rubric garments. Optional ≥3 real flaw photos slot renders from the graded corpus (content-ops follow-up per AC2/US-1677 AC4). Prerendered; 643 tests green."
     },
     {
       "id": "US-1683",
@@ -12248,8 +12248,8 @@
         "DefinedTerm/Article schema; ≥50% unique content; indexable; build + schema-lint clean"
       ],
       "priority": 1683,
-      "passes": false,
-      "notes": "[P2][SEO2.0][pSEO][GEO] Plan §5 P5. The vocabulary of the product's output; zero competition, image-rich."
+      "passes": true,
+      "notes": "[P2][SEO2.0][pSEO][GEO] Plan §5 P5. The vocabulary of the product's output; zero competition, image-rich. | DONE 2026-07-06: /grading/flaws hub + 32 flaw pages (pilling, sun-fading, moth-holes, pit-stains, crocking, seam-stress, cracked-graphics, missing-buttons, broken-zipper, fabric-thinning, snags, stains, holes-tears, fraying, shrinkage, stretching, color-bleeding, deodorant-marks, smoke/mildew-odor, rust/ink/bleach-spots, hemline, elastic, felting, watch-wear, belt-loop, lining-tears, button-fading, collar-wear, patch-loss). Each: 45-60w definition, how-to-detect, grade-impact (names the weighted factor + tier), fixability, disclosure, related flaws, FAQ; Article + DefinedTerm (own flaw DefinedTermSet on hub) + FAQPage. Optional photos slot renders when the graded corpus supplies them (real flaw photos = content-ops follow-up). Certs can deep-link detected flaws here. Prerendered (174 routes total); jsonld-lint + parity green."
     },
     {
       "id": "US-1684",

@@ -17,8 +17,22 @@ import {
   gradeScaleDefinedTermSetLd,
   resellerDefinedTermLd,
   resellerGlossarySetLd,
+  flawDefinedTermLd,
+  flawLibrarySetLd,
   type JsonLd,
 } from "@/lib/seo/json-ld";
+import {
+  FLAW_ENTRIES,
+  FLAW_LIBRARY_HUB_PATH,
+  flawPath,
+  flawTrail,
+  type FlawEntry,
+} from "@/lib/seo/flaw-library";
+import {
+  GARMENT_GUIDES_HUB_PATH,
+  guideTrail,
+  type GarmentGuide,
+} from "@/lib/seo/garment-guides";
 import { scaleDefinedTerms } from "@/lib/seo/grading-scale";
 import {
   RESELLER_TERMS,
@@ -405,6 +419,118 @@ export function vsAuthenticationJsonLd(): JsonLd[] {
     }),
     faqPageLd(VS_AUTH_FAQS),
   ];
+}
+
+// ── /grading/flaws hub + /grading/flaws/{flaw} (US-1683) ────────────
+const FLAW_PUBLISHED = "2026-07-06";
+const FLAW_MODIFIED = "2026-07-06";
+
+export function flawBreadcrumbItems(
+  flaw: FlawEntry,
+): Array<{ name: string; url: string }> {
+  return flawTrail(flaw).map((t) => ({
+    name: t.name,
+    url: t.path === "/" ? `${SITE_URL}/` : `${SITE_URL}${t.path}`,
+  }));
+}
+
+export function flawHubBreadcrumbItems(): Array<{ name: string; url: string }> {
+  return [
+    { name: "GradeThread", url: `${SITE_URL}/` },
+    { name: "Flaw library", url: `${SITE_URL}${FLAW_LIBRARY_HUB_PATH}` },
+  ];
+}
+
+/** A single flaw page: Article + DefinedTerm + FAQPage. */
+export function flawJsonLd(flaw: FlawEntry): JsonLd[] {
+  return [
+    articleLd({
+      headline: flaw.h1,
+      description: flaw.description,
+      url: absoluteUrl(flawPath(flaw.slug)),
+      datePublished: FLAW_PUBLISHED,
+      dateModified: FLAW_MODIFIED,
+    }),
+    flawDefinedTermLd({
+      term: flaw.name,
+      alternateNames: flaw.alternateNames,
+      definition: flaw.definition,
+      path: flawPath(flaw.slug),
+    }),
+    faqPageLd(flaw.faqs),
+  ];
+}
+
+export const FLAW_HUB_FAQS = [
+  {
+    q: "What clothing flaws lower a condition grade the most?",
+    a: "Structural damage — holes, tears, blown seams, moth holes, and broken hardware — weighs heaviest because it caps how usable a garment is. Fabric flaws like heavy pilling, thinning, and pronounced fading come next. Minor cosmetic marks move the grade least. Each flaw is assessed under one of the five weighted factors on the 1.0–10.0 scale.",
+  },
+  {
+    q: "How should I disclose a flaw in a listing?",
+    a: "Name it plainly, show a close-up photo with a scale reference, and place it where the buyer will see it. A disclosed, photographed flaw rarely causes a return; the same flaw hidden in a 'like new' listing does. A standardized condition grade captures the flaw's impact objectively.",
+  },
+];
+
+/** The flaw-library hub: DefinedTermSet + FAQPage. */
+export function flawHubJsonLd(): JsonLd[] {
+  return [
+    flawLibrarySetLd(
+      FLAW_ENTRIES.map((f) => ({
+        term: f.name,
+        alternateNames: f.alternateNames,
+        definition: f.definition,
+        path: flawPath(f.slug),
+      })),
+    ),
+    faqPageLd(FLAW_HUB_FAQS),
+  ];
+}
+
+// ── /grading/guides hub + /grading/guides/{garment} (US-1682) ───────
+
+export function guideBreadcrumbItems(
+  guide: GarmentGuide,
+): Array<{ name: string; url: string }> {
+  return guideTrail(guide).map((t) => ({
+    name: t.name,
+    url: t.path === "/" ? `${SITE_URL}/` : `${SITE_URL}${t.path}`,
+  }));
+}
+
+export function guideHubBreadcrumbItems(): Array<{ name: string; url: string }> {
+  return [
+    { name: "GradeThread", url: `${SITE_URL}/` },
+    { name: "Grading guides", url: `${SITE_URL}${GARMENT_GUIDES_HUB_PATH}` },
+  ];
+}
+
+/** A garment guide page: HowTo (grade this garment) + FAQPage. */
+export function garmentGuideJsonLd(guide: GarmentGuide): JsonLd[] {
+  return [
+    howToLd({
+      name: `How to grade a used ${guide.garment.toLowerCase()}`,
+      description: guide.description,
+      steps: guide.steps.map((s) => ({ name: s.name, text: s.text })),
+    }),
+    faqPageLd(guide.faqs),
+  ];
+}
+
+export const GARMENT_HUB_FAQS = [
+  {
+    q: "Does condition grading work the same for every garment type?",
+    a: "The 1.0–10.0 scale and the five weighted factors stay constant, but what counts as wear differs by garment. Pilling matters most on knits, seam slippage and inseam blowouts on denim, sole and crease wear on shoes, lining and structure on tailoring. The factors are universal; the failure modes are garment-specific — which is what these guides cover.",
+  },
+  {
+    q: "How do I grade a specific garment?",
+    a: "Start from the garment's known failure points, check them in order, and score against the standardized rubric. Each guide gives the garment-specific criteria, an ordered checklist, and graded examples, so the same evidence produces the same grade whoever inspects the item.",
+  },
+];
+
+/** The garment-guides hub: FAQPage (the guide index is the visible content). */
+export function garmentHubJsonLd(): JsonLd[] {
+  return [faqPageLd(GARMENT_HUB_FAQS)];
 }
 
 // ── /reselling pillar + guides (US-1688) ────────────────────────────

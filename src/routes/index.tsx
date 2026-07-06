@@ -99,6 +99,10 @@ const FlipDeskPage = lazy(() => import("@/pages/marketing/flipdesk").then(m => (
 const FlipdeskLandingPage = lazy(() => import("@/pages/marketing/flipdesk-landing").then(m => ({ default: m.FlipdeskLandingPage })));
 const ResellingPillarPage = lazy(() => import("@/pages/marketing/reselling").then(m => ({ default: m.ResellingPillarPage })));
 const ResellingGuidePage = lazy(() => import("@/pages/marketing/reselling").then(m => ({ default: m.ResellingGuidePage })));
+const FlawLibraryHubPage = lazy(() => import("@/pages/marketing/flaw-library").then(m => ({ default: m.FlawLibraryHubPage })));
+const FlawPage = lazy(() => import("@/pages/marketing/flaw-library").then(m => ({ default: m.FlawPage })));
+const GarmentGuidesHubPage = lazy(() => import("@/pages/marketing/garment-guides").then(m => ({ default: m.GarmentGuidesHubPage })));
+const GarmentGuidePage = lazy(() => import("@/pages/marketing/garment-guides").then(m => ({ default: m.GarmentGuidePage })));
 const SellUsedClothesEbayPage = lazy(() => import("@/pages/marketing/sell-used-clothes-ebay").then(m => ({ default: m.SellUsedClothesEbayPage })));
 const FaqPage = lazy(() => import("@/pages/marketing/faq").then(m => ({ default: m.FaqPage })));
 const ConditionGradingPage = lazy(() => import("@/pages/marketing/condition-grading").then(m => ({ default: m.ConditionGradingPage })));
@@ -389,6 +393,13 @@ export const router = createBrowserRouter([
       // /grading/:slug spoke route below. Registered in PUBLIC_ROUTES + prerendered.
       { path: "/grading/glossary", element: <SuspenseWrapper><ResellerGlossaryHubPage /></SuspenseWrapper> },
       { path: "/grading/glossary/:term", element: <SuspenseWrapper><ResellerGlossaryTermPage /></SuspenseWrapper> },
+      // Flaw library (US-1683): hub + per-flaw pages. Static /grading/flaws + the
+      // 2-segment flaw route outrank /grading/:slug below.
+      { path: "/grading/flaws", element: <SuspenseWrapper><FlawLibraryHubPage /></SuspenseWrapper> },
+      { path: "/grading/flaws/:flaw", element: <SuspenseWrapper><FlawPage /></SuspenseWrapper> },
+      // Garment-type grading guides (US-1682): hub + per-garment pages.
+      { path: "/grading/guides", element: <SuspenseWrapper><GarmentGuidesHubPage /></SuspenseWrapper> },
+      { path: "/grading/guides/:garment", element: <SuspenseWrapper><GarmentGuidePage /></SuspenseWrapper> },
       // Glossary hub spokes (US-303): one page per grade tier + factor, served
       // by a single dynamic route. The indexable set is registered in
       // PUBLIC_ROUTES (via glossaryRoutes()) and prerendered individually.

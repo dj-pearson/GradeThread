@@ -62,6 +62,14 @@ import {
   resellingPillarBreadcrumbItems,
   resellingGuideJsonLd,
   resellingGuideBreadcrumbItems,
+  flawJsonLd,
+  flawBreadcrumbItems,
+  flawHubJsonLd,
+  flawHubBreadcrumbItems,
+  garmentGuideJsonLd,
+  guideBreadcrumbItems,
+  garmentHubJsonLd,
+  guideHubBreadcrumbItems,
 } from "@/pages/marketing/marketing-jsonld";
 import { getGlossaryEntryByPath } from "@/lib/seo/glossary";
 import {
@@ -73,6 +81,8 @@ import {
   getResellingGuideByPath,
   isResellingPillarPath,
 } from "@/lib/seo/reselling-guides";
+import { getFlawByPath, isFlawHubPath } from "@/lib/seo/flaw-library";
+import { getGuideByPath, isGuideHubPath } from "@/lib/seo/garment-guides";
 import { twitterSiteHandle, twitterCreatorHandle } from "@/lib/seo/social";
 
 function escapeAttr(s: string): string {
@@ -170,6 +180,42 @@ export function jsonLdForRoute(path: string): JsonLd[] {
       organizationLd(),
       breadcrumbLd(resellingGuideBreadcrumbItems(resellingGuide)),
       ...resellingGuideJsonLd(resellingGuide),
+    ];
+  }
+  // Flaw library hub (US-1683): Organization + 2-level breadcrumb +
+  // DefinedTermSet + FAQ.
+  if (isFlawHubPath(path)) {
+    return [
+      organizationLd(),
+      breadcrumbLd(flawHubBreadcrumbItems()),
+      ...flawHubJsonLd(),
+    ];
+  }
+  // Flaw page (US-1683): Organization + 3-level breadcrumb + Article +
+  // DefinedTerm + FAQ.
+  const flaw = getFlawByPath(path);
+  if (flaw) {
+    return [
+      organizationLd(),
+      breadcrumbLd(flawBreadcrumbItems(flaw)),
+      ...flawJsonLd(flaw),
+    ];
+  }
+  // Garment guides hub (US-1682): Organization + 2-level breadcrumb + FAQ.
+  if (isGuideHubPath(path)) {
+    return [
+      organizationLd(),
+      breadcrumbLd(guideHubBreadcrumbItems()),
+      ...garmentHubJsonLd(),
+    ];
+  }
+  // Garment guide (US-1682): Organization + 3-level breadcrumb + HowTo + FAQ.
+  const guide = getGuideByPath(path);
+  if (guide) {
+    return [
+      organizationLd(),
+      breadcrumbLd(guideBreadcrumbItems(guide)),
+      ...garmentGuideJsonLd(guide),
     ];
   }
   // Reseller glossary hub (US-1671): Organization + 2-level breadcrumb +

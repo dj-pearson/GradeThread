@@ -85,6 +85,24 @@ import {
   ResellingPillarPage,
   ResellingGuidePage,
 } from "@/pages/marketing/reselling";
+import {
+  FLAW_ENTRIES,
+  FLAW_LIBRARY_HUB_PATH,
+  flawPath,
+} from "@/lib/seo/flaw-library";
+import {
+  FlawLibraryHubPage,
+  FlawPage,
+} from "@/pages/marketing/flaw-library";
+import {
+  GARMENT_GUIDES,
+  GARMENT_GUIDES_HUB_PATH,
+  guidePath,
+} from "@/lib/seo/garment-guides";
+import {
+  GarmentGuidesHubPage,
+  GarmentGuidePage,
+} from "@/pages/marketing/garment-guides";
 
 // Static map of prerenderable routes → page element.
 const PAGES: Record<string, React.ReactNode> = {
@@ -172,6 +190,22 @@ const PAGES: Record<string, React.ReactNode> = {
     RESELLING_GUIDES.map((g) => [
       resellingGuidePath(g.slug),
       <ResellingGuidePage key={g.slug} slug={g.slug} />,
+    ]),
+  ),
+  // Flaw library (US-1683).
+  [FLAW_LIBRARY_HUB_PATH]: <FlawLibraryHubPage />,
+  ...Object.fromEntries(
+    FLAW_ENTRIES.map((f) => [
+      flawPath(f.slug),
+      <FlawPage key={f.slug} slug={f.slug} />,
+    ]),
+  ),
+  // Garment-type grading guides (US-1682).
+  [GARMENT_GUIDES_HUB_PATH]: <GarmentGuidesHubPage />,
+  ...Object.fromEntries(
+    GARMENT_GUIDES.map((g) => [
+      guidePath(g.slug),
+      <GarmentGuidePage key={g.slug} slug={g.slug} />,
     ]),
   ),
 };
