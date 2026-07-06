@@ -33,7 +33,8 @@ export type MarketplacePlatform =
   | "mercari"
   | "depop"
   | "grailed"
-  | "shopify";
+  | "shopify"
+  | "etsy";
 
 // How a listing actually reaches the platform.
 //   api       — official write API (push) available
@@ -295,6 +296,32 @@ export const MARKETPLACE_SPECS: Record<MarketplacePlatform, MarketplaceSpec> = {
     sourceNote:
       "Shopify GraphQL Admin API (2026-01): title 255, no body_html cap, up to 250 images, no native condition field. VERIFY.",
   },
+
+  etsy: {
+    platform: "etsy",
+    label: "Etsy",
+    pushMechanism: "api", // Etsy Open API v3 (US-1659/1660); gated behind ETSY_ENABLED until app approval
+    titleMaxLength: 140,
+    descriptionMaxLength: null, // ~13,000 chars — effectively unbounded for our copy
+    maxPhotos: 10,
+    conditions: [], // Etsy has no condition field — it uses who_made/when_made attributes instead
+    tags: { max: 13, required: false, help: "Up to 13 tags, each ≤20 chars" },
+    usesOwnTaxonomy: true, // Etsy taxonomy_id tree (US-722)
+    brandAllowList: false,
+    fields: [
+      TITLE(140),
+      DESCRIPTION(undefined),
+      { key: "category", label: "Category (Etsy taxonomy)", required: true },
+      { key: "whoMade", label: "Who made it", required: true, help: "i_did / someone_else / collective" },
+      { key: "whenMade", label: "When was it made", required: true, help: "e.g. made_to_order, 2020_2025, before_2005 (vintage: 20+ yrs)" },
+      { key: "materials", label: "Materials", required: false },
+      { key: "tags", label: "Tags (up to 13)", required: false },
+      { key: "price", label: "Price", required: true },
+      { key: "quantity", label: "Quantity", required: false },
+    ],
+    sourceNote:
+      "Etsy Open API v3 (2026-06): title 140, description ~13k, up to 10 photos, up to 13 tags (≤20 chars each), taxonomy_id tree, no condition field (who_made/when_made instead), requires a shipping profile. OAuth2 PKCE + x-api-key. VERIFY.",
+  },
 };
 
 /** All specced platforms. */
@@ -341,9 +368,9 @@ export function gradeToConditionBucket(
 }
 
 // Per-platform bucket → condition value. Values match each platform's
-// conditions[] list above. Shopify is omitted (no condition field).
+// conditions[] list above. Shopify and Etsy are omitted (no condition field).
 const CONDITION_BY_BUCKET: Record<
-  Exclude<MarketplacePlatform, "shopify">,
+  Exclude<MarketplacePlatform, "shopify" | "etsy">,
   Record<ConditionBucket, string>
 > = {
   ebay: {
@@ -402,7 +429,7 @@ export function mapCondition(
   grade: number | null,
   label: string | null,
 ): ConditionOption | null {
-  if (platform === "shopify") return null;
+  if (platform === "shopify" || platform === "etsy") return null;
   const bucket = gradeToConditionBucket(grade, label);
   const value = CONDITION_BY_BUCKET[platform][bucket];
   const spec = MARKETPLACE_SPECS[platform];

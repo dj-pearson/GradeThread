@@ -29,6 +29,10 @@ Deno.env.set(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
 );
 const { depopAdapter } = await import("../lib/marketplace-adapters/depop.ts");
+// US-1659: etsy.ts imports the service-role client (its connect/refresh are real),
+// so it's dynamic-imported after the dummy env too. ETSY_ENABLED is left unset so
+// the connector reports "disabled" here.
+const { etsyAdapter } = await import("../lib/marketplace-adapters/etsy.ts");
 
 // poshmark + mercari are still full stubs: every connection/listing/sync method
 // returns the typed 501.
@@ -113,6 +117,65 @@ Deno.test("depop is fully gated (503) while disabled — connection AND listing 
   // it performs no Depop access, so it doesn't 503.
   const syncListings = await depopAdapter.syncListings({ ownerId: "owner" });
   assertEquals(syncListings.ok, true);
+});
+
+// US-1659: Etsy's CONNECTION half is real (connect/refresh gate at 503 while
+// disabled), but its LISTING half is deferred to US-1660 — publish/update/delist/
+// sync return the typed 501 NotImplemented regardless of the enabled flag, so
+// cross-push still mints the local row and surfaces an honest message.
+Deno.test("etsy: connect/refresh gate at 503 while disabled; listing methods 501 (deferred)", async () => {
+  const connect = await etsyAdapter.connect({ ownerId: "owner", state: "s" });
+  assertEquals(connect.ok, false);
+  if (!connect.ok) assertEquals(connect.status, 503);
+
+  const refresh = await etsyAdapter.refreshToken({ ownerId: "owner" });
+  assertEquals(refresh.ok, false);
+  if (!refresh.ok) assertEquals(refresh.status, 503);
+
+  // Listing + order path is US-1660 → typed 501 (not 503), even though disabled.
+  const listingMethods = [
+    await etsyAdapter.publish({
+      ownerId: "owner",
+      inventoryItemId: "item",
+      listingRowId: "row",
+      price: 25,
+    }),
+    await etsyAdapter.updateListing({
+      ownerId: "owner",
+      inventoryItemId: "item",
+      listingRowId: "row",
+      price: 25,
+    }),
+    await etsyAdapter.delist({
+      ownerId: "owner",
+      listingRowId: "row",
+      platformOfferId: null,
+      platformListingId: null,
+    }),
+    await etsyAdapter.syncListings({ ownerId: "owner" }),
+    await etsyAdapter.syncOrders({ ownerId: "owner" }),
+  ];
+  for (const result of listingMethods) {
+    assertEquals(result.ok, false);
+    if (!result.ok) assertEquals(result.status, 501);
+  }
+});
+
+// US-1659: Etsy HAS a title field (titleMaxLength 140), so unlike Depop the
+// mapped sibling carries a non-null title. mapDraftToListing stays pure/real
+// even while connect is gated.
+Deno.test("etsy mapDraftToListing carries a title (140-char field)", () => {
+  const mapped = etsyAdapter.mapDraftToListing({
+    source: {
+      listing_title: "Handmade wool scarf",
+      listing_description: "Cozy hand-knit scarf.",
+    },
+    price: 30,
+    variant: null,
+  });
+  assertEquals(mapped.listing_price, 30);
+  assert(mapped.listing_title && mapped.listing_title.length > 0);
+  assertEquals(etsyAdapter.platform, "etsy");
 });
 
 // mapDraftToListing stays pure/real even while connect is gated. Depop has no

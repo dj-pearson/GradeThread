@@ -11821,3 +11821,43 @@ environment — stopping rather than force marginal/rushed completions (quality>
 Recommendation: US-1607 as a focused dedicated run; US-1655 once Docker is available;
 US-1421/1566/1582 need operator action. Loop stopped here to avoid re-deciding the
 same blocked stories each wake.
+
+════════════════════════════════════════════════════════════════════════════
+US-1659 DONE — Etsy marketplace foundation (2026-07-05)
+════════════════════════════════════════════════════════════════════════════
+Direction: "add new marketplaces, start with the foundation." The adapter
+foundation (US-708 contract, marketplace_connections token store, cross-listing
+dispatcher, tier/mechanism taxonomy) was already mature; the remaining pending
+non-Android web/edge stories were only OPS/operator tasks. So created + shipped a
+NEW real-API marketplace end-to-end: ETSY (chosen for the cleanest public API —
+Open API v3, OAuth2 PKCE). Mirrors how Depop landed (US-713 connection → US-714
+listing); this is the connection half.
+
+Shipped (US-1659, passes:true):
+- migration 00376 adds 'etsy' to listing_platform enum (idempotent, self-record,
+  EXPECTED_SCHEMA_VERSION=00376 triple). HELD in PENDING_MIGRATIONS.md.
+- constants.ts: etsy across LISTING_PLATFORMS/LABELS/MECHANISM(api)/TIER
+  (api_pending)/CROSS_LISTING_PLATFORMS/API_CROSS_LISTING_PLATFORMS.
+- marketplace-specs.ts (byte-identical web+edge): etsy spec + mapCondition null
+  (Etsy has no condition field — who_made/when_made instead).
+- etsy-client.ts: OAuth2 Authorization Code + PKCE (keystring = client_id, NO
+  secret), AES-GCM token storage (AAD=userId), inline + cron refresh, isEtsyEnabled.
+- etsy-api.ts: etsyFetch (Bearer + x-api-key) + connect-time shop identity.
+- marketplace-adapters/etsy.ts: real connect/refresh (503 gated); listing methods
+  return typed 501 (deferred to US-1660); registered in index.ts.
+- routes/flipdesk-etsy.ts: oauth/start, callback (PUBLIC, single-use PKCE state),
+  oauth/refresh (job secret), disconnect (admin, owner-scoped). Mounted in main.ts
+  + auth/workspace middleware. Cron sweep via the shared eBay token-refresh handler.
+- Tests: etsy-client_test (5, green), marketplace-adapters_test etsy cases (2,
+  green), tenant-isolation etsy-disconnect case. Web tsc -b green;
+  marketplace-specs.test 81 green. Everything gated behind ETSY_ENABLED (off).
+
+Follow-on created: US-1660 (passes:false) — Etsy listing publish/update/delist +
+receipt sync. Bigger than Depop: form-encoded listing create, BINARY multipart
+image upload (Etsy rejects image URLs), taxonomy_id + shipping_profile_id
+resolution, receipts→sales. Reconcile field names vs live v3 OpenAPI once sandbox.
+
+Pre-existing (NOT mine, confirmed on clean HEAD with my work stashed): 6 edge test
+failures + agent-tools.ts:1825 PropSchema type error, all in the US-1595
+agent-tools/support-triage/cron-registry-drift cluster (concurrent Ralph work).
+nextId 1659→1661.

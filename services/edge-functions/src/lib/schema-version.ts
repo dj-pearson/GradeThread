@@ -37,7 +37,7 @@ import { edgeEnv } from "./env.ts";
 
 // Bump this in the SAME commit that adds a migration. = highest NNNNN in
 // supabase/migrations/. (00375_affiliate_amounts_integer_cents.sql)
-export const EXPECTED_SCHEMA_VERSION = "00375";
+export const EXPECTED_SCHEMA_VERSION = "00376";
 
 export type SchemaVersionComparison = "match" | "behind" | "ahead" | "unknown";
 

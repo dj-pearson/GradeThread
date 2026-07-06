@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1659,
+  "nextId": 1661,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -11898,6 +11898,37 @@
         "services/edge-functions/src/lib/grading-quality.ts",
         "services/edge-functions/src/lib/agent-tools.ts",
         "services/edge-functions/src/routes/admin-grading.ts"
+      ]
+    },
+    {
+      "id": "US-1659",
+      "title": "Etsy marketplace foundation — enum, adapter registry, OAuth PKCE connection",
+      "description": "As a FlipDesk reseller, I want to connect my Etsy shop so FlipDesk recognizes Etsy as a first-class marketplace, laying the foundation to cross-list to Etsy once the listing path ships.",
+      "priority": 2210,
+      "passes": true,
+      "notes": "[P2][New marketplace] Etsy is the next real-API channel after eBay/Shopify/Depop. Mirrors how Depop shipped (US-713 connection -> US-714 listing). DONE 2026-07-05: (1) migration 00376 adds etsy to listing_platform enum (idempotent ADD VALUE + self-record footer + EXPECTED_SCHEMA_VERSION=00376 triple); (2) constants.ts registers etsy across LISTING_PLATFORMS/MARKETPLACE_LABELS/MECHANISM(api)/TIER(api_pending)/CROSS_LISTING_PLATFORMS/API_CROSS_LISTING_PLATFORMS; adapter types.ts union+array; marketplace-specs.ts etsy spec (title 140, desc unbounded, 10 photos, 13 tags, taxonomy, no condition field) mirrored byte-identical web+edge; (3) etsy-client.ts = OAuth2 PKCE (keystring as client_id, NO client secret), AES-GCM token storage (AAD=userId), inline+cron refresh, isEtsyEnabled gate; (4) etsy-api.ts = etsyFetch (Bearer + x-api-key) + shop identity; (5) marketplace-adapters/etsy.ts real connect/refresh, listing methods 501 (deferred US-1660), registered in index.ts; (6) routes/flipdesk-etsy.ts (oauth/start, callback PUBLIC, oauth/refresh job-secret, disconnect admin-gated), mounted in main.ts + auth/workspace middleware; refreshExpiringEtsyConnections wired into the shared eBay token-refresh cron. Gated behind ETSY_ENABLED (off until app approval). Tests: etsy-client_test (5), marketplace-adapters_test etsy cases (2), tenant-isolation etsy disconnect case; deno lint/check clean on all etsy files; web tsc -b + marketplace-specs.test (81) green. HELD in PENDING_MIGRATIONS.md (migration). Pre-existing agent-tools.ts:1825 error (US-1595) + 6 agent-tools/support-triage/cron-drift test failures are unrelated (confirmed on clean HEAD).",
+      "acceptanceCriteria": [
+        "Migration adds etsy to listing_platform enum (idempotent, self-record footer, EXPECTED_SCHEMA_VERSION triple)",
+        "etsy registered across constants (label/mechanism=api/tier=api_pending/cross-listing) + adapter types + marketplace-specs (byte-identical web+edge copies)",
+        "etsy-client.ts: OAuth2 Authorization Code + PKCE (keystring as client_id, no secret), encrypted token storage bound to userId, inline + cron refresh, ETSY_ENABLED gate",
+        "marketplace-adapters/etsy.ts: real connect/refresh (503 when disabled); publish/update/delist/sync return typed 501 (deferred to US-1660); mapDraftToListing real; registered in the adapter registry",
+        "routes/flipdesk-etsy.ts mounted: oauth/start (authed), oauth/callback (public, single-use PKCE state), oauth/refresh (job secret), disconnect (admin, owner-scoped); refresh swept by the shared token-refresh cron",
+        "Tenant-isolation case for the etsy route; unit tests for PKCE + gate + auth-failure classification; edge lint/check + web build green"
+      ]
+    },
+    {
+      "id": "US-1660",
+      "title": "Etsy listing publish/update/delist + receipt (order) sync",
+      "description": "As a FlipDesk reseller with a connected Etsy shop, I want FlipDesk to create/update/end my Etsy listings and pull Etsy orders back, so Etsy is a fully cross-listable channel.",
+      "priority": 2150,
+      "passes": false,
+      "notes": "[P2][New marketplace][Follows US-1659] Build the LISTING + RECEIPT path on the US-1659 connection foundation. Etsy specifics bigger than Depop: (a) listing create is application/x-www-form-urlencoded, not JSON; (b) images must be uploaded as BINARY multipart to POST /shops/{shop_id}/listings/{listing_id}/images (Etsy does NOT accept image URLs) - pull bytes from item-photos and POST each; (c) create requires taxonomy_id + a shipping_profile_id (resolve/select the seller's shipping profile) + who_made/when_made/is_supply; (d) delist = PATCH state=inactive or DELETE; (e) orders via GET /shops/{shop_id}/receipts -> sale rows + cross-platform auto-end (mirror depop-orders). Reconcile all field names against the live v3 OpenAPI once app approval + a sandbox shop land. Keep everything gated behind ETSY_ENABLED. Add adapter listing-method tests + a tenant-isolation case per new route.",
+      "acceptanceCriteria": [
+        "etsy-api.ts: create/update/delist listing (form-encoded body), binary image upload from item-photos, taxonomy + shipping-profile resolution",
+        "etsy adapter publish/updateListing/delist wired (idempotent), replacing the US-1659 501 stubs; syncOrders pulls receipts -> sale rows + cross-platform auto-end",
+        "GradeThread Standard grade block embedded in the description (Etsy allows off-site cert links)",
+        "Everything gated behind ETSY_ENABLED; owner-scoped (US-268) with a tenant-isolation case per new route",
+        "Field names reconciled against the live Etsy Open API v3 once sandbox access lands; adapter + pure-builder unit tests green"
       ]
     }
   ]

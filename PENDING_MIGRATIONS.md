@@ -1,5 +1,33 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00376_listing_platform_etsy.sql (US-1659, 2026-07-05)
+
+**What:** adds the value `'etsy'` to the `public.listing_platform` enum
+(`ALTER TYPE ... ADD VALUE IF NOT EXISTS 'etsy'`). `listings.platform` and
+`marketplace_connections.marketplace` are BOTH this enum, so the value must exist
+before any Etsy connection row or sibling listing can be written. Ships alongside
+the Etsy connection layer (`etsy-client.ts`/`etsy-api.ts`/adapter/route), all
+gated behind `ETSY_ENABLED` (off until Etsy app approval). Self-records '00376'.
+
+**Risk: LOW — additive enum value, no data change.** Idempotent
+(`ADD VALUE IF NOT EXISTS`), so re-running the whole directory is a no-op once the
+value exists. NOT wrapped in a transaction (an enum value added inside a
+transaction can't be used in that same transaction; this migration never uses it).
+
+**⚠️ CLIENT READ — safe, but note the enum caveat:** the frontend
+(`src/lib/constants.ts`) now lists `etsy` in `LISTING_PLATFORMS`/`MARKETPLACE_*`
+and the Marketplaces UI renders it in the "pending approval" tier. That is pure
+client display and does NOT query the DB for the enum value, so the frontend
+auto-deploy on push is safe even before the SQL applies. HOWEVER, per the enum
+rule: no edge code filters `.eq("marketplace","etsy")` on a path that could run
+before this migration applies except INSIDE the `ETSY_ENABLED` gate (off in prod
+until approval) — so there is no window where edge code selects a not-yet-existing
+enum value. Apply the SQL first regardless so the edge boot guard (now **00376**)
+doesn't crash-loop.
+
+**⚠️ Apply order:** after 00375. `NOTIFY pgrst, 'reload schema';` recommended
+(enum changed). Redeploy the edge so its boot guard matches 00376.
+
 ## ⏳ HELD: 00375_affiliate_amounts_integer_cents.sql (US-1655, 2026-07-05)
 
 **What:** converts `affiliate_commissions.amount` and `affiliate_payouts.amount`

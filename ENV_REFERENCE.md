@@ -214,6 +214,9 @@ Set these in the same Pages env; the SSR functions in `functions/` read them per
 | `DEPOP_CLIENT_ID` / `DEPOP_CLIENT_SECRET` 🔒 | ⬜ Coolify edge | Depop OAuth client credentials. |
 | `DEPOP_REDIRECT_URI` / `DEPOP_SCOPES` / `DEPOP_API_BASE` | ⬜ Coolify edge | Depop OAuth callback, scopes, API base URL. |
 | `DEPOP_WEBHOOK_SECRET` 🔒 | ⬜ Coolify edge | Verifies Depop webhook signatures. |
+| `ETSY_ENABLED` | ⬜ Coolify edge | Master toggle for the Etsy integration (US-1659). Off until app approval. |
+| `ETSY_KEYSTRING` 🔒 | ⬜ Coolify edge | Etsy app keystring — used as BOTH the OAuth client_id AND the `x-api-key` data-API header. |
+| `ETSY_REDIRECT_URI` / `ETSY_SCOPES` / `ETSY_API_BASE` | ⬜ Coolify edge | Etsy OAuth callback, scopes, API base URL. |
 | `SHOPIFY_API_KEY` / `SHOPIFY_API_SECRET` 🔒 / `SHOPIFY_REDIRECT_URI` | ⬜ Coolify edge | Shopify app OAuth (the `shopify` boot feature). |
 
 ### 3j. Images / storage

@@ -18,6 +18,7 @@ import { notificationRoutes } from "./routes/notifications.ts";
 import { flipdeskEbayRoutes } from "./routes/flipdesk-ebay.ts";
 import { flipdeskShopifyRoutes } from "./routes/flipdesk-shopify.ts";
 import { flipdeskDepopRoutes } from "./routes/flipdesk-depop.ts";
+import { flipdeskEtsyRoutes } from "./routes/flipdesk-etsy.ts";
 import {
   flipdeskWebhookRoutes,
   handleEbayPendingWebhooksCron,
@@ -392,6 +393,11 @@ app.use("/api/flipdesk/depop/disconnect", authMiddleware);
 app.use("/api/flipdesk/depop/sync", authMiddleware);
 app.use("/api/flipdesk/depop/seller-addresses", authMiddleware);
 app.use("/api/flipdesk/depop/orders/*", authMiddleware);
+// Etsy (US-1659): everything authed EXCEPT /oauth/callback (Etsy redirects the
+// browser there unauthenticated; the `state` row identifies the user + carries
+// the PKCE verifier) and /oauth/refresh (internal job secret).
+app.use("/api/flipdesk/etsy/oauth/start", authMiddleware);
+app.use("/api/flipdesk/etsy/disconnect", authMiddleware);
 app.use("/api/flipdesk/grading/submit", authMiddleware);
 app.use("/api/flipdesk/grading/validate", authMiddleware);
 app.use("/api/flipdesk/grading/submissions/*", authMiddleware);
@@ -518,6 +524,10 @@ app.use("/api/flipdesk/depop/disconnect", workspaceMiddleware);
 app.use("/api/flipdesk/depop/sync", workspaceMiddleware);
 app.use("/api/flipdesk/depop/seller-addresses", workspaceMiddleware);
 app.use("/api/flipdesk/depop/orders/*", workspaceMiddleware);
+// Etsy (US-1659): workspace-scope the user-authed routes (connection lives under
+// the workspace owner, mirrors eBay/Shopify/Depop).
+app.use("/api/flipdesk/etsy/oauth/start", workspaceMiddleware);
+app.use("/api/flipdesk/etsy/disconnect", workspaceMiddleware);
 app.use("/api/flipdesk/grading/submit", workspaceMiddleware);
 app.use("/api/flipdesk/grading/validate", workspaceMiddleware);
 app.use("/api/flipdesk/grading/submissions/*", workspaceMiddleware);
@@ -925,6 +935,7 @@ app.route("/api/notifications", notificationRoutes);
 app.route("/api/flipdesk/ebay", flipdeskEbayRoutes);
 app.route("/api/flipdesk/shopify", flipdeskShopifyRoutes);
 app.route("/api/flipdesk/depop", flipdeskDepopRoutes);
+app.route("/api/flipdesk/etsy", flipdeskEtsyRoutes);
 app.route("/api/flipdesk/webhooks", flipdeskWebhookRoutes);
 app.route("/api/flipdesk/grading", flipdeskGradingRoutes);
 app.route("/api/flipdesk/photo-profiles", flipdeskPhotoProfilesRoutes);

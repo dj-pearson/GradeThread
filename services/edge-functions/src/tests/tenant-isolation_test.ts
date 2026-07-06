@@ -227,6 +227,35 @@ Deno.test({
 });
 
 Deno.test({
+  // US-1659: the Etsy disconnect is a workspace-wide teardown of
+  // marketplace_connections, scoped to the owner (.eq user_id) and admin-gated
+  // (roleAtLeast admin). A foreign non-admin B must NEVER succeed — the response
+  // is 403 (not admin) when the connector is on, or 503 when it's disabled
+  // (ETSY_ENABLED off by default), but never a 200 that would wipe another
+  // tenant's connection. This documents the route's owner-scoping the way
+  // depop/disconnect is scoped; the sync/publish routes that touch listing data
+  // get full assertDenied cases when they land in US-1660.
+  name: "B cannot disconnect Etsy in another workspace (never 200)",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/etsy/disconnect`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({}),
+    });
+    await res.body?.cancel();
+    assert(
+      res.status !== 200,
+      `Etsy disconnect: foreign non-admin caller must not succeed, got ${res.status}`,
+    );
+    assert(
+      [401, 403, 503].includes(res.status),
+      `Etsy disconnect: expected 401/403/503 but got ${res.status}`,
+    );
+  },
+});
+
+Deno.test({
   // US-455: the suggestions list is scoped to the caller's workspace owner, so
   // B's list must never contain one of A's suggestion ids. (RLS on
   // repricing_suggestions is defense-in-depth; the edge scoping is the boundary
