@@ -1,25 +1,15 @@
-// Embeddable "GradeThread Verified" trust badge for a single graded item.
+// Embeddable "GradeThread Verified" trust badge (700x180) for a graded item.
 //
-// /badge/cert/:id returns a compact 700x180 PNG (Satori via workers-og) that a
-// seller drops — wrapped in a link to /cert/:id — into their eBay / Poshmark /
-// Mercari / Depop listing description. Buyers see a standardized, independently
-// verifiable condition grade right inside the listing; the link drives them to
-// the full certificate (and back to GradeThread). This is the viral surface of
-// GradeThread Verified, so it must be a plain cacheable <img> with no script.
-//
-// Data: the same anonymous endpoint the cert SSR uses — only certified (public)
-// reports resolve, so a private/uncertified id yields the transparent fallback.
+// Thin proxy: rendered on the Deno edge (full CPU) and streamed back here. The
+// previous workers-og render inside this Pages Function exceeded the Free-plan
+// Worker CPU limit (HTTP 503 "error code: 1102"). Streaming bytes is pure I/O
+// and stays within the Free limit. Sellers drop this — wrapped in a link to
+// /cert/:id (see functions/embed/cert/[id].ts) — into a listing description, so
+// it must stay a plain cacheable <img>. On any upstream error we return the
+// transparent fallback PNG.
 
-import { ImageResponse } from "workers-og";
-import { fetchJson, type PagesEnv } from "../../_shared/blog-render";
-import { buildCertBadgeHtml, FALLBACK_PNG_BASE64 } from "../../_shared/og-template";
-
-interface PublicCertificate {
-  id: string;
-  title: string;
-  overall_score: number;
-  grade_tier: string;
-}
+import { edgeApi, type PagesEnv } from "../../_shared/blog-render";
+import { FALLBACK_PNG_BASE64 } from "../../_shared/og-template";
 
 type Ctx = EventContext<PagesEnv, "id", Record<string, unknown>>;
 
@@ -30,42 +20,29 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
   const { params, env } = context;
   const id = String(params.id ?? "").trim();
   if (!id) return fallbackImage();
-
+  const upstreamUrl = `${edgeApi(env)}/api/content/public/cert-image/${encodeURIComponent(id)}?kind=badge`;
   try {
-    const data = await fetchJson<{ certificate: PublicCertificate }>(
-      env,
-      `/api/content/public/certificates/${encodeURIComponent(id)}`,
-    );
-    if (!data?.certificate) return fallbackImage();
-    const cert = data.certificate;
-
-    const html = buildCertBadgeHtml({
-      score: cert.overall_score,
-      gradeTier: cert.grade_tier,
-      title: cert.title,
+    const upstream = await fetch(upstreamUrl);
+    if (!upstream.ok || !upstream.body) return fallbackImage();
+    return new Response(upstream.body, {
+      status: 200,
+      headers: { "Content-Type": "image/png", "Cache-Control": BADGE_CACHE_CONTROL },
     });
-
-    return new ImageResponse(html, {
-      width: 700,
-      height: 180,
-      headers: {
-        "Cache-Control": BADGE_CACHE_CONTROL,
-        "Content-Type": "image/png",
-      },
-    });
-  } catch (err) {
-    console.error("[badge/cert] render failed:", err);
+  } catch {
     return fallbackImage();
   }
 };
+
+export const onRequestHead: PagesFunction<PagesEnv> = () =>
+  new Response(null, {
+    status: 200,
+    headers: { "Content-Type": "image/png", "Cache-Control": BADGE_CACHE_CONTROL },
+  });
 
 function fallbackImage(): Response {
   const bytes = Uint8Array.from(atob(FALLBACK_PNG_BASE64), (c) => c.charCodeAt(0));
   return new Response(bytes, {
     status: 200,
-    headers: {
-      "Content-Type": "image/png",
-      "Cache-Control": "public, max-age=300",
-    },
+    headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=300" },
   });
 }

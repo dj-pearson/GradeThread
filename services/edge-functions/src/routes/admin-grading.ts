@@ -60,7 +60,7 @@ import {
   scoreToGradeTier,
 } from "../lib/human-review.ts";
 import { applyGradeAdjustment } from "../lib/grade-adjustment.ts";
-import { purgeCertificateCache } from "../lib/cloudflare-purge.ts";
+import { deleteCertImages, invalidateCertificate } from "../lib/cloudflare-purge.ts";
 import {
   type CheckedUpdateClient,
   ZeroRowsAffectedError,
@@ -2164,10 +2164,11 @@ adminGradingRoutes.post("/review/:id/adjust", async (c) => {
   }
 
   // US-577: re-grade changed the score — evict the certificate's edge-cached SSR
-  // page + share images so the corrected grade is served immediately.
+  // page + share images AND the edge-stored rendered PNGs so the corrected grade
+  // is served immediately.
   if (report.certificate_id) {
-    purgeCertificateCache(report.certificate_id).catch((e) =>
-      console.warn("[admin-grading] cert cache purge failed:", e),
+    invalidateCertificate(report.certificate_id).catch((e) =>
+      console.warn("[admin-grading] cert cache invalidation failed:", e),
     );
   }
 
@@ -2223,6 +2224,11 @@ adminGradingRoutes.post("/review/:id/send-back", async (c) => {
       review_claimed_at: null,
     })
     .eq("id", report.id);
+
+  // Cert goes dark — drop its edge-stored rendered images (they'd otherwise linger).
+  if (report.certificate_id) {
+    deleteCertImages(report.certificate_id).catch(() => {});
+  }
 
   // Move the submission to needs_photos with a reviewer-facing prompt.
   await supabaseAdmin

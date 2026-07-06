@@ -422,6 +422,33 @@ const BASE_STYLES = `
   .author-card:hover { background: #f9fafb; }
   .author-card h3 { margin: 0 0 6px; font-size: 1.1rem; }
   .author-card p { margin: 0; color: var(--muted); font-size: 0.9rem; }
+
+  /* ── Premium certificate report (functions/cert/[id].ts) ── */
+  /* Brand-aligned to the current app palette: navy #0C1E36, crimson #F03D5F. */
+  .cert-eyebrow { color: var(--muted); font-size: 0.9rem; margin: 0 0 8px; letter-spacing: 0.02em; }
+  .cert-hero { display: flex; align-items: center; gap: 20px; margin: 16px 0 20px; flex-wrap: wrap; }
+  .cert-score { width: 108px; height: 108px; border-radius: 999px; display: flex; align-items: center; justify-content: center; font-size: 2.9rem; font-weight: 800; color: #fff; flex-shrink: 0; box-shadow: 0 6px 20px rgba(12,30,54,0.18); }
+  .cert-tier { font-weight: 700; font-size: 1.5rem; color: #0C1E36; }
+  .cert-tier-sub { color: var(--muted); font-size: 0.92rem; margin-top: 2px; }
+  .cert-badges { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 24px; }
+  .cert-badge { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; font-size: 0.82rem; font-weight: 600; }
+  .cert-badge--verify { background: #dcfce7; color: #166534; }
+  .cert-badge--premium { background: #e0e7ff; color: #3730a3; }
+  .cert-badge--live { background: #fee2e2; color: #9f1239; }
+  .cert-slab-wrap { text-align: center; margin: 8px 0 4px; }
+  .cert-slab { display: block; width: 100%; max-width: 440px; margin: 0 auto 6px; border-radius: 16px; box-shadow: 0 10px 34px rgba(12,30,54,0.16); }
+  .cert-slab-note { color: var(--muted); font-size: 0.82rem; margin: 0 0 8px; }
+  .cert-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; margin: 12px 0 8px; }
+  .cert-gallery a { display: block; aspect-ratio: 1; border-radius: 10px; overflow: hidden; background: #eef2f6; }
+  .cert-gallery img { width: 100%; height: 100%; object-fit: cover; }
+  .cert-factors { margin: 12px 0; }
+  .cert-factor { margin: 0 0 15px; }
+  .cert-factor-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; font-size: 0.95rem; }
+  .cert-factor-w { color: var(--muted); font-weight: 400; }
+  .cert-factor-score { font-weight: 700; color: #0C1E36; }
+  .cert-factor-bar { height: 9px; border-radius: 999px; background: #eef2f6; overflow: hidden; }
+  .cert-factor-fill { height: 100%; border-radius: 999px; }
+  .cert-report { white-space: pre-wrap; background: #fafafc; border: 1px solid #eef2f6; border-radius: 12px; padding: 16px 18px; }
 `;
 
 export function renderLayout(input: LayoutInput): string {

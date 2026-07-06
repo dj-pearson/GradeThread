@@ -1,0 +1,196 @@
+// Edge port of the certificate image templates (US-763/US-307), moved off the
+// CPU-capped Cloudflare Pages Function (workers-og) onto the Deno edge, which
+// has full CPU. These are framework-agnostic HTML-string builders fed to
+// satori (see cert-image-render.ts). Ported from functions/_shared/og-template.ts
+// + functions/_shared/qr.ts and brand-aligned to the current app palette
+// (design.md): Obsidian Navy / Vibrant Crimson / Midnight Coal / Pearl White.
+//
+// Satori constraints: flexbox only (no grid/float), inline styles only. The
+// font is Inter (shipped as bytes by cert-image-render.ts) — templates name it
+// explicitly. Weights >700 fall back to the nearest shipped weight.
+
+import qrcode from "qrcode-generator";
+
+// ── Brand palette (current — design.md) ──────────────────────────────────
+const BRAND_NAVY = "#0C1E36"; // Obsidian Navy
+const BRAND_RED = "#F03D5F"; // Vibrant Crimson
+const BRAND_NIGHT = "#0E0E1A"; // Midnight Coal
+const TEXT_LIGHT = "#FAFAFC"; // Pearl White
+const FONT = "Inter";
+
+// A valid 1x1 transparent PNG — the never-broken fallback for a private/withheld
+// cert or a render error (callers return HTTP 200 with this so an <img> never
+// shows a broken icon and reachability probes still pass).
+export const FALLBACK_PNG_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function truncate(s: string, max: number): string {
+  return s.length <= max ? s : s.slice(0, max - 1) + "…";
+}
+
+// ── QR (ported from functions/_shared/qr.ts) ─────────────────────────────
+// One-<path> SVG QR over a white quiet zone, base64 as a data: URI so satori
+// renders it as an <img>. Obsidian navy on white for scan contrast.
+export function qrSvgDataUri(text: string, ecl: "L" | "M" | "Q" | "H" = "M"): string {
+  if (!text) throw new Error("qrSvgDataUri: text is required");
+  const qr = qrcode(0, ecl);
+  qr.addData(text, "Byte");
+  qr.make();
+  const size = qr.getModuleCount();
+  const margin = 4;
+  const dim = size + margin * 2;
+  let d = "";
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      if (qr.isDark(r, c)) d += `M${c + margin} ${r + margin}h1v1h-1z`;
+    }
+  }
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${dim}" height="${dim}" ` +
+    `viewBox="0 0 ${dim} ${dim}" shape-rendering="crispEdges">` +
+    `<rect width="${dim}" height="${dim}" fill="#ffffff"/>` +
+    `<path d="${d}" fill="${BRAND_NAVY}"/></svg>`;
+  return `data:image/svg+xml;base64,${btoa(svg)}`;
+}
+
+// ── OG card (1200x630, text-only) ────────────────────────────────────────
+export interface CertOgInput {
+  title: string;
+  brand: string | null;
+  score: number;
+  gradeTier: string;
+}
+
+export function buildCertOgHtml(input: CertOgInput): string {
+  const score = input.score.toFixed(1);
+  return `<div style="display:flex;flex-direction:column;height:630px;width:1200px;background:linear-gradient(135deg, ${BRAND_NIGHT} 0%, ${BRAND_NAVY} 100%);color:${TEXT_LIGHT};font-family:${FONT};padding:60px;">
+  <div style="display:flex;align-items:center;justify-content:space-between;width:100%;">
+    <div style="display:flex;align-items:center;gap:14px;">
+      <div style="width:44px;height:44px;border-radius:10px;background:${BRAND_RED};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:24px;color:#fff;">G</div>
+      <div style="display:flex;font-size:24px;font-weight:600;letter-spacing:0.5px;">GradeThread</div>
+    </div>
+    <div style="display:flex;align-items:center;background:rgba(255,255,255,0.08);padding:8px 16px;border-radius:999px;font-size:18px;font-weight:500;">
+      Verified Condition Grade
+    </div>
+  </div>
+  <div style="display:flex;flex-direction:column;flex:1;justify-content:center;margin-top:20px;">
+    <div style="display:flex;font-size:22px;color:rgba(255,255,255,0.7);margin-bottom:8px;">${escapeHtml(input.brand ?? "Pre-owned garment")}</div>
+    <div style="display:flex;font-size:54px;font-weight:700;line-height:1.1;margin-bottom:24px;max-width:780px;">${escapeHtml(truncate(input.title, 80))}</div>
+    <div style="display:flex;align-items:flex-end;gap:24px;">
+      <div style="display:flex;font-size:140px;font-weight:700;color:${BRAND_RED};line-height:1;">${score}</div>
+      <div style="display:flex;flex-direction:column;padding-bottom:24px;">
+        <div style="display:flex;font-size:18px;color:rgba(255,255,255,0.6);">out of 10</div>
+        <div style="display:flex;font-size:32px;font-weight:600;">${escapeHtml(input.gradeTier)}</div>
+      </div>
+    </div>
+  </div>
+  <div style="display:flex;align-items:center;justify-content:space-between;width:100%;font-size:18px;color:rgba(255,255,255,0.6);">
+    <div style="display:flex;">AI-graded across 5 weighted factors</div>
+    <div style="display:flex;">gradethread.com</div>
+  </div>
+</div>`;
+}
+
+// ── Trust badge (700x180) ────────────────────────────────────────────────
+export interface CertBadgeInput {
+  score: number;
+  gradeTier: string;
+  title?: string | null;
+}
+
+export function buildCertBadgeHtml(input: CertBadgeInput): string {
+  const score = input.score.toFixed(1);
+  return `<div style="display:flex;align-items:center;height:180px;width:700px;background:${BRAND_NAVY};color:${TEXT_LIGHT};font-family:${FONT};border-radius:16px;padding:0 36px;">
+  <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:128px;height:128px;border-radius:50%;background:${BRAND_RED};margin-right:32px;">
+    <div style="display:flex;font-size:54px;font-weight:700;line-height:1;color:#fff;">${score}</div>
+    <div style="display:flex;font-size:14px;color:rgba(255,255,255,0.85);">/ 10</div>
+  </div>
+  <div style="display:flex;flex-direction:column;flex:1;">
+    <div style="display:flex;align-items:center;gap:10px;font-size:20px;font-weight:600;color:rgba(255,255,255,0.85);margin-bottom:6px;">
+      <div style="width:26px;height:26px;border-radius:7px;background:${BRAND_RED};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;color:#fff;">G</div>
+      GradeThread Verified
+    </div>
+    <div style="display:flex;font-size:36px;font-weight:700;line-height:1.1;">${escapeHtml(input.gradeTier)}</div>
+    <div style="display:flex;font-size:16px;color:rgba(255,255,255,0.6);margin-top:6px;">AI condition grade · tap to verify</div>
+  </div>
+</div>`;
+}
+
+// ── Digital slab (PSA-style graded photo) ────────────────────────────────
+export interface CertSlabInput {
+  width: number;
+  height: number;
+  title: string;
+  brand: string | null;
+  score: number;
+  gradeTier: string;
+  heroImageUrl?: string | null; // a data: URI (pre-fetched by the renderer)
+  qrDataUri: string;
+  certId: string;
+}
+
+export function buildCertSlabHtml(input: CertSlabInput): string {
+  const score = input.score.toFixed(1);
+  const pad = 48;
+  const certIdShort = input.certId.slice(0, 8);
+  const hasHero = !!input.heroImageUrl;
+
+  const stageInner = hasHero
+    ? `<img src="${input.heroImageUrl as string}" style="width:100%;height:100%;object-fit:cover;" />`
+    : `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;height:100%;">
+        <div style="display:flex;font-size:200px;font-weight:700;color:${BRAND_RED};line-height:1;">${score}</div>
+        <div style="display:flex;font-size:38px;font-weight:600;color:#fff;margin-top:8px;">${escapeHtml(input.gradeTier)}</div>
+        <div style="display:flex;font-size:20px;color:rgba(255,255,255,0.6);margin-top:4px;">out of 10</div>
+      </div>`;
+
+  const chip = hasHero
+    ? `<div style="display:flex;position:absolute;left:20px;bottom:20px;align-items:center;background:rgba(12,30,54,0.88);border-radius:999px;padding:10px 22px 10px 10px;">
+        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:84px;height:84px;border-radius:50%;background:${BRAND_RED};margin-right:14px;">
+          <div style="display:flex;font-size:38px;font-weight:700;color:#fff;line-height:1;">${score}</div>
+          <div style="display:flex;font-size:12px;color:rgba(255,255,255,0.85);">/ 10</div>
+        </div>
+        <div style="display:flex;flex-direction:column;">
+          <div style="display:flex;font-size:16px;color:rgba(255,255,255,0.8);">GradeThread Verified</div>
+          <div style="display:flex;font-size:26px;font-weight:700;color:#fff;">${escapeHtml(input.gradeTier)}</div>
+        </div>
+      </div>`
+    : "";
+
+  return `<div style="display:flex;flex-direction:column;height:${input.height}px;width:${input.width}px;background:linear-gradient(135deg, ${BRAND_NIGHT} 0%, ${BRAND_NAVY} 100%);color:${TEXT_LIGHT};font-family:${FONT};padding:${pad}px;">
+  <div style="display:flex;align-items:center;justify-content:space-between;width:100%;">
+    <div style="display:flex;align-items:center;gap:14px;">
+      <div style="width:48px;height:48px;border-radius:11px;background:${BRAND_RED};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:26px;color:#fff;">G</div>
+      <div style="display:flex;font-size:26px;font-weight:600;letter-spacing:0.5px;">GradeThread</div>
+    </div>
+    <div style="display:flex;align-items:center;background:rgba(255,255,255,0.08);padding:9px 18px;border-radius:999px;font-size:19px;font-weight:500;">
+      Verified Condition Grade
+    </div>
+  </div>
+  <div style="display:flex;position:relative;width:100%;flex:1;margin:24px 0;">
+    <div style="display:flex;position:absolute;top:0;left:0;right:0;bottom:0;border-radius:28px;overflow:hidden;background:${BRAND_NIGHT};">
+      ${stageInner}
+    </div>
+    ${chip}
+  </div>
+  <div style="display:flex;align-items:flex-end;justify-content:space-between;width:100%;">
+    <div style="display:flex;flex-direction:column;flex:1;padding-right:24px;">
+      <div style="display:flex;font-size:22px;color:rgba(255,255,255,0.65);margin-bottom:6px;">${escapeHtml(input.brand ?? "Pre-owned garment")}</div>
+      <div style="display:flex;font-size:40px;font-weight:700;line-height:1.1;">${escapeHtml(truncate(input.title, 52))}</div>
+      <div style="display:flex;font-size:18px;color:rgba(255,255,255,0.55);margin-top:14px;">AI-graded · gradethread.com/cert/${escapeHtml(certIdShort)}…</div>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:center;background:#fff;border-radius:20px;padding:14px;">
+      <img src="${input.qrDataUri}" style="width:172px;height:172px;" />
+      <div style="display:flex;font-size:15px;font-weight:600;color:${BRAND_NAVY};margin-top:8px;">Scan to verify</div>
+    </div>
+  </div>
+</div>`;
+}

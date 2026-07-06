@@ -90,6 +90,38 @@ export async function purgeCertificateCache(certId: string): Promise<void> {
   }
 }
 
+// Delete the stored rendered certificate images (cert-assets/{certId}/*) so the
+// next request re-renders with the current grade/photo. Pairs with
+// purgeCertificateCache: the purge flushes Cloudflare's copy of the stable
+// /slab,/og,/badge URLs; this deletes the edge-stored source PNG they proxy.
+// Best-effort, never throws. No-op when the bucket is empty/absent.
+export async function deleteCertImages(certId: string): Promise<void> {
+  if (!certId) return;
+  try {
+    const { data: list } = await supabaseAdmin.storage
+      .from("cert-assets")
+      .list(certId);
+    const paths = (list ?? []).map((f) => `${certId}/${f.name}`);
+    if (paths.length > 0) {
+      await supabaseAdmin.storage.from("cert-assets").remove(paths);
+    }
+  } catch (e) {
+    console.warn(
+      `[cert-images] delete ${certId} skipped: ${
+        e instanceof Error ? e.message : String(e)
+      }`,
+    );
+  }
+}
+
+// One call to invalidate every cached representation of a certificate after its
+// grade/photo/title changes (or it goes live / dark): the Cloudflare-cached SSR
+// + image URLs AND the edge-stored source PNGs. Fire-and-forget at call sites.
+export async function invalidateCertificate(certId: string): Promise<void> {
+  if (!certId) return;
+  await Promise.all([purgeCertificateCache(certId), deleteCertImages(certId)]);
+}
+
 export async function purgeSellerProfileCache(handle: string): Promise<void> {
   if (!handle || !cloudflarePurgeConfigured()) return;
   try {

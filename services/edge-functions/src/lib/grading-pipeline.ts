@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "./supabase.ts";
+import { deleteCertImages } from "./cloudflare-purge.ts";
 import {
   analyzeImage,
   compositeGrade,
@@ -541,15 +542,20 @@ export const defaultRegradeStore: RegradeStore = {
   supersedePriorReports: async (submissionId) => {
     const { data: active } = await supabaseAdmin
       .from("grade_reports")
-      .select("id")
+      .select("id, certificate_id")
       .eq("submission_id", submissionId)
       .is("superseded_at", null);
-    const ids = ((active ?? []) as Array<{ id: string }>).map((r) => r.id);
+    const rows = (active ?? []) as Array<{ id: string; certificate_id: string | null }>;
+    const ids = rows.map((r) => r.id);
     if (ids.length > 0) {
       await supabaseAdmin
         .from("grade_reports")
         .update({ superseded_at: new Date().toISOString(), certificate_id: null })
         .in("id", ids);
+      // Regrade retires the old cert(s) — drop their edge-stored rendered images.
+      for (const r of rows) {
+        if (r.certificate_id) deleteCertImages(r.certificate_id).catch(() => {});
+      }
     }
     return ids;
   },

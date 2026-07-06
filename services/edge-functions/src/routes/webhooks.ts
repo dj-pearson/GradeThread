@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import Stripe from "stripe";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { deleteCertImages } from "../lib/cloudflare-purge.ts";
 import { processSubmission } from "../lib/grading-pipeline.ts";
 import {
   claimWebhookEvent,
@@ -1376,11 +1377,20 @@ async function refundPerGrade(
   }
 
   // Withhold the public certificate. The submission was just verified as owned,
-  // so updating its grade_reports by submission_id is tenant-safe.
+  // so updating its grade_reports by submission_id is tenant-safe. Capture the
+  // cert ids first so we can drop their edge-stored rendered images.
+  const { data: preCerts } = await supabaseAdmin
+    .from("grade_reports")
+    .select("certificate_id")
+    .eq("submission_id", submissionId)
+    .not("certificate_id", "is", null);
   const { error: certErr } = await supabaseAdmin
     .from("grade_reports")
     .update({ certificate_id: null })
     .eq("submission_id", submissionId);
+  for (const row of (preCerts ?? []) as Array<{ certificate_id: string | null }>) {
+    if (row.certificate_id) deleteCertImages(row.certificate_id).catch(() => {});
+  }
   // US-397: keeping a refunded grade's certificate live is a trust hole — retry.
   failIfDbError(certErr, `per_grade refund certificate withhold (${submissionId})`);
 

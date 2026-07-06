@@ -11,6 +11,14 @@ import {
   type SubmissionImageRow as CertSubmissionImageRow,
 } from "../lib/certificate-gallery.ts";
 import { normalizeCertNumber } from "../lib/cert-number.ts";
+import {
+  type CertImageData,
+  fetchImageDataUri,
+  renderCertImage,
+  type SlabFormat,
+  SLAB_FORMATS,
+} from "../lib/cert-image-render.ts";
+import { FALLBACK_PNG_BASE64 } from "../lib/cert-og-template.ts";
 import { captureException, readCtxVar } from "../lib/observability.ts";
 import { rankReferrers } from "../lib/referral-rewards.ts";
 import { PILLAR_CORNERSTONE_URL, PILLAR_LABELS } from "../lib/content-interlink.ts";
@@ -657,6 +665,132 @@ contentPublicRoutes.get("/certificates/:id", async (c) => {
       images: galleryImages,
     },
   });
+});
+
+// ── GET / HEAD /cert-image/:id ────────────────────────────────────
+// Render-store-serve the branded certificate images (the PSA-style "slab"
+// graded photo, the social OG card, the trust badge). US-763 was rendered by a
+// Cloudflare Pages Function via workers-og, which exceeds the Free-plan Worker
+// CPU limit (HTTP 503 "error code: 1102"); the edge has full CPU. Lazy: render
+// once on first request, store in the public `cert-assets` bucket, serve from
+// storage thereafter. The Pages Functions (/slab,/og,/badge) proxy this.
+//
+// Same publicity gate as GET /certificates/:id — resolved by certificate_id,
+// non-null, + isCertificateWithheld — but a private/withheld/missing cert or any
+// render error returns the transparent FALLBACK PNG with HTTP 200 (never a
+// broken image; reachability probes still pass) and NEVER leaks a private report.
+const CERT_IMG_CACHE =
+  "public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800";
+const PUBLIC_SITE_URL =
+  Deno.env.get("PUBLIC_SITE_URL")?.trim() || "https://gradethread.com";
+const fallbackPng = () =>
+  Uint8Array.from(atob(FALLBACK_PNG_BASE64), (ch) => ch.charCodeAt(0));
+
+function certImageHeaders(cache: string): HeadersInit {
+  return { "Content-Type": "image/png", "Cache-Control": cache };
+}
+
+// Marketplace/OG reachability probes HEAD before fetching — always answer 200.
+contentPublicRoutes.on("HEAD", "/cert-image/:id", () =>
+  new Response(null, { status: 200, headers: certImageHeaders(CERT_IMG_CACHE) }));
+
+contentPublicRoutes.get("/cert-image/:id", async (c) => {
+  const certId = c.req.param("id");
+  const kindRaw = (c.req.query("kind") ?? "slab").toLowerCase();
+  const kind = kindRaw === "og" || kindRaw === "badge" ? kindRaw : "slab";
+  const format = (
+    kind === "slab" && c.req.query("format") && c.req.query("format")! in SLAB_FORMATS
+      ? c.req.query("format")
+      : "square"
+  ) as SlabFormat;
+
+  const serveFallback = () =>
+    new Response(fallbackPng(), { status: 200, headers: certImageHeaders("public, max-age=300") });
+
+  try {
+    // Publicity gate — identical to GET /certificates/:id (by certificate_id,
+    // non-null allowlist select). A miss must be indistinguishable from private.
+    const { data: report } = await supabaseAdmin
+      .from("grade_reports")
+      .select(
+        "overall_score, grade_tier, certificate_id, submission_id",
+      )
+      .eq("certificate_id", certId)
+      .not("certificate_id", "is", null)
+      .maybeSingle();
+    if (!report) return serveFallback();
+    const rep = report as unknown as {
+      overall_score: number;
+      grade_tier: string;
+      certificate_id: string;
+      submission_id: string;
+    };
+
+    const { data: submission } = await supabaseAdmin
+      .from("submissions")
+      .select("title, brand, flagged, moderation_status, status")
+      .eq("id", rep.submission_id)
+      .maybeSingle();
+    const sub = submission as
+      | { title?: string | null; brand?: string | null; flagged?: boolean | null; moderation_status?: string | null; status?: string | null }
+      | null;
+    if (isCertificateWithheld(sub)) return serveFallback();
+
+    // Cache: render once, then serve the stored PNG. Path keyed by certificate_id
+    // (its stable public identity); invalidated by deleteCertImages on re-grade.
+    const key = kind === "slab" ? `slab-${format}` : kind;
+    const path = `${certId}/${key}.png`;
+    const { data: cached } = await supabaseAdmin.storage
+      .from("cert-assets")
+      .download(path);
+    if (cached) {
+      return new Response(await cached.arrayBuffer(), {
+        status: 200,
+        headers: certImageHeaders(CERT_IMG_CACHE),
+      });
+    }
+
+    // Miss → render. Only the slab (non-label) needs the hero photo; embed it as
+    // a data: URI (pre-fetched) so satori never does its own remote fetch.
+    let heroDataUri: string | null = null;
+    if (kind === "slab" && !SLAB_FORMATS[format].labelOnly) {
+      const { data: imgs } = await supabaseAdmin
+        .from("submission_images")
+        .select("storage_path, image_type, display_order")
+        .eq("submission_id", rep.submission_id)
+        .order("display_order", { ascending: true });
+      const rows = (imgs ?? []) as Array<{ storage_path: string; image_type: string; display_order: number }>;
+      const hero = rows.find((r) => r.image_type === "front") ?? rows[0];
+      if (hero) {
+        const { data: signed } = await supabaseAdmin.storage
+          .from("submission-images")
+          .createSignedUrl(hero.storage_path, CERT_IMAGE_TTL);
+        heroDataUri = await fetchImageDataUri(signed?.signedUrl);
+      }
+    }
+
+    const data: CertImageData = {
+      certId,
+      title: sub?.title ?? "Graded garment",
+      brand: sub?.brand ?? null,
+      score: Number(rep.overall_score),
+      gradeTier: rep.grade_tier,
+      heroDataUri,
+      certUrl: `${PUBLIC_SITE_URL}/cert/${certId}?s=qr`,
+    };
+    const png = await renderCertImage(kind, format, data);
+
+    // Store durably (best-effort — a store failure still serves this render).
+    await supabaseAdmin.storage
+      .from("cert-assets")
+      .upload(path, png, { contentType: "image/png", upsert: true, cacheControl: "31536000" })
+      .catch(() => {});
+
+    return new Response(new Uint8Array(png), { status: 200, headers: certImageHeaders(CERT_IMG_CACHE) });
+  } catch (err) {
+    captureException(err, { route: "cert-image", tags: { certId, kind } });
+    return serveFallback();
+  }
 });
 
 // ── GET /certificates/by-number/:number ───────────────────────────

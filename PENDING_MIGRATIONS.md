@@ -1,5 +1,28 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00380_cert_assets_bucket.sql (cert-image render fix, 2026-07-06)
+
+**What:** creates the PUBLIC `cert-assets` storage bucket (+ a public-read
+policy) that the new Deno-edge renderer writes the certificate images to (the
+"slab" graded photo, OG card, badge). This moves image rendering off the
+Free-plan Cloudflare Worker (which 503s with "error code: 1102" — CPU limit)
+onto the edge, which renders once and stores here. Self-records '00380'.
+
+**Risk: LOW — additive storage bucket + one public-READ policy, idempotent**
+(`ON CONFLICT DO NOTHING` / `DROP POLICY IF EXISTS`). Only the service-role edge
+writes (bypasses RLS). `NOTIFY pgrst, 'reload schema';` NOT required (no
+table/column/RPC/enum shape change — storage.buckets is a data row).
+
+**⚠️ CLIENT READ — none.** No frontend reads a new column. **Graceful
+degradation if applied late:** the edge route uploads with `.catch()` and treats
+a missing bucket as a cache-miss, so it re-renders every request (works, just
+uncached) until the bucket exists. So there is no hard ordering hazard beyond the
+edge boot guard expecting **00380**.
+
+**⚠️ Apply order:** after 00379 (top of the held stack). Run
+`scripts/apply-prod-migrations.sh` (idempotent tail). Redeploy the edge so its
+boot guard matches 00380.
+
 ## ⏳ HELD: 00379_signup_source_survey.sql (US-1670 / SEO 2.0, 2026-07-06)
 
 **What:** the last piece of the SEO/GEO measurement layer — a self-reported

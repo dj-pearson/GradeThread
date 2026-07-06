@@ -44,6 +44,9 @@ interface PublicCertificate {
   buyer_writeup: string | null;
   created_at: string;
   hero_image_url: string | null;
+  // US-1413: the full ordered gallery (signed URLs). Returned by the public
+  // endpoint but previously ignored by the SSR — now rendered as a photo grid.
+  images?: Array<{ id: string; image_type: string; display_order: number; url: string }>;
   // US-340: true when the seller's opt-in provenance checks passed.
   verified_capture_passed?: boolean;
   // US-861: true when the photo-reuse scan found no cross-account match.
@@ -132,14 +135,50 @@ async function renderCertificate(context: Ctx): Promise<Response> {
   // dynamic grade card has higher CTR on social.
   const ogImage = `${base}/og/cert/${encodeURIComponent(cert.id)}`;
 
-  const heroHtml = cert.hero_image_url
-    ? `<img class="hero" src="${escape(cert.hero_image_url)}" alt="${escape(cert.title)}">`
+  // The branded, shareable "graded photo" (rendered on the edge, served via the
+  // /slab/cert Pages proxy). A working <img> — the whole reason for this rewrite.
+  const slabHtml = cert.hero_image_url
+    ? `<div class="cert-slab-wrap">
+      <img class="cert-slab" src="/slab/cert/${escape(cert.id)}?format=square" width="440" height="440" loading="lazy" alt="Graded photo — ${escape(cert.title)}, condition grade ${score}">
+      <p class="cert-slab-note">Shareable graded photo — buyers scan the code to verify.</p>
+    </div>`
     : "";
 
-  const factorsHtml = FACTORS.map((f) => {
-    const v = Number(cert[f.key]);
-    return `<tr><td>${f.label} <span style="color:var(--muted)">(${f.weight}%)</span></td><td style="text-align:right;font-weight:600">${v.toFixed(1)}</td></tr>`;
-  }).join("");
+  // US-1413: the full photo gallery (was returned by the endpoint but ignored).
+  const galleryHtml = cert.images && cert.images.length > 0
+    ? `<h2>Garment Photos</h2><div class="cert-gallery">${
+      cert.images
+        .map(
+          (img, i) =>
+            `<a href="${escape(img.url)}" target="_blank" rel="noopener"><img src="${escape(img.url)}" loading="${i === 0 ? "eager" : "lazy"}" alt="${escape(formatLabel(img.image_type) ?? "Garment photo")}"></a>`,
+        )
+        .join("")
+    }</div>`
+    : "";
+
+  // Factor breakdown as colored bars (was a plain table).
+  const factorsHtml = `<div class="cert-factors">${
+    FACTORS.map((f) => {
+      const v = Number(cert[f.key]);
+      const pct = Math.max(0, Math.min(100, v * 10));
+      return `<div class="cert-factor"><div class="cert-factor-top"><span>${f.label} <span class="cert-factor-w">(${f.weight}%)</span></span><span class="cert-factor-score">${v.toFixed(1)}</span></div><div class="cert-factor-bar"><div class="cert-factor-fill" style="width:${pct}%;background:${scoreColor(v)}"></div></div></div>`;
+    }).join("")
+  }</div>`;
+
+  // Provenance / assurance badges.
+  const badges: string[] = [];
+  if (cert.live_capture_verified) {
+    badges.push('<span class="cert-badge cert-badge--live">&#10003; Live-Verified · un-fakeable capture</span>');
+  } else if (cert.verified_capture_passed) {
+    badges.push('<span class="cert-badge cert-badge--verify">&#10003; Verified Capture</span>');
+  }
+  if (cert.verified_360_badge) {
+    badges.push('<span class="cert-badge cert-badge--premium">&#10003; 360-Verified · true geometric coverage</span>');
+  }
+  if (cert.original_photos_verified) {
+    badges.push('<span class="cert-badge cert-badge--verify">&#10003; Original photos verified</span>');
+  }
+  const badgesHtml = badges.length > 0 ? `<div class="cert-badges">${badges.join("")}</div>` : "";
 
   const gradedOn = formatDate(cert.created_at);
 
@@ -168,39 +207,27 @@ async function renderCertificate(context: Ctx): Promise<Response> {
   ];
 
   const bodyHtml = `${renderBreadcrumbs(breadcrumbItems, base)}
-  <main class="container">
-  <p style="color:var(--muted);margin-bottom:8px">Verified Grade Certificate · Certificate No. <code>${escape(certNo)}</code></p>
+  <main class="container container--wide">
+  <p class="cert-eyebrow">Verified Grade Certificate · Certificate No. <code>${escape(certNo)}</code></p>
   <h1>${escape(cert.title)}${cert.brand ? ` <span style="color:var(--muted)">— ${escape(cert.brand)}</span>` : ""}</h1>
-  <div style="display:flex;align-items:center;gap:16px;margin:16px 0 24px">
-    <div style="font-size:3rem;font-weight:700;color:var(--accent)">${escape(score)}</div>
-    <div><div style="font-weight:600">${escape(cert.grade_tier)}</div><div style="color:var(--muted);font-size:0.9rem">Overall Condition Grade · out of 10</div></div>
+  <div class="cert-hero">
+    <div class="cert-score" style="background:${scoreColor(cert.overall_score)}">${escape(score)}</div>
+    <div>
+      <div class="cert-tier">${escape(cert.grade_tier)}</div>
+      <div class="cert-tier-sub">Overall Condition Grade · out of 10</div>
+    </div>
   </div>
-  ${
-    cert.live_capture_verified
-      ? `<p style="display:inline-block;margin:0 0 16px;padding:4px 12px;border-radius:9999px;background:#fee2e2;color:#9f1239;font-size:0.85rem;font-weight:600">&#10003; Live-Verified · un-fakeable capture</p>`
-      : cert.verified_capture_passed
-      ? `<p style="display:inline-block;margin:0 0 16px;padding:4px 12px;border-radius:9999px;background:#dcfce7;color:#166534;font-size:0.85rem;font-weight:600">&#10003; Verified Capture</p>`
-      : ""
-  }
-  ${
-    cert.verified_360_badge
-      ? `<p style="display:inline-block;margin:0 0 16px 8px;padding:4px 12px;border-radius:9999px;background:#e0e7ff;color:#3730a3;font-size:0.85rem;font-weight:600">&#10003; 360-Verified · true geometric coverage</p>`
-      : ""
-  }
-  ${
-    cert.original_photos_verified
-      ? `<p style="display:inline-block;margin:0 0 16px 8px;padding:4px 12px;border-radius:9999px;background:#dcfce7;color:#166534;font-size:0.85rem;font-weight:600">&#10003; Original photos verified</p>`
-      : ""
-  }
-  ${heroHtml}
+  ${badgesHtml}
+  ${slabHtml}
+  ${galleryHtml}
   ${aboutHtml}
   <h2>What does a ${escape(score)} grade mean?</h2>
   <p>${escape(gradeBandMeaning(cert.overall_score))} It sits on the GradeThread Scale, the standardized 1.0&ndash;10.0 system for pre-owned clothing condition. <a href="/grading/scale">See the full grading scale &rarr;</a></p>
   <h2>Factor Breakdown</h2>
-  <table><tbody>${factorsHtml}</tbody></table>
+  ${factorsHtml}
   <h2>${cert.buyer_writeup ? "Condition Report" : "AI Analysis Summary"}</h2>
-  <p style="white-space:pre-wrap">${escape(cert.buyer_writeup || cert.ai_summary)}</p>
-  <p style="color:var(--muted);font-size:0.85rem;margin-top:24px">Graded on ${escape(gradedOn)} · Certificate No. <code>${escape(certNo)}</code></p>
+  <div class="cert-report">${escape(cert.buyer_writeup || cert.ai_summary)}</div>
+  <p class="cert-eyebrow" style="margin-top:24px">Graded on ${escape(gradedOn)} · Certificate No. <code>${escape(certNo)}</code></p>
   <a class="cta" href="/?utm_source=certificate&utm_medium=organic">Grade your own garment with GradeThread &rarr;</a>
 </main>`;
 
@@ -239,6 +266,16 @@ async function renderCertificate(context: Ctx): Promise<Response> {
     },
     { cacheControl: SSR_CACHE_CONTROL },
   );
+}
+
+// Grade → accent colour for the score circle + factor bars. Green (excellent) →
+// navy (good) → amber (fair) → crimson (poor). Brand palette (design.md).
+function scoreColor(v: number): string {
+  const n = Number(v);
+  if (n >= 8) return "#16a34a";
+  if (n >= 6) return "#0C1E36";
+  if (n >= 4) return "#d97706";
+  return "#F03D5F";
 }
 
 // "outerwear" / "very_good" → "Outerwear" / "Very Good". Null-safe.
