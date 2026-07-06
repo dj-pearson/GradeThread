@@ -103,6 +103,8 @@ const ConditionGradingPage = lazy(() => import("@/pages/marketing/condition-grad
 const GradingStandardPage = lazy(() => import("@/pages/marketing/grading-standard").then(m => ({ default: m.GradingStandardPage })));
 const GradingScalePage = lazy(() => import("@/pages/marketing/grading-scale").then(m => ({ default: m.GradingScalePage })));
 const GradingMethodologyPage = lazy(() => import("@/pages/marketing/grading-methodology").then(m => ({ default: m.GradingMethodologyPage })));
+const GradedClothingMeaningPage = lazy(() => import("@/pages/marketing/grading-disambiguation").then(m => ({ default: m.GradedClothingMeaningPage })));
+const VsAuthenticationPage = lazy(() => import("@/pages/marketing/grading-disambiguation").then(m => ({ default: m.VsAuthenticationPage })));
 const TransparencyPage = lazy(() => import("@/pages/marketing/transparency").then(m => ({ default: m.TransparencyPage })));
 const ResaleConditionReportPage = lazy(() => import("@/pages/marketing/resale-condition-report").then(m => ({ default: m.ResaleConditionReportPage })));
 const VerifyGradePage = lazy(() => import("@/pages/marketing/verify").then(m => ({ default: m.VerifyGradePage })));
@@ -355,6 +357,9 @@ export const router = createBrowserRouter([
       { path: "/grading/scale", element: <SuspenseWrapper><GradingScalePage /></SuspenseWrapper> },
       // US-1677 (E-E-A-T): grading methodology page. Static, outranks /grading/:slug.
       { path: "/grading/methodology", element: <SuspenseWrapper><GradingMethodologyPage /></SuspenseWrapper> },
+      // US-1684: disambiguation pages. Static, outrank /grading/:slug.
+      { path: "/grading/graded-clothing-meaning", element: <SuspenseWrapper><GradedClothingMeaningPage /></SuspenseWrapper> },
+      { path: "/grading/vs-authentication", element: <SuspenseWrapper><VsAuthenticationPage /></SuspenseWrapper> },
       { path: "/transparency", element: <SuspenseWrapper><TransparencyPage /></SuspenseWrapper> },
       { path: "/resale-condition-report", element: <SuspenseWrapper><ResaleConditionReportPage /></SuspenseWrapper> },
       { path: "/verify", element: <SuspenseWrapper><VerifyGradePage /></SuspenseWrapper> },

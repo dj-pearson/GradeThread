@@ -338,6 +338,69 @@ export function flipdeskLandingJsonLd(landing: FlipdeskLanding): JsonLd[] {
   return [app, faqPageLd(landing.faqs)];
 }
 
+// ── /grading/graded-clothing-meaning + /grading/vs-authentication (US-1684) ──
+// Disambiguation pages. Article + FAQPage, fixed dates (prerender == SPA).
+const DISAMBIG_PUBLISHED = "2026-07-06";
+const DISAMBIG_MODIFIED = "2026-07-06";
+
+export const GRADED_CLOTHING_FAQS = [
+  {
+    q: "What does 'graded clothing' mean?",
+    a: "'Graded clothing' has two different meanings. In the wholesale secondhand trade it means bulk used clothing sorted into Grade A, B, or C bales by overall quality and resaleability. In resale, it increasingly means a single garment given a per-item condition grade — like GradeThread's standardized 1.0–10.0 grade with a verifiable certificate. They are not the same thing.",
+  },
+  {
+    q: "What are Grade A, B, and C clothing?",
+    a: "Grade A/B/C are wholesale bale grades: Grade A is the best, most resaleable used clothing; Grade B has more wear or minor flaws; Grade C is lower quality, often destined for reuse markets or recycling. They describe an entire bale's average quality, not any one item's condition — which is what a per-item condition grade measures.",
+  },
+  {
+    q: "Is a per-item condition grade better than a bale grade?",
+    a: "They answer different questions. A bale grade rates a bulk lot for wholesale buyers; a per-item condition grade rates one specific garment for a retail buyer. If you're selling individual pieces online, a per-item condition grade and certificate is what builds buyer trust and reduces returns.",
+  },
+];
+
+export function gradedClothingMeaningJsonLd(): JsonLd[] {
+  return [
+    articleLd({
+      headline: "Graded Clothing: Bale Grades vs Per-Item Condition Grading",
+      description:
+        "'Graded clothing' means two different things: wholesale Grade A/B/C bales, and per-item condition grading. Here's the difference and which one you mean.",
+      url: absoluteUrl("/grading/graded-clothing-meaning"),
+      datePublished: DISAMBIG_PUBLISHED,
+      dateModified: DISAMBIG_MODIFIED,
+    }),
+    faqPageLd(GRADED_CLOTHING_FAQS),
+  ];
+}
+
+export const VS_AUTH_FAQS = [
+  {
+    q: "What is the difference between condition grading and authentication?",
+    a: "Condition grading and authentication are distinct trust services. Grading assesses a garment's physical condition — wear, damage, function — on a standardized scale (GradeThread's 1.0–10.0). Authentication verifies that an item is genuine and not a counterfeit. GradeThread grades condition; it does not authenticate. A buyer often wants both answers, but they come from different checks.",
+  },
+  {
+    q: "Does a GradeThread grade prove an item is authentic?",
+    a: "No. A GradeThread grade certifies condition, not authenticity. It documents how worn or flawed a specific garment is, on a published rubric, with a verifiable certificate. It does not verify the brand or that the item is genuine — that is authentication, a separate service.",
+  },
+  {
+    q: "Do I need both grading and authentication?",
+    a: "It depends on what you sell. For most pre-owned clothing, condition is the buyer's main risk — 'is it as described?' — so a standardized condition grade and certificate is the trust signal that matters. For high-value designer or hyped items where counterfeits circulate, authentication is also worth it. Grading and authentication complement each other; neither replaces the other.",
+  },
+];
+
+export function vsAuthenticationJsonLd(): JsonLd[] {
+  return [
+    articleLd({
+      headline: "Condition Grading vs. Authentication",
+      description:
+        "Condition grading and authentication are distinct trust services: grading rates a garment's condition, authentication verifies it's genuine. Here's how they differ.",
+      url: absoluteUrl("/grading/vs-authentication"),
+      datePublished: DISAMBIG_PUBLISHED,
+      dateModified: DISAMBIG_MODIFIED,
+    }),
+    faqPageLd(VS_AUTH_FAQS),
+  ];
+}
+
 // ── /grading/methodology (US-1677, E-E-A-T) ─────────────────────────
 // First-hand-experience trust collateral: how the model was trained, what the
 // grade does and doesn't claim, error handling, and the human-review loop.

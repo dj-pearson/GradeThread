@@ -43,6 +43,10 @@ import { ConditionGradingPage } from "@/pages/marketing/condition-grading";
 import { GradingStandardPage } from "@/pages/marketing/grading-standard";
 import { GradingScalePage } from "@/pages/marketing/grading-scale";
 import { GradingMethodologyPage } from "@/pages/marketing/grading-methodology";
+import {
+  GradedClothingMeaningPage,
+  VsAuthenticationPage,
+} from "@/pages/marketing/grading-disambiguation";
 import { TransparencyPage } from "@/pages/marketing/transparency";
 import { ResaleConditionReportPage } from "@/pages/marketing/resale-condition-report";
 import { VerifyGradePage } from "@/pages/marketing/verify";
@@ -88,6 +92,9 @@ const PAGES: Record<string, React.ReactNode> = {
   "/grading/scale": <GradingScalePage />,
   // US-1677 (E-E-A-T): the grading methodology page.
   "/grading/methodology": <GradingMethodologyPage />,
+  // US-1684: disambiguation pages.
+  "/grading/graded-clothing-meaning": <GradedClothingMeaningPage />,
+  "/grading/vs-authentication": <VsAuthenticationPage />,
   "/transparency": <TransparencyPage />,
   // US-976: public "State of Resale Condition" data report. Figures load
   // client-side; the prerendered shell carries the methodology + Dataset JSON-LD.

@@ -34,6 +34,8 @@ import {
   gradingStandardJsonLd,
   gradingScaleJsonLd,
   methodologyJsonLd,
+  gradedClothingMeaningJsonLd,
+  vsAuthenticationJsonLd,
   transparencyJsonLd,
   resaleConditionReportJsonLd,
   verifyJsonLd,
@@ -103,6 +105,9 @@ const MARKETING_LD: Record<string, () => JsonLd[]> = {
   "/grading/scale": gradingScaleJsonLd,
   // US-1677 (E-E-A-T): methodology page (Article + FAQPage).
   "/grading/methodology": methodologyJsonLd,
+  // US-1684: disambiguation pages (Article + FAQPage).
+  "/grading/graded-clothing-meaning": gradedClothingMeaningJsonLd,
+  "/grading/vs-authentication": vsAuthenticationJsonLd,
   "/transparency": transparencyJsonLd,
   // US-976: public "State of Resale Condition" data report (Dataset + Article +
   // FAQPage). Deterministic JSON-LD so prerender == SPA (parity test covers it).

@@ -66,6 +66,8 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/grading-standard": "2026-06-26",
   "/grading/scale": "2026-07-06",
   "/grading/methodology": "2026-07-06",
+  "/grading/graded-clothing-meaning": "2026-07-06",
+  "/grading/vs-authentication": "2026-07-06",
   "/transparency": "2026-06-01",
   "/resale-condition-report": "2026-06-18",
   "/verify": "2026-06-12",
@@ -201,6 +203,26 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
       "How the GradeThread condition-grading model is trained and evaluated, what a grade does and doesn't claim, how errors are handled, and where human review fits.",
     changefreq: "monthly",
     priority: 0.7,
+    jsonLdType: "Article",
+  },
+  {
+    // US-1684: the "graded clothing" false-friend disambiguation page.
+    path: "/grading/graded-clothing-meaning",
+    title: "What Does Graded Clothing Mean?",
+    description:
+      "'Graded clothing' means two different things: wholesale Grade A/B/C bales, and per-item condition grading. Here's the difference and which one you mean.",
+    changefreq: "monthly",
+    priority: 0.6,
+    jsonLdType: "Article",
+  },
+  {
+    // US-1684: the single condition-vs-authentication bridge page (NOT a cluster).
+    path: "/grading/vs-authentication",
+    title: "Condition Grading vs Authentication",
+    description:
+      "Condition grading and authentication are distinct trust services: grading rates a garment's condition, authentication verifies it's genuine — how they differ.",
+    changefreq: "monthly",
+    priority: 0.6,
     jsonLdType: "Article",
   },
   {

@@ -12261,8 +12261,8 @@
         "Quotable definition blocks; link into /grading/scale/; indexable; build clean"
       ],
       "priority": 1684,
-      "passes": false,
-      "notes": "[P2][SEO2.0][GEO][SEO] Plan §1 A5/A6 + §2. Disambiguate, don't chase."
+      "passes": true,
+      "notes": "[P2][SEO2.0][GEO][SEO] Plan §1 A5/A6 + §2. Disambiguate, don't chase. | DONE 2026-07-06: /grading/graded-clothing-meaning (disambiguates the wholesale Grade A/B/C bale false-friend from per-item condition grading — captures right-intent traffic off the \"graded clothing\" SERP) + /grading/vs-authentication (the SINGLE bridge page, no authentication cluster: condition grading rates condition, authentication verifies genuineness; GradeThread grades condition, does not authenticate). Both: quotable definition blocks, Article+FAQPage JSON-LD, links into /grading/scale + methodology. Static routes outrank /grading/:slug. Prerendered (101 routes), 317 tests green."
     },
     {
       "id": "US-1685",
