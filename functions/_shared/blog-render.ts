@@ -443,7 +443,7 @@ export function renderLayout(input: LayoutInput): string {
 <meta name="description" content="${escape(input.description)}">
 <meta name="robots" content="${robots}">
 <link rel="canonical" href="${escape(input.canonicalUrl)}">
-<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/logo_icon.png" type="image/png">
 <link rel="alternate" type="application/rss+xml" title="GradeThread Blog" href="/rss.xml">
 ${(input.alternates ?? [])
   .map(
