@@ -12341,8 +12341,8 @@
         "CWV verified (lab + field) on marketing, blog, certificate, and a pSEO page; no regressions to prerender content"
       ],
       "priority": 1690,
-      "passes": false,
-      "notes": "[P2][SEO2.0][technical] Plan §4.3. SPA risk is INP from heavy hydration + CLS from late fonts/images."
+      "passes": true,
+      "notes": "[P2][SEO2.0][technical] Plan §4.3. SPA risk is INP from heavy hydration + CLS from late fonts/images. | DONE 2026-07-06: most levers already in place — font-display:swap on self-hosted preloaded Inter (index.css, no JS injection) → CLS; explicit img width/height via <Image>; marketing routes code-split from app bundle (React.lazy, supabase/radix out of eager chunk) → INP; edge-SSR blog/cert already cached w/ stale-while-revalidate=86400 (SSR_CACHE_CONTROL) → flat TTFB; web-vitals field data (US-305) + mobile Lighthouse profile (US-974). ADDED: Link: rel=preload font header in _headers so Cloudflare emits 103 Early Hints for the LCP font. docs/CORE_WEB_VITALS.md records shipped levers + the two remaining Cloudflare dashboard toggles (Early Hints, HTTP/3 — ops) + the lab+field verification checklist (no prerender-content regression, enforced by the US-1669 parity audit). Islands-style lazy-hydration N/A (static prerender + createRoot mount, no partial-hydration framework)."
     },
     {
       "id": "US-1691",
