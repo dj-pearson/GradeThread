@@ -1,0 +1,20 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "31becc085a25c8272e8c344fd2135c72"
+name = "GradeThread"
+application_url = "https://gradethread.com"
+embedded = true
+
+[webhooks]
+api_version = "2026-04"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "write_assigned_fulfillment_orders,write_inventory,read_inventory,read_orders,read_products,write_products"
+optional_scopes = [ ]
+use_legacy_install_flow = false
+
+[auth]
+redirect_urls = [
+  "https://functions.gradethread.com/api/flipdesk/shopify/oauth/callback"
+]

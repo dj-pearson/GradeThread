@@ -259,6 +259,78 @@ async function handleShopifyProductUpdate(
     .in("id", ids);
 }
 
+// ── Mandatory Shopify privacy/compliance webhooks (GDPR/CCPA) ─────────
+//
+// Shopify requires every public app to handle three privacy topics, registered
+// via the app's [webhooks.privacy_compliance] config (shopify.app.toml) and
+// probed at review time (valid HMAC → 200, already guaranteed by the POST
+// handler). This does the ACTUAL compliance work behind the 200:
+//
+//   • customers/data_request — the merchant, for a customer, asks for the
+//       personal data we hold about them. FlipDesk stores NO Shopify customer
+//       PII: the order sync reads only order id/number, financial status,
+//       totals, and line-item product/qty/price (never name/email/phone/address
+//       — we hold Level-1 access with no protected fields). Nothing to compile;
+//       log + acknowledge.
+//   • customers/redact — erase a specific customer's personal data. Same reason:
+//       we hold none, so it's an acknowledged no-op.
+//   • shop/redact — fires ~48h after the merchant UNINSTALLS; erase the shop's
+//       data. The Shopify-granted data we hold is the OAuth credential + shop
+//       handle in marketplace_connections — we DELETE those rows (erasing the
+//       encrypted token). We deliberately DON'T delete the GradeThread user's own
+//       inventory/listings/sales: those are the seller's business records
+//       governed by GradeThread's retention policy (docs/DATA_RETENTION.md), not
+//       Shopify shop data.
+async function handleShopifyComplianceWebhook(
+  topic: string,
+  shopDomain: string | null,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  recordMetric("webhook.compliance", 1, { provider: "shopify", topic });
+
+  if (topic === "shop/redact") {
+    // Prefer the HMAC-verified header domain; fall back to the signed payload.
+    const shop =
+      shopDomain ??
+      normalizeShopDomain(
+        typeof payload.shop_domain === "string" ? payload.shop_domain : null,
+      );
+    if (!shop) {
+      console.warn(
+        "[flipdesk-webhooks] Shopify shop/redact had no resolvable shop domain — nothing to erase",
+      );
+      return;
+    }
+    const { data: removed, error } = await supabaseAdmin
+      .from("marketplace_connections")
+      .delete()
+      .eq("marketplace", "shopify")
+      .eq("account_handle", shop)
+      .select("id");
+    if (error) {
+      reportWebhookFailure(
+        "shopify",
+        new Error(`shop/redact failed to delete connection: ${error.message}`),
+        { topic },
+      );
+      return;
+    }
+    console.log(
+      `[flipdesk-webhooks] Shopify shop/redact → erased ${
+        ((removed ?? []) as unknown[]).length
+      } connection row(s) for shop=${shop}`,
+    );
+    return;
+  }
+
+  // customers/data_request + customers/redact: no Shopify customer PII stored,
+  // so nothing to return or erase. Acknowledge explicitly (logged) so the no-op
+  // is auditable rather than a silent unhandled-topic drop.
+  console.log(
+    `[flipdesk-webhooks] Shopify ${topic} → no customer PII stored; acknowledged no-op`,
+  );
+}
+
 // Dispatches a verified Shopify webhook. orders/create + orders/updated drive
 // sale capture + refund status (handleShopifyOrderEvent); products/update ends a
 // delisted product; inventory_levels/update is metered (single-unit reseller
@@ -296,6 +368,20 @@ async function processShopifyWebhookEvent(args: {
   }
 
   recordMetric("webhook.received", 1, { provider: "shopify", topic });
+
+  // Mandatory GDPR/CCPA privacy webhooks (registered via the app's
+  // [webhooks.privacy_compliance] config). Handle these BEFORE the
+  // active-connection gate below: shop/redact fires ~48h AFTER uninstall, when
+  // the connection is already inactive/removed, so resolving via is_active
+  // would wrongly drop the erasure request.
+  if (
+    topic === "customers/data_request" ||
+    topic === "customers/redact" ||
+    topic === "shop/redact"
+  ) {
+    await handleShopifyComplianceWebhook(topic, shopDomain, payload);
+    return;
+  }
 
   const userId = await resolveShopifyConnectionUserId(shopDomain);
   if (!userId) {
