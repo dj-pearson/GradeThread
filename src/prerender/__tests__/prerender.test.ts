@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { PUBLIC_ROUTES } from "@/lib/seo/public-routes";
+import { isGlossaryPath } from "@/lib/seo/glossary";
 import {
   buildHeadTags,
   jsonLdForRoute,
@@ -14,7 +15,9 @@ const privacy = PUBLIC_ROUTES.find((r) => r.path === "/privacy")!;
 const conditionGrading = PUBLIC_ROUTES.find(
   (r) => r.path === "/condition-grading",
 )!;
-const glossarySpoke = PUBLIC_ROUTES.find((r) => r.path.startsWith("/grading/"))!;
+// A per-term glossary SPOKE (e.g. /grading/nwt) — NOT the /grading/scale pillar
+// (US-1664), which lives under /grading/ too but emits a DefinedTermSet.
+const glossarySpoke = PUBLIC_ROUTES.find((r) => isGlossaryPath(r.path))!;
 
 describe("prerender head-builder (US-292)", () => {
   it("landing head has exactly one title, canonical, robots index, and 4 JSON-LD blocks", () => {

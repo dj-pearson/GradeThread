@@ -14,8 +14,10 @@ import {
   resaleConditionDatasetLd,
   definedTermLd,
   definedTermSetLd,
+  gradeScaleDefinedTermSetLd,
   type JsonLd,
 } from "@/lib/seo/json-ld";
+import { scaleDefinedTerms } from "@/lib/seo/grading-scale";
 import { absoluteUrl } from "@/lib/seo/public-routes";
 import { LANDING_FAQS } from "@/pages/landing-faqs";
 import { SITE_URL } from "@/lib/seo/public-routes";
@@ -174,6 +176,37 @@ export function gradingStandardJsonLd(): JsonLd[] {
   // "GradeThread Grade" field is discoverable + citable from this page's
   // structured data.
   return [gradeStandardSpecJsonLd(), faqPageLd(GRADING_STANDARD_FAQS)];
+}
+
+// ── /grading/scale (US-1664, SEO 2.0 keystone) ──────────────────────
+// The named standard itself: the DefinedTermSet that declares the GradeThread
+// 1.0–10.0 scale (each grade band a DefinedTerm), plus a question-phrased FAQ for
+// snippet + AI-citation extraction. The DefinedTerms are sourced from the
+// canonical scale data, so the structured data mirrors the visible table.
+export const GRADING_SCALE_FAQS = [
+  {
+    q: "What is the clothing condition grading scale?",
+    a: "The GradeThread Scale is a standardized 1.0–10.0 system for grading the condition of pre-owned clothing. Every garment is scored across five weighted factors — fabric condition, structural integrity, cosmetic appearance, functional elements, and odor & cleanliness — and mapped to one of seven named tiers, from New With Tags (10) down to Poor (3–4). Because the rubric is fixed and published, a grade means the same thing on every item, for every seller and buyer.",
+  },
+  {
+    q: "What do the clothing grades from 1 to 10 mean?",
+    a: "10 is New With Tags (NWT) and 9 is New Without Tags (NWOT) — both unworn. 8 is Excellent (gently used, no notable flaws), 7 is Very Good (light, even wear), and 6 is Good (visible but minor wear). 5 is Fair (a documented flaw that affects appearance), and 3–4 is Poor (significant damage, sold as-is). Each whole number anchors a named tier, and half-point grades place an item precisely between them.",
+  },
+  {
+    q: "How does the GradeThread scale map to eBay and Poshmark conditions?",
+    a: "The scale is finer-grained than a marketplace dropdown, and it maps cleanly onto their vocabulary: 10/9 are eBay’s “New with tags” / “New without tags”; 8 corresponds to Excellent Used Condition (EUC); 7 to Very Good Used Condition (VGUC); 6 to Good Used Condition (GUC); 5 to a pre-owned listing with disclosed flaws; and 3–4 to “For parts or not working” or a distressed/for-repair listing. The grade gives buyers the resolution a three-option dropdown can’t.",
+  },
+  {
+    q: "Is there a printable clothing condition grade chart?",
+    a: "Yes. GradeThread publishes a free, printable one-page chart of the full 1.0–10.0 condition scale — every grade band with its label, criteria, typical flaws, and marketplace equivalent — that resellers can keep at their sorting station or share. It carries the GradeThread name and is free to download and print.",
+  },
+];
+
+export function gradingScaleJsonLd(): JsonLd[] {
+  return [
+    gradeScaleDefinedTermSetLd(scaleDefinedTerms()),
+    faqPageLd(GRADING_SCALE_FAQS),
+  ];
 }
 
 // ── /transparency (US-326) ──────────────────────────────────────────

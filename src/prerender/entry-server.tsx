@@ -41,6 +41,7 @@ import { SellUsedClothesEbayPage } from "@/pages/marketing/sell-used-clothes-eba
 import { FaqPage } from "@/pages/marketing/faq";
 import { ConditionGradingPage } from "@/pages/marketing/condition-grading";
 import { GradingStandardPage } from "@/pages/marketing/grading-standard";
+import { GradingScalePage } from "@/pages/marketing/grading-scale";
 import { TransparencyPage } from "@/pages/marketing/transparency";
 import { ResaleConditionReportPage } from "@/pages/marketing/resale-condition-report";
 import { VerifyGradePage } from "@/pages/marketing/verify";
@@ -71,6 +72,8 @@ const PAGES: Record<string, React.ReactNode> = {
   "/faq": <FaqPage />,
   "/condition-grading": <ConditionGradingPage />,
   "/grading-standard": <GradingStandardPage />,
+  // US-1664 (SEO 2.0 keystone): the named 1.0–10.0 Grading Scale pillar.
+  "/grading/scale": <GradingScalePage />,
   "/transparency": <TransparencyPage />,
   // US-976: public "State of Resale Condition" data report. Figures load
   // client-side; the prerendered shell carries the methodology + Dataset JSON-LD.

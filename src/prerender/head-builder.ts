@@ -32,6 +32,7 @@ import {
   faqJsonLd,
   conditionGradingJsonLd,
   gradingStandardJsonLd,
+  gradingScaleJsonLd,
   transparencyJsonLd,
   resaleConditionReportJsonLd,
   verifyJsonLd,
@@ -86,6 +87,8 @@ const MARKETING_LD: Record<string, () => JsonLd[]> = {
   "/faq": faqJsonLd,
   "/condition-grading": conditionGradingJsonLd,
   "/grading-standard": gradingStandardJsonLd,
+  // US-1664 (SEO 2.0 keystone): DefinedTermSet (the named scale) + FAQPage.
+  "/grading/scale": gradingScaleJsonLd,
   "/transparency": transparencyJsonLd,
   // US-976: public "State of Resale Condition" data report (Dataset + Article +
   // FAQPage). Deterministic JSON-LD so prerender == SPA (parity test covers it).

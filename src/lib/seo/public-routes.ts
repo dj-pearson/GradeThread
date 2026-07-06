@@ -62,6 +62,7 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/faq": "2026-06-01",
   "/condition-grading": "2026-06-01",
   "/grading-standard": "2026-06-26",
+  "/grading/scale": "2026-07-06",
   "/transparency": "2026-06-01",
   "/resale-condition-report": "2026-06-18",
   "/verify": "2026-06-12",
@@ -174,6 +175,19 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     changefreq: "monthly",
     priority: 0.8,
     jsonLdType: "FAQPage",
+  },
+  {
+    // US-1664 (SEO 2.0 keystone): the named 1.0–10.0 standard itself — a
+    // canonical, table-structured, DefinedTermSet-marked-up, printable page that
+    // defines the GradeThread Scale. Category-defining GEO (zero KP volume by
+    // design); every certificate links here.
+    path: "/grading/scale",
+    title: "Clothing Condition Grading Scale (1–10)",
+    description:
+      "The GradeThread Scale is the canonical 1.0–10.0 standard for pre-owned clothing condition — every grade defined, plus a free printable chart.",
+    changefreq: "monthly",
+    priority: 0.9,
+    jsonLdType: "DefinedTermSet",
   },
   {
     path: "/transparency",

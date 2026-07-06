@@ -405,6 +405,43 @@ export function definedTermSetLd(
   };
 }
 
+// ── The named Grading Scale: its own DefinedTermSet (US-1664) ────────
+// Stable @id for the canonical scale set, anchored on the /grading/scale pillar.
+// Distinct from the /condition-grading vocabulary glossary set above: this set IS
+// the published 1.0–10.0 standard (the seven grade bands), the schema-level
+// statement that GradeThread publishes the scale everyone else references.
+export const GRADE_SCALE_SET_ID = `${SITE_URL}/grading/scale#scale`;
+
+/**
+ * DefinedTermSet for the GradeThread Clothing Condition Grading Scale (US-1664),
+ * emitted on /grading/scale. hasDefinedTerm lists each grade band as a
+ * DefinedTerm (name = the band label, description = its meaning + numeric anchor,
+ * url = its /grading/<slug> spoke), so the whole scale is extractable as one
+ * canonical, named, AI-citable standard.
+ */
+export function gradeScaleDefinedTermSetLd(
+  entries: ReadonlyArray<DefinedTermInput>,
+): JsonLd {
+  return {
+    "@context": "https://schema.org",
+    "@type": "DefinedTermSet",
+    "@id": GRADE_SCALE_SET_ID,
+    name: "The GradeThread Clothing Condition Grading Scale",
+    alternateName: "The GradeThread Scale",
+    description:
+      "The canonical 1.0–10.0 standard for grading the condition of pre-owned clothing: seven named tiers (NWT, NWOT, Excellent, Very Good, Good, Fair, Poor) scored across five weighted factors, published by GradeThread.",
+    url: `${SITE_URL}/grading/scale`,
+    hasDefinedTerm: entries.map((entry) => ({
+      "@type": "DefinedTerm",
+      name: entry.term,
+      ...(entry.expansion ? { alternateName: entry.expansion } : {}),
+      description: entry.definition,
+      url: `${SITE_URL}${entry.path}`,
+      inDefinedTermSet: GRADE_SCALE_SET_ID,
+    })),
+  };
+}
+
 /** BreadcrumbList for hierarchy/topical-authority signals. */
 export function breadcrumbLd(
   items: ReadonlyArray<{ name: string; url: string }>,

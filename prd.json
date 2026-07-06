@@ -11987,8 +11987,8 @@
         "Every certificate page links to this page ('what does 8.5 mean?'); build + eslint + prerender sync-guard clean"
       ],
       "priority": 1664,
-      "passes": false,
-      "notes": "[P0][SEO2.0][GEO][keystone] Plan §9 ⭐ single highest-leverage move + §2 Hub 1 + §3 schema. Everything compounds on this page existing. Zero KP volume by design — this is definitional GEO category creation, measured by GSC impressions (§8), not clicks."
+      "passes": true,
+      "notes": "[P0][SEO2.0][GEO][keystone] Plan §9 ⭐ single highest-leverage move + §2 Hub 1 + §3 schema. Everything compounds on this page existing. Zero KP volume by design — this is definitional GEO category creation, measured by GSC impressions (§8), not clicks. | DONE 2026-07-06: /grading/scale pillar prerendered w/ grade table (Grade|Label|Criteria|Typical flaws|Marketplace equiv), DefinedTermSet JSON-LD (each grade a DefinedTerm), 40-60w quotable def, free printable PNG chart (scripts/generate-scale-chart.mjs → public/gradethread-condition-grading-scale.png). Cert→scale link handled in US-1665."
     },
     {
       "id": "US-1665",
