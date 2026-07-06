@@ -58,6 +58,10 @@ import {
   resellerGlossaryHubBreadcrumbItems,
   flipdeskLandingJsonLd,
   flipdeskLandingBreadcrumbItems,
+  resellingPillarJsonLd,
+  resellingPillarBreadcrumbItems,
+  resellingGuideJsonLd,
+  resellingGuideBreadcrumbItems,
 } from "@/pages/marketing/marketing-jsonld";
 import { getGlossaryEntryByPath } from "@/lib/seo/glossary";
 import {
@@ -65,6 +69,10 @@ import {
   isResellerGlossaryHubPath,
 } from "@/lib/seo/reseller-glossary";
 import { getFlipdeskLandingByPath } from "@/lib/seo/flipdesk-landing";
+import {
+  getResellingGuideByPath,
+  isResellingPillarPath,
+} from "@/lib/seo/reselling-guides";
 import { twitterSiteHandle, twitterCreatorHandle } from "@/lib/seo/social";
 
 function escapeAttr(s: string): string {
@@ -145,6 +153,23 @@ export function jsonLdForRoute(path: string): JsonLd[] {
       organizationLd(),
       breadcrumbLd(flipdeskLandingBreadcrumbItems(flipdeskLanding)),
       ...flipdeskLandingJsonLd(flipdeskLanding),
+    ];
+  }
+  // Reselling pillar (US-1688): Organization + 2-level breadcrumb + HowTo + FAQ.
+  if (isResellingPillarPath(path)) {
+    return [
+      organizationLd(),
+      breadcrumbLd(resellingPillarBreadcrumbItems()),
+      ...resellingPillarJsonLd(),
+    ];
+  }
+  // Reselling guide (US-1688): Organization + 3-level breadcrumb + Article + FAQ.
+  const resellingGuide = getResellingGuideByPath(path);
+  if (resellingGuide) {
+    return [
+      organizationLd(),
+      breadcrumbLd(resellingGuideBreadcrumbItems(resellingGuide)),
+      ...resellingGuideJsonLd(resellingGuide),
     ];
   }
   // Reseller glossary hub (US-1671): Organization + 2-level breadcrumb +

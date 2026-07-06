@@ -76,6 +76,15 @@ import {
 } from "@/lib/seo/reseller-glossary";
 import { FLIPDESK_LANDINGS } from "@/lib/seo/flipdesk-landing";
 import { FlipdeskLandingPage } from "@/pages/marketing/flipdesk-landing";
+import {
+  RESELLING_PILLAR_PATH,
+  RESELLING_GUIDES,
+  resellingGuidePath,
+} from "@/lib/seo/reselling-guides";
+import {
+  ResellingPillarPage,
+  ResellingGuidePage,
+} from "@/pages/marketing/reselling";
 
 // Static map of prerenderable routes → page element.
 const PAGES: Record<string, React.ReactNode> = {
@@ -155,6 +164,14 @@ const PAGES: Record<string, React.ReactNode> = {
     FLIPDESK_LANDINGS.map((l) => [
       l.path,
       <FlipdeskLandingPage key={l.slug} slug={l.slug} />,
+    ]),
+  ),
+  // Reselling pillar + guides (US-1688).
+  [RESELLING_PILLAR_PATH]: <ResellingPillarPage />,
+  ...Object.fromEntries(
+    RESELLING_GUIDES.map((g) => [
+      resellingGuidePath(g.slug),
+      <ResellingGuidePage key={g.slug} slug={g.slug} />,
     ]),
   ),
 };

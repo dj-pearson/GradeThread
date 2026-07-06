@@ -29,6 +29,12 @@ import {
 } from "@/lib/seo/reseller-glossary";
 import { FLIPDESK_PLANS } from "@/lib/constants";
 import type { FlipdeskLanding } from "@/lib/seo/flipdesk-landing";
+import {
+  RESELLING_PILLAR,
+  RESELLING_PILLAR_PATH,
+  resellingGuidePath,
+  type ResellingGuide,
+} from "@/lib/seo/reselling-guides";
 import { absoluteUrl } from "@/lib/seo/public-routes";
 import { LANDING_FAQS } from "@/pages/landing-faqs";
 import { SITE_URL } from "@/lib/seo/public-routes";
@@ -398,6 +404,53 @@ export function vsAuthenticationJsonLd(): JsonLd[] {
       dateModified: DISAMBIG_MODIFIED,
     }),
     faqPageLd(VS_AUTH_FAQS),
+  ];
+}
+
+// ── /reselling pillar + guides (US-1688) ────────────────────────────
+const RESELLING_PUBLISHED = "2026-07-06";
+const RESELLING_MODIFIED = "2026-07-06";
+
+export function resellingPillarBreadcrumbItems(): Array<{ name: string; url: string }> {
+  return [
+    { name: "GradeThread", url: `${SITE_URL}/` },
+    { name: "Reselling", url: `${SITE_URL}${RESELLING_PILLAR_PATH}` },
+  ];
+}
+
+export function resellingGuideBreadcrumbItems(
+  guide: ResellingGuide,
+): Array<{ name: string; url: string }> {
+  return [
+    { name: "GradeThread", url: `${SITE_URL}/` },
+    { name: "Reselling", url: `${SITE_URL}${RESELLING_PILLAR_PATH}` },
+    { name: guide.h1, url: `${SITE_URL}${resellingGuidePath(guide.slug)}` },
+  ];
+}
+
+/** Pillar JSON-LD: the workflow as a HowTo + the pillar FAQ. */
+export function resellingPillarJsonLd(): JsonLd[] {
+  return [
+    howToLd({
+      name: "How to Resell Clothes: the Full Workflow",
+      description: RESELLING_PILLAR.description,
+      steps: RESELLING_PILLAR.steps.map((s) => ({ name: s.name, text: s.text })),
+    }),
+    faqPageLd(RESELLING_PILLAR.faqs),
+  ];
+}
+
+/** Guide JSON-LD: Article + the guide FAQ. */
+export function resellingGuideJsonLd(guide: ResellingGuide): JsonLd[] {
+  return [
+    articleLd({
+      headline: guide.h1,
+      description: guide.description,
+      url: absoluteUrl(resellingGuidePath(guide.slug)),
+      datePublished: RESELLING_PUBLISHED,
+      dateModified: RESELLING_MODIFIED,
+    }),
+    faqPageLd(guide.faqs),
   ];
 }
 

@@ -97,6 +97,8 @@ const PricingPage = lazy(() => import("@/pages/marketing/pricing").then(m => ({ 
 const ForResellersPage = lazy(() => import("@/pages/marketing/for-resellers").then(m => ({ default: m.ForResellersPage })));
 const FlipDeskPage = lazy(() => import("@/pages/marketing/flipdesk").then(m => ({ default: m.FlipDeskPage })));
 const FlipdeskLandingPage = lazy(() => import("@/pages/marketing/flipdesk-landing").then(m => ({ default: m.FlipdeskLandingPage })));
+const ResellingPillarPage = lazy(() => import("@/pages/marketing/reselling").then(m => ({ default: m.ResellingPillarPage })));
+const ResellingGuidePage = lazy(() => import("@/pages/marketing/reselling").then(m => ({ default: m.ResellingGuidePage })));
 const SellUsedClothesEbayPage = lazy(() => import("@/pages/marketing/sell-used-clothes-ebay").then(m => ({ default: m.SellUsedClothesEbayPage })));
 const FaqPage = lazy(() => import("@/pages/marketing/faq").then(m => ({ default: m.FaqPage })));
 const ConditionGradingPage = lazy(() => import("@/pages/marketing/condition-grading").then(m => ({ default: m.ConditionGradingPage })));
@@ -348,6 +350,9 @@ export const router = createBrowserRouter([
       { path: "/flipdesk/crosslisting", element: <SuspenseWrapper><FlipdeskLandingPage /></SuspenseWrapper> },
       { path: "/flipdesk/comps", element: <SuspenseWrapper><FlipdeskLandingPage /></SuspenseWrapper> },
       { path: "/flipdesk/bookkeeping", element: <SuspenseWrapper><FlipdeskLandingPage /></SuspenseWrapper> },
+      // US-1688: reselling pillar + TOFU guides (static pillar, dynamic guide route).
+      { path: "/reselling", element: <SuspenseWrapper><ResellingPillarPage /></SuspenseWrapper> },
+      { path: "/reselling/:slug", element: <SuspenseWrapper><ResellingGuidePage /></SuspenseWrapper> },
       { path: "/sell-used-clothes-ebay", element: <SuspenseWrapper><SellUsedClothesEbayPage /></SuspenseWrapper> },
       { path: "/faq", element: <SuspenseWrapper><FaqPage /></SuspenseWrapper> },
       { path: "/condition-grading", element: <SuspenseWrapper><ConditionGradingPage /></SuspenseWrapper> },

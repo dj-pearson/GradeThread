@@ -12315,8 +12315,8 @@
         "Indexable; build clean"
       ],
       "priority": 1688,
-      "passes": false,
-      "notes": "[P2][SEO2.0][SEO] Plan §1 B6 + §0 seasonality + §2 Hub2. Some overlap with existing blog topic bank — reuse the 00378 drafts."
+      "passes": true,
+      "notes": "[P2][SEO2.0][SEO] Plan §1 B6 + §0 seasonality + §2 Hub2. Some overlap with existing blog topic bank — reuse the 00378 drafts. | DONE 2026-07-06: /reselling pillar (How to Resell Clothes: the Full Workflow, Source→Ship — HowTo workflow steps + FAQ) + 6 TOFU guides (/reselling/{sourcing,death-pile,best-brands-to-resell,bolo-list,how-to-sell-used-clothes-online,thrift-store-reselling}), Article+FAQPage schema. Every guide has a GRADING WEDGE section linking to /grading/scale + the returns spine /reduce-returns (AC2). Reuses existing /reduce-returns as the spine. Data-driven pages; prerendered (108 routes); titles ≤46 & unique, desc 70-160 & unique; jsonld-lint + parity green. Fixed public-routes router-existence guard for /reselling/:slug."
     },
     {
       "id": "US-1689",

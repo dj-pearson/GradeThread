@@ -62,9 +62,17 @@ describe("public-routes registry guard (US-291)", () => {
     // (/grading/<slug>) but served by a single dynamic /grading/:slug route, so
     // they won't appear as literal paths. Accept them when that route exists.
     const hasGlossaryDynamicRoute = allRouterPaths.includes("/grading/:slug");
+    // US-1688: reselling TOFU guides (/reselling/<slug>) are concrete indexable
+    // paths served by the single dynamic /reselling/:slug route. The pillar
+    // (/reselling) is a literal router path and is checked normally below.
+    const hasResellingDynamicRoute = allRouterPaths.includes("/reselling/:slug");
     for (const r of PUBLIC_ROUTES) {
       if (r.path.startsWith("/grading/")) {
         expect(hasGlossaryDynamicRoute).toBe(true);
+        continue;
+      }
+      if (r.path.startsWith("/reselling/")) {
+        expect(hasResellingDynamicRoute).toBe(true);
         continue;
       }
       expect(allRouterPaths).toContain(r.path);
