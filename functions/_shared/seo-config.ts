@@ -46,6 +46,12 @@ export const TRAINING_AI_AGENTS: readonly string[] = [
   "ClaudeBot", // Anthropic training crawler
   "Google-Extended", // Gemini / Vertex training opt-in token
   "Applebot-Extended", // Apple Intelligence training opt-in token
+  // US-1666 (SEO 2.0 plan §4.6): explicitly ALLOW Common Crawl. It was blocked
+  // under US-430 ("no link-back"), but Common Crawl feeds a large share of AI
+  // training corpora, and for a category-creation GEO play we WANT the published
+  // standard/glossary memorised — that's the moat compounding, not a leak (this
+  // is public marketing content). Follows the training toggle like the others.
+  "CCBot", // Common Crawl — feeds many AI training datasets
 ];
 
 // Back-compat union of every bot we welcome for at least citation. Existing
@@ -60,7 +66,7 @@ export const ALLOWED_AI_AGENTS: readonly string[] = [
 // origins. Add to this list to block more without touching handler code.
 export const BLOCKED_AI_AGENTS: readonly string[] = [
   "Bytespider", // ByteDance — ignores robots, no attribution
-  "CCBot", // Common Crawl — feeds many training sets with no link-back
+  // CCBot moved to TRAINING_AI_AGENTS (allowed) under US-1666 — see above.
   "Diffbot", // commercial scraper resold as datasets
   "Omgilibot", // bulk content scraper (Webz.io) sold as data
   "ImagesiftBot", // image scraper feeding training sets

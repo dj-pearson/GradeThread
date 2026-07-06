@@ -40,10 +40,16 @@ Perplexity-User, Applebot.
 
 **Training (`Allow: /` by default, configurable)** — `TRAINING_AI_AGENTS`:
 GPTBot (OpenAI), ClaudeBot (Anthropic), Google-Extended (Gemini/Vertex),
-Applebot-Extended (Apple Intelligence).
+Applebot-Extended (Apple Intelligence), CCBot (Common Crawl).
+
+> **US-1666 (SEO 2.0):** CCBot moved from hard-blocked to training-allowed.
+> Common Crawl feeds a large share of AI training corpora; for a category-creation
+> GEO play we WANT the published condition standard/glossary memorised, and the
+> crawlable content is public marketing. It follows the `AI_TRAINING_CRAWLERS`
+> toggle like the other training crawlers.
 
 **Hard-blocked (always `Disallow: /`)** — `BLOCKED_AI_AGENTS`:
-Bytespider, CCBot, Diffbot, Omgilibot, ImagesiftBot.
+Bytespider, Diffbot, Omgilibot, ImagesiftBot.
 
 ## How to change the policy (no code change)
 

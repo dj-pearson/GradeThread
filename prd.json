@@ -12016,8 +12016,8 @@
         "Verify allows do not expose private routes; build clean"
       ],
       "priority": 1666,
-      "passes": false,
-      "notes": "[P0][SEO2.0][GEO][technical] Plan §4.6, §4.7, §6.4. Near-zero effort, real AI-retrieval freshness gains."
+      "passes": true,
+      "notes": "[P0][SEO2.0][GEO][technical] Plan §4.6, §4.7, §6.4. Near-zero effort, real AI-retrieval freshness gains. | DONE 2026-07-06: robots.txt now explicitly allows CCBot (moved BLOCKED→TRAINING per plan §4.6; supersedes US-430 block; doc updated) — GPTBot/OAI-SearchBot/ClaudeBot/Claude-User/PerplexityBot/Google-Extended/Bingbot already allowed. IndexNow already fires from grading-pipeline on cert publish (certificateUrl) + content-blog on post publish + deploy-time submit-indexnow.mjs (US-1404). llms.txt already a curated registry-driven MAP w/ one-line notes (scale auto-flows in). Private routes excluded via DISALLOWED_PATHS. Optional llms-full.txt deferred (map already satisfies AC2)."
     },
     {
       "id": "US-1667",
