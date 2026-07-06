@@ -109,6 +109,25 @@ mailed edition) is welcome under these rules:
   geometry to move, that's a v2 card: new id set, new `geometry-v2.json`,
   never a silent edit (see Versioning rules).
 
+## v2 designer artwork (redesign of v1 — SAME markers)
+
+The `measure-card-v2.*` files are a **visual reskin of the v1 card**, not a new
+card version: identical ArUco ids {10,11,12,13} and identical 6×4 in geometry
+(the marker id set *is* the version — see Versioning rules). So NOTHING in the
+calibration path changes — `geometry-v1.json`, `lib/measure-card.ts`,
+`MEASURE_CARD_VERSIONS`, and the tests are untouched; the service still reads it
+as v1. Only the printed/downloaded artwork changed.
+
+- Source art: `assets/measure-card-v2.png` (designer export, 2250×1650 @ 300 dpi).
+- Build: `python scripts/build-measure-card-v2-pdfs.py` — composites a 0.25 in
+  white quiet-zone panel behind each marker, re-stamps pristine markers, then
+  emits (into `assets/measure-card/`): `measure-card-v2.png`,
+  `measure-card-v2.pdf` (trim master — JPEG background + crisp VECTOR markers so
+  the file is ~0.7 MB, not 18 MB), and `measure-card-letter-v2.pdf`
+  (print-at-home, also copied to `public/` for the in-app download).
+- The script re-validates the composited art AND the rendered PDFs against the
+  OpenCV detector before writing. Do not hand-edit the outputs.
+
 The print-at-home Letter PDF self-documents its accuracy requirements ON the
 sheet: the "PRINT AT 100% / ACTUAL SIZE" banner, the ISO ID-1 credit-card
 scale-check box, and a 6.000 in reference ruler are all part of the printed

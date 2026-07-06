@@ -111,7 +111,7 @@ export function FlipdeskMeasureCardPage() {
       method: "POST",
       json: {},
     }).catch(() => {});
-    window.open("/measure-card-letter-v1.pdf", "_blank");
+    window.open("/measure-card-letter-v2.pdf", "_blank");
   }
 
   const activeRequest = request && request.status !== "shipped" ? request : null;
