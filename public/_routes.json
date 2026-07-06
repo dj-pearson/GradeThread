@@ -26,6 +26,8 @@
     "/sitemap-condition.xml",
     "/sitemap-sellers.xml",
     "/sitemap-static.xml",
+    "/sitemap-marketing.xml",
+    "/sitemap-grading.xml",
     "/sitemap-authors.xml",
     "/sitemap-images.xml",
     "/rss.xml",

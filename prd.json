@@ -12195,8 +12195,8 @@
         "GSC per-segment indexation rate becomes a tracked KPI (ties to §8)"
       ],
       "priority": 1679,
-      "passes": false,
-      "notes": "[P1][SEO2.0][technical] Plan §4.4. Segmentation lets certificate indexation rate be a KPI."
+      "passes": true,
+      "notes": "[P1][SEO2.0][technical] Plan §4.4. Segmentation lets certificate indexation rate be a KPI. | DONE 2026-07-06: split the lumped static sitemap into sitemap-marketing.xml (non-grading routes) + sitemap-grading.xml (/grading/* pSEO: scale, methodology, disambiguation, reseller glossary hub+terms, tier/factor spokes) via partitionedStaticUrls() in _shared/sitemap.ts; both linked under the /sitemap.xml sitemapindex (replacing sitemap-static, kept as legacy alias). Certificates already segmented as sitemap-certs.xml; blog/condition/sellers/authors/images segments pre-existed. Accurate per-URL lastmod from the manifest (US-429). Added _routes.json entries + partition unit test. AC3 (GSC per-segment indexation KPI) documented in docs/SEO_MEASUREMENT.md. NOTE: AC2 certs-only-when-listing-live handled in US-1680."
     },
     {
       "id": "US-1680",

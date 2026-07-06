@@ -41,7 +41,10 @@ export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
   const xml =
     total > SITEMAP_MAX_URLS
       ? sitemapIndexXml(env, [
-          "sitemap-static.xml",
+          // US-1679: the static registry split into marketing vs grading pSEO so
+          // per-segment indexation is observable in GSC.
+          "sitemap-marketing.xml",
+          "sitemap-grading.xml",
           "sitemap-blog.xml",
           "sitemap-certs.xml",
           "sitemap-sellers.xml",

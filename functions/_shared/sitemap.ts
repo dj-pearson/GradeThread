@@ -91,27 +91,66 @@ async function fetchEdgeJson<T>(env: PagesEnv, path: string): Promise<T | null> 
 
 const today = () => new Date().toISOString().slice(0, 10);
 
-export async function staticUrls(env: PagesEnv): Promise<SitemapUrl[]> {
+// US-1679: a route is "grading pSEO" if it lives under /grading/ (the scale,
+// methodology, disambiguation, glossary hub + terms, and the tier/factor spokes).
+// Splitting these into their own segment lets GSC report the pSEO indexation rate
+// separately from the marketing pages — the whole point of segmentation.
+function isGradingRoute(path: string): boolean {
+  return path === "/grading" || path.startsWith("/grading/");
+}
+
+function manifestRouteToUrl(base: string, r: ManifestRoute, generatedAt: string): SitemapUrl {
+  return {
+    loc: r.path === "/" ? `${base}/` : `${base}${r.path}`,
+    // US-429: prefer the route's stable content-change date so an unchanged page
+    // keeps a steady lastmod across deploys; fall back to the build time only for
+    // legacy manifests that predate the per-route field.
+    lastmod: (r.lastModified ?? generatedAt).slice(0, 10),
+    changefreq: r.changefreq,
+    priority: r.priority,
+  };
+}
+
+/** US-1679: partition the manifest routes into marketing vs grading pSEO. */
+async function partitionedStaticUrls(
+  env: PagesEnv,
+): Promise<{ marketing: SitemapUrl[]; grading: SitemapUrl[] }> {
   const base = siteUrl(env);
   const manifest = await fetchManifest(env);
-  const urls: SitemapUrl[] = [];
-  if (manifest) {
-    for (const r of manifest.routes) {
-      urls.push({
-        loc: r.path === "/" ? `${base}/` : `${base}${r.path}`,
-        // US-429: prefer the route's stable content-change date so an unchanged
-        // page keeps a steady lastmod across deploys; fall back to the build
-        // time only for legacy manifests that predate the per-route field.
-        lastmod: (r.lastModified ?? manifest.generatedAt).slice(0, 10),
-        changefreq: r.changefreq,
-        priority: r.priority,
-      });
-    }
-  } else {
-    // Manifest missing — at least advertise the home page.
-    urls.push({ loc: `${base}/`, lastmod: today(), changefreq: "weekly", priority: 1.0 });
+  if (!manifest) {
+    // Manifest missing — at least advertise the home page (a marketing URL).
+    return {
+      marketing: [{ loc: `${base}/`, lastmod: today(), changefreq: "weekly", priority: 1.0 }],
+      grading: [],
+    };
   }
-  return urls;
+  const marketing: SitemapUrl[] = [];
+  const grading: SitemapUrl[] = [];
+  for (const r of manifest.routes) {
+    const url = manifestRouteToUrl(base, r, manifest.generatedAt);
+    (isGradingRoute(r.path) ? grading : marketing).push(url);
+  }
+  return { marketing, grading };
+}
+
+/** US-1679: marketing (non-grading) static routes → sitemap-marketing.xml. */
+export async function marketingUrls(env: PagesEnv): Promise<SitemapUrl[]> {
+  return (await partitionedStaticUrls(env)).marketing;
+}
+
+/** US-1679: grading pSEO routes (/grading/*) → sitemap-grading.xml. */
+export async function gradingUrls(env: PagesEnv): Promise<SitemapUrl[]> {
+  return (await partitionedStaticUrls(env)).grading;
+}
+
+/**
+ * All static registry routes (marketing + grading). Kept for the legacy
+ * sitemap-static.xml alias + the single-file /sitemap.xml path; the index now
+ * links the marketing/grading split instead (US-1679).
+ */
+export async function staticUrls(env: PagesEnv): Promise<SitemapUrl[]> {
+  const { marketing, grading } = await partitionedStaticUrls(env);
+  return [...marketing, ...grading];
 }
 
 export async function blogUrls(env: PagesEnv): Promise<SitemapUrl[]> {

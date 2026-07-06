@@ -3,6 +3,8 @@ import {
   urlsetXml,
   sitemapIndexXml,
   staticUrls,
+  marketingUrls,
+  gradingUrls,
   blogUrls,
   certUrls,
   authorUrls,
@@ -102,6 +104,39 @@ describe("staticUrls (from seo-manifest.json)", () => {
     const urls = await staticUrls(env);
     expect(urls).toHaveLength(1);
     expect(urls[0]!.loc).toBe("https://gradethread.com/");
+  });
+
+  // US-1679: the static registry splits into marketing vs grading pSEO segments.
+  it("partitions manifest routes into marketing vs grading pSEO", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mockFetch({
+        "/seo-manifest.json": {
+          siteUrl: "https://gradethread.com",
+          generatedAt: "2026-07-06T00:00:00.000Z",
+          routes: [
+            { path: "/", priority: 1.0 },
+            { path: "/pricing", priority: 0.9 },
+            { path: "/grading/scale", priority: 0.9 },
+            { path: "/grading/glossary/euc", priority: 0.5 },
+            { path: "/grading/nwt", priority: 0.7 },
+          ],
+        },
+      }),
+    );
+    const marketing = await marketingUrls(env);
+    const grading = await gradingUrls(env);
+    expect(marketing.map((u) => u.loc)).toEqual([
+      "https://gradethread.com/",
+      "https://gradethread.com/pricing",
+    ]);
+    expect(grading.map((u) => u.loc)).toEqual([
+      "https://gradethread.com/grading/scale",
+      "https://gradethread.com/grading/glossary/euc",
+      "https://gradethread.com/grading/nwt",
+    ]);
+    // Together they equal the full static set (no URL dropped or duplicated).
+    expect(marketing.length + grading.length).toBe(5);
   });
 
   it("US-429: uses the per-route lastModified (not the build timestamp), falling back to generatedAt", async () => {
