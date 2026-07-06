@@ -12057,8 +12057,8 @@
         "Fails the build on drift; documented runbook for fixing common SPA drift"
       ],
       "priority": 1669,
-      "passes": false,
-      "notes": "[P0][SEO2.0][technical] Plan §4.1, §4.2. Risk removal — prerendered SPAs commonly drift."
+      "passes": true,
+      "notes": "[P0][SEO2.0][technical] Plan §4.1, §4.2. Risk removal — prerendered SPAs commonly drift. | DONE 2026-07-06: crawl-parity.test.ts audits 12 representative prerendered URLs (marketing pillars, keystone /grading/scale incl. its grade <table>, glossary spoke, data report, cornerstone, legal): exactly 1 title+canonical, populated #root (not empty shell), no meta-refresh redirect, route-specific content present in the raw byte-stream (esp. the grade table). Fails build on drift (CI builds before tests). Runbook: docs/PRERENDER_PARITY.md. Complements existing validateHeadIntegrity() (prerender.mjs) + jsonld-parity.test. Dynamic cert/pSEO parity enforced via the SSR renderer emitting full bodyHtml + the SSR/SPA JSON-LD equivalence test (no live server in CI to curl-diff)."
     },
     {
       "id": "US-1670",
