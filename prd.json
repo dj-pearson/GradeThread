@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1664,
+  "nextId": 1696,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -11974,6 +11974,440 @@
         "No edge adapter (extension-only, mirrors Grailed); Marketplaces UI shows it in the extension-channels section",
         "Specs guard + schema-version tests + web build green"
       ]
+    },
+    {
+      "id": "US-1664",
+      "title": "SEO 2.0 keystone: publish the named Grading Scale pillar (/grading/scale/)",
+      "description": "As a reseller (or an AI answer engine) searching for what a clothing condition grade means, I want a single canonical, table-structured, printable page that defines the GradeThread Clothing Condition Grading Scale (1.0–10.0) so that GradeThread is the origin everyone else references.",
+      "acceptanceCriteria": [
+        "New indexable route /grading/scale/ registered in PUBLIC_ROUTES + entry-server.tsx (prerendered with full <head>), full content present in the initial HTML byte-stream (not hydrated-in)",
+        "Centerpiece is an HTML <table>: Grade | Label | Criteria | Typical flaws | Marketplace equivalent — one row per grade band; plus a downloadable printable chart asset (PDF/PNG) carrying the GradeThread name",
+        "DefinedTermSet JSON-LD with each grade as a DefinedTerm (name/description/inDefinedTermSet), mirrored in head-builder.ts jsonLdForRoute()",
+        "Opens with a 40–60 word self-contained, quotable definition directly under the H1 (snippet + AI-citation unit); the standard is named 'the GradeThread Scale' consistently",
+        "Every certificate page links to this page ('what does 8.5 mean?'); build + eslint + prerender sync-guard clean"
+      ],
+      "priority": 1664,
+      "passes": false,
+      "notes": "[P0][SEO2.0][GEO][keystone] Plan §9 ⭐ single highest-leverage move + §2 Hub 1 + §3 schema. Everything compounds on this page existing. Zero KP volume by design — this is definitional GEO category creation, measured by GSC impressions (§8), not clicks."
+    },
+    {
+      "id": "US-1665",
+      "title": "Weaponize certificate pages as SEO/GEO assets (P1 flywheel)",
+      "description": "As a seller who shares a GradeThread certificate on a marketplace listing, I want each public certificate page to be a schema-rich, self-contained SEO/GEO asset so that every cert becomes an indexable proof page and a contextual inbound link competitors structurally cannot copy.",
+      "acceptanceCriteria": [
+        "Certificate template adds: garment brand+type in <title>/H1; the grade with a one-line plain-English meaning; flaw list with close-up photos; a 'What does a {grade} grade mean?' module that VARIES by grade band (10 variants, not boilerplate) linking to /grading/scale/",
+        "Product/ItemPage JSON-LD with itemCondition mapped to schema.org OfferItemCondition PLUS additionalProperty PropertyValue {name:'GradeThread Condition Grade', value:<grade>, maxValue:10}",
+        "One-click 'Add certificate link to listing' affordance in the FlipDesk listing flow (growth loop)",
+        "noindex certificates that have no photos; edge-SSR HTML contains full content for JS-less LLM crawlers",
+        "Tenant isolation preserved (public certs only); build + eslint clean"
+      ],
+      "priority": 1665,
+      "passes": false,
+      "notes": "[P0][SEO2.0][GEO][pSEO][flywheel] Plan §5 P1 + §3 schema + §7.1. The one nobody can copy — user-generated pSEO mesh. Depends on the scale page [[US-1664]]."
+    },
+    {
+      "id": "US-1666",
+      "title": "GEO plumbing: AI-crawler allowlist, curated llms.txt, IndexNow pings",
+      "description": "As GradeThread, I want AI search crawlers explicitly allowed and every publish/certificate change pushed to indexes so that GradeThread content enters AI training/retrieval fast and compounds the moat.",
+      "acceptanceCriteria": [
+        "robots.txt (dynamic Pages Function) explicitly allows GPTBot, OAI-SearchBot, ClaudeBot, Claude-User, PerplexityBot, Google-Extended, Bingbot, CCBot",
+        "llms.txt curated as a MAP (not a dump): links + one-sentence descriptions for the scale, methodology, glossary index, platform-standards index, the data report, product one-liners; kept in sync from the build pipeline; optional llms-full.txt with full scale+glossary text",
+        "IndexNow pings fire from the publish pipeline and on every new public certificate (Cloudflare Function, keyed)",
+        "Verify allows do not expose private routes; build clean"
+      ],
+      "priority": 1666,
+      "passes": false,
+      "notes": "[P0][SEO2.0][GEO][technical] Plan §4.6, §4.7, §6.4. Near-zero effort, real AI-retrieval freshness gains."
+    },
+    {
+      "id": "US-1667",
+      "title": "Comparison template + flagship /compare/mercari-vs-ebay/",
+      "description": "As a reseller deciding where to sell, I want a genuinely useful platform comparison that uniquely covers condition-dispute/returns handling so that GradeThread ranks for high-intent comparison queries and inserts the grading wedge.",
+      "acceptanceCriteria": [
+        "Reusable /compare/{a}-vs-{b}/ page template: fees table, category fit, shipping, payout speed, and a UNIQUE 'returns & condition-dispute handling' column",
+        "Hand-written flagship /compare/mercari-vs-ebay/ shipped first (1,000/mo, Low competition — best pure-SEO target in the file)",
+        "Front-loaded query phrase in title with year (refresh annually); FAQPage schema where genuinely Q&A; links to the returns spine page",
+        "Registered as indexable public route (prerender/SSR), full content in initial HTML; build + prerender guard clean"
+      ],
+      "priority": 1667,
+      "passes": false,
+      "notes": "[P0][SEO2.0][SEO] Plan §1 B1 + §5 P6 + §9. mercari-vs-ebay is the anomalous Low-comp 1,000/mo term — ship first. Depends on returns spine [[US-1673]] for the link target (can ship before it and backfill)."
+    },
+    {
+      "id": "US-1668",
+      "title": "Opportunist pages: eBay item specifics (+425%) and eBay sold comps (+179%)",
+      "description": "As a reseller hitting eBay's expanding item-specifics requirements or trying to price with comps, I want timely, ranking guides so that GradeThread captures fast-rising, low-competition mid-tail demand that feeds AutoLister and the comp tool.",
+      "acceptanceCriteria": [
+        "/reselling/ebay-item-specifics/ — what specifics drive Cassini search, required vs recommended, how AutoLister removes the tedium; HowTo/Article schema",
+        "/reselling/comps/ebay-sold-comps/ — how to read sold vs active comps, filter by condition; feeds the comp-pull feature",
+        "Both front-load the query phrase, open with a quotable definition block, link up to their pillar and to /flipdesk/ features",
+        "Indexable routes; full content in initial HTML; build + eslint clean"
+      ],
+      "priority": 1668,
+      "passes": false,
+      "notes": "[P0][SEO2.0][SEO] Plan §1 B5/B7 + §9 Phase 0. ebay item specifics +425% YoY (algorithm-driven pain), ebay sold comps +179% — both Low competition."
+    },
+    {
+      "id": "US-1669",
+      "title": "Prerender/hydration parity CI audit",
+      "description": "As GradeThread, I want an automated check that bots see the same full content humans do so that hydration never silently strips titles/canonicals/tables that snippets and JS-less LLM crawlers depend on.",
+      "acceptanceCriteria": [
+        "CI job diffs `curl -A Googlebot` HTML vs rendered DOM for ≥10 representative URLs (marketing, blog, certificate, a pSEO page)",
+        "Asserts the full article/table content (esp. the grade table) is in the initial HTML byte-stream, not a hydrated shell; asserts one <title>/canonical (no hydration overwrite), no client-side-only redirects",
+        "Fails the build on drift; documented runbook for fixing common SPA drift"
+      ],
+      "priority": 1669,
+      "passes": false,
+      "notes": "[P0][SEO2.0][technical] Plan §4.1, §4.2. Risk removal — prerendered SPAs commonly drift."
+    },
+    {
+      "id": "US-1670",
+      "title": "SEO/GEO measurement instrumentation (the visibility layer)",
+      "description": "As GradeThread, I want cluster-level SEO + AI-search visibility instrumented from day one so that Universe A demand-creation (impression-side) is measurable and kill/scale decisions are data-driven.",
+      "acceptanceCriteria": [
+        "GSC regex/cluster views per section (/grading/, /compare/, /flipdesk/); indexation rate tracked per sitemap segment",
+        "Analytics referrer segmentation for AI engines (chatgpt.com, perplexity.ai, claude.ai) + a signup-source survey field with an 'AI assistant' option",
+        "A monthly prompt panel (25 canonical prompts across ChatGPT/Claude/Perplexity/Google AI Overviews) tracked in a sheet: cited? linked? named? share-of-voice",
+        "Cloudflare-log bot-crawl dashboard: GPTBot/ClaudeBot/PerplexityBot fetch frequency by section (leading GEO indicator)"
+      ],
+      "priority": 1670,
+      "passes": false,
+      "notes": "[P0][SEO2.0][measurement][GEO] Plan §8 + §4.10. Leading indicators are impression-side for Universe A. Kill criteria defined in §8."
+    },
+    {
+      "id": "US-1671",
+      "title": "Grading glossary hub + DefinedTerm pages (/grading/glossary/{term})",
+      "description": "As a reseller Googling or asking an AI 'what does EUC mean', I want crisp DefinedTerm glossary pages so that GradeThread owns the condition-vocabulary answers in both search snippets and AI citations.",
+      "acceptanceCriteria": [
+        "Glossary hub /grading/glossary/ + 40+ term pages (EUC, VGUC, GUC, NWT, NWOT, NIB, HTF, BOLO, death pile, comps, flat lay, rag/bale grade, SNAD…) seeded via the topic bank with an editorial pass",
+        "Each term: 50-word definition → real-listing usage example → related terms (2–3, sideways-rule) → how it maps to the grade scale; ≥150 words of distinct content; near-synonyms clustered onto one URL (nwt-vs-nwot is ONE page)",
+        "DefinedTerm JSON-LD per page, part of the DefinedTermSet; question-phrased H2s with self-contained answer paragraphs (GEO extraction)",
+        "No auto-generated padding; build + prerender guard clean"
+      ],
+      "priority": 1671,
+      "passes": false,
+      "notes": "[P0->P1][SEO2.0][GEO][pSEO] Plan §1 A2 + §2 Hub1 + §5 P4. GEO landgrab: zero competition, snippet/AI-answer bait."
+    },
+    {
+      "id": "US-1672",
+      "title": "Platform condition-standard pages (/grading/platform-standards/{platform})",
+      "description": "As a reseller wondering what 'good condition' means on a specific marketplace, I want per-platform mapping pages so that GradeThread becomes the cited answer for platform condition policies and encodes the scale↔every-marketplace entity relationship.",
+      "acceptanceCriteria": [
+        "8–12 pages (eBay, Poshmark, Mercari, Depop, Grailed, Vinted, ThredUp, TheRealReal, Whatnot, Shopify-resale): each maps the platform's condition vocabulary ↔ the 1–10 scale in a table, what triggers returns/SNAD there, and listing-copy templates per grade",
+        "Cite/link the published marketplace policies; visible 'Verified {month year}' freshness stamp with a quarterly re-check process",
+        "Question-phrased H2s + quotable answer blocks; link up to /grading/scale/ and to the returns spine",
+        "Indexable routes; editorial-assisted (not fully autonomous); build clean"
+      ],
+      "priority": 1672,
+      "passes": false,
+      "notes": "[P1][SEO2.0][GEO][pSEO] Plan §1 A1 note + §5 P3 + §2. These become the pages LLMs cite for 'what does good condition mean on Depop'."
+    },
+    {
+      "id": "US-1673",
+      "title": "The returns spine page (/reselling/reduce-ebay-returns/)",
+      "description": "As a volume seller losing margin to returns, I want a definitive returns-reduction page that routes to condition accuracy so that listing-universe authority flows into the grading moat via one designated crossover.",
+      "acceptanceCriteria": [
+        "/reselling/reduce-ebay-returns/ covers the top return reasons that trace to condition mismatch and the disclosure workflow that prevents each; honest about what disclosure can't fix (fit)",
+        "Designated 'spine': it links HARD into /grading/ and /grading/certificate/; every Universe-B page links to it with the 'returns are the #1 margin killer → condition accuracy fixes it' framing",
+        "Article/FAQ schema; quotable blocks; front-loaded title",
+        "Indexable; build clean"
+      ],
+      "priority": 1673,
+      "passes": false,
+      "notes": "[P1][SEO2.0][SEO][GEO] Plan §2 spine + §1 B7. THE authority-routing crossover between the two hubs."
+    },
+    {
+      "id": "US-1674",
+      "title": "Internal-linking rule-set for the automated interlinker",
+      "description": "As GradeThread, I want the existing auto-interlinker driven by explicit topical rules so that PageRank concentrates on the canonical scale page and cross-hub authority only flows through the spine.",
+      "acceptanceCriteria": [
+        "Down-links: every pillar links all cluster children in a curated 'chapter' block (not a tag cloud)",
+        "Up-links: every cluster page links its pillar in the first 100 words with approved exact-ish anchors",
+        "Cross-hub links forbidden except through the spine page and pillars; sideways glossary links capped at 2–3 related terms + the scale page",
+        "Anchor discipline: rotate 3–4 approved anchors per target URL, forbid generic 'click here'; certificate pages link up to /grading/scale/",
+        "Rules encoded in the interlinker config/tests; verified on a sample corpus"
+      ],
+      "priority": 1674,
+      "passes": false,
+      "notes": "[P1][SEO2.0][SEO] Plan §2 internal-linking model. Makes /grading/scale/ the most internally-linked URL (correct PageRank shape)."
+    },
+    {
+      "id": "US-1675",
+      "title": "FlipDesk money landing pages: inventory-management + AutoLister",
+      "description": "As a reseller searching for reseller inventory software or an AI listing generator, I want conversion-grade feature landing pages so that GradeThread ranks organically for the highest-CPC commercial terms and captures high-LTV intent.",
+      "acceptanceCriteria": [
+        "/flipdesk/inventory-management/ targets 'clothing inventory management software' ($20–47 CPC) — conversion-grade page, job-to-be-done framing",
+        "/flipdesk/autolister/ targets 'ai ebay listing generator' / 'ai listing generator'",
+        "SoftwareApplication JSON-LD (applicationCategory: BusinessApplication, offers; aggregateRating only if real reviews); front-loaded titles; clear CTA",
+        "Indexable routes; full content in initial HTML; build + eslint clean"
+      ],
+      "priority": 1675,
+      "passes": false,
+      "notes": "[P1][SEO2.0][SEO][conversion] Plan §1 B3/B4 + §3 + §9. Tiny volume, enormous CPC = high-LTV; organic rank saves $20–47/click."
+    },
+    {
+      "id": "US-1676",
+      "title": "FlipDesk feature landing pages: crosslisting, comps, bookkeeping",
+      "description": "As a reseller searching for crosslisting/comps/profit-tracking tools, I want dedicated feature pages so that FlipDesk appears for the transactional back-office cluster.",
+      "acceptanceCriteria": [
+        "/flipdesk/crosslisting/ (B2), /flipdesk/comps/ (comp-pull feature), /flipdesk/bookkeeping/ (payout reconciliation / profit tracker)",
+        "Each: one job-to-be-done, SoftwareApplication schema, honest feature claims matching shipped functionality, link to the relevant guide/pillar",
+        "Indexable routes; full content in initial HTML; build + eslint clean"
+      ],
+      "priority": 1676,
+      "passes": false,
+      "notes": "[P1][SEO2.0][SEO][conversion] Plan §1 B2/B3/B5 + §2 Hub2. Declining head terms — position on the differentiated angle."
+    },
+    {
+      "id": "US-1677",
+      "title": "E-E-A-T: methodology page, author entities, Organization sameAs",
+      "description": "As a category creator, I want first-hand-experience trust signals so that GradeThread content out-ranks SEO-farm content and reads as authoritative to Google and LLMs.",
+      "acceptanceCriteria": [
+        "/grading/methodology/: how the AI model was trained, what the grade does/doesn't claim, error handling, human review (buyer/journalist/LLM trust collateral)",
+        "Real author Person schema (founder + grading lead) with a bio page listing concrete reseller experience, linked from every article byline",
+        "Site-wide Organization (sameAs → LinkedIn, X, GitHub, Crunchbase, YouTube) + WebSite schema",
+        "Original photography of real flaws on grading guides (no stock); build clean"
+      ],
+      "priority": 1677,
+      "passes": false,
+      "notes": "[P1][SEO2.0][SEO][GEO] Plan §3 E-E-A-T + §6.1. First-hand experience is the differentiator vs content farms."
+    },
+    {
+      "id": "US-1678",
+      "title": "Reddit distribution cadence + free printable condition chart",
+      "description": "As GradeThread, I want a genuine, disclosed Reddit presence and a shareable free chart so that the grading standard gets retrieved by AI engines (heavily trained on Reddit) and spreads in reseller communities.",
+      "acceptanceCriteria": [
+        "Founder account with transparent flair/disclosure; cadence of 2–3 substantive answers/week in r/Flipping, r/poshmark, r/Depop, r/Mercari, r/eBaySellers, r/VintageFashion — answering condition-dispute/returns threads, never drive-by links",
+        "Free printable condition chart published (no signup) so others share it in threads; the chart carries the GradeThread name and links to /grading/scale/",
+        "A lightweight playbook doc + a tracked list of high-value threads/answers"
+      ],
+      "priority": 1678,
+      "passes": false,
+      "notes": "[P1][SEO2.0][GEO][offpage] Plan §6.7. Reddit is disproportionately retrieved by AI search — one top answer is worth 20 blog posts."
+    },
+    {
+      "id": "US-1679",
+      "title": "Sitemap segmentation + per-segment indexation tracking",
+      "description": "As GradeThread, I want segmented sitemaps so that indexation rate per content class (esp. certificates and pSEO) is observable in GSC.",
+      "acceptanceCriteria": [
+        "Split into sitemap-marketing.xml, sitemap-blog.xml, sitemap-grading.xml (pSEO), sitemap-certificates.xml, wired under a sitemap index; accurate lastmod per URL",
+        "Certificates added to the sitemap only once the underlying listing is live",
+        "GSC per-segment indexation rate becomes a tracked KPI (ties to §8)"
+      ],
+      "priority": 1679,
+      "passes": false,
+      "notes": "[P1][SEO2.0][technical] Plan §4.4. Segmentation lets certificate indexation rate be a KPI."
+    },
+    {
+      "id": "US-1680",
+      "title": "Certificate index policy at scale",
+      "description": "As GradeThread scaling to thousands of certificates, I want a strict index policy so that cert growth never creates soft-404/index bloat.",
+      "acceptanceCriteria": [
+        "Index PUBLIC certificates only; canonical to self; noindex (or 410) expired/deleted-item certs; paginate any 'recent certificates' browse surface",
+        "Stable, short cert URLs (/c/{id} or /certificate/{id})",
+        "Certs enter the sitemap only when the listing is live; policy covered by a test"
+      ],
+      "priority": 1680,
+      "passes": false,
+      "notes": "[P1][SEO2.0][technical] Plan §4.5. Important before cert volume scales."
+    },
+    {
+      "id": "US-1681",
+      "title": "Structured-data CI validation (JSON-LD lint on build)",
+      "description": "As GradeThread, I want JSON-LD validated at build so that pSEO templates can't ship broken schema at scale.",
+      "acceptanceCriteria": [
+        "Build-time schema linting validates JSON-LD on marketing, blog, grading, product, and certificate route types",
+        "Broken/invalid markup fails the build; covers DefinedTermSet/DefinedTerm, HowTo, Article, SoftwareApplication, Product+itemCondition+PropertyValue",
+        "Runbook for adding new schema types to the linter"
+      ],
+      "priority": 1681,
+      "passes": false,
+      "notes": "[P1][SEO2.0][technical] Plan §4.9. Guardrail so pSEO scale stays schema-clean."
+    },
+    {
+      "id": "US-1682",
+      "title": "Garment-type grading guides pSEO (/grading/guides/{garment})",
+      "description": "As a reseller grading a specific garment, I want a per-garment grading guide with real flaw photos so that GradeThread ranks for hyper-specific zero-competition queries using proprietary rubric data.",
+      "acceptanceCriteria": [
+        "30–60 pages (garment × material where materially different: denim, leather, knitwear, silk, outerwear, tees, dresses, activewear…); hand-finish the top 10",
+        "Each page: garment-specific criteria + ≥3 unique real flaw photos + graded examples; HowTo schema; ≥50% unique data/editorial (pSEO guardrail)",
+        "Merge pages whose rubric is identical; certs deep-link relevant flaws; embed the matching YouTube short where available",
+        "Indexable routes; build + schema-lint clean"
+      ],
+      "priority": 1682,
+      "passes": false,
+      "notes": "[P2][SEO2.0][pSEO][GEO] Plan §5 P2. Proprietary flaw taxonomy rendered as content — the good kind of pSEO."
+    },
+    {
+      "id": "US-1683",
+      "title": "Flaw library pSEO (/grading/flaws/{flaw})",
+      "description": "As a reseller identifying a defect, I want a page per flaw type so that GradeThread owns image-rich, hyper-specific flaw vocabulary and feeds the internal-link flywheel from certificates.",
+      "acceptanceCriteria": [
+        "25–50 pages (pilling, moth holes, sun fading, pit stains, crocking, seam stress, cracked graphics, missing buttons…): each with a photo, how to detect, grade impact, fixability, and how to disclose it in a listing",
+        "Data source = the model's flaw-detection classes + graded photo corpus; certificates deep-link each detected flaw to its page",
+        "DefinedTerm/Article schema; ≥50% unique content; indexable; build + schema-lint clean"
+      ],
+      "priority": 1683,
+      "passes": false,
+      "notes": "[P2][SEO2.0][pSEO][GEO] Plan §5 P5. The vocabulary of the product's output; zero competition, image-rich."
+    },
+    {
+      "id": "US-1684",
+      "title": "Graded-clothing disambiguation page + vs-authentication bridge",
+      "description": "As a searcher confused by 'graded clothing' or wondering how grading relates to authentication, I want disambiguation pages so that GradeThread captures right-intent traffic and teaches AI engines the distinctions.",
+      "acceptanceCriteria": [
+        "/grading/graded-clothing-meaning/: 'bale grades (A/B/C) vs per-item condition grading' — captures the sliver of right-intent traffic from the 'graded clothing' false-friend SERP",
+        "/grading/vs-authentication/: the single bridge page (do NOT build an authentication cluster) explaining condition grading vs authenticity as distinct trust services",
+        "Quotable definition blocks; link into /grading/scale/; indexable; build clean"
+      ],
+      "priority": 1684,
+      "passes": false,
+      "notes": "[P2][SEO2.0][GEO][SEO] Plan §1 A5/A6 + §2. Disambiguate, don't chase."
+    },
+    {
+      "id": "US-1685",
+      "title": "Remaining comparison pages (hand-written flagships + templated tail)",
+      "description": "As a reseller comparing platforms, I want the full comparison set so that GradeThread covers the comparison cluster with its unique returns/condition column.",
+      "acceptanceCriteria": [
+        "Hand-written poshmark-vs-mercari; templated tail (~15–20 pairs from integrated platforms) with editorial review",
+        "Every page includes the unique 'returns & condition-dispute handling' column; public fee schedules cited + quarterly re-verify; year-stamped",
+        "depop-vs-poshmark (3,600/mo, High comp) targeted only AFTER the easier comparisons rank",
+        "Prune tail pages under 10 impressions/mo at month 4 (no index bloat); build clean"
+      ],
+      "priority": 1685,
+      "passes": false,
+      "notes": "[P2][SEO2.0][SEO][pSEO] Plan §1 B1 + §5 P6 + §8 kill criteria + §9 IGNORE (depop-vs-poshmark not early)."
+    },
+    {
+      "id": "US-1686",
+      "title": "Honest 'Best crosslisting apps 2026' listicle + roundup-inclusion outreach",
+      "description": "As a reseller (or AI engine) asked for the best crosslisting app, I want an honest listicle that includes competitors fairly so that FlipDesk appears in AI-synthesized 'best' answers on the grading/returns differentiator.",
+      "acceptanceCriteria": [
+        "/…/best-crosslisting-apps/ listicle with explicit criteria including Vendoo, List Perfectly, Crosslist, Flyp fairly; FlipDesk positioned on grading/returns; year-stamped, pros/cons + comparison table (LLM-favored formats)",
+        "Outreach to be INCLUDED in existing third-party 'best reseller tools' listicles (offer affiliate cut where relevant) — the GEO consensus play",
+        "ItemList/FAQ schema where honest; build clean"
+      ],
+      "priority": 1686,
+      "passes": false,
+      "notes": "[P2][SEO2.0][GEO][offpage] Plan §6.6 + §7.4. If only competitor listicles exist, FlipDesk is absent from every AI answer for B2."
+    },
+    {
+      "id": "US-1687",
+      "title": "Free Condition Grade Estimator tool (/tools/grade-checker/)",
+      "description": "As a curious reseller, I want a no-signup tool that gives a rough grade from one photo so that GradeThread earns organic links and Reddit shares and converts TOFU visitors.",
+      "acceptanceCriteria": [
+        "/tools/grade-checker/: upload one photo → rough grade, no signup required; reuses the grading pipeline with a clear 'rough estimate' framing + upsell to a full certified grade",
+        "Upload path uses validateImageUpload + stripImageMetadata (US-276); rate-limited; tenant-safe for anon use",
+        "Indexable landing content around the tool; shareable result; build + eslint clean"
+      ],
+      "priority": 1687,
+      "passes": false,
+      "notes": "[P2][SEO2.0][offpage][conversion] Plan §7.6. Free tools attract links/shares far better than articles; best-converting TOFU asset."
+    },
+    {
+      "id": "US-1688",
+      "title": "Reselling pillar (/reselling/) + TOFU guides, timed to index before November",
+      "description": "As a beginner reseller, I want a workflow pillar and supporting guides so that GradeThread captures TOFU volume with a grading step woven into every guide, indexed and aged before the Jan/spring demand waves.",
+      "acceptanceCriteria": [
+        "/reselling/ pillar ('How to Resell Clothes: the Full Workflow, Source → Ship') + B6 guides: sourcing, death-pile, best-brands-to-resell, bolo-list, how-to-resell, how-to-sell-used-clothes-online, thrift-store-reselling",
+        "Every guide includes a grading step (wedge insertion) and links to the spine/returns page and /grading/",
+        "Published/indexed before November so it ages for Jan (resolutions) + Apr–Jun (spring cleanout) waves; Article/HowTo schema",
+        "Indexable; build clean"
+      ],
+      "priority": 1688,
+      "passes": false,
+      "notes": "[P2][SEO2.0][SEO] Plan §1 B6 + §0 seasonality + §2 Hub2. Some overlap with existing blog topic bank — reuse the 00378 drafts."
+    },
+    {
+      "id": "US-1689",
+      "title": "YouTube grading shorts + on-page embeds",
+      "description": "As a reseller who learns visually, I want short 'how to grade {garment}' videos so that GradeThread earns video-transcript citations in AI engines and multimedia signals on guide pages.",
+      "acceptanceCriteria": [
+        "5–10 short 'how to grade {garment}' videos produced with accurate transcripts",
+        "Each embedded on the matching /grading/guides/{garment}/ page (engagement + multimedia signal); VideoObject schema",
+        "Videos named/tagged consistently with the GradeThread Scale"
+      ],
+      "priority": 1689,
+      "passes": false,
+      "notes": "[P2][SEO2.0][GEO] Plan §6.8 + §7.3. AI engines increasingly cite video transcripts; reseller YouTube is a large sub-community."
+    },
+    {
+      "id": "US-1690",
+      "title": "Core Web Vitals (INP/CLS) + Cloudflare edge-caching hardening",
+      "description": "As GradeThread, I want the SPA + edge-SSR stack tuned for Core Web Vitals so that ranking and crawl quality hold as certificate/pSEO volume grows.",
+      "acceptanceCriteria": [
+        "INP: code-split marketing routes from the app bundle, lazy-hydrate below-the-fold interactive widgets; CLS: explicit width/height on all images, font-display: swap",
+        "Cloudflare: Early Hints + HTTP/3 enabled; edge-SSR'd blog/cert HTML cached with stale-while-revalidate so TTFB stays flat as cert volume grows",
+        "CWV verified (lab + field) on marketing, blog, certificate, and a pSEO page; no regressions to prerender content"
+      ],
+      "priority": 1690,
+      "passes": false,
+      "notes": "[P2][SEO2.0][technical] Plan §4.3. SPA risk is INP from heavy hydration + CLS from late fonts/images."
+    },
+    {
+      "id": "US-1691",
+      "title": "State of Secondhand Condition data report + PR/podcast push",
+      "description": "As GradeThread, I want a twice-yearly original-data report so that GradeThread earns AI citations and journalist links from data nobody else has.",
+      "acceptanceCriteria": [
+        "Report from anonymized grading + FlipDesk data: average grade by garment type, most common flaws, grade vs sell-through/return correlations; only stats the data actually supports (small-n honesty)",
+        "Published as an indexable, schema-rich, quotable asset ('by the numbers' blocks) linked from llms.txt",
+        "Pitched to resale-trade press, reseller newsletters, and the reseller podcast/YouTube circuit (founder on 'the returns problem' / 'the grading standard', not the product)"
+      ],
+      "priority": 1691,
+      "passes": false,
+      "notes": "[P3][SEO2.0][GEO][offpage] Plan §6.3 + §7.2/§7.3. One asset, two channels (AI citations + links)."
+    },
+    {
+      "id": "US-1692",
+      "title": "Comps pSEO decision: legal review → build or kill (/comps/{brand}-{category})",
+      "description": "As GradeThread, I want a legal/ToS review of publishing aggregate comp data so that the StockX-style acquisition channel is either built safely or explicitly killed — no ambiguity.",
+      "acceptanceCriteria": [
+        "Counsel review of publishing comp-derived data at scale (marketplace data ToS constraints)",
+        "If cleared: aggregate-stats-only design (median sold price, range, sell-through band — NOT republished listings), with a per-page data-density quality bar",
+        "If not cleared: explicitly kill and record the decision; no thin pages shipped either way"
+      ],
+      "priority": 1692,
+      "passes": false,
+      "notes": "[P3][SEO2.0][pSEO][legal] Plan §5 P7 HOLD + §9. Biggest raw-traffic idea OR zero — gated on legal."
+    },
+    {
+      "id": "US-1693",
+      "title": "Consumer 'where to sell used clothes' mega-guide (AI-citable)",
+      "description": "As a consumer cleaning out a closet, I want one comprehensive where-to-sell guide so that GradeThread captures deferred consumer intent in an AI-citable format without building a losing cluster.",
+      "acceptanceCriteria": [
+        "One mega-guide (not a cluster) structured for AI citation: criteria-driven, comparison tables, pros/cons; sanity-checked against live SERP intent before writing",
+        "Positions FlipDesk/GradeThread for the sliver of reseller-adjacent readers; links into the reseller pillar",
+        "Indexable; build clean"
+      ],
+      "priority": 1693,
+      "passes": false,
+      "notes": "[P3][SEO2.0][SEO][GEO] Plan §1 B8 + §9 IGNORE-until-Phase-3. Consumer intent, weak product fit — one guide only."
+    },
+    {
+      "id": "US-1694",
+      "title": "Annual freshness-refresh system for fees/policies/year-stamped pages",
+      "description": "As GradeThread, I want an automated freshness workflow so that platform/fee/policy and year-stamped pages stay current and retrieval engines don't demote stale content.",
+      "acceptanceCriteria": [
+        "A tracked schedule/automation that flags platform-standards, comparison fee tables, and year-in-title pages for quarterly/annual re-verification",
+        "'Last verified {month year}' stamps rendered from real re-check dates (not cosmetic)",
+        "Ties into §8 measurement so protected pages are monitored"
+      ],
+      "priority": 1694,
+      "passes": false,
+      "notes": "[P3][SEO2.0][technical][GEO] Plan §6.5 + §9 Phase 3. Protects the gains."
+    },
+    {
+      "id": "US-1695",
+      "title": "Off-page authority: Wikidata entity + directory/integration listings",
+      "description": "As GradeThread, I want entity-confirming off-page assets so that search engines and LLMs anchor the GradeThread entity and the moat compounds.",
+      "acceptanceCriteria": [
+        "Claim a Wikidata item for GradeThread once 3–4 independent citations exist; reference it in Organization sameAs",
+        "High-authority directory/integration listings: Shopify App Store, eBay-compatible-app listings, Product Hunt, G2/Capterra profiles",
+        "Explicitly AVOID: paid links/PBNs, mass generic guest posts, a premature Wikipedia article"
+      ],
+      "priority": 1695,
+      "passes": false,
+      "notes": "[P3][SEO2.0][offpage] Plan §7.5/§7.7 + §3 + §7 IGNORE list. Entity confirmation, zero/low cost."
     }
   ]
 }
