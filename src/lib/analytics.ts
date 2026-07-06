@@ -84,6 +84,62 @@ function applyGtagConsent(state: ConsentState) {
   });
 }
 
+// ── AI-search referrer segmentation (US-1670) ───────────────────────
+//
+// Universe A (condition grading) is a demand-CREATION motion whose signups
+// increasingly arrive from AI answer engines, not classic search. AI engines
+// mostly send a normal HTTP referrer, so we classify document.referrer into a
+// named engine and register it as a PostHog super-property (ai_referrer). That
+// makes "signups whose first touch was an AI assistant" a one-filter segment —
+// the only reliable referrer-side AI attribution available (the self-reported
+// signup-source survey adds the rest). Pure + exported for unit tests.
+
+/** referrer host (or host+path prefix) → engine name. */
+const AI_ENGINE_HOSTS: Array<{ match: RegExp; engine: string }> = [
+  { match: /(^|\.)chatgpt\.com$/i, engine: "chatgpt" },
+  { match: /(^|\.)chat\.openai\.com$/i, engine: "chatgpt" },
+  { match: /(^|\.)perplexity\.ai$/i, engine: "perplexity" },
+  { match: /(^|\.)claude\.ai$/i, engine: "claude" },
+  { match: /(^|\.)gemini\.google\.com$/i, engine: "gemini" },
+  { match: /(^|\.)copilot\.microsoft\.com$/i, engine: "copilot" },
+  { match: /(^|\.)you\.com$/i, engine: "you" },
+  { match: /(^|\.)poe\.com$/i, engine: "poe" },
+];
+
+/** The AI engine that referred a visit, or null. Accepts a full referrer URL. */
+export function classifyAiReferrer(referrer: string | null | undefined): string | null {
+  if (!referrer) return null;
+  let host: string;
+  try {
+    host = new URL(referrer).hostname;
+  } catch {
+    return null;
+  }
+  for (const { match, engine } of AI_ENGINE_HOSTS) {
+    if (match.test(host)) return engine;
+  }
+  return null;
+}
+
+// Register the first-touch AI-referrer classification as PostHog super-properties
+// so every subsequent event (incl. signup) carries it. Guarded so it never throws.
+function registerAiReferrer(
+  posthog: { register?: (p: Record<string, unknown>) => void },
+) {
+  try {
+    const engine =
+      typeof document !== "undefined"
+        ? classifyAiReferrer(document.referrer)
+        : null;
+    posthog.register?.({
+      ai_referrer: engine,
+      ai_referred: engine !== null,
+    });
+  } catch {
+    /* analytics must never break the UI */
+  }
+}
+
 let posthogStarted = false;
 
 // Lazy-load PostHog + Core Web Vitals — their chunks only download once the
@@ -117,6 +173,8 @@ async function startAnalyticsTools() {
         return props;
       },
     });
+    // US-1670: tag the session with the AI engine (if any) that referred it.
+    registerAiReferrer(posthog);
   } else if (posthogStarted) {
     // Re-opt-in if the visitor previously withdrew then re-granted this session.
     try {

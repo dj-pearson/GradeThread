@@ -12072,7 +12072,7 @@
       ],
       "priority": 1670,
       "passes": false,
-      "notes": "[P0][SEO2.0][measurement][GEO] Plan §8 + §4.10. Leading indicators are impression-side for Universe A. Kill criteria defined in §8."
+      "notes": "[P0][SEO2.0][measurement][GEO] Plan §8 + §4.10. Leading indicators are impression-side for Universe A. Kill criteria defined in §8. | 2026-07-06: AI-search referrer segmentation SHIPPED (analytics.ts classifyAiReferrer → PostHog super-props ai_referrer/ai_referred for chatgpt/perplexity/claude/gemini/copilot/you/poe; tested). Operator runbook docs/SEO_MEASUREMENT.md operationalizes AC1 (GSC cluster regexes /grading/,/compare/,/flipdesk/ + per-segment indexation), AC3 (the 25-prompt panel), AC4 (Cloudflare bot-crawl dashboard by UA×section), + plan §8 kill criteria. DEFERRED (migration-gated, held per pending-migration policy): the self-reported signup_source survey field (profiles column + onboarding select) — the only remaining CODE piece; GSC/prompt-panel/Cloudflare are operator ops. Left passes:false until the survey migration can be added+pushed."
     },
     {
       "id": "US-1671",

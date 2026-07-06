@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   acceptAll,
+  classifyAiReferrer,
   getConsent,
   hasConsentDecision,
   rejectAll,
@@ -71,5 +72,33 @@ describe("analytics per-category consent gating", () => {
   it("ignores garbage values in storage", () => {
     localStorage.setItem("gt_cookie_consent", "{not json");
     expect(getConsent()).toBeNull();
+  });
+});
+
+// US-1670: AI-search referrer segmentation — the leading indicator that AI
+// answer engines are sending traffic/signups.
+describe("classifyAiReferrer (US-1670)", () => {
+  it("classifies the major AI engines from a referrer URL", () => {
+    expect(classifyAiReferrer("https://chatgpt.com/")).toBe("chatgpt");
+    expect(classifyAiReferrer("https://chat.openai.com/c/abc")).toBe("chatgpt");
+    expect(classifyAiReferrer("https://www.perplexity.ai/search?q=x")).toBe(
+      "perplexity",
+    );
+    expect(classifyAiReferrer("https://claude.ai/chat/1")).toBe("claude");
+    expect(classifyAiReferrer("https://gemini.google.com/app")).toBe("gemini");
+    expect(classifyAiReferrer("https://copilot.microsoft.com/")).toBe("copilot");
+  });
+
+  it("returns null for non-AI referrers and bad input", () => {
+    expect(classifyAiReferrer("https://www.google.com/")).toBeNull();
+    expect(classifyAiReferrer("https://t.co/abc")).toBeNull();
+    expect(classifyAiReferrer("")).toBeNull();
+    expect(classifyAiReferrer(null)).toBeNull();
+    expect(classifyAiReferrer("not a url")).toBeNull();
+  });
+
+  it("does not misclassify a lookalike host", () => {
+    // A phishing-style "chatgpt.com.evil.test" must NOT read as chatgpt.
+    expect(classifyAiReferrer("https://chatgpt.com.evil.test/")).toBeNull();
   });
 });
