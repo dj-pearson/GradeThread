@@ -269,6 +269,20 @@ export interface NotificationPreferences {
 
 export type UserUseCase = "seller" | "buyer" | "consignment" | "developer";
 
+// US-1670: self-reported signup-source survey values. MUST stay in sync with the
+// whitelist in the handle_new_user() trigger (migration 00379) and
+// SIGNUP_SOURCE_OPTIONS in src/lib/constants.ts.
+export type SignupSource =
+  | "ai_assistant"
+  | "search"
+  | "social"
+  | "reddit"
+  | "youtube"
+  | "friend"
+  | "reseller_community"
+  | "ad"
+  | "other";
+
 // US-1442: reseller ship-from / return address, entered once in Settings and
 // reused across marketplace/shipping flows. All parts optional so a partial
 // address (e.g. just ZIP for the eBay location) is valid.
@@ -300,6 +314,9 @@ export interface UserRow {
   grade_reset_at: string;
   notification_preferences: NotificationPreferences;
   use_case: UserUseCase | null;
+  // US-1670: self-reported "How did you hear about us?" at signup (SignupSource),
+  // for SEO/GEO discovery attribution (esp. the "AI assistant" option). Migration 00379.
+  signup_source: SignupSource | null;
   onboarded_at: string | null;
   suspended: boolean;
   // FlipDesk user-state flags (migrations 00028, 00029, 00242)

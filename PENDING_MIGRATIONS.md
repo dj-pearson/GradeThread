@@ -1,5 +1,33 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00379_signup_source_survey.sql (US-1670 / SEO 2.0, 2026-07-06)
+
+**What:** the last piece of the SEO/GEO measurement layer — a self-reported
+"How did you hear about us?" signup survey with an **"AI assistant"** option.
+Adds nullable `users.signup_source text` and `CREATE OR REPLACE`s
+`handle_new_user()` to whitelist the value from `raw_user_meta_data` (exactly
+like `use_case` in 00303). Self-reported AI discovery is the only reliable
+ChatGPT/Claude/Perplexity attribution (referrers are stripped), complementing the
+referrer-side `ai_referrer` PostHog property already shipped. Self-records '00379'.
+
+**Risk: LOW — additive nullable column + CREATE OR REPLACE trigger (idempotent).**
+No backfill (NULL = "not reported"). The whitelist rejects anything unknown to
+NULL, so a malformed client value can never abort signup (the function also keeps
+its resilient EXCEPTION handler). Edge boot guard now expects **00379**.
+
+**⚠️ CLIENT READ — SAFE (backward-compatible):** the frontend signup form
+(`src/pages/signup.tsx`) now passes an extra `signup_source` key in
+`options.data` (raw_user_meta_data). The OLD trigger simply IGNORES that key, so
+a frontend auto-deploy that lands BEFORE this migration applies degrades to
+"source not recorded" — signup never breaks. Nothing client-side READS the column
+(it's write-only attribution; admin analytics reads it server-side later). So
+there is no hard ordering hazard beyond the edge boot guard.
+
+**⚠️ Apply order:** after 00378 (i.e. last, on top of the whole held stack
+00332–00378). `NOTIFY pgrst, 'reload schema';` IS needed (new column). Redeploy
+the edge so its boot guard matches 00379. Constants↔trigger whitelist drift is
+pinned by `src/lib/__tests__/signup-source.test.ts`.
+
 ## ⏳ HELD: 00378_seed_reseller_blog_and_topics.sql (blog seed, 2026-07-06)
 
 **What:** pure DATA seed (no schema change). Inserts 4 fully-written **draft**

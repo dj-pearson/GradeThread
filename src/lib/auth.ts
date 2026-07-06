@@ -1,6 +1,6 @@
 import { supabase } from "./supabase";
 import { LEGAL_VERSIONS } from "./constants";
-import type { UserUseCase } from "@/types/database";
+import type { UserUseCase, SignupSource } from "@/types/database";
 
 // US-368: `captchaToken` is the Cloudflare Turnstile token from the auth pages.
 // GoTrue requires it on signup/login/reset once captcha is enabled; it's
@@ -20,6 +20,10 @@ export async function signUpWithEmail(
   fullName: string,
   captchaToken?: string,
   useCase?: UserUseCase,
+  // US-1670: optional self-reported signup source ("How did you hear about
+  // us?"). Rides along in options.data like use_case; handle_new_user (00379)
+  // whitelists it. Backward-compatible — the old trigger ignores the extra key.
+  signupSource?: SignupSource,
 ) {
   const { data, error } = await supabase.auth.signUp({
     email,
@@ -31,6 +35,7 @@ export async function signUpWithEmail(
         privacy_version: LEGAL_VERSIONS.privacy,
         legal_accepted_at: new Date().toISOString(),
         ...(useCase ? { use_case: useCase } : {}),
+        ...(signupSource ? { signup_source: signupSource } : {}),
       },
       emailRedirectTo: `${window.location.origin}/auth/callback`,
       captchaToken,

@@ -25,7 +25,8 @@ import { FieldError } from "@/components/ui/form-feedback";
 import { validateEmail, validateRequired } from "@/lib/validation";
 import { USE_CASE_OPTIONS } from "@/lib/use-cases";
 import { cn } from "@/lib/utils";
-import type { UserUseCase } from "@/types/database";
+import type { UserUseCase, SignupSource } from "@/types/database";
+import { SIGNUP_SOURCE_OPTIONS } from "@/lib/constants";
 import { toast } from "sonner";
 
 // Mirrors the constant in components/launch-banner.tsx. The signup notice
@@ -43,6 +44,8 @@ export function SignupPage() {
   // paint. Optional here (the post-signup OnboardingFlow still confirms it), but
   // when picked it rides along signup metadata → handle_new_user stamps it.
   const [useCase, setUseCase] = useState<UserUseCase | null>(null);
+  // US-1670: self-reported "How did you hear about us?" (esp. the AI-assistant option).
+  const [signupSource, setSignupSource] = useState<SignupSource | "">("");
   const [isLoading, setIsLoading] = useState(false);
   // US-1462: which OAuth provider redirect is in flight — disables every auth
   // control and shows a spinner so a slow redirect can't be double-fired.
@@ -113,9 +116,12 @@ export function SignupPage() {
         fullName,
         captchaToken ?? undefined,
         useCase ?? undefined,
+        signupSource || undefined,
       );
       setIsConfirmation(true);
       if (useCase) track("onboarding.use_case_selected", { use_case: useCase, at: "signup" });
+      // US-1670: attribute discovery source (esp. AI assistants) for SEO/GEO.
+      if (signupSource) track("signup.source_selected", { source: signupSource });
 
       // US-219: every new signup is granted a 14-day Pro trial by the
       // handle_new_user trigger. Record the trial start (consent-gated no-op
@@ -371,6 +377,28 @@ export function SignupPage() {
                 );
               })}
             </div>
+          </div>
+          {/* US-1670: self-reported discovery source. Optional — the "AI
+              assistant" option is the only reliable ChatGPT/Claude/Perplexity
+              attribution (referrers are stripped). */}
+          <div className="space-y-2">
+            <Label htmlFor="signup-source">
+              How did you hear about us?{" "}
+              <span className="font-normal text-muted-foreground">(optional)</span>
+            </Label>
+            <select
+              id="signup-source"
+              value={signupSource}
+              onChange={(e) => setSignupSource(e.target.value as SignupSource | "")}
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <option value="">Select…</option>
+              {SIGNUP_SOURCE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
           </div>
           <TurnstileWidget
             onVerify={setCaptchaToken}

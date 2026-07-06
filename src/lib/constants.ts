@@ -1,3 +1,5 @@
+import type { SignupSource } from "@/types/database";
+
 // Grade scale labels (1.0-10.0)
 export const GRADE_LABELS = {
   10: "New with Tags (NWT)",
@@ -1260,3 +1262,24 @@ export const LEGAL_VERSIONS = {
   tos: "2026-04-01",
   privacy: "2026-04-01",
 } as const;
+
+// US-1670: the self-reported "How did you hear about us?" signup survey. The
+// "AI assistant" option is the point — self-reported AI discovery is the only
+// reliable ChatGPT/Claude/Perplexity attribution (referrers are often stripped),
+// complementing the referrer-side ai_referrer analytics property. The `value`s
+// MUST match the whitelist in the handle_new_user() trigger (migration 00379)
+// and the SignupSource union in src/types/database.ts.
+export const SIGNUP_SOURCE_OPTIONS: ReadonlyArray<{
+  value: SignupSource;
+  label: string;
+}> = [
+  { value: "ai_assistant", label: "AI assistant (ChatGPT, Claude, Perplexity)" },
+  { value: "search", label: "Search engine (Google, Bing)" },
+  { value: "reddit", label: "Reddit" },
+  { value: "youtube", label: "YouTube" },
+  { value: "social", label: "Social media" },
+  { value: "reseller_community", label: "A reseller community or forum" },
+  { value: "friend", label: "A friend or colleague" },
+  { value: "ad", label: "An ad" },
+  { value: "other", label: "Other" },
+];
