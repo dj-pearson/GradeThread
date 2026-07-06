@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1661,
+  "nextId": 1663,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -11929,6 +11929,36 @@
         "GradeThread Standard grade block embedded in the description (Etsy allows off-site cert links)",
         "Everything gated behind ETSY_ENABLED; owner-scoped (US-268) with a tenant-isolation case per new route",
         "Field names reconciled against the live Etsy Open API v3 once sandbox access lands; adapter + pure-builder unit tests green"
+      ]
+    },
+    {
+      "id": "US-1661",
+      "title": "Whatnot marketplace foundation — adapter registry + OAuth PKCE connection",
+      "description": "As a FlipDesk reseller, I want to connect my Whatnot shop so FlipDesk recognizes Whatnot as a first-class marketplace, laying the foundation to cross-list to Whatnot once the listing path ships.",
+      "priority": 2205,
+      "passes": true,
+      "notes": "[P2][New marketplace] Whatnot is the next partner-API channel after Etsy. NO migration — 'whatnot' was already in the listing_platform enum (00008). DONE 2026-07-05: (1) constants.ts: whatnot mechanism none->api, tier coming_soon->api_pending, added to CROSS_LISTING_PLATFORMS + API_CROSS_LISTING_PLATFORMS; (2) adapter types.ts union+array; marketplace-specs.ts whatnot spec (title 100, desc 2000, 12 photos, 10 tags, own taxonomy, condition enum) + CONDITION_BY_BUCKET mapping, mirrored byte-identical web+edge; (3) whatnot-client.ts = OAuth2 Authorization Code + PKCE + client secret (mirrors Depop, since Whatnot's partner API is private), AES-GCM token storage (AAD=userId), inline+cron refresh, isWhatnotEnabled gate; (4) whatnot-api.ts = whatnotFetch (Bearer) + shop identity + estimateWhatnotNet; (5) marketplace-adapters/whatnot.ts real connect/refresh, listing methods 501 (deferred US-1662), registered in index.ts; (6) routes/flipdesk-whatnot.ts (oauth/start, callback PUBLIC, oauth/refresh job-secret, disconnect admin-gated), mounted in main.ts + auth/workspace middleware; refreshExpiringWhatnotConnections wired into shared eBay token-refresh cron. Gated behind WHATNOT_ENABLED (off until partner access). Tests: whatnot-client_test (5), adapter gating case, tenant-isolation disconnect case; deno lint/check clean; web tsc -b + marketplace-specs.test (81) green. ⚠️ MODELED: Whatnot's partner API has no public docs — auth/token URLs, scopes, endpoints, fee rates all modeled and overridable via env; reconcile vs live once partner access lands.",
+      "acceptanceCriteria": [
+        "whatnot registered across constants (mechanism=api/tier=api_pending/cross-listing) + adapter types + marketplace-specs (byte-identical web+edge) — no migration (already in enum)",
+        "whatnot-client.ts: OAuth2 Authorization Code + PKCE, encrypted token storage bound to userId, inline + cron refresh, WHATNOT_ENABLED gate",
+        "marketplace-adapters/whatnot.ts: real connect/refresh (503 when disabled); publish/update/delist/sync return typed 501 (deferred to US-1662); mapDraftToListing real; registered in the adapter registry",
+        "routes/flipdesk-whatnot.ts mounted: oauth/start (authed), oauth/callback (public, single-use PKCE state), oauth/refresh (job secret), disconnect (admin, owner-scoped); refresh swept by the shared token-refresh cron",
+        "Tenant-isolation case for the whatnot route; unit tests for PKCE + gate + auth-failure classification; edge lint/check + web build green"
+      ]
+    },
+    {
+      "id": "US-1662",
+      "title": "Whatnot listing publish/update/delist + order sync",
+      "description": "As a FlipDesk reseller with a connected Whatnot shop, I want FlipDesk to create/update/end my Whatnot listings and pull Whatnot orders back, so Whatnot is a fully cross-listable channel.",
+      "priority": 2145,
+      "passes": false,
+      "notes": "[P2][New marketplace][Follows US-1661] Build the LISTING + ORDER path on the US-1661 connection foundation, mirroring the Depop/Etsy listing stories. ⚠️ BLOCKED ON PARTNER ACCESS + LIVE DOCS: Whatnot's partner API is private with no public docs, so unlike Etsy (real v3 docs) the endpoint/field shapes cannot be responsibly finalized until partner access + a sandbox land. Scope once unblocked: whatnot-api.ts listing create/update/delist + image handling + order pull; whatnot-orders.ts (receipt/order -> sale rows + cross-platform auto-end, mirror etsy-orders); adapter publish/updateListing/delist/syncOrders wired (replace the 501 stubs); /sync route. Keep gated behind WHATNOT_ENABLED. Add adapter listing tests + a tenant-isolation case per new route.",
+      "acceptanceCriteria": [
+        "whatnot-api.ts: create/update/delist listing + image handling + order/receipt pull (reconciled against the live partner API)",
+        "whatnot-orders.ts: order -> sale rows + payout_imports + cross-platform auto-end (mirror etsy-orders), tenant-scoped (US-268)",
+        "adapter publish/updateListing/delist/syncOrders wired (idempotent), replacing the US-1661 501 stubs",
+        "Everything gated behind WHATNOT_ENABLED; owner-scoped with a tenant-isolation case per new route",
+        "Field names + fee rates reconciled against the live Whatnot partner API once access lands; adapter + pure-builder unit tests green"
       ]
     }
   ]

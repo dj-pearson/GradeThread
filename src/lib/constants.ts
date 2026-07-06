@@ -1010,6 +1010,7 @@ export const CROSS_LISTING_PLATFORMS = [
   "mercari",
   "depop",
   "etsy",
+  "whatnot",
 ] as const;
 // Cross-list platforms that publish for real today via a server-side API
 // (US-599 Shopify, US-714 Depop). The extension platforms below are also "live"
@@ -1032,12 +1033,12 @@ export const MARKETPLACE_MECHANISM: Record<
   shopify: "api",
   depop: "api",
   etsy: "api",
+  whatnot: "api",
   poshmark: "extension",
   mercari: "extension",
   grailed: "extension",
   facebook: "none",
   offerup: "none",
-  whatnot: "none",
   other: "none",
 };
 
@@ -1064,12 +1065,12 @@ export const MARKETPLACE_TIER: Record<
   shopify: "api",
   depop: "api_pending",
   etsy: "api_pending",
+  whatnot: "api_pending",
   poshmark: "extension",
   mercari: "extension",
   grailed: "extension",
   facebook: "coming_soon",
   offerup: "coming_soon",
-  whatnot: "coming_soon",
   other: "coming_soon",
 };
 
@@ -1089,6 +1090,7 @@ export const API_CROSS_LISTING_PLATFORMS = [
   "shopify",
   "depop",
   "etsy",
+  "whatnot",
 ] as const satisfies readonly CrossListingPlatform[];
 
 // Cross-listable platforms reached through the browser extension (US-716).

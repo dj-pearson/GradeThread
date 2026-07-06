@@ -96,6 +96,7 @@ import { runOrderReport, shouldUseFeedForOrders } from "../lib/ebay-feed.ts";
 // Coolify task). The sweep is a no-op while DEPOP_ENABLED is off.
 import { refreshExpiringDepopConnections } from "../lib/depop-client.ts";
 import { refreshExpiringEtsyConnections } from "../lib/etsy-client.ts";
+import { refreshExpiringWhatnotConnections } from "../lib/whatnot-client.ts";
 import {
   centsToMoneyString,
   resolveBestOfferThresholds,
@@ -600,7 +601,9 @@ flipdeskEbayRoutes.post("/oauth/refresh", async (c) => {
   const depop = await refreshExpiringDepopConnections();
   // US-1659: and Etsy connections (access tokens expire hourly). No-op while off.
   const etsy = await refreshExpiringEtsyConnections();
-  return c.json({ scanned: userIds.length, refreshed, failed, depop, etsy });
+  // US-1661: and Whatnot connections. No-op while the connector is disabled.
+  const whatnot = await refreshExpiringWhatnotConnections();
+  return c.json({ scanned: userIds.length, refreshed, failed, depop, etsy, whatnot });
 });
 
 // ── US-151: listing-performance sync (views / watchers / impressions) ──

@@ -216,7 +216,10 @@ Set these in the same Pages env; the SSR functions in `functions/` read them per
 | `DEPOP_WEBHOOK_SECRET` 🔒 | ⬜ Coolify edge | Verifies Depop webhook signatures. |
 | `ETSY_ENABLED` | ⬜ Coolify edge | Master toggle for the Etsy integration (US-1659). Off until app approval. |
 | `ETSY_KEYSTRING` 🔒 | ⬜ Coolify edge | Etsy app keystring — used as BOTH the OAuth client_id AND the `x-api-key` data-API header. |
-| `ETSY_REDIRECT_URI` / `ETSY_SCOPES` / `ETSY_API_BASE` | ⬜ Coolify edge | Etsy OAuth callback, scopes, API base URL. |
+| `ETSY_REDIRECT_URI` / `ETSY_SCOPES` / `ETSY_API_BASE` / `ETSY_DEFAULT_TAXONOMY_ID` | ⬜ Coolify edge | Etsy OAuth callback, scopes, API base URL, default taxonomy leaf for uncategorized items. |
+| `WHATNOT_ENABLED` | ⬜ Coolify edge | Master toggle for the Whatnot integration (US-1661). Off until partner access. |
+| `WHATNOT_CLIENT_ID` / `WHATNOT_CLIENT_SECRET` 🔒 | ⬜ Coolify edge | Whatnot partner-app OAuth credentials. |
+| `WHATNOT_REDIRECT_URI` / `WHATNOT_SCOPES` / `WHATNOT_AUTH_URL` / `WHATNOT_TOKEN_URL` / `WHATNOT_API_BASE` | ⬜ Coolify edge | Whatnot OAuth callback, scopes, auth/token/API URLs (all modeled — verify vs live). |
 | `SHOPIFY_API_KEY` / `SHOPIFY_API_SECRET` 🔒 / `SHOPIFY_REDIRECT_URI` | ⬜ Coolify edge | Shopify app OAuth (the `shopify` boot feature). |
 
 ### 3j. Images / storage

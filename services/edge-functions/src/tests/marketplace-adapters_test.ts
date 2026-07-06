@@ -33,6 +33,9 @@ const { depopAdapter } = await import("../lib/marketplace-adapters/depop.ts");
 // so it's dynamic-imported after the dummy env too. ETSY_ENABLED is left unset so
 // the connector reports "disabled" here.
 const { etsyAdapter } = await import("../lib/marketplace-adapters/etsy.ts");
+// US-1661: whatnot.ts imports the service-role client (its connect/refresh are
+// real), so it's dynamic-imported after the dummy env. WHATNOT_ENABLED unset.
+const { whatnotAdapter } = await import("../lib/marketplace-adapters/whatnot.ts");
 
 // poshmark + mercari are still full stubs: every connection/listing/sync method
 // returns the typed 501.
@@ -177,6 +180,48 @@ Deno.test("etsy mapDraftToListing carries a title (140-char field)", () => {
   assertEquals(mapped.listing_price, 30);
   assert(mapped.listing_title && mapped.listing_title.length > 0);
   assertEquals(etsyAdapter.platform, "etsy");
+});
+
+// US-1661: Whatnot's CONNECTION half is real (connect/refresh gate at 503 while
+// disabled), but its LISTING half is deferred to US-1662 — publish/update/delist/
+// sync return the typed 501 NotImplemented regardless of the flag, so cross-push
+// still mints the local row and surfaces an honest message.
+Deno.test("whatnot: connect/refresh gate at 503 while disabled; listing methods 501 (deferred)", async () => {
+  const connect = await whatnotAdapter.connect({ ownerId: "owner", state: "s" });
+  assertEquals(connect.ok, false);
+  if (!connect.ok) assertEquals(connect.status, 503);
+
+  const refresh = await whatnotAdapter.refreshToken({ ownerId: "owner" });
+  assertEquals(refresh.ok, false);
+  if (!refresh.ok) assertEquals(refresh.status, 503);
+
+  const listingMethods = [
+    await whatnotAdapter.publish({
+      ownerId: "owner",
+      inventoryItemId: "item",
+      listingRowId: "row",
+      price: 25,
+    }),
+    await whatnotAdapter.updateListing({
+      ownerId: "owner",
+      inventoryItemId: "item",
+      listingRowId: "row",
+      price: 25,
+    }),
+    await whatnotAdapter.delist({
+      ownerId: "owner",
+      listingRowId: "row",
+      platformOfferId: null,
+      platformListingId: null,
+    }),
+    await whatnotAdapter.syncListings({ ownerId: "owner" }),
+    await whatnotAdapter.syncOrders({ ownerId: "owner" }),
+  ];
+  for (const result of listingMethods) {
+    assertEquals(result.ok, false);
+    if (!result.ok) assertEquals(result.status, 501);
+  }
+  assertEquals(whatnotAdapter.platform, "whatnot");
 });
 
 // mapDraftToListing stays pure/real even while connect is gated. Depop has no

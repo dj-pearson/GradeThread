@@ -4,6 +4,7 @@ import { poshmarkAdapter } from "./poshmark.ts";
 import { mercariAdapter } from "./mercari.ts";
 import { depopAdapter } from "./depop.ts";
 import { etsyAdapter } from "./etsy.ts";
+import { whatnotAdapter } from "./whatnot.ts";
 import {
   type CrossListingPlatform,
   isCrossListingPlatform,
@@ -19,6 +20,7 @@ const ADAPTERS: Record<CrossListingPlatform, MarketplaceAdapter> = {
   mercari: mercariAdapter,
   depop: depopAdapter,
   etsy: etsyAdapter,
+  whatnot: whatnotAdapter,
 };
 
 // Registry lookup for an already-narrowed platform.

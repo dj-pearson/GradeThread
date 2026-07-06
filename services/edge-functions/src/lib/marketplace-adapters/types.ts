@@ -25,7 +25,8 @@ export type CrossListingPlatform =
   | "poshmark"
   | "mercari"
   | "depop"
-  | "etsy";
+  | "etsy"
+  | "whatnot";
 
 export const CROSS_LISTING_PLATFORMS: readonly CrossListingPlatform[] = [
   "ebay",
@@ -34,6 +35,7 @@ export const CROSS_LISTING_PLATFORMS: readonly CrossListingPlatform[] = [
   "mercari",
   "depop",
   "etsy",
+  "whatnot",
 ];
 
 export function isCrossListingPlatform(v: string): v is CrossListingPlatform {

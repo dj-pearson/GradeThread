@@ -265,6 +265,28 @@ Deno.test({
 });
 
 Deno.test({
+  // US-1661: the Whatnot disconnect is a workspace-wide teardown of
+  // marketplace_connections, owner-scoped (.eq user_id) + admin-gated. A foreign
+  // non-admin B must NEVER succeed — 403 when the connector is on, 503 when it's
+  // disabled (WHATNOT_ENABLED off by default), never a 200 that wipes another
+  // tenant's connection. Documents the route's owner-scoping (like etsy/depop).
+  name: "B cannot disconnect Whatnot in another workspace (never 200)",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/whatnot/disconnect`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({}),
+    });
+    await res.body?.cancel();
+    assert(
+      res.status !== 200 && [401, 403, 503].includes(res.status),
+      `Whatnot disconnect: expected 401/403/503 but got ${res.status}`,
+    );
+  },
+});
+
+Deno.test({
   // US-455: the suggestions list is scoped to the caller's workspace owner, so
   // B's list must never contain one of A's suggestion ids. (RLS on
   // repricing_suggestions is defense-in-depth; the edge scoping is the boundary

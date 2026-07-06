@@ -34,7 +34,8 @@ export type MarketplacePlatform =
   | "depop"
   | "grailed"
   | "shopify"
-  | "etsy";
+  | "etsy"
+  | "whatnot";
 
 // How a listing actually reaches the platform.
 //   api       — official write API (push) available
@@ -322,6 +323,38 @@ export const MARKETPLACE_SPECS: Record<MarketplacePlatform, MarketplaceSpec> = {
     sourceNote:
       "Etsy Open API v3 (2026-06): title 140, description ~13k, up to 10 photos, up to 13 tags (≤20 chars each), taxonomy_id tree, no condition field (who_made/when_made instead), requires a shipping profile. OAuth2 PKCE + x-api-key. VERIFY.",
   },
+
+  whatnot: {
+    platform: "whatnot",
+    label: "Whatnot",
+    pushMechanism: "api", // Whatnot partner API (US-1661/1662); gated behind WHATNOT_ENABLED until approval
+    titleMaxLength: 100,
+    descriptionMaxLength: 2000,
+    maxPhotos: 12,
+    conditions: [
+      { value: "new", label: "New" },
+      { value: "open_box", label: "Open box" },
+      { value: "like_new", label: "Like new" },
+      { value: "good", label: "Good" },
+      { value: "fair", label: "Fair" },
+    ],
+    tags: { max: 10, required: false, help: "Search hashtags" },
+    usesOwnTaxonomy: true, // Whatnot category tree
+    brandAllowList: false,
+    fields: [
+      TITLE(100),
+      DESCRIPTION(2000),
+      { key: "category", label: "Category", required: true },
+      { key: "brand", label: "Brand", required: false },
+      { key: "condition", label: "Condition", required: true },
+      { key: "size", label: "Size", required: false },
+      { key: "color", label: "Color", required: false },
+      { key: "tags", label: "Hashtags", required: false },
+      { key: "price", label: "Price", required: true },
+    ],
+    sourceNote:
+      "Whatnot partner/seller API (2026-06, MODELED — partner-gated, no public docs): title ~100, description ~2000, up to 12 photos, own category tree, condition enum. OAuth2 partner app. VERIFY every field against the live API once partner access lands.",
+  },
 };
 
 /** All specced platforms. */
@@ -417,6 +450,15 @@ const CONDITION_BY_BUCKET: Record<
     GOOD: "Used",
     ACCEPTABLE: "Used",
     POOR: "Very worn",
+  },
+  whatnot: {
+    NEW_WITH_TAGS: "new",
+    NEW_WITHOUT_TAGS: "like_new",
+    EXCELLENT: "like_new",
+    VERY_GOOD: "good",
+    GOOD: "good",
+    ACCEPTABLE: "fair",
+    POOR: "fair",
   },
 };
 

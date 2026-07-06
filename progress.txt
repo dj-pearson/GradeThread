@@ -11888,3 +11888,30 @@ sales.platform_order_ref from depop 00176 + existing listings columns).
 
 Etsy is now a fully code-complete cross-listing channel (connect → publish →
 sync), dark until ETSY_ENABLED + app approval. No new migration to hold.
+
+════════════════════════════════════════════════════════════════════════════
+US-1661 DONE — Whatnot marketplace foundation (2026-07-05)
+════════════════════════════════════════════════════════════════════════════
+Third new marketplace this session (after Etsy). NO migration — 'whatnot' was
+already in the listing_platform enum (00008). Connection half; listing = US-1662.
+
+- constants.ts: whatnot mechanism none→api, tier coming_soon→api_pending, added
+  to CROSS_LISTING_PLATFORMS + API_CROSS_LISTING_PLATFORMS.
+- marketplace-specs (byte-identical web+edge): whatnot spec (title 100, desc
+  2000, 12 photos, 10 tags, own taxonomy, condition enum) + CONDITION_BY_BUCKET.
+- whatnot-client.ts: OAuth2 Auth Code + PKCE + client secret (mirrors Depop —
+  Whatnot's partner API is private), AES-GCM token storage, inline + cron refresh.
+- whatnot-api.ts: whatnotFetch (Bearer) + shop identity + estimateWhatnotNet.
+- adapter whatnot.ts: real connect/refresh (503 gated); listing methods 501
+  (deferred US-1662); registered in index.ts.
+- route flipdesk-whatnot.ts (start/callback/refresh/disconnect), mounted +
+  middleware; refresh swept by the shared eBay token-refresh cron.
+- Tests: whatnot-client_test (5), adapter gating case, tenant-isolation case.
+  deno lint/check + web tsc -b + specs (81) green.
+- ⚠️ MODELED: Whatnot's partner API has no public docs — auth/token URLs,
+  scopes, endpoints, fee rates modeled + env-overridable; reconcile once access
+  lands. US-1662 (listing) BLOCKED on partner access + live docs.
+
+Session marketplace tally: eBay/Shopify/Depop (pre-existing) + Etsy (US-1659/60,
+full) + Whatnot (US-1661 foundation). All new channels dark behind their *_ENABLED
+flags. nextId 1661→1663.
