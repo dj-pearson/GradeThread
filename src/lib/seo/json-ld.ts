@@ -405,6 +405,57 @@ export function definedTermSetLd(
   };
 }
 
+// ── Reseller condition-vocabulary glossary DefinedTermSet (US-1671) ──
+// A THIRD named set, distinct from the vocabulary-hub set (/condition-grading)
+// and the grade-scale set (/grading/scale): the reseller-lingo glossary
+// (/grading/glossary — EUC, VGUC, death pile, comps, SNAD…). Its own @id so AI
+// answer engines can cite the whole reseller vocabulary as one canonical set.
+export const RESELLER_GLOSSARY_SET_ID = `${SITE_URL}/grading/glossary#glossary`;
+
+export interface ResellerDefinedTermInput {
+  term: string;
+  alternateNames?: string[];
+  definition: string;
+  /** Absolute path of the term page, e.g. "/grading/glossary/euc". */
+  path: string;
+}
+
+function resellerDefinedTermNode(
+  e: ResellerDefinedTermInput,
+): Record<string, unknown> {
+  return {
+    "@type": "DefinedTerm",
+    name: e.term,
+    ...(e.alternateNames && e.alternateNames.length
+      ? { alternateName: e.alternateNames.length === 1 ? e.alternateNames[0] : e.alternateNames }
+      : {}),
+    description: e.definition,
+    url: `${SITE_URL}${e.path}`,
+    inDefinedTermSet: RESELLER_GLOSSARY_SET_ID,
+  };
+}
+
+/** DefinedTerm for a single reseller-glossary term page (US-1671). */
+export function resellerDefinedTermLd(e: ResellerDefinedTermInput): JsonLd {
+  return { "@context": "https://schema.org", ...resellerDefinedTermNode(e) } as JsonLd;
+}
+
+/** DefinedTermSet for the reseller glossary hub (US-1671). */
+export function resellerGlossarySetLd(
+  entries: ReadonlyArray<ResellerDefinedTermInput>,
+): JsonLd {
+  return {
+    "@context": "https://schema.org",
+    "@type": "DefinedTermSet",
+    "@id": RESELLER_GLOSSARY_SET_ID,
+    name: "GradeThread Reseller Condition Glossary",
+    description:
+      "The reseller's glossary of pre-owned clothing condition vocabulary — condition abbreviations (EUC, VGUC, GUC, NWT, NWOT), selling-workflow terms, and marketplace lingo, each mapped to the standardized GradeThread 1.0–10.0 grade scale.",
+    url: `${SITE_URL}/grading/glossary`,
+    hasDefinedTerm: entries.map(resellerDefinedTermNode),
+  };
+}
+
 // ── The named Grading Scale: its own DefinedTermSet (US-1664) ────────
 // Stable @id for the canonical scale set, anchored on the /grading/scale pillar.
 // Distinct from the /condition-grading vocabulary glossary set above: this set IS

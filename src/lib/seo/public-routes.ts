@@ -19,6 +19,7 @@
 // context) — e.g. ./glossary, which derives its routes from src/lib/constants.
 
 import { glossaryRoutes } from "./glossary";
+import { resellerGlossaryRoutes } from "./reseller-glossary";
 
 export const SITE_URL = "https://gradethread.com";
 
@@ -442,6 +443,10 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
   // generated from src/lib/constants.ts. Spokes off the /condition-grading
   // pillar; auto-flow into the manifest/sitemap/IndexNow/prerender.
   ...glossaryRoutes(),
+  // Reseller condition-vocabulary glossary (US-1671): hub + one DefinedTerm page
+  // per term (EUC, VGUC, NWT vs NWOT, death pile, comps, SNAD…). Auto-flow into
+  // the manifest/sitemap/IndexNow/prerender like the tier/factor spokes above.
+  ...resellerGlossaryRoutes(),
 ];
 
 // US-427: per-route social share image (Open Graph / Twitter). High-value

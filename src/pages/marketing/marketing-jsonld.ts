@@ -15,9 +15,18 @@ import {
   definedTermLd,
   definedTermSetLd,
   gradeScaleDefinedTermSetLd,
+  resellerDefinedTermLd,
+  resellerGlossarySetLd,
   type JsonLd,
 } from "@/lib/seo/json-ld";
 import { scaleDefinedTerms } from "@/lib/seo/grading-scale";
+import {
+  RESELLER_TERMS,
+  RESELLER_GLOSSARY_HUB_PATH,
+  resellerTermPath,
+  resellerTermTrail,
+  type ResellerTerm,
+} from "@/lib/seo/reseller-glossary";
 import { absoluteUrl } from "@/lib/seo/public-routes";
 import { LANDING_FAQS } from "@/pages/landing-faqs";
 import { SITE_URL } from "@/lib/seo/public-routes";
@@ -206,6 +215,72 @@ export function gradingScaleJsonLd(): JsonLd[] {
   return [
     gradeScaleDefinedTermSetLd(scaleDefinedTerms()),
     faqPageLd(GRADING_SCALE_FAQS),
+  ];
+}
+
+// ── /grading/glossary + /grading/glossary/{term} (US-1671) ──────────
+// The reseller condition-vocabulary glossary. The hub emits the DefinedTermSet
+// (every term) + a hub FAQ; each term page emits its own DefinedTerm (linked to
+// the set) + the term's FAQ. Breadcrumb + Organization are emitted by the layout
+// / head-builder (once), matching the glossary-spoke pattern.
+
+/** Absolute breadcrumb items for a reseller-glossary term page (3-level). */
+export function resellerTermBreadcrumbItems(
+  term: ResellerTerm,
+): Array<{ name: string; url: string }> {
+  return resellerTermTrail(term).map((t) => ({
+    name: t.name,
+    url: t.path === "/" ? `${SITE_URL}/` : `${SITE_URL}${t.path}`,
+  }));
+}
+
+/** Page JSON-LD for a single reseller-glossary term (DefinedTerm + FAQPage). */
+export function resellerTermJsonLd(term: ResellerTerm): JsonLd[] {
+  return [
+    resellerDefinedTermLd({
+      term: term.term,
+      alternateNames: term.alternateNames,
+      definition: term.definition,
+      path: resellerTermPath(term.slug),
+    }),
+    faqPageLd(term.faqs),
+  ];
+}
+
+export const RESELLER_GLOSSARY_HUB_FAQS = [
+  {
+    q: "What do the clothing condition abbreviations mean?",
+    a: "Resellers use shorthand for condition: NWT (New With Tags), NWOT (New Without Tags), EUC (Excellent Used Condition), VGUC (Very Good Used Condition), and GUC (Good Used Condition). GradeThread maps each to a point on the standardized 1.0–10.0 condition scale, so a grade means the same thing across every seller and marketplace.",
+  },
+  {
+    q: "Why does a condition glossary matter for reselling?",
+    a: "Vague or inconsistent condition words are the top cause of 'not as described' returns. A shared vocabulary — and a standardized 1.0–10.0 grade behind it — lets buyers trust the listing and lets sellers price accurately, whether they're on eBay, Poshmark, Mercari, or Depop.",
+  },
+];
+
+/** Hub JSON-LD (the full DefinedTermSet + hub FAQPage). */
+export function resellerGlossaryHubJsonLd(): JsonLd[] {
+  return [
+    resellerGlossarySetLd(
+      RESELLER_TERMS.map((t) => ({
+        term: t.term,
+        alternateNames: t.alternateNames,
+        definition: t.definition,
+        path: resellerTermPath(t.slug),
+      })),
+    ),
+    faqPageLd(RESELLER_GLOSSARY_HUB_FAQS),
+  ];
+}
+
+/** Breadcrumb items for the hub (2-level: GradeThread → Condition glossary). */
+export function resellerGlossaryHubBreadcrumbItems(): Array<{
+  name: string;
+  url: string;
+}> {
+  return [
+    { name: "GradeThread", url: `${SITE_URL}/` },
+    { name: "Condition glossary", url: `${SITE_URL}${RESELLER_GLOSSARY_HUB_PATH}` },
   ];
 }
 

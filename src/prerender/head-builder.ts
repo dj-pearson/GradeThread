@@ -49,8 +49,16 @@ import {
   aboutJsonLd,
   glossaryJsonLd,
   glossaryBreadcrumbItems,
+  resellerTermJsonLd,
+  resellerTermBreadcrumbItems,
+  resellerGlossaryHubJsonLd,
+  resellerGlossaryHubBreadcrumbItems,
 } from "@/pages/marketing/marketing-jsonld";
 import { getGlossaryEntryByPath } from "@/lib/seo/glossary";
+import {
+  getResellerTermByPath,
+  isResellerGlossaryHubPath,
+} from "@/lib/seo/reseller-glossary";
 import { twitterSiteHandle, twitterCreatorHandle } from "@/lib/seo/social";
 
 function escapeAttr(s: string): string {
@@ -118,6 +126,25 @@ export function jsonLdForRoute(path: string): JsonLd[] {
   }
   const route = PUBLIC_ROUTES.find((r) => r.path === path);
   if (!route) return [];
+  // Reseller glossary hub (US-1671): Organization + 2-level breadcrumb +
+  // DefinedTermSet + hub FAQ, matching what the live hub page emits.
+  if (isResellerGlossaryHubPath(path)) {
+    return [
+      organizationLd(),
+      breadcrumbLd(resellerGlossaryHubBreadcrumbItems()),
+      ...resellerGlossaryHubJsonLd(),
+    ];
+  }
+  // Reseller glossary term page (US-1671): Organization + 3-level breadcrumb +
+  // DefinedTerm + term FAQ.
+  const resellerTerm = getResellerTermByPath(path);
+  if (resellerTerm) {
+    return [
+      organizationLd(),
+      breadcrumbLd(resellerTermBreadcrumbItems(resellerTerm)),
+      ...resellerTermJsonLd(resellerTerm),
+    ];
+  }
   // Glossary pages (US-303) carry a 3-level breadcrumb back to the pillar plus
   // an FAQPage — built from the SAME helpers the live page passes to its layout,
   // so prerendered and runtime structured data stay identical.

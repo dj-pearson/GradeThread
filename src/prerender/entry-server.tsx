@@ -56,10 +56,19 @@ import { DesignVsDamagePage } from "@/pages/marketing/design-vs-damage";
 import { ResaleValueByConditionPage } from "@/pages/marketing/resale-value-by-condition";
 import { GradingByCategoryPage } from "@/pages/marketing/grading-by-category";
 import { GradingGlossaryPage } from "@/pages/marketing/grading-glossary";
+import {
+  ResellerGlossaryHubPage,
+  ResellerGlossaryTermPage,
+} from "@/pages/marketing/reseller-glossary";
 import { VerifiedDirectoryPage } from "@/pages/verified-directory";
 import { StatusPage } from "@/pages/status";
 import { ReferralLeaderboardPage } from "@/pages/referral-leaderboard";
 import { GLOSSARY_ENTRIES } from "@/lib/seo/glossary";
+import {
+  RESELLER_TERMS,
+  RESELLER_GLOSSARY_HUB_PATH,
+  resellerTermPath,
+} from "@/lib/seo/reseller-glossary";
 
 // Static map of prerenderable routes → page element.
 const PAGES: Record<string, React.ReactNode> = {
@@ -119,6 +128,14 @@ const PAGES: Record<string, React.ReactNode> = {
     GLOSSARY_ENTRIES.map((e) => [
       e.path,
       <GradingGlossaryPage key={e.slug} slug={e.slug} />,
+    ]),
+  ),
+  // Reseller condition-vocabulary glossary hub + term pages (US-1671).
+  [RESELLER_GLOSSARY_HUB_PATH]: <ResellerGlossaryHubPage />,
+  ...Object.fromEntries(
+    RESELLER_TERMS.map((t) => [
+      resellerTermPath(t.slug),
+      <ResellerGlossaryTermPage key={t.slug} slug={t.slug} />,
     ]),
   ),
 };

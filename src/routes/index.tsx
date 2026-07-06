@@ -121,6 +121,8 @@ const GradingByCategoryPage = lazy(() => import("@/pages/marketing/grading-by-ca
 // inside partner iframes. Dynamic per certificate, NOT in PUBLIC_ROUTES.
 const EmbedGradePage = lazy(() => import("@/pages/embed-grade").then(m => ({ default: m.EmbedGradePage })));
 const GradingGlossaryPage = lazy(() => import("@/pages/marketing/grading-glossary").then(m => ({ default: m.GradingGlossaryPage })));
+const ResellerGlossaryHubPage = lazy(() => import("@/pages/marketing/reseller-glossary").then(m => ({ default: m.ResellerGlossaryHubPage })));
+const ResellerGlossaryTermPage = lazy(() => import("@/pages/marketing/reseller-glossary").then(m => ({ default: m.ResellerGlossaryTermPage })));
 const FlipdeskOverviewPage = lazy(() => import("@/pages/flipdesk/overview").then(m => ({ default: m.FlipdeskOverviewPage })));
 const FlipdeskSearchPage = lazy(() => import("@/pages/flipdesk/search").then(m => ({ default: m.FlipdeskSearchPage })));
 // US-958: unified Inventory surface — hosts the table/grid/kanban/prep views as
@@ -362,6 +364,11 @@ export const router = createBrowserRouter([
       { path: "/design-vs-damage", element: <SuspenseWrapper><DesignVsDamagePage /></SuspenseWrapper> },
       { path: "/resale-value-by-condition", element: <SuspenseWrapper><ResaleValueByConditionPage /></SuspenseWrapper> },
       { path: "/grading-by-category", element: <SuspenseWrapper><GradingByCategoryPage /></SuspenseWrapper> },
+      // Reseller condition-vocabulary glossary (US-1671): the hub + one page per
+      // term. Static /grading/glossary (and the 2-segment term route) outrank the
+      // /grading/:slug spoke route below. Registered in PUBLIC_ROUTES + prerendered.
+      { path: "/grading/glossary", element: <SuspenseWrapper><ResellerGlossaryHubPage /></SuspenseWrapper> },
+      { path: "/grading/glossary/:term", element: <SuspenseWrapper><ResellerGlossaryTermPage /></SuspenseWrapper> },
       // Glossary hub spokes (US-303): one page per grade tier + factor, served
       // by a single dynamic route. The indexable set is registered in
       // PUBLIC_ROUTES (via glossaryRoutes()) and prerendered individually.
