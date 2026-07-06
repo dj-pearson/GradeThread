@@ -115,3 +115,6 @@ remotion/out/
 remotion/qa/
 supabase/.temp/cli-latest
 assets/Natural Emotions.m4a
+
+hf_*
+kling*
