@@ -843,9 +843,17 @@ contentPublicRoutes.get("/certificates.json", async (c) => {
   );
   const cursor = c.req.query("cursor");
 
+  // US-1680: join the parent submission's moderation state so WITHHELD certs
+  // (flagged-but-unapproved, or still pending_review) never enter the sitemap —
+  // they 404 on the public cert path, so listing them would create soft-404 /
+  // crawl-bloat exactly as cert volume scales. Same predicate the single-cert
+  // endpoint applies (isCertificateWithheld), so the sitemap can't drift from
+  // what actually resolves.
   let q = supabaseAdmin
     .from("grade_reports")
-    .select("certificate_id, created_at")
+    .select(
+      "certificate_id, created_at, submissions!inner(status, flagged, moderation_status)",
+    )
     .not("certificate_id", "is", null)
     .order("created_at", { ascending: false })
     .limit(limit);
@@ -854,9 +862,19 @@ contentPublicRoutes.get("/certificates.json", async (c) => {
   const { data, error } = await q;
   if (error) return publicError(c, error, "query");
 
-  const rows = data ?? [];
+  const raw = data ?? [];
+  // Paginate on the RAW page so a page that's entirely withheld still advances
+  // the cursor (the crawler just sees a shorter page).
   const nextCursor =
-    rows.length === limit ? rows[rows.length - 1]?.created_at ?? null : null;
+    raw.length === limit ? raw[raw.length - 1]?.created_at ?? null : null;
+  const rows = raw.filter((r) => {
+    // supabase-js returns a to-one embed as an object (occasionally an array).
+    const s = r as { submissions?: unknown };
+    const sub = Array.isArray(s.submissions) ? s.submissions[0] : s.submissions;
+    return !isCertificateWithheld(
+      sub as { status?: string | null; flagged?: boolean | null; moderation_status?: string | null } | null,
+    );
+  });
   return c.json({
     certificates: rows.map((r) => ({
       id: r.certificate_id,

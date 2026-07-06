@@ -13,4 +13,9 @@
 # (functions/dashboard/[[path]].ts, …, functions/_shared/spa-shell.ts) — wired
 # in public/_routes.json — which run BEFORE this file. This rule only catches
 # paths with NO function and NO static file → a real 404 (no soft-404 indexing).
+# US-1680: short, shareable certificate alias. /c/<id> 301s to the canonical
+# /cert/<id> (the cert SSR Pages Function + self-canonical), so sellers can share
+# a compact link without splitting link equity across two indexable URLs.
+/c/:id          /cert/:id     301
+
 /*              /404.html     404

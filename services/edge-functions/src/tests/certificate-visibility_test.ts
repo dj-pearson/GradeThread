@@ -69,3 +69,23 @@ Deno.test("a preliminary (pending_review) grade is withheld until finalized", ()
     false,
   );
 });
+
+// US-1680: the SAME predicate now gates SITEMAP inclusion. GET /certificates.json
+// filters `!isCertificateWithheld(submission)`, so a cert that would 404 on the
+// public path is never listed in the sitemap (no soft-404 / crawl bloat as cert
+// volume scales). These cases pin the sitemap-eligibility policy.
+Deno.test("sitemap lists a cert iff it is publicly resolvable (US-1680)", () => {
+  const eligibleForSitemap = (
+    sub: Parameters<typeof isCertificateWithheld>[0],
+  ) => !isCertificateWithheld(sub);
+
+  // Included: a finalized, unflagged cert.
+  assertEquals(
+    eligibleForSitemap({ status: "completed", flagged: false, moderation_status: "approved" }),
+    true,
+  );
+  assertEquals(eligibleForSitemap({}), true);
+  // Excluded: flagged-but-unapproved, or still pending_review.
+  assertEquals(eligibleForSitemap({ flagged: true, moderation_status: null }), false);
+  assertEquals(eligibleForSitemap({ status: "pending_review" }), false);
+});

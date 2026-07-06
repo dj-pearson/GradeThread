@@ -12208,8 +12208,8 @@
         "Certs enter the sitemap only when the listing is live; policy covered by a test"
       ],
       "priority": 1680,
-      "passes": false,
-      "notes": "[P1][SEO2.0][technical] Plan §4.5. Important before cert volume scales."
+      "passes": true,
+      "notes": "[P1][SEO2.0][technical] Plan §4.5. Important before cert volume scales. | DONE 2026-07-06: /certificates.json (sitemap source) now joins the parent submission and filters !isCertificateWithheld — flagged-but-unapproved + pending_review certs no longer enter the sitemap (they 404 on the cert path, so listing them was soft-404/crawl-bloat as volume scales); same predicate the single-cert endpoint applies, so sitemap can not drift from what resolves. Short shareable /c/:id → /cert/:id 301 alias (public/_redirects); /cert/:id stays the self-canonical. Deleted/missing certs already return a clean 404 (notFoundResponse, not soft-404). Public-only + cursor-pagination (limit≤5000) already enforced; the only recent-certs browse (seller profiles) is bounded to 12. Deno policy test added (sitemap eligibility = publicly resolvable). AC2 short-URL: /cert/:id already short+stable, /c/ alias added."
     },
     {
       "id": "US-1681",
