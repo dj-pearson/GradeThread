@@ -70,6 +70,30 @@ const FACTORS: Array<{ key: keyof PublicCertificate; label: string; weight: numb
 
 type Ctx = EventContext<PagesEnv, "id", Record<string, unknown>>;
 
+// US-1665: the "what does a {grade} grade mean?" module varies by grade band (10
+// variants, not one boilerplate). Keyed by the rounded band (1–10); every variant
+// links to the canonical scale (/grading/scale). Kept in sync with the SPA
+// certificate page's gradeBandMeaning().
+const GRADE_BAND_MEANING: Record<number, string> = {
+  10: "A 10 is New With Tags (NWT): brand-new and unworn, with the original retail tags still attached.",
+  9: "A 9 is New Without Tags (NWOT): new and unworn, just missing the original tags.",
+  8: "An 8 is Excellent: gently used with no notable flaws — it looks nearly new.",
+  7: "A 7 is Very Good: light, even wear that doesn’t affect how the garment looks or functions.",
+  6: "A 6 is Good: visible but minor wear on a garment that is still very wearable.",
+  5: "A 5 is Fair: a documented flaw — a stain, small hole, or clear fading — that affects appearance.",
+  4: "A 4 sits at the top of the Poor band: heavy wear or damage, best sold transparently as-is.",
+  3: "A 3 is Poor: significant damage such as holes, tears, large stains, or broken hardware.",
+  2: "A 2 is salvage condition: heavily damaged, typically sold for parts or repair.",
+  1: "A 1 is salvage: extensive damage — valued for its material or graphic, not for wear.",
+};
+function gradeBandMeaning(score: number): string {
+  const band = Math.min(10, Math.max(1, Math.round(score)));
+  return (
+    GRADE_BAND_MEANING[band] ??
+    "It sits on the GradeThread Scale, the standardized 1.0–10.0 system for pre-owned clothing condition."
+  );
+}
+
 // PSA-style public certificate number derived from the random certificate UUID.
 // The UUID stays the canonical id/URL (unguessable, non-enumerable); this is a
 // clean display label only. Mirrors src/lib/cert-number.ts certificateDisplayNumber.
@@ -170,6 +194,8 @@ async function renderCertificate(context: Ctx): Promise<Response> {
   }
   ${heroHtml}
   ${aboutHtml}
+  <h2>What does a ${escape(score)} grade mean?</h2>
+  <p>${escape(gradeBandMeaning(cert.overall_score))} It sits on the GradeThread Scale, the standardized 1.0&ndash;10.0 system for pre-owned clothing condition. <a href="/grading/scale">See the full grading scale &rarr;</a></p>
   <h2>Factor Breakdown</h2>
   <table><tbody>${factorsHtml}</tbody></table>
   <h2>${cert.buyer_writeup ? "Condition Report" : "AI Analysis Summary"}</h2>
@@ -207,6 +233,9 @@ async function renderCertificate(context: Ctx): Promise<Response> {
       ogType: "product",
       jsonLd: [productLd, breadcrumbLd],
       bodyHtml,
+      // US-1665 AC4: a certificate with no garment photos is a thin page — keep
+      // it out of the index (it still resolves + carries structured data).
+      noindex: !cert.hero_image_url,
     },
     { cacheControl: SSR_CACHE_CONTROL },
   );

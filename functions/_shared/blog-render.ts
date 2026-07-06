@@ -1301,7 +1301,24 @@ export function certificateProductLd(
     ...(cert.category ? { category: cert.category } : {}),
     ...(cert.brand ? { brand: { "@type": "Brand", name: cert.brand } } : {}),
     ...(cert.images && cert.images.length ? { image: cert.images } : {}),
-    itemCondition: "https://schema.org/UsedCondition",
+    // US-1665: itemCondition mapped from the grade band; additionalProperty puts
+    // the exact GradeThread grade into shared vocabulary. Kept byte-identical
+    // with the SPA certificateLd() (offerItemConditionForScore / gradePropertyValueLd).
+    itemCondition:
+      cert.overallScore >= 9
+        ? "https://schema.org/NewCondition"
+        : cert.overallScore < 4
+          ? "https://schema.org/DamagedCondition"
+          : "https://schema.org/UsedCondition",
+    additionalProperty: {
+      "@type": "PropertyValue",
+      propertyID: "https://gradethread.com/grading-standard#grade",
+      name: "GradeThread Grade",
+      value: Number(cert.overallScore.toFixed(1)),
+      minValue: 1,
+      maxValue: 10,
+      alternateName: cert.gradeTier,
+    },
     review: {
       "@type": "Review",
       name: `Condition grade: ${cert.gradeTier} (${cert.overallScore.toFixed(1)}/10)`,

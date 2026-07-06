@@ -12002,8 +12002,8 @@
         "Tenant isolation preserved (public certs only); build + eslint clean"
       ],
       "priority": 1665,
-      "passes": false,
-      "notes": "[P0][SEO2.0][GEO][pSEO][flywheel] Plan §5 P1 + §3 schema + §7.1. The one nobody can copy — user-generated pSEO mesh. Depends on the scale page [[US-1664]]."
+      "passes": true,
+      "notes": "[P0][SEO2.0][GEO][pSEO][flywheel] Plan §5 P1 + §3 schema + §7.1. The one nobody can copy — user-generated pSEO mesh. Depends on the scale page [[US-1664]]. | DONE 2026-07-06: cert SSR+SPA get a band-varying \"What does a {grade} grade mean?\" module (10 variants) linking to /grading/scale (satisfies US-1664 AC5); Product JSON-LD gets itemCondition→OfferItemCondition (New/Used/Damaged by band) + additionalProperty PropertyValue (GradeThread Grade, value/min/max) — SPA certificateLd & SSR certificateProductLd kept byte-identical (equivalence test passes); photoless certs noindex; one-click \"Copy certificate link\" affordance in the composer grade section (item.certificate_url). FOLLOW-UP: SSR flaw-list-with-close-up-photos needs the public cert endpoint to return defect photos (SPA already renders defects)."
     },
     {
       "id": "US-1666",

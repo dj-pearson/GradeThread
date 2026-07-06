@@ -11,6 +11,7 @@ import {
   Award,
   Rocket,
   Sparkles,
+  Link2,
 } from "lucide-react";
 import {
   Card,
@@ -1789,6 +1790,36 @@ export function FlipdeskComposerPage() {
                     QR codes to your photos — that protects your marketplace
                     account.
                   </p>
+                  {/* US-1665 growth loop: one-click copy of the public
+                      certificate link, so a seller can paste the verifiable
+                      grade into ANY marketplace listing (not just eBay). Each
+                      shared link is an indexable inbound reference to the cert. */}
+                  {item.certificate_url && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="mt-3"
+                      onClick={() => {
+                        const certUrl = item.certificate_url;
+                        if (!certUrl) return;
+                        void navigator.clipboard
+                          .writeText(certUrl)
+                          .then(() =>
+                            toast.success("Certificate link copied", {
+                              description:
+                                "Paste it into your listing so buyers can verify the grade.",
+                            }),
+                          )
+                          .catch(() =>
+                            toast.error("Couldn't copy the link"),
+                          );
+                      }}
+                    >
+                      <Link2 className="mr-2 h-4 w-4" />
+                      Copy certificate link for your listing
+                    </Button>
+                  )}
                 </div>
               )}
             </CardContent>

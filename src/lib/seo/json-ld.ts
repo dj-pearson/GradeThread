@@ -507,6 +507,40 @@ export function howToLd(opts: {
  * GradeThread condition grade as a single expert Review/Rating (1–10), so the
  * exact numeric grade is machine-readable and AI-citable.
  */
+/**
+ * schema.org OfferItemCondition for a 1.0–10.0 GradeThread grade (US-1665). The
+ * NWT/NWOT bands (≥ 9) read as new; the Poor band (< 4) as damaged; everything
+ * between as used — so the exact grade maps into the web's shared condition
+ * vocabulary. Mirrored byte-for-byte by the SSR certificateProductLd().
+ */
+export function offerItemConditionForScore(score: number): string {
+  if (score >= 9) return "https://schema.org/NewCondition";
+  if (score < 4) return "https://schema.org/DamagedCondition";
+  return "https://schema.org/UsedCondition";
+}
+
+/**
+ * The GradeThread grade as a schema.org PropertyValue (US-1665) — the
+ * proprietary 1.0–10.0 grade expressed in shared vocabulary, so search engines
+ * and LLM crawlers ingest the exact number as structured fact. propertyID + name
+ * match the published open grade-field spec (src/lib/grade-standard.ts). Mirrored
+ * byte-for-byte by the SSR certificateProductLd().
+ */
+export function gradePropertyValueLd(
+  score: number,
+  tier: string,
+): Record<string, unknown> {
+  return {
+    "@type": "PropertyValue",
+    propertyID: "https://gradethread.com/grading-standard#grade",
+    name: "GradeThread Grade",
+    value: Number(score.toFixed(1)),
+    minValue: 1,
+    maxValue: 10,
+    alternateName: tier,
+  };
+}
+
 export function certificateLd(cert: {
   id: string;
   title: string;
@@ -527,7 +561,10 @@ export function certificateLd(cert: {
     ...(cert.category ? { category: cert.category } : {}),
     ...(cert.brand ? { brand: { "@type": "Brand", name: cert.brand } } : {}),
     ...(cert.images && cert.images.length ? { image: cert.images } : {}),
-    itemCondition: "https://schema.org/UsedCondition",
+    // US-1665: itemCondition mapped from the grade band; additionalProperty puts
+    // the exact GradeThread grade into the web's shared vocabulary.
+    itemCondition: offerItemConditionForScore(cert.overallScore),
+    additionalProperty: gradePropertyValueLd(cert.overallScore, cert.gradeTier),
     review: {
       "@type": "Review",
       // US-425: score formatted to one decimal so the SPA and the cert SSR

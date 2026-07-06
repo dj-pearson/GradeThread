@@ -86,6 +86,25 @@ function formatLabel(value: string): string {
     .join(" ");
 }
 
+// US-1665: the "what does a {grade} grade mean?" copy varies by grade band (10
+// variants). Kept in sync with the cert SSR Pages Function's gradeBandMeaning().
+const GRADE_BAND_MEANING: Record<number, string> = {
+  10: "A 10 is New With Tags (NWT): brand-new and unworn, with the original retail tags still attached.",
+  9: "A 9 is New Without Tags (NWOT): new and unworn, just missing the original tags.",
+  8: "An 8 is Excellent: gently used with no notable flaws — it looks nearly new.",
+  7: "A 7 is Very Good: light, even wear that doesn’t affect how the garment looks or functions.",
+  6: "A 6 is Good: visible but minor wear on a garment that is still very wearable.",
+  5: "A 5 is Fair: a documented flaw — a stain, small hole, or clear fading — that affects appearance.",
+  4: "A 4 sits at the top of the Poor band: heavy wear or damage, best sold transparently as-is.",
+  3: "A 3 is Poor: significant damage such as holes, tears, large stains, or broken hardware.",
+  2: "A 2 is salvage condition: heavily damaged, typically sold for parts or repair.",
+  1: "A 1 is salvage: extensive damage — valued for its material or graphic, not for wear.",
+};
+function gradeBandMeaning(score: number): string {
+  const band = Math.min(10, Math.max(1, Math.round(score)));
+  return GRADE_BAND_MEANING[band] ?? GRADE_BAND_MEANING[5]!;
+}
+
 // Order defects worst-first so the most grade-relevant flaws lead.
 const SEVERITY_RANK: Record<string, number> = { major: 0, moderate: 1, minor: 2 };
 
@@ -658,6 +677,28 @@ export function CertificatePage() {
                 )}
               </div>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* US-1665: "What does a {grade} grade mean?" — varies by band, links to
+            the canonical scale (the flywheel back to /grading/scale). */}
+        <Card>
+          <CardContent className="pt-6">
+            <h2 className="text-base font-semibold">
+              What does a {gradeReport.overall_score.toFixed(1)} grade mean?
+            </h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {gradeBandMeaning(gradeReport.overall_score)} It sits on the
+              GradeThread Scale, the standardized 1.0–10.0 system for pre-owned
+              clothing condition.
+            </p>
+            <Link
+              to="/grading/scale"
+              className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-brand-navy hover:underline dark:text-blue-300"
+            >
+              See the full grading scale
+              <ArrowRight className="h-4 w-4" />
+            </Link>
           </CardContent>
         </Card>
 
