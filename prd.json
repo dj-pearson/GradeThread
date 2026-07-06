@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1663,
+  "nextId": 1664,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -11959,6 +11959,20 @@
         "adapter publish/updateListing/delist/syncOrders wired (idempotent), replacing the US-1661 501 stubs",
         "Everything gated behind WHATNOT_ENABLED; owner-scoped with a tenant-isolation case per new route",
         "Field names + fee rates reconciled against the live Whatnot partner API once access lands; adapter + pure-builder unit tests green"
+      ]
+    },
+    {
+      "id": "US-1663",
+      "title": "Vinted marketplace foundation (extension-mechanism channel)",
+      "description": "As a FlipDesk reseller, I want Vinted recognized as a first-class marketplace so I can cross-list to it via the GradeThread Lister extension, since Vinted has no public listing API.",
+      "priority": 2200,
+      "passes": true,
+      "notes": "[P2][New marketplace][extension] Vinted is a large secondhand marketplace with NO public API, so it joins as an EXTENSION-mechanism channel (like Poshmark/Mercari/Grailed, US-716) — NO edge OAuth connector/adapter. DONE 2026-07-05: (1) migration 00377 adds vinted to listing_platform enum (idempotent+self-record, EXPECTED_SCHEMA_VERSION=00377 triple); (2) constants.ts: vinted in LISTING_PLATFORMS/MARKETPLACE_LABELS, MECHANISM=extension, TIER=extension, EXTENSION_CROSS_LISTING_PLATFORMS; (3) marketplace-specs (byte-identical web+edge): vinted spec (title 60, desc 3000, 20 photos, 5 tags, own catalog, 5-step condition) + CONDITION_BY_BUCKET mapping. NO adapter (extension-only, mirrors grailed). Marketplaces UI renders it in the extension-channels section automatically. Tests: marketplace-specs.test manualKitPlatforms updated to include vinted (81 green); edge specs/schema-version green; web tsc -b green. HELD in PENDING_MIGRATIONS.md (migration).",
+      "acceptanceCriteria": [
+        "Migration adds vinted to listing_platform enum (idempotent, self-record, EXPECTED_SCHEMA_VERSION triple)",
+        "vinted registered in constants (mechanism=extension, tier=extension, EXTENSION_CROSS_LISTING_PLATFORMS) + marketplace-specs (byte-identical web+edge) with condition mapping",
+        "No edge adapter (extension-only, mirrors Grailed); Marketplaces UI shows it in the extension-channels section",
+        "Specs guard + schema-version tests + web build green"
       ]
     }
   ]

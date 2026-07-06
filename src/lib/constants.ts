@@ -490,6 +490,7 @@ export const LISTING_PLATFORMS = [
   "shopify",
   "etsy",
   "whatnot",
+  "vinted",
   "other",
 ] as const;
 
@@ -991,6 +992,7 @@ export const MARKETPLACE_LABELS: Record<(typeof LISTING_PLATFORMS)[number], stri
   shopify: "Shopify",
   etsy: "Etsy",
   whatnot: "Whatnot",
+  vinted: "Vinted",
   other: "Other",
 };
 
@@ -1037,6 +1039,7 @@ export const MARKETPLACE_MECHANISM: Record<
   poshmark: "extension",
   mercari: "extension",
   grailed: "extension",
+  vinted: "extension",
   facebook: "none",
   offerup: "none",
   other: "none",
@@ -1069,6 +1072,7 @@ export const MARKETPLACE_TIER: Record<
   poshmark: "extension",
   mercari: "extension",
   grailed: "extension",
+  vinted: "extension",
   facebook: "coming_soon",
   offerup: "coming_soon",
   other: "coming_soon",
@@ -1098,6 +1102,7 @@ export const EXTENSION_CROSS_LISTING_PLATFORMS = [
   "poshmark",
   "mercari",
   "grailed",
+  "vinted",
 ] as const satisfies readonly (typeof LISTING_PLATFORMS)[number][];
 export type ExtensionCrossListingPlatform =
   (typeof EXTENSION_CROSS_LISTING_PLATFORMS)[number];

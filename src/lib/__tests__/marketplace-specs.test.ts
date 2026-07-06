@@ -60,7 +60,7 @@ describe("registry integrity", () => {
 
   it("manualKitPlatforms are the non-API platforms", () => {
     expect(manualKitPlatforms().sort()).toEqual(
-      ["grailed", "mercari", "poshmark"].sort(),
+      ["grailed", "mercari", "poshmark", "vinted"].sort(),
     );
   });
 });

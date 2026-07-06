@@ -1,5 +1,27 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00377_listing_platform_vinted.sql (US-1663, 2026-07-05)
+
+**What:** adds the value `'vinted'` to the `public.listing_platform` enum. Vinted
+is an EXTENSION-mechanism channel (no public API — listed via the GradeThread
+Lister extension, like Poshmark/Mercari/Grailed), so there is NO edge connector;
+the enum value just lets `listings.platform` carry 'vinted' and the Listing Kit /
+cross-list surfaces map a Vinted sibling. Self-records '00377'.
+
+**Risk: LOW — additive enum value, no data change.** Idempotent
+(`ADD VALUE IF NOT EXISTS`), not wrapped in a transaction (can't use a new enum
+value in the same tx; this migration never does).
+
+**⚠️ CLIENT READ — safe:** the frontend now lists `vinted` in `LISTING_PLATFORMS`
+/`MARKETPLACE_*` and renders it in the extension-channels section. Pure display,
+no DB query for the enum value, so the frontend auto-deploy on push is safe even
+before the SQL applies. No edge code filters `.eq("platform","vinted")` on a hot
+path (extension channels have no server connector). Apply the SQL first anyway so
+the edge boot guard (now **00377**) doesn't crash-loop.
+
+**⚠️ Apply order:** after 00376. `NOTIFY pgrst, 'reload schema';` recommended
+(enum changed). Redeploy the edge so its boot guard matches 00377.
+
 ## ⏳ HELD: 00376_listing_platform_etsy.sql (US-1659, 2026-07-05)
 
 **What:** adds the value `'etsy'` to the `public.listing_platform` enum

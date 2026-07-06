@@ -11915,3 +11915,28 @@ already in the listing_platform enum (00008). Connection half; listing = US-1662
 Session marketplace tally: eBay/Shopify/Depop (pre-existing) + Etsy (US-1659/60,
 full) + Whatnot (US-1661 foundation). All new channels dark behind their *_ENABLED
 flags. nextId 1661→1663.
+
+════════════════════════════════════════════════════════════════════════════
+US-1663 DONE — Vinted marketplace foundation (extension channel) (2026-07-05)
+════════════════════════════════════════════════════════════════════════════
+Fourth new marketplace this session. Vinted has NO public API, so it joins as an
+EXTENSION-mechanism channel (like Poshmark/Mercari/Grailed, US-716) — no edge
+connector/adapter.
+
+- migration 00377: vinted added to listing_platform enum (idempotent+self-record,
+  EXPECTED_SCHEMA_VERSION=00377 triple). HELD in PENDING_MIGRATIONS.md.
+- constants.ts: vinted in LISTING_PLATFORMS/LABELS, MECHANISM=extension,
+  TIER=extension, EXTENSION_CROSS_LISTING_PLATFORMS.
+- marketplace-specs (byte-identical web+edge): vinted spec (title 60, desc 3000,
+  20 photos, 5 tags, own catalog, 5-step condition) + CONDITION_BY_BUCKET.
+- NO adapter (extension-only, mirrors grailed). Marketplaces UI auto-renders it
+  in the extension-channels section.
+- marketplace-specs.test manualKitPlatforms updated (+vinted); 81 green; edge
+  specs/schema-version green; web tsc -b green.
+
+MARKETPLACE FRONTIER NOW EXHAUSTED. Session channels: eBay/Shopify/Depop (pre-
+existing) + Etsy (US-1659/60, full API) + Whatnot (US-1661 foundation, listing
+blocked on partner docs = US-1662) + Vinted (US-1663 extension). Remaining
+possibilities are all API-poor/blocked: Facebook Commerce (restricted, no C2C
+listing), OfferUp (limited), other extension channels (Kidizen etc., low value).
+Recommend the loop wind down here. nextId 1663→1664.

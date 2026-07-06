@@ -35,7 +35,8 @@ export type MarketplacePlatform =
   | "grailed"
   | "shopify"
   | "etsy"
-  | "whatnot";
+  | "whatnot"
+  | "vinted";
 
 // How a listing actually reaches the platform.
 //   api       — official write API (push) available
@@ -355,6 +356,37 @@ export const MARKETPLACE_SPECS: Record<MarketplacePlatform, MarketplaceSpec> = {
     sourceNote:
       "Whatnot partner/seller API (2026-06, MODELED — partner-gated, no public docs): title ~100, description ~2000, up to 12 photos, own category tree, condition enum. OAuth2 partner app. VERIFY every field against the live API once partner access lands.",
   },
+
+  vinted: {
+    platform: "vinted",
+    label: "Vinted",
+    pushMechanism: "extension", // No public API — GradeThread Lister extension (US-716)
+    titleMaxLength: 60,
+    descriptionMaxLength: 3000,
+    maxPhotos: 20,
+    conditions: [
+      { value: "New with tags", label: "New with tags" },
+      { value: "New without tags", label: "New without tags" },
+      { value: "Very good", label: "Very good" },
+      { value: "Good", label: "Good" },
+      { value: "Satisfactory", label: "Satisfactory" },
+    ],
+    tags: { max: 5, required: false, help: "Search keywords" },
+    usesOwnTaxonomy: true, // Vinted catalog tree
+    brandAllowList: false,
+    fields: [
+      TITLE(60),
+      DESCRIPTION(3000),
+      { key: "category", label: "Category", required: true },
+      { key: "brand", label: "Brand", required: false },
+      { key: "condition", label: "Condition", required: true },
+      { key: "size", label: "Size", required: false },
+      { key: "color", label: "Color", required: false },
+      { key: "price", label: "Price", required: true },
+    ],
+    sourceNote:
+      "Vinted seller UI (2026-06): title ~60, description ~3000, up to 20 photos, own catalog tree, 5-step condition. No public API — extension/manual only. VERIFY.",
+  },
 };
 
 /** All specced platforms. */
@@ -459,6 +491,15 @@ const CONDITION_BY_BUCKET: Record<
     GOOD: "good",
     ACCEPTABLE: "fair",
     POOR: "fair",
+  },
+  vinted: {
+    NEW_WITH_TAGS: "New with tags",
+    NEW_WITHOUT_TAGS: "New without tags",
+    EXCELLENT: "Very good",
+    VERY_GOOD: "Very good",
+    GOOD: "Good",
+    ACCEPTABLE: "Satisfactory",
+    POOR: "Satisfactory",
   },
 };
 
