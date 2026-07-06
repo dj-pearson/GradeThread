@@ -65,6 +65,7 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/condition-grading": "2026-06-01",
   "/grading-standard": "2026-06-26",
   "/grading/scale": "2026-07-06",
+  "/grading/methodology": "2026-07-06",
   "/transparency": "2026-06-01",
   "/resale-condition-report": "2026-06-18",
   "/verify": "2026-06-12",
@@ -190,6 +191,17 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     changefreq: "monthly",
     priority: 0.9,
     jsonLdType: "DefinedTermSet",
+  },
+  {
+    // US-1677 (E-E-A-T): the methodology page — how the model is trained +
+    // evaluated, what a grade claims, error handling, human review.
+    path: "/grading/methodology",
+    title: "How GradeThread Grades: Methodology",
+    description:
+      "How the GradeThread condition-grading model is trained and evaluated, what a grade does and doesn't claim, how errors are handled, and where human review fits.",
+    changefreq: "monthly",
+    priority: 0.7,
+    jsonLdType: "Article",
   },
   {
     path: "/transparency",

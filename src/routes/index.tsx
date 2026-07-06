@@ -102,6 +102,7 @@ const FaqPage = lazy(() => import("@/pages/marketing/faq").then(m => ({ default:
 const ConditionGradingPage = lazy(() => import("@/pages/marketing/condition-grading").then(m => ({ default: m.ConditionGradingPage })));
 const GradingStandardPage = lazy(() => import("@/pages/marketing/grading-standard").then(m => ({ default: m.GradingStandardPage })));
 const GradingScalePage = lazy(() => import("@/pages/marketing/grading-scale").then(m => ({ default: m.GradingScalePage })));
+const GradingMethodologyPage = lazy(() => import("@/pages/marketing/grading-methodology").then(m => ({ default: m.GradingMethodologyPage })));
 const TransparencyPage = lazy(() => import("@/pages/marketing/transparency").then(m => ({ default: m.TransparencyPage })));
 const ResaleConditionReportPage = lazy(() => import("@/pages/marketing/resale-condition-report").then(m => ({ default: m.ResaleConditionReportPage })));
 const VerifyGradePage = lazy(() => import("@/pages/marketing/verify").then(m => ({ default: m.VerifyGradePage })));
@@ -352,6 +353,8 @@ export const router = createBrowserRouter([
       // US-1664 (SEO 2.0 keystone): the named Grading Scale pillar. Static, so it
       // outranks the /grading/:slug glossary route below.
       { path: "/grading/scale", element: <SuspenseWrapper><GradingScalePage /></SuspenseWrapper> },
+      // US-1677 (E-E-A-T): grading methodology page. Static, outranks /grading/:slug.
+      { path: "/grading/methodology", element: <SuspenseWrapper><GradingMethodologyPage /></SuspenseWrapper> },
       { path: "/transparency", element: <SuspenseWrapper><TransparencyPage /></SuspenseWrapper> },
       { path: "/resale-condition-report", element: <SuspenseWrapper><ResaleConditionReportPage /></SuspenseWrapper> },
       { path: "/verify", element: <SuspenseWrapper><VerifyGradePage /></SuspenseWrapper> },

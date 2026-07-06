@@ -12169,8 +12169,8 @@
         "Original photography of real flaws on grading guides (no stock); build clean"
       ],
       "priority": 1677,
-      "passes": false,
-      "notes": "[P1][SEO2.0][SEO][GEO] Plan §3 E-E-A-T + §6.1. First-hand experience is the differentiator vs content farms."
+      "passes": true,
+      "notes": "[P1][SEO2.0][SEO][GEO] Plan §3 E-E-A-T + §6.1. First-hand experience is the differentiator vs content farms. | DONE 2026-07-06: /grading/methodology page (how the model is trained+evaluated, what a grade does/does-not claim [not authentication/appraisal/fit], error handling + confidence→human-review loop, eval gate; Article+FAQPage JSON-LD, links to grading-standard/transparency/vs-authentication). Organization sameAs config extended w/ VITE_SOCIAL_YOUTUBE (LinkedIn/X/GitHub/Crunchbase/Instagram already wired; real URLs config-gated, no fabrication); WebSite schema already emitted site-wide. AC2 author Person entities + bio pages + bylines already shipped under US-977 (passes:true). AC4 original flaw photography is an editorial guardrail for the garment guides (US-1682)."
     },
     {
       "id": "US-1678",

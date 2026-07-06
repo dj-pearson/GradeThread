@@ -50,6 +50,9 @@ export function socialProfileUrls(): string[] {
     envVar("VITE_SOCIAL_LINKEDIN"),
     envVar("VITE_SOCIAL_INSTAGRAM"),
     envVar("VITE_SOCIAL_CRUNCHBASE"),
+    // US-1677: YouTube channel (reseller grading shorts) — entity-confirming
+    // sameAs. Config-gated like the rest; included only when set to a real URL.
+    envVar("VITE_SOCIAL_YOUTUBE"),
   ].filter((u) => /^https?:\/\//.test(u));
 }
 

@@ -338,6 +338,46 @@ export function flipdeskLandingJsonLd(landing: FlipdeskLanding): JsonLd[] {
   return [app, faqPageLd(landing.faqs)];
 }
 
+// ── /grading/methodology (US-1677, E-E-A-T) ─────────────────────────
+// First-hand-experience trust collateral: how the model was trained, what the
+// grade does and doesn't claim, error handling, and the human-review loop.
+// Article + FAQPage (fixed dates so prerender == SPA).
+const METHODOLOGY_PUBLISHED = "2026-07-06";
+const METHODOLOGY_MODIFIED = "2026-07-06";
+
+export const METHODOLOGY_FAQS = [
+  {
+    q: "How is GradeThread's grading model trained?",
+    a: "The model learns from a corpus of pre-owned garments graded against one fixed rubric — five weighted factors (fabric, structure, cosmetics, function, odor) combined into a 1.0–10.0 score — with expert human reviewers correcting the AI's grades. Those corrections, plus post-sale outcomes, feed a continuous accuracy loop, and every new model version must clear a fixed eval gate against a golden set of expert-graded items before it can grade live.",
+  },
+  {
+    q: "What does a GradeThread grade claim — and not claim?",
+    a: "A grade is an assessment of a garment's physical CONDITION against a published rubric: wear, damage, structural soundness, function, and cleanliness. It is not an authentication (it doesn't verify a brand or that an item is genuine — see grading vs. authentication), not an appraisal of monetary value, and not a guarantee of fit. It grades condition, objectively and reproducibly, and nothing more.",
+  },
+  {
+    q: "How does GradeThread handle grading errors?",
+    a: "Every grade carries a confidence score. When confidence falls below threshold, the submission is routed to human review before the grade is finalized, so low-confidence cases never ship unchecked. Buyers can dispute a grade, reviewer corrections feed back into the accuracy loop, and platform-wide agreement and error rates are published on the transparency report.",
+  },
+  {
+    q: "Are humans involved in grading?",
+    a: "Yes. Human reviewers correct low-confidence grades before they finalize, adjudicate disputes, and maintain the golden set that gates every model release. The AI does the volume; humans hold the standard.",
+  },
+];
+
+export function methodologyJsonLd(): JsonLd[] {
+  return [
+    articleLd({
+      headline: "How GradeThread Grades: Methodology",
+      description:
+        "How the GradeThread condition-grading model is trained and evaluated, what a grade does and doesn't claim, how errors are handled, and where human review fits.",
+      url: absoluteUrl("/grading/methodology"),
+      datePublished: METHODOLOGY_PUBLISHED,
+      dateModified: METHODOLOGY_MODIFIED,
+    }),
+    faqPageLd(METHODOLOGY_FAQS),
+  ];
+}
+
 // ── /transparency (US-326) ──────────────────────────────────────────
 // The accuracy report that substantiates "trusted, self-improving grading"
 // with published numbers instead of marketing claims.
