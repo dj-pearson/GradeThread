@@ -119,11 +119,11 @@ Deno.test("depop is fully gated (503) while disabled — connection AND listing 
   assertEquals(syncListings.ok, true);
 });
 
-// US-1659: Etsy's CONNECTION half is real (connect/refresh gate at 503 while
-// disabled), but its LISTING half is deferred to US-1660 — publish/update/delist/
-// sync return the typed 501 NotImplemented regardless of the enabled flag, so
-// cross-push still mints the local row and surfaces an honest message.
-Deno.test("etsy: connect/refresh gate at 503 while disabled; listing methods 501 (deferred)", async () => {
+// US-1659/1660: Etsy is a real API marketplace — connect/refresh AND the listing/
+// receipt path (publish/update/delist/syncOrders) are all gated at 503 while
+// disabled, so there is no fake flow. syncListings is a no-op success (receipts
+// carry the sale signal) and performs no Etsy access, so it doesn't 503.
+Deno.test("etsy is fully gated (503) while disabled — connection AND listing methods", async () => {
   const connect = await etsyAdapter.connect({ ownerId: "owner", state: "s" });
   assertEquals(connect.ok, false);
   if (!connect.ok) assertEquals(connect.status, 503);
@@ -132,7 +132,6 @@ Deno.test("etsy: connect/refresh gate at 503 while disabled; listing methods 501
   assertEquals(refresh.ok, false);
   if (!refresh.ok) assertEquals(refresh.status, 503);
 
-  // Listing + order path is US-1660 → typed 501 (not 503), even though disabled.
   const listingMethods = [
     await etsyAdapter.publish({
       ownerId: "owner",
@@ -152,13 +151,15 @@ Deno.test("etsy: connect/refresh gate at 503 while disabled; listing methods 501
       platformOfferId: null,
       platformListingId: null,
     }),
-    await etsyAdapter.syncListings({ ownerId: "owner" }),
     await etsyAdapter.syncOrders({ ownerId: "owner" }),
   ];
   for (const result of listingMethods) {
     assertEquals(result.ok, false);
-    if (!result.ok) assertEquals(result.status, 501);
+    if (!result.ok) assertEquals(result.status, 503);
   }
+
+  const syncListings = await etsyAdapter.syncListings({ ownerId: "owner" });
+  assertEquals(syncListings.ok, true);
 });
 
 // US-1659: Etsy HAS a title field (titleMaxLength 140), so unlike Depop the

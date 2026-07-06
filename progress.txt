@@ -11861,3 +11861,30 @@ Pre-existing (NOT mine, confirmed on clean HEAD with my work stashed): 6 edge te
 failures + agent-tools.ts:1825 PropSchema type error, all in the US-1595
 agent-tools/support-triage/cron-registry-drift cluster (concurrent Ralph work).
 nextId 1659→1661.
+
+════════════════════════════════════════════════════════════════════════════
+US-1660 DONE — Etsy listing publish/update/delist + receipt sync (2026-07-05)
+════════════════════════════════════════════════════════════════════════════
+The listing half on the US-1659 connection foundation. NO migration (reuses
+sales.platform_order_ref from depop 00176 + existing listings columns).
+
+- etsy-api.ts: form-urlencoded create/update listing, setEtsyListingState
+  (active/inactive, 404=gone), BINARY multipart image upload (Etsy rejects URLs
+  — fetch item-photos bytes, POST blob), getEtsyShippingProfiles,
+  defaultEtsyTaxonomyId (ETSY_DEFAULT_TAXONOMY_ID), etsyMoney {amount,divisor},
+  listEtsyReceipts/parseEtsyReceipt/etsyRefundStatus, pure buildEtsyListingParams.
+- etsy-orders.ts: handleEtsyReceiptEvent → sale rows (dedupe by listing_id) +
+  payout_imports + item sold + autoEndCrossListings; matches on
+  platform_listing_id then sku (mirrors depop-orders).
+- adapter etsy.ts: publish = create-or-update → upload images → activate (only
+  activates with ≥1 image, else draft); delist=inactive; syncOrders=receipts;
+  all gated + tenant-scoped via loadOwnedEtsyListing.
+- route: /sync + /shipping-profiles (authed + workspace middleware in main.ts).
+- Tests: etsy-api_test (8 pure-builder), adapter full-gating (503), tenant-
+  isolation extended to /sync. deno lint/check clean on all etsy files (only the
+  pre-existing agent-tools:1825 error remains, unrelated).
+- ⚠️ Field names modeled from Etsy Open API v3 docs — reconcile against a live
+  sandbox once the Etsy app is approved. Everything gated behind ETSY_ENABLED.
+
+Etsy is now a fully code-complete cross-listing channel (connect → publish →
+sync), dark until ETSY_ENABLED + app approval. No new migration to hold.

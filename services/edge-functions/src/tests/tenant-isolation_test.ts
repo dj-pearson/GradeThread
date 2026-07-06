@@ -235,22 +235,31 @@ Deno.test({
   // tenant's connection. This documents the route's owner-scoping the way
   // depop/disconnect is scoped; the sync/publish routes that touch listing data
   // get full assertDenied cases when they land in US-1660.
-  name: "B cannot disconnect Etsy in another workspace (never 200)",
+  name: "B cannot disconnect or sync Etsy in another workspace (never 200)",
   ignore: !CONFIGURED,
   fn: async () => {
-    const res = await fetch(`${BASE}/api/flipdesk/etsy/disconnect`, {
+    const disconnect = await fetch(`${BASE}/api/flipdesk/etsy/disconnect`, {
       method: "POST",
       headers: authHeaders(B_JWT!),
       body: JSON.stringify({}),
     });
-    await res.body?.cancel();
+    await disconnect.body?.cancel();
     assert(
-      res.status !== 200,
-      `Etsy disconnect: foreign non-admin caller must not succeed, got ${res.status}`,
+      disconnect.status !== 200 && [401, 403, 503].includes(disconnect.status),
+      `Etsy disconnect: expected 401/403/503 but got ${disconnect.status}`,
     );
+    // /sync is owner-scoped (workspaceOwnerId ?? userId) + gated: B acting with no
+    // Etsy connection in their own workspace gets 400 (not connected) or 503
+    // (disabled), never another tenant's data.
+    const sync = await fetch(`${BASE}/api/flipdesk/etsy/sync`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({}),
+    });
+    await sync.body?.cancel();
     assert(
-      [401, 403, 503].includes(res.status),
-      `Etsy disconnect: expected 401/403/503 but got ${res.status}`,
+      sync.status !== 200 && [400, 401, 403, 503].includes(sync.status),
+      `Etsy sync: expected 400/401/403/503 but got ${sync.status}`,
     );
   },
 });

@@ -9,11 +9,17 @@ import {
   codeChallengeS256,
   exchangeCodeForToken,
   generateCodeVerifier,
+  getEtsyConnection,
   isEtsyEnabled,
   refreshExpiringEtsyConnections,
   upsertEtsyConnection,
 } from "../lib/etsy-client.ts";
-import { getEtsyShopIdentity } from "../lib/etsy-api.ts";
+import {
+  getEtsyShippingProfiles,
+  getEtsyShopIdentity,
+  listEtsyReceipts,
+} from "../lib/etsy-api.ts";
+import { handleEtsyReceiptEvent } from "../lib/etsy-orders.ts";
 
 // Etsy Open API v3 endpoints (US-1659). Mounted at /api/flipdesk/etsy.
 //
@@ -247,4 +253,59 @@ flipdeskEtsyRoutes.post("/disconnect", async (c) => {
     return c.json({ error: "Could not disconnect Etsy." }, 500);
   }
   return c.json({ ok: true });
+});
+
+// ── Receipt (order) sync (manual trigger) ──────────────────────────
+// Pulls recent Etsy receipts → sale rows + cross-platform auto-delist (US-564).
+// The same ingest a future webhook would run, callable on demand.
+flipdeskEtsyRoutes.post("/sync", async (c) => {
+  if (!isEtsyEnabled()) return c.json(DISABLED_BODY, 503);
+  const userId = (c.get("workspaceOwnerId") ?? c.get("userId")) as string | undefined;
+  if (!userId) return c.json({ error: "Unauthorized" }, 401);
+
+  const conn = await getEtsyConnection(userId);
+  if (!conn) return c.json({ error: "Connect your Etsy shop first." }, 400);
+  if (!conn.shopId) return c.json({ error: "Your Etsy account has no shop." }, 409);
+
+  try {
+    const receipts = await listEtsyReceipts(conn.token, conn.shopId);
+    let salesNew = 0;
+    let soldFlipped = 0;
+    for (const receipt of receipts) {
+      const res = await handleEtsyReceiptEvent(userId, receipt);
+      salesNew += res.salesNew;
+      soldFlipped += res.soldFlipped;
+    }
+    await supabaseAdmin
+      .from("marketplace_connections")
+      .update({ last_synced_at: new Date().toISOString() })
+      .eq("user_id", userId)
+      .eq("marketplace", "etsy");
+    return c.json({ ok: true, receipts: receipts.length, sales_new: salesNew, sold_flipped: soldFlipped });
+  } catch (err) {
+    console.error("[flipdesk-etsy] receipt sync failed:", err);
+    return c.json({ error: "Etsy receipt sync failed." }, 502);
+  }
+});
+
+// ── Shipping-profile setup helper ──────────────────────────────────
+// Etsy requires a shipping_profile_id on every physical listing. Surface the
+// seller's profiles so the UI can confirm one exists before publishing.
+// Tenant-scoped via the owner's connection token.
+flipdeskEtsyRoutes.get("/shipping-profiles", async (c) => {
+  if (!isEtsyEnabled()) return c.json(DISABLED_BODY, 503);
+  const userId = (c.get("workspaceOwnerId") ?? c.get("userId")) as string | undefined;
+  if (!userId) return c.json({ error: "Unauthorized" }, 401);
+
+  const conn = await getEtsyConnection(userId);
+  if (!conn) return c.json({ error: "Connect your Etsy shop first." }, 400);
+  if (!conn.shopId) return c.json({ error: "Your Etsy account has no shop." }, 409);
+
+  try {
+    const profiles = await getEtsyShippingProfiles(conn.token, conn.shopId);
+    return c.json({ profiles });
+  } catch (err) {
+    console.error("[flipdesk-etsy] shipping-profiles failed:", err);
+    return c.json({ error: "Could not load Etsy shipping profiles." }, 502);
+  }
 });

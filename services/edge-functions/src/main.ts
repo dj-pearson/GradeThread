@@ -398,6 +398,8 @@ app.use("/api/flipdesk/depop/orders/*", authMiddleware);
 // the PKCE verifier) and /oauth/refresh (internal job secret).
 app.use("/api/flipdesk/etsy/oauth/start", authMiddleware);
 app.use("/api/flipdesk/etsy/disconnect", authMiddleware);
+app.use("/api/flipdesk/etsy/sync", authMiddleware);
+app.use("/api/flipdesk/etsy/shipping-profiles", authMiddleware);
 app.use("/api/flipdesk/grading/submit", authMiddleware);
 app.use("/api/flipdesk/grading/validate", authMiddleware);
 app.use("/api/flipdesk/grading/submissions/*", authMiddleware);
@@ -528,6 +530,8 @@ app.use("/api/flipdesk/depop/orders/*", workspaceMiddleware);
 // the workspace owner, mirrors eBay/Shopify/Depop).
 app.use("/api/flipdesk/etsy/oauth/start", workspaceMiddleware);
 app.use("/api/flipdesk/etsy/disconnect", workspaceMiddleware);
+app.use("/api/flipdesk/etsy/sync", workspaceMiddleware);
+app.use("/api/flipdesk/etsy/shipping-profiles", workspaceMiddleware);
 app.use("/api/flipdesk/grading/submit", workspaceMiddleware);
 app.use("/api/flipdesk/grading/validate", workspaceMiddleware);
 app.use("/api/flipdesk/grading/submissions/*", workspaceMiddleware);
