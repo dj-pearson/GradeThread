@@ -12085,8 +12085,8 @@
         "No auto-generated padding; build + prerender guard clean"
       ],
       "priority": 1671,
-      "passes": false,
-      "notes": "[P0->P1][SEO2.0][GEO][pSEO] Plan §1 A2 + §2 Hub1 + §5 P4. GEO landgrab: zero competition, snippet/AI-answer bait."
+      "passes": true,
+      "notes": "[P0->P1][SEO2.0][GEO][pSEO] Plan §1 A2 + §2 Hub1 + §5 P4. GEO landgrab: zero competition, snippet/AI-answer bait. | DONE 2026-07-06: /grading/glossary hub + 44 DefinedTerm term pages (condition-lingo EUC/VGUC/GUC/NWT-vs-NWOT/NWD/gently-used/pre-owned/as-is/NIB/distressed/flaw/smoke-free; workflow death-pile/comps/sourcing/thrifting/cross-listing/relist/sell-through/cost-basis/consignment/bundle/offer; marketplace SNAD/INR/SKU/closet/authentication/HTF/BOLO/grail/deadstock/y2k/vintage/iso; sourcing rag-vs-bale-grade/lot/rn-number/thrift-flip/bins; measurements pit-to-pit/inseam/rise/flat-lay). Each: 45-60w quotable definition, real-listing usage example, grade-scale mapping, 2-3 related terms, question-phrased FAQ; near-synonyms clustered (nwt-vs-nwot, rag-vs-bale-grade). DefinedTerm per page + hub DefinedTermSet (own @id, distinct from condition-glossary + scale sets). All prerendered (93 total routes), titles ≤46 & unique, desc 70-160 & unique, prerender sync-guard + parity + jsonld-parity all green. Static /grading/glossary outranks /grading/:slug."
     },
     {
       "id": "US-1672",
