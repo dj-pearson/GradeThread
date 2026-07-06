@@ -1,4 +1,8 @@
-import type { SignupSource } from "@/types/database";
+// NOTE: RELATIVE import (not the "@/" alias). constants.ts is pulled into the
+// Vite-config Node context via the public-routes → glossary → constants chain,
+// where the "@/" alias is NOT resolved (and tsc -b compiles it under a project
+// without the alias). Type-only, so it's erased at runtime. (US-1670 build fix.)
+import type { SignupSource } from "../types/database";
 
 // Grade scale labels (1.0-10.0)
 export const GRADE_LABELS = {
