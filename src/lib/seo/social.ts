@@ -53,6 +53,11 @@ export function socialProfileUrls(): string[] {
     // US-1677: YouTube channel (reseller grading shorts) — entity-confirming
     // sameAs. Config-gated like the rest; included only when set to a real URL.
     envVar("VITE_SOCIAL_YOUTUBE"),
+    // US-1695: the Wikidata item for GradeThread — the strongest entity-anchoring
+    // sameAs. Set VITE_SOCIAL_WIKIDATA (e.g. https://www.wikidata.org/wiki/Q…)
+    // once the item is CLAIMED (only after 3–4 independent citations exist; see
+    // docs/OFF_PAGE_AUTHORITY.md). Config-gated — never a placeholder.
+    envVar("VITE_SOCIAL_WIKIDATA"),
   ].filter((u) => /^https?:\/\//.test(u));
 }
 

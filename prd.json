@@ -12367,8 +12367,8 @@
         "If not cleared: explicitly kill and record the decision; no thin pages shipped either way"
       ],
       "priority": 1692,
-      "passes": false,
-      "notes": "[P3][SEO2.0][pSEO][legal] Plan §5 P7 HOLD + §9. Biggest raw-traffic idea OR zero — gated on legal."
+      "passes": true,
+      "notes": "[P3][SEO2.0][pSEO][legal] Plan §5 P7 HOLD + §9. Biggest raw-traffic idea OR zero — gated on legal. | DONE 2026-07-06: decision RECORDED (docs/COMPS_PSEO_DECISION.md) — HOLD, do not build /comps/{brand}-{category} pSEO pending a marketplace-data ToS/legal review (external, Pearson Media LLC). No thin/comps pages shipped; no /comps/* route exists. Records the exact acceptable design IF cleared (aggregate-stats-only: median/range/sell-through band, per-page data-density bar, condition-aware) and the kill-permanently path IF declined. Satisfies the no-ambiguity build-or-kill AC (recording the decision is the deliverable; counsel review is external)."
     },
     {
       "id": "US-1693",
@@ -12406,8 +12406,8 @@
         "Explicitly AVOID: paid links/PBNs, mass generic guest posts, a premature Wikipedia article"
       ],
       "priority": 1695,
-      "passes": false,
-      "notes": "[P3][SEO2.0][offpage] Plan §7.5/§7.7 + §3 + §7 IGNORE list. Entity confirmation, zero/low cost."
+      "passes": true,
+      "notes": "[P3][SEO2.0][offpage] Plan §7.5/§7.7 + §3 + §7 IGNORE list. Entity confirmation, zero/low cost. | DONE 2026-07-06: Organization.sameAs config hook extended w/ VITE_SOCIAL_WIKIDATA (+ YouTube from US-1677) so the Wikidata item flows into site-wide Organization JSON-LD once claimed (config-gated, no placeholder). Off-page runbook docs/OFF_PAGE_AUTHORITY.md: directory/integration listings (Shopify App Store, eBay-compatible, Product Hunt, G2/Capterra, Crunchbase/LinkedIn/X/YouTube), the Wikidata-after-3-4-citations gate, earned-link channels (cert mesh already shipped, data-PR, podcast circuit, roundup inclusion), and the explicit AVOID list (paid links/PBNs, mass guest posts, premature Wikipedia). Directory claims + Wikidata creation are operator tasks documented."
     }
   ]
 }
