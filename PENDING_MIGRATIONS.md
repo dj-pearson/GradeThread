@@ -1,5 +1,24 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00392_adidas_yeezy_brand_knowledge.sql (US-1720 adidas & Yeezy, 2026-07-07)
+
+**What:** DATA-ONLY seed of adidas + Yeezy into the 00389 KB tables — 6 styles
+(Tiro/Tango Performance vs Firebird/Adicolor Originals-Trefoil; Yeezy Season +
+Yeezy Gap Round Jacket), the adidas `article_number` decoder (2 letters + 4
+digits, `GX1234`) seeded as PURE DATA, and enriched `brand_knowledge` (Trefoil
+vs 3-Bar line tell; Yeezy minimalist-aesthetic tell). Yeezy is a NEW
+brand_knowledge row (not in the 00389 alias seed). Every fact source_url +
+confidence + verified. Bumps `EXPECTED_SCHEMA_VERSION` → **00392**. Self-records
+'00392'.
+
+**Risk: LOW — additive INSERTs only** (no DDL). Idempotent (brand_knowledge
+`ON CONFLICT DO UPDATE`, children `DO NOTHING`).
+
+**⚠️ CLIENT READ — none** (server-side extraction/baselines only).
+
+**⚠️ Apply order:** after 00391 (top of the held stack). Run
+`scripts/apply-prod-migrations.sh`, then redeploy the edge (boot guard → 00392).
+
 ## ⏳ HELD: 00391_nike_jordan_brand_knowledge.sql (US-1719 Nike & Jordan, 2026-07-07)
 
 **What:** DATA-ONLY seed of Nike + Jordan into the 00389 KB tables — 8 styles
