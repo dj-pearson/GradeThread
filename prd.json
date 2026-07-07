@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1745,
+  "nextId": 1794,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -13045,7 +13045,7 @@
         "Verify against a golden set of Coach fixtures incl. cut-tag / partial-label photos: the two-phase resolver (US-1713) recovers brand+style+size at higher confidence than the pre-KB baseline, and no other brand regresses. Sources cited in the seed migration; deno test + web build green."
       ],
       "priority": 2505,
-      "passes": false,
+      "passes": true,
       "notes": "[BrandKB][Brand][Tier1] Coach = mostly bags/accessories; keep size charts light, lean on serial decoder + authentication tells.",
       "dependsOn": [
         "US-1712",
@@ -13067,7 +13067,7 @@
         "Explicitly flag that a date code proves NOTHING about authenticity on its own — the pack must pair it with construction/heat-stamp/hardware tells and never auto-assert authenticity."
       ],
       "priority": 2504,
-      "passes": false,
+      "passes": true,
       "notes": "[BrandKB][Brand][Tier1] High counterfeit risk — authentication tells + humility are mandatory; never auto-authenticate.",
       "dependsOn": [
         "US-1712",
@@ -13088,7 +13088,7 @@
         "Verify against a golden set of Gucci fixtures incl. cut-tag / partial-label photos: the two-phase resolver (US-1713) recovers brand+style+size at higher confidence than the pre-KB baseline, and no other brand regresses. Sources cited in the seed migration; deno test + web build green."
       ],
       "priority": 2503,
-      "passes": false,
+      "passes": true,
       "notes": "[BrandKB][Brand][Tier1] Never auto-authenticate; surface tells only.",
       "dependsOn": [
         "US-1715",
@@ -13381,6 +13381,643 @@
       "priority": 2540,
       "passes": false,
       "notes": "[CI-Unmask 2026-07-07][CI][Support][US-1595] PII-scrubbing correctness — treat as security-relevant."
+    },
+    {
+      "id": "US-1745",
+      "title": "EPIC: Scale the Condition/Value Index into a programmatic-SEO engine",
+      "description": "As GradeThread, I want the existing Condition/Value Index expanded from a handful of curated seeds into thousands of programmatic /value pages so that we own the enormous 'how much is my {brand} {item} in {condition} worth' long-tail search intent and funnel that traffic into free grading and certification.",
+      "acceptanceCriteria": [
+        "Grows the current 54-seed index (condition_index_seeds) into a data-driven, sample-gated URL space of thousands of brand x category x condition pages",
+        "New pages reuse the existing eBay-comp value curves (condition_price_curves) and the >=8-sample suppression floor so no thin/fabricated pages ship",
+        "Every value page interlinks to the free grade-checker, matching certificates, and durability rankings; measurable organic traffic lift tracked"
+      ],
+      "priority": 1745,
+      "passes": false,
+      "notes": "[P2][VALUE-INDEX][EPIC][SEO] BASELINE (already built): /condition-index hub+slug via functions/condition-index/[[path]].ts; condition_index_seeds (54 rows, 00190) + condition_price_curves (00098/00100); lib/condition-index.ts + condition-curve.ts (buildValueCurve) + condition-value.ts (valueAtGrade); MIN_INDEX_TOTAL_SAMPLE=8; data = eBay Browse comps via ebay-client.searchBrowseComps. TECH/3P: no new 3P needed (eBay Browse API already integrated); Cloudflare Pages Functions Model B (edge-SSR) is the delivery model. TIES: /whats-it-worth (US-849), grade-checker, certificate examples, durability rankings (EPIC 7). BUYER: free 'what is this worth in X condition' answer page. SELLER: pricing confidence + entry into grading. Child stories: value-page URL space, auto-seed generation, interlinking+JSON-LD, comp-refresh scale/guardrails."
+    },
+    {
+      "id": "US-1746",
+      "title": "Value Index: data-driven auto-seed generation (54 -> thousands)",
+      "description": "As GradeThread, I want the condition_index_seeds set auto-generated from real demand and comp depth so that the index scales far beyond the 54 hand-curated entries without producing thin pages.",
+      "acceptanceCriteria": [
+        "A cron/job proposes new seeds from popular brands x eBay categories x keywords (drawn from repricing comps, grade_reports brands, keyword-research job) and inserts enabled seeds only when a trial comp fetch clears MIN_INDEX_TOTAL_SAMPLE",
+        "Seed generation is idempotent, deduped on the existing item_key/slug uniqueness, and respects the eBay Browse call budget",
+        "Admin can review/curate/disable generated seeds via the existing admin-condition-index surface"
+      ],
+      "priority": 1746,
+      "passes": false,
+      "notes": "[P2][VALUE-INDEX] Extends lib/condition-index.ts (getIndexSeeds/refreshConditionIndex) + condition_index_seeds (00190). Reuse jobs-keyword-research.ts + repricing comp brands as demand signal. Migration triple applies (new columns/job state). Guardrail: reuse the sample>=8 suppression before publishing any generated seed."
+    },
+    {
+      "id": "US-1747",
+      "title": "Value Index: /value/{brand}/{item}/{condition} URL space (Pages Function)",
+      "description": "As a searcher, I want a dedicated page for a specific brand+item+condition value so that I land on an exact-match answer for my query.",
+      "acceptanceCriteria": [
+        "New functions/value/[[path]].ts (cloned from functions/condition-index/[[path]].ts) edge-SSRs /value/{brand}/{item} and /value/{brand}/{item}/{condition} from a public edge endpoint",
+        "Route registered in public/_routes.json include globs and added to NAVIGATE_FALLBACK_DENYLIST in vite.config.ts so the SW does not serve the SPA shell",
+        "sitemap-value.xml.ts + a value URL generator in functions/_shared/sitemap.ts, linked from functions/sitemap.xml.ts; URL set bounded to seeds with real comp depth"
+      ],
+      "priority": 1747,
+      "passes": false,
+      "notes": "[P2][VALUE-INDEX] Model B (dynamic edge-SSR), NOT the prerender registry — so it is exempt from public-routes.test.ts. Public data endpoint extends /api/grading/public/condition-index. Reuse _shared/condition-index-render.ts patterns."
+    },
+    {
+      "id": "US-1748",
+      "title": "Value Index: interlinking + rich JSON-LD across value pages",
+      "description": "As GradeThread SEO, I want value pages richly interlinked and schema-marked so that they rank, earn AI-engine citations, and route visitors deeper into the funnel.",
+      "acceptanceCriteria": [
+        "Each value page emits Product/Dataset/FAQ/Breadcrumb JSON-LD (via functions/_shared) with no fabricated aggregateRating",
+        "Pages cross-link to the free grade-checker, the matching public certificate examples, sibling conditions, and the brand durability ranking (EPIC 7)",
+        "Interlink density satisfies the repo interlink-rules test conventions; hub page lists top brands/items"
+      ],
+      "priority": 1748,
+      "passes": false,
+      "notes": "[P2][VALUE-INDEX][GEO] Mirrors condition-index JSON-LD (Dataset/CollectionPage/FAQ). Reuse getExampleCertificates (public certs). No SearchAction/aggregateRating placeholders (repo rule)."
+    },
+    {
+      "id": "US-1749",
+      "title": "Value Index: comp-refresh scale + cost/quota guardrails",
+      "description": "As GradeThread ops, I want the comp-refresh pipeline to scale to thousands of curves without blowing the eBay Browse quota or AI/infra budget so that the index stays fresh and affordable.",
+      "acceptanceCriteria": [
+        "Staleness-tiered refresh (hot seeds daily, long-tail weekly/monthly) batched under an explicit eBay call budget with backoff",
+        "Refresh runs are observable (heartbeat + last-refreshed per seed) and log any seeds dropped for insufficient samples (no silent truncation)",
+        "A kill-switch/budget cap prevents runaway comp fetching"
+      ],
+      "priority": 1749,
+      "passes": false,
+      "notes": "[P2][VALUE-INDEX][OPS] Extends handleConditionIndexRefreshCron in lib/condition-index.ts. Coolify scheduled task. Follow the durable-jobs contract for batching. curl-in-image gotcha already fixed."
+    },
+    {
+      "id": "US-1750",
+      "title": "EPIC: Public 'What's It Worth' — free photo -> grade + resale value",
+      "description": "As a curious owner/seller, I want to upload a photo with no login and instantly get an AI condition grade AND a resale value estimate so that I get immediate value and a reason to sign up and certify.",
+      "acceptanceCriteria": [
+        "One flagship free tool combines the grade-checker's AI grade with a condition-adjusted resale value (already available to the authed Snap tool) with no login required",
+        "Result is shareable and funnels clearly to signup / free Snap / paid certification",
+        "Abuse controls (per-IP limits, aggregate-only value, AI budget ceiling) preserved"
+      ],
+      "priority": 1750,
+      "passes": false,
+      "notes": "[P2][FREE-TOOL][EPIC] BASELINE (mostly built): unauth POST /api/grading/public/grade-check (public-grading.ts, 5/hr/IP, grade only, nothing persisted) backs /tools/grade-checker; authed Snap-to-Value (grade.ts /snap, snap.tsx) already returns value via valueAtGrade + condition_price_curves. quickGrade (quick-grade.ts) is the shared primitive. TECH/3P: none new. TIES: value index (EPIC 1), share cards (EPIC 9), signup funnel. BUYER/OWNER: instant free answer. SELLER: pricing + grading entry. Child stories: add value to free endpoint, shareable result card + funnel."
+    },
+    {
+      "id": "US-1751",
+      "title": "Free tool: add resale value to the unauthenticated grade-check",
+      "description": "As an anonymous user, I want the free grade-checker to also show a resale value range so that I get the full 'what's it worth' answer without an account.",
+      "acceptanceCriteria": [
+        "POST /api/grading/public/grade-check optionally accepts brand/keyword and returns a condition-adjusted value range via the same valueAtGrade/condition_price_curves path used by /snap, gated to sufficient-sample curves only",
+        "Per-IP rate limit and AI daily ceiling remain enforced; value is aggregate-only (no per-listing/PII data)",
+        "grade-checker page + JSON-LD updated to reflect grade + value output"
+      ],
+      "priority": 1751,
+      "passes": false,
+      "notes": "[P2][FREE-TOOL] Add valueAtGrade/suggestCategories call to public-grading.ts grade-check (mirror grade.ts /snap lines that build value). Respect MIN sample gating; return value:null when insufficient (like /snap)."
+    },
+    {
+      "id": "US-1752",
+      "title": "Free tool: shareable result card + conversion funnel",
+      "description": "As a user who got a free result, I want a good-looking shareable card and a clear next step so that I share it (traffic) and convert (signup/certify).",
+      "acceptanceCriteria": [
+        "Free result renders a shareable image card (reuse cert-image-render.ts / functions/og/social/card.ts) with grade + value + branding + QR",
+        "Card/link bakes a referral/attribution code and CTAs route to signup, free Snap, and paid certification with tracked conversion events",
+        "No PII in the shared artifact; value shown as a range with disclaimer"
+      ],
+      "priority": 1752,
+      "passes": false,
+      "notes": "[P2][FREE-TOOL][SHARE] Reuse renderCertImage/buildCertSlabHtml + social OG. Attribution via captureAffiliateRef/referral bake (as cert-share-actions.tsx already does). Track via existing analytics."
+    },
+    {
+      "id": "US-1753",
+      "title": "EPIC: GradeThread browser extension — AI condition second-opinion at point of purchase",
+      "description": "As a secondhand buyer, I want a browser extension that reads a listing's photos and gives me an independent GradeThread condition read while I shop so that I buy with confidence — and GradeThread becomes the trust standard cited on competitors' marketplaces.",
+      "acceptanceCriteria": [
+        "Extension detects supported marketplace listings, pulls listing images, calls a public grading endpoint, and overlays a GradeThread condition estimate with a link to a full report",
+        "Ships on Chrome Web Store and Firefox AMO with a privacy policy and opt-in telemetry",
+        "Install and click-through funnel is attributed back to the GradeThread signup funnel"
+      ],
+      "priority": 1753,
+      "passes": false,
+      "notes": "[P2][EXTENSION][EPIC][NEW] BASELINE: none exists (greenfield surface). quickGrade primitive + the free grade-check endpoint are reusable server-side. TECH/3P (opensource): WXT or Plasmo for cross-browser MV3 builds; webextension-polyfill. No paid 3P. TIES: reuses/extends the public grading endpoint (EPIC 2), links to certificates/value pages, attribution via referral system. BUYER: independent condition read while shopping eBay/Poshmark/Grailed/etc. SELLER: none directly (buyer-side growth loop). RISK: image scraping ToS per marketplace, abuse/rate limits on the public endpoint. Child stories: public endpoint hardening, MV3 MVP (eBay), multi-marketplace adapters, store distribution."
+    },
+    {
+      "id": "US-1754",
+      "title": "Extension: public grading endpoint for image-URL second-opinion",
+      "description": "As the extension, I want a hardened public endpoint that grades from an image URL so that it can produce a read without the user uploading files.",
+      "acceptanceCriteria": [
+        "New/extended public endpoint accepts image URL(s), runs quickGrade behind the SSRF-guarded fetch, and returns an aggregate grade estimate + disclaimer",
+        "Strong abuse controls: per-IP and per-extension-instance quota, AI daily ceiling, CORS locked to the extension origin, no persistence",
+        "Returns a deep link to open the full experience on gradethread.com with attribution"
+      ],
+      "priority": 1754,
+      "passes": false,
+      "notes": "[P2][EXTENSION] Extends public-grading.ts (reuse gradeCheckRateLimited + safeFetch SSRF guard + quickGrade). Consider a signed extension token to separate its quota from the web grade-checker. No DB writes."
+    },
+    {
+      "id": "US-1755",
+      "title": "Extension: MV3 MVP with eBay overlay",
+      "description": "As a buyer on eBay, I want the extension to show a GradeThread condition read on the listing so that I get a second opinion inline.",
+      "acceptanceCriteria": [
+        "MV3 content script detects an eBay item page, extracts gallery image URLs, calls the public endpoint, and renders a non-intrusive overlay (score + tier + confidence + 'full report' link)",
+        "Handles loading/error/rate-limited states gracefully; respects a user setting to disable on a site",
+        "Popup shows recent reads and a link to sign in / connect a GradeThread account"
+      ],
+      "priority": 1755,
+      "passes": false,
+      "notes": "[P2][EXTENSION][NEW] Build with WXT (opensource). eBay adapter first (highest volume). Overlay must be resilient to eBay DOM changes (selector config remotely updatable)."
+    },
+    {
+      "id": "US-1756",
+      "title": "Extension: multi-marketplace adapters",
+      "description": "As a buyer, I want the extension to work across the marketplaces I actually shop so that it's useful everywhere.",
+      "acceptanceCriteria": [
+        "Adapters for Poshmark, Grailed, Mercari, Depop, and Vinted (image extraction + overlay mount points) behind a shared adapter interface",
+        "Adapter selectors are config-driven and remotely updatable without a store re-review",
+        "Per-site enable/disable and a graceful fallback when a site layout is unrecognized"
+      ],
+      "priority": 1756,
+      "passes": false,
+      "notes": "[P2][EXTENSION][NEW] Shared adapter interface; remote selector config fetched from an edge endpoint so marketplace DOM changes don't require re-publishing. Note: these are BUYER-side overlays, distinct from the seller-side publish adapters (which exist only for eBay/Etsy/Depop/Whatnot/Shopify)."
+    },
+    {
+      "id": "US-1757",
+      "title": "Extension: store distribution + install funnel",
+      "description": "As GradeThread growth, I want the extension published and its funnel measured so that installs convert to accounts.",
+      "acceptanceCriteria": [
+        "Published on Chrome Web Store and Firefox AMO with listing copy, screenshots, privacy policy, and a data-use disclosure",
+        "Opt-in anonymous telemetry (reads, click-throughs) with a clear toggle",
+        "Install -> click-through -> signup attributed via the referral/affiliate system"
+      ],
+      "priority": 1757,
+      "passes": false,
+      "notes": "[P2][EXTENSION][NEW][GROWTH] Privacy policy page (Model A static route). Attribution reuses affiliate.ts click->conversion. Telemetry opt-in only (GDPR/CCPA posture, ties to legal geo-consent epic)."
+    },
+    {
+      "id": "US-1758",
+      "title": "EPIC: Cross-marketplace Verified Badge distribution + attribution",
+      "description": "As a seller, I want to easily paste a GradeThread 'Verified' badge into my listings on other marketplaces so that buyers trust my item — and as GradeThread I want each badge to be a backlink and an attributed funnel entry.",
+      "acceptanceCriteria": [
+        "A seller badge studio provides one-click, marketplace-specific snippets (img/script/text) for a certificate or passport",
+        "Every badge carries source attribution + referral code and its clicks feed a funnel dashboard",
+        "Marketplace-optimized badge formats render correctly through common listing HTML sanitizers"
+      ],
+      "priority": 1758,
+      "passes": false,
+      "notes": "[P2][BADGE][EPIC] BASELINE (infra built): functions/badge/cert/[id].ts (<img>), functions/embed/cert/[id].ts (script), text fallback; snippet gens in src/lib/verified.ts (certBadgeEmbedHtml/certBadgeScriptEmbed/certBadgeEmbedText); render via cert-image-render.ts + cert-og-template.ts (buildCertBadgeHtml) + SLAB_FORMATS; public_passport_links bridges cert<->passport; cert-share-actions.tsx already bakes referral codes. CONSTRAINT: no cross-site iframe (X-Frame-Options DENY / frame-ancestors none) — must stay img/script/text. TECH/3P: existing satori+resvg-wasm, no new 3P. TIES: certificate, passport, verified directory, referral/affiliate. BUYER: trust signal on any marketplace. SELLER: paste-in credibility. Child stories: badge studio UX, click attribution+analytics, new formats."
+    },
+    {
+      "id": "US-1759",
+      "title": "Badge: seller badge studio (one-click marketplace snippets)",
+      "description": "As a seller, I want a simple studio to grab the right badge snippet for each marketplace so that adding it to a listing takes seconds.",
+      "acceptanceCriteria": [
+        "Studio (in verified/flipdesk profile UI) lets a seller pick a certificate or passport and copy img/script/text snippets with per-marketplace guidance (eBay/Poshmark/Grailed HTML rules)",
+        "Offers a passport-slug badge variant (advertises full history) in addition to certificate badges via public_passport_links",
+        "Live preview of each format before copying"
+      ],
+      "priority": 1759,
+      "passes": false,
+      "notes": "[P2][BADGE] Extends src/lib/verified.ts snippet gens + the flipdesk verified management UI (src/pages/flipdesk/verified.tsx). eBay allows limited HTML in description; Poshmark/Grailed strip HTML -> offer text+link fallback."
+    },
+    {
+      "id": "US-1760",
+      "title": "Badge: click attribution + funnel analytics",
+      "description": "As GradeThread growth, I want badge clicks attributed and charted so that I can prove badges drive traffic and conversions.",
+      "acceptanceCriteria": [
+        "Badge links carry source (?s=embed/badge) + referral code; clicks and downstream signups are tracked and shown in a seller-visible + admin funnel view",
+        "Attribution reuses the existing cert view-tracking + referral/affiliate ledger",
+        "Dashboard shows impressions/clicks/conversions per seller and platform-wide"
+      ],
+      "priority": 1760,
+      "passes": false,
+      "notes": "[P2][BADGE][GROWTH] Reuse cert_view tracking (content-public.ts /view with ?s=) + referral_events/affiliate_clicks. Surface in verified profile + admin-growth."
+    },
+    {
+      "id": "US-1761",
+      "title": "Badge: marketplace-optimized formats + verified-seller storefront badge",
+      "description": "As a seller, I want badges sized and styled for where they'll appear so that they look native and convert.",
+      "acceptanceCriteria": [
+        "New badge formats/sizes added via SLAB_FORMATS + cert-og-template.ts (e.g. compact inline, square, listing-header)",
+        "A 'verified seller' storefront badge (keyed to verified_handle, not a single cert) linking to the seller's /verified/{handle} profile",
+        "All formats validated through eBay/Poshmark/Grailed rendering"
+      ],
+      "priority": 1761,
+      "passes": false,
+      "notes": "[P2][BADGE] Extend SLAB_FORMATS in cert-image-render.ts + templates in cert-og-template.ts. Storefront badge ties to users.verified_* + functions/og/verified/[handle].ts."
+    },
+    {
+      "id": "US-1762",
+      "title": "EPIC: Walk-around video grading — grade from a short clip",
+      "description": "As a seller, I want to grade a garment from a short walk-around video instead of staging individual photos so that grading is faster and more accurate, and the capture is inherently shareable.",
+      "acceptanceCriteria": [
+        "A submission can be created from a short video; the server extracts representative frames and feeds them through the existing per-image -> composite grading flow unchanged",
+        "Video grading is cost-controlled (frame-count caps, metering, per-plan gating) and observable",
+        "Certificates from video capture carry a 'video-verified' provenance badge"
+      ],
+      "priority": 1762,
+      "passes": false,
+      "notes": "[P2][VIDEO-GRADE][EPIC][NEW] BASELINE: images only today (IMAGE_TYPES, one Vision call/image; grade.ts /submit multipart). A 360-still-capture + verified-capture provenance concept already exists. Grading = analyzeImage per image (ai-grading.ts) then compositeGrade. TECH/3P (opensource): ffmpeg (bundle static binary into the edge Docker image, or ffmpeg.wasm) for server-side frame extraction/keyframe selection; validateImageUpload needs a video branch. TIES: grade.ts pipeline, upload-validation.ts, verified-capture.ts, certificate badges, AI metering (ai_usage_events/ai_budgets). BUYER: richer proof of condition. SELLER: faster capture. RISK: cost (more frames = more Vision calls); storage; HEIC-style format handling. Child stories: upload+validation, frame extraction, cost control, capture UX+provenance."
+    },
+    {
+      "id": "US-1763",
+      "title": "Video grading: upload + validation branch",
+      "description": "As the platform, I want to safely accept and validate short videos so that video capture is as hardened as image upload.",
+      "acceptanceCriteria": [
+        "grade.ts /submit accepts a video part (mp4/mov/webm) with magic-byte sniffing, size cap, and a max-duration cap; non-video/oversized rejected",
+        "Video stored to the private submission bucket with per-user-folder RLS, same as images",
+        "Client guidance for HEVC/HEIC-container edge cases (transcode or reject with a clear message)"
+      ],
+      "priority": 1763,
+      "passes": false,
+      "notes": "[P2][VIDEO-GRADE][NEW] Extend upload-validation.ts (sniffImageFormat -> add video magic bytes) + IMAGE_TYPES/multipart parse in grade.ts. Reuse the private submission-images bucket RLS pattern."
+    },
+    {
+      "id": "US-1764",
+      "title": "Video grading: server frame extraction -> grading slots",
+      "description": "As the grading pipeline, I want to turn a video into a small set of high-quality frames so that the existing per-image->composite flow grades it without changes.",
+      "acceptanceCriteria": [
+        "Server extracts N keyframes (dedup/blur-reject/coverage-aware) and maps them to IMAGE_TYPES-style slots (front/back/label/detail) so processSubmission runs unchanged",
+        "Frame selection favors sharp, well-lit, high-coverage frames using the existing quality gate signals",
+        "Extraction is bounded (max frames) and logged; failures fall back to needs_photos"
+      ],
+      "priority": 1764,
+      "passes": false,
+      "notes": "[P2][VIDEO-GRADE][NEW] ffmpeg keyframe extraction in a new lib (e.g. video-frames.ts). Reuse grading-quality.ts signals for selection. Simplest integration: frames become submission_images rows so grading-pipeline.ts is untouched."
+    },
+    {
+      "id": "US-1765",
+      "title": "Video grading: cost control + metering + plan gating",
+      "description": "As GradeThread ops, I want video grading metered and gated so that its extra Vision cost stays profitable.",
+      "acceptanceCriteria": [
+        "Frame count per video is capped; each Vision call is recorded to ai_usage_events tagged feature='video_grading'",
+        "An ai_budgets row guards video-grading spend with alert/throttle/kill; feature is plan-gated / credit-priced appropriately",
+        "Admin AI spend/profitability dashboards break out video_grading"
+      ],
+      "priority": 1765,
+      "passes": false,
+      "notes": "[P2][VIDEO-GRADE][NEW] Reuse recordAiCall (ai-usage.ts) + ai_budgets + isAiBudgetExhausted + withAiAction/credits. Cost math: frames x per-image cost; price/gate accordingly (ties subscription unit economics)."
+    },
+    {
+      "id": "US-1766",
+      "title": "Video grading: capture UX + verified-capture provenance",
+      "description": "As a seller, I want a guided mobile capture flow so that my video yields a gradeable, tamper-evident submission.",
+      "acceptanceCriteria": [
+        "Guided walk-around capture (front/back/label/detail prompts) on web + mobile; upload with progress",
+        "Live-capture provenance recorded (extend verified-capture.ts) so certificates can show a 'video-verified' / live-capture badge",
+        "Clear fallback to photo mode"
+      ],
+      "priority": 1766,
+      "passes": false,
+      "notes": "[P2][VIDEO-GRADE][NEW] Extend verified-capture.ts + certificate badges (verified_capture_passed/live_capture_verified already rendered on certificate.tsx). Capture UI on new-submission/snap flows + iOS/Android parity backlog."
+    },
+    {
+      "id": "US-1767",
+      "title": "EPIC: Brand authenticity verification add-on",
+      "description": "As a buyer or high-end seller, I want an AI authenticity assessment for brand-name garments so that I can transact designer/premium items with more confidence — a standalone paid product beyond condition grading.",
+      "acceptanceCriteria": [
+        "An opt-in authenticity pass produces a confidence-scored, disclaimer-bounded assessment using structured brand tells + decoder cross-checks (never an unqualified 'authentic' guarantee)",
+        "Every authenticity verdict is gated behind a golden-set eval and routes low-confidence cases to human review",
+        "Authenticity results surface on a dedicated certificate/badge and are priced/metered as an add-on"
+      ],
+      "priority": 1767,
+      "passes": false,
+      "notes": "[P2][AUTHENTICITY][EPIC] BASELINE: photo-TAMPER detection exists (aggregateAuthenticity in ai-grading.ts, forensic_grade/authenticity_addon opt-ins in grade.ts, grade_authenticity_review 00061, photo-reuse.ts). Brand KB has brand_knowledge.authentication_tells (00389) but brandPackPromptBlock says 'NEVER assert authenticity'. TECH/3P: no reliable authentication API to integrate (market comparable = Entrupy/Real Authentication, human-based); build on brand KB + decoders (brand-decoders.ts date-code/serial). TIES: brand KB epic (US-1723+), grading pipeline, human-review, certificate. LIABILITY: must be 'assessment/estimate', heavy disclaimers, aligns with 'never guarantee' policy. BUYER: confidence on designer items. SELLER: premium listing credibility. Child stories: structured tells, scoring pass, eval gate, public lookup+pricing."
+    },
+    {
+      "id": "US-1768",
+      "title": "Authenticity: structured, checkable brand tells + decoder cross-checks",
+      "description": "As the authenticity engine, I want brand tells stored as structured checkable rules so that the assessment is grounded and auditable.",
+      "acceptanceCriteria": [
+        "brand_knowledge.authentication_tells expanded into structured, per-brand checkable tells (stitching, hardware, tags, fonts, date-code/serial patterns) with sources/confidence",
+        "Decoder cross-checks (brand-decoders.ts) validate date codes/serials/style codes against known patterns and flag inconsistencies",
+        "Admin can curate tells via the admin-brand-knowledge surface"
+      ],
+      "priority": 1768,
+      "passes": false,
+      "notes": "[P2][AUTHENTICITY] Extend brand_knowledge/brand_style_codes (00389) + brand-decoders.ts + admin-brand-knowledge.ts. Coordinate with Brand KB epic (esp. US-1727 LV date codes, US-1726 Coach creed/serial, US-1728 Gucci tells)."
+    },
+    {
+      "id": "US-1769",
+      "title": "Authenticity: opt-in scoring pass with capped confidence + disclaimers",
+      "description": "As a buyer, I want a clear authenticity assessment with honest confidence and disclaimers so that I understand its limits.",
+      "acceptanceCriteria": [
+        "An opt-in addon triggers an authenticity prompt (relaxing the 'never assert' rule ONLY inside the addon) that returns per-tell findings + an overall confidence-capped verdict (likely-authentic / inconclusive / red-flags)",
+        "Verdict is confidence-capped (reuse authenticity confidence caps) and always accompanied by explicit legal/limits disclaimer copy",
+        "Result persists to grade_authenticity_review / authenticity_assessment fields"
+      ],
+      "priority": 1769,
+      "passes": false,
+      "notes": "[P2][AUTHENTICITY] Load grading-engine skill (owns confidence-cap composition + prompt-version lifecycle). Reuse AUTHENTICITY_FLAG_CONFIDENCE_CAP. Legal copy review required before ship."
+    },
+    {
+      "id": "US-1770",
+      "title": "Authenticity: golden-set eval gate + human-review routing",
+      "description": "As GradeThread, I want authenticity verdicts eval-gated before they ship so that we don't publish confident-but-wrong calls.",
+      "acceptanceCriteria": [
+        "A labeled authenticity golden set (authentic vs counterfeit examples per top brand) with an eval-gate that must pass before any prompt version activates (mirror grading_eval_cases/grading_eval_runs)",
+        "Sub-threshold or red-flag cases route to human review before the assessment is finalized",
+        "Accuracy tracked per brand; regressions block activation (shadow -> eval -> canary)"
+      ],
+      "priority": 1770,
+      "passes": false,
+      "notes": "[P2][AUTHENTICITY][EVAL] Reuse grading-eval.ts + grading_eval_cases/runs (00050) pattern + human-review.ts. Follow grading-engine skill prompt-version lifecycle. Exemplar privacy rules apply."
+    },
+    {
+      "id": "US-1771",
+      "title": "Authenticity: public 'is it authentic?' lookup + pricing/metering",
+      "description": "As a prospective buyer, I want a free/paid authenticity check tool so that I can vet an item before buying — driving traffic and add-on revenue.",
+      "acceptanceCriteria": [
+        "A public authenticity-check tool (rate-limited, aggregate/estimate framing) and a paid full authenticity certificate/badge on the cert page",
+        "Metered via ai_usage_events feature='authenticity' + ai_budgets; priced as an add-on (credits/Stripe)",
+        "Authenticity badge/section rendered on certificate.tsx + slab formats"
+      ],
+      "priority": 1771,
+      "passes": false,
+      "notes": "[P2][AUTHENTICITY][GROWTH] Free tool mirrors grade-checker abuse controls. Add-on pricing via payments.ts catalog. Certificate badge already has an authenticity flag slot to extend."
+    },
+    {
+      "id": "US-1772",
+      "title": "EPIC: Brand durability & depreciation rankings (data/PR asset)",
+      "description": "As GradeThread, I want to aggregate per-garment condition-over-time data into public brand/fabric durability and value-depreciation rankings so that we own a unique data asset that earns PR, backlinks, and search traffic.",
+      "acceptanceCriteria": [
+        "Per-garment condition curves are aggregated into cohort durability rankings by brand / garment type / fabric, sample-gated to avoid thin claims",
+        "Public rankings pages rank and interlink with /value and /condition-index",
+        "A periodic 'State of Secondhand Durability' report is generated for PR/outreach"
+      ],
+      "priority": 1772,
+      "passes": false,
+      "notes": "[P2][DURABILITY][EPIC] BASELINE (per-garment built): passport-curve.ts buildConditionCurve (US-1282) emits per-garment condition-over-time with per-factor deltas from public_grade_reports joined on grade_reports.garment_id; passport-forecast.ts exists; garment_fingerprints.wear_score (00260). GAP: no cross-garment aggregation. TECH/3P: none new. TIES: passport (garments/garment_events, sku_class), value index (EPIC 1), US-1691 State of Secondhand report, US-1689 shorts. PRIVACY: aggregate-only, no PII, sample-gated. BUYER: which brands last. SELLER: sourcing intelligence. Child stories: aggregation engine, public rankings pages, data report."
+    },
+    {
+      "id": "US-1773",
+      "title": "Durability: cross-garment aggregation engine",
+      "description": "As the data layer, I want durability computed across many garments so that we can rank brands/fabrics by how well condition holds.",
+      "acceptanceCriteria": [
+        "New aggregation (edge job) rolls up buildConditionCurve outputs across garments by sku_class (brand/type/fabric) into durability metrics (avg condition retention, per-factor decay, resale value decay)",
+        "Metrics are sample-gated (min garments/regrades) and stored in a new aggregate table (RLS deny-all, non-tenant)",
+        "Value-vs-condition decay correlated where sale prices exist in garment_events payloads (PII-safe)"
+      ],
+      "priority": 1773,
+      "passes": false,
+      "notes": "[P2][DURABILITY] New lib (durability-aggregate.ts) over garments/garment_events/public_grade_reports + wear_score. Migration triple for the aggregate table. Reuse condition-index sample-gating philosophy."
+    },
+    {
+      "id": "US-1774",
+      "title": "Durability: public rankings pages",
+      "description": "As a searcher, I want pages ranking brands by durability so that I can decide what to buy/source.",
+      "acceptanceCriteria": [
+        "Model B Pages Function serves /durability (hub) + /durability/{brand|category|fabric} rankings with Dataset/Breadcrumb JSON-LD",
+        "Registered in _routes.json, PWA denylist, and sitemap; interlinked with /value and /condition-index",
+        "Only sample-gated cohorts are shown; methodology/limits disclosed"
+      ],
+      "priority": 1774,
+      "passes": false,
+      "notes": "[P2][DURABILITY][SEO] Clone functions/condition-index/[[path]].ts pattern. Public edge endpoint over the aggregate table. No fabricated precision."
+    },
+    {
+      "id": "US-1775",
+      "title": "Durability: 'State of Secondhand Durability' report + PR export",
+      "description": "As GradeThread marketing, I want a periodic durability report so that we earn press and citations.",
+      "acceptanceCriteria": [
+        "Admin-curated report generated from the aggregation (top/bottom brands, fabric findings, YoY change) with charts and an exportable/press-ready format",
+        "Report published as a content page and promoted via the content/social engine",
+        "Feeds the existing State-of-Secondhand initiative (US-1691) and shorts (US-1689)"
+      ],
+      "priority": 1775,
+      "passes": false,
+      "notes": "[P2][DURABILITY][PR][GEO] Reuse content engine (content-blog.ts/content-social.ts) + admin curation. Ties US-1691/US-1689."
+    },
+    {
+      "id": "US-1776",
+      "title": "EPIC: 'Will it fit me?' buyer fit-prediction",
+      "description": "As a buyer, I want to know whether a garment will fit my body from its measurements so that I buy the right size and return less — turning GradeThread's measurement data into a buyer-facing feature.",
+      "acceptanceCriteria": [
+        "Buyers can store body measurements and get a fit verdict + size recommendation for a measured item",
+        "Fit prediction uses existing garment flat-lay measurements and a per-category ease/tolerance model",
+        "A free public fit tool drives buyer traffic and account creation"
+      ],
+      "priority": 1776,
+      "passes": false,
+      "notes": "[P2][FIT][EPIC][NEW] BASELINE: garment flat-lay measurements exist (inventory_items.measurements jsonb + measurement-templates.ts canonical keys; MeasureCard pipeline flipdesk-measure.ts; MEASUREMENT_SPECS units in inches). GAP (greenfield): NO buyer body-profile store, NO fit comparison, NO size recommendation (grep confirmed zero). TECH/3P: none required (deterministic ease-model math); optional future ML. TIES: measurements, certificate/passport/listing, verified profiles. PRIVACY: body measurements are sensitive PII -> RLS + anon-session option. BUYER: confidence + fewer returns. SELLER: fewer returns/disputes, opt-in to expose measurements. Child stories: body-profile store, fit engine, buyer surfaces, public fit tool."
+    },
+    {
+      "id": "US-1777",
+      "title": "Fit: buyer body-profile store + input UI",
+      "description": "As a buyer, I want to save my measurements so that fit checks are one tap.",
+      "acceptanceCriteria": [
+        "New body_profiles table (per authenticated user; plus an anonymous session option) storing chest/waist/hip/inseam/etc with in/cm, RLS-protected",
+        "Input UI with guidance (how to measure) reusing measurement units/format helpers",
+        "Buyers can keep multiple profiles (self, gift recipients)"
+      ],
+      "priority": 1777,
+      "passes": false,
+      "notes": "[P2][FIT][NEW] Migration triple for body_profiles (tenant-scoped RLS; treat as sensitive PII). Reuse measurements.ts unit semantics + measurement-prefs.ts in/cm. NOTE: garment measures are flat-lay; body measures are body circumference — engine must convert."
+    },
+    {
+      "id": "US-1778",
+      "title": "Fit: comparison engine (ease model + size recommendation)",
+      "description": "As the fit engine, I want to compare garment flat-lay dimensions to body measurements so that I can produce an honest fit verdict.",
+      "acceptanceCriteria": [
+        "Per-garment-category ease/tolerance model maps flat-lay measurements (pit-to-pit x2 vs chest circumference, etc.) to a fit verdict (too small / slim / true / relaxed / too big) with confidence",
+        "Produces a size recommendation and highlights the limiting dimension",
+        "Honest 'insufficient measurements' path when the item lacks needed measures"
+      ],
+      "priority": 1778,
+      "passes": false,
+      "notes": "[P2][FIT][NEW] New lib fit-model.ts. Ease constants per garment group (measurement-templates.ts categories). Deterministic + explainable; no black box. Unit/lockstep care (flat-lay inches -> circumference)."
+    },
+    {
+      "id": "US-1779",
+      "title": "Fit: buyer surfaces on certificate/passport/listing",
+      "description": "As a buyer viewing an item, I want a fit check inline so that I decide quickly.",
+      "acceptanceCriteria": [
+        "'Will it fit?' widget on certificate/passport pages and FlipDesk listings when the item has measurements; prompts to add/select a body profile",
+        "Sellers opt in to expose measurements for buyer fit (respects existing measurement provenance/overlay)",
+        "Fit result is clearly an estimate with limits disclosed"
+      ],
+      "priority": 1779,
+      "passes": false,
+      "notes": "[P2][FIT][NEW] Surfaces on certificate.tsx / passport.tsx / listing views. Seller opt-in flag (mirror verified_show_listings pattern). Reuse measurement_overlay photo where present."
+    },
+    {
+      "id": "US-1780",
+      "title": "Fit: free public fit tool + shareable result",
+      "description": "As a prospective buyer, I want a free fit tool so that I can check any item's measurements against my body — driving traffic.",
+      "acceptanceCriteria": [
+        "Public tool: paste/enter a garment's measurements (or pick a certified item) + body profile -> fit verdict, no login required (anon session)",
+        "Shareable result card + funnel to account creation (save profile) and to certified items",
+        "Rate-limited; no PII persisted for anonymous use beyond the session"
+      ],
+      "priority": 1780,
+      "passes": false,
+      "notes": "[P2][FIT][NEW][GROWTH] Model A static tool page (grade-checker template) posting to a public fit endpoint. Shareable card reuses OG render. Anon-session only for privacy."
+    },
+    {
+      "id": "US-1781",
+      "title": "EPIC: Grade-reveal share cards + creator/affiliate program",
+      "description": "As a reseller/creator, I want auto-generated shareable grade-reveal cards and a real creator payout program so that sharing my grades is effortless and I'm rewarded for driving signups — a built-in growth loop.",
+      "acceptanceCriteria": [
+        "Every completed grade auto-generates a shareable reveal card and a one-tap share flow (beyond the certificate page)",
+        "A creator program pays commissions on referred signups via the existing affiliate/Stripe Connect backbone with a creator dashboard",
+        "A public creator/reseller leaderboard ties into the verified directory"
+      ],
+      "priority": 1781,
+      "passes": false,
+      "notes": "[P2][SHARE-CREATOR][EPIC] BASELINE (largely built): cert-image-render.ts + SLAB_FORMATS (square/portrait/story) + cert-share-actions.tsx (native share + X/FB/Pinterest/WhatsApp/Reddit + referral bake); affiliate.ts full Stripe Connect payout backbone (affiliate_clicks/commissions/payouts, 1099 threshold); referrals.ts. GAP: no auto card on grade completion, share only lives on cert page, no creator tier/dashboard/leaderboard. TECH/3P: existing satori/resvg + Stripe Connect; no new 3P. TIES: grading pipeline, referral/affiliate, verified directory, YouTube shorts US-1689. BUYER: n/a. SELLER/CREATOR: effortless sharing + earnings. Child stories: auto reveal card, creator tier+dashboard, leaderboard."
+    },
+    {
+      "id": "US-1782",
+      "title": "Share: auto grade-reveal card on grade completion",
+      "description": "As a seller, I want a share-ready card the moment my grade is done so that I post it without extra steps.",
+      "acceptanceCriteria": [
+        "On grade finalize, the pipeline generates a reveal card (reuse renderCertImage/buildCertSlabHtml story/portrait/square) available on the submission/report view",
+        "One-tap share flow surfaced in-app (not only on /cert), with referral code baked in",
+        "Optional auto-post to the seller's connected social via the existing social webhook fan-out (opt-in)"
+      ],
+      "priority": 1782,
+      "passes": false,
+      "notes": "[P2][SHARE-CREATOR] Hook grading-pipeline.ts finalize -> ensure slab asset (cert-assets bucket 00380). Reuse cert-share-actions.tsx. Optional fireSocialWebhooks (content-social-publish.ts) opt-in."
+    },
+    {
+      "id": "US-1783",
+      "title": "Creator: program tier on the affiliate backbone + dashboard",
+      "description": "As a creator, I want to enroll and track my earnings so that I'm motivated to promote GradeThread.",
+      "acceptanceCriteria": [
+        "Creator enrollment + a creator dashboard built on GET /api/affiliate/me + /payouts (clicks, conversions, accrued/paid commissions, Stripe Connect status)",
+        "Configurable creator commission/reward tier in the affiliate payout config",
+        "Payouts flow through the existing Stripe Connect + 1099-threshold logic"
+      ],
+      "priority": 1783,
+      "passes": false,
+      "notes": "[P2][SHARE-CREATOR][GROWTH] Reuse affiliate.ts end-to-end + lib/affiliate-payout.ts config. Mostly UI + a creator tier config, not new plumbing."
+    },
+    {
+      "id": "US-1784",
+      "title": "Creator: public creator/reseller leaderboard",
+      "description": "As a creator, I want a public leaderboard so that recognition drives participation and the pages earn SEO.",
+      "acceptanceCriteria": [
+        "Public leaderboard ranking creators/resellers by referred signups (opt-in alias) and/or graded volume, tied into /verified",
+        "Attribution via UTM/referral; anti-gaming safeguards",
+        "Leaderboard pages are SEO-indexable and interlinked with verified profiles"
+      ],
+      "priority": 1784,
+      "passes": false,
+      "notes": "[P2][SHARE-CREATOR][SEO] Reuse referrals.ts leaderboard opt-in + verified-directory. Ties existing referral-leaderboard.tsx."
+    },
+    {
+      "id": "US-1785",
+      "title": "EPIC: Circularity impact receipts (per-grade, per-user, brand ESG)",
+      "description": "As an eco-conscious user and as GradeThread, I want per-grade and per-user circularity impact estimates so that resale gets a feel-good 'you diverted X' receipt — a shareable growth hook and a B2B ESG story for brand resale partnerships.",
+      "acceptanceCriteria": [
+        "Each grade produces an estimated circularity impact (e.g. CO2e / water / textile diverted) from credible sourced factors by garment type",
+        "Per-user aggregate impact appears on the dashboard and as a shareable card",
+        "An ESG export/pitch surface positions GradeThread as an 'official resale condition + impact standard' for brands"
+      ],
+      "priority": 1785,
+      "passes": false,
+      "notes": "[P2][SUSTAINABILITY][EPIC][NEW] BASELINE: ABSENT (grep confirmed no CO2/circularity anywhere except a blog seed string). Data exists: grade_reports + submissions.garment_type; dashboard.tsx + certificate.tsx are the hook points; slab render for cards. TECH/3P: NO scraping — use openly published apparel LCA/emission factors (cite sources) stored in a config table; methodology must be defensible + clearly labeled 'estimate'. TIES: certificate/slab, dashboard, brand partnerships (B2B), content/PR. BUYER: feel-good proof. SELLER: shareable impact. B2B: ESG reporting hook. Child stories: impact-estimate lib+factors, surfaces+share, brand ESG export."
+    },
+    {
+      "id": "US-1786",
+      "title": "Sustainability: impact-estimate lib + sourced factor table",
+      "description": "As the platform, I want a defensible impact methodology so that our numbers are credible and auditable.",
+      "acceptanceCriteria": [
+        "New impact-estimate.ts computes CO2e/water/landfill-diverted per garment from a factor table keyed by garment_type/material, using openly published, cited LCA figures",
+        "Factors stored in a config table (RLS deny-all) with source citations + version; results always labeled 'estimate' with methodology link",
+        "Conservative defaults + explicit uncertainty; no overclaiming"
+      ],
+      "priority": 1786,
+      "passes": false,
+      "notes": "[P2][SUSTAINABILITY][NEW] Migration triple for impact_factors table. Cite sources (e.g. published apparel LCA datasets) in-row; do NOT fabricate precision. Compute from submissions.garment_type + grade_reports."
+    },
+    {
+      "id": "US-1787",
+      "title": "Sustainability: certificate/dashboard surfaces + shareable card",
+      "description": "As a user, I want to see and share my impact so that I feel good and spread the word.",
+      "acceptanceCriteria": [
+        "Per-grade impact shown on certificate + slab card; per-user aggregate tile ('your resale diverted X') on dashboard.tsx",
+        "Shareable 'my closet diverted X' card (reuse OG/slab render) with referral bake",
+        "All figures labeled estimates with a methodology link"
+      ],
+      "priority": 1787,
+      "passes": false,
+      "notes": "[P2][SUSTAINABILITY][NEW][SHARE] Surfaces on certificate.tsx + dashboard.tsx; card reuses cert-image-render.ts. Aggregate over the user's grade_reports."
+    },
+    {
+      "id": "US-1788",
+      "title": "Sustainability: brand ESG export + partnership pitch surface",
+      "description": "As a brand-resale partner, I want an impact export so that GradeThread's grade+impact can feed my ESG reporting.",
+      "acceptanceCriteria": [
+        "An aggregate ESG export (CSV/API) of graded-volume impact for a partner/brand cohort (no PII)",
+        "A pitch/landing surface positioning GradeThread as an 'official resale condition + circularity standard' for brand resale programs (e.g. Worn Wear-style)",
+        "Ties into the B2B API (EPIC 11) for programmatic access"
+      ],
+      "priority": 1788,
+      "passes": false,
+      "notes": "[P2][SUSTAINABILITY][NEW][B2B] Aggregate export via api-v1 or admin export; landing via Model A page. Feeds B2B API productization."
+    },
+    {
+      "id": "US-1789",
+      "title": "EPIC: Grade-as-a-Service B2B productization",
+      "description": "As a marketplace/consignment/enterprise partner, I want to grade at volume via API with batch submission, quotas, and usage-based billing so that GradeThread's grade becomes embedded infrastructure across the secondhand industry.",
+      "acceptanceCriteria": [
+        "A batch grading endpoint + async result webhooks support high-volume programmatic grading",
+        "Per-key monthly quotas/entitlements and an enterprise rate tier are enforced",
+        "Usage converts to metered/overage billing with a developer portal + docs"
+      ],
+      "priority": 1789,
+      "passes": false,
+      "notes": "[P2][B2B-API][EPIC] BASELINE (robust): api-v1.ts (POST /grades one-at-a-time, GET reads, /price-guide, sandbox US-596, /webhook), api-keys.ts (CRUD/rotate, scopes, white-label branding gated to Business), api-key-auth.ts, API_RATE_TIERS (api-v1-rate.ts), api_usage_events ledger (display-only) + api_usage_summary RPC, api-usage-log.ts. GAP: no batch endpoint, no per-key monthly quota/entitlement, no metered/overage billing, no enterprise tier, no dev portal/docs. TECH/3P (opensource): OpenAPI spec + Scalar/Redoc/Swagger UI for docs; Stripe metered/usage-based billing. TIES: grading pipeline (processSubmission), payments.ts, ai metering, white-label embed, sustainability export. PARTNER: ThredUp/Poshmark/consignment chains/brands. Child stories: batch endpoint, quotas+enterprise tier, metered billing, dev portal."
+    },
+    {
+      "id": "US-1790",
+      "title": "B2B API: batch grading endpoint + result webhooks",
+      "description": "As a partner, I want to submit many garments in one call and get async results so that I can grade at scale.",
+      "acceptanceCriteria": [
+        "POST /api/v1/grades:batch accepts multiple garments, validates each, and enqueues them via the durable-jobs batch pattern (reuse processSubmission)",
+        "Per-item results delivered via the existing webhook mechanism (and a GET batch-status endpoint) with partial success semantics",
+        "Same auth/scope/tenant-scoping/billing precedence as single grades"
+      ],
+      "priority": 1790,
+      "passes": false,
+      "notes": "[P2][B2B-API] Load durable-jobs skill (batch/claim/heartbeat/reclaim). Reuse api-v1.ts validation + runPaymentPrecedence + webhook delivery. New batch job table (migration triple)."
+    },
+    {
+      "id": "US-1791",
+      "title": "B2B API: per-key monthly quotas + enterprise rate tier",
+      "description": "As GradeThread, I want per-key volume entitlements so that API plans are enforceable beyond throughput.",
+      "acceptanceCriteria": [
+        "api_keys gains monthly quota/entitlement columns enforced in api-key-auth.ts (429 with a clear quota-exceeded code when exhausted)",
+        "A dedicated enterprise/api tier added to API_RATE_TIERS with higher throughput",
+        "Usage vs quota visible via GET /usage + admin"
+      ],
+      "priority": 1791,
+      "passes": false,
+      "notes": "[P2][B2B-API] Extend api_keys (00169) + api-key-auth.ts + API_RATE_TIERS (api-v1-rate.ts). Quota is monthly volume (distinct from per-minute rate)."
+    },
+    {
+      "id": "US-1792",
+      "title": "B2B API: usage-based / overage billing",
+      "description": "As GradeThread, I want to bill partners for what they use so that the API is a real revenue line.",
+      "acceptanceCriteria": [
+        "The existing api_usage_events ledger (currently display-only) feeds a Stripe metered price -> invoices/overage",
+        "An API pricing tier added to the payments catalog; overage vs included volume reconciled per period",
+        "Billing reconciliation job verifies ledger vs Stripe (extend jobs-billing-reconciliation.ts)"
+      ],
+      "priority": 1792,
+      "passes": false,
+      "notes": "[P2][B2B-API][BILLING] Stripe usage-based billing. Convert api_usage_events -> metered usage records. Add tier to payments.ts /catalog. Reconcile via jobs-billing-reconciliation.ts."
+    },
+    {
+      "id": "US-1793",
+      "title": "B2B API: developer portal + OpenAPI docs + onboarding",
+      "description": "As a developer, I want clear docs and a sandbox so that I can integrate quickly.",
+      "acceptanceCriteria": [
+        "A published OpenAPI spec for /api/v1 + a docs portal (Scalar/Redoc/Swagger UI) with auth, batch, webhooks, and price-guide documented",
+        "Sandbox onboarding flow (reuse the deterministic sandbox endpoints) + white-label embed setup polished",
+        "Quickstart + code samples; keys/rotation/quotas surfaced in the api-keys UI"
+      ],
+      "priority": 1793,
+      "passes": false,
+      "notes": "[P2][B2B-API][DX] OpenAPI + opensource docs renderer (self-hosted, inline per CSP). Reuse sandbox (US-596) + white-label branding (api-keys.ts /branding). Docs as a public page."
     }
   ]
 }

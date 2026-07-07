@@ -1,5 +1,40 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00400_gucci_brand_knowledge.sql (US-1728 Gucci, 2026-07-07)
+
+**What:** DATA-ONLY seed of Gucci — 5 lines (GG Supreme, Guccissima, Marmont,
+Ophidia, Web Stripe), a 6-digit `style_number` decoder (informational), and tells
+that state the serial proves nothing and the KB must **never auto-authenticate**.
+source_url + confidence + verified on every row. Bumps `EXPECTED_SCHEMA_VERSION`
+→ **00400**. Self-records '00400'.
+
+**Risk: LOW — additive INSERTs only.** Idempotent. **⚠️ CLIENT READ — none.**
+**⚠️ Apply order:** after 00399; `scripts/apply-prod-migrations.sh`, redeploy.
+
+## ⏳ HELD: 00399_louis_vuitton_brand_knowledge.sql (US-1727 Louis Vuitton, 2026-07-07)
+
+**What:** DATA-ONLY seed of Louis Vuitton (NEW brand_knowledge row) — 5 canvases/
+lines (Monogram, Damier Ebene, Damier Azur, Empreinte, Epi), a date-code
+FORMAT decoder (2 letters + 4 digits; informational only, discontinued March 2021
+→ microchip), and tells that state a date code proves nothing and the KB must
+**never auto-authenticate**. source_url + confidence + verified on every row.
+Bumps `EXPECTED_SCHEMA_VERSION` → **00399**. Self-records '00399'.
+
+**Risk: LOW — additive INSERTs only.** Idempotent. **⚠️ CLIENT READ — none.**
+**⚠️ Apply order:** after 00398; `scripts/apply-prod-migrations.sh`, redeploy.
+
+## ⏳ HELD: 00398_coach_brand_knowledge.sql (US-1726 Coach, 2026-07-07)
+
+**What:** DATA-ONLY seed of Coach (first LUXURY brand) — 5 lines/bags (Signature
+canvas, Glovetanned leather, Willis, Rogue, Tabby), a boutique-vs-outlet
+`style_number` decoder (`F`-prefix = factory/outlet), and `brand_knowledge` tells
+that explicitly say **never auto-authenticate** (creed/serial is informational
+only). source_url + confidence + verified on every row. Bumps
+`EXPECTED_SCHEMA_VERSION` → **00398**. Self-records '00398'.
+
+**Risk: LOW — additive INSERTs only.** Idempotent. **⚠️ CLIENT READ — none.**
+**⚠️ Apply order:** after 00397; `scripts/apply-prod-migrations.sh`, redeploy.
+
 ## ⏳ HELD: 00397_ralph_lauren_brand_knowledge.sql (US-1725 Ralph Lauren, 2026-07-07)
 
 **What:** DATA-ONLY seed of Ralph Lauren — 6 sub-lines as styles (Purple Label /
