@@ -12275,3 +12275,14 @@ US-1646 DONE (iOS) — CI GREEN (runs 28842925827 + 28843317326). 4 fixes:
    stagingDirectory()); mutation stores RELATIVE filename; SyncEngine replay
    resolves vs staging dir (backward-compat for absolute); survives tmp-purge/
    container relocation. Commits 89193def + 076120ac.
+
+────────────────────────────────────────────────────────────────────
+US-1648 DONE (iOS) — CI GREEN (runs 28843798319 + 28844372473). 7 fixes, 2 batches:
+A) sensitive-slot race (pin slot before capture Task, recordCapture(_:into:)),
+   temp-sweep skips pending .uploadPhoto files, TagTextRecognizer one-shot resume.
+B) Reconciliation create = client-id UPSERT (idempotent); PublishDialog fires
+   onPublished once on any dismiss (Done/Close/swipe) via guard + .onDisappear;
+   PostSaleStore cancel+dispute reuse US-1497 in-flight guard; ListingDraftService
+   UPDATE persists listing_price + corrected copy. Commits 04f76ccc + fb812649.
+   NOTE: FIX5's "unconditional validate block" sub-part not confidently located;
+   the substantive listing_price persist + copy done.

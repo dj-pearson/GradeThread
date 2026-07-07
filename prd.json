@@ -11680,7 +11680,7 @@
       "title": "iOS features P2 · Fix sensitive-slot race, idempotent creates, publish-dismiss desync, in-flight guards, price persist, temp sweep, OCR double-resume",
       "description": "As an iOS seller, I want capture/reconcile/publish/post-sale flows to be race-safe and idempotent, so that a tag photo never lands in the public bucket, retries don't duplicate, and successful publishes/edits persist.",
       "priority": 2260,
-      "passes": false,
+      "passes": true,
       "notes": "[P2 batch][Source: CODE_REVIEW_2026-07-04.md §iOS feature flows] Grouped iOS feature P2s; each AC independently verifiable. The sensitive-slot race inverts US-979 (public/private bucket) — highest-value item in this batch.",
       "acceptanceCriteria": [
         "Pin let slot = store.activeSlot synchronously before the capture Task so a slot-strip tap mid-compress can't record a sensitive tag photo as 'front' and push it to the public item-photos bucket (ios/GradeThread/Capture/PhotoIntakeView.swift:948-960 + PhotoIntakeStore.swift:81-86)",
