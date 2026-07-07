@@ -84,10 +84,18 @@ actor TagTextRecognizer {
             // ('Size 12 / W30 L32', care symbols).
 
             let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-            do {
-                try handler.perform([request])
-            } catch {
-                resumeThrowing(RecognizerError.visionFailure(error.localizedDescription))
+            // US-1649: run the synchronous, CPU-heavy `.accurate` Vision request
+            // OFF the Swift cooperative thread pool. A blocking `perform()` inside
+            // this async method holds one of the pool's few threads for the whole
+            // recognition, which can starve unrelated async work. GCD gives it a
+            // dedicated background thread; the one-shot guard keeps resuming the
+            // continuation from that thread safe.
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    try handler.perform([request])
+                } catch {
+                    resumeThrowing(RecognizerError.visionFailure(error.localizedDescription))
+                }
             }
         }
     }

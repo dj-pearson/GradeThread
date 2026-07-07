@@ -388,7 +388,13 @@ public final class PhotoUploadService {
 
         let request = Self.backgroundUploadRequest(signedURL: url)
         do {
-            let (_, response) = try await foregroundUploadSession.upload(for: request, fromFile: task.localFileURL)
+            // US-1649: the foreground session has no session-wide delegate, so the
+            // plain upload(for:fromFile:) reported NO progress (stuck at 0%). Pass
+            // a per-task delegate so didSendBodyData drives the slot's progress bar
+            // with real bytes.
+            let progressDelegate = ForegroundUploadProgressDelegate(uploadId: task.id, service: self)
+            let (_, response) = try await foregroundUploadSession.upload(
+                for: request, fromFile: task.localFileURL, delegate: progressDelegate)
             let code = (response as? HTTPURLResponse)?.statusCode ?? -1
             guard (200..<300).contains(code) else {
                 // Transient (504/5xx, 401/403) → a few deliberate re-mint + re-PUT
@@ -445,8 +451,15 @@ public final class PhotoUploadService {
     // MARK: - Delegate callbacks (entered from a non-isolated bridge)
 
     fileprivate func didSendBytes(taskIdentifier: Int, total: Int64, expected: Int64) {
-        guard let id = sessionTaskIdToUploadId[taskIdentifier],
-              let task = store.tasks[id] else { return }
+        guard let id = sessionTaskIdToUploadId[taskIdentifier] else { return }
+        updateUploadProgress(id: id, total: total, expected: expected)
+    }
+
+    /// US-1649: foreground per-task upload progress — the async
+    /// `upload(for:fromFile:delegate:)` path reports real bytes here, keyed
+    /// directly on the uploadId (no taskIdentifier map needed).
+    func updateUploadProgress(id: UUID, total: Int64, expected: Int64) {
+        guard let task = store.tasks[id] else { return }
         let progress = expected > 0 ? Double(total) / Double(expected) : 0
         // Don't regress progress if a delegate callback comes in out of
         // order. URLSession delivers in-order per-task, but be defensive.
@@ -929,6 +942,34 @@ public final class PhotoUploadService {
 
 /// NSObject because URLSession's delegate API is Objective-C. Stateless —
 /// every callback is forwarded to the service on the MainActor.
+/// US-1649: per-upload progress delegate for the async foreground PUT. The
+/// foreground session has no session-wide delegate, so passing one of these to
+/// `upload(for:fromFile:delegate:)` is what makes the slot progress bar reflect
+/// real bytes sent instead of sitting at 0% for the whole upload.
+fileprivate final class ForegroundUploadProgressDelegate: NSObject, URLSessionTaskDelegate {
+    let uploadId: UUID
+    weak var service: PhotoUploadService?
+
+    init(uploadId: UUID, service: PhotoUploadService) {
+        self.uploadId = uploadId
+        self.service = service
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didSendBodyData bytesSent: Int64,
+        totalBytesSent: Int64,
+        totalBytesExpectedToSend: Int64
+    ) {
+        let id = uploadId
+        Task { @MainActor [weak service] in
+            service?.updateUploadProgress(
+                id: id, total: totalBytesSent, expected: totalBytesExpectedToSend)
+        }
+    }
+}
+
 fileprivate final class SessionDelegate: NSObject,
     URLSessionDataDelegate,
     URLSessionTaskDelegate {
