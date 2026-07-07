@@ -26,7 +26,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { edgeFetch } from "@/lib/edge-fetch";
-import { AlertTriangle, RefreshCw, TrendingUp } from "lucide-react";
+import { AlertTriangle, RefreshCw, Sparkles, TrendingUp } from "lucide-react";
+
+const sevRank = (s: string | null): number => (s === "high" ? 0 : s === "medium" ? 1 : 2);
 
 interface Kpis {
   spend: number;
@@ -71,6 +73,18 @@ interface OverviewResponse {
   campaigns: CampaignPerf[];
   timeseries: DailyPoint[];
   windowDays: number;
+}
+
+interface Recommendation {
+  id: string;
+  target_type: string;
+  target_resource: string;
+  target_name: string | null;
+  change_type: string;
+  rationale: string;
+  confidence: number | null;
+  projected_impact: Record<string, number> | null;
+  severity: string | null;
 }
 
 type MetricKey = "spend" | "clicks" | "conversions" | "cpa";
@@ -124,6 +138,28 @@ export function AdsCommandCenter() {
         toast.success("Ads sync complete.");
       }
       void qc.invalidateQueries({ queryKey: ["ads-overview"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const recsQuery = useQuery<{ recommendations: Recommendation[] }>({
+    queryKey: ["ads-recommendations"],
+    queryFn: async () => {
+      const res = await edgeFetch("/api/admin/ads/recommendations");
+      if (!res.ok) throw new Error("Couldn't load recommendations.");
+      return res.json();
+    },
+  });
+  const analyze = useMutation({
+    mutationFn: async () => {
+      const res = await edgeFetch("/api/admin/ads/analyze", { method: "POST" });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body?.error ?? "Analysis failed.");
+      return body as { generated?: number };
+    },
+    onSuccess: (b) => {
+      toast.success(`Analysis complete — ${b.generated ?? 0} recommendation(s).`);
+      void qc.invalidateQueries({ queryKey: ["ads-recommendations"] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -315,6 +351,62 @@ export function AdsCommandCenter() {
               ))}
             </TableBody>
           </Table>
+        </CardContent>
+      </Card>
+
+      {/* Recommendations (report-only — nothing is applied automatically) */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
+          <div>
+            <CardTitle className="text-sm font-medium">Recommendations</CardTitle>
+            <CardDescription>
+              Claude analysis — report-only; nothing is applied automatically.
+            </CardDescription>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => analyze.mutate()} disabled={analyze.isPending}>
+            <Sparkles className={`mr-2 h-4 w-4 ${analyze.isPending ? "animate-pulse" : ""}`} />
+            {analyze.isPending ? "Analyzing…" : "Analyze"}
+          </Button>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {(recsQuery.data?.recommendations ?? []).length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No recommendations yet. Run an analysis to generate optimization guidance.
+            </p>
+          ) : (
+            [...(recsQuery.data?.recommendations ?? [])]
+              .sort((a, b) => sevRank(a.severity) - sevRank(b.severity))
+              .map((r) => (
+                <div key={r.id} className="rounded-md border p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge
+                      variant={r.severity === "high" ? "destructive" : "outline"}
+                      className="text-[10px] uppercase"
+                    >
+                      {r.severity ?? "medium"}
+                    </Badge>
+                    <span className="text-sm font-medium">{r.change_type.replace(/_/g, " ")}</span>
+                    <span className="text-xs text-muted-foreground">
+                      · {r.target_type}
+                      {r.target_name ? ` · ${r.target_name}` : ""}
+                    </span>
+                    {typeof r.confidence === "number" ? (
+                      <span className="ml-auto text-xs text-muted-foreground">
+                        {Math.round(r.confidence * 100)}% conf.
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="mt-1 text-sm">{r.rationale}</p>
+                  {r.projected_impact && Object.keys(r.projected_impact).length > 0 ? (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {Object.entries(r.projected_impact)
+                        .map(([k, v]) => `${k.replace(/_/g, " ")}: ${v}`)
+                        .join(" · ")}
+                    </p>
+                  ) : null}
+                </div>
+              ))
+          )}
         </CardContent>
       </Card>
     </div>

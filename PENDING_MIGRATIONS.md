@@ -1,5 +1,29 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00383_ads_recommendations.sql (US-1701 Claude analysis, 2026-07-07)
+
+**What:** creates the operator table `ads_recommendations` (target_type,
+target_resource, change_type, rationale, confidence, projected_impact, payload,
+severity, status='proposed') — the report-only output of the Claude ads-analysis
+pass; the guarded apply (US-1703) later acts on the payload. Deny-all RLS;
+registered in `rls-guard_test.ts` `SERVICE_ROLE_ONLY`. Bumps
+`EXPECTED_SCHEMA_VERSION` → **00383**. Self-records '00383'.
+
+**Risk: LOW — one NEW additive table + index + updated_at trigger, idempotent.**
+No changes to existing tables. Only the service-role edge writes (the analysis
+pass); the Command Center reads via /api/admin/ads/recommendations.
+
+**⚠️ CLIENT READ — none directly.** The SPA reads recommendations only through the
+super-admin edge route, which degrades to `[]` if the table is absent. The
+"Analyze" button POSTs /api/admin/ads/analyze (report-only). No hard ordering
+hazard beyond the edge boot guard expecting **00383**.
+
+**⚠️ `NOTIFY pgrst, 'reload schema';` REQUIRED** (new table).
+
+**⚠️ Apply order:** after 00382 (top of the held stack). Run
+`scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload schema';`, then
+redeploy the edge so its boot guard matches 00383.
+
 ## ⏳ HELD: 00382_ad_click_attributions.sql (US-1700 conversion wiring, 2026-07-07)
 
 **What:** creates the operator table `ad_click_attributions` (click_id,

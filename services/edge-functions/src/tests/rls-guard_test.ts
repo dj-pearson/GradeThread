@@ -300,6 +300,10 @@ const SERVICE_ROLE_ONLY = new Set([
   // SPA never reads it. Keyed by click_id + owner_user_id (the converted user,
   // operator naming — not a tenant key). Deny-all by design.
   "ad_click_attributions",
+  // US-1701: Claude ads-analysis recommendations (report-only). Written by the
+  // analysis pass (service role), read by the Command Center via /api/admin/ads/*.
+  // owner_user_id = who triggered the run (operator naming, not a tenant key).
+  "ads_recommendations",
 ]);
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.

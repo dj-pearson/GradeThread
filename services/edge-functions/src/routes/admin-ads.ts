@@ -17,6 +17,7 @@ import {
 } from "../lib/keyword-research.ts";
 import { requireScope } from "../lib/scope-guard.ts";
 import { performGoogleAdsSync } from "../lib/google-ads-sync-job.ts";
+import { analyzeAds } from "../lib/ads-analysis.ts";
 import { isGoogleAdsConfigured } from "../lib/google-ads-client.ts";
 import {
   aggregateKpis,
@@ -417,6 +418,42 @@ adminAdsRoutes.get("/overview", async (c) => {
     });
   } catch (_err) {
     return c.json(empty);
+  }
+});
+
+// GET /api/admin/ads/recommendations — the latest report-only recommendations
+// (US-1701), grouped-ready for the Command Center. Degrades to [] pre-00383.
+adminAdsRoutes.get("/recommendations", async (c) => {
+  if (c.get("adminRole") !== "super_admin") {
+    return c.json({ error: "Super-admin required." }, 403);
+  }
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("ads_recommendations")
+      .select("*")
+      .eq("platform", "google_ads")
+      .eq("status", "proposed")
+      .order("severity", { ascending: true })
+      .order("generated_at", { ascending: false })
+      .limit(200);
+    if (error) return c.json({ recommendations: [] });
+    return c.json({ recommendations: data ?? [] });
+  } catch (_err) {
+    return c.json({ recommendations: [] });
+  }
+});
+
+// POST /api/admin/ads/analyze — run the REPORT-ONLY Claude analysis (US-1701);
+// writes recommendations, never mutates Google Ads.
+adminAdsRoutes.post("/analyze", async (c) => {
+  if (c.get("adminRole") !== "super_admin") {
+    return c.json({ error: "Super-admin required." }, 403);
+  }
+  try {
+    const result = await analyzeAds({ supabase: supabaseAdmin, ownerUserId: c.get("userId") ?? null });
+    return c.json({ ok: true, generated: result.generated });
+  } catch (err) {
+    return failSafe(c, 502, "Ads analysis failed.", err, "admin.ads.analyze");
   }
 });
 

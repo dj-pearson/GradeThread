@@ -12524,7 +12524,7 @@
       ]
     },
     {
-      "passes": false,
+      "passes": true,
       "priority": 2587,
       "id": "US-1701",
       "title": "Claude Ads analysis engine — report-only recommendations with rationale + projected impact",

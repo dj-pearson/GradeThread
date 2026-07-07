@@ -12383,3 +12383,23 @@ US-1700 DONE (edge+web; MIGRATION 00382 — HELD, do not push until applied).
 - Tests: ads-conversions_test.ts (6, deno) + ad-attribution.test.ts (7, vitest).
 - VERIFIED: deno check 0/lint clean/tests pass; web tsc -b 0/eslint 0/vitest 7/7.
   Migration packaged in PENDING_MIGRATIONS.md (00382) — HELD (NOTIFY pgrst).
+
+────────────────────────────────────────────────────────────────────
+US-1701 DONE (edge+web; MIGRATION 00383 — HELD, do not push until applied).
+- Migration 00383_ads_recommendations.sql: operator table (target_type/resource,
+  change_type, rationale, confidence, projected_impact jsonb, payload jsonb,
+  severity, status='proposed'), deny-all RLS, rls-guard registered.
+  EXPECTED_SCHEMA_VERSION→00383.
+- Edge lib ads-analysis.ts (REPORT-ONLY): buildAnalysisInput (PII-free top-N
+  shaping), buildSystem/UserPrompt (injection defense — untrusted keyword/ad text
+  fenced as data), CHANGE_TYPES enum, validateRecommendation + parseRecommendations
+  (pure), analyzeAds (reads ads_* + ad_click_attributions, calls Claude via
+  ai-config getAnthropicClient [injectable for tests], validates, REPLACES open
+  'proposed' recs; NEVER mutates Google Ads; skips model call when no data).
+- Routes (admin-ads.ts, super-admin): POST /analyze (report-only), GET
+  /recommendations (degrades to [] pre-00383).
+- Web: Command Center recommendations card (grouped by severity, Analyze button,
+  confidence + projected_impact), report-only labeled.
+- Tests ads-analysis_test.ts (8, deno; mocked model + fake supabase).
+- VERIFIED: deno check 0/lint clean/20 edge tests; web tsc -b 0/eslint 0.
+  Migration packaged in PENDING_MIGRATIONS.md (00383) — HELD (NOTIFY pgrst).
