@@ -85,12 +85,13 @@ export function ResellingPillarPage() {
             and attaching a verifiable certificate is how a listing earns trust —
             and how you{" "}
             <Link
-              to="/reduce-returns"
+              to="/reselling/reduce-ebay-returns"
               className="font-medium text-brand-navy hover:underline dark:text-foreground"
             >
               cut &ldquo;not as described&rdquo; returns
             </Link>{" "}
-            at the source.
+            at the source. Returns are the #1 margin killer in reselling, and
+            condition accuracy is what fixes them.
           </p>
         </div>
       </section>

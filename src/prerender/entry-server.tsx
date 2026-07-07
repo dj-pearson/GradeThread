@@ -111,6 +111,8 @@ import {
 import { CompareHubPage, ComparisonPage } from "@/pages/marketing/compare";
 import { OPPORTUNIST_GUIDES } from "@/lib/seo/opportunist-guides";
 import { OpportunistGuidePage } from "@/pages/marketing/opportunist-guide";
+import { RETURNS_SPINE_PATH } from "@/lib/seo/returns-spine";
+import { ReduceEbayReturnsPage } from "@/pages/marketing/reduce-ebay-returns";
 
 // Static map of prerenderable routes → page element.
 const PAGES: Record<string, React.ReactNode> = {
@@ -231,6 +233,8 @@ const PAGES: Record<string, React.ReactNode> = {
       <OpportunistGuidePage key={g.path} path={g.path} />,
     ]),
   ),
+  // The returns spine (US-1673).
+  [RETURNS_SPINE_PATH]: <ReduceEbayReturnsPage />,
 };
 
 export function renderRoute(path: string): string {

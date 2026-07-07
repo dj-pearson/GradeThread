@@ -68,6 +68,8 @@ import {
   comparisonBreadcrumbItems,
   opportunistGuideJsonLd,
   opportunistGuideBreadcrumbItems,
+  returnsSpineJsonLd,
+  returnsSpineBreadcrumbItems,
   flawJsonLd,
   flawBreadcrumbItems,
   flawHubJsonLd,
@@ -92,6 +94,7 @@ import {
   isCompareHubPath,
 } from "@/lib/seo/comparison-guides";
 import { getOpportunistGuideByPath } from "@/lib/seo/opportunist-guides";
+import { isReturnsSpinePath } from "@/lib/seo/returns-spine";
 import { getFlawByPath, isFlawHubPath } from "@/lib/seo/flaw-library";
 import { getGuideByPath, isGuideHubPath } from "@/lib/seo/garment-guides";
 import { twitterSiteHandle, twitterCreatorHandle } from "@/lib/seo/social";
@@ -191,6 +194,14 @@ export function jsonLdForRoute(path: string): JsonLd[] {
       organizationLd(),
       breadcrumbLd(resellingGuideBreadcrumbItems(resellingGuide)),
       ...resellingGuideJsonLd(resellingGuide),
+    ];
+  }
+  // Returns spine (US-1673): Organization + 3-level breadcrumb + Article + FAQ.
+  if (isReturnsSpinePath(path)) {
+    return [
+      organizationLd(),
+      breadcrumbLd(returnsSpineBreadcrumbItems()),
+      ...returnsSpineJsonLd(),
     ];
   }
   // Opportunist mid-tail guides (US-1668): Organization + 3-level breadcrumb +

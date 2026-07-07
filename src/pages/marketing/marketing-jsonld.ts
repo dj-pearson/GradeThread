@@ -55,6 +55,7 @@ import {
   type Comparison,
 } from "@/lib/seo/comparison-guides";
 import { type OpportunistGuide } from "@/lib/seo/opportunist-guides";
+import { RETURNS_SPINE, RETURNS_SPINE_PATH } from "@/lib/seo/returns-spine";
 import { absoluteUrl } from "@/lib/seo/public-routes";
 import { LANDING_FAQS } from "@/pages/landing-faqs";
 import { SITE_URL } from "@/lib/seo/public-routes";
@@ -656,6 +657,32 @@ export function opportunistGuideJsonLd(guide: OpportunistGuide): JsonLd[] {
       dateModified: OPPORTUNIST_MODIFIED,
     }),
     faqPageLd(guide.faqs),
+  ];
+}
+
+// ── Returns spine (US-1673) ─────────────────────────────────────────
+const RETURNS_SPINE_PUBLISHED = "2026-07-06";
+const RETURNS_SPINE_MODIFIED = "2026-07-06";
+
+export function returnsSpineBreadcrumbItems(): Array<{ name: string; url: string }> {
+  return [
+    { name: "GradeThread", url: `${SITE_URL}/` },
+    { name: "Reselling", url: `${SITE_URL}${RESELLING_PILLAR_PATH}` },
+    { name: "Reduce eBay returns", url: `${SITE_URL}${RETURNS_SPINE_PATH}` },
+  ];
+}
+
+/** Returns-spine JSON-LD: Article + the FAQ. */
+export function returnsSpineJsonLd(): JsonLd[] {
+  return [
+    articleLd({
+      headline: RETURNS_SPINE.h1,
+      description: RETURNS_SPINE.description,
+      url: absoluteUrl(RETURNS_SPINE_PATH),
+      datePublished: RETURNS_SPINE_PUBLISHED,
+      dateModified: RETURNS_SPINE_MODIFIED,
+    }),
+    faqPageLd(RETURNS_SPINE.faqs),
   ];
 }
 

@@ -102,6 +102,7 @@ const ResellingGuidePage = lazy(() => import("@/pages/marketing/reselling").then
 const CompareHubPage = lazy(() => import("@/pages/marketing/compare").then(m => ({ default: m.CompareHubPage })));
 const ComparisonPage = lazy(() => import("@/pages/marketing/compare").then(m => ({ default: m.ComparisonPage })));
 const OpportunistGuidePage = lazy(() => import("@/pages/marketing/opportunist-guide").then(m => ({ default: m.OpportunistGuidePage })));
+const ReduceEbayReturnsPage = lazy(() => import("@/pages/marketing/reduce-ebay-returns").then(m => ({ default: m.ReduceEbayReturnsPage })));
 const FlawLibraryHubPage = lazy(() => import("@/pages/marketing/flaw-library").then(m => ({ default: m.FlawLibraryHubPage })));
 const FlawPage = lazy(() => import("@/pages/marketing/flaw-library").then(m => ({ default: m.FlawPage })));
 const GarmentGuidesHubPage = lazy(() => import("@/pages/marketing/garment-guides").then(m => ({ default: m.GarmentGuidesHubPage })));
@@ -363,6 +364,8 @@ export const router = createBrowserRouter([
       // BEFORE the dynamic /reselling/:slug so the static segments win).
       { path: "/reselling/ebay-item-specifics", element: <SuspenseWrapper><OpportunistGuidePage path="/reselling/ebay-item-specifics" /></SuspenseWrapper> },
       { path: "/reselling/comps/ebay-sold-comps", element: <SuspenseWrapper><OpportunistGuidePage path="/reselling/comps/ebay-sold-comps" /></SuspenseWrapper> },
+      // US-1673: the returns spine (explicit path, before the dynamic slug route).
+      { path: "/reselling/reduce-ebay-returns", element: <SuspenseWrapper><ReduceEbayReturnsPage /></SuspenseWrapper> },
       { path: "/reselling/:slug", element: <SuspenseWrapper><ResellingGuidePage /></SuspenseWrapper> },
       // US-1667: marketplace comparison hub + pages.
       { path: "/compare", element: <SuspenseWrapper><CompareHubPage /></SuspenseWrapper> },

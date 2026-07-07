@@ -12113,7 +12113,7 @@
         "Indexable; build clean"
       ],
       "priority": 1673,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][SEO2.0][SEO][GEO] Plan §2 spine + §1 B7. THE authority-routing crossover between the two hubs."
     },
     {

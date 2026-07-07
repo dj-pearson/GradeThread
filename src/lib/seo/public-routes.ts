@@ -26,6 +26,7 @@ import { flawLibraryRoutes } from "./flaw-library";
 import { garmentGuideRoutes } from "./garment-guides";
 import { comparisonRoutes } from "./comparison-guides";
 import { opportunistRoutes } from "./opportunist-guides";
+import { returnsSpineRoute } from "./returns-spine";
 
 export const SITE_URL = "https://gradethread.com";
 
@@ -94,6 +95,8 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   // Opportunist mid-tail eBay guides (US-1668).
   "/reselling/ebay-item-specifics": "2026-07-06",
   "/reselling/comps/ebay-sold-comps": "2026-07-06",
+  // The returns spine (US-1673).
+  "/reselling/reduce-ebay-returns": "2026-07-06",
   // Legal pages mirror their rendered effectiveDate ("April 1, 2026").
   "/privacy": "2026-04-01",
   "/terms": "2026-04-01",
@@ -506,6 +509,8 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
   ...comparisonRoutes(),
   // Opportunist mid-tail eBay guides (US-1668).
   ...opportunistRoutes(),
+  // The returns spine (US-1673): the reselling↔grading crossover page.
+  returnsSpineRoute(),
 ];
 
 // US-427: per-route social share image (Open Graph / Twitter). High-value

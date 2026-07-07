@@ -11972,3 +11972,22 @@ US-1668 DONE (web SEO) — Opportunist mid-tail eBay guides
   routes registered before /reselling/:slug so static segments win).
 - VERIFIED: tsc 0, eslint 0, vitest src/lib/seo (612) + src/prerender (43) green,
   build OK (prerender wrote 178 pages, both new pages emitted). NO migration.
+
+────────────────────────────────────────────────────────────────────
+US-1673 DONE (web SEO) — The returns spine /reselling/reduce-ebay-returns
+- New PURE-DATA module src/lib/seo/returns-spine.ts: RETURNS_SPINE (definition,
+  intro, reasons[] = return-reason→why→disclosure-fix, sections incl. honest
+  "what disclosure can't fix" = fit/remorse, faqs) + route helper.
+- Page src/pages/marketing/reduce-ebay-returns.tsx: quotable answer block,
+  reason→fix cards, sections, spine CTA hard-linking the grading moat.
+- SPINE LINKS: AC named /grading/ and /grading/certificate/ which DON'T exist as
+  routes; linked the real canonical equivalents instead — /grading/scale (scale
+  pillar), /verify (certificate verification), /condition-grading. Documented so
+  US-1674 interlinker rules target these.
+- Universe-B uplink: reselling pillar "cut not-as-described returns" link
+  repointed from /reduce-returns → the spine + "returns are #1 margin killer"
+  framing. (Full every-page enforcement is US-1674's job.)
+- JSON-LD: Article + FAQPage; 3-level breadcrumb. Wired public-routes/entry-
+  server/head-builder(handler before opportunist)/routes(explicit before :slug).
+- VERIFIED: tsc 0, eslint 0, vitest src/lib/seo (615) + src/prerender (43) green,
+  build OK (prerender wrote 179 pages, spine emitted). NO migration.
