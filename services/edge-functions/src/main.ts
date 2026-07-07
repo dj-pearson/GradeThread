@@ -864,6 +864,9 @@ app.use("/api/content/images/*", featureGate("content_ai"));
 
 // US-1073: Ad Copy Studio generation is an expensive Claude call on the same
 // kill-switch + per-min ceiling as the other content-AI paths.
+// US-1709: rate-limit the Ads Command Center ops routes (sync / analyze / apply /
+// upload) so a burst can't stampede the Google / Apple Ads APIs.
+app.use("/api/admin/ads/*", rateLimiter(40, 60_000, "ads-ops"));
 app.use("/api/admin/ads/generate", rateLimiter(20, 60_000, "ads-ai"));
 app.use("/api/admin/ads/generate", featureGate("content_ai"));
 

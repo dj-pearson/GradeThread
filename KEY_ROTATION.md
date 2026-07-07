@@ -66,3 +66,32 @@ in staging first.
 
 > **MANUAL:** review the repo's GitHub → Settings → Secrets list against this
 > table quarterly; remove any unused secret.
+
+## Ads Command Center — Google Ads & Apple Search Ads (US-1709)
+
+Both integrations no-op when unset, so rotation is safe: unset the secret →
+redeploy → the sync/apply cleanly skip until the new secret is in place.
+
+### Google Ads (`GOOGLE_ADS_*`)
+1. **Developer token** — regenerate in Google Ads → API Center (manager account).
+   A new token starts at *Test* access (test accounts only) until Basic Access is
+   re-approved — do NOT enable live apply until Basic Access is granted.
+2. **OAuth client id/secret** — Google Cloud Console → Credentials → rotate the
+   OAuth 2.0 client; update `GOOGLE_ADS_CLIENT_ID` / `GOOGLE_ADS_CLIENT_SECRET`.
+3. **Refresh token** — re-run the offline-access consent flow for a user with Ads
+   access; update `GOOGLE_ADS_REFRESH_TOKEN`. (An `invalid_grant` at runtime means
+   the refresh token was revoked — re-consent.)
+4. Update the values in **Coolify → Team Shared Variables**, redeploy the edge.
+
+### Apple Search Ads (`APPLE_SEARCH_ADS_*`)
+1. **`.p8` private key** — Search Ads UI → API certificates → create a new key,
+   download the `.p8` ONCE. Update `APPLE_SEARCH_ADS_PRIVATE_KEY` (PEM, `\n`-escaped
+   or literal) + `APPLE_SEARCH_ADS_KEY_ID`.
+2. **Client id / team id** — rotate in the Search Ads API credentials if
+   compromised; update `APPLE_SEARCH_ADS_CLIENT_ID` / `_TEAM_ID`.
+3. The client secret is a short-lived ES256 JWT minted per token exchange — no
+   separate rotation; rotating the `.p8` key rotates it implicitly.
+4. Update **Coolify → Team Shared Variables**, redeploy the edge.
+
+**Blast radius:** rotation only affects the Ads Command Center (sync/analysis/
+apply); no user-facing feature depends on these secrets.

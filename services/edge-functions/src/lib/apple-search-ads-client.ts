@@ -7,6 +7,8 @@
 // (mirrors google-ads-client). fetch is injectable so the JWT shaping + report
 // parsing are unit-tested with no live call.
 
+import { withBackoff } from "./ads-retry.ts";
+
 const APPLE_TOKEN_URI = "https://appleid.apple.com/auth/oauth2/token";
 const APPLE_TOKEN_AUD = "https://appleid.apple.com";
 export const APPLE_SEARCH_ADS_API = "https://api.searchads.apple.com/api/v5";
@@ -137,21 +139,24 @@ export async function appleRequest<T>(
   body: unknown | undefined,
   fetchFn: typeof fetch = fetch,
 ): Promise<T> {
-  let res: Response;
-  try {
-    res = await fetchFn(`${APPLE_SEARCH_ADS_API}${path}`, {
-      method,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "X-AP-Context": `orgId=${config.orgId}`,
-        ...(body ? { "Content-Type": "application/json" } : {}),
-      },
-      ...(body ? { body: JSON.stringify(body) } : {}),
-    });
-  } catch (err) {
-    throw new AppleSearchAdsError(0, `ASA request failed: ${err instanceof Error ? err.message : String(err)}`);
-  }
-  const text = await res.text();
-  if (!res.ok) throw new AppleSearchAdsError(res.status, `ASA API ${res.status}: ${text.slice(0, 300)}`);
-  return (text ? JSON.parse(text) : {}) as T;
+  // US-1709: retry transient (429/5xx/network) failures with backoff.
+  return withBackoff(async () => {
+    let res: Response;
+    try {
+      res = await fetchFn(`${APPLE_SEARCH_ADS_API}${path}`, {
+        method,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "X-AP-Context": `orgId=${config.orgId}`,
+          ...(body ? { "Content-Type": "application/json" } : {}),
+        },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+      });
+    } catch (err) {
+      throw new AppleSearchAdsError(0, `ASA request failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    const text = await res.text();
+    if (!res.ok) throw new AppleSearchAdsError(res.status, `ASA API ${res.status}: ${text.slice(0, 300)}`);
+    return (text ? JSON.parse(text) : {}) as T;
+  });
 }

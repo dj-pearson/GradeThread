@@ -12704,7 +12704,7 @@
       ]
     },
     {
-      "passes": false,
+      "passes": true,
       "priority": 2579,
       "id": "US-1709",
       "title": "Ads Command Center hardening — RBAC, rate limits, secret rotation & tests",

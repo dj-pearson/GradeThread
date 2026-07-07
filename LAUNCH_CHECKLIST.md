@@ -66,6 +66,19 @@ Each row: confirm `/health/ready` → `features.<group>` is `"ok"`.
 | `VITE_RELEASE_SHA=$CF_PAGES_COMMIT_SHA` | Pages build command | footer build tag shows the SHA | ☐ |
 | `VITE_CF_IMAGE_RESIZING` | Pages — `true` ONLY after enabling zone Transformations | images load (no broken srcset) | ☐ |
 
+### 1d. Ads Command Center — "Ads apply enabled" gate (US-1709)
+
+The read/analysis side (sync, dashboard, recommendations) is safe as soon as the
+`GOOGLE_ADS_*` / `APPLE_SEARCH_ADS_*` secrets are set. **Do NOT let recommendations
+be APPLIED to a live account until BOTH:**
+
+| Gate | Check | ☐ |
+|---|---|---|
+| Google Ads developer token has **Basic Access** (not Test) | applying with a Test token can only touch test accounts | ☐ |
+| **Guardrails configured** in `system_settings` (`ads_guardrails`) | `maxBudgetChangePct` / `dailySpendCeiling` / `maxAppliesPerRun` set to sane values | ☐ |
+| A **dry-run apply** succeeded on a real recommendation | dry-run returns a valid before/after with no error | ☐ |
+| Apple Search Ads mutate **smoke-tested** (if using ASA) | v5 mutate shapes verified against the live account | ☐ |
+
 ---
 
 ## 2. Third-party dashboards

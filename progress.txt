@@ -12531,3 +12531,19 @@ US-1708 DONE (edge+web; NO migration; HELD — reuses ads_recs/audit + held depl
 - VERIFIED: deno check 0/lint clean/19 tests; web tsc -b 0/eslint 0. ASA mutate =
   v5-docs best-effort (no creds) — needs a live smoke test.
 ★ ADS EPIC: only US-1709 (hardening finale) remains.
+
+────────────────────────────────────────────────────────────────────
+US-1709 DONE (edge+docs; NO migration; HELD). ★★★ ADS EPIC COMPLETE (13/13) ★★★
+- Rate-limit: app.use("/api/admin/ads/*", rateLimiter(40,60_000,"ads-ops")) in main.ts.
+- Retry+backoff: lib/ads-retry.ts (withBackoff, isTransientAdsError 429/5xx/net);
+  wired into runGaql (per-page) + appleRequest. Sync/analysis already idempotent.
+- Super-admin gating: all ads routes check adminRole==="super_admin" (confirmed);
+  apply/rollback record owner_user_id=c.get("userId") in ads_change_audit.
+- rls-guard test confirms all ads_* operator tables stay service-role-only.
+- Docs: KEY_ROTATION.md Google Ads + Apple Search Ads rotation sections;
+  LAUNCH_CHECKLIST §1d "Ads apply enabled" gate (Basic Access + guardrails + dry-run).
+- E2E test ads-e2e_test.ts (mocked): sync→analyze→approve→dry-run apply→audit→
+  rollback-payload. + ads-retry_test.ts (4).
+- VERIFIED: deno check 0/lint clean; full ads suite 51 tests pass; no web change.
+- FLAG: concurrent agent added 000385_feedback_messages.sql (6-digit "385") — a
+  numbering collision with my 00385; outside this epic, left for user to reconcile.

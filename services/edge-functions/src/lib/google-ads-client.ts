@@ -12,6 +12,8 @@
 // is injectable so the whole request/response shaping is unit-testable with no
 // live Google call.
 
+import { withBackoff } from "./ads-retry.ts";
+
 const OAUTH_TOKEN_URI = "https://oauth2.googleapis.com/token";
 // Google Ads API is versioned in the path; bump deliberately (breaking changes
 // per version). v18 is the current stable line.
@@ -162,20 +164,22 @@ export async function runGaql(
 
   do {
     const body = JSON.stringify(pageToken ? { query, pageToken } : { query });
-    let res: Response;
-    try {
-      res = await fetchFn(url, { method: "POST", headers, body });
-    } catch (err) {
-      throw new GoogleAdsError(0, "network", `Google Ads request failed: ${errText(err)}`);
-    }
-    const text = await res.text();
-    if (!res.ok) throw classifyGaqlError(res.status, text);
-    let page: { results?: GaqlRow[]; nextPageToken?: string };
-    try {
-      page = JSON.parse(text) as { results?: GaqlRow[]; nextPageToken?: string };
-    } catch {
-      throw new GoogleAdsError(res.status, "request", "Malformed Google Ads response.");
-    }
+    // US-1709: retry transient (429/5xx/network) failures with backoff per page.
+    const page = await withBackoff(async () => {
+      let res: Response;
+      try {
+        res = await fetchFn(url, { method: "POST", headers, body });
+      } catch (err) {
+        throw new GoogleAdsError(0, "network", `Google Ads request failed: ${errText(err)}`);
+      }
+      const text = await res.text();
+      if (!res.ok) throw classifyGaqlError(res.status, text);
+      try {
+        return JSON.parse(text) as { results?: GaqlRow[]; nextPageToken?: string };
+      } catch {
+        throw new GoogleAdsError(res.status, "request", "Malformed Google Ads response.");
+      }
+    });
     if (Array.isArray(page.results)) rows.push(...page.results);
     pageToken = page.nextPageToken;
   } while (pageToken);
