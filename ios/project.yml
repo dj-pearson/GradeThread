@@ -43,11 +43,13 @@ configs:
   Release: release
 
 packages:
-  # Official Supabase SDK — auth + realtime DB + storage. Pinned to 2.x; we
-  # bump intentionally rather than chasing minor releases automatically.
+  # Official Supabase SDK — auth + realtime DB + storage. US-1523: pinned to an
+  # EXACT version (not a `from:` range) so the auth/session behavior can't shift
+  # under an unattended minor bump; the iOS CI "Verify SPM lockfile" step fails if
+  # resolution drifts from this. Bump here + in that guard together, intentionally.
   Supabase:
     url: https://github.com/supabase-community/supabase-swift
-    from: 2.0.0
+    exactVersion: 2.49.0
   # Crash reporting + breadcrumbs (US-191). DSN comes from xcconfig.
   Sentry:
     url: https://github.com/getsentry/sentry-cocoa

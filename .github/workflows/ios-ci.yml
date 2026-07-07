@@ -60,6 +60,27 @@ jobs:
         # xcconfig configures a non-https SUPABASE_URL / EDGE_API_URL.
         run: python3 ios/Scripts/check-ats.py
 
+      - name: Verify SPM lockfile pinned (US-1523)
+        working-directory: ios
+        # Resolves the package graph and fails if the lockfile is missing or if
+        # supabase-swift drifted from the EXACT version pinned in project.yml. The
+        # exact pin makes resolution deterministic (a committed lockfile's job) so
+        # an unattended minor bump can't silently change auth/session behavior.
+        run: |
+          set -euo pipefail
+          xcodebuild -project GradeThread.xcodeproj -scheme GradeThread -resolvePackageDependencies -quiet
+          RESOLVED="GradeThread.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+          if [ ! -f "$RESOLVED" ]; then
+            echo "::error::Package.resolved missing after dependency resolution."
+            exit 1
+          fi
+          VER="$(jq -r '.pins[]? | select(.identity=="supabase-swift") | .state.version' "$RESOLVED")"
+          echo "supabase-swift resolved to: ${VER:-<none>}"
+          if [ "$VER" != "2.49.0" ]; then
+            echo "::error::supabase-swift drifted from the pinned exact version 2.49.0 (got '${VER:-none}'). Update project.yml + this guard together."
+            exit 1
+          fi
+
       - name: Build + test
         working-directory: ios
         run: |
