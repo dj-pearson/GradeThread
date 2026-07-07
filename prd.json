@@ -12128,7 +12128,7 @@
         "Rules encoded in the interlinker config/tests; verified on a sample corpus"
       ],
       "priority": 1674,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][SEO2.0][SEO] Plan §2 internal-linking model. Makes /grading/scale/ the most internally-linked URL (correct PageRank shape)."
     },
     {

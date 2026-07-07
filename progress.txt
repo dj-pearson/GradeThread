@@ -11991,3 +11991,25 @@ US-1673 DONE (web SEO) — The returns spine /reselling/reduce-ebay-returns
   server/head-builder(handler before opportunist)/routes(explicit before :slug).
 - VERIFIED: tsc 0, eslint 0, vitest src/lib/seo (615) + src/prerender (43) green,
   build OK (prerender wrote 179 pages, spine emitted). NO migration.
+
+────────────────────────────────────────────────────────────────────
+US-1674 DONE (web SEO) — Internal-linking rule-set for the auto-interlinker
+- New src/lib/seo/interlink-rules.ts (PURE data + pure fns, no Date/random):
+  * Hub topology: hubForPath() classifies grading / reselling / flipdesk;
+    HUB_PILLARS (grading=/grading/scale, reselling=/reselling, flipdesk=/flipdesk).
+  * SPINE_PATH + CERTIFICATE_UPLINK_PATH=/grading/scale (cert pages ladder up).
+  * APPROVED_ANCHORS: 3-4 unique non-generic anchors per canonical target;
+    pickAnchor(url,seed) deterministic rotation; approvedAnchorsFor().
+  * isGenericAnchor() forbids click-here/here/read-more/learn-more/etc.
+  * isCrossHubLinkAllowed(): same-hub free; cross-hub ONLY via spine or a pillar.
+  * UPLINK_MAX_WORD_OFFSET=100 (up-link-in-first-100-words rule).
+- Test src/lib/seo/__tests__/interlink-rules.test.ts (15): anchor discipline,
+  targets registered in PUBLIC_ROUTES, hub classification, cross-hub policy
+  (pos+neg), certificate uplink rule, SAMPLE CORPUS compliance, and runs the
+  REAL edge interlinker (linkGlossaryTerms) asserting non-generic anchors into
+  /grading/ spokes + second-pass idempotency.
+- Sideways cap (2-3 related + scale) already enforced by reseller-glossary
+  relatedSlugs; this codifies the scale-ward rule. Config is the source of truth
+  interlinker surfaces draw from; per-surface pickAnchor wiring is incremental.
+- VERIFIED: tsc 0, eslint 0, vitest src/lib/seo (630) green. No routes/pages
+  changed → no build/prerender. NO migration.
