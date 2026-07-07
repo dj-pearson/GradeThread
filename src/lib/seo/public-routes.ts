@@ -24,6 +24,7 @@ import { flipdeskLandingRoutes } from "./flipdesk-landing";
 import { resellingRoutes } from "./reselling-guides";
 import { flawLibraryRoutes } from "./flaw-library";
 import { garmentGuideRoutes } from "./garment-guides";
+import { comparisonRoutes } from "./comparison-guides";
 
 export const SITE_URL = "https://gradethread.com";
 
@@ -86,6 +87,9 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/design-vs-damage": "2026-06-13",
   "/resale-value-by-condition": "2026-06-13",
   "/grading-by-category": "2026-06-13",
+  // Marketplace comparisons (US-1667) — bump on the annual refresh (US-1694).
+  "/compare": "2026-07-06",
+  "/compare/mercari-vs-ebay": "2026-07-06",
   // Legal pages mirror their rendered effectiveDate ("April 1, 2026").
   "/privacy": "2026-04-01",
   "/terms": "2026-04-01",
@@ -494,6 +498,8 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
   ...flawLibraryRoutes(),
   // Garment-type grading guides pSEO (US-1682): /grading/guides hub + per garment.
   ...garmentGuideRoutes(),
+  // Marketplace comparison hub + pages (US-1667): /compare + /compare/{a}-vs-{b}.
+  ...comparisonRoutes(),
 ];
 
 // US-427: per-route social share image (Open Graph / Twitter). High-value

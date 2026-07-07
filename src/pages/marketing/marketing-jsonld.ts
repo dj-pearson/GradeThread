@@ -49,6 +49,11 @@ import {
   resellingGuidePath,
   type ResellingGuide,
 } from "@/lib/seo/reselling-guides";
+import {
+  COMPARE_HUB_PATH,
+  comparePath,
+  type Comparison,
+} from "@/lib/seo/comparison-guides";
 import { absoluteUrl } from "@/lib/seo/public-routes";
 import { LANDING_FAQS } from "@/pages/landing-faqs";
 import { SITE_URL } from "@/lib/seo/public-routes";
@@ -577,6 +582,46 @@ export function resellingGuideJsonLd(guide: ResellingGuide): JsonLd[] {
       dateModified: RESELLING_MODIFIED,
     }),
     faqPageLd(guide.faqs),
+  ];
+}
+
+// ── /compare marketplace comparisons (US-1667) ──────────────────────
+const COMPARISON_PUBLISHED = "2026-07-06";
+const COMPARISON_MODIFIED = "2026-07-06";
+
+export function compareHubBreadcrumbItems(): Array<{ name: string; url: string }> {
+  return [
+    { name: "GradeThread", url: `${SITE_URL}/` },
+    { name: "Comparisons", url: `${SITE_URL}${COMPARE_HUB_PATH}` },
+  ];
+}
+
+export function comparisonBreadcrumbItems(
+  cmp: Comparison,
+): Array<{ name: string; url: string }> {
+  return [
+    { name: "GradeThread", url: `${SITE_URL}/` },
+    { name: "Comparisons", url: `${SITE_URL}${COMPARE_HUB_PATH}` },
+    { name: `${cmp.platformA} vs ${cmp.platformB}`, url: `${SITE_URL}${comparePath(cmp.slug)}` },
+  ];
+}
+
+/** Hub JSON-LD: Organization + breadcrumb come from the layout; nothing extra. */
+export function compareHubJsonLd(): JsonLd[] {
+  return [];
+}
+
+/** Comparison JSON-LD: Article + the comparison FAQ. */
+export function comparisonJsonLd(cmp: Comparison): JsonLd[] {
+  return [
+    articleLd({
+      headline: cmp.h1,
+      description: cmp.description,
+      url: absoluteUrl(comparePath(cmp.slug)),
+      datePublished: COMPARISON_PUBLISHED,
+      dateModified: COMPARISON_MODIFIED,
+    }),
+    faqPageLd(cmp.faqs),
   ];
 }
 

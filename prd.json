@@ -12030,7 +12030,7 @@
         "Registered as indexable public route (prerender/SSR), full content in initial HTML; build + prerender guard clean"
       ],
       "priority": 1667,
-      "passes": false,
+      "passes": true,
       "notes": "[P0][SEO2.0][SEO] Plan §1 B1 + §5 P6 + §9. mercari-vs-ebay is the anomalous Low-comp 1,000/mo term — ship first. Depends on returns spine [[US-1673]] for the link target (can ship before it and backfill)."
     },
     {

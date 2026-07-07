@@ -99,6 +99,8 @@ const FlipDeskPage = lazy(() => import("@/pages/marketing/flipdesk").then(m => (
 const FlipdeskLandingPage = lazy(() => import("@/pages/marketing/flipdesk-landing").then(m => ({ default: m.FlipdeskLandingPage })));
 const ResellingPillarPage = lazy(() => import("@/pages/marketing/reselling").then(m => ({ default: m.ResellingPillarPage })));
 const ResellingGuidePage = lazy(() => import("@/pages/marketing/reselling").then(m => ({ default: m.ResellingGuidePage })));
+const CompareHubPage = lazy(() => import("@/pages/marketing/compare").then(m => ({ default: m.CompareHubPage })));
+const ComparisonPage = lazy(() => import("@/pages/marketing/compare").then(m => ({ default: m.ComparisonPage })));
 const FlawLibraryHubPage = lazy(() => import("@/pages/marketing/flaw-library").then(m => ({ default: m.FlawLibraryHubPage })));
 const FlawPage = lazy(() => import("@/pages/marketing/flaw-library").then(m => ({ default: m.FlawPage })));
 const GarmentGuidesHubPage = lazy(() => import("@/pages/marketing/garment-guides").then(m => ({ default: m.GarmentGuidesHubPage })));
@@ -357,6 +359,9 @@ export const router = createBrowserRouter([
       // US-1688: reselling pillar + TOFU guides (static pillar, dynamic guide route).
       { path: "/reselling", element: <SuspenseWrapper><ResellingPillarPage /></SuspenseWrapper> },
       { path: "/reselling/:slug", element: <SuspenseWrapper><ResellingGuidePage /></SuspenseWrapper> },
+      // US-1667: marketplace comparison hub + pages.
+      { path: "/compare", element: <SuspenseWrapper><CompareHubPage /></SuspenseWrapper> },
+      { path: "/compare/:slug", element: <SuspenseWrapper><ComparisonPage /></SuspenseWrapper> },
       { path: "/sell-used-clothes-ebay", element: <SuspenseWrapper><SellUsedClothesEbayPage /></SuspenseWrapper> },
       { path: "/faq", element: <SuspenseWrapper><FaqPage /></SuspenseWrapper> },
       { path: "/condition-grading", element: <SuspenseWrapper><ConditionGradingPage /></SuspenseWrapper> },

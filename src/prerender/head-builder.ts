@@ -62,6 +62,10 @@ import {
   resellingPillarBreadcrumbItems,
   resellingGuideJsonLd,
   resellingGuideBreadcrumbItems,
+  compareHubJsonLd,
+  compareHubBreadcrumbItems,
+  comparisonJsonLd,
+  comparisonBreadcrumbItems,
   flawJsonLd,
   flawBreadcrumbItems,
   flawHubJsonLd,
@@ -81,6 +85,10 @@ import {
   getResellingGuideByPath,
   isResellingPillarPath,
 } from "@/lib/seo/reselling-guides";
+import {
+  getComparisonByPath,
+  isCompareHubPath,
+} from "@/lib/seo/comparison-guides";
 import { getFlawByPath, isFlawHubPath } from "@/lib/seo/flaw-library";
 import { getGuideByPath, isGuideHubPath } from "@/lib/seo/garment-guides";
 import { twitterSiteHandle, twitterCreatorHandle } from "@/lib/seo/social";
@@ -180,6 +188,23 @@ export function jsonLdForRoute(path: string): JsonLd[] {
       organizationLd(),
       breadcrumbLd(resellingGuideBreadcrumbItems(resellingGuide)),
       ...resellingGuideJsonLd(resellingGuide),
+    ];
+  }
+  // Comparison hub (US-1667): Organization + 2-level breadcrumb (no extra LD).
+  if (isCompareHubPath(path)) {
+    return [
+      organizationLd(),
+      breadcrumbLd(compareHubBreadcrumbItems()),
+      ...compareHubJsonLd(),
+    ];
+  }
+  // Comparison page (US-1667): Organization + 3-level breadcrumb + Article + FAQ.
+  const comparison = getComparisonByPath(path);
+  if (comparison) {
+    return [
+      organizationLd(),
+      breadcrumbLd(comparisonBreadcrumbItems(comparison)),
+      ...comparisonJsonLd(comparison),
     ];
   }
   // Flaw library hub (US-1683): Organization + 2-level breadcrumb +

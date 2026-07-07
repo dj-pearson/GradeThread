@@ -66,6 +66,10 @@ describe("public-routes registry guard (US-291)", () => {
     // paths served by the single dynamic /reselling/:slug route. The pillar
     // (/reselling) is a literal router path and is checked normally below.
     const hasResellingDynamicRoute = allRouterPaths.includes("/reselling/:slug");
+    // US-1667: marketplace comparisons (/compare/<a>-vs-<b>) are concrete
+    // indexable paths served by the single dynamic /compare/:slug route. The
+    // hub (/compare) is a literal router path and is checked normally below.
+    const hasCompareDynamicRoute = allRouterPaths.includes("/compare/:slug");
     for (const r of PUBLIC_ROUTES) {
       if (r.path.startsWith("/grading/")) {
         expect(hasGlossaryDynamicRoute).toBe(true);
@@ -73,6 +77,10 @@ describe("public-routes registry guard (US-291)", () => {
       }
       if (r.path.startsWith("/reselling/")) {
         expect(hasResellingDynamicRoute).toBe(true);
+        continue;
+      }
+      if (r.path.startsWith("/compare/")) {
+        expect(hasCompareDynamicRoute).toBe(true);
         continue;
       }
       expect(allRouterPaths).toContain(r.path);

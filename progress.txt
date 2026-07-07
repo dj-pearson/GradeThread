@@ -11940,3 +11940,19 @@ blocked on partner docs = US-1662) + Vinted (US-1663 extension). Remaining
 possibilities are all API-poor/blocked: Facebook Commerce (restricted, no C2C
 listing), OfferUp (limited), other extension channels (Kidizen etc., low value).
 Recommend the loop wind down here. nextId 1663→1664.
+
+────────────────────────────────────────────────────────────────────
+US-1667 DONE (web SEO) — Comparison template + flagship /compare/mercari-vs-ebay
+- New PURE-DATA module src/lib/seo/comparison-guides.ts: Comparison type
+  (rows incl. the unique wedge:true "returns & condition-dispute" row, sections,
+  verdict, gradingWedge, faqs) + COMPARISONS[mercari-vs-ebay] + route helpers.
+  Designed to hold many comparisons (US-1685 reuse).
+- Page src/pages/marketing/compare.tsx: CompareHubPage + ComparisonPage (table
+  w/ highlighted wedge row, verdict, grading-wedge CTA → /grading/scale +
+  /reduce-returns, FAQ). "Verified July 2026" freshness stamp (US-1694-ready).
+- JSON-LD (marketing-jsonld.ts): Article + FAQPage; 2/3-level breadcrumbs.
+- Wired: public-routes (import+spread+lastmod), entry-server PAGES, head-builder
+  jsonLdForRoute (hub + page handlers), routes/index.tsx (/compare, /compare/:slug).
+- public-routes.test guard: added /compare/ dynamic-route special-case.
+- VERIFIED: tsc 0, vitest src/lib/seo+src/prerender green (649), eslint 0,
+  build OK (prerender wrote 176 pages incl both /compare pages). NO migration.

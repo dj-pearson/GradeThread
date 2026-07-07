@@ -103,6 +103,12 @@ import {
   GarmentGuidesHubPage,
   GarmentGuidePage,
 } from "@/pages/marketing/garment-guides";
+import {
+  COMPARE_HUB_PATH,
+  COMPARISONS,
+  comparePath,
+} from "@/lib/seo/comparison-guides";
+import { CompareHubPage, ComparisonPage } from "@/pages/marketing/compare";
 
 // Static map of prerenderable routes → page element.
 const PAGES: Record<string, React.ReactNode> = {
@@ -206,6 +212,14 @@ const PAGES: Record<string, React.ReactNode> = {
     GARMENT_GUIDES.map((g) => [
       guidePath(g.slug),
       <GarmentGuidePage key={g.slug} slug={g.slug} />,
+    ]),
+  ),
+  // Marketplace comparisons (US-1667).
+  [COMPARE_HUB_PATH]: <CompareHubPage />,
+  ...Object.fromEntries(
+    COMPARISONS.map((c) => [
+      comparePath(c.slug),
+      <ComparisonPage key={c.slug} slug={c.slug} />,
     ]),
   ),
 };
