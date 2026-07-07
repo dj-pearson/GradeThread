@@ -145,6 +145,10 @@ function Editor({
   );
 
   const [body, setBody] = useState(initial.body_html);
+  // Live status — generation now publishes on completion (safety review is
+  // advisory), so the badge must reflect the post-generate/post-publish state
+  // rather than the snapshot captured at mount.
+  const [status, setStatus] = useState(initial.status);
   const [editor, setEditor] = useState<TiptapEditorInstance | null>(null);
   const lastSavedRef = useRef<string>(initial.body_html);
   // Pending body-autosave timer, so an explicit Save can cancel it and stay the
@@ -253,6 +257,7 @@ function Editor({
       setHeroPrompt(p.hero_prompt ?? "");
       editor?.commands.setContent(p.body_html);
       lastSavedRef.current = p.body_html;
+      setStatus(p.status);
     }
     // US-254: offer the A/B title candidates (only worth showing >1).
     const suggestions = result?.title_suggestions ?? [];
@@ -278,6 +283,7 @@ function Editor({
       return;
     await saveMeta(); // Make sure any unsaved meta edits are persisted first.
     await publish.mutateAsync();
+    setStatus("published");
   };
 
   const runPreview = async () => {
@@ -306,13 +312,11 @@ function Editor({
         </Button>
         <div className="flex items-center gap-2">
           <Badge
-            variant={
-              initial.status === "published" ? "default" : "secondary"
-            }
+            variant={status === "published" ? "default" : "secondary"}
           >
             {CONTENT_STATUS_LABELS[
-              initial.status as keyof typeof CONTENT_STATUS_LABELS
-            ] ?? initial.status}
+              status as keyof typeof CONTENT_STATUS_LABELS
+            ] ?? status}
           </Badge>
           <span className="text-xs text-muted-foreground">
             {saving ? "Saving…" : "Saved"}

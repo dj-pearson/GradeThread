@@ -1,5 +1,30 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00388_content_safety_flagged_status.sql (advisory content-safety, 2026-07-07)
+
+**What:** adds the value `'flagged'` to the `public.content_safety_status` enum
+(`ADD VALUE IF NOT EXISTS`). The pre-publish content-safety review (US-486) is now
+ADVISORY on the auto-publish path: AI blog/social posts publish immediately even
+when the reviewer returns a non-pass verdict, tagged `safety_status='flagged'`
+(reasons in `safety_notes`) instead of being held as a draft. Edge writes
+`'flagged'` on the blog editor `/generate` path + the scheduler tick
+(`runBlogTick`/`runSocialTick`). Bumps `EXPECTED_SCHEMA_VERSION` → **00388**.
+Self-records '00388'.
+
+**Risk: LOW — additive enum value, no data change.** Idempotent
+(`ADD VALUE IF NOT EXISTS`), not wrapped in a transaction (a new enum value can't
+be USED in the same tx; this migration never does). `'held'` is retained.
+
+**⚠️ CLIENT READ — none.** No frontend query filters on `safety_status`, so a
+frontend auto-deploy before the SQL applies is safe. The edge only WRITES
+`'flagged'` from this build, which is boot-guarded on **00388**, so it can't run
+before the value exists. Behavior change is otherwise pure product logic (publish
+instead of hold).
+
+**⚠️ Apply order:** after 00387 (top of the held stack). Run
+`scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload schema';` (enum
+changed), then redeploy the edge so its boot guard matches 00388.
+
 ## ⏳ HELD: 00387_ads_recommendation_decisions.sql (US-1702 review workflow, 2026-07-07)
 
 **What:** adds `snooze_until timestamptz` + `dismiss_reason text` (+ an index) to

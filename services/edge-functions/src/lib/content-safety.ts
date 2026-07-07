@@ -6,13 +6,18 @@ import {
 
 // US-486: pre-publish safety/claims review for AI-generated content.
 //
-// The scheduler's auto-publish path runs every AI draft through this check
-// before taking it live. The reviewer model is prompted to HOLD anything with
-// fabricated statistics, unverifiable claims, off-brand or unsafe content —
-// and the whole function FAILS CLOSED: any error (API down, bad JSON, missing
-// key) returns a 'hold' verdict so a broken reviewer can never wave content
-// through. Human-initiated publishes are not gated; a human in the loop is
-// the approval state.
+// The auto-publish paths (blog editor /generate + the scheduler tick) run every
+// AI draft through this check. The reviewer model is prompted to HOLD anything
+// with fabricated statistics, unverifiable claims, off-brand or unsafe content,
+// and the function FAILS CLOSED: any error (API down, bad JSON, missing key)
+// returns a 'hold' verdict.
+//
+// ADVISORY (2026-07): a 'hold' verdict no longer withholds the post. Callers now
+// PUBLISH regardless and tag the post safety_status='flagged' (reasons in
+// safety_notes) for after-the-fact review — so a fail-closed error flags rather
+// than blocks. This function's contract is unchanged (it still returns pass/hold);
+// only the callers' response to a hold changed. Human-initiated publishes remain
+// ungated; a human in the loop is the approval state.
 
 export type SafetyVerdict = "pass" | "hold";
 
