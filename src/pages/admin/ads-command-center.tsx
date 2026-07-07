@@ -168,16 +168,16 @@ export function AdsCommandCenter() {
   });
 
   const recsQuery = useQuery<{ recommendations: Recommendation[] }>({
-    queryKey: ["ads-recommendations"],
+    queryKey: ["ads-recommendations", platform],
     queryFn: async () => {
-      const res = await edgeFetch("/api/admin/ads/recommendations");
+      const res = await edgeFetch(`/api/admin/ads/recommendations?platform=${platform}`);
       if (!res.ok) throw new Error("Couldn't load recommendations.");
       return res.json();
     },
   });
   const analyze = useMutation({
     mutationFn: async () => {
-      const res = await edgeFetch("/api/admin/ads/analyze", { method: "POST" });
+      const res = await edgeFetch(`/api/admin/ads/analyze?platform=${platform}`, { method: "POST" });
       const body = await res.json();
       if (!res.ok) throw new Error(body?.error ?? "Analysis failed.");
       return body as { generated?: number };

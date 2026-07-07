@@ -12510,3 +12510,24 @@ US-1707 DONE (edge+web; NO migration; HELD — reuses ads_* + held ads deploy).
   client_credentials body, report-row + campaign mapping, config no-op.
 - VERIFIED: deno check 0/lint clean/6 tests; web tsc -b 0/eslint 0. No creds here
   → ASA client is v5-docs best-effort, needs a LIVE smoke test (like eBay/Google).
+
+────────────────────────────────────────────────────────────────────
+US-1708 DONE (edge+web; NO migration; HELD — reuses ads_recs/audit + held deploy).
+- apple-search-ads-mutate.ts: APPLE_EXECUTABLE_CHANGE_TYPES allow-list (status/
+  bid/budget/negative; NOT add_keyword/fix_rsa_gap/adjust_tcpa), buildAppleMutation
+  (PUT/POST per ASA Campaign Mgmt API + beforePath GET for rollback),
+  applyAppleMutation (before-read → dry-run [ASA has NO server validate, local
+  only] → real), buildAppleRevertPayload + idsFromAppleResource.
+- google-ads-apply-job.ts applyRecommendation NOW PLATFORM-DISPATCHED: loads rec
+  (any platform), routes google vs apple mutate/token/config, guardrails (US-1705)
+  + resolveGuardrailContext(platform) still enforced, fail-closed per platform.
+  revertChange also platform-aware (dispatches by audit.platform).
+- ads-analysis.ts analyzeAds parameterized by platform (deps.platform); search-term
+  mining google-only; recs written with the platform. /analyze + /recommendations
+  routes + Command Center recs/analyze queries platform-aware; revert route no
+  longer platform-filters the audit lookup.
+- Test apple-search-ads-mutate_test.ts (7): allow-list rejection, op building,
+  dry-run-read-only ordering, real GET→PUT, revert-payload construction.
+- VERIFIED: deno check 0/lint clean/19 tests; web tsc -b 0/eslint 0. ASA mutate =
+  v5-docs best-effort (no creds) — needs a live smoke test.
+★ ADS EPIC: only US-1709 (hardening finale) remains.

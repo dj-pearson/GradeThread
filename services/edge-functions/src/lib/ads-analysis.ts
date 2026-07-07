@@ -224,6 +224,8 @@ export interface AnalyzeDeps {
   model?: string;
   ownerUserId?: string | null;
   windowDays?: number;
+  /** 'google_ads' (default) | 'apple_search_ads' — US-1708. */
+  platform?: string;
 }
 
 export interface AnalyzeResult {
@@ -238,15 +240,16 @@ export interface AnalyzeResult {
  */
 export async function analyzeAds(deps: AnalyzeDeps): Promise<AnalyzeResult> {
   const supabase = deps.supabase;
+  const platform = deps.platform ?? GOOGLE_ADS_PLATFORM;
   const days = deps.windowDays && deps.windowDays >= 1 && deps.windowDays <= 365 ? deps.windowDays : 30;
   const since = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
 
   const [cm, km, camps, kws, convs] = await Promise.all([
-    supabase.from("ads_metrics_daily").select("entity_id, metric_date, impressions, clicks, cost_micros, conversions, conversion_value").eq("platform", GOOGLE_ADS_PLATFORM).eq("entity_type", "campaign").gte("metric_date", since),
-    supabase.from("ads_metrics_daily").select("entity_id, metric_date, impressions, clicks, cost_micros, conversions, conversion_value").eq("platform", GOOGLE_ADS_PLATFORM).eq("entity_type", "keyword").gte("metric_date", since),
-    supabase.from("ads_campaigns").select("external_id, name, status").eq("platform", GOOGLE_ADS_PLATFORM),
-    supabase.from("ads_keywords").select("external_id, text, match_type, ad_group_external_id").eq("platform", GOOGLE_ADS_PLATFORM),
-    supabase.from("ad_click_attributions").select("value").eq("platform", GOOGLE_ADS_PLATFORM).not("converted_at", "is", null),
+    supabase.from("ads_metrics_daily").select("entity_id, metric_date, impressions, clicks, cost_micros, conversions, conversion_value").eq("platform", platform).eq("entity_type", "campaign").gte("metric_date", since),
+    supabase.from("ads_metrics_daily").select("entity_id, metric_date, impressions, clicks, cost_micros, conversions, conversion_value").eq("platform", platform).eq("entity_type", "keyword").gte("metric_date", since),
+    supabase.from("ads_campaigns").select("external_id, name, status").eq("platform", platform),
+    supabase.from("ads_keywords").select("external_id, text, match_type, ad_group_external_id").eq("platform", platform),
+    supabase.from("ad_click_attributions").select("value").eq("platform", platform).not("converted_at", "is", null),
   ]);
 
   const convRows = (convs.data ?? []) as Array<{ value: number | null }>;
@@ -281,7 +284,7 @@ export async function analyzeAds(deps: AnalyzeDeps): Promise<AnalyzeResult> {
 
   const generatedAt = new Date().toISOString();
   const claudeRows = recommendations.map((rec) => ({
-    platform: GOOGLE_ADS_PLATFORM,
+    platform,
     owner_user_id: deps.ownerUserId ?? null,
     target_type: rec.target_type,
     target_resource: rec.target_resource,
@@ -295,13 +298,16 @@ export async function analyzeAds(deps: AnalyzeDeps): Promise<AnalyzeResult> {
     status: "proposed",
     generated_at: generatedAt,
   }));
-  // US-1706: deterministic search-terms mining (negatives + opportunities).
-  const searchTermRows = await mineSearchTermRecommendations(supabase, deps.ownerUserId ?? null, generatedAt);
+  // US-1706: deterministic search-terms mining (Google only — ASA has no
+  // search-terms report synced).
+  const searchTermRows = platform === GOOGLE_ADS_PLATFORM
+    ? await mineSearchTermRecommendations(supabase, deps.ownerUserId ?? null, generatedAt)
+    : [];
   const rows = [...claudeRows, ...searchTermRows];
 
-  // Replace open proposals (keep applied/dismissed history).
+  // Replace this platform's open proposals (keep applied/dismissed history).
   await supabase.from("ads_recommendations").delete()
-    .eq("platform", GOOGLE_ADS_PLATFORM).eq("status", "proposed");
+    .eq("platform", platform).eq("status", "proposed");
   if (rows.length > 0) {
     await supabase.from("ads_recommendations").insert(rows);
   }

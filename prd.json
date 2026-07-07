@@ -12682,7 +12682,7 @@
       ]
     },
     {
-      "passes": false,
+      "passes": true,
       "priority": 2580,
       "id": "US-1708",
       "title": "BONUS · Apple Search Ads — analysis + guarded apply",

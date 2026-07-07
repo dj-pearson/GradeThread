@@ -451,10 +451,11 @@ adminAdsRoutes.get("/recommendations", async (c) => {
     return c.json({ error: "Super-admin required." }, 403);
   }
   try {
+    const platform = c.req.query("platform") === "apple_search_ads" ? "apple_search_ads" : "google_ads";
     const { data, error } = await supabaseAdmin
       .from("ads_recommendations")
       .select("*")
-      .eq("platform", "google_ads")
+      .eq("platform", platform)
       .in("status", ["proposed", "approved", "applied"])
       .order("severity", { ascending: true })
       .order("generated_at", { ascending: false })
@@ -473,7 +474,8 @@ adminAdsRoutes.post("/analyze", async (c) => {
     return c.json({ error: "Super-admin required." }, 403);
   }
   try {
-    const result = await analyzeAds({ supabase: supabaseAdmin, ownerUserId: c.get("userId") ?? null });
+    const platform = c.req.query("platform") === "apple_search_ads" ? "apple_search_ads" : "google_ads";
+    const result = await analyzeAds({ supabase: supabaseAdmin, ownerUserId: c.get("userId") ?? null, platform });
     return c.json({ ok: true, generated: result.generated });
   } catch (err) {
     return failSafe(c, 502, "Ads analysis failed.", err, "admin.ads.analyze");
@@ -518,7 +520,6 @@ adminAdsRoutes.post("/recommendations/:id/revert", async (c) => {
   const { data } = await supabaseAdmin
     .from("ads_change_audit")
     .select("id")
-    .eq("platform", "google_ads")
     .eq("recommendation_id", c.req.param("id"))
     .eq("action", "apply")
     .eq("dry_run", false)
