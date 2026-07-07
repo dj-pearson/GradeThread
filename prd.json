@@ -12182,7 +12182,7 @@
         "A lightweight playbook doc + a tracked list of high-value threads/answers"
       ],
       "priority": 1678,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][SEO2.0][GEO][offpage] Plan §6.7. Reddit is disproportionately retrieved by AI search — one top answer is worth 20 blog posts."
     },
     {

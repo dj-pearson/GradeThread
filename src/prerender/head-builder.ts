@@ -78,6 +78,8 @@ import {
   whereToSellBreadcrumbItems,
   crosslistAppsJsonLd,
   crosslistAppsBreadcrumbItems,
+  conditionChartJsonLd,
+  conditionChartBreadcrumbItems,
   flawJsonLd,
   flawBreadcrumbItems,
   flawHubJsonLd,
@@ -109,6 +111,7 @@ import {
 } from "@/lib/seo/platform-standards";
 import { isWhereToSellPath } from "@/lib/seo/where-to-sell";
 import { isCrosslistAppsPath } from "@/lib/seo/crosslisting-apps";
+import { isConditionChartPath } from "@/lib/seo/condition-chart";
 import { getFlawByPath, isFlawHubPath } from "@/lib/seo/flaw-library";
 import { getGuideByPath, isGuideHubPath } from "@/lib/seo/garment-guides";
 import { twitterSiteHandle, twitterCreatorHandle } from "@/lib/seo/social";
@@ -234,6 +237,15 @@ export function jsonLdForRoute(path: string): JsonLd[] {
       organizationLd(),
       breadcrumbLd(platformStandardBreadcrumbItems(platformStandard)),
       ...platformStandardJsonLd(platformStandard),
+    ];
+  }
+  // Printable condition chart (US-1678). Under /grading/ — before the glossary
+  // lookup. Organization + 3-level breadcrumb + Article.
+  if (isConditionChartPath(path)) {
+    return [
+      organizationLd(),
+      breadcrumbLd(conditionChartBreadcrumbItems()),
+      ...conditionChartJsonLd(),
     ];
   }
   // Opportunist mid-tail guides (US-1668): Organization + 3-level breadcrumb +

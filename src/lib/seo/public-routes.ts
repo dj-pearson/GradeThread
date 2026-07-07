@@ -30,6 +30,7 @@ import { returnsSpineRoute } from "./returns-spine";
 import { platformStandardsRoutes } from "./platform-standards";
 import { whereToSellRoute } from "./where-to-sell";
 import { crosslistAppsRoute } from "./crosslisting-apps";
+import { conditionChartRoute } from "./condition-chart";
 
 export const SITE_URL = "https://gradethread.com";
 
@@ -130,6 +131,8 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/where-to-sell-used-clothes": "2026-07-06",
   // Best crosslisting apps listicle (US-1686).
   "/reselling/best-crosslisting-apps": "2026-07-06",
+  // Free printable condition chart (US-1678).
+  "/grading/condition-chart": "2026-07-06",
   // Legal pages mirror their rendered effectiveDate ("April 1, 2026").
   "/privacy": "2026-04-01",
   "/terms": "2026-04-01",
@@ -550,6 +553,8 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
   whereToSellRoute(),
   // Best crosslisting apps listicle (US-1686).
   crosslistAppsRoute(),
+  // Free printable condition chart (US-1678).
+  conditionChartRoute(),
 ];
 
 // US-427: per-route social share image (Open Graph / Twitter). High-value

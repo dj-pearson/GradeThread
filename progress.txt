@@ -12083,3 +12083,23 @@ US-1686 DONE (web SEO) — Honest 'Best crosslisting apps 2026' listicle
   code; documented.
 - VERIFIED: tsc 0, eslint 0, vitest src/lib/seo (711) + src/prerender (43) green,
   build OK (prerender wrote 206 pages, page emitted). NO migration.
+
+────────────────────────────────────────────────────────────────────
+US-1678 DONE (web SEO) — Free printable condition chart + Reddit playbook
+- New src/lib/seo/condition-chart.ts (path/meta/route) + page src/pages/marketing/
+  condition-chart.tsx: /grading/condition-chart. Renders the full 7-tier scale
+  (score/tier/criteria/typical-flaws/marketplace-equiv) from scaleBands() +
+  the 5 factor weights from GRADE_FACTORS — SINGLE SOURCE, can't drift. No signup,
+  window.print() button, print:hidden chrome, GradeThread name + link to /grading/scale.
+- REDDIT_DISTRIBUTION_PLAYBOOK.md: founder-account disclosure rules, 2-3/wk cadence,
+  6 target subreddits table, free-asset link list, tracked-threads log template,
+  ties to §8 measurement. (Reddit posting itself is a human activity.)
+- JSON-LD: Article; 3-level breadcrumb. Wired public-routes(+lastmod), entry-server,
+  head-builder handler (before glossary, /grading/ path), routes/index (before :slug).
+- VERIFIED: tsc 0, eslint 0, vitest src/lib/seo (714) + src/prerender (43) green,
+  build OK (prerender wrote 207 pages, page emitted). NO migration.
+
+NOTE — US-1689 (YouTube shorts) & US-1691 (State of Secondhand data report) are
+DATA/MEDIA-BLOCKED: 1689 needs real produced videos (VideoObject schema for
+nonexistent videos would violate no-fake-markup); 1691 needs real anonymized
+grading/FlipDesk production data. Both deferred like the operator/ops stories.

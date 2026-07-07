@@ -71,6 +71,7 @@ import {
   CROSSLIST_APPS_PAGE,
   CROSSLIST_APPS_PATH,
 } from "@/lib/seo/crosslisting-apps";
+import { CONDITION_CHART_META, CONDITION_CHART_PATH } from "@/lib/seo/condition-chart";
 import { absoluteUrl } from "@/lib/seo/public-routes";
 import { LANDING_FAQS } from "@/pages/landing-faqs";
 import { SITE_URL } from "@/lib/seo/public-routes";
@@ -814,6 +815,31 @@ export function crosslistAppsJsonLd(): JsonLd[] {
     }),
     itemList,
     faqPageLd(CROSSLIST_APPS_PAGE.faqs),
+  ];
+}
+
+// ── Free printable condition chart (US-1678) ────────────────────────
+const CONDITION_CHART_PUBLISHED = "2026-07-06";
+const CONDITION_CHART_MODIFIED = "2026-07-06";
+
+export function conditionChartBreadcrumbItems(): Array<{ name: string; url: string }> {
+  return [
+    { name: "GradeThread", url: `${SITE_URL}/` },
+    { name: "Grading scale", url: `${SITE_URL}/grading/scale` },
+    { name: "Condition chart", url: `${SITE_URL}${CONDITION_CHART_PATH}` },
+  ];
+}
+
+/** Chart JSON-LD: Article (the reference asset). */
+export function conditionChartJsonLd(): JsonLd[] {
+  return [
+    articleLd({
+      headline: CONDITION_CHART_META.h1,
+      description: CONDITION_CHART_META.description,
+      url: absoluteUrl(CONDITION_CHART_PATH),
+      datePublished: CONDITION_CHART_PUBLISHED,
+      dateModified: CONDITION_CHART_MODIFIED,
+    }),
   ];
 }
 

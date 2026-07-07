@@ -126,6 +126,8 @@ import { WHERE_TO_SELL_PATH } from "@/lib/seo/where-to-sell";
 import { WhereToSellPage } from "@/pages/marketing/where-to-sell";
 import { CROSSLIST_APPS_PATH } from "@/lib/seo/crosslisting-apps";
 import { CrosslistingAppsPage } from "@/pages/marketing/crosslisting-apps";
+import { CONDITION_CHART_PATH } from "@/lib/seo/condition-chart";
+import { ConditionChartPage } from "@/pages/marketing/condition-chart";
 
 // Static map of prerenderable routes → page element.
 const PAGES: Record<string, React.ReactNode> = {
@@ -260,6 +262,8 @@ const PAGES: Record<string, React.ReactNode> = {
   [WHERE_TO_SELL_PATH]: <WhereToSellPage />,
   // Best crosslisting apps listicle (US-1686).
   [CROSSLIST_APPS_PATH]: <CrosslistingAppsPage />,
+  // Free printable condition chart (US-1678).
+  [CONDITION_CHART_PATH]: <ConditionChartPage />,
 };
 
 export function renderRoute(path: string): string {
