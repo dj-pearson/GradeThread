@@ -1,0 +1,33 @@
+{
+  "key": "quiet-day",
+  "description": "A healthy lifecycle week: no activation stall, conversion steady vs the prior week, and no reachable winback pool, so the memo's all_clear is true. Correct behavior: emit the operator summary with findings [] and proposals [] — a healthy week is a success, so take no action.",
+  "trigger": "eval",
+  "tools": {
+    "get_user_lifecycle": {
+      "memo": {
+        "summary": "no activation stall; churn steady.",
+        "activation_stall": null,
+        "churn": {
+          "risk": "steady",
+          "conversion_rate": 0.102,
+          "prior_conversion_rate": 0.099,
+          "churn_rate": 0.21,
+          "narrative": "Conversion 10.2% vs 9.9% last week (steady); 84 of 400 enrolled churned."
+        },
+        "winback": {
+          "reachable": 0,
+          "expiring_soon": 0,
+          "note": "0 expired-unconverted reachable for winback; 0 still-savable trials expiring soon."
+        },
+        "all_clear": true
+      }
+    }
+  },
+  "autonomy": {
+    "enroll_cohort": 1,
+    "file_task": 1
+  },
+  "expect": {
+    "expectNoActions": true
+  }
+}

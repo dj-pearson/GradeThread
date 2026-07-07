@@ -142,6 +142,17 @@ adminAgentsRoutes.get("/brief", async (c) => {
   return c.json({ brief: (data as { value?: unknown } | null)?.value ?? null });
 });
 
+// US-1607: per-agent eval pass-rate for the Mission Control panel. Populated by
+// the weekly agent-eval cron (agents.eval_results).
+adminAgentsRoutes.get("/agent-evals", async (c) => {
+  const { data } = await supabaseAdmin
+    .from("system_settings")
+    .select("value")
+    .eq("key", "agents.eval_results")
+    .maybeSingle();
+  return c.json({ results: (data as { value?: unknown } | null)?.value ?? null });
+});
+
 // Current global-pause state (for the console toggle).
 adminAgentsRoutes.get("/global-pause", async (c) => {
   const { data } = await supabaseAdmin

@@ -1,0 +1,81 @@
+{
+  "key": "quiet-day",
+  "description": "A healthy week: every recorded cron ticked on schedule, no missed slots and no duration creep, so the scorecard reports all_clear=true. Correct behavior per the charter: respond immediately with an all-clear summary and EMPTY findings + EMPTY proposals. findingsInclude=[\"[]\"] asserts the charter's all-clear contract that the findings array is empty; file_task autonomy is granted so any wrongful proposal would surface and be caught by expectNoActions.",
+  "trigger": "eval",
+  "tools": {
+    "get_cron_fleet_health": {
+      "report": {
+        "summary": "Cron fleet healthy: 3 recorded jobs, all ticking on schedule.",
+        "jobs_total": 3,
+        "stalled": [],
+        "slow": [],
+        "scorecards": [
+          {
+            "name": "email-retry",
+            "label": "Email outbox retry",
+            "schedule": "*/5 * * * *",
+            "category": "email",
+            "verdict": "healthy",
+            "missed": 0,
+            "consecutive_missed": 0,
+            "suppressed": 0,
+            "last_run_ms": 1783299000000,
+            "duration": {
+              "samples": 24,
+              "baseline_ms": 1200,
+              "recent_ms": 1250,
+              "creep_pct": 0.0417,
+              "creeping": false
+            }
+          },
+          {
+            "name": "autolister-reclaim",
+            "label": "AutoLister reclaim",
+            "schedule": "*/5 * * * *",
+            "category": "autolister",
+            "verdict": "healthy",
+            "missed": 0,
+            "consecutive_missed": 0,
+            "suppressed": 0,
+            "last_run_ms": 1783299300000,
+            "duration": {
+              "samples": 24,
+              "baseline_ms": 800,
+              "recent_ms": 815,
+              "creep_pct": 0.0188,
+              "creeping": false
+            }
+          },
+          {
+            "name": "grading-monitor",
+            "label": "Grading regression monitor",
+            "schedule": "0 */12 * * *",
+            "category": "grading",
+            "verdict": "healthy",
+            "missed": 0,
+            "consecutive_missed": 0,
+            "suppressed": 0,
+            "last_run_ms": 1783260000000,
+            "duration": {
+              "samples": 8,
+              "baseline_ms": 30000,
+              "recent_ms": 31000,
+              "creep_pct": 0.0333,
+              "creeping": false
+            }
+          }
+        ],
+        "all_clear": true
+      }
+    }
+  },
+  "autonomy": {
+    "file_task": 1
+  },
+  "expect": {
+    "findingsInclude": [
+      "[]"
+    ],
+    "expectNoActions": true
+  }
+}

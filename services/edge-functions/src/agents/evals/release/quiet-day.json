@@ -1,0 +1,38 @@
+{
+  "key": "quiet-day",
+  "description": "A deploy shipped and verified clean: post-deploy health is flat-or-better than the pre-deploy baseline. Correct behavior: emit the clean all-clear finding naming the from->to SHAs (no news IS the deliverable) and propose nothing. The agent never rolls back and files no task on a clean deploy.",
+  "trigger": "eval",
+  "tools": {
+    "get_release_health": {
+      "memo": {
+        "deploy": {
+          "deployed": true,
+          "from_sha": "aaaa1111bbbb2222cccc3333dddd4444eeee5555",
+          "to_sha": "cccc3333dddd4444eeee5555ffff6666aaaa7777"
+        },
+        "metrics": {
+          "job_failures_24h": 1,
+          "webhook_dlq": 0,
+          "email_dlq": 0
+        },
+        "comparison": {
+          "regressions": [],
+          "regressed": false,
+          "comparable": true
+        },
+        "verdict": "clean",
+        "summary": "Deploy aaaa1111->cccc3333 verified clean - no health regression."
+      }
+    }
+  },
+  "autonomy": {
+    "file_task": 1,
+    "run_smoke": 1
+  },
+  "expect": {
+    "findingsInclude": [
+      "cccc3333"
+    ],
+    "expectNoActions": true
+  }
+}

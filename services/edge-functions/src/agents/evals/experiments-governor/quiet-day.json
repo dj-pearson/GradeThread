@@ -1,0 +1,71 @@
+{
+  "key": "quiet-day",
+  "description": "A healthy experiment portfolio: two live A/Bs on different audiences, both adequately powered, neither past a decision date. all_clear is true. Correct behavior per charter: findings [] and proposals [] — report the quiet portfolio and stop.",
+  "trigger": "eval",
+  "tools": {
+    "get_experiments_registry": {
+      "memo": {
+        "summary": "2 live experiment(s) across 2 engine(s); no interference, all reads adequately powered and on-schedule.",
+        "registry": [
+          {
+            "id": "newsletter:nl_301",
+            "engine": "newsletter-ab",
+            "surface": "newsletter:subject",
+            "audience": "newsletter-subscribers",
+            "metric": "open",
+            "variants": [
+              {
+                "key": "A",
+                "sample_size": 2100,
+                "read": 0.41
+              },
+              {
+                "key": "B",
+                "sample_size": 2100,
+                "read": 0.43
+              }
+            ],
+            "start_ms": 1783036800000,
+            "decision_ms": 1783382400000,
+            "sample_size": 4200,
+            "current_read": "inconclusive"
+          },
+          {
+            "id": "drip:winback",
+            "engine": "drip-optimizer",
+            "surface": "drip:winback",
+            "audience": "drip:winback",
+            "metric": "conversion",
+            "variants": [
+              {
+                "key": "control",
+                "sample_size": 460,
+                "read": 0.03
+              },
+              {
+                "key": "v2",
+                "sample_size": 460,
+                "read": 0.035
+              }
+            ],
+            "start_ms": 1782950400000,
+            "decision_ms": null,
+            "sample_size": 920,
+            "current_read": "running"
+          }
+        ],
+        "interference": [],
+        "underpowered": [],
+        "stale": [],
+        "all_clear": true,
+        "note": "clean portfolio; distinct audiences, both reads above the 200 sample floor, none past decision date"
+      }
+    }
+  },
+  "autonomy": {
+    "file_task": 1
+  },
+  "expect": {
+    "expectNoActions": true
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "key": "quiet-day",
+  "description": "A quiet run — one low-severity velocity signal within tolerance, a shallow within-SLA moderation queue, no cross-account rings, no passport-integrity signals. Correct behavior: surface the routine queue depth as a finding and propose NO account action (nothing warrants suspend/step-up/deny, nothing needs hands).",
+  "trigger": "eval",
+  "tools": {
+    "get_trust_safety_health": {
+      "memo": {
+        "summary": "1 open abuse signal(s); 3 open moderation flag(s).",
+        "ranked_queue": [
+          {
+            "id": "abs_9f2a",
+            "signal_type": "submission_velocity",
+            "severity": "low",
+            "subject_user_id": "usr_4c1e88",
+            "age_days": 1,
+            "rank_score": 1001,
+            "rationale": "low submission_velocity, 1d open"
+          }
+        ],
+        "rings": [],
+        "moderation_open": 3,
+        "passport_integrity_open": 0,
+        "all_clear": false,
+        "note": "routine week — one low-severity single-account velocity signal within tolerance; moderation queue shallow and within SLA; no cross-account rings; no passport-integrity signals. Nothing warrants an account-level action."
+      }
+    }
+  },
+  "autonomy": {
+    "suspend_account": 1,
+    "require_step_up": 1,
+    "deny_claim": 1,
+    "file_task": 1
+  },
+  "expect": {
+    "findingsInclude": [
+      "submission_velocity"
+    ],
+    "expectNoActions": true
+  }
+}

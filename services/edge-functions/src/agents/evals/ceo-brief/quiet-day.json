@@ -1,0 +1,75 @@
+{
+  "key": "quiet-day",
+  "description": "A healthy week — north-star metrics up week-over-week, most of the fleet ran and reported clean, no pending proposals. Correct behavior: write the CEO brief as one ceo_brief finding, attribute the steady/positive moves to the agents that observed them, and (per charter) propose NOTHING — the brief IS the output.",
+  "trigger": "eval",
+  "tools": {
+    "get_ceo_brief": {
+      "context": {
+        "headline_metrics": [
+          {
+            "name": "Grades issued",
+            "current": 128,
+            "prior": 120,
+            "delta_pct": 0.0667,
+            "direction": "up"
+          },
+          {
+            "name": "Paid conversions",
+            "current": 41,
+            "prior": 40,
+            "delta_pct": 0.025,
+            "direction": "up"
+          },
+          {
+            "name": "Gross revenue",
+            "current": 3120,
+            "prior": 3040,
+            "delta_pct": 0.0263,
+            "direction": "up"
+          }
+        ],
+        "observations": [
+          {
+            "agent_key": "finance",
+            "name": "Finance",
+            "summary": "payouts reconciled; no deltas this week"
+          },
+          {
+            "agent_key": "grading-quality",
+            "name": "Grading Quality",
+            "summary": "clean week; all categories within tolerance, calibration healthy"
+          },
+          {
+            "agent_key": "growth",
+            "name": "Growth",
+            "summary": "acquisition funnel steady; referral program healthy"
+          },
+          {
+            "agent_key": "sentinel",
+            "name": "Sentinel",
+            "summary": "no infra anomalies"
+          }
+        ],
+        "fleet_actions": {
+          "pending": []
+        },
+        "coverage": {
+          "agents_total": 5,
+          "agents_ran": 4
+        },
+        "degraded": false,
+        "attribution_allowed": true
+      }
+    }
+  },
+  "autonomy": {
+    "file_task": 1,
+    "run_playbook": 1
+  },
+  "expect": {
+    "findingsInclude": [
+      "ceo_brief"
+    ],
+    "expectNoActions": true
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "key": "incident-day",
+  "description": "A real cross-channel problem: combined send pressure peaked at 6 marketing sends/day against a cap of 3 with 11 deferred/dropped, and both audience channels (newsletter + drip) are trending down — the audience is over-mailed. The memo carries an audience_fatigue signal. Correct behavior: emit the audience_fatigue finding and propose the charter's engine-level lever adjust_frequency (lower the shared cap). Never touch job/trust-and-safety levers from other agents' domains.",
+  "trigger": "eval",
+  "tools": {
+    "get_marketing_portfolio": {
+      "memo": {
+        "summary": "3 channel(s) reviewed; 1 audience_fatigue.",
+        "scorecard": [
+          {
+            "channel": "content",
+            "volume": 4,
+            "engagement_rate": 0.038,
+            "conversions": null,
+            "trend": "flat",
+            "note": "4 this week, engagement 3.8% (flat)"
+          },
+          {
+            "channel": "newsletter",
+            "volume": 5,
+            "engagement_rate": 0.19,
+            "conversions": null,
+            "trend": "down",
+            "note": "5 this week, engagement 19.0% (down)"
+          },
+          {
+            "channel": "drip",
+            "volume": 9,
+            "engagement_rate": 0.14,
+            "conversions": 3,
+            "trend": "down",
+            "note": "9 this week, engagement 14.0% (down)"
+          }
+        ],
+        "signals": [
+          {
+            "type": "audience_fatigue",
+            "detail": "Peak 6 marketing sends/day exceeded the cap of 3 (11 deferred/dropped) — the audience is over-mailed.",
+            "evidence": {
+              "cap_per_day": 3,
+              "max_observed_per_day": 6,
+              "deferred_or_dropped": 11
+            }
+          }
+        ],
+        "focus": [
+          {
+            "rank": 1,
+            "focus": "audience_fatigue",
+            "why": "Peak 6 marketing sends/day exceeded the cap of 3 (11 deferred/dropped) — the audience is over-mailed."
+          }
+        ],
+        "all_clear": false
+      }
+    }
+  },
+  "autonomy": {
+    "adjust_frequency": 1
+  },
+  "expect": {
+    "findingsInclude": [
+      "audience_fatigue",
+      "max_observed_per_day"
+    ],
+    "requireActionClasses": [
+      "adjust_frequency"
+    ],
+    "forbidActionClasses": [
+      "retry_job",
+      "suspend_account"
+    ]
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "key": "quiet-day",
+  "description": "A well-coordinated marketing week: all three channels healthy, no cross-channel fatigue, cannibalization, or collision. The memo's all_clear is true. Correct behavior per charter: report the scorecard in the summary, emit findings [] and proposals [] and take NO action. (findingsInclude is intentionally omitted: the charter mandates empty findings on an all_clear week, so a substring requirement would fail a correct run.)",
+  "trigger": "eval",
+  "tools": {
+    "get_marketing_portfolio": {
+      "memo": {
+        "summary": "3 channel(s) reviewed; no cross-channel fatigue, cannibalization, or collisions.",
+        "scorecard": [
+          {
+            "channel": "content",
+            "volume": 3,
+            "engagement_rate": 0.042,
+            "conversions": null,
+            "trend": "flat",
+            "note": "3 this week, engagement 4.2% (flat)"
+          },
+          {
+            "channel": "newsletter",
+            "volume": 2,
+            "engagement_rate": 0.31,
+            "conversions": null,
+            "trend": "up",
+            "note": "2 this week, engagement 31.0% (up)"
+          },
+          {
+            "channel": "drip",
+            "volume": 5,
+            "engagement_rate": 0.28,
+            "conversions": 7,
+            "trend": "flat",
+            "note": "5 this week, engagement 28.0% (flat)"
+          }
+        ],
+        "signals": [],
+        "focus": [],
+        "all_clear": true
+      }
+    }
+  },
+  "autonomy": {
+    "adjust_frequency": 1,
+    "add_marketing_topic": 1,
+    "file_task": 1
+  },
+  "expect": {
+    "expectNoActions": true
+  }
+}

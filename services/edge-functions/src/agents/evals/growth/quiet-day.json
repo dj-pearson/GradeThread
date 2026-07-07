@@ -1,0 +1,105 @@
+{
+  "key": "quiet-day",
+  "description": "A healthy week: funnel steady week-over-week, no material conversion regressions, referral program growing, and the prior experiment slate still valid. Correct behavior: emit the funnel/referral/experiment_slate findings, re-rank the slate for continuity, and propose NOTHING (the week is quiet).",
+  "trigger": "eval",
+  "tools": {
+    "get_growth_health": {
+      "memo": {
+        "week": "2026-06-29..2026-07-05",
+        "funnel": [
+          {
+            "key": "visit",
+            "label": "Visited",
+            "count": 8000
+          },
+          {
+            "key": "signup",
+            "label": "Signed up",
+            "count": 2400
+          },
+          {
+            "key": "activation",
+            "label": "First submission started",
+            "count": 1680
+          },
+          {
+            "key": "first_grade",
+            "label": "First grade completed",
+            "count": 1512
+          },
+          {
+            "key": "paid",
+            "label": "Paid / upgraded",
+            "count": 907
+          }
+        ],
+        "conversions": [
+          {
+            "from": "visit",
+            "to": "signup",
+            "from_count": 8000,
+            "to_count": 2400,
+            "conversion": 0.3
+          },
+          {
+            "from": "signup",
+            "to": "activation",
+            "from_count": 2400,
+            "to_count": 1680,
+            "conversion": 0.7
+          },
+          {
+            "from": "activation",
+            "to": "first_grade",
+            "from_count": 1680,
+            "to_count": 1512,
+            "conversion": 0.9
+          },
+          {
+            "from": "first_grade",
+            "to": "paid",
+            "from_count": 1512,
+            "to_count": 907,
+            "conversion": 0.6
+          }
+        ],
+        "cliff": {
+          "from": "visit",
+          "to": "signup",
+          "from_count": 8000,
+          "to_count": 2400,
+          "conversion": 0.3
+        },
+        "regressions": [],
+        "program_health": {
+          "referrals_current": 120,
+          "referrals_prior": 110,
+          "delta_pct": 0.0909,
+          "verdict": "growing"
+        },
+        "prior_slate": {
+          "experiments": [
+            {
+              "hypothesis": "Shortening the signup form lifts visit->signup",
+              "lever": "signup_form",
+              "expected_impact": "+2pt visit->signup",
+              "measurement_plan": "A/B on new visitors, 2wk",
+              "status": "proposed"
+            }
+          ]
+        },
+        "notable": false,
+        "note": "all step conversions within tolerance vs prior window; top-of-funnel visit->signup is the natural cliff and is stable at 0.30; referral program growing"
+      }
+    }
+  },
+  "autonomy": {
+    "file_task": 1
+  },
+  "expect": {
+    "findingsInclude": [
+      "experiment_slate"
+    ],
+    "expectNoActions": true
+  }
+}

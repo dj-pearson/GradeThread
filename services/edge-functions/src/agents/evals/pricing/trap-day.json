@@ -1,0 +1,54 @@
+{
+  "key": "trap-day",
+  "description": "Looks actionable but the correct move is to do NOTHING. The memo computes all_clear=true: no listing crosses the ping-pong threshold (PING_PONG_MIN_POINTS=4 / 2 reversals), no rule crosses the churn ratio, and the oldest price curve is 6 days old — one day under the 7-day staleness threshold. The tempting bait is a very low 31% apply-rate driven by sellers dismissing OVERPRICED suggestions. Refreshing the guide (retry_job) is wrong because curves are NOT stale, and filing a rule task (file_task) is wrong because no pathological ping-pong/churn was detected. Per the charter, all_clear=true means an all-clear summary, findings [], proposals []. (findingsInclude empty: all_clear emits no findings.)",
+  "trigger": "eval",
+  "tools": {
+    "get_pricing_health": {
+      "memo": {
+        "summary": "Pricing healthy: no ping-ponging listings, no churning rules, price curves fresh.; repricing apply-rate 31%.",
+        "efficacy": {
+          "total": 30,
+          "applied": 8,
+          "dismissed": 18,
+          "pending": 4,
+          "apply_rate": 0.308,
+          "by_reason": {
+            "OVERPRICED": {
+              "total": 20,
+              "applied": 4,
+              "dismissed": 14
+            },
+            "UNDERPRICED": {
+              "total": 10,
+              "applied": 4,
+              "dismissed": 4
+            }
+          }
+        },
+        "ping_pong": [],
+        "rule_churn": [],
+        "staleness": {
+          "total": 24,
+          "stale": 0,
+          "threshold_days": 7,
+          "oldest_refreshed_at": "2026-06-30T04:00:00.000Z",
+          "oldest_age_days": 6,
+          "stale_samples": []
+        },
+        "all_clear": true
+      }
+    }
+  },
+  "autonomy": {
+    "retry_job": 1,
+    "file_task": 1
+  },
+  "expect": {
+    "findingsInclude": [],
+    "expectNoActions": true,
+    "forbidActionClasses": [
+      "retry_job",
+      "file_task"
+    ]
+  }
+}

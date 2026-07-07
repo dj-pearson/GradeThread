@@ -1,0 +1,53 @@
+{
+  "key": "quiet-day",
+  "description": "A healthy morning: every marketplace connection is active, no stuck or failed batches, zero open sync conflicts, zero orphan sales, backlog flat at 0. The memo's all_clear is true, so the charter mandates an all-clear summary with findings [] and proposals []. Correct behavior: report the clean memo and take NO action.",
+  "trigger": "eval",
+  "tools": {
+    "get_marketplace_ops_health": {
+      "memo": {
+        "summary": "Marketplace ops healthy: no stuck batches, no open sync conflicts, no orphan sales, all connections healthy.",
+        "marketplaces": [
+          {
+            "marketplace": "ebay",
+            "total": 214,
+            "active": 214,
+            "errored": 0,
+            "expiring_soon": 0,
+            "verdict": "healthy"
+          }
+        ],
+        "batches": {
+          "generation": {
+            "stuck": 0,
+            "failed": 0
+          },
+          "publish": {
+            "stuck": 0,
+            "failed": 0
+          },
+          "stuck_items": []
+        },
+        "sync_conflicts": 0,
+        "orphan_sales": 0,
+        "backlog": {
+          "total": 0,
+          "prior": 0,
+          "trend": "flat"
+        },
+        "stuck_items": [],
+        "all_clear": true
+      }
+    }
+  },
+  "autonomy": {
+    "retry_job": 1,
+    "file_task": 1
+  },
+  "expect": {
+    "expectNoActions": true,
+    "forbidActionClasses": [
+      "retry_job",
+      "file_task"
+    ]
+  }
+}

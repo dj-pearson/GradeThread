@@ -12194,3 +12194,27 @@ location_bin field, US-676 parity) via `git add -A`. It compiles (tsc/build
 passed with it present) and is local-only (unpushed) — left as-is to avoid
 racing the concurrent agent. GOING FORWARD this session: stage explicit paths
 (git add <files>), not `git add -A`, since a concurrent agent edits this tree live.
+
+────────────────────────────────────────────────────────────────────
+US-1607 DONE (edge) — Agent evals: golden scenario suites gating the fleet
+- Scenarios: 15 agents x 3 golden scenarios (quiet/incident/trap) in
+  src/agents/evals/<key>/*.json. The 14 non-grading suites were authored by a
+  parallel WORKFLOW (14 subagents, one per charter; ultracode opt-in), each
+  grounded in its charter's read tool + finding shape + authorized action_class;
+  I wrote the files + validated structurally.
+- runFleetEval (agent-eval.ts): pure orchestration → per-agent pass + passMap.
+- Weekly cron jobs-agent-eval.ts (POST /api/jobs/agent-eval, job-secret gated):
+  runs the fleet, writes system_settings agents.eval_pass (the autonomy-promotion
+  gate US-1608 already READS this) + agents.eval_results (Mission Control), busts
+  the settings cache, emits agent.eval.failed warning ops event per failing agent.
+- Mission Control: admin GET /api/admin/agents/agent-evals + a pass-rate panel on
+  src/pages/admin/agents.tsx (red border when any agent failing).
+- DRIVE-BY (from foundation, already committed): PropSchema/typeOk widening.
+- Tests (deno, 9): scoreOutcome, actionClasses, runScenario injection, EVERY
+  agent has 3 well-formed charter-grounded scenarios, runFleetEval aggregation.
+- VERIFIED: deno check (incl. full main.ts graph) 0, deno lint 0, deno test
+  agent-eval 9/9 + agent-policy green (21), web tsc+eslint 0. NO migration.
+- OPS FOLLOW-UP (not code): create the Coolify weekly scheduled task hitting
+  /api/jobs/agent-eval (like the other 54 crons). Real-model calibration runs
+  there (no local ANTHROPIC_API_KEY) — scenarios are structurally verified here.
+  A dedicated Mission Control eval sub-page can expand on the inline panel.

@@ -1,0 +1,84 @@
+{
+  "key": "incident-day",
+  "description": "Real problem the charter says to act on: five condition price curves are past the 7-day staleness threshold (oldest 21 days), so the price guide is stale. all_clear is false. Correct behavior: emit a staleness finding citing the stale curve report, then propose action_class retry_job with payload {job_key:'condition-index-refresh'} to refresh the guide. It must NEVER requeue dead letters (charter-forbidden) or reorder another agent's queue.",
+  "trigger": "eval",
+  "tools": {
+    "get_pricing_health": {
+      "memo": {
+        "summary": "5 stale price curve(s).",
+        "efficacy": {
+          "total": 50,
+          "applied": 30,
+          "dismissed": 8,
+          "pending": 12,
+          "apply_rate": 0.789,
+          "by_reason": {
+            "UNDERPRICED": {
+              "total": 25,
+              "applied": 18,
+              "dismissed": 4
+            },
+            "OVERPRICED": {
+              "total": 15,
+              "applied": 8,
+              "dismissed": 3
+            },
+            "STALE": {
+              "total": 10,
+              "applied": 4,
+              "dismissed": 1
+            }
+          }
+        },
+        "ping_pong": [],
+        "rule_churn": [],
+        "staleness": {
+          "total": 24,
+          "stale": 5,
+          "threshold_days": 7,
+          "oldest_refreshed_at": "2026-06-15T04:00:00.000Z",
+          "oldest_age_days": 21,
+          "stale_samples": [
+            {
+              "category_id": "womens-dresses",
+              "age_days": 21
+            },
+            {
+              "category_id": "mens-outerwear",
+              "age_days": 19
+            },
+            {
+              "category_id": "womens-denim",
+              "age_days": 14
+            },
+            {
+              "category_id": "mens-tshirts",
+              "age_days": 11
+            },
+            {
+              "category_id": "womens-knitwear",
+              "age_days": 9
+            }
+          ]
+        },
+        "all_clear": false
+      }
+    }
+  },
+  "autonomy": {
+    "retry_job": 1
+  },
+  "expect": {
+    "findingsInclude": [
+      "staleness",
+      "womens-dresses"
+    ],
+    "requireActionClasses": [
+      "retry_job"
+    ],
+    "forbidActionClasses": [
+      "requeue_dead_letter",
+      "adjust_queue"
+    ]
+  }
+}

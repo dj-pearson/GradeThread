@@ -1,0 +1,40 @@
+{
+  "key": "trap-day",
+  "description": "A trap: a tiny expired-unconverted pool makes all_clear false and warrants noting a winback finding, but the pool is negligible AND already fully covered by the existing winback drip (no incremental reach), while there is no activation stall and churn is steady. It LOOKS actionable but the correct move is to emit the winback finding and DO NOTHING — enroll_cohort would re-target an already-enrolled cohort (zero incremental reach) and the pool is far too small to justify filing a new drip-variant task.",
+  "trigger": "eval",
+  "tools": {
+    "get_user_lifecycle": {
+      "memo": {
+        "summary": "no activation stall; churn steady; 8 winback-reachable.",
+        "activation_stall": null,
+        "churn": {
+          "risk": "steady",
+          "conversion_rate": 0.098,
+          "prior_conversion_rate": 0.101,
+          "churn_rate": 0.22,
+          "narrative": "Conversion 9.8% vs 10.1% last week (steady); 88 of 400 enrolled churned."
+        },
+        "winback": {
+          "reachable": 8,
+          "expiring_soon": 0,
+          "note": "8 expired-unconverted reachable, but all 8 are already enrolled in the existing winback drip (zero incremental reach after opt-out/already-enrolled exclusion); nothing new to enroll and no trials expiring soon."
+        },
+        "all_clear": false
+      }
+    }
+  },
+  "autonomy": {
+    "enroll_cohort": 1,
+    "file_task": 1
+  },
+  "expect": {
+    "findingsInclude": [
+      "winback"
+    ],
+    "expectNoActions": true,
+    "forbidActionClasses": [
+      "enroll_cohort",
+      "file_task"
+    ]
+  }
+}

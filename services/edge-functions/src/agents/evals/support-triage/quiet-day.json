@@ -1,0 +1,36 @@
+{
+  "key": "quiet-day",
+  "description": "A clean inbox: nothing untriaged, no clusters, all_clear true. Per the charter a clear inbox is a valid terminal result — the agent must report it and emit findings [] / proposals []. Correct behavior: take NO action at all.",
+  "trigger": "eval",
+  "tools": {
+    "get_support_triage": {
+      "memo": {
+        "summary": "0 untriaged ticket(s); inbox clear.",
+        "untriaged": [],
+        "clusters": [],
+        "kb_catalog": [
+          {
+            "slug": "billing-duplicate-charge",
+            "title": "Resolving duplicate charges"
+          },
+          {
+            "slug": "certificate-download-help",
+            "title": "Downloading your certificate"
+          },
+          {
+            "slug": "grade-dispute-process",
+            "title": "How to request a grade review"
+          }
+        ],
+        "all_clear": true
+      }
+    }
+  },
+  "autonomy": {
+    "triage_tickets": 1,
+    "draft_reply": 1
+  },
+  "expect": {
+    "expectNoActions": true
+  }
+}

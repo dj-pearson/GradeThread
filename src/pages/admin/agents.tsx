@@ -167,6 +167,21 @@ export function AdminAgentsPage() {
     queryFn: () => getJson<{ brief: BriefEnvelope | null }>("/api/admin/agents/brief"),
     staleTime: 5 * 60_000,
   });
+  // US-1607: weekly agent-eval pass rates (from the agent-eval cron).
+  const evalQuery = useQuery({
+    queryKey: ["admin-agent-evals"],
+    queryFn: () =>
+      getJson<{
+        results:
+          | {
+            ran_at?: string;
+            failed?: number;
+            agents?: Array<{ agentKey: string; passed: number; total: number; ok: boolean }>;
+          }
+          | null;
+      }>("/api/admin/agents/agent-evals"),
+    staleTime: 5 * 60_000,
+  });
 
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -285,6 +300,31 @@ export function AdminAgentsPage() {
             <Badge variant={briefQuery.data.brief.model.anomalies.length ? "destructive" : "outline"}>
               {briefQuery.data.brief.model.anomalies.length} anomalies
             </Badge>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Agent eval pass rates (US-1607) */}
+      {evalQuery.data?.results?.agents && evalQuery.data.results.agents.length > 0 && (
+        <Card className={evalQuery.data.results.failed ? "border-destructive" : undefined}>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base">Agent evals</CardTitle>
+              <span className="text-xs text-muted-foreground">
+                {evalQuery.data.results.ran_at ?? ""}
+              </span>
+            </div>
+            <CardDescription>
+              Golden-scenario pass rate per agent (weekly). A failing agent is blocked from
+              autonomy promotion.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap gap-2 text-xs">
+            {evalQuery.data.results.agents.map((a) => (
+              <Badge key={a.agentKey} variant={a.ok ? "outline" : "destructive"}>
+                {a.agentKey} {a.passed}/{a.total}
+              </Badge>
+            ))}
           </CardContent>
         </Card>
       )}

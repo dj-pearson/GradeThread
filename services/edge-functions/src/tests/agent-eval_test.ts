@@ -9,9 +9,8 @@ Deno.env.set("SUPABASE_URL", Deno.env.get("SUPABASE_URL") ?? "http://localhost:5
 Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-key");
 Deno.env.set("ANTHROPIC_API_KEY", Deno.env.get("ANTHROPIC_API_KEY") ?? "test-key");
 
-const { scoreOutcome, actionClasses, runScenario, loadScenariosForAgent } = await import(
-  "../lib/agent-eval.ts"
-);
+const { scoreOutcome, actionClasses, runScenario, loadScenariosForAgent, agentsWithSuites, runFleetEval } =
+  await import("../lib/agent-eval.ts");
 const { charterFor } = await import("../agents/charters/index.ts");
 
 function outcome(findings: unknown[], proposals: unknown[]): AgentOutcome {
@@ -141,4 +140,61 @@ Deno.test("grading-quality has >= 3 well-formed golden scenarios (happy/incident
   // The trap day must assert "do nothing".
   const trap = scenarios.find((s) => s.key === "trap-day")!;
   assertEquals(trap.expect.expectNoActions, true);
+});
+
+// US-1607 fleet coverage: EVERY seeded agent has a well-formed golden suite.
+Deno.test("every agent with a suite has 3 well-formed scenarios grounded in its charter", async () => {
+  const keys = await agentsWithSuites();
+  assert(keys.length >= 15, `expected >=15 agent suites, got ${keys.length}`);
+  for (const key of keys) {
+    const charter = charterFor(key);
+    assert(charter, `suite for "${key}" has no registered charter`);
+    const scenarios = await loadScenariosForAgent(key);
+    assertEquals(scenarios.length, 3, `${key}: expected exactly 3 scenarios`);
+    const scKeys = scenarios.map((s) => s.key).sort();
+    assertEquals(scKeys, ["incident-day", "quiet-day", "trap-day"], `${key}: wrong scenario keys`);
+    for (const s of scenarios) {
+      assert(s.description && s.description.length > 10, `${key}/${s.key}: thin description`);
+      assert(s.tools && Object.keys(s.tools).length > 0, `${key}/${s.key}: no frozen tools`);
+      assert(s.expect, `${key}/${s.key}: no expectations`);
+      // Each scenario must assert SOMETHING (a finding, an action, or no-action).
+      const e = s.expect;
+      const asserts =
+        (e.findingsInclude?.length ?? 0) +
+        (e.requireActionClasses?.length ?? 0) +
+        (e.forbidActionClasses?.length ?? 0) +
+        (e.expectNoActions ? 1 : 0);
+      assert(asserts > 0, `${key}/${s.key}: expectation asserts nothing`);
+    }
+    // The trap day must require doing nothing.
+    const trap = scenarios.find((s) => s.key === "trap-day")!;
+    assertEquals(trap.expect.expectNoActions, true, `${key}: trap-day must expectNoActions`);
+    // The incident day must require an action OR (rarely) a specific finding.
+    const incident = scenarios.find((s) => s.key === "incident-day")!;
+    const incidentActs =
+      (incident.expect.requireActionClasses?.length ?? 0) +
+      (incident.expect.findingsInclude?.length ?? 0);
+    assert(incidentActs > 0, `${key}: incident-day must require an action or finding`);
+  }
+});
+
+Deno.test("runFleetEval aggregates pass state + a passMap for the autonomy gate", async () => {
+  // Scripted model: emit a benign finding + no proposals → passes quiet/trap
+  // scenarios but fails incident scenarios that require an action. We only
+  // assert the SHAPE + arithmetic here (real calibration is the weekly job).
+  const noActionStep = scriptedMakeStep({
+    summary: "ok",
+    findings: [{ type: "generic", note: "nothing" }],
+    proposals: [],
+  });
+  const summary = await runFleetEval(noActionStep);
+  assert(summary.agents.length >= 15, `expected >=15 agents, got ${summary.agents.length}`);
+  // passMap has an entry per agent, boolean.
+  for (const a of summary.agents) {
+    assertEquals(typeof summary.passMap[a.agentKey], "boolean");
+    assertEquals(a.passed <= a.total, true);
+  }
+  // failed count matches the map.
+  const failedFromMap = Object.values(summary.passMap).filter((v) => !v).length;
+  assertEquals(summary.failed, failedFromMap);
 });

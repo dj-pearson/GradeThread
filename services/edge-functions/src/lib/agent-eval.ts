@@ -244,6 +244,35 @@ export async function runAgentEval(
   };
 }
 
+export interface FleetEvalSummary {
+  agents: Array<{ agentKey: string; passed: number; total: number; ok: boolean }>;
+  /** agents.eval_pass shape consumed by the autonomy-promotion gate (US-1608). */
+  passMap: Record<string, boolean>;
+  failed: number;
+}
+
+/**
+ * Run every agent's golden-scenario suite and summarize pass state. Pure
+ * orchestration (no DB / no ops events — the cron route owns those side
+ * effects), so it's unit-testable with an injected makeStep. An agent with a
+ * suite that fully passes is `ok`; an agent with NO suite is ok:false
+ * (conservative — an un-eval'd agent is never promoted).
+ */
+export async function runFleetEval(makeStep?: KernelDeps["makeStep"]): Promise<FleetEvalSummary> {
+  const keys = await agentsWithSuites();
+  const agents: FleetEvalSummary["agents"] = [];
+  const passMap: Record<string, boolean> = {};
+  let failed = 0;
+  for (const key of keys) {
+    const res = await runAgentEval(key, makeStep);
+    const ok = res.total > 0 && res.passed === res.total;
+    agents.push({ agentKey: key, passed: res.passed, total: res.total, ok });
+    passMap[key] = ok;
+    if (!ok) failed++;
+  }
+  return { agents, passMap, failed };
+}
+
 /** Every agent-key that has a golden-scenario suite on disk. */
 export async function agentsWithSuites(): Promise<string[]> {
   const dir = new URL("../agents/evals/", import.meta.url);

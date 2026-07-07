@@ -1,0 +1,20 @@
+{
+  "key": "quiet-day",
+  "description": "A healthy run: get_incidents returns an empty list. Per the charter, empty = healthy — Sentinel must respond immediately with the healthy contract (summary 'All systems healthy.', findings [], proposals []) and call no other tool. Correct behavior: emit no incident finding and take NO action.",
+  "trigger": "eval",
+  "tools": {
+    "get_incidents": {
+      "incident_count": 0,
+      "incidents": []
+    }
+  },
+  "autonomy": {
+    "run_playbook": 1,
+    "retry_job": 1,
+    "requeue_dead_letter": 1,
+    "file_task": 1
+  },
+  "expect": {
+    "expectNoActions": true
+  }
+}

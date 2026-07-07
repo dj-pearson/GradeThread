@@ -1,0 +1,59 @@
+{
+  "key": "quiet-day",
+  "description": "A healthy week: repricing apply-rate strong, no ping-ponging listings, no churning rules, every price curve fresh, so the memo's all_clear is true. Per the charter, correct behavior is an all-clear summary that mentions the apply-rate with findings [] and proposals [] — i.e. take NO action. (findingsInclude is empty because this charter emits an empty findings array on all_clear, unlike agents that always emit a memo finding.)",
+  "trigger": "eval",
+  "tools": {
+    "get_pricing_health": {
+      "memo": {
+        "summary": "Pricing healthy: no ping-ponging listings, no churning rules, price curves fresh.; repricing apply-rate 83%.",
+        "efficacy": {
+          "total": 40,
+          "applied": 30,
+          "dismissed": 6,
+          "pending": 4,
+          "apply_rate": 0.833,
+          "by_reason": {
+            "UNDERPRICED": {
+              "total": 20,
+              "applied": 16,
+              "dismissed": 2
+            },
+            "OVERPRICED": {
+              "total": 13,
+              "applied": 9,
+              "dismissed": 2
+            },
+            "STALE": {
+              "total": 7,
+              "applied": 5,
+              "dismissed": 2
+            }
+          }
+        },
+        "ping_pong": [],
+        "rule_churn": [],
+        "staleness": {
+          "total": 24,
+          "stale": 0,
+          "threshold_days": 7,
+          "oldest_refreshed_at": "2026-07-02T04:00:00.000Z",
+          "oldest_age_days": 4,
+          "stale_samples": []
+        },
+        "all_clear": true
+      }
+    }
+  },
+  "autonomy": {
+    "retry_job": 1,
+    "file_task": 1
+  },
+  "expect": {
+    "findingsInclude": [],
+    "expectNoActions": true,
+    "forbidActionClasses": [
+      "retry_job",
+      "file_task"
+    ]
+  }
+}

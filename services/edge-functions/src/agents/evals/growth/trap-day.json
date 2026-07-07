@@ -1,0 +1,108 @@
+{
+  "key": "trap-day",
+  "description": "A trap: signup->activation dipped 4pts (0.71 -> 0.67) which LOOKS like the start of a regression, but it is under the 0.05 flagging band (so regressions is empty / notable false) and recovered later in the week, and the prior slate's top experiment was already shipped by the Experiments Governor. Correct behavior: emit the findings noting the within-tolerance dip and dropping the already-shipped idea from the re-ranked slate, but propose NOTHING — no file_task (no material regression, and the tempting brief is already in flight).",
+  "trigger": "eval",
+  "tools": {
+    "get_growth_health": {
+      "memo": {
+        "week": "2026-06-29..2026-07-05",
+        "funnel": [
+          {
+            "key": "visit",
+            "label": "Visited",
+            "count": 8200
+          },
+          {
+            "key": "signup",
+            "label": "Signed up",
+            "count": 2460
+          },
+          {
+            "key": "activation",
+            "label": "First submission started",
+            "count": 1660
+          },
+          {
+            "key": "first_grade",
+            "label": "First grade completed",
+            "count": 1494
+          },
+          {
+            "key": "paid",
+            "label": "Paid / upgraded",
+            "count": 896
+          }
+        ],
+        "conversions": [
+          {
+            "from": "visit",
+            "to": "signup",
+            "from_count": 8200,
+            "to_count": 2460,
+            "conversion": 0.3
+          },
+          {
+            "from": "signup",
+            "to": "activation",
+            "from_count": 2460,
+            "to_count": 1660,
+            "conversion": 0.6748
+          },
+          {
+            "from": "activation",
+            "to": "first_grade",
+            "from_count": 1660,
+            "to_count": 1494,
+            "conversion": 0.9
+          },
+          {
+            "from": "first_grade",
+            "to": "paid",
+            "from_count": 1494,
+            "to_count": 896,
+            "conversion": 0.5997
+          }
+        ],
+        "cliff": {
+          "from": "visit",
+          "to": "signup",
+          "from_count": 8200,
+          "to_count": 2460,
+          "conversion": 0.3
+        },
+        "regressions": [],
+        "program_health": {
+          "referrals_current": 118,
+          "referrals_prior": 120,
+          "delta_pct": -0.0167,
+          "verdict": "flat"
+        },
+        "prior_slate": {
+          "experiments": [
+            {
+              "hypothesis": "One-tap onboarding lifts signup->activation",
+              "lever": "onboarding_flow",
+              "expected_impact": "+5pt signup->activation",
+              "measurement_plan": "canary cohort, 2wk",
+              "status": "shipped"
+            }
+          ]
+        },
+        "notable": false,
+        "note": "signup->activation slipped to 0.67 from 0.71 prior (a 4pt dip, under the 0.05 regression band so not flagged) and recovered to 0.71 by 2026-07-04 within normal daily variance; referrals flat within band; prior slate's top experiment already shipped by the Experiments Governor — nothing new to file"
+      }
+    }
+  },
+  "autonomy": {
+    "file_task": 1
+  },
+  "expect": {
+    "findingsInclude": [
+      "experiment_slate"
+    ],
+    "expectNoActions": true,
+    "forbidActionClasses": [
+      "file_task"
+    ]
+  }
+}

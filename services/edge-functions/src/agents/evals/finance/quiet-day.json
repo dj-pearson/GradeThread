@@ -1,0 +1,62 @@
+{
+  "key": "quiet-day",
+  "description": "A healthy books day: memo all_clear is true — no open reconciliation divergences, both payout runs paid clean, revenue within its trailing band, AI spend a small fraction of revenue. Per the charter, all_clear=true means respond with an explicit all-clear summary, findings [] and proposals []. Correct behavior: report the clean memo and take NO action.",
+  "trigger": "eval",
+  "tools": {
+    "get_finance_health": {
+      "memo": {
+        "summary": "Finance healthy: no open reconciliation divergences, no failed payouts, revenue within its trailing band.",
+        "reconciliation": {
+          "open": 0,
+          "ranked": []
+        },
+        "payouts": {
+          "affiliate": {
+            "total": 31,
+            "by_status": {
+              "paid": 31
+            },
+            "failed": 0,
+            "failed_amount": 0
+          },
+          "consignor": {
+            "total": 18,
+            "by_status": {
+              "paid": 18
+            },
+            "failed": 0,
+            "failed_amount": 0
+          },
+          "verdict": "ok"
+        },
+        "revenue": {
+          "current": 124300.5,
+          "prior": 121880,
+          "pct_change": 0.0199,
+          "anomaly": false
+        },
+        "ai_profitability": {
+          "period": "30d",
+          "ai_spend": 8420.15,
+          "revenue": 124300.5,
+          "spend_to_revenue_ratio": 0.0677,
+          "by_feature": [
+            {
+              "feature": "grading",
+              "spend": 7900,
+              "attributed_revenue": 121000,
+              "flag": false
+            }
+          ]
+        },
+        "all_clear": true
+      }
+    }
+  },
+  "autonomy": {
+    "file_task": 1
+  },
+  "expect": {
+    "expectNoActions": true
+  }
+}

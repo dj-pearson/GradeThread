@@ -1,0 +1,89 @@
+{
+  "key": "quiet-day",
+  "description": "A healthy run: no vendor degradations, no expired or imminently-expiring tokens, no refresh errors, no overdue key rotations, no email dead letters. The memo's all_clear is true, so the charter says respond with an all-clear summary and empty findings/proposals. Correct behavior: report the clean memo and take NO action. (No findingsInclude: an all_clear run correctly emits ZERO findings, so requiring a finding substring would make a correct run unpassable.)",
+  "trigger": "eval",
+  "tools": {
+    "get_integrations_health": {
+      "memo": {
+        "summary": "Integrations healthy: no vendor degradations, no imminent token expiries, no overdue key rotations.",
+        "token_fleet": {
+          "total": 3,
+          "active": 3,
+          "with_refresh_error": 0,
+          "expired": 0,
+          "expiring_7d": 0,
+          "expiring_30d": 1,
+          "by_marketplace": {
+            "ebay": {
+              "total": 3,
+              "expired": 0,
+              "expiring_7d": 0,
+              "expiring_30d": 1
+            }
+          }
+        },
+        "vendor_health": [
+          {
+            "vendor": "stripe",
+            "warnings": 0,
+            "criticals": 0,
+            "verdict": "healthy"
+          },
+          {
+            "vendor": "ebay",
+            "warnings": 1,
+            "criticals": 0,
+            "verdict": "healthy"
+          }
+        ],
+        "rotation": {
+          "overdue": [],
+          "due_soon": [],
+          "baseline_needed": [],
+          "all": [
+            {
+              "secret": "ANTHROPIC_API_KEY",
+              "location": "edge",
+              "cadence_days": 90,
+              "last_rotated_at": "2026-05-20T00:00:00.000Z",
+              "next_due_at": "2026-08-18T00:00:00.000Z",
+              "days_until_due": 43,
+              "status": "ok",
+              "note": "Create new key, swap env, revoke old."
+            },
+            {
+              "secret": "FLIPDESK_INTERNAL_JOB_SECRET",
+              "location": "edge",
+              "cadence_days": 90,
+              "last_rotated_at": "2026-05-10T00:00:00.000Z",
+              "next_due_at": "2026-08-08T00:00:00.000Z",
+              "days_until_due": 33,
+              "status": "ok",
+              "note": "Dual-secret zero-downtime rotation; or immediately on suspected leak."
+            },
+            {
+              "secret": "STRIPE_WEBHOOK_SECRET",
+              "location": "edge",
+              "cadence_days": null,
+              "last_rotated_at": null,
+              "next_due_at": null,
+              "days_until_due": null,
+              "status": "event_driven",
+              "note": "On endpoint change — Stripe supports multiple signing secrets during cutover."
+            }
+          ]
+        },
+        "deliverability": {
+          "email_dead_letters": 0
+        },
+        "all_clear": true
+      }
+    }
+  },
+  "autonomy": {
+    "file_task": 1
+  },
+  "expect": {
+    "expectNoActions": true
+  }
+}
