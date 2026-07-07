@@ -12861,7 +12861,7 @@
         "deno test + web build green."
       ],
       "priority": 2480,
-      "passes": false,
+      "passes": true,
       "notes": "[BrandKB][Grading][Phase2] The 'Both, phased' half. Deliberately conservative: KB improves grading ACCURACY via baselines/tells, it does NOT turn grading into a brand identifier. Gated behind the resolver (US-1713).",
       "dependsOn": [
         "US-1713"
