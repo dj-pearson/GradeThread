@@ -74,6 +74,8 @@ import {
   platformStandardsHubBreadcrumbItems,
   platformStandardJsonLd,
   platformStandardBreadcrumbItems,
+  whereToSellJsonLd,
+  whereToSellBreadcrumbItems,
   flawJsonLd,
   flawBreadcrumbItems,
   flawHubJsonLd,
@@ -103,6 +105,7 @@ import {
   getPlatformStandardByPath,
   isPlatformStandardsHubPath,
 } from "@/lib/seo/platform-standards";
+import { isWhereToSellPath } from "@/lib/seo/where-to-sell";
 import { getFlawByPath, isFlawHubPath } from "@/lib/seo/flaw-library";
 import { getGuideByPath, isGuideHubPath } from "@/lib/seo/garment-guides";
 import { twitterSiteHandle, twitterCreatorHandle } from "@/lib/seo/social";
@@ -239,6 +242,15 @@ export function jsonLdForRoute(path: string): JsonLd[] {
       organizationLd(),
       breadcrumbLd(opportunistGuideBreadcrumbItems(opportunist)),
       ...opportunistGuideJsonLd(opportunist),
+    ];
+  }
+  // Where-to-sell mega-guide (US-1693): Organization + 2-level breadcrumb +
+  // Article + ItemList + FAQ.
+  if (isWhereToSellPath(path)) {
+    return [
+      organizationLd(),
+      breadcrumbLd(whereToSellBreadcrumbItems()),
+      ...whereToSellJsonLd(),
     ];
   }
   // Comparison hub (US-1667): Organization + 2-level breadcrumb (no extra LD).

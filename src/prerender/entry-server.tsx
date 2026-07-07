@@ -122,6 +122,8 @@ import {
   PlatformStandardsHubPage,
   PlatformStandardPage,
 } from "@/pages/marketing/platform-standards";
+import { WHERE_TO_SELL_PATH } from "@/lib/seo/where-to-sell";
+import { WhereToSellPage } from "@/pages/marketing/where-to-sell";
 
 // Static map of prerenderable routes → page element.
 const PAGES: Record<string, React.ReactNode> = {
@@ -252,6 +254,8 @@ const PAGES: Record<string, React.ReactNode> = {
       <PlatformStandardPage key={s.slug} slug={s.slug} />,
     ]),
   ),
+  // Consumer where-to-sell mega-guide (US-1693).
+  [WHERE_TO_SELL_PATH]: <WhereToSellPage />,
 };
 
 export function renderRoute(path: string): string {

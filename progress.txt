@@ -12050,3 +12050,17 @@ US-1685 DONE (web SEO) — Remaining comparison pages (flagships + templated tai
 - AC "prune tail <10 impressions/mo at month 4" = operational review, documented.
 - VERIFIED: tsc 0, eslint 0, vitest src/lib/seo (705) + src/prerender (43) green,
   build OK (prerender wrote 204 pages, all 16 compare pages emitted). NO migration.
+
+────────────────────────────────────────────────────────────────────
+US-1693 DONE (web SEO) — Consumer where-to-sell mega-guide (single page)
+- New src/lib/seo/where-to-sell.ts: SELLING_VENUES (8 consumer venues incl.
+  ThredUp/consignment/local w/ bestFor/effort/economics/pro/con) + WHERE_TO_SELL
+  (quotable definition, criteria, faqs). Single page /where-to-sell-used-clothes.
+- Page src/pages/marketing/where-to-sell.tsx: quotable answer block, "how to
+  choose" criteria, 6-col comparison table, condition wedge → /reselling +
+  /grading/scale, links to /compare cluster, FAQ. NOT a cluster (per AC).
+- JSON-LD: Article + ItemList (venues) + FAQPage; 2-level breadcrumb. Wired
+  public-routes(+lastmod), entry-server, head-builder handler, routes/index (top-
+  level static route, no dynamic conflict).
+- VERIFIED: tsc 0, eslint 0, vitest src/lib/seo (708) + src/prerender (43) green,
+  build OK (prerender wrote 205 pages, page emitted). NO migration.

@@ -12380,7 +12380,7 @@
         "Indexable; build clean"
       ],
       "priority": 1693,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][SEO2.0][SEO][GEO] Plan §1 B8 + §9 IGNORE-until-Phase-3. Consumer intent, weak product fit — one guide only."
     },
     {

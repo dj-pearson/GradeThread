@@ -61,6 +61,11 @@ import {
   platformStandardPath,
   type PlatformStandard,
 } from "@/lib/seo/platform-standards";
+import {
+  WHERE_TO_SELL,
+  WHERE_TO_SELL_PATH,
+  SELLING_VENUES,
+} from "@/lib/seo/where-to-sell";
 import { absoluteUrl } from "@/lib/seo/public-routes";
 import { LANDING_FAQS } from "@/pages/landing-faqs";
 import { SITE_URL } from "@/lib/seo/public-routes";
@@ -729,6 +734,43 @@ export function platformStandardJsonLd(std: PlatformStandard): JsonLd[] {
       dateModified: PLATFORM_STANDARDS_MODIFIED,
     }),
     faqPageLd(std.faqs),
+  ];
+}
+
+// ── Where-to-sell mega-guide (US-1693) ──────────────────────────────
+const WHERE_TO_SELL_PUBLISHED = "2026-07-06";
+const WHERE_TO_SELL_MODIFIED = "2026-07-06";
+
+export function whereToSellBreadcrumbItems(): Array<{ name: string; url: string }> {
+  return [
+    { name: "GradeThread", url: `${SITE_URL}/` },
+    { name: "Where to sell used clothes", url: `${SITE_URL}${WHERE_TO_SELL_PATH}` },
+  ];
+}
+
+/** Mega-guide JSON-LD: Article + an ItemList of venues + the FAQ. */
+export function whereToSellJsonLd(): JsonLd[] {
+  const itemList: JsonLd = {
+    "@context": "https://schema.org",
+    "@type": "ItemList",
+    name: "Where to sell used clothes",
+    itemListElement: SELLING_VENUES.map((v, i) => ({
+      "@type": "ListItem",
+      position: i + 1,
+      name: v.name,
+    })),
+  };
+  return [
+    articleLd({
+      headline: WHERE_TO_SELL.h1,
+      description:
+        "Where to sell used clothes in 2026 — eBay, Poshmark, Depop, Mercari, Vinted, ThredUp, and consignment compared by fees, effort, and payout.",
+      url: absoluteUrl(WHERE_TO_SELL_PATH),
+      datePublished: WHERE_TO_SELL_PUBLISHED,
+      dateModified: WHERE_TO_SELL_MODIFIED,
+    }),
+    itemList,
+    faqPageLd(WHERE_TO_SELL.faqs),
   ];
 }
 
