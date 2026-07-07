@@ -613,10 +613,10 @@ public final class PhotoUploadService {
             task.id,
             to: .failed(error: "Saved photo, couldn't link it: \(message)")
         )
-        // US-1621: the enqueue-time pending mutation still stands (carries the
-        // same deterministic photo_id + sort_order), so the SyncEngine replay
-        // re-links it — nothing to re-write here.
-        _ = sortOrder
+        // US-1621: idempotent — re-queues the re-link mutation (a no-op when the
+        // enqueue-time mutation already stands; queues one when the task was
+        // driven directly without schedule()).
+        enqueuePendingMutation(for: task, sortOrder: sortOrder, message: message)
     }
 
     private func storagePublicURL(for path: String) -> String {
@@ -700,9 +700,13 @@ public final class PhotoUploadService {
             "message": message,
         ])
         store.updatePhase(task.id, to: .failed(error: message))
-        // US-1621: the pending mutation was already written at enqueue, so it
-        // survives this failure (and a kill) for the SyncEngine replay — no need
-        // to write it again here.
+        // US-1496: carry the parked sort_order so the replay writes the right
+        // strip position. US-1621: enqueuePendingMutation is idempotent (dedup by
+        // photo_id), so this is a no-op when the enqueue-time mutation already
+        // stands, and still queues one when the upload was driven directly (tests
+        // + the reconcile path that inject a task without going through schedule).
+        enqueuePendingMutation(
+            for: task, sortOrder: sortOrderByUploadId[task.id] ?? 0, message: message)
     }
 
     /// ISO-8601 (internet date-time) formatter for the queued captured_at,
@@ -788,6 +792,20 @@ public final class PhotoUploadService {
             return
         }
         let context = ModelContext(container)
+        // US-1621: idempotent — the same photo can be persisted at enqueue AND
+        // again on a later failure; keep exactly ONE pending mutation per
+        // deterministic photo_id so a re-queue never duplicates the row.
+        let pid = Self.photoId(for: task)
+        let target = task.inventoryItemId
+        let kindRaw = MutationKind.uploadPhoto.rawValue
+        if let existing = try? context.fetch(FetchDescriptor<LocalPendingMutation>(
+            predicate: #Predicate { $0.kind == kindRaw && $0.targetId == target })) {
+            struct PhotoIdOnly: Decodable { let photo_id: String }
+            for row in existing
+            where (try? JSONDecoder().decode(PhotoIdOnly.self, from: row.payload))?.photo_id == pid {
+                context.delete(row)
+            }
+        }
         context.insert(
             LocalPendingMutation(
                 kind: .uploadPhoto,
