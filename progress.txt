@@ -12452,3 +12452,22 @@ US-1704 DONE (edge; MIGRATION 00385 — HELD, do not push until applied).
   (docs-verbatim fails LOCALLY only = CRLF; LF-equal → CI green). Migration
   packaged (00385) — HELD (NOTIFY pgrst). gclid only; gbraid/wbraid = enhanced
   conversions (out of scope, skipped w/ reason).
+
+────────────────────────────────────────────────────────────────────
+US-1705 DONE (edge+web; NO migration; HELD — builds on held ads commits).
+- ads-guardrails.ts: getGuardrails (system_settings ads_guardrails, tunable) +
+  checkGuardrails (pure): applies-per-run cap, daily-spend ceiling, per-action
+  budget %-change cap. Integrated into applyRecommendation (US-1703): dry-run
+  FIRST → resolveGuardrailContext (today spend + today's real-apply count) →
+  checkGuardrails → BLOCK (422 + audit) before the real mutate, even if approved.
+- ads-anomaly.ts: detectAnomalies (pure: spend spike / CTR drop / CPA blowout vs
+  trailing avg, needs ≥4 days), computePacing (MTD spend + straight-line EOM
+  projection vs monthly budget), getAnomalyThresholds (system_settings), 
+  scanAdsAnomalies (reads 14d metrics → detect → routeOpsEventToAdmins critical
+  broadcast). Wired into performGoogleAdsSync (best-effort post-sync).
+- /overview route returns pacing (from campaign daily budgets × days-in-month);
+  Command Center shows a pacing card (MTD, projected EOM, utilization bar).
+- Tests: ads-guardrails_test.ts (6) + ads-anomaly_test.ts (5) — guardrail block +
+  anomaly fire (AC-required).
+- VERIFIED: deno check 0/lint clean/17 tests; web tsc -b 0/eslint 0. No migration
+  (thresholds in system_settings; anomaly via existing admin-notifications).

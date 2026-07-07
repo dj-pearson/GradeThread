@@ -7,6 +7,8 @@
 import { supabaseAdmin } from "./supabase.ts";
 import { googleAdsConfig, GoogleAdsError, mintGoogleAdsAccessToken } from "./google-ads-client.ts";
 import { applyMutation, type ApplyOutcome, isExecutableChangeType } from "./google-ads-mutate.ts";
+import { checkGuardrails, type GuardrailContext, getGuardrails } from "./ads-guardrails.ts";
+import { microsToDollars } from "./google-ads-sync.ts";
 
 export const GOOGLE_ADS_PLATFORM = "google_ads";
 
@@ -18,6 +20,30 @@ interface RecRow {
   target_resource: string;
   status: string;
   payload: Record<string, unknown> | null;
+}
+
+/** Read today's account spend + today's real-apply count for the guardrail gate. */
+async function resolveGuardrailContext(): Promise<GuardrailContext> {
+  const today = new Date().toISOString().slice(0, 10);
+  const [{ data: metrics }, { count }] = await Promise.all([
+    supabaseAdmin
+      .from("ads_metrics_daily")
+      .select("cost_micros")
+      .eq("platform", GOOGLE_ADS_PLATFORM)
+      .eq("entity_type", "campaign")
+      .eq("metric_date", today),
+    supabaseAdmin
+      .from("ads_change_audit")
+      .select("id", { count: "exact", head: true })
+      .eq("platform", GOOGLE_ADS_PLATFORM)
+      .eq("action", "apply")
+      .eq("dry_run", false)
+      .eq("success", true)
+      .gte("created_at", `${today}T00:00:00Z`),
+  ]);
+  const todaySpend = ((metrics ?? []) as Array<{ cost_micros: number | string }>)
+    .reduce((s, r) => s + microsToDollars(r.cost_micros), 0);
+  return { todaySpend, appliesThisRun: count ?? 0 };
 }
 
 /** Approve a proposed recommendation (proposed → approved). Idempotent-ish. */
@@ -101,16 +127,29 @@ export async function applyRecommendation(
 
   try {
     const token = await mintGoogleAdsAccessToken(config);
-    const outcome = await applyMutation(config, token, {
-      changeType: rec.change_type,
-      payload: rec.payload ?? {},
-      dryRun: opts.dryRun,
-    });
-    await auditApply(rec, outcome, opts.ownerUserId ?? null, "apply", true);
-    if (!opts.dryRun) {
-      await supabaseAdmin.from("ads_recommendations").update({ status: "applied" }).eq("id", rec.id);
+    const mutateArgs = { changeType: rec.change_type, payload: rec.payload ?? {} };
+
+    // Always dry-run first — validates with Google + captures before/after.
+    const dryOutcome = await applyMutation(config, token, { ...mutateArgs, dryRun: true });
+    if (opts.dryRun) {
+      await auditApply(rec, dryOutcome, opts.ownerUserId ?? null, "apply", true);
+      return { ok: true, dryRun: true, outcome: dryOutcome, httpStatus: 200 };
     }
-    return { ok: true, dryRun: opts.dryRun, outcome, httpStatus: 200 };
+
+    // US-1705: hard guardrails gate BEFORE the real mutate — a breach blocks the
+    // apply with a clear reason even though the rec was approved + dry-run-valid.
+    const guardrails = await getGuardrails();
+    const ctx = await resolveGuardrailContext();
+    const check = checkGuardrails(rec.change_type, dryOutcome.before, dryOutcome.after, guardrails, ctx);
+    if (!check.allowed) {
+      await auditApply(rec, dryOutcome, opts.ownerUserId ?? null, "apply", false, `guardrail: ${check.reason}`);
+      return { ok: false, dryRun: false, message: `Blocked by a guardrail — ${check.reason}`, httpStatus: 422 };
+    }
+
+    const outcome = await applyMutation(config, token, { ...mutateArgs, dryRun: false });
+    await auditApply(rec, outcome, opts.ownerUserId ?? null, "apply", true);
+    await supabaseAdmin.from("ads_recommendations").update({ status: "applied" }).eq("id", rec.id);
+    return { ok: true, dryRun: false, outcome, httpStatus: 200 };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await auditApply(rec, null, opts.ownerUserId ?? null, "apply", false, message);

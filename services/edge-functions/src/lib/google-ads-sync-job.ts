@@ -13,6 +13,7 @@ import {
   runGaql,
 } from "./google-ads-client.ts";
 import { type AdsSyncCounts, GOOGLE_ADS_PLATFORM, syncGoogleAds } from "./google-ads-sync.ts";
+import { scanAdsAnomalies } from "./ads-anomaly.ts";
 
 export interface GoogleAdsSyncOutcome {
   ok: boolean;
@@ -90,6 +91,12 @@ export async function performGoogleAdsSync(
       .from("ads_sync_runs")
       .update({ status: "succeeded", finished_at: new Date().toISOString(), counts })
       .eq("id", runId);
+
+    // US-1705: scan the freshly-synced metrics for anomalies + alert super-admins.
+    // Best-effort — a detection/notify failure must never fail the sync.
+    try {
+      await scanAdsAnomalies(supabaseAdmin);
+    } catch { /* best-effort */ }
 
     return { ok: true, configured: true, counts, window: { since, until }, httpStatus: 200 };
   } catch (err) {

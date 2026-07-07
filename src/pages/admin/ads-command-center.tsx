@@ -72,6 +72,15 @@ interface OverviewResponse {
   kpis: Kpis;
   campaigns: CampaignPerf[];
   timeseries: DailyPoint[];
+  pacing?: {
+    mtdSpend: number;
+    dayOfMonth: number;
+    daysInMonth: number;
+    dailyAvg: number;
+    projectedEom: number;
+    monthlyBudget: number;
+    projectedUtilization: number;
+  } | null;
   windowDays: number;
 }
 
@@ -301,6 +310,37 @@ export function AdsCommandCenter() {
           </Card>
         ))}
       </div>
+
+      {/* Budget pacing */}
+      {data.pacing && data.pacing.monthlyBudget > 0 ? (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Budget pacing (month to date)</CardTitle>
+            <CardDescription>
+              Day {data.pacing.dayOfMonth} of {data.pacing.daysInMonth} ·{" "}
+              {money(data.pacing.mtdSpend, currency)} spent · {money(data.pacing.dailyAvg, currency)}/day avg
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <span className="text-sm">
+                Projected end-of-month:{" "}
+                <span className="font-semibold">{money(data.pacing.projectedEom, currency)}</span>
+                <span className="text-muted-foreground"> of {money(data.pacing.monthlyBudget, currency)} budget</span>
+              </span>
+              <Badge variant={data.pacing.projectedUtilization > 1 ? "destructive" : "outline"}>
+                {Math.round(data.pacing.projectedUtilization * 100)}% projected
+              </Badge>
+            </div>
+            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-muted">
+              <div
+                className={`h-full ${data.pacing.projectedUtilization > 1 ? "bg-destructive" : "bg-primary"}`}
+                style={{ width: `${Math.min(100, Math.round(data.pacing.projectedUtilization * 100))}%` }}
+              />
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {/* Trend chart */}
       <Card>

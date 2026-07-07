@@ -27,6 +27,8 @@ import {
   dailyTimeseries,
   type RawMetric,
 } from "../lib/google-ads-overview.ts";
+import { microsToDollars } from "../lib/google-ads-sync.ts";
+import { computePacing } from "../lib/ads-anomaly.ts";
 
 // US-1073: AI Ad Copy Studio (admin-only). Generates Google Ads RSA copy and
 // Apple Search Ads keyword/creative sets grounded in the keyword library + brand
@@ -382,7 +384,7 @@ adminAdsRoutes.get("/overview", async (c) => {
         .gte("metric_date", since),
       supabaseAdmin
         .from("ads_campaigns")
-        .select("external_id, name, status")
+        .select("external_id, name, status, budget_micros")
         .eq("platform", "google_ads"),
       supabaseAdmin
         .from("ads_accounts")
@@ -405,8 +407,20 @@ adminAdsRoutes.get("/overview", async (c) => {
 
     const metrics = (metricsRes.data ?? []) as RawMetric[];
     const campaigns = (campaignsRes.data ?? []) as Array<
-      { external_id: string; name: string | null; status: string | null }
+      { external_id: string; name: string | null; status: string | null; budget_micros?: number | string | null }
     >;
+
+    const timeseries = dailyTimeseries(metrics);
+    // Monthly budget ≈ sum of active campaigns' DAILY budgets × days in month.
+    const dailyBudget = campaigns
+      .filter((c) => c.status !== "REMOVED")
+      .reduce((s, c) => s + microsToDollars(c.budget_micros ?? 0), 0);
+    const now = new Date();
+    const daysInMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).getUTCDate();
+    const pacing = computePacing(
+      timeseries.map((t) => ({ date: t.date, spend: t.spend })),
+      Math.round(dailyBudget * daysInMonth * 100) / 100,
+    );
 
     return c.json({
       configured,
@@ -415,7 +429,8 @@ adminAdsRoutes.get("/overview", async (c) => {
       lastSync: lastRunRes.data ?? null,
       kpis: aggregateKpis(metrics),
       campaigns: campaignBreakdown(metrics, campaigns),
-      timeseries: dailyTimeseries(metrics),
+      timeseries,
+      pacing,
       windowDays: days,
     });
   } catch (_err) {
