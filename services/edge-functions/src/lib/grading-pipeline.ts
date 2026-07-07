@@ -60,6 +60,7 @@ import {
 } from "./forensics.ts";
 import { evaluateImageQuality, REQUIRED_IMAGE_TYPES } from "./image-quality.ts";
 import { withImageBufferSlot } from "./grading-capacity.ts";
+import { sniffImageFormat, IMAGE_CONTENT_TYPE } from "./upload-validation.ts";
 import { captureServer } from "./posthog.ts";
 import { emitEvent, firstOccurrenceKey } from "./user-events.ts";
 import { autoRefundPaidStripe } from "./grade-refund.ts";
@@ -95,6 +96,29 @@ function uint8ToBase64(bytes: Uint8Array): string {
     );
   }
   return btoa(binary);
+}
+
+// The Anthropic vision API sniffs the actual image bytes and 400s when the
+// declared media_type disagrees with them ("specified image/webp but the image
+// appears to be image/jpeg"). Storage paths lie: a `.webp`-named object can hold
+// JPEG bytes (e.g. a re-encoded/relabeled photo), which failed whole gradings.
+// Derive the media type from the MAGIC BYTES (the same sniffer the upload path
+// uses), falling back to the extension only when the bytes are unrecognized.
+export function mediaTypeForVision(bytes: Uint8Array, storagePath: string): string {
+  const sniffed = sniffImageFormat(bytes);
+  // Anthropic accepts jpeg/png/webp/gif; HEIC is unsupported (and the private
+  // grading bucket rejects it on upload), so treat a HEIC sniff as unknown and
+  // fall through — nothing good to declare, but this path shouldn't occur.
+  if (sniffed && sniffed !== "heic") return IMAGE_CONTENT_TYPE[sniffed];
+  const ext = storagePath.split(".").pop()?.toLowerCase() || "jpg";
+  const extMap: Record<string, string> = {
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    png: "image/png",
+    gif: "image/gif",
+    webp: "image/webp",
+  };
+  return extMap[ext] || "image/jpeg";
 }
 
 // US-1035: crop a normalized-bbox defect region from a full-res image, padded
@@ -269,16 +293,9 @@ async function escalateGrade(
         throw new Error(`Failed to download image: ${image.storage_path}`);
       }
       const arrayBuffer = await fileData.arrayBuffer();
-      const base64 = uint8ToBase64(new Uint8Array(arrayBuffer));
-      const ext = image.storage_path.split(".").pop()?.toLowerCase() || "jpg";
-      const mediaTypeMap: Record<string, string> = {
-        jpg: "image/jpeg",
-        jpeg: "image/jpeg",
-        png: "image/png",
-        gif: "image/gif",
-        webp: "image/webp",
-      };
-      const mediaType = mediaTypeMap[ext] || "image/jpeg";
+      const bytes = new Uint8Array(arrayBuffer);
+      const base64 = uint8ToBase64(bytes);
+      const mediaType = mediaTypeForVision(bytes, image.storage_path);
       return {
         imageType: image.image_type,
         dataUri: `data:${mediaType};base64,${base64}`,
@@ -1130,18 +1147,12 @@ export async function processSubmission(submissionId: string) {
 
         // Convert Blob to base64
         const arrayBuffer = await fileData.arrayBuffer();
-        const base64 = uint8ToBase64(new Uint8Array(arrayBuffer));
+        const bytes = new Uint8Array(arrayBuffer);
+        const base64 = uint8ToBase64(bytes);
 
-        // Determine media type from file extension
-        const ext = image.storage_path.split(".").pop()?.toLowerCase() || "jpg";
-        const mediaTypeMap: Record<string, string> = {
-          jpg: "image/jpeg",
-          jpeg: "image/jpeg",
-          png: "image/png",
-          gif: "image/gif",
-          webp: "image/webp",
-        };
-        const mediaType = mediaTypeMap[ext] || "image/jpeg";
+        // Determine media type from the actual bytes, not the (possibly lying)
+        // file extension — a mismatch 400s the whole grading at the vision call.
+        const mediaType = mediaTypeForVision(bytes, image.storage_path);
 
         // Return as data URI for analyzeImage
         return {

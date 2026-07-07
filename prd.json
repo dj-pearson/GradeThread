@@ -11663,7 +11663,7 @@
       "title": "iOS core P3 · Tenant-key the EdgeAPI cache; fix ShareExtension default slot spill",
       "description": "As an iOS user, I want the response cache scoped/flushed per tenant and share-imported photos to default into garment slots, so that no latent cross-tenant caching lands and photos don't spill into measurement slots.",
       "priority": 2138,
-      "passes": false,
+      "passes": true,
       "notes": "[P3 batch][Source: CODE_REVIEW_2026-07-04.md §iOS core] Grouped iOS core P3s.",
       "acceptanceCriteria": [
         "EdgeAPI response cache is tenant-keyed and flushed on sign-out/workspace-switch (latent; no tenant-scoped endpoint is cached today) (ios/GradeThread/.../EdgeAPI.swift:384)",

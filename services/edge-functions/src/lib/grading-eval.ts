@@ -12,6 +12,7 @@ import {
 import { getGradingCompositeModel, isAllowedGradingModel } from "./ai-config.ts";
 import { runListingEval } from "./listing-eval.ts";
 import { scoreToGradeTier } from "./human-review.ts";
+import { sniffImageFormat, IMAGE_CONTENT_TYPE } from "./upload-validation.ts";
 
 // ─── Eval harness + activation gate ─────────────────────────────────
 //
@@ -106,16 +107,25 @@ export async function downloadCaseImage(
     return { error: `download failed: ${error?.message ?? "no body"}` };
   }
   const buf = await data.arrayBuffer();
-  const ext = storagePath.split(".").pop()?.toLowerCase() || "jpg";
-  const mediaMap: Record<string, string> = {
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    png: "image/png",
-    gif: "image/gif",
-    webp: "image/webp",
-  };
-  const media = mediaMap[ext] || "image/jpeg";
-  return { dataUri: `data:${media};base64,${uint8ToBase64(new Uint8Array(buf))}` };
+  const bytes = new Uint8Array(buf);
+  // Media type from magic bytes, not the extension — a `.webp` object holding
+  // JPEG bytes 400s the vision call (see mediaTypeForVision in grading-pipeline).
+  const sniffed = sniffImageFormat(bytes);
+  let media: string;
+  if (sniffed && sniffed !== "heic") {
+    media = IMAGE_CONTENT_TYPE[sniffed];
+  } else {
+    const ext = storagePath.split(".").pop()?.toLowerCase() || "jpg";
+    const mediaMap: Record<string, string> = {
+      jpg: "image/jpeg",
+      jpeg: "image/jpeg",
+      png: "image/png",
+      gif: "image/gif",
+      webp: "image/webp",
+    };
+    media = mediaMap[ext] || "image/jpeg";
+  }
+  return { dataUri: `data:${media};base64,${uint8ToBase64(bytes)}` };
 }
 
 /**
