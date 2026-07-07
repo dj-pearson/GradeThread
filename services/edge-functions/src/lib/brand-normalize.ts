@@ -19,8 +19,10 @@
 
 // ── Brand canonicalization ────────────────────────────────────────────────
 
-/** Normalize to a match key: lowercase, strip everything but [a-z0-9]. */
-function brandKey(raw: string): string {
+/** Normalize to a match key: lowercase, strip everything but [a-z0-9]. Exported
+ *  (US-1711) so the brand-knowledge resolver derives brand_key identically to
+ *  the 00389 seed (which normalized canonical brands the same way). */
+export function brandKey(raw: string): string {
   return raw.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 

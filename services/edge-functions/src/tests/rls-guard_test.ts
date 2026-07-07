@@ -55,6 +55,16 @@ const PARENT_SCOPED = [
 // service-role (which bypasses RLS) reads/writes them. This is the most
 // restrictive configuration, not a gap.
 const SERVICE_ROLE_ONLY = new Set([
+  // US-1710 Brand & Style Knowledge Base (00389): five GLOBAL REFERENCE tables —
+  // brand facts only, NO tenant data and no owner column. RLS enabled, zero
+  // policies by design: the edge service-role client reads the packs (US-1711
+  // resolver) and the admin routes (US-1715) write them; the SPA never queries
+  // them directly. Deny-all is the most restrictive config, not a gap.
+  "brand_knowledge",
+  "brand_styles",
+  "brand_style_codes",
+  "brand_colorways",
+  "brand_size_charts",
   // US-1565: admin task board — internal operator tooling; client policies
   // dropped in 00344, all CRUD flows through /api/admin/tasks (edge boundary).
   "admin_task_projects",

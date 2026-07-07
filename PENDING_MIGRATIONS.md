@@ -1,5 +1,39 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00389_brand_knowledge_base.sql (US-1710 Brand & Style KB, 2026-07-07)
+
+**What:** creates FIVE global-reference operator tables — `brand_knowledge`,
+`brand_styles`, `brand_style_codes`, `brand_colorways`, `brand_size_charts` — the
+schema foundation for the DB-backed, retrievable garment brand/style/size
+knowledge base (fixes brand/style ID failures, esp. Lululemon cut-tag recovery).
+Seeds `brand_knowledge` from `brand-normalize.ts` BRAND_ALIASES (53 brands) and
+`brand_size_charts` from `sizing-charts.ts` SIZING_CHARTS (15 charts) so the
+future DB-first resolver (US-1711) has parity with today's in-code data. Deny-all
+RLS (no `user_id`, no tenant data); registered in `rls-guard_test.ts`
+`SERVICE_ROLE_ONLY`. Bumps `EXPECTED_SCHEMA_VERSION` → **00389**. Self-records
+'00389'.
+
+**Risk: LOW — five NEW additive tables + indexes + updated_at triggers + an
+idempotent data seed** (`CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT
+EXISTS`, `DROP TRIGGER IF EXISTS` before create; seed via `ON CONFLICT DO
+NOTHING`). No changes to existing tables. Re-running the whole directory is a
+no-op.
+
+**⚠️ CLIENT READ — none.** Nothing reads these tables yet: this story is
+schema-only. The resolver that reads them (US-1711) and the admin UI that writes
+them (US-1715) are later stories. The only code shipping in this commit is the
+migration, the `EXPECTED_SCHEMA_VERSION` bump, and the rls-guard registration —
+so there is **no hard ordering hazard** beyond the edge boot guard expecting
+**00389**. The SPA never queries them.
+
+**⚠️ `NOTIFY pgrst, 'reload schema';` REQUIRED** (five new tables — PostgREST
+must reload to expose them to the service-role client).
+
+**⚠️ Apply order:** after 00388 (top of the held stack). Run
+`scripts/apply-prod-migrations.sh` (idempotent tail), then
+`NOTIFY pgrst, 'reload schema';`, then redeploy the edge so its boot guard
+matches 00389.
+
 ## ⏳ HELD: 00388_content_safety_flagged_status.sql (advisory content-safety, 2026-07-07)
 
 **What:** adds the value `'flagged'` to the `public.content_safety_status` enum

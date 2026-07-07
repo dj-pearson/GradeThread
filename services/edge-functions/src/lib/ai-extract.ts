@@ -8,6 +8,13 @@ import {
 } from "./ai-config.ts";
 import { enterAiFeature } from "./ai-feature-context.ts";
 import { safeFetch, SsrfError } from "./ssrf.ts";
+import {
+  type BrandKnowledgePack,
+  brandPackPromptBlock,
+  decoderSpecsFromPack,
+  resolveBrandKnowledgePack,
+} from "./brand-knowledge.ts";
+import { decodeTagCode, type DecodeResult } from "./brand-decoders.ts";
 
 // Model routing: text-only requests use the cheap lightweight model; any
 // request that includes a photo uses the vision-capable default model.
@@ -627,6 +634,19 @@ export async function buildPhotoContent(
   return content;
 }
 
+/** Pick a garment category/type hint from already-known fields to scope the
+ *  brand pack (styles + size charts). Returns null when none is known. */
+function categoryHintFromKnown(
+  known: Record<string, unknown> | undefined,
+): string | null {
+  if (!known) return null;
+  for (const k of ["garment_category", "garment_type", "item_category"]) {
+    const v = known[k];
+    if (typeof v === "string" && v.trim() !== "") return v.trim();
+  }
+  return null;
+}
+
 /**
  * Extracts structured item attributes from text and/or photos, routing to
  * Haiku (text-only) or Sonnet (any photo). Throws on transport/parse errors
@@ -642,9 +662,29 @@ export async function extractItemFields(
   const client = getAnthropicClient();
   const temperature = getAiTemperature();
 
+  // US-1713 Phase 1/2: when the brand is known upfront (seller-set / enrich
+  // pass), load its knowledge pack and GROUND the prompt with it. Best-effort —
+  // any failure just skips the injection so extraction never regresses.
+  const knownBrand = typeof input.knownFields?.brand === "string"
+    ? input.knownFields.brand
+    : undefined;
+  const categoryHint = categoryHintFromKnown(input.knownFields);
+  let injectedPack: BrandKnowledgePack | null = null;
+  if (knownBrand) {
+    try {
+      injectedPack = await resolveBrandKnowledgePack(knownBrand, {
+        category: categoryHint,
+      });
+    } catch {
+      injectedPack = null;
+    }
+  }
+  const packBlock = brandPackPromptBlock(injectedPack);
+
   // Fetch + inline the images (skips any unreachable one rather than failing the
   // whole call); each block is captioned with its slot (tag/front/…).
   const content: Anthropic.ContentBlockParam[] = await buildPhotoContent(photos);
+  if (packBlock) content.push({ type: "text", text: packBlock });
   content.push({ type: "text", text: buildUserPrompt(input) });
 
   const systemBlock: Anthropic.TextBlockParam = isCachingEnabled()
@@ -669,10 +709,47 @@ export async function extractItemFields(
     throw new Error("AI did not return structured fields");
   }
 
-  const decoded = decodeExtraction(
+  let decoded = decodeExtraction(
     toolUse.input as Record<string, unknown>,
     hasPhotos,
   );
+
+  // US-1713 Phase 2: enrich with the brand pack + run tag-code decoders. Uses
+  // the AI-detected brand (or the upfront hint), and reuses the injected pack
+  // via the resolver cache. Fully guarded — enrichment NEVER breaks extraction.
+  try {
+    const enrichBrand = decoded.suggestions.brand?.value ?? knownBrand ?? null;
+    const catHint = categoryHint ??
+      decoded.suggestions.garment_category?.value ??
+      decoded.suggestions.item_category?.value ?? null;
+    if (enrichBrand) {
+      const pack = await resolveBrandKnowledgePack(enrichBrand, {
+        category: catHint,
+      });
+      if (pack) {
+        const enriched = enrichExtractionWithBrandKnowledge(decoded, pack);
+        decoded = enriched.decoded;
+        // US-1714 metric — one structured line per enriched extraction so the
+        // KB's effect is measurable in log aggregation: which brand, whether a
+        // decoder fired (match-rate), and how many fields it grounded.
+        const d = enriched.diagnostics;
+        console.log(
+          `[brand-knowledge-metric] brand=${JSON.stringify(d.brand)} ` +
+            `pack=${d.packSource} ` +
+            `decoders=${
+              d.decoderHits.map((h) => h.decoderKind).join("|") || "none"
+            } ` +
+            `overrides=${d.overrides.length} styles=${pack.styles.length}`,
+        );
+      }
+    }
+  } catch (err) {
+    console.warn(
+      `[brand-knowledge] enrichment skipped: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
 
   return {
     ...decoded,
@@ -853,6 +930,114 @@ export function decodeExtraction(
     conflicts,
     measurements: Object.keys(measurements).length > 0 ? measurements : null,
     ebayCategoryQuery,
+  };
+}
+
+/** The decode-time subset of ExtractionResult (no transport/token fields). */
+export type DecodedExtraction = Omit<
+  ExtractionResult,
+  "model" | "tokensIn" | "tokensOut"
+>;
+
+/** US-1713: what the brand-knowledge enrichment changed, for logging/telemetry. */
+export interface BrandKnowledgeDiagnostics {
+  brand: string;
+  packSource: string;
+  decoderHits: DecodeResult[];
+  overrides: Array<{ field: string; to: string; source: string }>;
+}
+
+/**
+ * US-1713 Phase 2 — deterministic enrichment of a decoded extraction with a
+ * brand knowledge pack. PURE (the pack + decoder specs are passed in). Applies:
+ *
+ *  1. Brand CONFIRMATION from a matched tag-code decoder — the killer case: a
+ *     legible Lululemon style number recovers the brand even when the brand tag
+ *     is cut off. Decoder WINS over the AI on conflict (US-1712 contract).
+ *  2. Size from a size-dot decoder — decoder wins on size when it fires.
+ *  3. Conservative style fingerprint fill — only when the pack has exactly one
+ *     style (unambiguous) and the AI produced none; never overwrites an
+ *     observed/research style, and never guesses among multiple styles.
+ *
+ * Provenance is preserved: overridden fields carry source "decoder" or
+ * "pack-fingerprint" so the UI/telemetry can distinguish grounded values from
+ * model guesses. Returns the decoded input UNCHANGED when nothing applies.
+ */
+export function enrichExtractionWithBrandKnowledge(
+  decoded: DecodedExtraction,
+  pack: BrandKnowledgePack,
+): { decoded: DecodedExtraction; diagnostics: BrandKnowledgeDiagnostics } {
+  const suggestions = { ...decoded.suggestions };
+  const attributes = { ...decoded.attributes };
+  const conflicts: FieldConflict[] = [...decoded.conflicts];
+  const overrides: BrandKnowledgeDiagnostics["overrides"] = [];
+
+  // Decode any legible tag code the AI transcribed (style_code / mpn). DB specs
+  // first; decodeTagCode falls back to the in-code defaults when empty.
+  const specs = decoderSpecsFromPack(pack);
+  const codes = ["style_code", "mpn"]
+    .map((k) => attributes[k]?.values?.[0])
+    .filter((v): v is string => !!v && v.trim() !== "");
+  const decoderHits: DecodeResult[] = [];
+  for (const code of codes) {
+    const hit = decodeTagCode(pack.key, code, specs);
+    if (hit) decoderHits.push(hit);
+  }
+
+  // Apply a decoder-derived value to a core suggestion (US-1714):
+  //  - decoder WINS on conflict (US-1712), but when it overrides a DIFFERENT
+  //    non-empty AI value we ALSO record a conflict so a human sees both — a
+  //    silent override on a hot path is exactly what review exists to catch.
+  //  - confidence composes as max(AI, decoder) then clamps to [0,1]; decoder
+  //    confidences are intentionally < 1 (never fabricate certainty), so the
+  //    clamp is the hard cap and grounding can only RAISE, never invent, 1.0.
+  const applyDecoded = (field: "brand" | "size", value: string, conf: number) => {
+    const cur = suggestions[field];
+    const same = cur && cur.value.toLowerCase() === value.toLowerCase();
+    if (same) return;
+    if (cur && cur.value.trim() !== "") {
+      // genuine disagreement — surface it (text_value = the tag-code decode).
+      conflicts.push({ field, text_value: value, photo_value: cur.value });
+    }
+    suggestions[field] = {
+      value,
+      confidence: Math.min(1, Math.max(cur?.confidence ?? 0, conf)),
+      source: "decoder",
+    };
+    overrides.push({ field, to: value, source: "decoder" });
+  };
+
+  // 1. Brand confirmation (decoder wins).
+  const brandHit = decoderHits.find((h) => h.brand);
+  if (brandHit) applyDecoded("brand", brandHit.brand, brandHit.confidence);
+
+  // 2. Size from a size-dot decoder (decoder wins).
+  const sizeHit = decoderHits.find((h) => h.size);
+  if (sizeHit?.size) applyDecoded("size", sizeHit.size, sizeHit.confidence);
+
+  // 3. Conservative style fingerprint fill (only when unambiguous).
+  if (!suggestions.style && pack.styles.length === 1) {
+    const only = pack.styles[0];
+    suggestions.style = {
+      value: only.styleName,
+      confidence: 0.55,
+      source: "pack-fingerprint",
+    };
+    overrides.push({
+      field: "style",
+      to: only.styleName,
+      source: "pack-fingerprint",
+    });
+  }
+
+  return {
+    decoded: { ...decoded, suggestions, attributes, conflicts },
+    diagnostics: {
+      brand: pack.brand,
+      packSource: pack.source,
+      decoderHits,
+      overrides,
+    },
   };
 }
 

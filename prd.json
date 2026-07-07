@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1710,
+  "nextId": 1741,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -12724,6 +12724,608 @@
       ],
       "dependsOn": [
         "US-1703"
+      ]
+    },
+    {
+      "id": "US-1710",
+      "title": "Brand & Style Knowledge Base — schema foundation (migration)",
+      "description": "As the platform, I want a DB-backed, retrievable brand/style knowledge base so garment identification (AutoLister) and grading baselines can lean on grounded reference data instead of the model guessing — especially when the main tag is cut off.",
+      "acceptanceCriteria": [
+        "New migration adds tables: brand_knowledge (canonical brand, aliases, category focus, RN/CA ranges, tag/label eras, country patterns, authentication tells), brand_styles (brand_id, style/model, aliases, product_line, visual fingerprint, fabric_tech, era, msrp_band, keywords), brand_style_codes (brand_id, decoder kind, regex/format spec, field-extraction rules), brand_colorways (brand_id, name, aliases, hex, years), brand_size_charts (brand_id, category, size_label, measurement rows in inches).",
+        "Every fact-bearing row carries source_url + confidence + updated_by columns so packs are auditable/human-verifiable (US-1716).",
+        "These are global REFERENCE/operator tables: RLS = authenticated global read, admin-only write; registered with the rls-guard so tenant-isolation CI does not flag them (load the tenant-isolation skill).",
+        "Migration follows the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bump in the SAME commit, self-record footer (load the migrations skill). Applies clean on a fresh local stack (verify:db).",
+        "Seed the tables from the EXISTING in-code data so nothing regresses: import BRAND_ALIASES (brand-normalize.ts) into brand_knowledge aliases and SIZING_CHARTS (sizing-charts.ts) into brand_size_charts as the initial rows."
+      ],
+      "priority": 2520,
+      "passes": true,
+      "notes": "[BrandKB][Infra][Foundation] Root of the brand-knowledge epic. ARCHITECTURE: retrieval-augmented two-phase identification — detect brand, then inject ONLY that brand's compact pack (not all 50) + run deterministic tag-code decoders in code. Storage = DB-seeded-via-migration + DB-first resolver w/ TS fallback, mirroring the existing resolveActivePrompt / ai_prompt_versions pattern (00050) and the sizing-charts.ts US-1088 knowledge layer. Do NOT delete brand-normalize.ts / sizing-charts.ts — they become the seed + fallback."
+    },
+    {
+      "id": "US-1711",
+      "title": "Brand knowledge — DB-first resolvers + compact pack assembler",
+      "description": "As the extraction pipeline, I want resolvers that read the brand knowledge tables first and fall back to the in-code seeds, and assemble a small brand-scoped pack, so identification stays grounded without bloating prompts.",
+      "acceptanceCriteria": [
+        "brand-normalize.ts and sizing-charts.ts read the DB tables first, falling back to their in-code seeds on empty/error — same DB-override-with-code-fallback shape as resolveActivePrompt (ai-grading.ts). No behavior regression when the DB is empty.",
+        "New resolveBrandKnowledgePack(brand, {category?}) returns a COMPACT, token-budgeted pack: matched styles + fingerprints, applicable style-code decoders, relevant size chart, colorways, and authentication tells — scoped to one brand, not the whole KB.",
+        "Result is cached (in-process TTL) so a batch of items for the same brand does not re-query per photo; cache is tenant-agnostic because this is global reference data.",
+        "Pure resolver logic is unit-tested (fallback path, pack shape, budget cap); no tenant leakage (reference data has no user_id).",
+        "deno check/lint/test + web build green."
+      ],
+      "priority": 2519,
+      "passes": true,
+      "notes": "[BrandKB][Infra] The retrieval layer. Keep the pack small — it gets injected per-item into ai-extract; budget it (e.g. top-K styles by keyword/fingerprint match).",
+      "dependsOn": [
+        "US-1710"
+      ]
+    },
+    {
+      "id": "US-1712",
+      "title": "Deterministic tag-code decoder framework + Lululemon decoder",
+      "description": "As the pipeline, I want to DERIVE brand/style/size/colorway from encoded tag data in code (not by asking the AI to guess), so a legible style number or size-dot recovers identity even when the main size tag is cut off.",
+      "acceptanceCriteria": [
+        "A decoder framework runs brand_style_codes specs (regex/format + field-extraction rules) against OCR-d tag codes and structured markers, returning derived {brand, style, size, colorway, season} + a high, provenance-tagged confidence when a spec matches.",
+        "First implementation — Lululemon: (a) style-number decoder for the W/M + code + color-letter + .SSYY format (women vs men, season/year, color letter -> colorway); (b) the hip key-pocket (Luon/Nulu) and back-pocket (Luxtreme/Nulux) SIZE-DOT grid -> numeric size. Handles the tag-cut case by reading the pocket markers.",
+        "Deterministic output is reconciled with the AI extraction downstream (US-1713): on conflict the decoder wins and the disagreement is logged for review.",
+        "Decoder specs live in brand_style_codes (data), the parser is generic code — adding a new brand decoder is a data change, not a code change, wherever the format is regular.",
+        "Unit tests cover Lululemon fixtures incl. partial/cut-tag and both pocket locations; malformed codes return no-match (never a false positive). deno test green."
+      ],
+      "priority": 2518,
+      "passes": true,
+      "notes": "[BrandKB][Infra][Decoder] Sources: Lululemon style number = W/M prefix + code + color letter + .SSYY (season/year); size dots in hip key-pocket for Luon/Nulu, back pocket for Luxtreme/Nulux. This is the flagship fix for the cut-tag problem.",
+      "dependsOn": [
+        "US-1711"
+      ]
+    },
+    {
+      "id": "US-1713",
+      "title": "Two-phase brand-scoped retrieval wired into ai-extract.ts",
+      "description": "As the AutoLister extractor, I want to detect the brand first, then identify style/size using that brand’s knowledge pack + deterministic decoders, so hard brands (ABC vs Commission pant) are identified reliably instead of guessed.",
+      "acceptanceCriteria": [
+        "Phase 1: brand detection from logo/wordmark/care-tag -> canonicalize via brand-normalize (now DB-backed). Phase 2: resolveBrandKnowledgePack(brand) injects the compact scoped pack into the identification prompt (ai-extract.ts identification block).",
+        "Deterministic decoders (US-1712) run on any legible tag code / size-dot BEFORE and AFTER the AI pass; decoder-derived brand/style/size override the AI on conflict, with the AI used to fill gaps the decoder cannot.",
+        "Style disambiguation uses the pack’s visual fingerprints so lookalikes are separated (documented worked example: Lululemon ABC Pant vs Commission Pant vs Pace Breaker).",
+        "Per-field provenance is preserved (decoder | tag-ocr | pack-fingerprint | model) and flows into aspect provenance; no change to aspect-registry output contract.",
+        "Falls back gracefully to today’s behavior when the brand is unknown / has no pack. Listing-gen (ai-listing.ts) consumes the enriched fields unchanged. deno test + web build green."
+      ],
+      "priority": 2517,
+      "passes": true,
+      "notes": "[BrandKB][Infra] This is where the KB actually changes identification. Keep the injected pack compact (US-1711 budget). Decoder-wins-on-conflict is the key reliability lever.",
+      "dependsOn": [
+        "US-1712"
+      ]
+    },
+    {
+      "id": "US-1714",
+      "title": "Confidence boosting from grounded identification + acceptance/review wiring",
+      "description": "As the pipeline, I want a grounded match (decoder hit or fingerprinted style) to raise identification confidence and feed the existing acceptance/review gates, so reliable IDs auto-proceed and shaky ones get flagged.",
+      "acceptanceCriteria": [
+        "A decoder match or a strong pack-fingerprint match raises the identification confidence for brand/style/size, composed correctly with existing confidence caps (does not exceed hard caps; documented composition).",
+        "Boosted confidence flows into listing-acceptance thresholds (listing-acceptance.ts) so grounded items clear review that previously stalled, and ungrounded guesses are held.",
+        "Low-confidence / decoder-vs-AI conflict items are surfaced for human review with the conflicting values shown.",
+        "Metrics: per-brand identification confidence + match-rate is recorded so the KB’s effect is measurable (reuse accuracy-tracking patterns).",
+        "deno test green; no regression to acceptance for brands with no pack."
+      ],
+      "priority": 2516,
+      "passes": true,
+      "notes": "[BrandKB][Infra] Ties the KB to the confidence-cap composition (grading-engine skill owns cap rules) and the acceptance gate.",
+      "dependsOn": [
+        "US-1713"
+      ]
+    },
+    {
+      "id": "US-1715",
+      "title": "Admin UI — view / edit / verify brand knowledge packs",
+      "description": "As an operator, I want to review and correct brand packs (styles, decoders, size charts, colorways, tells) with source + confidence, so AI-drafted seeds become human-verified golden facts.",
+      "acceptanceCriteria": [
+        "Admin surface (under admin) lists brands and CRUD-edits brand_knowledge / brand_styles / brand_style_codes / brand_colorways / brand_size_charts, showing source_url + confidence per fact.",
+        "A fact can be marked verified (promotes confidence / marks golden); edits are attributed (updated_by) and audit-logged.",
+        "Admin-only via existing RBAC; writes go through a tenant-safe admin route (service-role, operator-gated) per the tenant-isolation skill.",
+        "A brand pack can be previewed exactly as the extractor would receive it (the compact pack from US-1711), so operators see what the AI sees.",
+        "jsx-a11y clean; web build + eslint + deno test green."
+      ],
+      "priority": 2515,
+      "passes": false,
+      "notes": "[BrandKB][Infra][Admin] The human-verification surface — brand-content stories depend on this existing so their seeds can be checked.",
+      "dependsOn": [
+        "US-1711"
+      ]
+    },
+    {
+      "id": "US-1716",
+      "title": "Knowledge-pack seeding pipeline + golden verification harness",
+      "description": "As the team, I want an AI-assisted drafting job that proposes a brand pack from cited sources plus a golden fixture harness, so populating 50 brands is fast but stays accurate and regression-safe.",
+      "acceptanceCriteria": [
+        "A drafting job takes a brand + source URLs and proposes brand_knowledge/styles/codes/colorways/size-chart rows with per-fact source_url + confidence; output lands in the admin verify queue (US-1715), never auto-activated unverified.",
+        "A golden set of real per-brand item fixtures (cut-tag, partial-label, decoder cases) asserts the two-phase resolver recovers brand+style+size; runs in deno test and gates decoder/fingerprint changes (mirrors the grading golden set).",
+        "A single command re-runs the golden harness and reports per-brand recovery rate + confidence delta vs the pre-KB baseline.",
+        "Provenance + confidence are REQUIRED on every seeded fact (schema-enforced); unsourced facts are rejected.",
+        "Docs: a short CONTRIBUTING note on how a brand-content story author drafts -> verifies -> seeds a pack. deno test green."
+      ],
+      "priority": 2514,
+      "passes": true,
+      "notes": "[BrandKB][Infra][Quality] Guardrail so the 50-brand content push is verifiable, not vibes. Golden set = the anti-regression contract for decoders/fingerprints.",
+      "dependsOn": [
+        "US-1711"
+      ]
+    },
+    {
+      "id": "US-1717",
+      "title": "Feed brand knowledge into grading baselines & authentication (phase 2)",
+      "description": "As the grading engine, I want brand+style packs to inform garment baselines and authenticity checks, so fabric/structural scoring is brand-aware and counterfeits are flagged — without making grading emit brand as a trusted output.",
+      "acceptanceCriteria": [
+        "garment-baselines.ts consumes the brand+style pack (expected fabric composition, construction, hardware) so fabric/structural factor scoring is calibrated to the identified garment; effect is measurable on the grading golden set.",
+        "Brand authentication tells from brand_knowledge surface in the grading authenticity/label pass (informational flag), not as a grade factor.",
+        "Grading KEEPS its label-as-reference / brand-as-untrusted-seller-input stance: no new trusted brand-emit field on grade_reports; brand is used only to select baselines/tells. Load the grading-engine skill; respect rounding lockstep + prompt-version lifecycle.",
+        "Any prompt change ships shadow -> eval-gated -> canary per the grading prompt-version lifecycle; no accuracy regression on the golden set gate.",
+        "deno test + web build green."
+      ],
+      "priority": 2480,
+      "passes": false,
+      "notes": "[BrandKB][Grading][Phase2] The 'Both, phased' half. Deliberately conservative: KB improves grading ACCURACY via baselines/tells, it does NOT turn grading into a brand identifier. Gated behind the resolver (US-1713).",
+      "dependsOn": [
+        "US-1713"
+      ]
+    },
+    {
+      "id": "US-1718",
+      "title": "Brand KB: Lululemon (flagship — size-dot + style-number recovery)",
+      "description": "As a reseller, I want Lululemon items identified by style, size and colorway even when the size tag is cut, so I can list ABC vs Commission vs Pace Breaker (and Align vs Wunder Under vs Fast & Free) correctly.",
+      "acceptanceCriteria": [
+        "Seed brand_knowledge for Lululemon: canonical name + every alias/misspelling, category focus, RN/CA/registered-number ranges, tag & care-label eras with visual descriptions (font, layout, logo evolution), country-of-manufacture patterns, and known counterfeit/authentication tells — every fact carries a source URL + confidence per US-1716.",
+        "Seed brand_styles for Lululemon's top resale styles (men's ABC Pant/Short, Commission, Pace Breaker, Metal Vent Tech; women's Align, Wunder Under, Fast & Free, Groove, Scuba, Define): style/model name + aliases, product line, a defining visual fingerprint (silhouette, pockets, hardware, stitching, waistband) that disambiguates lookalikes (e.g. ABC Pant vs Commission vs Pace Breaker via fabric, pockets, gusset and hem), fabric technology, era/years, MSRP band, and search keywords.",
+        "Populate brand_style_codes so the US-1712 Lululemon decoder resolves the style-number (W/M + code + color-letter + .SSYY) and the hip/back-pocket size dot (the numeric size PRINTED in the pocket circle, recovered by OCR of that region — NOT an encoded dot pattern); include the fabric->pocket-location map (Luon/Nulu = hip key-pocket, Luxtreme/Nulux = back pocket).",
+        "Seed brand_size_charts for Lululemon across men's & women's bottoms, tops, outerwear (numeric + alpha + inseam/chest/waist rows in inches), extending sizing-charts.ts coverage rather than duplicating it.",
+        "Seed brand_colorways for Lululemon's proprietary named colors -> hex -> years wherever the brand reuses named colorways; leave empty when it does not.",
+        "Verify against a golden set of Lululemon fixtures incl. cut-tag / partial-label photos: the two-phase resolver (US-1713) recovers brand+style+size at higher confidence than the pre-KB baseline, and no other brand regresses. Sources cited in the seed migration; deno test + web build green."
+      ],
+      "priority": 2513,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Tier1] The brand the whole epic is motivated by. Depends on the decoder framework (US-1712).",
+      "dependsOn": [
+        "US-1712",
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1719",
+      "title": "Brand KB: Nike & Jordan (style-code recovery)",
+      "description": "As a reseller, I want Nike/Jordan apparel identified by line and style code, disambiguating fleece/tech lines, so titles and specifics are right.",
+      "acceptanceCriteria": [
+        "Seed brand_knowledge for Nike: canonical name + every alias/misspelling, category focus, RN/CA/registered-number ranges, tag & care-label eras with visual descriptions (font, layout, logo evolution), country-of-manufacture patterns, and known counterfeit/authentication tells — every fact carries a source URL + confidence per US-1716.",
+        "Seed brand_styles for Nike's top resale styles (Tech Fleece, Club Fleece, Sportswear, Dri-FIT, Therma, ACG; Jordan lines): style/model name + aliases, product line, a defining visual fingerprint (silhouette, pockets, hardware, stitching, waistband) that disambiguates lookalikes (e.g. Tech Fleece vs Club Fleece vs Therma via fabric, zips, panel seams), fabric technology, era/years, MSRP band, and search keywords.",
+        "Populate brand_style_codes for the Nike style-code format (8-char + colorway suffix, e.g. CW1234-001) so a legible woven/care-tag code resolves to line + colorway; note woven-label vs printed-care-tag placement.",
+        "Seed brand_size_charts for Nike across men's, women's, youth apparel (numeric + alpha + inseam/chest/waist rows in inches), extending sizing-charts.ts coverage rather than duplicating it.",
+        "Seed brand_colorways for Nike's proprietary named colors -> hex -> years wherever the brand reuses named colorways; leave empty when it does not.",
+        "Verify against a golden set of Nike fixtures incl. cut-tag / partial-label photos: the two-phase resolver (US-1713) recovers brand+style+size at higher confidence than the pre-KB baseline, and no other brand regresses. Sources cited in the seed migration; deno test + web build green."
+      ],
+      "priority": 2512,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Tier1] resolveStyleCode() in brand-normalize.ts already handles some sneaker codes — extend, don't duplicate.",
+      "dependsOn": [
+        "US-1712",
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1720",
+      "title": "Brand KB: Adidas & Yeezy (article-number recovery)",
+      "description": "As a reseller, I want Adidas apparel identified by line and article number so I list Ultraboost/Tiro/Yeezy items correctly.",
+      "acceptanceCriteria": [
+        "Seed brand_knowledge for Adidas: canonical name + every alias/misspelling, category focus, RN/CA/registered-number ranges, tag & care-label eras with visual descriptions (font, layout, logo evolution), country-of-manufacture patterns, and known counterfeit/authentication tells — every fact carries a source URL + confidence per US-1716.",
+        "Seed brand_styles for Adidas's top resale styles (Tiro, Tango, Adicolor/Trefoil, Ultraboost apparel, Yeezy (Gap/standalone)): style/model name + aliases, product line, a defining visual fingerprint (silhouette, pockets, hardware, stitching, waistband) that disambiguates lookalikes (e.g. Trefoil (Originals) vs Performance three-stripe via logo + tag), fabric technology, era/years, MSRP band, and search keywords.",
+        "Populate brand_style_codes for the Adidas article-number format (6-char alphanumeric, e.g. GX1234) and the EU/US/UK size cross-map.",
+        "Seed brand_size_charts for Adidas across men's, women's, youth (EU/US/UK cross-map) (numeric + alpha + inseam/chest/waist rows in inches), extending sizing-charts.ts coverage rather than duplicating it.",
+        "Seed brand_colorways for Adidas's proprietary named colors -> hex -> years wherever the brand reuses named colorways; leave empty when it does not.",
+        "Verify against a golden set of Adidas fixtures incl. cut-tag / partial-label photos: the two-phase resolver (US-1713) recovers brand+style+size at higher confidence than the pre-KB baseline, and no other brand regresses. Sources cited in the seed migration; deno test + web build green."
+      ],
+      "priority": 2511,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Tier1]",
+      "dependsOn": [
+        "US-1712",
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1721",
+      "title": "Brand KB: Levi's (lot/fit number + tab/era dating)",
+      "description": "As a reseller, I want Levi's identified by fit (501/505/511/550/569) and dated by red-tab/patch/care-tag era, since the patch carries WxL and the tab signals vintage value.",
+      "acceptanceCriteria": [
+        "Seed brand_knowledge for Levi's: canonical name + every alias/misspelling, category focus, RN/CA/registered-number ranges, tag & care-label eras with visual descriptions (font, layout, logo evolution), country-of-manufacture patterns, and known counterfeit/authentication tells — every fact carries a source URL + confidence per US-1716.",
+        "Seed brand_styles for Levi's's top resale styles (501, 505, 511, 550, 569, 512, 541, trucker jacket): style/model name + aliases, product line, a defining visual fingerprint (silhouette, pockets, hardware, stitching, waistband) that disambiguates lookalikes (e.g. 501 vs 505 vs 511 via rise, leg opening, button-fly vs zip), fabric technology, era/years, MSRP band, and search keywords.",
+        "Populate brand_style_codes for the lot/fit number and a Big-E vs small-e red-tab + care-tag era dating rule so the leather/jacron patch WxL and vintage signal are extracted.",
+        "Seed brand_size_charts for Levi's across men's & women's denim (WxL), jackets (numeric + alpha + inseam/chest/waist rows in inches), extending sizing-charts.ts coverage rather than duplicating it.",
+        "Seed brand_colorways for Levi's's proprietary named colors -> hex -> years wherever the brand reuses named colorways; leave empty when it does not.",
+        "Verify against a golden set of Levi's fixtures incl. cut-tag / partial-label photos: the two-phase resolver (US-1713) recovers brand+style+size at higher confidence than the pre-KB baseline, and no other brand regresses. Sources cited in the seed migration; deno test + web build green."
+      ],
+      "priority": 2510,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Tier1] Vintage Levi's value hinges on tab/era — capture the dating tells.",
+      "dependsOn": [
+        "US-1712",
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1722",
+      "title": "Brand KB: Carhartt (workwear style codes)",
+      "description": "As a reseller, I want Carhartt identified by style code and silhouette (Detroit vs Chore vs Active) so workwear lists correctly.",
+      "acceptanceCriteria": [
+        "Seed brand_knowledge for Carhartt: canonical name + every alias/misspelling, category focus, RN/CA/registered-number ranges, tag & care-label eras with visual descriptions (font, layout, logo evolution), country-of-manufacture patterns, and known counterfeit/authentication tells — every fact carries a source URL + confidence per US-1716.",
+        "Seed brand_styles for Carhartt's top resale styles (Detroit Jacket, Chore Coat, Active Jac, Duck Bib, B01/B136 pants, K87 tee, WIP (EU) vs USA): style/model name + aliases, product line, a defining visual fingerprint (silhouette, pockets, hardware, stitching, waistband) that disambiguates lookalikes (e.g. Detroit vs Chore vs Active Jac via collar, blanket lining, pockets), fabric technology, era/years, MSRP band, and search keywords.",
+        "Populate brand_style_codes for Carhartt style codes (e.g. B01, J140, 103828) and a Carhartt vs Carhartt WIP distinction from the tag.",
+        "Seed brand_size_charts for Carhartt across men's workwear (WxL, S-3XL), outerwear (numeric + alpha + inseam/chest/waist rows in inches), extending sizing-charts.ts coverage rather than duplicating it.",
+        "Seed brand_colorways for Carhartt's proprietary named colors -> hex -> years wherever the brand reuses named colorways; leave empty when it does not.",
+        "Verify against a golden set of Carhartt fixtures incl. cut-tag / partial-label photos: the two-phase resolver (US-1713) recovers brand+style+size at higher confidence than the pre-KB baseline, and no other brand regresses. Sources cited in the seed migration; deno test + web build green."
+      ],
+      "priority": 2509,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Tier1] Carhartt WIP vs mainline is a common mis-ID and a value gap.",
+      "dependsOn": [
+        "US-1712",
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1723",
+      "title": "Brand KB: Patagonia (style number + fabric tech + colorway)",
+      "description": "As a reseller, I want Patagonia identified by style and fabric technology (Nano Puff, R1, Better Sweater) so I list the right model and colorway.",
+      "acceptanceCriteria": [
+        "Seed brand_knowledge for Patagonia: canonical name + every alias/misspelling, category focus, RN/CA/registered-number ranges, tag & care-label eras with visual descriptions (font, layout, logo evolution), country-of-manufacture patterns, and known counterfeit/authentication tells — every fact carries a source URL + confidence per US-1716.",
+        "Seed brand_styles for Patagonia's top resale styles (Nano Puff, Down Sweater, Better Sweater, R1/R2 fleece, Baggies, Retro-X): style/model name + aliases, product line, a defining visual fingerprint (silhouette, pockets, hardware, stitching, waistband) that disambiguates lookalikes (e.g. Nano Puff vs Down Sweater vs Micro Puff via baffle pattern + fill), fabric technology, era/years, MSRP band, and search keywords.",
+        "Populate brand_styles with Patagonia style numbers and the fabric-tech -> model map; colorways use Patagonia named colors.",
+        "Seed brand_size_charts for Patagonia across men's, women's, kids outerwear & fleece (numeric + alpha + inseam/chest/waist rows in inches), extending sizing-charts.ts coverage rather than duplicating it.",
+        "Seed brand_colorways for Patagonia's proprietary named colors -> hex -> years wherever the brand reuses named colorways; leave empty when it does not.",
+        "Verify against a golden set of Patagonia fixtures incl. cut-tag / partial-label photos: the two-phase resolver (US-1713) recovers brand+style+size at higher confidence than the pre-KB baseline, and no other brand regresses. Sources cited in the seed migration; deno test + web build green."
+      ],
+      "priority": 2508,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Tier1]",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1724",
+      "title": "Brand KB: The North Face (style code + fabric tech)",
+      "description": "As a reseller, I want TNF identified by model and fabric tech (Nuptse, Denali, Thermoball, Gore-Tex) so listings are precise.",
+      "acceptanceCriteria": [
+        "Seed brand_knowledge for The North Face: canonical name + every alias/misspelling, category focus, RN/CA/registered-number ranges, tag & care-label eras with visual descriptions (font, layout, logo evolution), country-of-manufacture patterns, and known counterfeit/authentication tells — every fact carries a source URL + confidence per US-1716.",
+        "Seed brand_styles for The North Face's top resale styles (Nuptse, Denali, Thermoball, Osito, Apex, Summit Series, McMurdo): style/model name + aliases, product line, a defining visual fingerprint (silhouette, pockets, hardware, stitching, waistband) that disambiguates lookalikes (e.g. Nuptse (down baffles) vs Thermoball vs Denali (fleece) via material + construction), fabric technology, era/years, MSRP band, and search keywords.",
+        "Populate brand_styles with TNF style codes + fabric-tech map; capture Summit Series vs mainline tell.",
+        "Seed brand_size_charts for The North Face across men's, women's, youth outerwear & fleece (numeric + alpha + inseam/chest/waist rows in inches), extending sizing-charts.ts coverage rather than duplicating it.",
+        "Seed brand_colorways for The North Face's proprietary named colors -> hex -> years wherever the brand reuses named colorways; leave empty when it does not.",
+        "Verify against a golden set of The North Face fixtures incl. cut-tag / partial-label photos: the two-phase resolver (US-1713) recovers brand+style+size at higher confidence than the pre-KB baseline, and no other brand regresses. Sources cited in the seed migration; deno test + web build green."
+      ],
+      "priority": 2507,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Tier1]",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1725",
+      "title": "Brand KB: Ralph Lauren / Polo (line + pony + RN)",
+      "description": "As a reseller, I want Ralph Lauren identified by line (Polo, RRL, Purple Label, Lauren, Chaps) and pony/tag era so value tiers are right.",
+      "acceptanceCriteria": [
+        "Seed brand_knowledge for Ralph Lauren: canonical name + every alias/misspelling, category focus, RN/CA/registered-number ranges, tag & care-label eras with visual descriptions (font, layout, logo evolution), country-of-manufacture patterns, and known counterfeit/authentication tells — every fact carries a source URL + confidence per US-1716.",
+        "Seed brand_styles for Ralph Lauren's top resale styles (Polo Ralph Lauren, RRL, Purple Label, Lauren Ralph Lauren, Polo Sport, Chaps): style/model name + aliases, product line, a defining visual fingerprint (silhouette, pockets, hardware, stitching, waistband) that disambiguates lookalikes (e.g. Polo vs RRL vs Purple Label vs Lauren vs Chaps via label, pony color/size, RN), fabric technology, era/years, MSRP band, and search keywords.",
+        "Populate brand_knowledge with the line-by-label/pony/RN taxonomy so sub-brand (and value tier) is inferred from the tag.",
+        "Seed brand_size_charts for Ralph Lauren across men's & women's shirts, polos, sweaters, chinos (numeric + alpha + inseam/chest/waist rows in inches), extending sizing-charts.ts coverage rather than duplicating it.",
+        "Seed brand_colorways for Ralph Lauren's proprietary named colors -> hex -> years wherever the brand reuses named colorways; leave empty when it does not.",
+        "Verify against a golden set of Ralph Lauren fixtures incl. cut-tag / partial-label photos: the two-phase resolver (US-1713) recovers brand+style+size at higher confidence than the pre-KB baseline, and no other brand regresses. Sources cited in the seed migration; deno test + web build green."
+      ],
+      "priority": 2506,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Tier1] Sub-brand tier (RRL/Purple Label vs Chaps) is a big value swing.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1726",
+      "title": "Brand KB: Coach (creed/serial + line, boutique vs outlet)",
+      "description": "As a reseller, I want Coach identified by line and dated via creed/serial, distinguishing boutique from outlet (F-prefix) so value is right.",
+      "acceptanceCriteria": [
+        "Seed brand_knowledge for Coach: canonical name + every alias/misspelling, category focus, RN/CA/registered-number ranges, tag & care-label eras with visual descriptions (font, layout, logo evolution), country-of-manufacture patterns, and known counterfeit/authentication tells — every fact carries a source URL + confidence per US-1716.",
+        "Seed brand_styles for Coach's top resale styles (Signature canvas, full-grain leather lines, Willis, Rogue, Tabby): style/model name + aliases, product line, a defining visual fingerprint (silhouette, pockets, hardware, stitching, waistband) that disambiguates lookalikes (e.g. boutique vs outlet (F-prefix / MFF) via creed + serial format), fabric technology, era/years, MSRP band, and search keywords.",
+        "Populate brand_style_codes for the Coach creed/serial format (e.g. No. + letter-number) to derive line + era + boutique-vs-outlet.",
+        "Seed brand_size_charts for Coach across bags/accessories (dimensions), apparel where applicable (numeric + alpha + inseam/chest/waist rows in inches), extending sizing-charts.ts coverage rather than duplicating it.",
+        "Seed brand_colorways for Coach's proprietary named colors -> hex -> years wherever the brand reuses named colorways; leave empty when it does not.",
+        "Verify against a golden set of Coach fixtures incl. cut-tag / partial-label photos: the two-phase resolver (US-1713) recovers brand+style+size at higher confidence than the pre-KB baseline, and no other brand regresses. Sources cited in the seed migration; deno test + web build green."
+      ],
+      "priority": 2505,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Tier1] Coach = mostly bags/accessories; keep size charts light, lean on serial decoder + authentication tells.",
+      "dependsOn": [
+        "US-1712",
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1727",
+      "title": "Brand KB: Louis Vuitton (date code + canvas patterns, authentication)",
+      "description": "As a reseller, I want LV items dated by date code (pre-2021) or microchip and matched to canvas/line, with counterfeit tells, so authentication and listing are grounded.",
+      "acceptanceCriteria": [
+        "Seed brand_knowledge for Louis Vuitton: canonical name + every alias/misspelling, category focus, RN/CA/registered-number ranges, tag & care-label eras with visual descriptions (font, layout, logo evolution), country-of-manufacture patterns, and known counterfeit/authentication tells — every fact carries a source URL + confidence per US-1716.",
+        "Seed brand_styles for Louis Vuitton's top resale styles (Monogram, Damier Ebene/Azur, Empreinte, Epi canvases/lines): style/model name + aliases, product line, a defining visual fingerprint (silhouette, pockets, hardware, stitching, waistband) that disambiguates lookalikes (e.g. Monogram vs Damier vs Empreinte via pattern + hardware), fabric technology, era/years, MSRP band, and search keywords.",
+        "Populate brand_style_codes for the LV date-code format (2 letters + 4 digits = factory + week/year, discontinued Mar 2021 -> microchip) for dating; pair with strong authentication tells.",
+        "Seed brand_size_charts for Louis Vuitton across bags/accessories (dimensions), apparel where applicable (numeric + alpha + inseam/chest/waist rows in inches), extending sizing-charts.ts coverage rather than duplicating it.",
+        "Seed brand_colorways for Louis Vuitton's proprietary named colors -> hex -> years wherever the brand reuses named colorways; leave empty when it does not.",
+        "Verify against a golden set of Louis Vuitton fixtures incl. cut-tag / partial-label photos: the two-phase resolver (US-1713) recovers brand+style+size at higher confidence than the pre-KB baseline, and no other brand regresses. Sources cited in the seed migration; deno test + web build green.",
+        "Explicitly flag that a date code proves NOTHING about authenticity on its own — the pack must pair it with construction/heat-stamp/hardware tells and never auto-assert authenticity."
+      ],
+      "priority": 2504,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Tier1] High counterfeit risk — authentication tells + humility are mandatory; never auto-authenticate.",
+      "dependsOn": [
+        "US-1712",
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1728",
+      "title": "Brand KB: Gucci (line + style/supplier code + tells)",
+      "description": "As a reseller, I want Gucci identified by line and dated/verified via style-supplier codes and tells so listings and authenticity are grounded.",
+      "acceptanceCriteria": [
+        "Seed brand_knowledge for Gucci: canonical name + every alias/misspelling, category focus, RN/CA/registered-number ranges, tag & care-label eras with visual descriptions (font, layout, logo evolution), country-of-manufacture patterns, and known counterfeit/authentication tells — every fact carries a source URL + confidence per US-1716.",
+        "Seed brand_styles for Gucci's top resale styles (GG Supreme, Ophidia, Marmont, Ace sneakers, Web-stripe apparel): style/model name + aliases, product line, a defining visual fingerprint (silhouette, pockets, hardware, stitching, waistband) that disambiguates lookalikes (e.g. GG Supreme canvas vs Guccissima leather vs Web stripe), fabric technology, era/years, MSRP band, and search keywords.",
+        "Populate brand_knowledge with the style-number + supplier-code layout and serial-tag tells; IT->US size cross-map in brand_size_charts.",
+        "Seed brand_size_charts for Gucci across apparel (IT sizing), bags/accessories dimensions (numeric + alpha + inseam/chest/waist rows in inches), extending sizing-charts.ts coverage rather than duplicating it.",
+        "Seed brand_colorways for Gucci's proprietary named colors -> hex -> years wherever the brand reuses named colorways; leave empty when it does not.",
+        "Verify against a golden set of Gucci fixtures incl. cut-tag / partial-label photos: the two-phase resolver (US-1713) recovers brand+style+size at higher confidence than the pre-KB baseline, and no other brand regresses. Sources cited in the seed migration; deno test + web build green."
+      ],
+      "priority": 2503,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Tier1] Never auto-authenticate; surface tells only.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1729",
+      "title": "Brand KB: Free People (style number + line)",
+      "description": "As a reseller, I want Free People (and We The Free / Endless Summer / Movement) identified by line and style so boho items list right.",
+      "acceptanceCriteria": [
+        "Seed brand_knowledge for Free People: canonical name + every alias/misspelling, category focus, RN/CA/registered-number ranges, tag & care-label eras with visual descriptions (font, layout, logo evolution), country-of-manufacture patterns, and known counterfeit/authentication tells — every fact carries a source URL + confidence per US-1716.",
+        "Seed brand_styles for Free People's top resale styles (We The Free, Endless Summer, FP Movement, FP One, Intimately): style/model name + aliases, product line, a defining visual fingerprint (silhouette, pockets, hardware, stitching, waistband) that disambiguates lookalikes (e.g. We The Free vs FP Movement vs Intimately via tag + garment type), fabric technology, era/years, MSRP band, and search keywords.",
+        "Populate brand_styles with FP style numbers and sub-line-by-tag mapping.",
+        "Seed brand_size_charts for Free People across women's dresses, tops, denim, activewear (numeric + alpha + inseam/chest/waist rows in inches), extending sizing-charts.ts coverage rather than duplicating it.",
+        "Seed brand_colorways for Free People's proprietary named colors -> hex -> years wherever the brand reuses named colorways; leave empty when it does not.",
+        "Verify against a golden set of Free People fixtures incl. cut-tag / partial-label photos: the two-phase resolver (US-1713) recovers brand+style+size at higher confidence than the pre-KB baseline, and no other brand regresses. Sources cited in the seed migration; deno test + web build green."
+      ],
+      "priority": 2502,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Tier1]",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1730",
+      "title": "Brand KB: Madewell & J.Crew (item code + fit names)",
+      "description": "As a reseller, I want Madewell and J.Crew identified by named fit/style and item code so denim and staples list right.",
+      "acceptanceCriteria": [
+        "Seed brand_knowledge for Madewell & J.Crew: canonical name + every alias/misspelling, category focus, RN/CA/registered-number ranges, tag & care-label eras with visual descriptions (font, layout, logo evolution), country-of-manufacture patterns, and known counterfeit/authentication tells — every fact carries a source URL + confidence per US-1716.",
+        "Seed brand_styles for Madewell & J.Crew's top resale styles (Madewell: The Perfect Vintage, Roadtripper, Curvy; J.Crew: 770/484/1040 fits, Ludlow, Tilly): style/model name + aliases, product line, a defining visual fingerprint (silhouette, pockets, hardware, stitching, waistband) that disambiguates lookalikes (e.g. Madewell vs J.Crew (shared parent) via tag; named denim fits), fabric technology, era/years, MSRP band, and search keywords.",
+        "Populate brand_styles for both banners with item-code + named-fit maps; keep as one pack with two brand rows (shared parent, distinct tags).",
+        "Seed brand_size_charts for Madewell & J.Crew across men's & women's denim (WxL / numeric), shirting, chinos (numeric + alpha + inseam/chest/waist rows in inches), extending sizing-charts.ts coverage rather than duplicating it.",
+        "Seed brand_colorways for Madewell & J.Crew's proprietary named colors -> hex -> years wherever the brand reuses named colorways; leave empty when it does not.",
+        "Verify against a golden set of Madewell & J.Crew fixtures incl. cut-tag / partial-label photos: the two-phase resolver (US-1713) recovers brand+style+size at higher confidence than the pre-KB baseline, and no other brand regresses. Sources cited in the seed migration; deno test + web build green."
+      ],
+      "priority": 2501,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Tier1] Two related banners in one story to save a slot.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1731",
+      "title": "Brand KB: Alo Yoga (style + colorway)",
+      "description": "As a reseller, I want Alo Yoga identified by style and colorway so athleisure lists correctly.",
+      "acceptanceCriteria": [
+        "Seed brand_knowledge for Alo Yoga: canonical name + every alias/misspelling, category focus, RN/CA/registered-number ranges, tag & care-label eras with visual descriptions (font, layout, logo evolution), country-of-manufacture patterns, and known counterfeit/authentication tells — every fact carries a source URL + confidence per US-1716.",
+        "Seed brand_styles for Alo Yoga's top resale styles (Airlift, Airbrush, 7/8 High-Waist, Accolade hoodie, Muse sweatpant): style/model name + aliases, product line, a defining visual fingerprint (silhouette, pockets, hardware, stitching, waistband) that disambiguates lookalikes (e.g. Airlift vs Airbrush legging via fabric sheen + waistband), fabric technology, era/years, MSRP band, and search keywords.",
+        "Populate brand_styles with Alo style names + fabric map; colorways use Alo named colors.",
+        "Seed brand_size_charts for Alo Yoga across women's & men's activewear (XXS-XL) (numeric + alpha + inseam/chest/waist rows in inches), extending sizing-charts.ts coverage rather than duplicating it.",
+        "Seed brand_colorways for Alo Yoga's proprietary named colors -> hex -> years wherever the brand reuses named colorways; leave empty when it does not.",
+        "Verify against a golden set of Alo Yoga fixtures incl. cut-tag / partial-label photos: the two-phase resolver (US-1713) recovers brand+style+size at higher confidence than the pre-KB baseline, and no other brand regresses. Sources cited in the seed migration; deno test + web build green."
+      ],
+      "priority": 2500,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Tier1]",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1732",
+      "title": "Brand KB: Athleta (style number + size markers)",
+      "description": "As a reseller, I want Athleta identified by style and size (incl. any hidden size marker) so Gap-owned activewear lists correctly.",
+      "acceptanceCriteria": [
+        "Seed brand_knowledge for Athleta: canonical name + every alias/misspelling, category focus, RN/CA/registered-number ranges, tag & care-label eras with visual descriptions (font, layout, logo evolution), country-of-manufacture patterns, and known counterfeit/authentication tells — every fact carries a source URL + confidence per US-1716.",
+        "Seed brand_styles for Athleta's top resale styles (Salutation, Ultimate, Elation, Rainier, Brooklyn pant): style/model name + aliases, product line, a defining visual fingerprint (silhouette, pockets, hardware, stitching, waistband) that disambiguates lookalikes (e.g. Salutation vs Ultimate vs Elation legging via fabric + waistband), fabric technology, era/years, MSRP band, and search keywords.",
+        "Populate brand_styles with Athleta style numbers; if Athleta uses a printed size marker analogous to Lululemon, add a brand_style_codes spec, else rely on care-tag size.",
+        "Seed brand_size_charts for Athleta across women's activewear (XXS-3X, numeric) (numeric + alpha + inseam/chest/waist rows in inches), extending sizing-charts.ts coverage rather than duplicating it.",
+        "Seed brand_colorways for Athleta's proprietary named colors -> hex -> years wherever the brand reuses named colorways; leave empty when it does not.",
+        "Verify against a golden set of Athleta fixtures incl. cut-tag / partial-label photos: the two-phase resolver (US-1713) recovers brand+style+size at higher confidence than the pre-KB baseline, and no other brand regresses. Sources cited in the seed migration; deno test + web build green."
+      ],
+      "priority": 2499,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Tier1]",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1733",
+      "title": "Brand KB group: Athleisure & activewear",
+      "description": "As a reseller, I want the next tier of activewear brands grounded so athleisure beyond the flagship brands lists reliably.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Under Armour, Vuori, Gymshark, Fabletics, Beyond Yoga, Sweaty Betty): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2498,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Group] ~6 brands. Add size markers/decoders only where they exist.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1734",
+      "title": "Brand KB group: Outdoor & technical",
+      "description": "As a reseller, I want outdoor/technical brands grounded by model + fabric tech so jackets and fleece list precisely.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Columbia, Arc’teryx, Marmot, REI Co-op, L.L. Bean, Mountain Hardwear): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2497,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Group] ~6 brands. Fabric-tech -> model maps matter most here (e.g. Arc'teryx Gore-Tex lines, Columbia Omni-Tech).",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1735",
+      "title": "Brand KB group: Premium & vintage denim",
+      "description": "As a reseller, I want premium denim brands grounded by fit + tag era so denim value tiers are right.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Wrangler, Lee, 7 For All Mankind, True Religion, AG, Citizens of Humanity): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2496,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Group] ~6 brands. WxL from patch/tag; True Religion horseshoe/stitch tells; vintage Wrangler/Lee era dating.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1736",
+      "title": "Brand KB group: Luxury & designer",
+      "description": "As a reseller, I want luxury/designer brands grounded by line + authentication tells so high-value items list right and are never auto-authenticated.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Chanel, Burberry, Prada, Michael Kors, Kate Spade, Tory Burch): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2495,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Group] ~6 brands. Authentication tells only, NEVER auto-authenticate (same stance as US-1727/1728). IT/EU->US size cross-maps.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1737",
+      "title": "Brand KB group: Streetwear & hype",
+      "description": "As a reseller, I want streetwear/hype brands grounded by season/collab tells so drops list right and fakes are flagged.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Supreme, Stussy, BAPE, Kith, Palace, Fear of God / Essentials): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2494,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Group] ~6 brands. Season/collab identification + counterfeit tells (Supreme box-logo era, Essentials tag generations). Never auto-authenticate.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1738",
+      "title": "Brand KB group: Contemporary women's",
+      "description": "As a reseller, I want contemporary women’s brands grounded by style + fit so dresses/blouses/knits list right.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Anthropologie, Sezane, Aritzia, Reformation, Vince, Theory, Eileen Fisher): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2493,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Group] ~7 brands. Aritzia sub-labels (Wilfred/Babaton/TNA) and Anthropologie house brands (Maeve/Pilcro) are the key disambiguation.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1739",
+      "title": "Brand KB group: Basics, mall & fast-fashion",
+      "description": "As a reseller, I want high-volume basics/mall brands grounded so staples list quickly and correctly.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Uniqlo, Gap, Banana Republic, Old Navy, American Eagle, Abercrombie & Fitch, Tommy Hilfiger): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2492,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Group] ~7 brands. High volume, lower value — prioritize size charts + fit names over deep decoders.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1740",
+      "title": "Brand KB group: Footwear brands (apparel-adjacent)",
+      "description": "As a reseller, I want footwear-first brands grounded by style code + size system so shoes list right.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (New Balance, Dr. Martens, UGG, Birkenstock, Converse, Vans, Cole Haan): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2491,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Group] ~7 brands. Style-code decoders where regular (New Balance model numbers); US/UK/EU size cross-maps are the priority. Coordinate with resolveStyleCode() in brand-normalize.ts.",
+      "dependsOn": [
+        "US-1712",
+        "US-1715",
+        "US-1716"
       ]
     }
   ]
