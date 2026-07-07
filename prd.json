@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1794,
+  "nextId": 1848,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -14018,6 +14018,762 @@
       "priority": 1793,
       "passes": false,
       "notes": "[P2][B2B-API][DX] OpenAPI + opensource docs renderer (self-hosted, inline per CSP). Reuse sandbox (US-596) + white-label branding (api-keys.ts /branding). Docs as a public page."
+    },
+    {
+      "id": "US-1794",
+      "title": "EPIC: Buyer Platform — buyer accounts, subscription, and the confidence layer",
+      "description": "As GradeThread, we want to extend the seller-focused product into a two-sided buyer/seller platform whose sole purpose is increasing confidence in item listings, so that buyers pay a recurring subscription for point-of-purchase confidence AND their demand for graded items pulls more sellers into paying for grading (a two-sided flywheel).",
+      "acceptanceCriteria": [
+        "A buyer can sign up, create a buyer profile, and subscribe to a buyer plan independent of any seller/FlipDesk plan, on the existing Supabase-auth + Stripe stack",
+        "The buyer subscription (Free / Guard / Connoisseur) gates a coherent suite of confidence features: extension second-opinion + discrepancy + price-fairness, condition-based alerts, fit, authenticity/video credits, grade-confirmation rewards, buyer trust score, insured grade-locked guarantee, wardrobe portfolio, and the graded-wanted board",
+        "Every buyer feature reuses (does not duplicate) an existing capability where one exists — extension US-1753, fit US-1776/1777, authenticity US-1767, video US-1762, circularity US-1785, What's-It-Worth US-1750, badges US-1758, Value Index US-1745, buyer guarantee US-867/guarantee_remedies — and is bound to the buyer entitlement layer",
+        "This umbrella tracks the US-1795…US-1847 buyer-platform backlog and its cross-cutting decisions (entitlements, tenant isolation, PII/consent, analytics)"
+      ],
+      "priority": 1794,
+      "passes": false,
+      "notes": "[P2][BUYER][EPIC][NEW] BASELINE: buyers today are non-account holders reached only via public certificate/verify/guarantee/passport pages; there is NO buyer account, buyer profile, or buyer subscription. All existing plans (FLIPDESK_PLANS, GRADETHREAD_TIERS, CREDIT_PACKS in src/lib/constants.ts) gate seller/reseller capability. STRATEGY: the unique asset is objective per-item condition data + the grade_outcomes dataset (condition->realized price); the buyer product monetizes 'claimed condition vs objective condition, at the point of purchase'. TIERS (confirmed): Free / Guard (~$8/mo) / Connoisseur (~$19/mo). FLYWHEEL: buyer demand for graded items -> sellers must grade to sell -> more graded inventory -> better buyer product. TIES: reuses capability EPICs US-1745/1750/1753/1758/1762/1767/1776/1785 + buyer guarantee US-867. SEQUENCING: foundation (US-1795 sub-epic) ships first; idea sub-epics (US-1805+) depend on it. Child sub-epics: account+subscription foundation (1795), alerts (1805), grade-confirm rewards (1810), buyer trust score (1815), insured grade-locked guarantee (1819), wardrobe portfolio (1824), graded-wanted board (1829), extension confidence suite (1833), buyer bindings for existing capability epics (1839-1844), cross-cutting analytics/legal/QA (1845-1847)."
+    },
+    {
+      "id": "US-1795",
+      "title": "EPIC: Buyer account & subscription foundation",
+      "description": "As GradeThread, we want the core buyer identity, profile, subscription, entitlement, dashboard, and notification plumbing in place so that every downstream buyer feature has an account to attach to and a plan to gate against.",
+      "acceptanceCriteria": [
+        "A buyer can create an account, complete a buyer-first onboarding, save shopping preferences, subscribe/upgrade/cancel a buyer plan via Stripe, and land on a buyer dashboard — all reusing the existing Supabase-auth + Stripe + TanStack Query stack",
+        "A buyer account is cleanly distinguished from a seller/FlipDesk account (account_type) while allowing a single person to be both without duplicate identities",
+        "Buyer entitlements resolve from the buyer plan and gate features consistently on client and edge, with usage metering for metered actions",
+        "All buyer tables follow the migration triple, are tenant-scoped (RLS + edge service-role scoping), and PII is treated as sensitive"
+      ],
+      "priority": 1795,
+      "passes": false,
+      "notes": "[P2][BUYER][EPIC][FOUNDATION][NEW] Reuses: Supabase PKCE auth + handle_new_user() trigger + useAuth()/auth-store.ts + <ProtectedRoute>/<AuthLayout>; Stripe stack (src/lib/stripe.ts, edge stripe-*.ts + webhooks.ts); billing hooks (use-pricing-plans.ts/use-plan-usage.ts/use-billing-summary.ts) + src/components/billing/*; entitlement pattern from FlipdeskGateFlags in constants.ts. Child stories: account model+account_type (1796), signup/onboarding (1797), profile+preferences (1798), plans+Stripe products (1799), entitlements+gating+metering (1800), billing surfaces (1801), dashboard shell+nav (1802), notification/alert delivery infra (1803), mobile IAP mirror (1804). MUST load the migrations skill for every table; MUST load tenant-isolation skill for every edge route."
+    },
+    {
+      "id": "US-1796",
+      "title": "Buyer account model + account_type (buyer / seller / both)",
+      "description": "As a person who may buy, sell, or both, I want one GradeThread identity that can carry a buyer role so that I don't need a second login and my buyer and seller data stay separate but linked.",
+      "acceptanceCriteria": [
+        "Migration adds an account_type / role capability (e.g. is_buyer flag or account_roles) to the profile model so an account can be buyer, seller, or both without a duplicate identity",
+        "handle_new_user() (SECURITY DEFINER) provisioning is extended so a buyer-origin signup lands with the buyer role and no seller/FlipDesk assumptions",
+        "Existing seller accounts are unaffected; a seller can opt into the buyer role in-app and vice versa",
+        "Migration triple satisfied (idempotent SQL + EXPECTED_SCHEMA_VERSION bump in same commit + self-record footer); RLS unchanged-or-tightened; no .or() on mutations"
+      ],
+      "priority": 1796,
+      "passes": false,
+      "notes": "[P2][BUYER][FOUNDATION][NEW] Load migrations skill. Extends the profiles/users model + handle_new_user() trigger. Decide flag-vs-join-table: prefer additive is_buyer/is_seller booleans (backfill is_seller=true for existing rows) to avoid churning RLS across the app. Types in src/types/database.ts. TIES: gates buyer dashboard/nav (1802) + buyer entitlements (1800). RISK: don't break the seller onboarding path; add a tenant-isolation_test.ts case if any edge route reads role."
+    },
+    {
+      "id": "US-1797",
+      "title": "Buyer signup & buyer-first onboarding funnel",
+      "description": "As a secondhand buyer arriving from a public tool (What's-It-Worth, a certificate, the extension), I want a fast buyer-first signup and onboarding so that I convert without being funneled through seller/reseller setup.",
+      "acceptanceCriteria": [
+        "A buyer signup entry point + onboarding flow exists (distinct from seller onboarding) that captures the buyer role and routes to buyer onboarding, reusing PKCE auth + <AuthLayout> redirect behavior",
+        "Onboarding collects the minimum to be useful (categories/brands/sizes interest, notification opt-in) and can be skipped/deferred",
+        "Conversion entry points from public surfaces (grade-checker US-1750, /cert, /verify, extension install US-1757) carry attribution into the buyer funnel (reuse affiliate.ts click->conversion)",
+        "Onboarding is a public-route-registry-safe set of pages where any are indexable"
+      ],
+      "priority": 1797,
+      "passes": false,
+      "notes": "[P2][BUYER][FOUNDATION][NEW][GROWTH] Reuse auth-store.ts + useAuth() + existing signup/login pages as the pattern; new buyer onboarding pages in src/pages/. Attribution reuses referral/affiliate (affiliate_clicks/referral_events). TIES: depends on account model (1796); feeds profile+preferences (1798); conversion source for extension (1757/1833) + What's-It-Worth (1750/1843). If any onboarding page is public/indexable, register in src/lib/seo/public-routes.ts + prerender entry-server per CLAUDE.md SEO rules."
+    },
+    {
+      "id": "US-1798",
+      "title": "Buyer profile & shopping preferences (brands / sizes / categories / prefs)",
+      "description": "As a buyer, I want to save the brands, sizes, categories, and preferences I shop for so that alerts, fit, and recommendations are personalized to me.",
+      "acceptanceCriteria": [
+        "Migration for buyer preferences (followed brands, sizes per garment group, categories, price bands, condition floor, unit prefs, notification prefs) — tenant-scoped RLS, sensitive PII posture",
+        "Profile/preferences UI in the buyer dashboard reusing measurement-prefs.ts (in/cm) semantics and existing form conventions (controlled inputs, sonner toasts)",
+        "Preferences are the shared input for condition-based alerts (1805), fit (1839), and any recommendation surface; a documented read contract exists so those features don't each invent their own",
+        "Migration triple satisfied"
+      ],
+      "priority": 1798,
+      "passes": false,
+      "notes": "[P2][BUYER][FOUNDATION][NEW] Load migrations skill. Distinct from body_profiles (fit US-1777, body circumference) — this is shopping intent (brands/sizes/categories/price). Reuse measurement-templates.ts size keys + measurement-prefs.ts units. TIES: primary consumer is alerts matching engine (1807) + fit binding (1839). Keep the preference schema stable/versioned — many features read it."
+    },
+    {
+      "id": "US-1799",
+      "title": "Buyer subscription plans + Stripe products (Free / Guard / Connoisseur)",
+      "description": "As a buyer, I want clear buyer plans I can subscribe to so that I can pay for the confidence features I want, separate from any seller plan.",
+      "acceptanceCriteria": [
+        "BUYER_PLANS defined in src/lib/constants.ts (free / guard / connoisseur) with monthly+yearly Stripe price IDs wired into the price-ID map, mirroring the FLIPDESK_PLANS structure",
+        "Each plan carries a BuyerGateFlags entitlement object + included monthly allowances (extension checks, authenticity credits, video-grade credits, alert count/frequency, guarantee coverage tier, portfolio) matching the confirmed tier split",
+        "Stripe checkout, webhooks (edge webhooks.ts), and subscription lifecycle handle the buyer product on the same customer as any seller product without collision (a person can hold a buyer AND a FlipDesk sub)",
+        "Marketing pricing page + admin pricing surface show buyer plans; migration for any buyer-plan/entitlement config table follows the triple"
+      ],
+      "priority": 1799,
+      "passes": false,
+      "notes": "[P2][BUYER][FOUNDATION][BILLING][NEW] Reuse constants.ts plan pattern (FLIPDESK_PLANS/GRADETHREAD_TIERS/CREDIT_PACKS + price-ID map lines ~1116-1157), edge stripe-*.ts + webhooks.ts, pricing config migrations (00037/00166/00178/00209 as the pattern). Guard ~$8/mo, Connoisseur ~$19/mo. CAUTION: one Stripe customer may now carry two products — ensure webhook plan-resolution keys on price/product, not 'the subscription'. Metered credits reuse the existing credit/withAiAction precedence. TIES: entitlements (1800) + billing UI (1801) + mobile IAP mirror (1804)."
+    },
+    {
+      "id": "US-1800",
+      "title": "Buyer entitlements + plan-gating + usage metering",
+      "description": "As GradeThread, we want a single source of truth for what a buyer plan unlocks so that every buyer feature gates consistently on client and edge and metered actions are counted and capped.",
+      "acceptanceCriteria": [
+        "BuyerGateFlags + allowance resolution implemented once and consumed by both the React app (a use-buyer-entitlements hook) and edge routes (a helper that reads the buyer's active plan)",
+        "Metered actions (extension checks, authenticity credits, video-grade credits, alerts) are counted against monthly allowances with debit precedence: included allowance -> credit balance -> upgrade prompt, reusing the existing ai-usage/credits precedence",
+        "Gating fails safe (deny when plan unknown) and surfaces contextual upgrade prompts at caps (reuse billing upgrade-dialog pattern)",
+        "Edge gating is tenant-scoped and covered by a tenant-isolation_test.ts case"
+      ],
+      "priority": 1800,
+      "passes": false,
+      "notes": "[P2][BUYER][FOUNDATION][NEW] Mirror FlipdeskGateFlags + use-plan-usage.ts. Reuse ai-usage.ts recordAiCall + withAiAction/credits + ai_budgets for metered debit. Load tenant-isolation skill (buyer plan read must scope to the buyer's own id). TIES: consumed by every buyer feature epic; depends on plans (1799). Keep flag names stable — they are referenced across 1805-1844."
+    },
+    {
+      "id": "US-1801",
+      "title": "Buyer billing surfaces (checkout / portal / usage / upgrade prompts)",
+      "description": "As a buyer, I want to manage my subscription, see my usage, and upgrade or cancel so that I stay in control of what I pay for.",
+      "acceptanceCriteria": [
+        "Buyer billing page: current plan, renewal, Stripe customer-portal link, plan picker (monthly/yearly), and cancel/downgrade, reusing src/components/billing/* and use-billing-summary.ts",
+        "Usage meters show allowance consumption (extension checks, credits, alerts) against caps with clear reset dates",
+        "Contextual upgrade prompts fire from gated features (1800) and deep-link into the buyer plan picker with the relevant plan preselected",
+        "Purchase of metered credit packs (authenticity/video) available for buyers, reusing the CREDIT_PACKS + checkout flow"
+      ],
+      "priority": 1801,
+      "passes": false,
+      "notes": "[P2][BUYER][FOUNDATION][BILLING][NEW] Reuse src/pages/billing.tsx + src/components/billing/* + use-pricing-plans.ts/use-plan-usage.ts/use-billing-summary.ts. Depends on plans (1799) + entitlements (1800). Keep buyer vs seller billing views separated by account_type/role."
+    },
+    {
+      "id": "US-1802",
+      "title": "Buyer dashboard shell + navigation + protected routes",
+      "description": "As a buyer, I want a dedicated buyer home with navigation to my watchlist, alerts, rewards, guarantee, portfolio, and settings so that the buyer product feels like a coherent app, not bolted onto seller tooling.",
+      "acceptanceCriteria": [
+        "A buyer dashboard surface (e.g. /buyer/*) with a buyer sidebar/nav group, guarded by <ProtectedRoute> + the buyer role, laid out with the existing shadcn/Tailwind system and brand tokens",
+        "Empty states and progressive-disclosure guide a new buyer to first value (run an extension check, set an alert, verify a cert)",
+        "Nav items are entitlement-aware (locked items show upgrade affordance) and reuse the sidebar grouping pattern from FlipDesk",
+        "A person who is both buyer and seller can switch context between the buyer app and the seller/FlipDesk app without re-auth"
+      ],
+      "priority": 1802,
+      "passes": false,
+      "notes": "[P2][BUYER][FOUNDATION][NEW] Reuse sidebar.tsx grouping pattern (FlipDesk group), <ProtectedRoute>, routing in src/routes/index.tsx, brand tokens. Depends on account model (1796) + entitlements (1800). This is the shell the idea epics (1805+) plug their surfaces into. Context switch buyer<->seller for dual-role accounts."
+    },
+    {
+      "id": "US-1803",
+      "title": "Buyer notification & alert delivery infrastructure (email / push / in-app)",
+      "description": "As a buyer, I want to choose how I'm notified (email, push, in-app) so that condition alerts, reward events, guarantee updates, and portfolio changes reach me the way I prefer.",
+      "acceptanceCriteria": [
+        "A buyer-scoped notification model + delivery path across email, push (reuse the FCM/push fan-out), and in-app, with per-category preferences and unsubscribe/quiet-hours",
+        "A reusable notify(buyerId, category, payload) contract that the alerts (1809), rewards (1814), guarantee (1821), and portfolio (1827) features call — not each rolling its own sender",
+        "Digest batching supported (immediate vs daily vs weekly) honoring plan-based frequency caps from entitlements",
+        "Delivery is tenant-scoped, idempotent (reuse the north-star idempotency-ledger pattern), and covered by tests"
+      ],
+      "priority": 1803,
+      "passes": false,
+      "notes": "[P2][BUYER][FOUNDATION][NEW] Reuse existing push fan-out (FCM platform) + email sender + the north-star digest/idempotency-ledger pattern (00170). Frequency caps come from entitlements (1800). TIES: the shared delivery layer for alerts/rewards/guarantee/portfolio. Load durable-jobs skill if digest batching runs on a cron. Migration triple for any notification tables."
+    },
+    {
+      "id": "US-1804",
+      "title": "Buyer subscription mobile IAP mirror (App Store + Google Play)",
+      "description": "As a buyer on mobile, I want to subscribe to a buyer plan via the native store so that I can pay through the platform I'm already on.",
+      "acceptanceCriteria": [
+        "Buyer plans mapped to App Store + Google Play products with server-side receipt verification, mirroring the existing appstore/google-play billing verification",
+        "Entitlement resolution (1800) treats an IAP-backed buyer sub identically to a Stripe-backed one (single entitlement source of truth)",
+        "Store-compliance rules respected (no external-purchase steering where disallowed); plan parity with web",
+        "Migration triple for any IAP mapping table"
+      ],
+      "priority": 1804,
+      "passes": false,
+      "notes": "[P3][BUYER][FOUNDATION][BILLING][NEW] Reuse appstore billing (00104) + google play billing (00321) verification paths + POST /api/payments/{google,apple}/verify. Entitlement source of truth stays in 1800. Device/store-gated; can trail web launch. Depends on plans (1799) + entitlements (1800)."
+    },
+    {
+      "id": "US-1805",
+      "title": "EPIC: Condition-based alerts & watchlist ('snipe on grade, not price')",
+      "description": "As a buyer, I want to be alerted when an item matching my brand + size + minimum objective grade + max price appears so that I catch well-graded deals no marketplace filter can surface — because they filter on the seller's self-reported condition, not GradeThread's objective grade.",
+      "acceptanceCriteria": [
+        "A buyer can create saved searches / watchlists keyed on brand, size, category, minimum GradeThread grade, and max price, and be notified on matches",
+        "Matching runs over GradeThread-graded inventory (public_grade_reports / graded listings) and, where available, extension-fed marketplace listings the buyer is browsing",
+        "Alert frequency and number of active alerts are entitlement-gated (Free: none/limited; Guard: standard; Connoisseur: unlimited/instant)",
+        "This umbrella tracks US-1806…US-1809"
+      ],
+      "priority": 1805,
+      "passes": false,
+      "notes": "[P2][BUYER][ALERTS][EPIC][NEW] BASELINE: no watchlist/saved-search/alert primitive exists anywhere (grep confirmed). Unique angle: filter on OBJECTIVE grade, impossible without the grading engine. DATA: public_grade_reports view + graded listings + grade_outcomes; buyer preferences (1798) as defaults. DELIVERY: notification infra (1803). TIES: extension ingestion (1808) feeds off-platform listings. Load durable-jobs skill for the matching cron. Depends on foundation (1795). Child stories: model (1806), matching engine (1807), extension ingestion (1808), delivery+UI (1809)."
+    },
+    {
+      "id": "US-1806",
+      "title": "Alerts: watchlist + saved-search model",
+      "description": "As a buyer, I want to save the searches and specific items I care about so that the system can watch them for me.",
+      "acceptanceCriteria": [
+        "Migration for saved_searches (criteria: brand, size, category, min_grade, max_price, keywords) and watchlist_items (a specific certificate/listing/passport to watch) — tenant-scoped RLS",
+        "Criteria default from buyer preferences (1798) but are individually editable",
+        "Watch action available from a certificate page, a graded listing, and (later) the extension, all writing to the same model",
+        "Migration triple satisfied; no .or() on mutations"
+      ],
+      "priority": 1806,
+      "passes": false,
+      "notes": "[P2][BUYER][ALERTS][NEW] Load migrations skill. Reuse cert/listing ids as watch targets; defaults from buyer preferences (1798). TIES: consumed by matching engine (1807) + delivery/UI (1809). Watch-from-extension write path lands with 1837."
+    },
+    {
+      "id": "US-1807",
+      "title": "Alerts: matching engine over graded inventory + Value Index",
+      "description": "As a buyer, I want my saved searches evaluated continuously so that I'm told the moment a matching well-graded item appears at a fair price.",
+      "acceptanceCriteria": [
+        "A durable, batched matching job evaluates saved searches against new/updated graded inventory and emits match events (respecting the durable-jobs claim/heartbeat/reclaim contract)",
+        "Price fairness is factored using the Value Index (US-1745) so 'max price' can be expressed as an absolute or as 'at/below fair for this grade'",
+        "De-duplication so a buyer isn't alerted twice for the same item; match events carry enough context to render a rich notification",
+        "Cost/quota guardrails so matching scales without unbounded compute (mirror the Value Index refresh guardrails)"
+      ],
+      "priority": 1807,
+      "passes": false,
+      "notes": "[P2][BUYER][ALERTS][OPS][NEW] Load durable-jobs skill. Reuse condition-index.ts / Value Index (US-1745) for fair-price; grade_outcomes for realized-price context. Emit into notification infra (1803). Coolify scheduled task. Depends on model (1806). Guardrails mirror handleConditionIndexRefreshCron (US-1749)."
+    },
+    {
+      "id": "US-1808",
+      "title": "Alerts: extension-fed marketplace listing ingestion",
+      "description": "As a buyer, I want listings I browse on marketplaces to count toward my alerts and watchlist so that GradeThread can flag matches even for items not yet on our platform.",
+      "acceptanceCriteria": [
+        "The buyer extension can submit a browsed listing (URL + images + seller-claimed fields) to a hardened buyer-scoped endpoint that grades it and evaluates it against the buyer's saved searches",
+        "Ingested listings are rate-limited, quota-metered per entitlement, and SSRF-guarded (reuse the public grading endpoint hardening)",
+        "Matches from ingested listings notify via the same path as on-platform matches; ingested data respects marketplace ToS (buyer's own browsing, no bulk scraping)",
+        "Ingestion is tenant-scoped to the submitting buyer"
+      ],
+      "priority": 1808,
+      "passes": false,
+      "notes": "[P2][BUYER][ALERTS][EXTENSION][NEW] Reuse public-grading.ts hardening (gradeCheckRateLimited + safeFetch SSRF guard + quickGrade). This is the bridge between the extension (1833) and alerts. Quota via entitlements (1800). RISK: marketplace image-scraping ToS — constrain to buyer-initiated, per-listing, no crawling. Load tenant-isolation skill."
+    },
+    {
+      "id": "US-1809",
+      "title": "Alerts: delivery, digest & management UI",
+      "description": "As a buyer, I want to manage my alerts and receive them how I chose so that they're useful and not noisy.",
+      "acceptanceCriteria": [
+        "Alerts dashboard in the buyer app: list/edit/pause saved searches + watchlist, see recent matches, tune per-alert channel and frequency",
+        "Delivery via the notification infra (1803) with instant vs digest honoring entitlement frequency caps",
+        "Each match renders grade, fair-price context, and a deep link to the item/certificate/listing",
+        "Empty and first-run states guide creating a first alert"
+      ],
+      "priority": 1809,
+      "passes": false,
+      "notes": "[P2][BUYER][ALERTS][NEW] UI in buyer dashboard (1802). Delivery via 1803; frequency caps via entitlements (1800). Depends on matching engine (1807). Reuse shadcn list/table + sonner."
+    },
+    {
+      "id": "US-1810",
+      "title": "EPIC: Grade-confirmation rewards & post-sale ground truth",
+      "description": "As a buyer, I want to earn rewards for confirming whether a purchased item matched its GradeThread grade on arrival so that I'm compensated for my time — and as GradeThread we capture the post-sale ground-truth data that improves grading accuracy and closes the grade_outcomes loop.",
+      "acceptanceCriteria": [
+        "A buyer can link a purchase to a GradeThread grade/certificate, then after arrival confirm or dispute the grade with photos, earning credits/points",
+        "Confirmations feed grade_outcomes (realized condition/price/dispute) and the human-review/accuracy pipeline, improving the model over time",
+        "Rewards are abuse-resistant (verified purchase + arrival evidence) and redeemable toward buyer credits (authenticity/video/guarantee)",
+        "This umbrella tracks US-1811…US-1814"
+      ],
+      "priority": 1810,
+      "passes": false,
+      "notes": "[P2][BUYER][REWARDS][EPIC][NEW] STRATEGIC: reward mechanic doubles as your cheapest source of labeled post-sale data. DATA: grade_outcomes (listing_price/sold_price/sold_at/dispute_reported) + human_reviews (per-factor corrections) — this loop feeds both. Load grading-engine skill for anything touching human_reviews/accuracy. Reward currency reuses the credits ledger. TIES: gamification/streaks (1815 trust score), circularity receipts (1842). Depends on foundation (1795). Child stories: purchase-link+arrival capture (1811), confirm/dispute engine + feedback loop (1812), reward ledger + anti-abuse (1813), reward surfaces + streaks (1814)."
+    },
+    {
+      "id": "US-1811",
+      "title": "Rewards: purchase-link + arrival-condition capture flow",
+      "description": "As a buyer, I want to link an item I bought to its GradeThread grade and then snap arrival photos so that I can confirm it matched.",
+      "acceptanceCriteria": [
+        "A buyer can associate a purchase with an existing certificate/grade (by cert number, QR, or link) and record purchase context (price, marketplace, date)",
+        "An arrival-capture flow collects the same photo types the grader uses (front/back/label/detail), reusing the upload-validation + metadata-strip + private-bucket pipeline",
+        "Migration for buyer_purchases + arrival captures, tenant-scoped RLS, images in a per-user-folder private bucket",
+        "Migration triple satisfied"
+      ],
+      "priority": 1811,
+      "passes": false,
+      "notes": "[P2][BUYER][REWARDS][NEW] Load migrations skill. Reuse cert-number.ts lookup (normalizeCertNumber) + upload-validation.ts + image-metadata.ts + submission-images private bucket + signed-URL read (TTL<=900s, never getPublicUrl). Purchase price/date feed grade_outcomes (1812). Tenant-scoped."
+    },
+    {
+      "id": "US-1812",
+      "title": "Rewards: confirm/dispute engine + grading feedback loop",
+      "description": "As GradeThread, we want buyer arrival confirmations to feed the accuracy pipeline so that real post-sale outcomes make the grade better and flag systematic misgrades.",
+      "acceptanceCriteria": [
+        "Confirm/dispute writes a structured outcome to grade_outcomes (matched? deltas by factor? dispute reason) and routes disputes into the human-review/accuracy tracking flow",
+        "Aggregate signal surfaces per prompt_version accuracy (reuse ai_prompt_versions.accuracy_score) so misgrade patterns are visible",
+        "Buyer disputes tie into the buyer guarantee claim path (US-1819) where a material mismatch qualifies for coverage",
+        "Exemplar-privacy and confidence-cap rules respected per the grading-engine contract"
+      ],
+      "priority": 1812,
+      "passes": false,
+      "notes": "[P2][BUYER][REWARDS][GRADING][NEW] Load grading-engine skill (owns human_reviews, accuracy tracking, exemplar privacy, confidence caps). Reuse grade_outcomes + human_reviews + ai_prompt_versions.accuracy_score. TIES: feeds insured guarantee eligibility (1819-1821). Depends on capture (1811)."
+    },
+    {
+      "id": "US-1813",
+      "title": "Rewards: reward ledger + anti-abuse + redemption",
+      "description": "As a buyer, I want the credits I earn to be tracked and spendable so that confirming grades is genuinely worth my time.",
+      "acceptanceCriteria": [
+        "An idempotent reward ledger issues credits/points for verified confirmations and is redeemable via the existing credit-debit precedence (authenticity/video/guarantee)",
+        "Anti-abuse: requires a verified purchase link + arrival evidence, caps per-account/day, and flags anomalous patterns before credit issuance",
+        "Reward config is admin-tunable (reuse the referral-reward-config pattern) so payout economics can be adjusted",
+        "Ledger is tenant-scoped and reconciles (no double-issue) via an idempotency ledger"
+      ],
+      "priority": 1813,
+      "passes": false,
+      "notes": "[P2][BUYER][REWARDS][NEW] Reuse referral reward config pattern (00237 referral_reward_config) + credits ledger + north-star idempotency-ledger (00170). Redemption via existing credit precedence. Anti-abuse gates issuance. Load migrations skill. Depends on confirm engine (1812)."
+    },
+    {
+      "id": "US-1814",
+      "title": "Rewards: buyer surfaces, streaks & impact receipts",
+      "description": "As a buyer, I want to see my rewards, streaks, and the good my confirming does so that it feels rewarding to keep doing it.",
+      "acceptanceCriteria": [
+        "Buyer dashboard surfaces earned credits, confirmation streaks (reuse the north-star streak/milestone logic), and lifetime confirmations",
+        "Savvy-buyer receipts ('caught N over-graded listings', 'confirmed N grades') render as shareable cards (reuse the slab/OG card render)",
+        "Streaks/receipts tie into circularity impact (US-1785/1842) where relevant",
+        "Optional leaderboard opt-in (reuse the referral-leaderboard opt-in pattern)"
+      ],
+      "priority": 1814,
+      "passes": false,
+      "notes": "[P2][BUYER][REWARDS][GROWTH][NEW] Reuse north-star.ts (streakWeeks/milestones, 00170) + cert-image-render.ts SLAB_FORMATS for share cards + referral-leaderboard opt-in (00195). Surfaces in buyer dashboard (1802). Depends on ledger (1813). TIES: trust score (1815), circularity (1842)."
+    },
+    {
+      "id": "US-1815",
+      "title": "EPIC: Buyer Trust Score & Connoisseur levels (buyer reputation)",
+      "description": "As a buyer, I want a reputation that grows as I verify purchases and contribute grade confirmations so that I earn standing and perks — and as GradeThread we get a buyer-reputation asset that deepens engagement.",
+      "acceptanceCriteria": [
+        "A buyer Trust Score / level system accrues from verified activity (purchases linked, grades confirmed, disputes upheld, tenure) with transparent, explainable rules",
+        "Levels unlock perks (e.g. extended guarantee window, priority claim handling, early access) that compose with subscription entitlements",
+        "A buyer can view their score/level and an optional public buyer profile with privacy controls",
+        "This umbrella tracks US-1816…US-1818"
+      ],
+      "priority": 1815,
+      "passes": false,
+      "notes": "[P2][BUYER][REPUTATION][EPIC][NEW] BASELINE: no buyer reputation/rating primitive exists. Compose with (not replace) subscription entitlements — reputation unlocks perks, subscription unlocks features. DATA: reward confirmations (1810), purchase links, guarantee outcomes. TIES: perks interplay with guarantee (1819) + entitlements (1800). Child stories: reputation event model + scoring (1816), levels/badges/perks (1817), public buyer profile + privacy (1818). Depends on foundation (1795)."
+    },
+    {
+      "id": "US-1816",
+      "title": "Trust Score: reputation event model + scoring engine",
+      "description": "As GradeThread, we want a transparent event-sourced reputation model so that a buyer's Trust Score is explainable and abuse-resistant.",
+      "acceptanceCriteria": [
+        "Migration for reputation_events (verified purchase, grade confirmed, dispute upheld/overturned, tenure, chargeback penalty) + a derived score, tenant-scoped RLS",
+        "A deterministic, documented scoring function (no black box) computes level from events with decay/penalty rules",
+        "Score recomputation is idempotent and reconstructable from the event log",
+        "Migration triple satisfied"
+      ],
+      "priority": 1816,
+      "passes": false,
+      "notes": "[P2][BUYER][REPUTATION][NEW] Load migrations skill. Event-sourced + deterministic (like passport-confidence.ts / north-star.ts style pure logic). Anti-gaming: only VERIFIED events score; penalties for chargebacks/false disputes. Depends on rewards (1810) as a primary event source."
+    },
+    {
+      "id": "US-1817",
+      "title": "Trust Score: levels, badges & perks unlock",
+      "description": "As a buyer, I want reaching a new level to unlock real perks so that building reputation is worth it.",
+      "acceptanceCriteria": [
+        "Named levels + earned badges (distinct from the existing trust/verified UI badges) with clear thresholds shown to the buyer",
+        "Perks (extended guarantee window, priority claim handling, early access to graded drops, bonus reward multipliers) resolve alongside subscription entitlements without conflict",
+        "Perk resolution is centralized so guarantee (1819), alerts (1805), and rewards (1810) read one source",
+        "Downgrade/decay handled gracefully (perks lapse cleanly)"
+      ],
+      "priority": 1817,
+      "passes": false,
+      "notes": "[P2][BUYER][REPUTATION][NEW] Perks compose with BuyerGateFlags (1800) — document precedence (subscription baseline + reputation bonus). Reuse grade-badge.ts styling conventions for level badges. Depends on scoring engine (1816). TIES: guarantee window (1819), reward multipliers (1813)."
+    },
+    {
+      "id": "US-1818",
+      "title": "Trust Score: public buyer profile + privacy controls",
+      "description": "As a buyer, I want to optionally show my Trust Score and buying history so that sellers and the community can see I'm a serious, trustworthy buyer.",
+      "acceptanceCriteria": [
+        "An opt-in public buyer profile (mirroring the verified-seller profile pattern) showing level, badges, and chosen stats, with granular privacy controls (default private)",
+        "PII-safe by construction — no sensitive purchase details exposed without explicit opt-in",
+        "If the profile page is public/indexable, it is registered per the SEO route rules",
+        "Buyer can disable/redact the public profile at any time"
+      ],
+      "priority": 1818,
+      "passes": false,
+      "notes": "[P2][BUYER][REPUTATION][NEW] Mirror verified-seller profile (00057 + /verified/:handle) but buyer-side + private-by-default. Register in public-routes.ts if indexable. Depends on levels (1817). PII posture: sensitive; explicit opt-in only."
+    },
+    {
+      "id": "US-1819",
+      "title": "EPIC: Insured 'Grade-Locked' purchase guarantee (subscription benefit)",
+      "description": "As a subscribing buyer, I want assurance that if a graded item arrives materially below its certified grade GradeThread makes it right so that a GradeThread grade becomes an insured asset I can trust — the single highest-value reason to subscribe.",
+      "acceptanceCriteria": [
+        "Higher buyer tiers include grade-locked coverage: if arrival condition is materially below the certified grade (evidenced via the confirmation flow), an automated remedy is issued within policy limits",
+        "Coverage extends the existing Buyer Guarantee (US-867) + guarantee_remedies rather than duplicating it, and is gated by subscription tier + Trust Score perks",
+        "A claims pool with caps, eligibility rules, and fraud controls keeps the benefit financially sound (insurance-shaped margin funded by recurring subscription)",
+        "This umbrella tracks US-1820…US-1823"
+      ],
+      "priority": 1819,
+      "passes": false,
+      "notes": "[P2][BUYER][GUARANTEE][EPIC][NEW] STRATEGIC: highest-LTV lever — turns a one-time grade into a recurring insured relationship. BASELINE: Buyer Guarantee US-867 exists (public claim intake /buyer-guarantee/claim, routes/guarantee-public.ts, lib/guarantee-remedy.ts, migrations 00197/00263/00319 guarantee_remedies, admin/claims.tsx) but v1 has NO automated payouts (manual). This epic adds subscription-gated coverage + automation. Evidence via grade-confirmation flow (1811-1812). TIES: entitlements (1800), Trust Score perks (1817), rewards (1810). LEGAL: coverage terms review required before ship. Child stories: coverage/eligibility model (1820), claim automation/remedy (1821), claims-pool accounting/ops (1822), anti-fraud (1823). Depends on foundation (1795)."
+    },
+    {
+      "id": "US-1820",
+      "title": "Guarantee: coverage & eligibility model (subscription-gated)",
+      "description": "As GradeThread, we want a precise coverage model so that it's unambiguous which purchases are covered, for how much, and under what conditions.",
+      "acceptanceCriteria": [
+        "Migration for coverage records tying an eligible purchase (verified grade link + active qualifying subscription at purchase time) to coverage terms (grade-delta threshold, payout cap, window)",
+        "Eligibility resolves from buyer entitlement tier (1800) + Trust Score perks (1817) at the moment of purchase and is snapshotted (later downgrade doesn't void an in-force claim)",
+        "Coverage window and caps are configurable; clear ineligibility reasons surfaced to the buyer",
+        "Migration triple satisfied; tenant-scoped"
+      ],
+      "priority": 1820,
+      "passes": false,
+      "notes": "[P2][BUYER][GUARANTEE][NEW] Load migrations skill. Snapshot eligibility at purchase (don't recompute against current plan). Reuse purchase links (1811). Terms configurable via admin. Depends on entitlements (1800) + Trust perks (1817)."
+    },
+    {
+      "id": "US-1821",
+      "title": "Guarantee: claim intake + automated remedy/payout",
+      "description": "As a covered buyer, I want a materially-below-grade arrival to be resolved quickly and automatically so that the guarantee is real, not just marketing.",
+      "acceptanceCriteria": [
+        "Claim intake for covered purchases extends the existing guarantee flow and pre-populates from the grade-confirmation evidence (1811-1812) instead of re-collecting it",
+        "An automated remedy path (extending guarantee_remedies) issues the covered remedy (partial refund/credit) within caps when the grade delta and evidence meet policy, with human review only for edge/ambiguous cases",
+        "Claim status is visible to the buyer and updates via the notification infra (1803)",
+        "All claim reads/writes are ownership-verified and tenant-scoped"
+      ],
+      "priority": 1821,
+      "passes": false,
+      "notes": "[P2][BUYER][GUARANTEE][NEW] Extend routes/guarantee-public.ts + lib/guarantee-remedy.ts + guarantee_remedies (00319); admin/claims.tsx for the edge-case queue. Automation gated by coverage model (1820) + confirm engine (1812). Load tenant-isolation skill (never act on a claim id from the body without ownership check). Notifications via 1803."
+    },
+    {
+      "id": "US-1822",
+      "title": "Guarantee: claims-pool accounting, caps & ops dashboard",
+      "description": "As GradeThread, we want the coverage benefit to be financially controlled and observable so that claims stay within a funded pool and we can tune the economics.",
+      "acceptanceCriteria": [
+        "Accounting for a claims pool: accrual from subscription revenue, drawdown per remedy, per-period and per-account caps enforced before payout",
+        "An admin ops dashboard shows exposure, loss ratio, claim volume/outcomes, and lets ops adjust caps/terms",
+        "Reconciliation with Stripe/credits so remedies are auditable (reuse the billing-reconciliation pattern)",
+        "Circuit-breaker: coverage auto-throttles if loss ratio breaches a threshold"
+      ],
+      "priority": 1822,
+      "passes": false,
+      "notes": "[P2][BUYER][GUARANTEE][OPS][BILLING][NEW] Reuse jobs-billing-reconciliation.ts pattern + admin surfaces (admin/claims.tsx neighborhood). Caps enforced in the payout path (1821). Load durable-jobs skill for any reconciliation cron. Depends on remedy path (1821)."
+    },
+    {
+      "id": "US-1823",
+      "title": "Guarantee: anti-fraud & abuse controls for coverage claims",
+      "description": "As GradeThread, we want coverage claims to be hard to game so that the guarantee isn't drained by fraud.",
+      "acceptanceCriteria": [
+        "Fraud signals gate automated payout: reuse image-authenticity/forensic tamper detection on arrival photos, original-photos checks, velocity/pattern limits, and Trust Score penalties for false claims",
+        "Suspicious claims route to manual review instead of auto-remedy; upheld fraud penalizes reputation (1816) and can revoke coverage",
+        "Evidence chain (purchase link + arrival capture + grade delta) is retained for dispute defense",
+        "Controls are covered by tests and documented"
+      ],
+      "priority": 1823,
+      "passes": false,
+      "notes": "[P2][BUYER][GUARANTEE][ANTIFRAUD][NEW] Reuse image_authenticity + forensic_analysis tamper detection (ai-grading.ts) + original_photos (US-861) on arrival photos. Penalty into reputation_events (1816). Feeds the manual queue in admin/claims.tsx. Depends on remedy path (1821)."
+    },
+    {
+      "id": "US-1824",
+      "title": "EPIC: Wardrobe Portfolio & closet valuation ('a Robinhood for your closet')",
+      "description": "As a buyer/owner, I want to track the items I own with their current resale value and depreciation so that I know what my wardrobe is worth, when to resell, and can list in one click — a portfolio for your clothes.",
+      "acceptanceCriteria": [
+        "A buyer can add owned items (from their certificates/passports or manual entry) to a closet and see per-item and total current estimated resale value",
+        "Valuation and depreciation draw on grade_outcomes + the Value Index (US-1745) + brand durability/depreciation rankings (US-1772), clearly labeled as estimates",
+        "Value-peak / price-drop alerts and a one-click 'list this' bridge into FlipDesk/seller flow close the buyer->seller loop",
+        "This umbrella tracks US-1825…US-1828"
+      ],
+      "priority": 1824,
+      "passes": false,
+      "notes": "[P2][BUYER][PORTFOLIO][EPIC][NEW] BASELINE: no owned-item/closet concept for buyers (Garment Passport is closest — chain-of-custody). DATA: grade_outcomes (realized price), Value Index (US-1745), durability rankings (US-1772), passport (garment_id). BRIDGE: 'list this' drops into FlipDesk inventory -> the buyer<->seller convergence point. TIES: insurance export, alerts (1805) reused for value alerts. Child stories: closet model (1825), valuation engine (1826), portfolio dashboard + alerts (1827), insurance export + list-to-FlipDesk bridge (1828). Depends on foundation (1795)."
+    },
+    {
+      "id": "US-1825",
+      "title": "Portfolio: closet item model",
+      "description": "As an owner, I want to add items I own to my closet so that GradeThread can value and track them.",
+      "acceptanceCriteria": [
+        "Migration for closet_items linking to a certificate/passport where one exists, or manual attributes (brand/type/size/condition) otherwise — tenant-scoped RLS",
+        "Add-to-closet from an owned certificate, a claimed passport, or manual entry; ownership of linked certs/passports is verified",
+        "Duplicate/merge handling when the same garment is added twice",
+        "Migration triple satisfied"
+      ],
+      "priority": 1825,
+      "passes": false,
+      "notes": "[P2][BUYER][PORTFOLIO][NEW] Load migrations skill. Link to garment passport (garment_id) / certificate_id where present; verify ownership (passport claim tokens 00258). Manual entries for ungraded items. Tenant-scoped."
+    },
+    {
+      "id": "US-1826",
+      "title": "Portfolio: valuation engine (Value Index + grade_outcomes + durability) with depreciation",
+      "description": "As an owner, I want a defensible current-value and depreciation estimate per item so that I can decide when to hold or sell.",
+      "acceptanceCriteria": [
+        "A valuation function combines grade_outcomes realized prices, Value Index fair-value by brand/item/condition, and durability/depreciation curves into a per-item current estimate + trend",
+        "Estimates are explainable and labeled (no fabricated precision), with confidence banding",
+        "Portfolio total, cost-basis (from purchase links where known), and unrealized gain/loss computed",
+        "Recomputation is batched/cached to control cost (reuse Value Index refresh guardrails)"
+      ],
+      "priority": 1826,
+      "passes": false,
+      "notes": "[P2][BUYER][PORTFOLIO][NEW] Reuse condition-index.ts (Value Index US-1745) + passport-curve.ts buildConditionCurve (US-1282) + durability rankings (US-1772) + grade_outcomes. Cost-basis from purchase links (1811). Label as estimate; no fabricated precision (matches durability/circularity rules). Load durable-jobs skill for batch recompute. Depends on closet model (1825)."
+    },
+    {
+      "id": "US-1827",
+      "title": "Portfolio: dashboard + value-peak / price-drop alerts",
+      "description": "As an owner, I want a portfolio view and alerts on value changes so that I act at the right time.",
+      "acceptanceCriteria": [
+        "A portfolio dashboard: item cards with current value/trend, total value, gain/loss, and sortable/filterable views using the dataviz conventions",
+        "Value-peak and significant-move alerts reuse the alerts delivery infra (1803) and honor entitlement frequency caps",
+        "Depreciation trends and 'best time to sell' guidance surfaced per item",
+        "Entitlement-gated depth (basic totals free/Guard; full analytics + alerts Connoisseur)"
+      ],
+      "priority": 1827,
+      "passes": false,
+      "notes": "[P2][BUYER][PORTFOLIO][NEW] Load dataviz skill for the charts. Reuse notification infra (1803) for value alerts; entitlement gating (1800). Surfaces in buyer dashboard (1802). Depends on valuation engine (1826)."
+    },
+    {
+      "id": "US-1828",
+      "title": "Portfolio: insurance export + one-click 'list this' → FlipDesk bridge",
+      "description": "As an owner, I want to export my wardrobe's value for insurance and list an item in one click so that the portfolio is actionable, not just informational.",
+      "acceptanceCriteria": [
+        "Insurance-ready export (PDF/CSV) of owned items with certified grades + current estimated values",
+        "One-click 'list this' promotes a closet item into FlipDesk inventory (reuse the grade->listing promotion path) pre-filled with grade, photos, and a suggested price from the valuation engine",
+        "The bridge respects account roles (prompts a buyer-only account to enable the seller role, 1796)",
+        "Export/bridge actions are tenant-scoped and ownership-verified"
+      ],
+      "priority": 1828,
+      "passes": false,
+      "notes": "[P2][BUYER][PORTFOLIO][BRIDGE][NEW] Reuse the grade->listing promotion (applyGradeListingPromotion in flipdesk-ebay.ts) + price-suggestions.ts. This is the buyer->seller conversion mechanic. Enabling the seller role uses account model (1796). Load tenant-isolation skill. Depends on valuation (1826)."
+    },
+    {
+      "id": "US-1829",
+      "title": "EPIC: 'Graded Wanted' reverse demand board",
+      "description": "As a buyer, I want to post what I'm looking for at what condition and price so that sellers with matching graded inventory come to me — and as GradeThread we aggregate demand signal we can monetize and show to sellers.",
+      "acceptanceCriteria": [
+        "A buyer can post a 'want' (brand/item/size/min-grade/max-price) and be matched to graded inventory or notified when matching graded inventory appears",
+        "Sellers see aggregated demand signal (what buyers want that they could grade+list) as a sourcing/listing prompt",
+        "Monetization via a match/intro fee or a premium demand-insights surface for sellers",
+        "This umbrella tracks US-1830…US-1832"
+      ],
+      "priority": 1829,
+      "passes": false,
+      "notes": "[P2][BUYER][DEMAND-BOARD][EPIC][NEW] BASELINE: none. Complements alerts (1805): alerts = passive watch; wants = active broadcast that sellers can fulfill. DATA: matches against graded inventory/listings; demand aggregation is a novel seller-facing asset. MONETIZATION: match/intro fee or premium seller demand insights. TIES: reuses matching engine ideas from 1807; seller surface in FlipDesk. Child stories: want model + matching (1830), buyer post UI + seller demand surface (1831), match-fee monetization + notifications (1832). Depends on foundation (1795)."
+    },
+    {
+      "id": "US-1830",
+      "title": "Demand board: want/request model + matching to graded inventory",
+      "description": "As a buyer, I want to broadcast a specific want so that the system matches it to graded inventory.",
+      "acceptanceCriteria": [
+        "Migration for buyer_wants (criteria + budget + expiry) — tenant-scoped RLS",
+        "Matching (reusing the alerts matching engine, 1807) links wants to graded inventory/listings and emits match events to both buyer and seller",
+        "Wants can be public (visible in aggregate to sellers, PII-safe) or private (match-only)",
+        "Migration triple satisfied"
+      ],
+      "priority": 1830,
+      "passes": false,
+      "notes": "[P2][BUYER][DEMAND-BOARD][NEW] Load migrations skill. Reuse the alerts matching engine (1807) rather than a second engine. Aggregate exposure to sellers must be PII-safe. Depends on foundation (1795); shares matching infra with alerts (1805)."
+    },
+    {
+      "id": "US-1831",
+      "title": "Demand board: buyer post UI + seller demand-signal surface",
+      "description": "As a buyer I want to post and manage wants, and as a seller I want to see what buyers want so that I can source and list to meet real demand.",
+      "acceptanceCriteria": [
+        "Buyer UI to create/manage/expire wants in the buyer dashboard",
+        "Seller-facing demand surface in FlipDesk (sourcing/pipeline context) showing aggregated wants matched to what they could grade+list, using dataviz conventions",
+        "Sellers can act on a demand signal (start a listing/grading flow pre-filled from the want)",
+        "Both surfaces are tenant-scoped and privacy-respecting"
+      ],
+      "priority": 1831,
+      "passes": false,
+      "notes": "[P2][BUYER][DEMAND-BOARD][NEW] Buyer UI in buyer dashboard (1802); seller surface in FlipDesk (src/pages/flipdesk/*, sourcing/pipeline). Load dataviz skill for the aggregate demand view. Depends on want model (1830)."
+    },
+    {
+      "id": "US-1832",
+      "title": "Demand board: match/intro fee monetization + notifications",
+      "description": "As GradeThread, we want to monetize successful demand matches so that the reverse board drives revenue.",
+      "acceptanceCriteria": [
+        "A monetization mechanic (match/intro fee, or gating the seller demand-insights surface behind a FlipDesk entitlement) is implemented and billed via the existing Stripe catalog",
+        "Match notifications reach both sides via the notification infra (1803)",
+        "Fee accounting is auditable and reconciles (reuse billing-reconciliation pattern)",
+        "Anti-abuse: prevents circular/self-matching to farm fees"
+      ],
+      "priority": 1832,
+      "passes": false,
+      "notes": "[P2][BUYER][DEMAND-BOARD][BILLING][NEW] Reuse payments catalog + jobs-billing-reconciliation.ts. Notifications via 1803. Decide fee model vs. seller-entitlement gating (either monetizes; can ship the entitlement-gate first). Depends on matching (1830) + surfaces (1831)."
+    },
+    {
+      "id": "US-1833",
+      "title": "EPIC: Buyer extension confidence suite (discrepancy, price-fairness, fraud flags)",
+      "description": "As a buyer shopping any marketplace, I want the extension to show GradeThread's independent condition read next to the seller's claim, whether the price is fair for that condition, and any fraud red flags so that I never over-pay or get misled at the point of purchase.",
+      "acceptanceCriteria": [
+        "The extension overlays, on a supported listing: GradeThread's objective grade, a claimed-vs-objective discrepancy flag, a condition-adjusted price-fairness meter, and point-of-purchase fraud flags",
+        "All four ride the extension infra from US-1753/1755/1756 and the hardened public grading endpoint (US-1754) rather than duplicating it",
+        "Depth and volume are buyer-subscription-gated (Free: a few checks; Guard: unlimited checks + discrepancy + price-fairness; Connoisseur: + fraud flags + fit inline)",
+        "This umbrella tracks US-1834…US-1838"
+      ],
+      "priority": 1833,
+      "passes": false,
+      "notes": "[P2][BUYER][EXTENSION][EPIC][NEW] REUSES US-1753 extension EPIC + US-1754 endpoint + US-1755/1756 adapters — this epic is the BUYER-VALUE layer + subscription binding on top, not a second extension. NET-NEW mechanics: discrepancy scoring (1834), price-fairness (1835), fraud flags (1836), request-photos macro + watch-from-extension (1837). Gating/quota (1838). DATA: public_grade_reports, Value Index (US-1745), original_photos/authenticity signals. Depends on foundation (1795) + extension epic (1753). Child stories: 1834-1838."
+    },
+    {
+      "id": "US-1834",
+      "title": "Extension: claimed-vs-objective condition discrepancy scoring",
+      "description": "As a buyer, I want to see when the seller's stated condition is better than what the photos actually support so that I catch over-graded listings.",
+      "acceptanceCriteria": [
+        "The public grading endpoint returns, for a listing's images, GradeThread's objective grade AND a discrepancy score vs the seller's claimed condition (parsed from listing fields)",
+        "The extension renders a clear signal (match / mild gap / over-graded) with the objective grade and a link to a full report",
+        "Seller condition parsing is marketplace-aware (reuse marketplace condition mappings) and degrades gracefully when absent",
+        "Endpoint is rate-limited/quota-metered and SSRF-guarded (reuse the grade-check hardening)"
+      ],
+      "priority": 1834,
+      "passes": false,
+      "notes": "[P2][BUYER][EXTENSION][NEW] THE killer feature. Extend public-grading.ts (quickGrade + gradeCheckRateLimited + safeFetch). Reuse eBay/marketplace condition mappings to normalize the seller's claim. Quota via entitlements (1800). Depends on endpoint (US-1754) + extension MVP (US-1755)."
+    },
+    {
+      "id": "US-1835",
+      "title": "Extension: condition-adjusted price-fairness meter",
+      "description": "As a buyer, I want to know if a listing is priced fairly for its actual condition so that I don't over-pay.",
+      "acceptanceCriteria": [
+        "Given the objective grade + brand/item, the extension shows a fair-price band (from the Value Index / grade_outcomes) and where this listing's price falls (fair / high / low)",
+        "Fair-value is condition-normalized — the differentiator no marketplace filter offers",
+        "Graceful fallback when comps are thin (widen band / show low confidence, no fabricated precision)",
+        "Served via a buyer-scoped endpoint, quota-metered per entitlement"
+      ],
+      "priority": 1835,
+      "passes": false,
+      "notes": "[P2][BUYER][EXTENSION][NEW] Reuse condition-index.ts (Value Index US-1745) + grade_outcomes + comps-ladder.ts. Condition-normalized fair value is the unique angle. No fabricated precision when comps thin. Depends on discrepancy scoring (1834) for the grade input."
+    },
+    {
+      "id": "US-1836",
+      "title": "Extension: point-of-purchase fraud flags",
+      "description": "As a buyer, I want fraud red flags on a listing before I buy so that I avoid stolen-photo, manipulated, or likely-counterfeit listings.",
+      "acceptanceCriteria": [
+        "The extension surfaces (Connoisseur tier): stolen/stock-photo reuse (original-photos check), image-manipulation/tamper suspicion, and counterfeit-risk for brand-name items",
+        "Signals reuse existing detectors (original_photos US-861, image_authenticity/forensic, authenticity_assessment US-601) and expose only buyer-safe coarse labels",
+        "Flags are clearly framed as risk signals/estimates, not accusations (legal-reviewed copy)",
+        "Quota-metered and tenant-scoped"
+      ],
+      "priority": 1836,
+      "passes": false,
+      "notes": "[P2][BUYER][EXTENSION][ANTIFRAUD][NEW] Reuse original_photos (US-861) + image_authenticity + forensic_analysis + authenticity_assessment (US-601), expose only public-safe coarse labels (never red_flags[] internal). Load grading-engine skill (owns authenticity confidence caps). LEGAL copy review. Highest tier. Depends on endpoint (1834)."
+    },
+    {
+      "id": "US-1837",
+      "title": "Extension: coverage-gap 'request the missing photos' macro + watch-from-extension",
+      "description": "As a buyer, I want the extension to tell me which photos are missing to grade confidently and help me ask for them, and to let me watch a listing so that I get the info I need and track items I like.",
+      "acceptanceCriteria": [
+        "Using coverage data, the extension identifies missing angles/zones and generates a templated seller message requesting exactly those photos",
+        "A one-click 'watch' from the extension writes to the buyer watchlist (US-1806) and feeds alerts ingestion (US-1808)",
+        "Both actions respect marketplace ToS (buyer-initiated messaging, no automation abuse)",
+        "Actions are tenant-scoped to the buyer"
+      ],
+      "priority": 1837,
+      "passes": false,
+      "notes": "[P2][BUYER][EXTENSION][NEW] Reuse coverage/heatmap data (US-1276/1278) to know missing zones. Watch write-path -> watchlist (1806) + ingestion (1808). Generates seller message text (buyer sends manually — ToS safe). Depends on discrepancy scoring (1834) + alerts model (1806)."
+    },
+    {
+      "id": "US-1838",
+      "title": "Extension: buyer-subscription gating + quota separation",
+      "description": "As GradeThread, we want extension features gated by the buyer plan with quota separate from the public web tool so that the extension drives subscriptions and isn't a free bypass.",
+      "acceptanceCriteria": [
+        "Extension checks authenticate the buyer (signed extension token) and resolve entitlements (1800), gating discrepancy/price-fairness/fraud/fit by tier",
+        "Extension quota is metered separately from the anonymous web grade-checker so plans are enforceable",
+        "Anonymous/free usage is capped and prompts signup/upgrade with attribution into the buyer funnel",
+        "Gating fails safe and is covered by tests"
+      ],
+      "priority": 1838,
+      "passes": false,
+      "notes": "[P2][BUYER][EXTENSION][NEW] Signed extension token (noted in US-1754) to separate quota from web grade-checker. Entitlements (1800). Anonymous cap -> signup funnel (1797) with affiliate attribution. Depends on the suite (1834-1837)."
+    },
+    {
+      "id": "US-1839",
+      "title": "Buyer binding: Fit prediction as a buyer entitlement + inline extension fit",
+      "description": "As a subscribing buyer, I want 'will it fit me?' on any listing and inside the extension so that I buy the right size and return less.",
+      "acceptanceCriteria": [
+        "The fit engine + body-profile (US-1776/1777/1778) are surfaced to buyers gated by buyer entitlement (Guard+), including inline fit in the extension overlay",
+        "Fit uses the buyer's saved body profile; no duplicate profile system is created",
+        "Fit results deep-link to the certificate/passport/listing fit surface (US-1779)",
+        "Gating + quota via buyer entitlements (1800)"
+      ],
+      "priority": 1839,
+      "passes": false,
+      "notes": "[P2][BUYER][BINDING][FIT] REUSE US-1776 epic (body_profiles 1777, fit-model.ts 1778, surfaces 1779) — this is the buyer-subscription binding + extension inline surface, not a re-build. Gating via entitlements (1800). Depends on foundation (1795) + fit epic (1776) + extension suite (1833)."
+    },
+    {
+      "id": "US-1840",
+      "title": "Buyer binding: Authenticity add-on as buyer credits/gating",
+      "description": "As a buyer, I want to spend included/purchased credits on a brand-authenticity check so that I can vet a pricey item before buying.",
+      "acceptanceCriteria": [
+        "The authenticity add-on (US-1767/1769/1771) is purchasable/consumable by buyers via included allowances + credit packs, gated by entitlement",
+        "Buyer-initiated authenticity checks (from a listing/extension) reuse the existing scoring pass and expose only buyer-safe labels + disclaimers",
+        "Metering/debit reuses the credit precedence (1800); no separate payment plumbing",
+        "Legal disclaimers preserved (confidence estimate, never definitive)"
+      ],
+      "priority": 1840,
+      "passes": false,
+      "notes": "[P2][BUYER][BINDING][AUTHENTICITY] REUSE US-1767 epic (scoring 1769, public lookup/pricing 1771). Buyer allowances/credits via entitlements (1800) + CREDIT_PACKS. Load grading-engine skill (confidence caps). Depends on foundation (1795) + authenticity epic (1767)."
+    },
+    {
+      "id": "US-1841",
+      "title": "Buyer binding: Walk-around video grading credits for buyers",
+      "description": "As a buyer, I want to request a walk-around video grade so that I get a richer condition read before committing to a higher-value purchase.",
+      "acceptanceCriteria": [
+        "Video grading (US-1762/1765/1766) is available to buyers as an included/credit-metered action gated by entitlement (Connoisseur or credit packs)",
+        "Buyer-requested video grades reuse the existing capture + metering (cost = frames x per-image), with plan-based caps",
+        "Results surface in the buyer's item/portfolio context",
+        "Metering/debit reuses the credit precedence (1800)"
+      ],
+      "priority": 1841,
+      "passes": false,
+      "notes": "[P2][BUYER][BINDING][VIDEO] REUSE US-1762 epic (metering 1765, capture 1766). Buyer credits via entitlements (1800). Cost math per US-1765 (frames x per-image). Depends on foundation (1795) + video epic (1762)."
+    },
+    {
+      "id": "US-1842",
+      "title": "Buyer binding: Circularity impact receipts on the buyer dashboard",
+      "description": "As an eco-conscious buyer, I want to see the environmental good of buying secondhand so that I feel great about it and share it.",
+      "acceptanceCriteria": [
+        "Per-purchase and per-buyer circularity impact (US-1785) surfaces on the buyer dashboard and as shareable cards",
+        "Impact aggregates across the buyer's confirmed purchases (ties to grade-confirmation, 1810) and reuses the circularity factors/methodology (labeled estimate)",
+        "Shareable card reuses the slab/OG render + referral bake for a growth loop",
+        "No new impact methodology is invented — reuses US-1785"
+      ],
+      "priority": 1842,
+      "passes": false,
+      "notes": "[P2][BUYER][BINDING][SUSTAINABILITY][GROWTH] REUSE US-1785 circularity epic (factors + share cards). Buyer aggregate ties to confirmed purchases (1810/1811). Surfaces in buyer dashboard (1802). Depends on foundation (1795) + circularity epic (1785)."
+    },
+    {
+      "id": "US-1843",
+      "title": "Buyer binding: 'What's It Worth' → buyer signup conversion funnel",
+      "description": "As GradeThread, we want the free public grade+value tool to convert into buyer signups so that our top-of-funnel feeds the buyer subscription.",
+      "acceptanceCriteria": [
+        "The public 'What's It Worth' tool (US-1750) gets buyer-oriented conversion moments (save this result, set an alert for it, verify future purchases) that route into buyer signup (1797)",
+        "Anonymous results can be claimed into a new buyer account without loss (session->account handoff)",
+        "Conversion is attributed (affiliate/referral) end-to-end",
+        "No change to the free tool's abuse controls"
+      ],
+      "priority": 1843,
+      "passes": false,
+      "notes": "[P2][BUYER][BINDING][GROWTH] REUSE US-1750 What's-It-Worth epic. Add buyer CTAs (save/alert/verify) -> signup (1797) with anon-session claim handoff. Attribution via affiliate.ts. Depends on foundation (1795) + What's-It-Worth epic (1750) + alerts (1805)."
+    },
+    {
+      "id": "US-1844",
+      "title": "Buyer binding: Verified badge & trust signals surfaced to buyers",
+      "description": "As a buyer, I want to see GradeThread's verified/trust signals wherever I evaluate an item so that the badge is a buyer trust cue, not just a seller marketing asset.",
+      "acceptanceCriteria": [
+        "Verified/trust signals (verified-seller, live-capture/360, integrity, US-1758 badge) are read and displayed in the buyer surfaces: extension overlay, alerts, watchlist, and portfolio",
+        "Signals reuse the public projection (public_grade_reports coarse labels + cert integrity) — no internal signals exposed",
+        "Clicking a badge deep-links to the full certificate/verification",
+        "Attribution captured (reuse badge click attribution, US-1760)"
+      ],
+      "priority": 1844,
+      "passes": false,
+      "notes": "[P2][BUYER][BINDING][BADGE] REUSE US-1758 badge epic + public_grade_reports coarse trust labels + cert-integrity.ts. Surface in extension (1833)/alerts (1809)/portfolio (1827). Attribution reuses US-1760. Depends on foundation (1795)."
+    },
+    {
+      "id": "US-1845",
+      "title": "Buyer platform: analytics, funnel & revenue instrumentation",
+      "description": "As GradeThread, we want the buyer funnel and feature usage instrumented so that we can measure conversion, retention, feature value, and the two-sided flywheel and optimize revenue.",
+      "acceptanceCriteria": [
+        "PostHog events across the buyer funnel (public tool -> signup -> subscribe -> feature use -> retention) and per-feature usage (extension checks, alerts, confirmations, guarantee claims, portfolio, wants)",
+        "An admin buyer-growth surface (extend admin-growth) shows conversion, MRR by tier, feature adoption, and flywheel metrics (buyer demand -> seller grading)",
+        "Revenue attribution ties buyer subscriptions and metered credits back to acquisition source",
+        "Events are privacy-compliant (opt-in where required)"
+      ],
+      "priority": 1845,
+      "passes": false,
+      "notes": "[P2][BUYER][ANALYTICS][GROWTH] Reuse PostHog + admin-growth surface + affiliate/referral attribution. Flywheel metric = buyer-demand -> seller-grading correlation. Depends on foundation (1795); instruments all buyer epics."
+    },
+    {
+      "id": "US-1846",
+      "title": "Buyer platform: legal, privacy & consent (PII, guarantee terms, extension)",
+      "description": "As GradeThread, we want the buyer platform's legal and privacy posture right so that we handle buyer PII lawfully and the guarantee/extension are compliant.",
+      "acceptanceCriteria": [
+        "Buyer PII (body profiles, purchase history, preferences, reputation) is classified sensitive, RLS-protected, with data-export/delete honoring existing privacy flows and geo-consent",
+        "Guarantee/coverage terms + authenticity/fraud-flag copy are legal-reviewed before ship (confidence estimates, not definitive claims)",
+        "Extension privacy policy + opt-in telemetry (US-1757) cover the buyer confidence suite's data flows",
+        "Consent surfaces respect the existing legal geo-consent framework"
+      ],
+      "priority": 1846,
+      "passes": false,
+      "notes": "[P2][BUYER][LEGAL][PRIVACY] Reuse existing privacy/geo-consent framework + SECURITY.md posture. Coverage terms (1819) + fraud-flag copy (1836) + authenticity disclaimers (1840) all need legal review. Extension privacy ties to US-1757. Cross-cutting across all buyer epics."
+    },
+    {
+      "id": "US-1847",
+      "title": "Buyer platform: QA — tenant-isolation + entitlement test coverage",
+      "description": "As GradeThread, we want systematic test coverage for buyer tenant isolation and entitlement gating so that buyer data never leaks and paid features can't be bypassed.",
+      "acceptanceCriteria": [
+        "Every new buyer edge route has a tenant-isolation_test.ts case proving it scopes to the buyer's own id (or an owner-verified parent) with the service-role client",
+        "Entitlement gating is unit/integration tested per tier (feature locked below plan, unlocked at/above, fails safe on unknown plan, quota enforced)",
+        "Guarantee automation + reward issuance + valuation have tests for the money-touching paths (caps, idempotency, no double-issue)",
+        "verify:web + verify:edge lanes pass"
+      ],
+      "priority": 1847,
+      "passes": false,
+      "notes": "[P2][BUYER][QA] Load tenant-isolation skill (every new route needs a test case). Money paths (guarantee 1821/1822, rewards 1813, fees 1832) need idempotency + cap tests. Run npm run verify. Cross-cutting; closes out the buyer-platform backlog."
     }
   ]
 }
