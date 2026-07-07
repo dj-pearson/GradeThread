@@ -1007,9 +1007,12 @@ export function enrichExtractionWithBrandKnowledge(
     overrides.push({ field, to: value, source: "decoder" });
   };
 
-  // 1. Brand confirmation (decoder wins).
-  const brandHit = decoderHits.find((h) => h.brand);
-  if (brandHit) applyDecoded("brand", brandHit.brand, brandHit.confidence);
+  // 1. Brand confirmation (decoder wins). A STYLE-CODE match confirms the brand
+  //    (a bare size-dot number does not); the canonical spelling comes from the
+  //    pack, not the decoder — so every brand is eBay-canonical without a
+  //    per-brand display map in brand-decoders.
+  const brandHit = decoderHits.find((h) => h.styleCode);
+  if (brandHit) applyDecoded("brand", pack.brand, brandHit.confidence);
 
   // 2. Size from a size-dot decoder (decoder wins).
   const sizeHit = decoderHits.find((h) => h.size);

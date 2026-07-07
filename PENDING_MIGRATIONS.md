@@ -1,5 +1,26 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00391_nike_jordan_brand_knowledge.sql (US-1719 Nike & Jordan, 2026-07-07)
+
+**What:** DATA-ONLY seed of Nike + Jordan into the 00389 KB tables — 8 styles
+(Tech Fleece vs Club Fleece fingerprints, Therma-FIT, Dri-FIT, Windrunner, ACG,
+Jordan Jumpman), the Nike `style_number` decoder (6-char + "-" + 3-digit
+colorway, `CW1234-001`) seeded as PURE DATA (regex + fieldMap, **no new
+transform**) under both `nike` and `jordan`, and enriched `brand_knowledge`
+(style-number tag era + line-vs-brand tells). Every fact source_url + confidence
++ verified=true. Bumps `EXPECTED_SCHEMA_VERSION` → **00391**. Self-records
+'00391'.
+
+**Risk: LOW — additive INSERTs only** (no DDL). Idempotent: brand_knowledge
+`ON CONFLICT (brand_key) DO UPDATE`, children `DO NOTHING`.
+
+**⚠️ CLIENT READ — none** (same as 00390 — server-side extraction/baselines
+only).
+
+**⚠️ Apply order:** after 00390 (top of the held stack). Run
+`scripts/apply-prod-migrations.sh`, then redeploy the edge so its boot guard
+matches 00391. `NOTIFY pgrst` not required (rows only).
+
 ## ⏳ HELD: 00390_lululemon_brand_knowledge.sql (US-1718 Lululemon content, 2026-07-07)
 
 **What:** DATA-ONLY seed of the 00389 KB tables with Lululemon content — 9
