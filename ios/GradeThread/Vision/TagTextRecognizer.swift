@@ -37,9 +37,25 @@ actor TagTextRecognizer {
         guard let cgImage = image.cgImage else { throw RecognizerError.noCGImage }
 
         return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<[RecognizedLine], Error>) in
+            // US-1648: one-shot resume guard. VNRecognizeTextRequest's completion
+            // runs synchronously INSIDE handler.perform(); a Vision failure that
+            // both invokes the completion (resume) AND makes perform throw (the
+            // catch resumes again) would resume the SAME continuation twice —
+            // "SWIFT TASK CONTINUATION MISUSE" → process abort. Resume at most once.
+            var didResume = false
+            func resumeReturning(_ v: [RecognizedLine]) {
+                guard !didResume else { return }
+                didResume = true
+                cont.resume(returning: v)
+            }
+            func resumeThrowing(_ e: Error) {
+                guard !didResume else { return }
+                didResume = true
+                cont.resume(throwing: e)
+            }
             let request = VNRecognizeTextRequest { (request, error) in
                 if let error {
-                    cont.resume(throwing: RecognizerError.visionFailure(error.localizedDescription))
+                    resumeThrowing(RecognizerError.visionFailure(error.localizedDescription))
                     return
                 }
                 let observations = (request.results as? [VNRecognizedTextObservation]) ?? []
@@ -53,7 +69,7 @@ actor TagTextRecognizer {
                         boundingBox: obs.boundingBox
                     )
                 }
-                cont.resume(returning: lines)
+                resumeReturning(lines)
             }
             request.recognitionLevel = .accurate
             // Tags are usually English-printed, but allow multi-language
@@ -71,7 +87,7 @@ actor TagTextRecognizer {
             do {
                 try handler.perform([request])
             } catch {
-                cont.resume(throwing: RecognizerError.visionFailure(error.localizedDescription))
+                resumeThrowing(RecognizerError.visionFailure(error.localizedDescription))
             }
         }
     }

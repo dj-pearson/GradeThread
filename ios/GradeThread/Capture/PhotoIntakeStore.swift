@@ -79,8 +79,18 @@ public final class PhotoIntakeStore {
     /// Stores a photo in the currently-active slot and advances to the
     /// next empty slot (or stays put if everything's filled).
     public func recordCapture(_ photo: PhotoCapture) {
-        photos[activeSlot] = photo
-        if let next = nextEmptySlot {
+        recordCapture(photo, into: activeSlot)
+    }
+
+    /// US-1648: record a capture into an EXPLICIT slot pinned by the caller
+    /// BEFORE the async capture, so a slot-strip tap mid-capture/compress can't
+    /// redirect the photo into a different slot — e.g. a sensitive tag close-up
+    /// landing in the public 'front' slot (and thus the public item-photos
+    /// bucket). Advances the focus only when it's still on the captured slot.
+    public func recordCapture(_ photo: PhotoCapture, into slot: PhotoSlotType) {
+        reveal(slot)
+        photos[slot] = photo
+        if activeSlot == slot, let next = nextEmptySlot {
             activeSlot = next
         }
     }

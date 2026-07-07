@@ -945,6 +945,11 @@ struct PhotoIntakeView: View {
         HapticFeedback.medium()
         HapticFeedback.playShutterSound()
         isCapturing = true
+        // US-1648: pin the target slot SYNCHRONOUSLY before the async capture +
+        // compress, so a slot-strip tap mid-flight can't record this photo into a
+        // different (e.g. public 'front') slot — a sensitive tag photo must never
+        // be redirected into the public bucket.
+        let capturedSlot = store.activeSlot
         Task {
             defer { isCapturing = false }
             do {
@@ -959,7 +964,7 @@ struct PhotoIntakeView: View {
                     thumbnail: output.thumbnail,
                     source: .camera
                 )
-                store.recordCapture(photo)
+                store.recordCapture(photo, into: capturedSlot)
                 // US-651: announce slot-filled progress as a live region.
                 announce("Photo captured. \(store.photos.count) of \(store.visibleSlots.count) slots filled.")
             } catch {

@@ -742,6 +742,25 @@ public final class PhotoUploadService {
         if deletedAny { context.saveOrLog("deletePendingUploadMutation") }
     }
 
+    /// US-1648: filenames of staged JPEGs still referenced by a queued
+    /// .uploadPhoto mutation, so the stale-temp sweep can't delete a file an
+    /// offline-queued upload still needs. Handles both the new relative-filename
+    /// payloads and pre-fix absolute paths (takes the last path component).
+    private func pendingUploadFilenames() -> Set<String> {
+        guard let container = modelContainer else { return [] }
+        let context = ModelContext(container)
+        let kindRaw = MutationKind.uploadPhoto.rawValue
+        let rows = (try? context.fetch(FetchDescriptor<LocalPendingMutation>(
+            predicate: #Predicate { $0.kind == kindRaw }))) ?? []
+        struct FileOnly: Decodable { let local_file_url: String }
+        var names = Set<String>()
+        for row in rows {
+            guard let decoded = try? JSONDecoder().decode(FileOnly.self, from: row.payload) else { continue }
+            names.insert((decoded.local_file_url as NSString).lastPathComponent)
+        }
+        return names
+    }
+
     /// Backs the upload by a `LocalPendingMutation` so the next SyncEngine
     /// pass on a healthy network picks it back up. Mutation payload carries
     /// enough metadata for a clean re-upload.
@@ -872,10 +891,15 @@ public final class PhotoUploadService {
     /// `maxAge` / `now` are injectable so the age threshold is unit-testable.
     func cleanupStaleTempFiles(olderThan maxAge: TimeInterval = 24 * 60 * 60, now: Date = .now) {
         let dir = Self.stagingDirectory()
+        // US-1648: never delete a staged JPEG that a pending .uploadPhoto mutation
+        // still references — an offline-queued upload replays from that file, so
+        // sweeping it (even when "old") would strand the upload as missingLocalFile.
+        let referenced = pendingUploadFilenames()
         let keys: Set<URLResourceKey> = [.contentModificationDateKey, .creationDateKey]
         let urls = (try? FileManager.default.contentsOfDirectory(
             at: dir, includingPropertiesForKeys: Array(keys))) ?? []
         for url in urls where url.lastPathComponent.hasPrefix("photo-upload-") {
+            if referenced.contains(url.lastPathComponent) { continue }
             let values = try? url.resourceValues(forKeys: keys)
             guard let stamp = values?.contentModificationDate ?? values?.creationDate else { continue }
             if now.timeIntervalSince(stamp) > maxAge {
