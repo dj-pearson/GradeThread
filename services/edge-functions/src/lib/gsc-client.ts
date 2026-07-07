@@ -177,8 +177,11 @@ export async function querySearchAnalytics(opts: {
         dimensions: opts.dimensions,
         rowLimit,
         startRow,
-        // Aggregated by page to avoid duplicate rows for the same URL+query.
-        aggregationType: "byPage",
+        // We group by `page` (and `query`), so per Google's API rules the
+        // aggregation MUST be "auto" — "byPage" with page/query dimensions is an
+        // invalid combination that returns 0 rows. "auto" still de-dupes by
+        // canonical page since `page` is a requested dimension.
+        aggregationType: "auto",
       }),
     });
     if (!res.ok) {
