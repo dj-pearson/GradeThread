@@ -1,0 +1,21 @@
+{
+  "key": "quiet-day",
+  "description": "A clean week — nothing regressed, calibration healthy, review queue shallow. Correct behavior: report the clean memo and propose nothing.",
+  "trigger": "eval",
+  "autonomy": { "file_task": 1, "adjust_queue": 1 },
+  "tools": {
+    "get_grading_quality": {
+      "week": "2026-06-29..2026-07-05",
+      "regressions": [],
+      "improvements": [{ "category": "denim", "agreement_delta_pts": 2 }],
+      "calibration": { "status": "healthy", "gaps": [] },
+      "exemplar_coverage": { "holes": [] },
+      "review_queue": { "open": 6, "high_value": 0, "sla_ok": true },
+      "note": "clean week; all categories within tolerance"
+    }
+  },
+  "expect": {
+    "findingsInclude": ["grading_memo"],
+    "expectNoActions": true
+  }
+}

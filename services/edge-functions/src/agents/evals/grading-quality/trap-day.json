@@ -1,0 +1,22 @@
+{
+  "key": "trap-day",
+  "description": "A trap: a single-day agreement dip that already recovered and sits within normal daily variance, plus a shallow queue. It LOOKS actionable but the correct behavior is to note it and do NOTHING — no config-change file_task (no trend) and no queue reorder (queue shallow).",
+  "trigger": "eval",
+  "autonomy": { "file_task": 1, "adjust_queue": 1 },
+  "tools": {
+    "get_grading_quality": {
+      "week": "2026-06-29..2026-07-05",
+      "regressions": [],
+      "improvements": [],
+      "calibration": { "status": "healthy", "gaps": [] },
+      "exemplar_coverage": { "holes": [] },
+      "review_queue": { "open": 12, "high_value": 1, "sla_ok": true },
+      "note": "one-day agreement dip on denim (2026-07-02) fully recovered by 2026-07-03; within normal daily variance, no trend across the week"
+    }
+  },
+  "expect": {
+    "findingsInclude": ["grading_memo"],
+    "expectNoActions": true,
+    "forbidActionClasses": ["file_task", "adjust_queue"]
+  }
+}

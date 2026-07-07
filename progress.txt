@@ -12121,3 +12121,39 @@ US-1694 DONE (web SEO) — Annual/quarterly freshness-refresh system
   passes; quarterly groups flag 2026-10). Ties into the SEO measurement loop.
 - VERIFIED: tsc 0, eslint 0, vitest src/lib/seo (720) + src/prerender (43) green,
   build OK (207 pages, stamps render identical "July 2026"). NO migration.
+
+────────────────────────────────────────────────────────────────────
+US-1607 FOUNDATION (edge; passes:false — epic, partial) — Agent eval harness
+- NEW services/edge-functions/src/lib/agent-eval.ts: the grading-engine eval
+  discipline for the agent fleet. runScenario injects FROZEN tool responses via
+  the kernel's toolRegistry seam + stubs all deps; scoreOutcome (pure) checks
+  required findings present / forbidden action-classes absent / required action-
+  classes present (across proposals + would_propose findings) / trap-day
+  do-nothing. loadScenariosForAgent reads agents/evals/<key>/*.json. CLI
+  entrypoint (import.meta.main) → `deno task eval:agents [agentKey]`, exits 1 on
+  failure (CI gate).
+- Golden scenarios: services/edge-functions/src/agents/evals/grading-quality/
+  {quiet,incident,trap}-day.json — the canonical happy/incident/trap trio,
+  grounded in the charter (get_grading_quality memo → grading_memo finding;
+  file_task for config-change lifecycle; adjust_queue when queue deep; do nothing
+  on a recovered blip).
+- deno task eval:agents added to deno.json.
+- Test src/tests/agent-eval_test.ts (7): scoreOutcome cases, actionClasses,
+  runScenario driven by a SCRIPTED model step (deterministic, no API) proving
+  injection mechanics, + golden-scenario well-formedness. deno check/lint/test all
+  green.
+- DRIVE-BY FIX (pre-existing, blocking): agent-tools.ts PropSchema didn't allow
+  `items`/nested `properties`/`required`/union `type` (["string","null"]) that a
+  concurrent US-1595 tool (persist_ticket_triage) already uses → the WHOLE edge
+  type-check lane was red. Widened PropSchema (recursive + PropType union) +
+  typeOk (handles array type + "null"). Additive; single-type validation
+  unchanged. agent-tools.ts now type-checks; 59 of its tests pass.
+- REMAINING (why passes:false): golden scenarios for the other 14 seeded agents
+  (min 3 each — per-agent domain authoring, well-suited to a parallel workflow);
+  weekly production job + Mission Control pass-rate panel; the failing-eval ops
+  event + autonomy-promotion block consumed by US-1608. Harness supports all of
+  these; they're integration/ops + per-agent editorial work.
+- PRE-EXISTING EDGE TEST FAILURES surfaced by the type-check unblock (NOT mine,
+  NOT US-1607): agent-tools_test.ts US-1595 get_support_triage, US-1599
+  set_marketing_frequency_cap, US-1600 enroll_cohort, US-1602 get_growth_health
+  (4 behavioral assertion mismatches in concurrent-work read/clamp tools).

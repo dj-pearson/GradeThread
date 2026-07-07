@@ -101,12 +101,20 @@ export interface JsonSchema {
   properties?: Record<string, PropSchema>;
   required?: string[];
 }
+type PropType = "string" | "number" | "integer" | "boolean" | "array" | "object" | "null";
 interface PropSchema {
-  type: "string" | "number" | "integer" | "boolean" | "array" | "object";
+  /** A single JSON-schema type, or a union (e.g. ["string","null"] for a nullable field). */
+  type: PropType | PropType[];
   enum?: unknown[];
   minimum?: number;
   maximum?: number;
   description?: string;
+  /** Element schema for `type: "array"` (recursive; the lenient validator doesn't descend). */
+  items?: PropSchema;
+  /** Nested object shape for `type: "object"` (recursive). */
+  properties?: Record<string, PropSchema>;
+  /** Required nested keys for `type: "object"`. */
+  required?: string[];
 }
 
 export type Validation =
@@ -114,6 +122,8 @@ export type Validation =
   | { ok: false; errors: string[] };
 
 function typeOk(v: unknown, t: PropSchema["type"]): boolean {
+  // A union type (e.g. ["string","null"]) passes if the value matches any member.
+  if (Array.isArray(t)) return t.some((tt) => typeOk(v, tt));
   switch (t) {
     case "string":
       return typeof v === "string";
@@ -127,6 +137,8 @@ function typeOk(v: unknown, t: PropSchema["type"]): boolean {
       return Array.isArray(v);
     case "object":
       return v !== null && typeof v === "object" && !Array.isArray(v);
+    case "null":
+      return v === null;
   }
 }
 
