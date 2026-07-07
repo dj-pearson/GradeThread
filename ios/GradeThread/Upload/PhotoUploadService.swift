@@ -230,6 +230,14 @@ public final class PhotoUploadService {
         )
         store.upsert(task)
         sortOrderByUploadId[task.id] = sortOrder
+        // US-1621: persist the upload as a LocalPendingMutation AT ENQUEUE (not
+        // only on failure), so a mid-batch app kill leaves a durable, idempotent
+        // retry (replayed at launch by the SyncEngine, keyed on the deterministic
+        // photo_id). insertPhotoRow deletes it on success; a lost delete just
+        // self-heals via the idempotent replay.
+        enqueuePendingMutation(for: task, sortOrder: sortOrder, message: "queued")
+        // US-1621: keep the app alive long enough to drain a backgrounded batch.
+        beginUploadBackgroundTaskIfNeeded()
         startNextIfPossible()
         return task.id
     }
@@ -279,6 +287,8 @@ public final class PhotoUploadService {
         sessionTaskIdToUploadId.removeAll()
         sortOrderByUploadId.removeAll()
         cleanupAllTempFiles()
+        // US-1621: no work left after a sign-out wipe — release the bg task.
+        endUploadBackgroundTask()
     }
 
     /// Called from AppDelegate's
@@ -303,6 +313,39 @@ public final class PhotoUploadService {
         for task in toStart {
             start(task)
         }
+        // US-1621: once the queue is fully drained (nothing queued or in flight),
+        // release the background task. The last upload's link-chain completion
+        // routes back here with activeCount()==0.
+        endUploadBackgroundTaskIfIdle()
+    }
+
+    // MARK: - Background task (US-1621)
+
+    private var uploadBackgroundTaskId: UIBackgroundTaskIdentifier = .invalid
+
+    /// Hold a UIBackgroundTask while uploads drain so a batch that goes to the
+    /// background gets its finish time instead of being suspended mid-flight.
+    private func beginUploadBackgroundTaskIfNeeded() {
+        guard uploadBackgroundTaskId == .invalid else { return }
+        uploadBackgroundTaskId = UIApplication.shared.beginBackgroundTask(
+            withName: "photo-upload-drain"
+        ) { [weak self] in
+            // Expiration: the OS is out of patience — end the task so it isn't
+            // force-killed. The persisted mutations replay on next launch.
+            self?.endUploadBackgroundTask()
+        }
+    }
+
+    private func endUploadBackgroundTaskIfIdle() {
+        guard uploadBackgroundTaskId != .invalid else { return }
+        let busy = store.tasks.values.contains { $0.isActive }
+        if !busy { endUploadBackgroundTask() }
+    }
+
+    private func endUploadBackgroundTask() {
+        guard uploadBackgroundTaskId != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(uploadBackgroundTaskId)
+        uploadBackgroundTaskId = .invalid
     }
 
     private func start(_ task: PhotoUploadTask) {
@@ -538,6 +581,10 @@ public final class PhotoUploadService {
                     .upsert(row)
                     .execute()
                 store.updatePhase(task.id, to: .uploaded(publicURL: publicURL))
+                // US-1621: the photo is durably linked — drop its enqueue-time
+                // pending mutation so the SyncEngine won't re-upload it.
+                deletePendingUploadMutation(photoId: Self.photoId(for: task),
+                                            targetId: task.inventoryItemId)
                 return true
             } catch {
                 attempt += 1
@@ -566,7 +613,10 @@ public final class PhotoUploadService {
             task.id,
             to: .failed(error: "Saved photo, couldn't link it: \(message)")
         )
-        enqueuePendingMutation(for: task, sortOrder: sortOrder, message: message)
+        // US-1621: the enqueue-time pending mutation still stands (carries the
+        // same deterministic photo_id + sort_order), so the SyncEngine replay
+        // re-links it — nothing to re-write here.
+        _ = sortOrder
     }
 
     private func storagePublicURL(for path: String) -> String {
@@ -650,11 +700,9 @@ public final class PhotoUploadService {
             "message": message,
         ])
         store.updatePhase(task.id, to: .failed(error: message))
-        // US-1496: the upload failed before the link step, so the sort_order is
-        // still parked in the scheduling map — carry it through so the replay
-        // writes the right strip position instead of defaulting to 0.
-        enqueuePendingMutation(
-            for: task, sortOrder: sortOrderByUploadId[task.id] ?? 0, message: message)
+        // US-1621: the pending mutation was already written at enqueue, so it
+        // survives this failure (and a kill) for the SyncEngine replay — no need
+        // to write it again here.
     }
 
     /// ISO-8601 (internet date-time) formatter for the queued captured_at,
@@ -665,6 +713,30 @@ public final class PhotoUploadService {
         f.formatOptions = [.withInternetDateTime]
         return f
     }()
+
+    /// US-1621: drop the enqueue-time pending mutation for a photo that is now
+    /// durably linked (matched on the deterministic photo_id inside the payload,
+    /// scoped by inventory_item_id). No-op if none is found. Idempotent — a
+    /// missed delete self-heals because the SyncEngine replay upserts the same
+    /// deterministic id.
+    private func deletePendingUploadMutation(photoId: String, targetId: String) {
+        guard let container = modelContainer else { return }
+        let kindRaw = MutationKind.uploadPhoto.rawValue
+        let context = ModelContext(container)
+        let descriptor = FetchDescriptor<LocalPendingMutation>(
+            predicate: #Predicate { $0.kind == kindRaw && $0.targetId == targetId }
+        )
+        guard let rows = try? context.fetch(descriptor) else { return }
+        struct PhotoIdOnly: Decodable { let photo_id: String }
+        var deletedAny = false
+        for row in rows {
+            guard let decoded = try? JSONDecoder().decode(PhotoIdOnly.self, from: row.payload),
+                  decoded.photo_id == photoId else { continue }
+            context.delete(row)
+            deletedAny = true
+        }
+        if deletedAny { context.saveOrLog("deletePendingUploadMutation") }
+    }
 
     /// Backs the upload by a `LocalPendingMutation` so the next SyncEngine
     /// pass on a healthy network picks it back up. Mutation payload carries

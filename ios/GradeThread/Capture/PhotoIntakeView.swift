@@ -832,8 +832,10 @@ struct PhotoIntakeView: View {
             inventoryItemId: newItemId,
             userId: userId
         )
-        // US-646: the captures are committed to the upload queue — drop the
-        // recovery draft.
+        // US-646/US-1621: the captures are now DURABLY committed — enqueueAll
+        // writes a LocalPendingMutation per photo, so even a mid-batch app kill
+        // replays them at launch (idempotent via the deterministic photo_id)
+        // rather than orphaning the item. Safe to drop the recovery draft.
         PhotoDraftStore.clear()
         draftItemId = newItemId
     }
