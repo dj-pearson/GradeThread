@@ -101,6 +101,7 @@ const ResellingPillarPage = lazy(() => import("@/pages/marketing/reselling").the
 const ResellingGuidePage = lazy(() => import("@/pages/marketing/reselling").then(m => ({ default: m.ResellingGuidePage })));
 const CompareHubPage = lazy(() => import("@/pages/marketing/compare").then(m => ({ default: m.CompareHubPage })));
 const ComparisonPage = lazy(() => import("@/pages/marketing/compare").then(m => ({ default: m.ComparisonPage })));
+const OpportunistGuidePage = lazy(() => import("@/pages/marketing/opportunist-guide").then(m => ({ default: m.OpportunistGuidePage })));
 const FlawLibraryHubPage = lazy(() => import("@/pages/marketing/flaw-library").then(m => ({ default: m.FlawLibraryHubPage })));
 const FlawPage = lazy(() => import("@/pages/marketing/flaw-library").then(m => ({ default: m.FlawPage })));
 const GarmentGuidesHubPage = lazy(() => import("@/pages/marketing/garment-guides").then(m => ({ default: m.GarmentGuidesHubPage })));
@@ -358,6 +359,10 @@ export const router = createBrowserRouter([
       { path: "/flipdesk/bookkeeping", element: <SuspenseWrapper><FlipdeskLandingPage /></SuspenseWrapper> },
       // US-1688: reselling pillar + TOFU guides (static pillar, dynamic guide route).
       { path: "/reselling", element: <SuspenseWrapper><ResellingPillarPage /></SuspenseWrapper> },
+      // US-1668: opportunist mid-tail eBay guides (explicit paths, registered
+      // BEFORE the dynamic /reselling/:slug so the static segments win).
+      { path: "/reselling/ebay-item-specifics", element: <SuspenseWrapper><OpportunistGuidePage path="/reselling/ebay-item-specifics" /></SuspenseWrapper> },
+      { path: "/reselling/comps/ebay-sold-comps", element: <SuspenseWrapper><OpportunistGuidePage path="/reselling/comps/ebay-sold-comps" /></SuspenseWrapper> },
       { path: "/reselling/:slug", element: <SuspenseWrapper><ResellingGuidePage /></SuspenseWrapper> },
       // US-1667: marketplace comparison hub + pages.
       { path: "/compare", element: <SuspenseWrapper><CompareHubPage /></SuspenseWrapper> },

@@ -54,6 +54,7 @@ import {
   comparePath,
   type Comparison,
 } from "@/lib/seo/comparison-guides";
+import { type OpportunistGuide } from "@/lib/seo/opportunist-guides";
 import { absoluteUrl } from "@/lib/seo/public-routes";
 import { LANDING_FAQS } from "@/pages/landing-faqs";
 import { SITE_URL } from "@/lib/seo/public-routes";
@@ -622,6 +623,39 @@ export function comparisonJsonLd(cmp: Comparison): JsonLd[] {
       dateModified: COMPARISON_MODIFIED,
     }),
     faqPageLd(cmp.faqs),
+  ];
+}
+
+// ── Opportunist mid-tail guides (US-1668) ───────────────────────────
+const OPPORTUNIST_PUBLISHED = "2026-07-06";
+const OPPORTUNIST_MODIFIED = "2026-07-06";
+
+export function opportunistGuideBreadcrumbItems(
+  guide: OpportunistGuide,
+): Array<{ name: string; url: string }> {
+  return [
+    { name: "GradeThread", url: `${SITE_URL}/` },
+    { name: "Reselling", url: `${SITE_URL}${RESELLING_PILLAR_PATH}` },
+    { name: guide.h1, url: `${SITE_URL}${guide.path}` },
+  ];
+}
+
+/** Opportunist guide JSON-LD: HowTo + Article + the guide FAQ. */
+export function opportunistGuideJsonLd(guide: OpportunistGuide): JsonLd[] {
+  return [
+    howToLd({
+      name: guide.h1,
+      description: guide.description,
+      steps: guide.steps.map((s) => ({ name: s.name, text: s.text })),
+    }),
+    articleLd({
+      headline: guide.h1,
+      description: guide.description,
+      url: absoluteUrl(guide.path),
+      datePublished: OPPORTUNIST_PUBLISHED,
+      dateModified: OPPORTUNIST_MODIFIED,
+    }),
+    faqPageLd(guide.faqs),
   ];
 }
 

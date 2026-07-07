@@ -12044,7 +12044,7 @@
         "Indexable routes; full content in initial HTML; build + eslint clean"
       ],
       "priority": 1668,
-      "passes": false,
+      "passes": true,
       "notes": "[P0][SEO2.0][SEO] Plan §1 B5/B7 + §9 Phase 0. ebay item specifics +425% YoY (algorithm-driven pain), ebay sold comps +179% — both Low competition."
     },
     {

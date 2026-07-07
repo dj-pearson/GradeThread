@@ -66,6 +66,8 @@ import {
   compareHubBreadcrumbItems,
   comparisonJsonLd,
   comparisonBreadcrumbItems,
+  opportunistGuideJsonLd,
+  opportunistGuideBreadcrumbItems,
   flawJsonLd,
   flawBreadcrumbItems,
   flawHubJsonLd,
@@ -89,6 +91,7 @@ import {
   getComparisonByPath,
   isCompareHubPath,
 } from "@/lib/seo/comparison-guides";
+import { getOpportunistGuideByPath } from "@/lib/seo/opportunist-guides";
 import { getFlawByPath, isFlawHubPath } from "@/lib/seo/flaw-library";
 import { getGuideByPath, isGuideHubPath } from "@/lib/seo/garment-guides";
 import { twitterSiteHandle, twitterCreatorHandle } from "@/lib/seo/social";
@@ -188,6 +191,17 @@ export function jsonLdForRoute(path: string): JsonLd[] {
       organizationLd(),
       breadcrumbLd(resellingGuideBreadcrumbItems(resellingGuide)),
       ...resellingGuideJsonLd(resellingGuide),
+    ];
+  }
+  // Opportunist mid-tail guides (US-1668): Organization + 3-level breadcrumb +
+  // HowTo + Article + FAQ. Checked before the reselling-guide lookup is moot
+  // (these paths aren't in RESELLING_GUIDES) but explicit for clarity.
+  const opportunist = getOpportunistGuideByPath(path);
+  if (opportunist) {
+    return [
+      organizationLd(),
+      breadcrumbLd(opportunistGuideBreadcrumbItems(opportunist)),
+      ...opportunistGuideJsonLd(opportunist),
     ];
   }
   // Comparison hub (US-1667): Organization + 2-level breadcrumb (no extra LD).

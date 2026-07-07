@@ -109,6 +109,8 @@ import {
   comparePath,
 } from "@/lib/seo/comparison-guides";
 import { CompareHubPage, ComparisonPage } from "@/pages/marketing/compare";
+import { OPPORTUNIST_GUIDES } from "@/lib/seo/opportunist-guides";
+import { OpportunistGuidePage } from "@/pages/marketing/opportunist-guide";
 
 // Static map of prerenderable routes → page element.
 const PAGES: Record<string, React.ReactNode> = {
@@ -220,6 +222,13 @@ const PAGES: Record<string, React.ReactNode> = {
     COMPARISONS.map((c) => [
       comparePath(c.slug),
       <ComparisonPage key={c.slug} slug={c.slug} />,
+    ]),
+  ),
+  // Opportunist mid-tail eBay guides (US-1668).
+  ...Object.fromEntries(
+    OPPORTUNIST_GUIDES.map((g) => [
+      g.path,
+      <OpportunistGuidePage key={g.path} path={g.path} />,
     ]),
   ),
 };

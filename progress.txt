@@ -11956,3 +11956,19 @@ US-1667 DONE (web SEO) — Comparison template + flagship /compare/mercari-vs-eb
 - public-routes.test guard: added /compare/ dynamic-route special-case.
 - VERIFIED: tsc 0, vitest src/lib/seo+src/prerender green (649), eslint 0,
   build OK (prerender wrote 176 pages incl both /compare pages). NO migration.
+
+────────────────────────────────────────────────────────────────────
+US-1668 DONE (web SEO) — Opportunist mid-tail eBay guides
+- New PURE-DATA module src/lib/seo/opportunist-guides.ts: OpportunistGuide type
+  (explicit path, quotable `definition` block, HowTo `steps`, sections,
+  flipdeskCta, faqs) + 2 guides. Explicit paths (varying depth), not slug-routed.
+  /reselling/ebay-item-specifics + /reselling/comps/ebay-sold-comps.
+- Page src/pages/marketing/opportunist-guide.tsx: keyed by path; definition
+  block, HowTo ol, sections, FlipDesk CTA (→/flipdesk), FAQ.
+- JSON-LD (marketing-jsonld.ts): HowTo + Article + FAQPage; 3-level breadcrumb
+  up to /reselling pillar.
+- Wired: public-routes (import+spread+lastmod), entry-server PAGES, head-builder
+  jsonLdForRoute (opportunist handler BEFORE compare), routes/index.tsx (2 explicit
+  routes registered before /reselling/:slug so static segments win).
+- VERIFIED: tsc 0, eslint 0, vitest src/lib/seo (612) + src/prerender (43) green,
+  build OK (prerender wrote 178 pages, both new pages emitted). NO migration.
