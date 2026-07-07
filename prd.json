@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1696,
+  "nextId": 1710,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -12408,6 +12408,323 @@
       "priority": 1695,
       "passes": true,
       "notes": "[P3][SEO2.0][offpage] Plan §7.5/§7.7 + §3 + §7 IGNORE list. Entity confirmation, zero/low cost. | DONE 2026-07-06: Organization.sameAs config hook extended w/ VITE_SOCIAL_WIKIDATA (+ YouTube from US-1677) so the Wikidata item flows into site-wide Organization JSON-LD once claimed (config-gated, no placeholder). Off-page runbook docs/OFF_PAGE_AUTHORITY.md: directory/integration listings (Shopify App Store, eBay-compatible, Product Hunt, G2/Capterra, Crunchbase/LinkedIn/X/YouTube), the Wikidata-after-3-4-citations gate, earned-link channels (cert mesh already shipped, data-PR, podcast circuit, roundup inclusion), and the explicit AVOID list (paid links/PBNs, mass guest posts, premature Wikipedia). Directory claims + Wikidata creation are operator tasks documented."
+    },
+    {
+      "passes": false,
+      "priority": 2592,
+      "id": "US-1696",
+      "title": "EPIC · Ads Command Center — Google Ads (core) + Apple Search Ads (bonus): pull → Claude analysis → approve → apply",
+      "description": "As GradeThread's operator, I want an admin Ads Command Center that pulls our live Google Ads (and, as a bonus, Apple Search Ads) account data, runs Claude analysis over performance + downstream conversions, and lets me approve recommended changes that are then pushed back to the ad platform — so our paid acquisition is continuously analyzed and optimized to target and convert, with a full audit trail and human approval on every spend-affecting change.",
+      "acceptanceCriteria": [
+        "This is the umbrella/epic story — it does not ship code itself; it defines the phased plan and the child stories (US-1697..US-1709) implement it.",
+        "Apply model is APPROVAL-GATED (decided 2026-07-06): Claude never mutates the ad account directly; it produces recommendations with a diff + projected impact, a human approves in the admin tab, then the change is pushed and audited with a stored rollback value.",
+        "Scope: Google Ads API is the core; Apple Search Ads is a clearly-marked bonus phase (US-1707/1708). Search Ads 360 and Ads Data Hub APIs are enabled on the Google project but are OUT OF SCOPE for this epic (revisit only if a real SA360 workflow exists).",
+        "Extends the EXISTING admin/ads.tsx 'AI Ad Copy Studio' (US-1073) rather than replacing it — the Command Center is a new tab/section alongside Copy Studio.",
+        "All new backend is admin/operator-only: super-admin gated, service-role edge with deny-all RLS operator tables (register in rls-guard_test.ts), Claude via central ai-config.ts, secrets via Coolify env (no-op cleanly when unconfigured)."
+      ],
+      "notes": "[EPIC][P1 Growth][Ads] Parent of US-1697..US-1709. Decisions (user 2026-07-06): approval-gated apply; scope = Google Ads API core + Apple Search Ads bonus (NOT SA360/Ads Data Hub). Build on existing admin/ads.tsx (Copy Studio, US-1073), admin-ads.ts, ad-copy-ai.ts, keyword-research.ts, gsc-client.ts, and the google-service-account.ts OAuth pattern. Every child that adds a migration must follow the migrations skill (idempotent + EXPECTED_SCHEMA_VERSION bump same commit + self-record footer) and is held from push until the user applies it to prod.",
+      "relevantPaths": [
+        "src/pages/admin/ads.tsx",
+        "services/edge-functions/src/routes/admin-ads.ts",
+        "services/edge-functions/src/lib/google-service-account.ts"
+      ],
+      "dependsOn": []
+    },
+    {
+      "passes": false,
+      "priority": 2591,
+      "id": "US-1697",
+      "title": "Google Ads API auth foundation — developer token + OAuth2 refresh + GAQL client",
+      "description": "As the platform, I want a server-side Google Ads API client that authenticates with our developer token and an OAuth2 refresh token (for a user with access to the Ads account) and can run GAQL queries against our customer id, so that every later Ads feature has one audited, no-op-when-unconfigured way to talk to Google Ads.",
+      "acceptanceCriteria": [
+        "New lib services/edge-functions/src/lib/google-ads-client.ts mints an access token from GOOGLE_ADS_* secrets and executes GAQL (search / searchStream) against GOOGLE_ADS_CUSTOMER_ID via GOOGLE_ADS_LOGIN_CUSTOMER_ID (MCC), sending developer-token + login-customer-id headers.",
+        "Auth uses an OAuth2 refresh-token grant (client id/secret/refresh token) — reuse the token-exchange/JWT helpers pattern from google-service-account.ts where it fits; returns null/no-op when any required secret is unset (never throws at boot).",
+        "A read-only connection check (e.g. GAQL for customer.descriptive_name + currency + time_zone) backs an admin 'Ads connection' status surface; a 401/403 or unapproved-token error maps to an actionable message (test-token vs needs-Basic-Access vs re-auth).",
+        "Secrets documented in ENVIRONMENT.md + services/edge-functions/.env.example: GOOGLE_ADS_DEVELOPER_TOKEN, GOOGLE_ADS_CLIENT_ID, GOOGLE_ADS_CLIENT_SECRET, GOOGLE_ADS_REFRESH_TOKEN, GOOGLE_ADS_LOGIN_CUSTOMER_ID, GOOGLE_ADS_CUSTOMER_ID (Coolify Team Shared Variables).",
+        "deno lint/check/test clean; a unit test covers token-request shaping + GAQL request/response parsing with a mocked fetch (no live Google call)."
+      ],
+      "notes": "[Ads][Foundation] Google Ads API needs an APPROVED developer token — it starts limited to test accounts and requires Basic Access approval before it can query the production account; surface that state clearly. login-customer-id = the MCC; customer-id = the account being queried. Service-account JWT alone can't call Google Ads API unless via Workspace domain-wide delegation, so default to the OAuth2 refresh-token flow. Obtaining the token/approval is an operator task — document it, don't block the code on it.",
+      "relevantPaths": [
+        "services/edge-functions/src/lib/google-ads-client.ts",
+        "services/edge-functions/src/lib/google-service-account.ts",
+        "ENVIRONMENT.md",
+        "services/edge-functions/.env.example"
+      ],
+      "dependsOn": [
+        "US-1696"
+      ]
+    },
+    {
+      "passes": false,
+      "priority": 2590,
+      "id": "US-1698",
+      "title": "Ads data model + Google Ads sync (campaigns/ad groups/keywords/ads + daily metrics)",
+      "description": "As the platform, I want a nightly (and on-demand) sync that pulls our Google Ads structure and daily performance metrics into our own tables, so that the Command Center dashboard and Claude analysis read fast, historical snapshots instead of hammering the Ads API on every view.",
+      "acceptanceCriteria": [
+        "Migration adds operator tables: ads_accounts, ads_campaigns, ads_ad_groups, ads_ads, ads_keywords, ads_metrics_daily (entity_type + entity_id + date + impressions/clicks/cost_micros/conversions/conversion_value), and ads_sync_runs — all with a 'platform' column ('google_ads' | 'apple_search_ads') to host both platforms.",
+        "Tables are service-role/operator-only: deny-all RLS, owner column named owner_user_id, and registered in rls-guard_test.ts SERVICE_ROLE_ONLY; EXPECTED_SCHEMA_VERSION bumped in the same commit (migrations skill).",
+        "Edge route POST /api/admin/ads/google/sync (super-admin) pulls structure + last-N-days metrics via GAQL and upserts snapshots idempotently (re-run overwrites the same day); writes an ads_sync_runs row with counts + errors.",
+        "A Coolify scheduled task entry + doc runs the sync daily; the route no-ops with a clear message when US-1697 is unconfigured.",
+        "deno lint/check/test clean; a unit test covers GAQL-row → table-row mapping (cost_micros → dollars, resource-name → id) with mocked data."
+      ],
+      "notes": "[Ads][Data] Mirrors the durable-jobs/sync patterns already used for eBay (sync_runs). Store cost in micros from the API and convert at read. Keep raw resource names for later mutates. Metrics keyed by (platform, entity_type, entity_id, date) for upsert idempotency.",
+      "relevantPaths": [
+        "supabase/migrations/",
+        "services/edge-functions/src/routes/admin-ads.ts",
+        "services/edge-functions/src/lib/google-ads-client.ts",
+        "services/edge-functions/src/tests/rls-guard_test.ts"
+      ],
+      "dependsOn": [
+        "US-1697"
+      ]
+    },
+    {
+      "passes": false,
+      "priority": 2589,
+      "id": "US-1699",
+      "title": "Admin Ads Command Center tab — performance dashboard from synced data",
+      "description": "As GradeThread's operator, I want a Command Center tab in the admin Ads page that shows account/campaign/ad-group/keyword performance (spend, CTR, CPC, conversions, CPA, ROAS, trends) from the synced snapshots, so that I can see how our ads are doing at a glance before drilling into recommendations.",
+      "acceptanceCriteria": [
+        "admin/ads.tsx gains a 'Command Center' tab (alongside the existing Copy Studio) showing account KPIs, a campaign table (sortable), and time-series trend charts for spend/clicks/conversions/CPA.",
+        "Charts follow the dataviz skill (theme-aware, accessible); the page is super-admin gated and emits noindex via <SEO>.",
+        "A 'Sync now' action calls US-1698's route and shows last-sync time + row counts from ads_sync_runs; empty/unconfigured states are explicit (link to the connection status from US-1697).",
+        "Reads go through TanStack Query against a read edge route (GET /api/admin/ads/overview) — no direct Google Ads calls from the browser.",
+        "tsc -b + eslint clean; bundle stays within budget (lazy-loaded route)."
+      ],
+      "notes": "[Ads][UI] Read-only visualization only — no writes here. Reuse existing admin dashboard/chart components (grade-charts, finances/* patterns) and the dataviz palette. This is the 'see' pillar of the user's ask.",
+      "relevantPaths": [
+        "src/pages/admin/ads.tsx",
+        "services/edge-functions/src/routes/admin-ads.ts"
+      ],
+      "dependsOn": [
+        "US-1698"
+      ]
+    },
+    {
+      "passes": false,
+      "priority": 2588,
+      "id": "US-1700",
+      "title": "Conversion & value wiring — gclid capture + GradeThread conversion actions mapping",
+      "description": "As the platform, I want to capture Google click ids (gclid/gbraid/wbraid) on inbound visits and define which GradeThread events count as conversions (with value), so that ads analysis and later offline-conversion-import optimize toward real downstream value (signups, subscriptions, paid grades, FlipDesk activation) rather than raw clicks.",
+      "acceptanceCriteria": [
+        "Landing-page click ids (gclid/gbraid/wbraid) are captured (query param → first-party cookie/localStorage) and persisted against the resulting signup/user when it happens, with timestamp — no PII in URLs (respect the privacy rules).",
+        "Migration adds ad_click_attributions (click_id, platform, landing_at, user_id nullable, converted_at, conversion_type, value) as an operator table (deny-all RLS, rls-guard registered, schema-version bump).",
+        "A server-side config maps GradeThread events → conversion definitions (name + value): e.g. account_created, subscription_started, grade_purchased, flipdesk_activated — stored via the system_settings registry so values are tunable without a deploy.",
+        "Captured attributions are queryable for the analysis engine (US-1701) and the offline import (US-1704); a unit test covers click-id capture/normalization + event→conversion mapping.",
+        "tsc/eslint (web) + deno (edge) clean."
+      ],
+      "notes": "[Ads][Conversions] Foundation for closing the loop. gclid is required for offline conversion import (US-1704). Keep click-id handling privacy-safe (never put personal data in URLs; store first-party). Conversion definitions live in system_settings (see the system-settings registry pattern) so we can retune value without code changes.",
+      "relevantPaths": [
+        "src/lib/analytics.ts",
+        "services/edge-functions/src/lib/system-settings.ts",
+        "supabase/migrations/"
+      ],
+      "dependsOn": [
+        "US-1698"
+      ]
+    },
+    {
+      "passes": false,
+      "priority": 2587,
+      "id": "US-1701",
+      "title": "Claude Ads analysis engine — report-only recommendations with rationale + projected impact",
+      "description": "As GradeThread's operator, I want Claude to analyze synced performance + conversion data and produce structured, prioritized recommendations (pause wasted spend, reallocate budget, adjust bids/tCPA, add negative keywords, fix RSA gaps) with rationale, confidence, and projected impact, so that I get expert optimization guidance without any change being made automatically.",
+      "acceptanceCriteria": [
+        "New lib services/edge-functions/src/lib/ads-analysis.ts feeds structured metrics + conversion signals (NOT raw seller PII) to Claude via ai-config.ts and returns validated, typed recommendations (structured output).",
+        "Each recommendation has: target entity (campaign/ad group/keyword/ad + resource name), change_type (from a fixed enum), human rationale, confidence, projected_impact (e.g. est. spend saved / conv delta), and a machine-applyable payload — persisted to an ads_recommendations operator table (deny-all RLS, rls-guard, schema-version bump).",
+        "The pass is REPORT-ONLY: it never calls a mutate; it only writes recommendations. Untrusted text (ad copy, search terms) is treated as data and cannot be turned into instructions (injection defense).",
+        "An edge route generates recommendations on demand and a Coolify task can schedule it; recommendations surface in the Command Center tab grouped by severity/impact.",
+        "deno lint/check/test clean; a unit test covers the metrics→prompt-input shaping and recommendation validation with a mocked model."
+      ],
+      "notes": "[Ads][AI] Report-only — this satisfies the 'if we cannot handle changes then analyze and report' requirement fully on its own, and is the input to the approval/apply path. Reuse ad-copy-ai.ts patterns and the central model config. Keep the change_type enum aligned with the mutate allow-list in US-1703.",
+      "relevantPaths": [
+        "services/edge-functions/src/lib/ads-analysis.ts",
+        "services/edge-functions/src/lib/ai-config.ts",
+        "services/edge-functions/src/routes/admin-ads.ts"
+      ],
+      "dependsOn": [
+        "US-1698",
+        "US-1700"
+      ]
+    },
+    {
+      "passes": false,
+      "priority": 2586,
+      "id": "US-1702",
+      "title": "Recommendation review & audit workflow — approve / dismiss / snooze with diff preview",
+      "description": "As GradeThread's operator, I want to review each Claude recommendation with a clear before→after diff and projected impact and approve, dismiss, or snooze it, so that nothing touches our live ad spend without my explicit sign-off and every decision is recorded.",
+      "acceptanceCriteria": [
+        "Command Center UI lists recommendations with a human-readable diff (current value → proposed value) and impact; actions: Approve (queues for apply), Dismiss (with optional reason), Snooze (until date).",
+        "Approvals/dismissals write an ads_change_audit row (recommendation id, actor user id, decision, timestamp, snapshot of the proposed payload) — operator table, rls-guard registered, schema-version bump if new.",
+        "State machine: recommendation status pending → approved → applied/failed, or dismissed/snoozed; only 'approved' rows are eligible for US-1703's apply.",
+        "Edge routes for the transitions are super-admin gated and tenant/operator-scoped; a unit test covers the status transitions and that a dismissed/snoozed rec is never applyable.",
+        "tsc/eslint + deno clean."
+      ],
+      "notes": "[Ads][Approval] The human-in-the-loop gate mandated by the approval-gated decision. Audit table is the spine for accountability + the rollback record in US-1703. Mirror the admin reviews.tsx approve/dismiss UX where sensible.",
+      "relevantPaths": [
+        "src/pages/admin/ads.tsx",
+        "services/edge-functions/src/routes/admin-ads.ts",
+        "supabase/migrations/"
+      ],
+      "dependsOn": [
+        "US-1701"
+      ]
+    },
+    {
+      "passes": false,
+      "priority": 2585,
+      "id": "US-1703",
+      "title": "Guarded apply to Google Ads — mutate allow-list, dry-run, audit + rollback value",
+      "description": "As GradeThread's operator, I want approved recommendations to be pushed to Google Ads through a strict, dry-run-first mutate path that records the prior value for rollback, so that changes actually optimize the account while staying safe, reversible, and fully audited.",
+      "acceptanceCriteria": [
+        "New lib services/edge-functions/src/lib/google-ads-mutate.ts applies ONLY an allow-listed set of change types: campaign/ad-group/keyword status (enable/pause), campaign budget amount, bidding target (tCPA/tROAS/manual CPC), and negative-keyword add — matching the US-1701 enum.",
+        "Every apply runs validate-only (dry-run) first; on success it applies, captures the Google API response, and writes the before-value + after-value into ads_change_audit so the change can be rolled back.",
+        "Only 'approved' recommendations apply; the route re-validates ownership + status server-side (never trust an id from the request body), is idempotent (re-applying an already-applied rec is a no-op), and hard-fails closed if US-1697 is unconfigured.",
+        "A one-click Rollback re-applies the stored before-value via the same guarded path and audits it.",
+        "deno lint/check/test clean; unit tests cover the allow-list rejection of a non-listed change type, dry-run-before-apply ordering, and rollback payload construction with a mocked Ads client."
+      ],
+      "notes": "[Ads][Apply][Outward-facing] This is the only path that spends money — keep the allow-list tight and the audit/rollback complete. Google Ads mutates use resource names + field masks; store enough to reverse. Guardrail magnitudes (max % budget change, etc.) are enforced in US-1705. No auto-apply — approval (US-1702) is a precondition.",
+      "relevantPaths": [
+        "services/edge-functions/src/lib/google-ads-mutate.ts",
+        "services/edge-functions/src/routes/admin-ads.ts"
+      ],
+      "dependsOn": [
+        "US-1702"
+      ]
+    },
+    {
+      "passes": false,
+      "priority": 2584,
+      "id": "US-1704",
+      "title": "Offline conversion import — upload downstream GradeThread value back to Google Ads",
+      "description": "As the platform, I want to upload our real downstream conversions (subscription started, paid grade, LTV value) with their gclid back to Google Ads, so that Smart Bidding optimizes toward customers who actually convert and pay, not just cheap signups.",
+      "acceptanceCriteria": [
+        "A scheduled job reads ad_click_attributions (US-1700) whose users hit a conversion event and uploads them via the Google Ads ConversionUploadService (gclid + conversion_action + conversion_date_time + value + currency).",
+        "Uploads are idempotent (dedupe by gclid+conversion_action+time) and record success/partial-failure per row; unresolved/expired gclids are skipped with a logged reason (no silent drops).",
+        "The set of conversion actions + their values come from the US-1700 system_settings config; the job no-ops cleanly when Ads is unconfigured.",
+        "Coolify scheduled task + doc; a unit test covers upload-row construction + dedupe with a mocked client.",
+        "deno lint/check/test clean."
+      ],
+      "notes": "[Ads][Conversions] Closes the loop so bidding targets value, not clicks — the core of 'effectively target and convert'. Requires gclid capture (US-1700). Enhanced conversions / consent mode is out of scope here; note it as a follow-up.",
+      "relevantPaths": [
+        "services/edge-functions/src/lib/google-ads-client.ts",
+        "services/edge-functions/src/routes/"
+      ],
+      "dependsOn": [
+        "US-1700"
+      ]
+    },
+    {
+      "passes": false,
+      "priority": 2583,
+      "id": "US-1705",
+      "title": "Budget pacing, guardrails & anomaly alerts",
+      "description": "As GradeThread's operator, I want spend pacing tracking, hard guardrails on any applied change, and anomaly alerts, so that ads can be optimized aggressively without a bad recommendation or an API glitch blowing the budget.",
+      "acceptanceCriteria": [
+        "Pacing view: daily/month-to-date spend vs configured budget with a projected end-of-month figure, per campaign and account.",
+        "Hard guardrails enforced in the apply path (US-1703): max % budget change per action, absolute daily spend ceiling, and a 'no more than N applies per run' cap — a recommendation exceeding a guardrail is blocked with a clear reason, even if approved.",
+        "Anomaly alerts (spend spike, conversions/CTR drop, CPA blowout beyond threshold) notify super-admins via the existing announcements/notification path.",
+        "Guardrail thresholds live in system_settings (tunable without deploy); a unit test covers a guardrail blocking an over-limit apply and an anomaly threshold firing.",
+        "tsc/eslint + deno clean."
+      ],
+      "notes": "[Ads][Safety] Defense-in-depth on top of approval-gating. Reuse the announcements/notify + system_settings registry. Guardrails are enforced server-side at apply time, not just in the UI.",
+      "relevantPaths": [
+        "services/edge-functions/src/lib/google-ads-mutate.ts",
+        "services/edge-functions/src/lib/system-settings.ts",
+        "src/pages/admin/ads.tsx"
+      ],
+      "dependsOn": [
+        "US-1698",
+        "US-1703"
+      ]
+    },
+    {
+      "passes": false,
+      "priority": 2582,
+      "id": "US-1706",
+      "title": "Search-terms mining — negative-keyword & new-keyword recommendations",
+      "description": "As GradeThread's operator, I want Claude to mine the Google Ads search-terms report for wasted spend (irrelevant queries → negative keywords) and missed opportunities (converting queries with no exact keyword), so that our keyword coverage and match types keep improving.",
+      "acceptanceCriteria": [
+        "The sync pulls the search-terms report (query, matched keyword, impressions/clicks/cost/conversions) into a snapshot table (or extends ads_metrics_daily) for the analysis window.",
+        "The analysis engine (US-1701) emits negative-keyword recommendations for wasteful queries and new-keyword/opportunity recommendations for converting queries, each with rationale + projected impact, flowing through the same approve → apply path.",
+        "Ties into the existing keyword library / keyword-research.ts so new keywords can seed the Copy Studio; applied negatives use the US-1703 negative-keyword-add mutate.",
+        "deno lint/check/test clean; a unit test covers the waste/opportunity classification thresholds."
+      ],
+      "notes": "[Ads][Keywords] Reuses US-1701/1703 plumbing; the value is the search-terms-specific heuristics + wiring to the existing keyword-research library. Match-type awareness matters (recommend the negative at the right level: campaign vs ad group).",
+      "relevantPaths": [
+        "services/edge-functions/src/lib/ads-analysis.ts",
+        "services/edge-functions/src/lib/keyword-research.ts"
+      ],
+      "dependsOn": [
+        "US-1701"
+      ]
+    },
+    {
+      "passes": false,
+      "priority": 2581,
+      "id": "US-1707",
+      "title": "BONUS · Apple Search Ads — auth + read into the shared ads data model",
+      "description": "As GradeThread's operator, I want the Command Center to also pull our Apple Search Ads campaigns/ad groups/keywords + metrics into the same tables (platform='apple_search_ads'), so that iOS acquisition is visible and analyzable alongside Google Ads.",
+      "acceptanceCriteria": [
+        "New lib services/edge-functions/src/lib/apple-search-ads-client.ts authenticates to the Apple Search Ads Campaign Management API (OAuth2 client-secret = ES256 JWT signed with our private key — reuse the apns.ts ES256 pattern) with our orgId; no-op when unconfigured.",
+        "A sync pulls campaigns/ad groups/keywords + reporting metrics into the shared ads_* tables with platform='apple_search_ads'; the Command Center dashboard renders both platforms.",
+        "Secrets documented (APPLE_SEARCH_ADS_* : org id, key id, team/client id, private key) in ENVIRONMENT.md + .env.example (Coolify).",
+        "deno lint/check/test clean; a unit test covers the ES256 client-secret JWT shaping + report-row mapping with mocked fetch."
+      ],
+      "notes": "[Ads][Apple][BONUS] Separate API/auth from Google (ES256 JWT client secret, like apns.ts). Read-only in this story; analysis + apply is US-1708. The shared 'platform' column (US-1698) means most UI/analysis is reused. Confirmed as a bonus/later phase.",
+      "relevantPaths": [
+        "services/edge-functions/src/lib/apple-search-ads-client.ts",
+        "services/edge-functions/src/lib/apns.ts",
+        "ENVIRONMENT.md"
+      ],
+      "dependsOn": [
+        "US-1698"
+      ]
+    },
+    {
+      "passes": false,
+      "priority": 2580,
+      "id": "US-1708",
+      "title": "BONUS · Apple Search Ads — analysis + guarded apply",
+      "description": "As GradeThread's operator, I want Claude recommendations and the approve→apply→audit workflow to also cover Apple Search Ads (bid/budget/keyword status), so that iOS campaigns get the same optimization loop as Google Ads.",
+      "acceptanceCriteria": [
+        "The analysis engine (US-1701) produces Apple Search Ads recommendations (keyword bid changes, budget, keyword/campaign status, add negative keyword) using the same recommendation/approval/audit tables.",
+        "A guarded apply path (mirroring US-1703) mutates Apple Search Ads via its Campaign Management API, dry-run/validate where the API supports it, with before/after audit + rollback; only approved recs apply; guardrails (US-1705) enforced.",
+        "The Command Center shows Apple recommendations alongside Google; platform-specific change types are in the allow-list.",
+        "deno lint/check/test clean; unit tests cover the Apple mutate allow-list + rollback payload with a mocked client."
+      ],
+      "notes": "[Ads][Apple][BONUS] Extends US-1701/1702/1703/1705 to platform='apple_search_ads'. Apple's API has no gclid-style offline import equivalent, so US-1704 stays Google-only. Depends on the Apple read foundation + the Google guarded-apply plumbing.",
+      "relevantPaths": [
+        "services/edge-functions/src/lib/apple-search-ads-client.ts",
+        "services/edge-functions/src/lib/ads-analysis.ts"
+      ],
+      "dependsOn": [
+        "US-1707",
+        "US-1703"
+      ]
+    },
+    {
+      "passes": false,
+      "priority": 2579,
+      "id": "US-1709",
+      "title": "Ads Command Center hardening — RBAC, rate limits, secret rotation & tests",
+      "description": "As GradeThread's operator, I want the Ads Command Center locked down and operationally documented before it manages real spend, so that only authorized admins can act, the Ads APIs aren't rate-limit-abused, and credentials can be rotated safely.",
+      "acceptanceCriteria": [
+        "Every Ads route is super-admin gated (not just any admin) and the apply/rollback routes require the acting user to be recorded in the audit; a tenant-isolation/rls-guard test asserts the operator tables stay service-role-only.",
+        "Google Ads / Apple Search Ads calls are rate-limited + retried with backoff on transient errors; sync/analysis are safe to re-run (idempotent) and won't stampede the APIs.",
+        "KEY_ROTATION.md + ENVIRONMENT.md document rotating the Ads/Apple secrets and re-consenting the OAuth refresh token; a LAUNCH_CHECKLIST entry gates 'Ads apply enabled' on developer-token Basic Access + guardrails configured.",
+        "End-to-end happy-path test (mocked APIs): sync → analyze → approve → dry-run apply → audit row + rollback — proving the loop without touching a live account.",
+        "deno + web verify lanes clean."
+      ],
+      "notes": "[Ads][Hardening] Final wrap-up before real spend flows through. Reinforces the rls-guard-service-role-tables rule and the approval-gated model. Keep the live-account e2e manual/operator-run; automated e2e uses mocks.",
+      "relevantPaths": [
+        "services/edge-functions/src/tests/rls-guard_test.ts",
+        "KEY_ROTATION.md",
+        "LAUNCH_CHECKLIST.md"
+      ],
+      "dependsOn": [
+        "US-1703"
+      ]
     }
   ]
 }
