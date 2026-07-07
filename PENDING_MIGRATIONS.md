@@ -1,5 +1,22 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00393_levis_brand_knowledge.sql (US-1721 Levi's, 2026-07-07)
+
+**What:** DATA-ONLY seed of Levi's into the 00389 KB tables — 8 styles (fit
+fingerprints: 501 button-fly vs 505 zip-fly vs 511 slim, 512/541/550/569 +
+Trucker Jacket), a brand-scoped `lot_number` fit decoder (`5NN`), and enriched
+`brand_knowledge` (Big-E/small-e red-tab era dating + back-patch/selvedge tells).
+Every fact source_url + confidence + verified. Bumps `EXPECTED_SCHEMA_VERSION` →
+**00393**. Self-records '00393'.
+
+**Risk: LOW — additive INSERTs only** (no DDL). Idempotent (brand_knowledge
+`ON CONFLICT DO UPDATE`, children `DO NOTHING`).
+
+**⚠️ CLIENT READ — none** (server-side extraction/baselines only).
+
+**⚠️ Apply order:** after 00392 (top of the held stack). Run
+`scripts/apply-prod-migrations.sh`, then redeploy the edge (boot guard → 00393).
+
 ## ⏳ HELD: 00392_adidas_yeezy_brand_knowledge.sql (US-1720 adidas & Yeezy, 2026-07-07)
 
 **What:** DATA-ONLY seed of adidas + Yeezy into the 00389 KB tables — 6 styles
