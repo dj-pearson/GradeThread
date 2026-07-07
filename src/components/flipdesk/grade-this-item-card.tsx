@@ -38,7 +38,6 @@ import {
   type GradingTier,
   type ValidationItem,
 } from "@/hooks/use-grading";
-import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { GARMENT_TYPES, GARMENT_CATEGORIES } from "@/lib/constants";
 import {
@@ -516,7 +515,6 @@ export function GradeThisItemCard({ item }: { item: ItemFullRow }) {
           <Button
             onClick={doSubmit}
             disabled={!ready || submit.isPending}
-            className={cn(ready && "bg-brand-navy")}
           >
             {submit.isPending ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />

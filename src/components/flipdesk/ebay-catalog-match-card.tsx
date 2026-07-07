@@ -82,7 +82,6 @@ export function EbayCatalogMatchCard({
           </div>
           <Button
             size="sm"
-            className="bg-brand-navy"
             disabled={adopt.isPending}
             onClick={() => doAdopt(top.epid)}
           >

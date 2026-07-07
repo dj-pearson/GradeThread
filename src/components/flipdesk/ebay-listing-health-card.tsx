@@ -180,7 +180,6 @@ export function EbayListingHealthCard() {
               size="sm"
               onClick={applyRecommendations}
               disabled={fixing || sync.isPending}
-              className="bg-brand-navy"
             >
               {fixing ? (
                 <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />

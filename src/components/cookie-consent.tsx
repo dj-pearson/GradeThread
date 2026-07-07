@@ -118,7 +118,6 @@ export function CookieConsent() {
                 </Button>
                 <Button
                   size="sm"
-                  className="bg-brand-navy"
                   onClick={() => {
                     acceptAll();
                     close();
@@ -139,7 +138,6 @@ export function CookieConsent() {
                 </Button>
                 <Button
                   size="sm"
-                  className="bg-brand-navy"
                   onClick={() => {
                     acceptAll();
                     close();
