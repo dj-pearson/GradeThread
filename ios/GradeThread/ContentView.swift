@@ -133,6 +133,14 @@ struct ContentView: View {
                     // APNs token so the next user can't inherit staged photos
                     // or this device's push registration.
                     IntakeInbox.removeAll()
+                    // US-1646: also wipe the per-account UI/draft stores so the
+                    // next account on this device can't inherit the previous
+                    // user's in-progress intake, staged capture draft, recent
+                    // searches, or saved filter views (all device-local).
+                    IntakeDraftStore.clear()
+                    PhotoDraftStore.clear()
+                    RecentSearchStore().clear()
+                    SavedFilterStore().clear()
                     // US-694: wipe any lingering financial/account exports so
                     // the next user can't read the previous user's exports.
                     SecureTempFile.sweep()

@@ -289,6 +289,14 @@ public final class AuthStore {
         // spinner with no feedback. Now the local session/keychain/state are cleared
         // and the phase is driven to `.signedOut` REGARDLESS of network; the server
         // revoke is best-effort.
+        // US-1646: revoke the server-side refresh token BEFORE wiping the
+        // keychain — the SDK reads the refresh token FROM the keychain to revoke
+        // it, so the old order (keychain wipe first) silently skipped the revoke
+        // and left a valid refresh token alive on the server. A SHORT timeout
+        // keeps the US-1499 local-first guarantee: an offline/slow network can't
+        // wedge sign-out, and the local teardown below always runs. Matches
+        // deleteAccount()'s SDK-signout-before-keychain ordering.
+        await Self.bestEffortSignOut(timeout: .seconds(3))
         // 1) Local teardown — always runs.
         try? KeychainLocalStorage().removeAll()
         // US-1172: forget the tracked Apple credential id so a later non-Apple
@@ -301,10 +309,18 @@ public final class AuthStore {
         phase = .signedOut
         Telemetry.clearUser()
         lastError = nil
-        // 3) Best-effort server-side revoke; an offline failure is non-fatal since
-        //    we're already locally signed out. (When online this also emits
-        //    `.signedOut`, which re-applies the same idempotent teardown.)
-        try? await SupabaseShared.client.auth.signOut()
+    }
+
+    /// US-1646: await the SDK sign-out but give up after `timeout` so an
+    /// offline/slow revoke can't block the local teardown. Best-effort — a
+    /// failure or timeout is non-fatal (we're wiping the local session anyway).
+    private static func bestEffortSignOut(timeout: Duration) async {
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { try? await SupabaseShared.client.auth.signOut() }
+            group.addTask { try? await Task.sleep(for: timeout) }
+            _ = await group.next()  // whichever finishes first wins…
+            group.cancelAll()       // …cancel the other.
+        }
     }
 
     /// Permanently deletes the signed-in user's account (US-194). Calls

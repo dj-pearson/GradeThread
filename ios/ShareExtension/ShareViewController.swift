@@ -127,10 +127,35 @@ final class ShareViewController: UIViewController {
         host.didMove(toParent: self)
     }
 
+    /// US-1646: PhotoCompressor-equivalent downscale for the Share extension
+    /// (which doesn't link the main app's PhotoCompressor). Resizes to a
+    /// `maxLongEdge` long edge (baking orientation upright via the renderer) and
+    /// JPEG-encodes at `quality` — ~450–500 KB instead of the raw 3–10 MB.
+    private static func downscaledJPEG(
+        _ image: UIImage,
+        maxLongEdge: CGFloat = 1600,
+        quality: CGFloat = 0.75
+    ) -> Data? {
+        let longEdge = max(image.size.width, image.size.height)
+        let scale = longEdge > maxLongEdge && longEdge > 0 ? maxLongEdge / longEdge : 1
+        let target = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        format.opaque = true
+        let resized = UIGraphicsImageRenderer(size: target, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: target))
+        }
+        return resized.jpegData(compressionQuality: quality)
+    }
+
     private func handleSubmit(assignments: [(slot: String, image: UIImage)]) {
         Task.detached(priority: .userInitiated) {
             let payload: [(slot: String, jpegData: Data)] = assignments.compactMap { entry in
-                guard let data = entry.image.jpegData(compressionQuality: 0.8) else { return nil }
+                // US-1646: downscale share imports in the extension (PhotoCompressor
+                // isn't linked here) so they don't stage + upload at full 3–10 MB
+                // resolution — which also fixes the P1 full-res-in-memory jetsam.
+                // Mirrors PhotoCompressor's 1600px long-edge / 0.75 JPEG budget.
+                guard let data = Self.downscaledJPEG(entry.image) else { return nil }
                 return (slot: entry.slot, jpegData: data)
             }
             // US-1222: a swallowed `try?` here let a failed App Group write

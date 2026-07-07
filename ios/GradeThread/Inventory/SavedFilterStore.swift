@@ -64,6 +64,13 @@ public final class SavedFilterStore {
         persist()
     }
 
+    /// US-1646: wipe all saved filter views. Called by the sign-out sweep so the
+    /// next account on this device can't see the previous user's saved views.
+    public func clear() {
+        filters.removeAll()
+        defaults.removeObject(forKey: storageKey)
+    }
+
     /// Name of an existing saved view whose criteria exactly matches the
     /// argument, if any — lets the UI show "Saved" state for the active set.
     public func matchingName(for criteria: InventoryFilterCriteria) -> String? {
