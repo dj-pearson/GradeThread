@@ -12,11 +12,12 @@
 // composed in src/pages/marketing/marketing-jsonld.ts.
 
 import type { PublicRoute } from "./public-routes";
+import { verifiedLabel } from "./freshness";
 
 export const COMPARE_HUB_PATH = "/compare";
 
-/** Freshness stamp shown on every comparison; bump on the annual refresh (US-1694). */
-export const COMPARISON_VERIFIED = "July 2026";
+/** Freshness stamp — derived from the real re-check date (US-1694). */
+export const COMPARISON_VERIFIED = verifiedLabel("comparisons");
 
 export interface CompareRow {
   /** The dimension being compared, e.g. "Selling fees". */

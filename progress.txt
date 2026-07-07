@@ -12103,3 +12103,21 @@ NOTE — US-1689 (YouTube shorts) & US-1691 (State of Secondhand data report) ar
 DATA/MEDIA-BLOCKED: 1689 needs real produced videos (VideoObject schema for
 nonexistent videos would violate no-fake-markup); 1691 needs real anonymized
 grading/FlipDesk production data. Both deferred like the operator/ops stories.
+
+────────────────────────────────────────────────────────────────────
+US-1694 DONE (web SEO) — Annual/quarterly freshness-refresh system
+- New src/lib/seo/freshness.ts: FRESHNESS_REGISTRY (4 groups: platform-standards,
+  comparisons, crosslisting-apps quarterly=3mo; where-to-sell annual=12mo) with
+  real lastVerified dates. verifiedLabel() derives "Month Year" stamps from the
+  ISO date (no Date/random, deterministic). dueMonthIndex/isOverdue/overdueGroups
+  compute re-verify status from cadence (asOf passed in — module stays pure).
+- Refactored the 4 hard-coded "July 2026" stamps → verifiedLabel(group) so stamps
+  are REAL-date-derived, not cosmetic (platform-standards/comparison-guides/
+  crosslisting-apps/where-to-sell).
+- Test src/lib/seo/__tests__/freshness.test.ts (6): well-formedness, label output,
+  DRIFT GUARD (each module const === verifiedLabel — fails if someone hardcodes
+  again), overdue logic w/ fixtures, and the TRACKED AUTOMATION: a CI test that
+  FAILS when any group passes cadence today → flags re-verification (currently
+  passes; quarterly groups flag 2026-10). Ties into the SEO measurement loop.
+- VERIFIED: tsc 0, eslint 0, vitest src/lib/seo (720) + src/prerender (43) green,
+  build OK (207 pages, stamps render identical "July 2026"). NO migration.

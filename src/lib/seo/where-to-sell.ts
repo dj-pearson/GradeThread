@@ -10,11 +10,12 @@
 // FAQPage) is composed in src/pages/marketing/marketing-jsonld.ts.
 
 import type { PublicRoute } from "./public-routes";
+import { verifiedLabel } from "./freshness";
 
 export const WHERE_TO_SELL_PATH = "/where-to-sell-used-clothes";
 
-/** Freshness stamp; part of the year-stamped set re-verified on the freshness cadence. */
-export const WHERE_TO_SELL_VERIFIED = "July 2026";
+/** Freshness stamp — derived from the real re-check date (US-1694). */
+export const WHERE_TO_SELL_VERIFIED = verifiedLabel("where-to-sell");
 
 export interface SellingVenue {
   name: string;

@@ -19,11 +19,12 @@
 
 import type { PublicRoute } from "./public-routes";
 import { mapCondition, type MarketplacePlatform } from "../marketplace-specs";
+import { verifiedLabel } from "./freshness";
 
 export const PLATFORM_STANDARDS_HUB_PATH = "/grading/platform-standards";
 
-/** Freshness stamp; bump on the quarterly re-check (AC). */
-export const PLATFORM_STANDARDS_VERIFIED = "July 2026";
+/** Freshness stamp — derived from the real re-check date (US-1694). */
+export const PLATFORM_STANDARDS_VERIFIED = verifiedLabel("platform-standards");
 
 /**
  * The 1.0–10.0 scale bands used for the mapping table. `grade` is a

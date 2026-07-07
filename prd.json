@@ -12393,7 +12393,7 @@
         "Ties into §8 measurement so protected pages are monitored"
       ],
       "priority": 1694,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][SEO2.0][technical][GEO] Plan §6.5 + §9 Phase 3. Protects the gains."
     },
     {

@@ -14,9 +14,11 @@
 // FAQPage) is composed in src/pages/marketing/marketing-jsonld.ts.
 
 import type { PublicRoute } from "./public-routes";
+import { verifiedLabel } from "./freshness";
 
 export const CROSSLIST_APPS_PATH = "/reselling/best-crosslisting-apps";
-export const CROSSLIST_APPS_VERIFIED = "July 2026";
+/** Freshness stamp — derived from the real re-check date (US-1694). */
+export const CROSSLIST_APPS_VERIFIED = verifiedLabel("crosslisting-apps");
 
 export interface CrosslistApp {
   name: string;
