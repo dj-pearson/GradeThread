@@ -142,6 +142,9 @@ struct ContentView: View {
                     // covers every sign-out path — explicit sign-out, account
                     // deletion, and token-expiry / Apple-credential-revoke.
                     ThumbnailLoader.shared.purge()
+                    // US-1647: flush the EdgeAPI response cache so a cached GET
+                    // can't serve the next account on this device.
+                    Task { await EdgeAPI.shared.clearCache() }
                     PushService.shared.clearTokenOnSignOut()
                     Task { await syncEngine?.stop() }
                     syncEngine = nil
@@ -169,6 +172,9 @@ struct ContentView: View {
                     // old tenant's rows into the freshly-wiped store / poisoning the
                     // reset watermarks.
                     await syncEngine?.invalidateScope()
+                    // US-1647: flush the tenant-keyed EdgeAPI response cache for
+                    // the workspace we're leaving.
+                    await EdgeAPI.shared.clearCache()
                     // US-1211 AC3: drain the prior workspace's queued writes BEFORE
                     // re-scoping so a mutation queued under the old workspace can't
                     // carry into the new workspace's first sync pass. flushPending

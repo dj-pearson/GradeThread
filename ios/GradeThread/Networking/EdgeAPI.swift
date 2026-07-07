@@ -381,7 +381,12 @@ public actor EdgeAPI {
         bodyData: Data?,
         cacheTTL: TimeInterval = 0
     ) async throws -> Data {
-        let cacheKey = "\(method) \(path)?\(Self.canonicalQuery(query))"
+        // US-1647: tenant-key the cache so a cached GET can NEVER serve a
+        // different tenant after a sign-out / workspace switch (latent today —
+        // no tenant-scoped GET is cached yet — but the key must be correct
+        // before one is). Pairs with clearCache() on sign-out / workspace switch.
+        let cacheTenant = WorkspaceScope.activeOwnerId ?? "personal"
+        let cacheKey = "\(cacheTenant)|\(method) \(path)?\(Self.canonicalQuery(query))"
         // Serve fresh idempotent GETs from cache (US-638).
         if cacheTTL > 0, method == "GET", let cached = cacheLookup(cacheKey) {
             return cached
@@ -537,6 +542,15 @@ public actor EdgeAPI {
     // MARK: - Response cache (US-995)
 
     /// Returns the cached bytes for `key` when a fresh entry exists, refreshing
+    /// US-1647: flush the entire response cache. Called on sign-out and on a
+    /// workspace switch so cached GETs never persist across tenants at rest
+    /// (the cache is also tenant-keyed, so this is defense in depth + reclaims
+    /// memory the previous tenant's responses held).
+    public func clearCache() {
+        responseCache.removeAll()
+        responseCacheBytes = 0
+    }
+
     /// its LRU stamp. Expired entries are removed eagerly (not just skipped).
     private func cacheLookup(_ key: String) -> Data? {
         guard let entry = responseCache[key] else { return nil }

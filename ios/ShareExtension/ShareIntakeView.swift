@@ -31,8 +31,13 @@ struct ShareIntakeView: View {
 
         // Default each image to the next required slot, then spill
         // into defects. Mirrors the drag-drop sequencing in
-        // PhotosDropHandler so users get the same intuition.
-        let slots = ShareIntakeView.allSlots
+        // PhotosDropHandler so users get the same intuition. US-1647: use the
+        // default-assignment order (which SKIPS the measurement_* calibration
+        // slots), not allSlots — after the US-1571 mirror reorder put
+        // measurement_* before defects, the raw allSlots order spilled the 5th+
+        // shared photo into measurement slots (and pushed a calibration frame
+        // to the public bucket). Users can still pick a measurement slot manually.
+        let slots = ShareIntakeView.defaultAssignmentSlots
         var initial: [Int: String] = [:]
         for (idx, _) in images.enumerated() {
             initial[idx] = slots[min(idx, slots.count - 1)]
@@ -57,6 +62,15 @@ struct ShareIntakeView: View {
         "angle", "sole", "marking", "serial", "accessory",
         "certificate", "corner", "surface",
     ]
+
+    /// US-1647: the order used to DEFAULT-assign shared photos to slots — the
+    /// canonical order minus the measurement_* / calibration slots, so a
+    /// batch of shared photos spills into defects/details (never into
+    /// measurement slots, which are for the MeasureCard flow, not share import).
+    /// The full ``allSlots`` set is still offered in the per-photo picker.
+    static let defaultAssignmentSlots: [String] = allSlots.filter {
+        !$0.hasPrefix("measurement")
+    }
 
     static func displayName(for slot: String) -> String {
         switch slot {
