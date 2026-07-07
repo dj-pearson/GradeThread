@@ -78,6 +78,7 @@ import { adminMonitoringRoutes } from "./routes/admin-monitoring.ts";
 import { adminNotificationsRoutes } from "./routes/admin-notifications.ts";
 import { adminViewsRoutes } from "./routes/admin-views.ts";
 import { adminKnowledgeBaseRoutes } from "./routes/admin-knowledge-base.ts";
+import { adminBrandKnowledgeRoutes } from "./routes/admin-brand-knowledge.ts";
 import { adminUsersRoutes } from "./routes/admin-users.ts";
 import { adminScopesRoutes } from "./routes/admin-scopes.ts";
 import { adminSearchRoutes } from "./routes/admin-search.ts";
@@ -1070,6 +1071,7 @@ app.route("/api/admin/notifications", adminNotificationsRoutes);
 // writes (support_kb_articles has no client write policy, 00183); admin JWT +
 // AAL2 MFA via the /api/admin/* group.
 app.route("/api/admin/knowledge-base", adminKnowledgeBaseRoutes);
+app.route("/api/admin/brand-knowledge", adminBrandKnowledgeRoutes);
 app.route("/api/admin/users", adminUsersRoutes);
 // US-908 granular RBAC scope management: view/edit which permission scopes each
 // role holds + per-admin additive grants. Reads are admin; mutations are

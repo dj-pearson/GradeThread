@@ -12825,7 +12825,7 @@
         "jsx-a11y clean; web build + eslint + deno test green."
       ],
       "priority": 2515,
-      "passes": false,
+      "passes": true,
       "notes": "[BrandKB][Infra][Admin] The human-verification surface — brand-content stories depend on this existing so their seeds can be checked.",
       "dependsOn": [
         "US-1711"

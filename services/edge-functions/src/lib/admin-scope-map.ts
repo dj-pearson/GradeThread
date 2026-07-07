@@ -113,6 +113,13 @@ export const ADMIN_ROUTER_SCOPES: AdminRouterScope[] = [
     rationale: "Publishes public help-center content.",
   },
   {
+    file: "admin-brand-knowledge.ts",
+    scope: "content:publish",
+    mode: "router",
+    rationale:
+      "Curates the brand & style knowledge base (reference content that grounds garment identification); human-verifies AI-drafted facts.",
+  },
+  {
     file: "admin-seo.ts",
     scope: "content:publish",
     mode: "router",
