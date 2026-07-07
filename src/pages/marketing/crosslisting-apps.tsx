@@ -1,0 +1,188 @@
+import { Link } from "react-router-dom";
+import { ArrowRight, Check, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  MarketingLayout,
+  MarketingCTA,
+} from "@/components/marketing/marketing-layout";
+import { RESELLING_PILLAR_PATH } from "@/lib/seo/reselling-guides";
+import {
+  CROSSLIST_APPS,
+  CROSSLIST_APPS_PAGE,
+  CROSSLIST_APPS_PATH,
+  CROSSLIST_APPS_VERIFIED,
+} from "@/lib/seo/crosslisting-apps";
+import {
+  crosslistAppsJsonLd,
+  crosslistAppsBreadcrumbItems,
+} from "@/pages/marketing/marketing-jsonld";
+
+// US-1686: honest "best crosslisting apps 2026" listicle. Includes competitors
+// fairly; FlipDesk positioned on the grading/returns differentiator.
+
+export function CrosslistingAppsPage() {
+  return (
+    <MarketingLayout
+      title={CROSSLIST_APPS_PAGE.title}
+      description="The best crosslisting apps for resellers in 2026 compared — List Perfectly, Vendoo, Crosslist, Flyp, and FlipDesk — on marketplaces, pricing, and returns."
+      canonicalPath={CROSSLIST_APPS_PATH}
+      breadcrumbs={crosslistAppsBreadcrumbItems()}
+      jsonLd={crosslistAppsJsonLd()}
+    >
+      <section className="px-6 py-16 lg:py-20">
+        <div className="mx-auto max-w-3xl">
+          <p className="text-sm font-medium text-muted-foreground">
+            <Link to={RESELLING_PILLAR_PATH} className="hover:underline">
+              Reselling
+            </Link>
+          </p>
+          <h1 className="mt-2 text-4xl font-bold tracking-tight sm:text-5xl">
+            {CROSSLIST_APPS_PAGE.h1}
+          </h1>
+          {/* Quotable answer block (AI-citable). */}
+          <p className="mt-6 rounded-xl border-l-4 border-brand-navy bg-muted/30 p-5 text-lg text-foreground dark:border-foreground">
+            {CROSSLIST_APPS_PAGE.definition}
+          </p>
+          <p className="mt-6 text-muted-foreground">{CROSSLIST_APPS_PAGE.intro}</p>
+          <p className="mt-3 text-sm text-muted-foreground">
+            Verified {CROSSLIST_APPS_VERIFIED} · features and pricing change —
+            verify on each tool's site.
+          </p>
+        </div>
+      </section>
+
+      {/* Criteria */}
+      <section className="border-t bg-card px-6 py-16">
+        <div className="mx-auto max-w-3xl">
+          <h2 className="text-2xl font-bold sm:text-3xl">
+            How we compared them
+          </h2>
+          <dl className="mt-8 space-y-6">
+            {CROSSLIST_APPS_PAGE.criteria.map((c) => (
+              <div key={c.name}>
+                <dt className="font-medium text-foreground">{c.name}</dt>
+                <dd className="mt-1 text-muted-foreground">{c.text}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      </section>
+
+      {/* Comparison table */}
+      <section className="border-t px-6 py-16">
+        <div className="mx-auto max-w-3xl">
+          <h2 className="text-2xl font-bold sm:text-3xl">At a glance</h2>
+          <div className="mt-8 overflow-x-auto">
+            <table className="w-full min-w-[520px] border-collapse text-left text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="py-3 pr-4 font-semibold">App</th>
+                  <th className="py-3 font-semibold">Best for</th>
+                </tr>
+              </thead>
+              <tbody>
+                {CROSSLIST_APPS.map((app) => (
+                  <tr key={app.name} className="border-b align-top">
+                    <th className="py-3 pr-4 font-medium">{app.name}</th>
+                    <td className="py-3 text-muted-foreground">{app.bestFor}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      {/* Per-app pros/cons */}
+      <section className="border-t bg-card px-6 py-16">
+        <div className="mx-auto max-w-3xl space-y-6">
+          {CROSSLIST_APPS.map((app) => (
+            <div
+              key={app.name}
+              className={
+                app.isOurs
+                  ? "rounded-xl border-2 border-brand-navy bg-background p-6 dark:border-foreground"
+                  : "rounded-xl border bg-background p-6"
+              }
+            >
+              <h3 className="text-xl font-bold">{app.name}</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Best for {app.bestFor}.
+              </p>
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <ul className="space-y-2">
+                  {app.pros.map((p) => (
+                    <li key={p} className="flex gap-2 text-sm text-muted-foreground">
+                      <Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-brand-navy dark:text-foreground" />
+                      {p}
+                    </li>
+                  ))}
+                </ul>
+                <ul className="space-y-2">
+                  {app.cons.map((c) => (
+                    <li key={c} className="flex gap-2 text-sm text-muted-foreground">
+                      <X className="mt-0.5 h-4 w-4 flex-shrink-0 text-brand-red" />
+                      {c}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* FlipDesk differentiator */}
+      <section className="border-t px-6 py-16">
+        <div className="mx-auto max-w-3xl rounded-xl border bg-muted/30 p-6">
+          <h2 className="text-2xl font-bold">
+            The differentiator: condition and returns
+          </h2>
+          <p className="mt-3 text-muted-foreground">
+            Crosslisting saves time, but it doesn't fix the biggest silent margin
+            leak: condition-driven returns. FlipDesk builds a standardized
+            condition grade and a verifiable certificate into the reselling
+            lifecycle, so listings set accurate expectations and{" "}
+            <Link
+              to="/reselling/reduce-ebay-returns"
+              className="font-medium text-brand-navy hover:underline dark:text-foreground"
+            >
+              cut "not as described" returns
+            </Link>{" "}
+            — the piece other crosslisters leave to you.
+          </p>
+          <div className="mt-5 flex flex-wrap gap-3">
+            <Link to="/flipdesk">
+              <Button variant="outline" size="sm">
+                See FlipDesk
+                <ArrowRight className="ml-1 h-4 w-4" />
+              </Button>
+            </Link>
+            <Link to="/grading/scale">
+              <Button variant="outline" size="sm">
+                The 1.0–10.0 grading scale
+                <ArrowRight className="ml-1 h-4 w-4" />
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      <section className="border-t bg-card px-6 py-16">
+        <div className="mx-auto max-w-2xl">
+          <h2 className="text-center text-3xl font-bold">Frequently asked</h2>
+          <dl className="mt-10 space-y-6">
+            {CROSSLIST_APPS_PAGE.faqs.map((faq) => (
+              <div key={faq.q} className="border-b pb-6 last:border-b-0">
+                <dt className="font-medium">{faq.q}</dt>
+                <dd className="mt-2 text-sm text-muted-foreground">{faq.a}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      </section>
+
+      <MarketingCTA />
+    </MarketingLayout>
+  );
+}

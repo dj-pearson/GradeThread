@@ -76,6 +76,8 @@ import {
   platformStandardBreadcrumbItems,
   whereToSellJsonLd,
   whereToSellBreadcrumbItems,
+  crosslistAppsJsonLd,
+  crosslistAppsBreadcrumbItems,
   flawJsonLd,
   flawBreadcrumbItems,
   flawHubJsonLd,
@@ -106,6 +108,7 @@ import {
   isPlatformStandardsHubPath,
 } from "@/lib/seo/platform-standards";
 import { isWhereToSellPath } from "@/lib/seo/where-to-sell";
+import { isCrosslistAppsPath } from "@/lib/seo/crosslisting-apps";
 import { getFlawByPath, isFlawHubPath } from "@/lib/seo/flaw-library";
 import { getGuideByPath, isGuideHubPath } from "@/lib/seo/garment-guides";
 import { twitterSiteHandle, twitterCreatorHandle } from "@/lib/seo/social";
@@ -251,6 +254,16 @@ export function jsonLdForRoute(path: string): JsonLd[] {
       organizationLd(),
       breadcrumbLd(whereToSellBreadcrumbItems()),
       ...whereToSellJsonLd(),
+    ];
+  }
+  // Best crosslisting apps listicle (US-1686): under /reselling/, matched before
+  // the reselling-guide lookup. Organization + 3-level breadcrumb + Article +
+  // ItemList + FAQ.
+  if (isCrosslistAppsPath(path)) {
+    return [
+      organizationLd(),
+      breadcrumbLd(crosslistAppsBreadcrumbItems()),
+      ...crosslistAppsJsonLd(),
     ];
   }
   // Comparison hub (US-1667): Organization + 2-level breadcrumb (no extra LD).

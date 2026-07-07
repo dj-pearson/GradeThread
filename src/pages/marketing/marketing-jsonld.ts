@@ -66,6 +66,11 @@ import {
   WHERE_TO_SELL_PATH,
   SELLING_VENUES,
 } from "@/lib/seo/where-to-sell";
+import {
+  CROSSLIST_APPS,
+  CROSSLIST_APPS_PAGE,
+  CROSSLIST_APPS_PATH,
+} from "@/lib/seo/crosslisting-apps";
 import { absoluteUrl } from "@/lib/seo/public-routes";
 import { LANDING_FAQS } from "@/pages/landing-faqs";
 import { SITE_URL } from "@/lib/seo/public-routes";
@@ -771,6 +776,44 @@ export function whereToSellJsonLd(): JsonLd[] {
     }),
     itemList,
     faqPageLd(WHERE_TO_SELL.faqs),
+  ];
+}
+
+// ── Best crosslisting apps listicle (US-1686) ───────────────────────
+const CROSSLIST_APPS_PUBLISHED = "2026-07-06";
+const CROSSLIST_APPS_MODIFIED = "2026-07-06";
+
+export function crosslistAppsBreadcrumbItems(): Array<{ name: string; url: string }> {
+  return [
+    { name: "GradeThread", url: `${SITE_URL}/` },
+    { name: "Reselling", url: `${SITE_URL}${RESELLING_PILLAR_PATH}` },
+    { name: "Best crosslisting apps", url: `${SITE_URL}${CROSSLIST_APPS_PATH}` },
+  ];
+}
+
+/** Listicle JSON-LD: Article + an ItemList of apps + the FAQ. */
+export function crosslistAppsJsonLd(): JsonLd[] {
+  const itemList: JsonLd = {
+    "@context": "https://schema.org",
+    "@type": "ItemList",
+    name: "Best crosslisting apps for resellers (2026)",
+    itemListElement: CROSSLIST_APPS.map((app, i) => ({
+      "@type": "ListItem",
+      position: i + 1,
+      name: app.name,
+    })),
+  };
+  return [
+    articleLd({
+      headline: CROSSLIST_APPS_PAGE.h1,
+      description:
+        "The best crosslisting apps for resellers in 2026 — List Perfectly, Vendoo, Crosslist, Flyp, and FlipDesk compared on marketplaces, pricing, and returns.",
+      url: absoluteUrl(CROSSLIST_APPS_PATH),
+      datePublished: CROSSLIST_APPS_PUBLISHED,
+      dateModified: CROSSLIST_APPS_MODIFIED,
+    }),
+    itemList,
+    faqPageLd(CROSSLIST_APPS_PAGE.faqs),
   ];
 }
 

@@ -106,6 +106,7 @@ const ReduceEbayReturnsPage = lazy(() => import("@/pages/marketing/reduce-ebay-r
 const PlatformStandardsHubPage = lazy(() => import("@/pages/marketing/platform-standards").then(m => ({ default: m.PlatformStandardsHubPage })));
 const PlatformStandardPage = lazy(() => import("@/pages/marketing/platform-standards").then(m => ({ default: m.PlatformStandardPage })));
 const WhereToSellPage = lazy(() => import("@/pages/marketing/where-to-sell").then(m => ({ default: m.WhereToSellPage })));
+const CrosslistingAppsPage = lazy(() => import("@/pages/marketing/crosslisting-apps").then(m => ({ default: m.CrosslistingAppsPage })));
 const FlawLibraryHubPage = lazy(() => import("@/pages/marketing/flaw-library").then(m => ({ default: m.FlawLibraryHubPage })));
 const FlawPage = lazy(() => import("@/pages/marketing/flaw-library").then(m => ({ default: m.FlawPage })));
 const GarmentGuidesHubPage = lazy(() => import("@/pages/marketing/garment-guides").then(m => ({ default: m.GarmentGuidesHubPage })));
@@ -369,6 +370,8 @@ export const router = createBrowserRouter([
       { path: "/reselling/comps/ebay-sold-comps", element: <SuspenseWrapper><OpportunistGuidePage path="/reselling/comps/ebay-sold-comps" /></SuspenseWrapper> },
       // US-1673: the returns spine (explicit path, before the dynamic slug route).
       { path: "/reselling/reduce-ebay-returns", element: <SuspenseWrapper><ReduceEbayReturnsPage /></SuspenseWrapper> },
+      // US-1686: best crosslisting apps listicle (explicit, before /reselling/:slug).
+      { path: "/reselling/best-crosslisting-apps", element: <SuspenseWrapper><CrosslistingAppsPage /></SuspenseWrapper> },
       // US-1693: consumer where-to-sell mega-guide.
       { path: "/where-to-sell-used-clothes", element: <SuspenseWrapper><WhereToSellPage /></SuspenseWrapper> },
       { path: "/reselling/:slug", element: <SuspenseWrapper><ResellingGuidePage /></SuspenseWrapper> },

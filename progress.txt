@@ -12064,3 +12064,22 @@ US-1693 DONE (web SEO) — Consumer where-to-sell mega-guide (single page)
   level static route, no dynamic conflict).
 - VERIFIED: tsc 0, eslint 0, vitest src/lib/seo (708) + src/prerender (43) green,
   build OK (prerender wrote 205 pages, page emitted). NO migration.
+
+────────────────────────────────────────────────────────────────────
+US-1686 DONE (web SEO) — Honest 'Best crosslisting apps 2026' listicle
+- New src/lib/seo/crosslisting-apps.ts: CROSSLIST_APPS (5 apps — List Perfectly,
+  Vendoo, Crosslist, Flyp, FlipDesk — each honest pros/cons; competitors' real
+  strengths acknowledged) + CROSSLIST_APPS_PAGE (definition, criteria, faqs).
+  Path /reselling/best-crosslisting-apps.
+- Page src/pages/marketing/crosslisting-apps.tsx: quotable definition, criteria,
+  at-a-glance table, per-app pros/cons cards (FlipDesk card highlighted), grading/
+  returns differentiator callout → /flipdesk + /grading/scale + returns spine, FAQ.
+- FlipDesk positioned honestly on the grading/returns differentiator (NOT claiming
+  to beat competitors on breadth). GEO consensus play.
+- JSON-LD: Article + ItemList(apps) + FAQPage; 3-level breadcrumb (reselling hub).
+  Wired public-routes(+lastmod), entry-server, head-builder handler (before
+  reselling-guide lookup), routes/index (explicit before /reselling/:slug).
+- AC "outreach to be included in 3rd-party listicles" = manual GEO/marketing, not
+  code; documented.
+- VERIFIED: tsc 0, eslint 0, vitest src/lib/seo (711) + src/prerender (43) green,
+  build OK (prerender wrote 206 pages, page emitted). NO migration.

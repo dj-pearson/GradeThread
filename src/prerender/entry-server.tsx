@@ -124,6 +124,8 @@ import {
 } from "@/pages/marketing/platform-standards";
 import { WHERE_TO_SELL_PATH } from "@/lib/seo/where-to-sell";
 import { WhereToSellPage } from "@/pages/marketing/where-to-sell";
+import { CROSSLIST_APPS_PATH } from "@/lib/seo/crosslisting-apps";
+import { CrosslistingAppsPage } from "@/pages/marketing/crosslisting-apps";
 
 // Static map of prerenderable routes → page element.
 const PAGES: Record<string, React.ReactNode> = {
@@ -256,6 +258,8 @@ const PAGES: Record<string, React.ReactNode> = {
   ),
   // Consumer where-to-sell mega-guide (US-1693).
   [WHERE_TO_SELL_PATH]: <WhereToSellPage />,
+  // Best crosslisting apps listicle (US-1686).
+  [CROSSLIST_APPS_PATH]: <CrosslistingAppsPage />,
 };
 
 export function renderRoute(path: string): string {

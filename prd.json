@@ -12288,7 +12288,7 @@
         "ItemList/FAQ schema where honest; build clean"
       ],
       "priority": 1686,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][SEO2.0][GEO][offpage] Plan §6.6 + §7.4. If only competitor listicles exist, FlipDesk is absent from every AI answer for B2."
     },
     {
