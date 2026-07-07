@@ -15,6 +15,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type Anthropic from "@anthropic-ai/sdk";
 import { getAnthropicClient, getDefaultModel } from "./ai-config.ts";
 import { aggregateKpis, campaignBreakdown, type RawMetric } from "./google-ads-overview.ts";
+import { mineSearchTermRecommendations } from "./ads-search-terms.ts";
 
 export const GOOGLE_ADS_PLATFORM = "google_ads";
 
@@ -29,6 +30,9 @@ export const CHANGE_TYPES = [
   "add_negative_keyword",
   "fix_rsa_gap",
   "reallocate_budget",
+  // US-1706: report-only opportunity (a converting query with no exact keyword);
+  // NOT in the executable allow-list — the operator adds it via Copy Studio.
+  "add_keyword",
 ] as const;
 export type ChangeType = (typeof CHANGE_TYPES)[number];
 
@@ -275,29 +279,32 @@ export async function analyzeAds(deps: AnalyzeDeps): Promise<AnalyzeResult> {
   const text = textBlock && textBlock.type === "text" ? textBlock.text : "";
   const recommendations = parseRecommendations(text);
 
+  const generatedAt = new Date().toISOString();
+  const claudeRows = recommendations.map((rec) => ({
+    platform: GOOGLE_ADS_PLATFORM,
+    owner_user_id: deps.ownerUserId ?? null,
+    target_type: rec.target_type,
+    target_resource: rec.target_resource,
+    target_name: rec.target_name,
+    change_type: rec.change_type,
+    rationale: rec.rationale,
+    confidence: rec.confidence,
+    projected_impact: rec.projected_impact,
+    payload: rec.payload,
+    severity: rec.severity,
+    status: "proposed",
+    generated_at: generatedAt,
+  }));
+  // US-1706: deterministic search-terms mining (negatives + opportunities).
+  const searchTermRows = await mineSearchTermRecommendations(supabase, deps.ownerUserId ?? null, generatedAt);
+  const rows = [...claudeRows, ...searchTermRows];
+
   // Replace open proposals (keep applied/dismissed history).
   await supabase.from("ads_recommendations").delete()
     .eq("platform", GOOGLE_ADS_PLATFORM).eq("status", "proposed");
-
-  if (recommendations.length > 0) {
-    const generatedAt = new Date().toISOString();
-    const rows = recommendations.map((rec) => ({
-      platform: GOOGLE_ADS_PLATFORM,
-      owner_user_id: deps.ownerUserId ?? null,
-      target_type: rec.target_type,
-      target_resource: rec.target_resource,
-      target_name: rec.target_name,
-      change_type: rec.change_type,
-      rationale: rec.rationale,
-      confidence: rec.confidence,
-      projected_impact: rec.projected_impact,
-      payload: rec.payload,
-      severity: rec.severity,
-      status: "proposed",
-      generated_at: generatedAt,
-    }));
+  if (rows.length > 0) {
     await supabase.from("ads_recommendations").insert(rows);
   }
 
-  return { generated: recommendations.length, recommendations };
+  return { generated: rows.length, recommendations };
 }

@@ -12639,7 +12639,7 @@
       ]
     },
     {
-      "passes": false,
+      "passes": true,
       "priority": 2582,
       "id": "US-1706",
       "title": "Search-terms mining — negative-keyword & new-keyword recommendations",

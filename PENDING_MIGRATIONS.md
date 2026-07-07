@@ -1,5 +1,27 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00386_ads_search_terms.sql (US-1706 search-terms mining, 2026-07-07)
+
+**What:** creates the operator table `ads_search_terms` (search_term,
+matched_keyword, match_type, campaign/ad_group external ids, impressions/clicks/
+cost/conversions, window) — the daily sync pulls the Google Ads search-terms
+report here, and the analysis mines it for negative-keyword + new-keyword
+recommendations. Deny-all RLS; registered in `rls-guard_test.ts`
+`SERVICE_ROLE_ONLY`. Bumps `EXPECTED_SCHEMA_VERSION` → **00386**. Self-records
+'00386'.
+
+**Risk: LOW — one NEW additive table + indexes + updated_at trigger, idempotent.**
+No changes to existing tables. Only the service-role sync writes it.
+
+**⚠️ CLIENT READ — none.** Mining runs server-side; recommendations surface via
+the existing super-admin route.
+
+**⚠️ `NOTIFY pgrst, 'reload schema';` REQUIRED** (new table).
+
+**⚠️ Apply order:** after 00385 (top of the held stack). Run
+`scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload schema';`, then
+redeploy the edge so its boot guard matches 00386.
+
 ## ⏳ HELD: 00385_ad_click_attributions_upload.sql (US-1704 offline import, 2026-07-07)
 
 **What:** adds `uploaded_at`, `upload_status`, `upload_error` columns (+ a partial

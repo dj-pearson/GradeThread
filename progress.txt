@@ -12471,3 +12471,23 @@ US-1705 DONE (edge+web; NO migration; HELD — builds on held ads commits).
   anomaly fire (AC-required).
 - VERIFIED: deno check 0/lint clean/17 tests; web tsc -b 0/eslint 0. No migration
   (thresholds in system_settings; anomaly via existing admin-notifications).
+
+────────────────────────────────────────────────────────────────────
+US-1706 DONE (edge; MIGRATION 00386 — HELD, do not push until applied).
+- Migration 00386_ads_search_terms.sql: operator table for the search-terms
+  report snapshot. deny-all RLS, rls-guard. EXPECTED_SCHEMA_VERSION→00386.
+- google-ads-sync.ts: searchTermsQuery (GAQL over search_term_view) + mapSearchTerm
+  + syncGoogleAds upserts ads_search_terms (AdsSyncCounts.searchTerms added).
+- ads-search-terms.ts (deterministic mining): mineSearchTerms (pure classify —
+  WASTE = zero-conv spend over thresholds → negative; OPPORTUNITY = converting
+  non-exact query → new keyword), buildSearchTermRecommendationRows (negatives =
+  add_negative_keyword [applyable via US-1703]; opportunities = add_keyword
+  [report-only]), getSearchTermThresholds (system_settings), 
+  mineSearchTermRecommendations (reads snapshot → rec rows).
+- ads-analysis.ts: CHANGE_TYPES gains report-only "add_keyword"; analyzeAds now
+  appends search-term recs to the Claude recs (both replace proposed together).
+- Test ads-search-terms_test.ts (5): waste/opportunity classification thresholds
+  + rec-row construction. No new UI (recs render in the existing list; negatives
+  applyable, add_keyword shows report-only).
+- VERIFIED: deno check 0/lint clean/34 tests pass. Migration packaged (00386) —
+  HELD (NOTIFY pgrst).

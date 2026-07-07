@@ -218,6 +218,63 @@ export function metricEntityId(row: GaqlRow, entity: AdsEntityType): string {
   }
 }
 
+// ── Search terms (US-1706) ─────────────────────────────────────────────
+export interface SearchTermRow {
+  platform: string;
+  owner_user_id: string | null;
+  search_term: string;
+  matched_keyword: string | null;
+  match_type: string | null;
+  campaign_external_id: string | null;
+  ad_group_external_id: string | null;
+  impressions: number;
+  clicks: number;
+  cost_micros: number;
+  conversions: number;
+  conversion_value: number;
+  window_start: string;
+  window_end: string;
+}
+
+export function searchTermsQuery(since: string, until: string): string {
+  return "SELECT search_term_view.search_term, segments.keyword.info.text, " +
+    "segments.keyword.info.match_type, campaign.id, ad_group.id, metrics.impressions, " +
+    "metrics.clicks, metrics.cost_micros, metrics.conversions, metrics.conversions_value " +
+    `FROM search_term_view WHERE segments.date BETWEEN '${since}' AND '${until}'`;
+}
+
+export function mapSearchTerm(
+  row: GaqlRow,
+  ownerUserId: string | null,
+  since: string,
+  until: string,
+): SearchTermRow | null {
+  const stv = (row.searchTermView ?? {}) as Record<string, unknown>;
+  const term = typeof stv.searchTerm === "string" ? stv.searchTerm.trim() : "";
+  if (!term) return null;
+  const seg = (row.segments ?? {}) as Record<string, unknown>;
+  const kw = ((seg.keyword ?? {}) as Record<string, unknown>).info as
+    | { text?: string; matchType?: string }
+    | undefined;
+  const m = (row.metrics ?? {}) as Record<string, unknown>;
+  return {
+    platform: GOOGLE_ADS_PLATFORM,
+    owner_user_id: ownerUserId,
+    search_term: term,
+    matched_keyword: str(kw?.text),
+    match_type: str(kw?.matchType),
+    campaign_external_id: String(((row.campaign ?? {}) as { id?: unknown }).id ?? "") || null,
+    ad_group_external_id: String(((row.adGroup ?? {}) as { id?: unknown }).id ?? "") || null,
+    impressions: num(m.impressions),
+    clicks: num(m.clicks),
+    cost_micros: num(m.costMicros),
+    conversions: num(m.conversions),
+    conversion_value: num(m.conversionsValue),
+    window_start: since,
+    window_end: until,
+  };
+}
+
 // ── Orchestration ──────────────────────────────────────────────────────
 export interface AdsSyncDeps {
   /** Runs a GAQL query and returns its result rows (inject runGaql bound to a token). */
@@ -235,6 +292,7 @@ export interface AdsSyncCounts {
   ads: number;
   keywords: number;
   metrics: number;
+  searchTerms: number;
 }
 
 async function upsertRows(
@@ -272,6 +330,7 @@ export async function syncGoogleAds(deps: AdsSyncDeps): Promise<AdsSyncCounts> {
     ads: await upsertRows(supabase, "ads_ads", ads, "platform,external_id"),
     keywords: await upsertRows(supabase, "ads_keywords", keywords, "platform,external_id"),
     metrics: 0,
+    searchTerms: 0,
   };
 
   // Daily metrics, per entity level.
@@ -291,6 +350,17 @@ export async function syncGoogleAds(deps: AdsSyncDeps): Promise<AdsSyncCounts> {
     "ads_metrics_daily",
     metricRows,
     "platform,entity_type,entity_id,metric_date",
+  );
+
+  // US-1706: search-terms report (queries that triggered our ads).
+  const searchTermRows = (await runQuery(searchTermsQuery(since, until)))
+    .map((r) => mapSearchTerm(r, owner, since, until))
+    .filter((r): r is SearchTermRow => r !== null);
+  counts.searchTerms = await upsertRows(
+    supabase,
+    "ads_search_terms",
+    searchTermRows,
+    "platform,ad_group_external_id,search_term",
   );
 
   return counts;

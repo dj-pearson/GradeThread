@@ -308,6 +308,10 @@ const SERVICE_ROLE_ONLY = new Set([
   // (service role), read by the Command Center via /api/admin/ads/*. owner_user_id
   // = the admin who acted (operator naming, not a tenant key). Deny-all by design.
   "ads_change_audit",
+  // US-1706: Google Ads search-terms report snapshot. Written by the sync
+  // (service role), mined for negative/new-keyword recommendations; read via
+  // /api/admin/ads/*. owner_user_id = who ran the sync (operator naming).
+  "ads_search_terms",
 ]);
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.
