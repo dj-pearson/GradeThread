@@ -12307,3 +12307,20 @@ Package.resolved missing or supabase-swift drifts). Commit 4ec11fe7.
 
 ════════════════════════════════════════════════════════════════════
 NOW: Google Ads epic US-1697→1709 (edge/web; skip 1696 wrapper + Android).
+
+────────────────────────────────────────────────────────────────────
+US-1697 DONE (edge; NO migration) — Google Ads API auth foundation.
+- NEW services/edge-functions/src/lib/google-ads-client.ts: OAuth2 refresh-token
+  grant → access token (mintGoogleAdsAccessToken), GAQL search w/ pagination
+  (runGaql) against GOOGLE_ADS_CUSTOMER_ID via login-customer-id (MCC) +
+  developer-token headers, googleAdsConfig()/isGoogleAdsConfigured() no-op when
+  any secret unset (never throws), checkAdsConnection() read-only probe
+  (descriptive_name/currency/time_zone) with classified actionable errors
+  (unauthorized/developer_token/rate_limited). fetch injectable for tests.
+- Reuses the existing GOOGLE_ADS_* secrets (already in ENVIRONMENT.md §2j from
+  US-1072); added them to services/edge-functions/.env.example + noted the Ads
+  Command Center use in §2j.
+- Test src/tests/google-ads-client_test.ts (9, mocked fetch): token-request
+  shaping, invalid_grant→re-auth, GAQL url/headers/body + pagination parse,
+  unapproved-token classification, config no-op.
+- VERIFIED: deno check 0, deno lint 0, deno test 9/9. Non-migration → pushes.

@@ -12431,7 +12431,7 @@
       "dependsOn": []
     },
     {
-      "passes": false,
+      "passes": true,
       "priority": 2591,
       "id": "US-1697",
       "title": "Google Ads API auth foundation — developer token + OAuth2 refresh + GAQL client",

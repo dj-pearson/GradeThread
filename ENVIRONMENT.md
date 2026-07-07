@@ -162,13 +162,16 @@ when that feature lands.
 | `CLOUDFLARE_ZONE_ID` | With `CLOUDFLARE_API_TOKEN` | The zone whose cache to purge | Cloudflare dashboard → your domain → Overview (Zone ID) |
 | `INDEXNOW_KEY` | ⬜ Optional (recommended) | Instant-indexing key for Bing/Yandex/Naver/Seznam (US-296). Submissions cleanly no-op when unset. The matching key file **must** be hosted at `https://gradethread.com/<INDEXNOW_KEY>.txt` — commit it as `public/<key>.txt` (already done for the current key). | Generate with `openssl rand -hex 16` |
 
-### 2j. Google Ads — keyword research ingestion (US-1072)
+### 2j. Google Ads — keyword research (US-1072) + Ads Command Center (US-1696+)
 
-Feeds the keyword library (search volume, competition, CPC) from the Google Ads
-API Keyword Plan idea service. Powers `/admin/keyword-research` and the
-`/api/jobs/keyword-research` cron. **All optional** — when unset, a refresh
-cleanly records a `skipped` run and ingests nothing (the rest of the app is
-unaffected). Uses the installed/web-app OAuth refresh-token flow.
+Two consumers share these secrets: (1) the keyword library (search volume,
+competition, CPC) from the Keyword Plan idea service — powers
+`/admin/keyword-research` + the `/api/jobs/keyword-research` cron; and (2) the
+Ads Command Center (US-1697+), which runs GAQL via `google-ads-client.ts`
+against `GOOGLE_ADS_CUSTOMER_ID` through the MCC (`GOOGLE_ADS_LOGIN_CUSTOMER_ID`).
+**All optional** — when unset, both features no-op cleanly (a keyword refresh
+records a `skipped` run; the Ads connection check returns `configured: false`)
+and never throw at boot. Uses the installed/web-app OAuth refresh-token flow.
 
 | Variable | Required | Purpose | Where to get it |
 |---|---|---|---|
