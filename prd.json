@@ -12301,7 +12301,7 @@
         "Indexable landing content around the tool; shareable result; build + eslint clean"
       ],
       "priority": 1687,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][SEO2.0][offpage][conversion] Plan §7.6. Free tools attract links/shares far better than articles; best-converting TOFU asset."
     },
     {

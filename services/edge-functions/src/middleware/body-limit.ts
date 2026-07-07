@@ -27,6 +27,7 @@ const UPLOAD_PREFIXES = [
   "/api/flipdesk/disclosure", // annotated-photo data URLs
   "/api/flipdesk/autolister", // bulk photo batches
   "/api/content/images", // generated/edited content images
+  "/api/grading/public/grade-check", // US-1687: anon grade-checker (one base64 image in JSON)
 ];
 
 function isUploadPath(path: string): boolean {

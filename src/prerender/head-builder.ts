@@ -80,6 +80,8 @@ import {
   crosslistAppsBreadcrumbItems,
   conditionChartJsonLd,
   conditionChartBreadcrumbItems,
+  gradeCheckerJsonLd,
+  gradeCheckerBreadcrumbItems,
   flawJsonLd,
   flawBreadcrumbItems,
   flawHubJsonLd,
@@ -112,6 +114,7 @@ import {
 import { isWhereToSellPath } from "@/lib/seo/where-to-sell";
 import { isCrosslistAppsPath } from "@/lib/seo/crosslisting-apps";
 import { isConditionChartPath } from "@/lib/seo/condition-chart";
+import { isGradeCheckerPath } from "@/lib/seo/grade-checker";
 import { getFlawByPath, isFlawHubPath } from "@/lib/seo/flaw-library";
 import { getGuideByPath, isGuideHubPath } from "@/lib/seo/garment-guides";
 import { twitterSiteHandle, twitterCreatorHandle } from "@/lib/seo/social";
@@ -257,6 +260,15 @@ export function jsonLdForRoute(path: string): JsonLd[] {
       organizationLd(),
       breadcrumbLd(opportunistGuideBreadcrumbItems(opportunist)),
       ...opportunistGuideJsonLd(opportunist),
+    ];
+  }
+  // Free grade-checker tool (US-1687): Organization + 3-level breadcrumb +
+  // WebApplication + FAQ.
+  if (isGradeCheckerPath(path)) {
+    return [
+      organizationLd(),
+      breadcrumbLd(gradeCheckerBreadcrumbItems()),
+      ...gradeCheckerJsonLd(),
     ];
   }
   // Where-to-sell mega-guide (US-1693): Organization + 2-level breadcrumb +

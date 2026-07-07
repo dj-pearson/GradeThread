@@ -128,6 +128,8 @@ import { CROSSLIST_APPS_PATH } from "@/lib/seo/crosslisting-apps";
 import { CrosslistingAppsPage } from "@/pages/marketing/crosslisting-apps";
 import { CONDITION_CHART_PATH } from "@/lib/seo/condition-chart";
 import { ConditionChartPage } from "@/pages/marketing/condition-chart";
+import { GRADE_CHECKER_PATH } from "@/lib/seo/grade-checker";
+import { GradeCheckerPage } from "@/pages/tools/grade-checker";
 
 // Static map of prerenderable routes → page element.
 const PAGES: Record<string, React.ReactNode> = {
@@ -264,6 +266,8 @@ const PAGES: Record<string, React.ReactNode> = {
   [CROSSLIST_APPS_PATH]: <CrosslistingAppsPage />,
   // Free printable condition chart (US-1678).
   [CONDITION_CHART_PATH]: <ConditionChartPage />,
+  // Free grade-checker tool (US-1687).
+  [GRADE_CHECKER_PATH]: <GradeCheckerPage />,
 };
 
 export function renderRoute(path: string): string {

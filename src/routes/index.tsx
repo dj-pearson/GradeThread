@@ -108,6 +108,7 @@ const PlatformStandardPage = lazy(() => import("@/pages/marketing/platform-stand
 const WhereToSellPage = lazy(() => import("@/pages/marketing/where-to-sell").then(m => ({ default: m.WhereToSellPage })));
 const CrosslistingAppsPage = lazy(() => import("@/pages/marketing/crosslisting-apps").then(m => ({ default: m.CrosslistingAppsPage })));
 const ConditionChartPage = lazy(() => import("@/pages/marketing/condition-chart").then(m => ({ default: m.ConditionChartPage })));
+const GradeCheckerPage = lazy(() => import("@/pages/tools/grade-checker").then(m => ({ default: m.GradeCheckerPage })));
 const FlawLibraryHubPage = lazy(() => import("@/pages/marketing/flaw-library").then(m => ({ default: m.FlawLibraryHubPage })));
 const FlawPage = lazy(() => import("@/pages/marketing/flaw-library").then(m => ({ default: m.FlawPage })));
 const GarmentGuidesHubPage = lazy(() => import("@/pages/marketing/garment-guides").then(m => ({ default: m.GarmentGuidesHubPage })));
@@ -428,6 +429,8 @@ export const router = createBrowserRouter([
       { path: "/grading/platform-standards/:platform", element: <SuspenseWrapper><PlatformStandardPage /></SuspenseWrapper> },
       // US-1678: free printable condition chart (static, before /grading/:slug).
       { path: "/grading/condition-chart", element: <SuspenseWrapper><ConditionChartPage /></SuspenseWrapper> },
+      // US-1687: free grade-checker tool.
+      { path: "/tools/grade-checker", element: <SuspenseWrapper><GradeCheckerPage /></SuspenseWrapper> },
       // Glossary hub spokes (US-303): one page per grade tier + factor, served
       // by a single dynamic route. The indexable set is registered in
       // PUBLIC_ROUTES (via glossaryRoutes()) and prerendered individually.

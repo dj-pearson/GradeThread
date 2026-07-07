@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { Context } from "hono";
 import {
   computePublicStats,
   computePublicTransparency,
@@ -10,6 +11,9 @@ import {
   computeResaleConditionReport,
   type ResaleConditionReport,
 } from "../lib/resale-condition.ts";
+import { quickGrade } from "../lib/quick-grade.ts";
+import { validateImageUpload, IMAGE_CONTENT_TYPE } from "../lib/upload-validation.ts";
+import { stripImageMetadata } from "../lib/image-metadata.ts";
 
 // Public, UNAUTHENTICATED grading-transparency surface (US-326).
 //
@@ -129,5 +133,121 @@ publicGradingRoutes.get("/condition-index/:slug", async (c) => {
     return c.json({ curve }, 200, { "Cache-Control": "public, max-age=600, s-maxage=3600" });
   } catch {
     return c.json({ error: "Failed to load curve" }, 500);
+  }
+});
+
+// ── Free grade-checker tool (US-1687) ────────────────────────────────
+// POST /grade-check — UNAUTHENTICATED single-photo ROUGH grade for the
+// /tools/grade-checker landing. Reuses the real grader via quickGrade (no
+// submission row, certificate, or billing) and hardens the upload
+// (validateImageUpload magic-byte sniff + stripImageMetadata, US-276). This is
+// a Vision-cost/abuse surface, so it is defended in depth: the body-limit caps
+// the request, a per-IP sliding window caps calls here, the shared ai-limiter's
+// global daily ceiling caps total Vision spend inside quickGrade, and no image
+// or result is ever persisted. The output is explicitly labeled an ESTIMATE.
+const GRADE_CHECK_PER_IP_PER_HOUR = 5;
+const GRADE_CHECK_WINDOW_MS = 60 * 60 * 1000;
+// Tighter than the 10 MB grading default — an anon endpoint takes smaller input.
+const GRADE_CHECK_MAX_BYTES = 8 * 1024 * 1024;
+// Per-instance sliding window. First-line defense; a durable cross-instance
+// counter (like ai-global-daily) is the follow-up if abuse warrants it.
+const gradeCheckHits = new Map<string, number[]>();
+
+function clientIpFor(c: Context): string {
+  const cf = c.req.header("cf-connecting-ip")?.trim();
+  if (cf) return cf;
+  const xff = c.req.header("x-forwarded-for");
+  const first = xff?.split(",")[0]?.trim();
+  return first || "unknown";
+}
+
+export function gradeCheckRateLimited(ip: string, now: number): boolean {
+  const recent = (gradeCheckHits.get(ip) ?? []).filter((t) => now - t < GRADE_CHECK_WINDOW_MS);
+  if (recent.length >= GRADE_CHECK_PER_IP_PER_HOUR) {
+    gradeCheckHits.set(ip, recent);
+    return true;
+  }
+  recent.push(now);
+  gradeCheckHits.set(ip, recent);
+  // Opportunistic cleanup so the map can't grow unbounded across many IPs.
+  if (gradeCheckHits.size > 5000) {
+    for (const [k, v] of gradeCheckHits) {
+      if (v.every((t) => now - t >= GRADE_CHECK_WINDOW_MS)) gradeCheckHits.delete(k);
+    }
+  }
+  return false;
+}
+
+function uint8ToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+// Exported for the edge test — pure decode + validate + strip of a data URL.
+export function prepareGradeCheckImage(
+  dataUri: unknown,
+): { ok: true; cleanDataUri: string } | { ok: false; status: 400; error: string } {
+  if (typeof dataUri !== "string" || !dataUri.startsWith("data:image/")) {
+    return { ok: false, status: 400, error: "Provide one photo as an image data URL." };
+  }
+  const comma = dataUri.indexOf(",");
+  const b64 = comma >= 0 ? dataUri.slice(comma + 1) : "";
+  let bytes: Uint8Array;
+  try {
+    bytes = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
+  } catch {
+    return { ok: false, status: 400, error: "That image data couldn't be read." };
+  }
+  const v = validateImageUpload(bytes, { maxBytes: GRADE_CHECK_MAX_BYTES, allow: ["jpeg", "png", "webp"] });
+  if (!v.ok) return { ok: false, status: 400, error: v.reason };
+  const { bytes: clean } = stripImageMetadata(bytes, v.format);
+  return { ok: true, cleanDataUri: `data:${IMAGE_CONTENT_TYPE[v.format]};base64,${uint8ToBase64(clean)}` };
+}
+
+export const GRADE_CHECK_DISCLAIMER =
+  "This is a rough estimate from a single photo, not a certified grade. A full " +
+  "GradeThread grade uses front, back, label, and detail photos scored across " +
+  "five weighted factors, with human review on low-confidence cases.";
+
+publicGradingRoutes.post("/grade-check", async (c) => {
+  try {
+    const ip = clientIpFor(c);
+    if (gradeCheckRateLimited(ip, Date.now())) {
+      return c.json(
+        { error: "You've reached the free grade-checker limit for now. Try again later." },
+        429,
+      );
+    }
+    const body = await c.req.json().catch(() => null);
+    const prepared = prepareGradeCheckImage((body as { image?: unknown } | null)?.image);
+    if (!prepared.ok) return c.json({ error: prepared.error }, prepared.status);
+
+    const result = await quickGrade({ images: [{ dataUri: prepared.cleanDataUri, type: "detail" }] });
+
+    return c.json(
+      {
+        estimate: true,
+        overallScore: result.overallScore,
+        gradeTier: result.gradeTier,
+        confidence: result.confidence,
+        factorScores: result.factorScores,
+        disclaimer: GRADE_CHECK_DISCLAIMER,
+      },
+      200,
+    );
+  } catch (err) {
+    // US-580: unauthenticated surface — never echo raw error detail.
+    console.error(
+      "public-grading /grade-check:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return c.json(
+      { error: "Couldn't grade that photo. Try a clearer, well-lit shot of the whole item." },
+      500,
+    );
   }
 });

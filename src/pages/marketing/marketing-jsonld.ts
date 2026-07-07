@@ -72,6 +72,7 @@ import {
   CROSSLIST_APPS_PATH,
 } from "@/lib/seo/crosslisting-apps";
 import { CONDITION_CHART_META, CONDITION_CHART_PATH } from "@/lib/seo/condition-chart";
+import { GRADE_CHECKER_META, GRADE_CHECKER_PATH } from "@/lib/seo/grade-checker";
 import { absoluteUrl } from "@/lib/seo/public-routes";
 import { LANDING_FAQS } from "@/pages/landing-faqs";
 import { SITE_URL } from "@/lib/seo/public-routes";
@@ -841,6 +842,32 @@ export function conditionChartJsonLd(): JsonLd[] {
       dateModified: CONDITION_CHART_MODIFIED,
     }),
   ];
+}
+
+// ── Free grade-checker tool (US-1687) ───────────────────────────────
+export function gradeCheckerBreadcrumbItems(): Array<{ name: string; url: string }> {
+  return [
+    { name: "GradeThread", url: `${SITE_URL}/` },
+    { name: "Tools", url: `${SITE_URL}/tools/grade-checker` },
+    { name: "Grade checker", url: `${SITE_URL}${GRADE_CHECKER_PATH}` },
+  ];
+}
+
+/** Tool JSON-LD: a free WebApplication + the FAQ. */
+export function gradeCheckerJsonLd(): JsonLd[] {
+  const app: JsonLd = {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    name: "Free Clothing Condition Grade Checker",
+    url: absoluteUrl(GRADE_CHECKER_PATH),
+    applicationCategory: "UtilitiesApplication",
+    operatingSystem: "Web",
+    description: GRADE_CHECKER_META.description,
+    offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+    isAccessibleForFree: true,
+    provider: { "@id": `${SITE_URL}/#organization` },
+  };
+  return [app, faqPageLd(GRADE_CHECKER_META.faqs)];
 }
 
 // ── /grading/methodology (US-1677, E-E-A-T) ─────────────────────────

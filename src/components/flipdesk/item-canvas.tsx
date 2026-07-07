@@ -257,6 +257,9 @@ type EditState = {
   garment_type: GarmentType | "";
   garment_category: GarmentCategory | "";
   sourced_by: string;
+  // US-676 parity: storage location / bin label (e.g. "Tote A3", "Rack 2").
+  // Column + items_full view expose it; iOS surfaces it — web had dropped it.
+  location_bin: string;
   status: ItemStatus;
   acquired_date: string;
   acquired_price: string;
@@ -286,6 +289,7 @@ function toState(item: ItemFullRow): EditState {
     garment_type: "",
     garment_category: "",
     sourced_by: item.sourced_by ?? "",
+    location_bin: item.location_bin ?? "",
     status: item.status,
     acquired_date: item.purchase_date?.slice(0, 10) ?? "",
     acquired_price:
@@ -786,6 +790,7 @@ export function ItemCanvas({
       garment_type: s.garment_type === "" ? null : s.garment_type,
       garment_category: s.garment_category === "" ? null : s.garment_category,
       sourced_by: trimOrNull(s.sourced_by),
+      location_bin: trimOrNull(s.location_bin),
       status: resolvedStatus,
       acquired_date: s.acquired_date || null,
       acquired_price: priceOrNull(s.acquired_price),
@@ -1525,6 +1530,11 @@ export function ItemCanvas({
               </SelectContent>
             </Select>
           </div>
+          <FieldText
+            label="Location / Bin"
+            value={state.location_bin}
+            onChange={(v) => patch("location_bin", v)}
+          />
           <FieldText
             label="Sourced By"
             value={state.sourced_by}

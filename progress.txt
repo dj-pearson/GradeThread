@@ -12157,3 +12157,33 @@ US-1607 FOUNDATION (edge; passes:false — epic, partial) — Agent eval harness
   NOT US-1607): agent-tools_test.ts US-1595 get_support_triage, US-1599
   set_marketing_frequency_cap, US-1600 enroll_cohort, US-1602 get_growth_health
   (4 behavioral assertion mismatches in concurrent-work read/clamp tools).
+
+────────────────────────────────────────────────────────────────────
+US-1687 DONE (web + edge) — Free Condition Grade Estimator tool
+- EDGE: POST /api/grading/public/grade-check (public-grading.ts, UNAUTHENTICATED).
+  Reuses the REAL grader via quickGrade (analyzeImage+compositeGrade — canonical
+  rounding, no lockstep 4th site; no submission/cert/billing). Upload hardened:
+  validateImageUpload (magic-byte sniff, jpeg/png/webp, 8MB anon cap) +
+  stripImageMetadata (US-276). Defense-in-depth: body-limit (registered path in
+  body-limit.ts UPLOAD_PREFIXES), per-IP sliding window (5/hr, in-memory), the
+  ai-limiter global daily ceiling inside quickGrade, and NO persistence. US-580
+  generic errors. Output labeled estimate:true + disclaimer.
+- WEB: /tools/grade-checker (src/pages/tools/grade-checker.tsx) — prerendered SEO
+  landing (crawlable) + client uploader (media-intake normalizeToImageFile
+  DYNAMIC-imported in the handler so prerender/Node stays safe; FileReader→dataURL
+  →plain fetch to edgeApiUrl()). Result card: overall score, tier, 5 factor bars,
+  disclaimer, upsell CTA (/how-it-works) + "check another". No signup.
+- JSON-LD: WebApplication (free, offers price 0) + FAQPage; 3-level breadcrumb.
+  Wired public-routes(+lastmod)/entry-server/head-builder(before where-to-sell)/
+  routes/index (/tools/* top-level, prerendered so Pages serves it directly).
+- DRIVE-BY (needed): body-limit UPLOAD_PREFIXES += grade-check path (base64 image
+  in JSON exceeds the 256KB JSON cap → 15MB upload cap).
+- TESTS: src/tests/grade-check_test.ts (6, deno): prepareGradeCheckImage accept/
+  reject (non-dataURL, bad base64, non-image magic bytes, SVG) + per-IP rate-limit
+  window. Tenant-safe: touches NO multi-tenant table → no tenant-isolation case.
+- "Shareable result" = the self-contained result card (screenshot-friendly); a
+  URL-addressable shared result would need persistence (a table/migration) — not
+  built (anon, no DB writes by design).
+- VERIFIED: web tsc 0, eslint 0, vitest src/lib/seo (723) + src/prerender (43)
+  green, build OK (208 pages, landing emitted); edge deno check + lint + test
+  (grade-check 6/6) green. NO migration.
