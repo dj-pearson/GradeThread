@@ -12964,7 +12964,7 @@
         "Verify against a golden set of Carhartt fixtures incl. cut-tag / partial-label photos: the two-phase resolver (US-1713) recovers brand+style+size at higher confidence than the pre-KB baseline, and no other brand regresses. Sources cited in the seed migration; deno test + web build green."
       ],
       "priority": 2509,
-      "passes": false,
+      "passes": true,
       "notes": "[BrandKB][Brand][Tier1] Carhartt WIP vs mainline is a common mis-ID and a value gap.",
       "dependsOn": [
         "US-1712",
@@ -12985,7 +12985,7 @@
         "Verify against a golden set of Patagonia fixtures incl. cut-tag / partial-label photos: the two-phase resolver (US-1713) recovers brand+style+size at higher confidence than the pre-KB baseline, and no other brand regresses. Sources cited in the seed migration; deno test + web build green."
       ],
       "priority": 2508,
-      "passes": false,
+      "passes": true,
       "notes": "[BrandKB][Brand][Tier1]",
       "dependsOn": [
         "US-1715",

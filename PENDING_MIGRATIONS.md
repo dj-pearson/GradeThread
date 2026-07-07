@@ -1,5 +1,36 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00395_patagonia_brand_knowledge.sql (US-1723 Patagonia, 2026-07-07)
+
+**What:** DATA-ONLY seed of Patagonia into the 00389 KB tables — 7 styles
+(Nano Puff/Down Sweater/Micro Puff puffer disambiguation by fill; Better Sweater/
+R1/Retro-X fleeces; Baggies), a 5-digit `style_number` decoder, 4 persistent
+colorways, and enriched `brand_knowledge` (insulation-type tell). Every fact
+source_url + confidence + verified. Bumps `EXPECTED_SCHEMA_VERSION` → **00395**.
+Self-records '00395'.
+
+**Risk: LOW — additive INSERTs only** (no DDL). Idempotent.
+
+**⚠️ CLIENT READ — none.** **⚠️ Apply order:** after 00394;
+`scripts/apply-prod-migrations.sh`, then redeploy (boot guard → 00395).
+
+## ⏳ HELD: 00394_carhartt_brand_knowledge.sql (US-1722 Carhartt, 2026-07-07)
+
+**What:** DATA-ONLY seed of Carhartt + Carhartt WIP into the 00389 KB tables — 6
+styles (Detroit vs Chore vs Active Jac silhouette fingerprints, Duck Bib, K87
+tee, B01 dungaree), a classic `style_number` decoder (letter+digits, `B01`/`J140`/
+`K87`), and enriched `brand_knowledge` (mainline-vs-WIP tell + Carhartt WIP as a
+distinct pricier line). Every fact source_url + confidence + verified. Bumps
+`EXPECTED_SCHEMA_VERSION` → **00394**. Self-records '00394'.
+
+**Risk: LOW — additive INSERTs only** (no DDL). Idempotent (brand_knowledge
+`ON CONFLICT DO UPDATE`, children `DO NOTHING`).
+
+**⚠️ CLIENT READ — none** (server-side extraction/baselines only).
+
+**⚠️ Apply order:** after 00393. Run `scripts/apply-prod-migrations.sh`, then
+redeploy the edge (boot guard → 00394).
+
 ## ⏳ HELD: 00393_levis_brand_knowledge.sql (US-1721 Levi's, 2026-07-07)
 
 **What:** DATA-ONLY seed of Levi's into the 00389 KB tables — 8 styles (fit
