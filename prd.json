@@ -11641,7 +11641,7 @@
       "title": "iOS core P2 · Compress share imports, clear per-account state on sign-out, fix signOut order & tmp paths",
       "description": "As an iOS seller, I want share-imported photos compressed, my drafts/searches/filters cleared on sign-out, the refresh token revoked, and queued uploads survive container relocation, so that uploads are fast, accounts don't bleed state, and offline uploads don't get orphaned.",
       "priority": 2262,
-      "passes": false,
+      "passes": true,
       "notes": "[P2 batch][Source: CODE_REVIEW_2026-07-04.md §iOS core] Grouped iOS core P2s. The share-extension full-res-in-memory sibling is P1 (jetsam) and is resolved by the same compression fix.",
       "acceptanceCriteria": [
         "Share-imported photos run PhotoCompressor-equivalent downscaling in the extension so they don't upload at full 3–10 MB resolution (also resolves the P1 full-res-in-memory jetsam) (ios/GradeThread/Share/ShareViewController.swift:133 → ShareInboxConsumer.swift:6-8)",

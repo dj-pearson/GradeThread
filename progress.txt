@@ -12263,3 +12263,15 @@ US-1621 DONE (iOS) — CI GREEN (run 28842506953). Persist upload queue + surviv
 - First push failed test-only (removed failure-path writes broke PhotoUploadTests);
   fixed by restoring failure writes + idempotent enqueuePendingMutation. Commits
   740e7603 + 1698e5a1.
+
+────────────────────────────────────────────────────────────────────
+US-1646 DONE (iOS) — CI GREEN (runs 28842925827 + 28843317326). 4 fixes:
+1) ShareExtension downscales imports (1600px/0.75, inlined PhotoCompressor-equiv).
+2) .signedOut sweep +IntakeDraftStore/PhotoDraftStore/RecentSearchStore/
+   SavedFilterStore (added SavedFilterStore.clear()).
+3) signOut() SDK-revoke (3s best-effort timeout) BEFORE keychain wipe (matches
+   deleteAccount order; US-1499 local-first preserved via timeout).
+4) Staged JPEGs → Application Support/PhotoUploadStaging (nonisolated
+   stagingDirectory()); mutation stores RELATIVE filename; SyncEngine replay
+   resolves vs staging dir (backward-compat for absolute); survives tmp-purge/
+   container relocation. Commits 89193def + 076120ac.
