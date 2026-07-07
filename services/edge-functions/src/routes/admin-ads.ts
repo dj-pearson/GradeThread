@@ -17,6 +17,13 @@ import {
 } from "../lib/keyword-research.ts";
 import { requireScope } from "../lib/scope-guard.ts";
 import { performGoogleAdsSync } from "../lib/google-ads-sync-job.ts";
+import { isGoogleAdsConfigured } from "../lib/google-ads-client.ts";
+import {
+  aggregateKpis,
+  campaignBreakdown,
+  dailyTimeseries,
+  type RawMetric,
+} from "../lib/google-ads-overview.ts";
 
 // US-1073: AI Ad Copy Studio (admin-only). Generates Google Ads RSA copy and
 // Apple Search Ads keyword/creative sets grounded in the keyword library + brand
@@ -337,6 +344,82 @@ adminAdsRoutes.get("/creatives/:id/export", async (c) => {
 // same job the daily Coolify cron runs (POST /api/jobs/ads-sync); pulls
 // structure + last-N-days metrics and upserts snapshots, recording a run row.
 // No-ops with a clear message when US-1697 is unconfigured.
+// GET /api/admin/ads/overview — super-admin Command Center data (US-1699). Reads
+// the local ads_* snapshots (never Google Ads directly) and returns account KPIs,
+// a spend-sorted campaign breakdown, and a daily time-series. Degrades to an
+// explicit empty/unconfigured state (never 500) when the tables don't exist yet
+// (pre-00381) or Google Ads isn't configured.
+adminAdsRoutes.get("/overview", async (c) => {
+  if (c.get("adminRole") !== "super_admin") {
+    return c.json({ error: "Super-admin required." }, 403);
+  }
+  const daysRaw = Number(c.req.query("days") ?? "30");
+  const days = Number.isFinite(daysRaw) && daysRaw >= 1 && daysRaw <= 365 ? Math.floor(daysRaw) : 30;
+  const since = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
+  const configured = isGoogleAdsConfigured();
+
+  const empty = {
+    configured,
+    tablesReady: false,
+    account: null,
+    lastSync: null,
+    kpis: aggregateKpis([]),
+    campaigns: [],
+    timeseries: [],
+    windowDays: days,
+  };
+
+  try {
+    const [metricsRes, campaignsRes, accountRes, lastRunRes] = await Promise.all([
+      supabaseAdmin
+        .from("ads_metrics_daily")
+        .select("entity_id, metric_date, impressions, clicks, cost_micros, conversions, conversion_value")
+        .eq("platform", "google_ads")
+        .eq("entity_type", "campaign")
+        .gte("metric_date", since),
+      supabaseAdmin
+        .from("ads_campaigns")
+        .select("external_id, name, status")
+        .eq("platform", "google_ads"),
+      supabaseAdmin
+        .from("ads_accounts")
+        .select("external_customer_id, descriptive_name, currency_code, time_zone")
+        .eq("platform", "google_ads")
+        .maybeSingle(),
+      supabaseAdmin
+        .from("ads_sync_runs")
+        .select("status, started_at, finished_at, counts, error")
+        .eq("platform", "google_ads")
+        .order("started_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
+
+    // A missing table (pre-migration) reads as an error — degrade, don't 500.
+    if (metricsRes.error || campaignsRes.error) {
+      return c.json(empty);
+    }
+
+    const metrics = (metricsRes.data ?? []) as RawMetric[];
+    const campaigns = (campaignsRes.data ?? []) as Array<
+      { external_id: string; name: string | null; status: string | null }
+    >;
+
+    return c.json({
+      configured,
+      tablesReady: true,
+      account: accountRes.data ?? null,
+      lastSync: lastRunRes.data ?? null,
+      kpis: aggregateKpis(metrics),
+      campaigns: campaignBreakdown(metrics, campaigns),
+      timeseries: dailyTimeseries(metrics),
+      windowDays: days,
+    });
+  } catch (_err) {
+    return c.json(empty);
+  }
+});
+
 adminAdsRoutes.post("/google/sync", async (c) => {
   // Super-admin only: touches platform-level ad-spend config, not per-user data.
   if (c.get("adminRole") !== "super_admin") {

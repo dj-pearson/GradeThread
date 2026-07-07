@@ -12479,7 +12479,7 @@
       ]
     },
     {
-      "passes": false,
+      "passes": true,
       "priority": 2589,
       "id": "US-1699",
       "title": "Admin Ads Command Center tab — performance dashboard from synced data",

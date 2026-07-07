@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -29,6 +29,11 @@ import { Separator } from "@/components/ui/separator";
 import { SEO } from "@/components/seo";
 import { cn } from "@/lib/utils";
 import { edgeFetch } from "@/lib/edge-fetch";
+
+// US-1699: lazy so recharts + the dashboard load only when the tab is opened.
+const AdsCommandCenter = lazy(() =>
+  import("./ads-command-center").then((m) => ({ default: m.AdsCommandCenter }))
+);
 
 // US-1073: AI Ad Copy Studio. Generates Google Ads RSA headlines/descriptions
 // and Apple Search Ads keyword/creative sets grounded in the keyword library +
@@ -140,6 +145,8 @@ async function downloadExport(id: string, format: "csv" | "ads_editor") {
 
 export function AdminAdsPage() {
   const qc = useQueryClient();
+  // US-1699: top-level view — Command Center (performance) vs Copy Studio.
+  const [view, setView] = useState<"command" | "copy">("command");
   const [platform, setPlatform] = useState<AdPlatform>("google_ads");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [instruction, setInstruction] = useState("");
@@ -263,20 +270,36 @@ export function AdminAdsPage() {
 
   return (
     <div className="space-y-6">
-      <SEO title="Ad Copy Studio — Admin" noindex />
+      <SEO title="Ads — Admin" noindex />
 
       <div className="flex items-center gap-3">
         <div className="rounded-lg bg-primary/10 p-2">
           <Megaphone className="h-6 w-6 text-primary" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold">Ad Copy Studio</h1>
+          <h1 className="text-2xl font-bold">Ads</h1>
           <p className="text-sm text-muted-foreground">
-            AI-drafted Google Ads &amp; Apple Search Ads copy, grounded in the keyword library and brand voice.
+            Google Ads &amp; Apple Search Ads performance and AI-drafted copy.
           </p>
         </div>
       </div>
 
+      {/* US-1699: top-level tabs — Command Center (performance) vs Copy Studio. */}
+      <Tabs value={view} onValueChange={(v) => setView(v as "command" | "copy")}>
+        <TabsList>
+          <TabsTrigger value="command">Command Center</TabsTrigger>
+          <TabsTrigger value="copy">Copy Studio</TabsTrigger>
+        </TabsList>
+      </Tabs>
+
+      {view === "command" ? (
+        <Suspense
+          fallback={<p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>}
+        >
+          <AdsCommandCenter />
+        </Suspense>
+      ) : (
+      <>
       <Tabs value={platform} onValueChange={(v) => { setPlatform(v as AdPlatform); setResult(null); }}>
         <TabsList>
           <TabsTrigger value="google_ads">Google Ads (RSA)</TabsTrigger>
@@ -558,6 +581,8 @@ export function AdminAdsPage() {
           )}
         </CardContent>
       </Card>
+      </>
+      )}
     </div>
   );
 }

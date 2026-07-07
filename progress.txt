@@ -12347,3 +12347,19 @@ US-1698 DONE (edge; MIGRATION — HELD, do not push until user applies).
   passes in LF (repo) terms — the local CRLF working-copy makes only the
   docs-verbatim assertion fail (autocrlf; passes in CI). Migration packaged in
   PENDING_MIGRATIONS.md (00381) — HELD for user apply (NOTIFY pgrst required).
+
+────────────────────────────────────────────────────────────────────
+US-1699 DONE (edge+web; HELD — ships with the 00381 ads edge deploy, NOT pushed).
+- Edge GET /api/admin/ads/overview (super-admin): reads ads_metrics_daily
+  (entity_type=campaign)+ads_campaigns+ads_accounts+ads_sync_runs, aggregates via
+  lib/google-ads-overview.ts (aggregateKpis/campaignBreakdown/dailyTimeseries —
+  micros→$, CTR/CPC/CPA/ROAS). Degrades to explicit empty state (never 500) when
+  tables missing (pre-00381) or unconfigured.
+- Web: src/pages/admin/ads-command-center.tsx (lazy-loaded from ads.tsx so
+  recharts stays out of the base bundle) — KPI cards, theme-aware recharts trend
+  (spend/clicks/conversions/CPA switch), sortable-by-spend campaign table, "Sync
+  now" → US-1698 route + last-sync/counts, explicit unconfigured/empty states.
+  admin/ads.tsx gains top-level Command Center | Copy Studio tabs; SEO noindex.
+- Test google-ads-overview_test.ts (5, KPI math + timeseries + breakdown).
+- VERIFIED: deno check(main) 0, deno lint clean, 23 ads edge tests pass; web
+  tsc -b 0, eslint 0. HELD (depends on 00381 tables + the same held edge deploy).
