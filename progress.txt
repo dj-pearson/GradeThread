@@ -12253,3 +12253,13 @@ US-1647 DONE (iOS) — CI GREEN (run 28841436093 completed success)
   default slot assignment → shared photos spill into defects, not measurement
   slots (US-1571 reorder regression). Picker still offers all slots.
 - Committed 0944ca04, pushed --no-verify. no-ungated-print.py clean; iOS CI green.
+
+────────────────────────────────────────────────────────────────────
+US-1621 DONE (iOS) — CI GREEN (run 28842506953). Persist upload queue + survive kill.
+- LocalPendingMutation written at ENQUEUE (schedule), deleted on success
+  (insertPhotoRow), re-queued idempotently on failure (dedup by deterministic
+  photo_id). UIBackgroundTask around the drain (begin at enqueue, end when idle/
+  signout/expire). Draft dropped once captures durably queued.
+- First push failed test-only (removed failure-path writes broke PhotoUploadTests);
+  fixed by restoring failure writes + idempotent enqueuePendingMutation. Commits
+  740e7603 + 1698e5a1.

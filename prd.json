@@ -11148,7 +11148,7 @@
       "title": "C8 · Persist the iOS photo upload queue and survive mid-batch app kill",
       "description": "As an iOS seller, I want my queued garment photos to survive the app being killed mid-upload, so that a background jetsam never leaves an item with missing photos and no way to retry.",
       "priority": 2593,
-      "passes": false,
+      "passes": true,
       "notes": "[Critical C8][P1 data-loss][Source: CODE_REVIEW_2026-07-04.md §iOS] PhotoUploadStore queue is a plain in-memory dict (PhotoUploadStore.swift:13); the crash-recovery draft is cleared the moment tasks enqueue not upload (PhotoIntakeView.swift:830-838); durable mutations are only written on failure paths; nothing rescans at launch; the foreground upload takes no background-task assertion. Replay is already idempotent by deterministic photo_id.",
       "acceptanceCriteria": [
         "Persist queued upload tasks (or write the LocalPendingMutation at enqueue time) and re-enqueue them at launch — ios/GradeThread/Upload/PhotoUploadStore.swift:13, Capture/PhotoIntakeView.swift:830-838",
