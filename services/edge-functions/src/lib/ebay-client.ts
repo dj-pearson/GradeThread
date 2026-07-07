@@ -2017,6 +2017,51 @@ export interface InventoryItemPayload {
   };
 }
 
+// eBay hard-rejects any item-specific (aspect) VALUE longer than 65 characters
+// at PUBLISH time (errorId 25002: "…value of '…' is too long. Enter a value of
+// no more than 65 characters."). The inventory_item PUT itself accepts the long
+// value, so the failure only surfaces on publish — by which point the offer has
+// already been created, leaving a stuck unpublished offer that makes every retry
+// fail "offer already exists". A single free-text aspect (e.g. a full "Garment
+// Care" instruction) permanently blocks the listing. Cap every value here, at
+// the one chokepoint both publish and revise share, so an over-long value can
+// never reach eBay.
+export const EBAY_ASPECT_VALUE_MAX_LEN = 65;
+
+// Cap a single aspect value to eBay's 65-char limit, preferring a word boundary
+// so we don't truncate mid-word into garbage. Falls back to a hard 65-char cut
+// only when the first 65 chars contain no break. Strips a trailing separator
+// left by the cut (", " / "- " etc.).
+function capAspectValue(value: string): string {
+  const v = value.trim();
+  if (v.length <= EBAY_ASPECT_VALUE_MAX_LEN) return v;
+  const head = v.slice(0, EBAY_ASPECT_VALUE_MAX_LEN);
+  const lastSpace = head.lastIndexOf(" ");
+  // Only prefer the word boundary when it keeps a reasonable amount of text;
+  // otherwise (a very long single token) hard-cut at the limit.
+  const cut = lastSpace > EBAY_ASPECT_VALUE_MAX_LEN / 2 ? head.slice(0, lastSpace) : head;
+  return cut.replace(/[\s,;/|-]+$/, "").trim();
+}
+
+// Sanitize an aspect map for the eBay Inventory API: cap each value to 65 chars,
+// drop values that end up empty, and drop keys left with no values. Pure +
+// exported for unit tests. Returns undefined when nothing survives so callers
+// can omit `aspects` entirely.
+export function capAspectValuesForEbay(
+  aspects: Record<string, string[]> | undefined,
+): Record<string, string[]> | undefined {
+  if (!aspects) return undefined;
+  const out: Record<string, string[]> = {};
+  for (const [name, values] of Object.entries(aspects)) {
+    if (!Array.isArray(values)) continue;
+    const capped = values
+      .map((val) => capAspectValue(String(val ?? "")))
+      .filter((val) => val.length > 0);
+    if (capped.length > 0) out[name] = capped;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 export async function createOrReplaceInventoryItem(
   userId: string,
   sku: string,
@@ -2025,11 +2070,21 @@ export async function createOrReplaceInventoryItem(
   // (null → primary), or a multi-store seller's re-PUT lands on the wrong account.
   connectionId?: string,
 ): Promise<void> {
+  // Enforce eBay's 65-char aspect-value limit at this shared chokepoint so an
+  // over-long item specific can never survive to the publish call and strand an
+  // unpublished offer. Mutating a shallow copy keeps the caller's map untouched.
+  const safePayload: InventoryItemPayload = {
+    ...payload,
+    product: {
+      ...payload.product,
+      aspects: capAspectValuesForEbay(payload.product.aspects),
+    },
+  };
   // PUT is idempotent; safe to re-run on retries.
   await fetchAuthed<unknown>(
     userId,
     `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`,
-    { method: "PUT", body: JSON.stringify(payload) },
+    { method: "PUT", body: JSON.stringify(safePayload) },
     connectionId,
   );
 }
