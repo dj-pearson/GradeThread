@@ -12187,3 +12187,10 @@ US-1687 DONE (web + edge) — Free Condition Grade Estimator tool
 - VERIFIED: web tsc 0, eslint 0, vitest src/lib/seo (723) + src/prerender (43)
   green, build OK (208 pages, landing emitted); edge deno check + lint + test
   (grade-check 6/6) green. NO migration.
+
+NOTE (hygiene): US-1687's commit 512fc5de also swept in a CONCURRENT Ralph
+agent's +10-line change to src/components/flipdesk/item-canvas.tsx (adds
+location_bin field, US-676 parity) via `git add -A`. It compiles (tsc/build
+passed with it present) and is local-only (unpushed) — left as-is to avoid
+racing the concurrent agent. GOING FORWARD this session: stage explicit paths
+(git add <files>), not `git add -A`, since a concurrent agent edits this tree live.
