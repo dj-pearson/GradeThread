@@ -871,6 +871,22 @@ public final class PhotoUploadService {
             try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
             return url
         } catch {
+            // US-1649: a staged-write failure — most often a FULL DISK — used to
+            // be swallowed, so the photo silently vanished from the batch with no
+            // signal. Surface it as telemetry + a breadcrumb so it's observable
+            // and alertable instead of a silent data loss.
+            let nsError = error as NSError
+            let diskFull = nsError.domain == NSCocoaErrorDomain
+                && nsError.code == NSFileWriteOutOfSpaceError
+            Telemetry.event("photo_stage_write_failed", props: [
+                "disk_full": diskFull,
+                "error": nsError.localizedDescription,
+                "bytes": data.count,
+            ])
+            Telemetry.backgroundBreadcrumb(
+                diskFull ? "Staged photo write failed: disk full" : "Staged photo write failed",
+                category: "upload"
+            )
             return nil
         }
     }

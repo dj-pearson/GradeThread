@@ -31,15 +31,16 @@ public final class ReconciliationService {
     /// Reconcile affordance (US-749) so the badge can surface on any tab without
     /// loading the full orphan list. Mirrors `fetchOrphans`'s filter.
     public func countOrphans(userId: String) async throws -> Int {
-        struct Row: Decodable { let id: String }
-        let rows: [Row] = try await supabase
+        // US-1649: HEAD + exact count — the server returns just the count, not
+        // every unmatched row (the old .select("id") downloaded the whole set
+        // only to take rows.count, which scaled badly with orphan volume).
+        let response = try await supabase
             .from("flipdesk_ebay_listings")
-            .select("id")
+            .select("id", head: true, count: .exact)
             .eq("user_id", value: userId)
             .eq("match_status", value: "unmatched")
             .execute()
-            .value
-        return rows.count
+        return response.count ?? 0
     }
 
     /// Fetches every unmatched eBay listing for the user, newest first.
