@@ -95,6 +95,31 @@ interface Recommendation {
   projected_impact: Record<string, number> | null;
   severity: string | null;
   status: string;
+  payload: Record<string, unknown> | null;
+  snooze_until: string | null;
+  dismiss_reason: string | null;
+}
+
+// US-1702: a human-readable "current → proposed" preview from the rec payload.
+function describeChange(r: Recommendation): string {
+  const p = r.payload ?? {};
+  const money = (v: unknown) => {
+    const micros = Number((p as Record<string, unknown>)[v as string]);
+    return Number.isFinite(micros) ? `$${(micros / 1_000_000).toFixed(2)}` : String((p as Record<string, unknown>)[v as string] ?? "");
+  };
+  switch (r.change_type) {
+    case "pause_campaign": return "Pause campaign";
+    case "pause_ad_group": return "Pause ad group";
+    case "pause_keyword": return "Pause keyword";
+    case "adjust_budget":
+    case "reallocate_budget": return `Budget → ${p.amount != null ? `$${p.amount}` : money("amountMicros")}`;
+    case "adjust_bid": return `Bid → ${p.bidAmount != null ? `$${p.bidAmount}` : money("cpcBidMicros")}`;
+    case "adjust_tcpa": return `Target CPA → ${money("targetCpaMicros")}`;
+    case "add_negative_keyword": return `Add negative keyword: “${String(p.text ?? "")}”`;
+    case "add_keyword": return `Add keyword: “${String(p.text ?? "")}”`;
+    case "fix_rsa_gap": return "Fix responsive-search-ad gaps";
+    default: return r.change_type.replace(/_/g, " ");
+  }
 }
 
 // Mirrors the edge EXECUTABLE_CHANGE_TYPES allow-list (google-ads-mutate.ts):
@@ -190,27 +215,34 @@ export function AdsCommandCenter() {
   });
 
   const recAction = useMutation({
-    mutationFn: async (v: { id: string; action: "approve" | "apply" | "revert"; dryRun?: boolean }) => {
+    mutationFn: async (
+      v: { id: string; action: "approve" | "apply" | "revert" | "dismiss" | "snooze"; dryRun?: boolean; reason?: string; until?: string },
+    ) => {
       const base = `/api/admin/ads/recommendations/${v.id}`;
-      const path = v.action === "approve" ? `${base}/approve` : v.action === "revert" ? `${base}/revert` : `${base}/apply`;
+      const path = `${base}/${v.action}`;
+      const bodyObj =
+        v.action === "apply" ? { dryRun: v.dryRun ?? true }
+          : v.action === "dismiss" ? { reason: v.reason }
+          : v.action === "snooze" ? { until: v.until }
+          : undefined;
       const res = await edgeFetch(path, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: v.action === "apply" ? JSON.stringify({ dryRun: v.dryRun ?? true }) : undefined,
+        body: bodyObj ? JSON.stringify(bodyObj) : undefined,
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body?.message ?? body?.error ?? "Action failed.");
       return { action: v.action, dryRun: v.dryRun };
     },
     onSuccess: (r) => {
+      const msg: Record<string, string> = {
+        approve: "Approved.",
+        revert: "Rolled back.",
+        dismiss: "Dismissed.",
+        snooze: "Snoozed.",
+      };
       toast.success(
-        r.action === "approve"
-          ? "Approved."
-          : r.action === "revert"
-          ? "Rolled back."
-          : r.dryRun
-          ? "Dry-run passed — safe to apply."
-          : "Applied to Google Ads.",
+        r.action === "apply" ? (r.dryRun ? "Dry-run passed — safe to apply." : "Applied to the ad platform.") : (msg[r.action] ?? "Done."),
       );
       void qc.invalidateQueries({ queryKey: ["ads-recommendations"] });
     },
@@ -489,7 +521,7 @@ export function AdsCommandCenter() {
                     >
                       {r.severity ?? "medium"}
                     </Badge>
-                    <span className="text-sm font-medium">{r.change_type.replace(/_/g, " ")}</span>
+                    <span className="text-sm font-medium">{describeChange(r)}</span>
                     <span className="text-xs text-muted-foreground">
                       · {r.target_type}
                       {r.target_name ? ` · ${r.target_name}` : ""}
@@ -510,13 +542,41 @@ export function AdsCommandCenter() {
                   ) : null}
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     <Badge variant="secondary" className="text-[10px] uppercase">{r.status}</Badge>
-                    {!EXECUTABLE_CHANGE_TYPES.has(r.change_type) ? (
-                      <span className="text-xs text-muted-foreground">Report-only — apply manually.</span>
+                    {r.status === "snoozed" ? (
+                      <>
+                        <span className="text-xs text-muted-foreground">
+                          Snoozed{r.snooze_until ? ` until ${new Date(r.snooze_until).toLocaleDateString()}` : ""}
+                        </span>
+                        <Button size="sm" variant="outline" disabled={recAction.isPending}
+                          onClick={() => recAction.mutate({ id: r.id, action: "approve" })}>
+                          Un-snooze / Approve
+                        </Button>
+                      </>
                     ) : r.status === "proposed" ? (
-                      <Button size="sm" variant="outline" disabled={recAction.isPending}
-                        onClick={() => recAction.mutate({ id: r.id, action: "approve" })}>
-                        Approve
-                      </Button>
+                      <>
+                        {EXECUTABLE_CHANGE_TYPES.has(r.change_type) ? (
+                          <Button size="sm" variant="outline" disabled={recAction.isPending}
+                            onClick={() => recAction.mutate({ id: r.id, action: "approve" })}>
+                            Approve
+                          </Button>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">Report-only</span>
+                        )}
+                        <Button size="sm" variant="ghost" disabled={recAction.isPending}
+                          onClick={() => recAction.mutate({ id: r.id, action: "dismiss" })}>
+                          Dismiss
+                        </Button>
+                        <Button size="sm" variant="ghost" disabled={recAction.isPending}
+                          onClick={() => recAction.mutate({
+                            id: r.id,
+                            action: "snooze",
+                            until: new Date(Date.now() + 7 * 86_400_000).toISOString(),
+                          })}>
+                          Snooze 7d
+                        </Button>
+                      </>
+                    ) : !EXECUTABLE_CHANGE_TYPES.has(r.change_type) ? (
+                      <span className="text-xs text-muted-foreground">Report-only — apply manually.</span>
                     ) : r.status === "approved" ? (
                       <>
                         <Button size="sm" variant="outline" disabled={recAction.isPending}

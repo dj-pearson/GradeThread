@@ -12410,7 +12410,7 @@
       "notes": "[P3][SEO2.0][offpage] Plan §7.5/§7.7 + §3 + §7 IGNORE list. Entity confirmation, zero/low cost. | DONE 2026-07-06: Organization.sameAs config hook extended w/ VITE_SOCIAL_WIKIDATA (+ YouTube from US-1677) so the Wikidata item flows into site-wide Organization JSON-LD once claimed (config-gated, no placeholder). Off-page runbook docs/OFF_PAGE_AUTHORITY.md: directory/integration listings (Shopify App Store, eBay-compatible, Product Hunt, G2/Capterra, Crunchbase/LinkedIn/X/YouTube), the Wikidata-after-3-4-citations gate, earned-link channels (cert mesh already shipped, data-PR, podcast circuit, roundup inclusion), and the explicit AVOID list (paid links/PBNs, mass guest posts, premature Wikipedia). Directory claims + Wikidata creation are operator tasks documented."
     },
     {
-      "passes": false,
+      "passes": true,
       "priority": 2592,
       "id": "US-1696",
       "title": "EPIC · Ads Command Center — Google Ads (core) + Apple Search Ads (bonus): pull → Claude analysis → approve → apply",
@@ -12548,7 +12548,7 @@
       ]
     },
     {
-      "passes": false,
+      "passes": true,
       "priority": 2586,
       "id": "US-1702",
       "title": "Recommendation review & audit workflow — approve / dismiss / snooze with diff preview",

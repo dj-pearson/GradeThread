@@ -1,5 +1,26 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00387_ads_recommendation_decisions.sql (US-1702 review workflow, 2026-07-07)
+
+**What:** adds `snooze_until timestamptz` + `dismiss_reason text` (+ an index) to
+the existing `ads_recommendations` table for the approve/dismiss/snooze review
+workflow. The decision itself is recorded as an `action='decision'` row in the
+existing `ads_change_audit` (no new table). Bumps `EXPECTED_SCHEMA_VERSION` →
+**00387**. Self-records '00387'.
+
+**Risk: LOW — two additive nullable columns + one index on an existing operator
+table, idempotent** (`ADD COLUMN IF NOT EXISTS`). No table creation.
+
+**⚠️ CLIENT READ — the Command Center reads `snooze_until` / `dismiss_reason`
+through the super-admin `/recommendations` route** (degrades: the columns are
+nullable, so pre-migration reads just return null). No hard break.
+
+**⚠️ `NOTIFY pgrst, 'reload schema';` REQUIRED** (new columns).
+
+**⚠️ Apply order:** after 00386 (top of the held stack). Run
+`scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload schema';`, then
+redeploy the edge so its boot guard matches 00387.
+
 ## ⏳ HELD: 00386_ads_search_terms.sql (US-1706 search-terms mining, 2026-07-07)
 
 **What:** creates the operator table `ads_search_terms` (search_term,

@@ -18,7 +18,8 @@ import {
 import { requireScope } from "../lib/scope-guard.ts";
 import { performGoogleAdsSync } from "../lib/google-ads-sync-job.ts";
 import { analyzeAds } from "../lib/ads-analysis.ts";
-import { applyRecommendation, approveRecommendation, revertChange } from "../lib/google-ads-apply-job.ts";
+import { applyRecommendation, revertChange } from "../lib/google-ads-apply-job.ts";
+import { recordDecision } from "../lib/ads-decisions.ts";
 import { uploadOfflineConversions } from "../lib/google-ads-conversions-upload.ts";
 import { performAppleSearchAdsSync } from "../lib/apple-search-ads-sync-job.ts";
 import { isGoogleAdsConfigured } from "../lib/google-ads-client.ts";
@@ -456,7 +457,7 @@ adminAdsRoutes.get("/recommendations", async (c) => {
       .from("ads_recommendations")
       .select("*")
       .eq("platform", platform)
-      .in("status", ["proposed", "approved", "applied"])
+      .in("status", ["proposed", "approved", "applied", "snoozed"])
       .order("severity", { ascending: true })
       .order("generated_at", { ascending: false })
       .limit(200);
@@ -493,11 +494,27 @@ adminAdsRoutes.post("/conversions/upload", async (c) => {
   }
 });
 
-// US-1703: approve a proposed recommendation (approval-gates the apply).
+// US-1702: review decisions — approve / dismiss / snooze (each audited).
 adminAdsRoutes.post("/recommendations/:id/approve", async (c) => {
   if (c.get("adminRole") !== "super_admin") return c.json({ error: "Super-admin required." }, 403);
-  const ok = await approveRecommendation(c.req.param("id"));
-  return c.json({ ok });
+  const r = await recordDecision(supabaseAdmin, { recId: c.req.param("id"), decision: "approve", actorUserId: c.get("userId") ?? null });
+  return c.json({ ok: r.ok, status: r.status, message: r.message }, r.httpStatus as 200 | 400 | 404 | 409 | 500);
+});
+
+adminAdsRoutes.post("/recommendations/:id/dismiss", async (c) => {
+  if (c.get("adminRole") !== "super_admin") return c.json({ error: "Super-admin required." }, 403);
+  const body = (await c.req.json().catch(() => ({}))) as { reason?: unknown };
+  const reason = typeof body.reason === "string" ? body.reason.slice(0, 500) : null;
+  const r = await recordDecision(supabaseAdmin, { recId: c.req.param("id"), decision: "dismiss", actorUserId: c.get("userId") ?? null, reason });
+  return c.json({ ok: r.ok, status: r.status, message: r.message }, r.httpStatus as 200 | 400 | 404 | 409 | 500);
+});
+
+adminAdsRoutes.post("/recommendations/:id/snooze", async (c) => {
+  if (c.get("adminRole") !== "super_admin") return c.json({ error: "Super-admin required." }, 403);
+  const body = (await c.req.json().catch(() => ({}))) as { until?: unknown };
+  const until = typeof body.until === "string" && !Number.isNaN(Date.parse(body.until)) ? body.until : null;
+  const r = await recordDecision(supabaseAdmin, { recId: c.req.param("id"), decision: "snooze", actorUserId: c.get("userId") ?? null, until });
+  return c.json({ ok: r.ok, status: r.status, message: r.message }, r.httpStatus as 200 | 400 | 404 | 409 | 500);
 });
 
 // US-1703: guarded apply (dry-run by default). Body { dryRun?: boolean }.

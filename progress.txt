@@ -12547,3 +12547,23 @@ US-1709 DONE (edge+docs; NO migration; HELD). ★★★ ADS EPIC COMPLETE (13/13
 - VERIFIED: deno check 0/lint clean; full ads suite 51 tests pass; no web change.
 - FLAG: concurrent agent added 000385_feedback_messages.sql (6-digit "385") — a
   numbering collision with my 00385; outside this epic, left for user to reconcile.
+
+────────────────────────────────────────────────────────────────────
+US-1702 DONE (edge+web; MIGRATION 00387 — HELD). The story I had missed.
+- Migration 00387: ADD snooze_until + dismiss_reason to ads_recommendations
+  (+ index). EXPECTED_SCHEMA_VERSION→00387. No new table (decisions reuse
+  ads_change_audit action='decision').
+- ads-decisions.ts: canDecide (state machine — proposed/approved actionable;
+  applied/dismissed terminal; snoozed asleep until snooze_until passes),
+  nextStatus, isApplyable (only 'approved'), recordDecision (validates transition,
+  updates status + snooze_until/dismiss_reason, writes decision audit w/ actor +
+  payload snapshot).
+- Routes: /recommendations/:id/{approve,dismiss,snooze} (super-admin); approve
+  rerouted through recordDecision (now audited); /recommendations shows snoozed.
+- UI: describeChange() diff preview (current→proposed from payload); Approve/
+  Dismiss/Snooze-7d buttons on proposed; snoozed shows "until" + un-snooze.
+- Test ads-decisions_test.ts (5): transitions, snooze-needs-until, dismissed/
+  snoozed never applyable, decision audit written.
+- VERIFIED: deno check 0/lint clean/18 tests; web tsc -b 0/eslint 0.
+★★★ ADS EPIC TRULY COMPLETE: US-1696 wrapper + 1697-1709 + 1702 = 14 stories. ★★★
+  7 held migrations now: 00381-00387. US-1697 pushed; rest held local.
