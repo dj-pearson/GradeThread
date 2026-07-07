@@ -1,5 +1,29 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00397_ralph_lauren_brand_knowledge.sql (US-1725 Ralph Lauren, 2026-07-07)
+
+**What:** DATA-ONLY seed of Ralph Lauren — 6 sub-lines as styles (Purple Label /
+RRL / Polo Ralph Lauren / Polo Sport / Lauren / Chaps) with value-tier
+fingerprints, and enriched `brand_knowledge` (sub-brand hierarchy + pony + RN
+tells). NO decoder — RL has no reliable regular code; the value tier is read from
+the label wording. source_url + confidence + verified on every row. Bumps
+`EXPECTED_SCHEMA_VERSION` → **00397**. Self-records '00397'.
+
+**Risk: LOW — additive INSERTs only.** Idempotent. **⚠️ CLIENT READ — none.**
+**⚠️ Apply order:** after 00396; `scripts/apply-prod-migrations.sh`, redeploy.
+
+## ⏳ HELD: 00396_the_north_face_brand_knowledge.sql (US-1724 TNF, 2026-07-07)
+
+**What:** DATA-ONLY seed of The North Face — 7 styles (Nuptse down vs ThermoBall
+synthetic vs Denali fleece; Osito, Apex, McMurdo, Summit Series), an `NF0A…`
+`style_number` decoder, and enriched `brand_knowledge` (down-vs-synthetic +
+Summit-Series-vs-mainline tells). source_url + confidence + verified on every
+row. Bumps `EXPECTED_SCHEMA_VERSION` → **00396**. Self-records '00396'.
+
+**Risk: LOW — additive INSERTs only.** Idempotent. **⚠️ CLIENT READ — none.**
+**⚠️ Apply order:** after 00395; `scripts/apply-prod-migrations.sh`, redeploy
+(boot guard → 00396).
+
 ## ⏳ HELD: 00395_patagonia_brand_knowledge.sql (US-1723 Patagonia, 2026-07-07)
 
 **What:** DATA-ONLY seed of Patagonia into the 00389 KB tables — 7 styles
