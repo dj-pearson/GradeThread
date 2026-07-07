@@ -1,5 +1,26 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00384_ads_change_audit.sql (US-1703 guarded apply, 2026-07-07)
+
+**What:** creates the operator table `ads_change_audit` (recommendation_id,
+change_type, target_resource, before_value, after_value, dry_run, success,
+action, result, owner_user_id) — every guarded apply/rollback of an approved
+recommendation writes a row with the pre-mutate value for rollback. Deny-all
+RLS; registered in `rls-guard_test.ts` `SERVICE_ROLE_ONLY`. Bumps
+`EXPECTED_SCHEMA_VERSION` → **00384**. Self-records '00384'.
+
+**Risk: LOW — one NEW additive table + indexes, idempotent.** No changes to
+existing tables. Only the service-role apply flow writes it.
+
+**⚠️ CLIENT READ — none directly** (Command Center reads via the super-admin edge
+route). The apply/revert routes fail CLOSED when Google Ads is unconfigured.
+
+**⚠️ `NOTIFY pgrst, 'reload schema';` REQUIRED** (new table).
+
+**⚠️ Apply order:** after 00383 (top of the held stack). Run
+`scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload schema';`, then
+redeploy the edge so its boot guard matches 00384.
+
 ## ⏳ HELD: 00383_ads_recommendations.sql (US-1701 Claude analysis, 2026-07-07)
 
 **What:** creates the operator table `ads_recommendations` (target_type,

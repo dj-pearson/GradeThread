@@ -304,6 +304,10 @@ const SERVICE_ROLE_ONLY = new Set([
   // analysis pass (service role), read by the Command Center via /api/admin/ads/*.
   // owner_user_id = who triggered the run (operator naming, not a tenant key).
   "ads_recommendations",
+  // US-1703: guarded-apply audit + rollback ledger. Written by the apply flow
+  // (service role), read by the Command Center via /api/admin/ads/*. owner_user_id
+  // = the admin who acted (operator naming, not a tenant key). Deny-all by design.
+  "ads_change_audit",
 ]);
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.

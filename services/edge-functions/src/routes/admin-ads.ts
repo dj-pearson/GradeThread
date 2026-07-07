@@ -18,6 +18,7 @@ import {
 import { requireScope } from "../lib/scope-guard.ts";
 import { performGoogleAdsSync } from "../lib/google-ads-sync-job.ts";
 import { analyzeAds } from "../lib/ads-analysis.ts";
+import { applyRecommendation, approveRecommendation, revertChange } from "../lib/google-ads-apply-job.ts";
 import { isGoogleAdsConfigured } from "../lib/google-ads-client.ts";
 import {
   aggregateKpis,
@@ -432,7 +433,7 @@ adminAdsRoutes.get("/recommendations", async (c) => {
       .from("ads_recommendations")
       .select("*")
       .eq("platform", "google_ads")
-      .eq("status", "proposed")
+      .in("status", ["proposed", "approved", "applied"])
       .order("severity", { ascending: true })
       .order("generated_at", { ascending: false })
       .limit(200);
@@ -455,6 +456,47 @@ adminAdsRoutes.post("/analyze", async (c) => {
   } catch (err) {
     return failSafe(c, 502, "Ads analysis failed.", err, "admin.ads.analyze");
   }
+});
+
+// US-1703: approve a proposed recommendation (approval-gates the apply).
+adminAdsRoutes.post("/recommendations/:id/approve", async (c) => {
+  if (c.get("adminRole") !== "super_admin") return c.json({ error: "Super-admin required." }, 403);
+  const ok = await approveRecommendation(c.req.param("id"));
+  return c.json({ ok });
+});
+
+// US-1703: guarded apply (dry-run by default). Body { dryRun?: boolean }.
+adminAdsRoutes.post("/recommendations/:id/apply", async (c) => {
+  if (c.get("adminRole") !== "super_admin") return c.json({ error: "Super-admin required." }, 403);
+  const body = (await c.req.json().catch(() => ({}))) as { dryRun?: unknown };
+  const dryRun = body.dryRun !== false; // default true — dry-run unless explicitly false
+  const result = await applyRecommendation({
+    recId: c.req.param("id"),
+    dryRun,
+    ownerUserId: c.get("userId") ?? null,
+  });
+  const { httpStatus, ...payload } = result;
+  return c.json(payload, httpStatus as 200 | 400 | 404 | 409 | 422 | 500 | 502);
+});
+
+// US-1703: one-click rollback of a recommendation's latest applied change.
+adminAdsRoutes.post("/recommendations/:id/revert", async (c) => {
+  if (c.get("adminRole") !== "super_admin") return c.json({ error: "Super-admin required." }, 403);
+  const { data } = await supabaseAdmin
+    .from("ads_change_audit")
+    .select("id")
+    .eq("platform", "google_ads")
+    .eq("recommendation_id", c.req.param("id"))
+    .eq("action", "apply")
+    .eq("dry_run", false)
+    .eq("success", true)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!data) return c.json({ ok: false, error: "No applied change to roll back." }, 404);
+  const result = await revertChange({ auditId: (data as { id: string }).id, ownerUserId: c.get("userId") ?? null });
+  const { httpStatus, ...payload } = result;
+  return c.json(payload, httpStatus as 200 | 400 | 404 | 409 | 422 | 500 | 502);
 });
 
 adminAdsRoutes.post("/google/sync", async (c) => {

@@ -12403,3 +12403,28 @@ US-1701 DONE (edge+web; MIGRATION 00383 — HELD, do not push until applied).
 - Tests ads-analysis_test.ts (8, deno; mocked model + fake supabase).
 - VERIFIED: deno check 0/lint clean/20 edge tests; web tsc -b 0/eslint 0.
   Migration packaged in PENDING_MIGRATIONS.md (00383) — HELD (NOTIFY pgrst).
+
+────────────────────────────────────────────────────────────────────
+US-1703 DONE (edge+web; MIGRATION 00384 — HELD, do not push until applied).
+- Migration 00384_ads_change_audit.sql: operator audit/rollback ledger
+  (before/after value, dry_run, success, action apply|rollback). deny-all RLS,
+  rls-guard. EXPECTED_SCHEMA_VERSION→00384.
+- google-ads-mutate.ts: EXECUTABLE_CHANGE_TYPES allow-list (subset of analysis
+  enum; fix_rsa_gap excluded), buildMutateOperation (per-type googleAds:mutate op
+  + beforeQuery for rollback; rejects bad payload), googleAdsMutate (validateOnly
+  = dry-run), applyMutation (DRY-RUN FIRST then real; captures before/after;
+  rejects non-listed type). fetch injectable.
+- google-ads-apply-job.ts: approveRecommendation (proposed→approved),
+  applyRecommendation (loads+re-validates status server-side, fail-CLOSED if
+  unconfigured, idempotent on applied, audits every attempt, sets applied),
+  buildRevertPayload/idsFromResource (reconstruct before-value payload),
+  revertChange (re-applies before-value via guarded path, audits rollback).
+- Routes (super-admin): POST /recommendations/:id/{approve,apply,revert};
+  GET /recommendations widened to proposed|approved|applied.
+- Web: per-rec lifecycle buttons (Approve→Dry-run/Apply→Roll back; report-only
+  types disabled) in Command Center.
+- Tests google-ads-mutate_test.ts (7, deno): allow-list rejection, dry-run-before-
+  apply ordering, op building, revert-payload construction (mocked client).
+- VERIFIED: deno check 0/lint clean/19 edge tests; web tsc -b 0/eslint 0.
+  Migration packaged (00384) — HELD (NOTIFY pgrst). NOTE: Google Ads mutate JSON
+  shapes are per-v18-docs best-effort; need a live smoke test (no creds here).

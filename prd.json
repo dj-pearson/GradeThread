@@ -12571,7 +12571,7 @@
       ]
     },
     {
-      "passes": false,
+      "passes": true,
       "priority": 2585,
       "id": "US-1703",
       "title": "Guarded apply to Google Ads — mutate allow-list, dry-run, audit + rollback value",

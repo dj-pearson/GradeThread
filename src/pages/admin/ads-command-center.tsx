@@ -85,7 +85,21 @@ interface Recommendation {
   confidence: number | null;
   projected_impact: Record<string, number> | null;
   severity: string | null;
+  status: string;
 }
+
+// Mirrors the edge EXECUTABLE_CHANGE_TYPES allow-list (google-ads-mutate.ts):
+// only these can be applied to Google Ads; the rest are report-only.
+const EXECUTABLE_CHANGE_TYPES = new Set([
+  "pause_campaign",
+  "pause_ad_group",
+  "pause_keyword",
+  "adjust_budget",
+  "reallocate_budget",
+  "adjust_bid",
+  "adjust_tcpa",
+  "add_negative_keyword",
+]);
 
 type MetricKey = "spend" | "clicks" | "conversions" | "cpa";
 const METRICS: { key: MetricKey; label: string; money?: boolean }[] = [
@@ -159,6 +173,34 @@ export function AdsCommandCenter() {
     },
     onSuccess: (b) => {
       toast.success(`Analysis complete — ${b.generated ?? 0} recommendation(s).`);
+      void qc.invalidateQueries({ queryKey: ["ads-recommendations"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const recAction = useMutation({
+    mutationFn: async (v: { id: string; action: "approve" | "apply" | "revert"; dryRun?: boolean }) => {
+      const base = `/api/admin/ads/recommendations/${v.id}`;
+      const path = v.action === "approve" ? `${base}/approve` : v.action === "revert" ? `${base}/revert` : `${base}/apply`;
+      const res = await edgeFetch(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: v.action === "apply" ? JSON.stringify({ dryRun: v.dryRun ?? true }) : undefined,
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body?.message ?? body?.error ?? "Action failed.");
+      return { action: v.action, dryRun: v.dryRun };
+    },
+    onSuccess: (r) => {
+      toast.success(
+        r.action === "approve"
+          ? "Approved."
+          : r.action === "revert"
+          ? "Rolled back."
+          : r.dryRun
+          ? "Dry-run passed — safe to apply."
+          : "Applied to Google Ads.",
+      );
       void qc.invalidateQueries({ queryKey: ["ads-recommendations"] });
     },
     onError: (e: Error) => toast.error(e.message),
@@ -404,6 +446,33 @@ export function AdsCommandCenter() {
                         .join(" · ")}
                     </p>
                   ) : null}
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <Badge variant="secondary" className="text-[10px] uppercase">{r.status}</Badge>
+                    {!EXECUTABLE_CHANGE_TYPES.has(r.change_type) ? (
+                      <span className="text-xs text-muted-foreground">Report-only — apply manually.</span>
+                    ) : r.status === "proposed" ? (
+                      <Button size="sm" variant="outline" disabled={recAction.isPending}
+                        onClick={() => recAction.mutate({ id: r.id, action: "approve" })}>
+                        Approve
+                      </Button>
+                    ) : r.status === "approved" ? (
+                      <>
+                        <Button size="sm" variant="outline" disabled={recAction.isPending}
+                          onClick={() => recAction.mutate({ id: r.id, action: "apply", dryRun: true })}>
+                          Dry-run
+                        </Button>
+                        <Button size="sm" disabled={recAction.isPending}
+                          onClick={() => recAction.mutate({ id: r.id, action: "apply", dryRun: false })}>
+                          Apply
+                        </Button>
+                      </>
+                    ) : r.status === "applied" ? (
+                      <Button size="sm" variant="outline" disabled={recAction.isPending}
+                        onClick={() => recAction.mutate({ id: r.id, action: "revert" })}>
+                        Roll back
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
               ))
           )}
