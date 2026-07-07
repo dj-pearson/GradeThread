@@ -86,9 +86,7 @@ async function buildAssertion(email: string, pemKey: string): Promise<string> {
   );
   const signingInput = `${header}.${claim}`;
 
-  // The PEM private key may be wrapped in \n escapes from the env var; expand.
-  const pem = pemKey.replace(/\\n/g, "\n");
-  const key = await importPkcs8Key(pem);
+  const key = await importPkcs8Key(pemKey);
   const signature = await crypto.subtle.sign(
     { name: "RSASSA-PKCS1-v1_5" },
     key,
@@ -97,11 +95,23 @@ async function buildAssertion(email: string, pemKey: string): Promise<string> {
   return `${signingInput}.${base64UrlEncode(new Uint8Array(signature))}`;
 }
 
-async function importPkcs8Key(pem: string): Promise<CryptoKey> {
-  const cleaned = pem
-    .replace(/-----BEGIN PRIVATE KEY-----/, "")
-    .replace(/-----END PRIVATE KEY-----/, "")
-    .replace(/\s+/g, "");
+async function importPkcs8Key(pemKey: string): Promise<CryptoKey> {
+  // Coolify env vars are single-line, so the PEM arrives with escaped newlines.
+  // Collapse \n / \\n / \r escapes to real newlines, drop the PEM labels (any
+  // variant), and strip quotes + whitespace — leaving ONLY the base64 body. This
+  // is robust to double-escaped newlines (a stray backslash) and wrapping quotes,
+  // the two things that make atob throw "Failed to decode base64".
+  const cleaned = pemKey
+    .replace(/\\+[rn]/g, "\n")
+    .replace(/-----BEGIN [^-]+-----/g, "")
+    .replace(/-----END [^-]+-----/g, "")
+    .replace(/["'\s]/g, "");
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(cleaned)) {
+    const bad = [...new Set(cleaned.replace(/[A-Za-z0-9+/=]/g, ""))];
+    throw new Error(
+      `GSC_SERVICE_ACCOUNT_PRIVATE_KEY is not valid base64 after cleaning (offending chars: ${JSON.stringify(bad)}) — check for double-escaped \\n or a hidden character in the env value.`,
+    );
+  }
   const der = Uint8Array.from(atob(cleaned), (c) => c.charCodeAt(0));
   return await crypto.subtle.importKey(
     "pkcs8",
