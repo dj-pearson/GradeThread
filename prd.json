@@ -12275,7 +12275,7 @@
         "Prune tail pages under 10 impressions/mo at month 4 (no index bloat); build clean"
       ],
       "priority": 1685,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][SEO2.0][SEO][pSEO] Plan §1 B1 + §5 P6 + §8 kill criteria + §9 IGNORE (depop-vs-poshmark not early)."
     },
     {

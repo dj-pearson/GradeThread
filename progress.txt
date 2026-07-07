@@ -12033,3 +12033,20 @@ US-1672 DONE (web SEO) — Platform condition-standard pages
   /grading/:slug).
 - VERIFIED: tsc 0, eslint 0, vitest src/lib/seo (660) + src/prerender (43) green,
   build OK (prerender wrote 189 pages, all 10 platform pages emitted). NO migration.
+
+────────────────────────────────────────────────────────────────────
+US-1685 DONE (web SEO) — Remaining comparison pages (flagships + templated tail)
+- Extended src/lib/seo/comparison-guides.ts with PLATFORM_FACTS (7 platforms:
+  ebay/poshmark/mercari/depop/grailed/vinted/whatnot — editorially curated fee
+  model/audience/fit/shipping/payout/returns/bestFor) + templatedComparison(a,b,
+  overrides) builder. Every page keeps the unique returns/condition wedge row.
+- 15 new pages: hand-written flagships poshmark-vs-mercari + depop-vs-poshmark
+  (editorial intro/verdict overrides) + 13 templated pairs. mercari-vs-ebay stays
+  the literal flagship. Total /compare pages = 16.
+- Titles ${A} vs ${B} for Resellers (2026) (≤46), desc template (≤160), "Verified
+  July 2026" stamp + verify-current-rates note (quarterly re-verify per AC).
+- Auto-registered via comparisonRoutes()/entry-server map/head-builder handler
+  (all iterate COMPARISONS) — only added 15 lastmod entries. No new wiring needed.
+- AC "prune tail <10 impressions/mo at month 4" = operational review, documented.
+- VERIFIED: tsc 0, eslint 0, vitest src/lib/seo (705) + src/prerender (43) green,
+  build OK (prerender wrote 204 pages, all 16 compare pages emitted). NO migration.
