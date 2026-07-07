@@ -7,6 +7,8 @@ import { router } from "@/routes";
 import { queryClient } from "@/lib/query-client";
 import { initAnalyticsFromStoredConsent } from "@/lib/analytics";
 import { initSentry } from "@/lib/sentry";
+import { captureClickIds } from "@/lib/ad-attribution";
+import { initAdAttributionSync } from "@/lib/ad-attribution-sync";
 import "@/index.css";
 
 // Stale-chunk guard. After a deploy, an already-open tab (or a stale PWA
@@ -33,6 +35,13 @@ initSentry();
 // who already opted in get analytics restored here; first-time visitors see the
 // cookie banner (rendered in RootLayout) and stay un-tracked until they accept.
 initAnalyticsFromStoredConsent();
+
+// US-1700: capture Google click ids (gclid/gbraid/wbraid) from the landing URL
+// into first-party storage, and persist them to the converting user once signed
+// in. Click ids aren't PII and this runs independent of the analytics consent
+// gate (first-party attribution, no third-party advertising signals set here).
+captureClickIds();
+initAdAttributionSync();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

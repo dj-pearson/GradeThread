@@ -150,6 +150,7 @@ import { handleContentWatchdogCron } from "./routes/jobs-content-watchdog.ts";
 import { handleContentRefreshCron } from "./routes/jobs-content-refresh.ts";
 import { handleKeywordResearchCron } from "./routes/jobs-keyword-research.ts";
 import { handleAdsSyncCron } from "./routes/jobs-ads-sync.ts";
+import { handleRecordAttribution } from "./routes/ads-attribution.ts";
 import { handleBillingReconciliationCron } from "./routes/jobs-billing-reconciliation.ts";
 import { handleAiBudgetCron } from "./routes/jobs-ai-budget.ts";
 import { handleMarketplaceEventsCron } from "./routes/jobs-marketplace-events.ts";
@@ -320,6 +321,9 @@ app.use("/api/legal/*", authMiddleware);
 app.use("/api/announcements/*", authMiddleware);
 // US-629 referral program — caller manages only their own code/attribution.
 app.use("/api/referrals/*", authMiddleware);
+// US-1700: persist a captured ad click id against the signed-in user (authed).
+app.use("/api/ads/attribution", authMiddleware);
+app.post("/api/ads/attribution", (c) => handleRecordAttribution(c));
 // US-603: affiliate earned-link channel. /me is per-user (authed); /click is
 // PUBLIC (anonymous badge clicks), so authMiddleware is scoped to /me only.
 app.use("/api/affiliate/me", authMiddleware);

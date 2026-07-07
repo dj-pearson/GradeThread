@@ -295,6 +295,11 @@ const SERVICE_ROLE_ONLY = new Set([
   "ads_keywords",
   "ads_metrics_daily",
   "ads_sync_runs",
+  // US-1700: ad click-id → conversion attributions. Written by the attribution
+  // route + offline import (service role), read only by operator analysis; the
+  // SPA never reads it. Keyed by click_id + owner_user_id (the converted user,
+  // operator naming — not a tenant key). Deny-all by design.
+  "ad_click_attributions",
 ]);
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.

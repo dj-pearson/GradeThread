@@ -1,5 +1,31 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00382_ad_click_attributions.sql (US-1700 conversion wiring, 2026-07-07)
+
+**What:** creates the operator table `ad_click_attributions` (click_id,
+click_id_type, platform, landing_at, owner_user_id nullable, converted_at,
+conversion_type, value) — links captured Google click ids (gclid/gbraid/wbraid)
+to the converting user + downstream conversion value, for the ads analysis
+(US-1701) + offline import (US-1704). Deny-all RLS; registered in
+`rls-guard_test.ts` `SERVICE_ROLE_ONLY`. Bumps `EXPECTED_SCHEMA_VERSION` →
+**00382**. Self-records '00382'.
+
+**Risk: LOW — one NEW additive table + indexes + updated_at trigger, fully
+idempotent.** No changes to existing tables. Only the service-role edge writes
+(the /api/ads/attribution route + the future offline import).
+
+**⚠️ CLIENT READ — none.** The SPA never reads this table. The client only
+CAPTURES click ids into first-party storage and POSTs them to
+`/api/ads/attribution` (authed); that route no-ops safely if the table is absent
+(the write just errors and returns 400 — no user-facing breakage). The
+Command-Center/analysis reads are operator-only.
+
+**⚠️ `NOTIFY pgrst, 'reload schema';` REQUIRED** (new table).
+
+**⚠️ Apply order:** after 00381 (top of the held stack). Run
+`scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload schema';`, then
+redeploy the edge so its boot guard matches 00382.
+
 ## ⏳ HELD: 00381_ads_data_model.sql (US-1698 Ads Command Center, 2026-07-07)
 
 **What:** creates SEVEN operator tables for the Ads Command Center —

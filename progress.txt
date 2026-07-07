@@ -12363,3 +12363,23 @@ US-1699 DONE (edge+web; HELD — ships with the 00381 ads edge deploy, NOT pushe
 - Test google-ads-overview_test.ts (5, KPI math + timeseries + breakdown).
 - VERIFIED: deno check(main) 0, deno lint clean, 23 ads edge tests pass; web
   tsc -b 0, eslint 0. HELD (depends on 00381 tables + the same held edge deploy).
+
+────────────────────────────────────────────────────────────────────
+US-1700 DONE (edge+web; MIGRATION 00382 — HELD, do not push until applied).
+- Migration 00382_ad_click_attributions.sql: operator table (click_id/type,
+  platform, landing_at, owner_user_id nullable [operator naming, not user_id],
+  converted_at, conversion_type, value), deny-all RLS, unique(click_id) for
+  upsert, indexes. rls-guard SERVICE_ROLE_ONLY registered. EXPECTED_SCHEMA_VERSION
+  →00382.
+- Edge lib ads-conversions.ts: DEFAULT_CONVERSION_DEFINITIONS (account_created/
+  subscription_started/grade_purchased/flipdesk_activated) via system_settings
+  key ads_conversion_definitions (tunable, getSetting fallback); mapEventToConversion,
+  normalizeClickId, platformForClickIdType, recordAttribution (upsert on click_id).
+- Edge route POST /api/ads/attribution (authed): owner_user_id = caller's own id
+  (no body-id targeting → no cross-tenant risk). Mounted in main.ts.
+- Web src/lib/ad-attribution.ts: captureClickIds (gclid/gbraid/wbraid → localStorage,
+  no PII) + normalizeClickId + getStored/markPersisted; ad-attribution-sync.ts
+  POSTs on auth (auth-store subscribe). Wired in main.tsx (capture + init sync).
+- Tests: ads-conversions_test.ts (6, deno) + ad-attribution.test.ts (7, vitest).
+- VERIFIED: deno check 0/lint clean/tests pass; web tsc -b 0/eslint 0/vitest 7/7.
+  Migration packaged in PENDING_MIGRATIONS.md (00382) — HELD (NOTIFY pgrst).
