@@ -12099,7 +12099,7 @@
         "Indexable routes; editorial-assisted (not fully autonomous); build clean"
       ],
       "priority": 1672,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][SEO2.0][GEO][pSEO] Plan §1 A1 note + §5 P3 + §2. These become the pages LLMs cite for 'what does good condition mean on Depop'."
     },
     {

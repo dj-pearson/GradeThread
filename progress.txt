@@ -12013,3 +12013,23 @@ US-1674 DONE (web SEO) — Internal-linking rule-set for the auto-interlinker
   interlinker surfaces draw from; per-surface pickAnchor wiring is incremental.
 - VERIFIED: tsc 0, eslint 0, vitest src/lib/seo (630) green. No routes/pages
   changed → no build/prerender. NO migration.
+
+────────────────────────────────────────────────────────────────────
+US-1672 DONE (web SEO) — Platform condition-standard pages
+- New src/lib/seo/platform-standards.ts: PlatformStandard type + 9 platforms
+  (eBay, Poshmark, Mercari, Depop, Grailed, Vinted, Whatnot, ThredUp, TheRealReal)
+  + hub. VOCAB↔SCALE ROWS DERIVED from the live listing engine (marketplace-specs
+  mapCondition/gradeToConditionBucket) for the 7 platforms we push to — single
+  source of truth, can't drift; ThredUp/TheRealReal carry hand-authored rows
+  (managed marketplaces that grade at intake; honest about their reject bar).
+- Page src/pages/marketing/platform-standards.tsx (hub+spoke): question-phrased
+  H2s, quotable definition block, vocab↔scale table, "what triggers a return"
+  SNAD section, listing-copy-per-grade, policy citation (external nofollow link)
+  + "Verified July 2026 / re-checked quarterly" stamp, links up to /grading/scale
+  + returns spine.
+- JSON-LD: Article + FAQ; 3-level breadcrumbs. Wired public-routes (import+spread
+  +10 lastmod), entry-server PAGES, head-builder (handler BEFORE glossary lookup
+  since paths are under /grading/), routes/index.tsx (hub+:platform before
+  /grading/:slug).
+- VERIFIED: tsc 0, eslint 0, vitest src/lib/seo (660) + src/prerender (43) green,
+  build OK (prerender wrote 189 pages, all 10 platform pages emitted). NO migration.

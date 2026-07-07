@@ -103,6 +103,8 @@ const CompareHubPage = lazy(() => import("@/pages/marketing/compare").then(m => 
 const ComparisonPage = lazy(() => import("@/pages/marketing/compare").then(m => ({ default: m.ComparisonPage })));
 const OpportunistGuidePage = lazy(() => import("@/pages/marketing/opportunist-guide").then(m => ({ default: m.OpportunistGuidePage })));
 const ReduceEbayReturnsPage = lazy(() => import("@/pages/marketing/reduce-ebay-returns").then(m => ({ default: m.ReduceEbayReturnsPage })));
+const PlatformStandardsHubPage = lazy(() => import("@/pages/marketing/platform-standards").then(m => ({ default: m.PlatformStandardsHubPage })));
+const PlatformStandardPage = lazy(() => import("@/pages/marketing/platform-standards").then(m => ({ default: m.PlatformStandardPage })));
 const FlawLibraryHubPage = lazy(() => import("@/pages/marketing/flaw-library").then(m => ({ default: m.FlawLibraryHubPage })));
 const FlawPage = lazy(() => import("@/pages/marketing/flaw-library").then(m => ({ default: m.FlawPage })));
 const GarmentGuidesHubPage = lazy(() => import("@/pages/marketing/garment-guides").then(m => ({ default: m.GarmentGuidesHubPage })));
@@ -413,6 +415,10 @@ export const router = createBrowserRouter([
       // Garment-type grading guides (US-1682): hub + per-garment pages.
       { path: "/grading/guides", element: <SuspenseWrapper><GarmentGuidesHubPage /></SuspenseWrapper> },
       { path: "/grading/guides/:garment", element: <SuspenseWrapper><GarmentGuidePage /></SuspenseWrapper> },
+      // US-1672: platform condition-standard pages (hub + spokes). Static
+      // /grading/platform-standards + the 2-segment spoke outrank /grading/:slug.
+      { path: "/grading/platform-standards", element: <SuspenseWrapper><PlatformStandardsHubPage /></SuspenseWrapper> },
+      { path: "/grading/platform-standards/:platform", element: <SuspenseWrapper><PlatformStandardPage /></SuspenseWrapper> },
       // Glossary hub spokes (US-303): one page per grade tier + factor, served
       // by a single dynamic route. The indexable set is registered in
       // PUBLIC_ROUTES (via glossaryRoutes()) and prerendered individually.

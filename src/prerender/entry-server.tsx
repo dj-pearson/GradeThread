@@ -113,6 +113,15 @@ import { OPPORTUNIST_GUIDES } from "@/lib/seo/opportunist-guides";
 import { OpportunistGuidePage } from "@/pages/marketing/opportunist-guide";
 import { RETURNS_SPINE_PATH } from "@/lib/seo/returns-spine";
 import { ReduceEbayReturnsPage } from "@/pages/marketing/reduce-ebay-returns";
+import {
+  PLATFORM_STANDARDS,
+  PLATFORM_STANDARDS_HUB_PATH,
+  platformStandardPath,
+} from "@/lib/seo/platform-standards";
+import {
+  PlatformStandardsHubPage,
+  PlatformStandardPage,
+} from "@/pages/marketing/platform-standards";
 
 // Static map of prerenderable routes → page element.
 const PAGES: Record<string, React.ReactNode> = {
@@ -235,6 +244,14 @@ const PAGES: Record<string, React.ReactNode> = {
   ),
   // The returns spine (US-1673).
   [RETURNS_SPINE_PATH]: <ReduceEbayReturnsPage />,
+  // Platform condition-standard pages (US-1672).
+  [PLATFORM_STANDARDS_HUB_PATH]: <PlatformStandardsHubPage />,
+  ...Object.fromEntries(
+    PLATFORM_STANDARDS.map((s) => [
+      platformStandardPath(s.slug),
+      <PlatformStandardPage key={s.slug} slug={s.slug} />,
+    ]),
+  ),
 };
 
 export function renderRoute(path: string): string {

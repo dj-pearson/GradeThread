@@ -27,6 +27,7 @@ import { garmentGuideRoutes } from "./garment-guides";
 import { comparisonRoutes } from "./comparison-guides";
 import { opportunistRoutes } from "./opportunist-guides";
 import { returnsSpineRoute } from "./returns-spine";
+import { platformStandardsRoutes } from "./platform-standards";
 
 export const SITE_URL = "https://gradethread.com";
 
@@ -97,6 +98,17 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/reselling/comps/ebay-sold-comps": "2026-07-06",
   // The returns spine (US-1673).
   "/reselling/reduce-ebay-returns": "2026-07-06",
+  // Platform condition-standard pages (US-1672) — bump on the quarterly re-check.
+  "/grading/platform-standards": "2026-07-06",
+  "/grading/platform-standards/ebay": "2026-07-06",
+  "/grading/platform-standards/poshmark": "2026-07-06",
+  "/grading/platform-standards/mercari": "2026-07-06",
+  "/grading/platform-standards/depop": "2026-07-06",
+  "/grading/platform-standards/grailed": "2026-07-06",
+  "/grading/platform-standards/vinted": "2026-07-06",
+  "/grading/platform-standards/whatnot": "2026-07-06",
+  "/grading/platform-standards/thredup": "2026-07-06",
+  "/grading/platform-standards/therealreal": "2026-07-06",
   // Legal pages mirror their rendered effectiveDate ("April 1, 2026").
   "/privacy": "2026-04-01",
   "/terms": "2026-04-01",
@@ -511,6 +523,8 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
   ...opportunistRoutes(),
   // The returns spine (US-1673): the reselling↔grading crossover page.
   returnsSpineRoute(),
+  // Platform condition-standard pages (US-1672): hub + per-marketplace spokes.
+  ...platformStandardsRoutes(),
 ];
 
 // US-427: per-route social share image (Open Graph / Twitter). High-value

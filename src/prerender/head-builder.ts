@@ -70,6 +70,10 @@ import {
   opportunistGuideBreadcrumbItems,
   returnsSpineJsonLd,
   returnsSpineBreadcrumbItems,
+  platformStandardsHubJsonLd,
+  platformStandardsHubBreadcrumbItems,
+  platformStandardJsonLd,
+  platformStandardBreadcrumbItems,
   flawJsonLd,
   flawBreadcrumbItems,
   flawHubJsonLd,
@@ -95,6 +99,10 @@ import {
 } from "@/lib/seo/comparison-guides";
 import { getOpportunistGuideByPath } from "@/lib/seo/opportunist-guides";
 import { isReturnsSpinePath } from "@/lib/seo/returns-spine";
+import {
+  getPlatformStandardByPath,
+  isPlatformStandardsHubPath,
+} from "@/lib/seo/platform-standards";
 import { getFlawByPath, isFlawHubPath } from "@/lib/seo/flaw-library";
 import { getGuideByPath, isGuideHubPath } from "@/lib/seo/garment-guides";
 import { twitterSiteHandle, twitterCreatorHandle } from "@/lib/seo/social";
@@ -202,6 +210,24 @@ export function jsonLdForRoute(path: string): JsonLd[] {
       organizationLd(),
       breadcrumbLd(returnsSpineBreadcrumbItems()),
       ...returnsSpineJsonLd(),
+    ];
+  }
+  // Platform condition-standards (US-1672). Under /grading/ — matched BEFORE the
+  // glossary lookup below. Hub = Organization + 3-level breadcrumb; spoke adds
+  // Article + FAQ.
+  if (isPlatformStandardsHubPath(path)) {
+    return [
+      organizationLd(),
+      breadcrumbLd(platformStandardsHubBreadcrumbItems()),
+      ...platformStandardsHubJsonLd(),
+    ];
+  }
+  const platformStandard = getPlatformStandardByPath(path);
+  if (platformStandard) {
+    return [
+      organizationLd(),
+      breadcrumbLd(platformStandardBreadcrumbItems(platformStandard)),
+      ...platformStandardJsonLd(platformStandard),
     ];
   }
   // Opportunist mid-tail guides (US-1668): Organization + 3-level breadcrumb +

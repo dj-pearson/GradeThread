@@ -56,6 +56,11 @@ import {
 } from "@/lib/seo/comparison-guides";
 import { type OpportunistGuide } from "@/lib/seo/opportunist-guides";
 import { RETURNS_SPINE, RETURNS_SPINE_PATH } from "@/lib/seo/returns-spine";
+import {
+  PLATFORM_STANDARDS_HUB_PATH,
+  platformStandardPath,
+  type PlatformStandard,
+} from "@/lib/seo/platform-standards";
 import { absoluteUrl } from "@/lib/seo/public-routes";
 import { LANDING_FAQS } from "@/pages/landing-faqs";
 import { SITE_URL } from "@/lib/seo/public-routes";
@@ -683,6 +688,47 @@ export function returnsSpineJsonLd(): JsonLd[] {
       dateModified: RETURNS_SPINE_MODIFIED,
     }),
     faqPageLd(RETURNS_SPINE.faqs),
+  ];
+}
+
+// ── Platform condition-standard pages (US-1672) ─────────────────────
+const PLATFORM_STANDARDS_PUBLISHED = "2026-07-06";
+const PLATFORM_STANDARDS_MODIFIED = "2026-07-06";
+
+export function platformStandardsHubBreadcrumbItems(): Array<{ name: string; url: string }> {
+  return [
+    { name: "GradeThread", url: `${SITE_URL}/` },
+    { name: "Grading scale", url: `${SITE_URL}/grading/scale` },
+    { name: "Condition standards", url: `${SITE_URL}${PLATFORM_STANDARDS_HUB_PATH}` },
+  ];
+}
+
+export function platformStandardBreadcrumbItems(
+  std: PlatformStandard,
+): Array<{ name: string; url: string }> {
+  return [
+    { name: "GradeThread", url: `${SITE_URL}/` },
+    { name: "Condition standards", url: `${SITE_URL}${PLATFORM_STANDARDS_HUB_PATH}` },
+    { name: std.name, url: `${SITE_URL}${platformStandardPath(std.slug)}` },
+  ];
+}
+
+/** Hub JSON-LD: Organization + breadcrumb come from the layout; nothing extra. */
+export function platformStandardsHubJsonLd(): JsonLd[] {
+  return [];
+}
+
+/** Platform-standard JSON-LD: Article + the FAQ. */
+export function platformStandardJsonLd(std: PlatformStandard): JsonLd[] {
+  return [
+    articleLd({
+      headline: std.h1,
+      description: std.description,
+      url: absoluteUrl(platformStandardPath(std.slug)),
+      datePublished: PLATFORM_STANDARDS_PUBLISHED,
+      dateModified: PLATFORM_STANDARDS_MODIFIED,
+    }),
+    faqPageLd(std.faqs),
   ];
 }
 
