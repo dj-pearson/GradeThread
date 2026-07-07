@@ -12324,3 +12324,26 @@ US-1697 DONE (edge; NO migration) — Google Ads API auth foundation.
   shaping, invalid_grant→re-auth, GAQL url/headers/body + pagination parse,
   unapproved-token classification, config no-op.
 - VERIFIED: deno check 0, deno lint 0, deno test 9/9. Non-migration → pushes.
+
+────────────────────────────────────────────────────────────────────
+US-1698 DONE (edge; MIGRATION — HELD, do not push until user applies).
+- Migration 00381_ads_data_model.sql: 7 operator tables (ads_accounts/campaigns/
+  ad_groups/ads/keywords/metrics_daily/sync_runs), platform col, deny-all RLS,
+  owner_user_id, idempotent unique keys for upserts. EXPECTED_SCHEMA_VERSION→00381.
+  Registered all 7 in rls-guard_test.ts SERVICE_ROLE_ONLY.
+- lib/google-ads-sync.ts: pure GAQL-row→table-row mappers (resourceNameToId,
+  microsToDollars, mapCampaign/AdGroup/Ad/Keyword/Metric) + syncGoogleAds
+  (injectable runQuery + supabase; idempotent upserts).
+- lib/google-ads-sync-job.ts: performGoogleAdsSync (config check→run ledger→
+  token→account snapshot→sync→close), no-op when unconfigured.
+- Route POST /api/admin/ads/google/sync (super-admin) + cron POST /api/jobs/ads-sync
+  (job-secret) in jobs-ads-sync.ts; registered ads-sync in CRON_REGISTRY +
+  regenerated COOLIFY.md + LAUNCH_CHECKLIST.md cron tables (daily 0 8 * * 0... 0 8 * * *).
+- ALSO fixed a PRE-EXISTING cron drift: /api/jobs/agent-eval (added by concurrent
+  commit d62b9bb3 US-1607) was mounted but unregistered → registered it (weekly).
+- Test google-ads-sync_test.ts (mappers + orchestration w/ fake supabase).
+- VERIFIED: deno check 0, deno lint clean, google-ads-sync+client+rls-guard+
+  schema-version tests pass; cron-drift code↔registry passes; docs↔registry
+  passes in LF (repo) terms — the local CRLF working-copy makes only the
+  docs-verbatim assertion fail (autocrlf; passes in CI). Migration packaged in
+  PENDING_MIGRATIONS.md (00381) — HELD for user apply (NOTIFY pgrst required).

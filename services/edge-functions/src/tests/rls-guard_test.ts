@@ -283,6 +283,18 @@ const SERVICE_ROLE_ONLY = new Set([
   // internal (target/origin agent keys + run ids); the payload is the emitting
   // agent's finding, no tenant data. Read/written only by the kernel.
   "agent_handoffs",
+  // US-1698: Ads Command Center snapshots — our OWN Google Ads / Apple Search Ads
+  // account structure + daily performance, synced by the service role and read by
+  // the admin dashboard + Claude analysis. Platform-level operator data (one ads
+  // account, not per-user tenant data); deny-all RLS, keyed by external resource
+  // ids + owner_user_id. The SPA reads them only through /api/admin/ads/*.
+  "ads_accounts",
+  "ads_campaigns",
+  "ads_ad_groups",
+  "ads_ads",
+  "ads_keywords",
+  "ads_metrics_daily",
+  "ads_sync_runs",
 ]);
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.

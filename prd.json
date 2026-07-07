@@ -12455,7 +12455,7 @@
       ]
     },
     {
-      "passes": false,
+      "passes": true,
       "priority": 2590,
       "id": "US-1698",
       "title": "Ads data model + Google Ads sync (campaigns/ad groups/keywords/ads + daily metrics)",

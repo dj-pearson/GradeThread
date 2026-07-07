@@ -149,6 +149,7 @@ import { handleNorthStarDigestCron } from "./routes/jobs-north-star.ts";
 import { handleContentWatchdogCron } from "./routes/jobs-content-watchdog.ts";
 import { handleContentRefreshCron } from "./routes/jobs-content-refresh.ts";
 import { handleKeywordResearchCron } from "./routes/jobs-keyword-research.ts";
+import { handleAdsSyncCron } from "./routes/jobs-ads-sync.ts";
 import { handleBillingReconciliationCron } from "./routes/jobs-billing-reconciliation.ts";
 import { handleAiBudgetCron } from "./routes/jobs-ai-budget.ts";
 import { handleMarketplaceEventsCron } from "./routes/jobs-marketplace-events.ts";
@@ -1323,6 +1324,7 @@ app.route("/api/admin/ads", adminAdsRoutes);
 // handler enforces X-Internal-Job-Secret itself. Schedule on Coolify cron
 // (suggested weekly, e.g. 0 6 * * 1). No-ops cleanly when Google Ads env unset.
 app.post("/api/jobs/keyword-research", (c) => handleKeywordResearchCron(c));
+app.post("/api/jobs/ads-sync", (c) => handleAdsSyncCron(c));
 // US-916 public "What's New" changelog feed (anonymous; published entries only,
 // hard-filtered in the handler). OUTSIDE /api/admin so the wildcard admin-JWT
 // middleware doesn't intercept it.

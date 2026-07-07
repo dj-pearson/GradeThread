@@ -107,7 +107,9 @@ A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COO
 | Task | Schedule (UTC) | Endpoint (POST) | Secret env | Notes |
 |---|---|---|---|---|
 | abuse-scan | `0 */6 * * *` | `/api/jobs/abuse-scan` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| ads-sync | `0 8 * * *` | `/api/jobs/ads-sync` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | affiliate-payouts | `15 */6 * * *` | `/api/jobs/affiliate-payouts` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| agent-eval | `0 15 * * 0` | `/api/jobs/agent-eval` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | agent-tick | `*/10 * * * *` | `/api/jobs/agent-tick` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | ai-budget-guardrails | `*/15 * * * *` | `/api/jobs/ai-budget-guardrails` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | appstore-expiry-sweep | `45 1 * * *` | `/api/jobs/appstore-expiry-sweep` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
@@ -164,7 +166,7 @@ A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COO
 | thumbnail-backfill | `*/5 * * * *` | `/api/jobs/thumbnail-backfill` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | trial-expiry | `15 0 * * *` | `/api/jobs/trial-expiry` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 
-_57 scheduled jobs. Default healthy response: 200 `{"ok":true,...}` (idle runs report skipped/zero counts). Generated from `src/lib/cron-runs.ts` CRON_REGISTRY — do not hand-edit._
+_59 scheduled jobs. Default healthy response: 200 `{"ok":true,...}` (idle runs report skipped/zero counts). Generated from `src/lib/cron-runs.ts` CRON_REGISTRY — do not hand-edit._
 <!-- cron-registry:end -->
 
 **One-off at launch (not scheduled):** POST `/api/jobs/cert-integrity-backfill`

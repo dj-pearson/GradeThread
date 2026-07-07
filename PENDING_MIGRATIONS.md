@@ -1,5 +1,35 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00381_ads_data_model.sql (US-1698 Ads Command Center, 2026-07-07)
+
+**What:** creates SEVEN operator tables for the Ads Command Center —
+`ads_accounts`, `ads_campaigns`, `ads_ad_groups`, `ads_ads`, `ads_keywords`,
+`ads_metrics_daily`, `ads_sync_runs` — each with a `platform` column
+('google_ads' | 'apple_search_ads') and deny-all RLS (service-role only). Local
+snapshots of our OWN Google Ads account structure + daily metrics, synced by
+`/api/jobs/ads-sync` (daily cron) and `/api/admin/ads/google/sync` (manual,
+super-admin). Bumps `EXPECTED_SCHEMA_VERSION` → **00381**. Self-records '00381'.
+
+**Risk: LOW — seven NEW additive tables + indexes + updated_at triggers, fully
+idempotent** (`CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`,
+`DROP TRIGGER IF EXISTS` before create). No changes to existing tables. Only the
+service-role edge writes (bypasses RLS); registered in `rls-guard_test.ts`
+`SERVICE_ROLE_ONLY`.
+
+**⚠️ CLIENT READ — none.** No frontend reads these yet (the US-1699 dashboard is a
+later story). The edge code that reads/writes them (`google-ads-sync*.ts`, the
+admin route, the cron) NO-OPS entirely when the `GOOGLE_ADS_*` secrets are unset,
+so there is **no hard ordering hazard** beyond the edge boot guard expecting
+**00381** — the schema-version bump ships in this same commit.
+
+**⚠️ `NOTIFY pgrst, 'reload schema';` REQUIRED** (seven new tables — PostgREST
+must reload to expose them to the service-role client).
+
+**⚠️ Apply order:** after 00380 (top of the held stack). Run
+`scripts/apply-prod-migrations.sh` (idempotent tail), then
+`NOTIFY pgrst, 'reload schema';`, then redeploy the edge so its boot guard
+matches 00381.
+
 ## ⏳ HELD: 00380_cert_assets_bucket.sql (cert-image render fix, 2026-07-06)
 
 **What:** creates the PUBLIC `cert-assets` storage bucket (+ a public-read

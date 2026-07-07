@@ -16,6 +16,7 @@ import {
   isKeywordResearchConfigured,
 } from "../lib/keyword-research.ts";
 import { requireScope } from "../lib/scope-guard.ts";
+import { performGoogleAdsSync } from "../lib/google-ads-sync-job.ts";
 
 // US-1073: AI Ad Copy Studio (admin-only). Generates Google Ads RSA copy and
 // Apple Search Ads keyword/creative sets grounded in the keyword library + brand
@@ -24,7 +25,7 @@ import { requireScope } from "../lib/scope-guard.ts";
 // Mounted at /api/admin/ads — the /api/admin/* stack already applies
 // authMiddleware + adminAuthMiddleware, so every handler here is admin-gated.
 
-type Env = { Variables: { userId: string } };
+type Env = { Variables: { userId: string; adminRole?: "admin" | "super_admin" } };
 export const adminAdsRoutes = new Hono<Env>();
 
 // US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
@@ -329,4 +330,23 @@ adminAdsRoutes.get("/creatives/:id/export", async (c) => {
       "Content-Disposition": `attachment; filename="${filename}"`,
     },
   });
+});
+
+// ── US-1698: Google Ads → local snapshot sync ────────────────────────────
+// POST /api/admin/ads/google/sync — super-admin only. Manual trigger for the
+// same job the daily Coolify cron runs (POST /api/jobs/ads-sync); pulls
+// structure + last-N-days metrics and upserts snapshots, recording a run row.
+// No-ops with a clear message when US-1697 is unconfigured.
+adminAdsRoutes.post("/google/sync", async (c) => {
+  // Super-admin only: touches platform-level ad-spend config, not per-user data.
+  if (c.get("adminRole") !== "super_admin") {
+    return c.json({ error: "Super-admin required for the Ads sync." }, 403);
+  }
+  let days: number | undefined;
+  const body = (await c.req.json().catch(() => ({}))) as { days?: unknown };
+  if (typeof body.days === "number") days = body.days;
+
+  const result = await performGoogleAdsSync({ ownerUserId: c.get("userId") ?? null, days });
+  const { httpStatus, ...payload } = result;
+  return c.json(payload, httpStatus as 200 | 500 | 502);
 });

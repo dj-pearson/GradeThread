@@ -103,6 +103,10 @@ export const CRON_REGISTRY: CronDef[] = [
   { name: "affiliate-payouts", label: "Affiliate auto-payouts", schedule: "15 */6 * * *", category: "growth", endpoint: "/api/jobs/affiliate-payouts", recorded: true },
   { name: "agent-tick", label: "Agentic OS agent tick", schedule: "*/10 * * * *", category: "agents", endpoint: "/api/jobs/agent-tick", recorded: true },
   { name: "operator-brief", label: "Daily operator brief", schedule: "0 13 * * *", category: "agents", endpoint: "/api/jobs/operator-brief", recorded: true },
+  // US-1607: weekly agent-eval golden-scenario gate (writes agents.eval_pass /
+  // eval_results). Registered here so the cron-drift guard stays green — the
+  // route (main.ts) shipped in d62b9bb3 without a registry entry.
+  { name: "agent-eval", label: "Weekly agent-eval gate", schedule: "0 15 * * 0", category: "agents", endpoint: "/api/jobs/agent-eval", recorded: true },
   // US-929: daily lifecycle email-journey tick (welcome / trial-nurture / win-back).
   { name: "journey-tick", label: "Lifecycle email-journey tick", schedule: "30 13 * * *", category: "growth", endpoint: "/api/jobs/journey-tick", recorded: true },
   // US-928: daily newsletter self-tuning — recompute topic/subject/send-hour weights from engagement.
@@ -149,6 +153,9 @@ export const CRON_REGISTRY: CronDef[] = [
   { name: "exemplar-assembly", label: "Grading exemplar assembly", schedule: "0 12 * * 0", category: "grading", endpoint: "/api/jobs/exemplar-assembly", recorded: true },
   // US-1072: weekly keyword-research ingestion (no-ops without Google Ads env).
   { name: "keyword-research", label: "Keyword research ingest", schedule: "0 6 * * 1", category: "seo", endpoint: "/api/jobs/keyword-research", recorded: true },
+  // US-1698: daily Ads Command Center sync — structure + last-30-days metrics
+  // (no-ops without Google Ads env).
+  { name: "ads-sync", label: "Google Ads sync", schedule: "0 8 * * *", category: "ads", endpoint: "/api/jobs/ads-sync", recorded: true },
   // US-1055: poll open offers/messages per connection → seller notifications.
   { name: "marketplace-events", label: "Marketplace event notifications", schedule: "*/15 * * * *", category: "sync", endpoint: "/api/jobs/marketplace-events", recorded: true },
   // US-1150: passport-chain integrity scan (tamper evidence sweep).
