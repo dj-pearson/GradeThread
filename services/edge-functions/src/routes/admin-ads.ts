@@ -498,7 +498,7 @@ adminAdsRoutes.post("/conversions/upload", async (c) => {
 adminAdsRoutes.post("/recommendations/:id/approve", async (c) => {
   if (c.get("adminRole") !== "super_admin") return c.json({ error: "Super-admin required." }, 403);
   const r = await recordDecision(supabaseAdmin, { recId: c.req.param("id"), decision: "approve", actorUserId: c.get("userId") ?? null });
-  return c.json({ ok: r.ok, status: r.status, message: r.message }, r.httpStatus as 200 | 400 | 404 | 409 | 500);
+  return c.json({ ok: r.ok, status: r.status, message: r.message }, r.httpStatus as 200 | 400 | 404 | 409 | 422 | 500);
 });
 
 adminAdsRoutes.post("/recommendations/:id/dismiss", async (c) => {
