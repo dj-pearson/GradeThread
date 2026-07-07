@@ -12297,3 +12297,13 @@ B) foreground PUT uses a per-task ForegroundUploadProgressDelegate → real byte
    background thread (off the cooperative pool). Commit 0f62ef84.
 ALL codeable iOS bug-fix stories DONE: 1621,1646,1647,1648,1649. Remaining iOS =
 US-1523 (exact supabase-swift pin + Package.resolved CI guard — macOS-toolchain).
+
+────────────────────────────────────────────────────────────────────
+US-1523 DONE (iOS) — CI GREEN (run 28845905730). exact supabase-swift pin
+(2.49.0) in project.yml + iOS CI "Verify SPM lockfile pinned" guard (fails if
+Package.resolved missing or supabase-swift drifts). Commit 4ec11fe7.
+
+★★★ ALL iOS STORIES COMPLETE: 1523, 1621, 1646, 1647, 1648, 1649. ★★★
+
+════════════════════════════════════════════════════════════════════
+NOW: Google Ads epic US-1697→1709 (edge/web; skip 1696 wrapper + Android).
