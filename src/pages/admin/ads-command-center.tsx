@@ -118,11 +118,11 @@ const METRICS: { key: MetricKey; label: string; money?: boolean }[] = [
   { key: "cpa", label: "CPA", money: true },
 ];
 
-function useOverview() {
+function useOverview(platform: string) {
   return useQuery<OverviewResponse>({
-    queryKey: ["ads-overview"],
+    queryKey: ["ads-overview", platform],
     queryFn: async () => {
-      const res = await edgeFetch("/api/admin/ads/overview");
+      const res = await edgeFetch(`/api/admin/ads/overview?platform=${platform}`);
       if (!res.ok) throw new Error("Couldn't load the Ads overview.");
       return res.json();
     },
@@ -144,12 +144,14 @@ const num = (v: number) => new Intl.NumberFormat("en-US").format(v);
 
 export function AdsCommandCenter() {
   const qc = useQueryClient();
-  const { data, isLoading, isError } = useOverview();
+  const [platform, setPlatform] = useState<"google_ads" | "apple_search_ads">("google_ads");
+  const { data, isLoading, isError } = useOverview(platform);
   const [chartMetric, setChartMetric] = useState<MetricKey>("spend");
 
   const syncNow = useMutation({
     mutationFn: async () => {
-      const res = await edgeFetch("/api/admin/ads/google/sync", { method: "POST" });
+      const path = platform === "apple_search_ads" ? "/api/admin/ads/apple/sync" : "/api/admin/ads/google/sync";
+      const res = await edgeFetch(path, { method: "POST" });
       const body = await res.json();
       if (!res.ok) throw new Error(body?.error ?? "Sync failed.");
       return body;
@@ -215,8 +217,24 @@ export function AdsCommandCenter() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const platformToggle = (
+    <div className="flex gap-1" role="group" aria-label="Ad platform">
+      <Button size="sm" variant={platform === "google_ads" ? "default" : "outline"} onClick={() => setPlatform("google_ads")}>
+        Google Ads
+      </Button>
+      <Button size="sm" variant={platform === "apple_search_ads" ? "default" : "outline"} onClick={() => setPlatform("apple_search_ads")}>
+        Apple Search Ads
+      </Button>
+    </div>
+  );
+
   if (isLoading) {
-    return <p className="py-10 text-center text-sm text-muted-foreground">Loading performance…</p>;
+    return (
+      <div className="space-y-4">
+        {platformToggle}
+        <p className="py-10 text-center text-sm text-muted-foreground">Loading performance…</p>
+      </div>
+    );
   }
   if (isError || !data) {
     return (
@@ -247,7 +265,8 @@ export function AdsCommandCenter() {
               : "No synced data yet. Run the first sync to pull your campaigns and metrics."}
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3">
+          {platformToggle}
           <Button onClick={() => syncNow.mutate()} disabled={syncNow.isPending}>
             <RefreshCw className={`mr-2 h-4 w-4 ${syncNow.isPending ? "animate-spin" : ""}`} />
             {syncNow.isPending ? "Syncing…" : "Sync now"}
@@ -272,6 +291,9 @@ export function AdsCommandCenter() {
 
   return (
     <div className="space-y-6">
+      {/* Platform toggle */}
+      {platformToggle}
+
       {/* Header + sync */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>

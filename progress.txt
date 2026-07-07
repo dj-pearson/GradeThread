@@ -12491,3 +12491,22 @@ US-1706 DONE (edge; MIGRATION 00386 — HELD, do not push until applied).
   applyable, add_keyword shows report-only).
 - VERIFIED: deno check 0/lint clean/34 tests pass. Migration packaged (00386) —
   HELD (NOTIFY pgrst).
+
+────────────────────────────────────────────────────────────────────
+US-1707 DONE (edge+web; NO migration; HELD — reuses ads_* + held ads deploy).
+- apple-search-ads-client.ts: appleSearchAdsConfig (APPLE_SEARCH_ADS_* env, no-op
+  unconfigured), buildClientSecretJWT (ES256 .p8 client-secret, apns.ts pattern),
+  mintAppleAccessToken (client_credentials), appleRequest (Bearer + X-AP-Context
+  orgId). Injectable fetch.
+- apple-search-ads-sync.ts: pure mappers (mapAppleCampaign/AdGroup/Keyword/
+  ReportRow, amountToMicros — ASA decimal→micros) + syncAppleSearchAds (upserts
+  into shared ads_* with platform='apple_search_ads'; injectable request).
+- apple-search-ads-sync-job.ts: performAppleSearchAdsSync (token→account snapshot
+  →sync→ads_sync_runs; no-op unconfigured).
+- Route POST /api/admin/ads/apple/sync (super-admin). /overview + Command Center
+  parameterized by ?platform with a Google Ads | Apple Search Ads toggle.
+- Env docs: ENVIRONMENT.md §2k + .env.example (APPLE_SEARCH_ADS_*).
+- Test apple-search-ads_test.ts (6): real ES256 JWT sign+decode (header/claims),
+  client_credentials body, report-row + campaign mapping, config no-op.
+- VERIFIED: deno check 0/lint clean/6 tests; web tsc -b 0/eslint 0. No creds here
+  → ASA client is v5-docs best-effort, needs a LIVE smoke test (like eBay/Google).

@@ -12660,7 +12660,7 @@
       ]
     },
     {
-      "passes": false,
+      "passes": true,
       "priority": 2581,
       "id": "US-1707",
       "title": "BONUS · Apple Search Ads — auth + read into the shared ads data model",

@@ -185,6 +185,23 @@ and never throw at boot. Uses the installed/web-app OAuth refresh-token flow.
 Schedule the cron on Coolify (weekly is plenty — planner volumes update ~monthly),
 e.g. `0 6 * * 1`, presenting `FLIPDESK_INTERNAL_JOB_SECRET` (§2g).
 
+### 2k. Apple Search Ads — Command Center (US-1707/1708)
+
+Pulls our Apple Search Ads campaigns/ad groups/keywords + daily metrics into the
+SAME `ads_*` tables Google Ads uses (tagged `platform='apple_search_ads'`), so
+the Command Center + analysis cover iOS acquisition too. Auth is OAuth2
+client-credentials where the client secret is an **ES256 JWT** signed with a `.p8`
+private key (same mechanics as APNs). **All optional** — when unset, the ASA sync
++ analysis no-op cleanly (never throw at boot).
+
+| Variable | Required | Purpose | Where to get it |
+|---|---|---|---|
+| `APPLE_SEARCH_ADS_ORG_ID` | When using ASA | Your ASA org id (sent as `X-AP-Context: orgId=…`) | Search Ads UI → Settings → API |
+| `APPLE_SEARCH_ADS_KEY_ID` | With the above | The key id (`kid`) of the `.p8` private key | Search Ads API certificates |
+| `APPLE_SEARCH_ADS_CLIENT_ID` | With the above | API client id (the JWT `sub`) | Search Ads API credentials |
+| `APPLE_SEARCH_ADS_TEAM_ID` | ⬜ Optional | Team id (the JWT `iss`); defaults to the client id | Search Ads API credentials |
+| `APPLE_SEARCH_ADS_PRIVATE_KEY` | With the above | The `.p8` private key PEM (literal or `\n`-escaped) | Downloaded once when the key is created |
+
 ---
 
 ## Minimum set to run today

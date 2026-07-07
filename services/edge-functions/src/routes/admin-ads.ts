@@ -20,7 +20,9 @@ import { performGoogleAdsSync } from "../lib/google-ads-sync-job.ts";
 import { analyzeAds } from "../lib/ads-analysis.ts";
 import { applyRecommendation, approveRecommendation, revertChange } from "../lib/google-ads-apply-job.ts";
 import { uploadOfflineConversions } from "../lib/google-ads-conversions-upload.ts";
+import { performAppleSearchAdsSync } from "../lib/apple-search-ads-sync-job.ts";
 import { isGoogleAdsConfigured } from "../lib/google-ads-client.ts";
+import { isAppleSearchAdsConfigured } from "../lib/apple-search-ads-client.ts";
 import {
   aggregateKpis,
   campaignBreakdown,
@@ -361,7 +363,9 @@ adminAdsRoutes.get("/overview", async (c) => {
   const daysRaw = Number(c.req.query("days") ?? "30");
   const days = Number.isFinite(daysRaw) && daysRaw >= 1 && daysRaw <= 365 ? Math.floor(daysRaw) : 30;
   const since = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
-  const configured = isGoogleAdsConfigured();
+  // US-1707: the same dashboard serves both platforms via ?platform.
+  const platform = c.req.query("platform") === "apple_search_ads" ? "apple_search_ads" : "google_ads";
+  const configured = platform === "apple_search_ads" ? isAppleSearchAdsConfigured() : isGoogleAdsConfigured();
 
   const empty = {
     configured,
@@ -371,6 +375,7 @@ adminAdsRoutes.get("/overview", async (c) => {
     kpis: aggregateKpis([]),
     campaigns: [],
     timeseries: [],
+    platform,
     windowDays: days,
   };
 
@@ -379,22 +384,22 @@ adminAdsRoutes.get("/overview", async (c) => {
       supabaseAdmin
         .from("ads_metrics_daily")
         .select("entity_id, metric_date, impressions, clicks, cost_micros, conversions, conversion_value")
-        .eq("platform", "google_ads")
+        .eq("platform", platform)
         .eq("entity_type", "campaign")
         .gte("metric_date", since),
       supabaseAdmin
         .from("ads_campaigns")
         .select("external_id, name, status, budget_micros")
-        .eq("platform", "google_ads"),
+        .eq("platform", platform),
       supabaseAdmin
         .from("ads_accounts")
         .select("external_customer_id, descriptive_name, currency_code, time_zone")
-        .eq("platform", "google_ads")
+        .eq("platform", platform)
         .maybeSingle(),
       supabaseAdmin
         .from("ads_sync_runs")
         .select("status, started_at, finished_at, counts, error")
-        .eq("platform", "google_ads")
+        .eq("platform", platform)
         .order("started_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
@@ -431,6 +436,7 @@ adminAdsRoutes.get("/overview", async (c) => {
       campaigns: campaignBreakdown(metrics, campaigns),
       timeseries,
       pacing,
+      platform,
       windowDays: days,
     });
   } catch (_err) {
@@ -524,6 +530,18 @@ adminAdsRoutes.post("/recommendations/:id/revert", async (c) => {
   const result = await revertChange({ auditId: (data as { id: string }).id, ownerUserId: c.get("userId") ?? null });
   const { httpStatus, ...payload } = result;
   return c.json(payload, httpStatus as 200 | 400 | 404 | 409 | 422 | 500 | 502);
+});
+
+// US-1707: manual Apple Search Ads sync (super-admin) into the shared tables.
+adminAdsRoutes.post("/apple/sync", async (c) => {
+  if (c.get("adminRole") !== "super_admin") return c.json({ error: "Super-admin required." }, 403);
+  const body = (await c.req.json().catch(() => ({}))) as { days?: unknown };
+  const result = await performAppleSearchAdsSync({
+    ownerUserId: c.get("userId") ?? null,
+    days: typeof body.days === "number" ? body.days : undefined,
+  });
+  const { httpStatus, ...payload } = result;
+  return c.json(payload, httpStatus as 200 | 500 | 502);
 });
 
 adminAdsRoutes.post("/google/sync", async (c) => {
