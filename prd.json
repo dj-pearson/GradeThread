@@ -11704,7 +11704,7 @@
       "title": "iOS features P3 · Upload progress plumbing, OCR threading, disk-full telemetry, orphan-count efficiency",
       "description": "As an iOS seller, I want real upload progress, non-blocking OCR, disk-full errors surfaced, and efficient orphan counting, so that the UI is honest and doesn't stall or waste bandwidth.",
       "priority": 2136,
-      "passes": false,
+      "passes": true,
       "notes": "[P3 batch][Source: CODE_REVIEW_2026-07-04.md §iOS feature flows] Grouped iOS feature P3s.",
       "acceptanceCriteria": [
         "Wire a session delegate so upload progress reflects real bytes instead of staying 0% (dead plumbing) (ios/GradeThread/Upload/PhotoUploadService.swift:51-59,404-412)",

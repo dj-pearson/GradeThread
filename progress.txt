@@ -12286,3 +12286,14 @@ B) Reconciliation create = client-id UPSERT (idempotent); PublishDialog fires
    UPDATE persists listing_price + corrected copy. Commits 04f76ccc + fb812649.
    NOTE: FIX5's "unconditional validate block" sub-part not confidently located;
    the substantive listing_price persist + copy done.
+
+────────────────────────────────────────────────────────────────────
+US-1649 DONE (iOS) — CI GREEN (runs 28844912250 + 28845489242). 4 fixes, 2 batches:
+A) countOrphans HEAD + count:.exact (no full-row download); writeToTempFile emits
+   photo_stage_write_failed telemetry (disk_full via NSFileWriteOutOfSpaceError)
+   instead of silent drop. Commit fa620009.
+B) foreground PUT uses a per-task ForegroundUploadProgressDelegate → real byte
+   progress (was 0% dead plumbing); .accurate Vision perform() runs on a GCD
+   background thread (off the cooperative pool). Commit 0f62ef84.
+ALL codeable iOS bug-fix stories DONE: 1621,1646,1647,1648,1649. Remaining iOS =
+US-1523 (exact supabase-swift pin + Package.resolved CI guard — macOS-toolchain).
