@@ -205,6 +205,14 @@ export function FlipdeskComposerPage() {
   const [measurements, setMeasurements] = useState<
     Record<string, number | string>
   >({});
+  // Item-level logistics (SKU / storage location / container), editable here for
+  // parity with the iOS item canvas so the seller can label & locate the
+  // physical item while drafting. These save to inventory_items (not the eBay
+  // listing) via their own Save button, independent of the draft/publish flow.
+  const [storageSku, setStorageSku] = useState("");
+  const [storageLocation, setStorageLocation] = useState("");
+  const [storageContainer, setStorageContainer] = useState("");
+  const [savingStorage, setSavingStorage] = useState(false);
   // US-561: Promoted Listings. promoteEnabled mirrors !promo_opt_out (promote by
   // default); promoRate is the seller's accepted/adjusted ad rate (%) seeded
   // from the category suggestion; promoSuggested holds the fetched suggestion so
@@ -450,6 +458,10 @@ export function FlipdeskComposerPage() {
     setMeasurements(
       (item.measurements as Record<string, number | string> | null) ?? {},
     );
+    // items_full exposes SKU as item_number; container/location_bin pass through.
+    setStorageSku(item.item_number ?? "");
+    setStorageLocation(item.location_bin ?? "");
+    setStorageContainer(item.container ?? "");
     setInitialised(true);
   }, [initialised, item, listing, photos]);
 
@@ -815,6 +827,40 @@ export function FlipdeskComposerPage() {
     }
   }
 
+  // Save the item-level logistics (SKU / location / container) to inventory_items.
+  // Independent of the eBay draft save so a physical-label edit doesn't require
+  // touching the listing.
+  async function saveStorage() {
+    if (!item) return;
+    setSavingStorage(true);
+    try {
+      const { error } = await supabase
+        .from("inventory_items")
+        .update({
+          sku: storageSku.trim() || null,
+          location_bin: storageLocation.trim() || null,
+          container: storageContainer.trim() || null,
+        } as never)
+        .eq("id", item.id);
+      if (error) throw error;
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
+      toast.success("Storage details saved.");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // Duplicate-SKU partial unique index (user_id, sku): the composer has no
+      // merge UI, so send the seller to the item page where that flow lives.
+      if (msg.includes("idx_inventory_items_user_sku")) {
+        toast.error(
+          "That SKU is already used by another item. Open the item's full page to merge them.",
+        );
+      } else {
+        toast.error(`Save failed: ${msg}`);
+      }
+    } finally {
+      setSavingStorage(false);
+    }
+  }
+
   function togglePushPlatform(platform: CrossListingPlatform) {
     // US-1114: never select a channel awaiting platform approval — publishing it
     // would 503. The UI disables it too; this guards persisted/programmatic state.
@@ -1086,6 +1132,69 @@ export function FlipdeskComposerPage() {
       <div className="grid gap-6 lg:grid-cols-2">
         {/* ── Editor column ───────────────────────────────────────── */}
         <div className="space-y-6">
+          {/* Storage & SKU — item-level logistics (parity with the iOS canvas).
+              Saves to the item, not the eBay listing. */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Storage &amp; SKU</CardTitle>
+              <CardDescription>
+                Where this item lives and how it's labeled — saved to the item,
+                not the eBay listing.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="storage-sku">SKU / Item #</Label>
+                  <Input
+                    id="storage-sku"
+                    value={storageSku}
+                    onChange={(e) => setStorageSku(e.target.value)}
+                    placeholder="e.g. FD-1a2b"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="storage-location">Location / Bin</Label>
+                  <Input
+                    id="storage-location"
+                    value={storageLocation}
+                    onChange={(e) => setStorageLocation(e.target.value)}
+                    placeholder="e.g. Tote A3"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="storage-container">Container</Label>
+                  <Input
+                    id="storage-container"
+                    value={storageContainer}
+                    onChange={(e) => setStorageContainer(e.target.value)}
+                    placeholder="e.g. Bin 7"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void saveStorage()}
+                  disabled={
+                    savingStorage ||
+                    (storageSku === (item.item_number ?? "") &&
+                      storageLocation === (item.location_bin ?? "") &&
+                      storageContainer === (item.container ?? ""))
+                  }
+                >
+                  {savingStorage ? (
+                    <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                  ) : (
+                    <Save className="mr-2 h-3 w-3" />
+                  )}
+                  Save storage
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
           {/* Title */}
           <Card>
             <CardHeader>
