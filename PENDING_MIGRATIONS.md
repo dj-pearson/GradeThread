@@ -1,5 +1,27 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00385_ad_click_attributions_upload.sql (US-1704 offline import, 2026-07-07)
+
+**What:** adds `uploaded_at`, `upload_status`, `upload_error` columns (+ a partial
+index) to the existing `ad_click_attributions` table so the offline-conversion
+upload job is idempotent (uploads each converted row once) and records
+success/skip/failure per row. Bumps `EXPECTED_SCHEMA_VERSION` → **00385**.
+Self-records '00385'.
+
+**Risk: LOW — three additive nullable columns + one partial index on an existing
+operator table, fully idempotent** (`ADD COLUMN IF NOT EXISTS`,
+`CREATE INDEX IF NOT EXISTS`). No table creation, no data change.
+
+**⚠️ CLIENT READ — none.** Only the service-role upload job reads/writes these
+columns. No frontend reads them.
+
+**⚠️ `NOTIFY pgrst, 'reload schema';` REQUIRED** (new columns on a table the
+service-role client selects).
+
+**⚠️ Apply order:** after 00384 (top of the held stack). Run
+`scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload schema';`, then
+redeploy the edge so its boot guard matches 00385.
+
 ## ⏳ HELD: 00384_ads_change_audit.sql (US-1703 guarded apply, 2026-07-07)
 
 **What:** creates the operator table `ads_change_audit` (recommendation_id,

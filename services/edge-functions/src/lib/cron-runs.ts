@@ -156,6 +156,8 @@ export const CRON_REGISTRY: CronDef[] = [
   // US-1698: daily Ads Command Center sync — structure + last-30-days metrics
   // (no-ops without Google Ads env).
   { name: "ads-sync", label: "Google Ads sync", schedule: "0 8 * * *", category: "ads", endpoint: "/api/jobs/ads-sync", recorded: true },
+  // US-1704: daily offline conversion upload (no-ops without Google Ads env).
+  { name: "ads-conversions-upload", label: "Google Ads conversion upload", schedule: "30 8 * * *", category: "ads", endpoint: "/api/jobs/ads-conversions-upload", recorded: true },
   // US-1055: poll open offers/messages per connection → seller notifications.
   { name: "marketplace-events", label: "Marketplace event notifications", schedule: "*/15 * * * *", category: "sync", endpoint: "/api/jobs/marketplace-events", recorded: true },
   // US-1150: passport-chain integrity scan (tamper evidence sweep).

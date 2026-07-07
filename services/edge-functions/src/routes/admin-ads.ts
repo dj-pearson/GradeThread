@@ -19,6 +19,7 @@ import { requireScope } from "../lib/scope-guard.ts";
 import { performGoogleAdsSync } from "../lib/google-ads-sync-job.ts";
 import { analyzeAds } from "../lib/ads-analysis.ts";
 import { applyRecommendation, approveRecommendation, revertChange } from "../lib/google-ads-apply-job.ts";
+import { uploadOfflineConversions } from "../lib/google-ads-conversions-upload.ts";
 import { isGoogleAdsConfigured } from "../lib/google-ads-client.ts";
 import {
   aggregateKpis,
@@ -455,6 +456,17 @@ adminAdsRoutes.post("/analyze", async (c) => {
     return c.json({ ok: true, generated: result.generated });
   } catch (err) {
     return failSafe(c, 502, "Ads analysis failed.", err, "admin.ads.analyze");
+  }
+});
+
+// US-1704: manually trigger the offline conversion upload (super-admin).
+adminAdsRoutes.post("/conversions/upload", async (c) => {
+  if (c.get("adminRole") !== "super_admin") return c.json({ error: "Super-admin required." }, 403);
+  try {
+    const result = await uploadOfflineConversions({ supabase: supabaseAdmin, ownerUserId: c.get("userId") ?? null });
+    return c.json(result);
+  } catch (err) {
+    return failSafe(c, 502, "Conversion upload failed.", err, "admin.ads.conversions.upload");
   }
 });
 

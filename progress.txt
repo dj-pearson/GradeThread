@@ -12428,3 +12428,27 @@ US-1703 DONE (edge+web; MIGRATION 00384 — HELD, do not push until applied).
 - VERIFIED: deno check 0/lint clean/19 edge tests; web tsc -b 0/eslint 0.
   Migration packaged (00384) — HELD (NOTIFY pgrst). NOTE: Google Ads mutate JSON
   shapes are per-v18-docs best-effort; need a live smoke test (no creds here).
+
+────────────────────────────────────────────────────────────────────
+US-1704 DONE (edge; MIGRATION 00385 — HELD, do not push until applied).
+- Migration 00385: ADD COLUMN uploaded_at/upload_status/upload_error (+ partial
+  index) to ad_click_attributions. EXPECTED_SCHEMA_VERSION→00385. No new table.
+- ads-conversions.ts: ConversionDefinition gains optional conversionAction (the
+  Google Ads conversion-action resource name; system_settings-configured).
+- google-ads-client.ts: uploadClickConversions (POST :uploadClickConversions,
+  partialFailure) + ClickConversion type + uploadConversionsUrl.
+- google-ads-conversions-upload.ts: formatConversionDateTime (Google's
+  'yyyy-MM-dd HH:mm:ss+00:00'), buildUploadRow (gclid-only; skips non-gclid/
+  no-action/no-def/expired w/ reason — no silent drops; value falls back to def),
+  buildUploadBatch (pure split), failedIndicesFromPartialError (best-effort
+  per-row), uploadOfflineConversions (reads converted+unuploaded, marks
+  uploaded/skipped/failed; idempotent via uploaded_at; no-op unconfigured).
+- Cron /api/jobs/ads-conversions-upload (30 8 * * *) registered in CRON_REGISTRY +
+  COOLIFY.md/LAUNCH_CHECKLIST.md regenerated (LF-verified). Manual super-admin
+  route POST /api/admin/ads/conversions/upload.
+- Test google-ads-conversions-upload_test.ts (7, deno; row construction + skips +
+  datetime + partial-failure parse).
+- VERIFIED: deno check 0/lint clean; upload+drift-code↔registry+schema tests pass
+  (docs-verbatim fails LOCALLY only = CRLF; LF-equal → CI green). Migration
+  packaged (00385) — HELD (NOTIFY pgrst). gclid only; gbraid/wbraid = enhanced
+  conversions (out of scope, skipped w/ reason).

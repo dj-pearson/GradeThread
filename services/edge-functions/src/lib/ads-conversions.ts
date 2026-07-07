@@ -16,6 +16,13 @@ export interface ConversionDefinition {
   event: string;
   name: string;
   value: number;
+  /**
+   * US-1704: the Google Ads conversion-action resource name
+   * (customers/{cid}/conversionActions/{id}) this event uploads to. Configured
+   * per-deploy via the system_settings row (the code default leaves it unset, so
+   * the offline import skips the event until an operator maps it).
+   */
+  conversionAction?: string;
 }
 
 /** Code-default definitions (overridable via the system_settings row). */

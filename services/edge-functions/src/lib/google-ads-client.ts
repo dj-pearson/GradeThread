@@ -209,6 +209,61 @@ function classifyGaqlError(status: number, body: string): GoogleAdsError {
   return new GoogleAdsError(status, "request", `Google Ads query failed (${status}): ${body.slice(0, 200)}`);
 }
 
+// ── US-1704: offline click-conversion upload ─────────────────────────────
+export interface ClickConversion {
+  gclid: string;
+  conversionAction: string;
+  /** "yyyy-MM-dd HH:mm:ss+HH:mm" (Google's required format, with tz offset). */
+  conversionDateTime: string;
+  conversionValue: number;
+  currencyCode: string;
+}
+
+export function uploadConversionsUrl(config: GoogleAdsConfig): string {
+  return `${ADS_API_BASE}/${GOOGLE_ADS_API_VERSION}/customers/${config.customerId}:uploadClickConversions`;
+}
+
+/**
+ * Upload offline click conversions (gclid → conversion action + value) via the
+ * ConversionUploadService with partialFailure, so one bad row doesn't sink the
+ * batch. Returns the per-row results + any partialFailureError.
+ */
+export async function uploadClickConversions(
+  config: GoogleAdsConfig,
+  token: string,
+  conversions: ClickConversion[],
+  fetchFn: typeof fetch = fetch,
+): Promise<{ results: unknown[]; partialFailureError?: unknown }> {
+  let response: Response;
+  try {
+    response = await fetchFn(uploadConversionsUrl(config), {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "developer-token": config.developerToken,
+        "login-customer-id": config.loginCustomerId,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ conversions, partialFailure: true }),
+    });
+  } catch (err) {
+    throw new GoogleAdsError(0, "network", `Conversion upload failed: ${errText(err)}`);
+  }
+  const text = await response.text();
+  if (!response.ok) {
+    throw new GoogleAdsError(
+      response.status,
+      response.status === 401 ? "unauthorized" : "request",
+      `Conversion upload failed (${response.status}): ${text.slice(0, 300)}`,
+    );
+  }
+  try {
+    return JSON.parse(text) as { results: unknown[]; partialFailureError?: unknown };
+  } catch {
+    return { results: [] };
+  }
+}
+
 export type AdsConnectionStatus =
   | { ok: true; descriptiveName: string; currencyCode: string; timeZone: string }
   | { ok: false; configured: boolean; kind: string; message: string };
