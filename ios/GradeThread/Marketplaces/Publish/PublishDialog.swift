@@ -32,6 +32,9 @@ struct PublishDialog: View {
     let onPublished: (PushResponse) -> Void
 
     @State private var phase: Phase = .validating
+    /// US-1648: guards `onPublished` to fire exactly once for a successful
+    /// publish regardless of how the sheet is dismissed (Done / Close / swipe).
+    @State private var didNotifyPublished = false
     @State private var showingSafari = false
     /// US-828/US-1511: aspect values the server will omit from the eBay payload
     /// (value-validation), shown as composer warnings. Set by runValidate.
@@ -83,6 +86,9 @@ struct PublishDialog: View {
                         if case .readyToPush = phase, composerDirty {
                             showingCloseConfirmation = true
                         } else {
+                            // US-1648: apply a successful publish before closing so
+                            // Close (like Done) doesn't leave the item 'unpublished'.
+                            notifyPublishedIfNeeded()
                             dismiss()
                         }
                     }
@@ -95,6 +101,10 @@ struct PublishDialog: View {
         // the push continued server-side but `onPublished` never ran, so the item
         // looked unpublished until the next sync. EbaySyncModal pattern.
         .interactiveDismissDisabled(interactiveDismissBlocked)
+        // US-1648: swipe-to-dismiss on a success card skips the Done button, so
+        // back-stop onPublished here (one-shot) — otherwise a swiped-away success
+        // leaves the item locally unpublished (US-1513 desync).
+        .onDisappear { notifyPublishedIfNeeded() }
         .confirmationDialog(
             "Discard your edits?",
             isPresented: $showingCloseConfirmation,
@@ -112,6 +122,16 @@ struct PublishDialog: View {
                 SafariView(url: url)
             }
         }
+    }
+
+    /// US-1648: fire `onPublished` exactly once for a successful publish, no
+    /// matter which dismiss path runs (Done, toolbar Close, or swipe) — so the
+    /// item's optimistic local apply always runs and it's never left showing
+    /// 'unpublished' after it actually published (US-1513 desync).
+    private func notifyPublishedIfNeeded() {
+        guard !didNotifyPublished, case let .succeeded(response) = phase else { return }
+        didNotifyPublished = true
+        onPublished(response)
     }
 
     /// US-1513: swipe-to-dismiss is blocked while a push is in flight (dismissal
@@ -283,7 +303,7 @@ struct PublishDialog: View {
                 // missing/invalid — the Safari sheet would present blank.
                 .disabled(validListingURL(response.listingURL) == nil)
                 Button {
-                    onPublished(response)
+                    notifyPublishedIfNeeded()
                     dismiss()
                 } label: {
                     Text("Done")
@@ -1100,7 +1120,10 @@ private struct ComposerForm: View {
                         .font(.caption2)
                         .foregroundStyle(Color.brandRed)
                 } else {
-                    Text("Saved back to the item when you publish.")
+                    // US-1648: the price now persists with the listing draft on
+                    // Save (the UPDATE branch writes listing_price), not only at
+                    // publish — so the old "…when you publish" copy was false.
+                    Text("Saved with the listing.")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }

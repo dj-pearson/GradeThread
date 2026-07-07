@@ -104,6 +104,11 @@ struct ListingDraftService {
 
         if let row = existing.first {
             struct Update: Encodable {
+                // US-1648: the composer's price must persist on a re-save too —
+                // the UPDATE branch previously dropped it (only INSERT + the
+                // dedicated PriceUpdate wrote it), so an edited price silently
+                // reverted on the next Save in the composer.
+                let listing_price: Double
                 let listing_title: String
                 let listing_description: String
                 let ebay_condition: String
@@ -119,6 +124,7 @@ struct ListingDraftService {
                 let promo_rate_pct: Double?
 
                 enum CodingKeys: String, CodingKey {
+                    case listing_price
                     case listing_title, listing_description, ebay_condition
                     case ebay_condition_description, item_specifics_override
                     case platform_category_id, return_policy_id
@@ -133,6 +139,7 @@ struct ListingDraftService {
                 // unset field must not clobber an existing draft value.
                 func encode(to encoder: Encoder) throws {
                     var c = encoder.container(keyedBy: CodingKeys.self)
+                    try c.encode(listing_price, forKey: .listing_price)
                     try c.encode(listing_title, forKey: .listing_title)
                     try c.encode(listing_description, forKey: .listing_description)
                     try c.encode(ebay_condition, forKey: .ebay_condition)
@@ -155,6 +162,7 @@ struct ListingDraftService {
             try await supabase
                 .from("listings")
                 .update(Update(
+                    listing_price: listingPrice,
                     listing_title: edits.title,
                     listing_description: edits.description,
                     ebay_condition: edits.condition.rawValue,

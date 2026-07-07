@@ -68,6 +68,11 @@ public final class ReconciliationService {
         targetPrice: Double? = nil
     ) async -> ReconciliationOutcome {
         struct ItemInsert: Encodable {
+            // US-1648: a client-generated id gives the row a stable identity, so
+            // the write below is an idempotent UPSERT — a retry after a lost
+            // response updates the SAME row instead of minting a duplicate
+            // inventory item (matches the photo-first draft convention).
+            let id: String
             let user_id: String
             let title: String
             let sku: String?
@@ -75,16 +80,18 @@ public final class ReconciliationService {
             let status: String
             let item_category: String?
         }
-        struct InsertedId: Decodable { let id: String }
 
         let finalTitle = (title?.trimmingCharacters(in: .whitespaces).nonEmpty
             ?? orphan.suggestedTitle)
         let finalSku = sku?.trimmingCharacters(in: .whitespaces).nonEmpty
             ?? orphan.customLabel?.trimmingCharacters(in: .whitespaces).nonEmpty
         let finalTarget = targetPrice ?? orphan.currentPrice
+        // Lowercased to match Postgres uuid text form (the app's convention).
+        let newId = UUID().uuidString.lowercased()
 
         do {
             let payload = ItemInsert(
+                id: newId,
                 user_id: userId,
                 title: finalTitle,
                 sku: finalSku,
@@ -94,15 +101,10 @@ public final class ReconciliationService {
                 status: "listed",
                 item_category: nil
             )
-            let inserted: [InsertedId] = try await supabase
+            try await supabase
                 .from("inventory_items")
-                .insert(payload, returning: .representation)
-                .select("id")
+                .upsert(payload)
                 .execute()
-                .value
-            guard let newId = inserted.first?.id else {
-                return ReconciliationOutcome(orphanId: orphan.id, kind: .failed(message: "Insert returned no id."))
-            }
             // US-751: mirror the live eBay listing into `listings` (best-effort)
             // so the new item's canvas immediately shows where it's listed — the
             // web reconciliation does this, iOS previously didn't, so a created

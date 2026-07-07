@@ -29,6 +29,13 @@ final class PostSaleStore {
     /// different returns can still be decided concurrently.
     private var decidingReturnIds: Set<String> = []
 
+    /// US-1648: same per-id in-flight guard for the (also money-moving)
+    /// cancellation + payment-dispute decisions, keyed on cancelId /
+    /// paymentDisputeId so a double 'Approve & cancel' or a re-tapped dispute
+    /// resolve can't fire the irreversible decision twice.
+    private var decidingCancelIds: Set<String> = []
+    private var decidingDisputeIds: Set<String> = []
+
     /// US-1146: a dispute-evidence upload that failed, retained so the UI can
     /// offer an explicit Retry rather than losing the (non-idempotent, so
     /// not-auto-retried) upload behind a dismissed error toast.
@@ -119,6 +126,10 @@ final class PostSaleStore {
     func rejectCancellation(_ ca: EbayCancellation) async { await cancel(ca, action: "reject") }
 
     private func cancel(_ ca: EbayCancellation, action: String) async {
+        // US-1648: re-entry guard — a double 'Approve & cancel' must not fire twice.
+        guard !decidingCancelIds.contains(ca.cancelId) else { return }
+        decidingCancelIds.insert(ca.cancelId)
+        defer { decidingCancelIds.remove(ca.cancelId) }
         do {
             try await service.decideCancellation(cancelId: ca.cancelId, action: action, orderId: ca.orderId)
             cancellations.removeAll { $0.cancelId == ca.cancelId }
@@ -142,6 +153,10 @@ final class PostSaleStore {
 
     @discardableResult
     private func resolve(_ d: EbayPaymentDispute, action: String, note: String?) async -> Bool {
+        // US-1648: re-entry guard — a re-tapped accept/contest must not fire twice.
+        guard !decidingDisputeIds.contains(d.paymentDisputeId) else { return false }
+        decidingDisputeIds.insert(d.paymentDisputeId)
+        defer { decidingDisputeIds.remove(d.paymentDisputeId) }
         do {
             try await service.resolveDispute(
                 disputeId: d.paymentDisputeId, action: action, note: note, orderId: d.orderId
