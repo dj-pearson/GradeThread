@@ -773,7 +773,10 @@ public final class PhotoUploadService {
             user_id: task.userId,
             slot: task.slot.rawValue,
             storage_path: task.storagePath,
-            local_file_url: task.localFileURL.path,
+            // US-1646: store the RELATIVE filename (resolved against the staging
+            // dir at replay), so an app-update container relocation can't break
+            // the absolute path and lose the queued upload (missingLocalFile).
+            local_file_url: task.localFileURL.lastPathComponent,
             photo_id: Self.photoId(for: task),
             captured_at: task.capturedAt.map { Self.iso8601.string(from: $0) },
             original_filename: task.sourceName,
@@ -822,8 +825,26 @@ public final class PhotoUploadService {
 
     // MARK: - Temp file plumbing
 
+    /// US-1646: staged upload JPEGs live under Application Support (persistent),
+    /// NOT the purgeable `temporaryDirectory` — so an OS tmp purge, an app update,
+    /// or a container relocation can't delete a file a queued upload still needs
+    /// to replay. The pending mutation stores only the FILENAME (relative), which
+    /// this dir resolves fresh each launch, so the absolute container path
+    /// changing across an update never breaks the reference. `nonisolated` so the
+    /// SyncEngine replay can resolve it off the main actor. Falls back to the
+    /// temp dir only if Application Support is somehow unavailable.
+    nonisolated static func stagingDirectory() -> URL {
+        let base = (try? FileManager.default.url(
+            for: .applicationSupportDirectory, in: .userDomainMask,
+            appropriateFor: nil, create: true))
+            ?? FileManager.default.temporaryDirectory
+        let dir = base.appendingPathComponent("PhotoUploadStaging", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
     private func writeToTempFile(data: Data) -> URL? {
-        let url = FileManager.default.temporaryDirectory
+        let url = Self.stagingDirectory()
             .appendingPathComponent("photo-upload-\(UUID().uuidString).jpg")
         do {
             // US-658: encrypt the staged upload JPEG at rest (it can sit in the
@@ -836,7 +857,7 @@ public final class PhotoUploadService {
     }
 
     private func cleanupAllTempFiles() {
-        let dir = FileManager.default.temporaryDirectory
+        let dir = Self.stagingDirectory()
         let urls = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
         for url in urls where url.lastPathComponent.hasPrefix("photo-upload-") {
             try? FileManager.default.removeItem(at: url)
@@ -850,7 +871,7 @@ public final class PhotoUploadService {
     /// present a day later is genuinely orphaned (the app was killed mid-upload).
     /// `maxAge` / `now` are injectable so the age threshold is unit-testable.
     func cleanupStaleTempFiles(olderThan maxAge: TimeInterval = 24 * 60 * 60, now: Date = .now) {
-        let dir = FileManager.default.temporaryDirectory
+        let dir = Self.stagingDirectory()
         let keys: Set<URLResourceKey> = [.contentModificationDateKey, .creationDateKey]
         let urls = (try? FileManager.default.contentsOfDirectory(
             at: dir, includingPropertiesForKeys: Array(keys))) ?? []

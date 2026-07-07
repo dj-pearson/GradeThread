@@ -1427,7 +1427,12 @@ actor SyncEngine {
             let sort_order: Int?
         }
         let p = try JSONDecoder().decode(UploadPayload.self, from: payload)
-        let fileURL = URL(fileURLWithPath: p.local_file_url)
+        // US-1646: newer payloads store just the FILENAME (resolved against the
+        // Application Support staging dir, which survives a container relocation);
+        // pre-fix payloads stored an absolute path — detect by the path separator.
+        let fileURL: URL = p.local_file_url.contains("/")
+            ? URL(fileURLWithPath: p.local_file_url)
+            : PhotoUploadService.stagingDirectory().appendingPathComponent(p.local_file_url)
         guard let data = try? Data(contentsOf: fileURL) else {
             // The staged bytes are gone — nothing to replay. Terminal.
             throw SyncReplayError.missingLocalFile

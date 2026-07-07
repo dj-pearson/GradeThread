@@ -236,7 +236,9 @@ final class PhotoUploadTests: XCTestCase {
         let payload = try JSONDecoder().decode(Payload.self, from: mutation.payload)
         XCTAssertEqual(payload.photo_id, PhotoUploadService.photoId(for: task))
         XCTAssertEqual(payload.storage_path, task.storagePath)
-        XCTAssertEqual(payload.local_file_url, task.localFileURL.path)
+        // US-1646: the payload carries the RELATIVE filename (resolved against the
+        // staging dir at replay), not the absolute path.
+        XCTAssertEqual(payload.local_file_url, task.localFileURL.lastPathComponent)
     }
 
     /// US-1496: the queued replay payload must carry the photo's strip position so
