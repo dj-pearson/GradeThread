@@ -1,5 +1,33 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00390_lululemon_brand_knowledge.sql (US-1718 Lululemon content, 2026-07-07)
+
+**What:** DATA-ONLY seed of the 00389 KB tables with Lululemon content — 9
+styles with disambiguating visual fingerprints (ABC 5-pocket+gusset vs Commission
+chino, Align vs Wunder Train vs Fast & Free, etc.), 2 decoder specs
+(`style_number` + `size_dot`; DB rows that override the in-code
+DEFAULT_DECODER_SPECS), 5 representative colorways, and enriched
+`brand_knowledge` (tag eras + authentication/size-dot tells). Every fact carries
+source_url + confidence + verified=true. Bumps `EXPECTED_SCHEMA_VERSION` →
+**00390**. Self-records '00390'.
+
+**Risk: LOW — additive INSERTs only** (no DDL, no schema change). Idempotent:
+brand_knowledge via `ON CONFLICT (brand_key) DO UPDATE`, children via
+`ON CONFLICT … DO NOTHING` (re-running never clobbers an admin edit). Tables +
+Lululemon size charts already exist from 00389.
+
+**⚠️ CLIENT READ — none.** No SPA query reads these tables (the admin UI reads
+via the service-role edge route). The KB only affects server-side extraction
+(US-1713) + baseline generation (US-1717). No hard ordering hazard beyond the
+edge boot guard expecting **00390**.
+
+**⚠️ `NOTIFY pgrst, 'reload schema';`** — not strictly required (no schema-shape
+change, rows only), but harmless; keep the runbook uniform.
+
+**⚠️ Apply order:** after 00389 (top of the held stack). Run
+`scripts/apply-prod-migrations.sh`, then redeploy the edge so its boot guard
+matches 00390.
+
 ## ⏳ HELD: 00389_brand_knowledge_base.sql (US-1710 Brand & Style KB, 2026-07-07)
 
 **What:** creates FIVE global-reference operator tables — `brand_knowledge`,
