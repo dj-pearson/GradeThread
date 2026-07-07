@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1741,
+  "nextId": 1745,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -13327,6 +13327,60 @@
         "US-1715",
         "US-1716"
       ]
+    },
+    {
+      "id": "US-1741",
+      "title": "CI hardening: edge `deno test` was silently masked by the fail-fast lint step",
+      "description": "As the team, I want the edge test suite to run in CI even when lint/type-check fails, so a lint error can never again silently disable the entire edge `deno test` and let real test failures accumulate undetected.",
+      "acceptanceCriteria": [
+        "Root cause (documented): the Security workflow runs `deno lint` -> `deno check` -> `deno test` under `bash -e`, so US-1708's `require-await` lint error broke the FIRST step and `deno test` never ran for many commits — hiding 6 real edge-test failures.",
+        "Restructure so a lint/check failure does NOT skip the edge test run: e.g. a dedicated edge-test job independent of the lint job, or `if: always()` on the test step / `continue-on-error` on lint — a red edge test must surface as its own failing signal.",
+        "Both lint AND test still gate merge (no weakening of enforcement); the change is about visibility/ordering, not leniency.",
+        "Add a short note in the workflow (or DEPLOY/CI docs) explaining why the steps are decoupled so this can't regress."
+      ],
+      "priority": 2545,
+      "passes": false,
+      "notes": "[CI-Unmask 2026-07-07][CI][Hardening] The structural root cause. The immediate lint fix (appleRequest) already landed in commit 00720cd2; this story prevents recurrence."
+    },
+    {
+      "id": "US-1742",
+      "title": "Fix ai-metering drift: public-grading.ts imports a model lib unmetered (US-1687 free grade tool)",
+      "description": "As the platform, I want the free public Condition Grade Estimator's model call to be correctly metered OR explicitly allow-listed with a rationale, so the ai-metering drift guard passes and AI spend on the anonymous tool is intentional.",
+      "acceptanceCriteria": [
+        "ai-metering-coverage_test.ts flags `public-grading.ts` importing `quick-grade.ts` (a MODEL_LIB) without `withAiAction` metering or an ALLOWLIST entry.",
+        "Decide the intended behavior for the FREE anonymous tool (US-1687) and implement ONE: (a) meter the model call via `withAiAction`, or (b) add `public-grading.ts` to the drift ALLOWLIST WITH a clear rationale — and in case (b) confirm the route has independent abuse protection (rate limit / turnstile) since there is no per-user quota.",
+        "`deno test src/tests/ai-metering-coverage_test.ts` passes; no user-facing change to the free tool unless metering is the chosen intent."
+      ],
+      "priority": 2542,
+      "passes": false,
+      "notes": "[CI-Unmask 2026-07-07][CI][Metering][US-1687] Intent decision — the free public tool may be deliberately un-metered; if so, allow-list with a rationale."
+    },
+    {
+      "id": "US-1743",
+      "title": "Fix the 4 unmasked agent-tools_test.ts failures (US-1595/1599/1600/1602)",
+      "description": "As the team, I want the AGENTIC-OS agent-tools assertions passing again, so the governed agent tool contracts are actually verified in CI.",
+      "acceptanceCriteria": [
+        "Four assertions in `agent-tools_test.ts` fail once the suite is unmasked: get_support_triage excerpt redaction (US-1595), set_marketing_frequency_cap clamps 1..10 (US-1599), enroll_cohort write-gating + cohort/campaign passthrough (US-1600), get_growth_health funnel cliff + prior-slate (US-1602).",
+        "Root-cause them (check for a SHARED cause — a changed helper/mock/schema in agent-tools.ts) rather than patching each blindly.",
+        "Fix so all four pass. Where a failure reflects a DELIBERATE contract change, update the assertion with a comment explaining why; never delete coverage to go green.",
+        "`deno test src/tests/agent-tools_test.ts` green with no new regressions."
+      ],
+      "priority": 2541,
+      "passes": false,
+      "notes": "[CI-Unmask 2026-07-07][CI][AgenticOS] Likely a shared root cause; investigate agent-tools.ts first."
+    },
+    {
+      "id": "US-1744",
+      "title": "Fix support-triage prepareExcerpt test (US-1595) — email scrub + length cap",
+      "description": "As the platform, I want the support-triage excerpt redaction verified, so customer PII (emails) is scrubbed and excerpts are length-capped before reaching an agent/model.",
+      "acceptanceCriteria": [
+        "`support-triage_test.ts` 'prepareExcerpt: scrubs email + caps length' fails once the suite is unmasked.",
+        "Determine whether `prepareExcerpt` regressed or the test drifted from the implementation, and fix the correct side.",
+        "Verify email/PII scrubbing AND the length cap both behave; `deno test src/tests/support-triage_test.ts` green."
+      ],
+      "priority": 2540,
+      "passes": false,
+      "notes": "[CI-Unmask 2026-07-07][CI][Support][US-1595] PII-scrubbing correctness — treat as security-relevant."
     }
   ]
 }
