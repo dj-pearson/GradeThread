@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1848,
+  "nextId": 1860,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -14774,6 +14774,162 @@
       "priority": 1847,
       "passes": false,
       "notes": "[P2][BUYER][QA] Load tenant-isolation skill (every new route needs a test case). Money paths (guarantee 1821/1822, rewards 1813, fees 1832) need idempotency + cap tests. Run npm run verify. Cross-cutting; closes out the buyer-platform backlog."
+    },
+    {
+      "id": "US-1848",
+      "title": "EPIC: GradeThread Rewards — gamified grade -> share -> reward viral loop",
+      "description": "As a user, I want to earn points, levels, badges, streaks and real rewards for grading items, completing activities, and sharing my finds so that engagement is fun and habit-forming — and as GradeThread I want the built-in loop (grade -> auto-generated share overlay -> social share -> reward -> public showcase -> new signups) to be our primary viral growth engine.",
+      "acceptanceCriteria": [
+        "A rewards system supports BOTH cosmetic rewards (XP, levels, badges/medals, streaks, leaderboard rank, profile/overlay flair — free and unlimited) AND tangible rewards (free grade credits, subscription discounts, discounted grading — budget-capped and anti-abuse-gated)",
+        "The core loop is frictionless: grade an item -> get an auto-generated shareable overlay card -> share it -> the share (and verified click-throughs) earn rewards -> the find can appear in a public showcase feed",
+        "All reward earning is event-sourced, idempotent, fraud-resistant, and tangible-reward payout is capped to protect unit-economics margins with an admin kill-switch"
+      ],
+      "priority": 1848,
+      "passes": false,
+      "notes": "[P2][GAME][EPIC] BASELINE (rails already built to reward ON): grade credits via grant_grade_credits RPC + grade_credit_transactions; referral_milestone_grants (reward-on-threshold precedent); referral_campaign_codes -> immediate credits (redemption model to mirror); Stripe billing in payments.ts; share renderer cert-image-render.ts + SLAB_FORMATS + cert-share-actions.tsx (referral-baked share); cert view/click tracking (content-public.ts /view ?s=) + affiliate_clicks/referral_events attribution; leaderboard opt-in (referrals.ts, referral-leaderboard.tsx) + verified directory. GAP (greenfield): no XP/points, levels, badges/achievements, streaks, quests, showcase feed, or redemption-of-XP-for-rewards. TECH/3P: none new (all in-stack: Postgres event ledger, Stripe coupons, existing renderer). TIES: EPIC 9 (US-1781/1782 auto grade-reveal cards) is the share engine this loop rides; referral/affiliate for attribution; verified directory for leaderboards; unit-economics (Pro 750 / Business 2000 AI-action caps, 40% margin floor) constrains tangible rewards; admin-fraud/admin-safety for anti-gaming; notifications/drip for re-engagement; feature_flags for kill-switch. BUYER: showcase feed to browse cool finds (SEO + social). SELLER/USER: fun, status, streaks, real discounts, effortless sharing. ECONOMICS RULE: cosmetic rewards unlimited; tangible rewards MUST be capped + fraud-gated + margin-aware. Child stories: points engine, achievements, levels/streaks, quests, tangible redemption, share-to-earn, showcase feed, leaderboards, rewards UI, economics/anti-abuse, re-engagement."
+    },
+    {
+      "id": "US-1849",
+      "title": "Rewards: event-sourced XP/points engine",
+      "description": "As the platform, I want an idempotent, event-sourced points ledger so that every rewardable activity grants XP exactly once and the whole system is auditable.",
+      "acceptanceCriteria": [
+        "New reward_events (append-only: user_id, event_type, xp_awarded, source_ref, dedupe_key, created_at) + user_reward_state (xp_total, level, current_streak, longest_streak, updated_at) tables, tenant-scoped RLS",
+        "A grantReward(userId, eventType, sourceRef) primitive is idempotent on dedupe_key (e.g. grade:{submissionId}, share:{cardId}) so replays/retries never double-award",
+        "Rewardable events wired at their source (grade finalized, photos added, profile completed, first sale, referral converted, share published, verified share-click) with per-event XP configured in a catalog"
+      ],
+      "priority": 1849,
+      "passes": false,
+      "notes": "[P2][GAME] Migration triple for reward_events + user_reward_state (+ reward_event_types catalog config, RLS deny-all). Mirror the append-only + dedupe discipline of garment_events and the CAS discipline of reserve_ai_action. Hook emit points at: grading-pipeline finalize, grade.ts photo add, verified profile save, sales, referrals.ts convert, share publish (EPIC 9)."
+    },
+    {
+      "id": "US-1850",
+      "title": "Rewards: achievements / badges / medals catalog + award engine",
+      "description": "As a user, I want to unlock badges and medals for accomplishments so that I have collectible goals and shareable status symbols.",
+      "acceptanceCriteria": [
+        "A definitions catalog (reward_badges: key, name, description, tier bronze/silver/gold, icon, criteria, hidden flag) + an earned table (user_badges: user_id, badge_key, earned_at, context) with RLS",
+        "An award engine evaluates badge criteria off reward_events / grade data and awards idempotently (examples: First Grade, 10/100/1000 Grades, Perfect 10, NWT Find, Rare Brand, 7-Day Streak, Vault Value milestone, First Share, Viral Find for N verified click-throughs)",
+        "Each earned badge can be rendered as a shareable card (reuse cert-image-render) and appears on the user's verified profile"
+      ],
+      "priority": 1850,
+      "passes": false,
+      "notes": "[P2][GAME] Migration triple for reward_badges (catalog, deny-all) + user_badges (tenant RLS). Award evaluation off the reward ledger + grade_reports (overall_score for Perfect 10, garment/brand for Rare Brand). Badge card = new SLAB_FORMATS variant (cert-og-template.ts). Surface on verified-seller profile."
+    },
+    {
+      "id": "US-1851",
+      "title": "Rewards: levels, tiers & activity streaks",
+      "description": "As a user, I want to level up and keep streaks so that regular grading becomes a rewarding habit.",
+      "acceptanceCriteria": [
+        "XP thresholds map to named levels/tiers (e.g. Thrifter -> Picker -> Curator -> Archivist -> Legend) shown as progress toward the next level; level is derived from user_reward_state.xp_total",
+        "Activity streaks (e.g. grade something each week) tracked with a grace/streak-freeze rule; streak milestones grant XP/badges",
+        "Levels unlock cosmetic perks (profile flair, exclusive share-card frames/overlays) with no hard paywall"
+      ],
+      "priority": 1851,
+      "passes": false,
+      "notes": "[P2][GAME] Level thresholds + streak logic in a rewards lib; streak update on rewardable activity (timezone-aware, reuse scheduled-drops tz handling). Cosmetic overlay frames = additional cert-image-render templates gated by level. No tangible cost = unlimited."
+    },
+    {
+      "id": "US-1852",
+      "title": "Rewards: quests & time-boxed challenges (personal + community)",
+      "description": "As a user, I want quests and seasonal challenges so that there's always a fresh reason to come back and grade/share.",
+      "acceptanceCriteria": [
+        "Personal quests (e.g. 'grade 3 items this week', 'share 1 find', 'add measurements to 5 items') with progress tracking and XP/reward on completion",
+        "Time-boxed community/seasonal challenges (e.g. 'Best thrift find of the month') that can feed the showcase feed and leaderboards",
+        "Admin-configurable quest definitions (criteria, window, reward) with start/end and a kill-switch"
+      ],
+      "priority": 1852,
+      "passes": false,
+      "notes": "[P2][GAME] Migration triple for quests (config, deny-all) + user_quest_progress (tenant RLS). Progress derived from reward_events. Community challenges tie to the showcase feed + leaderboards. Admin CRUD via a new admin surface (mirror admin-growth patterns)."
+    },
+    {
+      "id": "US-1853",
+      "title": "Rewards: tangible reward redemption (grade credits + subscription/grading discounts)",
+      "description": "As a user, I want to convert my achievements/points into real perks so that engagement pays off — free grades or a discount on my subscription.",
+      "acceptanceCriteria": [
+        "A redemption catalog (reward_redemptions_catalog: reward_type free_grade_credits | subscription_discount | per_grade_discount, cost_xp or trigger badge/milestone, value, monthly cap) that admins configure",
+        "Redeeming free grade credits grants via the existing grant_grade_credits RPC into grade_credit_transactions; subscription discounts issue a Stripe coupon/promo applied in payments.ts; per-grade discounts apply at the payment-precedence step",
+        "Every redemption is recorded in a redemption ledger, is idempotent, respects per-user and global caps, and cannot be double-spent (XP debited atomically)"
+      ],
+      "priority": 1853,
+      "passes": false,
+      "notes": "[P2][GAME][BILLING] Migration triple for redemption catalog + user_redemptions ledger. Credits reuse grant_grade_credits (as referral_campaign_codes already do). Stripe coupon path in payments.ts (subscribe/downgrade). Per-grade discount hooks runPaymentPrecedence (grade-billing.ts). MUST enforce caps from the economics story below."
+    },
+    {
+      "id": "US-1854",
+      "title": "Rewards: share-to-earn loop (auto overlay -> verified share -> reward)",
+      "description": "As a user, I want to be rewarded for sharing my graded finds so that showing off my finds is both fun and worthwhile — the core viral trigger.",
+      "acceptanceCriteria": [
+        "Sharing a grade's auto-generated overlay card (from EPIC 9 / US-1782) creates a tracked share and grants XP; bonus XP/credit for VERIFIED click-throughs (real visits via the referral-baked link), not merely pressing share",
+        "Anti-gaming: rewards key off attributed unique clicks/signups (affiliate_clicks/referral_events), rate-limited, with fraud checks so self-clicking/bots can't farm rewards",
+        "A 'Viral Find' badge + escalating rewards for finds that drive N verified click-throughs or a signup"
+      ],
+      "priority": 1854,
+      "passes": false,
+      "notes": "[P2][GAME][SHARE][GROWTH] Depends on EPIC 9 US-1782 (auto reveal card) + cert-share-actions.tsx referral bake + cert_view ?s= + affiliate_clicks/referral_events. Reward on verified conversion, not raw share, to prevent farming. Fraud gate via admin-fraud.ts + rate_limit_counters."
+    },
+    {
+      "id": "US-1855",
+      "title": "Rewards: public Showcase / 'Finds' feed",
+      "description": "As a visitor, I want a public feed of cool graded finds so that I get inspired, discover GradeThread, and want to grade my own — and as a user I want my best finds featured.",
+      "acceptanceCriteria": [
+        "An opt-in public showcase feed of graded finds (photo + grade + optional value + verified seller link), with filters (brand, category, grade, trending) and reactions/upvotes",
+        "Feed entries are SEO-indexable (edge-SSR Pages Function, Model B) with Product/ItemList JSON-LD and link to the certificate and seller profile",
+        "Featured/trending finds surface on the landing page and feed community challenges/leaderboards; only public, non-PII, seller-consented items appear"
+      ],
+      "priority": 1855,
+      "passes": false,
+      "notes": "[P2][GAME][SEO][SHARE] Model B Pages Function (clone condition-index/[[path]].ts) + public edge endpoint over grade_reports (public_grade_reports view) filtered to opt-in/showcased. Reactions table (tenant RLS). Ties verified profiles + certificate. Sitemap + _routes.json + PWA denylist. Consent required (mirror verified_show_listings)."
+    },
+    {
+      "id": "US-1856",
+      "title": "Rewards: leaderboards (weekly / all-time / category)",
+      "description": "As a competitive user, I want leaderboards so that I can climb ranks for finds, grades, XP, and shares.",
+      "acceptanceCriteria": [
+        "Leaderboards for XP, grades, best finds, and share-driven signups (weekly, all-time, and by category/brand), opt-in with a public alias",
+        "Built on the existing referral leaderboard opt-in + verified directory; anti-gaming safeguards and tie-breaks",
+        "Leaderboard pages are SEO-indexable and interlink with the showcase feed and verified profiles"
+      ],
+      "priority": 1856,
+      "passes": false,
+      "notes": "[P2][GAME][SEO] Reuse referrals.ts leaderboard opt-in + referral-leaderboard.tsx + verified-directory. Weekly windows via a snapshot job. Cross-link showcase + profiles. Anti-gaming shared with share-to-earn."
+    },
+    {
+      "id": "US-1857",
+      "title": "Rewards: user-facing UI (progress, badges shelf, celebrations, share)",
+      "description": "As a user, I want a delightful rewards UI so that I can see my progress, badges, streaks, and next reward, and celebrate wins.",
+      "acceptanceCriteria": [
+        "Dashboard rewards widget: XP bar + level, current streak, badge shelf, active quests, and 'next reward' progress; a full rewards page with badge gallery and redemption store",
+        "Celebration moments (toast + lightweight confetti/animation via sonner + CSS, no heavy deps) on XP gains, badge unlocks, and level-ups, each with a one-tap share of a badge/level card",
+        "Redemption store lets users spend XP on catalog rewards with clear caps/availability; respects reduced-motion and accessibility (WCAG AA per VPAT posture)"
+      ],
+      "priority": 1857,
+      "passes": false,
+      "notes": "[P2][GAME][UI] React 19 + Tailwind v4 + shadcn; toasts via sonner (project rule); animations CSS-only, honor prefers-reduced-motion. Widget on dashboard.tsx; full page new route. Badge/level share cards reuse the renderer. jsx-a11y build-blocking (accessibility memory)."
+    },
+    {
+      "id": "US-1858",
+      "title": "Rewards: economics guardrails, budget caps & anti-abuse",
+      "description": "As GradeThread, I want tangible rewards strictly capped and fraud-gated so that gamification drives growth without eroding margins or being farmed.",
+      "acceptanceCriteria": [
+        "A global + per-user tangible-reward budget (free grades + discounts) with an ai_budgets-style ceiling and an admin kill-switch; cosmetic rewards are exempt (zero marginal cost)",
+        "Tangible payout respects unit-economics guardrails (grades cost real AI $; keep tiers above the 40% margin floor / AI-action caps) and is reconciled against grade_credit_transactions + Stripe",
+        "Abuse detection: dedupe on all grants, velocity limits, self-referral/self-click blocking, and a fraud review queue (reuse admin-fraud/admin-safety); admin dashboard of reward spend vs signups (ROI)"
+      ],
+      "priority": 1858,
+      "passes": false,
+      "notes": "[P2][GAME][OPS][BILLING] Reuse ai_budgets pattern for a reward_budget + kill-switch (feature_flags). Ties project_subscription_unit_economics (Pro 750 / Business 2000 caps, 40% floor). Fraud via admin-fraud.ts + rate_limit_counters + step-up-audited grants (admin-growth pattern). ROI dashboard = reward spend vs attributed signups."
+    },
+    {
+      "id": "US-1859",
+      "title": "Rewards: re-engagement nudges (streaks, near-miss, quests)",
+      "description": "As a lapsing user, I want timely nudges so that I keep my streak, finish quests, and come back to grade and share.",
+      "acceptanceCriteria": [
+        "Opt-in notifications: streak-at-risk reminders, 'you're 1 grade from the {badge}' near-miss nudges, new-quest and challenge announcements, and reward-available alerts",
+        "Delivered via the existing notifications/drip/journey engine, frequency-capped and honoring notification preferences + suppressions",
+        "Nudges are attributed so we can measure re-engagement lift"
+      ],
+      "priority": 1859,
+      "passes": false,
+      "notes": "[P2][GAME][GROWTH] Reuse notifications.ts + drip.ts + journeys + admin-suppressions. Frequency caps + preference/consent (ties legal geo-consent + branded auth email pipeline). Attribution via campaign-tracking."
     }
   ]
 }
