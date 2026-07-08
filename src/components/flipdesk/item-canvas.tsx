@@ -95,7 +95,7 @@ import {
 import type { AspectSourceMap } from "@/lib/aspect-provenance";
 import { advanceItemStatus } from "@/lib/status-writer";
 import { deriveListingOrigin } from "@/lib/listing-origin";
-import { cn } from "@/lib/utils";
+import { cn, errorMessage } from "@/lib/utils";
 import {
   AiFillPanel,
   type AcceptedField,
@@ -1000,27 +1000,49 @@ export function ItemCanvas({
     } catch (err) {
       // Duplicate SKU (partial unique index on user_id, sku) → offer to merge
       // the two records instead of dead-ending on the raw Postgres error.
-      const pgErr = err as { code?: string; message?: string };
+      // supabase-js rejects with a PostgrestError plain object, so read code +
+      // message + details directly (the constraint name can land in either).
+      const pgErr = err as {
+        code?: string;
+        message?: string;
+        details?: string;
+      };
       const sku = state.sku.trim();
-      if (
+      const dupText = `${pgErr.message ?? ""} ${pgErr.details ?? ""}`;
+      const isSkuDuplicate =
         pgErr.code === "23505" &&
-        sku &&
-        (pgErr.message ?? "").includes("idx_inventory_items_user_sku")
-      ) {
-        const { data } = await supabase
+        !!sku &&
+        (dupText.includes("idx_inventory_items_user_sku") ||
+          dupText.toLowerCase().includes("sku"));
+      if (isSkuDuplicate) {
+        // Load the row that already owns this SKU so the merge dialog can show
+        // its fields. `.limit(1)` (not `.maybeSingle()`) so a stray >1-row data
+        // state can't itself throw and mask the duplicate.
+        const { data, error: lookupErr } = await supabase
           .from("inventory_items")
           .select("*")
           .eq("user_id", item.user_id)
           .eq("sku", sku)
           .neq("id", item.id)
-          .maybeSingle();
-        if (data) {
-          setMergeExisting(data as InventoryItemRow);
+          .order("updated_at", { ascending: false })
+          .limit(1);
+        const existing = (data ?? [])[0] as InventoryItemRow | undefined;
+        if (existing) {
+          setMergeExisting(existing);
           return;
         }
+        // The index says the SKU is taken, but we couldn't load the other row
+        // (RLS, a filter, or it was just deleted). Tell the user plainly rather
+        // than dead-ending on a raw Postgres string.
+        toast.error(
+          `SKU "${sku}" is already used by another item in your inventory. ` +
+            (lookupErr
+              ? "It couldn't be loaded to merge — refresh and try again."
+              : "Pick a different SKU, or open that item to merge them."),
+        );
+        return;
       }
-      const msg = err instanceof Error ? err.message : String(err);
-      toast.error(`Save failed: ${msg}`);
+      toast.error(`Save failed: ${errorMessage(err)}`);
     } finally {
       setSaving(false);
     }
@@ -1059,17 +1081,13 @@ export function ItemCanvas({
       } catch (persistErr) {
         // The merge itself committed; only the field choices failed to save.
         toast.error(
-          `Records merged, but saving your field choices failed: ${
-            persistErr instanceof Error
-              ? persistErr.message
-              : String(persistErr)
-          }. Review the item and save again.`,
+          `Records merged, but saving your field choices failed: ${errorMessage(
+            persistErr,
+          )}. Review the item and save again.`,
         );
       }
     } catch (err) {
-      toast.error(
-        `Merge failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toast.error(`Merge failed: ${errorMessage(err)}`);
     } finally {
       setMerging(false);
     }
@@ -1104,9 +1122,7 @@ export function ItemCanvas({
       toast.success("Duplicated. The copy is in Cataloged.");
       onAfterSave?.();
     } catch (err) {
-      toast.error(
-        `Duplicate failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toast.error(`Duplicate failed: ${errorMessage(err)}`);
     }
   }
 
@@ -1121,9 +1137,7 @@ export function ItemCanvas({
       toast.success("Item moved back to Draft for relisting.");
       onAfterSave?.();
     } catch (err) {
-      toast.error(
-        `Relist failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toast.error(`Relist failed: ${errorMessage(err)}`);
     }
   }
 
@@ -1135,9 +1149,7 @@ export function ItemCanvas({
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       toast.success(`Marked ${ITEM_STATUS_LABELS[target].toLowerCase()}.`);
     } catch (err) {
-      toast.error(
-        `Failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toast.error(`Failed: ${errorMessage(err)}`);
     }
   }
 

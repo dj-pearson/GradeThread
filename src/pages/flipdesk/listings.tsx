@@ -2633,13 +2633,14 @@ export function FlipdeskListingsPage() {
                             />
                           </TableCell>
                           <TableCell
-                            className="hidden text-muted-foreground 2xl:table-cell"
+                            className="hidden max-w-[220px] text-muted-foreground 2xl:table-cell"
                             onClick={(e) => e.stopPropagation()}
                           >
                             <InlineCell
                               value={it.notes}
                               type="text"
                               placeholder="Add notes"
+                              truncate
                               onChange={(v) => updateItemNotes(it, v)}
                             />
                           </TableCell>
