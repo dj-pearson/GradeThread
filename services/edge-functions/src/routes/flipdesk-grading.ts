@@ -82,6 +82,20 @@ interface ValidationResult {
 // covers the weaker-signal case.
 const REQUIRED_GRADING_PHOTO_TYPES = ["front", "back"] as const;
 
+// The grading pipeline's image-quality gate (image-quality.ts) ABSTAINS unless
+// at least one close-up "detail_*" shot is present — it's what lets the grader
+// read the fabric weave/knit, which drives the fabric_condition factor (30% of
+// the score). It is NOT a defect photo. We surface it as a pre-submission
+// blocker here (rather than letting a "ready" item abstain post-submit) so the
+// requirement is known BEFORE the round-trip. These FlipDesk photo types map to
+// a grading `detail_*` image_type (see mapPhotoTypeForGrading) and satisfy it.
+const FABRIC_CLOSEUP_PHOTO_TYPES = [
+  "detail",
+  "detail_2",
+  "detail_3",
+  "detail_4",
+] as const;
+
 // Pulls the user record + all items + photo coverage in one round-trip set,
 // then computes per-item readiness. Used by both /validate (just returns the
 // result) and /submit (in G2; refuses to proceed if can_submit is false).
@@ -216,6 +230,13 @@ async function buildValidation(
       }
       if (missingPhotos.length > 0) {
         blockers.push(`Missing required photos: ${missingPhotos.join(", ")}`);
+      }
+      // Mirror the grading gate's fabric close-up requirement up front so a
+      // "ready" item doesn't abstain after submission (see FABRIC_CLOSEUP note).
+      if (!FABRIC_CLOSEUP_PHOTO_TYPES.some((t) => have.has(t))) {
+        blockers.push(
+          "Add one fabric close-up (a detail photo of the weave/knit or a seam) — it's what we grade the fabric from, not a defect shot.",
+        );
       }
     }
 

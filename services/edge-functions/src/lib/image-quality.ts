@@ -115,7 +115,7 @@ export function evaluateImageQuality(
       problem: "missing",
       severity: "block",
       message:
-        "Add at least one close-up detail photo (fabric weave, seams, or any wear).",
+        "Add one close-up of the fabric itself — the weave/knit texture or a seam, shot up close. This isn't a defect photo; it's what lets us grade the fabric.",
     });
   }
 
