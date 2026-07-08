@@ -318,6 +318,11 @@ export interface UserRow {
   // for SEO/GEO discovery attribution (esp. the "AI assistant" option). Migration 00379.
   signup_source: SignupSource | null;
   onboarded_at: string | null;
+  // US-1796: additive buyer/seller role flags (migration 00401). One identity can
+  // be seller, buyer, or both. Role markers only — capability still gates on
+  // flipdesk_plan (seller) / the buyer plan (buyer, US-1800).
+  is_seller: boolean;
+  is_buyer: boolean;
   suspended: boolean;
   // FlipDesk user-state flags (migrations 00028, 00029, 00242)
   flipdesk_onboarded: boolean;
@@ -2032,6 +2037,9 @@ export interface UserInsert {
   /** @deprecated kept for legacy compatibility; new code should not set this. */
   plan?: UserPlan;
   role?: UserRole;
+  // US-1796: buyer/seller role flags (migration 00401).
+  is_seller?: boolean;
+  is_buyer?: boolean;
   stripe_customer_id?: string | null;
   flipdesk_plan?: FlipdeskPlan;
   flipdesk_interval?: BillingInterval | null;

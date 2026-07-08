@@ -14058,7 +14058,7 @@
         "Migration triple satisfied (idempotent SQL + EXPECTED_SCHEMA_VERSION bump in same commit + self-record footer); RLS unchanged-or-tightened; no .or() on mutations"
       ],
       "priority": 1796,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][FOUNDATION][NEW] Load migrations skill. Extends the profiles/users model + handle_new_user() trigger. Decide flag-vs-join-table: prefer additive is_buyer/is_seller booleans (backfill is_seller=true for existing rows) to avoid churning RLS across the app. Types in src/types/database.ts. TIES: gates buyer dashboard/nav (1802) + buyer entitlements (1800). RISK: don't break the seller onboarding path; add a tenant-isolation_test.ts case if any edge route reads role."
     },
     {
