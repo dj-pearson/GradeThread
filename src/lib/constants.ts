@@ -384,6 +384,181 @@ export const CREDIT_PACKS: readonly CreditPackConfig[] = [
 
 export type CreditPackSize = (typeof CREDIT_PACKS)[number]["credits"];
 
+// ─── Buyer Platform plans (US-1799) ────────────────────────────────
+//
+// The buyer product is a SEPARATE subscription from any FlipDesk/seller plan —
+// one person can hold both on one Stripe customer (webhook plan-resolution keys
+// on price/product, not "the subscription"). Tiers: Free / Guard (~$8) /
+// Connoisseur (~$19). BuyerGateFlags is the single source of truth for what each
+// tier unlocks; US-1800 resolves it on client + edge. Flag + allowance names are
+// STABLE — they are referenced across the buyer feature epics (US-1805…1844), so
+// rename with care.
+
+export type BuyerPlanKey = "free" | "guard" | "connoisseur";
+
+export interface BuyerGateFlags {
+  /** AI condition second-opinion inside the browser extension (US-1753/1834). */
+  extensionSecondOpinion: boolean;
+  /** Claimed-vs-objective condition discrepancy scoring (US-1834). */
+  discrepancyScoring: boolean;
+  /** Condition-adjusted price-fairness meter (US-1835). */
+  priceFairness: boolean;
+  /** Condition-based alerts + watchlist (US-1805). */
+  conditionAlerts: boolean;
+  /** "Will it fit me?" fit prediction (US-1776/1839). */
+  fitPrediction: boolean;
+  /** Authenticity verification add-on access (US-1767/1840). Metered by credits. */
+  authenticityAddon: boolean;
+  /** Walk-around video grading access (US-1762/1841). Metered by credits. */
+  videoGrading: boolean;
+  /** Grade-confirmation rewards loop (US-1810). */
+  rewards: boolean;
+  /** Buyer trust score & connoisseur levels (US-1815). */
+  trustScore: boolean;
+  /** Insured grade-locked purchase guarantee (US-1819). */
+  purchaseGuarantee: boolean;
+  /** Wardrobe portfolio / closet valuation (US-1824). */
+  wardrobePortfolio: boolean;
+  /** "Graded Wanted" reverse demand board (US-1829). */
+  demandBoard: boolean;
+  /** Priority support SLA. */
+  prioritySupport: boolean;
+}
+
+/** Plan-based alert delivery cadence cap (ties to notifications US-1803). */
+export type BuyerAlertFrequency = "daily" | "hourly" | "instant";
+/** Insured grade-locked guarantee coverage tier (US-1819). */
+export type BuyerGuaranteeTier = "none" | "standard" | "plus";
+
+export interface BuyerPlanConfig {
+  name: string;
+  priceMonthlyCents: number;
+  priceYearlyCents: number;
+  // Metered monthly allowances (-1 = unlimited). Debit precedence for metered
+  // actions is: included allowance → credit balance → upgrade prompt (US-1800).
+  extensionChecksPerMonth: number;
+  authenticityCreditsPerMonth: number;
+  videoGradeCreditsPerMonth: number;
+  /** Max concurrently-active alerts/saved-searches (-1 = unlimited). */
+  activeAlertsCap: number;
+  /** Fastest alert cadence this tier may pick. */
+  alertFrequency: BuyerAlertFrequency;
+  guaranteeCoverageTier: BuyerGuaranteeTier;
+  /** Max items tracked in the wardrobe portfolio (-1 = unlimited). */
+  portfolioItemCap: number;
+  features: string[];
+  gateFlags: BuyerGateFlags;
+}
+
+export const BUYER_PLANS: Record<BuyerPlanKey, BuyerPlanConfig> = {
+  free: {
+    name: "Free",
+    priceMonthlyCents: 0,
+    priceYearlyCents: 0,
+    extensionChecksPerMonth: 10,
+    authenticityCreditsPerMonth: 0,
+    videoGradeCreditsPerMonth: 0,
+    activeAlertsCap: 3,
+    alertFrequency: "daily",
+    guaranteeCoverageTier: "none",
+    portfolioItemCap: 10,
+    features: [
+      "10 extension second-opinions / month",
+      "3 condition alerts (daily)",
+      "Grade-confirmation rewards",
+      "Buyer trust score",
+      "Track up to 10 closet items",
+    ],
+    gateFlags: {
+      extensionSecondOpinion: true,
+      discrepancyScoring: false,
+      priceFairness: false,
+      conditionAlerts: true,
+      fitPrediction: false,
+      authenticityAddon: false,
+      videoGrading: false,
+      rewards: true,
+      trustScore: true,
+      purchaseGuarantee: false,
+      wardrobePortfolio: true,
+      demandBoard: false,
+      prioritySupport: false,
+    },
+  },
+  guard: {
+    name: "Guard",
+    priceMonthlyCents: 800,
+    priceYearlyCents: 8000,
+    extensionChecksPerMonth: -1,
+    authenticityCreditsPerMonth: 3,
+    videoGradeCreditsPerMonth: 2,
+    activeAlertsCap: 25,
+    alertFrequency: "hourly",
+    guaranteeCoverageTier: "standard",
+    portfolioItemCap: 200,
+    features: [
+      "Unlimited extension second-opinions",
+      "Claimed-vs-objective discrepancy + price-fairness",
+      "25 condition alerts (hourly)",
+      "Fit prediction",
+      "3 authenticity + 2 video-grade credits / month",
+      "Standard grade-locked purchase guarantee",
+      "Track up to 200 closet items",
+    ],
+    gateFlags: {
+      extensionSecondOpinion: true,
+      discrepancyScoring: true,
+      priceFairness: true,
+      conditionAlerts: true,
+      fitPrediction: true,
+      authenticityAddon: true,
+      videoGrading: true,
+      rewards: true,
+      trustScore: true,
+      purchaseGuarantee: true,
+      wardrobePortfolio: true,
+      demandBoard: false,
+      prioritySupport: false,
+    },
+  },
+  connoisseur: {
+    name: "Connoisseur",
+    priceMonthlyCents: 1900,
+    priceYearlyCents: 19000,
+    extensionChecksPerMonth: -1,
+    authenticityCreditsPerMonth: 15,
+    videoGradeCreditsPerMonth: 10,
+    activeAlertsCap: -1,
+    alertFrequency: "instant",
+    guaranteeCoverageTier: "plus",
+    portfolioItemCap: -1,
+    features: [
+      "Everything in Guard",
+      "Unlimited alerts (instant)",
+      "15 authenticity + 10 video-grade credits / month",
+      "Plus grade-locked purchase guarantee",
+      "Graded-Wanted demand board",
+      "Unlimited closet portfolio",
+      "Priority support",
+    ],
+    gateFlags: {
+      extensionSecondOpinion: true,
+      discrepancyScoring: true,
+      priceFairness: true,
+      conditionAlerts: true,
+      fitPrediction: true,
+      authenticityAddon: true,
+      videoGrading: true,
+      rewards: true,
+      trustScore: true,
+      purchaseGuarantee: true,
+      wardrobePortfolio: true,
+      demandBoard: true,
+      prioritySupport: true,
+    },
+  },
+} as const;
+
 // Canonical machine-readable mirror of the FlipDesk tier matrix in
 // docs/PRICING.md (US-200 AC). Alias of FLIPDESK_PLANS so there is exactly one
 // source of truth — any change here changes both. Prefer FLIPDESK_PLANS in new
@@ -1141,6 +1316,20 @@ export const STRIPE_PRICE_IDS = {
     business: {
       monthly: env("VITE_STRIPE_PRICE_FLIPDESK_BUSINESS_MONTHLY", "price_flipdesk_business_monthly_placeholder"),
       yearly:  env("VITE_STRIPE_PRICE_FLIPDESK_BUSINESS_YEARLY",  "price_flipdesk_business_yearly_placeholder"),
+    },
+  },
+  // Buyer Platform subscription (US-1799). A buyer sub and a FlipDesk sub can
+  // coexist on one Stripe customer; the webhook resolves the product by matching
+  // the subscription's price id against this map (buyerPlanForPriceId), never by
+  // assuming "the subscription" is the seller one.
+  buyer: {
+    guard: {
+      monthly: env("VITE_STRIPE_PRICE_BUYER_GUARD_MONTHLY", "price_buyer_guard_monthly_placeholder"),
+      yearly:  env("VITE_STRIPE_PRICE_BUYER_GUARD_YEARLY",  "price_buyer_guard_yearly_placeholder"),
+    },
+    connoisseur: {
+      monthly: env("VITE_STRIPE_PRICE_BUYER_CONNOISSEUR_MONTHLY", "price_buyer_connoisseur_monthly_placeholder"),
+      yearly:  env("VITE_STRIPE_PRICE_BUYER_CONNOISSEUR_YEARLY",  "price_buyer_connoisseur_yearly_placeholder"),
     },
   },
   gradethread: {

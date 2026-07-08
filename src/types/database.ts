@@ -4,6 +4,9 @@ export type UserPlan = "free" | "starter" | "professional" | "enterprise";
 
 // Pricing model split (US-200/US-201): FlipDesk subscription tier + Stripe lifecycle.
 export type FlipdeskPlan = "free" | "starter" | "pro" | "business";
+// Buyer Platform subscription tier (US-1799). Mirrors BUYER_PLANS keys in
+// src/lib/constants.ts. Separate lifecycle from the FlipDesk/seller plan.
+export type BuyerPlan = "free" | "guard" | "connoisseur";
 export type SubscriptionStatus =
   | "none"
   | "trialing"
@@ -348,6 +351,15 @@ export interface UserRow {
   grade_credit_balance: number;
   // 14-day Pro trial bookkeeping (US-219). One trial per user, ever.
   trial_ends_at: string | null;
+  // US-1799: buyer-platform subscription state (migration 00402). Separate from
+  // the flipdesk_* family — one Stripe customer can hold both a buyer and a
+  // seller subscription. Buyer capability gates on buyer_plan (US-1800).
+  buyer_plan: BuyerPlan;
+  buyer_interval: BillingInterval | null;
+  buyer_subscription_status: SubscriptionStatus;
+  buyer_subscription_id: string | null;
+  buyer_period_end: string | null;
+  buyer_cancel_at_period_end: boolean;
   // Scheduled downgrade target (US-217). NULL when no downgrade is pending.
   pending_flipdesk_plan: FlipdeskPlan | null;
   pending_flipdesk_interval: BillingInterval | null;

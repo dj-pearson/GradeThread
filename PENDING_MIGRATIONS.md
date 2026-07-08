@@ -1,5 +1,22 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00402_buyer_subscription.sql (US-1799 buyer subscription, 2026-07-08)
+
+**What:** Adds a `buyer_plan` enum (`free`/`guard`/`connoisseur`) and the buyer
+subscription column family to `public.users` — `buyer_plan` (DEFAULT 'free'),
+`buyer_interval`, `buyer_subscription_status` (reuses the existing
+`subscription_status` enum), `buyer_subscription_id`, `buyer_period_end`,
+`buyer_cancel_at_period_end`. `CREATE OR REPLACE`s `guard_users_protected_columns()`
+(over 00331) to also freeze these billing columns against browser self-update.
+Bumps `EXPECTED_SCHEMA_VERSION` → **00402**. Self-records '00402'.
+
+**Risk: LOW — additive columns + idempotent guard replace.** All default to a
+free/none/no-sub state, so existing accounts are unaffected. **⚠️ CLIENT READ:**
+`src/types/database.ts` gains `buyer_*` on `UserRow`; no shipped client code
+SELECTs them yet (buyer billing UI US-1801), so a frontend deploy landing before
+this migration is safe. **⚠️ Apply order:** after 00401;
+`scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload schema';`, redeploy.
+
 ## ⏳ HELD: 00401_buyer_account_roles.sql (US-1796 buyer/seller roles, 2026-07-08)
 
 **What:** Adds two additive boolean role flags to `public.users` — `is_seller`
