@@ -271,6 +271,22 @@ type EditState = {
   attributes: Record<string, string>;
 };
 
+// The items_full view exposes `category` as
+// COALESCE(item_category::text, garment_category::text) — so an item with no
+// item_category but a garment_category (e.g. "pants") surfaces that garment
+// value here. Writing it straight back into the item_category ENUM fails with
+// 22P02. Only accept a real item_category enum value; a non-empty value that
+// isn't one must have fallen back from garment_category, which only exists for
+// garments → default to "clothing" (fixes the "pants" save crash + saves the
+// user a manual pick).
+function normalizeItemCategory(raw: string | null | undefined): ItemCategory | "" {
+  if (!raw) return "";
+  if ((ITEM_CATEGORIES as readonly string[]).includes(raw)) {
+    return raw as ItemCategory;
+  }
+  return "clothing";
+}
+
 function toState(item: ItemFullRow): EditState {
   return {
     title: item.item_title ?? "",
@@ -284,7 +300,7 @@ function toState(item: ItemFullRow): EditState {
     material: "",
     description: item.item_description ?? "",
     condition_notes: item.notes ?? "",
-    item_category: (item.category as ItemCategory | null) ?? "",
+    item_category: normalizeItemCategory(item.category),
     // garment_type/garment_category aren't on the items_full view — lazy-loaded.
     garment_type: "",
     garment_category: "",

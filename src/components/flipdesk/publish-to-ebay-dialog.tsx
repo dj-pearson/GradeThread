@@ -23,7 +23,6 @@ import { EBAY_CONDITION_OPTIONS, EBAY_DEPARTMENT_OPTIONS } from "@/lib/constants
 import {
   usePublishToEbay,
   useSetItemAspect,
-  useSetListingCondition,
   useValidatePublish,
   type PublishSummary,
 } from "@/hooks/use-ebay";
@@ -51,7 +50,6 @@ export function PublishToEbayDialog({
   const validate = useValidatePublish();
   const publish = usePublishToEbay();
   const setAspect = useSetItemAspect();
-  const setCondition = useSetListingCondition();
   const [result, setResult] = useState<{
     listingUrl: string;
     listingId: string;
@@ -93,22 +91,6 @@ export function PublishToEbayDialog({
       // Re-run validation so the blocker clears (or surfaces what's left).
       await validate.mutateAsync({ itemId });
       toast.success("Department saved.");
-    } catch {
-      /* hook surfaces the error toast */
-    }
-  }
-
-  // Let the seller override the resolved eBay condition inline before publishing.
-  // Persists to the listing row, then re-validates so the summary (and the
-  // server-side category auto-correction) reflect the new value.
-  async function handleConditionChange(next: string) {
-    try {
-      const ok = await setCondition.mutateAsync({ itemId, condition: next });
-      if (!ok) {
-        toast.error("Set the condition in the composer before the first publish.");
-        return;
-      }
-      await validate.mutateAsync({ itemId });
     } catch {
       /* hook surfaces the error toast */
     }
@@ -287,24 +269,20 @@ export function PublishToEbayDialog({
               label="Price"
               value={`${summary.priceValue} ${summary.currency}`}
             />
-            <div className="flex items-center justify-between gap-3">
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Condition
-              </div>
-              <select
-                value={summary.condition ?? ""}
-                onChange={(e) => handleConditionChange(e.target.value)}
-                disabled={setCondition.isPending || validate.isPending}
-                aria-label="eBay condition"
-                className="h-8 max-w-[60%] rounded-md border border-input bg-background px-2 text-sm font-medium text-foreground disabled:opacity-60 [&>option]:bg-background [&>option]:text-foreground"
-              >
-                {EBAY_CONDITION_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {/* Condition is resolved from the item's grade / listing condition
+                and published as-is. Shown read-only here: an editable picker
+                had no effect on the published listing and only produced
+                confusing errors, so it was removed. */}
+            <Row
+              label="Condition"
+              value={
+                EBAY_CONDITION_OPTIONS.find(
+                  (o) => o.value === summary.condition,
+                )?.label ??
+                summary.condition ??
+                "—"
+              }
+            />
             {summary.conditionDescription && (
               <Row
                 label="Notes"
