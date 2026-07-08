@@ -13339,7 +13339,7 @@
         "Add a short note in the workflow (or DEPLOY/CI docs) explaining why the steps are decoupled so this can't regress."
       ],
       "priority": 2545,
-      "passes": false,
+      "passes": true,
       "notes": "[CI-Unmask 2026-07-07][CI][Hardening] The structural root cause. The immediate lint fix (appleRequest) already landed in commit 00720cd2; this story prevents recurrence."
     },
     {
@@ -13352,7 +13352,7 @@
         "`deno test src/tests/ai-metering-coverage_test.ts` passes; no user-facing change to the free tool unless metering is the chosen intent."
       ],
       "priority": 2542,
-      "passes": false,
+      "passes": true,
       "notes": "[CI-Unmask 2026-07-07][CI][Metering][US-1687] Intent decision — the free public tool may be deliberately un-metered; if so, allow-list with a rationale."
     },
     {
@@ -13366,7 +13366,7 @@
         "`deno test src/tests/agent-tools_test.ts` green with no new regressions."
       ],
       "priority": 2541,
-      "passes": false,
+      "passes": true,
       "notes": "[CI-Unmask 2026-07-07][CI][AgenticOS] Likely a shared root cause; investigate agent-tools.ts first."
     },
     {
@@ -13379,7 +13379,7 @@
         "Verify email/PII scrubbing AND the length cap both behave; `deno test src/tests/support-triage_test.ts` green."
       ],
       "priority": 2540,
-      "passes": false,
+      "passes": true,
       "notes": "[CI-Unmask 2026-07-07][CI][Support][US-1595] PII-scrubbing correctness — treat as security-relevant."
     },
     {

@@ -23,7 +23,11 @@ Deno.test("prepareExcerpt: scrubs email + caps length", () => {
   const out = prepareExcerpt("Contact me at jane.doe@example.com about my   refund");
   assert(!out.includes("jane.doe@example.com"));
   assert(out.includes("[redacted:email]"));
-  const long = prepareExcerpt("x".repeat(500));
+  // Length cap: use realistic prose (words separated by spaces). A single 500-char
+  // run of one character would instead trip redact()'s conservative 40+ char
+  // "blob" rule and collapse to a placeholder BEFORE the cap ever applies, so it
+  // would not exercise the length cap at all (see log-redact.ts).
+  const long = prepareExcerpt("refund ".repeat(100)); // ~700 chars of clean prose
   assert(long.length <= 281); // 280 + ellipsis
   assert(long.endsWith("…"));
 });

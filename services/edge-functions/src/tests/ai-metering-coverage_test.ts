@@ -107,6 +107,12 @@ const MODEL_IMPORT = new RegExp(
 // or add it here WITH a reason a reviewer can veto.
 const ALLOWLIST: Record<string, string> = {
   "grade.ts": "grading is billed per-grade (credits/included grades), not AI actions",
+  "public-grading.ts":
+    "US-1687 free anonymous grade-checker: no account/user to meter per-user AI " +
+    "actions against — deliberately un-metered as a top-of-funnel tool. Abuse is " +
+    "capped independently: a per-IP sliding window (gradeCheckRateLimited, 5/hr) + " +
+    "an 8 MB body cap in the route, plus the global daily Vision ceiling in the " +
+    "shared Anthropic client (ai-limiter.ts) that bounds quickGrade's spend.",
   "api-v1.ts": "public API grading — billed per-grade via API key credits",
   "flipdesk-grading.ts": "FlipDesk grading submissions — billed per-grade",
   "webhooks.ts": "payment webhooks re-enter the grading pipeline (per-grade billing)",
