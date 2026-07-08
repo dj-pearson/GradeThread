@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1710,
+  "nextId": 1848,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -12725,6 +12725,2055 @@
       "dependsOn": [
         "US-1703"
       ]
+    },
+    {
+      "id": "US-1710",
+      "title": "Brand & Style Knowledge Base — schema foundation (migration)",
+      "description": "As the platform, I want a DB-backed, retrievable brand/style knowledge base so garment identification (AutoLister) and grading baselines can lean on grounded reference data instead of the model guessing — especially when the main tag is cut off.",
+      "acceptanceCriteria": [
+        "New migration adds tables: brand_knowledge (canonical brand, aliases, category focus, RN/CA ranges, tag/label eras, country patterns, authentication tells), brand_styles (brand_id, style/model, aliases, product_line, visual fingerprint, fabric_tech, era, msrp_band, keywords), brand_style_codes (brand_id, decoder kind, regex/format spec, field-extraction rules), brand_colorways (brand_id, name, aliases, hex, years), brand_size_charts (brand_id, category, size_label, measurement rows in inches).",
+        "Every fact-bearing row carries source_url + confidence + updated_by columns so packs are auditable/human-verifiable (US-1716).",
+        "These are global REFERENCE/operator tables: RLS = authenticated global read, admin-only write; registered with the rls-guard so tenant-isolation CI does not flag them (load the tenant-isolation skill).",
+        "Migration follows the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bump in the SAME commit, self-record footer (load the migrations skill). Applies clean on a fresh local stack (verify:db).",
+        "Seed the tables from the EXISTING in-code data so nothing regresses: import BRAND_ALIASES (brand-normalize.ts) into brand_knowledge aliases and SIZING_CHARTS (sizing-charts.ts) into brand_size_charts as the initial rows."
+      ],
+      "priority": 2520,
+      "passes": true,
+      "notes": "[BrandKB][Infra][Foundation] Root of the brand-knowledge epic. ARCHITECTURE: retrieval-augmented two-phase identification — detect brand, then inject ONLY that brand's compact pack (not all 50) + run deterministic tag-code decoders in code. Storage = DB-seeded-via-migration + DB-first resolver w/ TS fallback, mirroring the existing resolveActivePrompt / ai_prompt_versions pattern (00050) and the sizing-charts.ts US-1088 knowledge layer. Do NOT delete brand-normalize.ts / sizing-charts.ts — they become the seed + fallback."
+    },
+    {
+      "id": "US-1711",
+      "title": "Brand knowledge — DB-first resolvers + compact pack assembler",
+      "description": "As the extraction pipeline, I want resolvers that read the brand knowledge tables first and fall back to the in-code seeds, and assemble a small brand-scoped pack, so identification stays grounded without bloating prompts.",
+      "acceptanceCriteria": [
+        "brand-normalize.ts and sizing-charts.ts read the DB tables first, falling back to their in-code seeds on empty/error — same DB-override-with-code-fallback shape as resolveActivePrompt (ai-grading.ts). No behavior regression when the DB is empty.",
+        "New resolveBrandKnowledgePack(brand, {category?}) returns a COMPACT, token-budgeted pack: matched styles + fingerprints, applicable style-code decoders, relevant size chart, colorways, and authentication tells — scoped to one brand, not the whole KB.",
+        "Result is cached (in-process TTL) so a batch of items for the same brand does not re-query per photo; cache is tenant-agnostic because this is global reference data.",
+        "Pure resolver logic is unit-tested (fallback path, pack shape, budget cap); no tenant leakage (reference data has no user_id).",
+        "deno check/lint/test + web build green."
+      ],
+      "priority": 2519,
+      "passes": true,
+      "notes": "[BrandKB][Infra] The retrieval layer. Keep the pack small — it gets injected per-item into ai-extract; budget it (e.g. top-K styles by keyword/fingerprint match).",
+      "dependsOn": [
+        "US-1710"
+      ]
+    },
+    {
+      "id": "US-1712",
+      "title": "Deterministic tag-code decoder framework + Lululemon decoder",
+      "description": "As the pipeline, I want to DERIVE brand/style/size/colorway from encoded tag data in code (not by asking the AI to guess), so a legible style number or size-dot recovers identity even when the main size tag is cut off.",
+      "acceptanceCriteria": [
+        "A decoder framework runs brand_style_codes specs (regex/format + field-extraction rules) against OCR-d tag codes and structured markers, returning derived {brand, style, size, colorway, season} + a high, provenance-tagged confidence when a spec matches.",
+        "First implementation — Lululemon: (a) style-number decoder for the W/M + code + color-letter + .SSYY format (women vs men, season/year, color letter -> colorway); (b) the hip key-pocket (Luon/Nulu) and back-pocket (Luxtreme/Nulux) SIZE-DOT grid -> numeric size. Handles the tag-cut case by reading the pocket markers.",
+        "Deterministic output is reconciled with the AI extraction downstream (US-1713): on conflict the decoder wins and the disagreement is logged for review.",
+        "Decoder specs live in brand_style_codes (data), the parser is generic code — adding a new brand decoder is a data change, not a code change, wherever the format is regular.",
+        "Unit tests cover Lululemon fixtures incl. partial/cut-tag and both pocket locations; malformed codes return no-match (never a false positive). deno test green."
+      ],
+      "priority": 2518,
+      "passes": true,
+      "notes": "[BrandKB][Infra][Decoder] Sources: Lululemon style number = W/M prefix + code + color letter + .SSYY (season/year); size dots in hip key-pocket for Luon/Nulu, back pocket for Luxtreme/Nulux. This is the flagship fix for the cut-tag problem.",
+      "dependsOn": [
+        "US-1711"
+      ]
+    },
+    {
+      "id": "US-1713",
+      "title": "Two-phase brand-scoped retrieval wired into ai-extract.ts",
+      "description": "As the AutoLister extractor, I want to detect the brand first, then identify style/size using that brand’s knowledge pack + deterministic decoders, so hard brands (ABC vs Commission pant) are identified reliably instead of guessed.",
+      "acceptanceCriteria": [
+        "Phase 1: brand detection from logo/wordmark/care-tag -> canonicalize via brand-normalize (now DB-backed). Phase 2: resolveBrandKnowledgePack(brand) injects the compact scoped pack into the identification prompt (ai-extract.ts identification block).",
+        "Deterministic decoders (US-1712) run on any legible tag code / size-dot BEFORE and AFTER the AI pass; decoder-derived brand/style/size override the AI on conflict, with the AI used to fill gaps the decoder cannot.",
+        "Style disambiguation uses the pack’s visual fingerprints so lookalikes are separated (documented worked example: Lululemon ABC Pant vs Commission Pant vs Pace Breaker).",
+        "Per-field provenance is preserved (decoder | tag-ocr | pack-fingerprint | model) and flows into aspect provenance; no change to aspect-registry output contract.",
+        "Falls back gracefully to today’s behavior when the brand is unknown / has no pack. Listing-gen (ai-listing.ts) consumes the enriched fields unchanged. deno test + web build green."
+      ],
+      "priority": 2517,
+      "passes": true,
+      "notes": "[BrandKB][Infra] This is where the KB actually changes identification. Keep the injected pack compact (US-1711 budget). Decoder-wins-on-conflict is the key reliability lever.",
+      "dependsOn": [
+        "US-1712"
+      ]
+    },
+    {
+      "id": "US-1714",
+      "title": "Confidence boosting from grounded identification + acceptance/review wiring",
+      "description": "As the pipeline, I want a grounded match (decoder hit or fingerprinted style) to raise identification confidence and feed the existing acceptance/review gates, so reliable IDs auto-proceed and shaky ones get flagged.",
+      "acceptanceCriteria": [
+        "A decoder match or a strong pack-fingerprint match raises the identification confidence for brand/style/size, composed correctly with existing confidence caps (does not exceed hard caps; documented composition).",
+        "Boosted confidence flows into listing-acceptance thresholds (listing-acceptance.ts) so grounded items clear review that previously stalled, and ungrounded guesses are held.",
+        "Low-confidence / decoder-vs-AI conflict items are surfaced for human review with the conflicting values shown.",
+        "Metrics: per-brand identification confidence + match-rate is recorded so the KB’s effect is measurable (reuse accuracy-tracking patterns).",
+        "deno test green; no regression to acceptance for brands with no pack."
+      ],
+      "priority": 2516,
+      "passes": true,
+      "notes": "[BrandKB][Infra] Ties the KB to the confidence-cap composition (grading-engine skill owns cap rules) and the acceptance gate.",
+      "dependsOn": [
+        "US-1713"
+      ]
+    },
+    {
+      "id": "US-1715",
+      "title": "Admin UI — view / edit / verify brand knowledge packs",
+      "description": "As an operator, I want to review and correct brand packs (styles, decoders, size charts, colorways, tells) with source + confidence, so AI-drafted seeds become human-verified golden facts.",
+      "acceptanceCriteria": [
+        "Admin surface (under admin) lists brands and CRUD-edits brand_knowledge / brand_styles / brand_style_codes / brand_colorways / brand_size_charts, showing source_url + confidence per fact.",
+        "A fact can be marked verified (promotes confidence / marks golden); edits are attributed (updated_by) and audit-logged.",
+        "Admin-only via existing RBAC; writes go through a tenant-safe admin route (service-role, operator-gated) per the tenant-isolation skill.",
+        "A brand pack can be previewed exactly as the extractor would receive it (the compact pack from US-1711), so operators see what the AI sees.",
+        "jsx-a11y clean; web build + eslint + deno test green."
+      ],
+      "priority": 2515,
+      "passes": true,
+      "notes": "[BrandKB][Infra][Admin] The human-verification surface — brand-content stories depend on this existing so their seeds can be checked.",
+      "dependsOn": [
+        "US-1711"
+      ]
+    },
+    {
+      "id": "US-1716",
+      "title": "Knowledge-pack seeding pipeline + golden verification harness",
+      "description": "As the team, I want an AI-assisted drafting job that proposes a brand pack from cited sources plus a golden fixture harness, so populating 50 brands is fast but stays accurate and regression-safe.",
+      "acceptanceCriteria": [
+        "A drafting job takes a brand + source URLs and proposes brand_knowledge/styles/codes/colorways/size-chart rows with per-fact source_url + confidence; output lands in the admin verify queue (US-1715), never auto-activated unverified.",
+        "A golden set of real per-brand item fixtures (cut-tag, partial-label, decoder cases) asserts the two-phase resolver recovers brand+style+size; runs in deno test and gates decoder/fingerprint changes (mirrors the grading golden set).",
+        "A single command re-runs the golden harness and reports per-brand recovery rate + confidence delta vs the pre-KB baseline.",
+        "Provenance + confidence are REQUIRED on every seeded fact (schema-enforced); unsourced facts are rejected.",
+        "Docs: a short CONTRIBUTING note on how a brand-content story author drafts -> verifies -> seeds a pack. deno test green."
+      ],
+      "priority": 2514,
+      "passes": true,
+      "notes": "[BrandKB][Infra][Quality] Guardrail so the 50-brand content push is verifiable, not vibes. Golden set = the anti-regression contract for decoders/fingerprints.",
+      "dependsOn": [
+        "US-1711"
+      ]
+    },
+    {
+      "id": "US-1717",
+      "title": "Feed brand knowledge into grading baselines & authentication (phase 2)",
+      "description": "As the grading engine, I want brand+style packs to inform garment baselines and authenticity checks, so fabric/structural scoring is brand-aware and counterfeits are flagged — without making grading emit brand as a trusted output.",
+      "acceptanceCriteria": [
+        "garment-baselines.ts consumes the brand+style pack (expected fabric composition, construction, hardware) so fabric/structural factor scoring is calibrated to the identified garment; effect is measurable on the grading golden set.",
+        "Brand authentication tells from brand_knowledge surface in the grading authenticity/label pass (informational flag), not as a grade factor.",
+        "Grading KEEPS its label-as-reference / brand-as-untrusted-seller-input stance: no new trusted brand-emit field on grade_reports; brand is used only to select baselines/tells. Load the grading-engine skill; respect rounding lockstep + prompt-version lifecycle.",
+        "Any prompt change ships shadow -> eval-gated -> canary per the grading prompt-version lifecycle; no accuracy regression on the golden set gate.",
+        "deno test + web build green."
+      ],
+      "priority": 2480,
+      "passes": true,
+      "notes": "[BrandKB][Grading][Phase2] The 'Both, phased' half. Deliberately conservative: KB improves grading ACCURACY via baselines/tells, it does NOT turn grading into a brand identifier. Gated behind the resolver (US-1713).",
+      "dependsOn": [
+        "US-1713"
+      ]
+    },
+    {
+      "id": "US-1718",
+      "title": "Brand KB: Lululemon (flagship — size-dot + style-number recovery)",
+      "description": "As a reseller, I want Lululemon items identified by style, size and colorway even when the size tag is cut, so I can list ABC vs Commission vs Pace Breaker (and Align vs Wunder Under vs Fast & Free) correctly.",
+      "acceptanceCriteria": [
+        "Seed brand_knowledge for Lululemon: canonical name + every alias/misspelling, category focus, RN/CA/registered-number ranges, tag & care-label eras with visual descriptions (font, layout, logo evolution), country-of-manufacture patterns, and known counterfeit/authentication tells — every fact carries a source URL + confidence per US-1716.",
+        "Seed brand_styles for Lululemon's top resale styles (men's ABC Pant/Short, Commission, Pace Breaker, Metal Vent Tech; women's Align, Wunder Under, Fast & Free, Groove, Scuba, Define): style/model name + aliases, product line, a defining visual fingerprint (silhouette, pockets, hardware, stitching, waistband) that disambiguates lookalikes (e.g. ABC Pant vs Commission vs Pace Breaker via fabric, pockets, gusset and hem), fabric technology, era/years, MSRP band, and search keywords.",
+        "Populate brand_style_codes so the US-1712 Lululemon decoder resolves the style-number (W/M + code + color-letter + .SSYY) and the hip/back-pocket size dot (the numeric size PRINTED in the pocket circle, recovered by OCR of that region — NOT an encoded dot pattern); include the fabric->pocket-location map (Luon/Nulu = hip key-pocket, Luxtreme/Nulux = back pocket).",
+        "Seed brand_size_charts for Lululemon across men's & women's bottoms, tops, outerwear (numeric + alpha + inseam/chest/waist rows in inches), extending sizing-charts.ts coverage rather than duplicating it.",
+        "Seed brand_colorways for Lululemon's proprietary named colors -> hex -> years wherever the brand reuses named colorways; leave empty when it does not.",
+        "Verify against a golden set of Lululemon fixtures incl. cut-tag / partial-label photos: the two-phase resolver (US-1713) recovers brand+style+size at higher confidence than the pre-KB baseline, and no other brand regresses. Sources cited in the seed migration; deno test + web build green."
+      ],
+      "priority": 2513,
+      "passes": true,
+      "notes": "[BrandKB][Brand][Tier1] The brand the whole epic is motivated by. Depends on the decoder framework (US-1712).",
+      "dependsOn": [
+        "US-1712",
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1719",
+      "title": "Brand KB: Nike & Jordan (style-code recovery)",
+      "description": "As a reseller, I want Nike/Jordan apparel identified by line and style code, disambiguating fleece/tech lines, so titles and specifics are right.",
+      "acceptanceCriteria": [
+        "Seed brand_knowledge for Nike: canonical name + every alias/misspelling, category focus, RN/CA/registered-number ranges, tag & care-label eras with visual descriptions (font, layout, logo evolution), country-of-manufacture patterns, and known counterfeit/authentication tells — every fact carries a source URL + confidence per US-1716.",
+        "Seed brand_styles for Nike's top resale styles (Tech Fleece, Club Fleece, Sportswear, Dri-FIT, Therma, ACG; Jordan lines): style/model name + aliases, product line, a defining visual fingerprint (silhouette, pockets, hardware, stitching, waistband) that disambiguates lookalikes (e.g. Tech Fleece vs Club Fleece vs Therma via fabric, zips, panel seams), fabric technology, era/years, MSRP band, and search keywords.",
+        "Populate brand_style_codes for the Nike style-code format (8-char + colorway suffix, e.g. CW1234-001) so a legible woven/care-tag code resolves to line + colorway; note woven-label vs printed-care-tag placement.",
+        "Seed brand_size_charts for Nike across men's, women's, youth apparel (numeric + alpha + inseam/chest/waist rows in inches), extending sizing-charts.ts coverage rather than duplicating it.",
+        "Seed brand_colorways for Nike's proprietary named colors -> hex -> years wherever the brand reuses named colorways; leave empty when it does not.",
+        "Verify against a golden set of Nike fixtures incl. cut-tag / partial-label photos: the two-phase resolver (US-1713) recovers brand+style+size at higher confidence than the pre-KB baseline, and no other brand regresses. Sources cited in the seed migration; deno test + web build green."
+      ],
+      "priority": 2512,
+      "passes": true,
+      "notes": "[BrandKB][Brand][Tier1] resolveStyleCode() in brand-normalize.ts already handles some sneaker codes — extend, don't duplicate.",
+      "dependsOn": [
+        "US-1712",
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1720",
+      "title": "Brand KB: Adidas & Yeezy (article-number recovery)",
+      "description": "As a reseller, I want Adidas apparel identified by line and article number so I list Ultraboost/Tiro/Yeezy items correctly.",
+      "acceptanceCriteria": [
+        "Seed brand_knowledge for Adidas: canonical name + every alias/misspelling, category focus, RN/CA/registered-number ranges, tag & care-label eras with visual descriptions (font, layout, logo evolution), country-of-manufacture patterns, and known counterfeit/authentication tells — every fact carries a source URL + confidence per US-1716.",
+        "Seed brand_styles for Adidas's top resale styles (Tiro, Tango, Adicolor/Trefoil, Ultraboost apparel, Yeezy (Gap/standalone)): style/model name + aliases, product line, a defining visual fingerprint (silhouette, pockets, hardware, stitching, waistband) that disambiguates lookalikes (e.g. Trefoil (Originals) vs Performance three-stripe via logo + tag), fabric technology, era/years, MSRP band, and search keywords.",
+        "Populate brand_style_codes for the Adidas article-number format (6-char alphanumeric, e.g. GX1234) and the EU/US/UK size cross-map.",
+        "Seed brand_size_charts for Adidas across men's, women's, youth (EU/US/UK cross-map) (numeric + alpha + inseam/chest/waist rows in inches), extending sizing-charts.ts coverage rather than duplicating it.",
+        "Seed brand_colorways for Adidas's proprietary named colors -> hex -> years wherever the brand reuses named colorways; leave empty when it does not.",
+        "Verify against a golden set of Adidas fixtures incl. cut-tag / partial-label photos: the two-phase resolver (US-1713) recovers brand+style+size at higher confidence than the pre-KB baseline, and no other brand regresses. Sources cited in the seed migration; deno test + web build green."
+      ],
+      "priority": 2511,
+      "passes": true,
+      "notes": "[BrandKB][Brand][Tier1]",
+      "dependsOn": [
+        "US-1712",
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1721",
+      "title": "Brand KB: Levi's (lot/fit number + tab/era dating)",
+      "description": "As a reseller, I want Levi's identified by fit (501/505/511/550/569) and dated by red-tab/patch/care-tag era, since the patch carries WxL and the tab signals vintage value.",
+      "acceptanceCriteria": [
+        "Seed brand_knowledge for Levi's: canonical name + every alias/misspelling, category focus, RN/CA/registered-number ranges, tag & care-label eras with visual descriptions (font, layout, logo evolution), country-of-manufacture patterns, and known counterfeit/authentication tells — every fact carries a source URL + confidence per US-1716.",
+        "Seed brand_styles for Levi's's top resale styles (501, 505, 511, 550, 569, 512, 541, trucker jacket): style/model name + aliases, product line, a defining visual fingerprint (silhouette, pockets, hardware, stitching, waistband) that disambiguates lookalikes (e.g. 501 vs 505 vs 511 via rise, leg opening, button-fly vs zip), fabric technology, era/years, MSRP band, and search keywords.",
+        "Populate brand_style_codes for the lot/fit number and a Big-E vs small-e red-tab + care-tag era dating rule so the leather/jacron patch WxL and vintage signal are extracted.",
+        "Seed brand_size_charts for Levi's across men's & women's denim (WxL), jackets (numeric + alpha + inseam/chest/waist rows in inches), extending sizing-charts.ts coverage rather than duplicating it.",
+        "Seed brand_colorways for Levi's's proprietary named colors -> hex -> years wherever the brand reuses named colorways; leave empty when it does not.",
+        "Verify against a golden set of Levi's fixtures incl. cut-tag / partial-label photos: the two-phase resolver (US-1713) recovers brand+style+size at higher confidence than the pre-KB baseline, and no other brand regresses. Sources cited in the seed migration; deno test + web build green."
+      ],
+      "priority": 2510,
+      "passes": true,
+      "notes": "[BrandKB][Brand][Tier1] Vintage Levi's value hinges on tab/era — capture the dating tells.",
+      "dependsOn": [
+        "US-1712",
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1722",
+      "title": "Brand KB: Carhartt (workwear style codes)",
+      "description": "As a reseller, I want Carhartt identified by style code and silhouette (Detroit vs Chore vs Active) so workwear lists correctly.",
+      "acceptanceCriteria": [
+        "Seed brand_knowledge for Carhartt: canonical name + every alias/misspelling, category focus, RN/CA/registered-number ranges, tag & care-label eras with visual descriptions (font, layout, logo evolution), country-of-manufacture patterns, and known counterfeit/authentication tells — every fact carries a source URL + confidence per US-1716.",
+        "Seed brand_styles for Carhartt's top resale styles (Detroit Jacket, Chore Coat, Active Jac, Duck Bib, B01/B136 pants, K87 tee, WIP (EU) vs USA): style/model name + aliases, product line, a defining visual fingerprint (silhouette, pockets, hardware, stitching, waistband) that disambiguates lookalikes (e.g. Detroit vs Chore vs Active Jac via collar, blanket lining, pockets), fabric technology, era/years, MSRP band, and search keywords.",
+        "Populate brand_style_codes for Carhartt style codes (e.g. B01, J140, 103828) and a Carhartt vs Carhartt WIP distinction from the tag.",
+        "Seed brand_size_charts for Carhartt across men's workwear (WxL, S-3XL), outerwear (numeric + alpha + inseam/chest/waist rows in inches), extending sizing-charts.ts coverage rather than duplicating it.",
+        "Seed brand_colorways for Carhartt's proprietary named colors -> hex -> years wherever the brand reuses named colorways; leave empty when it does not.",
+        "Verify against a golden set of Carhartt fixtures incl. cut-tag / partial-label photos: the two-phase resolver (US-1713) recovers brand+style+size at higher confidence than the pre-KB baseline, and no other brand regresses. Sources cited in the seed migration; deno test + web build green."
+      ],
+      "priority": 2509,
+      "passes": true,
+      "notes": "[BrandKB][Brand][Tier1] Carhartt WIP vs mainline is a common mis-ID and a value gap.",
+      "dependsOn": [
+        "US-1712",
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1723",
+      "title": "Brand KB: Patagonia (style number + fabric tech + colorway)",
+      "description": "As a reseller, I want Patagonia identified by style and fabric technology (Nano Puff, R1, Better Sweater) so I list the right model and colorway.",
+      "acceptanceCriteria": [
+        "Seed brand_knowledge for Patagonia: canonical name + every alias/misspelling, category focus, RN/CA/registered-number ranges, tag & care-label eras with visual descriptions (font, layout, logo evolution), country-of-manufacture patterns, and known counterfeit/authentication tells — every fact carries a source URL + confidence per US-1716.",
+        "Seed brand_styles for Patagonia's top resale styles (Nano Puff, Down Sweater, Better Sweater, R1/R2 fleece, Baggies, Retro-X): style/model name + aliases, product line, a defining visual fingerprint (silhouette, pockets, hardware, stitching, waistband) that disambiguates lookalikes (e.g. Nano Puff vs Down Sweater vs Micro Puff via baffle pattern + fill), fabric technology, era/years, MSRP band, and search keywords.",
+        "Populate brand_styles with Patagonia style numbers and the fabric-tech -> model map; colorways use Patagonia named colors.",
+        "Seed brand_size_charts for Patagonia across men's, women's, kids outerwear & fleece (numeric + alpha + inseam/chest/waist rows in inches), extending sizing-charts.ts coverage rather than duplicating it.",
+        "Seed brand_colorways for Patagonia's proprietary named colors -> hex -> years wherever the brand reuses named colorways; leave empty when it does not.",
+        "Verify against a golden set of Patagonia fixtures incl. cut-tag / partial-label photos: the two-phase resolver (US-1713) recovers brand+style+size at higher confidence than the pre-KB baseline, and no other brand regresses. Sources cited in the seed migration; deno test + web build green."
+      ],
+      "priority": 2508,
+      "passes": true,
+      "notes": "[BrandKB][Brand][Tier1]",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1724",
+      "title": "Brand KB: The North Face (style code + fabric tech)",
+      "description": "As a reseller, I want TNF identified by model and fabric tech (Nuptse, Denali, Thermoball, Gore-Tex) so listings are precise.",
+      "acceptanceCriteria": [
+        "Seed brand_knowledge for The North Face: canonical name + every alias/misspelling, category focus, RN/CA/registered-number ranges, tag & care-label eras with visual descriptions (font, layout, logo evolution), country-of-manufacture patterns, and known counterfeit/authentication tells — every fact carries a source URL + confidence per US-1716.",
+        "Seed brand_styles for The North Face's top resale styles (Nuptse, Denali, Thermoball, Osito, Apex, Summit Series, McMurdo): style/model name + aliases, product line, a defining visual fingerprint (silhouette, pockets, hardware, stitching, waistband) that disambiguates lookalikes (e.g. Nuptse (down baffles) vs Thermoball vs Denali (fleece) via material + construction), fabric technology, era/years, MSRP band, and search keywords.",
+        "Populate brand_styles with TNF style codes + fabric-tech map; capture Summit Series vs mainline tell.",
+        "Seed brand_size_charts for The North Face across men's, women's, youth outerwear & fleece (numeric + alpha + inseam/chest/waist rows in inches), extending sizing-charts.ts coverage rather than duplicating it.",
+        "Seed brand_colorways for The North Face's proprietary named colors -> hex -> years wherever the brand reuses named colorways; leave empty when it does not.",
+        "Verify against a golden set of The North Face fixtures incl. cut-tag / partial-label photos: the two-phase resolver (US-1713) recovers brand+style+size at higher confidence than the pre-KB baseline, and no other brand regresses. Sources cited in the seed migration; deno test + web build green."
+      ],
+      "priority": 2507,
+      "passes": true,
+      "notes": "[BrandKB][Brand][Tier1]",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1725",
+      "title": "Brand KB: Ralph Lauren / Polo (line + pony + RN)",
+      "description": "As a reseller, I want Ralph Lauren identified by line (Polo, RRL, Purple Label, Lauren, Chaps) and pony/tag era so value tiers are right.",
+      "acceptanceCriteria": [
+        "Seed brand_knowledge for Ralph Lauren: canonical name + every alias/misspelling, category focus, RN/CA/registered-number ranges, tag & care-label eras with visual descriptions (font, layout, logo evolution), country-of-manufacture patterns, and known counterfeit/authentication tells — every fact carries a source URL + confidence per US-1716.",
+        "Seed brand_styles for Ralph Lauren's top resale styles (Polo Ralph Lauren, RRL, Purple Label, Lauren Ralph Lauren, Polo Sport, Chaps): style/model name + aliases, product line, a defining visual fingerprint (silhouette, pockets, hardware, stitching, waistband) that disambiguates lookalikes (e.g. Polo vs RRL vs Purple Label vs Lauren vs Chaps via label, pony color/size, RN), fabric technology, era/years, MSRP band, and search keywords.",
+        "Populate brand_knowledge with the line-by-label/pony/RN taxonomy so sub-brand (and value tier) is inferred from the tag.",
+        "Seed brand_size_charts for Ralph Lauren across men's & women's shirts, polos, sweaters, chinos (numeric + alpha + inseam/chest/waist rows in inches), extending sizing-charts.ts coverage rather than duplicating it.",
+        "Seed brand_colorways for Ralph Lauren's proprietary named colors -> hex -> years wherever the brand reuses named colorways; leave empty when it does not.",
+        "Verify against a golden set of Ralph Lauren fixtures incl. cut-tag / partial-label photos: the two-phase resolver (US-1713) recovers brand+style+size at higher confidence than the pre-KB baseline, and no other brand regresses. Sources cited in the seed migration; deno test + web build green."
+      ],
+      "priority": 2506,
+      "passes": true,
+      "notes": "[BrandKB][Brand][Tier1] Sub-brand tier (RRL/Purple Label vs Chaps) is a big value swing.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1726",
+      "title": "Brand KB: Coach (creed/serial + line, boutique vs outlet)",
+      "description": "As a reseller, I want Coach identified by line and dated via creed/serial, distinguishing boutique from outlet (F-prefix) so value is right.",
+      "acceptanceCriteria": [
+        "Seed brand_knowledge for Coach: canonical name + every alias/misspelling, category focus, RN/CA/registered-number ranges, tag & care-label eras with visual descriptions (font, layout, logo evolution), country-of-manufacture patterns, and known counterfeit/authentication tells — every fact carries a source URL + confidence per US-1716.",
+        "Seed brand_styles for Coach's top resale styles (Signature canvas, full-grain leather lines, Willis, Rogue, Tabby): style/model name + aliases, product line, a defining visual fingerprint (silhouette, pockets, hardware, stitching, waistband) that disambiguates lookalikes (e.g. boutique vs outlet (F-prefix / MFF) via creed + serial format), fabric technology, era/years, MSRP band, and search keywords.",
+        "Populate brand_style_codes for the Coach creed/serial format (e.g. No. + letter-number) to derive line + era + boutique-vs-outlet.",
+        "Seed brand_size_charts for Coach across bags/accessories (dimensions), apparel where applicable (numeric + alpha + inseam/chest/waist rows in inches), extending sizing-charts.ts coverage rather than duplicating it.",
+        "Seed brand_colorways for Coach's proprietary named colors -> hex -> years wherever the brand reuses named colorways; leave empty when it does not.",
+        "Verify against a golden set of Coach fixtures incl. cut-tag / partial-label photos: the two-phase resolver (US-1713) recovers brand+style+size at higher confidence than the pre-KB baseline, and no other brand regresses. Sources cited in the seed migration; deno test + web build green."
+      ],
+      "priority": 2505,
+      "passes": true,
+      "notes": "[BrandKB][Brand][Tier1] Coach = mostly bags/accessories; keep size charts light, lean on serial decoder + authentication tells.",
+      "dependsOn": [
+        "US-1712",
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1727",
+      "title": "Brand KB: Louis Vuitton (date code + canvas patterns, authentication)",
+      "description": "As a reseller, I want LV items dated by date code (pre-2021) or microchip and matched to canvas/line, with counterfeit tells, so authentication and listing are grounded.",
+      "acceptanceCriteria": [
+        "Seed brand_knowledge for Louis Vuitton: canonical name + every alias/misspelling, category focus, RN/CA/registered-number ranges, tag & care-label eras with visual descriptions (font, layout, logo evolution), country-of-manufacture patterns, and known counterfeit/authentication tells — every fact carries a source URL + confidence per US-1716.",
+        "Seed brand_styles for Louis Vuitton's top resale styles (Monogram, Damier Ebene/Azur, Empreinte, Epi canvases/lines): style/model name + aliases, product line, a defining visual fingerprint (silhouette, pockets, hardware, stitching, waistband) that disambiguates lookalikes (e.g. Monogram vs Damier vs Empreinte via pattern + hardware), fabric technology, era/years, MSRP band, and search keywords.",
+        "Populate brand_style_codes for the LV date-code format (2 letters + 4 digits = factory + week/year, discontinued Mar 2021 -> microchip) for dating; pair with strong authentication tells.",
+        "Seed brand_size_charts for Louis Vuitton across bags/accessories (dimensions), apparel where applicable (numeric + alpha + inseam/chest/waist rows in inches), extending sizing-charts.ts coverage rather than duplicating it.",
+        "Seed brand_colorways for Louis Vuitton's proprietary named colors -> hex -> years wherever the brand reuses named colorways; leave empty when it does not.",
+        "Verify against a golden set of Louis Vuitton fixtures incl. cut-tag / partial-label photos: the two-phase resolver (US-1713) recovers brand+style+size at higher confidence than the pre-KB baseline, and no other brand regresses. Sources cited in the seed migration; deno test + web build green.",
+        "Explicitly flag that a date code proves NOTHING about authenticity on its own — the pack must pair it with construction/heat-stamp/hardware tells and never auto-assert authenticity."
+      ],
+      "priority": 2504,
+      "passes": true,
+      "notes": "[BrandKB][Brand][Tier1] High counterfeit risk — authentication tells + humility are mandatory; never auto-authenticate.",
+      "dependsOn": [
+        "US-1712",
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1728",
+      "title": "Brand KB: Gucci (line + style/supplier code + tells)",
+      "description": "As a reseller, I want Gucci identified by line and dated/verified via style-supplier codes and tells so listings and authenticity are grounded.",
+      "acceptanceCriteria": [
+        "Seed brand_knowledge for Gucci: canonical name + every alias/misspelling, category focus, RN/CA/registered-number ranges, tag & care-label eras with visual descriptions (font, layout, logo evolution), country-of-manufacture patterns, and known counterfeit/authentication tells — every fact carries a source URL + confidence per US-1716.",
+        "Seed brand_styles for Gucci's top resale styles (GG Supreme, Ophidia, Marmont, Ace sneakers, Web-stripe apparel): style/model name + aliases, product line, a defining visual fingerprint (silhouette, pockets, hardware, stitching, waistband) that disambiguates lookalikes (e.g. GG Supreme canvas vs Guccissima leather vs Web stripe), fabric technology, era/years, MSRP band, and search keywords.",
+        "Populate brand_knowledge with the style-number + supplier-code layout and serial-tag tells; IT->US size cross-map in brand_size_charts.",
+        "Seed brand_size_charts for Gucci across apparel (IT sizing), bags/accessories dimensions (numeric + alpha + inseam/chest/waist rows in inches), extending sizing-charts.ts coverage rather than duplicating it.",
+        "Seed brand_colorways for Gucci's proprietary named colors -> hex -> years wherever the brand reuses named colorways; leave empty when it does not.",
+        "Verify against a golden set of Gucci fixtures incl. cut-tag / partial-label photos: the two-phase resolver (US-1713) recovers brand+style+size at higher confidence than the pre-KB baseline, and no other brand regresses. Sources cited in the seed migration; deno test + web build green."
+      ],
+      "priority": 2503,
+      "passes": true,
+      "notes": "[BrandKB][Brand][Tier1] Never auto-authenticate; surface tells only.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1729",
+      "title": "Brand KB: Free People (style number + line)",
+      "description": "As a reseller, I want Free People (and We The Free / Endless Summer / Movement) identified by line and style so boho items list right.",
+      "acceptanceCriteria": [
+        "Seed brand_knowledge for Free People: canonical name + every alias/misspelling, category focus, RN/CA/registered-number ranges, tag & care-label eras with visual descriptions (font, layout, logo evolution), country-of-manufacture patterns, and known counterfeit/authentication tells — every fact carries a source URL + confidence per US-1716.",
+        "Seed brand_styles for Free People's top resale styles (We The Free, Endless Summer, FP Movement, FP One, Intimately): style/model name + aliases, product line, a defining visual fingerprint (silhouette, pockets, hardware, stitching, waistband) that disambiguates lookalikes (e.g. We The Free vs FP Movement vs Intimately via tag + garment type), fabric technology, era/years, MSRP band, and search keywords.",
+        "Populate brand_styles with FP style numbers and sub-line-by-tag mapping.",
+        "Seed brand_size_charts for Free People across women's dresses, tops, denim, activewear (numeric + alpha + inseam/chest/waist rows in inches), extending sizing-charts.ts coverage rather than duplicating it.",
+        "Seed brand_colorways for Free People's proprietary named colors -> hex -> years wherever the brand reuses named colorways; leave empty when it does not.",
+        "Verify against a golden set of Free People fixtures incl. cut-tag / partial-label photos: the two-phase resolver (US-1713) recovers brand+style+size at higher confidence than the pre-KB baseline, and no other brand regresses. Sources cited in the seed migration; deno test + web build green."
+      ],
+      "priority": 2502,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Tier1]",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1730",
+      "title": "Brand KB: Madewell & J.Crew (item code + fit names)",
+      "description": "As a reseller, I want Madewell and J.Crew identified by named fit/style and item code so denim and staples list right.",
+      "acceptanceCriteria": [
+        "Seed brand_knowledge for Madewell & J.Crew: canonical name + every alias/misspelling, category focus, RN/CA/registered-number ranges, tag & care-label eras with visual descriptions (font, layout, logo evolution), country-of-manufacture patterns, and known counterfeit/authentication tells — every fact carries a source URL + confidence per US-1716.",
+        "Seed brand_styles for Madewell & J.Crew's top resale styles (Madewell: The Perfect Vintage, Roadtripper, Curvy; J.Crew: 770/484/1040 fits, Ludlow, Tilly): style/model name + aliases, product line, a defining visual fingerprint (silhouette, pockets, hardware, stitching, waistband) that disambiguates lookalikes (e.g. Madewell vs J.Crew (shared parent) via tag; named denim fits), fabric technology, era/years, MSRP band, and search keywords.",
+        "Populate brand_styles for both banners with item-code + named-fit maps; keep as one pack with two brand rows (shared parent, distinct tags).",
+        "Seed brand_size_charts for Madewell & J.Crew across men's & women's denim (WxL / numeric), shirting, chinos (numeric + alpha + inseam/chest/waist rows in inches), extending sizing-charts.ts coverage rather than duplicating it.",
+        "Seed brand_colorways for Madewell & J.Crew's proprietary named colors -> hex -> years wherever the brand reuses named colorways; leave empty when it does not.",
+        "Verify against a golden set of Madewell & J.Crew fixtures incl. cut-tag / partial-label photos: the two-phase resolver (US-1713) recovers brand+style+size at higher confidence than the pre-KB baseline, and no other brand regresses. Sources cited in the seed migration; deno test + web build green."
+      ],
+      "priority": 2501,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Tier1] Two related banners in one story to save a slot.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1731",
+      "title": "Brand KB: Alo Yoga (style + colorway)",
+      "description": "As a reseller, I want Alo Yoga identified by style and colorway so athleisure lists correctly.",
+      "acceptanceCriteria": [
+        "Seed brand_knowledge for Alo Yoga: canonical name + every alias/misspelling, category focus, RN/CA/registered-number ranges, tag & care-label eras with visual descriptions (font, layout, logo evolution), country-of-manufacture patterns, and known counterfeit/authentication tells — every fact carries a source URL + confidence per US-1716.",
+        "Seed brand_styles for Alo Yoga's top resale styles (Airlift, Airbrush, 7/8 High-Waist, Accolade hoodie, Muse sweatpant): style/model name + aliases, product line, a defining visual fingerprint (silhouette, pockets, hardware, stitching, waistband) that disambiguates lookalikes (e.g. Airlift vs Airbrush legging via fabric sheen + waistband), fabric technology, era/years, MSRP band, and search keywords.",
+        "Populate brand_styles with Alo style names + fabric map; colorways use Alo named colors.",
+        "Seed brand_size_charts for Alo Yoga across women's & men's activewear (XXS-XL) (numeric + alpha + inseam/chest/waist rows in inches), extending sizing-charts.ts coverage rather than duplicating it.",
+        "Seed brand_colorways for Alo Yoga's proprietary named colors -> hex -> years wherever the brand reuses named colorways; leave empty when it does not.",
+        "Verify against a golden set of Alo Yoga fixtures incl. cut-tag / partial-label photos: the two-phase resolver (US-1713) recovers brand+style+size at higher confidence than the pre-KB baseline, and no other brand regresses. Sources cited in the seed migration; deno test + web build green."
+      ],
+      "priority": 2500,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Tier1]",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1732",
+      "title": "Brand KB: Athleta (style number + size markers)",
+      "description": "As a reseller, I want Athleta identified by style and size (incl. any hidden size marker) so Gap-owned activewear lists correctly.",
+      "acceptanceCriteria": [
+        "Seed brand_knowledge for Athleta: canonical name + every alias/misspelling, category focus, RN/CA/registered-number ranges, tag & care-label eras with visual descriptions (font, layout, logo evolution), country-of-manufacture patterns, and known counterfeit/authentication tells — every fact carries a source URL + confidence per US-1716.",
+        "Seed brand_styles for Athleta's top resale styles (Salutation, Ultimate, Elation, Rainier, Brooklyn pant): style/model name + aliases, product line, a defining visual fingerprint (silhouette, pockets, hardware, stitching, waistband) that disambiguates lookalikes (e.g. Salutation vs Ultimate vs Elation legging via fabric + waistband), fabric technology, era/years, MSRP band, and search keywords.",
+        "Populate brand_styles with Athleta style numbers; if Athleta uses a printed size marker analogous to Lululemon, add a brand_style_codes spec, else rely on care-tag size.",
+        "Seed brand_size_charts for Athleta across women's activewear (XXS-3X, numeric) (numeric + alpha + inseam/chest/waist rows in inches), extending sizing-charts.ts coverage rather than duplicating it.",
+        "Seed brand_colorways for Athleta's proprietary named colors -> hex -> years wherever the brand reuses named colorways; leave empty when it does not.",
+        "Verify against a golden set of Athleta fixtures incl. cut-tag / partial-label photos: the two-phase resolver (US-1713) recovers brand+style+size at higher confidence than the pre-KB baseline, and no other brand regresses. Sources cited in the seed migration; deno test + web build green."
+      ],
+      "priority": 2499,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Tier1]",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1733",
+      "title": "Brand KB group: Athleisure & activewear",
+      "description": "As a reseller, I want the next tier of activewear brands grounded so athleisure beyond the flagship brands lists reliably.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Under Armour, Vuori, Gymshark, Fabletics, Beyond Yoga, Sweaty Betty): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2498,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Group] ~6 brands. Add size markers/decoders only where they exist.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1734",
+      "title": "Brand KB group: Outdoor & technical",
+      "description": "As a reseller, I want outdoor/technical brands grounded by model + fabric tech so jackets and fleece list precisely.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Columbia, Arc’teryx, Marmot, REI Co-op, L.L. Bean, Mountain Hardwear): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2497,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Group] ~6 brands. Fabric-tech -> model maps matter most here (e.g. Arc'teryx Gore-Tex lines, Columbia Omni-Tech).",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1735",
+      "title": "Brand KB group: Premium & vintage denim",
+      "description": "As a reseller, I want premium denim brands grounded by fit + tag era so denim value tiers are right.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Wrangler, Lee, 7 For All Mankind, True Religion, AG, Citizens of Humanity): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2496,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Group] ~6 brands. WxL from patch/tag; True Religion horseshoe/stitch tells; vintage Wrangler/Lee era dating.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1736",
+      "title": "Brand KB group: Luxury & designer",
+      "description": "As a reseller, I want luxury/designer brands grounded by line + authentication tells so high-value items list right and are never auto-authenticated.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Chanel, Burberry, Prada, Michael Kors, Kate Spade, Tory Burch): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2495,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Group] ~6 brands. Authentication tells only, NEVER auto-authenticate (same stance as US-1727/1728). IT/EU->US size cross-maps.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1737",
+      "title": "Brand KB group: Streetwear & hype",
+      "description": "As a reseller, I want streetwear/hype brands grounded by season/collab tells so drops list right and fakes are flagged.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Supreme, Stussy, BAPE, Kith, Palace, Fear of God / Essentials): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2494,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Group] ~6 brands. Season/collab identification + counterfeit tells (Supreme box-logo era, Essentials tag generations). Never auto-authenticate.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1738",
+      "title": "Brand KB group: Contemporary women's",
+      "description": "As a reseller, I want contemporary women’s brands grounded by style + fit so dresses/blouses/knits list right.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Anthropologie, Sezane, Aritzia, Reformation, Vince, Theory, Eileen Fisher): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2493,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Group] ~7 brands. Aritzia sub-labels (Wilfred/Babaton/TNA) and Anthropologie house brands (Maeve/Pilcro) are the key disambiguation.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1739",
+      "title": "Brand KB group: Basics, mall & fast-fashion",
+      "description": "As a reseller, I want high-volume basics/mall brands grounded so staples list quickly and correctly.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Uniqlo, Gap, Banana Republic, Old Navy, American Eagle, Abercrombie & Fitch, Tommy Hilfiger): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2492,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Group] ~7 brands. High volume, lower value — prioritize size charts + fit names over deep decoders.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1740",
+      "title": "Brand KB group: Footwear brands (apparel-adjacent)",
+      "description": "As a reseller, I want footwear-first brands grounded by style code + size system so shoes list right.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (New Balance, Dr. Martens, UGG, Birkenstock, Converse, Vans, Cole Haan): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2491,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Group] ~7 brands. Style-code decoders where regular (New Balance model numbers); US/UK/EU size cross-maps are the priority. Coordinate with resolveStyleCode() in brand-normalize.ts.",
+      "dependsOn": [
+        "US-1712",
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1741",
+      "title": "CI hardening: edge `deno test` was silently masked by the fail-fast lint step",
+      "description": "As the team, I want the edge test suite to run in CI even when lint/type-check fails, so a lint error can never again silently disable the entire edge `deno test` and let real test failures accumulate undetected.",
+      "acceptanceCriteria": [
+        "Root cause (documented): the Security workflow runs `deno lint` -> `deno check` -> `deno test` under `bash -e`, so US-1708's `require-await` lint error broke the FIRST step and `deno test` never ran for many commits — hiding 6 real edge-test failures.",
+        "Restructure so a lint/check failure does NOT skip the edge test run: e.g. a dedicated edge-test job independent of the lint job, or `if: always()` on the test step / `continue-on-error` on lint — a red edge test must surface as its own failing signal.",
+        "Both lint AND test still gate merge (no weakening of enforcement); the change is about visibility/ordering, not leniency.",
+        "Add a short note in the workflow (or DEPLOY/CI docs) explaining why the steps are decoupled so this can't regress."
+      ],
+      "priority": 2545,
+      "passes": false,
+      "notes": "[CI-Unmask 2026-07-07][CI][Hardening] The structural root cause. The immediate lint fix (appleRequest) already landed in commit 00720cd2; this story prevents recurrence."
+    },
+    {
+      "id": "US-1742",
+      "title": "Fix ai-metering drift: public-grading.ts imports a model lib unmetered (US-1687 free grade tool)",
+      "description": "As the platform, I want the free public Condition Grade Estimator's model call to be correctly metered OR explicitly allow-listed with a rationale, so the ai-metering drift guard passes and AI spend on the anonymous tool is intentional.",
+      "acceptanceCriteria": [
+        "ai-metering-coverage_test.ts flags `public-grading.ts` importing `quick-grade.ts` (a MODEL_LIB) without `withAiAction` metering or an ALLOWLIST entry.",
+        "Decide the intended behavior for the FREE anonymous tool (US-1687) and implement ONE: (a) meter the model call via `withAiAction`, or (b) add `public-grading.ts` to the drift ALLOWLIST WITH a clear rationale — and in case (b) confirm the route has independent abuse protection (rate limit / turnstile) since there is no per-user quota.",
+        "`deno test src/tests/ai-metering-coverage_test.ts` passes; no user-facing change to the free tool unless metering is the chosen intent."
+      ],
+      "priority": 2542,
+      "passes": false,
+      "notes": "[CI-Unmask 2026-07-07][CI][Metering][US-1687] Intent decision — the free public tool may be deliberately un-metered; if so, allow-list with a rationale."
+    },
+    {
+      "id": "US-1743",
+      "title": "Fix the 4 unmasked agent-tools_test.ts failures (US-1595/1599/1600/1602)",
+      "description": "As the team, I want the AGENTIC-OS agent-tools assertions passing again, so the governed agent tool contracts are actually verified in CI.",
+      "acceptanceCriteria": [
+        "Four assertions in `agent-tools_test.ts` fail once the suite is unmasked: get_support_triage excerpt redaction (US-1595), set_marketing_frequency_cap clamps 1..10 (US-1599), enroll_cohort write-gating + cohort/campaign passthrough (US-1600), get_growth_health funnel cliff + prior-slate (US-1602).",
+        "Root-cause them (check for a SHARED cause — a changed helper/mock/schema in agent-tools.ts) rather than patching each blindly.",
+        "Fix so all four pass. Where a failure reflects a DELIBERATE contract change, update the assertion with a comment explaining why; never delete coverage to go green.",
+        "`deno test src/tests/agent-tools_test.ts` green with no new regressions."
+      ],
+      "priority": 2541,
+      "passes": false,
+      "notes": "[CI-Unmask 2026-07-07][CI][AgenticOS] Likely a shared root cause; investigate agent-tools.ts first."
+    },
+    {
+      "id": "US-1744",
+      "title": "Fix support-triage prepareExcerpt test (US-1595) — email scrub + length cap",
+      "description": "As the platform, I want the support-triage excerpt redaction verified, so customer PII (emails) is scrubbed and excerpts are length-capped before reaching an agent/model.",
+      "acceptanceCriteria": [
+        "`support-triage_test.ts` 'prepareExcerpt: scrubs email + caps length' fails once the suite is unmasked.",
+        "Determine whether `prepareExcerpt` regressed or the test drifted from the implementation, and fix the correct side.",
+        "Verify email/PII scrubbing AND the length cap both behave; `deno test src/tests/support-triage_test.ts` green."
+      ],
+      "priority": 2540,
+      "passes": false,
+      "notes": "[CI-Unmask 2026-07-07][CI][Support][US-1595] PII-scrubbing correctness — treat as security-relevant."
+    },
+    {
+      "id": "US-1745",
+      "title": "EPIC: Scale the Condition/Value Index into a programmatic-SEO engine",
+      "description": "As GradeThread, I want the existing Condition/Value Index expanded from a handful of curated seeds into thousands of programmatic /value pages so that we own the enormous 'how much is my {brand} {item} in {condition} worth' long-tail search intent and funnel that traffic into free grading and certification.",
+      "acceptanceCriteria": [
+        "Grows the current 54-seed index (condition_index_seeds) into a data-driven, sample-gated URL space of thousands of brand x category x condition pages",
+        "New pages reuse the existing eBay-comp value curves (condition_price_curves) and the >=8-sample suppression floor so no thin/fabricated pages ship",
+        "Every value page interlinks to the free grade-checker, matching certificates, and durability rankings; measurable organic traffic lift tracked"
+      ],
+      "priority": 1745,
+      "passes": false,
+      "notes": "[P2][VALUE-INDEX][EPIC][SEO] BASELINE (already built): /condition-index hub+slug via functions/condition-index/[[path]].ts; condition_index_seeds (54 rows, 00190) + condition_price_curves (00098/00100); lib/condition-index.ts + condition-curve.ts (buildValueCurve) + condition-value.ts (valueAtGrade); MIN_INDEX_TOTAL_SAMPLE=8; data = eBay Browse comps via ebay-client.searchBrowseComps. TECH/3P: no new 3P needed (eBay Browse API already integrated); Cloudflare Pages Functions Model B (edge-SSR) is the delivery model. TIES: /whats-it-worth (US-849), grade-checker, certificate examples, durability rankings (EPIC 7). BUYER: free 'what is this worth in X condition' answer page. SELLER: pricing confidence + entry into grading. Child stories: value-page URL space, auto-seed generation, interlinking+JSON-LD, comp-refresh scale/guardrails."
+    },
+    {
+      "id": "US-1746",
+      "title": "Value Index: data-driven auto-seed generation (54 -> thousands)",
+      "description": "As GradeThread, I want the condition_index_seeds set auto-generated from real demand and comp depth so that the index scales far beyond the 54 hand-curated entries without producing thin pages.",
+      "acceptanceCriteria": [
+        "A cron/job proposes new seeds from popular brands x eBay categories x keywords (drawn from repricing comps, grade_reports brands, keyword-research job) and inserts enabled seeds only when a trial comp fetch clears MIN_INDEX_TOTAL_SAMPLE",
+        "Seed generation is idempotent, deduped on the existing item_key/slug uniqueness, and respects the eBay Browse call budget",
+        "Admin can review/curate/disable generated seeds via the existing admin-condition-index surface"
+      ],
+      "priority": 1746,
+      "passes": false,
+      "notes": "[P2][VALUE-INDEX] Extends lib/condition-index.ts (getIndexSeeds/refreshConditionIndex) + condition_index_seeds (00190). Reuse jobs-keyword-research.ts + repricing comp brands as demand signal. Migration triple applies (new columns/job state). Guardrail: reuse the sample>=8 suppression before publishing any generated seed."
+    },
+    {
+      "id": "US-1747",
+      "title": "Value Index: /value/{brand}/{item}/{condition} URL space (Pages Function)",
+      "description": "As a searcher, I want a dedicated page for a specific brand+item+condition value so that I land on an exact-match answer for my query.",
+      "acceptanceCriteria": [
+        "New functions/value/[[path]].ts (cloned from functions/condition-index/[[path]].ts) edge-SSRs /value/{brand}/{item} and /value/{brand}/{item}/{condition} from a public edge endpoint",
+        "Route registered in public/_routes.json include globs and added to NAVIGATE_FALLBACK_DENYLIST in vite.config.ts so the SW does not serve the SPA shell",
+        "sitemap-value.xml.ts + a value URL generator in functions/_shared/sitemap.ts, linked from functions/sitemap.xml.ts; URL set bounded to seeds with real comp depth"
+      ],
+      "priority": 1747,
+      "passes": false,
+      "notes": "[P2][VALUE-INDEX] Model B (dynamic edge-SSR), NOT the prerender registry — so it is exempt from public-routes.test.ts. Public data endpoint extends /api/grading/public/condition-index. Reuse _shared/condition-index-render.ts patterns."
+    },
+    {
+      "id": "US-1748",
+      "title": "Value Index: interlinking + rich JSON-LD across value pages",
+      "description": "As GradeThread SEO, I want value pages richly interlinked and schema-marked so that they rank, earn AI-engine citations, and route visitors deeper into the funnel.",
+      "acceptanceCriteria": [
+        "Each value page emits Product/Dataset/FAQ/Breadcrumb JSON-LD (via functions/_shared) with no fabricated aggregateRating",
+        "Pages cross-link to the free grade-checker, the matching public certificate examples, sibling conditions, and the brand durability ranking (EPIC 7)",
+        "Interlink density satisfies the repo interlink-rules test conventions; hub page lists top brands/items"
+      ],
+      "priority": 1748,
+      "passes": false,
+      "notes": "[P2][VALUE-INDEX][GEO] Mirrors condition-index JSON-LD (Dataset/CollectionPage/FAQ). Reuse getExampleCertificates (public certs). No SearchAction/aggregateRating placeholders (repo rule)."
+    },
+    {
+      "id": "US-1749",
+      "title": "Value Index: comp-refresh scale + cost/quota guardrails",
+      "description": "As GradeThread ops, I want the comp-refresh pipeline to scale to thousands of curves without blowing the eBay Browse quota or AI/infra budget so that the index stays fresh and affordable.",
+      "acceptanceCriteria": [
+        "Staleness-tiered refresh (hot seeds daily, long-tail weekly/monthly) batched under an explicit eBay call budget with backoff",
+        "Refresh runs are observable (heartbeat + last-refreshed per seed) and log any seeds dropped for insufficient samples (no silent truncation)",
+        "A kill-switch/budget cap prevents runaway comp fetching"
+      ],
+      "priority": 1749,
+      "passes": false,
+      "notes": "[P2][VALUE-INDEX][OPS] Extends handleConditionIndexRefreshCron in lib/condition-index.ts. Coolify scheduled task. Follow the durable-jobs contract for batching. curl-in-image gotcha already fixed."
+    },
+    {
+      "id": "US-1750",
+      "title": "EPIC: Public 'What's It Worth' — free photo -> grade + resale value",
+      "description": "As a curious owner/seller, I want to upload a photo with no login and instantly get an AI condition grade AND a resale value estimate so that I get immediate value and a reason to sign up and certify.",
+      "acceptanceCriteria": [
+        "One flagship free tool combines the grade-checker's AI grade with a condition-adjusted resale value (already available to the authed Snap tool) with no login required",
+        "Result is shareable and funnels clearly to signup / free Snap / paid certification",
+        "Abuse controls (per-IP limits, aggregate-only value, AI budget ceiling) preserved"
+      ],
+      "priority": 1750,
+      "passes": false,
+      "notes": "[P2][FREE-TOOL][EPIC] BASELINE (mostly built): unauth POST /api/grading/public/grade-check (public-grading.ts, 5/hr/IP, grade only, nothing persisted) backs /tools/grade-checker; authed Snap-to-Value (grade.ts /snap, snap.tsx) already returns value via valueAtGrade + condition_price_curves. quickGrade (quick-grade.ts) is the shared primitive. TECH/3P: none new. TIES: value index (EPIC 1), share cards (EPIC 9), signup funnel. BUYER/OWNER: instant free answer. SELLER: pricing + grading entry. Child stories: add value to free endpoint, shareable result card + funnel."
+    },
+    {
+      "id": "US-1751",
+      "title": "Free tool: add resale value to the unauthenticated grade-check",
+      "description": "As an anonymous user, I want the free grade-checker to also show a resale value range so that I get the full 'what's it worth' answer without an account.",
+      "acceptanceCriteria": [
+        "POST /api/grading/public/grade-check optionally accepts brand/keyword and returns a condition-adjusted value range via the same valueAtGrade/condition_price_curves path used by /snap, gated to sufficient-sample curves only",
+        "Per-IP rate limit and AI daily ceiling remain enforced; value is aggregate-only (no per-listing/PII data)",
+        "grade-checker page + JSON-LD updated to reflect grade + value output"
+      ],
+      "priority": 1751,
+      "passes": false,
+      "notes": "[P2][FREE-TOOL] Add valueAtGrade/suggestCategories call to public-grading.ts grade-check (mirror grade.ts /snap lines that build value). Respect MIN sample gating; return value:null when insufficient (like /snap)."
+    },
+    {
+      "id": "US-1752",
+      "title": "Free tool: shareable result card + conversion funnel",
+      "description": "As a user who got a free result, I want a good-looking shareable card and a clear next step so that I share it (traffic) and convert (signup/certify).",
+      "acceptanceCriteria": [
+        "Free result renders a shareable image card (reuse cert-image-render.ts / functions/og/social/card.ts) with grade + value + branding + QR",
+        "Card/link bakes a referral/attribution code and CTAs route to signup, free Snap, and paid certification with tracked conversion events",
+        "No PII in the shared artifact; value shown as a range with disclaimer"
+      ],
+      "priority": 1752,
+      "passes": false,
+      "notes": "[P2][FREE-TOOL][SHARE] Reuse renderCertImage/buildCertSlabHtml + social OG. Attribution via captureAffiliateRef/referral bake (as cert-share-actions.tsx already does). Track via existing analytics."
+    },
+    {
+      "id": "US-1753",
+      "title": "EPIC: GradeThread browser extension — AI condition second-opinion at point of purchase",
+      "description": "As a secondhand buyer, I want a browser extension that reads a listing's photos and gives me an independent GradeThread condition read while I shop so that I buy with confidence — and GradeThread becomes the trust standard cited on competitors' marketplaces.",
+      "acceptanceCriteria": [
+        "Extension detects supported marketplace listings, pulls listing images, calls a public grading endpoint, and overlays a GradeThread condition estimate with a link to a full report",
+        "Ships on Chrome Web Store and Firefox AMO with a privacy policy and opt-in telemetry",
+        "Install and click-through funnel is attributed back to the GradeThread signup funnel"
+      ],
+      "priority": 1753,
+      "passes": false,
+      "notes": "[P2][EXTENSION][EPIC][NEW] BASELINE: none exists (greenfield surface). quickGrade primitive + the free grade-check endpoint are reusable server-side. TECH/3P (opensource): WXT or Plasmo for cross-browser MV3 builds; webextension-polyfill. No paid 3P. TIES: reuses/extends the public grading endpoint (EPIC 2), links to certificates/value pages, attribution via referral system. BUYER: independent condition read while shopping eBay/Poshmark/Grailed/etc. SELLER: none directly (buyer-side growth loop). RISK: image scraping ToS per marketplace, abuse/rate limits on the public endpoint. Child stories: public endpoint hardening, MV3 MVP (eBay), multi-marketplace adapters, store distribution."
+    },
+    {
+      "id": "US-1754",
+      "title": "Extension: public grading endpoint for image-URL second-opinion",
+      "description": "As the extension, I want a hardened public endpoint that grades from an image URL so that it can produce a read without the user uploading files.",
+      "acceptanceCriteria": [
+        "New/extended public endpoint accepts image URL(s), runs quickGrade behind the SSRF-guarded fetch, and returns an aggregate grade estimate + disclaimer",
+        "Strong abuse controls: per-IP and per-extension-instance quota, AI daily ceiling, CORS locked to the extension origin, no persistence",
+        "Returns a deep link to open the full experience on gradethread.com with attribution"
+      ],
+      "priority": 1754,
+      "passes": false,
+      "notes": "[P2][EXTENSION] Extends public-grading.ts (reuse gradeCheckRateLimited + safeFetch SSRF guard + quickGrade). Consider a signed extension token to separate its quota from the web grade-checker. No DB writes."
+    },
+    {
+      "id": "US-1755",
+      "title": "Extension: MV3 MVP with eBay overlay",
+      "description": "As a buyer on eBay, I want the extension to show a GradeThread condition read on the listing so that I get a second opinion inline.",
+      "acceptanceCriteria": [
+        "MV3 content script detects an eBay item page, extracts gallery image URLs, calls the public endpoint, and renders a non-intrusive overlay (score + tier + confidence + 'full report' link)",
+        "Handles loading/error/rate-limited states gracefully; respects a user setting to disable on a site",
+        "Popup shows recent reads and a link to sign in / connect a GradeThread account"
+      ],
+      "priority": 1755,
+      "passes": false,
+      "notes": "[P2][EXTENSION][NEW] Build with WXT (opensource). eBay adapter first (highest volume). Overlay must be resilient to eBay DOM changes (selector config remotely updatable)."
+    },
+    {
+      "id": "US-1756",
+      "title": "Extension: multi-marketplace adapters",
+      "description": "As a buyer, I want the extension to work across the marketplaces I actually shop so that it's useful everywhere.",
+      "acceptanceCriteria": [
+        "Adapters for Poshmark, Grailed, Mercari, Depop, and Vinted (image extraction + overlay mount points) behind a shared adapter interface",
+        "Adapter selectors are config-driven and remotely updatable without a store re-review",
+        "Per-site enable/disable and a graceful fallback when a site layout is unrecognized"
+      ],
+      "priority": 1756,
+      "passes": false,
+      "notes": "[P2][EXTENSION][NEW] Shared adapter interface; remote selector config fetched from an edge endpoint so marketplace DOM changes don't require re-publishing. Note: these are BUYER-side overlays, distinct from the seller-side publish adapters (which exist only for eBay/Etsy/Depop/Whatnot/Shopify)."
+    },
+    {
+      "id": "US-1757",
+      "title": "Extension: store distribution + install funnel",
+      "description": "As GradeThread growth, I want the extension published and its funnel measured so that installs convert to accounts.",
+      "acceptanceCriteria": [
+        "Published on Chrome Web Store and Firefox AMO with listing copy, screenshots, privacy policy, and a data-use disclosure",
+        "Opt-in anonymous telemetry (reads, click-throughs) with a clear toggle",
+        "Install -> click-through -> signup attributed via the referral/affiliate system"
+      ],
+      "priority": 1757,
+      "passes": false,
+      "notes": "[P2][EXTENSION][NEW][GROWTH] Privacy policy page (Model A static route). Attribution reuses affiliate.ts click->conversion. Telemetry opt-in only (GDPR/CCPA posture, ties to legal geo-consent epic)."
+    },
+    {
+      "id": "US-1758",
+      "title": "EPIC: Cross-marketplace Verified Badge distribution + attribution",
+      "description": "As a seller, I want to easily paste a GradeThread 'Verified' badge into my listings on other marketplaces so that buyers trust my item — and as GradeThread I want each badge to be a backlink and an attributed funnel entry.",
+      "acceptanceCriteria": [
+        "A seller badge studio provides one-click, marketplace-specific snippets (img/script/text) for a certificate or passport",
+        "Every badge carries source attribution + referral code and its clicks feed a funnel dashboard",
+        "Marketplace-optimized badge formats render correctly through common listing HTML sanitizers"
+      ],
+      "priority": 1758,
+      "passes": false,
+      "notes": "[P2][BADGE][EPIC] BASELINE (infra built): functions/badge/cert/[id].ts (<img>), functions/embed/cert/[id].ts (script), text fallback; snippet gens in src/lib/verified.ts (certBadgeEmbedHtml/certBadgeScriptEmbed/certBadgeEmbedText); render via cert-image-render.ts + cert-og-template.ts (buildCertBadgeHtml) + SLAB_FORMATS; public_passport_links bridges cert<->passport; cert-share-actions.tsx already bakes referral codes. CONSTRAINT: no cross-site iframe (X-Frame-Options DENY / frame-ancestors none) — must stay img/script/text. TECH/3P: existing satori+resvg-wasm, no new 3P. TIES: certificate, passport, verified directory, referral/affiliate. BUYER: trust signal on any marketplace. SELLER: paste-in credibility. Child stories: badge studio UX, click attribution+analytics, new formats."
+    },
+    {
+      "id": "US-1759",
+      "title": "Badge: seller badge studio (one-click marketplace snippets)",
+      "description": "As a seller, I want a simple studio to grab the right badge snippet for each marketplace so that adding it to a listing takes seconds.",
+      "acceptanceCriteria": [
+        "Studio (in verified/flipdesk profile UI) lets a seller pick a certificate or passport and copy img/script/text snippets with per-marketplace guidance (eBay/Poshmark/Grailed HTML rules)",
+        "Offers a passport-slug badge variant (advertises full history) in addition to certificate badges via public_passport_links",
+        "Live preview of each format before copying"
+      ],
+      "priority": 1759,
+      "passes": false,
+      "notes": "[P2][BADGE] Extends src/lib/verified.ts snippet gens + the flipdesk verified management UI (src/pages/flipdesk/verified.tsx). eBay allows limited HTML in description; Poshmark/Grailed strip HTML -> offer text+link fallback."
+    },
+    {
+      "id": "US-1760",
+      "title": "Badge: click attribution + funnel analytics",
+      "description": "As GradeThread growth, I want badge clicks attributed and charted so that I can prove badges drive traffic and conversions.",
+      "acceptanceCriteria": [
+        "Badge links carry source (?s=embed/badge) + referral code; clicks and downstream signups are tracked and shown in a seller-visible + admin funnel view",
+        "Attribution reuses the existing cert view-tracking + referral/affiliate ledger",
+        "Dashboard shows impressions/clicks/conversions per seller and platform-wide"
+      ],
+      "priority": 1760,
+      "passes": false,
+      "notes": "[P2][BADGE][GROWTH] Reuse cert_view tracking (content-public.ts /view with ?s=) + referral_events/affiliate_clicks. Surface in verified profile + admin-growth."
+    },
+    {
+      "id": "US-1761",
+      "title": "Badge: marketplace-optimized formats + verified-seller storefront badge",
+      "description": "As a seller, I want badges sized and styled for where they'll appear so that they look native and convert.",
+      "acceptanceCriteria": [
+        "New badge formats/sizes added via SLAB_FORMATS + cert-og-template.ts (e.g. compact inline, square, listing-header)",
+        "A 'verified seller' storefront badge (keyed to verified_handle, not a single cert) linking to the seller's /verified/{handle} profile",
+        "All formats validated through eBay/Poshmark/Grailed rendering"
+      ],
+      "priority": 1761,
+      "passes": false,
+      "notes": "[P2][BADGE] Extend SLAB_FORMATS in cert-image-render.ts + templates in cert-og-template.ts. Storefront badge ties to users.verified_* + functions/og/verified/[handle].ts."
+    },
+    {
+      "id": "US-1762",
+      "title": "EPIC: Walk-around video grading — grade from a short clip",
+      "description": "As a seller, I want to grade a garment from a short walk-around video instead of staging individual photos so that grading is faster and more accurate, and the capture is inherently shareable.",
+      "acceptanceCriteria": [
+        "A submission can be created from a short video; the server extracts representative frames and feeds them through the existing per-image -> composite grading flow unchanged",
+        "Video grading is cost-controlled (frame-count caps, metering, per-plan gating) and observable",
+        "Certificates from video capture carry a 'video-verified' provenance badge"
+      ],
+      "priority": 1762,
+      "passes": false,
+      "notes": "[P2][VIDEO-GRADE][EPIC][NEW] BASELINE: images only today (IMAGE_TYPES, one Vision call/image; grade.ts /submit multipart). A 360-still-capture + verified-capture provenance concept already exists. Grading = analyzeImage per image (ai-grading.ts) then compositeGrade. TECH/3P (opensource): ffmpeg (bundle static binary into the edge Docker image, or ffmpeg.wasm) for server-side frame extraction/keyframe selection; validateImageUpload needs a video branch. TIES: grade.ts pipeline, upload-validation.ts, verified-capture.ts, certificate badges, AI metering (ai_usage_events/ai_budgets). BUYER: richer proof of condition. SELLER: faster capture. RISK: cost (more frames = more Vision calls); storage; HEIC-style format handling. Child stories: upload+validation, frame extraction, cost control, capture UX+provenance."
+    },
+    {
+      "id": "US-1763",
+      "title": "Video grading: upload + validation branch",
+      "description": "As the platform, I want to safely accept and validate short videos so that video capture is as hardened as image upload.",
+      "acceptanceCriteria": [
+        "grade.ts /submit accepts a video part (mp4/mov/webm) with magic-byte sniffing, size cap, and a max-duration cap; non-video/oversized rejected",
+        "Video stored to the private submission bucket with per-user-folder RLS, same as images",
+        "Client guidance for HEVC/HEIC-container edge cases (transcode or reject with a clear message)"
+      ],
+      "priority": 1763,
+      "passes": false,
+      "notes": "[P2][VIDEO-GRADE][NEW] Extend upload-validation.ts (sniffImageFormat -> add video magic bytes) + IMAGE_TYPES/multipart parse in grade.ts. Reuse the private submission-images bucket RLS pattern."
+    },
+    {
+      "id": "US-1764",
+      "title": "Video grading: server frame extraction -> grading slots",
+      "description": "As the grading pipeline, I want to turn a video into a small set of high-quality frames so that the existing per-image->composite flow grades it without changes.",
+      "acceptanceCriteria": [
+        "Server extracts N keyframes (dedup/blur-reject/coverage-aware) and maps them to IMAGE_TYPES-style slots (front/back/label/detail) so processSubmission runs unchanged",
+        "Frame selection favors sharp, well-lit, high-coverage frames using the existing quality gate signals",
+        "Extraction is bounded (max frames) and logged; failures fall back to needs_photos"
+      ],
+      "priority": 1764,
+      "passes": false,
+      "notes": "[P2][VIDEO-GRADE][NEW] ffmpeg keyframe extraction in a new lib (e.g. video-frames.ts). Reuse grading-quality.ts signals for selection. Simplest integration: frames become submission_images rows so grading-pipeline.ts is untouched."
+    },
+    {
+      "id": "US-1765",
+      "title": "Video grading: cost control + metering + plan gating",
+      "description": "As GradeThread ops, I want video grading metered and gated so that its extra Vision cost stays profitable.",
+      "acceptanceCriteria": [
+        "Frame count per video is capped; each Vision call is recorded to ai_usage_events tagged feature='video_grading'",
+        "An ai_budgets row guards video-grading spend with alert/throttle/kill; feature is plan-gated / credit-priced appropriately",
+        "Admin AI spend/profitability dashboards break out video_grading"
+      ],
+      "priority": 1765,
+      "passes": false,
+      "notes": "[P2][VIDEO-GRADE][NEW] Reuse recordAiCall (ai-usage.ts) + ai_budgets + isAiBudgetExhausted + withAiAction/credits. Cost math: frames x per-image cost; price/gate accordingly (ties subscription unit economics)."
+    },
+    {
+      "id": "US-1766",
+      "title": "Video grading: capture UX + verified-capture provenance",
+      "description": "As a seller, I want a guided mobile capture flow so that my video yields a gradeable, tamper-evident submission.",
+      "acceptanceCriteria": [
+        "Guided walk-around capture (front/back/label/detail prompts) on web + mobile; upload with progress",
+        "Live-capture provenance recorded (extend verified-capture.ts) so certificates can show a 'video-verified' / live-capture badge",
+        "Clear fallback to photo mode"
+      ],
+      "priority": 1766,
+      "passes": false,
+      "notes": "[P2][VIDEO-GRADE][NEW] Extend verified-capture.ts + certificate badges (verified_capture_passed/live_capture_verified already rendered on certificate.tsx). Capture UI on new-submission/snap flows + iOS/Android parity backlog."
+    },
+    {
+      "id": "US-1767",
+      "title": "EPIC: Brand authenticity verification add-on",
+      "description": "As a buyer or high-end seller, I want an AI authenticity assessment for brand-name garments so that I can transact designer/premium items with more confidence — a standalone paid product beyond condition grading.",
+      "acceptanceCriteria": [
+        "An opt-in authenticity pass produces a confidence-scored, disclaimer-bounded assessment using structured brand tells + decoder cross-checks (never an unqualified 'authentic' guarantee)",
+        "Every authenticity verdict is gated behind a golden-set eval and routes low-confidence cases to human review",
+        "Authenticity results surface on a dedicated certificate/badge and are priced/metered as an add-on"
+      ],
+      "priority": 1767,
+      "passes": false,
+      "notes": "[P2][AUTHENTICITY][EPIC] BASELINE: photo-TAMPER detection exists (aggregateAuthenticity in ai-grading.ts, forensic_grade/authenticity_addon opt-ins in grade.ts, grade_authenticity_review 00061, photo-reuse.ts). Brand KB has brand_knowledge.authentication_tells (00389) but brandPackPromptBlock says 'NEVER assert authenticity'. TECH/3P: no reliable authentication API to integrate (market comparable = Entrupy/Real Authentication, human-based); build on brand KB + decoders (brand-decoders.ts date-code/serial). TIES: brand KB epic (US-1723+), grading pipeline, human-review, certificate. LIABILITY: must be 'assessment/estimate', heavy disclaimers, aligns with 'never guarantee' policy. BUYER: confidence on designer items. SELLER: premium listing credibility. Child stories: structured tells, scoring pass, eval gate, public lookup+pricing."
+    },
+    {
+      "id": "US-1768",
+      "title": "Authenticity: structured, checkable brand tells + decoder cross-checks",
+      "description": "As the authenticity engine, I want brand tells stored as structured checkable rules so that the assessment is grounded and auditable.",
+      "acceptanceCriteria": [
+        "brand_knowledge.authentication_tells expanded into structured, per-brand checkable tells (stitching, hardware, tags, fonts, date-code/serial patterns) with sources/confidence",
+        "Decoder cross-checks (brand-decoders.ts) validate date codes/serials/style codes against known patterns and flag inconsistencies",
+        "Admin can curate tells via the admin-brand-knowledge surface"
+      ],
+      "priority": 1768,
+      "passes": false,
+      "notes": "[P2][AUTHENTICITY] Extend brand_knowledge/brand_style_codes (00389) + brand-decoders.ts + admin-brand-knowledge.ts. Coordinate with Brand KB epic (esp. US-1727 LV date codes, US-1726 Coach creed/serial, US-1728 Gucci tells)."
+    },
+    {
+      "id": "US-1769",
+      "title": "Authenticity: opt-in scoring pass with capped confidence + disclaimers",
+      "description": "As a buyer, I want a clear authenticity assessment with honest confidence and disclaimers so that I understand its limits.",
+      "acceptanceCriteria": [
+        "An opt-in addon triggers an authenticity prompt (relaxing the 'never assert' rule ONLY inside the addon) that returns per-tell findings + an overall confidence-capped verdict (likely-authentic / inconclusive / red-flags)",
+        "Verdict is confidence-capped (reuse authenticity confidence caps) and always accompanied by explicit legal/limits disclaimer copy",
+        "Result persists to grade_authenticity_review / authenticity_assessment fields"
+      ],
+      "priority": 1769,
+      "passes": false,
+      "notes": "[P2][AUTHENTICITY] Load grading-engine skill (owns confidence-cap composition + prompt-version lifecycle). Reuse AUTHENTICITY_FLAG_CONFIDENCE_CAP. Legal copy review required before ship."
+    },
+    {
+      "id": "US-1770",
+      "title": "Authenticity: golden-set eval gate + human-review routing",
+      "description": "As GradeThread, I want authenticity verdicts eval-gated before they ship so that we don't publish confident-but-wrong calls.",
+      "acceptanceCriteria": [
+        "A labeled authenticity golden set (authentic vs counterfeit examples per top brand) with an eval-gate that must pass before any prompt version activates (mirror grading_eval_cases/grading_eval_runs)",
+        "Sub-threshold or red-flag cases route to human review before the assessment is finalized",
+        "Accuracy tracked per brand; regressions block activation (shadow -> eval -> canary)"
+      ],
+      "priority": 1770,
+      "passes": false,
+      "notes": "[P2][AUTHENTICITY][EVAL] Reuse grading-eval.ts + grading_eval_cases/runs (00050) pattern + human-review.ts. Follow grading-engine skill prompt-version lifecycle. Exemplar privacy rules apply."
+    },
+    {
+      "id": "US-1771",
+      "title": "Authenticity: public 'is it authentic?' lookup + pricing/metering",
+      "description": "As a prospective buyer, I want a free/paid authenticity check tool so that I can vet an item before buying — driving traffic and add-on revenue.",
+      "acceptanceCriteria": [
+        "A public authenticity-check tool (rate-limited, aggregate/estimate framing) and a paid full authenticity certificate/badge on the cert page",
+        "Metered via ai_usage_events feature='authenticity' + ai_budgets; priced as an add-on (credits/Stripe)",
+        "Authenticity badge/section rendered on certificate.tsx + slab formats"
+      ],
+      "priority": 1771,
+      "passes": false,
+      "notes": "[P2][AUTHENTICITY][GROWTH] Free tool mirrors grade-checker abuse controls. Add-on pricing via payments.ts catalog. Certificate badge already has an authenticity flag slot to extend."
+    },
+    {
+      "id": "US-1772",
+      "title": "EPIC: Brand durability & depreciation rankings (data/PR asset)",
+      "description": "As GradeThread, I want to aggregate per-garment condition-over-time data into public brand/fabric durability and value-depreciation rankings so that we own a unique data asset that earns PR, backlinks, and search traffic.",
+      "acceptanceCriteria": [
+        "Per-garment condition curves are aggregated into cohort durability rankings by brand / garment type / fabric, sample-gated to avoid thin claims",
+        "Public rankings pages rank and interlink with /value and /condition-index",
+        "A periodic 'State of Secondhand Durability' report is generated for PR/outreach"
+      ],
+      "priority": 1772,
+      "passes": false,
+      "notes": "[P2][DURABILITY][EPIC] BASELINE (per-garment built): passport-curve.ts buildConditionCurve (US-1282) emits per-garment condition-over-time with per-factor deltas from public_grade_reports joined on grade_reports.garment_id; passport-forecast.ts exists; garment_fingerprints.wear_score (00260). GAP: no cross-garment aggregation. TECH/3P: none new. TIES: passport (garments/garment_events, sku_class), value index (EPIC 1), US-1691 State of Secondhand report, US-1689 shorts. PRIVACY: aggregate-only, no PII, sample-gated. BUYER: which brands last. SELLER: sourcing intelligence. Child stories: aggregation engine, public rankings pages, data report."
+    },
+    {
+      "id": "US-1773",
+      "title": "Durability: cross-garment aggregation engine",
+      "description": "As the data layer, I want durability computed across many garments so that we can rank brands/fabrics by how well condition holds.",
+      "acceptanceCriteria": [
+        "New aggregation (edge job) rolls up buildConditionCurve outputs across garments by sku_class (brand/type/fabric) into durability metrics (avg condition retention, per-factor decay, resale value decay)",
+        "Metrics are sample-gated (min garments/regrades) and stored in a new aggregate table (RLS deny-all, non-tenant)",
+        "Value-vs-condition decay correlated where sale prices exist in garment_events payloads (PII-safe)"
+      ],
+      "priority": 1773,
+      "passes": false,
+      "notes": "[P2][DURABILITY] New lib (durability-aggregate.ts) over garments/garment_events/public_grade_reports + wear_score. Migration triple for the aggregate table. Reuse condition-index sample-gating philosophy."
+    },
+    {
+      "id": "US-1774",
+      "title": "Durability: public rankings pages",
+      "description": "As a searcher, I want pages ranking brands by durability so that I can decide what to buy/source.",
+      "acceptanceCriteria": [
+        "Model B Pages Function serves /durability (hub) + /durability/{brand|category|fabric} rankings with Dataset/Breadcrumb JSON-LD",
+        "Registered in _routes.json, PWA denylist, and sitemap; interlinked with /value and /condition-index",
+        "Only sample-gated cohorts are shown; methodology/limits disclosed"
+      ],
+      "priority": 1774,
+      "passes": false,
+      "notes": "[P2][DURABILITY][SEO] Clone functions/condition-index/[[path]].ts pattern. Public edge endpoint over the aggregate table. No fabricated precision."
+    },
+    {
+      "id": "US-1775",
+      "title": "Durability: 'State of Secondhand Durability' report + PR export",
+      "description": "As GradeThread marketing, I want a periodic durability report so that we earn press and citations.",
+      "acceptanceCriteria": [
+        "Admin-curated report generated from the aggregation (top/bottom brands, fabric findings, YoY change) with charts and an exportable/press-ready format",
+        "Report published as a content page and promoted via the content/social engine",
+        "Feeds the existing State-of-Secondhand initiative (US-1691) and shorts (US-1689)"
+      ],
+      "priority": 1775,
+      "passes": false,
+      "notes": "[P2][DURABILITY][PR][GEO] Reuse content engine (content-blog.ts/content-social.ts) + admin curation. Ties US-1691/US-1689."
+    },
+    {
+      "id": "US-1776",
+      "title": "EPIC: 'Will it fit me?' buyer fit-prediction",
+      "description": "As a buyer, I want to know whether a garment will fit my body from its measurements so that I buy the right size and return less — turning GradeThread's measurement data into a buyer-facing feature.",
+      "acceptanceCriteria": [
+        "Buyers can store body measurements and get a fit verdict + size recommendation for a measured item",
+        "Fit prediction uses existing garment flat-lay measurements and a per-category ease/tolerance model",
+        "A free public fit tool drives buyer traffic and account creation"
+      ],
+      "priority": 1776,
+      "passes": false,
+      "notes": "[P2][FIT][EPIC][NEW] BASELINE: garment flat-lay measurements exist (inventory_items.measurements jsonb + measurement-templates.ts canonical keys; MeasureCard pipeline flipdesk-measure.ts; MEASUREMENT_SPECS units in inches). GAP (greenfield): NO buyer body-profile store, NO fit comparison, NO size recommendation (grep confirmed zero). TECH/3P: none required (deterministic ease-model math); optional future ML. TIES: measurements, certificate/passport/listing, verified profiles. PRIVACY: body measurements are sensitive PII -> RLS + anon-session option. BUYER: confidence + fewer returns. SELLER: fewer returns/disputes, opt-in to expose measurements. Child stories: body-profile store, fit engine, buyer surfaces, public fit tool."
+    },
+    {
+      "id": "US-1777",
+      "title": "Fit: buyer body-profile store + input UI",
+      "description": "As a buyer, I want to save my measurements so that fit checks are one tap.",
+      "acceptanceCriteria": [
+        "New body_profiles table (per authenticated user; plus an anonymous session option) storing chest/waist/hip/inseam/etc with in/cm, RLS-protected",
+        "Input UI with guidance (how to measure) reusing measurement units/format helpers",
+        "Buyers can keep multiple profiles (self, gift recipients)"
+      ],
+      "priority": 1777,
+      "passes": false,
+      "notes": "[P2][FIT][NEW] Migration triple for body_profiles (tenant-scoped RLS; treat as sensitive PII). Reuse measurements.ts unit semantics + measurement-prefs.ts in/cm. NOTE: garment measures are flat-lay; body measures are body circumference — engine must convert."
+    },
+    {
+      "id": "US-1778",
+      "title": "Fit: comparison engine (ease model + size recommendation)",
+      "description": "As the fit engine, I want to compare garment flat-lay dimensions to body measurements so that I can produce an honest fit verdict.",
+      "acceptanceCriteria": [
+        "Per-garment-category ease/tolerance model maps flat-lay measurements (pit-to-pit x2 vs chest circumference, etc.) to a fit verdict (too small / slim / true / relaxed / too big) with confidence",
+        "Produces a size recommendation and highlights the limiting dimension",
+        "Honest 'insufficient measurements' path when the item lacks needed measures"
+      ],
+      "priority": 1778,
+      "passes": false,
+      "notes": "[P2][FIT][NEW] New lib fit-model.ts. Ease constants per garment group (measurement-templates.ts categories). Deterministic + explainable; no black box. Unit/lockstep care (flat-lay inches -> circumference)."
+    },
+    {
+      "id": "US-1779",
+      "title": "Fit: buyer surfaces on certificate/passport/listing",
+      "description": "As a buyer viewing an item, I want a fit check inline so that I decide quickly.",
+      "acceptanceCriteria": [
+        "'Will it fit?' widget on certificate/passport pages and FlipDesk listings when the item has measurements; prompts to add/select a body profile",
+        "Sellers opt in to expose measurements for buyer fit (respects existing measurement provenance/overlay)",
+        "Fit result is clearly an estimate with limits disclosed"
+      ],
+      "priority": 1779,
+      "passes": false,
+      "notes": "[P2][FIT][NEW] Surfaces on certificate.tsx / passport.tsx / listing views. Seller opt-in flag (mirror verified_show_listings pattern). Reuse measurement_overlay photo where present."
+    },
+    {
+      "id": "US-1780",
+      "title": "Fit: free public fit tool + shareable result",
+      "description": "As a prospective buyer, I want a free fit tool so that I can check any item's measurements against my body — driving traffic.",
+      "acceptanceCriteria": [
+        "Public tool: paste/enter a garment's measurements (or pick a certified item) + body profile -> fit verdict, no login required (anon session)",
+        "Shareable result card + funnel to account creation (save profile) and to certified items",
+        "Rate-limited; no PII persisted for anonymous use beyond the session"
+      ],
+      "priority": 1780,
+      "passes": false,
+      "notes": "[P2][FIT][NEW][GROWTH] Model A static tool page (grade-checker template) posting to a public fit endpoint. Shareable card reuses OG render. Anon-session only for privacy."
+    },
+    {
+      "id": "US-1781",
+      "title": "EPIC: Grade-reveal share cards + creator/affiliate program",
+      "description": "As a reseller/creator, I want auto-generated shareable grade-reveal cards and a real creator payout program so that sharing my grades is effortless and I'm rewarded for driving signups — a built-in growth loop.",
+      "acceptanceCriteria": [
+        "Every completed grade auto-generates a shareable reveal card and a one-tap share flow (beyond the certificate page)",
+        "A creator program pays commissions on referred signups via the existing affiliate/Stripe Connect backbone with a creator dashboard",
+        "A public creator/reseller leaderboard ties into the verified directory"
+      ],
+      "priority": 1781,
+      "passes": false,
+      "notes": "[P2][SHARE-CREATOR][EPIC] BASELINE (largely built): cert-image-render.ts + SLAB_FORMATS (square/portrait/story) + cert-share-actions.tsx (native share + X/FB/Pinterest/WhatsApp/Reddit + referral bake); affiliate.ts full Stripe Connect payout backbone (affiliate_clicks/commissions/payouts, 1099 threshold); referrals.ts. GAP: no auto card on grade completion, share only lives on cert page, no creator tier/dashboard/leaderboard. TECH/3P: existing satori/resvg + Stripe Connect; no new 3P. TIES: grading pipeline, referral/affiliate, verified directory, YouTube shorts US-1689. BUYER: n/a. SELLER/CREATOR: effortless sharing + earnings. Child stories: auto reveal card, creator tier+dashboard, leaderboard."
+    },
+    {
+      "id": "US-1782",
+      "title": "Share: auto grade-reveal card on grade completion",
+      "description": "As a seller, I want a share-ready card the moment my grade is done so that I post it without extra steps.",
+      "acceptanceCriteria": [
+        "On grade finalize, the pipeline generates a reveal card (reuse renderCertImage/buildCertSlabHtml story/portrait/square) available on the submission/report view",
+        "One-tap share flow surfaced in-app (not only on /cert), with referral code baked in",
+        "Optional auto-post to the seller's connected social via the existing social webhook fan-out (opt-in)"
+      ],
+      "priority": 1782,
+      "passes": false,
+      "notes": "[P2][SHARE-CREATOR] Hook grading-pipeline.ts finalize -> ensure slab asset (cert-assets bucket 00380). Reuse cert-share-actions.tsx. Optional fireSocialWebhooks (content-social-publish.ts) opt-in."
+    },
+    {
+      "id": "US-1783",
+      "title": "Creator: program tier on the affiliate backbone + dashboard",
+      "description": "As a creator, I want to enroll and track my earnings so that I'm motivated to promote GradeThread.",
+      "acceptanceCriteria": [
+        "Creator enrollment + a creator dashboard built on GET /api/affiliate/me + /payouts (clicks, conversions, accrued/paid commissions, Stripe Connect status)",
+        "Configurable creator commission/reward tier in the affiliate payout config",
+        "Payouts flow through the existing Stripe Connect + 1099-threshold logic"
+      ],
+      "priority": 1783,
+      "passes": false,
+      "notes": "[P2][SHARE-CREATOR][GROWTH] Reuse affiliate.ts end-to-end + lib/affiliate-payout.ts config. Mostly UI + a creator tier config, not new plumbing."
+    },
+    {
+      "id": "US-1784",
+      "title": "Creator: public creator/reseller leaderboard",
+      "description": "As a creator, I want a public leaderboard so that recognition drives participation and the pages earn SEO.",
+      "acceptanceCriteria": [
+        "Public leaderboard ranking creators/resellers by referred signups (opt-in alias) and/or graded volume, tied into /verified",
+        "Attribution via UTM/referral; anti-gaming safeguards",
+        "Leaderboard pages are SEO-indexable and interlinked with verified profiles"
+      ],
+      "priority": 1784,
+      "passes": false,
+      "notes": "[P2][SHARE-CREATOR][SEO] Reuse referrals.ts leaderboard opt-in + verified-directory. Ties existing referral-leaderboard.tsx."
+    },
+    {
+      "id": "US-1785",
+      "title": "EPIC: Circularity impact receipts (per-grade, per-user, brand ESG)",
+      "description": "As an eco-conscious user and as GradeThread, I want per-grade and per-user circularity impact estimates so that resale gets a feel-good 'you diverted X' receipt — a shareable growth hook and a B2B ESG story for brand resale partnerships.",
+      "acceptanceCriteria": [
+        "Each grade produces an estimated circularity impact (e.g. CO2e / water / textile diverted) from credible sourced factors by garment type",
+        "Per-user aggregate impact appears on the dashboard and as a shareable card",
+        "An ESG export/pitch surface positions GradeThread as an 'official resale condition + impact standard' for brands"
+      ],
+      "priority": 1785,
+      "passes": false,
+      "notes": "[P2][SUSTAINABILITY][EPIC][NEW] BASELINE: ABSENT (grep confirmed no CO2/circularity anywhere except a blog seed string). Data exists: grade_reports + submissions.garment_type; dashboard.tsx + certificate.tsx are the hook points; slab render for cards. TECH/3P: NO scraping — use openly published apparel LCA/emission factors (cite sources) stored in a config table; methodology must be defensible + clearly labeled 'estimate'. TIES: certificate/slab, dashboard, brand partnerships (B2B), content/PR. BUYER: feel-good proof. SELLER: shareable impact. B2B: ESG reporting hook. Child stories: impact-estimate lib+factors, surfaces+share, brand ESG export."
+    },
+    {
+      "id": "US-1786",
+      "title": "Sustainability: impact-estimate lib + sourced factor table",
+      "description": "As the platform, I want a defensible impact methodology so that our numbers are credible and auditable.",
+      "acceptanceCriteria": [
+        "New impact-estimate.ts computes CO2e/water/landfill-diverted per garment from a factor table keyed by garment_type/material, using openly published, cited LCA figures",
+        "Factors stored in a config table (RLS deny-all) with source citations + version; results always labeled 'estimate' with methodology link",
+        "Conservative defaults + explicit uncertainty; no overclaiming"
+      ],
+      "priority": 1786,
+      "passes": false,
+      "notes": "[P2][SUSTAINABILITY][NEW] Migration triple for impact_factors table. Cite sources (e.g. published apparel LCA datasets) in-row; do NOT fabricate precision. Compute from submissions.garment_type + grade_reports."
+    },
+    {
+      "id": "US-1787",
+      "title": "Sustainability: certificate/dashboard surfaces + shareable card",
+      "description": "As a user, I want to see and share my impact so that I feel good and spread the word.",
+      "acceptanceCriteria": [
+        "Per-grade impact shown on certificate + slab card; per-user aggregate tile ('your resale diverted X') on dashboard.tsx",
+        "Shareable 'my closet diverted X' card (reuse OG/slab render) with referral bake",
+        "All figures labeled estimates with a methodology link"
+      ],
+      "priority": 1787,
+      "passes": false,
+      "notes": "[P2][SUSTAINABILITY][NEW][SHARE] Surfaces on certificate.tsx + dashboard.tsx; card reuses cert-image-render.ts. Aggregate over the user's grade_reports."
+    },
+    {
+      "id": "US-1788",
+      "title": "Sustainability: brand ESG export + partnership pitch surface",
+      "description": "As a brand-resale partner, I want an impact export so that GradeThread's grade+impact can feed my ESG reporting.",
+      "acceptanceCriteria": [
+        "An aggregate ESG export (CSV/API) of graded-volume impact for a partner/brand cohort (no PII)",
+        "A pitch/landing surface positioning GradeThread as an 'official resale condition + circularity standard' for brand resale programs (e.g. Worn Wear-style)",
+        "Ties into the B2B API (EPIC 11) for programmatic access"
+      ],
+      "priority": 1788,
+      "passes": false,
+      "notes": "[P2][SUSTAINABILITY][NEW][B2B] Aggregate export via api-v1 or admin export; landing via Model A page. Feeds B2B API productization."
+    },
+    {
+      "id": "US-1789",
+      "title": "EPIC: Grade-as-a-Service B2B productization",
+      "description": "As a marketplace/consignment/enterprise partner, I want to grade at volume via API with batch submission, quotas, and usage-based billing so that GradeThread's grade becomes embedded infrastructure across the secondhand industry.",
+      "acceptanceCriteria": [
+        "A batch grading endpoint + async result webhooks support high-volume programmatic grading",
+        "Per-key monthly quotas/entitlements and an enterprise rate tier are enforced",
+        "Usage converts to metered/overage billing with a developer portal + docs"
+      ],
+      "priority": 1789,
+      "passes": false,
+      "notes": "[P2][B2B-API][EPIC] BASELINE (robust): api-v1.ts (POST /grades one-at-a-time, GET reads, /price-guide, sandbox US-596, /webhook), api-keys.ts (CRUD/rotate, scopes, white-label branding gated to Business), api-key-auth.ts, API_RATE_TIERS (api-v1-rate.ts), api_usage_events ledger (display-only) + api_usage_summary RPC, api-usage-log.ts. GAP: no batch endpoint, no per-key monthly quota/entitlement, no metered/overage billing, no enterprise tier, no dev portal/docs. TECH/3P (opensource): OpenAPI spec + Scalar/Redoc/Swagger UI for docs; Stripe metered/usage-based billing. TIES: grading pipeline (processSubmission), payments.ts, ai metering, white-label embed, sustainability export. PARTNER: ThredUp/Poshmark/consignment chains/brands. Child stories: batch endpoint, quotas+enterprise tier, metered billing, dev portal."
+    },
+    {
+      "id": "US-1790",
+      "title": "B2B API: batch grading endpoint + result webhooks",
+      "description": "As a partner, I want to submit many garments in one call and get async results so that I can grade at scale.",
+      "acceptanceCriteria": [
+        "POST /api/v1/grades:batch accepts multiple garments, validates each, and enqueues them via the durable-jobs batch pattern (reuse processSubmission)",
+        "Per-item results delivered via the existing webhook mechanism (and a GET batch-status endpoint) with partial success semantics",
+        "Same auth/scope/tenant-scoping/billing precedence as single grades"
+      ],
+      "priority": 1790,
+      "passes": false,
+      "notes": "[P2][B2B-API] Load durable-jobs skill (batch/claim/heartbeat/reclaim). Reuse api-v1.ts validation + runPaymentPrecedence + webhook delivery. New batch job table (migration triple)."
+    },
+    {
+      "id": "US-1791",
+      "title": "B2B API: per-key monthly quotas + enterprise rate tier",
+      "description": "As GradeThread, I want per-key volume entitlements so that API plans are enforceable beyond throughput.",
+      "acceptanceCriteria": [
+        "api_keys gains monthly quota/entitlement columns enforced in api-key-auth.ts (429 with a clear quota-exceeded code when exhausted)",
+        "A dedicated enterprise/api tier added to API_RATE_TIERS with higher throughput",
+        "Usage vs quota visible via GET /usage + admin"
+      ],
+      "priority": 1791,
+      "passes": false,
+      "notes": "[P2][B2B-API] Extend api_keys (00169) + api-key-auth.ts + API_RATE_TIERS (api-v1-rate.ts). Quota is monthly volume (distinct from per-minute rate)."
+    },
+    {
+      "id": "US-1792",
+      "title": "B2B API: usage-based / overage billing",
+      "description": "As GradeThread, I want to bill partners for what they use so that the API is a real revenue line.",
+      "acceptanceCriteria": [
+        "The existing api_usage_events ledger (currently display-only) feeds a Stripe metered price -> invoices/overage",
+        "An API pricing tier added to the payments catalog; overage vs included volume reconciled per period",
+        "Billing reconciliation job verifies ledger vs Stripe (extend jobs-billing-reconciliation.ts)"
+      ],
+      "priority": 1792,
+      "passes": false,
+      "notes": "[P2][B2B-API][BILLING] Stripe usage-based billing. Convert api_usage_events -> metered usage records. Add tier to payments.ts /catalog. Reconcile via jobs-billing-reconciliation.ts."
+    },
+    {
+      "id": "US-1793",
+      "title": "B2B API: developer portal + OpenAPI docs + onboarding",
+      "description": "As a developer, I want clear docs and a sandbox so that I can integrate quickly.",
+      "acceptanceCriteria": [
+        "A published OpenAPI spec for /api/v1 + a docs portal (Scalar/Redoc/Swagger UI) with auth, batch, webhooks, and price-guide documented",
+        "Sandbox onboarding flow (reuse the deterministic sandbox endpoints) + white-label embed setup polished",
+        "Quickstart + code samples; keys/rotation/quotas surfaced in the api-keys UI"
+      ],
+      "priority": 1793,
+      "passes": false,
+      "notes": "[P2][B2B-API][DX] OpenAPI + opensource docs renderer (self-hosted, inline per CSP). Reuse sandbox (US-596) + white-label branding (api-keys.ts /branding). Docs as a public page."
+    },
+    {
+      "id": "US-1794",
+      "title": "EPIC: Buyer Platform — buyer accounts, subscription, and the confidence layer",
+      "description": "As GradeThread, we want to extend the seller-focused product into a two-sided buyer/seller platform whose sole purpose is increasing confidence in item listings, so that buyers pay a recurring subscription for point-of-purchase confidence AND their demand for graded items pulls more sellers into paying for grading (a two-sided flywheel).",
+      "acceptanceCriteria": [
+        "A buyer can sign up, create a buyer profile, and subscribe to a buyer plan independent of any seller/FlipDesk plan, on the existing Supabase-auth + Stripe stack",
+        "The buyer subscription (Free / Guard / Connoisseur) gates a coherent suite of confidence features: extension second-opinion + discrepancy + price-fairness, condition-based alerts, fit, authenticity/video credits, grade-confirmation rewards, buyer trust score, insured grade-locked guarantee, wardrobe portfolio, and the graded-wanted board",
+        "Every buyer feature reuses (does not duplicate) an existing capability where one exists — extension US-1753, fit US-1776/1777, authenticity US-1767, video US-1762, circularity US-1785, What's-It-Worth US-1750, badges US-1758, Value Index US-1745, buyer guarantee US-867/guarantee_remedies — and is bound to the buyer entitlement layer",
+        "This umbrella tracks the US-1795…US-1847 buyer-platform backlog and its cross-cutting decisions (entitlements, tenant isolation, PII/consent, analytics)"
+      ],
+      "priority": 1794,
+      "passes": false,
+      "notes": "[P2][BUYER][EPIC][NEW] BASELINE: buyers today are non-account holders reached only via public certificate/verify/guarantee/passport pages; there is NO buyer account, buyer profile, or buyer subscription. All existing plans (FLIPDESK_PLANS, GRADETHREAD_TIERS, CREDIT_PACKS in src/lib/constants.ts) gate seller/reseller capability. STRATEGY: the unique asset is objective per-item condition data + the grade_outcomes dataset (condition->realized price); the buyer product monetizes 'claimed condition vs objective condition, at the point of purchase'. TIERS (confirmed): Free / Guard (~$8/mo) / Connoisseur (~$19/mo). FLYWHEEL: buyer demand for graded items -> sellers must grade to sell -> more graded inventory -> better buyer product. TIES: reuses capability EPICs US-1745/1750/1753/1758/1762/1767/1776/1785 + buyer guarantee US-867. SEQUENCING: foundation (US-1795 sub-epic) ships first; idea sub-epics (US-1805+) depend on it. Child sub-epics: account+subscription foundation (1795), alerts (1805), grade-confirm rewards (1810), buyer trust score (1815), insured grade-locked guarantee (1819), wardrobe portfolio (1824), graded-wanted board (1829), extension confidence suite (1833), buyer bindings for existing capability epics (1839-1844), cross-cutting analytics/legal/QA (1845-1847)."
+    },
+    {
+      "id": "US-1795",
+      "title": "EPIC: Buyer account & subscription foundation",
+      "description": "As GradeThread, we want the core buyer identity, profile, subscription, entitlement, dashboard, and notification plumbing in place so that every downstream buyer feature has an account to attach to and a plan to gate against.",
+      "acceptanceCriteria": [
+        "A buyer can create an account, complete a buyer-first onboarding, save shopping preferences, subscribe/upgrade/cancel a buyer plan via Stripe, and land on a buyer dashboard — all reusing the existing Supabase-auth + Stripe + TanStack Query stack",
+        "A buyer account is cleanly distinguished from a seller/FlipDesk account (account_type) while allowing a single person to be both without duplicate identities",
+        "Buyer entitlements resolve from the buyer plan and gate features consistently on client and edge, with usage metering for metered actions",
+        "All buyer tables follow the migration triple, are tenant-scoped (RLS + edge service-role scoping), and PII is treated as sensitive"
+      ],
+      "priority": 1795,
+      "passes": false,
+      "notes": "[P2][BUYER][EPIC][FOUNDATION][NEW] Reuses: Supabase PKCE auth + handle_new_user() trigger + useAuth()/auth-store.ts + <ProtectedRoute>/<AuthLayout>; Stripe stack (src/lib/stripe.ts, edge stripe-*.ts + webhooks.ts); billing hooks (use-pricing-plans.ts/use-plan-usage.ts/use-billing-summary.ts) + src/components/billing/*; entitlement pattern from FlipdeskGateFlags in constants.ts. Child stories: account model+account_type (1796), signup/onboarding (1797), profile+preferences (1798), plans+Stripe products (1799), entitlements+gating+metering (1800), billing surfaces (1801), dashboard shell+nav (1802), notification/alert delivery infra (1803), mobile IAP mirror (1804). MUST load the migrations skill for every table; MUST load tenant-isolation skill for every edge route."
+    },
+    {
+      "id": "US-1796",
+      "title": "Buyer account model + account_type (buyer / seller / both)",
+      "description": "As a person who may buy, sell, or both, I want one GradeThread identity that can carry a buyer role so that I don't need a second login and my buyer and seller data stay separate but linked.",
+      "acceptanceCriteria": [
+        "Migration adds an account_type / role capability (e.g. is_buyer flag or account_roles) to the profile model so an account can be buyer, seller, or both without a duplicate identity",
+        "handle_new_user() (SECURITY DEFINER) provisioning is extended so a buyer-origin signup lands with the buyer role and no seller/FlipDesk assumptions",
+        "Existing seller accounts are unaffected; a seller can opt into the buyer role in-app and vice versa",
+        "Migration triple satisfied (idempotent SQL + EXPECTED_SCHEMA_VERSION bump in same commit + self-record footer); RLS unchanged-or-tightened; no .or() on mutations"
+      ],
+      "priority": 1796,
+      "passes": false,
+      "notes": "[P2][BUYER][FOUNDATION][NEW] Load migrations skill. Extends the profiles/users model + handle_new_user() trigger. Decide flag-vs-join-table: prefer additive is_buyer/is_seller booleans (backfill is_seller=true for existing rows) to avoid churning RLS across the app. Types in src/types/database.ts. TIES: gates buyer dashboard/nav (1802) + buyer entitlements (1800). RISK: don't break the seller onboarding path; add a tenant-isolation_test.ts case if any edge route reads role."
+    },
+    {
+      "id": "US-1797",
+      "title": "Buyer signup & buyer-first onboarding funnel",
+      "description": "As a secondhand buyer arriving from a public tool (What's-It-Worth, a certificate, the extension), I want a fast buyer-first signup and onboarding so that I convert without being funneled through seller/reseller setup.",
+      "acceptanceCriteria": [
+        "A buyer signup entry point + onboarding flow exists (distinct from seller onboarding) that captures the buyer role and routes to buyer onboarding, reusing PKCE auth + <AuthLayout> redirect behavior",
+        "Onboarding collects the minimum to be useful (categories/brands/sizes interest, notification opt-in) and can be skipped/deferred",
+        "Conversion entry points from public surfaces (grade-checker US-1750, /cert, /verify, extension install US-1757) carry attribution into the buyer funnel (reuse affiliate.ts click->conversion)",
+        "Onboarding is a public-route-registry-safe set of pages where any are indexable"
+      ],
+      "priority": 1797,
+      "passes": false,
+      "notes": "[P2][BUYER][FOUNDATION][NEW][GROWTH] Reuse auth-store.ts + useAuth() + existing signup/login pages as the pattern; new buyer onboarding pages in src/pages/. Attribution reuses referral/affiliate (affiliate_clicks/referral_events). TIES: depends on account model (1796); feeds profile+preferences (1798); conversion source for extension (1757/1833) + What's-It-Worth (1750/1843). If any onboarding page is public/indexable, register in src/lib/seo/public-routes.ts + prerender entry-server per CLAUDE.md SEO rules."
+    },
+    {
+      "id": "US-1798",
+      "title": "Buyer profile & shopping preferences (brands / sizes / categories / prefs)",
+      "description": "As a buyer, I want to save the brands, sizes, categories, and preferences I shop for so that alerts, fit, and recommendations are personalized to me.",
+      "acceptanceCriteria": [
+        "Migration for buyer preferences (followed brands, sizes per garment group, categories, price bands, condition floor, unit prefs, notification prefs) — tenant-scoped RLS, sensitive PII posture",
+        "Profile/preferences UI in the buyer dashboard reusing measurement-prefs.ts (in/cm) semantics and existing form conventions (controlled inputs, sonner toasts)",
+        "Preferences are the shared input for condition-based alerts (1805), fit (1839), and any recommendation surface; a documented read contract exists so those features don't each invent their own",
+        "Migration triple satisfied"
+      ],
+      "priority": 1798,
+      "passes": false,
+      "notes": "[P2][BUYER][FOUNDATION][NEW] Load migrations skill. Distinct from body_profiles (fit US-1777, body circumference) — this is shopping intent (brands/sizes/categories/price). Reuse measurement-templates.ts size keys + measurement-prefs.ts units. TIES: primary consumer is alerts matching engine (1807) + fit binding (1839). Keep the preference schema stable/versioned — many features read it."
+    },
+    {
+      "id": "US-1799",
+      "title": "Buyer subscription plans + Stripe products (Free / Guard / Connoisseur)",
+      "description": "As a buyer, I want clear buyer plans I can subscribe to so that I can pay for the confidence features I want, separate from any seller plan.",
+      "acceptanceCriteria": [
+        "BUYER_PLANS defined in src/lib/constants.ts (free / guard / connoisseur) with monthly+yearly Stripe price IDs wired into the price-ID map, mirroring the FLIPDESK_PLANS structure",
+        "Each plan carries a BuyerGateFlags entitlement object + included monthly allowances (extension checks, authenticity credits, video-grade credits, alert count/frequency, guarantee coverage tier, portfolio) matching the confirmed tier split",
+        "Stripe checkout, webhooks (edge webhooks.ts), and subscription lifecycle handle the buyer product on the same customer as any seller product without collision (a person can hold a buyer AND a FlipDesk sub)",
+        "Marketing pricing page + admin pricing surface show buyer plans; migration for any buyer-plan/entitlement config table follows the triple"
+      ],
+      "priority": 1799,
+      "passes": false,
+      "notes": "[P2][BUYER][FOUNDATION][BILLING][NEW] Reuse constants.ts plan pattern (FLIPDESK_PLANS/GRADETHREAD_TIERS/CREDIT_PACKS + price-ID map lines ~1116-1157), edge stripe-*.ts + webhooks.ts, pricing config migrations (00037/00166/00178/00209 as the pattern). Guard ~$8/mo, Connoisseur ~$19/mo. CAUTION: one Stripe customer may now carry two products — ensure webhook plan-resolution keys on price/product, not 'the subscription'. Metered credits reuse the existing credit/withAiAction precedence. TIES: entitlements (1800) + billing UI (1801) + mobile IAP mirror (1804)."
+    },
+    {
+      "id": "US-1800",
+      "title": "Buyer entitlements + plan-gating + usage metering",
+      "description": "As GradeThread, we want a single source of truth for what a buyer plan unlocks so that every buyer feature gates consistently on client and edge and metered actions are counted and capped.",
+      "acceptanceCriteria": [
+        "BuyerGateFlags + allowance resolution implemented once and consumed by both the React app (a use-buyer-entitlements hook) and edge routes (a helper that reads the buyer's active plan)",
+        "Metered actions (extension checks, authenticity credits, video-grade credits, alerts) are counted against monthly allowances with debit precedence: included allowance -> credit balance -> upgrade prompt, reusing the existing ai-usage/credits precedence",
+        "Gating fails safe (deny when plan unknown) and surfaces contextual upgrade prompts at caps (reuse billing upgrade-dialog pattern)",
+        "Edge gating is tenant-scoped and covered by a tenant-isolation_test.ts case"
+      ],
+      "priority": 1800,
+      "passes": false,
+      "notes": "[P2][BUYER][FOUNDATION][NEW] Mirror FlipdeskGateFlags + use-plan-usage.ts. Reuse ai-usage.ts recordAiCall + withAiAction/credits + ai_budgets for metered debit. Load tenant-isolation skill (buyer plan read must scope to the buyer's own id). TIES: consumed by every buyer feature epic; depends on plans (1799). Keep flag names stable — they are referenced across 1805-1844."
+    },
+    {
+      "id": "US-1801",
+      "title": "Buyer billing surfaces (checkout / portal / usage / upgrade prompts)",
+      "description": "As a buyer, I want to manage my subscription, see my usage, and upgrade or cancel so that I stay in control of what I pay for.",
+      "acceptanceCriteria": [
+        "Buyer billing page: current plan, renewal, Stripe customer-portal link, plan picker (monthly/yearly), and cancel/downgrade, reusing src/components/billing/* and use-billing-summary.ts",
+        "Usage meters show allowance consumption (extension checks, credits, alerts) against caps with clear reset dates",
+        "Contextual upgrade prompts fire from gated features (1800) and deep-link into the buyer plan picker with the relevant plan preselected",
+        "Purchase of metered credit packs (authenticity/video) available for buyers, reusing the CREDIT_PACKS + checkout flow"
+      ],
+      "priority": 1801,
+      "passes": false,
+      "notes": "[P2][BUYER][FOUNDATION][BILLING][NEW] Reuse src/pages/billing.tsx + src/components/billing/* + use-pricing-plans.ts/use-plan-usage.ts/use-billing-summary.ts. Depends on plans (1799) + entitlements (1800). Keep buyer vs seller billing views separated by account_type/role."
+    },
+    {
+      "id": "US-1802",
+      "title": "Buyer dashboard shell + navigation + protected routes",
+      "description": "As a buyer, I want a dedicated buyer home with navigation to my watchlist, alerts, rewards, guarantee, portfolio, and settings so that the buyer product feels like a coherent app, not bolted onto seller tooling.",
+      "acceptanceCriteria": [
+        "A buyer dashboard surface (e.g. /buyer/*) with a buyer sidebar/nav group, guarded by <ProtectedRoute> + the buyer role, laid out with the existing shadcn/Tailwind system and brand tokens",
+        "Empty states and progressive-disclosure guide a new buyer to first value (run an extension check, set an alert, verify a cert)",
+        "Nav items are entitlement-aware (locked items show upgrade affordance) and reuse the sidebar grouping pattern from FlipDesk",
+        "A person who is both buyer and seller can switch context between the buyer app and the seller/FlipDesk app without re-auth"
+      ],
+      "priority": 1802,
+      "passes": false,
+      "notes": "[P2][BUYER][FOUNDATION][NEW] Reuse sidebar.tsx grouping pattern (FlipDesk group), <ProtectedRoute>, routing in src/routes/index.tsx, brand tokens. Depends on account model (1796) + entitlements (1800). This is the shell the idea epics (1805+) plug their surfaces into. Context switch buyer<->seller for dual-role accounts."
+    },
+    {
+      "id": "US-1803",
+      "title": "Buyer notification & alert delivery infrastructure (email / push / in-app)",
+      "description": "As a buyer, I want to choose how I'm notified (email, push, in-app) so that condition alerts, reward events, guarantee updates, and portfolio changes reach me the way I prefer.",
+      "acceptanceCriteria": [
+        "A buyer-scoped notification model + delivery path across email, push (reuse the FCM/push fan-out), and in-app, with per-category preferences and unsubscribe/quiet-hours",
+        "A reusable notify(buyerId, category, payload) contract that the alerts (1809), rewards (1814), guarantee (1821), and portfolio (1827) features call — not each rolling its own sender",
+        "Digest batching supported (immediate vs daily vs weekly) honoring plan-based frequency caps from entitlements",
+        "Delivery is tenant-scoped, idempotent (reuse the north-star idempotency-ledger pattern), and covered by tests"
+      ],
+      "priority": 1803,
+      "passes": false,
+      "notes": "[P2][BUYER][FOUNDATION][NEW] Reuse existing push fan-out (FCM platform) + email sender + the north-star digest/idempotency-ledger pattern (00170). Frequency caps come from entitlements (1800). TIES: the shared delivery layer for alerts/rewards/guarantee/portfolio. Load durable-jobs skill if digest batching runs on a cron. Migration triple for any notification tables."
+    },
+    {
+      "id": "US-1804",
+      "title": "Buyer subscription mobile IAP mirror (App Store + Google Play)",
+      "description": "As a buyer on mobile, I want to subscribe to a buyer plan via the native store so that I can pay through the platform I'm already on.",
+      "acceptanceCriteria": [
+        "Buyer plans mapped to App Store + Google Play products with server-side receipt verification, mirroring the existing appstore/google-play billing verification",
+        "Entitlement resolution (1800) treats an IAP-backed buyer sub identically to a Stripe-backed one (single entitlement source of truth)",
+        "Store-compliance rules respected (no external-purchase steering where disallowed); plan parity with web",
+        "Migration triple for any IAP mapping table"
+      ],
+      "priority": 1804,
+      "passes": false,
+      "notes": "[P3][BUYER][FOUNDATION][BILLING][NEW] Reuse appstore billing (00104) + google play billing (00321) verification paths + POST /api/payments/{google,apple}/verify. Entitlement source of truth stays in 1800. Device/store-gated; can trail web launch. Depends on plans (1799) + entitlements (1800)."
+    },
+    {
+      "id": "US-1805",
+      "title": "EPIC: Condition-based alerts & watchlist ('snipe on grade, not price')",
+      "description": "As a buyer, I want to be alerted when an item matching my brand + size + minimum objective grade + max price appears so that I catch well-graded deals no marketplace filter can surface — because they filter on the seller's self-reported condition, not GradeThread's objective grade.",
+      "acceptanceCriteria": [
+        "A buyer can create saved searches / watchlists keyed on brand, size, category, minimum GradeThread grade, and max price, and be notified on matches",
+        "Matching runs over GradeThread-graded inventory (public_grade_reports / graded listings) and, where available, extension-fed marketplace listings the buyer is browsing",
+        "Alert frequency and number of active alerts are entitlement-gated (Free: none/limited; Guard: standard; Connoisseur: unlimited/instant)",
+        "This umbrella tracks US-1806…US-1809"
+      ],
+      "priority": 1805,
+      "passes": false,
+      "notes": "[P2][BUYER][ALERTS][EPIC][NEW] BASELINE: no watchlist/saved-search/alert primitive exists anywhere (grep confirmed). Unique angle: filter on OBJECTIVE grade, impossible without the grading engine. DATA: public_grade_reports view + graded listings + grade_outcomes; buyer preferences (1798) as defaults. DELIVERY: notification infra (1803). TIES: extension ingestion (1808) feeds off-platform listings. Load durable-jobs skill for the matching cron. Depends on foundation (1795). Child stories: model (1806), matching engine (1807), extension ingestion (1808), delivery+UI (1809)."
+    },
+    {
+      "id": "US-1806",
+      "title": "Alerts: watchlist + saved-search model",
+      "description": "As a buyer, I want to save the searches and specific items I care about so that the system can watch them for me.",
+      "acceptanceCriteria": [
+        "Migration for saved_searches (criteria: brand, size, category, min_grade, max_price, keywords) and watchlist_items (a specific certificate/listing/passport to watch) — tenant-scoped RLS",
+        "Criteria default from buyer preferences (1798) but are individually editable",
+        "Watch action available from a certificate page, a graded listing, and (later) the extension, all writing to the same model",
+        "Migration triple satisfied; no .or() on mutations"
+      ],
+      "priority": 1806,
+      "passes": false,
+      "notes": "[P2][BUYER][ALERTS][NEW] Load migrations skill. Reuse cert/listing ids as watch targets; defaults from buyer preferences (1798). TIES: consumed by matching engine (1807) + delivery/UI (1809). Watch-from-extension write path lands with 1837."
+    },
+    {
+      "id": "US-1807",
+      "title": "Alerts: matching engine over graded inventory + Value Index",
+      "description": "As a buyer, I want my saved searches evaluated continuously so that I'm told the moment a matching well-graded item appears at a fair price.",
+      "acceptanceCriteria": [
+        "A durable, batched matching job evaluates saved searches against new/updated graded inventory and emits match events (respecting the durable-jobs claim/heartbeat/reclaim contract)",
+        "Price fairness is factored using the Value Index (US-1745) so 'max price' can be expressed as an absolute or as 'at/below fair for this grade'",
+        "De-duplication so a buyer isn't alerted twice for the same item; match events carry enough context to render a rich notification",
+        "Cost/quota guardrails so matching scales without unbounded compute (mirror the Value Index refresh guardrails)"
+      ],
+      "priority": 1807,
+      "passes": false,
+      "notes": "[P2][BUYER][ALERTS][OPS][NEW] Load durable-jobs skill. Reuse condition-index.ts / Value Index (US-1745) for fair-price; grade_outcomes for realized-price context. Emit into notification infra (1803). Coolify scheduled task. Depends on model (1806). Guardrails mirror handleConditionIndexRefreshCron (US-1749)."
+    },
+    {
+      "id": "US-1808",
+      "title": "Alerts: extension-fed marketplace listing ingestion",
+      "description": "As a buyer, I want listings I browse on marketplaces to count toward my alerts and watchlist so that GradeThread can flag matches even for items not yet on our platform.",
+      "acceptanceCriteria": [
+        "The buyer extension can submit a browsed listing (URL + images + seller-claimed fields) to a hardened buyer-scoped endpoint that grades it and evaluates it against the buyer's saved searches",
+        "Ingested listings are rate-limited, quota-metered per entitlement, and SSRF-guarded (reuse the public grading endpoint hardening)",
+        "Matches from ingested listings notify via the same path as on-platform matches; ingested data respects marketplace ToS (buyer's own browsing, no bulk scraping)",
+        "Ingestion is tenant-scoped to the submitting buyer"
+      ],
+      "priority": 1808,
+      "passes": false,
+      "notes": "[P2][BUYER][ALERTS][EXTENSION][NEW] Reuse public-grading.ts hardening (gradeCheckRateLimited + safeFetch SSRF guard + quickGrade). This is the bridge between the extension (1833) and alerts. Quota via entitlements (1800). RISK: marketplace image-scraping ToS — constrain to buyer-initiated, per-listing, no crawling. Load tenant-isolation skill."
+    },
+    {
+      "id": "US-1809",
+      "title": "Alerts: delivery, digest & management UI",
+      "description": "As a buyer, I want to manage my alerts and receive them how I chose so that they're useful and not noisy.",
+      "acceptanceCriteria": [
+        "Alerts dashboard in the buyer app: list/edit/pause saved searches + watchlist, see recent matches, tune per-alert channel and frequency",
+        "Delivery via the notification infra (1803) with instant vs digest honoring entitlement frequency caps",
+        "Each match renders grade, fair-price context, and a deep link to the item/certificate/listing",
+        "Empty and first-run states guide creating a first alert"
+      ],
+      "priority": 1809,
+      "passes": false,
+      "notes": "[P2][BUYER][ALERTS][NEW] UI in buyer dashboard (1802). Delivery via 1803; frequency caps via entitlements (1800). Depends on matching engine (1807). Reuse shadcn list/table + sonner."
+    },
+    {
+      "id": "US-1810",
+      "title": "EPIC: Grade-confirmation rewards & post-sale ground truth",
+      "description": "As a buyer, I want to earn rewards for confirming whether a purchased item matched its GradeThread grade on arrival so that I'm compensated for my time — and as GradeThread we capture the post-sale ground-truth data that improves grading accuracy and closes the grade_outcomes loop.",
+      "acceptanceCriteria": [
+        "A buyer can link a purchase to a GradeThread grade/certificate, then after arrival confirm or dispute the grade with photos, earning credits/points",
+        "Confirmations feed grade_outcomes (realized condition/price/dispute) and the human-review/accuracy pipeline, improving the model over time",
+        "Rewards are abuse-resistant (verified purchase + arrival evidence) and redeemable toward buyer credits (authenticity/video/guarantee)",
+        "This umbrella tracks US-1811…US-1814"
+      ],
+      "priority": 1810,
+      "passes": false,
+      "notes": "[P2][BUYER][REWARDS][EPIC][NEW] STRATEGIC: reward mechanic doubles as your cheapest source of labeled post-sale data. DATA: grade_outcomes (listing_price/sold_price/sold_at/dispute_reported) + human_reviews (per-factor corrections) — this loop feeds both. Load grading-engine skill for anything touching human_reviews/accuracy. Reward currency reuses the credits ledger. TIES: gamification/streaks (1815 trust score), circularity receipts (1842). Depends on foundation (1795). Child stories: purchase-link+arrival capture (1811), confirm/dispute engine + feedback loop (1812), reward ledger + anti-abuse (1813), reward surfaces + streaks (1814)."
+    },
+    {
+      "id": "US-1811",
+      "title": "Rewards: purchase-link + arrival-condition capture flow",
+      "description": "As a buyer, I want to link an item I bought to its GradeThread grade and then snap arrival photos so that I can confirm it matched.",
+      "acceptanceCriteria": [
+        "A buyer can associate a purchase with an existing certificate/grade (by cert number, QR, or link) and record purchase context (price, marketplace, date)",
+        "An arrival-capture flow collects the same photo types the grader uses (front/back/label/detail), reusing the upload-validation + metadata-strip + private-bucket pipeline",
+        "Migration for buyer_purchases + arrival captures, tenant-scoped RLS, images in a per-user-folder private bucket",
+        "Migration triple satisfied"
+      ],
+      "priority": 1811,
+      "passes": false,
+      "notes": "[P2][BUYER][REWARDS][NEW] Load migrations skill. Reuse cert-number.ts lookup (normalizeCertNumber) + upload-validation.ts + image-metadata.ts + submission-images private bucket + signed-URL read (TTL<=900s, never getPublicUrl). Purchase price/date feed grade_outcomes (1812). Tenant-scoped."
+    },
+    {
+      "id": "US-1812",
+      "title": "Rewards: confirm/dispute engine + grading feedback loop",
+      "description": "As GradeThread, we want buyer arrival confirmations to feed the accuracy pipeline so that real post-sale outcomes make the grade better and flag systematic misgrades.",
+      "acceptanceCriteria": [
+        "Confirm/dispute writes a structured outcome to grade_outcomes (matched? deltas by factor? dispute reason) and routes disputes into the human-review/accuracy tracking flow",
+        "Aggregate signal surfaces per prompt_version accuracy (reuse ai_prompt_versions.accuracy_score) so misgrade patterns are visible",
+        "Buyer disputes tie into the buyer guarantee claim path (US-1819) where a material mismatch qualifies for coverage",
+        "Exemplar-privacy and confidence-cap rules respected per the grading-engine contract"
+      ],
+      "priority": 1812,
+      "passes": false,
+      "notes": "[P2][BUYER][REWARDS][GRADING][NEW] Load grading-engine skill (owns human_reviews, accuracy tracking, exemplar privacy, confidence caps). Reuse grade_outcomes + human_reviews + ai_prompt_versions.accuracy_score. TIES: feeds insured guarantee eligibility (1819-1821). Depends on capture (1811)."
+    },
+    {
+      "id": "US-1813",
+      "title": "Rewards: reward ledger + anti-abuse + redemption",
+      "description": "As a buyer, I want the credits I earn to be tracked and spendable so that confirming grades is genuinely worth my time.",
+      "acceptanceCriteria": [
+        "An idempotent reward ledger issues credits/points for verified confirmations and is redeemable via the existing credit-debit precedence (authenticity/video/guarantee)",
+        "Anti-abuse: requires a verified purchase link + arrival evidence, caps per-account/day, and flags anomalous patterns before credit issuance",
+        "Reward config is admin-tunable (reuse the referral-reward-config pattern) so payout economics can be adjusted",
+        "Ledger is tenant-scoped and reconciles (no double-issue) via an idempotency ledger"
+      ],
+      "priority": 1813,
+      "passes": false,
+      "notes": "[P2][BUYER][REWARDS][NEW] Reuse referral reward config pattern (00237 referral_reward_config) + credits ledger + north-star idempotency-ledger (00170). Redemption via existing credit precedence. Anti-abuse gates issuance. Load migrations skill. Depends on confirm engine (1812)."
+    },
+    {
+      "id": "US-1814",
+      "title": "Rewards: buyer surfaces, streaks & impact receipts",
+      "description": "As a buyer, I want to see my rewards, streaks, and the good my confirming does so that it feels rewarding to keep doing it.",
+      "acceptanceCriteria": [
+        "Buyer dashboard surfaces earned credits, confirmation streaks (reuse the north-star streak/milestone logic), and lifetime confirmations",
+        "Savvy-buyer receipts ('caught N over-graded listings', 'confirmed N grades') render as shareable cards (reuse the slab/OG card render)",
+        "Streaks/receipts tie into circularity impact (US-1785/1842) where relevant",
+        "Optional leaderboard opt-in (reuse the referral-leaderboard opt-in pattern)"
+      ],
+      "priority": 1814,
+      "passes": false,
+      "notes": "[P2][BUYER][REWARDS][GROWTH][NEW] Reuse north-star.ts (streakWeeks/milestones, 00170) + cert-image-render.ts SLAB_FORMATS for share cards + referral-leaderboard opt-in (00195). Surfaces in buyer dashboard (1802). Depends on ledger (1813). TIES: trust score (1815), circularity (1842)."
+    },
+    {
+      "id": "US-1815",
+      "title": "EPIC: Buyer Trust Score & Connoisseur levels (buyer reputation)",
+      "description": "As a buyer, I want a reputation that grows as I verify purchases and contribute grade confirmations so that I earn standing and perks — and as GradeThread we get a buyer-reputation asset that deepens engagement.",
+      "acceptanceCriteria": [
+        "A buyer Trust Score / level system accrues from verified activity (purchases linked, grades confirmed, disputes upheld, tenure) with transparent, explainable rules",
+        "Levels unlock perks (e.g. extended guarantee window, priority claim handling, early access) that compose with subscription entitlements",
+        "A buyer can view their score/level and an optional public buyer profile with privacy controls",
+        "This umbrella tracks US-1816…US-1818"
+      ],
+      "priority": 1815,
+      "passes": false,
+      "notes": "[P2][BUYER][REPUTATION][EPIC][NEW] BASELINE: no buyer reputation/rating primitive exists. Compose with (not replace) subscription entitlements — reputation unlocks perks, subscription unlocks features. DATA: reward confirmations (1810), purchase links, guarantee outcomes. TIES: perks interplay with guarantee (1819) + entitlements (1800). Child stories: reputation event model + scoring (1816), levels/badges/perks (1817), public buyer profile + privacy (1818). Depends on foundation (1795)."
+    },
+    {
+      "id": "US-1816",
+      "title": "Trust Score: reputation event model + scoring engine",
+      "description": "As GradeThread, we want a transparent event-sourced reputation model so that a buyer's Trust Score is explainable and abuse-resistant.",
+      "acceptanceCriteria": [
+        "Migration for reputation_events (verified purchase, grade confirmed, dispute upheld/overturned, tenure, chargeback penalty) + a derived score, tenant-scoped RLS",
+        "A deterministic, documented scoring function (no black box) computes level from events with decay/penalty rules",
+        "Score recomputation is idempotent and reconstructable from the event log",
+        "Migration triple satisfied"
+      ],
+      "priority": 1816,
+      "passes": false,
+      "notes": "[P2][BUYER][REPUTATION][NEW] Load migrations skill. Event-sourced + deterministic (like passport-confidence.ts / north-star.ts style pure logic). Anti-gaming: only VERIFIED events score; penalties for chargebacks/false disputes. Depends on rewards (1810) as a primary event source."
+    },
+    {
+      "id": "US-1817",
+      "title": "Trust Score: levels, badges & perks unlock",
+      "description": "As a buyer, I want reaching a new level to unlock real perks so that building reputation is worth it.",
+      "acceptanceCriteria": [
+        "Named levels + earned badges (distinct from the existing trust/verified UI badges) with clear thresholds shown to the buyer",
+        "Perks (extended guarantee window, priority claim handling, early access to graded drops, bonus reward multipliers) resolve alongside subscription entitlements without conflict",
+        "Perk resolution is centralized so guarantee (1819), alerts (1805), and rewards (1810) read one source",
+        "Downgrade/decay handled gracefully (perks lapse cleanly)"
+      ],
+      "priority": 1817,
+      "passes": false,
+      "notes": "[P2][BUYER][REPUTATION][NEW] Perks compose with BuyerGateFlags (1800) — document precedence (subscription baseline + reputation bonus). Reuse grade-badge.ts styling conventions for level badges. Depends on scoring engine (1816). TIES: guarantee window (1819), reward multipliers (1813)."
+    },
+    {
+      "id": "US-1818",
+      "title": "Trust Score: public buyer profile + privacy controls",
+      "description": "As a buyer, I want to optionally show my Trust Score and buying history so that sellers and the community can see I'm a serious, trustworthy buyer.",
+      "acceptanceCriteria": [
+        "An opt-in public buyer profile (mirroring the verified-seller profile pattern) showing level, badges, and chosen stats, with granular privacy controls (default private)",
+        "PII-safe by construction — no sensitive purchase details exposed without explicit opt-in",
+        "If the profile page is public/indexable, it is registered per the SEO route rules",
+        "Buyer can disable/redact the public profile at any time"
+      ],
+      "priority": 1818,
+      "passes": false,
+      "notes": "[P2][BUYER][REPUTATION][NEW] Mirror verified-seller profile (00057 + /verified/:handle) but buyer-side + private-by-default. Register in public-routes.ts if indexable. Depends on levels (1817). PII posture: sensitive; explicit opt-in only."
+    },
+    {
+      "id": "US-1819",
+      "title": "EPIC: Insured 'Grade-Locked' purchase guarantee (subscription benefit)",
+      "description": "As a subscribing buyer, I want assurance that if a graded item arrives materially below its certified grade GradeThread makes it right so that a GradeThread grade becomes an insured asset I can trust — the single highest-value reason to subscribe.",
+      "acceptanceCriteria": [
+        "Higher buyer tiers include grade-locked coverage: if arrival condition is materially below the certified grade (evidenced via the confirmation flow), an automated remedy is issued within policy limits",
+        "Coverage extends the existing Buyer Guarantee (US-867) + guarantee_remedies rather than duplicating it, and is gated by subscription tier + Trust Score perks",
+        "A claims pool with caps, eligibility rules, and fraud controls keeps the benefit financially sound (insurance-shaped margin funded by recurring subscription)",
+        "This umbrella tracks US-1820…US-1823"
+      ],
+      "priority": 1819,
+      "passes": false,
+      "notes": "[P2][BUYER][GUARANTEE][EPIC][NEW] STRATEGIC: highest-LTV lever — turns a one-time grade into a recurring insured relationship. BASELINE: Buyer Guarantee US-867 exists (public claim intake /buyer-guarantee/claim, routes/guarantee-public.ts, lib/guarantee-remedy.ts, migrations 00197/00263/00319 guarantee_remedies, admin/claims.tsx) but v1 has NO automated payouts (manual). This epic adds subscription-gated coverage + automation. Evidence via grade-confirmation flow (1811-1812). TIES: entitlements (1800), Trust Score perks (1817), rewards (1810). LEGAL: coverage terms review required before ship. Child stories: coverage/eligibility model (1820), claim automation/remedy (1821), claims-pool accounting/ops (1822), anti-fraud (1823). Depends on foundation (1795)."
+    },
+    {
+      "id": "US-1820",
+      "title": "Guarantee: coverage & eligibility model (subscription-gated)",
+      "description": "As GradeThread, we want a precise coverage model so that it's unambiguous which purchases are covered, for how much, and under what conditions.",
+      "acceptanceCriteria": [
+        "Migration for coverage records tying an eligible purchase (verified grade link + active qualifying subscription at purchase time) to coverage terms (grade-delta threshold, payout cap, window)",
+        "Eligibility resolves from buyer entitlement tier (1800) + Trust Score perks (1817) at the moment of purchase and is snapshotted (later downgrade doesn't void an in-force claim)",
+        "Coverage window and caps are configurable; clear ineligibility reasons surfaced to the buyer",
+        "Migration triple satisfied; tenant-scoped"
+      ],
+      "priority": 1820,
+      "passes": false,
+      "notes": "[P2][BUYER][GUARANTEE][NEW] Load migrations skill. Snapshot eligibility at purchase (don't recompute against current plan). Reuse purchase links (1811). Terms configurable via admin. Depends on entitlements (1800) + Trust perks (1817)."
+    },
+    {
+      "id": "US-1821",
+      "title": "Guarantee: claim intake + automated remedy/payout",
+      "description": "As a covered buyer, I want a materially-below-grade arrival to be resolved quickly and automatically so that the guarantee is real, not just marketing.",
+      "acceptanceCriteria": [
+        "Claim intake for covered purchases extends the existing guarantee flow and pre-populates from the grade-confirmation evidence (1811-1812) instead of re-collecting it",
+        "An automated remedy path (extending guarantee_remedies) issues the covered remedy (partial refund/credit) within caps when the grade delta and evidence meet policy, with human review only for edge/ambiguous cases",
+        "Claim status is visible to the buyer and updates via the notification infra (1803)",
+        "All claim reads/writes are ownership-verified and tenant-scoped"
+      ],
+      "priority": 1821,
+      "passes": false,
+      "notes": "[P2][BUYER][GUARANTEE][NEW] Extend routes/guarantee-public.ts + lib/guarantee-remedy.ts + guarantee_remedies (00319); admin/claims.tsx for the edge-case queue. Automation gated by coverage model (1820) + confirm engine (1812). Load tenant-isolation skill (never act on a claim id from the body without ownership check). Notifications via 1803."
+    },
+    {
+      "id": "US-1822",
+      "title": "Guarantee: claims-pool accounting, caps & ops dashboard",
+      "description": "As GradeThread, we want the coverage benefit to be financially controlled and observable so that claims stay within a funded pool and we can tune the economics.",
+      "acceptanceCriteria": [
+        "Accounting for a claims pool: accrual from subscription revenue, drawdown per remedy, per-period and per-account caps enforced before payout",
+        "An admin ops dashboard shows exposure, loss ratio, claim volume/outcomes, and lets ops adjust caps/terms",
+        "Reconciliation with Stripe/credits so remedies are auditable (reuse the billing-reconciliation pattern)",
+        "Circuit-breaker: coverage auto-throttles if loss ratio breaches a threshold"
+      ],
+      "priority": 1822,
+      "passes": false,
+      "notes": "[P2][BUYER][GUARANTEE][OPS][BILLING][NEW] Reuse jobs-billing-reconciliation.ts pattern + admin surfaces (admin/claims.tsx neighborhood). Caps enforced in the payout path (1821). Load durable-jobs skill for any reconciliation cron. Depends on remedy path (1821)."
+    },
+    {
+      "id": "US-1823",
+      "title": "Guarantee: anti-fraud & abuse controls for coverage claims",
+      "description": "As GradeThread, we want coverage claims to be hard to game so that the guarantee isn't drained by fraud.",
+      "acceptanceCriteria": [
+        "Fraud signals gate automated payout: reuse image-authenticity/forensic tamper detection on arrival photos, original-photos checks, velocity/pattern limits, and Trust Score penalties for false claims",
+        "Suspicious claims route to manual review instead of auto-remedy; upheld fraud penalizes reputation (1816) and can revoke coverage",
+        "Evidence chain (purchase link + arrival capture + grade delta) is retained for dispute defense",
+        "Controls are covered by tests and documented"
+      ],
+      "priority": 1823,
+      "passes": false,
+      "notes": "[P2][BUYER][GUARANTEE][ANTIFRAUD][NEW] Reuse image_authenticity + forensic_analysis tamper detection (ai-grading.ts) + original_photos (US-861) on arrival photos. Penalty into reputation_events (1816). Feeds the manual queue in admin/claims.tsx. Depends on remedy path (1821)."
+    },
+    {
+      "id": "US-1824",
+      "title": "EPIC: Wardrobe Portfolio & closet valuation ('a Robinhood for your closet')",
+      "description": "As a buyer/owner, I want to track the items I own with their current resale value and depreciation so that I know what my wardrobe is worth, when to resell, and can list in one click — a portfolio for your clothes.",
+      "acceptanceCriteria": [
+        "A buyer can add owned items (from their certificates/passports or manual entry) to a closet and see per-item and total current estimated resale value",
+        "Valuation and depreciation draw on grade_outcomes + the Value Index (US-1745) + brand durability/depreciation rankings (US-1772), clearly labeled as estimates",
+        "Value-peak / price-drop alerts and a one-click 'list this' bridge into FlipDesk/seller flow close the buyer->seller loop",
+        "This umbrella tracks US-1825…US-1828"
+      ],
+      "priority": 1824,
+      "passes": false,
+      "notes": "[P2][BUYER][PORTFOLIO][EPIC][NEW] BASELINE: no owned-item/closet concept for buyers (Garment Passport is closest — chain-of-custody). DATA: grade_outcomes (realized price), Value Index (US-1745), durability rankings (US-1772), passport (garment_id). BRIDGE: 'list this' drops into FlipDesk inventory -> the buyer<->seller convergence point. TIES: insurance export, alerts (1805) reused for value alerts. Child stories: closet model (1825), valuation engine (1826), portfolio dashboard + alerts (1827), insurance export + list-to-FlipDesk bridge (1828). Depends on foundation (1795)."
+    },
+    {
+      "id": "US-1825",
+      "title": "Portfolio: closet item model",
+      "description": "As an owner, I want to add items I own to my closet so that GradeThread can value and track them.",
+      "acceptanceCriteria": [
+        "Migration for closet_items linking to a certificate/passport where one exists, or manual attributes (brand/type/size/condition) otherwise — tenant-scoped RLS",
+        "Add-to-closet from an owned certificate, a claimed passport, or manual entry; ownership of linked certs/passports is verified",
+        "Duplicate/merge handling when the same garment is added twice",
+        "Migration triple satisfied"
+      ],
+      "priority": 1825,
+      "passes": false,
+      "notes": "[P2][BUYER][PORTFOLIO][NEW] Load migrations skill. Link to garment passport (garment_id) / certificate_id where present; verify ownership (passport claim tokens 00258). Manual entries for ungraded items. Tenant-scoped."
+    },
+    {
+      "id": "US-1826",
+      "title": "Portfolio: valuation engine (Value Index + grade_outcomes + durability) with depreciation",
+      "description": "As an owner, I want a defensible current-value and depreciation estimate per item so that I can decide when to hold or sell.",
+      "acceptanceCriteria": [
+        "A valuation function combines grade_outcomes realized prices, Value Index fair-value by brand/item/condition, and durability/depreciation curves into a per-item current estimate + trend",
+        "Estimates are explainable and labeled (no fabricated precision), with confidence banding",
+        "Portfolio total, cost-basis (from purchase links where known), and unrealized gain/loss computed",
+        "Recomputation is batched/cached to control cost (reuse Value Index refresh guardrails)"
+      ],
+      "priority": 1826,
+      "passes": false,
+      "notes": "[P2][BUYER][PORTFOLIO][NEW] Reuse condition-index.ts (Value Index US-1745) + passport-curve.ts buildConditionCurve (US-1282) + durability rankings (US-1772) + grade_outcomes. Cost-basis from purchase links (1811). Label as estimate; no fabricated precision (matches durability/circularity rules). Load durable-jobs skill for batch recompute. Depends on closet model (1825)."
+    },
+    {
+      "id": "US-1827",
+      "title": "Portfolio: dashboard + value-peak / price-drop alerts",
+      "description": "As an owner, I want a portfolio view and alerts on value changes so that I act at the right time.",
+      "acceptanceCriteria": [
+        "A portfolio dashboard: item cards with current value/trend, total value, gain/loss, and sortable/filterable views using the dataviz conventions",
+        "Value-peak and significant-move alerts reuse the alerts delivery infra (1803) and honor entitlement frequency caps",
+        "Depreciation trends and 'best time to sell' guidance surfaced per item",
+        "Entitlement-gated depth (basic totals free/Guard; full analytics + alerts Connoisseur)"
+      ],
+      "priority": 1827,
+      "passes": false,
+      "notes": "[P2][BUYER][PORTFOLIO][NEW] Load dataviz skill for the charts. Reuse notification infra (1803) for value alerts; entitlement gating (1800). Surfaces in buyer dashboard (1802). Depends on valuation engine (1826)."
+    },
+    {
+      "id": "US-1828",
+      "title": "Portfolio: insurance export + one-click 'list this' → FlipDesk bridge",
+      "description": "As an owner, I want to export my wardrobe's value for insurance and list an item in one click so that the portfolio is actionable, not just informational.",
+      "acceptanceCriteria": [
+        "Insurance-ready export (PDF/CSV) of owned items with certified grades + current estimated values",
+        "One-click 'list this' promotes a closet item into FlipDesk inventory (reuse the grade->listing promotion path) pre-filled with grade, photos, and a suggested price from the valuation engine",
+        "The bridge respects account roles (prompts a buyer-only account to enable the seller role, 1796)",
+        "Export/bridge actions are tenant-scoped and ownership-verified"
+      ],
+      "priority": 1828,
+      "passes": false,
+      "notes": "[P2][BUYER][PORTFOLIO][BRIDGE][NEW] Reuse the grade->listing promotion (applyGradeListingPromotion in flipdesk-ebay.ts) + price-suggestions.ts. This is the buyer->seller conversion mechanic. Enabling the seller role uses account model (1796). Load tenant-isolation skill. Depends on valuation (1826)."
+    },
+    {
+      "id": "US-1829",
+      "title": "EPIC: 'Graded Wanted' reverse demand board",
+      "description": "As a buyer, I want to post what I'm looking for at what condition and price so that sellers with matching graded inventory come to me — and as GradeThread we aggregate demand signal we can monetize and show to sellers.",
+      "acceptanceCriteria": [
+        "A buyer can post a 'want' (brand/item/size/min-grade/max-price) and be matched to graded inventory or notified when matching graded inventory appears",
+        "Sellers see aggregated demand signal (what buyers want that they could grade+list) as a sourcing/listing prompt",
+        "Monetization via a match/intro fee or a premium demand-insights surface for sellers",
+        "This umbrella tracks US-1830…US-1832"
+      ],
+      "priority": 1829,
+      "passes": false,
+      "notes": "[P2][BUYER][DEMAND-BOARD][EPIC][NEW] BASELINE: none. Complements alerts (1805): alerts = passive watch; wants = active broadcast that sellers can fulfill. DATA: matches against graded inventory/listings; demand aggregation is a novel seller-facing asset. MONETIZATION: match/intro fee or premium seller demand insights. TIES: reuses matching engine ideas from 1807; seller surface in FlipDesk. Child stories: want model + matching (1830), buyer post UI + seller demand surface (1831), match-fee monetization + notifications (1832). Depends on foundation (1795)."
+    },
+    {
+      "id": "US-1830",
+      "title": "Demand board: want/request model + matching to graded inventory",
+      "description": "As a buyer, I want to broadcast a specific want so that the system matches it to graded inventory.",
+      "acceptanceCriteria": [
+        "Migration for buyer_wants (criteria + budget + expiry) — tenant-scoped RLS",
+        "Matching (reusing the alerts matching engine, 1807) links wants to graded inventory/listings and emits match events to both buyer and seller",
+        "Wants can be public (visible in aggregate to sellers, PII-safe) or private (match-only)",
+        "Migration triple satisfied"
+      ],
+      "priority": 1830,
+      "passes": false,
+      "notes": "[P2][BUYER][DEMAND-BOARD][NEW] Load migrations skill. Reuse the alerts matching engine (1807) rather than a second engine. Aggregate exposure to sellers must be PII-safe. Depends on foundation (1795); shares matching infra with alerts (1805)."
+    },
+    {
+      "id": "US-1831",
+      "title": "Demand board: buyer post UI + seller demand-signal surface",
+      "description": "As a buyer I want to post and manage wants, and as a seller I want to see what buyers want so that I can source and list to meet real demand.",
+      "acceptanceCriteria": [
+        "Buyer UI to create/manage/expire wants in the buyer dashboard",
+        "Seller-facing demand surface in FlipDesk (sourcing/pipeline context) showing aggregated wants matched to what they could grade+list, using dataviz conventions",
+        "Sellers can act on a demand signal (start a listing/grading flow pre-filled from the want)",
+        "Both surfaces are tenant-scoped and privacy-respecting"
+      ],
+      "priority": 1831,
+      "passes": false,
+      "notes": "[P2][BUYER][DEMAND-BOARD][NEW] Buyer UI in buyer dashboard (1802); seller surface in FlipDesk (src/pages/flipdesk/*, sourcing/pipeline). Load dataviz skill for the aggregate demand view. Depends on want model (1830)."
+    },
+    {
+      "id": "US-1832",
+      "title": "Demand board: match/intro fee monetization + notifications",
+      "description": "As GradeThread, we want to monetize successful demand matches so that the reverse board drives revenue.",
+      "acceptanceCriteria": [
+        "A monetization mechanic (match/intro fee, or gating the seller demand-insights surface behind a FlipDesk entitlement) is implemented and billed via the existing Stripe catalog",
+        "Match notifications reach both sides via the notification infra (1803)",
+        "Fee accounting is auditable and reconciles (reuse billing-reconciliation pattern)",
+        "Anti-abuse: prevents circular/self-matching to farm fees"
+      ],
+      "priority": 1832,
+      "passes": false,
+      "notes": "[P2][BUYER][DEMAND-BOARD][BILLING][NEW] Reuse payments catalog + jobs-billing-reconciliation.ts. Notifications via 1803. Decide fee model vs. seller-entitlement gating (either monetizes; can ship the entitlement-gate first). Depends on matching (1830) + surfaces (1831)."
+    },
+    {
+      "id": "US-1833",
+      "title": "EPIC: Buyer extension confidence suite (discrepancy, price-fairness, fraud flags)",
+      "description": "As a buyer shopping any marketplace, I want the extension to show GradeThread's independent condition read next to the seller's claim, whether the price is fair for that condition, and any fraud red flags so that I never over-pay or get misled at the point of purchase.",
+      "acceptanceCriteria": [
+        "The extension overlays, on a supported listing: GradeThread's objective grade, a claimed-vs-objective discrepancy flag, a condition-adjusted price-fairness meter, and point-of-purchase fraud flags",
+        "All four ride the extension infra from US-1753/1755/1756 and the hardened public grading endpoint (US-1754) rather than duplicating it",
+        "Depth and volume are buyer-subscription-gated (Free: a few checks; Guard: unlimited checks + discrepancy + price-fairness; Connoisseur: + fraud flags + fit inline)",
+        "This umbrella tracks US-1834…US-1838"
+      ],
+      "priority": 1833,
+      "passes": false,
+      "notes": "[P2][BUYER][EXTENSION][EPIC][NEW] REUSES US-1753 extension EPIC + US-1754 endpoint + US-1755/1756 adapters — this epic is the BUYER-VALUE layer + subscription binding on top, not a second extension. NET-NEW mechanics: discrepancy scoring (1834), price-fairness (1835), fraud flags (1836), request-photos macro + watch-from-extension (1837). Gating/quota (1838). DATA: public_grade_reports, Value Index (US-1745), original_photos/authenticity signals. Depends on foundation (1795) + extension epic (1753). Child stories: 1834-1838."
+    },
+    {
+      "id": "US-1834",
+      "title": "Extension: claimed-vs-objective condition discrepancy scoring",
+      "description": "As a buyer, I want to see when the seller's stated condition is better than what the photos actually support so that I catch over-graded listings.",
+      "acceptanceCriteria": [
+        "The public grading endpoint returns, for a listing's images, GradeThread's objective grade AND a discrepancy score vs the seller's claimed condition (parsed from listing fields)",
+        "The extension renders a clear signal (match / mild gap / over-graded) with the objective grade and a link to a full report",
+        "Seller condition parsing is marketplace-aware (reuse marketplace condition mappings) and degrades gracefully when absent",
+        "Endpoint is rate-limited/quota-metered and SSRF-guarded (reuse the grade-check hardening)"
+      ],
+      "priority": 1834,
+      "passes": false,
+      "notes": "[P2][BUYER][EXTENSION][NEW] THE killer feature. Extend public-grading.ts (quickGrade + gradeCheckRateLimited + safeFetch). Reuse eBay/marketplace condition mappings to normalize the seller's claim. Quota via entitlements (1800). Depends on endpoint (US-1754) + extension MVP (US-1755)."
+    },
+    {
+      "id": "US-1835",
+      "title": "Extension: condition-adjusted price-fairness meter",
+      "description": "As a buyer, I want to know if a listing is priced fairly for its actual condition so that I don't over-pay.",
+      "acceptanceCriteria": [
+        "Given the objective grade + brand/item, the extension shows a fair-price band (from the Value Index / grade_outcomes) and where this listing's price falls (fair / high / low)",
+        "Fair-value is condition-normalized — the differentiator no marketplace filter offers",
+        "Graceful fallback when comps are thin (widen band / show low confidence, no fabricated precision)",
+        "Served via a buyer-scoped endpoint, quota-metered per entitlement"
+      ],
+      "priority": 1835,
+      "passes": false,
+      "notes": "[P2][BUYER][EXTENSION][NEW] Reuse condition-index.ts (Value Index US-1745) + grade_outcomes + comps-ladder.ts. Condition-normalized fair value is the unique angle. No fabricated precision when comps thin. Depends on discrepancy scoring (1834) for the grade input."
+    },
+    {
+      "id": "US-1836",
+      "title": "Extension: point-of-purchase fraud flags",
+      "description": "As a buyer, I want fraud red flags on a listing before I buy so that I avoid stolen-photo, manipulated, or likely-counterfeit listings.",
+      "acceptanceCriteria": [
+        "The extension surfaces (Connoisseur tier): stolen/stock-photo reuse (original-photos check), image-manipulation/tamper suspicion, and counterfeit-risk for brand-name items",
+        "Signals reuse existing detectors (original_photos US-861, image_authenticity/forensic, authenticity_assessment US-601) and expose only buyer-safe coarse labels",
+        "Flags are clearly framed as risk signals/estimates, not accusations (legal-reviewed copy)",
+        "Quota-metered and tenant-scoped"
+      ],
+      "priority": 1836,
+      "passes": false,
+      "notes": "[P2][BUYER][EXTENSION][ANTIFRAUD][NEW] Reuse original_photos (US-861) + image_authenticity + forensic_analysis + authenticity_assessment (US-601), expose only public-safe coarse labels (never red_flags[] internal). Load grading-engine skill (owns authenticity confidence caps). LEGAL copy review. Highest tier. Depends on endpoint (1834)."
+    },
+    {
+      "id": "US-1837",
+      "title": "Extension: coverage-gap 'request the missing photos' macro + watch-from-extension",
+      "description": "As a buyer, I want the extension to tell me which photos are missing to grade confidently and help me ask for them, and to let me watch a listing so that I get the info I need and track items I like.",
+      "acceptanceCriteria": [
+        "Using coverage data, the extension identifies missing angles/zones and generates a templated seller message requesting exactly those photos",
+        "A one-click 'watch' from the extension writes to the buyer watchlist (US-1806) and feeds alerts ingestion (US-1808)",
+        "Both actions respect marketplace ToS (buyer-initiated messaging, no automation abuse)",
+        "Actions are tenant-scoped to the buyer"
+      ],
+      "priority": 1837,
+      "passes": false,
+      "notes": "[P2][BUYER][EXTENSION][NEW] Reuse coverage/heatmap data (US-1276/1278) to know missing zones. Watch write-path -> watchlist (1806) + ingestion (1808). Generates seller message text (buyer sends manually — ToS safe). Depends on discrepancy scoring (1834) + alerts model (1806)."
+    },
+    {
+      "id": "US-1838",
+      "title": "Extension: buyer-subscription gating + quota separation",
+      "description": "As GradeThread, we want extension features gated by the buyer plan with quota separate from the public web tool so that the extension drives subscriptions and isn't a free bypass.",
+      "acceptanceCriteria": [
+        "Extension checks authenticate the buyer (signed extension token) and resolve entitlements (1800), gating discrepancy/price-fairness/fraud/fit by tier",
+        "Extension quota is metered separately from the anonymous web grade-checker so plans are enforceable",
+        "Anonymous/free usage is capped and prompts signup/upgrade with attribution into the buyer funnel",
+        "Gating fails safe and is covered by tests"
+      ],
+      "priority": 1838,
+      "passes": false,
+      "notes": "[P2][BUYER][EXTENSION][NEW] Signed extension token (noted in US-1754) to separate quota from web grade-checker. Entitlements (1800). Anonymous cap -> signup funnel (1797) with affiliate attribution. Depends on the suite (1834-1837)."
+    },
+    {
+      "id": "US-1839",
+      "title": "Buyer binding: Fit prediction as a buyer entitlement + inline extension fit",
+      "description": "As a subscribing buyer, I want 'will it fit me?' on any listing and inside the extension so that I buy the right size and return less.",
+      "acceptanceCriteria": [
+        "The fit engine + body-profile (US-1776/1777/1778) are surfaced to buyers gated by buyer entitlement (Guard+), including inline fit in the extension overlay",
+        "Fit uses the buyer's saved body profile; no duplicate profile system is created",
+        "Fit results deep-link to the certificate/passport/listing fit surface (US-1779)",
+        "Gating + quota via buyer entitlements (1800)"
+      ],
+      "priority": 1839,
+      "passes": false,
+      "notes": "[P2][BUYER][BINDING][FIT] REUSE US-1776 epic (body_profiles 1777, fit-model.ts 1778, surfaces 1779) — this is the buyer-subscription binding + extension inline surface, not a re-build. Gating via entitlements (1800). Depends on foundation (1795) + fit epic (1776) + extension suite (1833)."
+    },
+    {
+      "id": "US-1840",
+      "title": "Buyer binding: Authenticity add-on as buyer credits/gating",
+      "description": "As a buyer, I want to spend included/purchased credits on a brand-authenticity check so that I can vet a pricey item before buying.",
+      "acceptanceCriteria": [
+        "The authenticity add-on (US-1767/1769/1771) is purchasable/consumable by buyers via included allowances + credit packs, gated by entitlement",
+        "Buyer-initiated authenticity checks (from a listing/extension) reuse the existing scoring pass and expose only buyer-safe labels + disclaimers",
+        "Metering/debit reuses the credit precedence (1800); no separate payment plumbing",
+        "Legal disclaimers preserved (confidence estimate, never definitive)"
+      ],
+      "priority": 1840,
+      "passes": false,
+      "notes": "[P2][BUYER][BINDING][AUTHENTICITY] REUSE US-1767 epic (scoring 1769, public lookup/pricing 1771). Buyer allowances/credits via entitlements (1800) + CREDIT_PACKS. Load grading-engine skill (confidence caps). Depends on foundation (1795) + authenticity epic (1767)."
+    },
+    {
+      "id": "US-1841",
+      "title": "Buyer binding: Walk-around video grading credits for buyers",
+      "description": "As a buyer, I want to request a walk-around video grade so that I get a richer condition read before committing to a higher-value purchase.",
+      "acceptanceCriteria": [
+        "Video grading (US-1762/1765/1766) is available to buyers as an included/credit-metered action gated by entitlement (Connoisseur or credit packs)",
+        "Buyer-requested video grades reuse the existing capture + metering (cost = frames x per-image), with plan-based caps",
+        "Results surface in the buyer's item/portfolio context",
+        "Metering/debit reuses the credit precedence (1800)"
+      ],
+      "priority": 1841,
+      "passes": false,
+      "notes": "[P2][BUYER][BINDING][VIDEO] REUSE US-1762 epic (metering 1765, capture 1766). Buyer credits via entitlements (1800). Cost math per US-1765 (frames x per-image). Depends on foundation (1795) + video epic (1762)."
+    },
+    {
+      "id": "US-1842",
+      "title": "Buyer binding: Circularity impact receipts on the buyer dashboard",
+      "description": "As an eco-conscious buyer, I want to see the environmental good of buying secondhand so that I feel great about it and share it.",
+      "acceptanceCriteria": [
+        "Per-purchase and per-buyer circularity impact (US-1785) surfaces on the buyer dashboard and as shareable cards",
+        "Impact aggregates across the buyer's confirmed purchases (ties to grade-confirmation, 1810) and reuses the circularity factors/methodology (labeled estimate)",
+        "Shareable card reuses the slab/OG render + referral bake for a growth loop",
+        "No new impact methodology is invented — reuses US-1785"
+      ],
+      "priority": 1842,
+      "passes": false,
+      "notes": "[P2][BUYER][BINDING][SUSTAINABILITY][GROWTH] REUSE US-1785 circularity epic (factors + share cards). Buyer aggregate ties to confirmed purchases (1810/1811). Surfaces in buyer dashboard (1802). Depends on foundation (1795) + circularity epic (1785)."
+    },
+    {
+      "id": "US-1843",
+      "title": "Buyer binding: 'What's It Worth' → buyer signup conversion funnel",
+      "description": "As GradeThread, we want the free public grade+value tool to convert into buyer signups so that our top-of-funnel feeds the buyer subscription.",
+      "acceptanceCriteria": [
+        "The public 'What's It Worth' tool (US-1750) gets buyer-oriented conversion moments (save this result, set an alert for it, verify future purchases) that route into buyer signup (1797)",
+        "Anonymous results can be claimed into a new buyer account without loss (session->account handoff)",
+        "Conversion is attributed (affiliate/referral) end-to-end",
+        "No change to the free tool's abuse controls"
+      ],
+      "priority": 1843,
+      "passes": false,
+      "notes": "[P2][BUYER][BINDING][GROWTH] REUSE US-1750 What's-It-Worth epic. Add buyer CTAs (save/alert/verify) -> signup (1797) with anon-session claim handoff. Attribution via affiliate.ts. Depends on foundation (1795) + What's-It-Worth epic (1750) + alerts (1805)."
+    },
+    {
+      "id": "US-1844",
+      "title": "Buyer binding: Verified badge & trust signals surfaced to buyers",
+      "description": "As a buyer, I want to see GradeThread's verified/trust signals wherever I evaluate an item so that the badge is a buyer trust cue, not just a seller marketing asset.",
+      "acceptanceCriteria": [
+        "Verified/trust signals (verified-seller, live-capture/360, integrity, US-1758 badge) are read and displayed in the buyer surfaces: extension overlay, alerts, watchlist, and portfolio",
+        "Signals reuse the public projection (public_grade_reports coarse labels + cert integrity) — no internal signals exposed",
+        "Clicking a badge deep-links to the full certificate/verification",
+        "Attribution captured (reuse badge click attribution, US-1760)"
+      ],
+      "priority": 1844,
+      "passes": false,
+      "notes": "[P2][BUYER][BINDING][BADGE] REUSE US-1758 badge epic + public_grade_reports coarse trust labels + cert-integrity.ts. Surface in extension (1833)/alerts (1809)/portfolio (1827). Attribution reuses US-1760. Depends on foundation (1795)."
+    },
+    {
+      "id": "US-1845",
+      "title": "Buyer platform: analytics, funnel & revenue instrumentation",
+      "description": "As GradeThread, we want the buyer funnel and feature usage instrumented so that we can measure conversion, retention, feature value, and the two-sided flywheel and optimize revenue.",
+      "acceptanceCriteria": [
+        "PostHog events across the buyer funnel (public tool -> signup -> subscribe -> feature use -> retention) and per-feature usage (extension checks, alerts, confirmations, guarantee claims, portfolio, wants)",
+        "An admin buyer-growth surface (extend admin-growth) shows conversion, MRR by tier, feature adoption, and flywheel metrics (buyer demand -> seller grading)",
+        "Revenue attribution ties buyer subscriptions and metered credits back to acquisition source",
+        "Events are privacy-compliant (opt-in where required)"
+      ],
+      "priority": 1845,
+      "passes": false,
+      "notes": "[P2][BUYER][ANALYTICS][GROWTH] Reuse PostHog + admin-growth surface + affiliate/referral attribution. Flywheel metric = buyer-demand -> seller-grading correlation. Depends on foundation (1795); instruments all buyer epics."
+    },
+    {
+      "id": "US-1846",
+      "title": "Buyer platform: legal, privacy & consent (PII, guarantee terms, extension)",
+      "description": "As GradeThread, we want the buyer platform's legal and privacy posture right so that we handle buyer PII lawfully and the guarantee/extension are compliant.",
+      "acceptanceCriteria": [
+        "Buyer PII (body profiles, purchase history, preferences, reputation) is classified sensitive, RLS-protected, with data-export/delete honoring existing privacy flows and geo-consent",
+        "Guarantee/coverage terms + authenticity/fraud-flag copy are legal-reviewed before ship (confidence estimates, not definitive claims)",
+        "Extension privacy policy + opt-in telemetry (US-1757) cover the buyer confidence suite's data flows",
+        "Consent surfaces respect the existing legal geo-consent framework"
+      ],
+      "priority": 1846,
+      "passes": false,
+      "notes": "[P2][BUYER][LEGAL][PRIVACY] Reuse existing privacy/geo-consent framework + SECURITY.md posture. Coverage terms (1819) + fraud-flag copy (1836) + authenticity disclaimers (1840) all need legal review. Extension privacy ties to US-1757. Cross-cutting across all buyer epics."
+    },
+    {
+      "id": "US-1847",
+      "title": "Buyer platform: QA — tenant-isolation + entitlement test coverage",
+      "description": "As GradeThread, we want systematic test coverage for buyer tenant isolation and entitlement gating so that buyer data never leaks and paid features can't be bypassed.",
+      "acceptanceCriteria": [
+        "Every new buyer edge route has a tenant-isolation_test.ts case proving it scopes to the buyer's own id (or an owner-verified parent) with the service-role client",
+        "Entitlement gating is unit/integration tested per tier (feature locked below plan, unlocked at/above, fails safe on unknown plan, quota enforced)",
+        "Guarantee automation + reward issuance + valuation have tests for the money-touching paths (caps, idempotency, no double-issue)",
+        "verify:web + verify:edge lanes pass"
+      ],
+      "priority": 1847,
+      "passes": false,
+      "notes": "[P2][BUYER][QA] Load tenant-isolation skill (every new route needs a test case). Money paths (guarantee 1821/1822, rewards 1813, fees 1832) need idempotency + cap tests. Run npm run verify. Cross-cutting; closes out the buyer-platform backlog."
     }
   ]
 }

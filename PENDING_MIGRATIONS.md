@@ -1,5 +1,239 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00400_gucci_brand_knowledge.sql (US-1728 Gucci, 2026-07-07)
+
+**What:** DATA-ONLY seed of Gucci — 5 lines (GG Supreme, Guccissima, Marmont,
+Ophidia, Web Stripe), a 6-digit `style_number` decoder (informational), and tells
+that state the serial proves nothing and the KB must **never auto-authenticate**.
+source_url + confidence + verified on every row. Bumps `EXPECTED_SCHEMA_VERSION`
+→ **00400**. Self-records '00400'.
+
+**Risk: LOW — additive INSERTs only.** Idempotent. **⚠️ CLIENT READ — none.**
+**⚠️ Apply order:** after 00399; `scripts/apply-prod-migrations.sh`, redeploy.
+
+## ⏳ HELD: 00399_louis_vuitton_brand_knowledge.sql (US-1727 Louis Vuitton, 2026-07-07)
+
+**What:** DATA-ONLY seed of Louis Vuitton (NEW brand_knowledge row) — 5 canvases/
+lines (Monogram, Damier Ebene, Damier Azur, Empreinte, Epi), a date-code
+FORMAT decoder (2 letters + 4 digits; informational only, discontinued March 2021
+→ microchip), and tells that state a date code proves nothing and the KB must
+**never auto-authenticate**. source_url + confidence + verified on every row.
+Bumps `EXPECTED_SCHEMA_VERSION` → **00399**. Self-records '00399'.
+
+**Risk: LOW — additive INSERTs only.** Idempotent. **⚠️ CLIENT READ — none.**
+**⚠️ Apply order:** after 00398; `scripts/apply-prod-migrations.sh`, redeploy.
+
+## ⏳ HELD: 00398_coach_brand_knowledge.sql (US-1726 Coach, 2026-07-07)
+
+**What:** DATA-ONLY seed of Coach (first LUXURY brand) — 5 lines/bags (Signature
+canvas, Glovetanned leather, Willis, Rogue, Tabby), a boutique-vs-outlet
+`style_number` decoder (`F`-prefix = factory/outlet), and `brand_knowledge` tells
+that explicitly say **never auto-authenticate** (creed/serial is informational
+only). source_url + confidence + verified on every row. Bumps
+`EXPECTED_SCHEMA_VERSION` → **00398**. Self-records '00398'.
+
+**Risk: LOW — additive INSERTs only.** Idempotent. **⚠️ CLIENT READ — none.**
+**⚠️ Apply order:** after 00397; `scripts/apply-prod-migrations.sh`, redeploy.
+
+## ⏳ HELD: 00397_ralph_lauren_brand_knowledge.sql (US-1725 Ralph Lauren, 2026-07-07)
+
+**What:** DATA-ONLY seed of Ralph Lauren — 6 sub-lines as styles (Purple Label /
+RRL / Polo Ralph Lauren / Polo Sport / Lauren / Chaps) with value-tier
+fingerprints, and enriched `brand_knowledge` (sub-brand hierarchy + pony + RN
+tells). NO decoder — RL has no reliable regular code; the value tier is read from
+the label wording. source_url + confidence + verified on every row. Bumps
+`EXPECTED_SCHEMA_VERSION` → **00397**. Self-records '00397'.
+
+**Risk: LOW — additive INSERTs only.** Idempotent. **⚠️ CLIENT READ — none.**
+**⚠️ Apply order:** after 00396; `scripts/apply-prod-migrations.sh`, redeploy.
+
+## ⏳ HELD: 00396_the_north_face_brand_knowledge.sql (US-1724 TNF, 2026-07-07)
+
+**What:** DATA-ONLY seed of The North Face — 7 styles (Nuptse down vs ThermoBall
+synthetic vs Denali fleece; Osito, Apex, McMurdo, Summit Series), an `NF0A…`
+`style_number` decoder, and enriched `brand_knowledge` (down-vs-synthetic +
+Summit-Series-vs-mainline tells). source_url + confidence + verified on every
+row. Bumps `EXPECTED_SCHEMA_VERSION` → **00396**. Self-records '00396'.
+
+**Risk: LOW — additive INSERTs only.** Idempotent. **⚠️ CLIENT READ — none.**
+**⚠️ Apply order:** after 00395; `scripts/apply-prod-migrations.sh`, redeploy
+(boot guard → 00396).
+
+## ⏳ HELD: 00395_patagonia_brand_knowledge.sql (US-1723 Patagonia, 2026-07-07)
+
+**What:** DATA-ONLY seed of Patagonia into the 00389 KB tables — 7 styles
+(Nano Puff/Down Sweater/Micro Puff puffer disambiguation by fill; Better Sweater/
+R1/Retro-X fleeces; Baggies), a 5-digit `style_number` decoder, 4 persistent
+colorways, and enriched `brand_knowledge` (insulation-type tell). Every fact
+source_url + confidence + verified. Bumps `EXPECTED_SCHEMA_VERSION` → **00395**.
+Self-records '00395'.
+
+**Risk: LOW — additive INSERTs only** (no DDL). Idempotent.
+
+**⚠️ CLIENT READ — none.** **⚠️ Apply order:** after 00394;
+`scripts/apply-prod-migrations.sh`, then redeploy (boot guard → 00395).
+
+## ⏳ HELD: 00394_carhartt_brand_knowledge.sql (US-1722 Carhartt, 2026-07-07)
+
+**What:** DATA-ONLY seed of Carhartt + Carhartt WIP into the 00389 KB tables — 6
+styles (Detroit vs Chore vs Active Jac silhouette fingerprints, Duck Bib, K87
+tee, B01 dungaree), a classic `style_number` decoder (letter+digits, `B01`/`J140`/
+`K87`), and enriched `brand_knowledge` (mainline-vs-WIP tell + Carhartt WIP as a
+distinct pricier line). Every fact source_url + confidence + verified. Bumps
+`EXPECTED_SCHEMA_VERSION` → **00394**. Self-records '00394'.
+
+**Risk: LOW — additive INSERTs only** (no DDL). Idempotent (brand_knowledge
+`ON CONFLICT DO UPDATE`, children `DO NOTHING`).
+
+**⚠️ CLIENT READ — none** (server-side extraction/baselines only).
+
+**⚠️ Apply order:** after 00393. Run `scripts/apply-prod-migrations.sh`, then
+redeploy the edge (boot guard → 00394).
+
+## ⏳ HELD: 00393_levis_brand_knowledge.sql (US-1721 Levi's, 2026-07-07)
+
+**What:** DATA-ONLY seed of Levi's into the 00389 KB tables — 8 styles (fit
+fingerprints: 501 button-fly vs 505 zip-fly vs 511 slim, 512/541/550/569 +
+Trucker Jacket), a brand-scoped `lot_number` fit decoder (`5NN`), and enriched
+`brand_knowledge` (Big-E/small-e red-tab era dating + back-patch/selvedge tells).
+Every fact source_url + confidence + verified. Bumps `EXPECTED_SCHEMA_VERSION` →
+**00393**. Self-records '00393'.
+
+**Risk: LOW — additive INSERTs only** (no DDL). Idempotent (brand_knowledge
+`ON CONFLICT DO UPDATE`, children `DO NOTHING`).
+
+**⚠️ CLIENT READ — none** (server-side extraction/baselines only).
+
+**⚠️ Apply order:** after 00392 (top of the held stack). Run
+`scripts/apply-prod-migrations.sh`, then redeploy the edge (boot guard → 00393).
+
+## ⏳ HELD: 00392_adidas_yeezy_brand_knowledge.sql (US-1720 adidas & Yeezy, 2026-07-07)
+
+**What:** DATA-ONLY seed of adidas + Yeezy into the 00389 KB tables — 6 styles
+(Tiro/Tango Performance vs Firebird/Adicolor Originals-Trefoil; Yeezy Season +
+Yeezy Gap Round Jacket), the adidas `article_number` decoder (2 letters + 4
+digits, `GX1234`) seeded as PURE DATA, and enriched `brand_knowledge` (Trefoil
+vs 3-Bar line tell; Yeezy minimalist-aesthetic tell). Yeezy is a NEW
+brand_knowledge row (not in the 00389 alias seed). Every fact source_url +
+confidence + verified. Bumps `EXPECTED_SCHEMA_VERSION` → **00392**. Self-records
+'00392'.
+
+**Risk: LOW — additive INSERTs only** (no DDL). Idempotent (brand_knowledge
+`ON CONFLICT DO UPDATE`, children `DO NOTHING`).
+
+**⚠️ CLIENT READ — none** (server-side extraction/baselines only).
+
+**⚠️ Apply order:** after 00391 (top of the held stack). Run
+`scripts/apply-prod-migrations.sh`, then redeploy the edge (boot guard → 00392).
+
+## ⏳ HELD: 00391_nike_jordan_brand_knowledge.sql (US-1719 Nike & Jordan, 2026-07-07)
+
+**What:** DATA-ONLY seed of Nike + Jordan into the 00389 KB tables — 8 styles
+(Tech Fleece vs Club Fleece fingerprints, Therma-FIT, Dri-FIT, Windrunner, ACG,
+Jordan Jumpman), the Nike `style_number` decoder (6-char + "-" + 3-digit
+colorway, `CW1234-001`) seeded as PURE DATA (regex + fieldMap, **no new
+transform**) under both `nike` and `jordan`, and enriched `brand_knowledge`
+(style-number tag era + line-vs-brand tells). Every fact source_url + confidence
++ verified=true. Bumps `EXPECTED_SCHEMA_VERSION` → **00391**. Self-records
+'00391'.
+
+**Risk: LOW — additive INSERTs only** (no DDL). Idempotent: brand_knowledge
+`ON CONFLICT (brand_key) DO UPDATE`, children `DO NOTHING`.
+
+**⚠️ CLIENT READ — none** (same as 00390 — server-side extraction/baselines
+only).
+
+**⚠️ Apply order:** after 00390 (top of the held stack). Run
+`scripts/apply-prod-migrations.sh`, then redeploy the edge so its boot guard
+matches 00391. `NOTIFY pgrst` not required (rows only).
+
+## ⏳ HELD: 00390_lululemon_brand_knowledge.sql (US-1718 Lululemon content, 2026-07-07)
+
+**What:** DATA-ONLY seed of the 00389 KB tables with Lululemon content — 9
+styles with disambiguating visual fingerprints (ABC 5-pocket+gusset vs Commission
+chino, Align vs Wunder Train vs Fast & Free, etc.), 2 decoder specs
+(`style_number` + `size_dot`; DB rows that override the in-code
+DEFAULT_DECODER_SPECS), 5 representative colorways, and enriched
+`brand_knowledge` (tag eras + authentication/size-dot tells). Every fact carries
+source_url + confidence + verified=true. Bumps `EXPECTED_SCHEMA_VERSION` →
+**00390**. Self-records '00390'.
+
+**Risk: LOW — additive INSERTs only** (no DDL, no schema change). Idempotent:
+brand_knowledge via `ON CONFLICT (brand_key) DO UPDATE`, children via
+`ON CONFLICT … DO NOTHING` (re-running never clobbers an admin edit). Tables +
+Lululemon size charts already exist from 00389.
+
+**⚠️ CLIENT READ — none.** No SPA query reads these tables (the admin UI reads
+via the service-role edge route). The KB only affects server-side extraction
+(US-1713) + baseline generation (US-1717). No hard ordering hazard beyond the
+edge boot guard expecting **00390**.
+
+**⚠️ `NOTIFY pgrst, 'reload schema';`** — not strictly required (no schema-shape
+change, rows only), but harmless; keep the runbook uniform.
+
+**⚠️ Apply order:** after 00389 (top of the held stack). Run
+`scripts/apply-prod-migrations.sh`, then redeploy the edge so its boot guard
+matches 00390.
+
+## ⏳ HELD: 00389_brand_knowledge_base.sql (US-1710 Brand & Style KB, 2026-07-07)
+
+**What:** creates FIVE global-reference operator tables — `brand_knowledge`,
+`brand_styles`, `brand_style_codes`, `brand_colorways`, `brand_size_charts` — the
+schema foundation for the DB-backed, retrievable garment brand/style/size
+knowledge base (fixes brand/style ID failures, esp. Lululemon cut-tag recovery).
+Seeds `brand_knowledge` from `brand-normalize.ts` BRAND_ALIASES (53 brands) and
+`brand_size_charts` from `sizing-charts.ts` SIZING_CHARTS (15 charts) so the
+future DB-first resolver (US-1711) has parity with today's in-code data. Deny-all
+RLS (no `user_id`, no tenant data); registered in `rls-guard_test.ts`
+`SERVICE_ROLE_ONLY`. Bumps `EXPECTED_SCHEMA_VERSION` → **00389**. Self-records
+'00389'.
+
+**Risk: LOW — five NEW additive tables + indexes + updated_at triggers + an
+idempotent data seed** (`CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT
+EXISTS`, `DROP TRIGGER IF EXISTS` before create; seed via `ON CONFLICT DO
+NOTHING`). No changes to existing tables. Re-running the whole directory is a
+no-op.
+
+**⚠️ CLIENT READ — none.** Nothing reads these tables yet: this story is
+schema-only. The resolver that reads them (US-1711) and the admin UI that writes
+them (US-1715) are later stories. The only code shipping in this commit is the
+migration, the `EXPECTED_SCHEMA_VERSION` bump, and the rls-guard registration —
+so there is **no hard ordering hazard** beyond the edge boot guard expecting
+**00389**. The SPA never queries them.
+
+**⚠️ `NOTIFY pgrst, 'reload schema';` REQUIRED** (five new tables — PostgREST
+must reload to expose them to the service-role client).
+
+**⚠️ Apply order:** after 00388 (top of the held stack). Run
+`scripts/apply-prod-migrations.sh` (idempotent tail), then
+`NOTIFY pgrst, 'reload schema';`, then redeploy the edge so its boot guard
+matches 00389.
+
+## ⏳ HELD: 00388_content_safety_flagged_status.sql (advisory content-safety, 2026-07-07)
+
+**What:** adds the value `'flagged'` to the `public.content_safety_status` enum
+(`ADD VALUE IF NOT EXISTS`). The pre-publish content-safety review (US-486) is now
+ADVISORY on the auto-publish path: AI blog/social posts publish immediately even
+when the reviewer returns a non-pass verdict, tagged `safety_status='flagged'`
+(reasons in `safety_notes`) instead of being held as a draft. Edge writes
+`'flagged'` on the blog editor `/generate` path + the scheduler tick
+(`runBlogTick`/`runSocialTick`). Bumps `EXPECTED_SCHEMA_VERSION` → **00388**.
+Self-records '00388'.
+
+**Risk: LOW — additive enum value, no data change.** Idempotent
+(`ADD VALUE IF NOT EXISTS`), not wrapped in a transaction (a new enum value can't
+be USED in the same tx; this migration never does). `'held'` is retained.
+
+**⚠️ CLIENT READ — none.** No frontend query filters on `safety_status`, so a
+frontend auto-deploy before the SQL applies is safe. The edge only WRITES
+`'flagged'` from this build, which is boot-guarded on **00388**, so it can't run
+before the value exists. Behavior change is otherwise pure product logic (publish
+instead of hold).
+
+**⚠️ Apply order:** after 00387 (top of the held stack). Run
+`scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload schema';` (enum
+changed), then redeploy the edge so its boot guard matches 00388.
+
 ## ⏳ HELD: 00387_ads_recommendation_decisions.sql (US-1702 review workflow, 2026-07-07)
 
 **What:** adds `snooze_until timestamptz` + `dismiss_reason text` (+ an index) to

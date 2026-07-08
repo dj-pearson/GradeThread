@@ -58,58 +58,66 @@ async function runGscSync(opts?: {
       : defaultSyncRange();
   const siteUrl = getGscSiteUrl();
 
-  // Pull the cross-product of dimensions we use in the dashboard. One query
-  // is enough — GSC fans out the dimensions server-side and the unique key
-  // upsert makes overlap free.
-  const rows = await querySearchAnalytics({
-    startDate,
-    endDate,
-    dimensions: ["date", "query", "page", "country", "device"],
-  });
-
-  if (rows.length === 0) {
-    return { ok: true, configured: true, inserted: 0, startDate, endDate };
-  }
-
-  // Chunked upsert — Supabase has a per-request size limit and pgrest is
-  // happiest with batches under ~500 rows.
-  const CHUNK = 500;
   let inserted = 0;
-  for (let i = 0; i < rows.length; i += CHUNK) {
-    const batch = rows.slice(i, i + CHUNK).map((r) => {
-      const [date, query, page, country, device] = r.keys ?? [];
-      return {
-        date,
-        site_url: siteUrl,
-        query: query ?? null,
-        page: page ?? null,
-        country: country ?? null,
-        device: device ?? null,
-        impressions: r.impressions ?? 0,
-        clicks: r.clicks ?? 0,
-        ctr: r.ctr ?? 0,
-        position: r.position ?? 0,
-      };
+  try {
+    // Pull the cross-product of dimensions we use in the dashboard. One query
+    // is enough — GSC fans out the dimensions server-side and the unique key
+    // upsert makes overlap free. querySearchAnalytics mints the SA token, so a
+    // bad GSC_SERVICE_ACCOUNT_PRIVATE_KEY throws HERE — caught below so the route
+    // returns a 502 with a message, not an unhandled 500.
+    const rows = await querySearchAnalytics({
+      startDate,
+      endDate,
+      dimensions: ["date", "query", "page", "country", "device"],
     });
-    const { error } = await supabaseAdmin
-      .from("gsc_performance")
-      .upsert(batch, {
-        onConflict: "date,site_url,page,query,country,device",
-      });
-    if (error) {
-      console.error("[admin-seo] gsc_performance upsert failed:", error);
-      return {
-        ok: false,
-        configured: true,
-        inserted,
-        startDate,
-        endDate,
-        error: error.message,
-      };
+
+    if (rows.length === 0) {
+      return { ok: true, configured: true, inserted: 0, startDate, endDate };
     }
-    inserted += batch.length;
+
+    // Chunked upsert — Supabase has a per-request size limit and pgrest is
+    // happiest with batches under ~500 rows.
+    const CHUNK = 500;
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      const batch = rows.slice(i, i + CHUNK).map((r) => {
+        const [date, query, page, country, device] = r.keys ?? [];
+        return {
+          date,
+          site_url: siteUrl,
+          query: query ?? null,
+          page: page ?? null,
+          country: country ?? null,
+          device: device ?? null,
+          impressions: r.impressions ?? 0,
+          clicks: r.clicks ?? 0,
+          ctr: r.ctr ?? 0,
+          position: r.position ?? 0,
+        };
+      });
+      const { error } = await supabaseAdmin
+        .from("gsc_performance")
+        .upsert(batch, {
+          onConflict: "date,site_url,page,query,country,device",
+        });
+      if (error) {
+        console.error("[admin-seo] gsc_performance upsert failed:", error);
+        return {
+          ok: false,
+          configured: true,
+          inserted,
+          startDate,
+          endDate,
+          error: error.message,
+        };
+      }
+      inserted += batch.length;
+    }
+    return { ok: true, configured: true, inserted, startDate, endDate };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[admin-seo] gsc sync failed:", message);
+    return { ok: false, configured: true, inserted, startDate, endDate, error: message };
   }
-  return { ok: true, configured: true, inserted, startDate, endDate };
 }
 
 // US-309: manual IndexNow submission from the admin dashboard. Accepts a

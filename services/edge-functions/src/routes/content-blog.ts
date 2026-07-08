@@ -593,10 +593,12 @@ contentBlogRoutes.post("/:id/generate", async (c) => {
     }
 
     // Publish on completion (product decision 2026-06): a generated article goes
-    // live immediately rather than sitting in draft. The AI content safety gate
-    // still runs first — a flagged article is HELD as a draft (safety_status
-    // 'held') for manual review instead of publishing. (The manual /publish path
-    // has a human in the loop, so it skips this gate.)
+    // live immediately rather than sitting in draft. The AI content-safety review
+    // still runs, but as of 2026-07 it is ADVISORY: a non-pass verdict no longer
+    // holds the post as a draft — the article publishes and is tagged
+    // safety_status='flagged' (reasons in safety_notes) so it can be spot-checked
+    // and pulled after the fact. (The manual /publish path has a human in the
+    // loop, so it skips review entirely.)
     const safety = await reviewContentSafety({
       surface: "blog",
       title: updated.title,
@@ -604,39 +606,31 @@ contentBlogRoutes.post("/:id/generate", async (c) => {
       productFocus: updated.product_focus,
     });
     const checkedAt = new Date().toISOString();
+    const flagged = safety.verdict !== "pass";
 
-    if (safety.verdict !== "pass") {
-      await supabaseAdmin
-        .from("blog_posts")
-        .update({
-          safety_status: "held",
-          safety_notes: safety.reasons.join("; ").slice(0, 2000) || null,
-          safety_checked_at: checkedAt,
-        })
-        .eq("id", id);
-      // Still warm the hero so the held draft is publish-ready once cleared.
-      ensureHeroImage({ postId: id, surface: "blog" })
-        .then((r) => {
-          if (r.status === "failed") {
-            console.warn("[content-blog] generate hero failed:", r.reason);
-          }
-        })
-        .catch((e) => console.error("[content-blog] generate hero error:", e));
-      return c.json({
-        post: { ...updated, status: "draft", safety_status: "held" },
-        meta,
-        title_suggestions: article.titleSuggestions,
-        held: true,
-        hold_reason: safety.reasons.join("; ") || null,
-      });
-    }
-
-    // Safety passed — publish (publishBlogPost ensures the hero before going
-    // live so the OG/webhook carry it, then runs the full publish side-effects).
+    // Publish regardless of the verdict. publishBlogPost ensures the hero before
+    // going live so the OG/webhook carry it, then runs the full publish
+    // side-effects; the safety outcome rides along as advisory metadata.
     const published = await publishBlogPost(c, updated, {
-      safety_status: "passed",
+      safety_status: flagged ? "flagged" : "passed",
+      safety_notes: flagged
+        ? safety.reasons.join("; ").slice(0, 2000) || null
+        : null,
       safety_checked_at: checkedAt,
     });
+
+    if (flagged) {
+      console.warn(
+        `[content-blog] published with safety flag | post=${id} | ` +
+          `reasons=${JSON.stringify(safety.reasons)}`,
+      );
+      await writeAuditLog(c, {
+        action: "content.blog_safety_flagged",
+        targetType: "blog_post",
+        targetId: id,
+        after: { safety_status: "flagged", reasons: safety.reasons },
+      });
+    }
 
     // US-254: surface the A/B title candidates so the editor can offer them
     // as radio options. The chosen one is saved back via PATCH /:id (title).
@@ -644,6 +638,8 @@ contentBlogRoutes.post("/:id/generate", async (c) => {
       post: published,
       meta,
       title_suggestions: article.titleSuggestions,
+      flagged,
+      flag_reason: flagged ? safety.reasons.join("; ") || null : null,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

@@ -1,0 +1,72 @@
+{\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0\fswiss Calibri;}}
+\fs22
+{\fs40\b GradeThread Ads Command Center\b0\par}
+{\fs26 Google Ads API - Design Documentation (Basic Access Application)\par}
+\par
+{\b Applicant:\b0  Pearson Media LLC (Iowa, USA)\par}
+{\b Product:\b0  GradeThread (https://gradethread.com)\par}
+{\b Tool name:\b0  Ads Command Center (internal marketing operations module)\par}
+{\b Contact:\b0  [FILL IN name] - [FILL IN contact email]\par}
+{\b Manager (MCC) account ID:\b0  [FILL IN 10-digit MCC ID]\par}
+{\b Google Ads API version:\b0  v18\par}
+\par
+\brdrb\brdrs\brdrw10\brsp20 \par
+\par
+{\fs30\b 1. Access model (please read first)\b0\par}
+This is an {\b internal, single-advertiser tool}. Pearson Media LLC uses it to manage its {\b own} Google Ads account (the GradeThread advertiser account) and no one else's. We are not a third-party platform, agency dashboard, or SaaS product that operates other advertisers' accounts. The tool is not offered to external customers and has no external end users.\par
+\par
+Because the tool acts only on our own account, Google's Required Minimum Functionality (RMF) requirements for third-party account-management tools do not apply. This document is provided so the review team can see exactly which API services we call and the safety controls around every change.\par
+\par
+{\fs30\b 2. What the tool does\b0\par}
+The Ads Command Center is a marketing-operations module inside our existing internal admin console. It gives our team one place to (a) view our own campaign performance, (b) receive optimization suggestions, and (c) apply a small, fixed set of routine changes to our own account under human review. Its purpose is to help a very small team run our own paid-search spend efficiently.\par
+\par
+{\b Users:\b0  A small number of internal Pearson Media LLC staff. Access is restricted to the "super-admin" role in our admin console; every action is additionally protected by our authentication and authorization middleware. There is no public or customer-facing access to any Google Ads data or controls.\par}
+\par
+{\fs30\b 3. Architecture and data flow\b0\par}
+The tool runs as a server-side service (Deno / Hono) that talks to the Google Ads API over HTTPS. No Google Ads credentials or data are ever exposed to a browser. The pipeline is:\par
+\par
+{\b Step 1 - Sync (read).\b0  On demand or on a schedule, the service runs read-only GAQL queries to pull our own account's structure and performance metrics into our private database (a point-in-time snapshot).\par}
+{\b Step 2 - Analysis (report-only).\b0  Structured, aggregated performance signals (never raw personal data) are analyzed to produce a list of typed, machine-readable optimization recommendations. This step calls no mutate; it only writes suggestions to our database with status "proposed".\par}
+{\b Step 3 - Human review.\b0  An internal super-admin reviews each recommendation and explicitly Approves, Dismisses, or Snoozes it. Nothing is ever applied automatically.\par}
+{\b Step 4 - Guarded apply (write).\b0  Only after human approval, an approved recommendation is applied to our account through a single, tightly controlled mutate path (Section 5).\par}
+\par
+{\fs30\b 4. Google Ads API - READ usage\b0\par}
+Authentication is an OAuth 2.0 refresh-token grant (offline access, scope https://www.googleapis.com/auth/adwords). The service mints short-lived access tokens from a stored refresh token; requests carry the developer-token and login-customer-id (MCC) headers.\par
+\par
+Reads use the {\b GoogleAdsService.Search\b0} endpoint (googleAds:search) with GAQL, following pagination. The resources and fields we query on our own account are:\par
+\par
+\bullet  campaign - id, name, status, advertising_channel_type, campaign_budget.amount_micros\par
+\bullet  ad_group - id, name, status, type, campaign\par
+\bullet  ad_group_ad - ad.id, ad.type, ad.final_urls, status, ad_group\par
+\bullet  ad_group_criterion - criterion_id, keyword.text, keyword.match_type, status (KEYWORD type)\par
+\bullet  Performance metrics on campaign, ad_group, ad_group_ad, and keyword_view (impressions, clicks, cost, conversions, conversion value, and derived rates) over a bounded date range\par
+\bullet  search_term_view - search_term and related segments over a bounded date range (to find converting queries and wasteful terms)\par
+\par
+{\fs30\b 5. Google Ads API - WRITE usage (guarded)\b0\par}
+All writes go through the {\b GoogleAdsService.Mutate\b0} endpoint (googleAds:mutate) and are constrained by four controls:\par
+\par
+{\b (a) Allow-list.\b0  Only the following change types can ever produce a mutate. Anything else is rejected and never executed:\par}
+\bullet  pause_campaign - set campaign.status = PAUSED\par
+\bullet  pause_ad_group - set ad_group.status = PAUSED\par
+\bullet  pause_keyword - set ad_group_criterion.status = PAUSED\par
+\bullet  adjust_budget / reallocate_budget - set campaign_budget.amount_micros\par
+\bullet  adjust_bid - set ad_group_criterion cpc_bid_micros\par
+\bullet  adjust_tcpa - set the campaign target CPA\par
+\bullet  add_negative_keyword - add a negative keyword criterion\par
+\par
+{\b (b) Dry-run first.\b0  Every apply first issues the mutate with validateOnly = true. The real mutate (validateOnly = false) runs only if validation succeeds.\par}
+{\b (c) Human-approved.\b0  A mutate only runs for a recommendation an internal super-admin has explicitly approved. Report-only suggestions (e.g. creative-gap notes) are never executable.\par}
+{\b (d) Audited and reversible.\b0  Before each change we read the current value from the live account and store it, so every applied change is recorded in an audit ledger and can be rolled back with one click (the rollback re-applies the stored prior value through the same guarded path).\par}
+\par
+Additional operational safeguards: per-account daily spend and change-rate guardrails checked before a real mutate; transient errors (HTTP 429 / 5xx / network) retried with exponential backoff; and the whole integration cleanly no-ops if any credential is unset, so it never runs in a misconfigured state.\par
+\par
+{\fs30\b 6. Data handling and privacy\b0\par}
+The tool reads only our own advertising performance data via the Google Ads API. It does not collect, store, or transmit Google Ads data for any other party, and it does not share Google Ads data with third parties. Access tokens and refresh tokens are stored server-side only. No Google Ads data is exposed to end users, customers, or browsers. Our handling of Google Ads API data complies with the Google Ads API Terms and Conditions and the RMF policy.\par
+\par
+{\fs30\b 7. Interface\b0\par}
+The Ads Command Center is a single internal admin screen. It shows: an account/KPI header (spend, clicks, conversions, CPA, ROAS) and a spend/conversions trend chart built from the synced snapshot; a campaign performance table; and a "Recommendations" list where each item shows a plain-language description of the proposed change and Approve / Dismiss / Snooze controls, plus Dry-run, Apply, and Roll back actions for approved items. All data shown comes from our private snapshot of our own account; the screen never calls Google Ads directly from the browser.\par
+\par
+\brdrb\brdrs\brdrw10\brsp20 \par
+\par
+{\i Prepared for the Google Ads API Center Basic access review. Please contact us at the address above with any questions; we are happy to provide a screen recording of the tool operating against our own account.\i0\par}
+}

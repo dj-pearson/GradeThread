@@ -11,6 +11,7 @@ Deno.env.set(
 const {
   baselineReferenceBlock,
   briefLooksSafe,
+  buildTrustedBrandFactsBlock,
   gradingBaselinesEnabled,
   MAX_BASELINE_BRIEF_CHARS,
   normalizeBaselineBrand,
@@ -18,6 +19,25 @@ const {
 const { buildCompositeUserPrompt, buildUserPrompt } = await import(
   "../lib/ai-grading.ts"
 );
+import type { BrandKnowledgePack } from "../lib/brand-knowledge.ts";
+
+function kbPack(over: Partial<BrandKnowledgePack> = {}): BrandKnowledgePack {
+  return {
+    brand: "Lululemon",
+    key: "lululemon",
+    known: true,
+    aliases: [],
+    categoryFocus: [],
+    authenticationTells: [],
+    tagEras: [],
+    styles: [],
+    decoders: [],
+    colorways: [],
+    sizingCharts: [],
+    source: "db",
+    ...over,
+  };
+}
 
 Deno.test("US-1533: normalizeBaselineBrand lowercases and rejects unusable brands", () => {
   assertEquals(normalizeBaselineBrand("  Lululemon "), "lululemon");
@@ -117,4 +137,59 @@ Deno.test("US-1533 REGRESSION: composite prompt is byte-identical without a base
     withBaseline.indexOf("REFERENCE BASELINE") <
       withBaseline.indexOf("GARMENT INFO"),
   );
+});
+
+// ── US-1717: grounding the brief in curated KB facts ─────────────────────────
+Deno.test("US-1717: no curated facts → empty block (byte-identical v2 path)", () => {
+  assertEquals(buildTrustedBrandFactsBlock(null), "");
+  // known brand but nothing seeded (every brand today) → empty
+  assertEquals(buildTrustedBrandFactsBlock(kbPack()), "");
+  // unknown brand is never grounded even if rows somehow exist
+  assertEquals(
+    buildTrustedBrandFactsBlock(kbPack({
+      known: false,
+      styles: [{
+        styleName: "X",
+        aliases: [],
+        productLine: null,
+        department: null,
+        category: null,
+        visualFingerprint: "y",
+        fabricTech: ["Z"],
+        era: null,
+        msrpBand: null,
+        keywords: [],
+      }],
+    })),
+    "",
+  );
+});
+
+Deno.test("US-1717: grounded block carries fabric tech, fingerprints and tells, fenced as TRUSTED", () => {
+  const block = buildTrustedBrandFactsBlock(kbPack({
+    styles: [{
+      styleName: "ABC Pant",
+      aliases: [],
+      productLine: "ABC",
+      department: "Men",
+      category: "pant",
+      visualFingerprint: "gusseted crotch + zippered back pocket",
+      fabricTech: ["Warpstreme"],
+      era: null,
+      msrpBand: null,
+      keywords: [],
+    }],
+    authenticationTells: [
+      { tell: "flip elastic", detail: "reflective logo" },
+      "hidden pocket size dot",
+    ],
+  }));
+  assert(block.includes("TRUSTED_KNOWN_FACTS"));
+  assert(block.includes("Warpstreme"));
+  assert(block.includes("ABC Pant"));
+  assert(block.includes("gusseted crotch"));
+  assert(block.includes("flip elastic"));
+  assert(block.includes("hidden pocket size dot"));
+  // it is a fenced, self-contained trusted block (not seller input)
+  assert(block.includes("END_TRUSTED_KNOWN_FACTS"));
 });

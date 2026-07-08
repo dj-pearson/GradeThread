@@ -131,7 +131,7 @@ export async function mintAppleAccessToken(
 }
 
 /** Authenticated Search Ads API call (adds the Bearer + orgId context header). */
-export async function appleRequest<T>(
+export function appleRequest<T>(
   config: AppleSearchAdsConfig,
   token: string,
   method: "GET" | "POST",

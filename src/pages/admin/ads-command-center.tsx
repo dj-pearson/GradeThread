@@ -547,9 +547,16 @@ export function AdsCommandCenter() {
                         <span className="text-xs text-muted-foreground">
                           Snoozed{r.snooze_until ? ` until ${new Date(r.snooze_until).toLocaleDateString()}` : ""}
                         </span>
-                        <Button size="sm" variant="outline" disabled={recAction.isPending}
-                          onClick={() => recAction.mutate({ id: r.id, action: "approve" })}>
-                          Un-snooze / Approve
+                        {/* Approve only makes sense for executable recs (report-only can't be applied). */}
+                        {EXECUTABLE_CHANGE_TYPES.has(r.change_type) ? (
+                          <Button size="sm" variant="outline" disabled={recAction.isPending}
+                            onClick={() => recAction.mutate({ id: r.id, action: "approve" })}>
+                            Un-snooze / Approve
+                          </Button>
+                        ) : null}
+                        <Button size="sm" variant="ghost" disabled={recAction.isPending}
+                          onClick={() => recAction.mutate({ id: r.id, action: "dismiss" })}>
+                          Dismiss
                         </Button>
                       </>
                     ) : r.status === "proposed" ? (

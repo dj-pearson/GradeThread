@@ -4,8 +4,22 @@
 // the whole call (previously one bad photo → 400 "Unable to download" → 502).
 //   deno test src/tests/ai-extract-photos_test.ts
 import { assertEquals } from "@std/assert";
-import { buildPhotoContent } from "../lib/ai-extract.ts";
 import type { safeFetch } from "../lib/ssrf.ts";
+
+// ai-extract.ts now imports the brand-knowledge resolver (US-1713), which pulls
+// in the service-role supabase client at load, so set dummy env BEFORE the
+// dynamic import (same pattern as canonical-attributes_test / research-
+// identification_test).
+Deno.env.set(
+  "SUPABASE_URL",
+  Deno.env.get("SUPABASE_URL") ?? "http://localhost:54321",
+);
+Deno.env.set(
+  "SUPABASE_SERVICE_ROLE_KEY",
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
+);
+
+const { buildPhotoContent } = await import("../lib/ai-extract.ts");
 
 // Minimal valid magic-byte headers.
 const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46]);

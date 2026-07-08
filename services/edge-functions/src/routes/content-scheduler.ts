@@ -619,11 +619,11 @@ async function runBlogTick(
     };
   }
 
-  // US-486: safety/claims gate. The fully autonomous path is the only one
-  // with no human in the loop, so it must pass review before going live.
-  // Hold-on-fail: the post stays a draft (safety_status='held') for a human
-  // to fix or publish manually; the topic stays 'assigned' so it isn't
-  // silently re-picked.
+  // US-486 safety/claims review — ADVISORY as of 2026-07. The fully autonomous
+  // path is the only one with no human in the loop, so it still runs the review,
+  // but a non-pass verdict no longer holds the post: it publishes and is tagged
+  // safety_status='flagged' (reasons in safety_notes) for after-the-fact review,
+  // instead of sitting in draft.
   const safety = await reviewContentSafety({
     surface: "blog",
     title: generatedTitle,
@@ -631,32 +631,22 @@ async function runBlogTick(
     productFocus: product,
   });
   const checkedAt = new Date().toISOString();
-  if (safety.verdict !== "pass") {
-    await supabaseAdmin
-      .from("blog_posts")
-      .update({
-        safety_status: "held",
-        safety_notes: safety.reasons.join("; ").slice(0, 2000) || null,
-        safety_checked_at: checkedAt,
-      })
-      .eq("id", draft.id);
+  const flagged = safety.verdict !== "pass";
+  if (flagged) {
+    console.warn(
+      `[scheduler] publishing blog with safety flag | post=${draft.id} | ` +
+        `reasons=${JSON.stringify(safety.reasons)}`,
+    );
     await writeSystemAuditLog({
-      action: "content.blog_held",
+      action: "content.blog_safety_flagged",
       targetType: "blog_post",
       targetId: draft.id,
       details: {
-        trigger: "auto_publish_safety_gate",
+        trigger: "auto_publish_safety_review",
         reasons: safety.reasons,
         model_used: safety.model_used,
       },
     });
-    return {
-      surface: "blog",
-      product_focus: product,
-      post_id: draft.id,
-      status: "held",
-      reason: `held by safety check: ${safety.reasons.join("; ")}`,
-    };
   }
 
   // US-853: generate the hero image before publishing so the webhook + OG
@@ -675,7 +665,10 @@ async function runBlogTick(
     .update({
       status: "published",
       published_at: now,
-      safety_status: "passed",
+      safety_status: flagged ? "flagged" : "passed",
+      safety_notes: flagged
+        ? safety.reasons.join("; ").slice(0, 2000) || null
+        : null,
       safety_checked_at: checkedAt,
     })
     .eq("id", draft.id)
@@ -696,7 +689,7 @@ async function runBlogTick(
       after: { status: "published", published_at: now, slug: published.slug },
       details: {
         trigger: "auto_publish",
-        safety: "passed",
+        safety: flagged ? "flagged" : "passed",
         safety_model: safety.model_used,
         generated_by: "ai",
         model_used: published.model_used,
@@ -829,7 +822,9 @@ async function runSocialTick(
     };
   }
 
-  // US-486: safety/claims gate before the autonomous publish (see blog path).
+  // US-486 safety/claims review before the autonomous publish — ADVISORY as of
+  // 2026-07 (see blog path). A non-pass verdict no longer holds the post: it
+  // publishes and is tagged safety_status='flagged' for after-the-fact review.
   const safety = await reviewContentSafety({
     surface: "social",
     title: topic.title,
@@ -837,32 +832,22 @@ async function runSocialTick(
     productFocus: product,
   });
   const checkedAt = new Date().toISOString();
-  if (safety.verdict !== "pass") {
-    await supabaseAdmin
-      .from("social_posts")
-      .update({
-        safety_status: "held",
-        safety_notes: safety.reasons.join("; ").slice(0, 2000) || null,
-        safety_checked_at: checkedAt,
-      })
-      .eq("id", draft.id);
+  const flagged = safety.verdict !== "pass";
+  if (flagged) {
+    console.warn(
+      `[scheduler] publishing social with safety flag | post=${draft.id} | ` +
+        `reasons=${JSON.stringify(safety.reasons)}`,
+    );
     await writeSystemAuditLog({
-      action: "content.social_held",
+      action: "content.social_safety_flagged",
       targetType: "social_post",
       targetId: draft.id,
       details: {
-        trigger: "auto_publish_safety_gate",
+        trigger: "auto_publish_safety_review",
         reasons: safety.reasons,
         model_used: safety.model_used,
       },
     });
-    return {
-      surface: "social",
-      product_focus: product,
-      post_id: draft.id,
-      status: "held",
-      reason: `held by safety check: ${safety.reasons.join("; ")}`,
-    };
   }
 
   const now = new Date().toISOString();
@@ -871,7 +856,10 @@ async function runSocialTick(
     .update({
       status: "published",
       published_at: now,
-      safety_status: "passed",
+      safety_status: flagged ? "flagged" : "passed",
+      safety_notes: flagged
+        ? safety.reasons.join("; ").slice(0, 2000) || null
+        : null,
       safety_checked_at: checkedAt,
     })
     .eq("id", draft.id)
@@ -891,7 +879,7 @@ async function runSocialTick(
       after: { status: "published", published_at: now },
       details: {
         trigger: "auto_publish",
-        safety: "passed",
+        safety: flagged ? "flagged" : "passed",
         safety_model: safety.model_used,
         generated_by: "ai",
         model_used: published.model_used,
@@ -1053,9 +1041,10 @@ contentSchedulerRoutes.post("/tick", async (c) => {
   // publishing.
   //
   // Per product decision (2026-06): BLOG articles publish on completion with NO
-  // weekly cap — the content safety gate is the backstop that holds risky posts
-  // as drafts. The ceiling still guards SOCIAL auto-posts (higher volume, more
-  // spam-prone), so the helper stays in use.
+  // weekly cap. The content-safety review is advisory (2026-07) — it flags but
+  // no longer holds — so the ceiling is the only auto-throttle, and it still
+  // guards SOCIAL auto-posts (higher volume, more spam-prone). Raise
+  // "Max auto-publishes per week" in Content Settings to lift it.
   if (autoPublish && surface === "social") {
     const weeklyCount = await aiPublishedLast7Days();
     if (weeklyCount >= settings.max_auto_publishes_per_week) {

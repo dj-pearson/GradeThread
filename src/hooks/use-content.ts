@@ -249,21 +249,21 @@ export function useGenerateBlogPost(id: string) {
         post: BlogPostRow;
         meta: Record<string, unknown>;
         title_suggestions?: TitleSuggestion[];
-        held?: boolean;
-        hold_reason?: string | null;
+        flagged?: boolean;
+        flag_reason?: string | null;
       }>(`/api/content/blog/${id}/generate`, { method: "POST", json: input ?? {} });
       return data;
     },
-    onSuccess: ({ post, held, hold_reason }) => {
+    onSuccess: ({ post, flagged, flag_reason }) => {
       qc.setQueryData(["blog_post", id], post);
       qc.invalidateQueries({ queryKey: ["blog_posts"] });
-      // Generated articles publish on completion; the safety gate can HOLD a
-      // flagged one as a draft for review.
-      if (held) {
+      // Generated articles publish on completion. The content-safety review is
+      // advisory (2026-07): a flagged article still publishes, tagged for review.
+      if (post.status === "published" && flagged) {
         toast.warning(
-          hold_reason
-            ? `Generated — held for review: ${hold_reason}`
-            : "Generated — held as a draft by the content safety check.",
+          flag_reason
+            ? `Published — flagged for review: ${flag_reason}`
+            : "Published — flagged by the content safety check; review when you can.",
         );
       } else if (post.status === "published") {
         toast.success("Article generated & published.");

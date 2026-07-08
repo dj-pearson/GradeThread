@@ -1,0 +1,88 @@
+[
+  {
+    "id": "US-1710",
+    "title": "Verifiable certificates: append-only Ed25519 signature store for grade_reports",
+    "description": "As GradeThread, I want each certified grade_report to have a tamper-evident cryptographic signature stored append-only, so a grade can be independently verified without trusting our database and a signed record exists for guarantees and disputes.",
+    "acceptanceCriteria": [
+      "Migration 00320_grade_report_signatures.sql creates public.grade_report_signatures (grade_report_id FK -> grade_reports, certificate_number, signed_payload jsonb, cert_hash, cert_public_key_id, signature, signed_at, superseded_at) with a unique active-signature-per-certificate index",
+      "An append-only trigger blocks DELETE and blocks UPDATE of signed fields; superseded_at is write-once",
+      "RLS exposes public SELECT only for signatures whose grade_report is certified (certificate_number IS NOT NULL), mirroring functions/cert/[id].ts filtering; writes are service-role only",
+      "guarantee_remedies gains a nullable evidence_cert_hash column",
+      "Migration applies clean on a fresh DB and via migrate:prod; verify:db passes"
+    ],
+    "priority": 1710,
+    "passes": false,
+    "notes": "[P2][Cert/Trust] Foundation for cryptographic cert verification. Scope is intentionally under-the-hood: this hardens the embed/white-label/API/guarantee surfaces, NOT the on-site consumer cert (existing centralized lookup + live-capture/photo-reuse/360 already cover on-site buyers). Separate table (not columns on grade_reports) so re-grades create a new signature row and history is preserved. Blocks [[US-1711]]."
+  },
+  {
+    "id": "US-1711",
+    "title": "Sign certified grade reports at issuance (Ed25519, rotating key)",
+    "description": "As GradeThread, I want a certified grade_report to be signed at the moment it gets its certificate_number, so every public certificate carries a non-repudiable signature that also captures which anti-fraud verifications passed at grading time.",
+    "acceptanceCriteria": [
+      "A dependency-free cert core (canonicalize + Ed25519 sign/verify via WebCrypto) is added to a shared location importable by both edge functions and services (e.g. functions/_shared + src/lib)",
+      "signGradeReport() builds a canonical payload from grade_reports fields (certificate_number, overall_score, the five factor scores, grade_tier, brand, garment_category, created_at) and folds live_capture_verified / verified_360_badge / original_photos_verified / verified_capture_passed into the signed payload",
+      "It runs in the certification step that assigns certificate_number, inserting a grade_report_signatures row via the service-role client",
+      "Signing key comes from edge secret GRADETHREAD_CERT_SIGNING_KEY (base64 PKCS8) with GRADETHREAD_CERT_PUBLIC_KEY_ID; rotation follows the dual-key overlap pattern in KEY_ROTATION.md and each row records its own cert_public_key_id",
+      "Unit test: sign then verify passes; mutating any signed field (e.g. overall_score) fails verification; canonicalization is key-order independent; build + eslint + test clean"
+    ],
+    "priority": 1711,
+    "passes": false,
+    "notes": "[P2][Cert/Trust] Reuses gradethread-cert core. Signing is server-side only; the private key never reaches any public/verify path. Depends on [[US-1710]]. Blocks [[US-1712]], [[US-1714]]."
+  },
+  {
+    "id": "US-1712",
+    "title": "Expose signature on public cert endpoint + publish signing public key",
+    "description": "As a third party (buyer tool, crawler, partner), I want the public certificate to include its signature and a way to fetch GradeThread's public key, so I can verify a grade offline without calling a private API.",
+    "acceptanceCriteria": [
+      "The public certificate JSON (/api/content/public/certificates/:id) and functions/cert/[id].ts include signature, cert_hash, and cert_public_key_id for certified reports that have an active signature",
+      "A public route (e.g. functions/.well-known/gradethread-cert-key) publishes all non-retired Ed25519 public keys keyed by id, so old certs stay verifiable across rotations",
+      "A documented, dependency-free verify snippet (public key + signed_payload + signature) returns valid/invalid and is covered by a test using a real key pair",
+      "No private key material is exposed on any route; verify path uses public key only; SSR + JSON-LD output unchanged for reports without a signature (graceful)"
+    ],
+    "priority": 1712,
+    "passes": false,
+    "notes": "[P2][Cert/Trust] Makes grades independently verifiable. Keep the consumer cert page visually unchanged — do NOT add a 'cryptographically signed!' headline (implies prior grades were untrusted). Depends on [[US-1711]]."
+  },
+  {
+    "id": "US-1713",
+    "title": "Independently verifiable embed / white-label / API grades",
+    "description": "As a white-label or API partner embedding a GradeThread grade, I want the embedded grade to be cryptographically verifiable against GradeThread's public key, so a spoofed or altered embed is detectable without a call home.",
+    "acceptanceCriteria": [
+      "Embed/badge surfaces (functions/embed, functions/badge, verified-embed-in-listings from 00305, white-label-panel.tsx) can emit a signed grade payload (or a verify link) alongside the rendered grade",
+      "A partner-facing verify affordance/endpoint validates a supplied signed payload against the published public key and returns pass/fail with the grade fields",
+      "Tampering with an embedded grade value fails verification in a test; a genuine embed passes",
+      "Docs/README note added for API/white-label consumers on how to verify; build + test clean"
+    ],
+    "priority": 1713,
+    "passes": false,
+    "notes": "[P2][Cert/Trust] This is the highest-value use of signing — the one place trust must survive without hitting our DB. Depends on [[US-1712]]."
+  },
+  {
+    "id": "US-1714",
+    "title": "Guarantee claims snapshot the signed certificate as evidence",
+    "description": "As GradeThread handling a guarantee claim, I want the claim to capture the signed cert_hash of the disputed grade_report, so remedy decisions rest on a non-repudiable record no party can later alter or deny.",
+    "acceptanceCriteria": [
+      "When a guarantee claim is filed/adjudicated, the active grade_report_signatures.cert_hash for that grade_report is written to guarantee_remedies.evidence_cert_hash",
+      "The admin/guarantee view can display and re-verify the snapshotted signature for a claim",
+      "A report with no signature (legacy, pre-backfill) is handled gracefully with a clear 'unsigned' state, not an error",
+      "build + test clean; verify:db passes"
+    ],
+    "priority": 1714,
+    "passes": false,
+    "notes": "[P2][Cert/Trust] Turns the guarantee (00319) into a provable commitment. Depends on [[US-1711]], [[US-1710]]."
+  },
+  {
+    "id": "US-1715",
+    "title": "Backfill signatures for existing certified grade reports",
+    "description": "As GradeThread, I want existing certified grade_reports signed retroactively, so the verifiable-certificate guarantee covers historical certificates, not just new ones.",
+    "acceptanceCriteria": [
+      "A batched, idempotent job (scripts/ or an /api/jobs cron guarded by verifyJobSecret) signs all certified grade_reports lacking an active signature",
+      "The job is safe to re-run (skips already-signed, uses the active key id) and logs counts",
+      "Post-run, every certified report resolves to a verifiable signature on the public cert endpoint",
+      "Job authenticated via FLIPDESK_INTERNAL_JOB_SECRET per existing pattern; dry-run mode supported"
+    ],
+    "priority": 1715,
+    "passes": false,
+    "notes": "[P3][Cert/Trust] Run once after [[US-1711]]/[[US-1712]] ship. Rate-limit signing to avoid load; can run as a Coolify Scheduled Task. Depends on [[US-1711]]."
+  }
+]
