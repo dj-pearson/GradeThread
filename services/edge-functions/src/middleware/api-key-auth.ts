@@ -7,6 +7,7 @@ import {
   isWellFormedApiKey,
 } from "../lib/api-key.ts";
 import { effectivePlanFor } from "../lib/grade-pricing.ts";
+import { billingMonthStartIso, computeQuotaState } from "../lib/api-quota.ts";
 
 type ApiKeyAuthEnv = {
   Variables: {
@@ -44,7 +45,7 @@ export const apiKeyAuthMiddleware = createMiddleware<ApiKeyAuthEnv>(async (c, ne
   // Look up the key by hash
   const { data: keyRecord, error: lookupError } = await supabaseAdmin
     .from("api_keys")
-    .select("id, user_id, expires_at, scopes")
+    .select("id, user_id, expires_at, scopes, monthly_quota, rate_tier")
     .eq("key_hash", keyHash)
     .single();
 
@@ -90,6 +91,35 @@ export const apiKeyAuthMiddleware = createMiddleware<ApiKeyAuthEnv>(async (c, ne
       new Date(),
       owner.past_due_since,
     );
+  }
+
+  // US-1791: a per-key rate_tier (e.g. 'enterprise') overrides the plan-derived
+  // per-minute tier. Falls through to the plan tier when unset.
+  const keyTier = (keyRecord as { rate_tier?: string | null }).rate_tier;
+  if (keyTier) apiKeyPlan = keyTier;
+
+  // US-1791: monthly usage quota. When the key carries a monthly_quota, count its
+  // api_usage_events for the current UTC month and 429 once exhausted. NULL quota
+  // = unlimited (the historical behavior for every existing key).
+  const monthlyQuota = (keyRecord as { monthly_quota?: number | null }).monthly_quota ?? null;
+  if (monthlyQuota != null) {
+    const now = new Date();
+    const { count } = await supabaseAdmin
+      .from("api_usage_events")
+      .select("id", { count: "exact", head: true })
+      .eq("api_key_id", keyRecord.id)
+      .gte("created_at", billingMonthStartIso(now));
+    const state = computeQuotaState(monthlyQuota, count ?? 0, now);
+    if (state.exceeded) {
+      return c.json(
+        {
+          error: `Monthly API quota of ${monthlyQuota} calls reached. Resets ${state.resets_at}.`,
+          code: "quota_exceeded",
+          resets_at: state.resets_at,
+        },
+        429,
+      );
+    }
   }
 
   // Set user context from the key's user_id + the key's scopes (US-356). A row

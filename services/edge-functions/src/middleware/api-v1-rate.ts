@@ -31,6 +31,8 @@ export const API_RATE_TIERS: Record<string, ApiRateTier> = {
   starter: { read: 60, write: 10 },
   pro: { read: 120, write: 20 },
   business: { read: 240, write: 40 },
+  // US-1791: dedicated high-throughput enterprise/API tier (rate_tier override).
+  enterprise: { read: 600, write: 120 },
   super_admin: { read: 1000, write: 200 },
 };
 

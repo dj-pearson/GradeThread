@@ -1,5 +1,21 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00409_api_key_quotas.sql (US-1791 B2B API quotas, 2026-07-09)
+
+**What:** Two ADDITIVE nullable columns on `public.api_keys`:
+`monthly_quota integer` (NULL = unlimited; max API calls per UTC month, enforced
+in api-key-auth.ts → 429 quota_exceeded) and `rate_tier text` (NULL = derive from
+owner plan; e.g. 'enterprise' for the new high-throughput tier). Bumps
+`EXPECTED_SCHEMA_VERSION` → **00409**. Self-records '00409'.
+
+**Risk: LOW — additive nullable columns; existing keys behave exactly as before**
+(NULL quota = unlimited, NULL rate_tier = plan-derived). **⚠️ CLIENT READ:** the
+api-keys UI reads `api_keys` — additive columns are ignored by existing reads, so
+no break; but apply so the columns exist before the edge reads them in auth.
+**⚠️ verify:db NOT run (Docker down).** **⚠️ Apply order:** after 00408;
+`scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload schema';`,
+redeploy the edge (boot guard now expects 00409).
+
 ## ⏳ HELD: 00408_impact_factors.sql (US-1786 sustainability factors, 2026-07-09)
 
 **What:** New DENY-ALL (RLS enabled, ZERO policies), GLOBAL/NON-TENANT config

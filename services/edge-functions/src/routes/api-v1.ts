@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { billingMonthStartIso, computeQuotaState } from "../lib/api-quota.ts";
 import { processSubmission } from "../lib/grading-pipeline.ts";
 import {
   type GradeTier,
@@ -754,6 +755,34 @@ apiV1Routes.get("/price-guide", async (c) => {
       error: { message: "Failed to load price guide", details: [] },
       meta: null,
     }, 500);
+  }
+});
+
+// GET /api/v1/usage — US-1791: this key's monthly usage vs its quota.
+apiV1Routes.get("/usage", async (c) => {
+  if (!hasScope(c.get("apiKeyScopes"), "read")) {
+    return c.json(scopeDenied("read"), 403);
+  }
+  try {
+    const apiKeyId = (c.get as (k: string) => unknown)("apiKeyId") as string;
+    const now = new Date();
+    const [{ data: keyRow }, { count }] = await Promise.all([
+      supabaseAdmin.from("api_keys").select("monthly_quota").eq("id", apiKeyId).single(),
+      supabaseAdmin
+        .from("api_usage_events")
+        .select("id", { count: "exact", head: true })
+        .eq("api_key_id", apiKeyId)
+        .gte("created_at", billingMonthStartIso(now)),
+    ]);
+    const state = computeQuotaState(
+      (keyRow as { monthly_quota?: number | null } | null)?.monthly_quota ?? null,
+      count ?? 0,
+      now,
+    );
+    return c.json({ data: state, error: null, meta: null });
+  } catch (err) {
+    console.error("[API v1] usage:", redactError(err));
+    return c.json({ data: null, error: { message: "Failed to load usage", details: [] }, meta: null }, 500);
   }
 });
 

@@ -13990,8 +13990,8 @@
         "Usage vs quota visible via GET /usage + admin"
       ],
       "priority": 1791,
-      "passes": false,
-      "notes": "[P2][B2B-API] Extend api_keys (00169) + api-key-auth.ts + API_RATE_TIERS (api-v1-rate.ts). Quota is monthly volume (distinct from per-minute rate)."
+      "passes": true,
+      "notes": "[P2][B2B-API] Extend api_keys (00169) + api-key-auth.ts + API_RATE_TIERS (api-v1-rate.ts). Quota is monthly volume (distinct from per-minute rate). [DONE 2026-07-09] Migration 00409 api_keys += monthly_quota int (null=unlimited) + rate_tier text (null=plan-derived); EXPECTED_SCHEMA_VERSION->00409; self-records; PENDING recorded (additive nullable, low risk). AC1: api-key-auth.ts SELECTs both, enforces monthly_quota — counts api_usage_events by api_key_id since billingMonthStartIso(now); 429 {code:quota_exceeded, resets_at} when used>=quota. AC2: API_RATE_TIERS += enterprise {read:600,write:120}; rate_tier overrides the plan-derived per-minute tier (apiKeyPlan=rate_tier??plan). AC3: GET /api/v1/usage returns computeQuotaState {quota,used,remaining,exceeded,resets_at}. Pure lib api-quota.ts (billingMonthStartIso/quotaResetIso/computeQuotaState) unit-tested. Tests: api-quota (3); deno check(main.ts)+lint+schema-version clean. Quota SET by admin/SQL (admin UI to surface it is a follow-on w/ US-1793 api-keys UI). Next: US-1790 batch grading (durable-jobs), US-1792 overage billing, US-1793 portal."
     },
     {
       "id": "US-1792",
