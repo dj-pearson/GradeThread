@@ -11,6 +11,8 @@ import {
   computeResaleConditionReport,
   type ResaleConditionReport,
 } from "../lib/resale-condition.ts";
+import { valueAtGrade, type ValueRange } from "../lib/condition-value.ts";
+import { suggestCategories } from "../lib/ebay-client.ts";
 import { quickGrade } from "../lib/quick-grade.ts";
 import { validateImageUpload, IMAGE_CONTENT_TYPE } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
@@ -213,6 +215,44 @@ export const GRADE_CHECK_DISCLAIMER =
   "GradeThread grade uses front, back, label, and detail photos scored across " +
   "five weighted factors, with human review on low-confidence cases.";
 
+// US-1751: the aggregate-only public value shape. Deliberately a subset of the
+// internal ValueRange — only platform-wide comp aggregates, never a per-listing
+// price or any PII. Returned to an anonymous, no-account caller.
+export interface PublicGradeCheckValue {
+  lowCents: number;
+  medianCents: number;
+  highCents: number;
+  sampleSize: number;
+  confidence: number;
+  currency: string;
+}
+
+// The public tool is gated HARDER than /snap: a range is surfaced only when the
+// condition-matched comp sample is statistically sufficient (ValueRange.sufficient),
+// otherwise value is null — never a falsely-precise number on an unauthenticated
+// surface. Pure so it's unit-testable without eBay.
+export function publicValueFromRange(
+  range: ValueRange | null | undefined,
+): PublicGradeCheckValue | null {
+  if (
+    !range ||
+    !range.sufficient ||
+    range.lowCents == null ||
+    range.medianCents == null ||
+    range.highCents == null
+  ) {
+    return null;
+  }
+  return {
+    lowCents: range.lowCents,
+    medianCents: range.medianCents,
+    highCents: range.highCents,
+    sampleSize: range.sampleSize,
+    confidence: range.confidence,
+    currency: range.currency,
+  };
+}
+
 publicGradingRoutes.post("/grade-check", async (c) => {
   try {
     const ip = clientIpFor(c);
@@ -222,11 +262,38 @@ publicGradingRoutes.post("/grade-check", async (c) => {
         429,
       );
     }
-    const body = await c.req.json().catch(() => null);
-    const prepared = prepareGradeCheckImage((body as { image?: unknown } | null)?.image);
+    const body = (await c.req.json().catch(() => null)) as
+      | { image?: unknown; brand?: unknown; keyword?: unknown }
+      | null;
+    const prepared = prepareGradeCheckImage(body?.image);
     if (!prepared.ok) return c.json({ error: prepared.error }, prepared.status);
 
+    const brand = typeof body?.brand === "string" ? body.brand.trim() : undefined;
+    const keyword = typeof body?.keyword === "string" ? body.keyword.trim() : undefined;
+
     const result = await quickGrade({ images: [{ dataUri: prepared.cleanDataUri, type: "detail" }] });
+
+    // US-1751: condition-adjusted resale value — only when brand/keyword lets us
+    // identify the item enough to comp it (mirrors grade.ts /snap). Best-effort:
+    // a taxonomy/comp hiccup never fails the grade, and the AI daily ceiling +
+    // per-IP window above still bound cost. Aggregate-only + sufficiency-gated.
+    let value: PublicGradeCheckValue | null = null;
+    if (brand || keyword) {
+      try {
+        const query = [brand, keyword].filter(Boolean).join(" ").trim();
+        const cats = await suggestCategories(query);
+        const categoryId = cats[0]?.categoryId;
+        if (categoryId) {
+          const range = await valueAtGrade({ categoryId, q: keyword, brand }, result.overallScore);
+          value = publicValueFromRange(range);
+        }
+      } catch (err) {
+        console.error(
+          "public-grading /grade-check value:",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
 
     return c.json(
       {
@@ -235,6 +302,7 @@ publicGradingRoutes.post("/grade-check", async (c) => {
         gradeTier: result.gradeTier,
         confidence: result.confidence,
         factorScores: result.factorScores,
+        value,
         disclaimer: GRADE_CHECK_DISCLAIMER,
       },
       200,

@@ -12567,3 +12567,23 @@ US-1702 DONE (edge+web; MIGRATION 00387 — HELD). The story I had missed.
 - VERIFIED: deno check 0/lint clean/18 tests; web tsc -b 0/eslint 0.
 ★★★ ADS EPIC TRULY COMPLETE: US-1696 wrapper + 1697-1709 + 1702 = 14 stories. ★★★
   7 held migrations now: 00381-00387. US-1697 pushed; rest held local.
+
+── US-1751: Free tool — resale value on the unauthenticated grade-check (2026-07-08) ──
+- Edge public-grading.ts /grade-check now accepts optional brand/keyword and,
+  when present, comps via suggestCategories → valueAtGrade (SAME path as /snap)
+  and returns a condition-adjusted `value`. Gated HARDER than /snap:
+  publicValueFromRange() surfaces the range ONLY when sufficient (else value:null)
+  — no false precision on an anon surface. Aggregate-only (PublicGradeCheckValue
+  is a subset: low/median/high cents, sampleSize, confidence, currency — no PII).
+  Per-IP 5/hr window + ai-global daily ceiling unchanged. Value fetch is
+  best-effort (its own try/catch; a comp/taxonomy hiccup never fails the grade).
+- Frontend src/pages/tools/grade-checker.tsx: optional Brand + Item inputs;
+  posts them; renders "Estimated resale value" range card when returned.
+- SEO: grade-checker.ts META desc/intro/h1 + new "How much is my used clothing
+  worth?" FAQ reflect grade+value; flows into JSON-LD (WebApplication + FAQ) via
+  head-builder.ts gradeCheckerJsonLd(). Desc 146 chars (70–160 ✓), title+suffix 51 (≤60 ✓).
+- Tests: grade-check_test.ts +3 publicValueFromRange cases (sufficient/insufficient/null).
+- VERIFIED: deno check 0 / deno lint 0 / 9 edge tests pass; web tsc -b 0 / eslint 0 /
+  vitest src/lib/seo+src/prerender 765 pass. (1 pre-existing fail: public-routes.test.ts
+  missing /buyer/* from US-1802 buyer-dashboard commit — unrelated, fails on clean HEAD.)
+- No migration. Commit local; NOT pushed (standing pre-launch rule).

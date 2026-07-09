@@ -2,6 +2,8 @@ import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, Loader2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   MarketingLayout,
   MarketingCTA,
@@ -22,13 +24,32 @@ import {
 // FileReader, fetch, edgeApiUrl) happens in the click handler so the page
 // prerenders safely (Node) — the landing content is the crawlable payload.
 
+interface GradeCheckValue {
+  lowCents: number;
+  medianCents: number;
+  highCents: number;
+  sampleSize: number;
+  confidence: number;
+  currency: string;
+}
+
 interface GradeCheckResult {
   estimate: boolean;
   overallScore: number;
   gradeTier: string;
   confidence: number;
   factorScores?: Partial<Record<GradeFactorKey, number>>;
+  value?: GradeCheckValue | null;
   disclaimer: string;
+}
+
+function formatValueRange(v: GradeCheckValue): string {
+  const fmt = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: v.currency || "USD",
+    maximumFractionDigits: 0,
+  });
+  return `${fmt.format(v.lowCents / 100)} – ${fmt.format(v.highCents / 100)}`;
 }
 
 function readAsDataUrl(file: File): Promise<string> {
@@ -45,6 +66,8 @@ function GradeCheckerTool() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<GradeCheckResult | null>(null);
+  const [brand, setBrand] = useState("");
+  const [keyword, setKeyword] = useState("");
 
   async function onFile(file: File) {
     setBusy(true);
@@ -59,7 +82,13 @@ function GradeCheckerTool() {
       const res = await fetch(`${edgeApiUrl()}${GRADE_CHECKER_ENDPOINT}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ image: dataUri }),
+        body: JSON.stringify({
+          image: dataUri,
+          // Optional — lets the grader attach a condition-adjusted resale range
+          // (US-1751). Omitted keys are simply not sent.
+          ...(brand.trim() ? { brand: brand.trim() } : {}),
+          ...(keyword.trim() ? { keyword: keyword.trim() } : {}),
+        }),
       });
       const body = (await res.json().catch(() => null)) as
         | GradeCheckResult
@@ -97,6 +126,34 @@ function GradeCheckerTool() {
         />
         {!result ? (
           <div className="text-center">
+            <div className="mb-5 grid gap-3 text-left sm:grid-cols-2">
+              <div>
+                <Label htmlFor="gc-brand" className="text-sm">
+                  Brand <span className="text-muted-foreground">(optional)</span>
+                </Label>
+                <Input
+                  id="gc-brand"
+                  value={brand}
+                  onChange={(e) => setBrand(e.target.value)}
+                  placeholder="e.g. Patagonia"
+                  disabled={busy}
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <Label htmlFor="gc-keyword" className="text-sm">
+                  Item <span className="text-muted-foreground">(optional)</span>
+                </Label>
+                <Input
+                  id="gc-keyword"
+                  value={keyword}
+                  onChange={(e) => setKeyword(e.target.value)}
+                  placeholder="e.g. fleece jacket"
+                  disabled={busy}
+                  className="mt-1"
+                />
+              </div>
+            </div>
             <Button
               size="lg"
               onClick={() => inputRef.current?.click()}
@@ -116,7 +173,8 @@ function GradeCheckerTool() {
               )}
             </Button>
             <p className="mt-3 text-sm text-muted-foreground">
-              One clear, well-lit photo of the whole item. No signup.
+              One clear, well-lit photo of the whole item. No signup. Add a brand and
+              item to also see an estimated resale value.
             </p>
           </div>
         ) : (
@@ -130,6 +188,20 @@ function GradeCheckerTool() {
               </p>
               <p className="mt-1 text-lg font-medium">{result.gradeTier}</p>
             </div>
+            {result.value ? (
+              <div className="mt-6 rounded-lg border bg-brand-navy/5 p-4 text-center dark:bg-foreground/5">
+                <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
+                  Estimated resale value
+                </p>
+                <p className="mt-1 text-3xl font-bold text-brand-navy dark:text-foreground">
+                  {formatValueRange(result.value)}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  At this condition, from {result.value.sampleSize} recent comparable sales.
+                  A range, not a guaranteed price.
+                </p>
+              </div>
+            ) : null}
             {result.factorScores ? (
               <dl className="mt-6 space-y-2">
                 {(Object.keys(GRADE_FACTORS) as GradeFactorKey[]).map((k) => {

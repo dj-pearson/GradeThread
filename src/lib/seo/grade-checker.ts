@@ -20,10 +20,10 @@ export const GRADE_CHECKER_META = {
   path: GRADE_CHECKER_PATH,
   title: "Free Clothing Condition Grade Checker",
   description:
-    "Free condition grade estimator: upload one photo of a clothing item and get a rough 1.0–10.0 condition grade in seconds. No signup — try it now.",
-  h1: "Free clothing condition grade checker",
+    "Free grade + resale value estimator: upload one photo of a clothing item to get a rough 1.0–10.0 condition grade plus its resale range. No signup.",
+  h1: "Free clothing condition grade & value checker",
   intro:
-    "Upload one photo of a pre-owned clothing item and get a rough condition grade on the 1.0–10.0 scale — no account, no cost. It's a fast gut-check before you list; a full certified grade uses more photos and human review for a number buyers can verify.",
+    "Upload one photo of a pre-owned clothing item and get a rough condition grade on the 1.0–10.0 scale — no account, no cost. Add the brand and item to also see an estimated resale value for that condition. It's a fast gut-check before you list; a full certified grade uses more photos and human review for a number buyers can verify.",
   steps: [
     { name: "Upload one photo", text: "Pick a clear, well-lit photo of the whole garment. Front-on works best." },
     { name: "Get a rough grade", text: "The same AI grader that powers certified grades gives a quick 1.0–10.0 estimate across the five condition factors." },
@@ -41,6 +41,10 @@ export const GRADE_CHECKER_META = {
     {
       q: "What is a good condition grade for used clothes?",
       a: "On the 1.0–10.0 scale, roughly 7.5+ is Excellent, 6.0–7.0 is Very Good, and 4.5–5.5 is Good. Higher grades sell faster and hold value; the grade checker gives you a rough band so you know where an item sits before you price it.",
+    },
+    {
+      q: "How much is my used clothing worth?",
+      a: "Add the brand and item name and the checker returns an estimated resale value range for that condition, drawn from recent comparable sales. It's an aggregate estimate, not a guaranteed sale price, and only appears when there are enough comparable sales to price honestly.",
     },
   ],
 };

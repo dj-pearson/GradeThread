@@ -13470,7 +13470,7 @@
         "grade-checker page + JSON-LD updated to reflect grade + value output"
       ],
       "priority": 1751,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][FREE-TOOL] Add valueAtGrade/suggestCategories call to public-grading.ts grade-check (mirror grade.ts /snap lines that build value). Respect MIN sample gating; return value:null when insufficient (like /snap)."
     },
     {
