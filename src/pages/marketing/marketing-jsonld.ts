@@ -999,6 +999,55 @@ export const RESALE_REPORT_FAQS = [
   },
 ];
 
+// US-1775: "State of Secondhand Durability" report. Fixed publish date (never
+// the build timestamp); the visible page states the live sample.
+export const DURABILITY_REPORT_PUBLISHED = "2026-07-09";
+export const DURABILITY_REPORT_MODIFIED = "2026-07-09";
+
+export const DURABILITY_REPORT_FAQS = [
+  {
+    q: "Which clothing brands are most durable?",
+    a: "GradeThread ranks brand durability by how much of its condition grade a garment retains when the same item is graded again over time, on the standardized 1.0–10.0 condition scale. A brand only appears once its cohort clears a minimum sample of garments and regrades, so the ranking reflects real, repeated measurement rather than a handful of items. The report publishes the retention percentage and the sample behind each brand.",
+  },
+  {
+    q: "How is clothing durability measured?",
+    a: "Durability here is condition RETENTION: the share of a garment's original GradeThread grade it keeps on its latest regrade, averaged across many garments in a cohort (brand × garment type). We also report which of the five condition factors — fabric, structural, cosmetic, functional, odor & cleanliness — decays fastest. It is an aggregate signal from real grades, not a lab stress test, and thinly-sampled cohorts are withheld.",
+  },
+  {
+    q: "Can I cite the State of Secondhand Durability report?",
+    a: "Yes. It emits schema.org Dataset and Article structured data and states the sample size behind each figure. Cite it as 'GradeThread, The State of Secondhand Durability' with the report URL. Figures update as more garments are regraded.",
+  },
+];
+
+export function durabilityReportJsonLd(): JsonLd[] {
+  const dataset: JsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Dataset",
+    name: "The State of Secondhand Durability",
+    description:
+      "GradeThread's proprietary, aggregate data on which pre-owned clothing brands hold their condition best and which condition factors decay fastest, measured by grade retention across regraded garments on the 1.0–10.0 condition scale.",
+    url: absoluteUrl("/state-of-durability"),
+    isAccessibleForFree: true,
+    creativeWorkStatus: "Published",
+    datePublished: DURABILITY_REPORT_PUBLISHED,
+    dateModified: DURABILITY_REPORT_MODIFIED,
+    license: "https://creativecommons.org/licenses/by/4.0/",
+    creator: { "@id": `${SITE_URL}/#organization` },
+  };
+  return [
+    dataset,
+    articleLd({
+      headline: "The State of Secondhand Durability: Which Clothing Brands Hold Their Condition",
+      description:
+        "GradeThread's original data on brand durability — which pre-owned clothing brands retain their condition grade best across regraded garments, and which condition factors decay fastest.",
+      url: absoluteUrl("/state-of-durability"),
+      datePublished: DURABILITY_REPORT_PUBLISHED,
+      dateModified: DURABILITY_REPORT_MODIFIED,
+    }),
+    faqPageLd(DURABILITY_REPORT_FAQS),
+  ];
+}
+
 export function resaleConditionReportJsonLd(): JsonLd[] {
   return [
     resaleConditionDatasetLd({

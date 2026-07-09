@@ -129,6 +129,7 @@ const GradedClothingMeaningPage = lazy(() => import("@/pages/marketing/grading-d
 const VsAuthenticationPage = lazy(() => import("@/pages/marketing/grading-disambiguation").then(m => ({ default: m.VsAuthenticationPage })));
 const TransparencyPage = lazy(() => import("@/pages/marketing/transparency").then(m => ({ default: m.TransparencyPage })));
 const ResaleConditionReportPage = lazy(() => import("@/pages/marketing/resale-condition-report").then(m => ({ default: m.ResaleConditionReportPage })));
+const StateOfDurabilityPage = lazy(() => import("@/pages/marketing/state-of-durability").then(m => ({ default: m.StateOfDurabilityPage })));
 const VerifyGradePage = lazy(() => import("@/pages/marketing/verify").then(m => ({ default: m.VerifyGradePage })));
 const PassportScanPage = lazy(() => import("@/pages/marketing/passport-scan").then(m => ({ default: m.PassportScanPage })));
 const DevelopersPage = lazy(() => import("@/pages/marketing/developers").then(m => ({ default: m.DevelopersPage })));
@@ -401,6 +402,7 @@ export const router = createBrowserRouter([
       { path: "/grading/vs-authentication", element: <SuspenseWrapper><VsAuthenticationPage /></SuspenseWrapper> },
       { path: "/transparency", element: <SuspenseWrapper><TransparencyPage /></SuspenseWrapper> },
       { path: "/resale-condition-report", element: <SuspenseWrapper><ResaleConditionReportPage /></SuspenseWrapper> },
+      { path: "/state-of-durability", element: <SuspenseWrapper><StateOfDurabilityPage /></SuspenseWrapper> },
       { path: "/verify", element: <SuspenseWrapper><VerifyGradePage /></SuspenseWrapper> },
       // US-1106: buyer-facing "scan before you buy" passport lookup landing.
       { path: "/scan", element: <SuspenseWrapper><PassportScanPage /></SuspenseWrapper> },

@@ -9,6 +9,7 @@ import {
 import { getIndexCurveBySlug, getIndexHub } from "../lib/condition-index.ts";
 import { getValueHub, resolveValueCurve } from "../lib/value-index.ts";
 import { getDurabilityByBrand, getDurabilityHub } from "../lib/durability-index.ts";
+import { computeDurabilityReport, type DurabilityReport } from "../lib/durability-report.ts";
 import {
   computeResaleConditionReport,
   type ResaleConditionReport,
@@ -185,6 +186,35 @@ publicGradingRoutes.get("/durability", async (c) => {
   }
 });
 
+// ── State of Secondhand Durability report (US-1775) ──────────────────────
+// Public, aggregate-only findings (top/bottom brands, weakest factors) for the
+// /state-of-durability report page. Cached like the resale-condition report — it
+// scans the aggregate table and moves slowly.
+const DURABILITY_REPORT_CACHE_TTL_MS = 15 * 60 * 1000;
+let durabilityReportCache: { at: number; report: DurabilityReport } | null = null;
+
+// GET /api/grading/public/durability-report — the report findings.
+publicGradingRoutes.get("/durability-report", async (c) => {
+  try {
+    const now = Date.now();
+    if (!durabilityReportCache || now - durabilityReportCache.at > DURABILITY_REPORT_CACHE_TTL_MS) {
+      durabilityReportCache = { at: now, report: await computeDurabilityReport() };
+    }
+    return c.json(durabilityReportCache.report, 200, {
+      "Cache-Control": "public, max-age=600, s-maxage=900",
+    });
+  } catch (err) {
+    console.error(
+      "public-grading /durability-report:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return c.json({ error: "Internal error" }, 500);
+  }
+});
+
+// NOTE: keep the parameterized /durability/:brand route LAST so it doesn't
+// shadow /durability-report (Hono matches static segments first, but ordering
+// makes the intent explicit).
 // GET /api/grading/public/durability/:brand — one brand's cohort ranking.
 publicGradingRoutes.get("/durability/:brand", async (c) => {
   try {

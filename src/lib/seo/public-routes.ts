@@ -82,6 +82,7 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/grading/vs-authentication": "2026-07-06",
   "/transparency": "2026-06-01",
   "/resale-condition-report": "2026-06-18",
+  "/state-of-durability": "2026-07-09",
   "/verify": "2026-06-12",
   "/scan": "2026-06-19",
   "/verified": "2026-06-13",
@@ -300,6 +301,19 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     title: "State of Resale Condition Report",
     description:
       "Original GradeThread data on how a garment's condition grade drives buyer return rate, sell-through, and resale value on the standardized 1.0–10.0 scale.",
+    changefreq: "weekly",
+    priority: 0.8,
+    jsonLdType: "Dataset",
+  },
+  {
+    // US-1775: "State of Secondhand Durability" data report — original brand
+    // durability findings (grade retention + factor decay) from the aggregate
+    // table. Figures load client-side from the aggregate-only edge endpoint;
+    // the prerendered shell carries the methodology + Dataset JSON-LD.
+    path: "/state-of-durability",
+    title: "State of Secondhand Durability Report",
+    description:
+      "Original GradeThread data on which pre-owned clothing brands hold their condition best, and which condition factors decay fastest, across regraded garments.",
     changefreq: "weekly",
     priority: 0.8,
     jsonLdType: "Dataset",

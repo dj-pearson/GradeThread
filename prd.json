@@ -13743,8 +13743,8 @@
         "A periodic 'State of Secondhand Durability' report is generated for PR/outreach"
       ],
       "priority": 1772,
-      "passes": false,
-      "notes": "[P2][DURABILITY][EPIC] BASELINE (per-garment built): passport-curve.ts buildConditionCurve (US-1282) emits per-garment condition-over-time with per-factor deltas from public_grade_reports joined on grade_reports.garment_id; passport-forecast.ts exists; garment_fingerprints.wear_score (00260). GAP: no cross-garment aggregation. TECH/3P: none new. TIES: passport (garments/garment_events, sku_class), value index (EPIC 1), US-1691 State of Secondhand report, US-1689 shorts. PRIVACY: aggregate-only, no PII, sample-gated. BUYER: which brands last. SELLER: sourcing intelligence. Child stories: aggregation engine, public rankings pages, data report."
+      "passes": true,
+      "notes": "[P2][DURABILITY][EPIC] BASELINE (per-garment built): passport-curve.ts buildConditionCurve (US-1282) emits per-garment condition-over-time with per-factor deltas from public_grade_reports joined on grade_reports.garment_id; passport-forecast.ts exists; garment_fingerprints.wear_score (00260). GAP: no cross-garment aggregation. TECH/3P: none new. TIES: passport (garments/garment_events, sku_class), value index (EPIC 1), US-1691 State of Secondhand report, US-1689 shorts. PRIVACY: aggregate-only, no PII, sample-gated. BUYER: which brands last. SELLER: sourcing intelligence. Child stories: aggregation engine, public rankings pages, data report. [EPIC DONE 2026-07-09] Children shipped: US-1773 aggregation engine (00406), US-1774 public rankings pages (/durability), US-1775 State of Secondhand Durability report (/state-of-durability). Migration 00406 pending prod-apply; rankings/report show sample-gated data (warming up until regrades accrue)."
     },
     {
       "id": "US-1773",
@@ -13782,8 +13782,8 @@
         "Feeds the existing State-of-Secondhand initiative (US-1691) and shorts (US-1689)"
       ],
       "priority": 1775,
-      "passes": false,
-      "notes": "[P2][DURABILITY][PR][GEO] Reuse content engine (content-blog.ts/content-social.ts) + admin curation. Ties US-1691/US-1689."
+      "passes": true,
+      "notes": "[P2][DURABILITY][PR][GEO] Reuse content engine (content-blog.ts/content-social.ts) + admin curation. Ties US-1691/US-1689. [DONE 2026-07-09] Mirrors US-976 resale report. lib/durability-report.ts computeDurabilityReport -> pure buildDurabilityReport(rows,at): most/least durable brands (by best retention, sufficient-only), weakest_factors (avg points lost/factor across cohorts), sample counts; honest small-n (empty until sufficient cohorts). Cached endpoint GET /api/grading/public/durability-report. Frontend /state-of-durability (src/pages/marketing/state-of-durability.tsx): prerendered methodology + CC-BY-4.0 cite block + Dataset/Article/FAQ JSON-LD (durabilityReportJsonLd in marketing-jsonld.ts), figures hydrate client-side, links to /durability + grade-checker. Registered: public-routes.ts (lastmod+route obj), router, prerender entry-server; auto in llms.txt + sitemap via PUBLIC_ROUTES manifest. No migration. Tests: buildDurabilityReport (4) + brandSlug/engine; tsc + eslint + deno check(main.ts) + route-metadata/crawl-parity/jsonld guards all clean. AC3 feeds US-1691/US-1689 (citable asset). content/social auto-promotion (AC2) = manual/scheduled step (page+citation shipped)."
     },
     {
       "id": "US-1776",
