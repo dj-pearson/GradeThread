@@ -14,6 +14,7 @@ import { googlePlayRtdnRoutes } from "./routes/google-play-rtdn.ts";
 import { googlePlayVerifyRoutes } from "./routes/google-play.ts";
 import { apiKeyRoutes } from "./routes/api-keys.ts";
 import { apiV1Routes } from "./routes/api-v1.ts";
+import { OPENAPI_SPEC } from "./lib/openapi-spec.ts";
 import { notificationRoutes } from "./routes/notifications.ts";
 import { flipdeskEbayRoutes } from "./routes/flipdesk-ebay.ts";
 import { flipdeskShopifyRoutes } from "./routes/flipdesk-shopify.ts";
@@ -905,6 +906,15 @@ app.use("/api/flipdesk/webhooks/*", rateLimiter(600, 60_000, "webhook-ebay", und
 // so a generous ceiling here is just an anti-flood backstop; fail-open so a
 // counter-store blip never blocks a legit confirmation email.
 app.use("/api/auth/hooks/*", rateLimiter(600, 60_000, "auth-hook", undefined, { failClosed: false }));
+
+// US-1793: the OpenAPI spec is PUBLIC — mounted before the api-key auth
+// middleware so partners can fetch it without a key. Cached at the edge; the
+// spec is a static object so this is cheap.
+app.get("/api/v1/openapi.json", (c) => {
+  c.header("Cache-Control", "public, max-age=3600");
+  c.header("Access-Control-Allow-Origin", "*");
+  return c.json(OPENAPI_SPEC);
+});
 
 // Public API v1 — API key auth, then per-key, plan-tiered, fail-closed rate
 // limits (US-800). Reads (GET) and the expensive writes (POST submit / PATCH

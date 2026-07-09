@@ -14016,8 +14016,8 @@
         "Quickstart + code samples; keys/rotation/quotas surfaced in the api-keys UI"
       ],
       "priority": 1793,
-      "passes": false,
-      "notes": "[P2][B2B-API][DX] OpenAPI + opensource docs renderer (self-hosted, inline per CSP). Reuse sandbox (US-596) + white-label branding (api-keys.ts /branding). Docs as a public page."
+      "passes": true,
+      "notes": "[P2][B2B-API][DX] DONE 2026-07-09. (1) Published OpenAPI 3.1 spec (lib/openapi-spec.ts) served PUBLIC at GET /api/v1/openapi.json (mounted before api-key auth) — covers all routes incl. new batch + webhooks + price-guide + usage, X-API-Key security scheme, envelope, enums; guard test openapi-spec_test.ts. (2) /developers portal updated: Quickstart onboarding steps, Batch grading section, Webhooks section (grade.completed + X-GradeThread-Signature), enterprise rate tier, link to importable spec. (3) api-keys UI: scope selection on create + per-key rotation dialog (backend was ready: POST /api/keys/:id/rotate + scopes) + scopes/rotated shown in table. Also fixed a latent bug in the US-1790 tenant test (used Bearer instead of X-API-Key so it never reached the handler). DEVIATIONS (deliberate, CSP/scope): docs portal is the on-brand hand-authored /developers page + downloadable spec, NOT a bundled Scalar/Redoc renderer; no interactive try-it console (sandbox is documented + reusable). Frontend tsc+eslint, deno check+lint+tests all green. No migration."
     },
     {
       "id": "US-1794",

@@ -2138,11 +2138,15 @@ Deno.test({
 // ── US-1790: B2B batch-grading status (public /api/v1, API-KEY auth) ──────────
 //
 // GET /api/v1/grades/batch/:id scopes the grading_batches read by the calling
-// key's userId. The public API authenticates with an API KEY (not a JWT), so
-// this case needs its own fixtures and skips cleanly without them:
-//   TEST_USER_B_API_KEY           a raw API key (gt_…) belonging to user B
+// key's userId. The public API authenticates with the `X-API-Key` header (NOT a
+// JWT Bearer token), so this case needs its own fixtures and skips cleanly
+// without them:
+//   TEST_USER_B_API_KEY           a raw API key (gt_sk_…) belonging to user B
 //   TEST_USER_A_GRADING_BATCH_ID  a grading_batches.id owned by user A
-// B presenting A's batch id must be denied (404 — never A's job results).
+// B presenting A's batch id with B's valid key must be denied (404 — never A's
+// job results). Using B's REAL key (not a bogus header) is what makes this a
+// genuine tenant-scope test: the request reaches the handler and is rejected by
+// the .eq("user_id", userId) filter, not bounced at auth.
 const B_API_KEY = Deno.env.get("TEST_USER_B_API_KEY");
 const A_GRADING_BATCH_ID = Deno.env.get("TEST_USER_A_GRADING_BATCH_ID");
 Deno.test({
@@ -2150,7 +2154,7 @@ Deno.test({
   ignore: !CONFIGURED || !B_API_KEY || !A_GRADING_BATCH_ID,
   fn: async () => {
     const res = await fetch(`${BASE}/api/v1/grades/batch/${A_GRADING_BATCH_ID}`, {
-      headers: { Authorization: `Bearer ${B_API_KEY}` },
+      headers: { "X-API-Key": B_API_KEY! },
     });
     await res.body?.cancel();
     assertDenied(res.status, "GET grades/batch/:id with foreign key");

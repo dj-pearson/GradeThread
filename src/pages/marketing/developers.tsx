@@ -3,7 +3,7 @@
 // tier — the "beyond internal plumbing" product surface. Prerendered + indexable
 // (registered in PUBLIC_ROUTES + entry-server).
 import { Link } from "react-router-dom";
-import { Code, FlaskConical, Gauge, KeyRound, Package, Layout, LineChart } from "lucide-react";
+import { Code, FlaskConical, Gauge, KeyRound, Package, Layout, LineChart, Layers, Webhook, FileJson, ListChecks } from "lucide-react";
 import {
   MarketingLayout,
   MarketingCTA,
@@ -12,8 +12,11 @@ import { FLIPDESK_PLANS } from "@/lib/constants";
 
 const ENDPOINTS = [
   { method: "POST", path: "/api/v1/grades", scope: "submit", desc: "Submit a garment (photos) for grading." },
+  { method: "POST", path: "/api/v1/grades/batch", scope: "submit", desc: "Submit up to 50 garments as one durable async batch." },
+  { method: "GET", path: "/api/v1/grades/batch/:id", scope: "read", desc: "Poll a batch's status + per-garment results." },
   { method: "GET", path: "/api/v1/grades/:id", scope: "read", desc: "Fetch a submission and its grade report." },
   { method: "GET", path: "/api/v1/grades", scope: "read", desc: "List grades, paginated." },
+  { method: "GET", path: "/api/v1/usage", scope: "read", desc: "This key's monthly call usage vs quota + reset date." },
   { method: "PATCH", path: "/api/v1/webhook", scope: "webhook_manage", desc: "Set the URL we POST to when a grade completes." },
   { method: "POST", path: "/api/v1/sandbox/grades", scope: "submit", desc: "Free mock submit — returns a sample grade, no credits." },
   { method: "GET", path: "/api/v1/sandbox/grades/:id", scope: "read", desc: "Free mock fetch — returns a sample grade." },
@@ -22,12 +25,45 @@ const ENDPOINTS = [
   { method: "GET", path: "/api/v1/sandbox/price-guide/:slug", scope: "read", desc: "Free mock price guide — deterministic sample, no live data." },
 ];
 
+// Public, no key required — the machine-readable spec for Postman / codegen.
+const OPENAPI_URL = "https://functions.gradethread.com/api/v1/openapi.json";
+
 const RATE_TIERS = [
   { plan: "Free / downgraded", read: 30, write: 5 },
   { plan: "Starter", read: 60, write: 10 },
   { plan: "Pro", read: 120, write: 20 },
   { plan: "Business (API access)", read: 240, write: 40 },
+  { plan: "Enterprise", read: 600, write: 120 },
 ];
+
+const BATCH_EXAMPLE = `curl https://functions.gradethread.com/api/v1/grades/batch \\
+  -X POST \\
+  -H "X-API-Key: gt_sk_..." \\
+  -H "Content-Type: application/json" \\
+  -d '{"garments":[
+        {"title":"Denim jacket","garment_type":"outerwear","garment_category":"jacket",
+         "images":[{"image_type":"front","url":"https://.../f.jpg"},
+                   {"image_type":"back","url":"https://.../b.jpg"},
+                   {"image_type":"label","url":"https://.../l.jpg"},
+                   {"image_type":"detail","url":"https://.../d.jpg"}]}
+      ]}'
+
+# → 202 { "data": { "id": "<batch_id>", "status": "running", "item_count": 1 } }
+# Poll GET /api/v1/grades/batch/<batch_id> for per-garment results.`;
+
+const WEBHOOK_EXAMPLE = `POST <your webhook_url>
+X-GradeThread-Signature: <hex HMAC-SHA256 of the raw body>
+
+{
+  "event": "grade.completed",
+  "data": {
+    "submission_id": "…",
+    "grade_report": { "id": "…", "overall_score": 8.5,
+                      "grade_tier": "Excellent", "certificate_id": "…",
+                      "finalized_at": "2026-07-09T…Z" }
+  },
+  "timestamp": "2026-07-09T…Z"
+}`;
 
 const CURL_EXAMPLE = `curl https://functions.gradethread.com/api/v1/sandbox/grades \\
   -X POST \\
@@ -125,6 +161,39 @@ export function DevelopersPage() {
         </div>
       </section>
 
+      <Section icon={ListChecks} title="Quickstart">
+        <ol className="list-decimal space-y-3 pl-5">
+          <li>
+            <strong className="text-foreground">Create an API key.</strong> In your
+            dashboard under Account → API keys (Business plan), create a key and
+            grant only the scopes you need (<code className="rounded bg-muted px-1 py-0.5">submit</code>,{" "}
+            <code className="rounded bg-muted px-1 py-0.5">read</code>,{" "}
+            <code className="rounded bg-muted px-1 py-0.5">webhook_manage</code>). The
+            secret is shown once — store it safely. Rotate or revoke it anytime.
+          </li>
+          <li>
+            <strong className="text-foreground">Try it free in the sandbox.</strong>{" "}
+            Call <code className="rounded bg-muted px-1 py-0.5">/api/v1/sandbox/grades</code>{" "}
+            (below) — deterministic sample grades, zero credits, same shapes as
+            production.
+          </li>
+          <li>
+            <strong className="text-foreground">Go live.</strong> Drop the{" "}
+            <code className="rounded bg-muted px-1 py-0.5">/sandbox</code> path, attach
+            real photos (front, back, label + a detail), and submit to{" "}
+            <code className="rounded bg-muted px-1 py-0.5">/api/v1/grades</code>. Poll{" "}
+            <code className="rounded bg-muted px-1 py-0.5">/api/v1/grades/:id</code> or
+            receive a webhook.
+          </li>
+          <li>
+            <strong className="text-foreground">Scale up.</strong> Grade up to 50
+            garments per call with{" "}
+            <code className="rounded bg-muted px-1 py-0.5">/api/v1/grades/batch</code>{" "}
+            and let webhooks push each result as it finishes.
+          </li>
+        </ol>
+      </Section>
+
       <Section icon={KeyRound} title="Authentication">
         <p>
           Every request authenticates with an API key in the{" "}
@@ -166,6 +235,54 @@ export function DevelopersPage() {
           All responses share one envelope:{" "}
           <code className="rounded bg-muted px-1.5 py-0.5">{`{ data, error, meta }`}</code>.
         </p>
+        <p className="flex items-center gap-2">
+          <FileJson className="h-4 w-4 flex-shrink-0 text-brand-navy dark:text-foreground" />
+          <span>
+            Full machine-readable reference (OpenAPI 3.1) —{" "}
+            <a
+              href={OPENAPI_URL}
+              className="font-medium text-brand-navy hover:underline dark:text-foreground"
+              target="_blank"
+              rel="noreferrer"
+            >
+              openapi.json
+            </a>
+            . No key required; import it into Postman, Insomnia, or your codegen of choice.
+          </span>
+        </p>
+      </Section>
+
+      <Section icon={Layers} title="Batch grading">
+        <p>
+          Grade up to 50 garments in one call. The batch is durable and async:
+          you get a batch id back immediately, each garment is graded and charged
+          independently (partial success is fine), and a{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5">grade.completed</code>{" "}
+          webhook fires per garment. Poll the batch-status endpoint for
+          per-garment results. Every garment is validated the same way as a single
+          grade — an invalid garment rejects the whole request up front. Prefer
+          image URLs over base64 in a batch.
+        </p>
+        <pre className="overflow-x-auto rounded-lg bg-slate-900 p-4 text-xs text-slate-100">
+          <code>{BATCH_EXAMPLE}</code>
+        </pre>
+      </Section>
+
+      <Section icon={Webhook} title="Webhooks">
+        <p>
+          Set a webhook URL with{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5">PATCH /api/v1/webhook</code>{" "}
+          (or in your dashboard). When a grade finalizes we POST a{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5">grade.completed</code>{" "}
+          event. Each delivery carries an{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5">X-GradeThread-Signature</code>{" "}
+          header — an HMAC-SHA256 (hex) of the raw request body, signed with your
+          API key's secret hash — so you can verify authenticity. Failed
+          deliveries retry with backoff (5s / 30s / 120s).
+        </p>
+        <pre className="overflow-x-auto rounded-lg bg-slate-900 p-4 text-xs text-slate-100">
+          <code>{WEBHOOK_EXAMPLE}</code>
+        </pre>
       </Section>
 
       <Section icon={FlaskConical} title="Free sandbox">

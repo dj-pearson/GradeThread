@@ -24,7 +24,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Key, Plus, Copy, Trash2, Check, Loader2, AlertTriangle, Crown, ShieldCheck, BookOpen, Code, FlaskConical } from "lucide-react";
+import { Key, Plus, Copy, Trash2, Check, Loader2, AlertTriangle, Crown, ShieldCheck, BookOpen, Code, FlaskConical, RefreshCw } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { Link, useNavigate } from "react-router-dom";
 import { usePlanUsage } from "@/hooks/use-plan-usage";
@@ -38,10 +39,21 @@ interface ApiKeyItem {
   id: string;
   name: string;
   key_prefix: string;
+  scopes: string[] | null;
   last_used_at: string | null;
+  last_rotated_at: string | null;
   expires_at: string | null;
   created_at: string;
 }
+
+// The three scopes the backend enforces (lib/api-key.ts API_KEY_SCOPES). A key
+// with no scopes selected can't do anything, so the create dialog defaults to
+// all three and requires at least one.
+const SCOPE_OPTIONS: Array<{ value: string; label: string; description: string }> = [
+  { value: "submit", label: "Submit", description: "Submit garments for grading (single + batch)" },
+  { value: "read", label: "Read", description: "Read grade reports, usage, and the price guide" },
+  { value: "webhook_manage", label: "Manage webhooks", description: "Set or clear the grade-completion webhook URL" },
+];
 
 function isExpired(expiresAt: string | null): boolean {
   if (!expiresAt) return false;
@@ -75,10 +87,22 @@ export function ApiKeysPage() {
   const [revokeKeyId, setRevokeKeyId] = useState<string | null>(null);
   const [newKeyName, setNewKeyName] = useState("");
   const [newKeyExpiry, setNewKeyExpiry] = useState("");
+  const [newKeyScopes, setNewKeyScopes] = useState<string[]>(SCOPE_OPTIONS.map((s) => s.value));
   const [creating, setCreating] = useState(false);
   const [revoking, setRevoking] = useState(false);
   const [newlyCreatedKey, setNewlyCreatedKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // Rotation reuses the same "shown once" secret pattern as creation.
+  const [rotateKey, setRotateKey] = useState<ApiKeyItem | null>(null);
+  const [rotating, setRotating] = useState(false);
+  const [rotatedKey, setRotatedKey] = useState<string | null>(null);
+  const [rotatedCopied, setRotatedCopied] = useState(false);
+
+  function toggleScope(value: string) {
+    setNewKeyScopes((prev) =>
+      prev.includes(value) ? prev.filter((s) => s !== value) : [...prev, value],
+    );
+  }
 
   // Gate on the effective FlipDesk plan from the billing summary — the SAME
   // source of truth the backend enforces (plan-gate apiAccess, business-only).
@@ -109,9 +133,14 @@ export function ApiKeysPage() {
       return;
     }
 
+    if (newKeyScopes.length === 0) {
+      toast.error("Select at least one scope");
+      return;
+    }
+
     setCreating(true);
     try {
-      const body: Record<string, string> = { name: newKeyName.trim() };
+      const body: Record<string, unknown> = { name: newKeyName.trim(), scopes: newKeyScopes };
       if (newKeyExpiry) {
         body.expires_at = new Date(newKeyExpiry).toISOString();
       }
@@ -163,15 +192,52 @@ export function ApiKeysPage() {
     }
   }
 
-  async function handleCopyKey() {
-    if (!newlyCreatedKey) return;
+  async function handleRotate() {
+    if (!rotateKey) return;
+
+    setRotating(true);
     try {
-      await navigator.clipboard.writeText(newlyCreatedKey);
-      setCopied(true);
+      const res = await edgeFetch(`/api/keys/${rotateKey.id}/rotate`, {
+        method: "POST",
+      });
+      const json = await res.json();
+
+      if (!res.ok) {
+        toast.error(json.error || "Failed to rotate API key");
+        return;
+      }
+
+      setRotatedKey(json.data.full_key);
+      queryClient.invalidateQueries({ queryKey: ["api-keys"] });
+      toast.success("API key rotated — the old secret is now invalid");
+    } catch {
+      toast.error("Failed to rotate API key");
+    } finally {
+      setRotating(false);
+    }
+  }
+
+  async function copyToClipboard(value: string | null, setFlag: (v: boolean) => void) {
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setFlag(true);
       toast.success("API key copied to clipboard");
-      setTimeout(() => setCopied(false), 2000);
+      setTimeout(() => setFlag(false), 2000);
     } catch {
       toast.error("Failed to copy to clipboard");
+    }
+  }
+
+  async function handleCopyKey() {
+    await copyToClipboard(newlyCreatedKey, setCopied);
+  }
+
+  function handleRotateDialogClose(open: boolean) {
+    if (!open) {
+      setRotateKey(null);
+      setRotatedKey(null);
+      setRotatedCopied(false);
     }
   }
 
@@ -179,6 +245,7 @@ export function ApiKeysPage() {
     if (!open) {
       setNewKeyName("");
       setNewKeyExpiry("");
+      setNewKeyScopes(SCOPE_OPTIONS.map((s) => s.value));
       setNewlyCreatedKey(null);
       setCopied(false);
     }
@@ -320,12 +387,43 @@ export function ApiKeysPage() {
                       Leave blank for a non-expiring key. Expiring keys are recommended for security.
                     </p>
                   </div>
+                  <div className="space-y-2">
+                    <Label>Scopes</Label>
+                    <div className="space-y-2 rounded-md border p-3">
+                      {SCOPE_OPTIONS.map((scope) => (
+                        <label
+                          key={scope.value}
+                          htmlFor={`scope-${scope.value}`}
+                          className="flex cursor-pointer items-start gap-3"
+                        >
+                          <Checkbox
+                            id={`scope-${scope.value}`}
+                            checked={newKeyScopes.includes(scope.value)}
+                            onCheckedChange={() => toggleScope(scope.value)}
+                            className="mt-0.5"
+                          />
+                          <span>
+                            <span className="block text-sm font-medium leading-none">{scope.label}</span>
+                            <span className="mt-1 block text-xs text-muted-foreground">
+                              {scope.description}
+                            </span>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Grant only the scopes this key needs. Read is required to poll grade results.
+                    </p>
+                  </div>
                 </div>
                 <DialogFooter>
                   <Button variant="outline" onClick={() => handleCreateDialogClose(false)}>
                     Cancel
                   </Button>
-                  <Button onClick={handleCreate} disabled={creating || !newKeyName.trim()}>
+                  <Button
+                    onClick={handleCreate}
+                    disabled={creating || !newKeyName.trim() || newKeyScopes.length === 0}
+                  >
                     {creating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     Create Key
                   </Button>
@@ -369,10 +467,11 @@ export function ApiKeysPage() {
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead>Key</TableHead>
+                  <TableHead>Scopes</TableHead>
                   <TableHead>Created</TableHead>
                   <TableHead>Last Used</TableHead>
                   <TableHead>Expires</TableHead>
-                  <TableHead className="w-[80px]" />
+                  <TableHead className="w-[100px]" />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -384,11 +483,25 @@ export function ApiKeysPage() {
                         {key.key_prefix}...
                       </code>
                     </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        {(key.scopes ?? SCOPE_OPTIONS.map((s) => s.value)).map((s) => (
+                          <Badge key={s} variant="secondary" className="text-xs font-normal">
+                            {s}
+                          </Badge>
+                        ))}
+                      </div>
+                    </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {formatDateTime(key.created_at)}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {formatDate(key.last_used_at)}
+                      {key.last_rotated_at && (
+                        <span className="block text-xs text-muted-foreground/70">
+                          Rotated {formatDate(key.last_rotated_at)}
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell>
                       {key.expires_at ? (
@@ -404,15 +517,26 @@ export function ApiKeysPage() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="text-destructive hover:text-destructive"
-                        onClick={() => setRevokeKeyId(key.id)}
-                        aria-label="Revoke API key"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setRotateKey(key)}
+                          aria-label="Rotate API key"
+                          title="Rotate — issue a new secret, invalidate the old one"
+                        >
+                          <RefreshCw className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => setRevokeKeyId(key.id)}
+                          aria-label="Revoke API key"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -472,6 +596,74 @@ export function ApiKeysPage() {
 
       {/* White-label embeddable results (US-596). */}
       <WhiteLabelPanel />
+
+      {/* Rotate Dialog (US-1793): confirm, then show the new secret once. */}
+      <Dialog open={!!rotateKey} onOpenChange={handleRotateDialogClose}>
+        <DialogContent>
+          {rotatedKey ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>API Key Rotated</DialogTitle>
+                <DialogDescription>
+                  Copy your new API key now. The previous secret is now invalid.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 rounded-md border bg-muted p-3 font-mono text-sm break-all">
+                    {rotatedKey}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => copyToClipboard(rotatedKey, setRotatedCopied)}
+                    aria-label={rotatedCopied ? "API key copied" : "Copy API key"}
+                  >
+                    {rotatedCopied ? (
+                      <Check className="h-4 w-4 text-green-600 dark:text-green-400" />
+                    ) : (
+                      <Copy className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+                <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/40">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                  <p className="text-sm text-amber-800 dark:text-amber-300">
+                    Update every application using this key. The old secret stopped working the
+                    moment you rotated. The key's name and scopes are unchanged.
+                  </p>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button onClick={() => handleRotateDialogClose(false)}>Done</Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle>Rotate API Key</DialogTitle>
+                <DialogDescription>
+                  Issue a new secret for "{rotateKey?.name}", keeping its name and scopes. The
+                  current secret stops working immediately. This cannot be undone.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => handleRotateDialogClose(false)}
+                  disabled={rotating}
+                >
+                  Cancel
+                </Button>
+                <Button onClick={handleRotate} disabled={rotating}>
+                  {rotating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Rotate Key
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Revoke Confirmation Dialog */}
       <Dialog open={!!revokeKeyId} onOpenChange={(open) => !open && setRevokeKeyId(null)}>
