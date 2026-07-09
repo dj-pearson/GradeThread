@@ -86,7 +86,11 @@ export const CRON_REGISTRY: CronDef[] = [
   { name: "automation-rules", label: "Listing automation rules", schedule: "0 * * * *", category: "listings", endpoint: "/api/jobs/automation-rules", recorded: true },
   { name: "autolister-reclaim", label: "AutoLister reclaim", schedule: "*/5 * * * *", category: "autolister", endpoint: "/api/jobs/autolister-reclaim", recorded: true },
   { name: "publish-batch-reclaim", label: "Publish-batch reclaim", schedule: "*/5 * * * *", category: "publish", endpoint: "/api/jobs/publish-batch-reclaim", recorded: true },
+  // US-1790: B2B batch-grading reclaim — resumes stale grading batches.
+  { name: "grading-batch-reclaim", label: "Grading-batch reclaim", schedule: "*/5 * * * *", category: "grading", endpoint: "/api/jobs/grading-batch-reclaim", recorded: true },
   { name: "grading-monitor", label: "Grading regression monitor", schedule: "0 */12 * * *", category: "grading", endpoint: "/api/jobs/grading-monitor", recorded: true },
+  // US-1773: cross-garment durability aggregation (daily) backing the public durability rankings.
+  { name: "durability-aggregate", label: "Durability aggregation", schedule: "0 2 * * *", category: "grading", endpoint: "/api/jobs/durability-aggregate", recorded: true },
   // US-1557: weekly per-category review-threshold calibration (shadow-first).
   { name: "confidence-calibration", label: "Confidence calibration", schedule: "0 13 * * 0", category: "grading", endpoint: "/api/jobs/confidence-calibration", recorded: true },
   { name: "stuck-submissions", label: "Stuck-submission recovery", schedule: "*/10 * * * *", category: "grading", endpoint: "/api/jobs/stuck-submissions", recorded: true },
@@ -127,6 +131,8 @@ export const CRON_REGISTRY: CronDef[] = [
   { name: "gsc-sync", label: "Search Console sync", schedule: "30 6 * * *", category: "seo", endpoint: "/api/jobs/gsc-sync", recorded: true },
   { name: "growth-dispatch", label: "Scheduled-campaign dispatch", schedule: "*/15 * * * *", category: "growth", endpoint: "/api/jobs/growth-dispatch", recorded: true },
   { name: "north-star-digest", label: "North Star weekly digest", schedule: "0 14 * * 1", category: "growth", endpoint: "/api/jobs/north-star-digest", recorded: true },
+  // US-1803: buyer notification digest — daily run; weekly-mode buyers flushed on Mondays.
+  { name: "buyer-digest", label: "Buyer notification digest", schedule: "0 13 * * *", category: "buyer", endpoint: "/api/jobs/buyer-digest", recorded: true },
   // US-943: served under /api/drip/* (own auth) but records to cron_runs itself.
   { name: "drip-tick", label: "Trial-drip orchestration tick", schedule: "0 * * * *", category: "growth", endpoint: "/api/drip/tick", recorded: true, secretEnv: "DRIP_INTERNAL_JOB_SECRET" },
   // US-923: the ONE external trigger that kicks off the autonomous newsletter run.

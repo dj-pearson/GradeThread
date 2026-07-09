@@ -207,6 +207,7 @@ curl -fsS -X POST -H "X-Internal-Job-Secret: $<SECRET_ENV>" http://localhost:878
 | autolister-reclaim | `*/5 * * * *` | `/api/jobs/autolister-reclaim` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | automation-rules | `0 * * * *` | `/api/jobs/automation-rules` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | billing-reconciliation | `0 5 * * *` | `/api/jobs/billing-reconciliation` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| buyer-digest | `0 13 * * *` | `/api/jobs/buyer-digest` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | cert-integrity-backfill | `0 6 * * *` | `/api/jobs/cert-integrity-backfill` | `$FLIPDESK_INTERNAL_JOB_SECRET` | ONE-OFF at launch (idempotent; disable once drained) |
 | condition-index-refresh | `0 8 * * *` | `/api/jobs/condition-index-refresh` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | condition-index-seedgen | `0 9 * * 1` | `/api/jobs/condition-index-seedgen` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
@@ -218,6 +219,7 @@ curl -fsS -X POST -H "X-Internal-Job-Secret: $<SECRET_ENV>" http://localhost:878
 | content-watchdog | `0 */3 * * *` | `/api/jobs/content-watchdog` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | data-retention | `0 4 * * *` | `/api/jobs/data-retention` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | drip-tick | `0 * * * *` | `/api/drip/tick` | `$DRIP_INTERNAL_JOB_SECRET` |  |
+| durability-aggregate | `0 2 * * *` | `/api/jobs/durability-aggregate` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | ebay-leave-feedback | `0 10 * * *` | `/api/flipdesk/ebay/jobs/leave-feedback` | `$FLIPDESK_INTERNAL_JOB_SECRET` | 200; no-op unless system setting feedback.auto_leave=true |
 | ebay-orders-sync | `*/30 * * * *` | `/api/flipdesk/ebay/listings/pull` | `$FLIPDESK_INTERNAL_JOB_SECRET` | not in the cron_runs ledger |
 | ebay-pending-webhooks | `*/15 * * * *` | `/api/jobs/ebay-pending-webhooks` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
@@ -229,7 +231,7 @@ curl -fsS -X POST -H "X-Internal-Job-Secret: $<SECRET_ENV>" http://localhost:878
 | exemplar-assembly | `0 12 * * 0` | `/api/jobs/exemplar-assembly` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | google-sheet-sync | `*/5 * * * *` | `/api/flipdesk/google/sync/push` | `$FLIPDESK_INTERNAL_JOB_SECRET` | not in the cron_runs ledger |
 | googleplay-expiry-sweep | `50 1 * * *` | `/api/jobs/googleplay-expiry-sweep` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
-| grading-batch-reclaim | `*/5 * * * *` | `/api/jobs/grading-batch-reclaim` | `$FLIPDESK_INTERNAL_JOB_SECRET` | US-1790 B2B batch grading; resumes stale batches |
+| grading-batch-reclaim | `*/5 * * * *` | `/api/jobs/grading-batch-reclaim` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | grading-monitor | `0 */12 * * *` | `/api/jobs/grading-monitor` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | growth-dispatch | `*/15 * * * *` | `/api/jobs/growth-dispatch` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | gsc-sync | `30 6 * * *` | `/api/jobs/gsc-sync` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
@@ -258,7 +260,7 @@ curl -fsS -X POST -H "X-Internal-Job-Secret: $<SECRET_ENV>" http://localhost:878
 | thumbnail-backfill | `*/5 * * * *` | `/api/jobs/thumbnail-backfill` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | trial-expiry | `15 0 * * *` | `/api/jobs/trial-expiry` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 
-_61 scheduled jobs. Default healthy response: 200 `{"ok":true,...}` (idle runs report skipped/zero counts). Generated from `src/lib/cron-runs.ts` CRON_REGISTRY — do not hand-edit._
+_64 scheduled jobs. Default healthy response: 200 `{"ok":true,...}` (idle runs report skipped/zero counts). Generated from `src/lib/cron-runs.ts` CRON_REGISTRY — do not hand-edit._
 <!-- cron-registry:end -->
 
 > **Cadence notes (US-496):**
