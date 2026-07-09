@@ -71,6 +71,30 @@ Deno.test("caps total to the default max, keeping role-diverse shots", () => {
   assertEquals(urls.includes("tag"), true);
 });
 
+Deno.test("defect shots outrank extra details under the cap (condition accuracy)", () => {
+  // A photo-heavy pre-owned item: without defect > detail priority the cap
+  // filled up with front+tag×2+back+detail×2 and every flaw shot was dropped,
+  // so generated condition notes missed visible defects.
+  const out = selectListingPhotos([
+    photo("front", "front"),
+    photo("back", "back"),
+    photo("tag", "tag"),
+    photo("tag2", "tag_2"),
+    photo("d1", "detail"),
+    photo("d2", "detail_2"),
+    photo("d3", "detail_3"),
+    photo("def1", "defect"),
+    photo("def2", "defect_2"),
+    photo("fl", "flatlay"),
+  ]);
+  assertEquals(out.length, DEFAULT_MAX_LISTING_PHOTOS);
+  const urls = out.map((p) => p.url);
+  assertEquals(urls.includes("def1"), true);
+  assertEquals(urls.includes("def2"), true);
+  // Both defects kept means at most one detail survives the 6-photo cap.
+  assertEquals(urls.filter((u) => u.startsWith("d") && !u.startsWith("def")).length <= 1, true);
+});
+
 Deno.test("preserves original capture order in the result", () => {
   const out = selectListingPhotos([
     photo("p0", "detail"),

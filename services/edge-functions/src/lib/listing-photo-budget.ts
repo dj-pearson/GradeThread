@@ -45,8 +45,10 @@ const ROLE_BUDGET: Record<string, { priority: number; keep: number }> = {
   front: { priority: 0, keep: 1 },
   tag: { priority: 1, keep: 2 },
   back: { priority: 2, keep: 1 },
-  detail: { priority: 3, keep: 2 },
-  defect: { priority: 4, keep: 2 },
+  // Defect outranks detail: for pre-owned garments the flaw shots determine
+  // condition_notes/SNAD accuracy, while a 2nd close-up is merely nice-to-have.
+  defect: { priority: 3, keep: 2 },
+  detail: { priority: 4, keep: 2 },
   flatlay: { priority: 5, keep: 1 },
   on_model: { priority: 6, keep: 1 },
   interior: { priority: 7, keep: 1 },

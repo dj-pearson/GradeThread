@@ -1002,15 +1002,16 @@ interface ItemRow {
   attributes: Record<string, unknown> | null;
 }
 
-// US-1552: hard cap on how many photos feed the generation vision calls —
-// the same input cap as the AI-extract pass (flipdesk-ai MAX_PHOTOS). The
-// photos arrive in canonical sort_order (front → back → tag → detail → …), so
-// the first N are exactly the most informative shots. Uncapped, a photo-heavy
-// AutoLister group (a 600-photo intake averages ~14/item) made the sequential
-// vision calls slow enough to blow the batch worker's per-item timeout, and
-// every job died as a silent timeout.
-const MAX_GENERATION_PHOTOS = 8;
+// The tag-OCR ground-truth pass reads every tag/care-label photo; more than a
+// handful is pathological (mis-roled shots), so bound the pass rather than the
+// whole photo set.
+const MAX_TAG_OCR_PHOTOS = 4;
 
+// Returns ALL listable photos in sort_order — deliberately uncapped. The
+// vision-pass count discipline lives in selectListingPhotos (US-545), which
+// picks a role-diverse capped subset; a positional pre-slice here would let
+// gallery order (especially a manual reorder, US-1543) hide tag/defect shots
+// from the role budget and the tag-OCR pass entirely.
 async function loadItemPhotoUrls(itemId: string): Promise<ListingGenPhoto[]> {
   const { data } = await supabaseAdmin
     .from("item_photos")
@@ -1023,7 +1024,6 @@ async function loadItemPhotoUrls(itemId: string): Promise<ListingGenPhoto[]> {
     (data ?? []) as Array<{ photo_type: string; storage_path: string | null }>,
   )
     .filter((p) => !!p.storage_path)
-    .slice(0, MAX_GENERATION_PHOTOS)
     .map((p) => ({
       url: supabaseAdmin.storage.from("item-photos").getPublicUrl(p.storage_path!)
         .data.publicUrl,
@@ -1070,8 +1070,9 @@ export async function generateListing(
 
   // 2. Photos. US-545: the vision passes (generation + aspect refine) send a
   // cost-disciplined subset — exact-duplicate and near-identical same-role
-  // shots dropped, count capped — since image tokens dominate per-item cost.
-  // Tag-OCR still scans the full tag set below (tags are cheap and authoritative).
+  // shots dropped, count capped, defect/tag roles prioritized — since image
+  // tokens dominate per-item cost. Tag-OCR scans the tag set below (bounded
+  // separately; tags are cheap and authoritative).
   const photos = await loadItemPhotoUrls(itemId);
   if (photos.length === 0) {
     throw new Error(`Item ${itemId} has no photos to generate a listing from`);
@@ -1112,7 +1113,9 @@ export async function generateListing(
   let tagOcrTokensOut = 0;
   let tagOcrCost = 0;
   let tagOcrModel: string | null = null;
-  const tagPhotos = photos.filter((p) => p.type && TAG_PHOTO_TYPES.has(p.type));
+  const tagPhotos = photos
+    .filter((p) => p.type && TAG_PHOTO_TYPES.has(p.type))
+    .slice(0, MAX_TAG_OCR_PHOTOS);
   if (tagPhotos.length > 0) {
     try {
       const ocr = await extractTagGroundTruth(
