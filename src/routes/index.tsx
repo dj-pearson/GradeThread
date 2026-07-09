@@ -51,6 +51,7 @@ const AdminRoute = lazy(() => import("@/components/auth/admin-route").then(m => 
 const BuyerRoute = lazy(() => import("@/components/auth/buyer-route").then(m => ({ default: m.BuyerRoute })));
 const BuyerLayout = lazy(() => import("@/layouts/buyer-layout").then(m => ({ default: m.BuyerLayout })));
 const BuyerHomePage = lazy(() => import("@/pages/buyer/home").then(m => ({ default: m.BuyerHomePage })));
+const BuyerOnboardingPage = lazy(() => import("@/pages/buyer/onboarding").then(m => ({ default: m.BuyerOnboardingPage })));
 const BuyerPlaceholderPage = lazy(() => import("@/pages/buyer/placeholder").then(m => ({ default: m.BuyerPlaceholderPage })));
 
 // Lazy-loaded pages for code splitting
@@ -603,6 +604,7 @@ export const router = createBrowserRouter([
                 element: <SuspenseWrapper><BuyerLayout /></SuspenseWrapper>,
                 children: [
                   { path: "/buyer", element: <SuspenseWrapper><BuyerHomePage /></SuspenseWrapper> },
+                  { path: "/buyer/onboarding", element: <SuspenseWrapper><BuyerOnboardingPage /></SuspenseWrapper> },
                   { path: "/buyer/alerts", element: <SuspenseWrapper><BuyerPlaceholderPage title="Watchlist & Alerts" requiresFlag="conditionAlerts" description="Save searches and get alerted when a graded item in your brands and sizes lists." /></SuspenseWrapper> },
                   { path: "/buyer/rewards", element: <SuspenseWrapper><BuyerPlaceholderPage title="Rewards" requiresFlag="rewards" description="Confirm arrival condition to earn grade credits and rewards." /></SuspenseWrapper> },
                   { path: "/buyer/portfolio", element: <SuspenseWrapper><BuyerPlaceholderPage title="Closet Portfolio" requiresFlag="wardrobePortfolio" description="Track what you own and its condition-adjusted value over time." /></SuspenseWrapper> },

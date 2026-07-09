@@ -3074,6 +3074,30 @@ export type BodyProfileInsert = Omit<BodyProfileRow, "id" | "created_at" | "upda
 };
 export type BodyProfileUpdate = Partial<Omit<BodyProfileRow, "id" | "user_id" | "created_at">>;
 
+// US-1797/1798: buyer shopping preferences (one row per buyer). Owner-managed
+// from the SPA via RLS; read by alerts/fit/recommendations (edge, scoped).
+export interface BuyerPreferencesRow {
+  user_id: string;
+  followed_brands: string[];
+  categories: string[];
+  /** Sizes per garment group, e.g. { tops: ["M","L"], footwear: ["10"] }. */
+  sizes: Record<string, string[]>;
+  price_min_cents: number | null;
+  price_max_cents: number | null;
+  /** Minimum acceptable condition grade (1.0–10.0), null = no floor. */
+  condition_floor: number | null;
+  unit_preference: "in" | "cm";
+  notify_email: boolean;
+  notify_push: boolean;
+  onboarding_completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+export type BuyerPreferencesInsert =
+  & Omit<BuyerPreferencesRow, "created_at" | "updated_at" | "onboarding_completed_at">
+  & { onboarding_completed_at?: string | null };
+export type BuyerPreferencesUpdate = Partial<Omit<BuyerPreferencesRow, "user_id" | "created_at">>;
+
 // ─── Database schema type (for Supabase client) ────────────────────
 
 export interface Database {
@@ -3088,6 +3112,11 @@ export interface Database {
         Row: BodyProfileRow;
         Insert: BodyProfileInsert;
         Update: BodyProfileUpdate;
+      };
+      buyer_preferences: {
+        Row: BuyerPreferencesRow;
+        Insert: BuyerPreferencesInsert;
+        Update: BuyerPreferencesUpdate;
       };
       submissions: {
         Row: SubmissionRow;

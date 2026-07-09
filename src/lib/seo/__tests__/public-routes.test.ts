@@ -15,7 +15,11 @@ const allRouterPaths = [...routesSrc.matchAll(/path:\s*"([^"]+)"/g)].map(
   (m) => m[1] as string,
 );
 
-const DISALLOWED_PREFIXES = ["/dashboard", "/admin", "/auth"];
+// Auth-gated app surfaces — never indexable, so they must NOT be required in
+// PUBLIC_ROUTES. `/buyer` is the buyer app (US-1802+), gated by ProtectedRoute +
+// BuyerRoute; note this excludes only `/buyer` and `/buyer/*`, NOT the public
+// `/buyer-guarantee` policy page (which stays registered + prerendered).
+const DISALLOWED_PREFIXES = ["/dashboard", "/admin", "/auth", "/buyer"];
 const AUTH_OR_FLOW_EXACT = new Set([
   "/login",
   "/signup",

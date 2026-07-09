@@ -1,5 +1,19 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ✅ APPLIED: 00411_buyer_preferences.sql (US-1797/1798 buyer shopping prefs, 2026-07-09)
+
+**What:** New TENANT-SCOPED table `public.buyer_preferences` (user_id PK/FK,
+followed_brands/categories/sizes, price band, condition_floor, unit + notify
+prefs, onboarding_completed_at) + `set_updated_at` trigger + owner-only RLS
+(`FOR ALL USING auth.uid()=user_id`). Buyers manage it directly from the SPA
+(no edge write route); downstream edge features read it scoped by user_id.
+Bumps `EXPECTED_SCHEMA_VERSION` → **00411**. Self-records '00411'.
+
+**Risk: LOW** — one new isolated table, no writes to existing tables, no billing
+columns. **Applied to prod by the user 2026-07-09** (confirmed). Frontend reads
+the new table (`useBuyerPreferences`) so it needed the table live before the
+Cloudflare Pages auto-deploy — done.
+
 ## ⏳ HELD: 00410_grading_batches.sql (US-1790 batch grading — NOW FULLY WIRED, 2026-07-09)
 
 **What:** Two new TENANT-SCOPED tables `public.grading_batches` +

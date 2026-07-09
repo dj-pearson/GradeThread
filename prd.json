@@ -14072,8 +14072,8 @@
         "Onboarding is a public-route-registry-safe set of pages where any are indexable"
       ],
       "priority": 1797,
-      "passes": false,
-      "notes": "[P2][BUYER][FOUNDATION][NEW][GROWTH] Reuse auth-store.ts + useAuth() + existing signup/login pages as the pattern; new buyer onboarding pages in src/pages/. Attribution reuses referral/affiliate (affiliate_clicks/referral_events). TIES: depends on account model (1796); feeds profile+preferences (1798); conversion source for extension (1757/1833) + What's-It-Worth (1750/1843). If any onboarding page is public/indexable, register in src/lib/seo/public-routes.ts + prerender entry-server per CLAUDE.md SEO rules."
+      "passes": true,
+      "notes": "[P2][BUYER][FOUNDATION] DONE 2026-07-09. Buyer signup: signUpWithEmail gains accountType -> account_type in signUp metadata (handle_new_user 00401 provisions buyer role, no seller assumptions); /signup?intent=buyer reframes copy + sets buyer role. AuthLayout lands a buyer-only account (is_buyer && !is_seller) in /buyer. Onboarding: /buyer/onboarding (BuyerRoute-gated) collects categories/brands/sizes + email notif opt-in, fully skippable; both paths stamp onboarding_completed_at; buyer home redirects first-timers here once. Persists via new useBuyerPreferences hook + buyer_preferences table (migration 00411, owner RLS) — that table + hook also seed US-1798. Attribution: existing global captureAffiliateRef + redeem-on-signin carry ?ref through the buyer funnel; track(signup.buyer). Also fixed the pre-existing public-routes guard failure (added /buyer to DISALLOWED_PREFIXES so the auth-gated buyer app isnt required in PUBLIC_ROUTES; /buyer-guarantee unaffected). SCOPE NOTE: per-public-surface buyer CTAs (grade-checker/cert/verify) are owned by US-1843/US-1833, not here. tsc+eslint+public-routes+schema-version all green."
     },
     {
       "id": "US-1798",

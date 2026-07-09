@@ -2,7 +2,7 @@ import { Navigate, Outlet } from "react-router-dom";
 import { useAuth } from "@/hooks/use-auth";
 
 export function AuthLayout() {
-  const { session, isLoading } = useAuth();
+  const { session, profile, isLoading } = useAuth();
 
   if (isLoading) {
     return (
@@ -13,7 +13,11 @@ export function AuthLayout() {
   }
 
   if (session) {
-    return <Navigate to="/dashboard" replace />;
+    // US-1797: a buyer-only account (no seller role) belongs in the buyer app,
+    // not the seller dashboard. Dual-role accounts default to the seller
+    // dashboard and switch to /buyer from the sidebar.
+    const dest = profile?.is_buyer && !profile?.is_seller ? "/buyer" : "/dashboard";
+    return <Navigate to={dest} replace />;
   }
 
   return (

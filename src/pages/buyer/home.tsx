@@ -1,8 +1,9 @@
-import { Link } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import { Bell, Chrome, Gift, ScanLine, ShieldCheck, Shirt } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { useAuthStore } from "@/stores/auth-store";
 import { useBuyerEntitlements } from "@/hooks/use-buyer-entitlements";
+import { useBuyerPreferences } from "@/hooks/use-buyer-preferences";
 import { BUYER_PLANS } from "@/lib/constants";
 
 // US-1802: buyer home. Empty-state, progressive-disclosure guidance to first
@@ -44,7 +45,15 @@ const FIRST_STEPS: FirstStep[] = [
 export function BuyerHomePage() {
   const profile = useAuthStore((s) => s.profile);
   const ent = useBuyerEntitlements();
+  const { preferences, isLoading: prefsLoading } = useBuyerPreferences();
   const firstName = profile?.full_name?.split(" ")[0] ?? "there";
+
+  // US-1797: send a first-time buyer through onboarding once. A missing row (or
+  // one without onboarding_completed_at) means they haven't onboarded or skipped
+  // yet. Wait for the query so we don't flash-redirect an onboarded buyer.
+  if (!prefsLoading && !preferences?.onboarding_completed_at) {
+    return <Navigate to="/buyer/onboarding" replace />;
+  }
 
   const suite = [
     { icon: Bell, label: "Watchlist & Alerts", to: "/buyer/alerts", flag: "conditionAlerts" as const },

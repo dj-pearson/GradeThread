@@ -24,6 +24,10 @@ export async function signUpWithEmail(
   // us?"). Rides along in options.data like use_case; handle_new_user (00379)
   // whitelists it. Backward-compatible — the old trigger ignores the extra key.
   signupSource?: SignupSource,
+  // US-1797: buyer-first signup. handle_new_user (00401) reads account_type
+  // (whitelisted buyer/seller/both) to provision the buyer role WITHOUT seller
+  // assumptions (no FlipDesk trial). Omitted → historical seller provisioning.
+  accountType?: "buyer" | "seller" | "both",
 ) {
   const { data, error } = await supabase.auth.signUp({
     email,
@@ -36,6 +40,7 @@ export async function signUpWithEmail(
         legal_accepted_at: new Date().toISOString(),
         ...(useCase ? { use_case: useCase } : {}),
         ...(signupSource ? { signup_source: signupSource } : {}),
+        ...(accountType ? { account_type: accountType } : {}),
       },
       emailRedirectTo: `${window.location.origin}/auth/callback`,
       captchaToken,

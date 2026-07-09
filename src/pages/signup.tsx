@@ -37,6 +37,10 @@ const PRE_LAUNCH = Date.now() < LAUNCH_DATE.getTime();
 export function SignupPage() {
   const [params] = useSearchParams();
   const invitedEmail = params.get("email") ?? "";
+  // US-1797: buyer-first signup. `?intent=buyer` reframes the copy and provisions
+  // the buyer role (account_type=buyer → handle_new_user, no seller/FlipDesk
+  // assumptions). AuthLayout then lands a buyer-only account in /buyer.
+  const isBuyer = params.get("intent") === "buyer";
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState(invitedEmail);
   const [password, setPassword] = useState("");
@@ -117,8 +121,10 @@ export function SignupPage() {
         captchaToken ?? undefined,
         useCase ?? undefined,
         signupSource || undefined,
+        isBuyer ? "buyer" : undefined,
       );
       setIsConfirmation(true);
+      if (isBuyer) track("signup.buyer", { at: "signup" });
       if (useCase) track("onboarding.use_case_selected", { use_case: useCase, at: "signup" });
       // US-1670: attribute discovery source (esp. AI assistants) for SEO/GEO.
       if (signupSource) track("signup.source_selected", { source: signupSource });
@@ -274,8 +280,14 @@ export function SignupPage() {
   return (
     <Card>
       <CardHeader className="text-center">
-        <CardTitle className="text-2xl">Create an account</CardTitle>
-        <CardDescription>Start grading clothes with AI today</CardDescription>
+        <CardTitle className="text-2xl">
+          {isBuyer ? "Shop secondhand with confidence" : "Create an account"}
+        </CardTitle>
+        <CardDescription>
+          {isBuyer
+            ? "Create your free buyer account — second-opinion condition checks, alerts, and grade-locked confidence at the point of purchase."
+            : "Start grading clothes with AI today"}
+        </CardDescription>
       </CardHeader>
       <CardContent>
         {PRE_LAUNCH && (
