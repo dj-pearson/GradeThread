@@ -80,6 +80,7 @@ import {
   type MergeValues,
 } from "@/components/flipdesk/merge-sku-dialog";
 import { CategoryCheckCard } from "@/components/flipdesk/category-check-card";
+import { FitWidget } from "@/components/fit/fit-widget";
 import { EbayCatalogMatchCard } from "@/components/flipdesk/ebay-catalog-match-card";
 import { GradeThisItemCard } from "@/components/flipdesk/grade-this-item-card";
 import {
@@ -1650,6 +1651,9 @@ export function ItemCanvas({
             aiSources={heavy.ai_field_sources}
             onApply={(next) => patch("measurements", next)}
           />
+          {/* US-1779: buyer fit preview from these flat-lay measurements vs the
+              viewer's saved body profile (renders only when measurements exist). */}
+          <FitWidget garmentMeasurements={state.measurements} category={item.category} />
         </div>
 
         <div id="canvas-photos" className="space-y-2 scroll-mt-4">

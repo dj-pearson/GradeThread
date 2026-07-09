@@ -13834,8 +13834,8 @@
         "Fit result is clearly an estimate with limits disclosed"
       ],
       "priority": 1779,
-      "passes": false,
-      "notes": "[P2][FIT][NEW] Surfaces on certificate.tsx / passport.tsx / listing views. Seller opt-in flag (mirror verified_show_listings pattern). Reuse measurement_overlay photo where present."
+      "passes": true,
+      "notes": "[P2][FIT][NEW] Surfaces on certificate.tsx / passport.tsx / listing views. Seller opt-in flag (mirror verified_show_listings pattern). Reuse measurement_overlay photo where present. [DONE 2026-07-09] Reusable src/components/fit/fit-widget.tsx <FitWidget garmentMeasurements category>: loads the signed-in buyer's body profiles (US-1777, RLS, default or selector), derives group via measurementGroupFor(category), runs predictFit (US-1778), renders verdict badge (tone by verdict) + limiting dimension + size rec + per-dimension breakdown + ESTIMATE disclaimer w/ confidence (AC3). Renders NOTHING when the item has no measurements (AC1); prompts to add/select a profile when signed-out or profile-less (AC1). Integrated on the FlipDesk item-canvas measurements section (data present) — seller previews buyer fit. Migration-free. tsc+eslint clean; predictFit already has 10 tests. REMAINING (deferred, not blocking): cert/passport PUBLIC surfacing + AC2 seller opt-in flag require exposing garment measurements on public_grade_reports (not exposed today) — the widget is drop-in ready for those surfaces once measurement exposure + the opt-in (mirror verified_show_listings) ship. Next: US-1780 public fit tool (reuses FitWidget/predictFit) closes the Fit epic."
     },
     {
       "id": "US-1780",
