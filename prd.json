@@ -13339,7 +13339,7 @@
         "Add a short note in the workflow (or DEPLOY/CI docs) explaining why the steps are decoupled so this can't regress."
       ],
       "priority": 2545,
-      "passes": false,
+      "passes": true,
       "notes": "[CI-Unmask 2026-07-07][CI][Hardening] The structural root cause. The immediate lint fix (appleRequest) already landed in commit 00720cd2; this story prevents recurrence."
     },
     {
@@ -13352,7 +13352,7 @@
         "`deno test src/tests/ai-metering-coverage_test.ts` passes; no user-facing change to the free tool unless metering is the chosen intent."
       ],
       "priority": 2542,
-      "passes": false,
+      "passes": true,
       "notes": "[CI-Unmask 2026-07-07][CI][Metering][US-1687] Intent decision — the free public tool may be deliberately un-metered; if so, allow-list with a rationale."
     },
     {
@@ -13366,7 +13366,7 @@
         "`deno test src/tests/agent-tools_test.ts` green with no new regressions."
       ],
       "priority": 2541,
-      "passes": false,
+      "passes": true,
       "notes": "[CI-Unmask 2026-07-07][CI][AgenticOS] Likely a shared root cause; investigate agent-tools.ts first."
     },
     {
@@ -13379,7 +13379,7 @@
         "Verify email/PII scrubbing AND the length cap both behave; `deno test src/tests/support-triage_test.ts` green."
       ],
       "priority": 2540,
-      "passes": false,
+      "passes": true,
       "notes": "[CI-Unmask 2026-07-07][CI][Support][US-1595] PII-scrubbing correctness — treat as security-relevant."
     },
     {
@@ -14058,7 +14058,7 @@
         "Migration triple satisfied (idempotent SQL + EXPECTED_SCHEMA_VERSION bump in same commit + self-record footer); RLS unchanged-or-tightened; no .or() on mutations"
       ],
       "priority": 1796,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][FOUNDATION][NEW] Load migrations skill. Extends the profiles/users model + handle_new_user() trigger. Decide flag-vs-join-table: prefer additive is_buyer/is_seller booleans (backfill is_seller=true for existing rows) to avoid churning RLS across the app. Types in src/types/database.ts. TIES: gates buyer dashboard/nav (1802) + buyer entitlements (1800). RISK: don't break the seller onboarding path; add a tenant-isolation_test.ts case if any edge route reads role."
     },
     {
@@ -14142,7 +14142,7 @@
         "A person who is both buyer and seller can switch context between the buyer app and the seller/FlipDesk app without re-auth"
       ],
       "priority": 1802,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][FOUNDATION][NEW] Reuse sidebar.tsx grouping pattern (FlipDesk group), <ProtectedRoute>, routing in src/routes/index.tsx, brand tokens. Depends on account model (1796) + entitlements (1800). This is the shell the idea epics (1805+) plug their surfaces into. Context switch buyer<->seller for dual-role accounts."
     },
     {

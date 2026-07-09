@@ -41,6 +41,15 @@ jobs:
       - name: Audit all dependencies (informational)
         run: npm audit --audit-level=high || true
 
+  # US-1741: deno lint/check and deno test are SEPARATE jobs on purpose.
+  # Previously they were sequential steps in one job, so a lint or type-check
+  # failure (e.g. US-1708's require-await error) failed the first step and
+  # GitHub Actions skipped the later `deno test` step entirely — silently
+  # disabling the whole edge suite and letting 6 real test failures accumulate
+  # undetected across many commits. Splitting them means a red lint AND a red
+  # test each surface as their own independent failing check. Both still gate
+  # merge (no leniency); only visibility/ordering changed. Do NOT re-merge these
+  # into one job — that would let a lint error mask the test signal again.
   deno-check:
     name: Deno lint + type-check (edge)
     runs-on: ubuntu-latest
@@ -62,6 +71,24 @@ jobs:
       # Matches the Dockerfile note that type-checking happens separately
       # (the container runs with --no-check for fast cold-starts).
       - run: deno check src/main.ts
+
+  deno-test:
+    name: Deno test (edge)
+    # Runs independently of deno-check so a lint/type-check failure can never
+    # skip the edge test suite again (US-1741).
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/edge-functions
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: "2.8.0"
+      # Frozen lockfile is a hard gate here too — if deps can't resolve, tests
+      # can't be trusted. Kept in this job so it doesn't depend on deno-check.
+      - name: Verify dependency lockfile (frozen)
+        run: deno cache --frozen src/main.ts
       # Unit tests (billing math, etc.). Integration tests that need a live
       # fixture (tenant-isolation) skip cleanly when their env isn't set.
       # --allow-read lets the US-355 RLS guard read supabase/migrations.

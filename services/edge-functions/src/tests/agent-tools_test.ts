@@ -329,8 +329,12 @@ Deno.test("US-1595: get_support_triage redacts excerpts + surfaces a cluster", a
     id, subject, excerpt, created_at: new Date(NOW - 3600_000).toISOString(), priority: "normal", status: "open",
   });
   const { io } = fakeIO({
+    // t1/t2/t3 must share enough significant tokens to exceed the 0.5 Jaccard
+    // clustering threshold (see support-triage.ts) — all three carry
+    // payout+reconciliation+broken+total. t1 keeps a real email to prove the
+    // excerpt is PII-redacted before it leaves. t4 is deliberately unrelated.
     fetchUntriagedTickets: () => Promise.resolve([
-      t("t1", "Payout missing", "My payout reconciliation never arrived, email me at user@example.com"),
+      t("t1", "Payout reconciliation broken", "payout reconciliation total broken, email me at user@example.com"),
       t("t2", "Payout reconciliation broken", "payout reconciliation shows wrong total again"),
       t("t3", "Reconciliation payout issue", "the payout reconciliation total is broken for me too"),
       t("t4", "Login help", "cannot reset my grading password"),
@@ -492,13 +496,17 @@ Deno.test("US-1602: get_growth_health finds the funnel cliff + surfaces the prio
   const funnel = (subscribed: number) => ({
     steps: [
       { key: "signed_up", label: "Signed up", count: 1000 },
-      { key: "submitted", label: "First submission", count: 400 },
-      { key: "graded", label: "First grade", count: 380 },
+      { key: "submitted", label: "First submission", count: 400 }, // 0.40 conversion
+      { key: "graded", label: "First grade", count: 380 }, // 0.95 conversion
       { key: "subscribed", label: "Subscribed", count: subscribed },
     ],
   });
   const { io } = fakeIO({
-    rpc: (name) => Promise.resolve(name === "funnel_metrics" ? funnel(40) : null),
+    // subscribed=350 → graded→subscribed = 0.921, so signed_up→submitted (0.40)
+    // is the genuine worst-ratio transition (the cliff). funnelCliff picks the
+    // LOWEST conversion ratio, per growth-agent_test.ts — a smaller `subscribed`
+    // (e.g. 40 → 0.105) would make graded→subscribed the cliff instead.
+    rpc: (name) => Promise.resolve(name === "funnel_metrics" ? funnel(350) : null),
     fetchAgentPriorOutcome: () => Promise.resolve({ findings: [{ type: "experiment_slate", items: ["idea A"] }] }),
   });
   const reg = createAgentToolRegistry(io);

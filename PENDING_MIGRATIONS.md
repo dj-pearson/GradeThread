@@ -1,5 +1,41 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00402_buyer_subscription.sql (US-1799 buyer subscription, 2026-07-08)
+
+**What:** Adds a `buyer_plan` enum (`free`/`guard`/`connoisseur`) and the buyer
+subscription column family to `public.users` — `buyer_plan` (DEFAULT 'free'),
+`buyer_interval`, `buyer_subscription_status` (reuses the existing
+`subscription_status` enum), `buyer_subscription_id`, `buyer_period_end`,
+`buyer_cancel_at_period_end`. `CREATE OR REPLACE`s `guard_users_protected_columns()`
+(over 00331) to also freeze these billing columns against browser self-update.
+Bumps `EXPECTED_SCHEMA_VERSION` → **00402**. Self-records '00402'.
+
+**Risk: LOW — additive columns + idempotent guard replace.** All default to a
+free/none/no-sub state, so existing accounts are unaffected. **⚠️ CLIENT READ:**
+`src/types/database.ts` gains `buyer_*` on `UserRow`; no shipped client code
+SELECTs them yet (buyer billing UI US-1801), so a frontend deploy landing before
+this migration is safe. **⚠️ Apply order:** after 00401;
+`scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload schema';`, redeploy.
+
+## ⏳ HELD: 00401_buyer_account_roles.sql (US-1796 buyer/seller roles, 2026-07-08)
+
+**What:** Adds two additive boolean role flags to `public.users` — `is_seller`
+(DEFAULT true, backfills every existing account) and `is_buyer` (DEFAULT false) —
+plus a partial index `idx_users_is_buyer`. `CREATE OR REPLACE`s `handle_new_user()`
+so a buyer-origin signup (`account_type='buyer'` in signup metadata) lands with
+`is_buyer=true, is_seller=false` and NO seller/FlipDesk assumptions (free plan,
+`none` status, no 14-day trial); the absent-key seller path is byte-for-byte
+unchanged aside from `is_seller=true`. Bumps `EXPECTED_SCHEMA_VERSION` → **00401**.
+Self-records '00401'.
+
+**Risk: LOW — additive columns + idempotent trigger replace.** No RLS change; the
+new flags are intentionally NOT in the US-347 self-update guard (in-app role
+opt-in). **⚠️ CLIENT READ:** `src/types/database.ts` gains `is_seller`/`is_buyer`
+on `UserRow`, but no shipped client code SELECTs them yet (added by the buyer
+dashboard US-1802), so a frontend deploy landing before this migration is safe.
+**⚠️ Apply order:** after 00400; `scripts/apply-prod-migrations.sh`, then
+`NOTIFY pgrst, 'reload schema';`, redeploy edge.
+
 ## ⏳ HELD: 00400_gucci_brand_knowledge.sql (US-1728 Gucci, 2026-07-07)
 
 **What:** DATA-ONLY seed of Gucci — 5 lines (GG Supreme, Guccissima, Marmont,

@@ -1941,8 +1941,13 @@ const TOOL_LIST: AgentToolDef[] = [
       "Set the shared marketing send cap per recipient per day (US-1599 / US-884). Engine-level lever: it changes the coordination cap every marketing engine already honors; it touches no send or subscriber. Clamped to 1..10. Use to relieve audience fatigue.",
     class: "write",
     inputSchema: {
+      // No minimum/maximum here on purpose (US-1599 clamp contract): the handler
+      // CLAMPS out-of-range values into 1..10 via clampInt rather than rejecting
+      // them, so a proposal of e.g. 99 is coerced to 10 instead of erroring. A
+      // schema max would make the clamp unreachable (validateToolInput rejects
+      // first) and turn "set it high" into an error the run loop can't self-heal.
       type: "object",
-      properties: { cap_per_day: { type: "integer", minimum: 1, maximum: 10 } },
+      properties: { cap_per_day: { type: "integer" } },
       required: ["cap_per_day"],
     },
     handler: async (input, ctx) => {
@@ -1957,12 +1962,15 @@ const TOOL_LIST: AgentToolDef[] = [
       "Enrol a DEFINED cohort in an EXISTING drip campaign (US-1600). The cohort is resolved server-side from a whitelist (never a model-supplied user list) — marketing opt-outs are excluded, already-enrolled users are deduped, and the batch is hard-capped. All delivery still flows through the drip engine + the marketing-frequency caps; this sends nothing itself. v1 supports cohort 'trial_expiring_7d' into campaign 'trial_conversion'.",
     class: "write",
     inputSchema: {
+      // No schema-level `required` on purpose: the handler is the single
+      // validation authority and rejects BOTH missing AND empty-string fields
+      // with code "invalid" (schema `required` misses empty strings and would
+      // return a different code "invalid_input"). Mirrors add_marketing_topic.
       type: "object",
       properties: {
         cohort: { type: "string", description: "a supported cohort key (e.g. trial_expiring_7d)" },
         campaign: { type: "string", description: "an existing drip campaign (e.g. trial_conversion)" },
       },
-      required: ["cohort", "campaign"],
     },
     handler: async (input, ctx) => {
       if (!ctx.authorizedBy) return { error: { code: "unauthorized", message: "write requires an approved proposal" } };

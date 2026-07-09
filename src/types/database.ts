@@ -4,6 +4,9 @@ export type UserPlan = "free" | "starter" | "professional" | "enterprise";
 
 // Pricing model split (US-200/US-201): FlipDesk subscription tier + Stripe lifecycle.
 export type FlipdeskPlan = "free" | "starter" | "pro" | "business";
+// Buyer Platform subscription tier (US-1799). Mirrors BUYER_PLANS keys in
+// src/lib/constants.ts. Separate lifecycle from the FlipDesk/seller plan.
+export type BuyerPlan = "free" | "guard" | "connoisseur";
 export type SubscriptionStatus =
   | "none"
   | "trialing"
@@ -318,6 +321,11 @@ export interface UserRow {
   // for SEO/GEO discovery attribution (esp. the "AI assistant" option). Migration 00379.
   signup_source: SignupSource | null;
   onboarded_at: string | null;
+  // US-1796: additive buyer/seller role flags (migration 00401). One identity can
+  // be seller, buyer, or both. Role markers only — capability still gates on
+  // flipdesk_plan (seller) / the buyer plan (buyer, US-1800).
+  is_seller: boolean;
+  is_buyer: boolean;
   suspended: boolean;
   // FlipDesk user-state flags (migrations 00028, 00029, 00242)
   flipdesk_onboarded: boolean;
@@ -343,6 +351,15 @@ export interface UserRow {
   grade_credit_balance: number;
   // 14-day Pro trial bookkeeping (US-219). One trial per user, ever.
   trial_ends_at: string | null;
+  // US-1799: buyer-platform subscription state (migration 00402). Separate from
+  // the flipdesk_* family — one Stripe customer can hold both a buyer and a
+  // seller subscription. Buyer capability gates on buyer_plan (US-1800).
+  buyer_plan: BuyerPlan;
+  buyer_interval: BillingInterval | null;
+  buyer_subscription_status: SubscriptionStatus;
+  buyer_subscription_id: string | null;
+  buyer_period_end: string | null;
+  buyer_cancel_at_period_end: boolean;
   // Scheduled downgrade target (US-217). NULL when no downgrade is pending.
   pending_flipdesk_plan: FlipdeskPlan | null;
   pending_flipdesk_interval: BillingInterval | null;
@@ -2032,6 +2049,9 @@ export interface UserInsert {
   /** @deprecated kept for legacy compatibility; new code should not set this. */
   plan?: UserPlan;
   role?: UserRole;
+  // US-1796: buyer/seller role flags (migration 00401).
+  is_seller?: boolean;
+  is_buyer?: boolean;
   stripe_customer_id?: string | null;
   flipdesk_plan?: FlipdeskPlan;
   flipdesk_interval?: BillingInterval | null;
