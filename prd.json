@@ -13444,7 +13444,7 @@
         "A kill-switch/budget cap prevents runaway comp fetching"
       ],
       "priority": 1749,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][VALUE-INDEX][OPS] Extends handleConditionIndexRefreshCron in lib/condition-index.ts. Coolify scheduled task. Follow the durable-jobs contract for batching. curl-in-image gotcha already fixed."
     },
     {

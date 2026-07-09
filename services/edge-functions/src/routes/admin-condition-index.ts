@@ -358,7 +358,7 @@ adminConditionIndexRoutes.post("/refresh", async (c) => {
     await writeAuditLog(c, {
       action: "condition_index.refresh_all",
       targetType: "condition_index",
-      details: result,
+      details: { ...result },
     });
     return c.json({ ok: true, ...result });
   } finally {

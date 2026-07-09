@@ -12734,3 +12734,26 @@ US-1702 DONE (edge+web; MIGRATION 00387 — HELD). The story I had missed.
   16 pass; interlink-rules 15 pass.
 - VERIFIED: functions tsc 0 / eslint 0 / web tsc -b 0 / vitest render+interlink 31 pass.
 - No migration, no edge-service change (functions/ + shared render only). Commit local; NOT pushed.
+
+── US-1749: Value Index comp-refresh scale + cost/quota guardrails (2026-07-08) ──
+- Rewrote refreshConditionIndex (lib/condition-index.ts): was rebuild-EVERY-seed-
+  every-run (cost scales linearly, no ceiling). Now config-driven via system_settings
+  key `condition_index_refresh` (no migration; getSetting falls back to defaults):
+  { enabled, maxSeedsPerRun, hotDays, coldDays, hotSampleThreshold }.
+  • Staleness-tiered: pure selectDueSeeds() picks seeds that are never-refreshed or
+    older than their tier interval (hot = total_sample_size >= threshold → hotDays;
+    long-tail → coldDays), oldest-first, capped at the per-run eBay call budget.
+  • Kill-switch: enabled=false stops all comp fetching.
+  • No silent truncation: budget-deferred seeds counted (deferred); post-refresh re-read
+    logs any seed below MIN_INDEX_TOTAL_SAMPLE (condition-index.refresh.insufficient_samples
+    with slugs). Per-run summary logged; cron_runs ledger + per-curve refreshed_at =
+    heartbeat + last-refreshed observability.
+  • Backoff = the existing eBay client circuit-breaker/timeout + the budget cap.
+- Admin refresh (admin-condition-index.ts) now spreads the richer result into the audit
+  detail (details: {...result}).
+- Note: 2 configurable tiers (hot/cold) rather than 3; monthly long-tail = set coldDays=30.
+- Tests: condition-index-refresh_test.ts 5 pass (never-refreshed, hot/cold intervals,
+  budget cap oldest-first, all-fresh empty).
+- VERIFIED: deno check src/main.ts CLEAN / deno lint 0 / 5 new tests pass. Full edge suite: 3168 passed, 0 failed, 88 ignored (green).
+- No migration, no web change. Commit local; NOT pushed.
+- NEW OPTIONAL SETTING: condition_index_refresh (system_settings) — tune via /admin/ops/settings.

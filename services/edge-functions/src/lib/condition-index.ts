@@ -16,6 +16,7 @@ import {
   normalizeItemKey,
 } from "./condition-curve.ts";
 import { captureException, logEvent } from "./observability.ts";
+import { getSetting } from "./system-settings.ts";
 
 // Curated Index entries. categoryId is an eBay leaf/level the Browse comps come
 // from; slug is the public URL. Keep this list tight + high-traffic.
@@ -289,17 +290,163 @@ export async function refreshIndexSeed(seed: IndexSeed): Promise<boolean> {
   }
 }
 
-// Cron: rebuild every curated curve from fresh comps and stamp its slug/label.
-export async function refreshConditionIndex(): Promise<{ refreshed: number; failed: number }> {
+// ── Comp-refresh scale + guardrails (US-1749) ────────────────────────
+// The refresh cron previously rebuilt EVERY seed every run, so cost scaled
+// linearly with the seed count (US-1746 grows this to thousands) with no ceiling.
+// Now it is staleness-tiered (hot seeds refresh often, long-tail rarely) and
+// bounded by an explicit per-run eBay call budget, with a kill-switch — all
+// config-driven via the system_settings key `condition_index_refresh` (no
+// migration: getSetting falls back to the defaults below when the key is unset).
+export interface SeedRefreshConfig {
+  /** Master kill-switch — false stops all comp fetching. */
+  enabled: boolean;
+  /** Per-run eBay Browse call budget (one call per seed refreshed). */
+  maxSeedsPerRun: number;
+  /** A "hot" (popular) seed is re-fetched when older than this many days. */
+  hotDays: number;
+  /** A long-tail seed is re-fetched when older than this many days. */
+  coldDays: number;
+  /** total_sample_size ≥ this ⇒ the seed is treated as hot. */
+  hotSampleThreshold: number;
+}
+
+export const DEFAULT_SEED_REFRESH_CONFIG: SeedRefreshConfig = {
+  enabled: true,
+  maxSeedsPerRun: 20,
+  hotDays: 1,
+  coldDays: 7,
+  hotSampleThreshold: 25,
+};
+
+export interface SeedState {
+  /** Epoch ms of the last refresh, or null when never refreshed. */
+  refreshedAtMs: number | null;
+  totalSampleSize: number;
+}
+
+export interface SeedSelection {
+  /** The budget-capped batch to refresh this run, oldest-first. */
+  batch: IndexSeed[];
+  /** Total seeds due for refresh (before the budget cap). */
+  dueCount: number;
+  /** Seeds skipped because their curve is still fresh for their tier. */
+  freshCount: number;
+  /** True when more seeds were due than the budget allowed (nothing silently lost — it's logged). */
+  budgetCapped: boolean;
+}
+
+/**
+ * Pick which seeds to refresh this run: a seed is due when it has never been
+ * refreshed, or its curve is older than its tier's interval (hot vs long-tail by
+ * comp depth). Due seeds are ordered oldest-first and truncated to the call
+ * budget. PURE (takes nowMs) so the tiering + budgeting is unit-tested without eBay.
+ */
+export function selectDueSeeds(
+  seeds: IndexSeed[],
+  states: Map<string, SeedState>,
+  config: SeedRefreshConfig,
+  nowMs: number,
+): SeedSelection {
+  const due: Array<{ seed: IndexSeed; ageMs: number }> = [];
+  let freshCount = 0;
+  for (const seed of seeds) {
+    const st = states.get(seed.slug);
+    if (!st || st.refreshedAtMs == null) {
+      due.push({ seed, ageMs: Infinity }); // never refreshed → maximally stale
+      continue;
+    }
+    const ageMs = nowMs - st.refreshedAtMs;
+    const isHot = st.totalSampleSize >= config.hotSampleThreshold;
+    const intervalMs = (isHot ? config.hotDays : config.coldDays) * 86_400_000;
+    if (ageMs >= intervalMs) due.push({ seed, ageMs });
+    else freshCount += 1;
+  }
+  due.sort((a, b) => b.ageMs - a.ageMs); // oldest (incl. never-refreshed) first
+  const cap = Math.max(0, Math.trunc(config.maxSeedsPerRun));
+  const batch = due.slice(0, cap).map((d) => d.seed);
+  return { batch, dueCount: due.length, freshCount, budgetCapped: due.length > batch.length };
+}
+
+/** Load each seed's current refresh state (last-refreshed + comp depth). */
+async function loadSeedStates(seeds: IndexSeed[]): Promise<Map<string, SeedState>> {
+  const map = new Map<string, SeedState>();
+  const slugs = seeds.map((s) => s.slug);
+  if (slugs.length === 0) return map;
+  const { data } = await supabaseAdmin
+    .from("condition_price_curves")
+    .select("slug, refreshed_at, total_sample_size")
+    .in("slug", slugs);
+  for (const row of (data ?? []) as Array<{ slug: string; refreshed_at: string | null; total_sample_size: number }>) {
+    map.set(row.slug, {
+      refreshedAtMs: row.refreshed_at ? Date.parse(row.refreshed_at) : null,
+      totalSampleSize: row.total_sample_size ?? 0,
+    });
+  }
+  return map;
+}
+
+export interface RefreshResult {
+  refreshed: number;
+  failed: number;
+  /** Seeds skipped because still fresh for their tier. */
+  skippedFresh: number;
+  /** Seeds that were due but deferred to a later run by the budget cap. */
+  deferred: number;
+  /** Refreshed seeds whose comp depth is below the public-display threshold. */
+  droppedInsufficient: number;
+  /** True when the kill-switch is off. */
+  disabled?: boolean;
+}
+
+// Cron: staleness-tiered, budget-capped rebuild of the curated curves.
+export async function refreshConditionIndex(nowMs = Date.now()): Promise<RefreshResult> {
+  const config = await getSetting<SeedRefreshConfig>(
+    "condition_index_refresh",
+    DEFAULT_SEED_REFRESH_CONFIG,
+  );
+  if (!config.enabled) {
+    logEvent("info", "condition-index.refresh.disabled", {});
+    return { refreshed: 0, failed: 0, skippedFresh: 0, deferred: 0, droppedInsufficient: 0, disabled: true };
+  }
+
+  const seeds = await getIndexSeeds();
+  const states = await loadSeedStates(seeds);
+  const sel = selectDueSeeds(seeds, states, config, nowMs);
+
   let refreshed = 0;
   let failed = 0;
-  const seeds = await getIndexSeeds();
-  for (const seed of seeds) {
+  for (const seed of sel.batch) {
     if (await refreshIndexSeed(seed)) refreshed += 1;
     else failed += 1;
   }
-  logEvent("info", "condition-index.refresh", { refreshed, failed });
-  return { refreshed, failed };
+
+  // No silent truncation: re-read the batch's comp depth and log every seed that
+  // landed below the public-display threshold (its page is suppressed, US-622).
+  let droppedInsufficient = 0;
+  if (sel.batch.length > 0) {
+    const after = await loadSeedStates(sel.batch);
+    const thin: string[] = [];
+    for (const seed of sel.batch) {
+      const st = after.get(seed.slug);
+      if (st && st.totalSampleSize < MIN_INDEX_TOTAL_SAMPLE) thin.push(seed.slug);
+    }
+    droppedInsufficient = thin.length;
+    if (thin.length > 0) {
+      logEvent("info", "condition-index.refresh.insufficient_samples", { slugs: thin, count: thin.length });
+    }
+  }
+
+  const deferred = sel.dueCount - sel.batch.length;
+  logEvent("info", "condition-index.refresh", {
+    refreshed,
+    failed,
+    skippedFresh: sel.freshCount,
+    deferred,
+    droppedInsufficient,
+    budget: config.maxSeedsPerRun,
+    budgetCapped: sel.budgetCapped,
+  });
+  return { refreshed, failed, skippedFresh: sel.freshCount, deferred, droppedInsufficient };
 }
 
 export async function handleConditionIndexRefreshCron(c: {
