@@ -13821,8 +13821,8 @@
         "Honest 'insufficient measurements' path when the item lacks needed measures"
       ],
       "priority": 1778,
-      "passes": false,
-      "notes": "[P2][FIT][NEW] New lib fit-model.ts. Ease constants per garment group (measurement-templates.ts categories). Deterministic + explainable; no black box. Unit/lockstep care (flat-lay inches -> circumference)."
+      "passes": true,
+      "notes": "[P2][FIT][NEW] New lib fit-model.ts. Ease constants per garment group (measurement-templates.ts categories). Deterministic + explainable; no black box. Unit/lockstep care (flat-lay inches -> circumference). [DONE 2026-07-09] src/lib/fit-model.ts predictFit(group, garment, body): deterministic, explainable — no AI/DB, runs client-side. Per-dimension ease vs published tolerance bands: circumference dims (chest/waist/hips) double the garment FLAT measure (pit-to-pit x2) before comparing to body circumference; length dims (inseam/sleeve) compare directly; shoulder as width. Per-group ease bands (top close, outerwear layering room, bottom tight waist, dress moderate). 5-verdict vocab too_small/slim/true/relaxed/too_big; overall = worst (limiting) dimension via severity order; size recommendation + confidence (0.45+0.15*dims, cap 0.9 — never certain from measurements). AC3 insufficient path when no shared dimension (or shoes/watch/generic). dress uses bust->chest, hip->hips key mapping. Migration-free. Tests: fit-model.test.ts (10) — doubling, ease bands, length, limiting-dim overall, confidence, insufficient — all pass; tsc+eslint clean. Next: US-1779 buyer surfaces (cert/passport/listing), US-1780 public fit tool."
     },
     {
       "id": "US-1779",
