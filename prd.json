@@ -14240,7 +14240,7 @@
         "Empty and first-run states guide creating a first alert"
       ],
       "priority": 1809,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][ALERTS][NEW] UI in buyer dashboard (1802). Delivery via 1803; frequency caps via entitlements (1800). Depends on matching engine (1807). Reuse shadcn list/table + sonner."
     },
     {

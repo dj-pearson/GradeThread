@@ -12894,3 +12894,24 @@ US-1702 DONE (edge+web; MIGRATION 00387 — HELD). The story I had missed.
   lint 0 / deno check src/main.ts CLEAN / schema-version unchanged 00417. Full edge
   suite: running.
 - Commit local; not pushed (rides on held 00416/00417).
+
+── US-1809: Alerts — delivery, digest & management UI (2026-07-09) ──
+- ★ COMPLETES the condition-alerts epic (US-1805): model (1806) → engine (1807) →
+  management UI (1809). NO migration (pure frontend on existing tables/hooks).
+- Replaced the /buyer/alerts placeholder with a real BuyerAlertsPage (src/pages/buyer/
+  alerts.tsx), lazy-registered in routes/index.tsx; locked behind the conditionAlerts
+  entitlement with an upgrade card (mirrors the placeholder lock).
+- Three tabs: Saved searches (SavedSearchCard — edit label/brands/categories/keywords/
+  min_grade/max-fair-price via ChipInput+selects, active pause Switch, per-alert Email/
+  Push channel Switches, delete; "New alert" seeds from buyer preferences via
+  useSavedSearches.create), Watchlist (useWatchlist list + deep links cert→/cert/:id,
+  passport→/passport/:slug, remove), Recent matches (new use-buyer-alert-matches hook
+  reads notifications type=buyer_condition_alert, unread dot + mark-read on View, deep
+  link to the cert).
+- Delivery card: digest_frequency (immediate/daily/weekly) via useBuyerPreferences;
+  "immediate" disabled + upgrade hint when the plan's alertFrequency cap is "daily"
+  (edge notifyBuyer enforces the same cap at delivery — US-1800/1803).
+- Empty/first-run states (EmptyState) on every tab guide creating a first alert.
+- a11y: label htmlFor+Switch id associations (fixed jsx-a11y/label-has-associated-control).
+- VERIFIED: web tsc --noEmit 0 / eslint 0 / tsc -b at baseline 7 (pre-existing 7-error never-quirk blocks npm-run-build tsc step, unrelated). vite build CLEAN — alerts chunk bundles (3606 modules, exit 0).
+- Commit local; NO migration (rides on the held 00416/00417 still gating the push).

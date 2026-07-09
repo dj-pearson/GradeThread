@@ -53,6 +53,7 @@ const BuyerLayout = lazy(() => import("@/layouts/buyer-layout").then(m => ({ def
 const BuyerHomePage = lazy(() => import("@/pages/buyer/home").then(m => ({ default: m.BuyerHomePage })));
 const BuyerOnboardingPage = lazy(() => import("@/pages/buyer/onboarding").then(m => ({ default: m.BuyerOnboardingPage })));
 const BuyerSettingsPage = lazy(() => import("@/pages/buyer/settings").then(m => ({ default: m.BuyerSettingsPage })));
+const BuyerAlertsPage = lazy(() => import("@/pages/buyer/alerts").then(m => ({ default: m.BuyerAlertsPage })));
 const BuyerBillingPage = lazy(() => import("@/pages/buyer/billing").then(m => ({ default: m.BuyerBillingPage })));
 const BuyerPlaceholderPage = lazy(() => import("@/pages/buyer/placeholder").then(m => ({ default: m.BuyerPlaceholderPage })));
 
@@ -607,7 +608,7 @@ export const router = createBrowserRouter([
                 children: [
                   { path: "/buyer", element: <SuspenseWrapper><BuyerHomePage /></SuspenseWrapper> },
                   { path: "/buyer/onboarding", element: <SuspenseWrapper><BuyerOnboardingPage /></SuspenseWrapper> },
-                  { path: "/buyer/alerts", element: <SuspenseWrapper><BuyerPlaceholderPage title="Watchlist & Alerts" requiresFlag="conditionAlerts" description="Save searches and get alerted when a graded item in your brands and sizes lists." /></SuspenseWrapper> },
+                  { path: "/buyer/alerts", element: <SuspenseWrapper><BuyerAlertsPage /></SuspenseWrapper> },
                   { path: "/buyer/rewards", element: <SuspenseWrapper><BuyerPlaceholderPage title="Rewards" requiresFlag="rewards" description="Confirm arrival condition to earn grade credits and rewards." /></SuspenseWrapper> },
                   { path: "/buyer/portfolio", element: <SuspenseWrapper><BuyerPlaceholderPage title="Closet Portfolio" requiresFlag="wardrobePortfolio" description="Track what you own and its condition-adjusted value over time." /></SuspenseWrapper> },
                   { path: "/buyer/guarantee", element: <SuspenseWrapper><BuyerPlaceholderPage title="Purchase Guarantee" requiresFlag="purchaseGuarantee" description="Insured grade-locked coverage on eligible purchases." /></SuspenseWrapper> },
