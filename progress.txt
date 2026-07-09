@@ -12860,3 +12860,37 @@ US-1702 DONE (edge+web; MIGRATION 00387 — HELD). The story I had missed.
   rls-guard 1 pass / web tsc --noEmit 0 / eslint 0 / tsc -b at baseline 7. Full edge
   suite: running.
 - ⚠️ HELD MIGRATION — commit local; NOT pushed until user applies 00417 (after 00416).
+
+── US-1807: Alerts — matching engine over public certs + Value Index (2026-07-09) ──
+- ★ COMPLETES the alerts data→match spine: US-1806 (model) → US-1807 (engine).
+  UNIVERSE = PUBLIC CERTIFICATES ONLY (user decision 2026-07-09; option a) — matches
+  saved_searches against newly-public grade_reports (certificate_id set + finalized
+  approved/modified + not withheld), NOT cross-seller listings (no cross-tenant leak).
+- NO MIGRATION: reuses saved_searches.last_matched_at (00416) + buyer_notification_log
+  (00412 via notifyBuyer) + system_settings defaults (getSetting, no seed row needed).
+  So this commit carries no new prod SQL of its own (it still can't be pushed until the
+  earlier held 00416/00417 are applied — it rides on top of them).
+- Engine lib/condition-alerts.ts (light durable pattern — job-lock + idempotent
+  notifyBuyer dedup + 15-min schedule self-heal; the batch/jobs machinery is for
+  expensive per-item work, this sweep is cheap+idempotent so that'd be over-eng):
+  • PURE matchesSearch (brand/category/grade/keywords, empty=wildcard, sizes skipped
+    for cert universe), pickCurveSlugForCert (Value Index fair-price resolver — exact
+    item-slug else single-brand-curve else null, never guesses), selectDueSearches
+    (oldest-checked-first, budget-capped), buildAlertBody. All unit-tested.
+  • runConditionAlerts(nowMs): getSetting kill-switch + per-run budget (mirror
+    handleConditionIndexRefreshCron US-1749); loads bounded public-cert pool once,
+    matches in memory, emits condition_alert via notifyBuyer (dedupeKey
+    condition-alert:<searchId>:<certId> → never double-alerts), price gate only
+    suppresses when fair price CONFIDENTLY known & > max (unknown = include), stamps
+    last_matched_at scoped by id+user_id (US-268).
+- Route: POST /api/jobs/condition-alerts (job-secret + job-lock), CRON_REGISTRY entry
+  (*/15), COOLIFY.md + LAUNCH_CHECKLIST.md regenerated (drift test verbatim-green).
+- ⚠️ OPS (on next deploy): add the `condition-alerts` Coolify scheduled task (*/15,
+  X-Internal-Job-Secret = $FLIPDESK_INTERNAL_JOB_SECRET) or the sweep never fires.
+- No edge user-facing route (management UI is US-1809) → no tenant-isolation_test case
+  (the cron reads all active searches but only alerts each search's own user_id; certs
+  are public). Producers of the alert = the sweep itself.
+- Tests: condition-alerts_test.ts 13 pass + cron-registry-drift 4 pass. VERIFIED: deno
+  lint 0 / deno check src/main.ts CLEAN / schema-version unchanged 00417. Full edge
+  suite: running.
+- Commit local; not pushed (rides on held 00416/00417).

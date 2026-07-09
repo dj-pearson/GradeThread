@@ -14212,7 +14212,7 @@
         "Cost/quota guardrails so matching scales without unbounded compute (mirror the Value Index refresh guardrails)"
       ],
       "priority": 1807,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][ALERTS][OPS][NEW] Load durable-jobs skill. Reuse condition-index.ts / Value Index (US-1745) for fair-price; grade_outcomes for realized-price context. Emit into notification infra (1803). Coolify scheduled task. Depends on model (1806). Guardrails mirror handleConditionIndexRefreshCron (US-1749)."
     },
     {

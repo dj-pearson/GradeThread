@@ -133,6 +133,7 @@ export const CRON_REGISTRY: CronDef[] = [
   { name: "north-star-digest", label: "North Star weekly digest", schedule: "0 14 * * 1", category: "growth", endpoint: "/api/jobs/north-star-digest", recorded: true },
   // US-1803: buyer notification digest — daily run; weekly-mode buyers flushed on Mondays.
   { name: "buyer-digest", label: "Buyer notification digest", schedule: "0 13 * * *", category: "buyer", endpoint: "/api/jobs/buyer-digest", recorded: true },
+  { name: "condition-alerts", label: "Buyer condition-alerts matching", schedule: "*/15 * * * *", category: "buyer", endpoint: "/api/jobs/condition-alerts", recorded: true },
   // US-943: served under /api/drip/* (own auth) but records to cron_runs itself.
   { name: "drip-tick", label: "Trial-drip orchestration tick", schedule: "0 * * * *", category: "growth", endpoint: "/api/drip/tick", recorded: true, secretEnv: "DRIP_INTERNAL_JOB_SECRET" },
   // US-923: the ONE external trigger that kicks off the autonomous newsletter run.

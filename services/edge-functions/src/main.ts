@@ -152,6 +152,7 @@ import { handleExemplarAssemblyCron } from "./routes/jobs-exemplar-assembly.ts";
 import { handleConfidenceCalibrationCron } from "./routes/jobs-confidence-calibration.ts";
 import { handleNorthStarDigestCron } from "./routes/jobs-north-star.ts";
 import { handleBuyerDigestCron } from "./routes/jobs-buyer-digest.ts";
+import { handleConditionAlertsCron } from "./lib/condition-alerts.ts";
 import { handleContentWatchdogCron } from "./routes/jobs-content-watchdog.ts";
 import { handleContentRefreshCron } from "./routes/jobs-content-refresh.ts";
 import { handleKeywordResearchCron } from "./routes/jobs-keyword-research.ts";
@@ -1351,6 +1352,8 @@ app.post("/api/jobs/confidence-calibration", (c) => handleConfidenceCalibrationC
 app.post("/api/jobs/north-star-digest", (c) => handleNorthStarDigestCron(c));
 // US-1803: buyer notification digest (daily; weekly-mode buyers flushed Mondays).
 app.post("/api/jobs/buyer-digest", (c) => handleBuyerDigestCron(c));
+// US-1807 buyer condition-alerts matching sweep (public-cert universe).
+app.post("/api/jobs/condition-alerts", (c) => handleConditionAlertsCron(c));
 // US-472 eBay parked-webhook drain. Re-links payout/order/return events that
 // arrived before the connection's account_handle/external_account_id hydrated,
 // and dead-letters the ones that never link. Handler enforces the job secret.

@@ -209,6 +209,7 @@ curl -fsS -X POST -H "X-Internal-Job-Secret: $<SECRET_ENV>" http://localhost:878
 | billing-reconciliation | `0 5 * * *` | `/api/jobs/billing-reconciliation` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | buyer-digest | `0 13 * * *` | `/api/jobs/buyer-digest` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | cert-integrity-backfill | `0 6 * * *` | `/api/jobs/cert-integrity-backfill` | `$FLIPDESK_INTERNAL_JOB_SECRET` | ONE-OFF at launch (idempotent; disable once drained) |
+| condition-alerts | `*/15 * * * *` | `/api/jobs/condition-alerts` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | condition-index-refresh | `0 8 * * *` | `/api/jobs/condition-index-refresh` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | condition-index-seedgen | `0 9 * * 1` | `/api/jobs/condition-index-seedgen` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | confidence-calibration | `0 13 * * 0` | `/api/jobs/confidence-calibration` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
@@ -260,7 +261,7 @@ curl -fsS -X POST -H "X-Internal-Job-Secret: $<SECRET_ENV>" http://localhost:878
 | thumbnail-backfill | `*/5 * * * *` | `/api/jobs/thumbnail-backfill` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | trial-expiry | `15 0 * * *` | `/api/jobs/trial-expiry` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 
-_64 scheduled jobs. Default healthy response: 200 `{"ok":true,...}` (idle runs report skipped/zero counts). Generated from `src/lib/cron-runs.ts` CRON_REGISTRY — do not hand-edit._
+_65 scheduled jobs. Default healthy response: 200 `{"ok":true,...}` (idle runs report skipped/zero counts). Generated from `src/lib/cron-runs.ts` CRON_REGISTRY — do not hand-edit._
 <!-- cron-registry:end -->
 
 > **Cadence notes (US-496):**
