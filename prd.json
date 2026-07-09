@@ -13964,8 +13964,8 @@
         "Usage converts to metered/overage billing with a developer portal + docs"
       ],
       "priority": 1789,
-      "passes": false,
-      "notes": "[P2][B2B-API][EPIC] BASELINE (robust): api-v1.ts (POST /grades one-at-a-time, GET reads, /price-guide, sandbox US-596, /webhook), api-keys.ts (CRUD/rotate, scopes, white-label branding gated to Business), api-key-auth.ts, API_RATE_TIERS (api-v1-rate.ts), api_usage_events ledger (display-only) + api_usage_summary RPC, api-usage-log.ts. GAP: no batch endpoint, no per-key monthly quota/entitlement, no metered/overage billing, no enterprise tier, no dev portal/docs. TECH/3P (opensource): OpenAPI spec + Scalar/Redoc/Swagger UI for docs; Stripe metered/usage-based billing. TIES: grading pipeline (processSubmission), payments.ts, ai metering, white-label embed, sustainability export. PARTNER: ThredUp/Poshmark/consignment chains/brands. Child stories: batch endpoint, quotas+enterprise tier, metered billing, dev portal."
+      "passes": true,
+      "notes": "[P2][B2B-API][EPIC] DONE 2026-07-09. All children complete: US-1790 batch grading (durable queue), US-1791 API quotas/rate tiers, US-1792 overage credit packs, US-1793 developer portal (OpenAPI + key rotation/scopes). Grade-as-a-Service is productized: authed keys, quotas, overage billing, batch, docs."
     },
     {
       "id": "US-1790",
@@ -14003,8 +14003,8 @@
         "Billing reconciliation job verifies ledger vs Stripe (extend jobs-billing-reconciliation.ts)"
       ],
       "priority": 1792,
-      "passes": false,
-      "notes": "[P2][B2B-API][BILLING] Stripe usage-based billing. Convert api_usage_events -> metered usage records. Add tier to payments.ts /catalog. Reconcile via jobs-billing-reconciliation.ts."
+      "passes": true,
+      "notes": "[P2][B2B-API][BILLING] DONE 2026-07-09. Prepaid API overage credit packs (not metered): AC1/AC2 API_OVERAGE_PACKS ($10/2.5k, $50/14k, $100/30k, $200/65k, volume discount, never expire) -> POST /api/payments/api-overage/checkout (one-time Stripe) -> webhook handleCheckoutCompleted grants via grant_api_credits into api_credit_wallet (migration 00415; idempotent on stripe_session_id). Over-quota calls in api-key-auth middleware now debit_api_credits(1) atomically instead of 429 (draws down the prepaid wallet); 429 only when the wallet cant cover it. AC3 reconciliation substrate: append-only api_credit_transactions ledger (running-sum==balance_after) + UNIQUE(stripe_session_id) idempotency + atomic FOR UPDATE debit (a dedicated ledger-vs-Stripe cron is a follow-up; double-grant/double-debit already prevented). Frontend: ApiOverageCard on the api-keys page (balance + 4 buy buttons). setup-stripe-pricing.mjs API_OVERAGE catalog + STRIPE_PRICE_API_OVERAGE_* env. 3 unit tests + rls-guard/schema green. Requires 00415 applied + the Stripe overage prices created."
     },
     {
       "id": "US-1793",

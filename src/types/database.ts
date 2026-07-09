@@ -3134,6 +3134,12 @@ export interface Database {
         Insert: BuyerPreferencesInsert;
         Update: BuyerPreferencesUpdate;
       };
+      // US-1792: B2B API overage credit wallet (owner-read; service-role writes).
+      api_credit_wallet: {
+        Row: { user_id: string; balance: number; updated_at: string };
+        Insert: { user_id: string; balance?: number };
+        Update: { balance?: number };
+      };
       submissions: {
         Row: SubmissionRow;
         Insert: SubmissionInsert;

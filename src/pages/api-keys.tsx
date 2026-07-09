@@ -33,6 +33,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { FLIPDESK_PLANS } from "@/lib/constants";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { ApiUsagePanel } from "@/components/api/api-usage-panel";
+import { ApiOverageCard } from "@/components/api/api-overage-card";
 import { WhiteLabelPanel } from "@/components/api/white-label-panel";
 
 interface ApiKeyItem {
@@ -593,6 +594,9 @@ export function ApiKeysPage() {
 
       {/* Usage / billing dashboard (US-596). */}
       <ApiUsagePanel />
+
+      {/* API overage credits (US-1792). */}
+      <ApiOverageCard />
 
       {/* White-label embeddable results (US-596). */}
       <WhiteLabelPanel />

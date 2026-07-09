@@ -1,5 +1,22 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ PENDING: 00415_api_overage_credits.sql (US-1792 B2B API overage credits, 2026-07-09)
+
+**What:** Two new TENANT-SCOPED tables — `public.api_credit_wallet` (user_id PK,
+balance, service-role writes only, owner-read RLS) + `public.api_credit_transactions`
+(append-only ledger, UNIQUE(stripe_session_id) for grant idempotency) — plus two
+RPCs `grant_api_credits` (idempotent on session id) + `debit_api_credits` (atomic
+FOR UPDATE, returns -1 when insufficient). The prepaid, never-expiring API overage
+wallet: over-quota calls draw down 1 credit instead of 429ing. Wallet in its own
+table (no users guard churn, like buyer_meter_usage). Bumps
+`EXPECTED_SCHEMA_VERSION` → **00415**. Self-records '00415'.
+
+**Risk: LOW** — two new isolated tables + two functions, no writes to existing
+tables. Inert until the STRIPE_PRICE_API_OVERAGE_* prices exist (run
+setup-stripe-pricing.mjs) + a key carries a monthly_quota. **⚠️ Apply order:**
+after 00414; `scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload
+schema';`, redeploy the edge (boot guard now expects 00415).
+
 ## ⏳ PENDING: 00414_buyer_iap.sql (US-1804 buyer mobile IAP, 2026-07-09)
 
 **What:** Five ADDITIVE nullable columns on `public.users` for the buyer

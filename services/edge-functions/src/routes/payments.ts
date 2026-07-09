@@ -7,6 +7,7 @@ import { captureServer } from "../lib/posthog.ts";
 import { emitEvent } from "../lib/user-events.ts";
 import { customerCreateIdempotencyKey } from "../lib/stripe-customer.ts";
 import { getBuyerPriceIds, getFlipdeskPriceIds } from "../lib/pricing-config.ts";
+import { API_OVERAGE_PACKS, isApiOveragePackKey } from "../lib/api-overage-packs.ts";
 import { appstoreSubscriptionBlocksStripe } from "../lib/appstore/precedence.ts";
 import { CATALOG_VERSION, serializeCatalog } from "../lib/appstore/products.ts";
 
@@ -700,6 +701,70 @@ paymentRoutes.post("/gradethread/credit-pack", async (c) => {
   } catch (err) {
     console.error("Credit pack checkout failed:", err);
     return c.json({ error: "Failed to create credit pack checkout" }, 500);
+  }
+});
+
+// ── POST /api-overage/checkout (US-1792) ─────────────────────────
+//
+// Body: { pack: "10"|"50"|"100"|"200" }. One-time Checkout for a B2B API overage
+// credit pack; on success the webhook (handleCheckoutCompleted, product=
+// "api_overage") grants api_credit_wallet credits that a key draws down when it
+// exceeds its monthly quota. Never-expiring, volume-discounted (API_OVERAGE_PACKS).
+paymentRoutes.post("/api-overage/checkout", async (c) => {
+  const userId = c.get("userId");
+
+  let body: { pack?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const packKey = String(body.pack ?? "");
+  if (!isApiOveragePackKey(packKey)) {
+    return c.json({ error: "pack must be one of: 10, 50, 100, 200" }, 400);
+  }
+  const pack = API_OVERAGE_PACKS[packKey];
+  const priceId = Deno.env.get(pack.priceEnv) || "";
+  if (!priceId) {
+    console.error(`Missing Stripe price ID for API overage pack ${packKey}`);
+    return c.json({ error: "Pricing not configured" }, 503);
+  }
+
+  const { data: user, error: userError } = await loadUser(userId);
+  if (userError || !user) return c.json({ error: "User not found" }, 404);
+  const stripe = getStripe();
+  if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
+
+  try {
+    const sessionParams: Stripe.Checkout.SessionCreateParams = {
+      mode: "payment",
+      payment_method_types: ["card"],
+      line_items: [{ price: priceId, quantity: 1 }],
+      metadata: {
+        user_id: userId,
+        product: "api_overage",
+        pack: packKey,
+        credits: String(pack.credits),
+      },
+      payment_intent_data: {
+        metadata: { user_id: userId, product: "api_overage", pack: packKey, credits: String(pack.credits) },
+      },
+      success_url: `${siteUrl()}/dashboard/api-keys?checkout=success&product=api_overage&pack=${packKey}`,
+      cancel_url: `${siteUrl()}/dashboard/api-keys?checkout=cancelled`,
+      automatic_tax: { enabled: true },
+      billing_address_collection: "required",
+      allow_promotion_codes: true,
+    };
+    sessionParams.customer = await ensureStripeCustomer(stripe, user);
+    sessionParams.customer_update = { name: "auto", address: "auto" };
+
+    const session = await stripe.checkout.sessions.create(sessionParams, {
+      idempotencyKey: `api-overage:${userId}:${packKey}:${Math.floor(Date.now() / 60000)}`,
+    });
+    return c.json({ sessionId: session.id, url: session.url });
+  } catch (err) {
+    console.error("API overage checkout failed:", err);
+    return c.json({ error: "Failed to create overage checkout" }, 500);
   }
 });
 

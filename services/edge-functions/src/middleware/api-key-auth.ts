@@ -111,14 +111,26 @@ export const apiKeyAuthMiddleware = createMiddleware<ApiKeyAuthEnv>(async (c, ne
       .gte("created_at", billingMonthStartIso(now));
     const state = computeQuotaState(monthlyQuota, count ?? 0, now);
     if (state.exceeded) {
-      return c.json(
-        {
-          error: `Monthly API quota of ${monthlyQuota} calls reached. Resets ${state.resets_at}.`,
-          code: "quota_exceeded",
-          resets_at: state.resets_at,
-        },
-        429,
-      );
+      // US-1792: over the monthly quota — draw down a prepaid, never-expiring API
+      // overage credit (atomic) instead of 429ing. debit_api_credits returns the
+      // new balance (>=0) on success, or -1 when the wallet can't cover it.
+      const { data: newBalance, error: debitErr } = await supabaseAdmin.rpc("debit_api_credits", {
+        p_user_id: keyRecord.user_id,
+        p_credits: 1,
+        p_notes: `overage: key ${keyRecord.id}`,
+      });
+      const covered = !debitErr && typeof newBalance === "number" && newBalance >= 0;
+      if (!covered) {
+        return c.json(
+          {
+            error:
+              `Monthly API quota of ${monthlyQuota} calls reached. Buy an overage pack or wait — resets ${state.resets_at}.`,
+            code: "quota_exceeded",
+            resets_at: state.resets_at,
+          },
+          429,
+        );
+      }
     }
   }
 

@@ -1016,9 +1016,32 @@ async function handleCheckoutCompleted(event: Stripe.Event) {
     await handleCreditPackPurchase(event, session, userId);
   } else if (product === "per_grade") {
     await handlePerGradePurchase(event, session, userId);
+  } else if (product === "api_overage") {
+    await handleApiOveragePurchase(session, userId);
   } else {
     console.warn(`[Webhook] checkout.session.completed unknown product=${product} session=${session.id}`);
   }
+}
+
+// US-1792: grant B2B API overage credits on a completed pack purchase. Idempotent
+// on the Stripe session id (grant_api_credits no-ops a duplicate session), so a
+// webhook replay grants once.
+async function handleApiOveragePurchase(session: Stripe.Checkout.Session, userId: string) {
+  const credits = Number(session.metadata?.credits ?? 0);
+  const pack = session.metadata?.pack ?? "";
+  if (!Number.isFinite(credits) || credits <= 0) {
+    console.error(`[Webhook] api_overage missing/invalid credits metadata (session=${session.id})`);
+    return;
+  }
+  const { error } = await supabaseAdmin.rpc("grant_api_credits", {
+    p_user_id: userId,
+    p_credits: credits,
+    p_reason: "api_overage_purchase",
+    p_session_id: session.id,
+    p_notes: `pack=${pack}`,
+  });
+  failIfDbError(error, `grant_api_credits for user ${userId}`);
+  console.log(`[Webhook] User ${userId} granted ${credits} API overage credits (pack ${pack})`);
 }
 
 async function handleCreditPackPurchase(

@@ -68,6 +68,14 @@ const PACKS = [
   { sku: "credits_50",  name: "GradeThread Credit Pack — 50",  amount: 10999, taxCode: TAX_CODE_SERVICE },
   { sku: "credits_100", name: "GradeThread Credit Pack — 100", amount: 19999, taxCode: TAX_CODE_SERVICE },
 ];
+// US-1792: B2B API overage credit packs (one-time). Credits per pack live in the
+// edge lib/api-overage-packs.ts; here we only mint the price. Env → STRIPE_PRICE_API_OVERAGE_<N>.
+const API_OVERAGE = [
+  { sku: "api_overage_10",  name: "GradeThread API Overage — $10",  amount: 1000,  taxCode: TAX_CODE_SERVICE },
+  { sku: "api_overage_50",  name: "GradeThread API Overage — $50",  amount: 5000,  taxCode: TAX_CODE_SERVICE },
+  { sku: "api_overage_100", name: "GradeThread API Overage — $100", amount: 10000, taxCode: TAX_CODE_SERVICE },
+  { sku: "api_overage_200", name: "GradeThread API Overage — $200", amount: 20000, taxCode: TAX_CODE_SERVICE },
+];
 
 // ── Stripe helpers ────────────────────────────────────────────────
 function formEncode(obj, prefix = "") {
@@ -218,6 +226,16 @@ for (const grade of GRADES) {
 
 console.log("\nCredit packs:");
 for (const pack of PACKS) {
+  const productId = await upsertProduct(pack);
+  const priceId = await upsertPrice(productId, pack.sku, {
+    amount: pack.amount,
+    lookupKey: pack.sku,
+  });
+  env[`VITE_STRIPE_PRICE_${pack.sku.toUpperCase()}`] = priceId;
+}
+
+console.log("\nAPI overage packs:");
+for (const pack of API_OVERAGE) {
   const productId = await upsertProduct(pack);
   const priceId = await upsertPrice(productId, pack.sku, {
     amount: pack.amount,
