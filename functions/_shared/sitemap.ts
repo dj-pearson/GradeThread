@@ -287,6 +287,29 @@ export async function valueIndexUrls(env: PagesEnv): Promise<SitemapUrl[]> {
   return urls;
 }
 
+// US-1774: public Durability Rankings hub + per-brand pages. The
+// /api/grading/public/durability hub is already sample-gated (sufficient
+// cohorts only), so no thin cohort enters the sitemap.
+export async function durabilityUrls(env: PagesEnv): Promise<SitemapUrl[]> {
+  const base = siteUrl(env);
+  const data = await fetchEdgeJson<{
+    items: Array<{ brandSlug: string; refreshedAt?: string }>;
+  }>(env, "/api/grading/public/durability");
+  const urls: SitemapUrl[] = [
+    { loc: `${base}/durability`, lastmod: today(), changefreq: "weekly", priority: 0.7 },
+  ];
+  for (const it of data?.items ?? []) {
+    if (!it.brandSlug) continue;
+    urls.push({
+      loc: `${base}/durability/${it.brandSlug}`,
+      lastmod: it.refreshedAt?.slice(0, 10),
+      changefreq: "weekly",
+      priority: 0.6,
+    });
+  }
+  return urls;
+}
+
 export function urlsetXml(urls: SitemapUrl[]): string {
   const body = urls
     .map(

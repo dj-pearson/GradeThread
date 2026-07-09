@@ -13769,8 +13769,8 @@
         "Only sample-gated cohorts are shown; methodology/limits disclosed"
       ],
       "priority": 1774,
-      "passes": false,
-      "notes": "[P2][DURABILITY][SEO] Clone functions/condition-index/[[path]].ts pattern. Public edge endpoint over the aggregate table. No fabricated precision."
+      "passes": true,
+      "notes": "[P2][DURABILITY][SEO] Clone functions/condition-index/[[path]].ts pattern. Public edge endpoint over the aggregate table. No fabricated precision. [DONE 2026-07-09] Model B Pages Function functions/durability/[[path]].ts (cloned condition-index): /durability hub (brands ranked by retention) + /durability/<brandSlug> (brand cohorts ranked, weakest-factor column) with Dataset + BreadcrumbList JSON-LD, methodology/limits disclosure, interlinks to /value + /condition-index + /snap. Public edge lib durability-index.ts (getDurabilityHub/getDurabilityByBrand, brandSlug) reads durability_aggregates SUFFICIENT-only; endpoints GET /api/grading/public/durability + /durability/:brand in public-grading.ts. Registered: _routes.json (/durability + /durability/* + /sitemap-durability.xml), vite PWA navigateFallbackDenylist, sitemap (durabilityUrls in _shared/sitemap.ts + wired into sitemap.xml.ts urlset+index + new sitemap-durability.xml.ts). No fabricated precision — empty/warming-up state until sufficient cohorts exist. No migration (reads 00406). Tests: brandSlug + engine (8) pass; deno check(main.ts)+eslint(functions)+routes-json guard clean. Next: US-1775 State of Secondhand Durability report."
     },
     {
       "id": "US-1775",

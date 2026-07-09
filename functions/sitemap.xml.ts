@@ -14,6 +14,7 @@ import {
   sellerUrls,
   conditionIndexUrls,
   valueIndexUrls,
+  durabilityUrls,
   authorUrls,
   urlsetXml,
   sitemapIndexXml,
@@ -22,13 +23,14 @@ import {
 } from "./_shared/sitemap";
 
 export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
-  const [statics, blog, certs, sellers, condition, value, authors] = await Promise.all([
+  const [statics, blog, certs, sellers, condition, value, durability, authors] = await Promise.all([
     staticUrls(env),
     blogUrls(env),
     certUrls(env),
     sellerUrls(env),
     conditionIndexUrls(env),
     valueIndexUrls(env),
+    durabilityUrls(env),
     authorUrls(env),
   ]);
 
@@ -39,6 +41,7 @@ export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
     sellers.length +
     condition.length +
     value.length +
+    durability.length +
     authors.length;
 
   const xml =
@@ -53,6 +56,7 @@ export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
           "sitemap-sellers.xml",
           "sitemap-condition.xml",
           "sitemap-value.xml",
+          "sitemap-durability.xml",
           "sitemap-authors.xml",
           "sitemap-images.xml",
         ])
@@ -63,6 +67,7 @@ export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
           ...sellers,
           ...condition,
           ...value,
+          ...durability,
           ...authors,
         ]);
 

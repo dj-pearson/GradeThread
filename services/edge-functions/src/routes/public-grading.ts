@@ -8,6 +8,7 @@ import {
 } from "../lib/accuracy-tracking.ts";
 import { getIndexCurveBySlug, getIndexHub } from "../lib/condition-index.ts";
 import { getValueHub, resolveValueCurve } from "../lib/value-index.ts";
+import { getDurabilityByBrand, getDurabilityHub } from "../lib/durability-index.ts";
 import {
   computeResaleConditionReport,
   type ResaleConditionReport,
@@ -166,6 +167,32 @@ publicGradingRoutes.get("/value/:brand/:item", async (c) => {
     return c.json(resolved, 200, { "Cache-Control": "public, max-age=600, s-maxage=3600" });
   } catch {
     return c.json({ error: "Failed to load value" }, 500);
+  }
+});
+
+// ── Durability rankings (US-1774) ────────────────────────────────────────
+// Aggregate-only brand durability, backing the /durability SEO pages
+// (functions/durability/[[path]].ts). ONLY sample-gated cohorts are returned by
+// the lib (durability-index.ts); thin cohorts are never surfaced.
+
+// GET /api/grading/public/durability — the hub (brands ranked by retention).
+publicGradingRoutes.get("/durability", async (c) => {
+  try {
+    const items = await getDurabilityHub();
+    return c.json({ items }, 200, { "Cache-Control": "public, max-age=600, s-maxage=3600" });
+  } catch {
+    return c.json({ error: "Failed to load durability index" }, 500);
+  }
+});
+
+// GET /api/grading/public/durability/:brand — one brand's cohort ranking.
+publicGradingRoutes.get("/durability/:brand", async (c) => {
+  try {
+    const dto = await getDurabilityByBrand(c.req.param("brand"));
+    if (!dto) return c.json({ error: "Not found" }, 404);
+    return c.json(dto, 200, { "Cache-Control": "public, max-age=600, s-maxage=3600" });
+  } catch {
+    return c.json({ error: "Failed to load durability" }, 500);
   }
 });
 

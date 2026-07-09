@@ -125,3 +125,13 @@ Deno.test("aggregate: too few sales → no resale numbers", () => {
   assertEquals(m.resale_median_cents, null);
   assertEquals(Object.keys(m.resale_by_band).length, 0);
 });
+
+// ── US-1774: brand slug (URL key for /durability/<slug>) ─────────────────────
+const { brandSlug } = await import("../lib/durability-index.ts");
+
+Deno.test("brandSlug: URL-safe, lowercased, collapses non-alphanumerics", () => {
+  assertEquals(brandSlug("Gucci"), "gucci");
+  assertEquals(brandSlug("The North Face"), "the-north-face");
+  assertEquals(brandSlug("  Levi's  "), "levi-s");
+  assertEquals(brandSlug("A&F"), "a-f");
+});
