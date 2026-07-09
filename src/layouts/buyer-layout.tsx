@@ -10,7 +10,9 @@ import { useAuthStore } from "@/stores/auth-store";
 // Supabase session.
 export function BuyerLayout() {
   const profile = useAuthStore((s) => s.profile);
-  const canSwitchToSeller = profile?.is_seller === true;
+  // US-1888: everyone can reach the seller app — a dual-role seller switches
+  // back; a pure buyer discovers selling (the flywheel's other side).
+  const isSeller = profile?.is_seller === true;
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -24,15 +26,13 @@ export function BuyerLayout() {
       <div className="flex flex-1 flex-col overflow-hidden">
         <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-background px-6">
           <span className="text-sm font-semibold">Buyer</span>
-          {canSwitchToSeller && (
-            <Link
-              to="/dashboard"
-              className="flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground/80 transition-colors hover:bg-accent hover:text-foreground"
-            >
-              <Store className="h-4 w-4" />
-              Seller dashboard
-            </Link>
-          )}
+          <Link
+            to="/dashboard"
+            className="flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground/80 transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <Store className="h-4 w-4" />
+            {isSeller ? "Switch to selling" : "Start selling"}
+          </Link>
         </header>
         <main
           id="buyer-main"

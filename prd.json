@@ -15400,7 +15400,7 @@
       "id": "US-1888",
       "title": "Role-aware access + buyer<->seller context switch (Etsy-style)",
       "priority": 1888,
-      "passes": false,
+      "passes": true,
       "description": "As a person who both buys and sells, I want to switch between the buyer and seller apps from one account without friction so that both sides feel like one product.",
       "acceptanceCriteria": [
         "Any seller account can open the buyer app (BuyerRoute admits sellers; buyer surfaces gate on entitlements, not a separate purchase); pure-buyer accounts unaffected",
@@ -15408,7 +15408,7 @@
         "Seller onboarding surfaces buyer functions as included; buyers can reach seller signup",
         "Tenant-isolation unaffected; no route reads a role from the request body"
       ],
-      "notes": "[P1][BUYER][SELLER] Depends on US-1887. Reuse buyer-layout switch + sidebar cross-link; make a shared AppSwitcher."
+      "notes": "[P1][BUYER][SELLER] DONE 2026-07-09. BuyerRoute now admits is_buyer||is_seller (any seller can open the buyer app; their plan bundles buyer functions US-1887; pure buyers unaffected). Etsy-style switch both directions: seller sidebar Switch to buying (shown to all sellers), buyer header Switch to selling / Start selling (always; pure buyer discovers selling). Buyer home shows included-with-your-seller-plan when fromSellerPlan; seller-only visitors not force-through buyer onboarding (gated on is_buyer). No edge route reads role from body (tenant isolation unaffected). Explicit seller-onboarding buyer-value copy folded into US-1889 pricing pass. tsc+eslint green."
     },
     {
       "id": "US-1889",

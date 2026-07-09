@@ -3,22 +3,23 @@ import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-auth";
 
-// US-1802: guards the buyer app (/buyer/*). Nested INSIDE ProtectedRoute, so
-// session / email-verification / legal-consent are already enforced upstream and
-// the ConfirmProvider is in scope — this only checks the buyer role (US-1796).
-// A non-buyer (seller-only) account is sent to the seller dashboard; the buyer
-// role is granted by the buyer signup funnel (US-1797) or an in-app opt-in.
+// US-1802/1888: guards the buyer app (/buyer/*). Nested INSIDE ProtectedRoute,
+// so session / email-verification / legal-consent are already enforced upstream
+// and the ConfirmProvider is in scope. Etsy-style: ANY account that carries the
+// buyer role OR the seller role may open the buyer app — a seller's plan bundles
+// buyer functions (US-1887), so sellers shop without a separate purchase; buyer
+// surfaces still gate on entitlements. Only a roleless account is turned away.
 export function BuyerRoute() {
   const { profile, isLoading } = useAuth();
   const hasShownToast = useRef(false);
-  const isBuyer = profile?.is_buyer === true;
+  const canAccessBuyer = profile?.is_buyer === true || profile?.is_seller === true;
 
   useEffect(() => {
-    if (!isLoading && profile && !isBuyer && !hasShownToast.current) {
+    if (!isLoading && profile && !canAccessBuyer && !hasShownToast.current) {
       hasShownToast.current = true;
-      toast.error("Your account isn't set up as a buyer yet.");
+      toast.error("Your account isn't set up yet.");
     }
-  }, [isLoading, profile, isBuyer]);
+  }, [isLoading, profile, canAccessBuyer]);
 
   if (isLoading) {
     return (
@@ -28,7 +29,7 @@ export function BuyerRoute() {
     );
   }
 
-  if (!isBuyer) {
+  if (!canAccessBuyer) {
     return <Navigate to="/dashboard" replace />;
   }
 

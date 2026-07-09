@@ -48,10 +48,11 @@ export function BuyerHomePage() {
   const { preferences, isLoading: prefsLoading } = useBuyerPreferences();
   const firstName = profile?.full_name?.split(" ")[0] ?? "there";
 
-  // US-1797: send a first-time buyer through onboarding once. A missing row (or
-  // one without onboarding_completed_at) means they haven't onboarded or skipped
-  // yet. Wait for the query so we don't flash-redirect an onboarded buyer.
-  if (!prefsLoading && !preferences?.onboarding_completed_at) {
+  // US-1797/1888: send a first-time BUYER-role account through onboarding once.
+  // A seller exploring the buyer app (is_buyer=false) is NOT forced through it —
+  // they can set preferences in Settings. Wait for the query so we don't
+  // flash-redirect an onboarded buyer.
+  if (!prefsLoading && profile?.is_buyer && !preferences?.onboarding_completed_at) {
     return <Navigate to="/buyer/onboarding" replace />;
   }
 
@@ -69,7 +70,8 @@ export function BuyerHomePage() {
         <p className="text-sm text-muted-foreground">
           You're on the{" "}
           <span className="font-medium text-foreground">{BUYER_PLANS[ent.plan].name}</span>{" "}
-          buyer plan. Buy secondhand with confidence — condition, not just claims.
+          buyer plan{ent.fromSellerPlan ? " — included with your seller plan" : ""}. Buy
+          secondhand with confidence — condition, not just claims.
         </p>
       </header>
 

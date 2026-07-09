@@ -338,15 +338,17 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
         </div>
         );
       })}
-      {/* US-1802: context switch to the buyer app for dual-role accounts. */}
-      {profile?.is_buyer && (
+      {/* US-1802/1888: Etsy-style context switch to the buyer app. Shown to any
+          account that can shop — every seller can (their plan bundles buyer
+          functions, US-1887) plus explicit buyer-role accounts. */}
+      {(profile?.is_buyer || profile?.is_seller) && (
         <NavLink
           to="/buyer"
           onClick={onNavigate}
           className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-white/60 transition-colors hover:bg-white/10 hover:text-white"
         >
           <ShoppingBag className="h-4 w-4" />
-          <span>Buyer app</span>
+          <span>Switch to buying</span>
         </NavLink>
       )}
     </nav>
