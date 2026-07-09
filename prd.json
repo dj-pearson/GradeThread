@@ -14142,7 +14142,7 @@
         "A person who is both buyer and seller can switch context between the buyer app and the seller/FlipDesk app without re-auth"
       ],
       "priority": 1802,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][FOUNDATION][NEW] Reuse sidebar.tsx grouping pattern (FlipDesk group), <ProtectedRoute>, routing in src/routes/index.tsx, brand tokens. Depends on account model (1796) + entitlements (1800). This is the shell the idea epics (1805+) plug their surfaces into. Context switch buyer<->seller for dual-role accounts."
     },
     {

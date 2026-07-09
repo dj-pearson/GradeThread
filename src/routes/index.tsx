@@ -47,6 +47,11 @@ const DashboardLayout = lazy(() => import("@/layouts/dashboard-layout").then(m =
 const AdminLayout = lazy(() => import("@/layouts/admin-layout").then(m => ({ default: m.AdminLayout })));
 const ProtectedRoute = lazy(() => import("@/components/auth/protected-route").then(m => ({ default: m.ProtectedRoute })));
 const AdminRoute = lazy(() => import("@/components/auth/admin-route").then(m => ({ default: m.AdminRoute })));
+// Buyer platform (US-1802): buyer app shell + role guard.
+const BuyerRoute = lazy(() => import("@/components/auth/buyer-route").then(m => ({ default: m.BuyerRoute })));
+const BuyerLayout = lazy(() => import("@/layouts/buyer-layout").then(m => ({ default: m.BuyerLayout })));
+const BuyerHomePage = lazy(() => import("@/pages/buyer/home").then(m => ({ default: m.BuyerHomePage })));
+const BuyerPlaceholderPage = lazy(() => import("@/pages/buyer/placeholder").then(m => ({ default: m.BuyerPlaceholderPage })));
 
 // Lazy-loaded pages for code splitting
 const LandingPage = lazy(() => import("@/pages/landing").then(m => ({ default: m.LandingPage })));
@@ -574,6 +579,27 @@ export const router = createBrowserRouter([
               // In-shell 404: an unknown /dashboard/* path keeps the sidebar +
               // header instead of dropping to the full-screen navless root 404.
               { path: "/dashboard/*", element: <SuspenseWrapper><InShellNotFound /></SuspenseWrapper> },
+            ],
+          },
+          // Buyer app (US-1802) — sibling of the seller DashboardLayout under the
+          // SAME ProtectedRoute (shared session), gated by the buyer role.
+          {
+            element: <SuspenseWrapper><BuyerRoute /></SuspenseWrapper>,
+            children: [
+              {
+                element: <SuspenseWrapper><BuyerLayout /></SuspenseWrapper>,
+                children: [
+                  { path: "/buyer", element: <SuspenseWrapper><BuyerHomePage /></SuspenseWrapper> },
+                  { path: "/buyer/alerts", element: <SuspenseWrapper><BuyerPlaceholderPage title="Watchlist & Alerts" requiresFlag="conditionAlerts" description="Save searches and get alerted when a graded item in your brands and sizes lists." /></SuspenseWrapper> },
+                  { path: "/buyer/rewards", element: <SuspenseWrapper><BuyerPlaceholderPage title="Rewards" requiresFlag="rewards" description="Confirm arrival condition to earn grade credits and rewards." /></SuspenseWrapper> },
+                  { path: "/buyer/portfolio", element: <SuspenseWrapper><BuyerPlaceholderPage title="Closet Portfolio" requiresFlag="wardrobePortfolio" description="Track what you own and its condition-adjusted value over time." /></SuspenseWrapper> },
+                  { path: "/buyer/guarantee", element: <SuspenseWrapper><BuyerPlaceholderPage title="Purchase Guarantee" requiresFlag="purchaseGuarantee" description="Insured grade-locked coverage on eligible purchases." /></SuspenseWrapper> },
+                  { path: "/buyer/demand", element: <SuspenseWrapper><BuyerPlaceholderPage title="Graded Wanted" requiresFlag="demandBoard" description="Post what you're hunting for and get matched to graded inventory." /></SuspenseWrapper> },
+                  { path: "/buyer/billing", element: <SuspenseWrapper><BuyerPlaceholderPage title="Buyer Billing" description="Manage your buyer subscription, usage, and upgrades." /></SuspenseWrapper> },
+                  { path: "/buyer/settings", element: <SuspenseWrapper><BuyerPlaceholderPage title="Buyer Settings" description="Shopping preferences, notifications, and the browser extension." /></SuspenseWrapper> },
+                  { path: "/buyer/*", element: <SuspenseWrapper><BuyerPlaceholderPage title="Not found" description="That buyer page doesn't exist yet." /></SuspenseWrapper> },
+                ],
+              },
             ],
           },
         ],
