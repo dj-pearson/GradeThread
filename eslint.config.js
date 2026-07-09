@@ -11,7 +11,23 @@ export default tseslint.config(
   // deno-lint-ignore directives, so it's excluded.
   // The published SDK (sdk/) is a standalone zero-dep package with its own
   // build/lint toolchain; the browser app config here would mis-lint it.
-  { ignores: ["dist", "services/edge-functions/**", "sdk/**", "remotion/**"] },
+  // ds-bundle/ is a gitignored, generated local artifact (design-sync bundle);
+  // it isn't in the CI checkout, and flat config doesn't auto-skip gitignored
+  // files, so lint it here would fail locally on rules it can't resolve.
+  // extension-condition/ + extension/ are plain-MV3 browser extensions (vanilla
+  // JS, no build) with their own runtime; the app's ts/tsx config would mis-lint
+  // them.
+  {
+    ignores: [
+      "dist",
+      "services/edge-functions/**",
+      "sdk/**",
+      "remotion/**",
+      "ds-bundle/**",
+      "extension/**",
+      "extension-condition/**",
+    ],
+  },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ["**/*.{ts,tsx}"],

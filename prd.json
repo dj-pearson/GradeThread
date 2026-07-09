@@ -13522,8 +13522,8 @@
         "Popup shows recent reads and a link to sign in / connect a GradeThread account"
       ],
       "priority": 1755,
-      "passes": false,
-      "notes": "[P2][EXTENSION][NEW] Build with WXT (opensource). eBay adapter first (highest volume). Overlay must be resilient to eBay DOM changes (selector config remotely updatable)."
+      "passes": true,
+      "notes": "[P2][EXTENSION][NEW] Build with WXT (opensource). eBay adapter first (highest volume). Overlay must be resilient to eBay DOM changes (selector config remotely updatable). [DONE 2026-07-09] Built as NEW extension-condition/ (separate from the Lister extension/). Plain MV3 (no build step, matches repo convention; WXT not adopted). Files: manifest.json, background.js (service worker owns instance-id/X-GT-Extension-Id quota key, the extension-origin grade fetch to functions.gradethread.com/api/grading/public/grade-from-url, remote-config cache, settings, recent-reads), selectors.js (bundled default) + public/extension/ebay-selectors.json (remotely-updatable override, served static via Pages, not in _routes.json include), content/ebay-image.cjs (pure dual-use helpers, node-tested test/ebay-image.test.cjs), content/ebay.js (detect item page -> extract gallery URLs upgraded to s-l1600 + title + brand -> overlay with launcher/loading/result/error/rate-limited states + SPA re-boot), overlay.css, popup.{html,css,js} (recent reads + auto-run + per-site toggle + utm sign-in link). Cost-aware: click-to-grade default (endpoint capped 20/IP/hr), opt-in auto-run. Low-confidence (<0.75) flagged. Also added ds-bundle/**+extension dirs to eslint ignores. OPERATOR STEP before live use: set EXTENSION_ALLOWED_ORIGINS=chrome-extension://<id> on edge. Remaining epic US-1753 children: US-1756 (multi-marketplace adapters), US-1757 (store distribution)."
     },
     {
       "id": "US-1756",

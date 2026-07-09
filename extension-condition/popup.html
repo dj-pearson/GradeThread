@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="popup.css" />
+    <title>GradeThread Condition Check</title>
+  </head>
+  <body>
+    <header class="pop-head">
+      <span class="pop-brand">GradeThread</span>
+      <span class="pop-sub">Condition Check</span>
+    </header>
+
+    <main class="pop-body">
+      <p class="pop-lead">
+        An independent AI condition read on eBay listings while you shop.
+      </p>
+
+      <section class="pop-section">
+        <label class="pop-toggle">
+          <input type="checkbox" id="autoRun" />
+          <span>Auto-run on each eBay listing</span>
+        </label>
+        <label class="pop-toggle" id="siteToggleWrap" hidden>
+          <input type="checkbox" id="siteEnabled" />
+          <span id="siteToggleLabel">Enabled on this site</span>
+        </label>
+      </section>
+
+      <section class="pop-section">
+        <h2 class="pop-h2">Recent reads</h2>
+        <ul class="pop-reads" id="reads">
+          <li class="pop-empty">No reads yet — open an eBay listing and click “Get condition read”.</li>
+        </ul>
+      </section>
+
+      <a class="pop-cta" id="signin" href="#" target="_blank" rel="noopener noreferrer">
+        Sign in / connect account
+      </a>
+
+      <footer class="pop-foot">
+        <span id="version"></span>
+        <a id="privacy" href="#" target="_blank" rel="noopener noreferrer">Privacy</a>
+      </footer>
+    </main>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

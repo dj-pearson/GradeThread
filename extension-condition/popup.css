@@ -1,0 +1,62 @@
+/* GradeThread Condition Check — popup styles (US-1755) */
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  width: 320px;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color: #1a1a2e;
+  background: #ffffff;
+}
+
+.pop-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 12px 14px;
+  background: #0f3460;
+  color: #ffffff;
+}
+.pop-brand { font-weight: 700; font-size: 15px; }
+.pop-sub { font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; color: #cfe0ff; }
+
+.pop-body { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 12px; }
+.pop-lead { margin: 0; font-size: 12px; line-height: 1.4; color: #33334d; }
+
+.pop-section { display: flex; flex-direction: column; gap: 8px; }
+.pop-h2 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #6b6b80; }
+
+.pop-toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+.pop-toggle input { accent-color: #e94560; }
+
+.pop-reads { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 220px; overflow-y: auto; }
+.pop-empty { font-size: 12px; color: #8a8a9c; line-height: 1.4; }
+.pop-read { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border: 1px solid #eeeef4; border-radius: 8px; }
+.pop-read a { text-decoration: none; color: inherit; display: flex; align-items: center; gap: 10px; width: 100%; }
+.pop-read-score { flex: 0 0 auto; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 13px; }
+.pop-read-body { min-width: 0; }
+.pop-read-title { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pop-read-meta { font-size: 11px; color: #8a8a9c; }
+
+.s-excellent { background: #1f9d55; }
+.s-good { background: #3a9d5d; }
+.s-fair { background: #d19a1e; }
+.s-poor { background: #d97a2b; }
+.s-bad { background: #e94560; }
+
+.pop-cta {
+  display: block;
+  text-align: center;
+  background: #e94560;
+  color: #fff;
+  font-weight: 600;
+  font-size: 13px;
+  padding: 10px;
+  border-radius: 10px;
+  text-decoration: none;
+}
+.pop-cta:hover { background: #d43a53; }
+
+.pop-foot { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #8a8a9c; }
+.pop-foot a { color: #0f3460; text-decoration: none; }
+.pop-foot a:hover { text-decoration: underline; }

@@ -1,0 +1,27 @@
+{
+  "_comment": "Remotely-updatable eBay selector config for the GradeThread Condition Check extension (US-1755). The extension bundles a copy of this (extension-condition/selectors.js) and fetches this hosted file to pick up selector fixes WITHOUT a Chrome Web Store / AMO resubmission. When eBay changes its listing DOM: fix the selectors below, bump version + lastVerified, and deploy the frontend. Served statically by Cloudflare Pages (not in _routes.json include). Shape must match extension-condition/selectors.js GT_CC_SELECTORS.",
+  "version": "2026.07.1",
+  "lastVerified": "2026-07-09",
+  "ebay": {
+    "itemPathIncludes": "/itm/",
+    "gallery": [
+      ".ux-image-carousel-item img",
+      ".ux-image-carousel img",
+      ".ux-image-magnify__container img",
+      ".ux-image-filmstrip-carousel-item img",
+      "#PicturePanel img",
+      "img[data-idx]"
+    ],
+    "imageAttrs": ["data-zoom-src", "src", "data-src"],
+    "title": [
+      "h1.x-item-title__mainTitle span.ux-textspans",
+      "h1.x-item-title__mainTitle",
+      "h1[data-testid='x-item-title']",
+      ".x-item-title__mainTitle"
+    ],
+    "itemSpecRow": ".ux-labels-values",
+    "itemSpecLabel": ".ux-labels-values__labels",
+    "itemSpecValue": ".ux-labels-values__values",
+    "brandLabels": ["Brand"]
+  }
+}
