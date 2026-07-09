@@ -12716,3 +12716,21 @@ US-1702 DONE (edge+web; MIGRATION 00387 — HELD). The story I had missed.
   sitemap+seo-crawl guards 31 pass / value-index 6 pass. Full edge suite: 3163 passed, 0 failed, 88 ignored (green).
   1 pre-existing seo failure (/buyer/* public-routes, US-1802) — unrelated.
 - No migration. Commit local; NOT pushed (standing pre-launch rule).
+
+── US-1748: Value Index interlinking + rich JSON-LD (2026-07-08) ──
+- Builds on US-1747's value pages. Added Product+AggregateOffer JSON-LD:
+  _shared/condition-index-render.ts valueProductLd (observed comp range low/high +
+  offerCount=sample; NO aggregateRating, no seller/availability — honest market data;
+  null when no priced point). Emitted on the item page (full range) and the condition
+  page (band range). Value pages now carry Product + Dataset + FAQ + Breadcrumb JSON-LD.
+- Interlinking: condition page now links sibling conditions (other comp-backed bands) +
+  back to the item; item page already links condition bands + condition-index + example
+  certs + grade-checker. All anchors descriptive (interlink-rules test = pure functions,
+  value pages are non-hub/unconstrained; verified green). Hub now shows a "Popular brands"
+  line (top 12 by comp depth) alongside the items table.
+- Brand durability ranking link (EPIC 7, US-1773+) NOT built yet → intentionally omitted
+  rather than linking a non-existent page.
+- Tests: condition-index-render.test.ts +3 valueProductLd (range, condition-scoped, null).
+  16 pass; interlink-rules 15 pass.
+- VERIFIED: functions tsc 0 / eslint 0 / web tsc -b 0 / vitest render+interlink 31 pass.
+- No migration, no edge-service change (functions/ + shared render only). Commit local; NOT pushed.

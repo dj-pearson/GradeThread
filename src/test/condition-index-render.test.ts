@@ -10,6 +10,7 @@ import {
   renderGradingFactors,
   renderMethodology,
   renderPerGradeSummary,
+  valueProductLd,
   type ConditionCurveLite,
 } from "../../functions/_shared/condition-index-render";
 import { escape, faqPageJsonLd, formatDate } from "../../functions/_shared/blog-render";
@@ -143,5 +144,42 @@ describe("conditionDatasetLd (US-847)", () => {
     expect(Array.isArray(ld.variableMeasured)).toBe(true);
     expect((ld.variableMeasured as unknown[]).length).toBe(2);
     expect(ld.url).toContain("/condition-index/patagonia-better-sweater");
+  });
+});
+
+describe("valueProductLd (US-1748)", () => {
+  const canonical = "https://gradethread.com/value/patagonia/better-sweater";
+  it("emits a Product + AggregateOffer with the observed comp range and NO aggregateRating", () => {
+    const ld = valueProductLd(CURVE, canonical)!;
+    expect(ld["@type"]).toBe("Product");
+    expect(ld.aggregateRating).toBeUndefined(); // repo rule: no fabricated rating
+    const offers = ld.offers as Record<string, unknown>;
+    expect(offers["@type"]).toBe("AggregateOffer");
+    expect(offers.priceCurrency).toBe("USD");
+    // low = min low across priced points (4000c → 40.00), high = max high (13000c → 130.00).
+    expect(offers.lowPrice).toBe("40.00");
+    expect(offers.highPrice).toBe("130.00");
+    expect(offers.offerCount).toBe(42);
+    expect((ld.brand as Record<string, unknown>).name).toBe("Patagonia");
+  });
+
+  it("scopes to a condition band's own range when given", () => {
+    const ld = valueProductLd(CURVE, `${canonical}/excellent`, {
+      conditionLabel: "Excellent",
+      low: 7000,
+      high: 10000,
+    })!;
+    expect(ld.name).toContain("Excellent");
+    const offers = ld.offers as Record<string, unknown>;
+    expect(offers.lowPrice).toBe("70.00");
+    expect(offers.highPrice).toBe("100.00");
+  });
+
+  it("returns null when no point has a price (never a fabricated offer)", () => {
+    const empty: ConditionCurveLite = {
+      ...CURVE,
+      points: [{ grade: 5, lowCents: null, medianCents: null, highCents: null, sampleSize: 0 }],
+    };
+    expect(valueProductLd(empty, canonical)).toBeNull();
   });
 });

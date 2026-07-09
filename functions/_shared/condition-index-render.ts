@@ -240,3 +240,50 @@ export function conditionDatasetLd(
     ].filter(Boolean),
   };
 }
+
+// ── Product + AggregateOffer JSON-LD (US-1748) ──────────────────────────────
+// The value pages describe a resale MARKET for a specific item, so a Product
+// with an AggregateOffer carrying the observed comp price range (low/high +
+// offerCount = comp sample) is the honest structured-data representation. There
+// is NO aggregateRating and NO seller/availability claim — we don't sell the
+// item; this is observed condition-matched resale data (paired with the Dataset
+// above). Returns null when the curve has no priced points (never a fabricated
+// offer). Optionally scoped to one condition band's range.
+export function valueProductLd(
+  curve: ConditionCurveLite,
+  canonical: string,
+  opts: { conditionLabel?: string; low?: number | null; high?: number | null } = {},
+): Record<string, unknown> | null {
+  const lows = curve.points.map((p) => p.lowCents ?? p.medianCents).filter(
+    (n): n is number => n != null,
+  );
+  const highs = curve.points.map((p) => p.highCents ?? p.medianCents).filter(
+    (n): n is number => n != null,
+  );
+  const low = opts.low ?? (lows.length ? Math.min(...lows) : null);
+  const high = opts.high ?? (highs.length ? Math.max(...highs) : null);
+  if (low == null || high == null) return null;
+
+  const name = opts.conditionLabel
+    ? `${curve.label} (${opts.conditionLabel} condition)`
+    : curve.label;
+  const ld: Record<string, unknown> = {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    name,
+    category: "Pre-owned clothing",
+    description: opts.conditionLabel
+      ? `Observed resale value for a ${curve.label} in ${opts.conditionLabel} condition, from condition-matched comparables.`
+      : `Observed resale value for a ${curve.label} by GradeThread condition grade, from condition-matched comparables.`,
+    url: canonical,
+    offers: {
+      "@type": "AggregateOffer",
+      priceCurrency: curve.currency,
+      lowPrice: (low / 100).toFixed(2),
+      highPrice: (high / 100).toFixed(2),
+      offerCount: curve.totalSampleSize,
+    },
+  };
+  if (curve.brand) ld.brand = { "@type": "Brand", name: curve.brand };
+  return ld;
+}

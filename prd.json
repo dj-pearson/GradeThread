@@ -13431,7 +13431,7 @@
         "Interlink density satisfies the repo interlink-rules test conventions; hub page lists top brands/items"
       ],
       "priority": 1748,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][VALUE-INDEX][GEO] Mirrors condition-index JSON-LD (Dataset/CollectionPage/FAQ). Reuse getExampleCertificates (public certs). No SearchAction/aggregateRating placeholders (repo rule)."
     },
     {

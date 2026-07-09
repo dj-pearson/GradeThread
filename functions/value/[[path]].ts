@@ -33,6 +33,7 @@ import {
   renderGradingFactors,
   renderMethodology,
   renderPerGradeSummary,
+  valueProductLd,
 } from "../_shared/condition-index-render";
 
 interface HubItem {
@@ -113,6 +114,16 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
       { name: tier.label, url: canonical },
     ];
 
+    // Sibling conditions (other bands with comp support) — sideways interlinks.
+    const siblingLinks = CONDITION_TIERS.filter(
+      (t) => t.slug !== tier.slug && nearestPoint(curve.points, t.grade),
+    )
+      .map(
+        (t) =>
+          `<li><a href="/value/${data.brandSlug}/${data.itemSlug}/${t.slug}">${escape(curve.label)} in ${escape(t.label)} condition</a></li>`,
+      )
+      .join("");
+
     const body = `${renderBreadcrumbs(trail, site)}
     <main class="container">
       <h1>${escape(curve.label)} value in ${escape(tier.label)} condition</h1>
@@ -121,14 +132,21 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
       <strong>${typical}</strong> (${range}), from condition-matched resale comps.
       See <a href="${itemUrl.replace(site, "")}">the full value-by-grade breakdown &rarr;</a></p>
       ${renderPerGradeSummary(curve)}
+      ${siblingLinks ? `<h2>Other conditions</h2><ul>${siblingLinks}</ul>` : ""}
       ${renderGradingFactors()}
       ${renderExampleCertificates(curve)}
       ${renderMethodology(curve)}
       <p><a href="/tools/grade-checker">Check your item's condition + value free &rarr;</a></p>
     </main>`;
 
+    const productLd = valueProductLd(curve, canonical, {
+      conditionLabel: tier.label,
+      low: point.lowCents,
+      high: point.highCents,
+    });
     const faqLd = faqPageJsonLd(conditionFaqs(curve));
     const jsonLd: unknown[] = [
+      ...(productLd ? [productLd] : []),
       conditionDatasetLd(curve, canonical, site),
       breadcrumbListLd(trail),
       ...(faqLd ? [faqLd] : []),
@@ -208,8 +226,10 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
       <a href="/tools/grade-checker">Value your own item free &rarr;</a></p>
     </main>`;
 
+    const productLd = valueProductLd(curve, canonical);
     const faqLd = faqPageJsonLd(conditionFaqs(curve));
     const jsonLd: unknown[] = [
+      ...(productLd ? [productLd] : []),
       conditionDatasetLd(curve, canonical, site),
       breadcrumbListLd(trail),
       ...(faqLd ? [faqLd] : []),
@@ -243,11 +263,22 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
       )
       .join("");
 
+    // Top brands by total comp depth (distinct, most-covered first).
+    const brandDepth = new Map<string, number>();
+    for (const it of items) {
+      if (it.brand) brandDepth.set(it.brand, (brandDepth.get(it.brand) ?? 0) + it.totalSampleSize);
+    }
+    const topBrands = [...brandDepth.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 12)
+      .map(([b]) => escape(b));
+
     const body = `<main class="container">
       <h1>What's It Worth — the Value Index</h1>
       <p>Look up what a specific pre-owned item is worth by <em>condition</em>. We grade and comp
       popular items on <a href="/grading-standard">GradeThread's objective 1.0&ndash;10.0 condition
       standard</a>, so you land on an exact-match answer for the brand and item you searched.</p>
+      ${topBrands.length ? `<p class="muted">Popular brands: ${topBrands.join(" &middot; ")}</p>` : ""}
       ${
       items.length === 0
         ? `<p class="muted">The index is warming up — check back soon.</p>`
