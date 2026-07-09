@@ -13418,7 +13418,7 @@
         "sitemap-value.xml.ts + a value URL generator in functions/_shared/sitemap.ts, linked from functions/sitemap.xml.ts; URL set bounded to seeds with real comp depth"
       ],
       "priority": 1747,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][VALUE-INDEX] Model B (dynamic edge-SSR), NOT the prerender registry — so it is exempt from public-routes.test.ts. Public data endpoint extends /api/grading/public/condition-index. Reuse _shared/condition-index-render.ts patterns."
     },
     {

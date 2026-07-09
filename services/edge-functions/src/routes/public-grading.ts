@@ -7,6 +7,7 @@ import {
   type PublicTransparencyReport,
 } from "../lib/accuracy-tracking.ts";
 import { getIndexCurveBySlug, getIndexHub } from "../lib/condition-index.ts";
+import { getValueHub, resolveValueCurve } from "../lib/value-index.ts";
 import {
   computeResaleConditionReport,
   type ResaleConditionReport,
@@ -135,6 +136,32 @@ publicGradingRoutes.get("/condition-index/:slug", async (c) => {
     return c.json({ curve }, 200, { "Cache-Control": "public, max-age=600, s-maxage=3600" });
   } catch {
     return c.json({ error: "Failed to load curve" }, 500);
+  }
+});
+
+// ── Value Index (US-1747) ────────────────────────────────────────────
+// Brand+item-structured projection of the condition-index curves, backing the
+// /value/{brand}/{item}[/{condition}] SEO pages (functions/value/[[path]].ts).
+// Same aggregate-only, thin-data-suppressed data as the condition index.
+
+// GET /api/grading/public/value — the value hub (brand/item slugs + headline).
+publicGradingRoutes.get("/value", async (c) => {
+  try {
+    const items = await getValueHub();
+    return c.json({ items }, 200, { "Cache-Control": "public, max-age=600, s-maxage=3600" });
+  } catch {
+    return c.json({ error: "Failed to load value index" }, 500);
+  }
+});
+
+// GET /api/grading/public/value/:brand/:item — one item's curve + its slugs.
+publicGradingRoutes.get("/value/:brand/:item", async (c) => {
+  try {
+    const resolved = await resolveValueCurve(c.req.param("brand"), c.req.param("item"));
+    if (!resolved) return c.json({ error: "Not found" }, 404);
+    return c.json(resolved, 200, { "Cache-Control": "public, max-age=600, s-maxage=3600" });
+  } catch {
+    return c.json({ error: "Failed to load value" }, 500);
   }
 });
 

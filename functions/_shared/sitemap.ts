@@ -260,6 +260,33 @@ export async function conditionIndexUrls(env: PagesEnv): Promise<SitemapUrl[]> {
   return urls;
 }
 
+/**
+ * Value Index URLs (US-1747): the hub + one brand/item page per published curve.
+ * Bounded to curves with real comp depth — the /api/grading/public/value hub is
+ * already MIN_INDEX_TOTAL_SAMPLE-filtered, so no thin page enters the sitemap.
+ * Per-condition pages are interlinked from the item pages (crawlable) but left
+ * out of the sitemap so a condition band without comp support is never listed.
+ */
+export async function valueIndexUrls(env: PagesEnv): Promise<SitemapUrl[]> {
+  const base = siteUrl(env);
+  const data = await fetchEdgeJson<{
+    items: Array<{ brandSlug: string; itemSlug: string; refreshedAt?: string }>;
+  }>(env, "/api/grading/public/value");
+  const urls: SitemapUrl[] = [
+    { loc: `${base}/value`, lastmod: today(), changefreq: "weekly", priority: 0.7 },
+  ];
+  for (const it of data?.items ?? []) {
+    if (!it.brandSlug || !it.itemSlug) continue;
+    urls.push({
+      loc: `${base}/value/${it.brandSlug}/${it.itemSlug}`,
+      lastmod: it.refreshedAt?.slice(0, 10),
+      changefreq: "weekly",
+      priority: 0.6,
+    });
+  }
+  return urls;
+}
+
 export function urlsetXml(urls: SitemapUrl[]): string {
   const body = urls
     .map(

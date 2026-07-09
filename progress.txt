@@ -12691,3 +12691,28 @@ US-1702 DONE (edge+web; MIGRATION 00387 — HELD). The story I had missed.
 - VERIFIED: deno check src/main.ts CLEAN / deno lint 0 / web tsc -b 0 / functions tsc 0 /
   eslint 0. Full edge suite: (result appended below.)
 - No migration. Commit local; NOT pushed (standing pre-launch rule).
+
+── US-1747: Value Index /value/{brand}/{item}/{condition} URL space (2026-07-08) ──
+- New brand+item(+condition)-structured public view over the SAME condition-index
+  curves (no new data; inherits MIN_INDEX_TOTAL_SAMPLE thin-data suppression).
+- Edge lib value-index.ts (pure + testable): slugify, itemSlugFromCurve (strips brand
+  prefix off the curated slug), CONDITION_TIERS (new/excellent/very-good/good/fair →
+  anchor grade), nearestPointForGrade, valuePath, getValueHub, resolveValueCurve,
+  listValueSitemapUrls. Reuses getIndexHub/getIndexCurveBySlug.
+- Edge endpoints (public-grading.ts): GET /api/grading/public/value (hub) +
+  /value/:brand/:item (resolved curve). Aggregate-only, thin-suppressed.
+- Pages Function functions/value/[[path]].ts (Model B dynamic edge-SSR, cloned from
+  condition-index): /value (hub), /value/{brand}/{item} (full value-by-grade + condition
+  interlinks), /value/{brand}/{item}/{condition} (band-focused). Reuses
+  _shared/condition-index-render (Dataset/FAQ/Breadcrumb JSON-LD, per-grade summary,
+  methodology, example certs). Exempt from public-routes.test (not the prerender registry).
+- Routing: public/_routes.json +/value +/value/* +/sitemap-value.xml; vite.config.ts
+  NAVIGATE_FALLBACK_DENYLIST +/^\/value(\/|$)/ (SW won't serve the SPA shell).
+- Sitemap: _shared/sitemap.ts valueIndexUrls (hub + item URLs, bounded to comp-depth
+  curves; per-condition left out to avoid thin listings) + functions/sitemap-value.xml.ts
+  + linked from sitemap.xml.ts index.
+- Tests: value-index_test.ts 6 pass (slug math, condition mapping, nearest-point, path).
+- VERIFIED: deno check src/main.ts CLEAN / deno lint 0 / functions tsc 0 / web tsc -b 0 /
+  sitemap+seo-crawl guards 31 pass / value-index 6 pass. Full edge suite: 3163 passed, 0 failed, 88 ignored (green).
+  1 pre-existing seo failure (/buyer/* public-routes, US-1802) — unrelated.
+- No migration. Commit local; NOT pushed (standing pre-launch rule).

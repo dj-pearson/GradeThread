@@ -65,6 +65,7 @@ const NAVIGATE_FALLBACK_DENYLIST: RegExp[] = [
   /^\/slab\//,
   /^\/verified\//,
   /^\/condition-index(\/|$)/,
+  /^\/value(\/|$)/,
   /^\/og\//,
   /^\/\.well-known\//,
   /^\/(sitemap.*\.xml|robots\.txt|llms\.txt|rss\.xml|csp-report)$/,
