@@ -1,5 +1,20 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00410_grading_batches.sql (US-1790 batch grading — PART 1, 2026-07-09)
+
+**What:** Two new TENANT-SCOPED tables `public.grading_batches` +
+`public.grading_batch_jobs` (user_id FK, status text+CHECK, attempts, payload
+jsonb, submission_id, counters) + indexes + `set_updated_at` triggers + owner
+SELECT RLS policies. The durable-jobs queue for B2B batch grading. Bumps
+`EXPECTED_SCHEMA_VERSION` → **00410**. Self-records '00410'.
+
+**Risk: LOW — two new isolated tables, no writes to existing tables, and the
+FEATURE IS NOT YET WIRED** (no endpoint/worker/reclaim mounts them — US-1790
+part 2 lands the worker + endpoints). Applying it now is harmless; not urgent
+until part 2 ships. **⚠️ verify:db NOT run (Docker down).** **⚠️ Apply order:**
+after 00409; `scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload schema';`,
+redeploy the edge (boot guard now expects 00410).
+
 ## ⏳ HELD: 00409_api_key_quotas.sql (US-1791 B2B API quotas, 2026-07-09)
 
 **What:** Two ADDITIVE nullable columns on `public.api_keys`:
