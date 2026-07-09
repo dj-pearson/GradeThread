@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { Check } from "lucide-react";
+import { Check, ShoppingBag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   MarketingLayout,
@@ -9,6 +9,9 @@ import {
   GRADETHREAD_TIERS,
   CREDIT_PACKS,
   FLIPDESK_PLANS,
+  BUYER_PLANS,
+  SELLER_PLAN_BUYER_TIER,
+  type BuyerPlanKey,
 } from "@/lib/constants";
 import type { FlipdeskPlan as FlipdeskPlanKey } from "@/types/database";
 import { PRICING_FAQS, pricingJsonLd } from "@/pages/marketing/marketing-jsonld";
@@ -23,6 +26,7 @@ const GRADE_TIER_ROWS = [
 ];
 
 const FLIPDESK_ORDER: FlipdeskPlanKey[] = ["free", "starter", "pro", "business"];
+const BUYER_ORDER: BuyerPlanKey[] = ["free", "guard", "connoisseur"];
 
 export function PricingPage() {
   return (
@@ -39,12 +43,15 @@ export function PricingPage() {
             Simple, transparent pricing
           </h1>
           <p className="mx-auto mt-6 max-w-2xl text-lg text-muted-foreground">
-            GradeThread is free to start — every account gets{" "}
+            One account, both sides of the closet. GradeThread is free to start —
+            every account gets{" "}
             {FLIPDESK_PLANS.free.includedStandardGradesPerMonth} Standard grades
-            a month at no cost. Beyond that you can pay per grade (from{" "}
+            a month at no cost. Pay per grade (from{" "}
             {dollars(GRADETHREAD_TIERS.standard.priceCents)}), buy credit packs
-            that never expire, or subscribe to FlipDesk to manage your whole
-            reseller workflow. No setup fees, and you can change plans anytime.
+            that never expire, subscribe to FlipDesk to run your whole reseller
+            workflow, or take a buyer plan to shop secondhand with confidence.
+            Every FlipDesk plan includes buyer tools, so sellers get both. No
+            setup fees, change plans anytime.
           </p>
           {/* US-1470: automatic_tax is enabled at checkout, so surface the
               tax/currency disclaimer here (it previously existed only on the
@@ -148,6 +155,25 @@ export function PricingPage() {
                       </li>
                     ))}
                   </ul>
+                  {/* US-1889: every seller plan bundles tier-matched buyer
+                      functions (US-1887). Show the included buyer suite so the
+                      two-sided value is explicit. */}
+                  {(() => {
+                    const buyerPlan = BUYER_PLANS[SELLER_PLAN_BUYER_TIER[key]];
+                    return (
+                      <div className="mt-4 rounded-md border border-dashed border-brand-navy/30 p-3 dark:border-foreground/20">
+                        <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-brand-navy dark:text-foreground">
+                          <ShoppingBag className="h-3.5 w-3.5" />
+                          Includes {buyerPlan.name} buyer tools
+                        </p>
+                        <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+                          {buyerPlan.features.slice(0, 3).map((f) => (
+                            <li key={f}>• {f}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })}
@@ -169,6 +195,46 @@ export function PricingPage() {
             </Link>
             .
           </p>
+        </div>
+      </section>
+
+      {/* Buyer plans (US-1889) — standalone for non-sellers; included with any
+          FlipDesk plan for sellers (tier-matched, US-1887). */}
+      <section className="border-t bg-card px-6 py-16">
+        <div className="mx-auto max-w-5xl">
+          <h2 className="text-3xl font-bold">Buyer plans</h2>
+          <p className="mt-3 text-muted-foreground">
+            Shop secondhand with confidence — a second opinion on any listing's
+            condition, condition-based alerts, fit, and grade-locked purchase
+            protection.{" "}
+            <span className="font-medium text-foreground">
+              Already sell with FlipDesk? These come included with your plan
+            </span>{" "}
+            (Starter &amp; Pro include Guard, Business includes Connoisseur) — no
+            separate purchase.
+          </p>
+          <div className="mt-8 grid gap-6 sm:grid-cols-3">
+            {BUYER_ORDER.map((key) => {
+              const plan = BUYER_PLANS[key];
+              return (
+                <div key={key} className="flex flex-col rounded-lg border bg-background p-6">
+                  <h3 className="text-lg font-semibold">{plan.name}</h3>
+                  <p className="mt-2 text-3xl font-bold text-brand-navy dark:text-foreground">
+                    {dollars(plan.priceMonthlyCents)}
+                    <span className="text-sm font-normal text-muted-foreground">/mo</span>
+                  </p>
+                  <ul className="mt-4 flex-1 space-y-2 text-sm text-muted-foreground">
+                    {plan.features.map((f) => (
+                      <li key={f} className="flex items-start gap-2">
+                        <Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-brand-navy dark:text-foreground" />
+                        {f}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </section>
 

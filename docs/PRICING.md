@@ -61,6 +61,39 @@ a tier may open; it is not a count of every channel a seller can list to:
 
 ---
 
+## 1b. Buyer plans & seller bundling (US-1886 / US-1887)
+
+GradeThread is two-sided: the same account can sell **and** buy. Buyer plans
+(machine-readable mirror: `BUYER_PLANS` in `src/lib/constants.ts`) monetize
+point-of-purchase confidence for shoppers.
+
+| Buyer tier | Monthly | Annual | Highlights |
+|---|---|---|---|
+| **Free** | $0 | $0 | 10 extension second-opinions/mo, 3 daily condition alerts, rewards, trust score, 10 closet items |
+| **Guard** | $8 | $80 | Unlimited extension + discrepancy/price-fairness, fit prediction, 3 authenticity + 2 video credits/mo, standard grade-locked guarantee, 25 hourly alerts, 200 closet items |
+| **Connoisseur** | $19 | $190 | Everything in Guard + demand board + priority support, plus guarantee, unlimited instant alerts, 15 authenticity + 10 video credits, unlimited closet |
+
+**Seller plans INCLUDE buyer functions, tier-matched** (`SELLER_PLAN_BUYER_TIER`).
+A seller never needs a separate buyer subscription — their **effective buyer
+plan is the higher of** their buyer subscription (if any) and this seller-derived
+tier:
+
+| FlipDesk (seller) plan | Included buyer tier |
+|---|---|
+| Free | Buyer Free |
+| Starter | Buyer Guard |
+| Pro | Buyer Guard |
+| Business | Buyer Connoisseur |
+
+Standalone buyer plans remain for **non-sellers**. A lapsed/paused seller loses
+the seller-derived bump (grace window honored on the edge via `effectivePlanFor`)
+but any standing buyer subscription still applies. Resolution is mirrored on the
+client (`use-buyer-entitlements.ts`) and edge (`buyer-entitlements.ts`) — keep
+them in lockstep. Any change to `BUYER_PLANS` / `SELLER_PLAN_BUYER_TIER` MUST
+update this section in the same PR.
+
+---
+
 ## 2. GradeThread per-grade pricing
 
 | Tier | Price | SLA | Credit cost |

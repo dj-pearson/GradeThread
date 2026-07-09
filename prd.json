@@ -15372,7 +15372,7 @@
       "id": "US-1886",
       "title": "EPIC: Bundle buyer functions into seller plans (two-sided, Etsy-style)",
       "priority": 1886,
-      "passes": false,
+      "passes": true,
       "description": "As GradeThread, we want seller (FlipDesk) plans to INCLUDE tier-matched buyer functions (incl. the extension) and one account to switch between selling and buying like Etsy, so that every seller is also an empowered buyer and the two-sided flywheel is one coherent product, not two silos.",
       "acceptanceCriteria": [
         "Seller plans grant buyer functions tier-matched: Free->buyer Free, Starter->Guard, Pro->Guard, Business->Connoisseur; effective buyer plan = higher of buyer subscription and seller-derived tier",
@@ -15380,7 +15380,7 @@
         "Pricing page shows each seller plan's included buyer confidence suite alongside the standalone buyer plans",
         "Standalone buyer subscriptions remain for non-sellers; no double-charge; client + edge entitlement resolution stay in lockstep"
       ],
-      "notes": "[P1][BUYER][SELLER][STRATEGY] Founder directive 2026-07-09. Ties US-1794 buyer platform + US-1872 unified extension (sellers get buyer research). Mapping SELLER_PLAN_BUYER_TIER confirmed tier-matched. Children: US-1887 entitlement resolution, US-1888 role-aware access+switch, US-1889 pricing redo."
+      "notes": "[P1][BUYER][SELLER][EPIC] DONE 2026-07-09. All children complete: US-1887 entitlement resolution (seller->buyer tier max-of), US-1888 role-aware access + Etsy switch, US-1889 pricing redo + PRICING.md. Seller plans bundle tier-matched buyer functions; one account switches buyer<->seller. Standalone buyer subs remain for non-sellers. Ties US-1794/US-1872."
     },
     {
       "id": "US-1887",
@@ -15414,7 +15414,7 @@
       "id": "US-1889",
       "title": "Pricing page redo — seller plans include buyer suite",
       "priority": 1889,
-      "passes": false,
+      "passes": true,
       "description": "As a prospective customer, I want the pricing page to show that seller plans include buyer functions so that the bundled value is clear.",
       "acceptanceCriteria": [
         "Each seller plan card lists its included buyer confidence suite (tier-matched)",
@@ -15422,7 +15422,7 @@
         "Copy reflects one-account, two-sided model; PRICING.md updated",
         "SEO/prerender unaffected; no placeholder markup for data that does not exist"
       ],
-      "notes": "[P1][BUYER][SELLER][MARKETING] Depends on US-1887 mapping. Update pricing page + docs/PRICING.md."
+      "notes": "[P1][BUYER][SELLER][MARKETING] DONE 2026-07-09. Pricing page (/pricing): each FlipDesk seller card now shows its included buyer suite (Includes {tier} buyer tools + top features) via SELLER_PLAN_BUYER_TIER; new Buyer plans section (Free/Guard/Connoisseur) for non-sellers with the included-with-FlipDesk note; intro reframed one-account two-sided. docs/PRICING.md section 1b added (buyer tiers + seller-bundle mapping). JSON-LD untouched (no placeholder markup). tsc+eslint+public-routes green."
     }
   ]
 }
