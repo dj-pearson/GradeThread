@@ -12637,3 +12637,14 @@ US-1702 DONE (edge+web; MIGRATION 00387 — HELD). The story I had missed.
 - NEW EDGE ENV (deploy-time, optional): EXTENSION_ALLOWED_ORIGINS — set once the
   extension's store id is known (US-1755). Endpoint works without it (server-to-
   server / same-origin); only browser cross-origin from the extension needs it.
+
+── Build health: cron-registry drift guard line-ending fix (2026-07-08) ──
+- Investigated the lone edge-suite failure (cron-registry-drift_test.ts). Root
+  cause: NOT a real bug — core.autocrlf=true smudges the LF-in-git COOLIFY.md /
+  LAUNCH_CHECKLIST.md to CRLF in the Windows working tree; the test's marker
+  regex was LF-only (`-->\n`) so it missed → "markers missing". Git stores both
+  as LF, so Linux CI checks out LF and the test PASSED on CI the whole time.
+- Fixed the TEST (not the docs) to be line-ending-agnostic: normalize CRLF->LF
+  before matching. No doc change (git already has them correct). Edge suite now
+  green locally too (was 3153/1, now 3154/0). Commit 38a6d404.
+- Not a prd story; pending count unchanged (179).
