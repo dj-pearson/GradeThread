@@ -80,9 +80,13 @@ Deno.test("US-1561: registry entries are unique and every schedule parses", () =
 });
 
 Deno.test("US-1561: COOLIFY.md and LAUNCH_CHECKLIST.md embed the generated table verbatim", async () => {
-  const expected = renderCronDocs().trim();
+  // renderCronDocs() emits LF; normalize the docs' line endings before matching
+  // so the guard is agnostic to the dev's checkout config. On a Windows checkout
+  // core.autocrlf=true smudges these LF-in-git files to CRLF in the working tree,
+  // which would otherwise make the LF-only marker regex miss ("markers missing").
+  const expected = renderCronDocs().replace(/\r\n/g, "\n").trim();
   for (const [doc, url] of [["COOLIFY.md", COOLIFY], ["LAUNCH_CHECKLIST.md", CHECKLIST]] as const) {
-    const text = await Deno.readTextFile(url);
+    const text = (await Deno.readTextFile(url)).replace(/\r\n/g, "\n");
     const m = text.match(
       /<!-- cron-registry:start[^>]*-->\n([\s\S]*?)\n<!-- cron-registry:end -->/,
     );
