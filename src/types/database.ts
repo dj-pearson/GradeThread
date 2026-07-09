@@ -3160,6 +3160,46 @@ export type WatchlistItemInsert =
   & { user_id: string; target_type: WatchlistItemRow["target_type"]; target_id: string }
   & Partial<Pick<WatchlistItemRow, "label" | "brand">>;
 
+// US-1816: buyer Trust Score. reputation_events is the append-only authority;
+// buyer_trust_scores is the derived cache. Both owner-READ only (service writes);
+// the deterministic scorer lives in the edge (lib/buyer-trust-score.ts).
+export type ReputationEventType =
+  | "verified_purchase"
+  | "grade_confirmed"
+  | "dispute_upheld"
+  | "dispute_overturned"
+  | "chargeback_penalty"
+  | "tenure";
+export interface ReputationEventRow {
+  id: string;
+  user_id: string;
+  event_type: ReputationEventType;
+  /** Anti-gaming: only verified events score. */
+  verified: boolean;
+  magnitude: number | null;
+  source: string;
+  reference_id: string;
+  metadata: Record<string, unknown>;
+  occurred_at: string;
+  created_at: string;
+}
+export type ReputationEventInsert =
+  & { user_id: string; event_type: ReputationEventType }
+  & Partial<Omit<ReputationEventRow, "id" | "user_id" | "event_type" | "created_at">>;
+
+export interface BuyerTrustScoreRow {
+  user_id: string;
+  score: number;
+  level: number;
+  level_label: string;
+  event_count: number;
+  computed_at: string;
+  updated_at: string;
+}
+export type BuyerTrustScoreInsert =
+  & { user_id: string }
+  & Partial<Omit<BuyerTrustScoreRow, "user_id" | "updated_at">>;
+
 // ─── Database schema type (for Supabase client) ────────────────────
 
 export interface Database {
@@ -3190,6 +3230,17 @@ export interface Database {
         Row: WatchlistItemRow;
         Insert: WatchlistItemInsert;
         Update: Partial<Pick<WatchlistItemRow, "label" | "brand">>;
+      };
+      // US-1816: buyer Trust Score — event log + derived score (owner-read).
+      reputation_events: {
+        Row: ReputationEventRow;
+        Insert: ReputationEventInsert;
+        Update: Partial<Omit<ReputationEventRow, "id" | "user_id" | "created_at">>;
+      };
+      buyer_trust_scores: {
+        Row: BuyerTrustScoreRow;
+        Insert: BuyerTrustScoreInsert;
+        Update: Partial<Omit<BuyerTrustScoreRow, "user_id" | "created_at">>;
       };
       // US-1792: B2B API overage credit wallet (owner-read; service-role writes).
       api_credit_wallet: {

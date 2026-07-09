@@ -1,5 +1,26 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ PENDING: 00417_buyer_trust_score.sql (US-1816 buyer Trust Score model + engine, 2026-07-09)
+
+**What:** Two new OWNER-READ / SERVICE-WRITE tables (RLS `FOR SELECT USING
+(auth.uid() = user_id)` only — a buyer sees their reputation but can never
+fabricate it; only the service-role client writes, like `buyer_notification_log`
+00412) seeding the Trust Score epic (US-1815): `public.reputation_events` (the
+append-only event log — event_type CHECK IN verified_purchase/grade_confirmed/
+dispute_upheld/dispute_overturned/chargeback_penalty/tenure, `verified` gate,
+magnitude, source, reference_id, metadata; UNIQUE(user_id,event_type,reference_id)
+for idempotent emission) + `public.buyer_trust_scores` (derived cache: score,
+level 0..3, level_label, event_count — recomputed from the log, never authority).
+Deterministic scorer is `lib/buyer-trust-score.ts`. Bumps
+`EXPECTED_SCHEMA_VERSION` → **00417**. Self-records '00417'.
+
+**Risk: LOW** — two brand-new isolated tables, no writes to existing tables. NO
+client reads/writes them yet (the buyer-facing surface is US-1818; producers are
+the rewards/dispute/billing flows, US-1810+), so unlike 00416 nothing breaks on
+the frontend auto-deploy — but the edge boot guard expects 00417 on next deploy.
+**⚠️ Apply order:** after 00416; `scripts/apply-prod-migrations.sh`, then
+`NOTIFY pgrst, 'reload schema';`, redeploy the edge (boot guard now expects 00417).
+
 ## ⏳ PENDING: 00416_alerts_watchlist.sql (US-1806 alerts watchlist + saved-search model, 2026-07-09)
 
 **What:** Two new TENANT-SCOPED, owner-managed tables (RLS `auth.uid() = user_id`,

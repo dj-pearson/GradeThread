@@ -12830,3 +12830,33 @@ US-1702 DONE (edge+web; MIGRATION 00387 — HELD). The story I had missed.
   `as never` on inserts per the documented project-ref quirk, added 0 net) / edge
   schema-version 12 pass / rls-guard pass / deno check src/main.ts CLEAN.
 - ⚠️ HELD MIGRATION — commit local; NOT pushed until user applies 00416 (after 00415).
+
+── US-1816: Trust Score — reputation event model + scoring engine (2026-07-09) ──
+- ★ FOUNDATION of the Trust Score epic (US-1815). Unblocks US-1817 (levels/badges/
+  perks) + US-1818 (public buyer profile).
+- Migration 00417 (HELD): two OWNER-READ / SERVICE-WRITE tables (RLS SELECT-only,
+  like buyer_notification_log 00412 — a buyer SEES their reputation but can't
+  fabricate it) — reputation_events (append-only event log: event_type CHECK IN
+  verified_purchase/grade_confirmed/dispute_upheld/dispute_overturned/
+  chargeback_penalty/tenure, `verified` anti-gaming gate, magnitude, source,
+  reference_id, metadata; UNIQUE(user,type,reference)=idempotent emission) +
+  buyer_trust_scores (derived cache, NEVER authority). EXPECTED_SCHEMA_VERSION →
+  00417. Packaged in PENDING_MIGRATIONS.md (LOW risk; nothing client-side reads it
+  yet → safe on frontend auto-deploy, but edge boot guard expects 00417).
+- Engine: lib/buyer-trust-score.ts — PURE computeTrustScore(events, nowMs) (no DB,
+  unit-tested like condition-index selectDueSeeds). Deterministic + documented, no
+  black box: only VERIFIED events score; positives DECAY (540d half-life) while
+  PENALTIES decay slower (1460d — abuse sticks); tenure capped at 48; score floored
+  at 0; levels new/trusted/established/connoisseur at 0/40/120/300. Plus service-
+  role emitReputationEvent (idempotent upsert, ignoreDuplicates) + recomputeTrustScore
+  (reconstructs from the log, idempotent upsert) — both scope by user_id (US-268).
+- Producers (rewards confirm/dispute, chargeback webhook, tenure cron) wire in with
+  US-1810+; no edge ROUTE this story → no tenant-isolation_test case yet (emit/recompute
+  take userId directly, never a request-body id).
+- Tests: buyer-trust-score_test.ts 12 pass (empty, anti-gaming unverified=0, full base
+  at age 0, positive decay, penalty floor-at-0, penalty-sticks-longer, tenure cap,
+  every level boundary, connoisseur path, determinism, dispute up/overturned semantics).
+- VERIFIED: deno lint 0 / deno check buyer-trust-score.ts CLEAN / schema-version 12 +
+  rls-guard 1 pass / web tsc --noEmit 0 / eslint 0 / tsc -b at baseline 7. Full edge
+  suite: running.
+- ⚠️ HELD MIGRATION — commit local; NOT pushed until user applies 00417 (after 00416).

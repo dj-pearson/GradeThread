@@ -14339,7 +14339,7 @@
         "Migration triple satisfied"
       ],
       "priority": 1816,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][REPUTATION][NEW] Load migrations skill. Event-sourced + deterministic (like passport-confidence.ts / north-star.ts style pure logic). Anti-gaming: only VERIFIED events score; penalties for chargebacks/false disputes. Depends on rewards (1810) as a primary event source."
     },
     {
