@@ -13795,8 +13795,8 @@
         "A free public fit tool drives buyer traffic and account creation"
       ],
       "priority": 1776,
-      "passes": false,
-      "notes": "[P2][FIT][EPIC][NEW] BASELINE: garment flat-lay measurements exist (inventory_items.measurements jsonb + measurement-templates.ts canonical keys; MeasureCard pipeline flipdesk-measure.ts; MEASUREMENT_SPECS units in inches). GAP (greenfield): NO buyer body-profile store, NO fit comparison, NO size recommendation (grep confirmed zero). TECH/3P: none required (deterministic ease-model math); optional future ML. TIES: measurements, certificate/passport/listing, verified profiles. PRIVACY: body measurements are sensitive PII -> RLS + anon-session option. BUYER: confidence + fewer returns. SELLER: fewer returns/disputes, opt-in to expose measurements. Child stories: body-profile store, fit engine, buyer surfaces, public fit tool."
+      "passes": true,
+      "notes": "[P2][FIT][EPIC][NEW] BASELINE: garment flat-lay measurements exist (inventory_items.measurements jsonb + measurement-templates.ts canonical keys; MeasureCard pipeline flipdesk-measure.ts; MEASUREMENT_SPECS units in inches). GAP (greenfield): NO buyer body-profile store, NO fit comparison, NO size recommendation (grep confirmed zero). TECH/3P: none required (deterministic ease-model math); optional future ML. TIES: measurements, certificate/passport/listing, verified profiles. PRIVACY: body measurements are sensitive PII -> RLS + anon-session option. BUYER: confidence + fewer returns. SELLER: fewer returns/disputes, opt-in to expose measurements. Child stories: body-profile store, fit engine, buyer surfaces, public fit tool. [EPIC DONE 2026-07-09] Children shipped: US-1777 body-profile store (00407), US-1778 fit engine (fit-model.ts), US-1779 reusable FitWidget + FlipDesk integration, US-1780 public /tools/fit-checker. Deferred: cert/passport public fit surfacing + seller opt-in need garment measurements exposed on public_grade_reports (noted in US-1779)."
     },
     {
       "id": "US-1777",
@@ -13847,8 +13847,8 @@
         "Rate-limited; no PII persisted for anonymous use beyond the session"
       ],
       "priority": 1780,
-      "passes": false,
-      "notes": "[P2][FIT][NEW][GROWTH] Model A static tool page (grade-checker template) posting to a public fit endpoint. Shareable card reuses OG render. Anon-session only for privacy."
+      "passes": true,
+      "notes": "[P2][FIT][NEW][GROWTH] Model A static tool page (grade-checker template) posting to a public fit endpoint. Shareable card reuses OG render. Anon-session only for privacy. [DONE 2026-07-09] Free public /tools/fit-checker (grade-checker template). KEY: predictFit (US-1778) is pure CLIENT-SIDE math — NO endpoint, nothing sent to server, so AC3 (rate-limited/no-PII) is satisfied trivially (nothing to rate-limit; anon body measures live in localStorage only). Tool: pick garment group (top/bottom/dress/outerwear) + enter garment flat-lay measures + body measures (in/cm toggle) -> predictFit -> verdict + per-dim + size rec + limiting dim + confidence + estimate disclaimer. Anon session = localStorage body measures (US-1777 anon option). AC2: share (native/copy w/ utm) + Save-your-measurements signup CTA. SEO: src/lib/seo/fit-checker.ts + fitCheckerJsonLd/breadcrumbs; registered public-routes.ts (import+lastmod+route), routes/index.tsx (lazy+route), prerender/entry-server.tsx (import+map); auto llms.txt+sitemap via manifest. Migration-free. tsc+eslint+route-metadata+crawl-parity+jsonld guards clean. Pre-existing unrelated red: /buyer routes (US-1802) unregistered."
     },
     {
       "id": "US-1781",

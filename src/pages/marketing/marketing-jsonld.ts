@@ -77,6 +77,7 @@ import {
   AUTHENTICITY_CHECK_META,
   AUTHENTICITY_CHECK_PATH,
 } from "@/lib/seo/authenticity-check";
+import { FIT_CHECKER_META, FIT_CHECKER_PATH } from "@/lib/seo/fit-checker";
 import { absoluteUrl } from "@/lib/seo/public-routes";
 import { LANDING_FAQS } from "@/pages/landing-faqs";
 import { SITE_URL } from "@/lib/seo/public-routes";
@@ -896,6 +897,30 @@ export function authenticityCheckJsonLd(): JsonLd[] {
     provider: { "@id": `${SITE_URL}/#organization` },
   };
   return [app, faqPageLd(AUTHENTICITY_CHECK_META.faqs)];
+}
+
+// ── Free fit-checker tool (US-1780) ──────────────────────────────────
+export function fitCheckerBreadcrumbItems(): Array<{ name: string; url: string }> {
+  return [
+    { name: "GradeThread", url: `${SITE_URL}/` },
+    { name: "Tools", url: `${SITE_URL}/tools/fit-checker` },
+    { name: "Fit checker", url: `${SITE_URL}${FIT_CHECKER_PATH}` },
+  ];
+}
+export function fitCheckerJsonLd(): JsonLd[] {
+  const app: JsonLd = {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    name: "Will It Fit Me? Free Clothing Fit Checker",
+    url: absoluteUrl(FIT_CHECKER_PATH),
+    applicationCategory: "UtilitiesApplication",
+    operatingSystem: "Web",
+    description: FIT_CHECKER_META.description,
+    offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+    isAccessibleForFree: true,
+    provider: { "@id": `${SITE_URL}/#organization` },
+  };
+  return [app, faqPageLd(FIT_CHECKER_META.faqs)];
 }
 
 // ── /grading/methodology (US-1677, E-E-A-T) ─────────────────────────

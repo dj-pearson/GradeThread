@@ -133,6 +133,8 @@ import { GRADE_CHECKER_PATH } from "@/lib/seo/grade-checker";
 import { GradeCheckerPage } from "@/pages/tools/grade-checker";
 import { AUTHENTICITY_CHECK_PATH } from "@/lib/seo/authenticity-check";
 import { AuthenticityCheckPage } from "@/pages/tools/authenticity-check";
+import { FIT_CHECKER_PATH } from "@/lib/seo/fit-checker";
+import { FitCheckerPage } from "@/pages/tools/fit-checker";
 
 // Static map of prerenderable routes → page element.
 const PAGES: Record<string, React.ReactNode> = {
@@ -274,6 +276,7 @@ const PAGES: Record<string, React.ReactNode> = {
   [GRADE_CHECKER_PATH]: <GradeCheckerPage />,
   // Free authenticity-check tool (US-1771).
   [AUTHENTICITY_CHECK_PATH]: <AuthenticityCheckPage />,
+  [FIT_CHECKER_PATH]: <FitCheckerPage />,
 };
 
 export function renderRoute(path: string): string {
