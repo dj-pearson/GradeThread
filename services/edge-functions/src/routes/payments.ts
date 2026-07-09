@@ -6,7 +6,7 @@ import { isProduction } from "../lib/env.ts";
 import { captureServer } from "../lib/posthog.ts";
 import { emitEvent } from "../lib/user-events.ts";
 import { customerCreateIdempotencyKey } from "../lib/stripe-customer.ts";
-import { getFlipdeskPriceIds } from "../lib/pricing-config.ts";
+import { getBuyerPriceIds, getFlipdeskPriceIds } from "../lib/pricing-config.ts";
 import { appstoreSubscriptionBlocksStripe } from "../lib/appstore/precedence.ts";
 import { CATALOG_VERSION, serializeCatalog } from "../lib/appstore/products.ts";
 
@@ -131,7 +131,7 @@ async function loadUser(userId: string) {
   return await supabaseAdmin
     .from("users")
     .select(
-      "id, email, full_name, stripe_customer_id, flipdesk_plan, subscription_status, trial_ends_at, flipdesk_subscription_id, billing_source, pending_referral_coupon, pending_drip_coupon, pending_drip_coupon_expires_at",
+      "id, email, full_name, stripe_customer_id, flipdesk_plan, subscription_status, trial_ends_at, flipdesk_subscription_id, billing_source, pending_referral_coupon, pending_drip_coupon, pending_drip_coupon_expires_at, buyer_plan, buyer_interval, buyer_subscription_status, buyer_subscription_id, buyer_period_end, buyer_cancel_at_period_end",
     )
     .eq("id", userId)
     .single();
@@ -474,6 +474,138 @@ paymentRoutes.post("/flipdesk/subscribe", async (c) => {
   } catch (err) {
     console.error("FlipDesk subscribe checkout failed:", err);
     return c.json({ error: "Failed to create subscription checkout" }, 500);
+  }
+});
+
+// US-1799: buyer subscription checkout (Guard / Connoisseur). Mirrors the
+// FlipDesk subscribe path but writes the BUYER product on the SAME Stripe
+// customer, keyed off buyer_subscription_id — so a person can hold a buyer AND a
+// seller sub without collision. metadata.product="buyer" lets the webhook branch.
+paymentRoutes.post("/buyer/subscribe", async (c) => {
+  const userId = c.get("userId");
+
+  let body: { plan?: string; interval?: string };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const plan = body.plan;
+  const interval = body.interval ?? "monthly";
+  if (plan !== "guard" && plan !== "connoisseur") {
+    return c.json({ error: "plan must be one of: guard, connoisseur" }, 400);
+  }
+  if (interval !== "monthly" && interval !== "yearly") {
+    return c.json({ error: "interval must be 'monthly' or 'yearly'" }, 400);
+  }
+
+  const priceId = getBuyerPriceIds()[plan][interval];
+  if (!priceId) {
+    console.error(`Missing Stripe price ID for buyer ${plan} ${interval}`);
+    return c.json({ error: "Pricing not configured" }, 503);
+  }
+
+  const { data: user, error: userError } = await loadUser(userId);
+  if (userError || !user) return c.json({ error: "User not found" }, 404);
+
+  const stripe = getStripe();
+  if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
+
+  // In-place upgrade / interval change when a live buyer sub already exists —
+  // keyed off buyer_subscription_id so it can NEVER mutate the seller sub.
+  if (user.buyer_subscription_id && user.buyer_subscription_status !== "canceled") {
+    try {
+      const existing = await stripe.subscriptions.retrieve(user.buyer_subscription_id);
+      const item = existing.items.data[0];
+      if (!item) return c.json({ error: "Subscription has no line item to update" }, 500);
+      const currentPriceId = typeof item.price === "string" ? item.price : item.price?.id;
+      if (currentPriceId === priceId) return c.json({ ok: true, updated: true, unchanged: true });
+      if (existing.schedule) {
+        const scheduleId = typeof existing.schedule === "string" ? existing.schedule : existing.schedule.id;
+        await stripe.subscriptionSchedules.release(scheduleId);
+      }
+      await stripe.subscriptions.update(user.buyer_subscription_id, {
+        items: [{ id: item.id, price: priceId }],
+        proration_behavior: "create_prorations",
+        metadata: { ...existing.metadata, user_id: userId, product: "buyer", plan, interval },
+      });
+      return c.json({ ok: true, updated: true });
+    } catch (err) {
+      console.error("Buyer subscription update (upgrade) failed:", err);
+      return c.json({ error: "Failed to update subscription" }, 500);
+    }
+  }
+
+  try {
+    const sessionParams: Stripe.Checkout.SessionCreateParams = {
+      mode: "subscription",
+      payment_method_types: ["card"],
+      line_items: [{ price: priceId, quantity: 1 }],
+      metadata: { user_id: userId, product: "buyer", plan, interval },
+      subscription_data: { metadata: { user_id: userId, product: "buyer", plan, interval } },
+      success_url: `${siteUrl()}/buyer/billing?checkout=success&product=buyer`,
+      cancel_url: `${siteUrl()}/buyer/billing?checkout=cancelled`,
+      automatic_tax: { enabled: true },
+      billing_address_collection: "required",
+      allow_promotion_codes: true,
+      tax_id_collection: { enabled: true },
+    };
+    // SAME single customer as the seller sub (created lazily if needed).
+    sessionParams.customer = await ensureStripeCustomer(stripe, user);
+    sessionParams.customer_update = { name: "auto", address: "auto" };
+
+    const session = await stripe.checkout.sessions.create(sessionParams, {
+      idempotencyKey: `buyer-subscribe:${userId}:${plan}:${interval}`,
+    });
+    void emitEvent(userId, "checkout_started", {
+      properties: { kind: "buyer_subscribe", plan, interval },
+    });
+    return c.json({ sessionId: session.id, url: session.url });
+  } catch (err) {
+    console.error("Buyer subscribe checkout failed:", err);
+    return c.json({ error: "Failed to create subscription checkout" }, 500);
+  }
+});
+
+// US-1799: cancel the buyer subscription at period end (keeps access until the
+// paid period ends; the webhook flips buyer_cancel_at_period_end + eventually
+// deletes → free). Scoped to buyer_subscription_id.
+paymentRoutes.post("/buyer/cancel", async (c) => {
+  const userId = c.get("userId");
+  const { data: user, error: userError } = await loadUser(userId);
+  if (userError || !user) return c.json({ error: "User not found" }, 404);
+  if (!user.buyer_subscription_id || user.buyer_subscription_status === "canceled") {
+    return c.json({ error: "No active buyer subscription" }, 400);
+  }
+  const stripe = getStripe();
+  if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
+  try {
+    await stripe.subscriptions.update(user.buyer_subscription_id, { cancel_at_period_end: true });
+    // Optimistic — the subscription.updated webhook is authoritative.
+    await supabaseAdmin.from("users").update({ buyer_cancel_at_period_end: true }).eq("id", userId);
+    return c.json({ ok: true, cancel_at_period_end: true });
+  } catch (err) {
+    console.error("Buyer cancel failed:", err);
+    return c.json({ error: "Failed to cancel subscription" }, 500);
+  }
+});
+
+// US-1799: undo a scheduled buyer cancellation before the period ends.
+paymentRoutes.post("/buyer/uncancel", async (c) => {
+  const userId = c.get("userId");
+  const { data: user, error: userError } = await loadUser(userId);
+  if (userError || !user) return c.json({ error: "User not found" }, 404);
+  if (!user.buyer_subscription_id) return c.json({ error: "No buyer subscription" }, 400);
+  const stripe = getStripe();
+  if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
+  try {
+    await stripe.subscriptions.update(user.buyer_subscription_id, { cancel_at_period_end: false });
+    await supabaseAdmin.from("users").update({ buyer_cancel_at_period_end: false }).eq("id", userId);
+    return c.json({ ok: true, cancel_at_period_end: false });
+  } catch (err) {
+    console.error("Buyer uncancel failed:", err);
+    return c.json({ error: "Failed to resume subscription" }, 500);
   }
 });
 
@@ -841,7 +973,8 @@ paymentRoutes.get("/billing-summary", async (c) => {
         "trial_ends_at, grade_credit_balance, grades_used_this_month, grade_reset_at, " +
         "ai_actions_used_this_month, ai_action_limit, stripe_customer_id, flipdesk_subscription_id, " +
         "pending_flipdesk_plan, pending_flipdesk_interval, pending_effective_at, " +
-        "usage_alert_thresholds, last_warning_at, billing_source, appstore_product_id",
+        "usage_alert_thresholds, last_warning_at, billing_source, appstore_product_id, " +
+        "buyer_plan, buyer_interval, buyer_subscription_status, buyer_period_end, buyer_cancel_at_period_end",
     )
     .eq("id", userId)
     .single();
@@ -873,6 +1006,11 @@ paymentRoutes.get("/billing-summary", async (c) => {
     last_warning_at: Record<string, string> | null;
     billing_source: string | null;
     appstore_product_id: string | null;
+    buyer_plan: string | null;
+    buyer_interval: string | null;
+    buyer_subscription_status: string | null;
+    buyer_period_end: string | null;
+    buyer_cancel_at_period_end: boolean | null;
   };
 
   const [
@@ -932,6 +1070,17 @@ paymentRoutes.get("/billing-summary", async (c) => {
       // hides plan-change/cancel CTAs and shows "managed in the iOS app".
       billing_source: u.billing_source,
       appstore_product_id: u.appstore_product_id,
+    },
+    // US-1799: the buyer SUBSCRIPTION state (Free/Guard/Connoisseur). The
+    // effective entitlement (higher of this and the seller-derived tier, US-1887)
+    // is resolved separately by useBuyerEntitlements — this is just the sub the
+    // buyer pays for directly, for the buyer billing page.
+    buyer: {
+      plan: u.buyer_plan ?? "free",
+      interval: u.buyer_interval,
+      status: u.buyer_subscription_status ?? "none",
+      period_end: u.buyer_period_end,
+      cancel_at_period_end: u.buyer_cancel_at_period_end ?? false,
     },
     grades: {
       credit_balance: u.grade_credit_balance,

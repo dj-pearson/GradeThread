@@ -49,6 +49,14 @@ const FLIPDESK = [
   { sku: "flipdesk_pro",      name: "FlipDesk Pro",      monthly: 5900, yearly: 59000, taxCode: TAX_CODE_SAAS },
   { sku: "flipdesk_business", name: "FlipDesk Business", monthly: 9900, yearly: 99000, taxCode: TAX_CODE_SAAS },
 ];
+// US-1799: buyer subscription plans (mirror BUYER_PLANS in src/lib/constants.ts).
+// Recurring SaaS. The lookup keys (buyer_guard_*, buyer_connoisseur_*) are what
+// the webhook's mapSubscriptionToBuyerPlan prefix-matches when metadata is absent
+// (Stripe customer-portal changes).
+const BUYER = [
+  { sku: "buyer_guard",       name: "GradeThread Guard (Buyer)",       monthly: 800,  yearly: 8000,  taxCode: TAX_CODE_SAAS },
+  { sku: "buyer_connoisseur", name: "GradeThread Connoisseur (Buyer)", monthly: 1900, yearly: 19000, taxCode: TAX_CODE_SAAS },
+];
 const GRADES = [
   { sku: "grade_standard", name: "GradeThread Standard Grade", amount: 299,  taxCode: TAX_CODE_SERVICE },
   { sku: "grade_premium",  name: "GradeThread Premium Grade",  amount: 799,  taxCode: TAX_CODE_SERVICE },
@@ -166,6 +174,23 @@ console.log(`\nStripe setup ${LIVE ? "[LIVE]" : "[TEST]"}\n`);
 
 console.log("FlipDesk subscriptions:");
 for (const plan of FLIPDESK) {
+  const productId = await upsertProduct(plan);
+  const monthlyId = await upsertPrice(productId, plan.sku, {
+    amount: plan.monthly,
+    recurring: { interval: "month" },
+    lookupKey: `${plan.sku}_monthly`,
+  });
+  const yearlyId = await upsertPrice(productId, plan.sku, {
+    amount: plan.yearly,
+    recurring: { interval: "year" },
+    lookupKey: `${plan.sku}_yearly`,
+  });
+  env[`VITE_STRIPE_PRICE_${plan.sku.toUpperCase()}_MONTHLY`] = monthlyId;
+  env[`VITE_STRIPE_PRICE_${plan.sku.toUpperCase()}_YEARLY`] = yearlyId;
+}
+
+console.log("\nBuyer subscriptions:");
+for (const plan of BUYER) {
   const productId = await upsertProduct(plan);
   const monthlyId = await upsertPrice(productId, plan.sku, {
     amount: plan.monthly,

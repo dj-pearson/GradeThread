@@ -231,6 +231,22 @@ export async function getFlipdeskPriceIds(): Promise<
   return (await loadCached()).priceIds;
 }
 
+// US-1799: buyer-plan Stripe price IDs. Env-only (no DB override yet) — the
+// setup-stripe-pricing.mjs BUYER catalog emits STRIPE_PRICE_BUYER_<TIER>_<INT>.
+// LOCKSTEP with the frontend VITE_STRIPE_PRICE_BUYER_* map in constants.ts.
+export function getBuyerPriceIds(): Record<"guard" | "connoisseur", Record<BillingInterval, string>> {
+  return {
+    guard: {
+      monthly: Deno.env.get("STRIPE_PRICE_BUYER_GUARD_MONTHLY") || "",
+      yearly: Deno.env.get("STRIPE_PRICE_BUYER_GUARD_YEARLY") || "",
+    },
+    connoisseur: {
+      monthly: Deno.env.get("STRIPE_PRICE_BUYER_CONNOISSEUR_MONTHLY") || "",
+      yearly: Deno.env.get("STRIPE_PRICE_BUYER_CONNOISSEUR_YEARLY") || "",
+    },
+  };
+}
+
 /** Clear the cache (after an admin edit so the change is instant on this replica;
  *  other replicas pick it up within the TTL). */
 export function clearPricingConfigCache(): void {

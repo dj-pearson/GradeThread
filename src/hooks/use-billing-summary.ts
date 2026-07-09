@@ -6,6 +6,7 @@ import { useRedirectStore } from "@/stores/redirect-store";
 import { markCheckoutPending } from "@/lib/checkout-pending";
 import type {
   FlipdeskPlanKey,
+  BuyerPlanKey,
   CreditPackSize,
 } from "@/lib/constants";
 import type {
@@ -57,6 +58,17 @@ export interface BillingSummary {
     // have never subscribed; 'stripe' for web-billed subscriptions.
     billing_source: "stripe" | "appstore" | null;
     appstore_product_id: string | null;
+  };
+  // US-1799: the buyer SUBSCRIPTION state (Free/Guard/Connoisseur). Separate
+  // from `subscription` (seller) — one person can hold both on one customer. The
+  // effective buyer ENTITLEMENT (higher of this + the seller-derived tier,
+  // US-1887) comes from useBuyerEntitlements; this is what the buyer pays for.
+  buyer: {
+    plan: BuyerPlanKey;
+    interval: BillingInterval | null;
+    status: SubscriptionStatus;
+    period_end: string | null;
+    cancel_at_period_end: boolean;
   };
   grades: {
     credit_balance: number;
@@ -154,6 +166,73 @@ export function useFlipdeskSubscribe() {
         if (!data.unchanged) markCheckoutPending("subscription");
         pollBillingSummary(qc);
       }
+    },
+    onError: (err) => toast.error(err.message),
+  });
+}
+
+// ── Buyer subscription mutations (US-1799) ──────────────────────
+
+export function useBuyerSubscribe() {
+  const qc = useQueryClient();
+  return useMutation<
+    { sessionId?: string; url?: string; ok?: boolean; updated?: boolean; unchanged?: boolean },
+    Error,
+    { plan: Exclude<BuyerPlanKey, "free">; interval: BillingInterval }
+  >({
+    mutationFn: async ({ plan, interval }) => {
+      const res = await edgeFetch("/api/payments/buyer/subscribe", {
+        method: "POST",
+        json: { plan, interval },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to start checkout.");
+      return json;
+    },
+    onSuccess: (data) => {
+      if (data.url) {
+        useRedirectStore.getState().redirectTo(data.url);
+        return;
+      }
+      if (data.updated) {
+        toast.success(data.unchanged ? "You're already on that plan." : "Plan updated.");
+        if (!data.unchanged) markCheckoutPending("subscription");
+        pollBillingSummary(qc);
+      }
+    },
+    onError: (err) => toast.error(err.message),
+  });
+}
+
+export function useBuyerCancel() {
+  const qc = useQueryClient();
+  return useMutation<{ ok: true }, Error, void>({
+    mutationFn: async () => {
+      const res = await edgeFetch("/api/payments/buyer/cancel", { method: "POST" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to cancel subscription.");
+      return json;
+    },
+    onSuccess: () => {
+      toast.success("Your buyer plan will end at the period close.");
+      pollBillingSummary(qc);
+    },
+    onError: (err) => toast.error(err.message),
+  });
+}
+
+export function useBuyerUncancel() {
+  const qc = useQueryClient();
+  return useMutation<{ ok: true }, Error, void>({
+    mutationFn: async () => {
+      const res = await edgeFetch("/api/payments/buyer/uncancel", { method: "POST" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to resume subscription.");
+      return json;
+    },
+    onSuccess: () => {
+      toast.success("Your buyer plan will continue.");
+      pollBillingSummary(qc);
     },
     onError: (err) => toast.error(err.message),
   });

@@ -380,7 +380,7 @@ async function recordEvent(
 }
 
 const USER_SELECT =
-  "id, email, full_name, flipdesk_plan, stripe_customer_id, trial_ends_at, flipdesk_subscription_id, flipdesk_cancel_at_period_end, pending_flipdesk_plan, pending_flipdesk_interval, pending_schedule_id, pending_effective_at, flipdesk_pause_until, cancellation_reason, subscription_status, past_due_since";
+  "id, email, full_name, flipdesk_plan, stripe_customer_id, trial_ends_at, flipdesk_subscription_id, flipdesk_cancel_at_period_end, pending_flipdesk_plan, pending_flipdesk_interval, pending_schedule_id, pending_effective_at, flipdesk_pause_until, cancellation_reason, subscription_status, past_due_since, buyer_plan, buyer_subscription_id";
 
 async function loadUserByCustomerId(customerId: string) {
   const { data, error } = await supabaseAdmin
@@ -456,6 +456,15 @@ async function handleSubscriptionChange(event: Stripe.Event) {
   let user = userIdFromMeta ? await loadUserById(userIdFromMeta) : null;
   if (!user) user = await loadUserByCustomerId(customerId);
   if (!user) return;
+
+  // US-1799: a BUYER subscription rides on the same customer as the seller sub.
+  // Resolve the product FIRST and, when it's the buyer product, write ONLY the
+  // buyer_* columns and return — never touch flipdesk_* or run the seller-only
+  // side effects (grade/AI resets, trial conversion, drip, downgrade schedule).
+  if (subscriptionIsBuyer(sub)) {
+    await applyBuyerSubscriptionChange(user, sub, customerId);
+    return;
+  }
 
   // US-396: fail closed on an unmappable price — grant NO paid caps (treat as
   // 'free') and alert so the missing metadata.plan / lookup_key gets fixed,
@@ -711,12 +720,64 @@ async function handleSubscriptionChange(event: Stripe.Event) {
   }
 }
 
+// US-1799: apply a buyer subscription lifecycle change. Writes ONLY the buyer_*
+// column family (00402) so it can never collide with the seller sub on the
+// shared customer. Fail-closed to Free on an unmappable buyer price.
+async function applyBuyerSubscriptionChange(
+  user: { id: string; buyer_plan?: string | null },
+  sub: Stripe.Subscription,
+  customerId: string,
+) {
+  const plan = mapSubscriptionToBuyerPlan(sub) ?? "free";
+  const interval = mapSubscriptionInterval(sub);
+  const status = sub.pause_collection ? "paused" : mapSubscriptionStatus(sub.status);
+  const periodEnd = sub.current_period_end
+    ? new Date(sub.current_period_end * 1000).toISOString()
+    : null;
+
+  // Reconcile the shared customer link (set-if-null / alert-on-mismatch).
+  await linkStripeCustomer(user.id, customerId);
+
+  const { error } = await supabaseAdmin
+    .from("users")
+    .update({
+      buyer_plan: plan,
+      buyer_interval: interval,
+      buyer_subscription_status: status,
+      buyer_subscription_id: sub.id,
+      buyer_period_end: periodEnd,
+      buyer_cancel_at_period_end: sub.cancel_at_period_end ?? false,
+    })
+    .eq("id", user.id);
+  failIfDbError(error, `buyer subscription update for user ${user.id}`);
+  console.log(`[Webhook] User ${user.id} BUYER → plan=${plan} interval=${interval} status=${status}`);
+}
+
 async function handleSubscriptionDeleted(event: Stripe.Event) {
   const sub = event.data.object as Stripe.Subscription;
   const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer.id;
 
   const user = await loadUserByCustomerId(customerId);
   if (!user) return;
+
+  // US-1799: a buyer-sub deletion must reset ONLY the buyer_* columns — never
+  // free the seller plan on the shared customer.
+  if (subscriptionIsBuyer(sub)) {
+    const { error: buyerErr } = await supabaseAdmin
+      .from("users")
+      .update({
+        buyer_plan: "free",
+        buyer_interval: null,
+        buyer_subscription_status: "canceled",
+        buyer_subscription_id: null,
+        buyer_period_end: null,
+        buyer_cancel_at_period_end: false,
+      })
+      .eq("id", user.id);
+    failIfDbError(buyerErr, `buyer downgrade for user ${user.id}`);
+    console.log(`[Webhook] User ${user.id} BUYER → free (canceled)`);
+    return;
+  }
 
   await recordEvent(
     user.id,
@@ -764,6 +825,11 @@ async function handleInvoicePaymentSucceeded(event: Stripe.Event) {
   if (!customerId) return;
 
   const billingReason = invoice.billing_reason;
+
+  // US-1799: a BUYER invoice must not trigger the seller cycle resets (grade/AI
+  // counters) or flip the seller's subscription_status. Buyer status transitions
+  // arrive via customer.subscription.updated (applyBuyerSubscriptionChange).
+  if (invoiceIsBuyer(invoice)) return;
 
   const user = await loadUserByCustomerId(customerId);
   if (!user) return;
@@ -849,6 +915,10 @@ async function handleInvoicePaymentFailed(event: Stripe.Event) {
     ? invoice.customer
     : (invoice.customer as Stripe.Customer | null)?.id;
   if (!customerId) return;
+
+  // US-1799: buyer past_due is carried by subscription.updated → skip the seller
+  // dunning transition + email for a buyer invoice.
+  if (invoiceIsBuyer(invoice)) return;
 
   const user = await loadUserByCustomerId(customerId);
   if (!user) return;
@@ -1554,6 +1624,34 @@ export function mapSubscriptionToFlipdeskPlan(sub: Stripe.Subscription): Flipdes
   if (lookupKey.startsWith("flipdesk_starter")) return "starter";
 
   return null;
+}
+
+// US-1799: buyer subscriptions ride on the SAME Stripe customer as the seller
+// sub, so every handler must resolve WHICH product a subscription/invoice is by
+// its price/metadata — never "the customer's subscription". This resolver
+// mirrors mapSubscriptionToFlipdeskPlan: metadata.plan first (set at checkout),
+// then the price lookup_key (buyer_guard_* / buyer_connoisseur_*, set by
+// setup-stripe-pricing.mjs) so a portal-created sub with no metadata still maps.
+export function mapSubscriptionToBuyerPlan(sub: Stripe.Subscription): "guard" | "connoisseur" | null {
+  const meta = sub.metadata?.plan;
+  if (meta === "guard" || meta === "connoisseur") return meta;
+
+  const lookupKey = sub.items?.data?.[0]?.price?.lookup_key ?? "";
+  if (lookupKey.startsWith("buyer_connoisseur")) return "connoisseur";
+  if (lookupKey.startsWith("buyer_guard")) return "guard";
+
+  return null;
+}
+
+/** True when a subscription belongs to the BUYER product (not the seller sub). */
+export function subscriptionIsBuyer(sub: Stripe.Subscription): boolean {
+  return sub.metadata?.product === "buyer" || mapSubscriptionToBuyerPlan(sub) !== null;
+}
+
+/** True when an invoice is for the BUYER product (by its line-item price key). */
+export function invoiceIsBuyer(invoice: Stripe.Invoice): boolean {
+  const lines = (invoice.lines?.data ?? []) as Stripe.InvoiceLineItem[];
+  return lines.some((l) => (l.price?.lookup_key ?? "").startsWith("buyer_"));
 }
 
 export function mapSubscriptionInterval(sub: Stripe.Subscription): "monthly" | "yearly" {

@@ -19,9 +19,13 @@ Deno.env.set(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
 );
 
-const { mapSubscriptionStatus, mapSubscriptionToFlipdeskPlan } = await import(
-  "../routes/webhooks.ts"
-);
+const {
+  mapSubscriptionStatus,
+  mapSubscriptionToFlipdeskPlan,
+  mapSubscriptionToBuyerPlan,
+  subscriptionIsBuyer,
+  invoiceIsBuyer,
+} = await import("../routes/webhooks.ts");
 
 function sub(partial: {
   metadata?: Record<string, string>;
@@ -82,4 +86,44 @@ Deno.test("plan mapping is interval-independent and fails closed (US-396)", () =
     mapSubscriptionToFlipdeskPlan(sub({ amount: 99900, interval: "year" })),
     null,
   );
+});
+
+// US-1799: buyer subscriptions share the customer with the seller sub, so the
+// webhook must route by product/price. These guards make that safe.
+Deno.test("mapSubscriptionToBuyerPlan resolves buyer tiers, fails closed", () => {
+  assertEquals(mapSubscriptionToBuyerPlan(sub({ metadata: { plan: "guard" } })), "guard");
+  assertEquals(mapSubscriptionToBuyerPlan(sub({ metadata: { plan: "connoisseur" } })), "connoisseur");
+  assertEquals(mapSubscriptionToBuyerPlan(sub({ lookupKey: "buyer_guard_monthly" })), "guard");
+  assertEquals(mapSubscriptionToBuyerPlan(sub({ lookupKey: "buyer_connoisseur_yearly" })), "connoisseur");
+  // A seller price is NOT a buyer plan.
+  assertEquals(mapSubscriptionToBuyerPlan(sub({ lookupKey: "flipdesk_pro_monthly" })), null);
+  assertEquals(mapSubscriptionToBuyerPlan(sub({})), null);
+});
+
+Deno.test("subscriptionIsBuyer / mapSubscriptionToFlipdeskPlan never collide", () => {
+  // A buyer sub (metadata.product=buyer) is recognized as buyer AND is NOT
+  // mis-mapped to a seller plan — so the webhook branch fires and flipdesk_* is
+  // untouched.
+  const buyerSub = sub({ metadata: { product: "buyer", plan: "guard" }, lookupKey: "buyer_guard_monthly" });
+  assertEquals(subscriptionIsBuyer(buyerSub), true);
+  assertEquals(mapSubscriptionToFlipdeskPlan(buyerSub), null);
+
+  // A portal-created buyer sub with NO metadata still routes by lookup_key.
+  const portalBuyer = sub({ lookupKey: "buyer_connoisseur_monthly" });
+  assertEquals(subscriptionIsBuyer(portalBuyer), true);
+
+  // A seller sub is not buyer.
+  assertEquals(subscriptionIsBuyer(sub({ metadata: { product: "flipdesk", plan: "pro" }, lookupKey: "flipdesk_pro_monthly" })), false);
+  // Unmappable sub → not buyer (seller path fails closed to Free).
+  assertEquals(subscriptionIsBuyer(sub({})), false);
+});
+
+Deno.test("invoiceIsBuyer routes invoices by line-item price key", () => {
+  const invoice = (lookupKey: string | null): Stripe.Invoice =>
+    ({ lines: { data: [{ price: { lookup_key: lookupKey } }] } }) as unknown as Stripe.Invoice;
+  assertEquals(invoiceIsBuyer(invoice("buyer_guard_monthly")), true);
+  assertEquals(invoiceIsBuyer(invoice("buyer_connoisseur_yearly")), true);
+  assertEquals(invoiceIsBuyer(invoice("flipdesk_pro_monthly")), false);
+  assertEquals(invoiceIsBuyer(invoice(null)), false);
+  assertEquals(invoiceIsBuyer({ lines: { data: [] } } as unknown as Stripe.Invoice), false);
 });
