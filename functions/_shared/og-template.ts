@@ -357,6 +357,80 @@ export function buildSocialCardHtml(input: SocialCardInput): string {
 </div>`;
 }
 
+// ─── Free grade-check result card (US-1752) ───────────────────────────────
+// A shareable, on-brand landscape card for a result from the free, no-signup
+// grade checker (/tools/grade-checker). Rendered by functions/og/grade-check.ts
+// entirely from query-string values, so it is STATELESS and carries NO PII —
+// only the grade, tier, an aggregate value RANGE, and an optional brand/item
+// label the sharer typed. The QR points back at the free tool so a share loops
+// new visitors into the funnel.
+
+export interface GradeResultCardInput {
+  width: number;
+  height: number;
+  score: number; // 0..10, half-points
+  gradeTier: string;
+  brand?: string | null;
+  itemLabel?: string | null;
+  /** Pre-formatted aggregate value range, e.g. "$15 – $26". Never a per-item price. */
+  valueText?: string | null;
+  qrDataUri: string; // from functions/_shared/qr.ts → qrSvgDataUri()
+}
+
+export function buildGradeResultCardHtml(input: GradeResultCardInput): string {
+  const score = input.score.toFixed(1);
+  const pad = 60;
+  const subject = [input.brand, input.itemLabel]
+    .map((s) => (s ?? "").trim())
+    .filter(Boolean)
+    .join(" · ");
+
+  const valueBlock = input.valueText
+    ? `<div style="display:flex;flex-direction:column;align-items:flex-start;">
+        <div style="display:flex;font-size:20px;color:rgba(255,255,255,0.6);text-transform:uppercase;letter-spacing:1px;">Estimated resale value</div>
+        <div style="display:flex;font-size:72px;font-weight:800;color:#fff;line-height:1.05;margin-top:6px;">${escapeHtml(input.valueText)}</div>
+        <div style="display:flex;font-size:18px;color:rgba(255,255,255,0.5);margin-top:6px;">at this condition · a range, not a guaranteed price</div>
+      </div>`
+    : `<div style="display:flex;flex-direction:column;align-items:flex-start;">
+        <div style="display:flex;font-size:26px;font-weight:600;color:#fff;">Free condition grade</div>
+        <div style="display:flex;font-size:18px;color:rgba(255,255,255,0.55);margin-top:8px;max-width:420px;">Add a brand + item to also see an estimated resale value.</div>
+      </div>`;
+
+  return `<div style="display:flex;flex-direction:column;height:${input.height}px;width:${input.width}px;background:linear-gradient(135deg, ${BRAND_NIGHT} 0%, ${BRAND_NAVY} 100%);color:${TEXT_LIGHT};font-family:system-ui,sans-serif;padding:${pad}px;">
+  <div style="display:flex;align-items:center;justify-content:space-between;width:100%;">
+    <div style="display:flex;align-items:center;gap:14px;">
+      <div style="width:48px;height:48px;border-radius:11px;background:${BRAND_RED};display:flex;align-items:center;justify-content:center;font-weight:800;font-size:26px;color:#fff;">G</div>
+      <div style="display:flex;font-size:26px;font-weight:600;letter-spacing:0.5px;">GradeThread</div>
+    </div>
+    <div style="display:flex;align-items:center;background:rgba(255,255,255,0.08);padding:9px 18px;border-radius:999px;font-size:19px;font-weight:500;">
+      Free grade estimate
+    </div>
+  </div>
+
+  <div style="display:flex;align-items:center;flex:1;width:100%;margin:20px 0;">
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:320px;">
+      <div style="display:flex;font-size:170px;font-weight:800;color:${BRAND_RED};line-height:1;">${score}</div>
+      <div style="display:flex;font-size:34px;font-weight:600;color:#fff;margin-top:4px;">${escapeHtml(input.gradeTier)}</div>
+      <div style="display:flex;font-size:19px;color:rgba(255,255,255,0.55);margin-top:2px;">out of 10</div>
+    </div>
+    <div style="display:flex;flex:1;padding-left:40px;">
+      ${valueBlock}
+    </div>
+  </div>
+
+  <div style="display:flex;align-items:flex-end;justify-content:space-between;width:100%;">
+    <div style="display:flex;flex-direction:column;flex:1;padding-right:24px;">
+      ${subject ? `<div style="display:flex;font-size:22px;color:rgba(255,255,255,0.65);margin-bottom:6px;">${escapeHtml(truncate(subject, 48))}</div>` : ""}
+      <div style="display:flex;font-size:20px;color:rgba(255,255,255,0.55);">Estimate from one photo · gradethread.com/tools/grade-checker</div>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:center;background:#fff;border-radius:20px;padding:14px;">
+      <img src="${input.qrDataUri}" style="width:150px;height:150px;" />
+      <div style="display:flex;font-size:15px;font-weight:600;color:${BRAND_NAVY};margin-top:8px;">Scan to try it free</div>
+    </div>
+  </div>
+</div>`;
+}
+
 // 1x1 transparent PNG fallback — last-resort if Satori itself throws. The
 // blog/cert SSR still has its own static `logo_icon_512.png` fallback, so
 // this path is rarely hit in practice.

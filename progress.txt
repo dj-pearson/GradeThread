@@ -12587,3 +12587,26 @@ US-1702 DONE (edge+web; MIGRATION 00387 — HELD). The story I had missed.
   vitest src/lib/seo+src/prerender 765 pass. (1 pre-existing fail: public-routes.test.ts
   missing /buyer/* from US-1802 buyer-dashboard commit — unrelated, fails on clean HEAD.)
 - No migration. Commit local; NOT pushed (standing pre-launch rule).
+
+── US-1752: Free tool — shareable result card + conversion funnel (2026-07-08) ──
+- New STATELESS OG card: buildGradeResultCardHtml (functions/_shared/og-template.ts)
+  + functions/og/grade-check.ts Pages Function. Renders grade + tier + aggregate
+  value RANGE + branding + QR (QR → /tools/grade-checker?utm_source=share-card).
+  Everything rides in the query string — no stored result, NO PII (only grade,
+  tier, value range, and the brand/item the sharer typed). /og/* already in
+  public/_routes.json include, so it routes with no config. Cached 1d.
+- Frontend grade-checker.tsx: result now shows the shareable card <img> + a
+  "Share this result" button (navigator.share, clipboard fallback → "Link copied"),
+  plus a "Create a free account" CTA alongside the existing "Get a certified grade".
+  Share link carries UTM attribution (utm_source=share&utm_medium=result-card).
+- Attribution: anon users have no personal affiliate code, so attribution is
+  UTM-based (captured by captureAffiliateRef/analytics on landing). CTAs + share +
+  result fire tracked events via analytics.track: grade_checker_result,
+  grade_checker_share, grade_checker_cta_click{cta:signup|certify}.
+- Free-Snap CTA note: Snap is auth-gated (/dashboard/snap), so the signup CTA is
+  the honest anon funnel entry (a direct snap link would bounce to signup).
+- Tests: src/test/social-card.test.ts +1 buildGradeResultCardHtml case (value/
+  no-value branches + XSS escaping). 13 pass.
+- VERIFIED: web tsc -b 0 / functions tsc 0 / eslint 0 (page + both functions) /
+  vitest social-card 13 pass / prerender 43 pass.
+- No migration. Commit local; NOT pushed (standing pre-launch rule).

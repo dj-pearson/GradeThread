@@ -12,6 +12,7 @@ import {
   buildCertBadgeHtml,
   buildCertOgHtml,
   buildCertSlabHtml,
+  buildGradeResultCardHtml,
   buildSellerOgHtml,
   buildSocialCardHtml,
   isSocialCardRatio,
@@ -160,6 +161,54 @@ describe("sibling share-image templates", () => {
     expect(html).toContain("6.5");
     expect(html).toContain("Good");
     expect(html).toContain("width:700px");
+  });
+
+  it("buildGradeResultCardHtml renders the grade, value range and subject, escaping input", () => {
+    const withValue = buildGradeResultCardHtml({
+      width: 1200,
+      height: 630,
+      score: 8.5,
+      gradeTier: "Excellent",
+      brand: "Patagonia",
+      itemLabel: "fleece jacket",
+      valueText: "$15 – $26",
+      qrDataUri: "data:image/svg+xml;base64,AAAA",
+    });
+    expect(withValue).toContain("width:1200px");
+    expect(withValue).toContain("8.5");
+    expect(withValue).toContain("Excellent");
+    expect(withValue).toContain("$15 – $26");
+    expect(withValue).toContain("Estimated resale value");
+    expect(withValue).toContain("Patagonia · fleece jacket");
+    expect(withValue).toContain("Scan to try it free");
+    // Brand colors present.
+    expect(withValue).toContain("#0F3460");
+    expect(withValue).toContain("#E94560");
+
+    // No value → the fallback prompt, not a value block.
+    const noValue = buildGradeResultCardHtml({
+      width: 1200,
+      height: 630,
+      score: 6,
+      gradeTier: "Very Good",
+      valueText: null,
+      qrDataUri: "data:image/svg+xml;base64,AAAA",
+    });
+    expect(noValue).not.toContain("Estimated resale value");
+    expect(noValue).toContain("Free condition grade");
+
+    // User-supplied brand/item is HTML-escaped.
+    const xss = buildGradeResultCardHtml({
+      width: 1200,
+      height: 630,
+      score: 5,
+      gradeTier: "Good",
+      brand: `<script>alert("x")</script>`,
+      valueText: null,
+      qrDataUri: "data:image/svg+xml;base64,AAAA",
+    });
+    expect(xss).not.toContain("<script>");
+    expect(xss).toContain("&lt;script&gt;");
   });
 
   it("buildCertSlabHtml renders both the photo and label-only variants", () => {

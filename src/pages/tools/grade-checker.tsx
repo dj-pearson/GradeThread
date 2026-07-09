@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, Loader2, Upload } from "lucide-react";
+import { ArrowRight, Check, Loader2, Share2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,6 +14,7 @@ import {
   GRADE_CHECKER_PATH,
 } from "@/lib/seo/grade-checker";
 import { edgeApiUrl } from "@/lib/edge-api";
+import { track } from "@/lib/analytics";
 import { GRADE_FACTORS, type GradeFactorKey } from "@/lib/constants";
 import {
   gradeCheckerJsonLd,
@@ -52,6 +53,39 @@ function formatValueRange(v: GradeCheckValue): string {
   return `${fmt.format(v.lowCents / 100)} – ${fmt.format(v.highCents / 100)}`;
 }
 
+function siteOrigin(): string {
+  return typeof window !== "undefined" ? window.location.origin : "https://gradethread.com";
+}
+
+// The shareable, STATELESS OG card image (functions/og/grade-check.ts). Every
+// value rides in the query string — no stored result, no PII (only the grade,
+// tier, an aggregate value range, and the brand/item the sharer typed).
+function shareCardUrl(
+  result: GradeCheckResult,
+  brand: string,
+  keyword: string,
+): string {
+  const q = new URLSearchParams({
+    g: result.overallScore.toFixed(1),
+    tier: result.gradeTier,
+  });
+  if (brand.trim()) q.set("brand", brand.trim());
+  if (keyword.trim()) q.set("item", keyword.trim());
+  if (result.value) {
+    q.set("vlo", String(Math.round(result.value.lowCents / 100)));
+    q.set("vhi", String(Math.round(result.value.highCents / 100)));
+    q.set("cur", result.value.currency || "USD");
+  }
+  return `${siteOrigin()}/og/grade-check?${q.toString()}`;
+}
+
+// The landing link a share points at — the free tool itself, tagged so a share
+// visit is attributable to the free-tool share channel (captured by
+// captureAffiliateRef / analytics on load).
+function shareLandingUrl(): string {
+  return `${siteOrigin()}${GRADE_CHECKER_PATH}?utm_source=share&utm_medium=result-card`;
+}
+
 function readAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -68,6 +102,7 @@ function GradeCheckerTool() {
   const [result, setResult] = useState<GradeCheckResult | null>(null);
   const [brand, setBrand] = useState("");
   const [keyword, setKeyword] = useState("");
+  const [copied, setCopied] = useState(false);
 
   async function onFile(file: File) {
     setBusy(true);
@@ -103,11 +138,48 @@ function GradeCheckerTool() {
         return;
       }
       setResult(body);
+      setCopied(false);
+      // Conversion-funnel entry (US-1752): a free result was produced. Consent-
+      // gated + never throws (see analytics.track).
+      track("grade_checker_result", {
+        grade: body.overallScore,
+        has_value: !!body.value,
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong. Try again.");
     } finally {
       setBusy(false);
     }
+  }
+
+  async function onShare() {
+    if (!result) return;
+    const url = shareLandingUrl();
+    const text = result.value
+      ? `I graded this ${result.gradeTier} (${result.overallScore.toFixed(1)}/10) — est. resale ${formatValueRange(result.value)} — free on GradeThread.`
+      : `I graded this ${result.gradeTier} (${result.overallScore.toFixed(1)}/10) free on GradeThread.`;
+    track("grade_checker_share", { method: "share_or_copy", has_value: !!result.value });
+    // Native share where available; otherwise copy the landing link.
+    const nav = navigator as Navigator & { share?: (d: ShareData) => Promise<void> };
+    if (typeof nav.share === "function") {
+      try {
+        await nav.share({ title: "GradeThread grade estimate", text, url });
+        return;
+      } catch {
+        /* user dismissed or unsupported — fall through to copy */
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard blocked — the link is still visible on the card image */
+    }
+  }
+
+  function onCtaClick(cta: "signup" | "certify") {
+    track("grade_checker_cta_click", { cta, has_value: !!result?.value });
   }
 
   return (
@@ -229,11 +301,44 @@ function GradeCheckerTool() {
             <p className="mt-6 rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
               {result.disclaimer}
             </p>
-            <div className="mt-5 flex flex-wrap justify-center gap-3">
-              <Link to="/how-it-works">
+
+            {/* Shareable card + share action (US-1752). The card image is a
+                stateless, no-PII OG render; the share link carries UTM
+                attribution back to the free tool. */}
+            <div className="mt-6 overflow-hidden rounded-xl border">
+              <img
+                src={shareCardUrl(result, brand, keyword)}
+                alt="Shareable GradeThread grade card"
+                loading="lazy"
+                className="w-full"
+              />
+            </div>
+            <div className="mt-3 flex justify-center">
+              <Button size="sm" variant="outline" onClick={() => void onShare()}>
+                {copied ? (
+                  <>
+                    <Check className="mr-1 h-4 w-4" />
+                    Link copied
+                  </>
+                ) : (
+                  <>
+                    <Share2 className="mr-1 h-4 w-4" />
+                    Share this result
+                  </>
+                )}
+              </Button>
+            </div>
+
+            <div className="mt-6 flex flex-wrap justify-center gap-3">
+              <Link to="/how-it-works" onClick={() => onCtaClick("certify")}>
                 <Button size="sm">
                   Get a certified grade
                   <ArrowRight className="ml-1 h-4 w-4" />
+                </Button>
+              </Link>
+              <Link to="/signup" onClick={() => onCtaClick("signup")}>
+                <Button size="sm" variant="secondary">
+                  Create a free account
                 </Button>
               </Link>
               <Button

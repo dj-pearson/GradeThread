@@ -13483,7 +13483,7 @@
         "No PII in the shared artifact; value shown as a range with disclaimer"
       ],
       "priority": 1752,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][FREE-TOOL][SHARE] Reuse renderCertImage/buildCertSlabHtml + social OG. Attribution via captureAffiliateRef/referral bake (as cert-share-actions.tsx already does). Track via existing analytics."
     },
     {
