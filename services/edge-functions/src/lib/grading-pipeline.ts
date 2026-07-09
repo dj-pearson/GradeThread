@@ -2211,12 +2211,21 @@ export async function processSubmission(submissionId: string) {
         ...(compositeResult.usage
           ? [{ phase: "composite", usage: compositeResult.usage }]
           : []),
-        // US-601: per-grade cost of the premium authenticity add-on.
-        ...(authenticityAssessment?.usage
-          ? [{ phase: "authenticity", usage: authenticityAssessment.usage }]
-          : []),
       ],
     });
+
+    // US-1771 (AC2): the premium authenticity add-on is metered under its OWN
+    // feature ('authenticity') — not folded into the grade's 'grading' cost — so
+    // the add-on's usage + margin are attributable on their own. (Was previously
+    // a phase inside the grading call above; split out here, not double-counted.)
+    if (authenticityAssessment?.usage) {
+      void recordAiUsage({
+        userId: submission.user_id,
+        submissionId,
+        feature: "authenticity",
+        usages: [{ phase: "authenticity", usage: authenticityAssessment.usage }],
+      });
+    }
 
     // --- Step 7: Shadow / A-B grading (US-330, fire-and-forget) ---
     // Re-run ONLY the composite stage with any shadow candidate prompt on a

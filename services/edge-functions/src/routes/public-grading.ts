@@ -17,6 +17,10 @@ import { suggestCategories } from "../lib/ebay-client.ts";
 import { quickGrade } from "../lib/quick-grade.ts";
 import { validateImageUpload, IMAGE_CONTENT_TYPE } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
+import { assessAuthenticity } from "../lib/ai-authenticity.ts";
+import { getEffectiveTellsForBrand } from "../lib/brand-authenticity.ts";
+import { recordAiUsage } from "../lib/ai-usage.ts";
+import { AiCeilingError, reserveGlobalDailyBudget } from "../lib/ai-limiter.ts";
 
 // Public, UNAUTHENTICATED grading-transparency surface (US-326).
 //
@@ -534,5 +538,133 @@ publicGradingRoutes.post("/grade-from-url", async (c) => {
       err instanceof Error ? err.message : String(err),
     );
     return c.json({ error: "Couldn't grade that image right now. Try again later." }, 500);
+  }
+});
+
+// ── Public 'is it authentic?' lookup (US-1771) ───────────────────────────
+// UNAUTHENTICATED, ESTIMATE-framed brand-authenticity check for the public
+// /tools/authenticity-check tool: a buyer uploads 1–4 photos (data URLs) of an
+// item's tags/logo/stitching and gets the grounded authenticity read (US-1769) —
+// a buyer-safe verdict + confidence + the mandatory limitations disclaimer.
+// Defended in depth like /grade-check: a per-IP window, the shared ai-limiter's
+// global daily ceiling (reserveGlobalDailyBudget) caps total Vision spend, the
+// body-limit caps input, and NOTHING is persisted. Raw red_flags / tell_findings
+// NEVER leave the server — only the coarse verdict is returned.
+//
+// LIABILITY: a public authenticity verdict is legally sensitive, so the whole
+// endpoint is FAIL-CLOSED behind PUBLIC_AUTHENTICITY_CHECK_ENABLED (default off)
+// until an operator enables it AFTER legal review of the limitations copy.
+const AUTH_CHECK_PER_IP_PER_HOUR = 6;
+const AUTH_CHECK_WINDOW_MS = 60 * 60 * 1000;
+const AUTH_CHECK_MAX_IMAGES = 4;
+const authCheckHits = new Map<string, number[]>();
+
+export function publicAuthenticityCheckEnabled(): boolean {
+  return Deno.env.get("PUBLIC_AUTHENTICITY_CHECK_ENABLED") === "true";
+}
+
+// Parse + validate the uploaded photos (each through prepareGradeCheckImage:
+// magic-byte sniff + EXIF strip). Pure — exported for the edge test.
+export function parseAuthenticityCheckBody(
+  body: unknown,
+): { ok: true; dataUris: string[]; brand?: string; title?: string } | { ok: false; error: string } {
+  const b = (body ?? {}) as { images?: unknown; image?: unknown; brand?: unknown; title?: unknown };
+  const raw: unknown[] = Array.isArray(b.images)
+    ? b.images
+    : typeof b.image === "string"
+    ? [b.image]
+    : [];
+  if (raw.length === 0) return { ok: false, error: "Upload at least one clear photo of the item's tags, logo, or stitching." };
+  const dataUris: string[] = [];
+  for (const entry of raw) {
+    const prepared = prepareGradeCheckImage(entry);
+    if (!prepared.ok) return { ok: false, error: prepared.error };
+    dataUris.push(prepared.cleanDataUri);
+    if (dataUris.length >= AUTH_CHECK_MAX_IMAGES) break;
+  }
+  const brand = typeof b.brand === "string" ? b.brand.trim().slice(0, 80) : undefined;
+  const title = typeof b.title === "string" ? b.title.trim().slice(0, 200) : undefined;
+  return { ok: true, dataUris, brand, title };
+}
+
+publicGradingRoutes.post("/authenticity-check", async (c) => {
+  try {
+    // Fail-closed until legal-reviewed + operator-enabled. 404 so a disabled
+    // surface isn't advertised.
+    if (!publicAuthenticityCheckEnabled()) return c.json({ error: "Not found" }, 404);
+
+    const ip = clientIpFor(c);
+    if (windowLimited(authCheckHits, ip, Date.now(), AUTH_CHECK_PER_IP_PER_HOUR, AUTH_CHECK_WINDOW_MS)) {
+      return c.json(
+        { error: "You've reached the free authenticity-check limit for now. Try again later." },
+        429,
+      );
+    }
+
+    const body = await c.req.json().catch(() => null);
+    const parsed = parseAuthenticityCheckBody(body);
+    if (!parsed.ok) return c.json({ error: parsed.error }, 400);
+
+    // Global Vision-cost ceiling (shared with grading) before spending a call.
+    try {
+      await reserveGlobalDailyBudget();
+    } catch (err) {
+      if (err instanceof AiCeilingError) {
+        return c.json({ error: "The authenticity checker is busy right now. Try again later." }, 429);
+      }
+      throw err;
+    }
+
+    const tells = await getEffectiveTellsForBrand(parsed.brand).catch(() => []);
+    const assessment = await assessAuthenticity(
+      parsed.dataUris.map((dataUri) => ({ imageType: "detail", dataUri })),
+      {
+        garment_type: "other",
+        garment_category: "other",
+        brand: parsed.brand ?? null,
+        title: parsed.title ?? "",
+        description: null,
+        style_attributes: [],
+      },
+      { tells },
+    );
+
+    // US-1771 (AC2): meter the anonymous authenticity call under its own feature.
+    if (assessment.usage) {
+      void recordAiUsage({
+        userId: null,
+        submissionId: null,
+        feature: "authenticity",
+        usages: [{ phase: "authenticity_public", usage: assessment.usage }],
+      });
+    }
+
+    const deepLink =
+      `${publicSiteUrl()}/tools/authenticity-check?utm_source=tool&utm_medium=authenticity`;
+
+    // Buyer-safe projection ONLY — the raw red_flags / tell_findings /
+    // supporting_signals stay server-side (never publish accusation detail).
+    return c.json(
+      {
+        estimate: true,
+        verdict: assessment.verdict,
+        verdictConfidence: assessment.verdict_confidence,
+        counterfeitRisk: assessment.counterfeit_risk,
+        brandAssessed: assessment.brand_assessed,
+        summary: assessment.summary,
+        limitations: assessment.limitations,
+        deepLink,
+      },
+      200,
+    );
+  } catch (err) {
+    console.error(
+      "public-grading /authenticity-check:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return c.json(
+      { error: "Couldn't check that item right now. Try clear, well-lit photos of the tags, logo, and stitching." },
+      500,
+    );
   }
 });

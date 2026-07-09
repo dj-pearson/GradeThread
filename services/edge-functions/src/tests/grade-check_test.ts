@@ -13,6 +13,8 @@ const {
   publicValueFromRange,
   extGradeRateLimited,
   parseGradeFromUrlBody,
+  parseAuthenticityCheckBody,
+  publicAuthenticityCheckEnabled,
 } = await import("../routes/public-grading.ts");
 
 // A canonical 1x1 PNG (valid magic bytes + IHDR + IDAT + IEND).
@@ -145,4 +147,46 @@ Deno.test("parseGradeFromUrlBody: accepts imageUrl, imageUrls, caps at 4, reject
   assert(!parseGradeFromUrlBody({ imageUrl: "not a url" }).ok);
   assert(!parseGradeFromUrlBody({ imageUrl: "ftp://example.com/a.jpg" }).ok);
   assert(!parseGradeFromUrlBody(null).ok);
+});
+
+// ── US-1771: public authenticity-check body parsing + fail-closed gate ───────
+Deno.test("parseAuthenticityCheckBody: validates + cleans an images array", () => {
+  const r = parseAuthenticityCheckBody({ images: [ONE_PX_PNG, ONE_PX_PNG], brand: "  Gucci  ", title: "bag" });
+  assert(r.ok);
+  assertEquals(r.dataUris.length, 2);
+  assertEquals(r.brand, "Gucci");
+  assertEquals(r.title, "bag");
+});
+
+Deno.test("parseAuthenticityCheckBody: accepts a single `image`", () => {
+  const r = parseAuthenticityCheckBody({ image: ONE_PX_PNG });
+  assert(r.ok);
+  assertEquals(r.dataUris.length, 1);
+});
+
+Deno.test("parseAuthenticityCheckBody: no photo → error", () => {
+  const r = parseAuthenticityCheckBody({});
+  assert(!r.ok);
+});
+
+Deno.test("parseAuthenticityCheckBody: a bad image is rejected", () => {
+  const r = parseAuthenticityCheckBody({ images: ["not-a-data-url"] });
+  assert(!r.ok);
+});
+
+Deno.test("parseAuthenticityCheckBody: caps at 4 images", () => {
+  const many = [ONE_PX_PNG, ONE_PX_PNG, ONE_PX_PNG, ONE_PX_PNG, ONE_PX_PNG, ONE_PX_PNG];
+  const r = parseAuthenticityCheckBody({ images: many });
+  assert(r.ok);
+  assertEquals(r.dataUris.length, 4);
+});
+
+Deno.test("publicAuthenticityCheckEnabled: fail-closed (default off), on only when explicitly 'true'", () => {
+  Deno.env.delete("PUBLIC_AUTHENTICITY_CHECK_ENABLED");
+  assertEquals(publicAuthenticityCheckEnabled(), false);
+  Deno.env.set("PUBLIC_AUTHENTICITY_CHECK_ENABLED", "1");
+  assertEquals(publicAuthenticityCheckEnabled(), false, "only the literal 'true' enables it");
+  Deno.env.set("PUBLIC_AUTHENTICITY_CHECK_ENABLED", "true");
+  assertEquals(publicAuthenticityCheckEnabled(), true);
+  Deno.env.delete("PUBLIC_AUTHENTICITY_CHECK_ENABLED");
 });
