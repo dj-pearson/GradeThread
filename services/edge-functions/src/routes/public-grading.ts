@@ -10,6 +10,7 @@ import { getIndexCurveBySlug, getIndexHub } from "../lib/condition-index.ts";
 import { getValueHub, resolveValueCurve } from "../lib/value-index.ts";
 import { getDurabilityByBrand, getDurabilityHub } from "../lib/durability-index.ts";
 import { computeDurabilityReport, type DurabilityReport } from "../lib/durability-report.ts";
+import { computeGarmentImpact } from "../lib/impact-estimate.ts";
 import {
   computeResaleConditionReport,
   type ResaleConditionReport,
@@ -192,6 +193,20 @@ publicGradingRoutes.get("/durability", async (c) => {
 // scans the aggregate table and moves slowly.
 const DURABILITY_REPORT_CACHE_TTL_MS = 15 * 60 * 1000;
 let durabilityReportCache: { at: number; report: DurabilityReport } | null = null;
+
+// ── Per-garment circularity impact (US-1787) ─────────────────────────────
+// Public, aggregate-only estimate of the impact avoided by buying one garment of
+// this type secondhand vs new. No PII, deterministic, cached hard. Backs the
+// per-grade impact line on the certificate.
+publicGradingRoutes.get("/impact/:garmentType", async (c) => {
+  try {
+    const impact = await computeGarmentImpact(c.req.param("garmentType"));
+    if (!impact) return c.json({ error: "Not found" }, 404);
+    return c.json(impact, 200, { "Cache-Control": "public, max-age=3600, s-maxage=86400" });
+  } catch {
+    return c.json({ error: "Failed to load impact" }, 500);
+  }
+});
 
 // GET /api/grading/public/durability-report — the report findings.
 publicGradingRoutes.get("/durability-report", async (c) => {

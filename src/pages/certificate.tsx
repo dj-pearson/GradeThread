@@ -48,6 +48,7 @@ import {
   buildAnnotatedGroups,
 } from "@/components/certificate/annotated-defect-photo";
 import { CertShareActions } from "@/components/certificate/cert-share-actions";
+import { CertImpactLine } from "@/components/impact/cert-impact-line";
 import { CopyField } from "@/components/verified/copy-field";
 import {
   certBadgeEmbedHtml,
@@ -840,6 +841,8 @@ export function CertificatePage() {
                     {submission.description}
                   </p>
                 )}
+                {/* US-1787: per-grade circularity impact estimate. */}
+                <CertImpactLine garmentType={submission.garment_type} />
               </CardContent>
             </Card>
           )}

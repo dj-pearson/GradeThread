@@ -53,3 +53,26 @@ Deno.test("FALLBACK_FACTORS: covers every garment_type with a source", () => {
     assert(f.source.length > 0);
   }
 });
+
+// US-1787: closet/user impact aggregation.
+const { sumImpactEstimates } = await import("../lib/impact-estimate.ts");
+
+Deno.test("sumImpactEstimates: sums per-type estimates × counts, rounds totals", () => {
+  const tops = estimateFromFactor(factor({ garment_type: "tops", co2e_kg: 2.5, water_liters: 2500, weight_kg: 0.2 }));
+  const bottoms = estimateFromFactor(factor({ co2e_kg: 12, water_liters: 3500, weight_kg: 0.6 }));
+  const total = sumImpactEstimates([
+    { estimate: tops, count: 4 },
+    { estimate: bottoms, count: 2 },
+  ]);
+  assertEquals(total.garment_count, 6);
+  assertEquals(total.co2e_kg, 34); // 2.5*4 + 12*2 = 34
+  assertEquals(total.water_liters, 17000); // 2500*4 + 3500*2 = 17000
+  assertEquals(total.landfill_kg, 2); // 0.2*4 + 0.6*2 = 2.0
+  assertEquals(total.estimate, true);
+});
+
+Deno.test("sumImpactEstimates: empty → zeros", () => {
+  const t = sumImpactEstimates([]);
+  assertEquals(t.garment_count, 0);
+  assertEquals(t.co2e_kg, 0);
+});

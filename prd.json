@@ -13938,8 +13938,8 @@
         "All figures labeled estimates with a methodology link"
       ],
       "priority": 1787,
-      "passes": false,
-      "notes": "[P2][SUSTAINABILITY][NEW][SHARE] Surfaces on certificate.tsx + dashboard.tsx; card reuses cert-image-render.ts. Aggregate over the user's grade_reports."
+      "passes": true,
+      "notes": "[P2][SUSTAINABILITY][NEW][SHARE] Surfaces on certificate.tsx + dashboard.tsx; card reuses cert-image-render.ts. Aggregate over the user's grade_reports. [DONE 2026-07-09] Public per-garment endpoint GET /api/grading/public/impact/:garmentType (cached, aggregate-only, computeGarmentImpact w/ FALLBACK so it works before 00408 applies). Frontend src/lib/impact.ts (fetchGarmentImpact + pure sumImpacts + summarizeClosetImpact + format helpers). AC1: ImpactTile on dashboard.tsx (your-resale-diverted aggregate — counts user completed submissions RLS-scoped CLIENT-side by garment_type, fetches per-type impact, sums; NO authed edge route/tenant-isolation surface needed) + CertImpactLine per-grade on certificate.tsx. AC2: ImpactTile Share (native/copy, utm-tagged). AC3: every figure labelled estimate + methodology note. edge sumImpactEstimates/summarizeUserImpact helpers + tests. Tests: impact-estimate (6 edge) + impact.test.ts (3 frontend); tsc+eslint+deno check clean. Migration-free (impact_factors=00408 from US-1786). ENHANCEMENTS noted (not blocking): slab-IMAGE card render (satori cert-image-render) + full referral-CODE bake on share (currently utm) — text-share + utm ships now."
     },
     {
       "id": "US-1788",

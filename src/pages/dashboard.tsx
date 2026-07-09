@@ -54,6 +54,7 @@ import { ListingSuggestions } from "@/components/analytics/listing-suggestions";
 import { ActivationChecklist } from "@/components/onboarding/activation-checklist";
 import { FlipdeskPromoCard } from "@/components/flipdesk/flipdesk-promo-card";
 import { InviteFriendCard } from "@/components/referral/invite-friend-card";
+import { ImpactTile } from "@/components/impact/impact-tile";
 import { UsageMeters } from "@/components/billing/usage-meter";
 
 interface RecentSubmission extends SubmissionRow {
@@ -531,6 +532,10 @@ export function DashboardPage() {
 
       {/* US-862: invite a friend — the referral program entry point (US-1118) */}
       <InviteFriendCard />
+
+      {/* US-1787: circularity impact — "your resale diverted X" (renders only
+          once the user has graded at least one item). */}
+      <ImpactTile />
 
       {/* Stats cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

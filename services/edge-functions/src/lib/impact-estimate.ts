@@ -120,3 +120,57 @@ export async function computeGarmentImpact(
   const factor = await getImpactFactor(garmentType, material);
   return factor ? estimateFromFactor(factor) : null;
 }
+
+export interface ImpactSummary {
+  estimate: true;
+  garment_count: number;
+  co2e_kg: number;
+  water_liters: number;
+  landfill_kg: number;
+  methodology: string;
+}
+
+/**
+ * Sum per-type estimates (each with a garment count) into a user/closet total.
+ * Pure + exported for tests. Rounds the totals — never carries false precision.
+ */
+export function sumImpactEstimates(
+  parts: Array<{ estimate: ImpactEstimate; count: number }>,
+): ImpactSummary {
+  let co2e = 0;
+  let water = 0;
+  let landfill = 0;
+  let count = 0;
+  for (const { estimate, count: n } of parts) {
+    const q = Number.isFinite(n) && n > 0 ? n : 0;
+    co2e += estimate.co2e_kg * q;
+    water += estimate.water_liters * q;
+    landfill += estimate.landfill_kg * q;
+    count += q;
+  }
+  return {
+    estimate: true,
+    garment_count: count,
+    co2e_kg: round(co2e, 1),
+    water_liters: Math.round(water / 10) * 10,
+    landfill_kg: round(landfill, 2),
+    methodology: IMPACT_METHODOLOGY,
+  };
+}
+
+/**
+ * Compute a user's total circularity impact from their graded garment-type
+ * counts, e.g. { tops: 12, bottoms: 5 }. Best-effort per type (an unknown type
+ * contributes nothing rather than throwing).
+ */
+export async function summarizeUserImpact(
+  typeCounts: Record<string, number>,
+): Promise<ImpactSummary> {
+  const parts: Array<{ estimate: ImpactEstimate; count: number }> = [];
+  for (const [type, count] of Object.entries(typeCounts)) {
+    if (!count || count <= 0) continue;
+    const est = await computeGarmentImpact(type);
+    if (est) parts.push({ estimate: est, count });
+  }
+  return sumImpactEstimates(parts);
+}
