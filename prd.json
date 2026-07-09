@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1860,
+  "nextId": 1872,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -14930,6 +14930,235 @@
       "priority": 1859,
       "passes": false,
       "notes": "[P2][GAME][GROWTH] Reuse notifications.ts + drip.ts + journeys + admin-suppressions. Frequency caps + preference/consent (ties legal geo-consent + branded auth email pipeline). Attribution via campaign-tracking."
+    },
+    {
+      "passes": false,
+      "priority": 1860,
+      "id": "US-1860",
+      "title": "EPIC: Thrift Radar — crowdsourced store-level sourcing intelligence ('Waze for thrifting')",
+      "description": "As a reseller, I want to know which local stores are currently producing high-value finds for my brands — before I drive there — so I spend my sourcing hours in the right places. Every Prospect scan already carries the raw signal (location, brand, estimated grade, buy/pass verdict); aggregated across opted-in users it becomes a live map of secondhand supply that no listing-tool competitor can replicate without first building a grading-quality scanner and a fleet of users pointing it at store racks.",
+      "acceptanceCriteria": [
+        "This is the umbrella/epic story — it does not ship code itself; child stories US-1861..US-1867 implement it.",
+        "Privacy stance (non-negotiable): contribution is strictly OPT-IN (default off); contributions are anonymized and aggregated at store/venue granularity only; no precise user coordinates retained after venue resolution; network aggregates are displayed only above a k-anonymity floor of distinct contributors.",
+        "The personal layer (US-1864) must be independently useful at n=1 with zero network data — that is the cold-start answer.",
+        "Monetization: network layers (map hotness, venue detail, route planner) are plan-gated Pro+; the personal history layer is free on all plans.",
+        "Viewing Radar and contributing to Radar are separate consents — using the map never silently enrolls you as a contributor."
+      ],
+      "notes": "[EPIC][P2 Growth][FlipDesk][Scout] Parent of US-1861..US-1867. Origin: founder ideation session 2026-07-09 ('the Waze of secondhand sourcing'). Builds on the existing Prospect/Scout scan path (flipdesk-scout.ts, scout.tsx, iOS Prospect module). Distinct from US-1064 (per-user insights) — this is the cross-user network intelligence layer; distinct from US-1829 demand board (buyer demand, not store supply). Added 2026-07-09.",
+      "relevantPaths": [
+        "services/edge-functions/src/routes/flipdesk-scout.ts",
+        "src/pages/flipdesk/scout.tsx",
+        "services/edge-functions/src/lib/scout-decision.ts"
+      ]
+    },
+    {
+      "passes": false,
+      "priority": 1861,
+      "id": "US-1861",
+      "title": "Thrift Radar: opt-in scan telemetry + consent & privacy model",
+      "description": "As a privacy-conscious user, I want Radar contribution to be explicitly opt-in, anonymized, and clearly explained, so sharing where I source never exposes me or my spots to identification.",
+      "acceptanceCriteria": [
+        "Migration adds radar_scan_events: rotating anonymized contributor key (no readable user_id in the analytical path), venue_id (or geohash cell while unresolved), brand, category, estimated grade band, buy/pass verdict, timestamp. Raw scan coordinates are NOT retained after venue resolution. Deny-all RLS, service-role writes only; register in rls-guard_test.ts.",
+        "Settings toggle 'Contribute to Thrift Radar' (web + iOS), DEFAULT OFF; Prospect scans emit Radar events only when it is on.",
+        "Consent copy states exactly what is shared and at what granularity; privacy policy gains a Radar section; iOS App Privacy declarations updated for location use consistent with the US-1214 opt-in posture.",
+        "Contribution is fire-and-forget: a Radar-event failure never degrades or slows the Prospect scan result itself.",
+        "New/changed edge routes carry tenant-isolation_test.ts cases (tenant-isolation skill); migration follows the US-1108 triple (migrations skill)."
+      ],
+      "notes": "[P2][Radar][Privacy] Child of US-1860. The consent boundary is the whole story — get this wrong and the feature is a liability. Emit from the existing prospect scan handler behind the flag. Added 2026-07-09.",
+      "relevantPaths": [
+        "services/edge-functions/src/routes/flipdesk-scout.ts",
+        "supabase/migrations/",
+        "services/edge-functions/src/lib/schema-version.ts"
+      ]
+    },
+    {
+      "passes": false,
+      "priority": 1862,
+      "id": "US-1862",
+      "title": "Thrift Radar: store venue resolution + registry",
+      "description": "As the Radar system, I need to resolve raw scan coordinates into named, deduplicated store venues (Goodwill on Main St, Savers on Route 9), so intelligence accrues to places rather than coordinate soup.",
+      "acceptanceCriteria": [
+        "Migration adds radar_venues: display name, centroid (lat/lng), geohash, chain tag (goodwill / savers / salvation_army / value_village / other), status (candidate / confirmed).",
+        "Resolver maps scan coordinates to the nearest known venue within a distance threshold; unresolved scans create a candidate venue (or bin to a geohash cell) that later scans converge onto.",
+        "Chain normalization: 'Goodwill Store #123' and 'Goodwill Industries' resolve to the same chain tag; per-venue identity stays distinct.",
+        "Dedupe merge path for near-duplicate candidate venues; unit tests cover threshold resolution, candidate creation, and merge.",
+        "Migration follows the US-1108 triple."
+      ],
+      "notes": "[P2][Radar] Child of US-1860. Keep it dependency-free: no external Places API required for v1 (chain inference from scan density + optional user naming); design the schema so a Places enrichment can be added later without rework. Added 2026-07-09.",
+      "relevantPaths": [
+        "supabase/migrations/",
+        "services/edge-functions/src/lib/"
+      ]
+    },
+    {
+      "passes": false,
+      "priority": 1863,
+      "id": "US-1863",
+      "title": "Thrift Radar: aggregation engine + k-anonymity floor",
+      "description": "As the Radar system, I need scheduled aggregation that turns anonymized scan events into venue-level intelligence (brand density, grade quality, freshness) that is only ever served above an anonymity floor.",
+      "acceptanceCriteria": [
+        "Scheduled aggregation job (durable-jobs conventions: claim/heartbeat/reclaim, cron_runs visibility) computes venue x brand x time-window stats: scan count, distinct-contributor count, average estimated grade, buy-verdict rate, last-activity freshness.",
+        "K-ANONYMITY FLOOR: aggregates for a venue x window are served only when distinct contributors >= K (configurable, default 3). Below the floor the venue shows no network data — enforced server-side, with a test proving a below-floor venue returns nothing.",
+        "Raw radar_scan_events older than the retention window are rolled up and pruned; retention is configurable.",
+        "Read-only edge endpoint serves aggregates (venue list by bounding box + venue detail); responses contain no per-user or per-contributor data.",
+        "deno tests cover the aggregation math, k-floor enforcement, and retention pruning; migration follows the US-1108 triple."
+      ],
+      "notes": "[P2][Radar] Child of US-1860. Load the durable-jobs skill for the job pattern and the migrations skill for the rollup tables. The k-floor is a hard privacy guarantee, not a display preference. Added 2026-07-09.",
+      "relevantPaths": [
+        "services/edge-functions/src/routes/",
+        "supabase/migrations/"
+      ]
+    },
+    {
+      "passes": false,
+      "priority": 1864,
+      "id": "US-1864",
+      "title": "Thrift Radar: personal sourcing history layer ('your best stores')",
+      "description": "As a reseller, I want my OWN sourcing history per store — items found, spend, realized profit, best brands, last visit — so Radar is valuable to me on day one even before any network data exists near me.",
+      "acceptanceCriteria": [
+        "Per-venue personal stats computed from the user's own scans and sourced items (sources + inventory_items + sales outcomes): items sourced, total spend, realized + expected profit, top brands, last-visit date.",
+        "Works with zero network data and does NOT require the Radar contribution opt-in (it is the user's own data).",
+        "Surfaced as a 'My stores' list in the FlipDesk Scout area, sortable by personal ROI.",
+        "All queries tenant-scoped per US-268 (tenant-isolation skill test cases)."
+      ],
+      "notes": "[P2][Radar][LHF] Child of US-1860. This is the cold-start answer and the free tier of Radar. Links personal scans to venues via the US-1862 resolver. Added 2026-07-09.",
+      "relevantPaths": [
+        "src/pages/flipdesk/scout.tsx",
+        "src/pages/flipdesk/sources.tsx",
+        "services/edge-functions/src/routes/flipdesk-scout.ts"
+      ]
+    },
+    {
+      "passes": false,
+      "priority": 1865,
+      "id": "US-1865",
+      "title": "Thrift Radar: web map + venue detail UI",
+      "description": "As a reseller planning where to source, I want a map of nearby stores showing which are hot for my brands right now, with per-venue detail, so I can pick my next stop with data instead of habit.",
+      "acceptanceCriteria": [
+        "Radar surface in FlipDesk (route or Scout tab): map of nearby venues with hotness coloring (recent scan density weighted toward the user's top brands from their pipeline history), freshness indicator, and the personal layer (US-1864) overlaid on the same map.",
+        "Venue detail panel: brand mix, estimated-grade distribution, activity-by-day pattern — each section hidden below the k-floor with an honest 'Not enough data here yet — contributions unlock this' state.",
+        "Network layers plan-gated Pro+ with an upgrade prompt; personal layer visible on all plans.",
+        "Cold-start/empty states designed for zero-data regions (personal layer + contribution pitch, never a blank map).",
+        "Map implementation must not violate the no-external-request constraints of any prerendered/public surface — this is an authed dashboard page; use a lightweight map lib consistent with bundle budgets."
+      ],
+      "notes": "[P2][Radar][UX] Child of US-1860. Depends on US-1863 (aggregates endpoint) + US-1864 (personal layer). Brand weighting comes from the user's existing pipeline history — no new AI spend. Added 2026-07-09.",
+      "relevantPaths": [
+        "src/pages/flipdesk/scout.tsx",
+        "src/routes/index.tsx",
+        "src/components/flipdesk/"
+      ]
+    },
+    {
+      "passes": false,
+      "priority": 1866,
+      "id": "US-1866",
+      "title": "Thrift Radar: iOS surface (nearby hot stores in Prospect)",
+      "description": "As an iOS user standing in (or driving past) a thrift store, I want the Prospect module to show nearby venues ranked by hotness for my brands, so the phone in my hand answers 'is this store worth walking into?'",
+      "acceptanceCriteria": [
+        "Prospect module gains a Nearby/Radar view: nearby venues sorted by network hotness for the user's brands, blended with the personal layer; venue detail parity with web (same k-floor hiding).",
+        "Location permission requested only for the Radar view flow; viewing Radar does NOT enroll the user as a contributor (separate consent per US-1861); App Privacy declarations stay consistent.",
+        "Plan-gate parity with web: Pro+ network layers; 402 routes to the paywall/upgrade flow per the US-1213 pattern, never a dead-end.",
+        "Offline/sparse-data states degrade gracefully to the personal layer."
+      ],
+      "notes": "[P2][Radar][iOS] Child of US-1860. Reuses the US-1863 read endpoint; no on-device aggregation. Added 2026-07-09.",
+      "relevantPaths": [
+        "ios/"
+      ]
+    },
+    {
+      "passes": false,
+      "priority": 1867,
+      "id": "US-1867",
+      "title": "Thrift Radar: sourcing route planner ('plan my circuit')",
+      "description": "As a reseller planning a sourcing day, I want an ordered multi-stop route ranked by expected value per hour for MY brands, so a Saturday circuit is optimized instead of guessed.",
+      "acceptanceCriteria": [
+        "'Plan my circuit': user picks day + time budget + start point; planner returns an ordered stop list ranked by expected $/hour blending network hotness (US-1863) and personal per-venue ROI (US-1864), with travel time between stops considered.",
+        "Each stop shows its ranking rationale in plain language ('strong Lululemon density this week; you average $34 profit/visit here').",
+        "One tap opens the ordered route in Apple/Google Maps (no in-app turn-by-turn).",
+        "Degrades gracefully with sparse data: falls back to personal-only ranking, and says so.",
+        "Pro+ gated consistent with the Radar network tier."
+      ],
+      "notes": "[P3][Radar] Child of US-1860 — build LAST, after US-1863/1864/1865 prove out data density. Simple greedy/nearest-value ordering is fine for v1; no route-optimization service dependency. Added 2026-07-09.",
+      "relevantPaths": [
+        "src/pages/flipdesk/scout.tsx"
+      ]
+    },
+    {
+      "passes": false,
+      "priority": 1868,
+      "id": "US-1868",
+      "title": "EPIC: Inventory Equity — graded-inventory valuation (GradeThread Capital, Phase 1 ONLY)",
+      "description": "As a reseller, I want to see the estimated liquidation value of my graded inventory — the capital sitting on my racks — so I understand what my stock is actually worth at current market prices and how much of it is unvalued because it is ungraded. Strategic context: this is Phase 1 of the 'GradeThread Capital' concept. It is display-only analytics built entirely from data we already have (grades, sold comps, Value Index condition curves, personal sell-through). It also creates the strongest organic grading incentive in the product: the more you grade, the more of your inventory is valued.",
+      "acceptanceCriteria": [
+        "This is the umbrella/epic story — it does not ship code itself; child stories US-1869..US-1871 implement it.",
+        "SCOPE FENCE (founder decision 2026-07-09): Phase 1 is DISPLAY-ONLY valuation. Phase 2 — working-capital advances / lending against inventory (e.g. via the Stripe Capital platform program) — is EXPLICITLY DEFERRED due to legal and financial-responsibility concerns. Do NOT build any lending, credit-offer, advance, underwriting, or 'get funded' functionality, UI hints included, without a new explicit founder green-light. No Phase 2 child stories exist by design; do not create them.",
+        "All valuation output is clearly labeled an ESTIMATE for informational purposes — never presented as an appraisal, offer, or financial product, and no copy may imply borrowing capacity.",
+        "No new AI spend: valuation composes existing grade data, cached comps, and Value Index curves within existing comp-refresh quotas (US-1749 guardrails)."
+      ],
+      "notes": "[EPIC][P2][FlipDesk][Finance] Parent of US-1869..US-1871. Origin: founder ideation session 2026-07-09 ('Shopify Capital for resellers' — Phase 1 approved, Phase 2 deferred: DO NOT BUILD lending without explicit founder approval; revisit only post-launch with legal counsel). Distinct from US-1824 Wardrobe Portfolio (buyer closet valuation) — this is seller/FlipDesk inventory-side. Added 2026-07-09.",
+      "relevantPaths": [
+        "services/edge-functions/src/lib/sold-comps.ts",
+        "services/edge-functions/src/lib/value-index.ts",
+        "services/edge-functions/src/lib/condition-value.ts"
+      ]
+    },
+    {
+      "passes": false,
+      "priority": 1869,
+      "id": "US-1869",
+      "title": "Inventory Equity: liquidation-value model (edge lib + endpoint)",
+      "description": "As the equity feature's foundation, I need a conservative per-item liquidation-value model composed from grade, comps, and the seller's own sell-through velocity, so the aggregate number is defensible rather than wishful.",
+      "acceptanceCriteria": [
+        "Edge lib computes per-item conservative liquidation value: market value from sold comps / Value Index condition curve at the item's grade, discounted by a personal sell-through-velocity haircut (slower personal velocity and stale listings discount harder), returning a value plus a confidence band.",
+        "Composes existing sold-comps.ts / value-index.ts / condition-value.ts data; comp refreshes stay within the US-1749 cost/quota guardrails; zero new AI calls.",
+        "Items without a grade or without usable comps are EXCLUDED from the equity total and counted as 'unvalued' (never guessed).",
+        "Edge endpoint returns per-item values + tenant aggregate (total equity, valued/unvalued counts, by-category and by-grade-band breakdowns); tenant-scoped per US-268 with tenant-isolation_test.ts cases.",
+        "deno unit tests cover the haircut math, confidence banding, and the no-grade/no-comps exclusion paths."
+      ],
+      "notes": "[P2][Equity] Child of US-1868. Conservatism is the product: a number the seller trusts beats a number that flatters. Keep the model in one lib so a future Phase 2 (if ever approved) reuses it unchanged. Added 2026-07-09.",
+      "relevantPaths": [
+        "services/edge-functions/src/lib/sold-comps.ts",
+        "services/edge-functions/src/lib/value-index.ts",
+        "services/edge-functions/src/lib/condition-value.ts",
+        "services/edge-functions/src/routes/"
+      ]
+    },
+    {
+      "passes": false,
+      "priority": 1870,
+      "id": "US-1870",
+      "title": "Inventory Equity: web dashboard + equity-over-time trend",
+      "description": "As a reseller, I want an Inventory Equity view showing my total stock value, what portion is unvalued because it is ungraded, and how equity trends over time, so I can manage my inventory like a balance sheet.",
+      "acceptanceCriteria": [
+        "FlipDesk surface (analytics or overview): total inventory equity with confidence band, valued vs unvalued item counts, breakdown by category / brand / grade band, and top-10 most valuable items linking to item detail.",
+        "Unvalued stock gets a 'grade these to complete your valuation' CTA linking into the grading flow — the organic grading-volume loop.",
+        "Migration adds an equity snapshot table written by a scheduled job (nightly), powering an equity-over-time trend chart; follows the US-1108 triple and durable-jobs conventions.",
+        "Estimate disclaimer copy present wherever the number renders (per the US-1868 scope fence — no borrowing-capacity language).",
+        "Dashboard queries tenant-scoped; dataviz consistent with existing analytics styling."
+      ],
+      "notes": "[P2][Equity] Child of US-1868, depends on US-1869. Snapshot cron must be registered in Coolify scheduled tasks (remember the curl-in-image gotcha). Added 2026-07-09.",
+      "relevantPaths": [
+        "src/pages/flipdesk/analytics.tsx",
+        "src/pages/flipdesk/overview.tsx",
+        "supabase/migrations/"
+      ]
+    },
+    {
+      "passes": false,
+      "priority": 1871,
+      "id": "US-1871",
+      "title": "Inventory Equity: iOS Money tab card",
+      "description": "As an iOS user, I want my inventory equity on the Money tab next to my other financials, so the value tied up in stock is visible where I already track money.",
+      "acceptanceCriteria": [
+        "Money tab gains an Inventory Equity card: total equity, trend sparkline from snapshots, and valued-coverage % (valued items / total items); tapping opens a breakdown list (category / brand / grade band).",
+        "Reuses the US-1869 edge endpoint; numbers match web exactly (route money math through Money/MoneyMath per US-1002).",
+        "Estimate disclaimer parity with web; no borrowing-capacity language (US-1868 scope fence).",
+        "Graceful states for zero graded items (coverage CTA) and endpoint failure."
+      ],
+      "notes": "[P3][Equity][iOS] Child of US-1868, depends on US-1869/1870. Added 2026-07-09.",
+      "relevantPaths": [
+        "ios/"
+      ]
     }
   ]
 }
