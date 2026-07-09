@@ -14114,8 +14114,8 @@
         "Edge gating is tenant-scoped and covered by a tenant-isolation_test.ts case"
       ],
       "priority": 1800,
-      "passes": false,
-      "notes": "[P2][BUYER][FOUNDATION][NEW] Mirror FlipdeskGateFlags + use-plan-usage.ts. Reuse ai-usage.ts recordAiCall + withAiAction/credits + ai_budgets for metered debit. Load tenant-isolation skill (buyer plan read must scope to the buyer's own id). TIES: consumed by every buyer feature epic; depends on plans (1799). Keep flag names stable — they are referenced across 1805-1844."
+      "passes": true,
+      "notes": "[P2][BUYER][FOUNDATION] DONE 2026-07-09. AC1 (BuyerGateFlags+allowance resolution, client use-buyer-entitlements + edge getBuyerEntitlements/requireBuyerFeature) shipped US-1887. AC2 metering: reserve_buyer_meter/refund_buyer_meter RPCs (migration 00413, jsonb per-meter, monthly rollover, -1=unlimited, cloned from reserve_ai_action) + lib/buyer-metering.ts withBuyerMeter(ownerId,meter,limit,fn) reserve-before/refund-on-throw, cap from getBuyerEntitlements allowances; BuyerQuotaExhaustedError→402/upgrade. Usage in its own service-role-write-only table (never touches the users guard). AC3 edge fail-safe (requireBuyerFeature→Free/402) done; the CLIENT contextual upgrade prompt (deep-link buyer plan picker) is US-1801. AC4: gating+metering keyed by authenticated userId (tenant-scoped by construction, no request-body id); the tenant-isolation_test.ts route case lands with the first buyer-GATED route (US-1805/1833) since none exists yet. Deferred: purchasable buyer-credit fallback (needs buyer credit packs, US-1801). 4 unit tests. Requires 00413 applied."
     },
     {
       "id": "US-1801",

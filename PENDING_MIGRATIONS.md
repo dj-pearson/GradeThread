@@ -1,5 +1,22 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ PENDING: 00413_buyer_metering.sql (US-1800 buyer metered actions, 2026-07-09)
+
+**What:** New TENANT-SCOPED table `public.buyer_meter_usage` (user_id PK, usage
+jsonb, reset_at) + owner-SELECT RLS (writes ONLY via the SECURITY DEFINER RPCs,
+so a buyer can't reset their own counter). Two RPCs `reserve_buyer_meter(user,
+meter, limit)` + `refund_buyer_meter(user, meter)` — the atomic, cap-aware,
+monthly-rolling reserve/refund for buyer metered actions (extension checks /
+authenticity / video credits), cloned from reserve_ai_action (00087). Bumps
+`EXPECTED_SCHEMA_VERSION` → **00413**. Self-records '00413'.
+
+**Risk: LOW** — one new isolated table + two new functions, no writes to existing
+tables. The `withBuyerMeter` helper (lib/buyer-metering.ts) is defined but NOT
+yet called by any route (the metered buyer features are later epics), so nothing
+exercises it until then. **⚠️ Apply order:** after 00412;
+`scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload schema';`,
+redeploy the edge (boot guard now expects 00413).
+
 ## ⏳ PENDING: 00412_buyer_notifications.sql (US-1803 buyer notification layer, 2026-07-09)
 
 **What:** (1) Four values on the `notification_type` enum
