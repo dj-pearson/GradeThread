@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1912,
+  "nextId": 1916,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -14279,11 +14279,12 @@
         "Confirm/dispute writes a structured outcome to grade_outcomes (matched? deltas by factor? dispute reason) and routes disputes into the human-review/accuracy tracking flow",
         "Aggregate signal surfaces per prompt_version accuracy (reuse ai_prompt_versions.accuracy_score) so misgrade patterns are visible",
         "Buyer disputes tie into the buyer guarantee claim path (US-1819) where a material mismatch qualifies for coverage",
-        "Exemplar-privacy and confidence-cap rules respected per the grading-engine contract"
+        "Exemplar-privacy and confidence-cap rules respected per the grading-engine contract",
+        "Each confirm/dispute outcome also updates the seller-side Grade Integrity aggregate (US-1912) for the seller who graded the item — the same event drives model accuracy AND seller reputation"
       ],
       "priority": 1812,
       "passes": false,
-      "notes": "[P2][BUYER][REWARDS][GRADING][NEW] Load grading-engine skill (owns human_reviews, accuracy tracking, exemplar privacy, confidence caps). Reuse grade_outcomes + human_reviews + ai_prompt_versions.accuracy_score. TIES: feeds insured guarantee eligibility (1819-1821). Depends on capture (1811)."
+      "notes": "[P2][BUYER][REWARDS][GRADING][NEW] Load grading-engine skill (owns human_reviews, accuracy tracking, exemplar privacy, confidence caps). Reuse grade_outcomes + human_reviews + ai_prompt_versions.accuracy_score. TIES: feeds insured guarantee eligibility (1819-1821). Depends on capture (1811). Refined 2026-07-09: also feeds seller Grade Integrity (US-1912) — the two-sided loop is the moat."
     },
     {
       "id": "US-1813",
@@ -14353,7 +14354,7 @@
       ],
       "priority": 1817,
       "passes": false,
-      "notes": "[P2][BUYER][REPUTATION][NEW] Perks compose with BuyerGateFlags (1800) — document precedence (subscription baseline + reputation bonus). Reuse grade-badge.ts styling conventions for level badges. Depends on scoring engine (1816). TIES: guarantee window (1819), reward multipliers (1813)."
+      "notes": "[P2][BUYER][REPUTATION][NEW] Perks compose with BuyerGateFlags (1800) — document precedence (subscription baseline + reputation bonus). Reuse grade-badge.ts styling conventions for level badges. Depends on scoring engine (1816). TIES: guarantee window (1819), reward multipliers (1813). Refined 2026-07-09: levels/XP ride the shared reward_events/user_reward_state engine (US-1849) — do NOT build a parallel buyer ledger."
     },
     {
       "id": "US-1818",
@@ -14795,11 +14796,13 @@
       "acceptanceCriteria": [
         "New reward_events (append-only: user_id, event_type, xp_awarded, source_ref, dedupe_key, created_at) + user_reward_state (xp_total, level, current_streak, longest_streak, updated_at) tables, tenant-scoped RLS",
         "A grantReward(userId, eventType, sourceRef) primitive is idempotent on dedupe_key (e.g. grade:{submissionId}, share:{cardId}) so replays/retries never double-award",
-        "Rewardable events wired at their source (grade finalized, photos added, profile completed, first sale, referral converted, share published, verified share-click) with per-event XP configured in a catalog"
+        "Rewardable events wired at their source with per-event XP configured in a catalog; the catalog is weighted by business/moat contribution (coverage completed, badge embedded off-platform, aspects filled, marketplace connected, arrival confirmed, verified share-click) rather than raw effort",
+        "Events that consume real AI spend (grading) only award XP when the action was PAID or credit-consuming — free/junk submissions earn nothing, making grade-XP self-limiting against farming",
+        "This is the ONE reward ledger for BOTH the seller/user track (US-1848 epic) and the buyer Trust Score track (US-1815..1818) — buyer scoring stories consume this engine and must not build a parallel one"
       ],
       "priority": 1849,
       "passes": false,
-      "notes": "[P2][GAME] Migration triple for reward_events + user_reward_state (+ reward_event_types catalog config, RLS deny-all). Mirror the append-only + dedupe discipline of garment_events and the CAS discipline of reserve_ai_action. Hook emit points at: grading-pipeline finalize, grade.ts photo add, verified profile save, sales, referrals.ts convert, share publish (EPIC 9)."
+      "notes": "[P2][GAME] Migration triple for reward_events + user_reward_state (+ reward_event_types catalog config, RLS deny-all). Mirror the append-only + dedupe discipline of garment_events and the CAS discipline of reserve_ai_action. Hook emit points at: grading-pipeline finalize (paid/credit-consuming only), grade.ts photo add, verified profile save, sales, referrals.ts convert, share publish (EPIC 9), coverage completion, badge-studio embed copy. Refined 2026-07-09: XP catalog weighted by moat contribution; paid-action gating; single-engine rule shared with buyer Trust Score."
     },
     {
       "id": "US-1850",
@@ -14816,16 +14819,17 @@
     },
     {
       "id": "US-1851",
-      "title": "Rewards: levels, tiers & activity streaks",
-      "description": "As a user, I want to level up and keep streaks so that regular grading becomes a rewarding habit.",
+      "title": "Rewards: levels, seasons & buyer-side streaks",
+      "description": "As a user, I want to level up through seasons of activity so that regular engagement is rewarding — without a streak mechanic that punishes the bursty, seasonal rhythm of reselling.",
       "acceptanceCriteria": [
-        "XP thresholds map to named levels/tiers (e.g. Thrifter -> Picker -> Curator -> Archivist -> Legend) shown as progress toward the next level; level is derived from user_reward_state.xp_total",
-        "Activity streaks (e.g. grade something each week) tracked with a grace/streak-freeze rule; streak milestones grant XP/badges",
+        "XP thresholds map to named levels/tiers (e.g. Thrifter -> Picker -> Curator -> Archivist -> Legend) shown as progress toward the next level; level is derived from user_reward_state.xp_total and NEVER decreases",
+        "Seller-side activity uses quarterly SEASONS (a season track with goals + season-end recap/rewards that resets cleanly) instead of weekly streaks — a slow sourcing month never destroys accumulated status; recency competition lives on the weekly leaderboards (US-1856), not on identity",
+        "Calendar streaks exist only where a genuinely daily/weekly surface exists — the buyer extension + confirmation flow (US-1814) — with grace/streak-freeze rules; seller surfaces show season progress instead",
         "Levels unlock cosmetic perks (profile flair, exclusive share-card frames/overlays) with no hard paywall"
       ],
       "priority": 1851,
       "passes": false,
-      "notes": "[P2][GAME] Level thresholds + streak logic in a rewards lib; streak update on rewardable activity (timezone-aware, reuse scheduled-drops tz handling). Cosmetic overlay frames = additional cert-image-render templates gated by level. No tangible cost = unlimited."
+      "notes": "[P2][GAME] Level thresholds + season logic in a rewards lib; season rollover timezone-aware (reuse scheduled-drops tz handling). Cosmetic overlay frames = additional cert-image-render templates gated by level. No tangible cost = unlimited. Refined 2026-07-09: streaks are the wrong loyalty primitive for bursty resellers — replaced with seasons; streaks kept buyer-side only. Tenure/loyalty tiers split out to US-1914."
     },
     {
       "id": "US-1852",
@@ -14842,16 +14846,17 @@
     },
     {
       "id": "US-1853",
-      "title": "Rewards: tangible reward redemption (grade credits + subscription/grading discounts)",
-      "description": "As a user, I want to convert my achievements/points into real perks so that engagement pays off — free grades or a discount on my subscription.",
+      "title": "Rewards: milestone-granted tangible rewards (credits + discounts) — XP is never spent",
+      "description": "As a user, I want crossing XP/badge milestones to GRANT me real perks (free grade credits, subscription/grading discounts) so that engagement pays off — without spending XP, so my level and leaderboard rank never go backwards for redeeming.",
       "acceptanceCriteria": [
-        "A redemption catalog (reward_redemptions_catalog: reward_type free_grade_credits | subscription_discount | per_grade_discount, cost_xp or trigger badge/milestone, value, monthly cap) that admins configure",
-        "Redeeming free grade credits grants via the existing grant_grade_credits RPC into grade_credit_transactions; subscription discounts issue a Stripe coupon/promo applied in payments.ts; per-grade discounts apply at the payment-precedence step",
-        "Every redemption is recorded in a redemption ledger, is idempotent, respects per-user and global caps, and cannot be double-spent (XP debited atomically)"
+        "XP is permanent and only ever accrues (status currency: levels, leaderboards); tangible value is granted when crossing configured milestones — XP is NEVER debited. Spendable currency is the existing grade-credit ledger, not XP",
+        "A milestone-rewards catalog (reward_type free_grade_credits | subscription_discount | per_grade_discount, trigger = XP threshold | badge | season goal, value, monthly + lifetime caps) that admins configure",
+        "Granting free grade credits reuses grant_grade_credits into grade_credit_transactions; subscription discounts issue a Stripe coupon/promo applied in payments.ts; per-grade discounts apply at the payment-precedence step",
+        "Every grant is recorded in a redemption/grant ledger, is idempotent per (user, milestone), respects per-user and global caps, and cannot double-issue"
       ],
       "priority": 1853,
       "passes": false,
-      "notes": "[P2][GAME][BILLING] Migration triple for redemption catalog + user_redemptions ledger. Credits reuse grant_grade_credits (as referral_campaign_codes already do). Stripe coupon path in payments.ts (subscribe/downgrade). Per-grade discount hooks runPaymentPrecedence (grade-billing.ts). MUST enforce caps from the economics story below."
+      "notes": "[P2][GAME][BILLING] Migration triple for milestone catalog + user_reward_grants ledger. Credits reuse grant_grade_credits (as referral_campaign_codes already do). Stripe coupon path in payments.ts (subscribe/downgrade). Per-grade discount hooks runPaymentPrecedence (grade-billing.ts). MUST enforce caps from US-1858. Refined 2026-07-09: spend-XP model replaced with milestone-grant model — spending XP deflates status, penalizes redeemers on leaderboards, and invites hoarding; milestone grants avoid all three."
     },
     {
       "id": "US-1854",
@@ -14897,13 +14902,13 @@
       "title": "Rewards: user-facing UI (progress, badges shelf, celebrations, share)",
       "description": "As a user, I want a delightful rewards UI so that I can see my progress, badges, streaks, and next reward, and celebrate wins.",
       "acceptanceCriteria": [
-        "Dashboard rewards widget: XP bar + level, current streak, badge shelf, active quests, and 'next reward' progress; a full rewards page with badge gallery and redemption store",
-        "Celebration moments (toast + lightweight confetti/animation via sonner + CSS, no heavy deps) on XP gains, badge unlocks, and level-ups, each with a one-tap share of a badge/level card",
-        "Redemption store lets users spend XP on catalog rewards with clear caps/availability; respects reduced-motion and accessibility (WCAG AA per VPAT posture)"
+        "Dashboard rewards widget: XP bar + level, season progress (buyer surfaces: streak), badge shelf, active quests, and 'next milestone reward' progress; a full rewards page with badge gallery and milestone-rewards claim area (per the US-1853 grant model — nothing spends XP)",
+        "Celebrations are TIERED for a professional audience: routine XP gains get a quiet toast at most (batched, never per-event); real celebration moments (lightweight confetti/animation via sonner + CSS, no heavy deps) are reserved for level-ups, integrity-tier changes (US-1912), season completions, and first-ever events — each with a one-tap share of a badge/level card",
+        "Respects reduced-motion and accessibility (WCAG AA per VPAT posture); celebration frequency is capped so FlipDesk power users bulk-processing hundreds of items are never spammed"
       ],
       "priority": 1857,
       "passes": false,
-      "notes": "[P2][GAME][UI] React 19 + Tailwind v4 + shadcn; toasts via sonner (project rule); animations CSS-only, honor prefers-reduced-motion. Widget on dashboard.tsx; full page new route. Badge/level share cards reuse the renderer. jsx-a11y build-blocking (accessibility memory)."
+      "notes": "[P2][GAME][UI] React 19 + Tailwind v4 + shadcn; toasts via sonner (project rule); animations CSS-only, honor prefers-reduced-motion. Widget on dashboard.tsx; full page new route. Badge/level share cards reuse the renderer. jsx-a11y build-blocking (accessibility memory). Refined 2026-07-09: celebrations tiered — confetti-on-everything erodes the professional credibility the Verified brand depends on; big moments only."
     },
     {
       "id": "US-1858",
@@ -14930,6 +14935,64 @@
       "priority": 1859,
       "passes": false,
       "notes": "[P2][GAME][GROWTH] Reuse notifications.ts + drip.ts + journeys + admin-suppressions. Frequency caps + preference/consent (ties legal geo-consent + branded auth email pipeline). Attribution via campaign-tracking."
+    },
+    {
+      "id": "US-1912",
+      "title": "Seller Grade Integrity score — buyer confirmations become seller reputation",
+      "description": "As a verified seller, I want a Grade Integrity score built from real post-sale outcomes (buyer arrival confirmations, dispute rate, coverage, tenure) so that my proven accuracy — not just my activity volume — is my standing; and as GradeThread we want a reputation asset no listing-tool competitor can replicate without first building a grading-quality scanner and a buyer confirmation base.",
+      "acceptanceCriteria": [
+        "An integrity aggregate per seller (confirmed-accurate rate from US-1812 outcomes, upheld-dispute rate, avg photo-coverage %, graded volume, tenure) computed into named tiers with transparent, explainable rules the seller can view",
+        "Score is anti-gameable: minimum confirmed-outcome volume before a tier displays (below the floor shows 'building history', never a bad score), self-purchases/linked-account confirmations excluded (reuse referral self-click blocking), and dispute outcomes only count after human-review resolution",
+        "Integrity tier surfaces on the public verified profile and certificate pages (read path via the existing public-cert/verified RLS carve-outs, PII-safe)",
+        "Tier changes emit reward_events (US-1849) and a tier-up is a celebration moment (US-1857); a tier-down notifies the seller privately with the specific driver, never publicly announced",
+        "Migration triple satisfied; aggregate recompute is idempotent and tenant-scoped"
+      ],
+      "priority": 1912,
+      "passes": false,
+      "notes": "[P2][GAME][TRUST][NEW] Added 2026-07-09 (gamification refinement session). THE connective story: US-1810..1814 buyer confirmations currently feed only model accuracy — this makes them feed seller reputation too, closing the two-sided loop. Inputs: grade_outcomes (1812), human_reviews, coverage scoring (US-1276+ epic), verified profile (00057+). Load grading-engine + tenant-isolation skills. Distinct from buyer Trust Score (1815-1818): this scores SELLERS."
+    },
+    {
+      "id": "US-1913",
+      "title": "External status: level + integrity tier on embedded badges, certificates & public profile",
+      "description": "As a reseller, I want my GradeThread level and Grade Integrity tier to render on the badges buyers actually see — my eBay-embedded seller badge, per-listing cert badges, certificates, and my public verified profile — so that status earned in GradeThread converts directly into buyer trust and sales; for a business user, external legibility is what makes gamification worth engaging with (and every leveled-up badge is an ad).",
+      "acceptanceCriteria": [
+        "Badge Studio embed renders (verified-seller badge /badge/verified/:handle, cert badge /badge/cert/:id) gain level/integrity-tier variants (e.g. 'Gold Verified · 1,200 grades · 98% confirmed accurate') — opt-in per embed, seller chooses plain vs status format",
+        "Certificate page + public verified profile show the seller's integrity tier and level flair (frames from US-1851 cosmetics) with a tooltip explaining the basis",
+        "Embedded badge images reflect tier changes without the seller re-pasting HTML (badges are edge-rendered per request, so the same URL serves the current tier); stale-tier caching bounded to <=24h",
+        "Numbers on external badges are defensible: only display integrity claims above the US-1912 minimum-volume floor; no placeholder/aspirational stats (mirrors the no-fake-JSON-LD rule)",
+        "Share-source attribution (?s=embed) preserved so status-badge click-throughs are measurable against plain-badge click-throughs"
+      ],
+      "priority": 1913,
+      "passes": false,
+      "notes": "[P2][GAME][GROWTH][NEW] Added 2026-07-09 (gamification refinement session). Converts gamification from dashboard dopamine into a selling tool — the retention lever for business users. Builds on badge-studio (US-1759/1761, src/lib/verified.ts, use-badge-studio.ts), edge badge render, US-1851 frames, US-1912 tiers. A/B the click-through delta via existing share-source attribution (US-769)."
+    },
+    {
+      "id": "US-1914",
+      "title": "Loyalty: tenure tiers, anniversary rewards & never-decay standing",
+      "description": "As a long-time user, I want my loyalty recognized with standing that never decays — member-since tenure tiers, anniversary rewards, and escalating milestone-credit multipliers — so that being a loyal customer is rewarded independently of how active I am this month; activity and loyalty are different things and only activity should be time-windowed.",
+      "acceptanceCriteria": [
+        "Tenure tiers derived from account age + lifetime paid engagement (e.g. 1yr/2yr/veteran) that only ever ascend — no decay, no reset; displayed as 'member since' flair on profile and rewards page",
+        "Anniversary moments: on each account anniversary, an automatic milestone grant (via the US-1853 catalog) + a celebration/share card; delivered through the existing notifications/drip engine, preference-honoring",
+        "Tenure tier applies a multiplier to milestone-granted credits (US-1853) so loyal users earn tangibly more per milestone; multiplier config lives in the admin catalog and respects US-1858 budget caps",
+        "Returning-after-a-gap users are welcomed, never shamed: no 'you lost your streak' messaging anywhere in the system; re-engagement nudges (US-1859) for lapsed users lead with what's new + their preserved standing"
+      ],
+      "priority": 1914,
+      "passes": false,
+      "notes": "[P2][GAME][RETENTION][NEW] Added 2026-07-09 (gamification refinement session). Split from US-1851: seasons handle ACTIVITY, this handles LOYALTY — decay mechanics punish exactly the loyal-but-bursty reseller. Tenure from profiles.created_at + subscription/credit history. Multiplier hooks the US-1853 grant path. Anniversary via drip/journey engine (drip-tick cron — note edge-cron curl gotcha memory)."
+    },
+    {
+      "id": "US-1915",
+      "title": "Rewards: north-star metrics, per-mechanic attribution & retention instrumentation",
+      "description": "As the operator, I want every gamification mechanic instrumented against explicit north-star metrics (week-4 retention, grades/user/month, share-loop K-factor) so that we can tell dopamine from retention and kill mechanics that don't move the business — before quests/seasons/leaderboards scale spend.",
+      "acceptanceCriteria": [
+        "North-star metric definitions codified (week-4 retention by cohort, grades/user/month, K-factor from share-to-earn, milestone-grant cost per retained user) and computed from existing event data (reward_events, referral_events, affiliate_clicks, grade_credit_transactions)",
+        "Every reward grant, celebration, nudge, and external-badge click carries a mechanic-attribution tag (which mechanic caused it) so lift is measurable per mechanic, not just in aggregate — extends the US-1859 nudge-attribution pattern to ALL mechanics",
+        "Admin rewards-analytics surface: per-mechanic engagement lift, reward spend vs retention (extends the US-1858 spend-vs-signups ROI view), cohort retention curves gamified-vs-not, and a per-mechanic kill-switch honoring the US-1858 pattern",
+        "PostHog events for the key loop steps (grant, celebration shown, share, verified click-through, milestone claim) consistent with existing analytics conventions"
+      ],
+      "priority": 1915,
+      "passes": false,
+      "notes": "[P2][GAME][ANALYTICS][NEW] Added 2026-07-09 (gamification refinement session). The epic had no measurement story — US-1858 covers spend/abuse ROI, US-1859 attributes nudges only; this makes every mechanic accountable. Ship the definitions WITH the engine (1849), not after: retro-instrumenting cohorts is impossible. Admin surface can live beside admin/growth/dashboard.tsx."
     },
     {
       "passes": false,
