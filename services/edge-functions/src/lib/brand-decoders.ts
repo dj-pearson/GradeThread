@@ -183,3 +183,103 @@ const KEY_TO_CANONICAL: Record<string, string> = {
 function canonicalForKey(key: string): string {
   return KEY_TO_CANONICAL[key] ?? key;
 }
+
+// ── Decoder cross-checks (US-1768 AC2) ──────────────────────────────────────
+// A decode result confirms FORMAT (the anchored regex matched). Authenticity
+// wants CONSISTENCY: does what the code decoded to agree with the wider world
+// and with what the listing claims? These are grounded, checkable flags — an
+// impossible year, a code that predates the brand, a decoded field that
+// contradicts the seller's stated attribute — never an authenticity verdict.
+
+export type InconsistencySeverity = "info" | "warn" | "flag";
+
+export interface DecodeInconsistency {
+  /** Stable machine code (e.g. "date_in_future"). */
+  code: string;
+  severity: InconsistencySeverity;
+  /** Human-readable, reviewer-facing explanation. */
+  message: string;
+}
+
+export interface CrossCheckContext {
+  /** The year "now" (injected so the check is deterministic/testable). */
+  currentYear?: number;
+  /** The brand's founding year — a code decoding to before it is impossible. */
+  brandFoundedYear?: number;
+  /** What the listing/seller claims, to compare against the decode. */
+  claimedYear?: number | string;
+  claimedGender?: string;
+  claimedStyleCode?: string;
+}
+
+function toYear(v: unknown): number | null {
+  const n = typeof v === "number" ? v : parseInt(String(v ?? ""), 10);
+  return Number.isFinite(n) && n > 1800 && n < 3000 ? n : null;
+}
+
+/**
+ * Cross-check a decode result against known bounds + any listing claims.
+ * Returns a (possibly empty) list of inconsistencies, most-severe first. Pure +
+ * deterministic (time is injected via ctx.currentYear). Never throws.
+ */
+export function crossCheckDecodeResult(
+  result: DecodeResult,
+  ctx: CrossCheckContext = {},
+): DecodeInconsistency[] {
+  const out: DecodeInconsistency[] = [];
+  const decodedYear = toYear(result.year);
+
+  // Impossible dates — the strongest signal.
+  if (decodedYear != null) {
+    const now = Number.isFinite(ctx.currentYear) ? (ctx.currentYear as number) : null;
+    if (now != null && decodedYear > now + 1) {
+      out.push({
+        code: "date_in_future",
+        severity: "flag",
+        message: `Decoded production year ${decodedYear} is in the future (now ${now}).`,
+      });
+    }
+    if (ctx.brandFoundedYear && decodedYear < ctx.brandFoundedYear) {
+      out.push({
+        code: "date_before_brand",
+        severity: "flag",
+        message: `Decoded year ${decodedYear} predates ${result.brand}'s founding (${ctx.brandFoundedYear}).`,
+      });
+    }
+    const claimedYear = toYear(ctx.claimedYear);
+    if (claimedYear != null && claimedYear !== decodedYear) {
+      out.push({
+        code: "year_mismatch",
+        severity: "warn",
+        message: `Code decodes to ${decodedYear} but the listing claims ${claimedYear}.`,
+      });
+    }
+  }
+
+  if (ctx.claimedGender && result.gender) {
+    const a = ctx.claimedGender.trim().toLowerCase();
+    const b = result.gender.trim().toLowerCase();
+    if (a && b && a !== b) {
+      out.push({
+        code: "gender_mismatch",
+        severity: "warn",
+        message: `Code decodes to ${result.gender} but the listing says ${ctx.claimedGender}.`,
+      });
+    }
+  }
+
+  if (ctx.claimedStyleCode && result.styleCode) {
+    const a = ctx.claimedStyleCode.replace(/\s+/g, "").toUpperCase();
+    const b = result.styleCode.replace(/\s+/g, "").toUpperCase();
+    if (a && b && a !== b) {
+      out.push({
+        code: "style_code_mismatch",
+        severity: "warn",
+        message: `Code decodes style ${result.styleCode} but the listing claims ${ctx.claimedStyleCode}.`,
+      });
+    }
+  }
+
+  const rank: Record<InconsistencySeverity, number> = { flag: 0, warn: 1, info: 2 };
+  return out.sort((x, y) => rank[x.severity] - rank[y.severity]);
+}

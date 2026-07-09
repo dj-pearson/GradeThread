@@ -1,6 +1,8 @@
 // US-1712: deterministic decoder engine + Lululemon decoders.
 import { assert, assertEquals } from "@std/assert";
 import {
+  crossCheckDecodeResult,
+  type DecodeResult,
   type DecoderSpec,
   decodeTagCode,
   runDecoderSpec,
@@ -85,4 +87,50 @@ Deno.test("a malformed spec regex never throws, just no-matches", () => {
     confidence: 0.5,
   };
   assertEquals(runDecoderSpec(bad, "anything"), null);
+});
+
+// ── Cross-checks (US-1768 AC2) ──────────────────────────────────────────────
+function baseResult(over: Partial<DecodeResult> = {}): DecodeResult {
+  return { brand: "Louis Vuitton", decoderKind: "date_code", raw: "SD1024", confidence: 0.8, ...over };
+}
+
+Deno.test("crossCheck: a future production year is flagged", () => {
+  const flags = crossCheckDecodeResult(baseResult({ year: "2030" }), { currentYear: 2026 });
+  assert(flags.some((f) => f.code === "date_in_future" && f.severity === "flag"));
+});
+
+Deno.test("crossCheck: a year before the brand's founding is flagged", () => {
+  const flags = crossCheckDecodeResult(baseResult({ year: "1850" }), {
+    currentYear: 2026,
+    brandFoundedYear: 1854,
+  });
+  assert(flags.some((f) => f.code === "date_before_brand"));
+});
+
+Deno.test("crossCheck: claim mismatches are warnings, not flags", () => {
+  const flags = crossCheckDecodeResult(
+    baseResult({ year: "2018", gender: "Women", styleCode: "A1234" }),
+    { currentYear: 2026, claimedYear: 2019, claimedGender: "Men", claimedStyleCode: "B9999" },
+  );
+  const codes = flags.map((f) => f.code);
+  assert(codes.includes("year_mismatch"));
+  assert(codes.includes("gender_mismatch"));
+  assert(codes.includes("style_code_mismatch"));
+  assert(flags.every((f) => f.severity === "warn"));
+});
+
+Deno.test("crossCheck: a consistent decode yields no inconsistencies", () => {
+  const flags = crossCheckDecodeResult(
+    baseResult({ year: "2018", gender: "Women", styleCode: "A1234" }),
+    { currentYear: 2026, claimedYear: 2018, claimedGender: "Women", claimedStyleCode: "a1234" },
+  );
+  assertEquals(flags.length, 0);
+});
+
+Deno.test("crossCheck: flags sort before warns", () => {
+  const flags = crossCheckDecodeResult(
+    baseResult({ year: "2030" }),
+    { currentYear: 2026, claimedYear: 2031 },
+  );
+  assertEquals(flags[0].severity, "flag", "the future-date flag ranks above the year-mismatch warn");
 });

@@ -8,6 +8,7 @@ import {
 } from "../lib/db-write.ts";
 import { requireScope } from "../lib/scope-guard.ts";
 import { resolveBrandKnowledgePack } from "../lib/brand-knowledge.ts";
+import { validateTellsForWrite } from "../lib/brand-authenticity.ts";
 
 // US-1715: admin authoring + verification surface for the Brand & Style
 // Knowledge Base (00389 tables: brand_knowledge / brand_styles /
@@ -173,6 +174,16 @@ export function buildPatch(
         return { error: "verified must be a boolean" };
       }
       patch.verified = value;
+      continue;
+    }
+    // US-1768: enforce STRUCTURED authentication tells on write. The generic
+    // JSONB column would otherwise accept any shape; here we require an array of
+    // checkable {category, claim, check, confidence, ...} entries and store the
+    // canonicalized result (unknown categories → 'other', confidence clamped).
+    if (table === "brand_knowledge" && key === "authentication_tells") {
+      const v = validateTellsForWrite(value);
+      if (!v.ok) return { error: v.error };
+      patch.authentication_tells = v.tells;
       continue;
     }
     patch[key] = value;

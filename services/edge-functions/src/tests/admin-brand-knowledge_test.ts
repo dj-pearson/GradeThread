@@ -69,3 +69,31 @@ Deno.test("each table exposes its own editable columns only", () => {
   // brand_style_codes owns `pattern`.
   assert("pattern" in ok(buildPatch("brand_style_codes", { pattern: "^x$" })));
 });
+
+// ── US-1768: structured authentication_tells enforcement on write ────────────
+Deno.test("authentication_tells: a valid structured array is canonicalized", () => {
+  const patch = ok(buildPatch("brand_knowledge", {
+    authentication_tells: [
+      { category: "date_code", claim: "Stamped, not printed", check: "look under tab", confidence: 0.7 },
+      { category: "weird", claim: "legacy", confidence: 9 }, // canonicalized on write
+    ],
+  }));
+  const tells = patch.authentication_tells as Array<Record<string, unknown>>;
+  assertEquals(tells.length, 2);
+  assertEquals(tells[1].category, "other", "unknown category → other");
+  assertEquals(tells[1].confidence, 1, "confidence clamps to [0,1]");
+});
+
+Deno.test("authentication_tells: a non-array is rejected (can't wipe the column)", () => {
+  assert(err(buildPatch("brand_knowledge", { authentication_tells: { claim: "x" } })).length > 0);
+});
+
+Deno.test("authentication_tells: an entry with no claim is rejected", () => {
+  assert(err(buildPatch("brand_knowledge", { authentication_tells: [{ check: "no claim" }] })).length > 0);
+});
+
+Deno.test("authentication_tells validation only applies to brand_knowledge", () => {
+  // On another table 'authentication_tells' isn't an editable column, so it's
+  // silently dropped rather than validated — and an all-non-editable patch errors.
+  assert(err(buildPatch("brand_styles", { authentication_tells: "whatever" })).length > 0);
+});

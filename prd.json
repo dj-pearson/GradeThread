@@ -13549,7 +13549,7 @@
       ],
       "priority": 1757,
       "passes": false,
-      "notes": "[P2][EXTENSION][NEW][GROWTH] Privacy policy page (Model A static route). Attribution reuses affiliate.ts click->conversion. Telemetry opt-in only (GDPR/CCPA posture, ties to legal geo-consent epic)."
+      "notes": "[P2][EXTENSION][NEW][GROWTH] Privacy policy page (Model A static route). Attribution reuses affiliate.ts click->conversion. Telemetry opt-in only (GDPR/CCPA posture, ties to legal geo-consent epic). [OPERATOR-GATED 2026-07-09] Core deliverable (AC1: publish to Chrome Web Store + Firefox AMO with screenshots/listing copy) is NOT automatable from this host — needs store developer accounts + a running browser to capture screenshots. AC3 attribution: the referral system (src/lib/affiliate.ts) attributes via a per-SELLER ?ref=<code>; a buyer-side extension has no seller code, so extension->signup is channel-level (utm_source=extension), not per-referrer. Deferred until an operator runs the store submission; codeable residue to pair with that: extension privacy-policy static page, opt-in telemetry toggle + endpoint, store-listing copy doc. Not marking passes; mirrors the US-1582 [OPERATOR] split. Extension CODE is done via US-1755/US-1756."
     },
     {
       "id": "US-1758",
@@ -13691,8 +13691,8 @@
         "Admin can curate tells via the admin-brand-knowledge surface"
       ],
       "priority": 1768,
-      "passes": false,
-      "notes": "[P2][AUTHENTICITY] Extend brand_knowledge/brand_style_codes (00389) + brand-decoders.ts + admin-brand-knowledge.ts. Coordinate with Brand KB epic (esp. US-1727 LV date codes, US-1726 Coach creed/serial, US-1728 Gucci tells)."
+      "passes": true,
+      "notes": "[P2][AUTHENTICITY] Extend brand_knowledge/brand_style_codes (00389) + brand-decoders.ts + admin-brand-knowledge.ts. Coordinate with Brand KB epic (esp. US-1727 LV date codes, US-1726 Coach creed/serial, US-1728 Gucci tells). [DONE 2026-07-09] Migration-free (authentication_tells is JSONB; structure lives in code). New lib services/edge-functions/src/lib/brand-authenticity.ts: AuthenticationTell {category(stitching|hardware|tag|font|date_code|serial|stamp|material|construction|packaging|other), claim, check, redFlag?, source?, confidence}; coerceTell (tolerant: legacy free-text string + {tell,detail} shape -> structured), normalizeTells (read path), validateTellsForWrite (admin write path: rejects non-array/empty-claim, canonicalizes category+confidence), mergeTells (DB curated wins over seed by claim key), CANONICAL_TELLS seed for louisvuitton/coach/gucci (grounded, modest confidence, needs-review source), getEffectiveTells (DB normalized + seed merge). AC2: brand-decoders.ts crossCheckDecodeResult -> DecodeInconsistency[] flags date_in_future/date_before_brand (flag severity) + year/gender/style_code mismatch (warn), deterministic (currentYear injected), sorted flag>warn. AC3: admin-brand-knowledge.ts buildPatch now validates+canonicalizes authentication_tells on write (brand_knowledge only). Grading prompt UNTOUCHED (never-assert-authenticity posture preserved; scoring pass is US-1769). Tests: brand-authenticity_test.ts + crossCheck cases in brand-decoders_test.ts + tells cases in admin-brand-knowledge_test.ts (33 pass); deno check+lint clean. No migration -> pushable."
     },
     {
       "id": "US-1769",
