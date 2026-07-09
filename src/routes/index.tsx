@@ -114,6 +114,7 @@ const WhereToSellPage = lazy(() => import("@/pages/marketing/where-to-sell").the
 const CrosslistingAppsPage = lazy(() => import("@/pages/marketing/crosslisting-apps").then(m => ({ default: m.CrosslistingAppsPage })));
 const ConditionChartPage = lazy(() => import("@/pages/marketing/condition-chart").then(m => ({ default: m.ConditionChartPage })));
 const GradeCheckerPage = lazy(() => import("@/pages/tools/grade-checker").then(m => ({ default: m.GradeCheckerPage })));
+const AuthenticityCheckPage = lazy(() => import("@/pages/tools/authenticity-check").then(m => ({ default: m.AuthenticityCheckPage })));
 const FlawLibraryHubPage = lazy(() => import("@/pages/marketing/flaw-library").then(m => ({ default: m.FlawLibraryHubPage })));
 const FlawPage = lazy(() => import("@/pages/marketing/flaw-library").then(m => ({ default: m.FlawPage })));
 const GarmentGuidesHubPage = lazy(() => import("@/pages/marketing/garment-guides").then(m => ({ default: m.GarmentGuidesHubPage })));
@@ -437,6 +438,8 @@ export const router = createBrowserRouter([
       { path: "/grading/condition-chart", element: <SuspenseWrapper><ConditionChartPage /></SuspenseWrapper> },
       // US-1687: free grade-checker tool.
       { path: "/tools/grade-checker", element: <SuspenseWrapper><GradeCheckerPage /></SuspenseWrapper> },
+      // US-1771: free authenticity-check tool.
+      { path: "/tools/authenticity-check", element: <SuspenseWrapper><AuthenticityCheckPage /></SuspenseWrapper> },
       // Glossary hub spokes (US-303): one page per grade tier + factor, served
       // by a single dynamic route. The indexable set is registered in
       // PUBLIC_ROUTES (via glossaryRoutes()) and prerendered individually.

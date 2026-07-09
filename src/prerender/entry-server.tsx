@@ -130,6 +130,8 @@ import { CONDITION_CHART_PATH } from "@/lib/seo/condition-chart";
 import { ConditionChartPage } from "@/pages/marketing/condition-chart";
 import { GRADE_CHECKER_PATH } from "@/lib/seo/grade-checker";
 import { GradeCheckerPage } from "@/pages/tools/grade-checker";
+import { AUTHENTICITY_CHECK_PATH } from "@/lib/seo/authenticity-check";
+import { AuthenticityCheckPage } from "@/pages/tools/authenticity-check";
 
 // Static map of prerenderable routes → page element.
 const PAGES: Record<string, React.ReactNode> = {
@@ -268,6 +270,8 @@ const PAGES: Record<string, React.ReactNode> = {
   [CONDITION_CHART_PATH]: <ConditionChartPage />,
   // Free grade-checker tool (US-1687).
   [GRADE_CHECKER_PATH]: <GradeCheckerPage />,
+  // Free authenticity-check tool (US-1771).
+  [AUTHENTICITY_CHECK_PATH]: <AuthenticityCheckPage />,
 };
 
 export function renderRoute(path: string): string {

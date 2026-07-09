@@ -32,6 +32,7 @@ import { whereToSellRoute } from "./where-to-sell";
 import { crosslistAppsRoute } from "./crosslisting-apps";
 import { conditionChartRoute } from "./condition-chart";
 import { gradeCheckerRoute } from "./grade-checker";
+import { authenticityCheckRoute } from "./authenticity-check";
 
 export const SITE_URL = "https://gradethread.com";
 
@@ -136,6 +137,8 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/grading/condition-chart": "2026-07-06",
   // Free grade-checker tool (US-1687).
   "/tools/grade-checker": "2026-07-06",
+  // Free authenticity-check tool (US-1771).
+  "/tools/authenticity-check": "2026-07-09",
   // Legal pages mirror their rendered effectiveDate ("April 1, 2026").
   "/privacy": "2026-04-01",
   "/terms": "2026-04-01",
@@ -560,6 +563,8 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
   conditionChartRoute(),
   // Free grade-checker tool (US-1687).
   gradeCheckerRoute(),
+  // Free authenticity-check tool (US-1771).
+  authenticityCheckRoute(),
 ];
 
 // US-427: per-route social share image (Open Graph / Twitter). High-value

@@ -73,6 +73,10 @@ import {
 } from "@/lib/seo/crosslisting-apps";
 import { CONDITION_CHART_META, CONDITION_CHART_PATH } from "@/lib/seo/condition-chart";
 import { GRADE_CHECKER_META, GRADE_CHECKER_PATH } from "@/lib/seo/grade-checker";
+import {
+  AUTHENTICITY_CHECK_META,
+  AUTHENTICITY_CHECK_PATH,
+} from "@/lib/seo/authenticity-check";
 import { absoluteUrl } from "@/lib/seo/public-routes";
 import { LANDING_FAQS } from "@/pages/landing-faqs";
 import { SITE_URL } from "@/lib/seo/public-routes";
@@ -868,6 +872,30 @@ export function gradeCheckerJsonLd(): JsonLd[] {
     provider: { "@id": `${SITE_URL}/#organization` },
   };
   return [app, faqPageLd(GRADE_CHECKER_META.faqs)];
+}
+
+// ── Free authenticity-check tool (US-1771) ──────────────────────────
+export function authenticityCheckBreadcrumbItems(): Array<{ name: string; url: string }> {
+  return [
+    { name: "GradeThread", url: `${SITE_URL}/` },
+    { name: "Tools", url: `${SITE_URL}/tools/authenticity-check` },
+    { name: "Authenticity checker", url: `${SITE_URL}${AUTHENTICITY_CHECK_PATH}` },
+  ];
+}
+export function authenticityCheckJsonLd(): JsonLd[] {
+  const app: JsonLd = {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    name: "Free Brand Authenticity Checker for Clothing",
+    url: absoluteUrl(AUTHENTICITY_CHECK_PATH),
+    applicationCategory: "UtilitiesApplication",
+    operatingSystem: "Web",
+    description: AUTHENTICITY_CHECK_META.description,
+    offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+    isAccessibleForFree: true,
+    provider: { "@id": `${SITE_URL}/#organization` },
+  };
+  return [app, faqPageLd(AUTHENTICITY_CHECK_META.faqs)];
 }
 
 // ── /grading/methodology (US-1677, E-E-A-T) ─────────────────────────

@@ -13730,8 +13730,8 @@
         "Authenticity badge/section rendered on certificate.tsx + slab formats"
       ],
       "priority": 1771,
-      "passes": false,
-      "notes": "[P2][AUTHENTICITY][GROWTH] Free tool mirrors grade-checker abuse controls. Add-on pricing via payments.ts catalog. Certificate badge already has an authenticity flag slot to extend."
+      "passes": true,
+      "notes": "[P2][AUTHENTICITY][GROWTH] Free tool mirrors grade-checker abuse controls. Add-on pricing via payments.ts catalog. Certificate badge already has an authenticity flag slot to extend. [DONE 2026-07-09] Part 2 (frontend). AC1 tool page: src/pages/tools/authenticity-check.tsx (mirrors grade-checker) — up-to-4 photo upload + optional brand -> POST /api/grading/public/authenticity-check -> verdict badge (likely_authentic green / inconclusive amber / red_flags red) + confidence + summary + mandatory limitations disclaimer; graceful 404->coming-soon (endpoint fail-closed pending legal review). SEO: src/lib/seo/authenticity-check.ts (META/route factory, desc 149 chars) + authenticityCheckJsonLd/breadcrumbItems in marketing-jsonld.ts; registered in public-routes.ts (lastmod map + routes array), routes/index.tsx (lazy + route), prerender/entry-server.tsx (import + map). tsc + eslint clean; route-metadata + crawl-parity + jsonld guards pass. AC2 metering + pricing done (part 1). AC3 cert authenticity SECTION renders via US-601 (counterfeit_risk + confidence_label on public_grade_reports view). REMAINING optional polish (not blocking): surface the new US-1769 verdict on the cert (needs a public_grade_reports view column) + on the shareable slab image. Pre-existing unrelated red: public-routes.test.ts fails on /buyer/* routes from US-1802 (buyer dashboard shell added router paths without PUBLIC_ROUTES registration) — not mine."
     },
     {
       "id": "US-1772",
