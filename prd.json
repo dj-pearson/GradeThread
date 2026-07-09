@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1903,
+  "nextId": 1911,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -15606,6 +15606,128 @@
       "priority": 1902,
       "passes": false,
       "notes": ""
+    },
+    {
+      "id": "US-1903",
+      "priority": 2601,
+      "passes": false,
+      "title": "Verify-groups covers EVERY group via sequential windows, not just the first ~13",
+      "description": "As a seller with a 45-listing session, when I ask AI to verify my groups I want ALL of them checked, not a toast saying 'only the first 13 groups were checked this pass'. Today sampleGroupsForVerify (services/edge-functions/src/lib/ai-group-verify.ts) budgets 40 photos (~3/group → ~13 groups) and the client (verifyGroups() in src/pages/flipdesk/autolister.tsx) sends everything once and surfaces `truncated` as a toast with no way to continue.",
+      "acceptanceCriteria": [
+        "Explicit 'Verify groups' button walks ALL groups in sequential client-side windows sized to the server's 40-photo sample budget, never splitting one group across windows; a pure windowing helper (given groups + budget → list of group-windows) is unit-tested including the >3-photo sampling interaction",
+        "Progress is visible while windows run ('Checked 26/45 groups…') and the pass is cancellable between windows; suggestions aggregate across windows and dedupe by (type, group_ids, photo_ids) before rendering the existing chips",
+        "When the pass needs >1 window, the user sees the metered-action count up front before it runs (each window is one metered verify call under the existing reserve/refund); the silent auto-run after auto-group stays single-window/cheap as today",
+        "The 'Only the first N groups were checked' truncated toast path is gone from the explicit flow (server /verify-groups endpoint itself stays unchanged — windowing is client-side)",
+        "Applying a suggestion still routes through the US-1543 undoable grouping mutations; vitest covers the windowing + dedupe helpers"
+      ],
+      "notes": "[P1][Web/AutoLister] [scale-v2 deep dive 2026-07-09] Verified: sampleGroupsForVerify picks first/middle/last per group, MAX_VERIFY_PHOTOS=40 (flipdesk-autolister.ts:89), truncation toast at autolister.tsx:1488. Server accepts arbitrary group subsets already, so no edge change is required — do NOT rebuild the endpoint."
+    },
+    {
+      "id": "US-1904",
+      "priority": 2602,
+      "passes": false,
+      "title": "AI propose-groups: vision boundary detection groups an EXIF-less photo dump",
+      "description": "As a seller who dumps 600 photos with no usable EXIF (exports, screenshots, some cameras), I want an 'AI group remaining' action that looks at the photos in shooting order and proposes where one item ends and the next begins, so I don't hand-build dozens of groups. Today a timeless dump becomes per-photo singletons (seedSequenceClusters caps runs at MAX_AUTO_GROUP_PHOTOS=12) plus weak dHash merges — safe, but the grouping work lands on the seller. dHash Hamming≤10 cannot tell 'same garment, new angle' from 'different garment, same background'; a cheap vision pass can.",
+      "acceptanceCriteria": [
+        "New edge endpoint POST /api/flipdesk/autolister/propose-groups: accepts an ORDERED list of staged photo entries (id + thumbnail storage path) currently ungrouped/singleton; EVERY path is validated to live under the caller's own ${ownerId}/_staging/ prefix (US-268 — add a tenant-isolation_test.ts case) and the route sits under the shared autolister vision rate limiter",
+        "The pass sends THUMBNAILS (not full images) in order, ≤40 per window, to the lightweight model via the US-1065 action cascade, prompting for group BOUNDARIES over the sequence ('photos 1–6 = one garment; 7 starts a new item') with per-boundary confidence + reason; returns proposed groups and writes nothing",
+        "Client: 'AI group remaining' action appears when ≥2 ungrouped photos exist after auto-group; it windows sequentially with visible progress and a metered-action count shown BEFORE running; proposals are applied through the undoable grouping mutations, and boundaries below a confidence floor are rendered as review chips instead of silently applied",
+        "Overlap handling at window seams: adjacent windows share a small photo overlap so an item spanning the seam isn't force-split; the seam-merge helper is pure and unit-tested",
+        "Metered via the existing atomic reserve/refund (refund when the cascade returns model 'none'); deno tests cover the boundary→groups mapping and tenant-path validation; endpoint documented next to verify-groups"
+      ],
+      "notes": "[P1][Edge+Web/AutoLister][Flagship] [scale-v2 deep dive 2026-07-09] This is the direct fix for the user-reported 600-photo session where auto-group produced 2 tiny groups + one mess. Reuse the ai-group-verify.ts plumbing (labeling, cascade, normalize/clamp patterns) — do not fork a new style. GPS/location as a grouping signal was evaluated and REJECTED (whole shoot shares one location; EXIF GPS usually absent; privacy) — don't file it."
+    },
+    {
+      "id": "US-1905",
+      "priority": 2603,
+      "passes": false,
+      "title": "IndexedDB session persistence + upload resume after reload (600-photo sessions never lost)",
+      "description": "As a seller mid-way through a 600-photo intake, I want the session (staged photos, groups, roles, pending uploads) to survive a tab reload or crash, so I never lose grouping work or queued uploads. Today session state lives in localStorage (autolister:state:<sessionId>) which can overflow on large sessions (explicit 'too large to save fully' warning drops undo snapshots), and in-flight/queued File objects are simply lost on reload (lostUploadCount).",
+      "acceptanceCriteria": [
+        "Session state (staged metadata, groups, roles, sort prefs, undo snapshot) moves to IndexedDB with a one-time migration from an existing localStorage session; localStorage remains as a fallback when IndexedDB is unavailable (e.g. some private-browsing modes), keeping today's size warning only on that fallback path",
+        "Original File blobs of queued/not-yet-uploaded photos are persisted to IndexedDB and deleted as soon as the staging upload succeeds; after a reload, the upload manager (src/stores/autolister-upload-store.ts) resumes pending uploads from the stored blobs — lostUploadCount only fires for genuinely unrecoverable cases",
+        "A 600-photo session persists fully — groups, roles, and undo snapshot included — with no truncation; QuotaExceededError evicts oldest blobs first with a visible warning while metadata is always kept",
+        "The beforeunload warning downgrades (or disappears) when everything pending is resumable",
+        "Persistence layer is a small typed module with vitest coverage via fake-indexeddb (happy path, migration, quota-eviction, fallback)"
+      ],
+      "notes": "[P1][Web/AutoLister] [scale-v2 deep dive 2026-07-09] This is the unbuilt remainder of US-1541 (everything else in that story shipped). @tanstack/react-virtual is unrelated; no new deps beyond an idb helper (or hand-rolled) + fake-indexeddb devDep."
+    },
+    {
+      "id": "US-1906",
+      "priority": 2604,
+      "passes": false,
+      "title": "True virtualization of the grouping workbench (600 photos scroll smooth, DnD intact)",
+      "description": "As a seller working a 600-photo session, I want the ungrouped grid and group list to stay fast however far I scroll. Today the page uses IntersectionObserver load-more chunks (GRID_CHUNK=105, GROUPS_CHUNK=24) — fine at first paint, but a fully-expanded session mounts every tile and drag interactions degrade.",
+      "acceptanceCriteria": [
+        "Ungrouped grid and the groups list render through @tanstack/react-virtual (already a dependency); a fully-loaded 600-photo session scrolls at 60fps-ish without mounting all tiles (verify with React DevTools render counts, note findings on the story)",
+        "dnd-kit still fully works: dragging near viewport edges auto-scrolls, drop targets resolve for groups that were off-screen when the drag started, and keyboard-based DnD (accessibility path) still functions",
+        "Selection, single-level undo, sort modes, group collapse, and the load-more sentinels' role are preserved or cleanly replaced; no layout shift on thumbnail load (fixed tile aspect)",
+        "vitest coverage for any new pure layout/windowing helpers; manual 600-photo pass noted on the story"
+      ],
+      "notes": "[P2][Web/AutoLister] [scale-v2 deep dive 2026-07-09] dnd-kit + virtualization is the fiddly part (measure cache vs. transformed items) — budget time there; keep the pure group-edit transforms (src/lib/autolister-group-edits.ts) untouched."
+    },
+    {
+      "id": "US-1907",
+      "priority": 2605,
+      "passes": false,
+      "title": "Group triage strip: overview, jump-to-group, and needs-attention filters for 40+ group sessions",
+      "description": "As a seller reviewing ~45 proposed groups, I want a sticky overview that shows session health and lets me jump straight to the groups that need work, instead of scrolling a long column hunting for problems.",
+      "acceptanceCriteria": [
+        "When the session has ≥12 groups, a sticky triage strip appears: total groups / total photos / ungrouped count, plus needs-attention chips with counts: singleton groups, oversized groups (> MAX_AUTO_GROUP_PHOTOS), groups missing a cover or any tag-role photo, and groups with unresolved AI suggestions",
+        "Clicking a chip filters the group list to that condition (clear-filter affordance); clicking a group in the strip (or a mini-map slot) scrolls to it — and this works with the virtualized list from US-1906",
+        "Collapse-all / expand-all groups; the strip is keyboard-navigable and announced properly (a11y — jsx-a11y is build-blocking)",
+        "Pure helpers computing the triage buckets are unit-tested"
+      ],
+      "notes": "[P2][Web/AutoLister] [scale-v2 deep dive 2026-07-09] Depends on US-1906 only for the scroll-to behavior — build the strip independently and wire scroll once virtualization lands."
+    },
+    {
+      "id": "US-1908",
+      "priority": 2606,
+      "passes": false,
+      "title": "Grouping quality telemetry: measure auto-group accuracy so thresholds are tuned on real data",
+      "description": "As the product owner, I want to know how well auto-grouping actually performs on real sessions — how much sellers correct it — so DEFAULT_GAP_SECONDS, VISUAL_MERGE_MAX_DISTANCE, and MAX_AUTO_GROUP_PHOTOS get tuned from evidence instead of anecdotes.",
+      "acceptanceCriteria": [
+        "PostHog events (no image data, no filenames, no PII; respect the geo-consent gating — fire only after analytics consent): autolister_autogroup_run {photo_count, group_count, singleton_count, pct_with_exif, seq_seeded_count}, autolister_group_edit {kind: move|merge|split|ungroup_all|reorder|group_every}, autolister_ai_suggestion {source: verify|propose, action: applied|dismissed, confidence_bucket}",
+        "On generate (session end), one autolister_grouping_outcome event with a correction score: % of photos whose final group differs from their auto-assigned group (pure helper, unit-tested), plus counts of manual groups created",
+        "Events are documented in a short section in the AutoLister code comments or docs so the dashboards are reproducible; existing PostHog wrapper/consent util used — no direct posthog calls",
+        "vitest covers the correction-score helper and that events don't fire without consent"
+      ],
+      "notes": "[P2][Web/Analytics] [scale-v2 deep dive 2026-07-09] The point is closing the loop: US-1904's boundary model and the dHash/time thresholds are guesses until this measures them."
+    },
+    {
+      "id": "US-1909",
+      "priority": 2607,
+      "passes": false,
+      "title": "iOS AutoLister grouping parity: filename-sequence + bounded merges + full verify coverage",
+      "description": "As an iOS seller, I want the same grouping quality the web workbench has. Today iOS auto-grouping is EXIF time-gap only (PhotoGrouping.swift defers dHash), has no filename-sequence signal, and no windowed verify / propose-groups access.",
+      "acceptanceCriteria": [
+        "iOS auto-grouping adds the filename-sequence seeding signal (same semantics as src/lib/autolister-grouping.ts: last digit-run parsing, contiguous-run partitioning, timeless-only seeding, runs longer than the cap seed as singletons) with matching thresholds/constants",
+        "iOS gains the web's mega-group guards: weak-signal merges bounded by MAX_AUTO_GROUP_PHOTOS-equivalent and the ordinal window; time-gap clusters exempt — port the constants, don't invent new ones",
+        "iOS calls the same edge endpoints for AI assistance: windowed verify-groups coverage (US-1903 semantics) and propose-groups (US-1904) with the same metered-action pre-count UX",
+        "Ungrouped sort modes match web (shooting / name / date / upload); Swift unit tests cover the sequence parser and run partitioning; python3 ios/Scripts/no-ungated-print.py passes"
+      ],
+      "notes": "[P2][iOS/AutoLister] [scale-v2 deep dive 2026-07-09] dHash-on-device stays deferred — the propose-groups endpoint (server vision) substitutes for it on iOS. iOS CI on macOS runners is the build safety net; nothing buildable locally on Windows."
+    },
+    {
+      "id": "US-1910",
+      "priority": 2608,
+      "passes": false,
+      "title": "AutoLister at scale v2 epic — 600 photos in, 45 trustworthy listings out, nothing lost",
+      "description": "As a reseller, I can dump an entire multi-hundred-photo shoot into AutoLister and trust the whole pipeline: grouping that works even without EXIF (AI boundary proposals), AI verification that covers every group, a workbench that stays fast at 600 photos with triage for 45 groups, sessions and uploads that survive reloads, and generation that always sees the most informative role-diverse photos (defect + tag shots guaranteed). Umbrella for US-1903..US-1909; motivated by the founder's 2026-07-09 session report (600 photos → ~45 listings; grouping and reorganization were the pain).",
+      "acceptanceCriteria": [
+        "End-to-end: a 600-photo no-EXIF session uploads, gets AI-proposed groups, full verify coverage, survives a mid-session reload with uploads resuming, and generates drafts whose vision input always includes available defect and tag shots",
+        "All child stories US-1903..US-1909 pass"
+      ],
+      "dependsOn": [
+        "US-1903",
+        "US-1904",
+        "US-1905",
+        "US-1906",
+        "US-1907",
+        "US-1908",
+        "US-1909"
+      ],
+      "notes": "[P1][Web+Edge+iOS/AutoLister][Epic] [scale-v2 deep dive 2026-07-09] Verified current state: ALL of the 2026-07-02 bulk-intake epic (US-1538..1548) shipped — filename-sequence grouping, MAX_AUTO_GROUP_PHOTOS=12 mega-group cap + ordinal-window visual merge (US-1550), @dnd-kit workbench + single-level undo, 4 ungrouped sort modes, verify-groups endpoint, 429 backoff, MAX_BATCH_ITEMS=300, quota pre-check, pre-generate confirm. Do NOT re-file those. ALSO SHIPPED DIRECTLY 2026-07-09 (this deep dive, not a story): generation photo funnel fix — removed the US-1552 pre-slice in loadItemPhotoUrls (ai-listing.ts) that fed selectListingPhotos only the first 8 photos by gallery sort_order (hid defect/tag shots, especially after manual reorder), bumped defect above detail in ROLE_BUDGET (listing-photo-budget.ts), bounded tag-OCR separately (MAX_TAG_OCR_PHOTOS=4); regression test added. Vision count discipline still lives in selectListingPhotos (6 role-diverse photos) — sending literally all photos was evaluated and rejected (3x image-token cost + the US-1552 timeout history; role-diverse selection captures the information). GPS/EXIF-location grouping evaluated and rejected (see US-1904 notes)."
     }
   ]
 }
