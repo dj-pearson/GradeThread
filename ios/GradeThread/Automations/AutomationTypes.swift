@@ -1,9 +1,9 @@
 import Foundation
 
 /// Wire types for the general FlipDesk Automations surface (US-1135) — the
-/// trigger → action → scope rules edited on the web Automations page
-/// (`/api/flipdesk/automations/*`), distinct from the repricing rules
-/// (US-672, `/api/flipdesk/pricing/rules`).
+/// trigger → action → scope rules (`/api/flipdesk/automations/*`), fully
+/// editable both here and on the web Automations page, distinct from the
+/// repricing rules (US-672, `/api/flipdesk/pricing/rules`).
 ///
 /// All of these round-trip through `EdgeAPI`'s symmetric snake_case ⇄ camelCase
 /// strategy: camelCase Swift property names encode to the snake_case keys the
