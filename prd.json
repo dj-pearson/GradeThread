@@ -14198,7 +14198,7 @@
         "Migration triple satisfied; no .or() on mutations"
       ],
       "priority": 1806,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][ALERTS][NEW] Load migrations skill. Reuse cert/listing ids as watch targets; defaults from buyer preferences (1798). TIES: consumed by matching engine (1807) + delivery/UI (1809). Watch-from-extension write path lands with 1837."
     },
     {

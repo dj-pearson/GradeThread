@@ -1,5 +1,26 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ PENDING: 00416_alerts_watchlist.sql (US-1806 alerts watchlist + saved-search model, 2026-07-09)
+
+**What:** Two new TENANT-SCOPED, owner-managed tables (RLS `auth.uid() = user_id`,
+like `buyer_preferences`) that seed the condition-alerts epic (US-1805):
+`public.saved_searches` (standing buyer criteria — brands/categories/sizes/keywords/
+min_grade/max_price_cents, is_active, per-search notify flags, `last_matched_at`) +
+`public.watchlist_items` (a specific certificate/listing/passport a buyer watches,
+UNIQUE(user_id, target_type, target_id) so a repeat "watch" is idempotent, plus a
+display snapshot label/brand). Bumps `EXPECTED_SCHEMA_VERSION` → **00416**.
+Self-records '00416'.
+
+**Risk: LOW** — two brand-new isolated tables, no writes to existing tables/columns.
+Managed entirely from the SPA under RLS; **the CLIENT reads/writes these the moment
+the frontend auto-deploys** (new `use-watchlist` / `use-saved-searches` hooks + the
+certificate-page Watch button, which is gated behind the `conditionAlerts`
+entitlement so it stays hidden until a plan unlocks it). So this migration MUST be
+applied before the push-triggered Cloudflare Pages deploy, or those queries 404 the
+missing tables. The matching engine (US-1807) that READS these from the edge is not
+built yet. **⚠️ Apply order:** after 00415; `scripts/apply-prod-migrations.sh`, then
+`NOTIFY pgrst, 'reload schema';`, redeploy the edge (boot guard now expects 00416).
+
 ## ⏳ PENDING: 00415_api_overage_credits.sql (US-1792 B2B API overage credits, 2026-07-09)
 
 **What:** Two new TENANT-SCOPED tables — `public.api_credit_wallet` (user_id PK,

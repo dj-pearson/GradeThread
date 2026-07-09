@@ -12804,3 +12804,29 @@ US-1702 DONE (edge+web; MIGRATION 00387 — HELD). The story I had missed.
   green with the new table; tenant-isolation runtime cases Docker-gated (funnel is owner-scoped).
 - VERIFIED: deno check CLEAN / lint 0 / web tsc -b 0 / eslint 0 / full edge suite 3177/0.
 - ⚠️ HELD MIGRATION — commit local; NOT pushed until user applies 00404 (after 00403).
+
+── US-1806: Alerts — watchlist + saved-search model (2026-07-09) ──
+- ★ FOUNDATION of the condition-alerts epic (US-1805). Unblocks US-1807 (matching
+  engine) + US-1809 (delivery/management UI).
+- Migration 00416 (HELD): two tenant-scoped OWNER-RLS tables (auth.uid()=user_id,
+  like buyer_preferences) — saved_searches (brands/categories/sizes/keywords/
+  min_grade/max_price_cents, is_active, per-search notify flags, last_matched_at)
+  + watchlist_items (target certificate/listing/passport, UNIQUE(user,type,id) so a
+  repeat watch is idempotent, display snapshot label/brand). EXPECTED_SCHEMA_VERSION
+  → 00416. Packaged in PENDING_MIGRATIONS.md (LOW risk; ⚠️ CLIENT reads/writes on
+  frontend auto-deploy → apply BEFORE the push).
+- Criteria SEED from buyer preferences (US-1798) as a SNAPSHOT then edit freely —
+  lib/watchlist.ts defaultSearchCriteriaFromPreferences (deep-copies nested size
+  arrays so edits never write back to prefs — vitest caught the shallow-copy alias).
+- Client contract: use-watchlist.ts (watch/unwatch/isWatched, idempotent upsert) +
+  use-saved-searches.ts (create-from-prefs/update/remove; .eq chains only, NO .or()
+  on mutations per US-1552). Reusable <WatchButton> gated behind conditionAlerts
+  entitlement + sign-in (renders nothing otherwise) → placed on the certificate page;
+  drops onto a graded listing / the extension later (same model).
+- No edge route reads these yet (US-1807 will) → no tenant-isolation_test case needed
+  this story; add one when the matching engine lands.
+- Tests: watchlist.test.ts 7 pass (defaulting, snapshot no-alias, notify defaults,
+  target key). VERIFIED: web tsc --noEmit 0 / eslint 0 / tsc -b at baseline 7 (added
+  `as never` on inserts per the documented project-ref quirk, added 0 net) / edge
+  schema-version 12 pass / rls-guard pass / deno check src/main.ts CLEAN.
+- ⚠️ HELD MIGRATION — commit local; NOT pushed until user applies 00416 (after 00415).

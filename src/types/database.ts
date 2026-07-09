@@ -3114,6 +3114,52 @@ export type BuyerPreferencesInsert =
   & { onboarding_completed_at?: string | null };
 export type BuyerPreferencesUpdate = Partial<Omit<BuyerPreferencesRow, "user_id" | "created_at">>;
 
+// US-1806: condition-based alerts model. Owner-managed from the SPA via RLS;
+// read by the matching engine (US-1807, edge, scoped by user_id) and the
+// delivery/management UI (US-1809).
+
+/** A buyer's standing search criteria. Criteria default from buyer_preferences
+ *  (US-1798) at create time, then are individually editable. */
+export interface SavedSearchRow {
+  id: string;
+  user_id: string;
+  label: string;
+  brands: string[];
+  categories: string[];
+  /** Sizes per garment group, e.g. { tops: ["M","L"], footwear: ["10"] }. */
+  sizes: Record<string, string[]>;
+  keywords: string[];
+  /** Minimum acceptable condition grade (1.0–10.0), null = no floor. */
+  min_grade: number | null;
+  max_price_cents: number | null;
+  is_active: boolean;
+  notify_email: boolean;
+  notify_push: boolean;
+  last_matched_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+export type SavedSearchInsert =
+  & { user_id: string }
+  & Partial<Omit<SavedSearchRow, "id" | "user_id" | "created_at" | "updated_at" | "last_matched_at">>;
+export type SavedSearchUpdate = Partial<
+  Omit<SavedSearchRow, "id" | "user_id" | "created_at" | "updated_at">
+>;
+
+/** A specific certificate / listing / passport a buyer is watching. */
+export interface WatchlistItemRow {
+  id: string;
+  user_id: string;
+  target_type: "certificate" | "listing" | "passport";
+  target_id: string;
+  label: string | null;
+  brand: string | null;
+  created_at: string;
+}
+export type WatchlistItemInsert =
+  & { user_id: string; target_type: WatchlistItemRow["target_type"]; target_id: string }
+  & Partial<Pick<WatchlistItemRow, "label" | "brand">>;
+
 // ─── Database schema type (for Supabase client) ────────────────────
 
 export interface Database {
@@ -3133,6 +3179,17 @@ export interface Database {
         Row: BuyerPreferencesRow;
         Insert: BuyerPreferencesInsert;
         Update: BuyerPreferencesUpdate;
+      };
+      // US-1806: condition-based alerts — saved searches + watchlist.
+      saved_searches: {
+        Row: SavedSearchRow;
+        Insert: SavedSearchInsert;
+        Update: SavedSearchUpdate;
+      };
+      watchlist_items: {
+        Row: WatchlistItemRow;
+        Insert: WatchlistItemInsert;
+        Update: Partial<Pick<WatchlistItemRow, "label" | "brand">>;
       };
       // US-1792: B2B API overage credit wallet (owner-read; service-role writes).
       api_credit_wallet: {

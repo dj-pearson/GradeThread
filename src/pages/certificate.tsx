@@ -48,6 +48,7 @@ import {
   buildAnnotatedGroups,
 } from "@/components/certificate/annotated-defect-photo";
 import { CertShareActions } from "@/components/certificate/cert-share-actions";
+import { WatchButton } from "@/components/watchlist/watch-button";
 import { CertImpactLine } from "@/components/impact/cert-impact-line";
 import { CopyField } from "@/components/verified/copy-field";
 import {
@@ -608,8 +609,16 @@ export function CertificatePage() {
         {/* US-433: visible breadcrumb matching the BreadcrumbList JSON-LD.
             Hidden on print to keep the certificate PDF clean. */}
         <Breadcrumbs items={breadcrumbTrail} className="print:hidden" />
-        {/* Share / save actions (US-767) — interactive, so dropped on print. */}
-        <div className="flex justify-end print:hidden">
+        {/* Share / save actions (US-767) — interactive, so dropped on print.
+            US-1806: entitled buyers can watch this certificate for condition
+            alerts (the button renders nothing for everyone else). */}
+        <div className="flex flex-wrap items-center justify-end gap-2 print:hidden">
+          <WatchButton
+            targetType="certificate"
+            targetId={id ?? ""}
+            label={submission?.title ?? "Graded garment"}
+            brand={submission?.brand ?? null}
+          />
           <CertShareActions
             certificateId={id ?? ""}
             title={submission?.title ?? "Graded garment"}
