@@ -18,6 +18,7 @@
 // next admin write.
 
 import { supabaseAdmin } from "./supabase.ts";
+import { brandKey, canonicalizeBrand } from "./brand-normalize.ts";
 
 export type AuthTellCategory =
   | "stitching"
@@ -264,4 +265,18 @@ export async function getEffectiveTells(brandKey: string): Promise<Authenticatio
   } catch {
     return seed;
   }
+}
+
+/**
+ * Effective tells for a raw brand NAME (as a listing/seller supplies it), by
+ * canonicalizing it to a brand_key first. Returns [] for an unrecognizable
+ * brand. Best-effort — the authenticity pass (US-1769) treats tells as optional
+ * grounding, so a miss simply means an ungrounded assessment, never a failure.
+ */
+export async function getEffectiveTellsForBrand(
+  rawBrand: string | null | undefined,
+): Promise<AuthenticationTell[]> {
+  const canonical = canonicalizeBrand(rawBrand ?? "");
+  if (!canonical) return [];
+  return await getEffectiveTells(brandKey(canonical));
 }

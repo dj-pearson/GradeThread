@@ -106,3 +106,88 @@ Deno.test("selectAuthenticityImages: prioritizes label/detail and caps at 6", ()
   assertEquals(picked[1].imageType, "label_2");
   assert(!picked.some((p) => p.imageType === "defect"));
 });
+
+// ── US-1769: verdict + cap + per-tell findings ──────────────────────────────
+const {
+  applyVerdictCap,
+  deriveVerdict,
+  normalizeTellFindings,
+  buildTellsBlock,
+  AUTHENTICITY_VERDICT_CONFIDENCE_CEILING,
+  AUTHENTICITY_CONTRADICTION_CONFIDENCE_CAP,
+} = await import("../lib/ai-authenticity.ts");
+
+Deno.test("applyVerdictCap: photo-only ceiling always applies", () => {
+  assertEquals(applyVerdictCap(0.99, 0, 0), AUTHENTICITY_VERDICT_CONFIDENCE_CEILING);
+  assertEquals(applyVerdictCap(0.5, 0, 0), 0.5, "below the ceiling is unchanged");
+});
+
+Deno.test("applyVerdictCap: a contradiction caps harder (min-of-caps, never raises)", () => {
+  assertEquals(applyVerdictCap(0.95, 1, 0), AUTHENTICITY_CONTRADICTION_CONFIDENCE_CAP);
+  assertEquals(applyVerdictCap(0.95, 0, 2), AUTHENTICITY_CONTRADICTION_CONFIDENCE_CAP);
+  assertEquals(applyVerdictCap(0.3, 1, 0), 0.3, "an already-low confidence isn't raised by the cap");
+});
+
+Deno.test("deriveVerdict: contradictions → red_flags; clean high → likely_authentic", () => {
+  assertEquals(deriveVerdict(0.9, 0, 0, true), "likely_authentic");
+  assertEquals(deriveVerdict(0.5, 1, 0, true), "red_flags");
+  assertEquals(deriveVerdict(0.5, 0, 1, true), "red_flags", "an inconsistent tell is a contradiction");
+  assertEquals(deriveVerdict(0.6, 0, 0, true), "inconclusive", "recognizable but not confident enough");
+  assertEquals(deriveVerdict(0.95, 0, 0, false), "inconclusive", "no recognizable brand is never a verdict");
+});
+
+Deno.test("normalizeTellFindings: unknown status is cautiously 'not_visible'; junk dropped", () => {
+  const out = normalizeTellFindings([
+    { category: "serial", claim: "creed", status: "inconsistent", note: "misaligned" },
+    { category: "font", claim: "GG", status: "bogus" },
+    { claim: "" },
+    42,
+  ]);
+  assertEquals(out.length, 2);
+  assertEquals(out[0].status, "inconsistent");
+  assertEquals(out[1].status, "not_visible", "unknown status → not_visible (never a false contradiction)");
+});
+
+Deno.test("buildTellsBlock: empty inputs yield an empty block (v1 prompt unchanged)", () => {
+  assertEquals(buildTellsBlock([], []), "");
+});
+
+Deno.test("buildTellsBlock: tells + cross-checks render as trusted reference sections", () => {
+  const block = buildTellsBlock(
+    [{ category: "date_code", claim: "Stamped not printed", check: "look under tab", confidence: 0.7 }],
+    [{ code: "date_in_future", severity: "flag", message: "year 2030 > now" }],
+  );
+  assert(block.includes("KNOWN_AUTHENTICATION_TELLS"));
+  assert(block.includes("[date_code] Stamped not printed"));
+  assert(block.includes("DECODER_CROSS_CHECKS"));
+  assert(block.includes("date_in_future"));
+});
+
+Deno.test("normalizeAuthenticityAssessment: additive verdict fields; version passthrough", () => {
+  const a = normalizeAuthenticityAssessment(
+    {
+      is_brand_recognizable: true,
+      brand_assessed: "Gucci",
+      authenticity_confidence: 0.95,
+      tell_findings: [{ category: "serial", claim: "tab digits", status: "inconsistent", note: "uneven" }],
+    },
+    "test-model",
+    "authenticity_v1+tells",
+  );
+  assertEquals(a.verdict, "red_flags", "an inconsistent tell drives the verdict");
+  assertEquals(a.verdict_confidence, AUTHENTICITY_CONTRADICTION_CONFIDENCE_CAP);
+  assertEquals(a.authenticity_confidence, 0.95, "raw model confidence is preserved for continuity");
+  assertEquals(a.tell_findings.length, 1);
+  assertEquals(a.prompt_version, "authenticity_v1+tells");
+});
+
+Deno.test("normalizeAuthenticityAssessment: ungrounded call keeps default version + empty findings", () => {
+  const a = normalizeAuthenticityAssessment(
+    { is_brand_recognizable: true, brand_assessed: "Nike", authenticity_confidence: 0.8 },
+    "test-model",
+  );
+  assertEquals(a.prompt_version, AUTHENTICITY_PROMPT_VERSION);
+  assertEquals(a.tell_findings.length, 0);
+  assertEquals(a.verdict, "likely_authentic");
+  assertEquals(a.verdict_confidence, 0.8);
+});

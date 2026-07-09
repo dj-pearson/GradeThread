@@ -29,6 +29,7 @@ import {
 import { reconcileNeedsReview } from "./ai-config.ts";
 import { getSetting } from "./system-settings.ts";
 import { assessAuthenticity, type AuthenticityAssessment } from "./ai-authenticity.ts";
+import { getEffectiveTellsForBrand } from "./brand-authenticity.ts";
 import { runShadowGrades } from "./grading-shadow.ts";
 import { notifyWebhooks } from "./webhook-delivery.ts";
 import {
@@ -1103,6 +1104,15 @@ export async function processSubmission(submissionId: string) {
       style_attributes: styleHint,
     };
 
+    // US-1769: ground the authenticity add-on (US-601) in structured brand tells
+    // (US-1768) so it returns per-tell findings + a confidence-capped verdict.
+    // Best-effort + only when the add-on was purchased — a miss (or an
+    // unrecognizable brand) yields empty tells, keeping the assessment on the
+    // byte-identical ungrounded v1 prompt.
+    const authenticityTells = wantAuthenticity
+      ? await getEffectiveTellsForBrand(submission.brand).catch(() => [])
+      : [];
+
     // US-1533: trusted garment expectation baseline (flag-gated, default OFF;
     // cache-first with lazy generation). Fetched ONCE before the memory-gated
     // closure so both the per-image calls and the composite share it. Strictly
@@ -1193,6 +1203,7 @@ export async function processSubmission(submissionId: string) {
         ? assessAuthenticity(
             imageData.map((img) => ({ imageType: img.imageType, dataUri: img.dataUri })),
             authenticityGarmentInfo,
+            { tells: authenticityTells },
           ).catch((err) => {
             console.error(
               `[Pipeline] authenticity add-on failed for submission ${submissionId}:`,

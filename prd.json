@@ -13704,8 +13704,8 @@
         "Result persists to grade_authenticity_review / authenticity_assessment fields"
       ],
       "priority": 1769,
-      "passes": false,
-      "notes": "[P2][AUTHENTICITY] Load grading-engine skill (owns confidence-cap composition + prompt-version lifecycle). Reuse AUTHENTICITY_FLAG_CONFIDENCE_CAP. Legal copy review required before ship."
+      "passes": true,
+      "notes": "[P2][AUTHENTICITY] Load grading-engine skill (owns confidence-cap composition + prompt-version lifecycle). Reuse AUTHENTICITY_FLAG_CONFIDENCE_CAP. Legal copy review required before ship. [DONE 2026-07-09] ADDITIVE enhancement of the existing US-601 authenticity pass (ai-authenticity.ts) — not greenfield. When grounded in US-1768 structured tells: prompt gains a TRUSTED tells block (outside the untrusted seller fence, US-346) + per-tell findings schema, version suffix authenticity_v1+tells (dynamic-context suffix rule); with NO tells the prompt is BYTE-IDENTICAL to v1 (test-guarded). New additive AuthenticityAssessment fields: verdict (likely_authentic|inconclusive|red_flags, deriveVerdict), verdict_confidence (applyVerdictCap: photo-only ceiling 0.9 + contradiction cap 0.5, min-of-caps never raises), tell_findings[] (normalizeTellFindings, unknown status->not_visible so a parse hiccup is never a false contradiction). authenticity_confidence + counterfeit_risk UNCHANGED (continuity). AUTHENTICITY_LIMITATIONS disclaimer already present (AC2). Persists via existing authenticity_assessment JSONB (AC3). Pipeline (grading-pipeline.ts) fetches getEffectiveTellsForBrand best-effort (canonicalizeBrand+brandKey) when addon purchased, passes {tells}. Grading rounding/factor pipeline UNTOUCHED. Tests: 16 ai-authenticity cases (verdict/cap/findings/parity) all pass; deno check(main.ts graph)+lint clean; no migration. NOTE: authenticity_v1+tells prompt should pass the US-1770 eval gate before broad activation; legal copy review of AUTHENTICITY_LIMITATIONS still recommended per story note."
     },
     {
       "id": "US-1770",
