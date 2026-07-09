@@ -227,8 +227,24 @@ const ALLOWED_ORIGINS = new Set<string>([
 const STAGING_ORIGIN = "https://staging.gradethread.com";
 const PAGES_PREVIEW_ORIGIN_RE = /^https:\/\/[a-z0-9-]+\.gradethread\.pages\.dev$/;
 
+// US-1754: the browser extension (US-1755) calls the public grade-from-url
+// endpoint cross-origin. Its origin is chrome-extension://<id> /
+// moz-extension://<id>, which can't be hardcoded because the id is assigned at
+// store-publish time — so it is configured via EXTENSION_ALLOWED_ORIGINS
+// (comma-separated). Empty ⇒ no extension origin is trusted (the public
+// endpoints then remain same-origin / server-to-server only). CORS is not the
+// security boundary here — the per-IP/per-instance quotas + the AI daily ceiling
+// are — so trusting our own extension's origin globally is safe and simpler.
+const EXTENSION_ALLOWED_ORIGINS = new Set<string>(
+  (Deno.env.get("EXTENSION_ALLOWED_ORIGINS") ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
+);
+
 function isAllowedOrigin(origin: string): boolean {
   if (ALLOWED_ORIGINS.has(origin)) return true;
+  if (EXTENSION_ALLOWED_ORIGINS.has(origin)) return true;
   if (isProduction()) return false;
   return origin === STAGING_ORIGIN || PAGES_PREVIEW_ORIGIN_RE.test(origin);
 }
@@ -239,6 +255,8 @@ const ALLOWED_HEADERS = [
   "X-API-Key",
   "X-Internal-Job-Secret",
   "X-Workspace-Owner",
+  // US-1754: per-extension-instance quota key sent by the extension.
+  "X-GT-Extension-Id",
 ];
 
 // Re-apply the Access-Control-Allow-Origin (+ Vary) headers for an allowed

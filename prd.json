@@ -13509,7 +13509,7 @@
         "Returns a deep link to open the full experience on gradethread.com with attribution"
       ],
       "priority": 1754,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][EXTENSION] Extends public-grading.ts (reuse gradeCheckRateLimited + safeFetch SSRF guard + quickGrade). Consider a signed extension token to separate its quota from the web grade-checker. No DB writes."
     },
     {

@@ -7,9 +7,13 @@ Deno.env.set("SUPABASE_URL", Deno.env.get("SUPABASE_URL") ?? "http://localhost:5
 Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-key");
 Deno.env.set("ANTHROPIC_API_KEY", Deno.env.get("ANTHROPIC_API_KEY") ?? "test-key");
 
-const { prepareGradeCheckImage, gradeCheckRateLimited, publicValueFromRange } = await import(
-  "../routes/public-grading.ts"
-);
+const {
+  prepareGradeCheckImage,
+  gradeCheckRateLimited,
+  publicValueFromRange,
+  extGradeRateLimited,
+  parseGradeFromUrlBody,
+} = await import("../routes/public-grading.ts");
 
 // A canonical 1x1 PNG (valid magic bytes + IHDR + IDAT + IEND).
 const ONE_PX_PNG =
@@ -99,4 +103,46 @@ Deno.test("gradeCheckRateLimited: allows the first 5 calls per IP per hour, bloc
   assertEquals(gradeCheckRateLimited("198.51.100.9", t + 6), false);
   // After the window elapses, the original IP is allowed again.
   assertEquals(gradeCheckRateLimited(ip, t + 60 * 60 * 1000 + 10), false);
+});
+
+// US-1754: the extension grade-from-url endpoint's dual-dimension limiter.
+Deno.test("extGradeRateLimited: caps per IP (20/hr) then reports the ip scope", () => {
+  const ip = "203.0.113.20";
+  const t = 5_000_000;
+  for (let i = 0; i < 20; i++) {
+    assertEquals(extGradeRateLimited(ip, null, t + i).limited, false, `call ${i + 1}`);
+  }
+  const over = extGradeRateLimited(ip, null, t + 20);
+  assert(over.limited);
+  assertEquals(over.scope, "ip");
+});
+
+Deno.test("extGradeRateLimited: caps per extension instance (40/hr) independent of IP", () => {
+  const inst = "instance-abc";
+  const t = 6_000_000;
+  // Spread across many IPs so the per-IP cap never trips — only the instance cap.
+  for (let i = 0; i < 40; i++) {
+    const r = extGradeRateLimited(`198.51.100.${i % 200}`, inst, t + i);
+    assertEquals(r.limited, false, `call ${i + 1}`);
+  }
+  const over = extGradeRateLimited("198.51.100.201", inst, t + 40);
+  assert(over.limited);
+  assertEquals(over.scope, "instance");
+});
+
+Deno.test("parseGradeFromUrlBody: accepts imageUrl, imageUrls, caps at 4, rejects junk", () => {
+  const single = parseGradeFromUrlBody({ imageUrl: "https://example.com/a.jpg" });
+  assert(single.ok);
+  if (single.ok) assertEquals(single.urls, ["https://example.com/a.jpg"]);
+
+  const many = parseGradeFromUrlBody({
+    imageUrls: ["https://x/1", "https://x/2", "https://x/3", "https://x/4", "https://x/5"],
+  });
+  assert(many.ok);
+  if (many.ok) assertEquals(many.urls.length, 4); // capped
+
+  assert(!parseGradeFromUrlBody({}).ok);
+  assert(!parseGradeFromUrlBody({ imageUrl: "not a url" }).ok);
+  assert(!parseGradeFromUrlBody({ imageUrl: "ftp://example.com/a.jpg" }).ok);
+  assert(!parseGradeFromUrlBody(null).ok);
 });

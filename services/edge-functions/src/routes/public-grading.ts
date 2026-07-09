@@ -319,3 +319,193 @@ publicGradingRoutes.post("/grade-check", async (c) => {
     );
   }
 });
+
+// ── Extension image-URL second-opinion (US-1754) ─────────────────────
+// POST /grade-from-url — UNAUTHENTICATED ROUGH grade from image URL(s), for the
+// browser extension (US-1755) to show a second opinion on a marketplace listing
+// WITHOUT the user uploading files. quickGrade fetches each URL through the SSRF
+// guard (safeFetch: private-range blocklist + redirect re-validation + size cap
+// + image-content-type check), so a caller-supplied URL can't reach an internal
+// host. Defended in depth like /grade-check: CORS is locked to the extension
+// origin (EXTENSION_ALLOWED_ORIGINS, in main.ts), a per-IP AND a
+// per-extension-instance sliding window cap calls here, the shared ai-limiter's
+// global daily ceiling caps Vision spend inside quickGrade, and nothing is
+// persisted. The output is explicitly labeled an ESTIMATE.
+const EXT_GRADE_PER_IP_PER_HOUR = 20;
+const EXT_GRADE_PER_INSTANCE_PER_HOUR = 40;
+const EXT_GRADE_WINDOW_MS = 60 * 60 * 1000;
+const EXT_GRADE_MAX_URLS = 4;
+const extIpHits = new Map<string, number[]>();
+const extInstanceHits = new Map<string, number[]>();
+
+// Generic per-key sliding-window check with opportunistic map cleanup. Records
+// the hit when it is allowed (mutates `map`). Pure w.r.t. `now` for testing.
+function windowLimited(
+  map: Map<string, number[]>,
+  key: string,
+  now: number,
+  limit: number,
+  windowMs: number,
+): boolean {
+  const recent = (map.get(key) ?? []).filter((t) => now - t < windowMs);
+  if (recent.length >= limit) {
+    map.set(key, recent);
+    return true;
+  }
+  recent.push(now);
+  map.set(key, recent);
+  if (map.size > 5000) {
+    for (const [k, v] of map) {
+      if (v.every((t) => now - t >= windowMs)) map.delete(k);
+    }
+  }
+  return false;
+}
+
+/**
+ * Rate-limit a grade-from-url call on BOTH dimensions: the (Cloudflare-attested)
+ * client IP and, when the extension sends one, its per-install instance id. The
+ * instance id separates a heavy legitimate user's quota from the shared web
+ * grade-checker window and lets one abusive install be throttled without
+ * penalising a whole NAT'd network. Returns which scope (if any) tripped.
+ */
+export function extGradeRateLimited(
+  ip: string,
+  instanceId: string | null,
+  now: number,
+): { limited: boolean; scope?: "ip" | "instance" } {
+  if (windowLimited(extIpHits, ip, now, EXT_GRADE_PER_IP_PER_HOUR, EXT_GRADE_WINDOW_MS)) {
+    return { limited: true, scope: "ip" };
+  }
+  if (
+    instanceId &&
+    windowLimited(
+      extInstanceHits,
+      instanceId,
+      now,
+      EXT_GRADE_PER_INSTANCE_PER_HOUR,
+      EXT_GRADE_WINDOW_MS,
+    )
+  ) {
+    return { limited: true, scope: "instance" };
+  }
+  return { limited: false };
+}
+
+/**
+ * Validate the request body's image URL(s). Accepts `imageUrl` (single) or
+ * `imageUrls` (array); every entry must be a well-formed http(s) URL. Caps to
+ * EXT_GRADE_MAX_URLS. Pure — exported for the edge test. The SSRF check itself
+ * happens later inside quickGrade/safeFetch; this only rejects obvious junk
+ * early so a bad request never spends a Vision call.
+ */
+export function parseGradeFromUrlBody(
+  body: unknown,
+): { ok: true; urls: string[] } | { ok: false; error: string } {
+  const b = (body ?? {}) as { imageUrl?: unknown; imageUrls?: unknown };
+  const raw: unknown[] = Array.isArray(b.imageUrls)
+    ? b.imageUrls
+    : typeof b.imageUrl === "string"
+    ? [b.imageUrl]
+    : [];
+  const urls: string[] = [];
+  for (const u of raw) {
+    if (typeof u !== "string") continue;
+    const trimmed = u.trim();
+    if (!trimmed) continue;
+    let parsed: URL;
+    try {
+      parsed = new URL(trimmed);
+    } catch {
+      return { ok: false, error: "Each image must be a valid URL." };
+    }
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      return { ok: false, error: "Image URLs must be http(s)." };
+    }
+    urls.push(trimmed);
+    if (urls.length >= EXT_GRADE_MAX_URLS) break;
+  }
+  if (urls.length === 0) {
+    return { ok: false, error: "Provide at least one image URL." };
+  }
+  return { ok: true, urls };
+}
+
+function publicSiteUrl(): string {
+  return (Deno.env.get("PUBLIC_SITE_URL")?.trim() || "https://gradethread.com").replace(/\/$/, "");
+}
+
+publicGradingRoutes.post("/grade-from-url", async (c) => {
+  try {
+    const ip = clientIpFor(c);
+    const instanceId = c.req.header("x-gt-extension-id")?.trim().slice(0, 64) || null;
+    const gate = extGradeRateLimited(ip, instanceId, Date.now());
+    if (gate.limited) {
+      return c.json(
+        {
+          error:
+            gate.scope === "instance"
+              ? "This extension has reached its grading limit for now. Try again later."
+              : "You've reached the grading limit for now. Try again later.",
+        },
+        429,
+      );
+    }
+
+    const body = await c.req.json().catch(() => null);
+    const parsed = parseGradeFromUrlBody(body);
+    if (!parsed.ok) return c.json({ error: parsed.error }, 400);
+
+    // Optional garment context from the listing (title/brand) sharpens the grade.
+    const brand = typeof (body as { brand?: unknown })?.brand === "string"
+      ? (body as { brand: string }).brand.trim().slice(0, 80)
+      : undefined;
+    const title = typeof (body as { title?: unknown })?.title === "string"
+      ? (body as { title: string }).title.trim().slice(0, 200)
+      : undefined;
+
+    let result;
+    try {
+      result = await quickGrade({
+        images: parsed.urls.map((url) => ({ url, type: "detail" })),
+        garment: { brand: brand ?? null, title: title ?? "" },
+      });
+    } catch (err) {
+      // A fetch/SSRF/analysis failure on the caller's URL is a 400, not a 500 —
+      // the input (an unreachable or non-image URL) is at fault, not the server.
+      console.error(
+        "public-grading /grade-from-url grade:",
+        err instanceof Error ? err.message : String(err),
+      );
+      return c.json(
+        { error: "Couldn't grade that image. Make sure the URL points to a public photo." },
+        400,
+      );
+    }
+
+    // Deep link back to the full experience, with attribution for the funnel.
+    const deepLink =
+      `${publicSiteUrl()}/tools/grade-checker?utm_source=extension&utm_medium=second-opinion`;
+
+    return c.json(
+      {
+        estimate: true,
+        overallScore: result.overallScore,
+        gradeTier: result.gradeTier,
+        confidence: result.confidence,
+        factorScores: result.factorScores,
+        imagesAnalyzed: result.imagesAnalyzed,
+        disclaimer: GRADE_CHECK_DISCLAIMER,
+        deepLink,
+      },
+      200,
+    );
+  } catch (err) {
+    // US-580: unauthenticated surface — never echo raw error detail.
+    console.error(
+      "public-grading /grade-from-url:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return c.json({ error: "Couldn't grade that image right now. Try again later." }, 500);
+  }
+});

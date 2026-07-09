@@ -12610,3 +12610,30 @@ US-1702 DONE (edge+web; MIGRATION 00387 — HELD). The story I had missed.
 - VERIFIED: web tsc -b 0 / functions tsc 0 / eslint 0 (page + both functions) /
   vitest social-card 13 pass / prerender 43 pass.
 - No migration. Commit local; NOT pushed (standing pre-launch rule).
+
+── US-1754: Extension — public image-URL second-opinion endpoint (2026-07-08) ──
+- New POST /api/grading/public/grade-from-url (public-grading.ts): UNAUTH rough
+  grade from image URL(s) for the browser extension (US-1755), no file upload.
+  quickGrade fetches each URL through the SSRF guard (safeFetch: private-range
+  blocklist + redirect re-validation + size cap + image-content-type), so a
+  caller URL can't reach an internal host. Accepts imageUrl|imageUrls (cap 4) +
+  optional brand/title context. Returns aggregate grade + disclaimer + a deep
+  link (PUBLIC_SITE_URL/tools/grade-checker?utm_source=extension&...). NO DB writes.
+- Abuse controls: dual sliding-window limiter extGradeRateLimited — per-IP 20/hr
+  AND per-extension-instance 40/hr (x-gt-extension-id header), reporting which
+  scope tripped; AI global daily ceiling still enforced inside quickGrade.
+- CORS: main.ts isAllowedOrigin now also trusts EXTENSION_ALLOWED_ORIGINS (env,
+  comma-separated chrome-extension://ID) + X-GT-Extension-Id added to
+  ALLOWED_HEADERS. Empty allowlist ⇒ no extension origin trusted. CORS isn't the
+  security boundary here (quotas + AI ceiling are), so trusting our own extension
+  origin globally is safe + simpler.
+- Tests: grade-check_test.ts +3 (extGradeRateLimited ip-scope + instance-scope,
+  parseGradeFromUrlBody accept/cap/reject). 12 pass in that file.
+- VERIFIED: deno check src/main.ts CLEAN (canonical CI cmd) / deno lint 0 /
+  full edge suite 3153 passed, 1 failed — the 1 is PRE-EXISTING
+  (cron-registry-drift_test.ts: COOLIFY.md missing cron markers; fails on clean
+  HEAD 64edcde8, unrelated to this story; candidate follow-up).
+- No migration. Commit local; NOT pushed (standing pre-launch rule).
+- NEW EDGE ENV (deploy-time, optional): EXTENSION_ALLOWED_ORIGINS — set once the
+  extension's store id is known (US-1755). Endpoint works without it (server-to-
+  server / same-origin); only browser cross-origin from the extension needs it.
