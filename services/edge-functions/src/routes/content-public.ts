@@ -1441,7 +1441,7 @@ contentPublicRoutes.get("/sellers.json", async (c) => {
 contentPublicRoutes.get("/referral-leaderboard.json", async (c) => {
   const { data: optedIn, error } = await supabaseAdmin
     .from("users")
-    .select("id, referral_display_name")
+    .select("id, referral_display_name, verified_handle, verified_enabled")
     .eq("referral_leaderboard_enabled", true)
     .not("referral_display_name", "is", null)
     .limit(5000);
@@ -1450,6 +1450,10 @@ contentPublicRoutes.get("/referral-leaderboard.json", async (c) => {
   const users = (optedIn ?? []) as Array<{
     id: string;
     referral_display_name: string | null;
+    // US-1784: only a PUBLICLY-verified seller (verified_enabled) exposes a
+    // handle here, so the leaderboard row can link to their /verified profile.
+    verified_handle: string | null;
+    verified_enabled: boolean | null;
   }>;
   if (users.length === 0) return c.json({ referrers: [] });
 
@@ -1471,7 +1475,12 @@ contentPublicRoutes.get("/referral-leaderboard.json", async (c) => {
   // A leaderboard of zero-referral aliases isn't a leaderboard — rankReferrers
   // ranks by granted count desc, drops zero-referral rows, and caps the list.
   const referrers = rankReferrers(
-    users.map((u) => ({ id: u.id, display_name: u.referral_display_name as string })),
+    users.map((u) => ({
+      id: u.id,
+      display_name: u.referral_display_name as string,
+      // Link only publicly-verified sellers; others stay alias-only (privacy).
+      verified_handle: u.verified_enabled ? u.verified_handle : null,
+    })),
     countById,
   );
 

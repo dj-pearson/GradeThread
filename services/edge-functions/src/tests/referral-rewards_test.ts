@@ -203,3 +203,18 @@ Deno.test("normalizeReferralRewardConfig falls back per-field on a partial confi
     per_referrer_cap: 0,
   });
 });
+
+// US-1784: rankReferrers threads a verified handle only when supplied.
+Deno.test("rankReferrers carries verified_handle through for verified sellers", () => {
+  const counts = new Map([["a", 5], ["b", 3]]);
+  const rows = rankReferrers(
+    [
+      { id: "a", display_name: "Alice", verified_handle: "alice-vintage" },
+      { id: "b", display_name: "Bob" }, // not verified → no handle
+    ],
+    counts,
+  );
+  assertEquals(rows[0].display_name, "Alice");
+  assertEquals(rows[0].verified_handle, "alice-vintage");
+  assertEquals(rows[1].verified_handle, undefined);
+});

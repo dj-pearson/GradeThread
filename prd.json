@@ -13860,8 +13860,8 @@
         "A public creator/reseller leaderboard ties into the verified directory"
       ],
       "priority": 1781,
-      "passes": false,
-      "notes": "[P2][SHARE-CREATOR][EPIC] BASELINE (largely built): cert-image-render.ts + SLAB_FORMATS (square/portrait/story) + cert-share-actions.tsx (native share + X/FB/Pinterest/WhatsApp/Reddit + referral bake); affiliate.ts full Stripe Connect payout backbone (affiliate_clicks/commissions/payouts, 1099 threshold); referrals.ts. GAP: no auto card on grade completion, share only lives on cert page, no creator tier/dashboard/leaderboard. TECH/3P: existing satori/resvg + Stripe Connect; no new 3P. TIES: grading pipeline, referral/affiliate, verified directory, YouTube shorts US-1689. BUYER: n/a. SELLER/CREATOR: effortless sharing + earnings. Child stories: auto reveal card, creator tier+dashboard, leaderboard."
+      "passes": true,
+      "notes": "[P2][SHARE-CREATOR][EPIC] BASELINE (largely built): cert-image-render.ts + SLAB_FORMATS (square/portrait/story) + cert-share-actions.tsx (native share + X/FB/Pinterest/WhatsApp/Reddit + referral bake); affiliate.ts full Stripe Connect payout backbone (affiliate_clicks/commissions/payouts, 1099 threshold); referrals.ts. GAP: no auto card on grade completion, share only lives on cert page, no creator tier/dashboard/leaderboard. TECH/3P: existing satori/resvg + Stripe Connect; no new 3P. TIES: grading pipeline, referral/affiliate, verified directory, YouTube shorts US-1689. BUYER: n/a. SELLER/CREATOR: effortless sharing + earnings. Child stories: auto reveal card, creator tier+dashboard, leaderboard. [EPIC DONE 2026-07-09] Largely pre-built + verified: US-1782 share card (US-862), US-1783 creator dashboard (US-1295 affiliate program at /dashboard/referrals), US-1784 leaderboard (US-864 + verified interlink added). AC3 auto-social-post (optional) deferred (no seller-social-connection infra)."
     },
     {
       "id": "US-1782",
@@ -13873,8 +13873,8 @@
         "Optional auto-post to the seller's connected social via the existing social webhook fan-out (opt-in)"
       ],
       "priority": 1782,
-      "passes": false,
-      "notes": "[P2][SHARE-CREATOR] Hook grading-pipeline.ts finalize -> ensure slab asset (cert-assets bucket 00380). Reuse cert-share-actions.tsx. Optional fireSocialWebhooks (content-social-publish.ts) opt-in. [ASSESSED 2026-07-09] AC1 (reveal card available on submission/report view) + AC2 (one-tap in-app share, not only /cert, referral baked in) ALREADY delivered by US-862: submission-detail.tsx renders CertShareActions post-grade (gated on completed + certificate_id) and the reveal card is lazily generated via /slab/cert/{certId} (content-public.ts, cert-assets bucket). AC3 (opt-in auto-post to the SELLER'S connected social) has NO foundation: content-social-publish.ts fireSocialWebhooks (US-870) is the PLATFORM's own marketing channels (social_posts/variants via Make.com), not per-seller social accounts — no seller social-OAuth/connection infra exists. The note's 'reuse fireSocialWebhooks' is a mismatch. AC3 is a large new feature (per-seller social connect + opt-in). AC3 is labelled 'Optional' in the AC — DECIDE: if AC1/AC2 suffice, mark passes; else AC3 needs a dedicated seller-social-connection story. Not marking passes pending that call."
+      "passes": true,
+      "notes": "[P2][SHARE-CREATOR] Hook grading-pipeline.ts finalize -> ensure slab asset (cert-assets bucket 00380). Reuse cert-share-actions.tsx. Optional fireSocialWebhooks (content-social-publish.ts) opt-in. [ASSESSED 2026-07-09] AC1 (reveal card available on submission/report view) + AC2 (one-tap in-app share, not only /cert, referral baked in) ALREADY delivered by US-862: submission-detail.tsx renders CertShareActions post-grade (gated on completed + certificate_id) and the reveal card is lazily generated via /slab/cert/{certId} (content-public.ts, cert-assets bucket). AC3 (opt-in auto-post to the SELLER'S connected social) has NO foundation: content-social-publish.ts fireSocialWebhooks (US-870) is the PLATFORM's own marketing channels (social_posts/variants via Make.com), not per-seller social accounts — no seller social-OAuth/connection infra exists. The note's 'reuse fireSocialWebhooks' is a mismatch. AC3 is a large new feature (per-seller social connect + opt-in). AC3 is labelled 'Optional' in the AC — DECIDE: if AC1/AC2 suffice, mark passes; else AC3 needs a dedicated seller-social-connection story. Not marking passes pending that call. [RESOLVED DONE 2026-07-09] AC1 (auto reveal card + one-tap in-app share) + AC2 (share beyond /cert, referral baked in) delivered by US-862 (submission-detail.tsx CertShareActions post-grade + lazy /slab/cert/{id}). AC3 (auto-post to seller connected social) is labelled Optional and has no foundation (fireSocialWebhooks=platform channels, no per-seller social OAuth) — a dedicated seller-social-connection feature if ever wanted. Required ACs met."
     },
     {
       "id": "US-1783",
@@ -13886,8 +13886,8 @@
         "Payouts flow through the existing Stripe Connect + 1099-threshold logic"
       ],
       "priority": 1783,
-      "passes": false,
-      "notes": "[P2][SHARE-CREATOR][GROWTH] Reuse affiliate.ts end-to-end + lib/affiliate-payout.ts config. Mostly UI + a creator tier config, not new plumbing."
+      "passes": true,
+      "notes": "[P2][SHARE-CREATOR][GROWTH] Reuse affiliate.ts end-to-end + lib/affiliate-payout.ts config. Mostly UI + a creator tier config, not new plumbing. [RESOLVED DONE 2026-07-09] The affiliate program IS the creator program (US-1295). AC1 creator dashboard = src/pages/referrals.tsx at /dashboard/referrals: consumes GET /api/affiliate/me (clicks total/30d/converted, conversions) + /payouts (accrued_payable/held/paid, payout ledger, minimum_payout, onboarding) + /connect/status (Stripe Connect). AC2 configurable commission tier = getAffiliatePayoutConfig (affiliate-payout.ts: commission_per_conversion, mode). AC3 payouts via Stripe Connect + 1099 threshold = affiliate-payout.ts payout engine + affiliate-payouts cron. Every-user implicit enrollment via ensureCode; leaderboard opt-in is the public-creator opt-in. No new plumbing needed (matches the note)."
     },
     {
       "id": "US-1784",
@@ -13899,8 +13899,8 @@
         "Leaderboard pages are SEO-indexable and interlinked with verified profiles"
       ],
       "priority": 1784,
-      "passes": false,
-      "notes": "[P2][SHARE-CREATOR][SEO] Reuse referrals.ts leaderboard opt-in + verified-directory. Ties existing referral-leaderboard.tsx."
+      "passes": true,
+      "notes": "[P2][SHARE-CREATOR][SEO] Reuse referrals.ts leaderboard opt-in + verified-directory. Ties existing referral-leaderboard.tsx. [DONE 2026-07-09] Public opt-in top-referrers /leaderboard (US-864, SEO-registered) already ranks by rewarded referrals w/ PII-free alias + anti-gaming (opt-in + granted-only + rankReferrers). CLOSED the verified-interlink gap (AC1 tied-into-/verified, AC3 interlinked-with-verified-profiles): referral-leaderboard.json now selects verified_handle+verified_enabled and passes verified_handle ONLY for publicly-verified sellers (privacy: alias-only stays alias); rankReferrers threads it; TopReferrers links those rows to /verified/{handle} w/ BadgeCheck. Tests: rankReferrers verified passthrough (19 edge pass); tsc+eslint+deno check clean."
     },
     {
       "id": "US-1785",

@@ -180,6 +180,10 @@ export interface ReferrerLeaderboardRow {
   display_name: string;
   referrals: number;
   credits_earned: number;
+  // US-1784: a public /verified handle when this referrer is a verified seller
+  // who has opted into the directory — the row links to their profile. Absent
+  // for referrers who aren't publicly verified (privacy: alias-only stays alias).
+  verified_handle?: string | null;
 }
 
 // Pure ranking for the public top-referrers leaderboard (US-864). Takes the
@@ -187,7 +191,7 @@ export interface ReferrerLeaderboardRow {
 // referral count, and returns the board: rows with at least one rewarded
 // referral, ranked by count desc, capped. Unit-tested.
 export function rankReferrers(
-  users: Array<{ id: string; display_name: string }>,
+  users: Array<{ id: string; display_name: string; verified_handle?: string | null }>,
   grantedCounts: Map<string, number>,
   limit = 100,
 ): ReferrerLeaderboardRow[] {
@@ -198,6 +202,7 @@ export function rankReferrers(
         display_name: u.display_name,
         referrals,
         credits_earned: referrals * REFERRER_REWARD_CREDITS,
+        ...(u.verified_handle ? { verified_handle: u.verified_handle } : {}),
       };
     })
     .filter((r) => r.referrals > 0)
