@@ -13912,8 +13912,8 @@
         "An ESG export/pitch surface positions GradeThread as an 'official resale condition + impact standard' for brands"
       ],
       "priority": 1785,
-      "passes": false,
-      "notes": "[P2][SUSTAINABILITY][EPIC][NEW] BASELINE: ABSENT (grep confirmed no CO2/circularity anywhere except a blog seed string). Data exists: grade_reports + submissions.garment_type; dashboard.tsx + certificate.tsx are the hook points; slab render for cards. TECH/3P: NO scraping — use openly published apparel LCA/emission factors (cite sources) stored in a config table; methodology must be defensible + clearly labeled 'estimate'. TIES: certificate/slab, dashboard, brand partnerships (B2B), content/PR. BUYER: feel-good proof. SELLER: shareable impact. B2B: ESG reporting hook. Child stories: impact-estimate lib+factors, surfaces+share, brand ESG export."
+      "passes": true,
+      "notes": "[P2][SUSTAINABILITY][EPIC][NEW] BASELINE: ABSENT (grep confirmed no CO2/circularity anywhere except a blog seed string). Data exists: grade_reports + submissions.garment_type; dashboard.tsx + certificate.tsx are the hook points; slab render for cards. TECH/3P: NO scraping — use openly published apparel LCA/emission factors (cite sources) stored in a config table; methodology must be defensible + clearly labeled 'estimate'. TIES: certificate/slab, dashboard, brand partnerships (B2B), content/PR. BUYER: feel-good proof. SELLER: shareable impact. B2B: ESG reporting hook. Child stories: impact-estimate lib+factors, surfaces+share, brand ESG export. [EPIC DONE 2026-07-09] Children shipped: US-1786 impact-estimate lib + cited factor table (00408), US-1787 cert/dashboard impact surfaces + share, US-1788 brand ESG export (fail-closed) + /for-brands pitch. Migration 00408 pending prod-apply."
     },
     {
       "id": "US-1786",
@@ -13951,8 +13951,8 @@
         "Ties into the B2B API (EPIC 11) for programmatic access"
       ],
       "priority": 1788,
-      "passes": false,
-      "notes": "[P2][SUSTAINABILITY][NEW][B2B] Aggregate export via api-v1 or admin export; landing via Model A page. Feeds B2B API productization."
+      "passes": true,
+      "notes": "[P2][SUSTAINABILITY][NEW][B2B] Aggregate export via api-v1 or admin export; landing via Model A page. Feeds B2B API productization. [DONE 2026-07-09] AC1 aggregate ESG export: lib/esg-export.ts (pure aggregateBrandImpact — graded-volume impact by brand from submissions, sample-gated ESG_MIN_GRADES_PER_BRAND=5 as statistical+anonymity floor; toEsgCsv w/ methodology comment + CSV-escaping; computeEsgExport reuses US-1786 impact lib). Endpoint GET /api/grading/public/esg-export.csv — FAIL-CLOSED behind ESG_EXPORT_ENABLED (default off) since brand graded-volume is a business metric; cached; CSV download. PII-safe (brand + aggregate impact only, no seller/listing/item). AC2 pitch landing /for-brands (Model A prerendered, src/pages/marketing/for-brands.tsx): positions GradeThread as the neutral resale-condition + circularity standard, links to /resale-condition-report + /state-of-durability + /transparency as proof, partnerships CTA; registered public-routes+router+prerender, auto sitemap/llms via manifest. AC3 B2B tie: export is API/CSV, ready for partner-scoped access via the B2B API epic (US-1789+). Tests: esg-export (4 edge); tsc+eslint+deno check+route-metadata/crawl-parity/jsonld guards clean. Migration-free."
     },
     {
       "id": "US-1789",

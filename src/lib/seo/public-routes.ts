@@ -34,6 +34,7 @@ import { conditionChartRoute } from "./condition-chart";
 import { gradeCheckerRoute } from "./grade-checker";
 import { authenticityCheckRoute } from "./authenticity-check";
 import { fitCheckerRoute } from "./fit-checker";
+import { forBrandsRoute } from "./for-brands";
 
 export const SITE_URL = "https://gradethread.com";
 
@@ -143,6 +144,8 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/tools/authenticity-check": "2026-07-09",
   // Free fit-checker tool (US-1780).
   "/tools/fit-checker": "2026-07-09",
+  // Brand-partner pitch landing (US-1788).
+  "/for-brands": "2026-07-09",
   // Legal pages mirror their rendered effectiveDate ("April 1, 2026").
   "/privacy": "2026-04-01",
   "/terms": "2026-04-01",
@@ -584,6 +587,8 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
   authenticityCheckRoute(),
   // Free fit-checker tool (US-1780).
   fitCheckerRoute(),
+  // Brand-partner pitch landing (US-1788).
+  forBrandsRoute(),
 ];
 
 // US-427: per-route social share image (Open Graph / Twitter). High-value

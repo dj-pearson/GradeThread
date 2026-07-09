@@ -11,6 +11,7 @@ import { getValueHub, resolveValueCurve } from "../lib/value-index.ts";
 import { getDurabilityByBrand, getDurabilityHub } from "../lib/durability-index.ts";
 import { computeDurabilityReport, type DurabilityReport } from "../lib/durability-report.ts";
 import { computeGarmentImpact } from "../lib/impact-estimate.ts";
+import { computeEsgExport, toEsgCsv, type BrandEsgRow } from "../lib/esg-export.ts";
 import {
   computeResaleConditionReport,
   type ResaleConditionReport,
@@ -193,6 +194,33 @@ publicGradingRoutes.get("/durability", async (c) => {
 // scans the aggregate table and moves slowly.
 const DURABILITY_REPORT_CACHE_TTL_MS = 15 * 60 * 1000;
 let durabilityReportCache: { at: number; report: DurabilityReport } | null = null;
+
+// ── Brand ESG export (US-1788) ───────────────────────────────────────────
+// Aggregate-only, PII-safe CSV of graded-volume circularity impact by brand, for
+// a resale partner's ESG reporting. Brand-level graded volume is a business
+// metric, so it is FAIL-CLOSED behind ESG_EXPORT_ENABLED (default off) until an
+// operator turns it on for partners; full partner-scoped access ties into the
+// B2B API (US-1789+). Cached — it scans grades and moves slowly.
+const ESG_CACHE_TTL_MS = 60 * 60 * 1000;
+let esgCache: { at: number; rows: BrandEsgRow[] } | null = null;
+
+publicGradingRoutes.get("/esg-export.csv", async (c) => {
+  try {
+    if (Deno.env.get("ESG_EXPORT_ENABLED") !== "true") return c.json({ error: "Not found" }, 404);
+    const now = Date.now();
+    if (!esgCache || now - esgCache.at > ESG_CACHE_TTL_MS) {
+      esgCache = { at: now, rows: await computeEsgExport() };
+    }
+    return c.body(toEsgCsv(esgCache.rows), 200, {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": 'attachment; filename="gradethread-esg-impact-by-brand.csv"',
+      "Cache-Control": "public, max-age=600, s-maxage=3600",
+    });
+  } catch (err) {
+    console.error("public-grading /esg-export:", err instanceof Error ? err.message : String(err));
+    return c.json({ error: "Internal error" }, 500);
+  }
+});
 
 // ── Per-garment circularity impact (US-1787) ─────────────────────────────
 // Public, aggregate-only estimate of the impact avoided by buying one garment of

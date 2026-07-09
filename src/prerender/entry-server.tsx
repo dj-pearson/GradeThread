@@ -135,6 +135,8 @@ import { AUTHENTICITY_CHECK_PATH } from "@/lib/seo/authenticity-check";
 import { AuthenticityCheckPage } from "@/pages/tools/authenticity-check";
 import { FIT_CHECKER_PATH } from "@/lib/seo/fit-checker";
 import { FitCheckerPage } from "@/pages/tools/fit-checker";
+import { FOR_BRANDS_PATH } from "@/lib/seo/for-brands";
+import { ForBrandsPage } from "@/pages/marketing/for-brands";
 
 // Static map of prerenderable routes → page element.
 const PAGES: Record<string, React.ReactNode> = {
@@ -277,6 +279,7 @@ const PAGES: Record<string, React.ReactNode> = {
   // Free authenticity-check tool (US-1771).
   [AUTHENTICITY_CHECK_PATH]: <AuthenticityCheckPage />,
   [FIT_CHECKER_PATH]: <FitCheckerPage />,
+  [FOR_BRANDS_PATH]: <ForBrandsPage />,
 };
 
 export function renderRoute(path: string): string {
