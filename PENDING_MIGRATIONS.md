@@ -1,5 +1,27 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ PENDING: 00412_buyer_notifications.sql (US-1803 buyer notification layer, 2026-07-09)
+
+**What:** (1) Four values on the `notification_type` enum
+(`buyer_condition_alert/reward/guarantee/portfolio`) via `ADD VALUE IF NOT
+EXISTS`. (2) New TENANT-SCOPED table `public.buyer_notification_log` (idempotency
+ledger: `UNIQUE (user_id, dedupe_key)`, `sent_at`, `channels[]`) + owner SELECT
+RLS + two indexes. (3) Three columns on `buyer_preferences`: `digest_frequency`
+('immediate'|'daily'|'weekly', default immediate), `quiet_hours_start/end`
+(smallint 0-23, nullable). Bumps `EXPECTED_SCHEMA_VERSION` → **00412**.
+Self-records '00412'.
+
+**Risk: LOW** — additive enum values + one new isolated table + three nullable/
+defaulted columns. The delivery layer (`lib/buyer-notify.ts`) is defined but NOT
+yet wired to any caller (the buyer feature epics call it later), so nothing
+executes against the new schema until then. Frontend auto-deploy is safe (the
+new `buyer_preferences` columns aren't read by the shipped settings UI yet; the
+notification-preferences buyer categories are code-side JSONB defaults).
+**⚠️ Apply order:** after 00411; `scripts/apply-prod-migrations.sh`, then
+`NOTIFY pgrst, 'reload schema';`, redeploy the edge (boot guard now expects
+00412). **⚠️ Enum caveat:** the new `notification_type` values can't be USED in
+the same transaction they're added — fine here (inserts happen at runtime).
+
 ## ✅ APPLIED: 00411_buyer_preferences.sql (US-1797/1798 buyer shopping prefs, 2026-07-09)
 
 **What:** New TENANT-SCOPED table `public.buyer_preferences` (user_id PK/FK,

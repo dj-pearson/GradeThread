@@ -21,6 +21,11 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   offers: { email: true, in_app: true, push: true },
   returns: { email: true, in_app: true, push: true },
   payouts: { email: true, in_app: true, push: true },
+  // US-1803: buyer notification categories (delivered by buyer-notify.ts).
+  buyer_alerts: { email: true, in_app: true, push: true },
+  buyer_rewards: { email: true, in_app: true, push: true },
+  buyer_guarantee: { email: true, in_app: true, push: true },
+  buyer_portfolio: { email: true, in_app: true, push: true },
 };
 
 type PrefKey = keyof NotificationPreferences;
@@ -92,6 +97,30 @@ export const NOTIFICATION_TYPES: NotificationTypeMeta[] = [
     key: "payouts",
     label: "Payouts",
     description: "When a payout is imported or clears to your account.",
+    channels: ["email", "in_app", "push"],
+  },
+  {
+    key: "buyer_alerts",
+    label: "Condition alerts",
+    description: "When a graded item in your brands, sizes, and price range lists.",
+    channels: ["email", "in_app", "push"],
+  },
+  {
+    key: "buyer_rewards",
+    label: "Buyer rewards",
+    description: "Reward events — grade-confirmations, streaks, and redemptions.",
+    channels: ["email", "in_app", "push"],
+  },
+  {
+    key: "buyer_guarantee",
+    label: "Purchase guarantee",
+    description: "Updates on your grade-locked purchase protection and claims.",
+    channels: ["email", "in_app", "push"],
+  },
+  {
+    key: "buyer_portfolio",
+    label: "Closet portfolio",
+    description: "Value peaks and price-drop alerts on items in your closet.",
     channels: ["email", "in_app", "push"],
   },
   {
@@ -237,6 +266,30 @@ export const NOTIFICATION_EVENT_CATALOG: NotificationEventMeta[] = [
     label: "Billing",
     description: "A payment, receipt, or plan-change event.",
     prefKey: "billing_alerts",
+  },
+  {
+    type: "buyer_condition_alert",
+    label: "Condition alert",
+    description: "A graded item matching your watch criteria was listed.",
+    prefKey: "buyer_alerts",
+  },
+  {
+    type: "buyer_reward",
+    label: "Buyer reward",
+    description: "A reward, streak, or redemption event.",
+    prefKey: "buyer_rewards",
+  },
+  {
+    type: "buyer_guarantee",
+    label: "Purchase guarantee",
+    description: "An update on your grade-locked purchase protection.",
+    prefKey: "buyer_guarantee",
+  },
+  {
+    type: "buyer_portfolio",
+    label: "Closet portfolio",
+    description: "A value or price-drop alert on an item you own.",
+    prefKey: "buyer_portfolio",
   },
   {
     type: "system",

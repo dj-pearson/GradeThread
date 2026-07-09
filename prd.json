@@ -14157,7 +14157,7 @@
       ],
       "priority": 1803,
       "passes": false,
-      "notes": "[P2][BUYER][FOUNDATION][NEW] Reuse existing push fan-out (FCM platform) + email sender + the north-star digest/idempotency-ledger pattern (00170). Frequency caps come from entitlements (1800). TIES: the shared delivery layer for alerts/rewards/guarantee/portfolio. Load durable-jobs skill if digest batching runs on a cron. Migration triple for any notification tables."
+      "notes": "[P2][BUYER][FOUNDATION] IN PROGRESS 2026-07-09. PHASE A DONE (this commit): reusable notifyBuyer(userId,{category,title,body,link,dedupeKey,data}) contract (lib/buyer-notify.ts) fanning out in-app (notifyUser) + push (sendPushToUser) IMMEDIATELY, per-category channel gating via users.notification_preferences (added buyer_alerts/rewards/guarantee/portfolio categories + PREF_KEY + frontend defaults + catalog), idempotent via buyer_notification_log UNIQUE(user_id,dedupe_key) claim (north-star 00170 pattern), deps-injected + 5 unit tests. Migration 00412: enum values + log table + buyer_preferences digest_frequency/quiet_hours cols (applied). PHASE B REMAINING: email builder + digest batching cron (daily/weekly honoring plan alertFrequency cap) + quiet-hours enforcement; edge buyer-plans.ts needs alertFrequency added (currently only in constants.ts). Mark passes:true after phase B."
     },
     {
       "id": "US-1804",

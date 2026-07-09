@@ -35,7 +35,13 @@ export type NotificationType =
   // dispute_opened = a payment dispute/chargeback was opened (deadline-bearing).
   | "offer_responded"
   | "return_opened"
-  | "dispute_opened";
+  | "dispute_opened"
+  // US-1803: buyer-side categories — the delivery layer for the buyer feature
+  // epics (alerts / rewards / guarantee / portfolio).
+  | "buyer_condition_alert"
+  | "buyer_reward"
+  | "buyer_guarantee"
+  | "buyer_portfolio";
 
 // Which notification_preferences category gates each type's in-app delivery.
 // `null` types are always delivered (e.g. system messages the user can't mute).
@@ -68,6 +74,12 @@ export const PREF_KEY: Record<NotificationType, string | null> = {
   offer_responded: "offers",
   return_opened: "returns",
   dispute_opened: "returns",
+  // US-1803: each buyer category gates on its own notification_preferences key
+  // (code-defaulted ON in the frontend DEFAULT_NOTIFICATION_PREFERENCES).
+  buyer_condition_alert: "buyer_alerts",
+  buyer_reward: "buyer_rewards",
+  buyer_guarantee: "buyer_guarantee",
+  buyer_portfolio: "buyer_portfolio",
 };
 
 export interface NotifyInput {

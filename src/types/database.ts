@@ -146,7 +146,12 @@ export type NotificationType =
   // US-1055: offer responses + return/dispute openings.
   | "offer_responded"
   | "return_opened"
-  | "dispute_opened";
+  | "dispute_opened"
+  // US-1803: buyer-side notification categories.
+  | "buyer_condition_alert"
+  | "buyer_reward"
+  | "buyer_guarantee"
+  | "buyer_portfolio";
 
 // ─── FlipDesk enums ────────────────────────────────────────────────
 export type FlipdeskSourceType =
@@ -268,6 +273,13 @@ export interface NotificationPreferences {
   offers: NotificationChannelPrefs;
   returns: NotificationChannelPrefs;
   payouts: NotificationChannelPrefs;
+  // US-1803: buyer-side categories (condition alerts, rewards, guarantee,
+  // portfolio). Gate the buyer notification delivery layer (buyer-notify.ts);
+  // mirror PREF_KEY in services/edge-functions/src/lib/notify.ts.
+  buyer_alerts: NotificationChannelPrefs;
+  buyer_rewards: NotificationChannelPrefs;
+  buyer_guarantee: NotificationChannelPrefs;
+  buyer_portfolio: NotificationChannelPrefs;
 }
 
 export type UserUseCase = "seller" | "buyer" | "consignment" | "developer";
@@ -3089,6 +3101,10 @@ export interface BuyerPreferencesRow {
   unit_preference: "in" | "cm";
   notify_email: boolean;
   notify_push: boolean;
+  // US-1803: delivery cadence + quiet hours for the buyer notification layer.
+  digest_frequency: "immediate" | "daily" | "weekly";
+  quiet_hours_start: number | null;
+  quiet_hours_end: number | null;
   onboarding_completed_at: string | null;
   created_at: string;
   updated_at: string;
