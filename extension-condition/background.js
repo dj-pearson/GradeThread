@@ -15,7 +15,7 @@
 
 const ENDPOINT = "https://functions.gradethread.com/api/grading/public/grade-from-url";
 const SITE = "https://gradethread.com";
-const CONFIG_URL = "https://gradethread.com/extension/ebay-selectors.json";
+const CONFIG_URL = "https://gradethread.com/extension/marketplace-selectors.json";
 const CONFIG_TTL_MS = 6 * 60 * 60 * 1000; // refresh the hosted selectors every 6h
 const MAX_RECENT = 20;
 
@@ -37,7 +37,8 @@ chrome.runtime.onInstalled.addListener(() => {
 let configCache = null; // { at, config }
 
 function validConfig(c) {
-  return c && typeof c === "object" && c.ebay && Array.isArray(c.ebay.gallery);
+  return c && typeof c === "object" && c.adapters && typeof c.adapters === "object" &&
+    Object.keys(c.adapters).length > 0;
 }
 
 async function getRemoteConfig() {
@@ -75,6 +76,7 @@ async function saveRead(read) {
   list.unshift({
     url: String(read.url || ""),
     title: String(read.title || "").slice(0, 200),
+    marketplace: String(read.marketplace || "").slice(0, 24),
     overallScore: Number(read.overallScore),
     gradeTier: String(read.gradeTier || ""),
     confidence: Number(read.confidence),

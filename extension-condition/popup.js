@@ -5,6 +5,11 @@
 
 const SITE = "https://gradethread.com";
 
+// Hosts the extension has an adapter for — the per-site toggle only makes sense
+// on these. Kept in sync with selectors.js GT_CC_CONFIG.adapters[*].hosts.
+const MARKETPLACE_HOST_RE =
+  /(^|\.)(ebay\.|poshmark\.|grailed\.com|mercari\.com|depop\.com|vinted\.)/i;
+
 function scoreClass(score) {
   if (score >= 9) return "s-excellent";
   if (score >= 7) return "s-good";
@@ -56,7 +61,8 @@ async function renderReads() {
     title.textContent = r.title || "eBay listing";
     const meta = document.createElement("div");
     meta.className = "pop-read-meta";
-    meta.textContent = (r.gradeTier ? r.gradeTier + " · " : "") + timeAgo(Number(r.at) || Date.now());
+    const mkt = r.marketplace ? r.marketplace + " · " : "";
+    meta.textContent = mkt + (r.gradeTier ? r.gradeTier + " · " : "") + timeAgo(Number(r.at) || Date.now());
     body.appendChild(title);
     body.appendChild(meta);
 
@@ -78,7 +84,7 @@ async function initSettings() {
   });
 
   const host = await activeHost();
-  if (host && /(^|\.)ebay\./.test(host)) {
+  if (host && MARKETPLACE_HOST_RE.test(host)) {
     const wrap = document.getElementById("siteToggleWrap");
     const label = document.getElementById("siteToggleLabel");
     const box = document.getElementById("siteEnabled");
