@@ -28,7 +28,11 @@ import {
 } from "./peer-norm.ts";
 import { reconcileNeedsReview } from "./ai-config.ts";
 import { getSetting } from "./system-settings.ts";
-import { assessAuthenticity, type AuthenticityAssessment } from "./ai-authenticity.ts";
+import {
+  assessAuthenticity,
+  authenticityNeedsReview,
+  type AuthenticityAssessment,
+} from "./ai-authenticity.ts";
 import { getEffectiveTellsForBrand } from "./brand-authenticity.ts";
 import { runShadowGrades } from "./grading-shadow.ts";
 import { notifyWebhooks } from "./webhook-delivery.ts";
@@ -2042,7 +2046,12 @@ export async function processSubmission(submissionId: string) {
         // detailed_notes.forensic_summary.
         forensic_grade: wantForensic,
         confidence_score: compositeResult.confidence_score,
-        needs_human_review: compositeResult.needs_human_review,
+        // US-1770 (AC2): a red-flag or sub-threshold brand-authenticity verdict
+        // also forces human review (the persisted authenticity_assessment shows
+        // the reviewer why). Never lowers the condition-grade confidence — the
+        // two axes are independent.
+        needs_human_review:
+          compositeResult.needs_human_review || authenticityNeedsReview(authenticityAssessment),
         // Mandatory-review lifecycle: every grade is born PRELIMINARY and waits
         // for a human to finalize it. review_due_at = now + the requested grade-
         // speed tier SLA, so the operator queue can prioritise express first.

@@ -1,5 +1,29 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00405_authenticity_eval.sql (US-1770 authenticity eval gate, 2026-07-09)
+
+**What:** Two new admin-only (is_admin RLS) operator tables mirroring the
+grading eval pair (00050): `public.authenticity_eval_cases` (labeled
+authentic/counterfeit golden set — `brand_key`, `images` jsonb, `expected_label`
+CHECK in `('authentic','counterfeit','inconclusive')`, `tags`, `is_active`,
+`created_by`→users) + `public.authenticity_eval_runs` (a run's per-brand +
+overall agreement, `passed`, `per_case`/`per_brand` jsonb). Indexes on
+active/brand + created_at. `set_updated_at` trigger on cases. Bumps
+`EXPECTED_SCHEMA_VERSION` → **00405**. Self-records '00405'. References only
+existing objects (public.users, garment_type enum, set_updated_at, is_admin,
+applied_migrations).
+
+**Risk: LOW — two new isolated tables, no writes to existing tables.** Read
+only from the EDGE (`authenticity-eval.ts` runAuthenticityEval + a future admin
+trigger); the FRONTEND never touches them, so a Pages deploy landing first is
+safe. The eval gate is INERT until an operator adds real labeled cases
+(`runAuthenticityEval` throws "No active authenticity eval cases" on an empty
+set — never fabricate cases). **⚠️ verify:db NOT run (Docker down at author
+time)** — the SQL is an idempotent mirror of the proven 00050 pattern; run
+`npm run verify:db` or apply carefully. **⚠️ Apply order:** after 00404;
+`scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload schema';`,
+redeploy the edge (boot guard now expects 00405).
+
 ## ⏳ HELD: 00404_badge_click_events.sql (US-1760 badge funnel, 2026-07-09)
 
 **What:** New deny-all operator table `public.badge_click_events`

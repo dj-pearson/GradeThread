@@ -191,3 +191,40 @@ Deno.test("normalizeAuthenticityAssessment: ungrounded call keeps default versio
   assertEquals(a.verdict, "likely_authentic");
   assertEquals(a.verdict_confidence, 0.8);
 });
+
+// ── US-1770: human-review routing (AC2) ─────────────────────────────────────
+const { authenticityNeedsReview, AUTHENTICITY_REVIEW_CONFIDENCE_THRESHOLD } = await import(
+  "../lib/ai-authenticity.ts"
+);
+
+Deno.test("authenticityNeedsReview: null (add-on didn't run) → no extra review", () => {
+  assertEquals(authenticityNeedsReview(null), false);
+});
+
+Deno.test("authenticityNeedsReview: a red-flag verdict always routes to review", () => {
+  assert(authenticityNeedsReview({ verdict: "red_flags", verdict_confidence: 0.5, brand_assessed: "Gucci" }));
+});
+
+Deno.test("authenticityNeedsReview: recognizable brand + sub-threshold confidence → review", () => {
+  assert(
+    authenticityNeedsReview({
+      verdict: "inconclusive",
+      verdict_confidence: AUTHENTICITY_REVIEW_CONFIDENCE_THRESHOLD - 0.01,
+      brand_assessed: "Coach",
+    }),
+  );
+});
+
+Deno.test("authenticityNeedsReview: confident likely-authentic does NOT force review", () => {
+  assertEquals(
+    authenticityNeedsReview({ verdict: "likely_authentic", verdict_confidence: 0.85, brand_assessed: "Nike" }),
+    false,
+  );
+});
+
+Deno.test("authenticityNeedsReview: no recognizable brand → nothing to review", () => {
+  assertEquals(
+    authenticityNeedsReview({ verdict: "inconclusive", verdict_confidence: 0.3, brand_assessed: null }),
+    false,
+  );
+});

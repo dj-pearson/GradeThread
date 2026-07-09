@@ -63,6 +63,11 @@ export interface TellFinding {
 export const AUTHENTICITY_VERDICT_CONFIDENCE_CEILING = 0.9;
 export const AUTHENTICITY_CONTRADICTION_CONFIDENCE_CAP = 0.5;
 
+// US-1770 (AC2): a red-flag verdict, or a recognizable-brand verdict we're not
+// confident about, routes the grade to human review before it's finalized —
+// we don't publish an uncertain or contradicted authenticity read unchecked.
+export const AUTHENTICITY_REVIEW_CONFIDENCE_THRESHOLD = 0.7;
+
 export interface AuthenticityAssessment {
   // True when the add-on pass actually ran and produced this assessment.
   assessed: boolean;
@@ -423,6 +428,22 @@ export function normalizeAuthenticityAssessment(
     model,
     prompt_version: promptVersion,
   };
+}
+
+/**
+ * US-1770 (AC2): should this authenticity assessment route the grade to human
+ * review before finalize? True on a red-flag verdict, or when a recognizable
+ * brand was assessed with sub-threshold verdict confidence. False when the
+ * add-on didn't run (null) or no brand was recognizable (nothing to review).
+ * Pure + exported for tests.
+ */
+export function authenticityNeedsReview(
+  a: Pick<AuthenticityAssessment, "verdict" | "verdict_confidence" | "brand_assessed"> | null,
+): boolean {
+  if (!a) return false;
+  if (a.verdict === "red_flags") return true;
+  if (a.brand_assessed && a.verdict_confidence < AUTHENTICITY_REVIEW_CONFIDENCE_THRESHOLD) return true;
+  return false;
 }
 
 /**
