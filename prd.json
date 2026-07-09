@@ -13718,7 +13718,7 @@
       ],
       "priority": 1770,
       "passes": false,
-      "notes": "[P2][AUTHENTICITY][EVAL] Reuse grading-eval.ts + grading_eval_cases/runs (00050) pattern + human-review.ts. Follow grading-engine skill prompt-version lifecycle. Exemplar privacy rules apply."
+      "notes": "[P2][AUTHENTICITY][EVAL] Reuse grading-eval.ts + grading_eval_cases/runs (00050) pattern + human-review.ts. Follow grading-engine skill prompt-version lifecycle. Exemplar privacy rules apply. [DEFERRED 2026-07-09] Needs a HELD migration (authenticity_eval_cases/runs, mirroring grading_eval 00050) — per the standing held-migration rule, migrations are committed local + applied to prod by the operator BEFORE push, so best done in a user-present session (one held migration blocks all later pushes). AC1/AC3 eval-gate is ALSO inert until a real labeled authentic/counterfeit golden set exists (operator/production-collected, like the grading golden set) — not fabricated. AC2 (route red_flag/sub-threshold authenticity verdicts to human review) is migration-free and the verdict fields exist (US-1769); can be split out later. Skipped in the autonomous loop to keep pushes clean; passes stays false."
     },
     {
       "id": "US-1771",
@@ -13874,7 +13874,7 @@
       ],
       "priority": 1782,
       "passes": false,
-      "notes": "[P2][SHARE-CREATOR] Hook grading-pipeline.ts finalize -> ensure slab asset (cert-assets bucket 00380). Reuse cert-share-actions.tsx. Optional fireSocialWebhooks (content-social-publish.ts) opt-in."
+      "notes": "[P2][SHARE-CREATOR] Hook grading-pipeline.ts finalize -> ensure slab asset (cert-assets bucket 00380). Reuse cert-share-actions.tsx. Optional fireSocialWebhooks (content-social-publish.ts) opt-in. [ASSESSED 2026-07-09] AC1 (reveal card available on submission/report view) + AC2 (one-tap in-app share, not only /cert, referral baked in) ALREADY delivered by US-862: submission-detail.tsx renders CertShareActions post-grade (gated on completed + certificate_id) and the reveal card is lazily generated via /slab/cert/{certId} (content-public.ts, cert-assets bucket). AC3 (opt-in auto-post to the SELLER'S connected social) has NO foundation: content-social-publish.ts fireSocialWebhooks (US-870) is the PLATFORM's own marketing channels (social_posts/variants via Make.com), not per-seller social accounts — no seller social-OAuth/connection infra exists. The note's 'reuse fireSocialWebhooks' is a mismatch. AC3 is a large new feature (per-seller social connect + opt-in). AC3 is labelled 'Optional' in the AC — DECIDE: if AC1/AC2 suffice, mark passes; else AC3 needs a dedicated seller-social-connection story. Not marking passes pending that call."
     },
     {
       "id": "US-1783",
