@@ -55,6 +55,10 @@ const PARENT_SCOPED = [
 // service-role (which bypasses RLS) reads/writes them. This is the most
 // restrictive configuration, not a gap.
 const SERVICE_ROLE_ONLY = new Set([
+  // US-1786 impact factors: GLOBAL, NON-TENANT config (published apparel LCA
+  // figures, no owner) — deny-all. Only the service-role edge reads it for the
+  // impact estimate; the SPA never queries it directly.
+  "impact_factors",
   // US-1773 durability aggregates: GLOBAL, NON-TENANT cohort reference (no owner)
   // — deny-all by design. The service-role aggregation job writes it and the
   // public rankings endpoint (US-1774) reads it; the SPA never queries it.

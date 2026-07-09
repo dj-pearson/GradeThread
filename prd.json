@@ -13925,8 +13925,8 @@
         "Conservative defaults + explicit uncertainty; no overclaiming"
       ],
       "priority": 1786,
-      "passes": false,
-      "notes": "[P2][SUSTAINABILITY][NEW] Migration triple for impact_factors table. Cite sources (e.g. published apparel LCA datasets) in-row; do NOT fabricate precision. Compute from submissions.garment_type + grade_reports."
+      "passes": true,
+      "notes": "[P2][SUSTAINABILITY][NEW] Migration triple for impact_factors table. Cite sources (e.g. published apparel LCA datasets) in-row; do NOT fabricate precision. Compute from submissions.garment_type + grade_reports. [DONE 2026-07-09] Migration 00408 impact_factors (deny-all, non-tenant; rls-guard SERVICE_ROLE_ONLY; EXPECTED_SCHEMA_VERSION->00408; self-records; PENDING recorded) seeded 6 conservative type-level rows w/ cited sources (WRAP/EMF cotton tee, Levi jeans LCA, MIT footwear, etc). lib/impact-estimate.ts: estimateFromFactor (pure — labels estimate:true, rounds co2e 0.1/water nearest-10/landfill 0.01, no false precision, scales by quantity) + IMPACT_METHODOLOGY disclaimer + FALLBACK_FACTORS (code-side, mirrors seed, works before table applies) + getImpactFactor (material->default->fallback) + computeGarmentImpact (null for unknown type — no fabricated number). Impact = production-phase CO2e/water/landfill AVOIDED by buying secondhand vs new. AC3 conservative + explicit-uncertainty + no-overclaim: midpoints, estimate label, methodology link. Tests: impact-estimate_test.ts (4) pass; deno check+lint+schema-version+rls-guard clean. Next: US-1787 cert/dashboard surfaces + shareable card, US-1788 brand ESG export."
     },
     {
       "id": "US-1787",

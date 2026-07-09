@@ -1,5 +1,22 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00408_impact_factors.sql (US-1786 sustainability factors, 2026-07-09)
+
+**What:** New DENY-ALL (RLS enabled, ZERO policies), GLOBAL/NON-TENANT config
+table `public.impact_factors` (`garment_type`, `material` default 'default',
+`co2e_kg`, `water_liters`, `weight_kg`, `source`, `version`) + unique
+(garment_type, material) index + `set_updated_at` trigger. Seeded with 6
+conservative type-level rows from published apparel LCAs (cited in `source`).
+Read only by the service-role edge (`impact-estimate.ts`); the SPA never queries
+it. Registered in `rls-guard_test.ts` SERVICE_ROLE_ONLY. Bumps
+`EXPECTED_SCHEMA_VERSION` → **00408**. Self-records '00408'.
+
+**Risk: LOW — one new isolated seeded config table, no writes to existing
+tables, no client read** (impact-estimate.ts also has a code-side FALLBACK so it
+works even before the table applies). **⚠️ verify:db NOT run (Docker down).**
+**⚠️ Apply order:** after 00407; `scripts/apply-prod-migrations.sh`, then
+`NOTIFY pgrst, 'reload schema';`, redeploy the edge (boot guard now expects 00408).
+
 ## ⏳ HELD: 00407_body_profiles.sql (US-1777 buyer body profiles, 2026-07-09)
 
 **What:** New TENANT-SCOPED table `public.body_profiles` (`user_id` FK→users
