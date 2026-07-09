@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1890,
+  "nextId": 1901,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -15423,6 +15423,159 @@
         "SEO/prerender unaffected; no placeholder markup for data that does not exist"
       ],
       "notes": "[P1][BUYER][SELLER][MARKETING] DONE 2026-07-09. Pricing page (/pricing): each FlipDesk seller card now shows its included buyer suite (Includes {tier} buyer tools + top features) via SELLER_PLAN_BUYER_TIER; new Buyer plans section (Free/Guard/Connoisseur) for non-sellers with the included-with-FlipDesk note; intro reframed one-account two-sided. docs/PRICING.md section 1b added (buyer tiers + seller-bundle mapping). JSON-LD untouched (no placeholder markup). tsc+eslint+public-routes green."
+    },
+    {
+      "id": "US-1890",
+      "title": "Server-side title guard on publish + revise (80-char trim + policy lint)",
+      "description": "As a seller, I want the edge to guarantee my title is eBay-legal before it hits the Inventory API, so a stale/bulk-edited/API-written title >80 chars or with policy violations never causes a raw eBay rejection. Audit: composer input caps at 80 but assemblePublishContext (flipdesk-ebay.ts:8346) and the revise path (finalTitle ~:5081) send listings.listing_title verbatim — trimTitleToLimit is only applied at AI-generation time (ai-listing.ts:669). Only the EMPTY-title case is blocked today.",
+      "acceptanceCriteria": [
+        "assemblePublishContext runs the stored title through trimTitleWithReport (lib/title-trim.ts); >80 chars surfaces a fixable preflight blocker showing the suggested word-boundary trim (consistent with the existing imageCapBlocker pattern), and POST /listings/validate returns it",
+        "Revise path (/listings/:id/revise and grade-resync) applies the same guard before createOrReplaceInventoryItem",
+        "New shared lint lib (edge, unit-tested): duplicate-token detection (case-insensitive, no benefit per eBay guidance), ALL-CAPS words (allowlist for brand acronyms like DKNY/NWT/XL sizes), promotional filler (L@@K/WOW/!!!), and unrelated-brand comparison phrases ('fits like/style of/similar to/compare to <brand>') which are a search-manipulation policy violation for clothing — policy phrases are blockers, the rest are warnings in the validate response",
+        "deno tests cover trim-at-publish, lint categories, and the brand-acronym allowlist; no behavior change for titles already ≤80 and clean"
+      ],
+      "priority": 1890,
+      "passes": false,
+      "notes": "[P1][SEO][LHF] See EBAY_RANKING_PLAYBOOK.md. Reuses title-trim.ts; touches flipdesk-ebay.ts preflight + revise only (no new route). Added 2026-07-09."
+    },
+    {
+      "id": "US-1891",
+      "title": "Backwards mapping: brand/size/color/style/department edits update the listing title",
+      "description": "As a seller, when I correct an item's Brand (or size/color/style/department) after AI generation, I want the listing TITLE to update too — aspects already sync both ways (US-822/824) but the title is a free-form column nothing rebuilds, so a corrected brand ships with the wrong brand in the one field buyers search hardest. This is the highest-value sync gap in the listing pipeline.",
+      "acceptanceCriteria": [
+        "New edge lib title-sync.ts: deterministic token-boundary substitution of old→new field values in a title (case-preserving, handles size patterns like 'Size L'/'Sz L'/bare token, multi-word brands), re-trimmed via trimTitleToLimit; pure function, heavily unit-tested including no-op when the old value isn't present",
+        "On item field save (edge item update path + web item-canvas save), for GT-origin non-ebay-origin listings: if the current title still equals the ai_generated_snapshot title (modulo the trim), auto-apply the substitution; if the seller hand-edited the title, apply the substitution but set the existing needs_review/aspect_review-style flag and surface a diff chip in the composer (reuse AiDiffChip pattern) with one-click revert",
+        "Draft listings update in place; for LIVE gradethread-origin listings the change queues a 'listing out of date — push update' prompt that uses the existing revise-in-place path (US-1490) — never auto end/relist, and never touch listing_origin='ebay' rows (sync-precedence guard)",
+        "Aspect projection continues to run as today (no duplication of US-822/824 logic); title-sync only touches listing_title and title_variants (both variants get the substitution)",
+        "Tests: brand swap, size swap, hand-edited title flagging, ebay-origin refusal, 80-char re-trim after a longer brand name"
+      ],
+      "priority": 1891,
+      "passes": false,
+      "notes": "[P1][SEO] The founder's explicit backwards-mapping ask (2026-07-09). See EBAY_RANKING_PLAYBOOK.md. Coordinates with SYNC_SOURCE_OF_TRUTH.md — listing_title stays GT-owned for GT-origin listings. Added 2026-07-09."
+    },
+    {
+      "id": "US-1892",
+      "title": "Composer title quality meter + pack-to-80 suggestions",
+      "description": "As a seller, I want the composer to show how well my title uses its 80-char retrieval surface and offer one-click tokens to fill unused space, so titles stop shipping at 45 chars when high-demand qualifiers (material, pattern, style name, era) are sitting unfilled. Audit: generation only trims DOWN (title-trim.ts) — no packing logic exists anywhere; composer has a char counter but no quality guidance.",
+      "acceptanceCriteria": [
+        "Title meter in composer.tsx: char utilization (green 70–80), brand-first check, duplicate-token and filler warnings (same lint lib as US-1890, vendored or shared), and a policy-phrase error state",
+        "'Pack title' suggestions: ranked candidate tokens NOT already in the title, sourced from (a) the listing's mined demand_terms, (b) high-value filled aspects (Material, Pattern, Style, Vintage/era, Fit) — each an append chip that refuses to exceed 80; extends the existing titleKeywords() chips rather than duplicating them",
+        "autolister-drafts list flags titles <60 chars or with lint findings so bulk sessions catch weak titles before publish",
+        "Meter guidance copy reflects the verified model (front-load brand for CTR, no dup tokens, aspects also searchable) — no folklore ('first 35 chars', stemming tricks)"
+      ],
+      "priority": 1892,
+      "passes": false,
+      "notes": "[P2][SEO][UI] See EBAY_RANKING_PLAYBOOK.md. Builds on demand-terms.ts + listing-templates.ts; keep lint definitions single-source with US-1890 (vendor via JSON like ebay-aspect-registry.json if needed). Added 2026-07-09."
+    },
+    {
+      "id": "US-1893",
+      "title": "Leaf-category guard at publish",
+      "description": "As a seller, I want publish to verify the eBay category id is a LEAF category, so imported/manually-set non-leaf ids fail with a helpful suggestion instead of an opaque eBay error. Audit: code trusts get_category_suggestions returns leaf-first (ebay-client.ts:1080) but nothing validates platform_category_id when it arrives from other paths (manual entry, CSV import, older rows).",
+      "acceptanceCriteria": [
+        "Preflight validates the category id resolves to a leaf via the cached Taxonomy data (extend the ebay_category_aspects cache or a category-subtree lookup — reuse existing caching pattern, no per-publish live Taxonomy call for already-validated ids)",
+        "Non-leaf or unknown id surfaces a fixable blocker including the top get_category_suggestions leaf for the item's brand+title as a one-click fix",
+        "Category-check-card logic and this guard share the suggestion call; deno test covers leaf-pass, non-leaf-block, and cache-hit paths"
+      ],
+      "priority": 1893,
+      "passes": false,
+      "notes": "[P2][SEO] See EBAY_RANKING_PLAYBOOK.md — wrong/shallow category = filtered out of browse + wrong required-aspect set; category misuse is a policy offense. Added 2026-07-09."
+    },
+    {
+      "id": "US-1894",
+      "title": "Map grades to eBay's 2025 pre-loved apparel condition tiers (+ conditionDescriptors spike)",
+      "description": "As a seller, I want my GradeThread grade to map onto eBay's Jan-2025 apparel conditions (Pre-owned – Excellent / Good / Fair, New with imperfections) so buyers filtering by condition tier actually see my items at the right tier — a differentiator no generic lister has. Audit: mapEbayCondition (flipdesk-ebay.ts:8556) targets the legacy USED_EXCELLENT/VERY_GOOD/GOOD/ACCEPTABLE ladder; category-aware remap exists (remapConditionForCategory) but the grade→tier bands were never calibrated to the 3-tier scale; eBay's structured conditionDescriptors are used nowhere.",
+      "acceptanceCriteria": [
+        "For apparel categories, mapEbayCondition targets the conditions the category actually allows (via existing getItemConditionPolicies) with calibrated grade bands for the 3-tier pre-loved scale — bands defined as named constants with a doc comment tying them to the grading scale (e.g. NWT→NEW, NWOT→NEW_OTHER, defects-but-new→NEW_WITH_IMPERFECTIONS equivalent, then Excellent/Good/Fair bands), explicit-editor value still wins",
+        "conditionDescription text generated/validated to be CONSISTENT with the chosen tier (no 'flawless' text on a Fair listing) — inconsistency risks INAD returns and visibility per eBay's own warning",
+        "SPIKE (documented in the story notes on completion): whether the Inventory API exposes structured conditionDescriptors for apparel categories (it does for trading cards: grader/grade/cert); if yes, wire GradeThread grade + certificate id into them behind a flag; if no, record the finding and the Trading API alternative if any",
+        "Deno tests cover each grade band per condition-policy fixture; existing category-remap fallback behavior unchanged for non-apparel"
+      ],
+      "priority": 1894,
+      "passes": false,
+      "notes": "[P1][SEO][Grading-adjacent] See EBAY_RANKING_PLAYBOOK.md §7. Touches condition mapping in flipdesk-ebay.ts only — if grade-band constants move into grading libs, load the grading-engine skill. Added 2026-07-09."
+    },
+    {
+      "id": "US-1895",
+      "title": "Recommended-aspect coverage score + one-click fill (composer + drafts)",
+      "description": "As a seller, I want to see how many of eBay's RECOMMENDED aspects (ranked by real 30-day buyer search volume) my listing fills — required aspects already block publish, but recommended ones are the retrieval/filter long tail and today nothing surfaces them after generation.",
+      "acceptanceCriteria": [
+        "Composer shows required (existing blocker) + recommended coverage as N/M with the missing recommended aspects listed in eBay's ranked order, each deep-linking to the specifics editor",
+        "One-click 'derive from item' uses the existing derive-aspects endpoint / registry projection (no new AI call); values it can't derive open the editor focused on that aspect",
+        "autolister-drafts gains a coverage column so low-coverage drafts are sortable/fixable in bulk",
+        "Coverage computation lives on the edge in the validate/preflight response (single source with the blocker math in aspect-provenance.ts) — web renders, never recomputes"
+      ],
+      "priority": 1895,
+      "passes": false,
+      "notes": "[P2][SEO] See EBAY_RANKING_PLAYBOOK.md §1/§8. DO NOT duplicate open US-1347 (canvas specifics editor + auto-sync) or US-1353 (listing-time category specifics editor) — this story is the coverage SCORE + nudge layer over whatever editor exists. Added 2026-07-09."
+    },
+    {
+      "id": "US-1896",
+      "title": "Photo standards preflight: dimensions (500px hard / 1600px zoom) + first-photo-type nudge",
+      "description": "As a seller, I want publish to catch photos below eBay's 500px hard minimum and nudge me toward 1600px (zoom eligibility) and a proper hero shot, because the first photo is the search thumbnail and the single biggest CTR lever — and CTR is an eBay-confirmed ranking signal. Audit: preflight checks only reachability + count (publish-preflight.ts, checkImageReachability); no dimension data is stored on item_photos; hero is simply lowest sort_order with no type check.",
+      "acceptanceCriteria": [
+        "item_photos gains width/height columns (migration, backfilled lazily); upload paths record dimensions (web + edge upload endpoints; iOS can follow)",
+        "Preflight: any listable photo <500px longest side = fixable blocker; hero photo <1600px = warning in the validate response ('zoom disabled on eBay')",
+        "Composer nudge when the FIRST photo's photo_type is tag/label/detail/defect rather than front/flatlay ('your search thumbnail is a tag shot — drag a full front view first'), using existing photo_type + sort_order data; one-click reorder",
+        "Existing filterListablePhotos/dedupeAndCapImages behavior unchanged; deno + web tests for the blocker, warning, and nudge trigger"
+      ],
+      "priority": 1896,
+      "passes": false,
+      "notes": "[P2][SEO] See EBAY_RANKING_PLAYBOOK.md §6. Migration must follow the migrations skill (idempotent + version bump + self-record). Added 2026-07-09."
+    },
+    {
+      "id": "US-1897",
+      "title": "Listing Quality Score: one 0–100 number per listing aggregating every verified ranking lever",
+      "description": "As a seller, I want a single score telling me how well each listing plays eBay's actual ranking game — and exactly which fix earns the most points — so optimizing 300 drafts stops requiring SEO knowledge. Audit: no listing-quality score exists anywhere (verified against current prd + archive); components exist piecemeal (aspect blockers, compliance card, category nudge).",
+      "acceptanceCriteria": [
+        "Edge lib computes score + component breakdown from verified levers only: title quality (US-1890 lint + utilization), required+recommended aspect coverage (US-1895 math), photo standards (US-1896 data: count, hero type, dimensions), category confidence (leaf + suggestion match), condition-tier/description consistency (US-1894), and fulfillment signals read from the listing's resolved business policies (returns accepted, ≤1-day handling, free-shipping) — weights documented in the lib with playbook citations",
+        "Returned in the validate/preflight response and persisted on the listing row for sorting; drafts list + pipeline board show the score with a breakdown popover where each component links to its fix surface",
+        "Score never invents folklore signals (no Best Offer, no relist-freshness); copy for fulfillment components cites 'eBay Best Match factors'",
+        "Deno tests: component fixtures produce expected scores; a fully-optimized fixture scores 100"
+      ],
+      "priority": 1897,
+      "passes": false,
+      "notes": "[P2][SEO][Capstone] Depends on US-1890/1894/1895/1896 landing first (build after them). See EBAY_RANKING_PLAYBOOK.md. Added 2026-07-09."
+    },
+    {
+      "id": "US-1898",
+      "title": "Best Offer controls in the single-item composer",
+      "description": "As a seller, I want to enable Best Offer with auto-accept/decline thresholds while composing a single listing — today bestOfferTerms are fully wired at publish (comp-derived p25/p75 via resolveBestOfferThresholds) but the toggle only exists in bulk-edit, so single-item flows can't opt in without a detour.",
+      "acceptanceCriteria": [
+        "Composer pricing panel gains the Best Offer toggle + auto-accept/auto-decline inputs pre-filled from the listing's comp band (price_range_low/high) with the existing clamp rules (decline < accept < price), persisted to the existing best_offer_* columns",
+        "Copy frames it honestly as a conversion/negotiation lever (not a ranking factor) per the playbook",
+        "Publish path unchanged (already consumes these columns); web test covers prefill + clamp"
+      ],
+      "priority": 1898,
+      "passes": false,
+      "notes": "[P3][UI][LHF] See EBAY_RANKING_PLAYBOOK.md §10. Pure frontend + existing columns; no edge changes expected. Added 2026-07-09."
+    },
+    {
+      "id": "US-1899",
+      "title": "Stale-listing playbook: traffic-based revise suggestions (never auto-relist)",
+      "description": "As a seller, I want listings with weeks of zero engagement surfaced with concrete revise-in-place suggestions (price vs comps, weak title, missing photos), because eBay's search team confirmed end-and-relist destroys accumulated performance data — the right move is real changes to the live listing. Audit: no traffic data is pulled today; relist exists but nothing guides when/what to change instead.",
+      "acceptanceCriteria": [
+        "Edge syncs per-listing impressions/clicks/watchers via the Sell Analytics getTrafficReport API into a listing_traffic table (cron, cadence documented; tenant-scoped per US-268 with a tenant-isolation test case)",
+        "A 'stale' surface (pipeline filter or dedicated view) lists live GT-origin listings with N days of zero clicks (default 45, configurable), each with suggested actions ranked by the Quality Score breakdown (US-1897) + comp-band price check — every action routes through revise-in-place (US-1490)",
+        "Explicitly NO auto end/relist anywhere in this flow; 'Sell Similar' is offered only as a manual last resort for 90+ day zero-engagement listings, with copy explaining the tradeoff",
+        "Traffic columns visible on the listings table for sorting; deno tests cover the staleness query + tenant scoping"
+      ],
+      "priority": 1899,
+      "passes": false,
+      "notes": "[P3][SEO][Edge] See EBAY_RANKING_PLAYBOOK.md §5. New cron: remember the edge-image curl gotcha + Coolify scheduled-task registration. Load tenant-isolation skill for the new route/table. Added 2026-07-09."
+    },
+    {
+      "id": "US-1900",
+      "title": "Generation prompt v-next: policy title rules + AI-summary-era description guidance",
+      "description": "As the AutoLister, I want the system prompt updated with the verified/policy findings so generated listings are compliant and aligned with where eBay search is going (structured data + clean factual text that eBay's AI summarizes for buyers). Audit: LISTING_GEN_SYSTEM_PROMPT already does brand-first/≤80/no-caps/no-stuffing and demand-term mining, but has no unrelated-brand-comparison ban, no explicit no-duplicate-token rule, and description guidance predates eBay's AI description summaries.",
+      "acceptanceCriteria": [
+        "Prompt adds: never compare to another brand ('fits like X'/'style of X' — eBay policy violation for clothing), never repeat a token within the title, prefer buyer-typed qualifiers (era/fit/pattern/style name) over tokens already carried by filled aspects when space is tight",
+        "Description guidance: factual, scannable, measurements block preserved (US-827), condition text consistent with the condition tier (ties to US-1894), no keyword lists — note that eBay AI-summarizes descriptions for buyers",
+        "Ships as a NEW prompt version through the existing lifecycle: listing-eval gate (title ≤80 + aspect coverage + price-band) must pass before activation; acceptance-loop (US-547) monitors keep-rate vs the incumbent",
+        "Eval fixtures extended with a policy-phrase case (a tempting 'fits like' item) asserting the ban holds"
+      ],
+      "priority": 1900,
+      "passes": false,
+      "notes": "[P2][SEO][AI] See EBAY_RANKING_PLAYBOOK.md §2/§3. Prompt-version lifecycle per ai-listing.ts conventions; do not hot-swap the active prompt. Added 2026-07-09."
     }
   ]
 }
