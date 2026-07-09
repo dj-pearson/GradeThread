@@ -55,6 +55,11 @@ const PARENT_SCOPED = [
 // service-role (which bypasses RLS) reads/writes them. This is the most
 // restrictive configuration, not a gap.
 const SERVICE_ROLE_ONLY = new Set([
+  // US-1773 durability aggregates: GLOBAL, NON-TENANT cohort reference (no owner)
+  // — deny-all by design. The service-role aggregation job writes it and the
+  // public rankings endpoint (US-1774) reads it; the SPA never queries it.
+  // Aggregate-only, PII-safe (no per-listing price / buyer / node identity).
+  "durability_aggregates",
   // US-1760 badge click attribution: deny-all by design — the public recording
   // endpoint (service-role, owner resolved server-side) writes it and the
   // owner-scoped funnel endpoints read it; the SPA never queries it. No buyer PII.

@@ -1,5 +1,27 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00406_durability_aggregates.sql (US-1773 durability aggregation, 2026-07-09)
+
+**What:** One new DENY-ALL (RLS enabled, ZERO policies), GLOBAL/NON-TENANT
+reference table `public.durability_aggregates` — one row per sku_class cohort
+(`sku_class_key` unique, `brand`, `garment_type`, `label`, `garment_count`,
+`regraded_count`, `avg_overall_decay`, `avg_retention`, `avg_span_days`,
+`per_factor_decay` jsonb, `resale_sample`, `resale_median_cents`,
+`resale_by_band` jsonb, `sufficient`) + unique/partial indexes +
+`set_updated_at` trigger. Written by the service-role cron
+`POST /api/jobs/durability-aggregate` (guarded by X-Internal-Job-Secret) and read
+by the future public rankings endpoint (US-1774). Registered in
+`rls-guard_test.ts` SERVICE_ROLE_ONLY. Bumps `EXPECTED_SCHEMA_VERSION` → **00406**.
+Self-records '00406'. References only existing objects (set_updated_at).
+
+**Risk: LOW — one new isolated table, no writes to existing tables.** Aggregate-
+only + PII-safe (no per-listing price / buyer / node identity). Nothing reads it
+until US-1774 ships; the cron is opt-in (not scheduled until you add a Coolify
+task). **⚠️ verify:db NOT run (Docker down at author time)** — idempotent
+CREATE-IF-NOT-EXISTS + deny-all pattern matching prior tables. **⚠️ Apply order:**
+after 00405; `scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload schema';`,
+redeploy the edge (boot guard now expects 00406).
+
 ## ⏳ HELD: 00405_authenticity_eval.sql (US-1770 authenticity eval gate, 2026-07-09)
 
 **What:** Two new admin-only (is_admin RLS) operator tables mirroring the

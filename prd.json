@@ -13756,8 +13756,8 @@
         "Value-vs-condition decay correlated where sale prices exist in garment_events payloads (PII-safe)"
       ],
       "priority": 1773,
-      "passes": false,
-      "notes": "[P2][DURABILITY] New lib (durability-aggregate.ts) over garments/garment_events/public_grade_reports + wear_score. Migration triple for the aggregate table. Reuse condition-index sample-gating philosophy."
+      "passes": true,
+      "notes": "[P2][DURABILITY] New lib (durability-aggregate.ts) over garments/garment_events/public_grade_reports + wear_score. Migration triple for the aggregate table. Reuse condition-index sample-gating philosophy. [DONE 2026-07-09] Migration 00406 durability_aggregates (deny-all, non-tenant; rls-guard SERVICE_ROLE_ONLY; EXPECTED_SCHEMA_VERSION->00406; self-records; PENDING recorded). lib/durability-aggregate.ts: pure aggregateDurabilityForClass over per-garment buildConditionCurve outputs — avg_overall_decay + avg_retention (last/first over REGRADED garments >=2 grades) + per_factor_decay (points lost/factor) + avg_span_days; resale_median_cents + resale_by_band (excellent/good/fair via conditionBand at nearest prior grade) gated on MIN_SALES=5; cohort sufficient gate = garment_count>=8 && regraded_count>=3 (mirrors condition-index floor). skuClassKey = brand::garment_type (from garments.sku_class {brand,garment_type,category}). Job computeDurabilityAggregates loads garments + public_grade_reports (by garment_id, 00315) + sold garment_events (defensive price key) -> groups -> upserts. Cron POST /api/jobs/durability-aggregate (job-secret + overlap-lock), mounted main.ts; opt-in (add Coolify task). Tests: 7 (decay/retention/per-factor/gate/resale) pass; deno check(main.ts)+lint+schema-version+rls-guard clean. Pre-launch data sparse -> most cohorts insufficient until regrades accrue; engine is the deliverable. Next: US-1774 public rankings pages, US-1775 State of Secondhand Durability report."
     },
     {
       "id": "US-1774",
