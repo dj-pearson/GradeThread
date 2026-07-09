@@ -130,6 +130,7 @@ const VsAuthenticationPage = lazy(() => import("@/pages/marketing/grading-disamb
 const TransparencyPage = lazy(() => import("@/pages/marketing/transparency").then(m => ({ default: m.TransparencyPage })));
 const ResaleConditionReportPage = lazy(() => import("@/pages/marketing/resale-condition-report").then(m => ({ default: m.ResaleConditionReportPage })));
 const StateOfDurabilityPage = lazy(() => import("@/pages/marketing/state-of-durability").then(m => ({ default: m.StateOfDurabilityPage })));
+const BodyProfilesPage = lazy(() => import("@/pages/fit/body-profiles").then(m => ({ default: m.BodyProfilesPage })));
 const VerifyGradePage = lazy(() => import("@/pages/marketing/verify").then(m => ({ default: m.VerifyGradePage })));
 const PassportScanPage = lazy(() => import("@/pages/marketing/passport-scan").then(m => ({ default: m.PassportScanPage })));
 const DevelopersPage = lazy(() => import("@/pages/marketing/developers").then(m => ({ default: m.DevelopersPage })));
@@ -513,6 +514,8 @@ export const router = createBrowserRouter([
               { path: "/dashboard/inventory/new", element: <Navigate to="/dashboard/flipdesk/intake" replace /> },
               { path: "/dashboard/inventory/:id", element: <InventoryItemRedirect /> },
               { path: "/dashboard/finances", element: <SuspenseWrapper><FinancesPage /></SuspenseWrapper> },
+              // US-1777: buyer body-profile store (measurements for fit checks).
+              { path: "/dashboard/measurements", element: <SuspenseWrapper><BodyProfilesPage /></SuspenseWrapper> },
               { path: "/dashboard/analytics/suggestions", element: <SuspenseWrapper><PriceSuggestionsPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk", element: <SuspenseWrapper><FlipdeskOverviewPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/overview", element: <SuspenseWrapper><FlipdeskOverviewPage /></SuspenseWrapper> },

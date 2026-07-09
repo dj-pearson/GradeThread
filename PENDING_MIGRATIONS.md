@@ -1,5 +1,24 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00407_body_profiles.sql (US-1777 buyer body profiles, 2026-07-09)
+
+**What:** New TENANT-SCOPED table `public.body_profiles` (`user_id` FK→users
+ON DELETE CASCADE, `name`, `measurements` jsonb in inches, `is_default`) +
+`idx_body_profiles_user` + `set_updated_at` trigger. RLS policy
+`auth.uid() = user_id` FOR ALL (owner-only; body measurements are sensitive
+PII). Bumps `EXPECTED_SCHEMA_VERSION` → **00407**. Self-records '00407'.
+
+**⚠️ CLIENT-SIDE READ — apply this one promptly (ideally before the frontend
+deploy).** The new page `/dashboard/measurements` (src/pages/fit/body-profiles.tsx)
+reads AND writes `body_profiles` directly via the authenticated Supabase client
+(RLS is the boundary; no edge path). Until the table exists in prod, that page's
+queries error. Exposure is LOW — the route is NOT yet linked from any nav — but
+apply 00407 with/before the push so a user who navigates there directly works.
+**Risk otherwise LOW:** new isolated table, no writes to existing tables.
+**⚠️ verify:db NOT run (Docker down).** **⚠️ Apply order:** after 00406;
+`scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload schema';`,
+redeploy the edge (boot guard now expects 00407).
+
 ## ⏳ HELD: 00406_durability_aggregates.sql (US-1773 durability aggregation, 2026-07-09)
 
 **What:** One new DENY-ALL (RLS enabled, ZERO policies), GLOBAL/NON-TENANT

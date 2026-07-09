@@ -3058,6 +3058,22 @@ export interface GarmentRow {
   updated_at: string;
 }
 
+// US-1777: buyer body-profile store (sensitive PII; RLS auth.uid() = user_id).
+export interface BodyProfileRow {
+  id: string;
+  user_id: string;
+  name: string;
+  /** Sparse body-measurement map (key → inches). */
+  measurements: Record<string, number>;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+}
+export type BodyProfileInsert = Omit<BodyProfileRow, "id" | "created_at" | "updated_at"> & {
+  id?: string;
+};
+export type BodyProfileUpdate = Partial<Omit<BodyProfileRow, "id" | "user_id" | "created_at">>;
+
 // ─── Database schema type (for Supabase client) ────────────────────
 
 export interface Database {
@@ -3067,6 +3083,11 @@ export interface Database {
         Row: UserRow;
         Insert: UserInsert;
         Update: UserUpdate;
+      };
+      body_profiles: {
+        Row: BodyProfileRow;
+        Insert: BodyProfileInsert;
+        Update: BodyProfileUpdate;
       };
       submissions: {
         Row: SubmissionRow;

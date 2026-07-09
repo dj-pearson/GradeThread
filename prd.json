@@ -13808,8 +13808,8 @@
         "Buyers can keep multiple profiles (self, gift recipients)"
       ],
       "priority": 1777,
-      "passes": false,
-      "notes": "[P2][FIT][NEW] Migration triple for body_profiles (tenant-scoped RLS; treat as sensitive PII). Reuse measurements.ts unit semantics + measurement-prefs.ts in/cm. NOTE: garment measures are flat-lay; body measures are body circumference — engine must convert."
+      "passes": true,
+      "notes": "[P2][FIT][NEW] Migration triple for body_profiles (tenant-scoped RLS; treat as sensitive PII). Reuse measurements.ts unit semantics + measurement-prefs.ts in/cm. NOTE: garment measures are flat-lay; body measures are body circumference — engine must convert. [DONE 2026-07-09] Migration 00407 body_profiles (tenant RLS auth.uid()=user_id, sensitive PII; EXPECTED_SCHEMA_VERSION->00407; self-records; PENDING w/ CLIENT-READ warning). src/lib/body-profile.ts: BODY_MEASUREMENT_FIELDS (chest/waist/hips/inseam/height/shoulder/sleeve/neck + how-to-measure guidance + inch ranges), normalizeBodyMeasurements (clamp/coerce/round, drops unknown+OOR), validateProfileName, hasEnoughForFit. Stored canonically in INCHES; in/cm is display pref (measurement-prefs) converted on I/O. src/pages/fit/body-profiles.tsx at /dashboard/measurements (protected): list + add/edit/delete + set-default + multiple profiles (self/gift), SPA-direct CRUD via authenticated supabase client (RLS boundary, no edge route). database.ts BodyProfileRow/Insert/Update + Tables entry. Anonymous option = localStorage (deferred to US-1780 public tool). Tests: body-profile.test.ts (6) pass; tsc+eslint+schema-version+rls-guard clean. Route not yet nav-linked. Next: US-1778 fit engine (fit-model.ts, flat-lay->circumference ease model)."
     },
     {
       "id": "US-1778",
