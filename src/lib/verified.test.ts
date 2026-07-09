@@ -11,7 +11,11 @@ import {
   passportBadgeEmbedText,
   passportShareUrl,
   passportUrl,
+  SELLER_BADGE_FORMAT_OPTIONS,
   validateHandle,
+  verifiedSellerBadgeEmbedHtml,
+  verifiedSellerBadgeEmbedText,
+  verifiedSellerBadgeUrl,
 } from "./verified";
 
 const UUID = "0f3a1b2c-4d5e-6f70-8a9b-0c1d2e3f4a5b";
@@ -121,6 +125,43 @@ describe("BADGE_FORMATS studio guidance (US-1759)", () => {
     const text = BADGE_FORMATS.find((f) => f.id === "text")!;
     expect(text.worksOn).toContain("Poshmark");
     expect(text.worksOn).toContain("Grailed");
+  });
+});
+
+describe("verified-seller storefront badge (US-1761)", () => {
+  const HANDLE = "thrift-king";
+
+  it("builds the badge image URL with the format query", () => {
+    expect(verifiedSellerBadgeUrl(HANDLE)).toBe(
+      `https://gradethread.com/badge/verified/${HANDLE}?format=wide`,
+    );
+    expect(verifiedSellerBadgeUrl(HANDLE, "listing_header")).toBe(
+      `https://gradethread.com/badge/verified/${HANDLE}?format=listing_header`,
+    );
+  });
+
+  it("the HTML embed links to the profile (?s=embed), uses the badge asset, no script", () => {
+    const html = verifiedSellerBadgeEmbedHtml(HANDLE, "compact");
+    expect(html).toContain(`href="https://gradethread.com/verified/${HANDLE}?s=embed"`);
+    expect(html).toContain(`src="https://gradethread.com/badge/verified/${HANDLE}?format=compact"`);
+    // The compact size's dimensions are reflected for correct layout.
+    expect(html).toContain(`width="520"`);
+    expect(html).toContain(`height="120"`);
+    expect(html).not.toContain("<script");
+  });
+
+  it("the text embed links to the profile with ?s=embed", () => {
+    expect(verifiedSellerBadgeEmbedText(HANDLE)).toContain(
+      `https://gradethread.com/verified/${HANDLE}?s=embed`,
+    );
+  });
+
+  it("exposes the three marketplace-optimized formats", () => {
+    expect(SELLER_BADGE_FORMAT_OPTIONS.map((o) => o.id)).toEqual([
+      "wide",
+      "compact",
+      "listing_header",
+    ]);
   });
 });
 

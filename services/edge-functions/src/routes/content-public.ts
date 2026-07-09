@@ -14,7 +14,10 @@ import { normalizeCertNumber } from "../lib/cert-number.ts";
 import {
   type CertImageData,
   fetchImageDataUri,
+  isSellerBadgeFormat,
   renderCertImage,
+  renderSellerBadge,
+  type SellerBadgeFormat,
   type SlabFormat,
   SLAB_FORMATS,
 } from "../lib/cert-image-render.ts";
@@ -789,6 +792,61 @@ contentPublicRoutes.get("/cert-image/:id", async (c) => {
     return new Response(new Uint8Array(png), { status: 200, headers: certImageHeaders(CERT_IMG_CACHE) });
   } catch (err) {
     captureException(err, { route: "cert-image", tags: { certId, kind } });
+    return serveFallback();
+  }
+});
+
+// ── GET /seller-badge/:handle ─────────────────────────────────────
+// US-1761: the verified-seller STOREFRONT badge PNG (keyed to the handle, not a
+// single cert). Rendered on the edge (full CPU) and proxied by the Pages
+// Function functions/badge/verified/[handle].ts — sellers drop it, wrapped in a
+// link to /verified/:handle, into a listing. Same publicity gate as
+// /sellers/:handle (enabled + public). A miss/withheld/render error returns the
+// transparent FALLBACK PNG (never a broken image; never leaks a private profile).
+// NOT bucket-cached: seller stats change over time, so it renders on demand and
+// relies on the shared 24h CDN cache rather than a stale-forever stored asset.
+contentPublicRoutes.on("HEAD", "/seller-badge/:handle", () =>
+  new Response(null, { status: 200, headers: certImageHeaders(CERT_IMG_CACHE) }));
+
+contentPublicRoutes.get("/seller-badge/:handle", async (c) => {
+  const handle = c.req.param("handle").trim();
+  const fmtRaw = (c.req.query("format") ?? "wide").toLowerCase();
+  const format: SellerBadgeFormat = isSellerBadgeFormat(fmtRaw) ? fmtRaw : "wide";
+  const serveFallback = () =>
+    new Response(fallbackPng(), { status: 200, headers: certImageHeaders("public, max-age=300") });
+
+  if (!handle) return serveFallback();
+  try {
+    const { data: seller } = await supabaseAdmin
+      .from("users")
+      .select("id, verified_handle, verified_display_name")
+      .ilike("verified_handle", handle)
+      .eq("verified_enabled", true)
+      .maybeSingle();
+    if (!seller) return serveFallback();
+    const s = seller as { id: string; verified_handle: string; verified_display_name: string | null };
+
+    // Stats: certified grades for this seller (sample-capped, mirrors /sellers).
+    const { data: certRows } = await supabaseAdmin
+      .from("grade_reports")
+      .select("overall_score, submissions!inner(user_id)")
+      .eq("submissions.user_id", s.id)
+      .not("certificate_id", "is", null)
+      .limit(SELLER_STATS_SAMPLE);
+    const rows = (certRows ?? []) as unknown as Array<{ overall_score: number }>;
+    const total = rows.length;
+    const sum = rows.reduce((acc, r) => acc + Number(r.overall_score), 0);
+    const average = total > 0 ? Math.round((sum / total) * 10) / 10 : 0;
+
+    const png = await renderSellerBadge(format, {
+      displayName: s.verified_display_name ?? s.verified_handle,
+      totalGraded: total,
+      totalIsCapped: total >= SELLER_STATS_SAMPLE,
+      averageGrade: average,
+    });
+    return new Response(new Uint8Array(png), { status: 200, headers: certImageHeaders(CERT_IMG_CACHE) });
+  } catch (err) {
+    captureException(err, { route: "seller-badge", tags: { handle, format } });
     return serveFallback();
   }
 });

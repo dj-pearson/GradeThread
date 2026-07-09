@@ -7,7 +7,11 @@ import { assert, assertEquals } from "@std/assert";
 import {
   type CertImageData,
   fetchImageDataUri,
+  isSellerBadgeFormat,
   renderCertImage,
+  renderSellerBadge,
+  SELLER_BADGE_FORMATS,
+  type SellerBadgeFormat,
 } from "../lib/cert-image-render.ts";
 
 const DATA: CertImageData = {
@@ -35,6 +39,40 @@ Deno.test("renders a valid badge PNG", async () => {
 
 Deno.test("renders a valid label slab PNG (no hero)", async () => {
   assert(isPng(await renderCertImage("slab", "label", DATA)));
+});
+
+// US-1761: the verified-seller storefront badge renders at every format.
+Deno.test("renders a valid seller badge PNG at every format", async () => {
+  for (const fmt of Object.keys(SELLER_BADGE_FORMATS) as SellerBadgeFormat[]) {
+    const png = await renderSellerBadge(fmt, {
+      displayName: "Thrift King",
+      totalGraded: 1000,
+      totalIsCapped: true,
+      averageGrade: 8.4,
+    });
+    assert(isPng(png), `format ${fmt} should render a PNG`);
+  }
+});
+
+Deno.test("renders a seller badge with no grades yet (avg —)", async () => {
+  assert(
+    isPng(
+      await renderSellerBadge("wide", {
+        displayName: "New Seller",
+        totalGraded: 0,
+        totalIsCapped: false,
+        averageGrade: 0,
+      }),
+    ),
+  );
+});
+
+Deno.test("isSellerBadgeFormat guards the known formats", () => {
+  assert(isSellerBadgeFormat("wide"));
+  assert(isSellerBadgeFormat("compact"));
+  assert(isSellerBadgeFormat("listing_header"));
+  assert(!isSellerBadgeFormat("square"));
+  assert(!isSellerBadgeFormat(null));
 });
 
 Deno.test("fetchImageDataUri returns null on empty/invalid input", async () => {

@@ -15,6 +15,7 @@ import {
   buildCertBadgeHtml,
   buildCertOgHtml,
   buildCertSlabHtml,
+  buildSellerBadgeHtml,
   qrSvgDataUri,
 } from "./cert-og-template.ts";
 
@@ -29,6 +30,51 @@ export const SLAB_FORMATS: Record<
   story: { width: 1080, height: 1920 },
   label: { width: 1080, height: 1080, labelOnly: true },
 };
+
+// US-1761: marketplace-optimized sizes for the verified-seller storefront badge.
+// wide = the default listing-description badge; compact = an inline chip;
+// listing_header = a wide banner for a storefront/listing header.
+export type SellerBadgeFormat = "wide" | "compact" | "listing_header";
+
+export const SELLER_BADGE_FORMATS: Record<
+  SellerBadgeFormat,
+  { width: number; height: number }
+> = {
+  wide: { width: 700, height: 180 },
+  compact: { width: 520, height: 120 },
+  listing_header: { width: 1200, height: 240 },
+};
+
+export function isSellerBadgeFormat(v: unknown): v is SellerBadgeFormat {
+  return v === "wide" || v === "compact" || v === "listing_header";
+}
+
+export interface SellerBadgeData {
+  displayName: string;
+  totalGraded: number;
+  totalIsCapped: boolean;
+  averageGrade: number;
+}
+
+/** Render the verified-seller storefront badge to PNG bytes at the given size. */
+export function renderSellerBadge(
+  format: SellerBadgeFormat,
+  d: SellerBadgeData,
+): Promise<Uint8Array> {
+  const fmt = SELLER_BADGE_FORMATS[format] ?? SELLER_BADGE_FORMATS.wide;
+  return renderPng(
+    buildSellerBadgeHtml({
+      width: fmt.width,
+      height: fmt.height,
+      displayName: d.displayName,
+      totalGraded: d.totalGraded,
+      totalIsCapped: d.totalIsCapped,
+      averageGrade: d.averageGrade,
+    }),
+    fmt.width,
+    fmt.height,
+  );
+}
 
 // ── One-time engine init (fonts + resvg wasm), cached at module scope ────
 let enginePromise: Promise<{ fonts: SatoriFont[] }> | null = null;

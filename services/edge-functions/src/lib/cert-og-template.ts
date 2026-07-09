@@ -125,6 +125,51 @@ export function buildCertBadgeHtml(input: CertBadgeInput): string {
 </div>`;
 }
 
+// ── Verified-seller storefront badge (US-1761) ───────────────────────────
+// A profile-level trust badge keyed to the seller's verified handle (not a
+// single certificate). Advertises the seller's whole track record — total
+// grades earned + average grade — and links to /verified/{handle}. One
+// horizontal template, scaled by height so the same markup renders the compact,
+// wide, and listing-header sizes cleanly.
+export interface SellerBadgeInput {
+  width: number;
+  height: number;
+  displayName: string;
+  totalGraded: number;
+  /** True when total hit the stats sample ceiling — render "N+". */
+  totalIsCapped: boolean;
+  averageGrade: number; // 0..10; 0 ⇒ no grades yet
+}
+
+export function buildSellerBadgeHtml(input: SellerBadgeInput): string {
+  // Scale every dimension off the reference 180px-tall badge.
+  const s = input.height / 180;
+  const px = (n: number) => Math.round(n * s);
+  const avatar = px(128);
+  const avg = input.averageGrade > 0 ? input.averageGrade.toFixed(1) : "—";
+  const countLabel = input.totalIsCapped
+    ? `${input.totalGraded}+ grades`
+    : `${input.totalGraded} ${input.totalGraded === 1 ? "grade" : "grades"}`;
+  const statLine = input.averageGrade > 0
+    ? `${countLabel} · avg ${avg}`
+    : countLabel;
+
+  return `<div style="display:flex;align-items:center;height:${input.height}px;width:${input.width}px;background:${BRAND_NAVY};color:${TEXT_LIGHT};font-family:${FONT};border-radius:${px(16)}px;padding:0 ${px(36)}px;">
+  <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:${avatar}px;height:${avatar}px;border-radius:50%;background:${BRAND_RED};margin-right:${px(32)}px;">
+    <div style="display:flex;font-size:${px(50)}px;font-weight:700;line-height:1;color:#fff;">${escapeHtml(avg)}</div>
+    <div style="display:flex;font-size:${px(14)}px;color:rgba(255,255,255,0.85);">avg / 10</div>
+  </div>
+  <div style="display:flex;flex-direction:column;flex:1;">
+    <div style="display:flex;align-items:center;gap:${px(10)}px;font-size:${px(20)}px;font-weight:600;color:rgba(255,255,255,0.85);margin-bottom:${px(6)}px;">
+      <div style="width:${px(26)}px;height:${px(26)}px;border-radius:${px(7)}px;background:${BRAND_RED};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:${px(15)}px;color:#fff;">G</div>
+      GradeThread Verified Seller
+    </div>
+    <div style="display:flex;font-size:${px(36)}px;font-weight:700;line-height:1.1;">${escapeHtml(truncate(input.displayName, 28))}</div>
+    <div style="display:flex;font-size:${px(16)}px;color:rgba(255,255,255,0.6);margin-top:${px(6)}px;">${escapeHtml(statLine)} · tap to verify</div>
+  </div>
+</div>`;
+}
+
 // ── Digital slab (PSA-style graded photo) ────────────────────────────────
 export interface CertSlabInput {
   width: number;

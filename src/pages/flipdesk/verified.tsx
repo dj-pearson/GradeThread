@@ -392,8 +392,9 @@ export function FlipdeskVerifiedPage() {
         </Card>
       )}
 
-      {/* US-1759: per-item badge studio (certificate + passport snippets). */}
-      <BadgeStudio />
+      {/* US-1759/1761: badge studio — storefront (when public), per-item cert
+          and passport snippets. */}
+      <BadgeStudio handle={isLive ? savedHandle : null} />
 
       {/* US-1105: opt-in identity reveal on Garment Passports. */}
       <PassportIdentityCard profilePublic={isLive} />

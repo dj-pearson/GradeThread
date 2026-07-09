@@ -12667,3 +12667,27 @@ US-1702 DONE (edge+web; MIGRATION 00387 — HELD). The story I had missed.
 - Tests: verified.test.ts +2 blocks (passport badges, BADGE_FORMATS). 16 pass.
 - VERIFIED: web tsc -b 0 / eslint 0 (all 5 touched files) / vitest verified.test 16 pass.
 - No migration, no edge change. Commit local; NOT pushed (standing pre-launch rule).
+
+── US-1761: Marketplace badge formats + verified-seller storefront badge (2026-07-08) ──
+- Storefront badge (keyed to the verified HANDLE, not a single cert) advertising the
+  seller's whole track record (avg grade + N grades), linking to /verified/{handle}.
+- Edge render (CPU-safe, like the cert badge): cert-og-template.ts buildSellerBadgeHtml
+  (one horizontal template scaled by height) + cert-image-render.ts SELLER_BADGE_FORMATS
+  (wide 700x180 / compact 520x120 / listing_header 1200x240) + renderSellerBadge +
+  isSellerBadgeFormat. New edge endpoint content-public.ts GET /seller-badge/:handle
+  (?format=) — same publicity gate as /sellers/:handle, fallback PNG on miss/withheld/
+  error, NOT bucket-cached (stats change → on-demand render + 24h CDN cache).
+- Pages proxy functions/badge/verified/[handle].ts (mirrors badge/cert; /badge/* already
+  routed). Passes ?format through.
+- Client verified.ts: verifiedSellerBadgeUrl / verifiedSellerBadgeEmbedHtml (linked <img>,
+  no script) / verifiedSellerBadgeEmbedText + profileShareUrl + SELLER_BADGE_FORMAT_OPTIONS.
+- Wired into Badge Studio (US-1759): a "Storefront badge" card (format Select + live
+  preview + HTML/text copy) shown when the profile has a public handle.
+- AC3 (eBay/Poshmark/Grailed live rendering) is operator; the HTML-img-for-eBay +
+  text-for-HTML-stripping-marketplaces split addresses the rendering rules.
+- Tests: cert-image-render_test.ts +3 (renders all 3 seller-badge formats + no-grades
+  + isSellerBadgeFormat — REAL satori/resvg PNG render); verified.test.ts +1 block
+  (client helpers). Web verified 20 pass, edge render 7 pass.
+- VERIFIED: deno check src/main.ts CLEAN / deno lint 0 / web tsc -b 0 / functions tsc 0 /
+  eslint 0. Full edge suite: (result appended below.)
+- No migration. Commit local; NOT pushed (standing pre-launch rule).

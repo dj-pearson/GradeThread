@@ -30,6 +30,11 @@ import {
   parseCertificateRef,
   passportBadgeEmbedHtml,
   passportBadgeEmbedText,
+  SELLER_BADGE_FORMAT_OPTIONS,
+  type SellerBadgeFormat,
+  verifiedSellerBadgeEmbedHtml,
+  verifiedSellerBadgeEmbedText,
+  verifiedSellerBadgeUrl,
 } from "@/lib/verified";
 
 // US-1759: Badge Studio — one place to grab the right verified-badge snippet for
@@ -61,11 +66,12 @@ function snippetFor(format: BadgeFormatId, certId: string): string {
   }
 }
 
-export function BadgeStudio() {
+export function BadgeStudio({ handle }: { handle?: string | null }) {
   const { data: certs, isLoading } = useMyCertificates();
   const [selectedId, setSelectedId] = useState<string>("");
   const [pasted, setPasted] = useState("");
   const [format, setFormat] = useState<BadgeFormatId>("image");
+  const [sellerFormat, setSellerFormat] = useState<SellerBadgeFormat>("wide");
 
   // A pasted certificate link/id wins over the dropdown, so a seller can badge a
   // certificate that isn't in their recent list (or before it loads).
@@ -93,6 +99,51 @@ export function BadgeStudio() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
+        {/* Storefront (seller-level) badge — advertises your whole track record.
+            Only shown once the profile has a public handle. */}
+        {handle && (
+          <div className="space-y-3 rounded-lg border p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm font-medium">Storefront badge (your whole profile)</p>
+              <Select
+                value={sellerFormat}
+                onValueChange={(v) => setSellerFormat(v as SellerBadgeFormat)}
+              >
+                <SelectTrigger className="h-8 w-40">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SELLER_BADGE_FORMAT_OPTIONS.map((o) => (
+                    <SelectItem key={o.id} value={o.id}>
+                      {o.label} ({o.width}×{o.height})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="rounded-lg border bg-muted/30 p-4">
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Preview
+              </p>
+              <img
+                src={verifiedSellerBadgeUrl(handle, sellerFormat)}
+                alt="GradeThread Verified Seller badge"
+                className="max-w-full"
+              />
+            </div>
+            <CopyField
+              label="HTML (eBay, websites)"
+              value={verifiedSellerBadgeEmbedHtml(handle, sellerFormat)}
+              multiline
+            />
+            <CopyField
+              label="Text + link (Poshmark, Grailed, Mercari, Depop)"
+              value={verifiedSellerBadgeEmbedText(handle)}
+              multiline
+            />
+          </div>
+        )}
+
         {/* Certificate picker */}
         <div className="space-y-1.5">
           <Label htmlFor="badge-cert">Certificate</Label>

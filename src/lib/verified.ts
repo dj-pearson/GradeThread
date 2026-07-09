@@ -155,6 +155,65 @@ export function passportBadgeEmbedText(slug: string): string {
   return `✓ GradeThread Verified history — see the full record: ${passportShareUrl(slug, "embed")}`;
 }
 
+// ── Verified-seller storefront badge (US-1761) ───────────────────────
+// A profile-level badge (keyed to the handle, not a single cert) advertising the
+// seller's whole track record. The image is rendered on the edge and proxied by
+// /badge/verified/:handle; the embed wraps it in a link to the public profile.
+
+export type SellerBadgeFormat = "wide" | "compact" | "listing_header";
+
+export interface SellerBadgeFormatOption {
+  id: SellerBadgeFormat;
+  label: string;
+  width: number;
+  height: number;
+}
+
+export const SELLER_BADGE_FORMAT_OPTIONS: SellerBadgeFormatOption[] = [
+  { id: "wide", label: "Wide", width: 700, height: 180 },
+  { id: "compact", label: "Compact", width: 520, height: 120 },
+  { id: "listing_header", label: "Listing header", width: 1200, height: 240 },
+];
+
+/** Storefront badge image URL for a handle + size format. */
+export function verifiedSellerBadgeUrl(
+  handle: string,
+  format: SellerBadgeFormat = "wide",
+): string {
+  return `${SITE_URL}/badge/verified/${handle}?format=${format}`;
+}
+
+/**
+ * HTML snippet for the verified-seller storefront badge — a linked <img> that
+ * survives marketplace HTML sanitizers (no script). Links to the seller's public
+ * profile with ?s=embed for attribution.
+ */
+export function verifiedSellerBadgeEmbedHtml(
+  handle: string,
+  format: SellerBadgeFormat = "wide",
+): string {
+  const href = profileShareUrl(handle, "embed");
+  const img = verifiedSellerBadgeUrl(handle, format);
+  const opt = SELLER_BADGE_FORMAT_OPTIONS.find((o) => o.id === format) ??
+    { id: "wide" as const, label: "Wide", width: 700, height: 180 };
+  return (
+    `<a href="${href}" target="_blank" rel="noopener">` +
+    `<img src="${img}" alt="GradeThread Verified Seller" ` +
+    `width="${opt.width}" height="${opt.height}" style="max-width:100%;height:auto;border:0" />` +
+    `</a>`
+  );
+}
+
+/** Plain-text storefront badge fallback (for marketplaces that strip HTML). */
+export function verifiedSellerBadgeEmbedText(handle: string): string {
+  return `✓ GradeThread Verified Seller — see my grades: ${profileShareUrl(handle, "embed")}`;
+}
+
+/** Profile URL carrying a share-source param (mirrors certificateShareUrl). */
+export function profileShareUrl(handle: string, source: string): string {
+  return `${profileUrl(handle)}?s=${source}`;
+}
+
 // ── Badge Studio: per-marketplace snippet guidance (US-1759) ──────────
 // Marketplaces differ in what HTML they allow in a listing description. The
 // studio surfaces the RIGHT format for each: eBay renders a whitelist of HTML

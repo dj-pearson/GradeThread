@@ -13600,7 +13600,7 @@
         "All formats validated through eBay/Poshmark/Grailed rendering"
       ],
       "priority": 1761,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BADGE] Extend SLAB_FORMATS in cert-image-render.ts + templates in cert-og-template.ts. Storefront badge ties to users.verified_* + functions/og/verified/[handle].ts."
     },
     {
