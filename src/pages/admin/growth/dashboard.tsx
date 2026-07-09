@@ -27,6 +27,7 @@ import {
   Gift,
   Layers,
   Bell,
+  BadgeCheck,
 } from "lucide-react";
 
 interface GrowthSummary {
@@ -95,6 +96,23 @@ export function GrowthDashboardPage() {
     },
     staleTime: 60_000,
     refetchInterval: 120_000,
+  });
+
+  // US-1760: platform-wide badge funnel.
+  const { data: badge } = useQuery({
+    queryKey: ["growth-badge-funnel"],
+    queryFn: async (): Promise<{
+      totalClicks: number;
+      conversions: number;
+      activeSellers: number;
+      clicksBySource: Record<string, number>;
+    }> => {
+      const res = await edgeFetch("/api/admin/growth/badge-funnel");
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to load badge funnel");
+      return json;
+    },
+    staleTime: 60_000,
   });
 
   return (
@@ -203,6 +221,21 @@ export function GrowthDashboardPage() {
                     />
                   </LineChart>
                 </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          )}
+
+          {badge && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Badge funnel — last 30 days</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-3 gap-4">
+                  <Stat icon={BadgeCheck} label="Badge clicks" value={badge.totalClicks} />
+                  <Stat icon={Gift} label="Referred signups" value={badge.conversions} />
+                  <Stat icon={Megaphone} label="Active sellers" value={badge.activeSellers} />
+                </div>
               </CardContent>
             </Card>
           )}

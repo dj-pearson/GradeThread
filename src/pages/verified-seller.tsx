@@ -195,6 +195,25 @@ export function VerifiedSellerPage() {
     }
 
     load();
+
+    // US-1760: attribute a storefront-badge-driven arrival to this seller. Once
+    // per session; the owner is resolved server-side from the handle. Only the
+    // badge/embed source (a storefront badge always links with ?s=embed).
+    try {
+      const src = new URLSearchParams(window.location.search).get("s") ?? "";
+      const key = `gt_sbadge_${handle}`;
+      if ((src === "embed" || src === "badge") && !sessionStorage.getItem(key)) {
+        sessionStorage.setItem(key, "1");
+        void fetch(`${edgeApiUrl()}/api/content/public/badge-click`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ targetType: "seller", targetId: handle, source: src }),
+        }).catch(() => {});
+      }
+    } catch {
+      /* storage/network disabled — best-effort attribution */
+    }
+
     return () => {
       cancelled = true;
     };

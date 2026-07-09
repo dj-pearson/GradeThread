@@ -28,6 +28,7 @@ import type { SegmentRules } from "../lib/segments.ts";
 import { buildBroadcastEmailHtml } from "../lib/email.ts";
 import { sendPushToUser } from "../lib/apns.ts";
 import { getReferralRewardConfig, grantReferralReward } from "../lib/referrals.ts";
+import { platformBadgeFunnel } from "../lib/badge-analytics.ts";
 import { coordinateMarketingSend } from "../lib/marketing-coordinator.ts";
 import { isMarketingOptedOut } from "../lib/email-consent.ts";
 import { marketingUnsubscribeUrl } from "../lib/unsubscribe.ts";
@@ -65,6 +66,16 @@ export const adminGrowthRoutes = new Hono<AdminEnv>();
 
 // US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
 adminGrowthRoutes.use("*", requireScope("growth:write"));
+
+// US-1760: platform-wide badge funnel (clicks by source + conversions + active
+// sellers) for the growth dashboard.
+adminGrowthRoutes.get("/badge-funnel", async (c) => {
+  try {
+    return c.json(await platformBadgeFunnel());
+  } catch (err) {
+    return failSafe(c, 500, "Couldn't load the badge funnel.", err, "admin-growth.badge-funnel");
+  }
+});
 
 const SITE_URL = "https://gradethread.com";
 const EMPTY_RULES: SegmentRules = { match: "all", conditions: [] };

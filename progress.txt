@@ -12783,3 +12783,24 @@ US-1702 DONE (edge+web; MIGRATION 00387 — HELD). The story I had missed.
 - VERIFIED: deno check src/main.ts CLEAN / deno lint 0 / web tsc -b 0 / eslint 0 /
   full edge suite 3173 passed, 0 failed (cron-drift + schema-version guards green).
 - ⚠️ HELD MIGRATION — commit local; NOT pushed until user applies 00403 to prod.
+
+── US-1760: Badge click attribution + funnel analytics (2026-07-09) ──
+- ★ COMPLETES the Badge epic: 1759 (studio) + 1760 (funnel) + 1761 (storefront badge).
+- Recording: new lib/badge-analytics.ts + public POST /api/content/public/badge-click.
+  Owner resolved SERVER-SIDE from the cert (grade_reports→submissions.user_id) or handle
+  (users.verified_handle) — a caller can never attribute to someone else. Only badge ?s=
+  sources (embed/badge/qr) recorded; best-effort (never breaks the page); no buyer PII.
+- Client pings: certificate.tsx (targetType cert, once/session, badge sources) +
+  verified-seller.tsx (targetType seller, ?s=embed). Reuses the existing ?s= plumbing.
+- Funnel: sellerBadgeFunnel (owner-scoped, US-268) clicks-by-source + referral conversions
+  (referral_events) → GET /api/verified/badge-funnel + a "Badge performance" card in
+  flipdesk/verified.tsx (hidden until data). platformBadgeFunnel → GET
+  /api/admin/growth/badge-funnel + a "Badge funnel" tile in admin growth dashboard.
+- Impressions intentionally omitted (badge image loads aren't cheaply trackable without a
+  hit on every listing view) — funnel is the actionable clicks→conversions; documented.
+- Migration 00404 (HELD): badge_click_events deny-all table + rls-guard SERVICE_ROLE_ONLY.
+  EXPECTED_SCHEMA_VERSION → 00404. Packaged in PENDING_MIGRATIONS.md (LOW risk).
+- Tests: badge-analytics_test.ts 4 pass (aggregate, target-type/source guards); rls-guard
+  green with the new table; tenant-isolation runtime cases Docker-gated (funnel is owner-scoped).
+- VERIFIED: deno check CLEAN / lint 0 / web tsc -b 0 / eslint 0 / full edge suite 3177/0.
+- ⚠️ HELD MIGRATION — commit local; NOT pushed until user applies 00404 (after 00403).

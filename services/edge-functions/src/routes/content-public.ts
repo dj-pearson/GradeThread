@@ -24,6 +24,7 @@ import {
 import { FALLBACK_PNG_BASE64 } from "../lib/cert-og-template.ts";
 import { captureException, readCtxVar } from "../lib/observability.ts";
 import { rankReferrers } from "../lib/referral-rewards.ts";
+import { isBadgeTargetType, recordBadgeClick } from "../lib/badge-analytics.ts";
 import { PILLAR_CORNERSTONE_URL, PILLAR_LABELS } from "../lib/content-interlink.ts";
 
 // US-580: these endpoints are anonymous/unauthenticated, so a 500 body must
@@ -1022,6 +1023,32 @@ contentPublicRoutes.post("/certificates/:id/view", async (c) => {
   });
   // Swallow errors — the counter is non-critical and must never break the cert.
   return c.json({ ok: !error });
+});
+
+// ── POST /badge-click ─────────────────────────────────────────────
+// US-1760: attribute a click on an off-platform GradeThread badge (a cert badge
+// or a verified-seller storefront badge) to the seller who owns it. Public +
+// best-effort: the owner is resolved server-side from the cert/handle (never
+// trusted from the caller), only known badge ?s= sources are recorded, and any
+// error is swallowed so a bad ping never breaks the page. No buyer PII.
+contentPublicRoutes.post("/badge-click", async (c) => {
+  const body = (await c.req.json().catch(() => null)) as
+    | { targetType?: unknown; targetId?: unknown; source?: unknown }
+    | null;
+  if (
+    !body ||
+    !isBadgeTargetType(body.targetType) ||
+    typeof body.targetId !== "string" ||
+    typeof body.source !== "string"
+  ) {
+    return c.json({ ok: false }, 200); // never surface validation detail to a public pinger
+  }
+  const { recorded } = await recordBadgeClick({
+    targetType: body.targetType,
+    targetId: body.targetId,
+    source: body.source,
+  });
+  return c.json({ ok: recorded });
 });
 
 // ── GET /certificates.json ────────────────────────────────────────

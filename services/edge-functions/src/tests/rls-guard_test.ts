@@ -55,6 +55,10 @@ const PARENT_SCOPED = [
 // service-role (which bypasses RLS) reads/writes them. This is the most
 // restrictive configuration, not a gap.
 const SERVICE_ROLE_ONLY = new Set([
+  // US-1760 badge click attribution: deny-all by design — the public recording
+  // endpoint (service-role, owner resolved server-side) writes it and the
+  // owner-scoped funnel endpoints read it; the SPA never queries it. No buyer PII.
+  "badge_click_events",
   // US-1710 Brand & Style Knowledge Base (00389): five GLOBAL REFERENCE tables —
   // brand facts only, NO tenant data and no owner column. RLS enabled, zero
   // policies by design: the edge service-role client reads the packs (US-1711

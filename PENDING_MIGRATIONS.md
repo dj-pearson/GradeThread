@@ -1,5 +1,26 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00404_badge_click_events.sql (US-1760 badge funnel, 2026-07-09)
+
+**What:** New deny-all operator table `public.badge_click_events`
+(`owner_user_id` FK→users, `target_type` CHECK in `('cert','seller')`,
+`target_id`, `source`, `created_at`) + `idx_badge_click_events_owner`. RLS enabled
+with ZERO policies (service-role only). Records off-platform badge clicks
+(attributed to the seller server-side, no buyer PII) for the seller + admin badge
+funnel. Registered in `rls-guard_test.ts` SERVICE_ROLE_ONLY. Bumps
+`EXPECTED_SCHEMA_VERSION` → **00404**. Self-records '00404'.
+
+**Risk: LOW — new isolated table, no writes to existing tables.** Nothing reads
+or writes it until this migration applies. **⚠️ CLIENT/EDGE READ:** the edge
+funnel endpoints (`/api/verified/badge-funnel`, `/api/admin/growth/badge-funnel`)
+and the public `/api/content/public/badge-click` recorder query this table — they
+500/no-op until the table exists, and the seller "Badge performance" card +
+admin "Badge funnel" tile simply stay hidden (they render only with data). So a
+frontend deploy landing before the migration degrades gracefully, but apply
+00404 with/before the push for the endpoints to work. **⚠️ Apply order:** after
+00403; `scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload schema';`,
+redeploy the edge.
+
 ## ⏳ HELD: 00403_condition_index_seed_provenance.sql (US-1746 Value Index auto-seed, 2026-07-09)
 
 **What:** Adds two additive columns to `public.condition_index_seeds` —

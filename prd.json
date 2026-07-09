@@ -13587,7 +13587,7 @@
         "Dashboard shows impressions/clicks/conversions per seller and platform-wide"
       ],
       "priority": 1760,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BADGE][GROWTH] Reuse cert_view tracking (content-public.ts /view with ?s=) + referral_events/affiliate_clicks. Surface in verified profile + admin-growth."
     },
     {

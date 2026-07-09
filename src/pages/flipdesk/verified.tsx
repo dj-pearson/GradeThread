@@ -27,6 +27,7 @@ import { BadgeStudio } from "@/components/verified/badge-studio";
 import {
   useVerifiedProfile,
   useUpdateVerifiedProfile,
+  useBadgeFunnel,
   checkHandleAvailable,
 } from "@/hooks/use-verified";
 import {
@@ -392,6 +393,9 @@ export function FlipdeskVerifiedPage() {
         </Card>
       )}
 
+      {/* US-1760: badge funnel — clicks by source + referral conversions. */}
+      {isLive && <BadgePerformanceCard />}
+
       {/* US-1759/1761: badge studio — storefront (when public), per-item cert
           and passport snippets. */}
       <BadgeStudio handle={isLive ? savedHandle : null} />
@@ -399,6 +403,58 @@ export function FlipdeskVerifiedPage() {
       {/* US-1105: opt-in identity reveal on Garment Passports. */}
       <PassportIdentityCard profilePublic={isLive} />
     </div>
+  );
+}
+
+// US-1760: the seller's badge funnel — how much traffic + signups their embedded
+// badges drove. Clicks are attributed from the ?s= source when a buyer lands on a
+// certificate or this profile from an off-platform badge; conversions reuse the
+// referral ledger. Hidden until there's data so it never shows an empty shell.
+function BadgePerformanceCard() {
+  const { data, isLoading } = useBadgeFunnel();
+  if (isLoading) return <Skeleton className="h-32 w-full" />;
+  if (!data || (data.totalClicks === 0 && data.conversions === 0)) return null;
+
+  const sources = Object.entries(data.clicksBySource).sort((a, b) => b[1] - a[1]);
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <BadgeCheck className="h-5 w-5 text-brand-navy dark:text-foreground" />
+          Badge performance
+        </CardTitle>
+        <CardDescription>
+          Traffic and signups your embedded badges drove in the last {data.windowDays} days.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div className="rounded-lg border p-4">
+            <div className="text-3xl font-extrabold text-brand-navy dark:text-foreground">
+              {data.totalClicks}
+            </div>
+            <p className="text-sm text-muted-foreground">badge clicks</p>
+          </div>
+          <div className="rounded-lg border p-4">
+            <div className="text-3xl font-extrabold text-brand-navy dark:text-foreground">
+              {data.conversions}
+            </div>
+            <p className="text-sm text-muted-foreground">referred signups</p>
+          </div>
+        </div>
+        {sources.length > 0 && (
+          <div className="space-y-1.5">
+            <p className="text-sm font-medium text-muted-foreground">Clicks by source</p>
+            {sources.map(([src, n]) => (
+              <div key={src} className="flex items-center justify-between text-sm">
+                <span className="capitalize">{src}</span>
+                <span className="font-medium tabular-nums">{n}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

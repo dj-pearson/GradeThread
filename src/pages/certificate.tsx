@@ -303,6 +303,17 @@ export function CertificatePage() {
           `${edgeApiUrl()}/api/content/public/certificates/${encodeURIComponent(id)}/view`,
           { method: "POST" },
         ).catch(() => {});
+        // US-1760: attribute a badge-driven arrival to the seller. Only for the
+        // badge/embed/qr sources; the owner is resolved server-side. Once per
+        // session (shares the view session-key gate above).
+        const src = searchParams.get("s") ?? "";
+        if (src === "embed" || src === "badge" || src === "qr") {
+          void fetch(`${edgeApiUrl()}/api/content/public/badge-click`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ targetType: "cert", targetId: id, source: src }),
+          }).catch(() => {});
+        }
       }
     } catch {
       /* storage/network disabled — the counter is best-effort */

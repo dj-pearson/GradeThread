@@ -3,6 +3,7 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { failSafe, jsonError } from "../lib/http-errors.ts";
 import { purgeSellerProfileCache } from "../lib/cloudflare-purge.ts";
 import { loadSellerGradeStats } from "../lib/seller-credentials-job.ts";
+import { sellerBadgeFunnel } from "../lib/badge-analytics.ts";
 
 // GradeThread Verified — seller-profile management (US: revolutionary-flipping).
 //
@@ -86,6 +87,20 @@ verifiedRoutes.get("/handle-available", async (c) => {
     handle: parsed.handle,
     reason: available ? null : "That handle is already taken.",
   });
+});
+
+// ── GET /badge-funnel ─────────────────────────────────────────────
+// US-1760: the caller's OWN badge funnel — clicks by source + referral
+// conversions. Owner-scoped by userId (US-268): sellerBadgeFunnel filters every
+// query on owner_user_id = the caller, so it can never read another seller's.
+verifiedRoutes.get("/badge-funnel", async (c) => {
+  const userId = c.get("userId");
+  try {
+    const funnel = await sellerBadgeFunnel(userId);
+    return c.json(funnel);
+  } catch (err) {
+    return failSafe(c, 500, "Couldn't load your badge stats.", err, "verified.badge-funnel");
+  }
 });
 
 // ── GET /profile ──────────────────────────────────────────────────

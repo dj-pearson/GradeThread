@@ -82,6 +82,28 @@ export function useUpdateVerifiedProfile() {
   });
 }
 
+export interface BadgeFunnel {
+  clicksBySource: Record<string, number>;
+  totalClicks: number;
+  conversions: number;
+  windowDays: number;
+}
+
+/** US-1760: the caller's own badge funnel (clicks by source + referral conversions). */
+export function useBadgeFunnel() {
+  const user = useAuthStore((s) => s.user);
+  return useQuery({
+    queryKey: ["verified_badge_funnel", user?.id],
+    enabled: !!user,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async (): Promise<BadgeFunnel> => {
+      const res = await edgeFetch("/api/verified/badge-funnel", { skipWorkspaceHeader: true });
+      if (!res.ok) throw new Error("Failed to load badge funnel");
+      return (await res.json()) as BadgeFunnel;
+    },
+  });
+}
+
 /** One-shot handle availability check (not cached — used while typing/debounced). */
 export async function checkHandleAvailable(
   handle: string,
