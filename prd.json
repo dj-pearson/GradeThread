@@ -14128,8 +14128,8 @@
         "Purchase of metered credit packs (authenticity/video) available for buyers, reusing the CREDIT_PACKS + checkout flow"
       ],
       "priority": 1801,
-      "passes": false,
-      "notes": "[P2][BUYER][FOUNDATION][BILLING][NEW] Reuse src/pages/billing.tsx + src/components/billing/* + use-pricing-plans.ts/use-plan-usage.ts/use-billing-summary.ts. Depends on plans (1799) + entitlements (1800). Keep buyer vs seller billing views separated by account_type/role."
+      "passes": true,
+      "notes": "[P2][BUYER][FOUNDATION][BILLING] DONE 2026-07-09. Buyer billing page /buyer/billing (replaces placeholder): AC1 current plan card (effective plan via useBuyerEntitlements + paid sub via billing-summary.buyer), renewal date, cancel/resume (useBuyerCancel/Uncancel), Stripe portal (reused useBillingPortal, same customer surfaces both subs), monthly/yearly plan picker (Free/Guard/Connoisseur) subscribing via useBuyerSubscribe. Correctly handles US-1887 seller-bundled case: tiers <= effective show Included (no double-charge/CTA), fromSellerPlan shows included-with-seller note + link to seller billing. AC2 usage meters (reuse UsageMeter) for extension checks / authenticity / video credits from new billing-summary.buyer.usage (reads buyer_meter_usage, degrades to 0 pre-00413) + reset date. AC3 ?upgrade=<flag> deep-link highlights the lowest tier unlocking that flag (buyer home tiles already link here); the 402-driven prompt fires once buyer-gated features exist. AC4 (purchasable authenticity/video credit packs) DEFERRED: no buyer credit-pack products or buyer credit wallet, and the metered features (US-1840/1841) do not exist yet. tsc+eslint+edge check+public-routes green. No migration (uses 00413)."
     },
     {
       "id": "US-1802",

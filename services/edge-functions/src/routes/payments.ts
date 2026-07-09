@@ -1018,6 +1018,7 @@ paymentRoutes.get("/billing-summary", async (c) => {
     marketplacesResult,
     ledgerResult,
     upcomingInvoice,
+    buyerMeterResult,
   ] = await Promise.all([
     supabaseAdmin
       .from("inventory_items")
@@ -1039,7 +1040,15 @@ paymentRoutes.get("/billing-summary", async (c) => {
     // prices), fetched in parallel. Returns null for free users and degrades
     // gracefully if Stripe is unavailable (UI falls back to the plan table).
     fetchUpcomingInvoice(u.stripe_customer_id, u.flipdesk_subscription_id),
+    // US-1801: buyer metered-action usage for the buyer billing usage meters.
+    supabaseAdmin
+      .from("buyer_meter_usage")
+      .select("usage, reset_at")
+      .eq("user_id", userId)
+      .maybeSingle(),
   ]);
+  const buyerUsage = (buyerMeterResult.data as { usage?: Record<string, number>; reset_at?: string | null } | null);
+  const bmUsage = buyerUsage?.usage ?? {};
 
   if (activeListingsResult.error) {
     console.error("[billing-summary] activeListings query failed:", activeListingsResult.error);
@@ -1081,6 +1090,14 @@ paymentRoutes.get("/billing-summary", async (c) => {
       status: u.buyer_subscription_status ?? "none",
       period_end: u.buyer_period_end,
       cancel_at_period_end: u.buyer_cancel_at_period_end ?? false,
+      // US-1801: metered-action usage this period (0 until the metered buyer
+      // features ship). Caps come from BUYER_PLANS on the client.
+      usage: {
+        extension_checks: bmUsage.extension_checks ?? 0,
+        authenticity_credits: bmUsage.authenticity_credits ?? 0,
+        video_grades: bmUsage.video_grades ?? 0,
+      },
+      usage_reset_at: buyerUsage?.reset_at ?? null,
     },
     grades: {
       credit_balance: u.grade_credit_balance,

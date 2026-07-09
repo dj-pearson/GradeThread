@@ -53,6 +53,7 @@ const BuyerLayout = lazy(() => import("@/layouts/buyer-layout").then(m => ({ def
 const BuyerHomePage = lazy(() => import("@/pages/buyer/home").then(m => ({ default: m.BuyerHomePage })));
 const BuyerOnboardingPage = lazy(() => import("@/pages/buyer/onboarding").then(m => ({ default: m.BuyerOnboardingPage })));
 const BuyerSettingsPage = lazy(() => import("@/pages/buyer/settings").then(m => ({ default: m.BuyerSettingsPage })));
+const BuyerBillingPage = lazy(() => import("@/pages/buyer/billing").then(m => ({ default: m.BuyerBillingPage })));
 const BuyerPlaceholderPage = lazy(() => import("@/pages/buyer/placeholder").then(m => ({ default: m.BuyerPlaceholderPage })));
 
 // Lazy-loaded pages for code splitting
@@ -611,7 +612,7 @@ export const router = createBrowserRouter([
                   { path: "/buyer/portfolio", element: <SuspenseWrapper><BuyerPlaceholderPage title="Closet Portfolio" requiresFlag="wardrobePortfolio" description="Track what you own and its condition-adjusted value over time." /></SuspenseWrapper> },
                   { path: "/buyer/guarantee", element: <SuspenseWrapper><BuyerPlaceholderPage title="Purchase Guarantee" requiresFlag="purchaseGuarantee" description="Insured grade-locked coverage on eligible purchases." /></SuspenseWrapper> },
                   { path: "/buyer/demand", element: <SuspenseWrapper><BuyerPlaceholderPage title="Graded Wanted" requiresFlag="demandBoard" description="Post what you're hunting for and get matched to graded inventory." /></SuspenseWrapper> },
-                  { path: "/buyer/billing", element: <SuspenseWrapper><BuyerPlaceholderPage title="Buyer Billing" description="Manage your buyer subscription, usage, and upgrades." /></SuspenseWrapper> },
+                  { path: "/buyer/billing", element: <SuspenseWrapper><BuyerBillingPage /></SuspenseWrapper> },
                   { path: "/buyer/settings", element: <SuspenseWrapper><BuyerSettingsPage /></SuspenseWrapper> },
                   { path: "/buyer/*", element: <SuspenseWrapper><BuyerPlaceholderPage title="Not found" description="That buyer page doesn't exist yet." /></SuspenseWrapper> },
                 ],

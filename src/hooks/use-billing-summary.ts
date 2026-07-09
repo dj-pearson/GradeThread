@@ -69,6 +69,13 @@ export interface BillingSummary {
     status: SubscriptionStatus;
     period_end: string | null;
     cancel_at_period_end: boolean;
+    // US-1801: metered-action usage this period (caps come from BUYER_PLANS).
+    usage: {
+      extension_checks: number;
+      authenticity_credits: number;
+      video_grades: number;
+    };
+    usage_reset_at: string | null;
   };
   grades: {
     credit_balance: number;
