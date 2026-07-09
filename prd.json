@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1886,
+  "nextId": 1890,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -15367,6 +15367,62 @@
       "priority": 1885,
       "passes": false,
       "notes": "Audit findings 19/20 + Lister F17/F24/F25/F26. Depends on US-1873 (registry) and US-1838 (token). This is the 'look good / ease of use' story."
+    },
+    {
+      "id": "US-1886",
+      "title": "EPIC: Bundle buyer functions into seller plans (two-sided, Etsy-style)",
+      "priority": 1886,
+      "passes": false,
+      "description": "As GradeThread, we want seller (FlipDesk) plans to INCLUDE tier-matched buyer functions (incl. the extension) and one account to switch between selling and buying like Etsy, so that every seller is also an empowered buyer and the two-sided flywheel is one coherent product, not two silos.",
+      "acceptanceCriteria": [
+        "Seller plans grant buyer functions tier-matched: Free->buyer Free, Starter->Guard, Pro->Guard, Business->Connoisseur; effective buyer plan = higher of buyer subscription and seller-derived tier",
+        "Both apps are role-aware: any seller can open the buyer app and any buyer can reach seller signup; a prominent buyer<->seller context switch exists (Etsy-style)",
+        "Pricing page shows each seller plan's included buyer confidence suite alongside the standalone buyer plans",
+        "Standalone buyer subscriptions remain for non-sellers; no double-charge; client + edge entitlement resolution stay in lockstep"
+      ],
+      "notes": "[P1][BUYER][SELLER][STRATEGY] Founder directive 2026-07-09. Ties US-1794 buyer platform + US-1872 unified extension (sellers get buyer research). Mapping SELLER_PLAN_BUYER_TIER confirmed tier-matched. Children: US-1887 entitlement resolution, US-1888 role-aware access+switch, US-1889 pricing redo."
+    },
+    {
+      "id": "US-1887",
+      "title": "Seller-plan -> buyer entitlement resolution (max-of-tiers)",
+      "priority": 1887,
+      "passes": true,
+      "description": "As a seller, I want my seller plan to grant buyer functions automatically so that I do not need a separate buyer subscription to use the extension, alerts, and confidence features.",
+      "acceptanceCriteria": [
+        "SELLER_PLAN_BUYER_TIER mapping (free->free, starter->guard, pro->guard, business->connoisseur) on both client and edge",
+        "Effective buyer plan = higher rank of (resolved buyer subscription) and (seller effective plan -> buyer tier); folded into useBuyerEntitlements (client) + resolveBuyerEntitlements/getBuyerEntitlements (edge)",
+        "Fail-safe preserved (unknown/lapsed -> free); a lapsed seller loses the seller-derived bump; edge uses effectivePlanFor for the seller side",
+        "Unit tests cover the max-of-tiers + fail-safe on both sides"
+      ],
+      "notes": "[P1][BUYER][SELLER][FOUNDATION] Core of US-1886. Keep client (constants.ts + use-buyer-entitlements.ts) and edge (buyer-plans.ts + buyer-entitlements.ts) in lockstep."
+    },
+    {
+      "id": "US-1888",
+      "title": "Role-aware access + buyer<->seller context switch (Etsy-style)",
+      "priority": 1888,
+      "passes": false,
+      "description": "As a person who both buys and sells, I want to switch between the buyer and seller apps from one account without friction so that both sides feel like one product.",
+      "acceptanceCriteria": [
+        "Any seller account can open the buyer app (BuyerRoute admits sellers; buyer surfaces gate on entitlements, not a separate purchase); pure-buyer accounts unaffected",
+        "A prominent, consistent buyer<->seller switcher in both shells (reuse/extend the existing cross-links)",
+        "Seller onboarding surfaces buyer functions as included; buyers can reach seller signup",
+        "Tenant-isolation unaffected; no route reads a role from the request body"
+      ],
+      "notes": "[P1][BUYER][SELLER] Depends on US-1887. Reuse buyer-layout switch + sidebar cross-link; make a shared AppSwitcher."
+    },
+    {
+      "id": "US-1889",
+      "title": "Pricing page redo — seller plans include buyer suite",
+      "priority": 1889,
+      "passes": false,
+      "description": "As a prospective customer, I want the pricing page to show that seller plans include buyer functions so that the bundled value is clear.",
+      "acceptanceCriteria": [
+        "Each seller plan card lists its included buyer confidence suite (tier-matched)",
+        "Standalone buyer plans (Free/Guard/Connoisseur) presented for non-sellers",
+        "Copy reflects one-account, two-sided model; PRICING.md updated",
+        "SEO/prerender unaffected; no placeholder markup for data that does not exist"
+      ],
+      "notes": "[P1][BUYER][SELLER][MARKETING] Depends on US-1887 mapping. Update pricing page + docs/PRICING.md."
     }
   ]
 }

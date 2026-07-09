@@ -18,12 +18,15 @@
 
 import type { Context } from "hono";
 import { supabaseAdmin } from "./supabase.ts";
+import { effectivePlanFor } from "./grade-pricing.ts";
 import {
   BUYER_PLAN_ENTITLEMENTS,
   type BuyerAllowances,
   type BuyerFeature,
   type BuyerGateFlags,
   type BuyerPlanKey,
+  higherBuyerPlan,
+  SELLER_PLAN_BUYER_TIER,
 } from "./buyer-plans.ts";
 
 // Subscription statuses that keep a paid plan's entitlements live. `past_due`,
@@ -36,15 +39,45 @@ export interface BuyerEntitlements {
   allowances: BuyerAllowances;
 }
 
-/** Pure resolver. Free is the fail-safe floor for any unknown/lapsed input. */
+// US-1887: the buyer plan a seller's plan grants on its own (before folding in
+// any buyer subscription). Uses effectivePlanFor so a lapsed/paused seller loses
+// the bump exactly as they lose seller caps (grace window included).
+export interface SellerPlanInput {
+  flipdeskPlan?: string | null;
+  flipdeskStatus?: string | null;
+  trialEndsAt?: string | null;
+  pastDueSince?: string | null;
+}
+
+function sellerDerivedBuyerTier(seller: SellerPlanInput): BuyerPlanKey {
+  const effective = effectivePlanFor(
+    seller.flipdeskPlan ?? "free",
+    seller.flipdeskStatus ?? null,
+    seller.trialEndsAt ?? null,
+    undefined,
+    seller.pastDueSince ?? null,
+  );
+  return SELLER_PLAN_BUYER_TIER[effective] ?? "free";
+}
+
+/**
+ * Pure resolver. Free is the fail-safe floor for any unknown/lapsed input. When
+ * `seller` is provided (US-1887), the effective buyer plan is the HIGHER of the
+ * buyer subscription and the seller-plan-derived tier, so a seller gets buyer
+ * functions without a separate buyer subscription.
+ */
 export function resolveBuyerEntitlements(
   plan: string | null | undefined,
   status: string | null | undefined,
+  seller?: SellerPlanInput,
 ): BuyerEntitlements {
   const isKnownPaid = plan === "guard" || plan === "connoisseur";
-  const key: BuyerPlanKey = isKnownPaid && ACTIVE_STATUSES.has(status ?? "")
+  const buyerSubKey: BuyerPlanKey = isKnownPaid && ACTIVE_STATUSES.has(status ?? "")
     ? plan
     : "free";
+  const key = seller
+    ? higherBuyerPlan(buyerSubKey, sellerDerivedBuyerTier(seller))
+    : buyerSubKey;
   return { plan: key, ...BUYER_PLAN_ENTITLEMENTS[key] };
 }
 
@@ -64,13 +97,29 @@ export function buyerFeatureEnabled(
 export async function getBuyerEntitlements(userId: string): Promise<BuyerEntitlements> {
   const { data } = await supabaseAdmin
     .from("users")
-    .select("buyer_plan, buyer_subscription_status")
+    .select(
+      "buyer_plan, buyer_subscription_status, flipdesk_plan, subscription_status, trial_ends_at, past_due_since",
+    )
     .eq("id", userId)
     .maybeSingle();
-  return resolveBuyerEntitlements(
-    (data as { buyer_plan?: string } | null)?.buyer_plan,
-    (data as { buyer_subscription_status?: string } | null)?.buyer_subscription_status,
-  );
+  const row = data as
+    | {
+      buyer_plan?: string;
+      buyer_subscription_status?: string;
+      flipdesk_plan?: string;
+      subscription_status?: string;
+      trial_ends_at?: string | null;
+      past_due_since?: string | null;
+    }
+    | null;
+  // US-1887: fold the seller plan in — a seller's FlipDesk tier grants buyer
+  // functions, so the effective buyer plan is the higher of the two.
+  return resolveBuyerEntitlements(row?.buyer_plan, row?.buyer_subscription_status, {
+    flipdeskPlan: row?.flipdesk_plan,
+    flipdeskStatus: row?.subscription_status,
+    trialEndsAt: row?.trial_ends_at ?? null,
+    pastDueSince: row?.past_due_since ?? null,
+  });
 }
 
 /**

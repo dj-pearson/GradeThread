@@ -11,6 +11,29 @@
 
 export type BuyerPlanKey = "free" | "guard" | "connoisseur";
 
+// US-1887: seller (FlipDesk) plans INCLUDE tier-matched buyer functions. A
+// seller's effective buyer plan is the HIGHER of their buyer subscription and
+// this seller-derived tier, so a seller never needs a separate buyer sub. Keyed
+// by FlipdeskPlanKey (free/starter/pro/business); an unknown key → free.
+// LOCKSTEP with SELLER_PLAN_BUYER_TIER in src/lib/constants.ts.
+export const SELLER_PLAN_BUYER_TIER: Record<string, BuyerPlanKey> = {
+  free: "free",
+  starter: "guard",
+  pro: "guard",
+  business: "connoisseur",
+};
+
+export const BUYER_PLAN_RANK: Record<BuyerPlanKey, number> = {
+  free: 0,
+  guard: 1,
+  connoisseur: 2,
+};
+
+/** The higher-ranked of two buyer plans (Connoisseur > Guard > Free). */
+export function higherBuyerPlan(a: BuyerPlanKey, b: BuyerPlanKey): BuyerPlanKey {
+  return BUYER_PLAN_RANK[a] >= BUYER_PLAN_RANK[b] ? a : b;
+}
+
 export interface BuyerGateFlags {
   extensionSecondOpinion: boolean;
   discrepancyScoring: boolean;

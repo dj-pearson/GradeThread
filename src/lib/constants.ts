@@ -559,6 +559,29 @@ export const BUYER_PLANS: Record<BuyerPlanKey, BuyerPlanConfig> = {
   },
 } as const;
 
+// US-1887: seller (FlipDesk) plans INCLUDE tier-matched buyer functions. A
+// seller's effective buyer plan is the HIGHER of their buyer subscription and
+// this seller-derived tier — so a seller gets the extension + confidence suite
+// without a separate buyer subscription. LOCKSTEP with SELLER_PLAN_BUYER_TIER in
+// services/edge-functions/src/lib/buyer-plans.ts.
+export const SELLER_PLAN_BUYER_TIER: Record<FlipdeskPlanKey, BuyerPlanKey> = {
+  free: "free",
+  starter: "guard",
+  pro: "guard",
+  business: "connoisseur",
+};
+
+export const BUYER_PLAN_RANK: Record<BuyerPlanKey, number> = {
+  free: 0,
+  guard: 1,
+  connoisseur: 2,
+};
+
+/** The higher-ranked of two buyer plans (Connoisseur > Guard > Free). */
+export function higherBuyerPlan(a: BuyerPlanKey, b: BuyerPlanKey): BuyerPlanKey {
+  return BUYER_PLAN_RANK[a] >= BUYER_PLAN_RANK[b] ? a : b;
+}
+
 // Canonical machine-readable mirror of the FlipDesk tier matrix in
 // docs/PRICING.md (US-200 AC). Alias of FLIPDESK_PLANS so there is exactly one
 // source of truth — any change here changes both. Prefer FLIPDESK_PLANS in new

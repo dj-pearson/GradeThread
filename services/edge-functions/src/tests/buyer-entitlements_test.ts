@@ -45,3 +45,46 @@ Deno.test("resolveBuyerEntitlements: Free plan resolves regardless of status", (
   assertEquals(buyerFeatureEnabled(free, "fitPrediction"), false);
   assertEquals(free.allowances.extensionChecksPerMonth, 10);
 });
+
+// US-1887: seller (FlipDesk) plans bundle tier-matched buyer functions.
+Deno.test("resolveBuyerEntitlements: seller plan grants a tier-matched buyer plan", () => {
+  // No buyer subscription — the seller plan alone drives the buyer tier.
+  const noSub = { flipdeskPlan: null as string | null, flipdeskStatus: "none" as string | null };
+  assertEquals(resolveBuyerEntitlements(null, null, { flipdeskPlan: "business", flipdeskStatus: "active" }).plan, "connoisseur");
+  assertEquals(resolveBuyerEntitlements(null, null, { flipdeskPlan: "pro", flipdeskStatus: "active" }).plan, "guard");
+  assertEquals(resolveBuyerEntitlements(null, null, { flipdeskPlan: "starter", flipdeskStatus: "active" }).plan, "guard");
+  assertEquals(resolveBuyerEntitlements(null, null, { flipdeskPlan: "free", flipdeskStatus: "none" }).plan, "free");
+  // Even a Free seller gets the extension (a Free buyer flag).
+  assert(buyerFeatureEnabled(resolveBuyerEntitlements(null, null, noSub), "extensionSecondOpinion"));
+});
+
+Deno.test("resolveBuyerEntitlements: effective plan is the HIGHER of buyer sub and seller tier", () => {
+  // Buyer sub beats a weaker seller tier.
+  assertEquals(
+    resolveBuyerEntitlements("connoisseur", "active", { flipdeskPlan: "starter", flipdeskStatus: "active" }).plan,
+    "connoisseur",
+  );
+  // Seller tier beats a weaker buyer sub.
+  assertEquals(
+    resolveBuyerEntitlements("guard", "active", { flipdeskPlan: "business", flipdeskStatus: "active" }).plan,
+    "connoisseur",
+  );
+  // Neither active → free.
+  assertEquals(
+    resolveBuyerEntitlements("guard", "canceled", { flipdeskPlan: "business", flipdeskStatus: "canceled" }).plan,
+    "free",
+  );
+});
+
+Deno.test("resolveBuyerEntitlements: a lapsed seller loses the seller-derived bump", () => {
+  // Paused seller → no bump; falls back to the buyer sub (here none → free).
+  assertEquals(
+    resolveBuyerEntitlements(null, null, { flipdeskPlan: "business", flipdeskStatus: "paused" }).plan,
+    "free",
+  );
+  // But a buyer subscription still stands on its own when the seller lapses.
+  assertEquals(
+    resolveBuyerEntitlements("guard", "active", { flipdeskPlan: "business", flipdeskStatus: "canceled" }).plan,
+    "guard",
+  );
+});
