@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1911,
+  "nextId": 1912,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -15725,9 +15725,24 @@
         "US-1906",
         "US-1907",
         "US-1908",
-        "US-1909"
+        "US-1909",
+        "US-1911"
       ],
       "notes": "[P1][Web+Edge+iOS/AutoLister][Epic] [scale-v2 deep dive 2026-07-09] Verified current state: ALL of the 2026-07-02 bulk-intake epic (US-1538..1548) shipped — filename-sequence grouping, MAX_AUTO_GROUP_PHOTOS=12 mega-group cap + ordinal-window visual merge (US-1550), @dnd-kit workbench + single-level undo, 4 ungrouped sort modes, verify-groups endpoint, 429 backoff, MAX_BATCH_ITEMS=300, quota pre-check, pre-generate confirm. Do NOT re-file those. ALSO SHIPPED DIRECTLY 2026-07-09 (this deep dive, not a story): generation photo funnel fix — removed the US-1552 pre-slice in loadItemPhotoUrls (ai-listing.ts) that fed selectListingPhotos only the first 8 photos by gallery sort_order (hid defect/tag shots, especially after manual reorder), bumped defect above detail in ROLE_BUDGET (listing-photo-budget.ts), bounded tag-OCR separately (MAX_TAG_OCR_PHOTOS=4); regression test added. Vision count discipline still lives in selectListingPhotos (6 role-diverse photos) — sending literally all photos was evaluated and rejected (3x image-token cost + the US-1552 timeout history; role-diverse selection captures the information). GPS/EXIF-location grouping evaluated and rejected (see US-1904 notes)."
+    },
+    {
+      "id": "US-1911",
+      "priority": 2609,
+      "passes": false,
+      "title": "Photo-QA client calls chunk to the server's 100-item cap (300-item sessions get scored, not 400s)",
+      "description": "As a seller with a 150+ group session, I want cover QA and per-item photo QA to actually run instead of silently failing. The /photo-qa endpoint rejects >MAX_QA_ITEMS=100 covers/items per request (flipdesk-autolister.ts:1199), but both clients send everything in ONE request: the intake cover-scan effect (autolister.tsx ~line 806) posts all pending covers, and useRunPhotoQa (src/hooks/use-autolister.ts) posts all itemIds. Cover QA is advisory/fire-and-forget, so past 100 groups the 400 is swallowed and covers just never get scored; the queue path surfaces a raw error toast. MAX_BATCH_ITEMS is 300, so this is reachable today.",
+      "acceptanceCriteria": [
+        "Cover-scan and item photo-QA calls chunk client-side to ≤100 per request (share one pure chunking helper, unit-tested), issuing chunks sequentially so the shared vision rate limiter isn't hammered; partial results merge as each chunk resolves",
+        "A failed chunk no longer poisons the rest: other chunks still score, failed covers/items leave the in-flight set so a later pass can retry them, and the intake flow stays non-blocking/advisory exactly as today",
+        "The queue's photo-QA path reports partial success honestly (e.g. 'Scored 240 of 300') instead of one all-or-nothing error toast",
+        "Server unchanged (the 100 cap stays — it bounds a single request's vision spend); vitest covers the chunk helper and the merge/in-flight bookkeeping"
+      ],
+      "notes": "[P2][Web/AutoLister] [scale-v2 deep dive follow-up 2026-07-09] Found while verifying the epic: US-1545 raised MAX_BATCH_ITEMS 100→300 but the QA clients were written against the old ceiling. Per-cover metering/refund (US-1581 withAiAction) already handles cap-reached mid-chunk — don't duplicate it client-side."
     }
   ]
 }
