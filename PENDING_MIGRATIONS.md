@@ -1,5 +1,22 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ PENDING: 00414_buyer_iap.sql (US-1804 buyer mobile IAP, 2026-07-09)
+
+**What:** Five ADDITIVE nullable columns on `public.users` for the buyer
+subscription IAP processor tag + store identifiers: `buyer_billing_source`
+(stripe/appstore/googleplay, CHECKed), `buyer_appstore_original_transaction_id`,
+`buyer_appstore_product_id`, `buyer_google_purchase_token`,
+`buyer_google_product_id`, + two partial indexes to reconcile a store
+renewal/expiry by its id. Mirrors the seller billing_source/appstore/google
+columns for the buyer product. Bumps `EXPECTED_SCHEMA_VERSION` → **00414**.
+Self-records '00414'.
+
+**Risk: LOW** — additive nullable columns + two partial indexes, no writes to
+existing columns. The Stripe buyer webhook now stamps `buyer_billing_source =
+'stripe'`; the Apple IAP verify writes the appstore columns. **⚠️ Apply order:**
+after 00413; `scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload
+schema';`, redeploy the edge (boot guard now expects 00414).
+
 ## ⏳ PENDING: 00413_buyer_metering.sql (US-1800 buyer metered actions, 2026-07-09)
 
 **What:** New TENANT-SCOPED table `public.buyer_meter_usage` (user_id PK, usage

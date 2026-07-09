@@ -8,7 +8,12 @@ import {
 } from "../lib/webhook-idempotency.ts";
 import { recordWebhookDeadLetter } from "../lib/webhook-dead-letter.ts";
 import { classifyProduct } from "../lib/appstore/products.ts";
-import { computeUserUpdate, type UsersBillingUpdate } from "../lib/appstore/reconcile.ts";
+import {
+  type BuyerUsersBillingUpdate,
+  computeBuyerUserUpdate,
+  computeUserUpdate,
+  type UsersBillingUpdate,
+} from "../lib/appstore/reconcile.ts";
 import { computeConsumableGrant, isTransactionRevoked } from "../lib/appstore/grant-decision.ts";
 import {
   appstoreLapseSkippedByStripe,
@@ -74,6 +79,26 @@ async function applySubscription(userId: string, update: UsersBillingUpdate): Pr
   // the webhook dispatcher releases the claim and Apple retries (rather than
   // dropping the entitlement change with a swallowed 200).
   failIfDbError(error, `appstore subscription update for user ${userId}`);
+}
+
+// US-1804: apply a verified BUYER subscription IAP — writes ONLY buyer_* columns.
+async function applyBuyerSubscription(userId: string, update: BuyerUsersBillingUpdate): Promise<void> {
+  const { error } = await supabaseAdmin.from("users").update(update).eq("id", userId);
+  failIfDbError(error, `appstore buyer subscription update for user ${userId}`);
+}
+
+/** True when an appstore lapse for the BUYER product should be skipped because
+ *  the buyer now holds an active Stripe buyer sub (mirrors the seller guard). */
+async function buyerLapseSkippedByStripe(isLapse: boolean, userId: string): Promise<boolean> {
+  if (!isLapse) return false;
+  const { data } = await supabaseAdmin
+    .from("users")
+    .select("buyer_billing_source, buyer_subscription_status")
+    .eq("id", userId)
+    .maybeSingle();
+  const u = data as { buyer_billing_source?: string; buyer_subscription_status?: string } | null;
+  return u?.buyer_billing_source === "stripe" &&
+    (u.buyer_subscription_status === "active" || u.buyer_subscription_status === "trialing");
 }
 
 async function grantCredits(
@@ -202,6 +227,32 @@ appstoreVerifyRoutes.post("/verify", async (c) => {
   const user = await loadBillingUser(userId);
   if (!user) return c.json({ error: "User not found." }, 404);
 
+  // US-1804: buyer subscription IAP — writes buyer_* only. Handled before the
+  // seller precedence check (which is FlipDesk-specific). Double-billing guard:
+  // refuse if the buyer already holds an active Stripe buyer sub.
+  if (mapping.kind === "buyer_subscription") {
+    const { data: bu } = await supabaseAdmin
+      .from("users")
+      .select("buyer_billing_source, buyer_subscription_status")
+      .eq("id", userId)
+      .maybeSingle();
+    const buState = bu as { buyer_billing_source?: string; buyer_subscription_status?: string } | null;
+    if (
+      buState?.buyer_billing_source === "stripe" &&
+      (buState.buyer_subscription_status === "active" || buState.buyer_subscription_status === "trialing")
+    ) {
+      return c.json({ error: "ACTIVE_STRIPE_SUBSCRIPTION", action: "cancel_stripe_first" }, 409);
+    }
+    const update = computeBuyerUserUpdate({ mapping, txn, action: "sub_active", now: Date.now() });
+    await applyBuyerSubscription(userId, update);
+    return c.json({
+      product: "buyer",
+      plan: update.buyer_plan,
+      interval: update.buyer_interval,
+      status: update.buyer_subscription_status,
+    });
+  }
+
   if (decideAppstorePrecedence(user, mapping.kind) === "block_active_stripe") {
     return c.json(
       { error: "ACTIVE_STRIPE_SUBSCRIPTION", action: "cancel_stripe_first" },
@@ -280,6 +331,22 @@ appstoreWebhookRoutes.post("/", async (c) => {
     const userId = await resolveUserId(txn);
     if (!userId) {
       console.error(`[appstore] webhook: no user for txn ${txn.originalTransactionId}`);
+      return c.json({ ok: true });
+    }
+
+    // US-1804: buyer subscription lifecycle (renew / cancel / expire / refund) —
+    // writes buyer_* only. A delayed EXPIRED/REVOKE must not clobber a live
+    // Stripe buyer sub the buyer started meanwhile (mirrors the seller guard).
+    if (mapping.kind === "buyer_subscription") {
+      const update = computeBuyerUserUpdate({ mapping, txn, renewal: note.renewal, action, now: Date.now() });
+      const isLapse = update.buyer_subscription_status === "canceled";
+      if (await buyerLapseSkippedByStripe(isLapse, userId)) {
+        console.warn(
+          `[appstore] webhook: skipping buyer ${note.notificationType} lapse for ${userId} — active Stripe buyer sub`,
+        );
+        return c.json({ ok: true });
+      }
+      await applyBuyerSubscription(userId, update);
       return c.json({ ok: true });
     }
 

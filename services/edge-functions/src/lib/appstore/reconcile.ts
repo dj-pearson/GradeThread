@@ -61,3 +61,50 @@ export function computeUserUpdate(params: {
     appstore_product_id: txn.productId,
   };
 }
+
+// US-1804: the users-row update for a verified BUYER subscription IAP. Writes the
+// buyer_* column family (00402/00414) so entitlement resolution treats it
+// identically to a Stripe buyer sub. Never touches flipdesk_*.
+export interface BuyerUsersBillingUpdate {
+  buyer_plan: "guard" | "connoisseur" | "free";
+  buyer_interval: BillingInterval | null;
+  buyer_subscription_status: "active" | "canceled";
+  buyer_period_end: string | null;
+  buyer_cancel_at_period_end: boolean;
+  buyer_billing_source: "appstore";
+  buyer_appstore_original_transaction_id: string;
+  buyer_appstore_product_id: string;
+}
+
+export function computeBuyerUserUpdate(params: {
+  mapping: Extract<ProductMapping, { kind: "buyer_subscription" }>;
+  txn: DecodedTransactionLite;
+  renewal?: DecodedRenewalLite | null;
+  action: AppstoreAction;
+  now: number;
+}): BuyerUsersBillingUpdate {
+  const { mapping, txn, renewal, action, now } = params;
+
+  const lapsed = action === "sub_expired" ||
+    action === "revoke" ||
+    (txn.expiresDate != null && txn.expiresDate <= now);
+
+  const periodEnd = txn.expiresDate != null ? new Date(txn.expiresDate).toISOString() : null;
+
+  const cancelAtPeriodEnd = action === "sub_renew_off"
+    ? true
+    : action === "sub_renew_on"
+    ? false
+    : renewal?.autoRenewStatus === 0;
+
+  return {
+    buyer_plan: lapsed ? "free" : mapping.plan,
+    buyer_interval: lapsed ? null : mapping.interval,
+    buyer_subscription_status: lapsed ? "canceled" : "active",
+    buyer_period_end: periodEnd,
+    buyer_cancel_at_period_end: lapsed ? false : cancelAtPeriodEnd,
+    buyer_billing_source: "appstore",
+    buyer_appstore_original_transaction_id: txn.originalTransactionId,
+    buyer_appstore_product_id: txn.productId,
+  };
+}

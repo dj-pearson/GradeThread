@@ -747,6 +747,9 @@ async function applyBuyerSubscriptionChange(
       buyer_subscription_id: sub.id,
       buyer_period_end: periodEnd,
       buyer_cancel_at_period_end: sub.cancel_at_period_end ?? false,
+      // US-1804: tag the processor so an IAP buyer sub and a Stripe one don't
+      // collide, and the buyer IAP verify can refuse to double-bill.
+      buyer_billing_source: "stripe",
     })
     .eq("id", user.id);
   failIfDbError(error, `buyer subscription update for user ${user.id}`);

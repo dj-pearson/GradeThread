@@ -14170,8 +14170,8 @@
         "Migration triple for any IAP mapping table"
       ],
       "priority": 1804,
-      "passes": false,
-      "notes": "[P3][BUYER][FOUNDATION][BILLING][NEW] Reuse appstore billing (00104) + google play billing (00321) verification paths + POST /api/payments/{google,apple}/verify. Entitlement source of truth stays in 1800. Device/store-gated; can trail web launch. Depends on plans (1799) + entitlements (1800)."
+      "passes": true,
+      "notes": "[P3][BUYER][FOUNDATION][BILLING] DONE (Apple) 2026-07-09. AC1: Apple buyer subscription IAP fully wired — server-only BUYER_PRODUCT_MAP (com.gradethread.buyer.{guard,connoisseur}.{monthly,yearly}), classifyProduct recognizes them, verify + notification(renew/cancel/expire/refund) branches in appstore.ts write buyer_* via computeBuyerUserUpdate; double-billing gate (blocks if active Stripe buyer sub) + lapse-vs-Stripe guard. AC2: writes buyer_* columns so getBuyerEntitlements treats IAP identically to Stripe. AC3: product IDs/prices match web (parity); buyer_billing_source tag prevents collision. AC4: migration 00414 (buyer_billing_source + appstore/google id columns + indexes). Left seller drift-tested catalog + serializeCatalog untouched (drift test green). ANDROID FOLLOW-UP: BUYER_ANDROID_CATALOG + computeGoogleBuyerUserUpdate are BUILT but NOT wired into processGooglePlayPurchase (needs a buyer branch + buyer apply dep + verifyPurchase kind routing); classifyAndroidProduct deliberately returns null for buyer ids (clean reject, no misfire) until then. Native StoreKit/Play-Billing purchase UI + store-console products are the app/user side. 6 unit tests. Requires 00414 applied."
     },
     {
       "id": "US-1805",

@@ -17,14 +17,23 @@
 export type FlipdeskPlan = "starter" | "pro" | "business";
 export type BillingInterval = "monthly" | "yearly";
 
+export type BuyerPlan = "guard" | "connoisseur";
+
 export type ProductMapping =
   | { kind: "subscription"; plan: FlipdeskPlan; interval: BillingInterval }
+  // US-1804: buyer plans via IAP. A distinct kind so the seller reconciler
+  // (computeUserUpdate → flipdesk_*) never sees a buyer plan; the buyer
+  // reconciler (computeBuyerUserUpdate → buyer_*) handles this kind.
+  | { kind: "buyer_subscription"; plan: BuyerPlan; interval: BillingInterval }
   | { kind: "consumable"; credits: number };
 
-/** Canonical catalog entry: id → mapping + display metadata + reference price. */
+/** Canonical catalog entry: id → mapping + display metadata + reference price.
+ *  The seller catalog is seller-only (buyer IAP lives in BUYER_PRODUCT_MAP), so
+ *  the mapping here excludes the buyer kind — keeps serializeCatalog + the
+ *  drift-tested serialized form on the FlipDesk plan/consumable shape. */
 export interface CatalogEntry {
   productId: string;
-  mapping: ProductMapping;
+  mapping: Exclude<ProductMapping, { kind: "buyer_subscription" }>;
   /** Display title (tier name or pack label). */
   title: string;
   /** Short marketing blurb shown on the paywall. */
@@ -125,9 +134,22 @@ export const PRODUCT_MAP: Record<string, ProductMapping> = Object.fromEntries(
   CATALOG.map((e) => [e.productId, e.mapping]),
 );
 
-/** Fail-closed: unknown product ids return null (never entitle). */
+// US-1804: buyer subscription products (App Store), kept SEPARATE from the
+// drift-tested seller CATALOG so the buyer paywall + native catalog evolve
+// independently. Product ids are permanent App Store Connect identifiers.
+export const BUYER_PRODUCT_MAP: Record<string, Extract<ProductMapping, { kind: "buyer_subscription" }>> = {
+  "com.gradethread.buyer.guard.monthly": { kind: "buyer_subscription", plan: "guard", interval: "monthly" },
+  "com.gradethread.buyer.guard.yearly": { kind: "buyer_subscription", plan: "guard", interval: "yearly" },
+  "com.gradethread.buyer.connoisseur.monthly": { kind: "buyer_subscription", plan: "connoisseur", interval: "monthly" },
+  "com.gradethread.buyer.connoisseur.yearly": { kind: "buyer_subscription", plan: "connoisseur", interval: "yearly" },
+};
+
+export const BUYER_SUBSCRIPTION_PRODUCT_IDS: string[] = Object.keys(BUYER_PRODUCT_MAP);
+
+/** Fail-closed: unknown product ids return null (never entitle). Checks the
+ *  seller catalog then the buyer catalog. */
 export function classifyProduct(productId: string): ProductMapping | null {
-  return PRODUCT_MAP[productId] ?? null;
+  return PRODUCT_MAP[productId] ?? BUYER_PRODUCT_MAP[productId] ?? null;
 }
 
 export const SUBSCRIPTION_PRODUCT_IDS: string[] = CATALOG
@@ -164,8 +186,11 @@ export function serializeCatalog(): CatalogProductDTO[] {
       referencePriceCents: e.referencePriceCents,
       referencePriceDisplay: e.referencePriceDisplay,
     };
-    return e.mapping.kind === "subscription"
-      ? { ...base, kind: "subscription" as const, plan: e.mapping.plan, interval: e.mapping.interval }
-      : { ...base, kind: "consumable" as const, credits: e.mapping.credits };
+    // The seller CATALOG only holds subscription/consumable entries (buyer IAP
+    // lives in its own map below), so checking consumable first keeps this
+    // exhaustive without leaking buyer entries into the serialized seller catalog.
+    return e.mapping.kind === "consumable"
+      ? { ...base, kind: "consumable" as const, credits: e.mapping.credits }
+      : { ...base, kind: "subscription" as const, plan: e.mapping.plan, interval: e.mapping.interval };
   });
 }
