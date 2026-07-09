@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1901,
+  "nextId": 1903,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -15530,7 +15530,8 @@
         "Edge lib computes score + component breakdown from verified levers only: title quality (US-1890 lint + utilization), required+recommended aspect coverage (US-1895 math), photo standards (US-1896 data: count, hero type, dimensions), category confidence (leaf + suggestion match), condition-tier/description consistency (US-1894), and fulfillment signals read from the listing's resolved business policies (returns accepted, ≤1-day handling, free-shipping) — weights documented in the lib with playbook citations",
         "Returned in the validate/preflight response and persisted on the listing row for sorting; drafts list + pipeline board show the score with a breakdown popover where each component links to its fix surface",
         "Score never invents folklore signals (no Best Offer, no relist-freshness); copy for fulfillment components cites 'eBay Best Match factors'",
-        "Deno tests: component fixtures produce expected scores; a fully-optimized fixture scores 100"
+        "Deno tests: component fixtures produce expected scores; a fully-optimized fixture scores 100",
+        "iOS surfaces the same score: PublishDialog shows the score + component breakdown (each component naming its fix surface) read from the validate/preflight response the app already calls, and drafts-library rows show a score chip usable for sorting — no client-side recomputation of weights (parity audit 2026-07-09: original criteria covered only the web drafts list + pipeline board)"
       ],
       "priority": 1897,
       "passes": false,
@@ -15576,6 +15577,35 @@
       "priority": 1900,
       "passes": false,
       "notes": "[P2][SEO][AI] See EBAY_RANKING_PLAYBOOK.md §2/§3. Prompt-version lifecycle per ai-listing.ts conventions; do not hot-swap the active prompt. Added 2026-07-09."
+    },
+    {
+      "id": "US-1901",
+      "title": "Web push notifications for offers, messages, and sales",
+      "description": "As a seller working in a browser, I want push notifications for time-sensitive events (best offers, buyer messages, new sales, grade complete) so I can respond within offer windows without watching email. Audit 2026-07-09 (verified): src/ has NO pushManager/PushSubscription usage — the only service-worker code is offline intake + the PWA install banner (src/lib/pwa.ts). iOS gets APNs for these events (PushService), but web delivery is email-only even though Settings → Notifications already exposes per-type channel toggles.",
+      "acceptanceCriteria": [
+        "Web Push (VAPID) subscription flow: permission requested only from an explicit control in Settings → Notifications (never on page load); the subscription endpoint is stored server-side per user+device and removed on unsubscribe or when a delivery fails with 404/410 Gone",
+        "Service worker handles push + notificationclick: clicking deep-links to the relevant surface (offer/message → /dashboard/flipdesk/offers, sale → the sale's item, grade complete → the submission)",
+        "Edge delivery goes through the existing notification pipeline and respects the per-type × per-channel preference matrix — the existing push toggles now cover web push alongside APNs, with no new preference schema",
+        "New subscription table/routes are tenant-scoped with a tenant-isolation_test.ts case; VAPID keys come from env and are documented in ENVIRONMENT.md + services/edge-functions/.env.example",
+        "Unsupported browsers (no Push API) and denied permission degrade gracefully: the settings control explains the state and email remains the fallback channel"
+      ],
+      "priority": 1901,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-1902",
+      "title": "Pricing page: buyer-suite claims must match shipped reality (flag-driven Coming-soon labeling)",
+      "description": "As a visitor, the pricing page must not sell features that are placeholder pages. pricing.tsx (US-1889) says 'Every FlipDesk plan includes buyer tools' and renders standalone buyer plans, while 6 of the /buyer/* routes (alerts, rewards, portfolio, guarantee, demand, billing) render BuyerPlaceholderPage behind feature flags (src/routes/index.tsx:609-614, verified 2026-07-09). Until the buyer epics (US-1805+) ship, the page must distinguish live from planned — a paying user who clicks a promised feature and lands on a locked placeholder is a manufactured churn/refund/trust event.",
+      "acceptanceCriteria": [
+        "Buyer feature bullets on seller-plan cards and the standalone buyer-plan cards derive live-vs-planned from the SAME feature flags that gate the /buyer/* routes, via a single shared registry (no hand-maintained duplicate list that can drift)",
+        "Flag-off features render a clearly styled 'Coming soon' badge instead of implying availability; live features (e.g. shopping preferences, extension second-opinion checks) render unchanged",
+        "Buyer plan purchase stays available, but each card states plainly which included features are live today; no flag-off feature appears anywhere on the page without the badge",
+        "A test renders the pricing page with all buyer flags off and asserts every placeholder-backed feature shows the badge, so newly added buyer features can't silently regress the labeling"
+      ],
+      "priority": 1902,
+      "passes": false,
+      "notes": ""
     }
   ]
 }
