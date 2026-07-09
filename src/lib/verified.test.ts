@@ -1,11 +1,16 @@
 import { describe, it, expect } from "vitest";
 import {
+  BADGE_FORMATS,
   certBadgeEmbedHtml,
   certBadgeEmbedText,
   certBadgeScriptEmbed,
   certBadgeScriptUrl,
   certificateShareUrl,
   parseCertificateRef,
+  passportBadgeEmbedHtml,
+  passportBadgeEmbedText,
+  passportShareUrl,
+  passportUrl,
   validateHandle,
 } from "./verified";
 
@@ -77,6 +82,45 @@ describe("certificate embed badge (US-860)", () => {
     expect(certBadgeEmbedText(UUID)).toContain(
       `https://gradethread.com/cert/${UUID}?s=embed`,
     );
+  });
+});
+
+describe("garment passport badge (US-1759)", () => {
+  const SLUG = "ab12cd34";
+
+  it("builds the public passport URL and share URL", () => {
+    expect(passportUrl(SLUG)).toBe(`https://gradethread.com/passport/${SLUG}`);
+    expect(passportShareUrl(SLUG, "embed")).toBe(
+      `https://gradethread.com/passport/${SLUG}?s=embed`,
+    );
+  });
+
+  it("the HTML badge links to the passport with ?s=embed and no script", () => {
+    const html = passportBadgeEmbedHtml(SLUG);
+    expect(html).toContain(`href="https://gradethread.com/passport/${SLUG}?s=embed"`);
+    expect(html).toContain("Verified history");
+    expect(html).not.toContain("<script");
+  });
+
+  it("the text badge carries the passport share link", () => {
+    expect(passportBadgeEmbedText(SLUG)).toContain(
+      `https://gradethread.com/passport/${SLUG}?s=embed`,
+    );
+  });
+});
+
+describe("BADGE_FORMATS studio guidance (US-1759)", () => {
+  it("exposes the three formats with per-marketplace guidance", () => {
+    const ids = BADGE_FORMATS.map((f) => f.id);
+    expect(ids).toEqual(["image", "script", "text"]);
+    for (const f of BADGE_FORMATS) {
+      expect(f.label.length).toBeGreaterThan(0);
+      expect(f.worksOn.length).toBeGreaterThan(0);
+    }
+    // Text is the format that must survive HTML-stripping marketplaces.
+    const text = BADGE_FORMATS.find((f) => f.id === "text")!;
+    expect(text.worksOn).toContain("Poshmark");
+    expect(text.worksOn).toContain("Grailed");
   });
 });
 

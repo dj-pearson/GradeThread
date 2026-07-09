@@ -123,3 +123,73 @@ export function profileLinkEmbedHtml(handle: string): string {
     `✓ GradeThread Verified Seller</a>`
   );
 }
+
+// ── Garment Passport badges (US-1759) ────────────────────────────────
+// A passport advertises a garment's FULL public history (grades, listings,
+// ownership hops) rather than a single grade. There is no passport image asset,
+// so the passport badge is a link/text badge only — honest about what it is.
+
+/** Public Garment Passport URL for a slug, e.g. https://gradethread.com/passport/ab12. */
+export function passportUrl(slug: string): string {
+  return `${SITE_URL}/passport/${slug}`;
+}
+
+/** Passport URL carrying a share-source param for attribution (mirrors certificateShareUrl). */
+export function passportShareUrl(slug: string, source: string): string {
+  return `${passportUrl(slug)}?s=${source}`;
+}
+
+/** HTML link badge advertising a garment's full verified history. */
+export function passportBadgeEmbedHtml(slug: string): string {
+  const href = passportShareUrl(slug, "embed");
+  return (
+    `<a href="${href}" target="_blank" rel="noopener" ` +
+    `style="display:inline-block;background:#0C1E36;color:#fff;text-decoration:none;` +
+    `padding:8px 16px;border-radius:999px;font:600 14px system-ui,sans-serif">` +
+    `✓ GradeThread Verified history</a>`
+  );
+}
+
+/** Plain-text passport badge (for marketplaces that strip HTML entirely). */
+export function passportBadgeEmbedText(slug: string): string {
+  return `✓ GradeThread Verified history — see the full record: ${passportShareUrl(slug, "embed")}`;
+}
+
+// ── Badge Studio: per-marketplace snippet guidance (US-1759) ──────────
+// Marketplaces differ in what HTML they allow in a listing description. The
+// studio surfaces the RIGHT format for each: eBay renders a whitelist of HTML
+// (a linked <img> survives, <script> does not); Poshmark / Grailed / Mercari /
+// Depop strip all HTML, so only a text+link works there; a seller's own store
+// or blog can run the script widget.
+
+export type BadgeFormatId = "image" | "script" | "text";
+
+export interface BadgeFormat {
+  id: BadgeFormatId;
+  label: string;
+  /** One-line description of the format + where to use it. */
+  hint: string;
+  /** Marketplaces / surfaces this format is the right choice for. */
+  worksOn: string[];
+}
+
+export const BADGE_FORMATS: BadgeFormat[] = [
+  {
+    id: "image",
+    label: "Image badge (HTML)",
+    hint: "A linked badge image. Survives eBay's HTML whitelist (no script).",
+    worksOn: ["eBay", "Your website", "Blog / Shopify"],
+  },
+  {
+    id: "script",
+    label: "Script embed",
+    hint: "Auto-injects the live badge. Only where scripts run — not marketplaces.",
+    worksOn: ["Your website", "Shopify", "Blog"],
+  },
+  {
+    id: "text",
+    label: "Text + link",
+    hint: "Plain text with a verify link. Use where HTML is stripped.",
+    worksOn: ["Poshmark", "Grailed", "Mercari", "Depop"],
+  },
+];

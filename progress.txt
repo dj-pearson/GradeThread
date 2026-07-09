@@ -12648,3 +12648,22 @@ US-1702 DONE (edge+web; MIGRATION 00387 — HELD). The story I had missed.
   before matching. No doc change (git already has them correct). Edge suite now
   green locally too (was 3153/1, now 3154/0). Commit 38a6d404.
 - Not a prd story; pending count unchanged (179).
+
+── US-1759: Badge Studio — one-click marketplace snippets (2026-07-08) ──
+- src/lib/verified.ts: added passport badge helpers (passportUrl / passportShareUrl
+  / passportBadgeEmbedHtml / passportBadgeEmbedText — link+text, no image asset since
+  there's no passport PNG) + BADGE_FORMATS studio guidance (image/script/text, each
+  with a hint + worksOn marketplaces: eBay allows the <img> HTML, Poshmark/Grailed/
+  Mercari/Depop strip HTML → text, own store/Shopify → script).
+- New src/hooks/use-badge-studio.ts: useMyCertificates() reads grade_reports (RLS-
+  scoped, certificate_id not null, superseded_at null, recent 100) and joins each to
+  its passport_slug via the PII-free public_passport_links view.
+- New src/components/verified/badge-studio.tsx: cert picker (dropdown of your certs
+  OR paste any /cert/ link via parseCertificateRef) → 3 format tabs w/ per-marketplace
+  worksOn chips + LIVE PREVIEW (image badge asset for image/script, exact text for
+  text) → CopyField snippet. When the cert has a passport, a passport badge sub-card
+  (HTML + text) advertising full history is offered. Mounted in flipdesk/verified.tsx
+  (replaced the old "open any certificate" hint).
+- Tests: verified.test.ts +2 blocks (passport badges, BADGE_FORMATS). 16 pass.
+- VERIFIED: web tsc -b 0 / eslint 0 (all 5 touched files) / vitest verified.test 16 pass.
+- No migration, no edge change. Commit local; NOT pushed (standing pre-launch rule).

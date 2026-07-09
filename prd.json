@@ -13574,7 +13574,7 @@
         "Live preview of each format before copying"
       ],
       "priority": 1759,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BADGE] Extends src/lib/verified.ts snippet gens + the flipdesk verified management UI (src/pages/flipdesk/verified.tsx). eBay allows limited HTML in description; Poshmark/Grailed strip HTML -> offer text+link fallback."
     },
     {

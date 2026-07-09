@@ -23,6 +23,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CopyField } from "@/components/verified/copy-field";
+import { BadgeStudio } from "@/components/verified/badge-studio";
 import {
   useVerifiedProfile,
   useUpdateVerifiedProfile,
@@ -384,13 +385,15 @@ export function FlipdeskVerifiedPage() {
               multiline
             />
             <p className="text-sm text-muted-foreground">
-              For a <strong>per-item</strong> grade badge, open any of your grade
-              certificates and copy the badge embed from there — buyers see the
-              exact condition grade for that listing.
+              For a <strong>per-item</strong> grade badge, use the Badge Studio
+              below — buyers see the exact condition grade for that listing.
             </p>
           </CardContent>
         </Card>
       )}
+
+      {/* US-1759: per-item badge studio (certificate + passport snippets). */}
+      <BadgeStudio />
 
       {/* US-1105: opt-in identity reveal on Garment Passports. */}
       <PassportIdentityCard profilePublic={isLive} />
