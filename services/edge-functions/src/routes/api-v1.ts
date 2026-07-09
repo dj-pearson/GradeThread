@@ -16,6 +16,12 @@ import { computePhashFromImage } from "../lib/perceptual-hash.ts";
 import { assertPublicUrl, safeFetch, SsrfError } from "../lib/ssrf.ts";
 import { isFeatureEnabled } from "../lib/feature-flags.ts";
 import { isAiBudgetExhausted } from "../lib/ai-budget-gate.ts";
+import {
+  type GradeGarmentInput,
+  validateGradeGarment,
+} from "../lib/api-grade-ingest.ts";
+import { MAX_BATCH_ITEMS } from "../lib/grading-batch.ts";
+import { processGradeBatch } from "../lib/grading-batch-worker.ts";
 import type { ApiKeyScope } from "../lib/api-key.ts";
 import { logEvent, recordMetric } from "../lib/observability.ts";
 import { redactError } from "../lib/log-redact.ts";
@@ -30,6 +36,7 @@ type ApiV1Env = {
   Variables: {
     userId: string;
     apiKeyScopes: ApiKeyScope[];
+    apiKeyId?: string;
   };
 };
 
@@ -476,6 +483,160 @@ apiV1Routes.post("/grades", async (c) => {
     error: null,
     meta: null,
   }, 202);
+});
+
+// --- POST /api/v1/grades/batch — Submit up to MAX_BATCH_ITEMS garments as one
+// durable batch (US-1790). Returns 202 + batch_id immediately; a background
+// worker grades each garment via the SAME path as a single grade, and the batch
+// status is derived from its job rows so a container death/redeploy never
+// strands work (reclaim cron resumes). Charges per garment via the shared
+// payment precedence (included → credits) — an uncovered garment fails just its
+// own job. NOTE: image URLs are strongly preferred over base64 in a batch — the
+// garment (incl. any base64) is persisted in the job payload until graded. ---
+apiV1Routes.post("/grades/batch", async (c) => {
+  if (!hasScope(c.get("apiKeyScopes"), "submit")) {
+    return c.json(scopeDenied("submit"), 403);
+  }
+  if (!(await isFeatureEnabled("grading")) || (await isAiBudgetExhausted("grading"))) {
+    return c.json({
+      data: null,
+      error: { message: "Grading is temporarily unavailable. Please try again shortly.", code: "GRADING_UNAVAILABLE", details: [] },
+      meta: null,
+    }, 503);
+  }
+  const userId = c.get("userId");
+  const apiKeyId = c.get("apiKeyId") ?? null;
+
+  let body: { garments?: GradeGarmentInput[] };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ data: null, error: { message: "Invalid JSON body", details: [] }, meta: null }, 400);
+  }
+
+  const garments = body.garments;
+  if (!garments || !Array.isArray(garments) || garments.length === 0) {
+    return c.json({
+      data: null,
+      error: { message: "garments array is required and must not be empty", details: [] },
+      meta: null,
+    }, 400);
+  }
+  if (garments.length > MAX_BATCH_ITEMS) {
+    return c.json({
+      data: null,
+      error: { message: `A batch may contain at most ${MAX_BATCH_ITEMS} garments`, details: [] },
+      meta: null,
+    }, 400);
+  }
+
+  // Validate EVERY garment up front and reject the whole batch on any invalid
+  // one — same immediate 400 feedback as a single grade, so a caller never
+  // discovers bad input as silently-failed jobs later.
+  const details: Array<{ index: number; errors: string[] }> = [];
+  for (let i = 0; i < garments.length; i++) {
+    const v = validateGradeGarment(garments[i]);
+    if (!v.ok) details.push({ index: i, errors: v.errors });
+  }
+  if (details.length > 0) {
+    return c.json({ data: null, error: { message: "Validation failed", details }, meta: null }, 400);
+  }
+
+  // Suspended-account gate (once for the batch).
+  const { data: user, error: userError } = await supabaseAdmin
+    .from("users")
+    .select("suspended")
+    .eq("id", userId)
+    .single();
+  if (userError || !user) {
+    return c.json({ data: null, error: { message: "User not found", details: [] }, meta: null }, 404);
+  }
+  if (user.suspended) {
+    return c.json({ data: null, error: { message: "Account suspended. Contact support.", details: [] }, meta: null }, 403);
+  }
+
+  // Enqueue: one batch row + one job row per garment. Status 'running' from the
+  // start so the reclaim sweeper adopts it if the worker never fires (crash
+  // between insert and dispatch); the worker fires immediately below.
+  const { data: batch, error: batchErr } = await supabaseAdmin
+    .from("grading_batches")
+    .insert({ user_id: userId, api_key_id: apiKeyId, status: "running", item_count: garments.length })
+    .select("id")
+    .single();
+  if (batchErr || !batch) {
+    console.error("[API v1] Failed to create grading batch:", redactError(batchErr));
+    return c.json({ data: null, error: { message: "Failed to create batch", details: [] }, meta: null }, 500);
+  }
+  const batchId = batch.id as string;
+
+  const jobRows = garments.map((g) => ({
+    batch_id: batchId,
+    user_id: userId,
+    payload: g,
+    status: "pending",
+  }));
+  const { error: jobsErr } = await supabaseAdmin.from("grading_batch_jobs").insert(jobRows);
+  if (jobsErr) {
+    console.error("[API v1] Failed to enqueue grading batch jobs:", redactError(jobsErr));
+    await supabaseAdmin.from("grading_batches").delete().eq("id", batchId);
+    return c.json({ data: null, error: { message: "Failed to enqueue batch", details: [] }, meta: null }, 500);
+  }
+
+  // Fire-and-forget worker; the 202 closes the HTTP connection and grading runs
+  // server-side. If the container dies mid-run, the reclaim cron resumes.
+  processGradeBatch(batchId).catch((err) =>
+    console.error(`[API v1] Batch worker error for ${batchId}:`, redactError(err))
+  );
+
+  return c.json({
+    data: { id: batchId, status: "running", item_count: garments.length },
+    error: null,
+    meta: null,
+  }, 202);
+});
+
+// --- GET /api/v1/grades/batch/:id — Poll a batch's status + per-garment results.
+// Tenant-scoped by the caller's userId (US-268): a foreign batch id 404s. ---
+apiV1Routes.get("/grades/batch/:id", async (c) => {
+  if (!hasScope(c.get("apiKeyScopes"), "read")) {
+    return c.json(scopeDenied("read"), 403);
+  }
+  const userId = c.get("userId");
+  const id = c.req.param("id");
+
+  const { data: batch } = await supabaseAdmin
+    .from("grading_batches")
+    .select("id, status, item_count, succeeded_count, failed_count, error, created_at, updated_at")
+    .eq("id", id)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!batch) {
+    return c.json({ data: null, error: { message: "Batch not found", details: [] }, meta: null }, 404);
+  }
+
+  const { data: jobRows } = await supabaseAdmin
+    .from("grading_batch_jobs")
+    .select("id, status, submission_id, error")
+    .eq("batch_id", id)
+    .eq("user_id", userId)
+    .order("created_at", { ascending: true });
+  const results = ((jobRows ?? []) as Array<
+    { id: string; status: string; submission_id: string | null; error: string | null }
+  >).map((j) => ({ id: j.id, status: j.status, grade_id: j.submission_id, error: j.error }));
+
+  return c.json({
+    data: {
+      id: batch.id,
+      status: batch.status,
+      item_count: batch.item_count,
+      succeeded_count: batch.succeeded_count,
+      failed_count: batch.failed_count,
+      error: batch.error,
+      results,
+    },
+    error: null,
+    meta: null,
+  }, 200);
 });
 
 // --- GET /api/v1/grades/:id — Get a specific grade report ---

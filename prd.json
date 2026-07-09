@@ -13977,8 +13977,8 @@
         "Same auth/scope/tenant-scoping/billing precedence as single grades"
       ],
       "priority": 1790,
-      "passes": false,
-      "notes": "[P2][B2B-API] Load durable-jobs skill (batch/claim/heartbeat/reclaim). Reuse api-v1.ts validation + runPaymentPrecedence + webhook delivery. New batch job table (migration triple)."
+      "passes": true,
+      "notes": "[P2][B2B-API] DONE 2026-07-09. Durable-jobs queue: 00410 grading_batches/_jobs (migration triple). POST /api/v1/grades/batch (validates each garment via shared validateGradeGarment, enqueues batch+jobs) + GET /api/v1/grades/batch/:id (tenant-scoped status + per-garment results, partial-success semantics). Worker lib/grading-batch-worker.ts grades each via SAME path as single (ingestGradeImages shared helper + runPaymentPrecedence + awaited processSubmission w/ 240s timeout); per-item grade_completed webhook inherited from the pipeline. Reclaim cron /api/jobs/grading-batch-reclaim + COOLIFY row. Tenant-isolation + unit tests added. NOTE: endpoint path is /grades/batch (not /grades:batch) to avoid Hono colon-in-segment ambiguity — same semantics."
     },
     {
       "id": "US-1791",

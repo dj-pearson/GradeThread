@@ -43,6 +43,7 @@ import {
   handleAutolisterReclaimCron,
   handlePublishBatchReclaimCron,
 } from "./routes/flipdesk-autolister.ts";
+import { handleGradingBatchReclaimCron } from "./lib/grading-batch-worker.ts";
 import { flipdeskGooglePhotosRoutes } from "./routes/flipdesk-google-photos.ts";
 import { flipdeskGoogleRoutes } from "./routes/flipdesk-google.ts";
 import { flipdeskGoogleSyncRoutes } from "./routes/flipdesk-google-sync.ts";
@@ -1024,6 +1025,9 @@ app.post("/api/jobs/autolister-reclaim", (c) => handleAutolisterReclaimCron(c));
 // US-559 bulk-publish reclaim sweeper. Same job-secret gating; resumes durable
 // publish batches whose worker died mid-run so nothing is stranded.
 app.post("/api/jobs/publish-batch-reclaim", (c) => handlePublishBatchReclaimCron(c));
+// US-1790 B2B batch-grading reclaim sweeper. Same job-secret gating; resumes
+// durable grading batches whose worker died mid-run so no garment is stranded.
+app.post("/api/jobs/grading-batch-reclaim", (c) => handleGradingBatchReclaimCron(c));
 // US-1518 thumbnail backfill. Generates 320px thumbnails for item_photos missing
 // one (existing photos + new iOS uploads); drain-to-zero scheduler. Same gate.
 app.post("/api/jobs/thumbnail-backfill", (c) => handleThumbnailBackfillCron(c));
