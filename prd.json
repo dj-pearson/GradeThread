@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1872,
+  "nextId": 1886,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -15159,6 +15159,214 @@
       "relevantPaths": [
         "ios/"
       ]
+    },
+    {
+      "id": "US-1872",
+      "title": "EPIC: Unified GradeThread extension — one install, role- and subscription-aware (buyer research for everyone, seller tools on top)",
+      "description": "As a GradeThread user, I want ONE browser extension that gives every user the buyer-research surface (AI condition read on eBay/Poshmark/Grailed/Mercari/Depop/Vinted listings) and additionally unlocks the seller cross-posting Lister tools when I'm signed in as a seller, so I don't manage two installs — and sellers doing sourcing/comping get the same buyer research in the same session. Founder decision 2026-07-09: this supersedes the deliberate two-extension split (extension/ US-716 vs extension-condition/ US-1755/1756). Features gate on the signed-in GradeThread account's role and subscription tier.",
+      "acceptanceCriteria": [
+        "Umbrella/epic story — child stories US-1873..US-1885 implement it; it ships no code itself",
+        "Target architecture: a single extension folder (merge extension/ + extension-condition/) with one manifest carrying both permission sets (marketplace host_permissions + gradethread.com), a shared background service worker, and a feature registry that exposes: condition-read overlay = always on (anonymous allowed, quota-capped), Lister cross-post/delist = only when authenticated with seller entitlements",
+        "Auth/entitlements reuse the signed extension token planned in US-1838 (buyer-subscription gating), extended to carry seller role + FlipDesk plan so one token answers both 'can this install cross-post' and 'what buyer quota applies'",
+        "Privacy posture is re-documented for the merged permission set (the old 'not host-permitted on gradethread.com' Lister claim no longer holds once merged — the privacy story becomes 'no cookies permission, no marketplace credential access, marketplace automation stays on-device') and store listing copy/privacy policy are rewritten accordingly (feeds US-1757)",
+        "The two legacy folders are removed once the unified extension reaches parity; READMEs updated; US-1757 (store distribution) targets the unified extension only"
+      ],
+      "priority": 1872,
+      "passes": false,
+      "notes": "Origin: 2026-07-09 extension deep-dive (3-agent audit of extension/, extension-condition/, and server integration). Related open stories NOT duplicated here: US-1833..1846 (buyer confidence suite + gating + legal), US-1757 (store distribution), US-1808 (extension-fed ingestion). Audit found the Lister privacy-by-manifest posture genuinely enforced today — the merge deliberately trades that isolation for one-install UX, so the privacy copy rewrite is mandatory, not cosmetic."
+    },
+    {
+      "id": "US-1873",
+      "title": "Unified extension: merged codebase, manifest, and role-aware feature registry",
+      "description": "As a user, I want the merged extension to behave exactly like the two products did — condition-read pill on marketplace listing pages, Lister job handling from the GradeThread tab — from a single install, with seller tools appearing only for authenticated seller accounts.",
+      "acceptanceCriteria": [
+        "New single extension folder (e.g. extension-unified/ until parity, then renamed) with one MV3 manifest: content scripts for all six research marketplaces + the three Lister marketplaces, externally_connectable to gradethread.com, background service worker composing both message routers",
+        "A feature-registry module resolves capabilities from stored auth state: { research: always, autoRun: setting, lister: sellerEntitlement, delist: sellerEntitlement }; content scripts and popup render only granted capabilities",
+        "Anonymous mode works end-to-end (research surface identical to today's extension-condition behavior, including click-to-grade quota UX); signing in upgrades capabilities without reinstall or reload of marketplace tabs",
+        "Existing tests (extension-condition/test/image-utils.test.cjs) move over and pass; the Lister flows keep their fail-loud probe contract and versioned selectors unchanged",
+        "Frontend bridge (src/lib/lister-extension.ts) and VITE_LISTER_EXTENSION_ID work against the unified extension id; EXTENSION_ALLOWED_ORIGINS documented for the single id"
+      ],
+      "priority": 1873,
+      "passes": false,
+      "notes": "Do the merge FIRST, then land US-1874..1885 in the unified folder so fixes aren't done twice. Keep module boundaries (lister/, research/) inside the folder so the store-review narrative stays explainable."
+    },
+    {
+      "id": "US-1874",
+      "title": "Lister reliability: job state must survive MV3 service-worker death",
+      "description": "As a seller, I want a cross-post job to complete even when the marketplace page loads slowly, so jobs stop silently vanishing. Audit: ALL job state (jobsByTab, pendingExternal) is in-memory in the SW (extension/background.js:25-27); Chrome kills an idle SW ~30s after the last event and an open sendResponse channel does NOT keep it alive (the code's keep-alive comment at background.js:23-24 is factually wrong); safety timeouts use setTimeout which dies with the SW (background.js:144-157,190-203).",
+      "acceptanceCriteria": [
+        "Job state persists in chrome.storage.session keyed by tabId + jobId; a freshly-restarted SW serves GT_LISTER_GET_JOB from storage, so a fill still runs after SW suspension",
+        "Job timeouts use chrome.alarms (not setTimeout) driven off persisted job state; on alarm, the job is failed, storage cleaned, and the SaaS informed",
+        "Result delivery no longer relies on the original sendResponse surviving SW death: the extension messages the originating GradeThread tab (tabId persisted with the job) with the result, and the frontend bridge (src/lib/lister-extension.ts) listens for that push in addition to the callback",
+        "Tab-close cleans BOTH the job entry and the pending SaaS response (immediate 'tab was closed' error instead of the 130s timeout); a fill completing after timeout is reported as late-success rather than silently dropped",
+        "handleListRequest/handleDelistRequest wrap their async bodies so a storage throw still calls sendResponse with an error (no unhandled-rejection hangs)"
+      ],
+      "priority": 1874,
+      "passes": false,
+      "notes": "Audit findings F1/F2/F3/F10/F11/F12 (critical cluster). This is the top correctness fix for the seller surface."
+    },
+    {
+      "id": "US-1875",
+      "title": "Lister delist correctness + login-wall detection",
+      "description": "As a seller who sold elsewhere, I want extension delist to actually work and to never claim success falsely, and I want a login wall diagnosed as 'log in and retry' instead of 'selectors broke'. Audit: the Poshmark delist probe requires the remove control to exist BEFORE the menu opens (extension/content/common.js:192-219 + selectors.js:44) so the shipped-enabled flow can basically never pass probe; when it does run, it reports delisted:true without verifying deletion (common.js:220-225); a login redirect consumes the job and mis-reports selector breakage (poshmark.js + background.js:234).",
+      "acceptanceCriteria": [
+        "Delist probe validates in interaction order: probe menu → click menu → wait for remove control → click → wait for confirm; required-selector sets reflect what can exist pre-interaction",
+        "Success is reported ONLY after verifying the deletion took effect (navigation away / listing-gone / marketplace confirmation toast); anything less returns ok:false with a 'verify manually' message — the pending-delist queue stamp must NOT clear on unverified outcomes (preserves US-1629 double-sale protection)",
+        "Content scripts detect marketplace login/interstitial pages (URL + form heuristics) and respond 'log in to <platform> and retry' WITHOUT consuming the job; after the user logs in and lands on the target page, the job still runs",
+        "Probe waits for independent selectors run concurrently (Promise.all) so a broken form is diagnosed in ~6s not 18-24s",
+        "A tenant-isolation-style test isn't applicable (no server code), but the flows get deterministic DOM fixture tests for probe ordering and delist verification"
+      ],
+      "priority": 1875,
+      "passes": false,
+      "notes": "Audit findings F5/F6/F7/F18. F6 is the nastiest failure mode in the product: false 'delisted' = item stays live after selling elsewhere."
+    },
+    {
+      "id": "US-1876",
+      "title": "Lister hardening: pin navigation URLs, drop the tabs permission, complete icon set",
+      "description": "As GradeThread, we don't want a gradethread.com XSS to be able to drive the extension to arbitrary URLs, and we don't want scary store-install warnings from unused permissions. Audit: newListingUrl/listingUrl from the external message are opened unvalidated (background.js:133,174; isValidPayload never checks them) — an XSS on any *.gradethread.com page gets an open-arbitrary-URL + click-delete-controls primitive; the 'tabs' permission is unnecessary (tabs.create/onRemoved/sender.tab all work without it) and adds the 'read browsing history' install warning; icons lack 16/32/48.",
+      "acceptanceCriteria": [
+        "The background ignores URLs from the message for navigation: list jobs open the platform's newListingUrl from the bundled selectors.js config; delist URLs must be https AND host-match the platform's known domain(s), else the job is rejected",
+        "'tabs' removed from permissions; all flows still work (verified manually per README install steps)",
+        "Icons include 16/32/48 (+128 store) and action.default_icon lists them; redundant host_permissions duplicates collapsed",
+        "originAllowed uses sender.origin (with sender.url fallback) for the defense-in-depth check"
+      ],
+      "priority": 1876,
+      "passes": false,
+      "notes": "Audit findings F8/F19/F20/F21/F22."
+    },
+    {
+      "id": "US-1877",
+      "title": "Lister: capture the real listing URL and stop recording prefills as active listings",
+      "description": "As a seller, I want my cross-listing recorded with its real marketplace URL only once it's actually live, so my inventory doesn't show phantom active listings. Audit: GT.captureListingUrl is referenced in a comment but doesn't exist anywhere — listingUrl is always null (extension/content/common.js:168-169) despite the README claiming listing_url is recorded; the frontend writeback (src/components/flipdesk/listing-kit.tsx:476-518 → /api/flipdesk/listings/extension-writeback) marks the listing active + listed_at:now when the form was merely PREFILLED and the seller hasn't clicked List; partial photo attach reports photosAttached:true (common.js:88-96).",
+      "acceptanceCriteria": [
+        "After a fill, the content script watches for the tab navigating to a live-listing URL (per-platform URL pattern in selectors.js) for a bounded window and reports it; the extension pushes a follow-up GT_LISTER_LISTED message with the captured URL to the originating GradeThread tab",
+        "Writeback records status 'prefilled' (or listing_status distinct from active) at fill time; it flips to active with listing_url + listed_at only on the follow-up confirmation (or via an explicit 'I published it' affordance in the listing kit for when the window is missed)",
+        "Auto-delist eligibility (US-717/US-1629) keys off confirmed-active listings with a listing_url; prefilled-only rows degrade to the manual delist path with honest UI copy",
+        "attachPhotos reports per-photo counts (attached/failed) with a per-fetch timeout; partial attach surfaces as 'attached 6 of 8 — drag the rest in' rather than success",
+        "Migration for any new listing_status value follows the migrations skill triple; edge writeback stays owner-verified (US-268) with a tenant-isolation test for the new confirm transition"
+      ],
+      "priority": 1877,
+      "passes": false,
+      "notes": "Audit findings F4/F13 + integration Medium ('prefill recorded as active'). Requires touching supabase/migrations + edge route — load migrations + tenant-isolation skills when implementing."
+    },
+    {
+      "id": "US-1878",
+      "title": "Research surface: work on SPA marketplaces (inject broadly, detect navigation, kill stale results)",
+      "description": "As a shopper, I want the condition-read pill to appear when I click into a listing from search/feed on Poshmark/Mercari/Depop/Vinted/Grailed, and never see the previous listing's grade on a new listing. Audit: content scripts match only detail-page URL patterns so SPA client-side navigation into a listing gets NO injection at all (manifest.json:24-49) — the extension effectively only works reliably on eBay; the pushState hook is patched in the isolated world so it never fires (content/marketplace.js:323-330); an in-flight grade landing after navigation renders the OLD listing's score on the NEW page and records it against the new URL (marketplace.js:262-282).",
+      "acceptanceCriteria": [
+        "Manifest matches whole marketplace domains; the existing isDetailPage()/adapter detect gate keeps non-listing pages a no-op",
+        "Navigation detection works in the isolated world: Navigation API (window.navigation 'navigate') where available with a location.href poll/MutationObserver fallback — verified by actually clicking listing-to-listing on each SPA marketplace",
+        "Every grade request carries an epoch/generation token; responses for a stale epoch are dropped (not rendered, not saved to recentReads); closing the overlay mid-grade does not resurrect it",
+        "The reboot path re-evaluates the adapter + detail state without the arbitrary 300ms guess (poll until location settles or use the navigate event's commitment)",
+        "recentReads entries always pair the score with the URL that was actually graded"
+      ],
+      "priority": 1878,
+      "passes": false,
+      "notes": "Audit findings 1/2/3/10 (two criticals). Highest-impact buyer-surface fix: five of six marketplaces are SPA-first."
+    },
+    {
+      "id": "US-1879",
+      "title": "Research surface: remote-config integrity (version compare, persisted cache, CI sync guard)",
+      "description": "As GradeThread, we want the remotely-updatable selector config to only ever upgrade, survive service-worker restarts, and provably stay in sync with the bundled copy. Audit: the fetched config wholesale-replaces the bundle with no version comparison — a stale hosted file silently downgrades every adapter and can make newly-bundled marketplaces vanish (content/marketplace.js:294-295); the 6h cache lives in SW module memory so it rarely survives (background.js:37-59) while a fetch failure is cached as a miss for the full TTL; nothing enforces the README's 'fix BOTH files' rule (no sync-guard test, and the unit test isn't wired into any verify lane).",
+      "acceptanceCriteria": [
+        "Remote config is used only when its version is >= the bundled version (semver-ish compare on the existing version strings); otherwise the bundle wins and the downgrade is logged",
+        "Config cache persists in chrome.storage.session (or local with timestamps): honest 6h TTL for hits, a genuinely short (~10min) TTL for misses",
+        "A repo test parses extension selectors.js (GT_CC_CONFIG) and public/extension/marketplace-selectors.json and deep-compares adapters + version — same pattern as the PUBLIC_ROUTES/prerender sync guard; it runs in verify:web",
+        "extension test suite (image-utils tests + the new config guard) is wired into scripts/verify.mjs so CI runs it",
+        "Adapter merge semantics documented in the config _comment (which file wins and when)"
+      ],
+      "priority": 1879,
+      "passes": false,
+      "notes": "Audit findings 5/7/14/27 + integration gap (4). Cheap, high-leverage: the remote-update mechanism is the product's answer to selector rot."
+    },
+    {
+      "id": "US-1880",
+      "title": "Research surface: verify the five unverified adapters, fix the dead Poshmark upgrade rule, close intl host gaps, add selector-failure ping",
+      "description": "As a shopper on any supported marketplace, I want the condition read to actually work there. Audit: 5 of 6 adapters are verified:false; the Poshmark image URL-upgrade regex ('/s_[a-z0-9]+/') requires a path-segment form that real CloudFront URLs don't use, so thumbnails get graded (selectors.js:71); manifest match gaps — eBay only 5 TLDs (missing fr/it/es/at/ch/ie/nl/pl/be), Vinted missing ~12 TLDs and matches are www-only while adapters accept apex, poshmark.ca subdomains unmatched; the 'corrected from telemetry' claim has no telemetry anywhere.",
+      "acceptanceCriteria": [
+        "Each of Poshmark/Grailed/Mercari/Depop/Vinted verified against the live site: gallery/title/brand selectors + URL-upgrade rule produce full-res images on a real listing; verified:true + lastVerified set in BOTH config files (Poshmark's upgrade rule fixed to the filename form with a test using a real URL shape)",
+        "Manifest + adapter hosts cover the agreed international footprint (at minimum: eBay fr/it/es/ie/nl/at/ch/pl/befr-benl, all active Vinted TLDs incl. apex domains, *.poshmark.ca) — one list, generated or guard-tested against the adapter hosts so manifest and config can't drift",
+        "An anonymous, opt-in-gated selector-failure ping (adapter key + which selector list came up empty + config version, NO listing URL/user data) posts to a lightweight edge endpoint so broken adapters are discovered from telemetry as the README claims — consent + toggle shared with US-1757's telemetry story",
+        "srcset parsing picks the max-width candidate instead of assuming last-is-largest",
+        "Unknown/failed adapters keep degrading to the honest 'couldn't read the photos' state"
+      ],
+      "priority": 1880,
+      "passes": false,
+      "notes": "Audit findings 4/6/15/26. The telemetry AC deliberately reuses US-1757's opt-in consent — don't build a second consent surface."
+    },
+    {
+      "id": "US-1881",
+      "title": "Cross-browser: Firefox + Edge support for the unified extension",
+      "description": "As a Firefox or Edge user, I want the extension to work. Audit: both extensions are Chrome-only in practice — background declares only service_worker (Firefox MV3 runs event pages via background.scripts; with only service_worker Firefox loads NO background at all); no browser_specific_settings.gecko.id (AMO requires it); the Lister additionally awaits promise-style chrome.* APIs that are callback-only on Firefox, and its onMessageExternal registration would throw at top level there. Edge is Chromium-compatible as-is and only needs a store submission.",
+      "acceptanceCriteria": [
+        "Manifest declares BOTH background.service_worker and background.scripts (the documented cross-browser pattern) + browser_specific_settings.gecko { id, strict_min_version: '109.0' }",
+        "A small runtime shim guarantees promise-style APIs on both browsers (use the browser.* namespace where present, or wrap the needed chrome.* calls); no top-level listener registration can throw on a browser lacking the event (guard onMessageExternal existence)",
+        "The research surface (condition read) works end-to-end on Firefox: config fetch, grade call (README's moz-extension origin in EXTENSION_ALLOWED_ORIGINS documented in .env.example), overlay, popup, storage — verified manually on a real listing; Firefox's opt-in host-permissions flow is handled (prompt or graceful degradation)",
+        "Seller tools on Firefox: explicitly gated OFF with honest UI copy until US-1882 lands (externally_connectable does not exist on Firefox — no silent breakage)",
+        "Edge: the unified build loads and passes a manual smoke on Edge; store packaging checklist (Edge Add-ons) appended to US-1757's distribution scope"
+      ],
+      "priority": 1881,
+      "passes": false,
+      "notes": "Audit findings 18 + Lister §3 (four independent Firefox breakages). Safari deliberately out of scope (Xcode wrapper + no externally_connectable — revisit post-launch)."
+    },
+    {
+      "id": "US-1882",
+      "title": "Web↔extension transport v2: postMessage bridge so seller tools work beyond Chromium",
+      "description": "As a Firefox (later Safari) seller, I want 'Send to extension' to work. The current transport is chrome.runtime.sendMessage from the page via externally_connectable — Chromium-only by platform design. The standard alternative is a gradethread.com content script relaying window.postMessage to the background.",
+      "acceptanceCriteria": [
+        "The unified extension adds a gradethread.com content script that relays a versioned, origin-checked window.postMessage protocol to the background (message schema validated exactly like the current external messages; responses relayed back with correlation ids)",
+        "src/lib/lister-extension.ts feature-detects transports: externally_connectable where available, postMessage bridge otherwise; isListerAvailable() reflects either; timeouts/settled-guard semantics preserved",
+        "Security parity: the bridge accepts messages only from window.top on allowed origins, validates payloads with the same schema, and never exposes marketplace responses to the page beyond the current result shape; the privacy copy (US-1872) already covers the gradethread.com host permission this requires",
+        "Chromium keeps using externally_connectable (no regression); Firefox seller flows verified end-to-end on Poshmark"
+      ],
+      "priority": 1882,
+      "passes": false,
+      "notes": "Unblocks the Firefox seller half of US-1881. The gradethread.com content script is the deliberate privacy-posture trade the US-1872 epic documents."
+    },
+    {
+      "id": "US-1883",
+      "title": "Public grading endpoint hardening: trusted client IP, DNS-rebinding pin, honest quota errors",
+      "description": "As GradeThread, we don't want the extension's public endpoint quota to be bypassable or its errors misattributed. Audit: clientIpFor() in public-grading.ts:185-191 blindly trusts cf-connecting-ip / first XFF hop even in prod — unlike the hardened clientIp() in middleware/rate-limit.ts (US-354) which requires the cf-origin-secret proof — so direct-to-origin callers rotate headers for unlimited per-IP quota (same weakness in /grade-check); safeFetch validates the resolved IP then lets fetch re-resolve (ssrf.ts:226-231), leaving a 0-TTL DNS-rebinding window the file's own header claims is closed; AI-daily-ceiling exhaustion surfaces as 400 'make sure the URL points to a public photo', blaming the user and inviting quota-burning retries.",
+      "acceptanceCriteria": [
+        "public-grading routes resolve the client IP via the hardened clientIp() (cf-origin-secret proof, no raw XFF trust in prod); null IP → 429/400, never unlimited; applied to grade-from-url AND grade-check",
+        "safeFetch connects to the IP it validated: resolve once, pin (connect by IP with Host/SNI handling, or re-resolve-and-verify with the fetch's resolution) so validation and connection can't diverge; ssrf tests cover the rebinding scenario",
+        "Server-side capacity conditions (AI ceiling, concurrency) return 503 with a distinct machine-readable code; the extension renders 'GradeThread is at capacity, try later' as NON-retryable, distinct from bad-URL 400s",
+        "EXTENSION_ALLOWED_ORIGINS + the extension-id env story added to services/edge-functions/.env.example and LAUNCH_CHECKLIST.md",
+        "Existing quota/SSRF tests extended; per-instance in-memory quota limitation stays documented as accepted until US-1838's authenticated metering"
+      ],
+      "priority": 1883,
+      "passes": false,
+      "notes": "Integration audit Medium x2 + Low. Edge-only story (services/edge-functions) — tenant-isolation skill applies to any new endpoint; the durable per-user metering is US-1838, not this."
+    },
+    {
+      "id": "US-1884",
+      "title": "Overlay feature richness: factor breakdown, photo-coverage hint, repeat-read recall, a11y + dark polish",
+      "description": "As a shopper, I want the condition read to tell me more than one number — which factors scored low, how many photos it saw, and whether I already graded this listing — in an overlay that's accessible and doesn't clash with site/dark themes. Audit: the endpoint ALREADY returns factorScores and imagesAnalyzed and the overlay drops both; recentReads already stores past reads but the overlay never checks them; no aria-live so state changes are silent to screen readers; dark theme misses .gt-cc-note/.gt-cc-conf; popup has no dark theme; site-CSS bleed possible on child elements.",
+      "acceptanceCriteria": [
+        "Result overlay renders the five factor scores (Fabric/Structural/Cosmetic/Functional/Odor) as compact labeled bars, plus 'graded from N photos' with a nudge when key shots are missing (no label/detail photo)",
+        "Before spending quota, the pill checks recentReads for this listing URL and offers 'View your read from <time>' with a one-click re-grade",
+        "Overlay container gets role=status + aria-live=polite (loading→result/error announced), focus moves to the result close button on open; keyboard dismiss (Esc) works",
+        "Dark theme covers every overlay element; the popup gets a prefers-color-scheme dark theme; child elements are hardened against site CSS (consistent all:unset per element or a shadow root)",
+        "UI strings centralized ready for _locales i18n (actual translations deferred), and NaN scores can never render (validated before display/save)"
+      ],
+      "priority": 1884,
+      "passes": false,
+      "notes": "Audit findings 11/21/22/23/24/25 + buyer feature-gap list. Factor bars + photo-coverage are pure client work on data already returned. Deeper buyer features (discrepancy, price-fairness, fraud, fit) stay in US-1833..1840 — do not duplicate."
+    },
+    {
+      "id": "US-1885",
+      "title": "Popup v2 + onboarding: role-aware UI, accurate copy, versioned revocable consent",
+      "description": "As a user, I want the popup to reflect what the unified extension can do for MY account, with accurate multi-marketplace copy and a first-run path that doesn't dead-end. Audit: popup copy says eBay-only in four places despite six marketplaces (popup.html:17,23,34, popup.js:61); 'Sign in / connect account' is just a UTM link that connects nothing; the Lister popup shows zero job state and duplicates enabled-platform flags by hand (drift); consent is irrevocable, unversioned, and nothing opens the popup after install; selector version claimed to be shown in the popup isn't.",
+      "acceptanceCriteria": [
+        "One popup with role-aware sections: Research (recent reads, auto-run, per-site toggles — copy covers all supported marketplaces) always; Seller tools (platform status from the ACTUAL selectors config incl. selector version + lastVerified, last job state/result, pending delists) when seller-entitled",
+        "Sign-in actually connects: launches the US-1838 token flow, then shows account email + plan badge + entitlement summary; signed-out state shows an honest 'Sign in to unlock' with what each role gets",
+        "Clickwrap consent is versioned (terms version stored with acceptance, re-prompt on change), revocable from the popup, and links to the actual terms text",
+        "chrome.runtime.onInstalled opens a small onboarding page (what it does per role, consent, how to use) so first-run isn't a dead-end via the puzzle-piece menu",
+        "Live job progress: during a Lister fill the marketplace tab shows a small banner ('GradeThread is prefilling — review and click List') so form-filling is never unexplained"
+      ],
+      "priority": 1885,
+      "passes": false,
+      "notes": "Audit findings 19/20 + Lister F17/F24/F25/F26. Depends on US-1873 (registry) and US-1838 (token). This is the 'look good / ease of use' story."
     }
   ]
 }
