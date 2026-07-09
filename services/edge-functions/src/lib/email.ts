@@ -2711,3 +2711,94 @@ export async function sendSyncConflictsEmail(
     html: emailLayout(content),
   });
 }
+
+// ─── Buyer notification emails (US-1803) ────────────────────────────
+
+/**
+ * A single buyer notification delivered by email (immediate mode). Content is
+ * caller-supplied (from the in-app notification), so title/body are escaped.
+ */
+export async function sendBuyerNotificationEmail(
+  to: string,
+  data: { title: string; body: string; link?: string | null },
+): Promise<boolean> {
+  const url = data.link
+    ? (data.link.startsWith("http") ? data.link : `${SITE_URL}${data.link}`)
+    : `${SITE_URL}/buyer`;
+  const prefUrl = `${SITE_URL}/buyer/settings`;
+  const content = `
+    <h2 style="margin: 0 0 12px; color: ${BRAND_NAVY}; font-size: 20px; font-weight: 700;">
+      ${escapeHtml(data.title)}
+    </h2>
+    <p style="margin: 0 0 8px; color: #444; font-size: 15px; line-height: 1.6;">
+      ${escapeHtml(data.body)}
+    </p>
+    ${ctaButton("Open GradeThread", url)}
+    <p style="margin: 0; color: #999; font-size: 13px; text-align: center;">
+      Manage which alerts email you in your
+      <a href="${prefUrl}" style="color: #999; text-decoration: underline;">buyer settings</a>.
+    </p>
+  `;
+  return await sendEmail({
+    to,
+    subject: data.title,
+    html: emailLayout(content),
+    category: "buyer_notification",
+  });
+}
+
+/**
+ * A batched digest of buyer notifications (daily/weekly mode, US-1803 phase C).
+ * `items` are the notifications accumulated over the window.
+ */
+export async function sendBuyerDigestEmail(
+  to: string,
+  data: {
+    items: Array<{ title: string; body: string; link?: string | null }>;
+    frequency: "daily" | "weekly";
+  },
+): Promise<boolean> {
+  if (data.items.length === 0) return true;
+  const prefUrl = `${SITE_URL}/buyer/settings`;
+  const rows = data.items
+    .map((it) => {
+      const url = it.link
+        ? (it.link.startsWith("http") ? it.link : `${SITE_URL}${it.link}`)
+        : `${SITE_URL}/buyer`;
+      return `
+        <tr>
+          <td style="padding: 12px 0; border-bottom: 1px solid #eee;">
+            <a href="${url}" style="color: ${BRAND_NAVY}; font-size: 15px; font-weight: 600; text-decoration: none;">
+              ${escapeHtml(it.title)}
+            </a>
+            <p style="margin: 4px 0 0; color: #666; font-size: 14px; line-height: 1.5;">
+              ${escapeHtml(it.body)}
+            </p>
+          </td>
+        </tr>`;
+    })
+    .join("");
+  const period = data.frequency === "weekly" ? "this week" : "today";
+  const content = `
+    <h2 style="margin: 0 0 12px; color: ${BRAND_NAVY}; font-size: 20px; font-weight: 700;">
+      Your GradeThread ${data.frequency} digest
+    </h2>
+    <p style="margin: 0 0 8px; color: #444; font-size: 15px; line-height: 1.6;">
+      ${data.items.length} update${data.items.length === 1 ? "" : "s"} for you ${period}.
+    </p>
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+      ${rows}
+    </table>
+    ${ctaButton("Open GradeThread", `${SITE_URL}/buyer`)}
+    <p style="margin: 0; color: #999; font-size: 13px; text-align: center;">
+      Change your digest frequency or turn off email in your
+      <a href="${prefUrl}" style="color: #999; text-decoration: underline;">buyer settings</a>.
+    </p>
+  `;
+  return await sendEmail({
+    to,
+    subject: `Your GradeThread ${data.frequency} digest — ${data.items.length} update${data.items.length === 1 ? "" : "s"}`,
+    html: emailLayout(content),
+    category: "buyer_notification",
+  });
+}

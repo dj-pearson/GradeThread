@@ -52,6 +52,11 @@ export interface BuyerGateFlags {
 
 export type BuyerFeature = keyof BuyerGateFlags;
 
+// US-1803: the fastest notification cadence a tier may receive. Free is batched
+// to at most a daily digest; guard may get near-real-time; connoisseur is
+// instant. LOCKSTEP with BuyerAlertFrequency in src/lib/constants.ts.
+export type BuyerAlertFrequency = "daily" | "hourly" | "instant";
+
 export interface BuyerAllowances {
   /** -1 = unlimited. */
   extensionChecksPerMonth: number;
@@ -59,6 +64,27 @@ export interface BuyerAllowances {
   videoGradeCreditsPerMonth: number;
   activeAlertsCap: number;
   portfolioItemCap: number;
+  /** US-1803: fastest cadence this tier may receive (the digest cap). */
+  alertFrequency: BuyerAlertFrequency;
+}
+
+// The buyer's chosen delivery cadence (buyer_preferences.digest_frequency).
+export type BuyerDigestFrequency = "immediate" | "daily" | "weekly";
+
+/**
+ * US-1803: the effective delivery mode = the buyer's chosen cadence, floored by
+ * their plan's cap. A Free buyer (cap 'daily') who chose 'immediate' is batched
+ * to 'daily'; connoisseur ('instant') honors 'immediate'. Pure + tested.
+ */
+export function effectiveDigestMode(
+  chosen: BuyerDigestFrequency,
+  cap: BuyerAlertFrequency,
+): BuyerDigestFrequency {
+  // Immediate push/email is only allowed when the plan cap permits real-time
+  // delivery (instant or hourly). A daily-capped plan never sends immediately.
+  const planAllowsImmediate = cap === "instant" || cap === "hourly";
+  if (chosen === "immediate" && !planAllowsImmediate) return "daily";
+  return chosen;
 }
 
 /** A metered buyer resource — the keys of BuyerAllowances that debit per use. */
@@ -95,6 +121,7 @@ export const BUYER_PLAN_ENTITLEMENTS: Record<BuyerPlanKey, BuyerPlanEntitlement>
       videoGradeCreditsPerMonth: 0,
       activeAlertsCap: 3,
       portfolioItemCap: 10,
+      alertFrequency: "daily",
     },
   },
   guard: {
@@ -119,6 +146,7 @@ export const BUYER_PLAN_ENTITLEMENTS: Record<BuyerPlanKey, BuyerPlanEntitlement>
       videoGradeCreditsPerMonth: 2,
       activeAlertsCap: 25,
       portfolioItemCap: 200,
+      alertFrequency: "hourly",
     },
   },
   connoisseur: {
@@ -143,6 +171,7 @@ export const BUYER_PLAN_ENTITLEMENTS: Record<BuyerPlanKey, BuyerPlanEntitlement>
       videoGradeCreditsPerMonth: 10,
       activeAlertsCap: -1,
       portfolioItemCap: -1,
+      alertFrequency: "instant",
     },
   },
 };

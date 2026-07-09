@@ -5,6 +5,25 @@ import {
   buyerFeatureEnabled,
   resolveBuyerEntitlements,
 } from "../lib/buyer-entitlements.ts";
+import { effectiveDigestMode } from "../lib/buyer-plans.ts";
+
+// US-1803: the plan alertFrequency cap floors the buyer's chosen digest cadence.
+Deno.test("effectiveDigestMode: plan cap floors the chosen cadence", () => {
+  // Instant/hourly plans honor 'immediate'.
+  assertEquals(effectiveDigestMode("immediate", "instant"), "immediate");
+  assertEquals(effectiveDigestMode("immediate", "hourly"), "immediate");
+  // A daily-capped (Free) plan batches 'immediate' down to 'daily'.
+  assertEquals(effectiveDigestMode("immediate", "daily"), "daily");
+  // Explicit daily/weekly choices pass through regardless of cap.
+  assertEquals(effectiveDigestMode("daily", "instant"), "daily");
+  assertEquals(effectiveDigestMode("weekly", "daily"), "weekly");
+});
+
+Deno.test("buyer allowances carry alertFrequency per tier", () => {
+  assertEquals(resolveBuyerEntitlements("free", "none").allowances.alertFrequency, "daily");
+  assertEquals(resolveBuyerEntitlements("guard", "active").allowances.alertFrequency, "hourly");
+  assertEquals(resolveBuyerEntitlements("connoisseur", "active").allowances.alertFrequency, "instant");
+});
 
 Deno.test("resolveBuyerEntitlements: active paid plan grants its flags", () => {
   const guard = resolveBuyerEntitlements("guard", "active");
