@@ -14086,8 +14086,8 @@
         "Migration triple satisfied"
       ],
       "priority": 1798,
-      "passes": false,
-      "notes": "[P2][BUYER][FOUNDATION][NEW] Load migrations skill. Distinct from body_profiles (fit US-1777, body circumference) — this is shopping intent (brands/sizes/categories/price). Reuse measurement-templates.ts size keys + measurement-prefs.ts units. TIES: primary consumer is alerts matching engine (1807) + fit binding (1839). Keep the preference schema stable/versioned — many features read it."
+      "passes": true,
+      "notes": "[P2][BUYER][FOUNDATION] DONE 2026-07-09. AC1 migration 00411 buyer_preferences (shipped with US-1797): followed_brands/categories/sizes(jsonb per group)/price band/condition_floor/unit/notify prefs, owner RLS, triple. AC2 editor at /buyer/settings (real page replacing placeholder): category chips, brand/size ChipInput (shared component src/components/buyer/chip-input.tsx), price range (USD<->cents), condition floor presets, in/cm unit toggle, email+push notif. AC3 documented read contract in useBuyerPreferences hook (shared by alerts US-1807/fit US-1839/recs). AC4 triple satisfied. Distinct from body_profiles (fit). tsc+eslint+public-routes guard green."
     },
     {
       "id": "US-1799",

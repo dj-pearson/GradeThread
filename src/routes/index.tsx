@@ -52,6 +52,7 @@ const BuyerRoute = lazy(() => import("@/components/auth/buyer-route").then(m => 
 const BuyerLayout = lazy(() => import("@/layouts/buyer-layout").then(m => ({ default: m.BuyerLayout })));
 const BuyerHomePage = lazy(() => import("@/pages/buyer/home").then(m => ({ default: m.BuyerHomePage })));
 const BuyerOnboardingPage = lazy(() => import("@/pages/buyer/onboarding").then(m => ({ default: m.BuyerOnboardingPage })));
+const BuyerSettingsPage = lazy(() => import("@/pages/buyer/settings").then(m => ({ default: m.BuyerSettingsPage })));
 const BuyerPlaceholderPage = lazy(() => import("@/pages/buyer/placeholder").then(m => ({ default: m.BuyerPlaceholderPage })));
 
 // Lazy-loaded pages for code splitting
@@ -611,7 +612,7 @@ export const router = createBrowserRouter([
                   { path: "/buyer/guarantee", element: <SuspenseWrapper><BuyerPlaceholderPage title="Purchase Guarantee" requiresFlag="purchaseGuarantee" description="Insured grade-locked coverage on eligible purchases." /></SuspenseWrapper> },
                   { path: "/buyer/demand", element: <SuspenseWrapper><BuyerPlaceholderPage title="Graded Wanted" requiresFlag="demandBoard" description="Post what you're hunting for and get matched to graded inventory." /></SuspenseWrapper> },
                   { path: "/buyer/billing", element: <SuspenseWrapper><BuyerPlaceholderPage title="Buyer Billing" description="Manage your buyer subscription, usage, and upgrades." /></SuspenseWrapper> },
-                  { path: "/buyer/settings", element: <SuspenseWrapper><BuyerPlaceholderPage title="Buyer Settings" description="Shopping preferences, notifications, and the browser extension." /></SuspenseWrapper> },
+                  { path: "/buyer/settings", element: <SuspenseWrapper><BuyerSettingsPage /></SuspenseWrapper> },
                   { path: "/buyer/*", element: <SuspenseWrapper><BuyerPlaceholderPage title="Not found" description="That buyer page doesn't exist yet." /></SuspenseWrapper> },
                 ],
               },

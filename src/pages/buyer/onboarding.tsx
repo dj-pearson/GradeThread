@@ -1,16 +1,15 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Sparkles, X, Plus, Loader2 } from "lucide-react";
+import { Sparkles, Loader2 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { useBuyerPreferences } from "@/hooks/use-buyer-preferences";
+import { ChipInput } from "@/components/buyer/chip-input";
 
 // US-1797: buyer-first onboarding. Collects the minimum to personalize alerts /
 // fit / recommendations (categories, brands, sizes, notification opt-in) and is
@@ -22,69 +21,6 @@ const CATEGORY_OPTIONS = [
   "t-shirt", "shirt", "sweater", "hoodie", "jacket", "coat",
   "jeans", "pants", "dress", "skirt", "sneakers", "boots", "bag",
 ];
-
-/** A comma/enter-driven chip input for free-text lists (brands, sizes). */
-function ChipInput({
-  label,
-  placeholder,
-  values,
-  onChange,
-}: {
-  label: string;
-  placeholder: string;
-  values: string[];
-  onChange: (next: string[]) => void;
-}) {
-  const [draft, setDraft] = useState("");
-
-  function add() {
-    const v = draft.trim();
-    if (!v) return;
-    if (!values.some((x) => x.toLowerCase() === v.toLowerCase())) {
-      onChange([...values, v]);
-    }
-    setDraft("");
-  }
-
-  return (
-    <div className="space-y-2">
-      <Label>{label}</Label>
-      <div className="flex gap-2">
-        <Input
-          value={draft}
-          placeholder={placeholder}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === ",") {
-              e.preventDefault();
-              add();
-            }
-          }}
-        />
-        <Button type="button" variant="outline" size="icon" onClick={add} aria-label={`Add ${label}`}>
-          <Plus className="h-4 w-4" />
-        </Button>
-      </div>
-      {values.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {values.map((v) => (
-            <Badge key={v} variant="secondary" className="gap-1 font-normal">
-              {v}
-              <button
-                type="button"
-                onClick={() => onChange(values.filter((x) => x !== v))}
-                aria-label={`Remove ${v}`}
-                className="rounded-full hover:text-destructive"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </Badge>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 export function BuyerOnboardingPage() {
   const navigate = useNavigate();
