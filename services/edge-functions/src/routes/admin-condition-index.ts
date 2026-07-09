@@ -37,7 +37,7 @@ export const adminConditionIndexRoutes = new Hono<AdminEnv>();
 adminConditionIndexRoutes.use("*", requireScope("content:publish"));
 
 const SEED_COLS =
-  "id, slug, label, brand, category_id, q, enabled, priority, created_at, updated_at";
+  "id, slug, label, brand, category_id, q, enabled, priority, source, generated_at, created_at, updated_at";
 
 interface SeedRow {
   id: string;
@@ -48,6 +48,9 @@ interface SeedRow {
   q: string | null;
   enabled: boolean;
   priority: number;
+  // US-1746: 'curated' (hand-added) or 'generated' (proposed by the seed-gen cron).
+  source: string | null;
+  generated_at: string | null;
   created_at: string;
   updated_at: string;
 }

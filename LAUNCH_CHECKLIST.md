@@ -133,6 +133,7 @@ A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COO
 | billing-reconciliation | `0 5 * * *` | `/api/jobs/billing-reconciliation` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | cert-integrity-backfill | `0 6 * * *` | `/api/jobs/cert-integrity-backfill` | `$FLIPDESK_INTERNAL_JOB_SECRET` | ONE-OFF at launch (idempotent; disable once drained) |
 | condition-index-refresh | `0 8 * * *` | `/api/jobs/condition-index-refresh` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| condition-index-seedgen | `0 9 * * 1` | `/api/jobs/condition-index-seedgen` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | confidence-calibration | `0 13 * * 0` | `/api/jobs/confidence-calibration` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | consignor-payouts | `*/30 * * * *` | `/api/jobs/consignor-payouts` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | content-digest | `0 14 * * 1` | `/api/content/scheduler/digest` | `$CONTENT_INTERNAL_JOB_SECRET` | not in the cron_runs ledger |
@@ -180,7 +181,7 @@ A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COO
 | thumbnail-backfill | `*/5 * * * *` | `/api/jobs/thumbnail-backfill` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | trial-expiry | `15 0 * * *` | `/api/jobs/trial-expiry` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 
-_60 scheduled jobs. Default healthy response: 200 `{"ok":true,...}` (idle runs report skipped/zero counts). Generated from `src/lib/cron-runs.ts` CRON_REGISTRY — do not hand-edit._
+_61 scheduled jobs. Default healthy response: 200 `{"ok":true,...}` (idle runs report skipped/zero counts). Generated from `src/lib/cron-runs.ts` CRON_REGISTRY — do not hand-edit._
 <!-- cron-registry:end -->
 
 **One-off at launch (not scheduled):** POST `/api/jobs/cert-integrity-backfill`

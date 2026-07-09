@@ -49,6 +49,9 @@ interface ConditionIndexSeed {
   q: string | null;
   enabled: boolean;
   priority: number;
+  // US-1746: 'curated' or 'generated' (proposed by the seed-gen cron).
+  source: string | null;
+  generated_at: string | null;
   created_at: string;
   updated_at: string;
   sample_depth: number | null;
@@ -420,7 +423,12 @@ export function AdminConditionIndexPage() {
                 {seeds.map((s) => (
                   <TableRow key={s.id} className={s.enabled ? "" : "opacity-60"}>
                     <TableCell>
-                      <div className="font-medium">{s.label}</div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{s.label}</span>
+                        {s.source === "generated" && (
+                          <Badge variant="secondary" className="text-xs">Auto</Badge>
+                        )}
+                      </div>
                       <div className="font-mono text-xs text-muted-foreground">{s.slug}</div>
                     </TableCell>
                     <TableCell className="text-sm">

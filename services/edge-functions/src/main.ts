@@ -126,6 +126,7 @@ import { handleIntegrityScanCron } from "./lib/integrity-scan.ts";
 import { handleCertIntegrityBackfillCron } from "./lib/cert-integrity-backfill.ts";
 import { handleDataRetentionCron } from "./lib/data-retention.ts";
 import { handleConditionIndexRefreshCron } from "./lib/condition-index.ts";
+import { handleConditionIndexSeedGenCron } from "./lib/condition-index-seedgen.ts";
 import { handleAppstoreExpirySweepCron } from "./lib/appstore/expiry-sweep.ts";
 import { handleGooglePlayExpirySweepCron } from "./lib/google-play/expiry-sweep.ts";
 import { handleTrialExpiryCron } from "./routes/jobs-trial-expiry.ts";
@@ -1255,6 +1256,8 @@ app.post("/api/jobs/cert-integrity-backfill", (c) => handleCertIntegrityBackfill
 app.post("/api/jobs/data-retention", (c) => handleDataRetentionCron(c));
 // US-621 Condition Index refresh — rebuilds the curated price-vs-grade curves.
 app.post("/api/jobs/condition-index-refresh", (c) => handleConditionIndexRefreshCron(c));
+// US-1746 Condition Index seed generation — proposes new seeds from graded demand.
+app.post("/api/jobs/condition-index-seedgen", (c) => handleConditionIndexSeedGenCron(c));
 // US-811 App Store subscription expiry sweep — backstop that lapses appstore-
 // billed users to free when Apple's expiry notification was lost (stale
 // flipdesk_period_end past a 72h grace window). Handler enforces the job secret.

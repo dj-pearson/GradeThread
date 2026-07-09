@@ -13405,7 +13405,7 @@
         "Admin can review/curate/disable generated seeds via the existing admin-condition-index surface"
       ],
       "priority": 1746,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][VALUE-INDEX] Extends lib/condition-index.ts (getIndexSeeds/refreshConditionIndex) + condition_index_seeds (00190). Reuse jobs-keyword-research.ts + repricing comp brands as demand signal. Migration triple applies (new columns/job state). Guardrail: reuse the sample>=8 suppression before publishing any generated seed."
     },
     {

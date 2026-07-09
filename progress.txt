@@ -12757,3 +12757,29 @@ US-1702 DONE (edge+web; MIGRATION 00387 — HELD). The story I had missed.
 - VERIFIED: deno check src/main.ts CLEAN / deno lint 0 / 5 new tests pass. Full edge suite: 3168 passed, 0 failed, 88 ignored (green).
 - No migration, no web change. Commit local; NOT pushed.
 - NEW OPTIONAL SETTING: condition_index_refresh (system_settings) — tune via /admin/ops/settings.
+
+── US-1746: Value Index data-driven auto-seed generation (2026-07-09) ──
+- ★ COMPLETES the Value Index epic (US-1745): 1746 + 1747 + 1748 + 1749 all done.
+- Demand signal = the (brand, garment_type) pairs GradeThread actually GRADES,
+  ranked by grade count (most direct, privacy-safe). The other AC-floated sources
+  are unsuitable + documented-not-used: keyword_research_terms holds our MARKETING
+  keywords (not garment demand); repricing comps are tenant-private inventory.
+- New lib/condition-index-seedgen.ts: gatherGradedPairs → dedupeCandidates (pure,
+  slug-deduped vs existing seeds, demand-ranked) → budget-capped batch → per candidate:
+  suggestCategories → buildValueCurve TRIAL → insert seed(source=generated,enabled) +
+  persist trial curve ONLY when totalSampleSize >= MIN_INDEX_TOTAL_SAMPLE (no thin page).
+  Idempotent (upsert onConflict slug/item_key), budget-bounded (each trial = several
+  eBay calls), kill-switched. Config: system_settings condition_index_seedgen (OFF default).
+- Cron: /api/jobs/condition-index-seedgen (handleConditionIndexSeedGenCron, job-secret +
+  job-lock), registered in CRON_REGISTRY (weekly Mon 09:00 UTC, recorded=true → auto
+  cron_runs ledger heartbeat) + mounted in main.ts + COOLIFY.md/LAUNCH_CHECKLIST.md cron
+  tables regenerated (drift test green).
+- Admin: admin-condition-index.ts seed list now selects source/generated_at; admin page
+  shows an "Auto" badge on generated seeds. Existing enable/disable already covers curate.
+- Migration 00403 (HELD): +source (+CHECK) +generated_at +index on condition_index_seeds.
+  EXPECTED_SCHEMA_VERSION → 00403. Packaged in PENDING_MIGRATIONS.md (LOW risk; ⚠️ edge
+  SELECT reads new cols → apply before the push/edge-redeploy).
+- Tests: condition-index-seedgen_test.ts 5 pass (slug/label, dedup+rank, off-by-default).
+- VERIFIED: deno check src/main.ts CLEAN / deno lint 0 / web tsc -b 0 / eslint 0 /
+  full edge suite 3173 passed, 0 failed (cron-drift + schema-version guards green).
+- ⚠️ HELD MIGRATION — commit local; NOT pushed until user applies 00403 to prod.

@@ -96,6 +96,8 @@ export const CRON_REGISTRY: CronDef[] = [
   { name: "integrity-scan", label: "DB integrity scan", schedule: "0 7 * * *", category: "maintenance", endpoint: "/api/jobs/integrity-scan", recorded: true },
   { name: "data-retention", label: "Data-retention purge", schedule: "0 4 * * *", category: "maintenance", endpoint: "/api/jobs/data-retention", recorded: true },
   { name: "condition-index-refresh", label: "Condition Index refresh", schedule: "0 8 * * *", category: "content", endpoint: "/api/jobs/condition-index-refresh", recorded: true },
+  // US-1746: propose new Value/Condition Index seeds from graded demand (weekly; off until enabled in settings).
+  { name: "condition-index-seedgen", label: "Condition Index seed generation", schedule: "0 9 * * 1", category: "content", endpoint: "/api/jobs/condition-index-seedgen", recorded: true },
   { name: "trial-expiry", label: "Trial-expiry downgrade", schedule: "15 0 * * *", category: "billing", endpoint: "/api/jobs/trial-expiry", recorded: true },
   // US-1112: consignor auto-payout sweep — pay each consignor their share when a consigned item sells.
   { name: "consignor-payouts", label: "Consignor auto-payouts", schedule: "*/30 * * * *", category: "flipdesk", endpoint: "/api/jobs/consignor-payouts", recorded: true },

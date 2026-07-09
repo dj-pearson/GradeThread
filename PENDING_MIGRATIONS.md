@@ -1,5 +1,26 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00403_condition_index_seed_provenance.sql (US-1746 Value Index auto-seed, 2026-07-09)
+
+**What:** Adds two additive columns to `public.condition_index_seeds` —
+`source text NOT NULL DEFAULT 'curated'` (CHECK in `('curated','generated')`) and
+`generated_at timestamptz` — plus `idx_condition_index_seeds_source`. Tags seeds
+proposed by the new seed-generation cron (`/api/jobs/condition-index-seedgen`,
+US-1746) as `'generated'` so the admin surface can distinguish them and an audit
+can target only the machine-proposed set. Bumps `EXPECTED_SCHEMA_VERSION` →
+**00403**. Self-records '00403'.
+
+**Risk: LOW — additive columns + idempotent CHECK/index.** Existing seeds default
+to `'curated'`; nothing behaves differently until an operator flips the
+`condition_index_seedgen` system-setting to `enabled:true` (OFF by default).
+**⚠️ CLIENT READ:** `src/pages/admin/condition-index.tsx` (admin-only) now reads
+`source`/`generated_at` off the seed-list API. The edge selects the new columns —
+so a frontend deploy landing BEFORE this migration would make the edge
+`SELECT ... source, generated_at` 400 on the admin Condition Index list until the
+migration applies. Apply this migration before/with the push. **⚠️ Apply order:**
+after 00402; `scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload schema';`,
+redeploy the edge. No new cron scheduling is needed until you enable seedgen.
+
 ## ⏳ HELD: 00402_buyer_subscription.sql (US-1799 buyer subscription, 2026-07-08)
 
 **What:** Adds a `buyer_plan` enum (`free`/`guard`/`connoisseur`) and the buyer
