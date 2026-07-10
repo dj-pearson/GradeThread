@@ -19,6 +19,10 @@ import {
   type VerifyGroup,
   verifyGroupBoundaries,
 } from "../lib/ai-group-verify.ts";
+import {
+  type ProposePhoto,
+  proposeItemGroups,
+} from "../lib/ai-group-propose.ts";
 import { assessPhotoQuality } from "../lib/ai-photo-qa.ts";
 import { checkQuota } from "./flipdesk-ai.ts";
 import {
@@ -1150,6 +1154,90 @@ flipdeskAutolisterRoutes.post("/verify-groups", async (c) => {
     console.error("[AutoLister] verify-groups failed", err);
     return c.json(
       { error: err instanceof Error ? err.message : "Group verification failed." },
+      502,
+    );
+  }
+});
+
+// US-1904: POST /propose-groups — AI group-boundary proposal for a TIMELESS
+// photo dump auto-grouping can't split (EXIF stripped, one contiguous run).
+// Body: { photos: [{ id, storage_path }] }  (ordered, one client window).
+// Returns { groups: [{ photo_ids, confidence, reason }], model, escalated }.
+// Writes NOTHING — the client applies proposals through the undoable grouping
+// mutations and renders low-confidence boundaries as review chips.
+//
+// Tenant safety (CLAUDE.md US-268): staged AutoLister photos live under the
+// caller's own `${ownerId}/_staging/…` folder; EVERY path is checked against
+// that prefix BEFORE any AI work, so a forged path can't make us fetch another
+// tenant's image into the model. Rate-limited under the shared autolister POST
+// limiter like its vision siblings; metered via the atomic reserve (US-1581),
+// refunded when fewer than two photos means no vision call ran.
+flipdeskAutolisterRoutes.post("/propose-groups", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+
+  let body: { photos?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const rawPhotos = Array.isArray(body.photos) ? body.photos : [];
+  if (rawPhotos.length < 2) {
+    return c.json({ error: "photos must contain at least two photos." }, 400);
+  }
+  // One window: bounded to the same per-request vision budget as verify.
+  if (rawPhotos.length > MAX_VERIFY_PHOTOS) {
+    return c.json(
+      { error: `At most ${MAX_VERIFY_PHOTOS} photos per window.` },
+      400,
+    );
+  }
+
+  const photos: ProposePhoto[] = [];
+  for (const p of rawPhotos) {
+    const id = typeof (p as { id?: unknown })?.id === "string"
+      ? (p as { id: string }).id
+      : "";
+    const path = typeof (p as { storage_path?: unknown })?.storage_path === "string"
+      ? (p as { storage_path: string }).storage_path
+      : "";
+    if (!id || !path) {
+      return c.json({ error: "Each photo needs an id and storage_path." }, 400);
+    }
+    if (!path.startsWith(`${ownerId}/_staging/`)) {
+      return c.json({ error: "A photo is not owned by the caller." }, 403);
+    }
+    photos.push({
+      id,
+      url: supabaseAdmin.storage.from("item-photos").getPublicUrl(path).data.publicUrl,
+    });
+  }
+
+  const gated = await requireFlipdesk(c, { feature: "autolister", userId: ownerId });
+  if (gated) return gated;
+  const quota = await checkQuota(ownerId);
+  if (!quota.ok) return c.json(quota.body, quota.status);
+
+  // US-1581: reserve atomically before the vision call; refund on the no-op
+  // short-circuit (model "none") or on failure so a wasted call stays free.
+  if (!(await reserveAiActionSafe(ownerId, quota.limit))) {
+    return c.json({ error: QUOTA_EXHAUSTED_MESSAGE }, 429);
+  }
+  try {
+    const result = await proposeItemGroups(photos);
+    if (result.model === "none") {
+      await refundAiAction(ownerId);
+    }
+    return c.json({
+      groups: result.groups,
+      model: result.model,
+      escalated: result.escalated,
+    });
+  } catch (err) {
+    await refundAiAction(ownerId);
+    console.error("[AutoLister] propose-groups failed", err);
+    return c.json(
+      { error: err instanceof Error ? err.message : "Group proposal failed." },
       502,
     );
   }
