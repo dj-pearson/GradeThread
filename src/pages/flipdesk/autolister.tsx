@@ -93,6 +93,11 @@ import {
 import { autoEnhance, type EnhanceStats } from "@/lib/image-enhance";
 import { removeImageBackground, type BgMode } from "@/lib/background-removal";
 import { useStartAutolisterBatch, useRunCoverQa } from "@/hooks/use-autolister";
+import {
+  dedupeSuggestions,
+  MAX_VERIFY_SAMPLE_PHOTOS,
+  planVerifyWindows,
+} from "@/lib/autolister-verify-windows";
 import { useBillingSummary } from "@/hooks/use-billing-summary";
 import { useUpgradeDialogStore } from "@/stores/upgrade-dialog-store";
 import {
@@ -185,6 +190,14 @@ interface GroupSuggestionRow {
   photo_ids: string[];
   confidence: number;
   reason: string;
+}
+
+// US-1903: one group's verify payload (server-sampled photos) plus the count
+// the windowing helper packs against.
+interface VerifyWindowGroup {
+  id: string;
+  photos: { id: string; storage_path: string }[];
+  photoCount: number;
 }
 
 // Sort key for the name sort. Pre-sourceName photos recover the filename from
@@ -595,6 +608,16 @@ export function FlipdeskAutolisterPage() {
   // auto-applied — rendered as dismissible chips on the affected groups.
   const [groupSuggestions, setGroupSuggestions] = useState<GroupSuggestionRow[]>([]);
   const [verifyingGroups, setVerifyingGroups] = useState(false);
+  // US-1903: the explicit "Verify groups" pass walks ALL groups across
+  // sequential windows (one /verify-groups call each). Progress is shown while
+  // windows run and is cancellable between windows; a >1-window pass asks for
+  // confirmation first (each window is one metered AI action).
+  const [verifyProgress, setVerifyProgress] = useState<{ done: number; total: number } | null>(null);
+  const verifyCancelRef = useRef(false);
+  const [verifyConfirm, setVerifyConfirm] = useState<
+    | { windows: VerifyWindowGroup[][]; windowCount: number; totalGroups: number }
+    | null
+  >(null);
   // US-1546: pre-generate checkpoint — Generate opens this confirm dialog;
   // when photos would be left ungrouped, an explicit acknowledgment gates it.
   const [confirmGenerateOpen, setConfirmGenerateOpen] = useState(false);
@@ -1442,10 +1465,101 @@ export function FlipdeskAutolisterPage() {
   // ── US-1544: AI group-boundary verification ────────────────────────
 
   /**
-   * One cheap vision call sanity-checks the proposed grouping (adjacent-group
-   * boundaries + intra-group outliers). Suggestions come back as dismissible
-   * chips — never auto-applied. Uses ONE AI action. `checkGroups` lets
-   * autoGroup() verify the groups it JUST created (state not committed yet).
+   * Build the server-sampled verify payload for the eligible groups. Internal
+   * (seller-reference) and measurement photos stay out of the vision pass
+   * (US-1549/US-1571). Groups with no listable photo are dropped.
+   */
+  function buildVerifyPayload(checkGroups: Group[]): VerifyWindowGroup[] {
+    return checkGroups
+      .filter((g) => g.photoIds.length > 0)
+      .map((g) => {
+        const photos = g.photoIds
+          .filter((pid) => !isNonListablePhotoType(g.roles?.[pid] ?? "detail"))
+          .map((pid) => stagedById.get(pid))
+          .filter((p): p is StagedPhoto => !!p)
+          .map((p) => ({ id: p.id, storage_path: p.storagePath }));
+        return { id: g.id, photos, photoCount: photos.length };
+      })
+      .filter((g) => g.photos.length > 0);
+  }
+
+  /**
+   * US-1903: walk `windows` sequentially — one /verify-groups call each — so a
+   * large session gets EVERY group checked, not just the first ~13. Progress is
+   * shown for a multi-window pass and the run is cancellable between windows;
+   * suggestions aggregate across windows and dedupe by (type, group_ids,
+   * photo_ids) before rendering. Each window is one metered AI action.
+   */
+  async function runVerifyWindows(windows: VerifyWindowGroup[][], silent: boolean) {
+    if (windows.length === 0) return;
+    const multi = windows.length > 1;
+    const totalGroups = windows.reduce((n, w) => n + w.length, 0);
+    setVerifyingGroups(true);
+    verifyCancelRef.current = false;
+    setVerifyProgress(multi ? { done: 0, total: totalGroups } : null);
+    const collected: GroupSuggestionRow[] = [];
+    let done = 0;
+    let anyError = false;
+    try {
+      for (const window of windows) {
+        if (verifyCancelRef.current) break;
+        try {
+          const res = await edgeFetch("/api/flipdesk/autolister/verify-groups", {
+            method: "POST",
+            json: { groups: window.map((g) => ({ id: g.id, photos: g.photos })) },
+          });
+          const json = (await res.json().catch(() => ({}))) as {
+            suggestions?: Array<Omit<GroupSuggestionRow, "id">>;
+            error?: string;
+          };
+          if (!res.ok) {
+            anyError = true;
+            if (!silent && !multi) toast.error(json.error || "Could not verify the grouping.");
+          } else {
+            for (const s of json.suggestions ?? []) {
+              collected.push({ ...s, id: crypto.randomUUID() });
+            }
+          }
+        } catch (err) {
+          anyError = true;
+          if (!silent && !multi) {
+            toast.error(`Verify failed: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+        done += window.length;
+        if (multi) setVerifyProgress({ done, total: totalGroups });
+      }
+
+      const deduped = dedupeSuggestions(collected);
+      // Don't clobber existing chips if the whole pass errored with nothing to
+      // show; otherwise the fresh result (even empty) replaces the old chips.
+      if (!(anyError && deduped.length === 0)) setGroupSuggestions(deduped);
+
+      if (verifyCancelRef.current) {
+        if (!silent) toast.info(`Stopped — checked ${done} of ${totalGroups} groups.`);
+      } else if (deduped.length > 0) {
+        toast.info(
+          `AI flagged ${deduped.length} possible grouping fix${deduped.length === 1 ? "" : "es"} — review the highlighted groups.`,
+        );
+      } else if (!silent && anyError) {
+        toast.error("Some groups couldn't be checked — try again.");
+      } else if (!silent) {
+        toast.success("The grouping looks right to the AI.");
+      }
+    } finally {
+      setVerifyingGroups(false);
+      setVerifyProgress(null);
+    }
+  }
+
+  /**
+   * On-demand AI grouping sanity check. Suggestions come back as dismissible
+   * chips — never auto-applied. `checkGroups` lets autoGroup() verify the groups
+   * it JUST created (state not committed yet).
+   *
+   * The silent auto-run after auto-group stays single-window/cheap (one AI
+   * action). The explicit pass covers ALL groups: if it needs more than one
+   * window it first asks the seller to confirm the metered-action count.
    */
   async function verifyGroups(silent: boolean, checkGroups: Group[] = groups) {
     if (verifyingGroups) return;
@@ -1454,59 +1568,25 @@ export function FlipdeskAutolisterPage() {
       if (!silent) toast.info("Group at least two items first — then AI can compare them.");
       return;
     }
-    setVerifyingGroups(true);
-    try {
-      const payloadGroups = eligible
-        .map((g) => ({
-          id: g.id,
-          photos: g.photoIds
-            // US-1549/US-1571: internal (seller-reference) and measurement
-            // (MeasureCard frame) photos stay out of the vision passes.
-            .filter((pid) => !isNonListablePhotoType(g.roles?.[pid] ?? "detail"))
-            .map((pid) => stagedById.get(pid))
-            .filter((p): p is StagedPhoto => !!p)
-            .map((p) => ({ id: p.id, storage_path: p.storagePath })),
-        }))
-        .filter((g) => g.photos.length > 0);
-      if (payloadGroups.length < 2) return;
-      const res = await edgeFetch("/api/flipdesk/autolister/verify-groups", {
-        method: "POST",
-        json: { groups: payloadGroups },
-      });
-      const json = (await res.json().catch(() => ({}))) as {
-        suggestions?: Array<Omit<GroupSuggestionRow, "id">>;
-        groups_covered?: number;
-        truncated?: boolean;
-        error?: string;
-      };
-      if (!res.ok) {
-        if (!silent) toast.error(json.error || "Could not verify the grouping.");
-        return;
-      }
-      const rows: GroupSuggestionRow[] = (json.suggestions ?? []).map((s) => ({
-        ...s,
-        id: crypto.randomUUID(),
-      }));
-      setGroupSuggestions(rows);
-      if (rows.length > 0) {
-        toast.info(
-          `AI flagged ${rows.length} possible grouping fix${rows.length === 1 ? "" : "es"} — review the highlighted groups.`,
-          json.truncated
-            ? { description: `Only the first ${json.groups_covered} groups were checked this pass.` }
-            : undefined,
-        );
-      } else if (!silent) {
-        toast.success("The grouping looks right to the AI.");
-      }
-    } catch (err) {
-      if (!silent) {
-        toast.error(
-          `Verify failed: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-    } finally {
-      setVerifyingGroups(false);
+    const payloadGroups = buildVerifyPayload(checkGroups);
+    if (payloadGroups.length < 2) return;
+    const windows = planVerifyWindows(payloadGroups, MAX_VERIFY_SAMPLE_PHOTOS);
+    if (windows.length === 0) return;
+    if (silent) {
+      // Cheap as before: only the first window runs automatically.
+      await runVerifyWindows([windows[0]!], true);
+      return;
     }
+    if (windows.length > 1) {
+      // Show the metered-action count up front before spending it.
+      setVerifyConfirm({
+        windows,
+        windowCount: windows.length,
+        totalGroups: payloadGroups.length,
+      });
+      return;
+    }
+    await runVerifyWindows(windows, false);
   }
 
   /** Suggestions to chip onto group `gid` (move chips only on the source). */
@@ -2791,13 +2871,15 @@ export function FlipdeskAutolisterPage() {
                   Merge {selectedGroups.size} groups
                 </Button>
               )}
-              {/* US-1544: on-demand AI grouping sanity check (1 AI action). */}
+              {/* US-1544/US-1903: on-demand AI grouping sanity check. Large
+                  sessions are checked across sequential windows (1 AI action
+                  each); progress shows below and the pass can be stopped. */}
               <Button
                 size="sm"
                 variant="outline"
                 onClick={() => void verifyGroups(false)}
                 disabled={verifyingGroups || groups.length < 2}
-                title="AI compares your groups (1 AI action): flags likely merges, splits, and misplaced photos — suggestions only, nothing is changed automatically"
+                title="AI compares your groups: flags likely merges, splits, and misplaced photos — suggestions only, nothing is changed automatically. Large sessions are checked in batches (1 AI action each)."
               >
                 {verifyingGroups ? (
                   <Loader2 className="mr-1 h-4 w-4 animate-spin" />
@@ -2806,6 +2888,20 @@ export function FlipdeskAutolisterPage() {
                 )}
                 Verify groups
               </Button>
+              {verifyProgress && (
+                <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+                  Checked {verifyProgress.done}/{verifyProgress.total} groups…
+                  <button
+                    type="button"
+                    className="underline underline-offset-2 hover:text-foreground"
+                    onClick={() => {
+                      verifyCancelRef.current = true;
+                    }}
+                  >
+                    Stop
+                  </button>
+                </span>
+              )}
               <Button
                 size="sm"
                 variant="secondary"
@@ -3136,6 +3232,43 @@ export function FlipdeskAutolisterPage() {
             >
               <Sparkles className="mr-2 h-4 w-4" />
               Generate {listableCount} listing{listableCount === 1 ? "" : "s"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* US-1903: metered-action confirm for a multi-window verify pass. Shown
+          before any AI action is spent so the count is never a surprise. */}
+      <Dialog open={!!verifyConfirm} onOpenChange={(o) => !o && setVerifyConfirm(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Verify all {verifyConfirm?.totalGroups} groups?</DialogTitle>
+            <DialogDescription>
+              This session is too large for one AI check, so it runs in{" "}
+              {verifyConfirm?.windowCount} batches — {verifyConfirm?.windowCount} AI action
+              {verifyConfirm?.windowCount === 1 ? "" : "s"}
+              {aiActionsRemaining != null ? ` of your ${aiActionsRemaining} remaining` : ""}. You
+              can stop between batches; suggestions appear as you go.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setVerifyConfirm(null)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={
+                aiActionsRemaining != null &&
+                verifyConfirm != null &&
+                verifyConfirm.windowCount > aiActionsRemaining
+              }
+              onClick={() => {
+                const pending = verifyConfirm;
+                setVerifyConfirm(null);
+                if (pending) void runVerifyWindows(pending.windows, false);
+              }}
+            >
+              <Sparkles className="mr-2 h-4 w-4" />
+              Verify all
             </Button>
           </DialogFooter>
         </DialogContent>

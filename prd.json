@@ -15673,7 +15673,7 @@
     {
       "id": "US-1903",
       "priority": 2601,
-      "passes": false,
+      "passes": true,
       "title": "Verify-groups covers EVERY group via sequential windows, not just the first ~13",
       "description": "As a seller with a 45-listing session, when I ask AI to verify my groups I want ALL of them checked, not a toast saying 'only the first 13 groups were checked this pass'. Today sampleGroupsForVerify (services/edge-functions/src/lib/ai-group-verify.ts) budgets 40 photos (~3/group → ~13 groups) and the client (verifyGroups() in src/pages/flipdesk/autolister.tsx) sends everything once and surfaces `truncated` as a toast with no way to continue.",
       "acceptanceCriteria": [
