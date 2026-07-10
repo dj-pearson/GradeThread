@@ -2160,3 +2160,24 @@ Deno.test({
     assertDenied(res.status, "GET grades/batch/:id with foreign key");
   },
 });
+
+// US-1811: buyer purchase-link + arrival capture. The arrival-upload route loads
+// the purchase with .eq("id", id).eq("user_id", userId) before touching storage,
+// so B posting to A's purchase id hits 0 rows and is rejected (404) — never
+// writes into A's private image folder. (Per-case ignore until the seed fixture
+// provides TEST_USER_A_BUYER_PURCHASE_ID; seeding it needs a grade_report row, a
+// follow-up — the case is authored and activates the moment the id is present.)
+const A_BUYER_PURCHASE_ID = Deno.env.get("TEST_USER_A_BUYER_PURCHASE_ID");
+Deno.test({
+  name: "B cannot upload arrival photos to A's purchase",
+  ignore: !CONFIGURED || !A_BUYER_PURCHASE_ID,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/buyer/purchases/${A_BUYER_PURCHASE_ID}/arrival`, {
+      method: "POST",
+      headers: { ...authHeaders(B_JWT!), "Content-Type": "application/json" },
+      body: JSON.stringify({ images: [{ image_type: "front", data_url: "aGk=" }] }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST buyer arrival capture to foreign purchase");
+  },
+});

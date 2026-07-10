@@ -1,5 +1,24 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ PENDING: 00418_buyer_purchases.sql (US-1811 buyer purchase-link + arrival capture, 2026-07-09)
+
+**What:** Two OWNER-READ / SERVICE-WRITE tables — `public.buyer_purchases` (a
+buyer links a purchase to a PUBLIC grade: grade_report_id FK + certificate_id +
+price/marketplace/purchased_at + brand/title snapshot, UNIQUE(user_id,
+grade_report_id)) + `public.purchase_arrival_captures` (front/back/label/detail
+image_type + storage_path in the existing PRIVATE `submission-images` bucket,
+UNIQUE(purchase_id,image_type)). RLS owner-SELECT only; the edge (/api/buyer/*)
+does all writes after verifying the cert / hardening the upload. Bumps
+`EXPECTED_SCHEMA_VERSION` → **00418**. Self-records '00418'. NO new storage
+bucket (reuses submission-images + its per-user-folder RLS).
+
+**Risk: LOW** — two new isolated tables, no writes to existing tables. **The
+CLIENT reads both the moment the frontend auto-deploys** (the /buyer/rewards page
+lists buyer_purchases + purchase_arrival_captures via direct owner-RLS reads), and
+the new edge `/api/buyer/*` route boot-expects 00418 — so apply BEFORE the push.
+**⚠️ Apply order:** after 00417; `scripts/apply-prod-migrations.sh`, then
+`NOTIFY pgrst, 'reload schema';`, redeploy the edge (boot guard now expects 00418).
+
 ## ⏳ PENDING: 00417_buyer_trust_score.sql (US-1816 buyer Trust Score model + engine, 2026-07-09)
 
 **What:** Two new OWNER-READ / SERVICE-WRITE tables (RLS `FOR SELECT USING

@@ -187,6 +187,7 @@ import { accountRoutes } from "./routes/account.ts";
 import { supportTicketRoutes } from "./routes/support-tickets.ts";
 import { legalRoutes } from "./routes/legal.ts";
 import { verifiedRoutes } from "./routes/verified.ts";
+import { buyerPurchasesRoutes } from "./routes/buyer-purchases.ts";
 import { supportAssistantRoutes } from "./routes/support-assistant.ts";
 import { authMiddleware } from "./middleware/auth.ts";
 import { adminAuthMiddleware } from "./middleware/admin-auth.ts";
@@ -361,6 +362,9 @@ app.use("/api/affiliate/payouts", authMiddleware);
 // GradeThread Verified — seller manages their OWN public profile. No workspace
 // middleware: the profile is the individual seller's account, not a tenant's.
 app.use("/api/verified/*", authMiddleware);
+// Buyer surfaces (US-1811+) — personal account, no workspace middleware; every
+// handler scopes by c.get("userId").
+app.use("/api/buyer/*", authMiddleware);
 // Garment Passport (US-1092): the public chain read (GET /api/passport/:slug) is
 // anonymous; only the append path under /garments/* is authed + workspace-scoped.
 app.use("/api/passport/garments/*", authMiddleware);
@@ -1445,6 +1449,7 @@ app.route("/api/account", accountRoutes);
 app.route("/api/support-tickets", supportTicketRoutes);
 app.route("/api/legal", legalRoutes);
 app.route("/api/verified", verifiedRoutes);
+app.route("/api/buyer", buyerPurchasesRoutes);
 
 // 404
 app.notFound((c) => {

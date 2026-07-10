@@ -3200,6 +3200,31 @@ export type BuyerTrustScoreInsert =
   & { user_id: string }
   & Partial<Omit<BuyerTrustScoreRow, "user_id" | "updated_at">>;
 
+// US-1811: buyer rewards — purchase-link + arrival captures (owner-read; the
+// edge writes both after verifying the cert / hardening the upload).
+export interface BuyerPurchaseRow {
+  id: string;
+  user_id: string;
+  grade_report_id: string;
+  certificate_id: string;
+  purchase_price_cents: number | null;
+  marketplace: string | null;
+  purchased_at: string | null;
+  brand: string | null;
+  title: string | null;
+  created_at: string;
+  updated_at: string;
+}
+export type ArrivalImageType = "front" | "back" | "label" | "detail";
+export interface PurchaseArrivalCaptureRow {
+  id: string;
+  user_id: string;
+  purchase_id: string;
+  image_type: ArrivalImageType;
+  storage_path: string;
+  created_at: string;
+}
+
 // ─── Database schema type (for Supabase client) ────────────────────
 
 export interface Database {
@@ -3236,6 +3261,16 @@ export interface Database {
         Row: ReputationEventRow;
         Insert: ReputationEventInsert;
         Update: Partial<Omit<ReputationEventRow, "id" | "user_id" | "created_at">>;
+      };
+      buyer_purchases: {
+        Row: BuyerPurchaseRow;
+        Insert: { user_id: string } & Partial<Omit<BuyerPurchaseRow, "id" | "created_at" | "updated_at">>;
+        Update: Partial<Omit<BuyerPurchaseRow, "id" | "user_id" | "created_at">>;
+      };
+      purchase_arrival_captures: {
+        Row: PurchaseArrivalCaptureRow;
+        Insert: { user_id: string; purchase_id: string; image_type: ArrivalImageType; storage_path: string };
+        Update: Partial<Pick<PurchaseArrivalCaptureRow, "storage_path">>;
       };
       buyer_trust_scores: {
         Row: BuyerTrustScoreRow;

@@ -14268,7 +14268,7 @@
         "Migration triple satisfied"
       ],
       "priority": 1811,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][REWARDS][NEW] Load migrations skill. Reuse cert-number.ts lookup (normalizeCertNumber) + upload-validation.ts + image-metadata.ts + submission-images private bucket + signed-URL read (TTL<=900s, never getPublicUrl). Purchase price/date feed grade_outcomes (1812). Tenant-scoped."
     },
     {

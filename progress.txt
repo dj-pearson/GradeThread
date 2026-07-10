@@ -12938,3 +12938,33 @@ US-1702 DONE (edge+web; MIGRATION 00387 — HELD). The story I had missed.
 - VERIFIED: deno lint 0 / deno check buyer-reputation-perks.ts CLEAN / web tsc
   --noEmit 0 / eslint 0 / tsc -b baseline 7. Full edge suite: running.
 - Commit local; NO migration (still gated behind held 00416/00417).
+
+── US-1811: Rewards — purchase-link + arrival-condition capture (2026-07-09) ──
+- ★ Starts the Rewards epic (US-1810) + the FIRST /api/buyer/* route. Feeds
+  US-1812 (confirm/dispute) which will emit reputation_events into the Trust Score.
+- Migration 00418 (HELD): buyer_purchases (grade_report_id FK + certificate_id +
+  price/marketplace/purchased_at + brand/title snapshot, UNIQUE(user,grade_report))
+  + purchase_arrival_captures (front/back/label/detail + storage_path, UNIQUE(
+  purchase,image_type)). OWNER-READ / SERVICE-WRITE RLS. Arrival images REUSE the
+  existing PRIVATE submission-images bucket (per-user-folder RLS) — NO new bucket.
+  EXPECTED_SCHEMA_VERSION → 00418. Packaged (LOW; CLIENT reads on frontend deploy →
+  apply before push).
+- Edge routes/buyer-purchases.ts (mounted app.use "/api/buyer/*" authMiddleware +
+  app.route "/api/buyer"; personal account → scope by c.get("userId"), NOT
+  workspaceOwnerId): POST /purchases (normalizeCertNumber → grade_reports public
+  predicate + isCertificateWithheld gate → upsert on user+grade_report) + POST
+  /purchases/:id/arrival (ownership load scoped by user_id FIRST → hardened
+  validateImageUpload[jpeg/png/webp] → stripImageMetadata → private-bucket upload →
+  upsert capture). Pure helpers arrivalStoragePath / decodeDataUrl / isArrivalImageType.
+- Tenant isolation: tenant-isolation_test.ts case "B cannot upload arrival to A's
+  purchase" (per-case ignore until TEST_USER_A_BUYER_PURCHASE_ID seeded — seeding
+  needs a grade_report fixture, a follow-up; NOT added to REQUIRED to avoid a false
+  CI skip-guard failure). Route loads purchase .eq(id).eq(user_id) → 404 cross-tenant.
+- Web: use-buyer-purchases (RLS reads + edge writes via edgeFetch skipWorkspaceHeader)
+  + BuyerRewardsPage (replaces the /buyer/rewards placeholder; gated on `rewards`
+  entitlement): link-purchase form + per-purchase arrival capture (file → dataURL →
+  edge, front/back/label/detail checklist). Empty state.
+- Tests: edge buyer-purchases_test.ts 4 pass (path/decode/type guards). VERIFIED:
+  deno check src/main.ts CLEAN / deno lint 0 / web tsc --noEmit 0 / eslint 0 / tsc -b
+  baseline 7 / vite build CLEAN (rewards chunk bundles). Full edge suite: running.
+- ⚠️ HELD MIGRATION — commit local; NOT pushed until user applies 00418 (after 00417).
