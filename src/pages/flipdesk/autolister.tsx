@@ -22,6 +22,8 @@ import {
   RotateCcw,
   Camera,
   Ungroup,
+  ChevronsDownUp,
+  ChevronsUpDown,
   GripVertical,
   FolderInput,
   ArrowUpDown,
@@ -83,8 +85,13 @@ import {
   autoGroupPhotos,
   compareByProvenance,
   type GroupablePhoto,
+  MAX_AUTO_GROUP_PHOTOS,
   sequenceRuns,
 } from "@/lib/autolister-grouping";
+import {
+  computeTriage,
+  type TriageCondition,
+} from "@/lib/autolister-triage";
 import {
   type GroupEditKind,
   groupingCorrectionScore,
@@ -243,6 +250,13 @@ const UNGROUPED_SORT_LABELS: Record<UngroupedSortMode, string> = {
 // column counts, so every breakpoint windows on full rows.
 const GRID_CHUNK = 105;
 const GROUPS_CHUNK = 24;
+// US-1907: the needs-attention chips in the triage strip, in display order.
+const TRIAGE_CHIPS: { condition: TriageCondition; label: string }[] = [
+  { condition: "singleton", label: "singletons" },
+  { condition: "oversized", label: "oversized" },
+  { condition: "missing_cover_or_tag", label: "missing cover/tag" },
+  { condition: "has_suggestion", label: "AI suggestions" },
+];
 // Cap on visible per-file upload rows — 600 progress bars is its own jank.
 // Errors always render (they need action); the aggregate header carries totals.
 const UPLOAD_ROWS_CAP = 80;
@@ -571,6 +585,10 @@ export function FlipdeskAutolisterPage() {
   // US-1541: windowed-rendering limits (raised by the LoadMoreSentinels).
   const [ungroupedLimit, setUngroupedLimit] = useState(GRID_CHUNK);
   const [groupsLimit, setGroupsLimit] = useState(GROUPS_CHUNK);
+  // US-1907: triage strip — filter the group list to a needs-attention
+  // condition, and collapse every group's photos to a header-only overview.
+  const [triageFilter, setTriageFilter] = useState<TriageCondition | null>(null);
+  const [groupsCollapsed, setGroupsCollapsed] = useState(false);
   // Group ids created by the LAST auto-group run so it can be undone as one
   // action (those photos return to Ungrouped; manually-made groups survive).
   // In-memory only: a mis-grouped but persisted session is reset via
@@ -816,6 +834,39 @@ export function FlipdeskAutolisterPage() {
       }).length,
     [groups, coverScores],
   );
+
+  // US-1907: needs-attention buckets + session totals for the triage strip.
+  const triageSummary = useMemo(
+    () =>
+      computeTriage(
+        groups.map((g) => ({
+          id: g.id,
+          photoIds: g.photoIds,
+          coverId: g.coverId,
+          roles: g.roles ?? {},
+        })),
+        groupSuggestions,
+        ungrouped.length,
+        MAX_AUTO_GROUP_PHOTOS,
+      ),
+    [groups, groupSuggestions, ungrouped.length],
+  );
+  // The set of group ids matching the active triage filter (for list filtering).
+  const triageFilterSet = useMemo(
+    () => (triageFilter ? new Set(triageSummary.buckets[triageFilter]) : null),
+    [triageFilter, triageSummary],
+  );
+  // The groups actually rendered: all of them, or just the filtered condition.
+  const shownGroups = useMemo(
+    () => (triageFilterSet ? groups.filter((g) => triageFilterSet.has(g.id)) : groups),
+    [groups, triageFilterSet],
+  );
+  // Clear a stale filter once the seller resolves the last group in that bucket.
+  useEffect(() => {
+    if (triageFilter && triageSummary.buckets[triageFilter].length === 0) {
+      setTriageFilter(null);
+    }
+  }, [triageFilter, triageSummary]);
 
   // US-957: as photos get grouped, score each group's cover so a low-quality
   // cover can be reshot before the (much pricier) AI generation runs. Each pass
@@ -1700,6 +1751,9 @@ export function FlipdeskAutolisterPage() {
 
   /** Scroll to a group card, raising the render window when it's beyond it. */
   function scrollToGroup(groupId: string) {
+    // US-1907: a jump target must render — clear any triage filter that would
+    // exclude it, and (indexing against the FULL list) raise the render window.
+    setTriageFilter(null);
     const idx = groups.findIndex((g) => g.id === groupId);
     if (idx >= 0 && idx >= groupsLimit) {
       setGroupsLimit(Math.ceil((idx + 1) / GROUPS_CHUNK) * GROUPS_CHUNK);
@@ -3002,6 +3056,25 @@ export function FlipdeskAutolisterPage() {
                 )}
                 Auto-tag all
               </Button>
+              {/* US-1907: collapse every group to a header-only overview. */}
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setGroupsCollapsed((c) => !c)}
+                aria-pressed={groupsCollapsed}
+                title={
+                  groupsCollapsed
+                    ? "Expand every group to show its photos"
+                    : "Collapse every group to a header-only overview"
+                }
+              >
+                {groupsCollapsed ? (
+                  <ChevronsUpDown className="mr-1 h-4 w-4" />
+                ) : (
+                  <ChevronsDownUp className="mr-1 h-4 w-4" />
+                )}
+                {groupsCollapsed ? "Expand all" : "Collapse all"}
+              </Button>
               <Button
                 size="sm"
                 variant="outline"
@@ -3014,7 +3087,98 @@ export function FlipdeskAutolisterPage() {
               </Button>
             </div>
           </div>
-          {groups.slice(0, groupsLimit).map((g) => (
+          {/* US-1907: triage strip — session health + jump-to / filter for
+              large sessions. Appears at ≥12 groups. */}
+          {groups.length >= 12 && (
+            <div
+              role="region"
+              aria-label="Group triage overview"
+              className="sticky top-0 z-20 space-y-2 rounded-md border bg-background/95 p-2 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/80"
+            >
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                <span>
+                  <strong className="text-foreground">{triageSummary.totalGroups}</strong> groups
+                </span>
+                <span>
+                  <strong className="text-foreground">{triageSummary.totalPhotos}</strong> photos
+                </span>
+                <span>
+                  <strong className="text-foreground">{triageSummary.ungroupedCount}</strong>{" "}
+                  ungrouped
+                </span>
+              </div>
+              <div
+                role="toolbar"
+                aria-label="Filter groups by condition"
+                className="flex flex-wrap items-center gap-1.5"
+              >
+                {TRIAGE_CHIPS.map((chip) => {
+                  const count = triageSummary.buckets[chip.condition].length;
+                  if (count === 0) return null;
+                  const active = triageFilter === chip.condition;
+                  return (
+                    <button
+                      key={chip.condition}
+                      type="button"
+                      aria-pressed={active}
+                      aria-label={`${count} ${chip.label} — ${active ? "clear filter" : "filter to these"}`}
+                      onClick={() =>
+                        setTriageFilter((cur) => (cur === chip.condition ? null : chip.condition))
+                      }
+                      className={cn(
+                        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors",
+                        active
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-amber-500/40 bg-amber-500/10 text-amber-800 hover:bg-amber-500/20 dark:text-amber-200",
+                      )}
+                    >
+                      <span className="font-semibold">{count}</span>
+                      {chip.label}
+                    </button>
+                  );
+                })}
+                {triageFilter && (
+                  <button
+                    type="button"
+                    onClick={() => setTriageFilter(null)}
+                    className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                  >
+                    <X className="h-3 w-3" />
+                    Clear filter
+                  </button>
+                )}
+              </div>
+              {/* Mini-map: one slot per group; click to jump. Flagged groups
+                  (any needs-attention bucket) are tinted. */}
+              <nav aria-label="Jump to group" className="flex flex-wrap gap-1">
+                {groups.map((g, i) => {
+                  const flagged =
+                    triageSummary.buckets.singleton.includes(g.id) ||
+                    triageSummary.buckets.oversized.includes(g.id) ||
+                    triageSummary.buckets.missing_cover_or_tag.includes(g.id) ||
+                    triageSummary.buckets.has_suggestion.includes(g.id);
+                  return (
+                    <button
+                      key={g.id}
+                      type="button"
+                      onClick={() => scrollToGroup(g.id)}
+                      aria-label={`Jump to ${g.name || `group ${i + 1}`}${flagged ? " (needs attention)" : ""}`}
+                      title={`${g.name || `Group ${i + 1}`} · ${g.photoIds.length} photo${g.photoIds.length === 1 ? "" : "s"}`}
+                      className={cn(
+                        "h-4 w-4 rounded-sm border text-[0px]",
+                        flagged
+                          ? "border-amber-500/60 bg-amber-500/30 hover:bg-amber-500/50"
+                          : "border-border bg-muted hover:bg-muted-foreground/30",
+                      )}
+                    >
+                      {i + 1}
+                    </button>
+                  );
+                })}
+              </nav>
+            </div>
+          )}
+          {shownGroups.slice(0, groupsLimit).map((g) => (
             <GroupDropZone key={g.id} groupId={g.id}>
             <Card className="p-3">
               <div className="mb-2 flex items-center gap-2">
@@ -3123,6 +3287,7 @@ export function FlipdeskAutolisterPage() {
                   ))}
                 </div>
               )}
+              {!groupsCollapsed && (
               <div className="grid grid-cols-4 gap-2 sm:grid-cols-6 md:grid-cols-8">
                 {g.photoIds.map((pid) => {
                   const p = stagedById.get(pid);
@@ -3231,12 +3396,18 @@ export function FlipdeskAutolisterPage() {
                   );
                 })}
               </div>
+              )}
             </Card>
             </GroupDropZone>
           ))}
-          {groupsLimit < groups.length && (
+          {shownGroups.length === 0 && triageFilter && (
+            <p className="py-4 text-center text-sm text-muted-foreground">
+              No groups match this filter.
+            </p>
+          )}
+          {groupsLimit < shownGroups.length && (
             <LoadMoreSentinel
-              label={`Showing ${groupsLimit} of ${groups.length} groups — scroll for more (use a photo's Move menu to reach unrendered groups)`}
+              label={`Showing ${groupsLimit} of ${shownGroups.length} groups — scroll for more (use a photo's Move menu to reach unrendered groups)`}
               onMore={() => setGroupsLimit((l) => l + GROUPS_CHUNK)}
             />
           )}

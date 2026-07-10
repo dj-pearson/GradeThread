@@ -15732,7 +15732,7 @@
     {
       "id": "US-1907",
       "priority": 2605,
-      "passes": false,
+      "passes": true,
       "title": "Group triage strip: overview, jump-to-group, and needs-attention filters for 40+ group sessions",
       "description": "As a seller reviewing ~45 proposed groups, I want a sticky overview that shows session health and lets me jump straight to the groups that need work, instead of scrolling a long column hunting for problems.",
       "acceptanceCriteria": [
