@@ -29,6 +29,8 @@ const blob = (taskId: string, sessionId: string, createdAt: number): PersistedBl
   taskId,
   sessionId,
   sig: `${taskId}-sig`,
+  name: `${taskId}.jpg`,
+  type: "image/jpeg",
   blob: new Blob([taskId], { type: "text/plain" }),
   createdAt,
 });

@@ -36,6 +36,11 @@ export interface PersistedBlob {
   taskId: string;
   sessionId: string;
   sig: string;
+  /** Original filename + MIME type, so the resumed upload rebuilds an
+   *  identical File even if structured clone degrades File → Blob. */
+  name: string;
+  type: string;
+  /** The original File (a Blob subclass); structured-cloned into IDB. */
   blob: Blob;
   createdAt: number;
 }
