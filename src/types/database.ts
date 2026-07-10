@@ -3225,6 +3225,23 @@ export interface PurchaseArrivalCaptureRow {
   created_at: string;
 }
 
+// US-1825: wardrobe portfolio — a closet item (owner-read; edge verifies + writes).
+export interface ClosetItemRow {
+  id: string;
+  user_id: string;
+  source: "certificate" | "passport" | "manual";
+  certificate_id: string | null;
+  garment_id: string | null;
+  brand: string | null;
+  garment_type: string | null;
+  size: string | null;
+  condition_grade: number | null;
+  title: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // US-1820: insured purchase-guarantee coverage snapshot (one per purchase).
 export interface PurchaseCoverageRow {
   id: string;
@@ -3293,6 +3310,11 @@ export interface Database {
         Row: PurchaseCoverageRow;
         Insert: { user_id: string; purchase_id: string } & Partial<Omit<PurchaseCoverageRow, "id" | "user_id" | "purchase_id" | "created_at" | "updated_at">>;
         Update: Partial<Omit<PurchaseCoverageRow, "id" | "user_id" | "purchase_id" | "created_at">>;
+      };
+      closet_items: {
+        Row: ClosetItemRow;
+        Insert: { user_id: string; source: ClosetItemRow["source"] } & Partial<Omit<ClosetItemRow, "id" | "user_id" | "source" | "created_at" | "updated_at">>;
+        Update: Partial<Omit<ClosetItemRow, "id" | "user_id" | "created_at">>;
       };
       buyer_trust_scores: {
         Row: BuyerTrustScoreRow;

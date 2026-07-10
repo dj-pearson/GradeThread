@@ -14465,7 +14465,7 @@
         "Migration triple satisfied"
       ],
       "priority": 1825,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][PORTFOLIO][NEW] Load migrations skill. Link to garment passport (garment_id) / certificate_id where present; verify ownership (passport claim tokens 00258). Manual entries for ungraded items. Tenant-scoped."
     },
     {

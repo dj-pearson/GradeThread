@@ -1,5 +1,23 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ PENDING: 00420_closet_items.sql (US-1825 wardrobe portfolio closet model, 2026-07-09)
+
+**What:** One OWNER-READ / SERVICE-WRITE table `public.closet_items` — an owner's
+closet (source certificate/passport/manual; certificate_id / garment_id link,
+brand/type/size/condition_grade/title/notes). Partial-unique dedup on
+(user_id, certificate_id) and (user_id, garment_id) so a linked item is closeted
+once (re-add merges); manual entries may repeat. The edge (/api/buyer/closet)
+verifies ownership of a linked cert (graded it OR bought+linked via US-1811) or
+passport (garment_events→owner_nodes.linked_user_id, US-1105) before insert.
+Bumps `EXPECTED_SCHEMA_VERSION` → **00420**. Self-records '00420'.
+
+**Risk: LOW** — one new isolated table, no writes to existing tables. **The CLIENT
+reads it on frontend auto-deploy** (the /buyer/portfolio page lists closet_items
+via direct owner-RLS), and the new edge closet route boot-expects 00420 — apply
+BEFORE the push. Valuation/dashboard are US-1826/1827 (not built). **⚠️ Apply
+order:** after 00419; `scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst,
+'reload schema';`, redeploy the edge (boot guard now expects 00420).
+
 ## ⏳ PENDING: 00419_purchase_coverage.sql (US-1820 insured purchase-guarantee coverage model, 2026-07-09)
 
 **What:** One OWNER-READ / SERVICE-WRITE table `public.purchase_coverage` — a

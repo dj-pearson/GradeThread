@@ -55,6 +55,7 @@ const BuyerOnboardingPage = lazy(() => import("@/pages/buyer/onboarding").then(m
 const BuyerSettingsPage = lazy(() => import("@/pages/buyer/settings").then(m => ({ default: m.BuyerSettingsPage })));
 const BuyerAlertsPage = lazy(() => import("@/pages/buyer/alerts").then(m => ({ default: m.BuyerAlertsPage })));
 const BuyerRewardsPage = lazy(() => import("@/pages/buyer/rewards").then(m => ({ default: m.BuyerRewardsPage })));
+const BuyerPortfolioPage = lazy(() => import("@/pages/buyer/portfolio").then(m => ({ default: m.BuyerPortfolioPage })));
 const BuyerBillingPage = lazy(() => import("@/pages/buyer/billing").then(m => ({ default: m.BuyerBillingPage })));
 const BuyerPlaceholderPage = lazy(() => import("@/pages/buyer/placeholder").then(m => ({ default: m.BuyerPlaceholderPage })));
 
@@ -611,7 +612,7 @@ export const router = createBrowserRouter([
                   { path: "/buyer/onboarding", element: <SuspenseWrapper><BuyerOnboardingPage /></SuspenseWrapper> },
                   { path: "/buyer/alerts", element: <SuspenseWrapper><BuyerAlertsPage /></SuspenseWrapper> },
                   { path: "/buyer/rewards", element: <SuspenseWrapper><BuyerRewardsPage /></SuspenseWrapper> },
-                  { path: "/buyer/portfolio", element: <SuspenseWrapper><BuyerPlaceholderPage title="Closet Portfolio" requiresFlag="wardrobePortfolio" description="Track what you own and its condition-adjusted value over time." /></SuspenseWrapper> },
+                  { path: "/buyer/portfolio", element: <SuspenseWrapper><BuyerPortfolioPage /></SuspenseWrapper> },
                   { path: "/buyer/guarantee", element: <SuspenseWrapper><BuyerPlaceholderPage title="Purchase Guarantee" requiresFlag="purchaseGuarantee" description="Insured grade-locked coverage on eligible purchases." /></SuspenseWrapper> },
                   { path: "/buyer/demand", element: <SuspenseWrapper><BuyerPlaceholderPage title="Graded Wanted" requiresFlag="demandBoard" description="Post what you're hunting for and get matched to graded inventory." /></SuspenseWrapper> },
                   { path: "/buyer/billing", element: <SuspenseWrapper><BuyerBillingPage /></SuspenseWrapper> },

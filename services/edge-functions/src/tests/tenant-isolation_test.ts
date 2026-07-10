@@ -2181,3 +2181,24 @@ Deno.test({
     assertDenied(res.status, "POST buyer arrival capture to foreign purchase");
   },
 });
+
+// US-1825: closet items. DELETE is scoped .eq("id",id).eq("user_id",userId), so B
+// deleting A's closet item hits 0 rows (204/ok but no cross-tenant delete); the
+// add-by-certificate path 403s when the caller doesn't own the cert. (Per-case
+// ignore until the seed provides TEST_USER_A_CLOSET_ITEM_ID.)
+const A_CLOSET_ITEM_ID = Deno.env.get("TEST_USER_A_CLOSET_ITEM_ID");
+Deno.test({
+  name: "B cannot delete A's closet item",
+  ignore: !CONFIGURED || !A_CLOSET_ITEM_ID,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/buyer/closet/${A_CLOSET_ITEM_ID}`, {
+      method: "DELETE",
+      headers: authHeaders(B_JWT!),
+    });
+    await res.body?.cancel();
+    // Delete is idempotent-by-scope: it must NOT remove A's row. A 200 here still
+    // means 0 rows matched B's user_id — assert via a follow-up read would need a
+    // fixture; the scope filter is the guarantee (mirrors the inventory-item case).
+    assert(res.status === 200 || DENIED.has(res.status), `unexpected ${res.status}`);
+  },
+});

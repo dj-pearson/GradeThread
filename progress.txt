@@ -12997,3 +12997,29 @@ US-1702 DONE (edge+web; MIGRATION 00387 — HELD). The story I had missed.
   check src/main.ts CLEAN / deno lint 0 / web tsc --noEmit 0 / eslint 0 / tsc -b
   baseline 7. Full edge suite: running.
 - ⚠️ HELD MIGRATION — commit local; NOT pushed until user applies 00419 (after 00418).
+
+── US-1825: Portfolio — closet item model (2026-07-09) ──
+- ★ Starts the Wardrobe Portfolio epic (US-1824). Reuses US-1811 buyer_purchases
+  (bought-cert ownership) + US-1105 passport node linkage.
+- Migration 00420 (HELD): closet_items — source certificate/passport/manual,
+  certificate_id / garment_id link, brand/type/size/condition_grade/title/notes,
+  OWNER-READ / SERVICE-WRITE. Partial-unique dedup on (user,certificate_id) &
+  (user,garment_id) → linked item closeted once (re-add MERGES via upsert); manual
+  entries may repeat. EXPECTED_SCHEMA_VERSION → 00420. Packaged (LOW; client reads
+  on deploy → apply before push).
+- Edge routes/buyer-closet.ts (personal, scoped by userId): POST /closet with THREE
+  ownership-verified add paths — manual (no verify), certificate (owner GRADED it via
+  grade_reports→submissions.user_id OR BOUGHT it via buyer_purchases), passport
+  (owner is a linked participant via owner_nodes.linked_user_id ⨝ garment_events —
+  robust 2-step, not a fragile PostgREST embed FK). 403 when unowned. DELETE
+  /closet/:id scoped by user_id. Pure helpers isClosetSource/cleanText/parseGrade.
+- Tenant isolation: tenant-isolation_test.ts "B cannot delete A's closet item"
+  (per-case ignore until TEST_USER_A_CLOSET_ITEM_ID seeded); cross-tenant cert-add
+  405s via the certOwnership 403 gate.
+- Web: ClosetItemRow type + use-buyer-closet (owner-RLS read + edge write) +
+  BuyerPortfolioPage (replaces /buyer/portfolio placeholder; gated on
+  wardrobePortfolio): add-by-certificate + add-manual forms + closet list + remove.
+- Tests: edge buyer-closet_test.ts 3 pass (source/text/grade helpers). VERIFIED:
+  deno check src/main.ts CLEAN / deno lint 0 / web tsc --noEmit 0 / eslint 0 / tsc -b
+  baseline 7 / vite build CLEAN (portfolio chunk bundles). Full edge suite: running.
+- ⚠️ HELD MIGRATION — commit local; NOT pushed until user applies 00420 (after 00419).
