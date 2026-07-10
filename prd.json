@@ -14633,7 +14633,7 @@
         "Actions are tenant-scoped to the buyer"
       ],
       "priority": 1837,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][EXTENSION][NEW] Reuse coverage/heatmap data (US-1276/1278) to know missing zones. Watch write-path -> watchlist (1806) + ingestion (1808). Generates seller message text (buyer sends manually — ToS safe). Depends on discrepancy scoring (1834) + alerts model (1806)."
     },
     {

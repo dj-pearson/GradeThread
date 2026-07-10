@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { Bell, BellRing, ExternalLink, Loader2, Lock, Plus, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -175,6 +175,25 @@ export function BuyerAlertsPage() {
   const searches = useSavedSearches();
   const watchlist = useWatchlist();
   const matches = useBuyerAlertMatches();
+
+  // US-1837: one-click "watch" handoff from the extension — /buyer/alerts?watch=
+  // <listing url>. The tenant-scoped write happens HERE, in the buyer's authed
+  // session (the extension itself never writes). Idempotent; runs once.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const watchUrl = searchParams.get("watch");
+  const [watchHandled, setWatchHandled] = useState(false);
+  useEffect(() => {
+    if (watchHandled || !watchUrl) return;
+    setWatchHandled(true);
+    watchlist
+      .watch({ target_type: "listing", target_id: watchUrl.slice(0, 500), label: watchUrl.slice(0, 120) })
+      .then(() => toast.success("Added to your watchlist."))
+      .catch(() => toast.error("Couldn't add that to your watchlist."))
+      .finally(() => {
+        searchParams.delete("watch");
+        setSearchParams(searchParams, { replace: true });
+      });
+  }, [watchUrl, watchHandled, watchlist, searchParams, setSearchParams]);
 
   // Local digest frequency, seeded from prefs. "immediate" is capped to a digest
   // for plans whose alertFrequency is only "daily" (the edge enforces this too).

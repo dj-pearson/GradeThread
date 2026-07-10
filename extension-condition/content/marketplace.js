@@ -267,6 +267,39 @@
         }
       }
 
+      // US-1837: coverage-gap "request the missing photos" macro + watch handoff.
+      var cg = data.coverageGap;
+      if (cg && Array.isArray(cg.recommendedPhotos) && cg.recommendedPhotos.length) {
+        body.appendChild(el("p", "gt-cc-note", "For a confident grade, ask the seller for:"));
+        var ul = el("ul", "gt-cc-photos");
+        for (var k = 0; k < cg.recommendedPhotos.length; k++) {
+          ul.appendChild(el("li", null, String(cg.recommendedPhotos[k])));
+        }
+        body.appendChild(ul);
+        var actions = el("div", "gt-cc-actions");
+        var copyBtn = el("button", "gt-cc-secondary");
+        copyBtn.setAttribute("type", "button");
+        copyBtn.textContent = "Copy photo request";
+        copyBtn.addEventListener("click", function () {
+          try {
+            navigator.clipboard.writeText(String(cg.message || ""));
+            copyBtn.textContent = "Copied — paste it to the seller";
+          } catch (_e) {
+            copyBtn.textContent = "Couldn't copy — select the list above";
+          }
+        });
+        actions.appendChild(copyBtn);
+        // Auth-free watch: hand off to the logged-in buyer app, which does the
+        // tenant-scoped write (US-1806). No automated messaging.
+        var watch = el("a", "gt-cc-secondary");
+        watch.textContent = "Watch on GradeThread";
+        watch.href = "https://gradethread.com/buyer/alerts?watch=" + encodeURIComponent(location.href);
+        watch.target = "_blank";
+        watch.rel = "noopener noreferrer";
+        actions.appendChild(watch);
+        body.appendChild(actions);
+      }
+
       body.appendChild(el("p", "gt-cc-disclaimer", String(data.disclaimer || "")));
 
       if (data.deepLink) {

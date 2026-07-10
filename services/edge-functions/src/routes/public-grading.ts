@@ -22,6 +22,7 @@ import { quickGrade } from "../lib/quick-grade.ts";
 import { claimedConditionToGrade, scoreDiscrepancy } from "../lib/condition-discrepancy.ts";
 import { parsePriceCents, priceFairness } from "../lib/price-fairness.ts";
 import { deriveFraudFlags } from "../lib/fraud-flags.ts";
+import { coverageGapForTitle } from "../lib/coverage-gap.ts";
 
 // US-1836: fraud flags are legally sensitive (a public "these look manipulated"
 // signal), so the whole feature is FAIL-CLOSED behind a kill-switch until the
@@ -678,6 +679,9 @@ publicGradingRoutes.post("/grade-from-url", async (c) => {
         value,
         priceFairness: fairness,
         fraudFlags,
+        // US-1837: the photos worth asking the seller for + a ready-to-send
+        // message (buyer sends manually — ToS safe).
+        coverageGap: coverageGapForTitle(title),
         disclaimer: GRADE_CHECK_DISCLAIMER,
         deepLink,
       },

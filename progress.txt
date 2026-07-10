@@ -13445,3 +13445,21 @@ Coarse, buyer-safe fraud flags on a listing. Edge + extension. NO migration.
 - VERIFIED: deno check CLEAN / lint 0 / full edge suite 3450 pass 0 fail / node
   --check marketplace.js OK.
 - No migration; part of the held branch.
+
+## 2026-07-10 — US-1837 (Extension: coverage-gap photo-request macro + watch) — passes:true
+
+Edge + extension + web. NO migration.
+- lib/coverage-gap.ts (PURE, 5 tests): categoryFromTitle (title keyword → template
+  category) + recommendedPhotos (core 3 + top zone close-ups from
+  coverage.inspectionTemplate) + buildPhotoRequestMessage (polite, bulleted,
+  buyer-sends-manually — ToS safe) + coverageGapForTitle. Wired into
+  /grade-from-url → returns `coverageGap {recommendedPhotos, message}`.
+- Extension client (node --check clean): renders the recommended-photo list + a
+  "Copy photo request" button (clipboard) + a "Watch on GradeThread" link.
+- WATCH via AUTH-FREE HANDOFF (extension has no buyer auth until US-1838):
+  the link opens /buyer/alerts?watch=<listing url>; the alerts page (authed) does
+  the tenant-scoped write via useWatchlist.watch(target_type:'listing') — the
+  extension never writes (ToS-safe; no automation). Feeds US-1808 ingestion later.
+- VERIFIED: deno check CLEAN / lint 0 / full edge suite 3455 pass 0 fail / web tsc
+  --noEmit 0 / eslint 0 / tsc -b baseline 7 / vite build CLEAN / node --check OK.
+- No migration; part of the held branch.
