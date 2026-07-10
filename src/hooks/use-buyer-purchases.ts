@@ -6,6 +6,7 @@ import type {
   ArrivalImageType,
   BuyerGradeOutcomeRow,
   BuyerPurchaseRow,
+  BuyerRewardCreditsRow,
   PurchaseArrivalCaptureRow,
   PurchaseCoverageRow,
 } from "@/types/database";
@@ -129,12 +130,33 @@ export function useBuyerPurchases() {
       if (!res.ok) throw new Error(json.error ?? "Could not record your verdict.");
       return json.outcome;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: key }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: key });
+      // A confirmation may have issued reward credits — refresh the balance.
+      queryClient.invalidateQueries({ queryKey: ["buyer-reward-credits", userId] });
+    },
+  });
+
+  // US-1813: the buyer's spendable reward-credit balance (owner-read, 00422).
+  const rewardsQuery = useQuery<BuyerRewardCreditsRow | null>({
+    queryKey: ["buyer-reward-credits", userId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("buyer_reward_credits")
+        .select("*")
+        .eq("user_id", userId!)
+        .maybeSingle();
+      if (error) throw error;
+      return (data as BuyerRewardCreditsRow | null) ?? null;
+    },
+    enabled: !!userId,
+    staleTime: 60 * 1000,
   });
 
   return {
     purchases: query.data ?? [],
     isLoading: query.isLoading,
+    rewardCredits: rewardsQuery.data ?? null,
     linkPurchase: (input: LinkPurchaseInput) => linkMutation.mutateAsync(input),
     isLinking: linkMutation.isPending,
     uploadArrival: (purchaseId: string, images: ArrivalUpload[]) =>

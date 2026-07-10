@@ -55,10 +55,13 @@ function PurchaseCard({ purchase }: { purchase: PurchaseWithCaptures }) {
   async function onConfirm() {
     try {
       const outcome = await confirmPurchase(purchase.id, { match_status: "confirmed" });
+      const credits = outcome?.rewardCreditsIssued ?? 0;
       toast.success(
-        outcome?.trustScore != null
-          ? `Thanks! Grade confirmed — Trust Score now ${outcome.trustScore}.`
-          : "Thanks! Grade confirmed.",
+        credits > 0
+          ? `Thanks! Grade confirmed — you earned ${credits} reward credit${credits === 1 ? "" : "s"}.`
+          : outcome?.trustScore != null
+            ? `Thanks! Grade confirmed — Trust Score now ${outcome.trustScore}.`
+            : "Thanks! Grade confirmed.",
       );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not record your verdict");
@@ -237,7 +240,7 @@ function PurchaseCard({ purchase }: { purchase: PurchaseWithCaptures }) {
 
 export function BuyerRewardsPage() {
   const ent = useBuyerEntitlements();
-  const { purchases, isLoading, linkPurchase, isLinking } = useBuyerPurchases();
+  const { purchases, isLoading, linkPurchase, isLinking, rewardCredits } = useBuyerPurchases();
 
   const [certNumber, setCertNumber] = useState("");
   const [price, setPrice] = useState("");
@@ -294,6 +297,24 @@ export function BuyerRewardsPage() {
         Link an item you bought to its GradeThread grade, then snap arrival photos to confirm it
         matched — and earn rewards.
       </p>
+
+      {/* US-1813: reward-credit balance. Credits spend on authenticity / video
+          grades once your monthly allowance is used up. */}
+      {rewardCredits && rewardCredits.lifetime_earned > 0 && (
+        <Card>
+          <CardContent className="flex items-center justify-between py-4">
+            <div className="flex items-center gap-2">
+              <Gift className="h-5 w-5 text-primary" />
+              <div>
+                <p className="text-sm font-medium">{rewardCredits.balance} reward credits</p>
+                <p className="text-xs text-muted-foreground">
+                  {rewardCredits.lifetime_earned} earned all-time · spend on authenticity &amp; video grades
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

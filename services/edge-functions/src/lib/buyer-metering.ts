@@ -14,6 +14,7 @@
 
 import { supabaseAdmin } from "./supabase.ts";
 import type { BuyerAllowances } from "./buyer-plans.ts";
+import { redeemRewardCredit, refundRewardCredit } from "./buyer-rewards.ts";
 
 // The metered actions + which allowance caps each (keys of BuyerAllowances).
 export type BuyerMeterKey = "extension_checks" | "authenticity_credits" | "video_grades";
@@ -75,14 +76,26 @@ export async function refundBuyerMeter(ownerId: string, meter: BuyerMeterKey): P
 interface BuyerMeterDeps {
   reserve: (ownerId: string, meter: BuyerMeterKey, limit: number) => Promise<boolean>;
   refund: (ownerId: string, meter: BuyerMeterKey) => Promise<void>;
+  // US-1813: the reward-credit fallback leg of the debit precedence.
+  redeemReward: (ownerId: string, meter: BuyerMeterKey) => Promise<boolean>;
+  refundReward: (ownerId: string, meter: BuyerMeterKey) => Promise<void>;
 }
 
+const DEFAULT_BUYER_METER_DEPS: BuyerMeterDeps = {
+  reserve: reserveBuyerMeter,
+  refund: refundBuyerMeter,
+  redeemReward: redeemRewardCredit,
+  refundReward: refundRewardCredit,
+};
+
 /**
- * Run one metered buyer action under the reserve/refund contract:
- *  - reserve atomically first (fail-closed); throws BuyerQuotaExhaustedError at
- *    the cap so callers map it to a 402/429 upgrade prompt,
- *  - run the work,
- *  - refund if the work throws (the failure isn't the buyer's spend), rethrow.
+ * Run one metered buyer action under the reserve/refund contract with the full
+ * US-1800 debit precedence:
+ *  1. reserve the monthly allowance atomically (fail-closed),
+ *  2. else redeem one US-1813 reward credit,
+ *  3. else throw BuyerQuotaExhaustedError (→ 402/429 upgrade prompt).
+ * Then run the work, refunding the SAME source the spend came from if it throws
+ * (a monthly unit back to the counter, or a reward credit back to the balance).
  *
  * `limit` is the buyer's monthly cap for this meter — read it from
  * getBuyerEntitlements(userId).allowances[BUYER_METER_ALLOWANCE[meter]].
@@ -93,14 +106,18 @@ export async function withBuyerMeter<T>(
   meter: BuyerMeterKey,
   limit: number,
   fn: () => Promise<T>,
-  deps: BuyerMeterDeps = { reserve: reserveBuyerMeter, refund: refundBuyerMeter },
+  deps: BuyerMeterDeps = DEFAULT_BUYER_METER_DEPS,
 ): Promise<T> {
   const reserved = await deps.reserve(ownerId, meter, limit);
-  if (!reserved) throw new BuyerQuotaExhaustedError(meter);
+  // At the monthly cap, fall through to a reward credit before failing.
+  const fromReward = reserved ? false : await deps.redeemReward(ownerId, meter);
+  if (!reserved && !fromReward) throw new BuyerQuotaExhaustedError(meter);
   try {
     return await fn();
   } catch (err) {
-    await deps.refund(ownerId, meter);
+    // Refund whichever pocket paid — never cross them.
+    if (fromReward) await deps.refundReward(ownerId, meter);
+    else await deps.refund(ownerId, meter);
     throw err;
   }
 }

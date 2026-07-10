@@ -2583,6 +2583,26 @@ export interface BuyerGradeOutcomeRow {
   guarantee_eligible: boolean;
 }
 
+// US-1813: buyer reward credit balance (owner-read; service-write via 00422 RPCs).
+export interface BuyerRewardCreditsRow {
+  user_id: string;
+  balance: number;
+  lifetime_earned: number;
+  lifetime_redeemed: number;
+  updated_at: string;
+}
+
+export interface BuyerRewardLedgerRow {
+  id: string;
+  user_id: string;
+  entry_type: "earn" | "redeem" | "reversal";
+  credits: number;
+  reason: string | null;
+  meter: string | null;
+  reference_id: string;
+  created_at: string;
+}
+
 // ─── Growth / Promote suite (00102_growth_suite.sql) ───────────────
 
 export type CampaignChannel = "email" | "in_app" | "push";
@@ -3332,6 +3352,17 @@ export interface Database {
         Row: PurchaseCoverageRow;
         Insert: { user_id: string; purchase_id: string } & Partial<Omit<PurchaseCoverageRow, "id" | "user_id" | "purchase_id" | "created_at" | "updated_at">>;
         Update: Partial<Omit<PurchaseCoverageRow, "id" | "user_id" | "purchase_id" | "created_at">>;
+      };
+      // US-1813: buyer reward ledger + balance (owner-read; service-write RPCs).
+      buyer_reward_credits: {
+        Row: BuyerRewardCreditsRow;
+        Insert: { user_id: string } & Partial<Omit<BuyerRewardCreditsRow, "user_id" | "updated_at">>;
+        Update: Partial<Omit<BuyerRewardCreditsRow, "user_id">>;
+      };
+      buyer_reward_ledger: {
+        Row: BuyerRewardLedgerRow;
+        Insert: Partial<Omit<BuyerRewardLedgerRow, "id" | "created_at">> & { user_id: string; entry_type: BuyerRewardLedgerRow["entry_type"]; credits: number };
+        Update: Partial<Omit<BuyerRewardLedgerRow, "id" | "user_id" | "created_at">>;
       };
       closet_items: {
         Row: ClosetItemRow;

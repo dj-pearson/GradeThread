@@ -14297,7 +14297,7 @@
         "Ledger is tenant-scoped and reconciles (no double-issue) via an idempotency ledger"
       ],
       "priority": 1813,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][REWARDS][NEW] Reuse referral reward config pattern (00237 referral_reward_config) + credits ledger + north-star idempotency-ledger (00170). Redemption via existing credit precedence. Anti-abuse gates issuance. Load migrations skill. Depends on confirm engine (1812)."
     },
     {

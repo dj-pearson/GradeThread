@@ -13061,3 +13061,34 @@ the buyer's Trust Score, the SELLER's Grade Integrity, and the guarantee path.
   --noEmit 0 / eslint 0 / tsc -b baseline 7 (none in touched files) / vite build
   CLEAN + prerender 212 pages.
 - ⚠️ HELD MIGRATION — commit local; NOT pushed until user applies 00421 (after 00420).
+
+## 2026-07-09 — US-1813 (Rewards: reward ledger + anti-abuse + redemption) — passes:true
+
+A verified grade confirmation (US-1812) now earns reward CREDITS — the middle leg
+of the US-1800 buyer debit precedence (monthly allowance → reward credits →
+upgrade), previously a TODO — spendable on authenticity/video metered actions.
+- 00422_buyer_reward_ledger.sql: buyer_reward_ledger (append-only earn/redeem/
+  reversal; UNIQUE(user_id,entry_type,reference_id) = the idempotency ledger, no
+  double-issue) + buyer_reward_credits balance (owner-read, service-write). Three
+  SECURITY DEFINER RPCs: issue_buyer_reward_credit (idempotent on reference_id +
+  per-account/day cap, FOR UPDATE lock serializes), redeem_buyer_reward_credit
+  (atomic -1, fail-closed at floor), refund_buyer_reward_credit. Admin-tunable
+  economics in system_settings 'buyer.reward_config' (referral-config pattern).
+  US-1108 triple + footer, EXPECTED_SCHEMA_VERSION=00422.
+- lib/buyer-rewards.ts: PURE normalizeBuyerRewardConfig + decideRewardIssue
+  (evidence gate / off-switch) + thin RPC wrappers issueConfirmationReward /
+  redeemRewardCredit / refundRewardCredit. Issuance hooks into
+  recordBuyerGradeOutcome on 'confirmed' (best-effort, gated: require ≥1 arrival
+  photo, day-capped, idempotent). Result gains rewardCreditsIssued.
+- buyer-metering.ts withBuyerMeter: added the reward-credit fallback leg — at the
+  monthly cap, redeem one reward credit before throwing; refund the SAME pocket
+  (monthly counter vs reward balance) on failure, never cross them. Backward
+  compatible (balance 0 → unchanged throw).
+- Web: use-buyer-purchases reward-balance read + invalidate on confirm;
+  rewards.tsx balance card + "earned N credits" toast; database.ts
+  BuyerRewardCreditsRow/BuyerRewardLedgerRow + table registration.
+- Tests: buyer-rewards_test.ts 7 + buyer-metering_test.ts rewritten (6, incl.
+  reward-fallback + correct-pocket refunds). VERIFIED: deno check CLEAN / lint 0 /
+  full edge suite 3361 pass 0 fail / web tsc --noEmit 0 / eslint 0 / tsc -b
+  baseline 7 (none mine) / vite build + prerender 212 CLEAN.
+- ⚠️ HELD MIGRATION — commit local; NOT pushed until user applies 00422 (after 00421).

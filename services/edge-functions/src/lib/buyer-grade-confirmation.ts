@@ -32,6 +32,7 @@ import {
 } from "./claim-accuracy.ts";
 import { emitReputationEvent, recomputeTrustScore } from "./buyer-trust-score.ts";
 import { updatePromptVersionAccuracy } from "./accuracy-tracking.ts";
+import { issueConfirmationReward } from "./buyer-rewards.ts";
 
 /** Buyer's structured mismatch report — same shape as a guarantee claim issue. */
 export interface BuyerConfirmInput {
@@ -199,6 +200,8 @@ export interface BuyerGradeOutcomeResult {
   humanReviewFlagged: boolean;
   sellerIntegrity: { integrity_score: number } | null;
   trustScore: number | null;
+  /** US-1813: reward credits issued for this confirmation (0 if none). */
+  rewardCreditsIssued: number;
 }
 
 /**
@@ -306,8 +309,10 @@ export async function recordBuyerGradeOutcome(input: {
     updatePromptVersionAccuracy(purchase.grade_report_id).catch(() => {});
   }
 
-  // 3. Buyer Trust Score — a confirmation is the strongest honest-buyer signal.
+  // 3. Buyer Trust Score — a confirmation is the strongest honest-buyer signal —
+  //    and the US-1813 reward credit (anti-abuse gated + idempotent in the RPC).
   let trustScore: number | null = null;
+  let rewardCreditsIssued = 0;
   if (verdict.matchStatus === "confirmed") {
     try {
       await emitReputationEvent(userId, {
@@ -325,6 +330,8 @@ export async function recordBuyerGradeOutcome(input: {
         err instanceof Error ? err.message : String(err),
       );
     }
+    // Idempotent on purchase.id — a re-confirm never double-credits.
+    rewardCreditsIssued = await issueConfirmationReward(userId, purchase.id);
   }
 
   // 4. Seller Grade Integrity (US-1912 substrate).
@@ -341,5 +348,6 @@ export async function recordBuyerGradeOutcome(input: {
     humanReviewFlagged,
     sellerIntegrity: sellerIntegrity ? { integrity_score: sellerIntegrity.integrity_score } : null,
     trustScore,
+    rewardCreditsIssued,
   };
 }

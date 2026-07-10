@@ -1,5 +1,26 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ PENDING: 00422_buyer_reward_ledger.sql (US-1813 buyer reward ledger + redemption, 2026-07-09)
+
+**What:** Two service-write / owner-read tables — `public.buyer_reward_ledger`
+(append-only earn/redeem/reversal history; `UNIQUE(user_id,entry_type,
+reference_id)` is the idempotency ledger so a re-confirmed purchase never
+double-credits) and `public.buyer_reward_credits` (the derived spendable
+balance). Three SECURITY DEFINER RPCs: `issue_buyer_reward_credit` (idempotent +
+per-account/day capped, row-locked), `redeem_buyer_reward_credit` (atomic −1,
+fail-closed at the floor), `refund_buyer_reward_credit`. Plus a `system_settings`
+row `buyer.reward_config` (admin-tunable economics; ON CONFLICT DO NOTHING). Bumps
+`EXPECTED_SCHEMA_VERSION` → **00422**. Self-records '00422'.
+
+**Risk: LOW–MEDIUM** — two new isolated tables + three new RPCs + one settings
+row; no change to existing tables. **The CLIENT reads the balance on frontend
+auto-deploy** (the /buyer/rewards page shows the reward-credit card), and the edge
+(confirm issuance + `withBuyerMeter` redemption fallback) boot-expects 00422 —
+apply BEFORE the push. The reward-credit fallback in `withBuyerMeter` is inert
+until a buyer has a balance (existing metered flows unchanged). **⚠️ Apply order:**
+after 00421; `scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload
+schema';`, redeploy the edge (boot guard now expects 00422).
+
 ## ⏳ PENDING: 00421_buyer_grade_confirmations.sql (US-1812 buyer confirm/dispute engine, 2026-07-09)
 
 **What:** (a) EXTENDS the existing `public.grade_outcomes` (00036) with buyer
