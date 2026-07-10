@@ -14549,7 +14549,7 @@
         "Both surfaces are tenant-scoped and privacy-respecting"
       ],
       "priority": 1831,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][DEMAND-BOARD][NEW] Buyer UI in buyer dashboard (1802); seller surface in FlipDesk (src/pages/flipdesk/*, sourcing/pipeline). Load dataviz skill for the aggregate demand view. Depends on want model (1830)."
     },
     {

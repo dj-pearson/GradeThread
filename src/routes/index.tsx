@@ -187,6 +187,8 @@ const FlipdeskAutomationsPage = lazy(() => import("@/pages/flipdesk/automations"
 const FlipdeskScoutPage = lazy(() => import("@/pages/flipdesk/scout").then(m => ({ default: m.FlipdeskScoutPage })));
 const FlipdeskScoutBuyPage = lazy(() => import("@/pages/flipdesk/scout-buy").then(m => ({ default: m.FlipdeskScoutBuyPage })));
 const FlipdeskSourcesPage = lazy(() => import("@/pages/flipdesk/sources").then(m => ({ default: m.FlipdeskSourcesPage })));
+const FlipdeskDemandPage = lazy(() => import("@/pages/flipdesk/demand").then(m => ({ default: m.FlipdeskDemandPage })));
+const BuyerDemandPage = lazy(() => import("@/pages/buyer/demand").then(m => ({ default: m.BuyerDemandPage })));
 const FlipdeskConsignmentPage = lazy(() => import("@/pages/flipdesk/consignment").then(m => ({ default: m.FlipdeskConsignmentPage })));
 const FlipdeskAutolisterPage = lazy(() => import("@/pages/flipdesk/autolister").then(m => ({ default: m.FlipdeskAutolisterPage })));
 const FlipdeskAutolisterQueuePage = lazy(() => import("@/pages/flipdesk/autolister-queue").then(m => ({ default: m.FlipdeskAutolisterQueuePage })));
@@ -567,6 +569,7 @@ export const router = createBrowserRouter([
               { path: "/dashboard/flipdesk/listings", element: <InventoryModeRedirect /> },
               { path: "/dashboard/flipdesk/verified", element: <SuspenseWrapper><FlipdeskVerifiedPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/sources", element: <SuspenseWrapper><FlipdeskSourcesPage /></SuspenseWrapper> },
+              { path: "/dashboard/flipdesk/demand", element: <SuspenseWrapper><FlipdeskDemandPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/consignment", element: <SuspenseWrapper><FlipdeskConsignmentPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/marketplaces", element: <SuspenseWrapper><FlipdeskMarketplacesPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/measure-card", element: <SuspenseWrapper><FlipdeskMeasureCardPage /></SuspenseWrapper> },
@@ -619,7 +622,7 @@ export const router = createBrowserRouter([
                   { path: "/buyer/rewards", element: <SuspenseWrapper><BuyerRewardsPage /></SuspenseWrapper> },
                   { path: "/buyer/portfolio", element: <SuspenseWrapper><BuyerPortfolioPage /></SuspenseWrapper> },
                   { path: "/buyer/guarantee", element: <SuspenseWrapper><BuyerPlaceholderPage title="Purchase Guarantee" requiresFlag="purchaseGuarantee" description="Insured grade-locked coverage on eligible purchases." /></SuspenseWrapper> },
-                  { path: "/buyer/demand", element: <SuspenseWrapper><BuyerPlaceholderPage title="Graded Wanted" requiresFlag="demandBoard" description="Post what you're hunting for and get matched to graded inventory." /></SuspenseWrapper> },
+                  { path: "/buyer/demand", element: <SuspenseWrapper><BuyerDemandPage /></SuspenseWrapper> },
                   { path: "/buyer/billing", element: <SuspenseWrapper><BuyerBillingPage /></SuspenseWrapper> },
                   { path: "/buyer/settings", element: <SuspenseWrapper><BuyerSettingsPage /></SuspenseWrapper> },
                   { path: "/buyer/*", element: <SuspenseWrapper><BuyerPlaceholderPage title="Not found" description="That buyer page doesn't exist yet." /></SuspenseWrapper> },

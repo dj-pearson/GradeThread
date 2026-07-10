@@ -13340,3 +13340,24 @@ matching engine (condition-alerts.matchesSearch) — one engine, no drift.
 - VERIFIED: deno check CLEAN / lint 0 / full edge suite 3431 pass 0 fail / web tsc
   --noEmit 0 / eslint 0 / tsc -b baseline 7 (none mine) / vite build CLEAN.
 - ⚠️ HELD MIGRATION — commit local; NOT pushed until user applies 00431 (after 00430).
+
+## 2026-07-10 — US-1831 (Demand board: buyer post UI + seller demand surface) — passes:true
+
+The buyer + seller surfaces on the US-1830 want model. NO migration (code only).
+- Edge: buyer-wants PATCH /wants/:id (expire/re-activate/fulfill, scoped) +
+  routes/flipdesk-demand.ts GET /api/flipdesk/demand (authed) → PII-safe aggregate
+  of PUBLIC active wants. lib/demand-board.ts aggregatePublicWants (PURE, +2 tests):
+  per-brand/category counts + strongest grade/budget signal, ranked/capped, no
+  buyer identity.
+- Web buyer: BuyerDemandPage (replaces the /buyer/demand placeholder; gated on
+  demandBoard) — post form (brands/categories/keywords/min-grade/max-price/public
+  toggle) + wants list with expire/delete; use-buyer-wants hook (owner-RLS read +
+  edge writes).
+- Web seller: FlipdeskDemandPage (/dashboard/flipdesk/demand + sidebar "Buyer
+  Demand") — ranked demand bars (dataviz conventions: emerald bars sized by
+  demand), each brand links to ScoutAI to source it; use-flipdesk-demand hook.
+- Monetization + match notifications = US-1832.
+- VERIFIED: deno check CLEAN / lint 0 / full edge suite 3433 pass 0 fail / web tsc
+  --noEmit 0 / eslint 0 / tsc -b baseline 7 (none mine) / vite build + prerender 212.
+- This commit has NO migration (code only) but is part of the held branch (not
+  pushed until the user OKs the pending migrations).

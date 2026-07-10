@@ -13,6 +13,7 @@ const {
   hasCriteria,
   wantToSearch,
   matchesSearch,
+  aggregatePublicWants,
 } = await import("../lib/demand-board.ts");
 
 // ── normalizeTerms ──────────────────────────────────────────────────────────
@@ -71,4 +72,31 @@ Deno.test("match: brand mismatch fails; grade below min fails", () => {
 Deno.test("match: keyword hits the title", () => {
   const w = { id: "w", user_id: "u", ...normalizeWantInput({ keywords: ["tech"] }) };
   assertEquals(matchesSearch(cert, wantToSearch(w)), true);
+});
+
+// ── aggregatePublicWants (PII-safe seller signal) ───────────────────────────
+
+Deno.test("aggregate: counts per brand/category; strongest grade/budget signal", () => {
+  const agg = aggregatePublicWants([
+    { brands: ["Nike"], categories: ["hoodie"], min_grade: 8, max_price_cents: 6000 },
+    { brands: ["Nike"], categories: ["tee"], min_grade: 9, max_price_cents: 4000 },
+    { brands: ["Adidas"], categories: ["hoodie"], min_grade: null, max_price_cents: null },
+  ]);
+  assertEquals(agg.totalWants, 3);
+  // Nike wanted twice → ranked first; topMinGrade is the strongest (9), top budget 6000.
+  assertEquals(agg.brands[0], { term: "Nike", wantCount: 2, topMinGrade: 9, topMaxPriceCents: 6000 });
+  assertEquals(agg.brands[1].term, "Adidas");
+  // hoodie wanted twice → ranked first among categories.
+  assertEquals(agg.categories[0].term, "hoodie");
+  assertEquals(agg.categories[0].wantCount, 2);
+});
+
+Deno.test("aggregate: case-insensitive facet keys; empty input → empty", () => {
+  const agg = aggregatePublicWants([
+    { brands: ["Nike"], categories: [], min_grade: null, max_price_cents: null },
+    { brands: ["nike"], categories: [], min_grade: null, max_price_cents: null },
+  ]);
+  assertEquals(agg.brands.length, 1);
+  assertEquals(agg.brands[0].wantCount, 2);
+  assertEquals(aggregatePublicWants([]).brands, []);
 });

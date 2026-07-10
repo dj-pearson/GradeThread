@@ -62,6 +62,31 @@ buyerWantsRoutes.post("/wants", async (c) => {
   return c.json({ ok: true, want_id: row.id, matched });
 });
 
+// Manage a want's lifecycle (expire / re-activate / mark fulfilled).
+buyerWantsRoutes.patch("/wants/:id", async (c) => {
+  const userId = c.get("userId");
+  const id = c.req.param("id");
+  let body: { status?: string };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body." }, 400);
+  }
+  if (body.status !== "active" && body.status !== "expired" && body.status !== "fulfilled") {
+    return c.json({ error: "status must be active | expired | fulfilled." }, 400);
+  }
+  const { data, error } = await supabaseAdmin
+    .from("buyer_wants")
+    .update({ status: body.status } as never)
+    .eq("id", id)
+    .eq("user_id", userId)
+    .select("id")
+    .maybeSingle();
+  if (error) return c.json({ error: "Could not update that want." }, 500);
+  if (!data) return c.json({ error: "Want not found." }, 404);
+  return c.json({ ok: true });
+});
+
 buyerWantsRoutes.delete("/wants/:id", async (c) => {
   const userId = c.get("userId");
   const id = c.req.param("id");

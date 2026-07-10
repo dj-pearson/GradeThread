@@ -26,6 +26,7 @@ import {
   handleEbayPendingWebhooksCron,
 } from "./routes/flipdesk-webhooks.ts";
 import { flipdeskGradingRoutes } from "./routes/flipdesk-grading.ts";
+import { flipdeskDemandRoutes } from "./routes/flipdesk-demand.ts";
 import { passportRoutes } from "./routes/passport.ts";
 import { passportIdentityRoutes } from "./routes/passport-identity.ts";
 import { flipdeskPhotoProfilesRoutes } from "./routes/flipdesk-photo-profiles.ts";
@@ -382,6 +383,7 @@ app.use("/api/passport-identity/*", authMiddleware);
 // and the eBay OAuth callback (eBay redirects the browser there unauthenticated;
 // the `state` token from oauth_states identifies the user) + the scheduled
 // /oauth/refresh job (gated by FLIPDESK_INTERNAL_JOB_SECRET header).
+app.use("/api/flipdesk/demand", authMiddleware);
 app.use("/api/flipdesk/ebay/oauth/start", authMiddleware);
 app.use("/api/flipdesk/ebay/oauth/debug", authMiddleware);
 app.use("/api/flipdesk/ebay/disconnect", authMiddleware);
@@ -1007,6 +1009,7 @@ app.route("/api/flipdesk/etsy", flipdeskEtsyRoutes);
 app.route("/api/flipdesk/whatnot", flipdeskWhatnotRoutes);
 app.route("/api/flipdesk/webhooks", flipdeskWebhookRoutes);
 app.route("/api/flipdesk/grading", flipdeskGradingRoutes);
+app.route("/api/flipdesk/demand", flipdeskDemandRoutes);
 app.route("/api/flipdesk/photo-profiles", flipdeskPhotoProfilesRoutes);
 app.route("/api/flipdesk/images", flipdeskImageRoutes);
 app.route("/api/flipdesk/listings", flipdeskListingsRoutes);

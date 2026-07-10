@@ -109,3 +109,58 @@ export function wantToSearch(w: WantSearchFields): AlertSearch {
 
 /** Re-export the shared predicate so demand-board callers use ONE engine. */
 export { matchesSearch };
+
+// ── seller demand aggregate (PII-safe) ──────────────────────────────────────
+
+export interface PublicWantRow {
+  brands: string[];
+  categories: string[];
+  min_grade: number | null;
+  max_price_cents: number | null;
+}
+
+export interface DemandFacet {
+  term: string;
+  wantCount: number;
+  /** Highest min-grade any want in this facet asked for (a quality signal). */
+  topMinGrade: number | null;
+  /** Highest max-price ceiling any want here set, in cents (a budget signal). */
+  topMaxPriceCents: number | null;
+}
+
+export interface DemandAggregate {
+  brands: DemandFacet[];
+  categories: DemandFacet[];
+  totalWants: number;
+}
+
+/**
+ * Aggregate PUBLIC active wants into a PII-safe demand signal for sellers: per
+ * brand + per category, how many buyers want it (a want may contribute to
+ * several facets) and the strongest grade/budget signal. PURE — no buyer identity
+ * ever appears. Facets are ranked by demand and capped.
+ */
+export function aggregatePublicWants(wants: PublicWantRow[], limit = 25): DemandAggregate {
+  const brand = new Map<string, DemandFacet>();
+  const cat = new Map<string, DemandFacet>();
+
+  const bump = (m: Map<string, DemandFacet>, term: string, w: PublicWantRow) => {
+    const key = term.trim();
+    if (!key) return;
+    const f = m.get(key.toLowerCase()) ?? { term: key, wantCount: 0, topMinGrade: null, topMaxPriceCents: null };
+    f.wantCount++;
+    if (w.min_grade != null) f.topMinGrade = Math.max(f.topMinGrade ?? 0, w.min_grade);
+    if (w.max_price_cents != null) f.topMaxPriceCents = Math.max(f.topMaxPriceCents ?? 0, w.max_price_cents);
+    m.set(key.toLowerCase(), f);
+  };
+
+  for (const w of wants) {
+    for (const b of w.brands) bump(brand, b, w);
+    for (const cName of w.categories) bump(cat, cName, w);
+  }
+
+  const rank = (m: Map<string, DemandFacet>) =>
+    [...m.values()].sort((a, b) => b.wantCount - a.wantCount).slice(0, limit);
+
+  return { brands: rank(brand), categories: rank(cat), totalWants: wants.length };
+}

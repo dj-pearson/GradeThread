@@ -7,6 +7,7 @@ import {
   Lightbulb,
   Menu,
   MapPin,
+  Megaphone,
   Plug,
   Ruler,
   Scale,
@@ -142,6 +143,7 @@ const navGroups: NavGroup[] = [
         items: [
           { to: "/dashboard/flipdesk/import", icon: Upload, label: "Import", end: false },
           { to: "/dashboard/flipdesk/sources", icon: MapPin, label: "Sources", end: false },
+          { to: "/dashboard/flipdesk/demand", icon: Megaphone, label: "Buyer Demand", end: false },
           { to: "/dashboard/flipdesk/consignment", icon: Handshake, label: "Consignment", end: false },
           { to: "/dashboard/flipdesk/scout", icon: Radar, label: "ScoutAI", end: true, requiresFlipdeskFlag: "compPulls" },
           { to: "/dashboard/flipdesk/scout/buy", icon: ScanBarcode, label: "Buy Decision", end: false, requiresFlipdeskFlag: "compPulls" },
