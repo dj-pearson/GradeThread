@@ -13406,3 +13406,23 @@ THE extension killer feature — edge endpoint + extension client. NO migration.
 - VERIFIED: deno check CLEAN / lint 0 / full edge suite 3440 pass 0 fail / node
   --check all 3 extension JS files OK.
 - No migration; part of the held branch (not pushed until pending migrations OK'd).
+
+## 2026-07-10 — US-1835 (Extension: condition-adjusted price-fairness meter) — passes:true
+
+Edge endpoint + extension client. NO migration.
+- lib/price-fairness.ts (PURE, 5 tests): priceFairness(price, band) — below band →
+  'low' (a deal) / inside → 'fair' / above → 'high'; no band or price → 'unknown'
+  (no fabricated verdict when comps thin) + deltaPct vs median. parsePriceCents
+  ($59.99 / "US $1,299.00" / bare dollars → cents; junk → null).
+- Wired into /grade-from-url: computes the CONDITION-NORMALIZED value band (reuses
+  the /grade-check machinery — suggestCategories → valueAtGrade(grade) →
+  publicValueFromRange; sufficiency-gated → null when thin) + priceFairness for the
+  listing price; returns `value` + `priceFairness`.
+- Extension client (node --check clean): background forwards price; marketplace.js
+  reads the listing price (new adapter.price selectors) + renders the fairness
+  meter (deal/fair/overpriced + condition-adjusted $low–$high band); eBay price
+  selectors added to BOTH selectors.js and public/extension/marketplace-selectors
+  .json (version bumped 2026.07.4).
+- VERIFIED: deno check CLEAN / lint 0 / full edge suite 3445 pass 0 fail / node
+  --check all 3 extension JS OK.
+- No migration; part of the held branch.

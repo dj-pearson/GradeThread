@@ -20,6 +20,7 @@ import { valueAtGrade, type ValueRange } from "../lib/condition-value.ts";
 import { suggestCategories } from "../lib/ebay-client.ts";
 import { quickGrade } from "../lib/quick-grade.ts";
 import { claimedConditionToGrade, scoreDiscrepancy } from "../lib/condition-discrepancy.ts";
+import { parsePriceCents, priceFairness } from "../lib/price-fairness.ts";
 import { validateImageUpload, IMAGE_CONTENT_TYPE } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
 import { assessAuthenticity } from "../lib/ai-authenticity.ts";
@@ -632,6 +633,25 @@ publicGradingRoutes.post("/grade-from-url", async (c) => {
     );
     const discrepancy = scoreDiscrepancy(result.overallScore, claimedGrade);
 
+    // US-1835: condition-normalized fair value (Value Index range at the OBJECTIVE
+    // grade) + a price-fairness verdict for the listing's price. Best-effort +
+    // sufficiency-gated — thin comps yield value:null, never a fabricated band.
+    let value: PublicGradeCheckValue | null = null;
+    if (brand || title) {
+      try {
+        const query = [brand, title].filter(Boolean).join(" ").trim();
+        const cats = await suggestCategories(query);
+        const categoryId = cats[0]?.categoryId;
+        if (categoryId) {
+          const range = await valueAtGrade({ categoryId, q: title, brand }, result.overallScore);
+          value = publicValueFromRange(range);
+        }
+      } catch (err) {
+        console.error("public-grading /grade-from-url value:", err instanceof Error ? err.message : String(err));
+      }
+    }
+    const fairness = priceFairness(parsePriceCents((body as { price?: unknown })?.price), value);
+
     return c.json(
       {
         estimate: true,
@@ -641,6 +661,8 @@ publicGradingRoutes.post("/grade-from-url", async (c) => {
         factorScores: result.factorScores,
         imagesAnalyzed: result.imagesAnalyzed,
         discrepancy,
+        value,
+        priceFairness: fairness,
         disclaimer: GRADE_CHECK_DISCLAIMER,
         deepLink,
       },

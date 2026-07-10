@@ -20,7 +20,7 @@
 // from telemetry without shipping a new build.
 
 const GT_CC_CONFIG = {
-  version: "2026.07.3",
+  version: "2026.07.4",
   lastVerified: "2026-07-10",
   configUrl: "https://gradethread.com/extension/marketplace-selectors.json",
   adapters: {
@@ -51,6 +51,12 @@ const GT_CC_CONFIG = {
         ".x-item-condition-text .ux-textspans",
         ".x-item-condition-value .ux-textspans",
         "[data-testid='x-item-condition'] .ux-textspans"
+      ],
+      // US-1835: listing price (degrades to '' if none resolve).
+      price: [
+        ".x-price-primary .ux-textspans",
+        "[data-testid='x-price-primary'] .ux-textspans",
+        ".x-bin-price__content .ux-textspans"
       ],
       itemSpec: {
         row: ".ux-labels-values",

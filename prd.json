@@ -14605,7 +14605,7 @@
         "Served via a buyer-scoped endpoint, quota-metered per entitlement"
       ],
       "priority": 1835,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][EXTENSION][NEW] Reuse condition-index.ts (Value Index US-1745) + grade_outcomes + comps-ladder.ts. Condition-normalized fair value is the unique angle. No fabricated precision when comps thin. Depends on discrepancy scoring (1834) for the grade input."
     },
     {

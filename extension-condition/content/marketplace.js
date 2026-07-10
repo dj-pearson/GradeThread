@@ -232,6 +232,33 @@
         }
       }
 
+      // US-1835: condition-adjusted price-fairness meter.
+      var pf = data.priceFairness;
+      var val = data.value;
+      if (pf && pf.verdict && pf.verdict !== "unknown" && val) {
+        var PF = {
+          low: ["gt-cc-disc-ok", "✓ Priced below fair value — a deal"],
+          fair: ["gt-cc-disc-ok", "Priced fairly for its condition"],
+          high: ["gt-cc-disc-bad", "⚠ Priced above fair value"],
+        };
+        var p = PF[pf.verdict];
+        if (p) {
+          var fairLine = el("p", "gt-cc-disc " + p[0], p[1]);
+          if (typeof pf.deltaPct === "number") {
+            fairLine.textContent = p[1] + " (" + (pf.deltaPct > 0 ? "+" : "") + pf.deltaPct + "% vs typical)";
+          }
+          body.appendChild(fairLine);
+        }
+        body.appendChild(
+          el(
+            "p",
+            "gt-cc-note",
+            "Condition-adjusted value: $" + Math.round(val.lowCents / 100) + "–$" +
+              Math.round(val.highCents / 100),
+          ),
+        );
+      }
+
       body.appendChild(el("p", "gt-cc-disclaimer", String(data.disclaimer || "")));
 
       if (data.deepLink) {
@@ -271,6 +298,12 @@
     return firstText(adapter.condition).slice(0, 60);
   }
 
+  // US-1835: the listing price — optional; endpoint rates fairness when present.
+  function extractPrice() {
+    if (!adapter || !adapter.price) return "";
+    return firstText(adapter.price).slice(0, 24);
+  }
+
   async function runGrade() {
     if (grading) return;
     const title = extractTitle();
@@ -292,6 +325,7 @@
       title,
       brand,
       condition,
+      price: extractPrice(),
       marketplace: (adapter && adapter.key) || "",
     });
     grading = false;
