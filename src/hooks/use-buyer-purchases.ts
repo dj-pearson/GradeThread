@@ -5,6 +5,7 @@ import { useAuth } from "@/hooks/use-auth";
 import type {
   ArrivalImageType,
   BuyerGradeOutcomeRow,
+  BuyerGuaranteeClaimRow,
   BuyerPurchaseRow,
   BuyerRewardCreditsRow,
   PurchaseArrivalCaptureRow,
@@ -22,6 +23,8 @@ export interface PurchaseWithCaptures extends BuyerPurchaseRow {
   coverage: PurchaseCoverageRow | null;
   // US-1812: the buyer's confirm/dispute verdict for this purchase, if recorded.
   outcome: BuyerGradeOutcomeRow | null;
+  // US-1821: the guarantee claim filed for this purchase, if any.
+  claim: BuyerGuaranteeClaimRow | null;
 }
 
 // US-1812: a structured mismatch the buyer reports when disputing a grade.
@@ -58,7 +61,7 @@ export function useBuyerPurchases() {
   const query = useQuery<PurchaseWithCaptures[]>({
     queryKey: key,
     queryFn: async () => {
-      const [purchasesRes, capturesRes, coverageRes, outcomesRes] = await Promise.all([
+      const [purchasesRes, capturesRes, coverageRes, outcomesRes, claimsRes] = await Promise.all([
         supabase
           .from("buyer_purchases")
           .select("*")
@@ -72,19 +75,24 @@ export function useBuyerPurchases() {
           .from("grade_outcomes")
           .select("id, buyer_purchase_id, match_status, dispute_reason, dispute_severity, guarantee_eligible")
           .eq("buyer_user_id", userId!),
+        // US-1821: guarantee claims (owner-read, 00424).
+        supabase.from("buyer_guarantee_claims").select("*").eq("user_id", userId!),
       ]);
       if (purchasesRes.error) throw purchasesRes.error;
       if (capturesRes.error) throw capturesRes.error;
       if (coverageRes.error) throw coverageRes.error;
       if (outcomesRes.error) throw outcomesRes.error;
+      if (claimsRes.error) throw claimsRes.error;
       const captures = (capturesRes.data ?? []) as PurchaseArrivalCaptureRow[];
       const coverage = (coverageRes.data ?? []) as PurchaseCoverageRow[];
       const outcomes = (outcomesRes.data ?? []) as BuyerGradeOutcomeRow[];
+      const claims = (claimsRes.data ?? []) as BuyerGuaranteeClaimRow[];
       return ((purchasesRes.data ?? []) as BuyerPurchaseRow[]).map((p) => ({
         ...p,
         captures: captures.filter((cap) => cap.purchase_id === p.id),
         coverage: coverage.find((cov) => cov.purchase_id === p.id) ?? null,
         outcome: outcomes.find((o) => o.buyer_purchase_id === p.id) ?? null,
+        claim: claims.find((cl) => cl.purchase_id === p.id) ?? null,
       }));
     },
     enabled: !!userId,
@@ -117,6 +125,23 @@ export function useBuyerPurchases() {
       return json;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: key }),
+  });
+
+  const claimMutation = useMutation({
+    mutationFn: async (purchaseId: string) => {
+      const res = await edgeFetch(`/api/buyer/purchases/${purchaseId}/claim`, {
+        method: "POST",
+        json: {},
+        skipWorkspaceHeader: true,
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? "Could not file the claim.");
+      return json.claim as { status: string; remedyCents: number; remedyCredits: number };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: key });
+      queryClient.invalidateQueries({ queryKey: ["buyer-reward-credits", userId] });
+    },
   });
 
   const confirmMutation = useMutation({
@@ -165,5 +190,7 @@ export function useBuyerPurchases() {
     confirmPurchase: (purchaseId: string, input: ConfirmPurchaseInput) =>
       confirmMutation.mutateAsync({ purchaseId, input }),
     isConfirming: confirmMutation.isPending,
+    fileClaim: (purchaseId: string) => claimMutation.mutateAsync(purchaseId),
+    isFilingClaim: claimMutation.isPending,
   };
 }

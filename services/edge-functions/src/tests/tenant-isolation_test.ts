@@ -2200,6 +2200,24 @@ Deno.test({
   },
 });
 
+// US-1821: buyer guarantee claim. The claim route loads the purchase with
+// .eq("id", id).eq("user_id", userId) before filing anything, so B filing a
+// claim on A's purchase hits 0 rows → 404 (never records a claim or grants a
+// remedy against A's purchase). Reuses the same seed.
+Deno.test({
+  name: "B cannot file a guarantee claim on A's purchase",
+  ignore: !CONFIGURED || !A_BUYER_PURCHASE_ID,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/buyer/purchases/${A_BUYER_PURCHASE_ID}/claim`, {
+      method: "POST",
+      headers: { ...authHeaders(B_JWT!), "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST buyer guarantee claim to foreign purchase");
+  },
+});
+
 // US-1814: buyer rewards leaderboard. No cross-tenant id vector — the opt-in
 // POST /api/buyer/rewards/leaderboard updates ONLY the caller's own users row
 // (.eq("id", userId); no id is taken from the body), and GET returns a PII-free

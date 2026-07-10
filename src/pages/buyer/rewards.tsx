@@ -25,6 +25,23 @@ function centsFromDollars(v: string): number | null {
   return !v.trim() || Number.isNaN(n) || n < 0 ? null : Math.round(n * 100);
 }
 
+// US-1821: buyer-facing guarantee claim status copy.
+function claimStatusLabel(status: string): string {
+  switch (status) {
+    case "auto_approved":
+    case "approved":
+      return "Guarantee claim approved";
+    case "paid":
+      return "Guarantee claim paid";
+    case "manual_review":
+      return "Guarantee claim under review";
+    case "rejected":
+      return "Guarantee claim not covered";
+    default:
+      return "Guarantee claim filed";
+  }
+}
+
 function readAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
@@ -36,7 +53,8 @@ function readAsDataUrl(file: File): Promise<string> {
 
 // One purchase card with its arrival-capture checklist.
 function PurchaseCard({ purchase }: { purchase: PurchaseWithCaptures }) {
-  const { uploadArrival, isUploading, confirmPurchase, isConfirming } = useBuyerPurchases();
+  const { uploadArrival, isUploading, confirmPurchase, isConfirming, fileClaim, isFilingClaim } =
+    useBuyerPurchases();
   const inputs = useRef<Record<string, HTMLInputElement | null>>({});
   const captured = new Set(purchase.captures.map((c) => c.image_type));
   const [disputing, setDisputing] = useState(false);
@@ -66,6 +84,19 @@ function PurchaseCard({ purchase }: { purchase: PurchaseWithCaptures }) {
       );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not record your verdict");
+    }
+  }
+
+  async function onClaim() {
+    try {
+      const claim = await fileClaim(purchase.id);
+      toast.success(
+        claim?.status === "auto_approved"
+          ? `Claim approved — $${((claim.remedyCents ?? 0) / 100).toFixed(2)} covered (${claim.remedyCredits} credits).`
+          : "Claim filed — our team is reviewing it.",
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not file the claim");
     }
   }
 
@@ -186,9 +217,26 @@ function PurchaseCard({ purchase }: { purchase: PurchaseWithCaptures }) {
                   <p className="text-muted-foreground">“{purchase.outcome.dispute_reason}”</p>
                 )}
                 {purchase.outcome.guarantee_eligible && (
-                  <p className="flex items-center gap-1 text-emerald-700 dark:text-emerald-400">
-                    <ShieldCheck className="h-3.5 w-3.5" /> May qualify for your Grade-Locked guarantee.
-                  </p>
+                  <div className="space-y-1">
+                    <p className="flex items-center gap-1 text-emerald-700 dark:text-emerald-400">
+                      <ShieldCheck className="h-3.5 w-3.5" /> May qualify for your Grade-Locked guarantee.
+                    </p>
+                    {purchase.claim ? (
+                      <p className="text-muted-foreground">
+                        {claimStatusLabel(purchase.claim.status)}
+                        {purchase.claim.remedy_cents > 0
+                          ? ` — $${(purchase.claim.remedy_cents / 100).toFixed(2)} covered`
+                          : ""}
+                      </p>
+                    ) : (
+                      <Button size="sm" variant="outline" disabled={isFilingClaim} onClick={onClaim}>
+                        {isFilingClaim ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : (
+                          <ShieldCheck className="mr-1 h-3.5 w-3.5" />
+                        )}
+                        File guarantee claim
+                      </Button>
+                    )}
+                  </div>
                 )}
               </div>
             )

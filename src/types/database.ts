@@ -2606,6 +2606,31 @@ export interface BuyerRewardLedgerRow {
   created_at: string;
 }
 
+// US-1821: buyer purchase-guarantee claim (owner-read; service-write).
+export type BuyerGuaranteeClaimStatus =
+  | "auto_approved"
+  | "approved"
+  | "manual_review"
+  | "rejected"
+  | "paid";
+
+export interface BuyerGuaranteeClaimRow {
+  id: string;
+  user_id: string;
+  purchase_id: string;
+  grade_report_id: string | null;
+  status: BuyerGuaranteeClaimStatus;
+  grade_delta: number | null;
+  purchase_price_cents: number | null;
+  payout_cap_cents: number | null;
+  remedy_cents: number;
+  remedy_credits: number;
+  auto: boolean;
+  decision_reason: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // ─── Growth / Promote suite (00102_growth_suite.sql) ───────────────
 
 export type CampaignChannel = "email" | "in_app" | "push";
@@ -3366,6 +3391,12 @@ export interface Database {
         Row: BuyerRewardLedgerRow;
         Insert: Partial<Omit<BuyerRewardLedgerRow, "id" | "created_at">> & { user_id: string; entry_type: BuyerRewardLedgerRow["entry_type"]; credits: number };
         Update: Partial<Omit<BuyerRewardLedgerRow, "id" | "user_id" | "created_at">>;
+      };
+      // US-1821: buyer purchase-guarantee claims (owner-read; service-write).
+      buyer_guarantee_claims: {
+        Row: BuyerGuaranteeClaimRow;
+        Insert: { user_id: string; purchase_id: string } & Partial<Omit<BuyerGuaranteeClaimRow, "id" | "user_id" | "purchase_id" | "created_at" | "updated_at">>;
+        Update: Partial<Omit<BuyerGuaranteeClaimRow, "id" | "user_id" | "purchase_id" | "created_at">>;
       };
       closet_items: {
         Row: ClosetItemRow;

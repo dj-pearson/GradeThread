@@ -1,5 +1,24 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ PENDING: 00424_buyer_guarantee_claims.sql (US-1821 buyer guarantee claim intake + remedy, 2026-07-10)
+
+**What:** New `public.buyer_guarantee_claims` (owner/admin read, service-write;
+UNIQUE(purchase_id) idempotency; status enum, remedy_cents/remedy_credits, audit
+snapshot). A NEW RPC `grant_buyer_reward_credit` (uncapped, reason-tagged,
+idempotent) for the remedy payout, and a same-signature `CREATE OR REPLACE` of
+`issue_buyer_reward_credit` (00422) that re-scopes the day-cap count to
+`reason='grade_confirmation'` so remedy grants don't consume the confirmation
+cap. Plus a `system_settings` row `buyer.guarantee_remedy`. Bumps
+`EXPECTED_SCHEMA_VERSION` → **00424**. Self-records '00424'.
+
+**Risk: LOW–MEDIUM** — one new table + one new RPC + one in-place RPC re-def
+(same signature, body-only change) + one settings row; no destructive change, no
+backfill. **The CLIENT reads `buyer_guarantee_claims` on frontend auto-deploy**
+(the /buyer/rewards claim status), and the edge claim route boot-expects 00424 —
+apply BEFORE the push. Order matters: 00424 re-defines the 00422 RPC, so apply
+**after 00422**. **⚠️ Apply order:** after 00423; `scripts/apply-prod-migrations.sh`,
+then `NOTIFY pgrst, 'reload schema';`, redeploy the edge (boot guard now expects 00424).
+
 ## ⏳ PENDING: 00423_buyer_rewards_leaderboard.sql (US-1814 buyer rewards leaderboard opt-in, 2026-07-10)
 
 **What:** Two additive columns on `public.users` — `rewards_leaderboard_enabled`

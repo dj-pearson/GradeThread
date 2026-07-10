@@ -15,6 +15,7 @@ import { validateImageUpload } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
 import { snapshotCoverageForPurchase } from "../lib/buyer-guarantee-coverage.ts";
 import { recordBuyerGradeOutcome } from "../lib/buyer-grade-confirmation.ts";
+import { fileBuyerGuaranteeClaim } from "../lib/buyer-guarantee-claim.ts";
 
 export const ARRIVAL_IMAGE_TYPES = ["front", "back", "label", "detail"] as const;
 export type ArrivalImageType = (typeof ARRIVAL_IMAGE_TYPES)[number];
@@ -239,5 +240,35 @@ buyerPurchasesRoutes.post("/purchases/:id/confirm", async (c) => {
   } catch (err) {
     console.error("[buyer-purchases] confirm failed:", err);
     return c.json({ error: "Could not record the confirmation." }, 500);
+  }
+});
+
+// US-1821: file a Grade-Locked purchase-guarantee claim for an owned purchase.
+// Ownership FIRST (foreign id → 0 rows → 404). The remedy decision rides the
+// confirm evidence + frozen coverage; auto-approved claims grant reward credits.
+buyerPurchasesRoutes.post("/purchases/:id/claim", async (c) => {
+  const userId = c.get("userId");
+  const purchaseId = c.req.param("id");
+
+  const { data: purchase } = await supabaseAdmin
+    .from("buyer_purchases")
+    .select("id, grade_report_id, purchase_price_cents")
+    .eq("id", purchaseId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!purchase) return c.json({ error: "Purchase not found." }, 404);
+
+  try {
+    const result = await fileBuyerGuaranteeClaim(
+      userId,
+      purchase as { id: string; grade_report_id: string; purchase_price_cents: number | null },
+    );
+    if (!result.eligible) {
+      return c.json({ error: "This purchase isn't eligible for a guarantee claim.", ...result }, 400);
+    }
+    return c.json({ ok: true, claim: result });
+  } catch (err) {
+    console.error("[buyer-purchases] claim failed:", err);
+    return c.json({ error: "Could not file the claim." }, 500);
   }
 });

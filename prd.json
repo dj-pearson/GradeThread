@@ -14409,7 +14409,7 @@
         "All claim reads/writes are ownership-verified and tenant-scoped"
       ],
       "priority": 1821,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][GUARANTEE][NEW] Extend routes/guarantee-public.ts + lib/guarantee-remedy.ts + guarantee_remedies (00319); admin/claims.tsx for the edge-case queue. Automation gated by coverage model (1820) + confirm engine (1812). Load tenant-isolation skill (never act on a claim id from the body without ownership check). Notifications via 1803."
     },
     {

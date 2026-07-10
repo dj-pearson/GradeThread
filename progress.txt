@@ -13120,3 +13120,34 @@ all done and every epic AC is met, so the umbrella is marked too.
   web tsc --noEmit 0 / eslint 0 / vitest 8 pass / tsc -b baseline 7 (none mine) /
   vite build + prerender 212 CLEAN.
 - ⚠️ HELD MIGRATION — commit local; NOT pushed until user applies 00423 (after 00422).
+
+## 2026-07-10 — US-1821 (Guarantee: claim intake + automated remedy/payout) — passes:true
+
+The insured "Grade-Locked" purchase guarantee gets a real, automatic resolution
+path. Consumes the US-1812 confirm evidence (guarantee_eligible + overall_delta on
+the buyer_arrival grade_outcome) and the US-1820 frozen coverage snapshot — no
+re-collection. Distinct from the SELLER grade-fee-back guarantee_claims (00197).
+- 00424_buyer_guarantee_claims.sql: buyer_guarantee_claims (owner/admin read,
+  service-write; UNIQUE(purchase_id) idempotency; status enum auto_approved/
+  approved/manual_review/rejected/paid; remedy_cents for US-1822 pool + granted
+  remedy_credits). NEW grant_buyer_reward_credit RPC (uncapped, reason-tagged,
+  idempotent) for remedy payout; issue_buyer_reward_credit day-cap re-scoped to
+  reason='grade_confirmation' so remedies don't consume the confirm cap. Config
+  system_settings 'buyer.guarantee_remedy'. EXPECTED_SCHEMA_VERSION=00424.
+- lib/buyer-guarantee-claim.ts: PURE decideBuyerGuaranteeRemedy (material +
+  guarantee_eligible + in-window → remedy = pct of price or flat, capped by the
+  frozen payout cap; auto-approve at/under auto_max, else manual review) +
+  normalize + impure fileBuyerGuaranteeClaim orchestrator (idempotent on
+  purchase_id; auto-approved grants reward credits via grant RPC; notifies via
+  notifyBuyer 'guarantee' category, US-1803). No Stripe rail to a marketplace
+  buyer → remedy is account credit; the $ figure is recorded for US-1822.
+- Route: POST /api/buyer/purchases/:id/claim (ownership .eq id/user_id → 404;
+  ineligible-with-no-material-mismatch → 400 no row). Tenant isolation: "B cannot
+  file a guarantee claim on A's purchase".
+- Web: use-buyer-purchases reads claims + fileClaim mutation; rewards.tsx
+  PurchaseCard "File guarantee claim" on eligible disputes + claim status/copy;
+  database.ts BuyerGuaranteeClaimRow + registration.
+- Tests: buyer-guarantee-claim_test.ts 10 (decision matrix + config). VERIFIED:
+  deno check CLEAN / lint 0 / full edge suite 3371 pass 0 fail / web tsc --noEmit
+  0 / eslint 0 / tsc -b baseline 7 (none mine) / vite build + prerender 212 CLEAN.
+- ⚠️ HELD MIGRATION — commit local; NOT pushed until user applies 00424 (after 00423).
