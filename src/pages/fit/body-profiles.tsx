@@ -102,13 +102,13 @@ export function BodyProfilesPage() {
       if (draft.id) {
         const { error } = await supabase
           .from("body_profiles")
-          .update({ name, measurements })
+          .update({ name, measurements } as never)
           .eq("id", draft.id);
         if (error) throw error;
       } else {
         const { error } = await supabase
           .from("body_profiles")
-          .insert({ user_id: userId, name, measurements, is_default: profiles.length === 0 });
+          .insert({ user_id: userId, name, measurements, is_default: profiles.length === 0 } as never);
         if (error) throw error;
       }
       toast.success("Measurements saved.");
@@ -133,8 +133,8 @@ export function BodyProfilesPage() {
 
   async function makeDefault(id: string) {
     // Clear the current default, then set the new one (two owner-scoped updates).
-    await supabase.from("body_profiles").update({ is_default: false }).eq("is_default", true);
-    const { error } = await supabase.from("body_profiles").update({ is_default: true }).eq("id", id);
+    await supabase.from("body_profiles").update({ is_default: false } as never).eq("is_default", true);
+    const { error } = await supabase.from("body_profiles").update({ is_default: true } as never).eq("id", id);
     if (error) {
       toast.error("Couldn't set default.");
       return;

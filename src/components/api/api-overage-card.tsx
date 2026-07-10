@@ -31,7 +31,7 @@ export function ApiOverageCard() {
         .select("balance")
         .eq("user_id", user!.id)
         .maybeSingle();
-      return (data?.balance as number | undefined) ?? 0;
+      return ((data as { balance: number } | null)?.balance) ?? 0;
     },
   });
 
