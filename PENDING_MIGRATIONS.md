@@ -1,5 +1,30 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ PENDING: 00421_buyer_grade_confirmations.sql (US-1812 buyer confirm/dispute engine, 2026-07-09)
+
+**What:** (a) EXTENDS the existing `public.grade_outcomes` (00036) with buyer
+confirm/dispute columns — `buyer_user_id`, `buyer_purchase_id`, `seller_user_id`
+(denormalized for the seller-integrity scan), `match_status`
+(confirmed|disputed), `factor_deltas` jsonb, `overall_delta`, `dispute_reason`,
+`dispute_severity` (cosmetic|material), `prompt_version`, `guarantee_eligible`,
+`human_review_flagged` — all additive/nullable; a UNIQUE partial index on
+`buyer_purchase_id` (one verdict per purchase, upsert), a seller-scan index, and
+a buyer-owner SELECT policy (the 00036 seller/admin read policies stay). Buyer
+rows carry `source='buyer_arrival'` so the seller-sale readers exclude them.
+(b) NEW `public.seller_grade_integrity` — a per-seller aggregate cache
+(confirmed/disputed/material counts + smoothed 0–100 integrity_score);
+seller/admin read, service-write (no write policy). This is the US-1912
+substrate. Bumps `EXPECTED_SCHEMA_VERSION` → **00421**. Self-records '00421'.
+
+**Risk: LOW–MEDIUM** — additive columns on an existing table + one new isolated
+table; no destructive change, no backfill. **The CLIENT reads the new columns on
+frontend auto-deploy** (the /buyer/rewards page reads `grade_outcomes`
+match_status/dispute_severity/guarantee_eligible for the buyer's own outcomes),
+and the new edge confirm route (POST /api/buyer/purchases/:id/confirm)
+boot-expects 00421 — apply BEFORE the push. **⚠️ Apply order:** after 00420;
+`scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload schema';`,
+redeploy the edge (boot guard now expects 00421).
+
 ## ⏳ PENDING: 00420_closet_items.sql (US-1825 wardrobe portfolio closet model, 2026-07-09)
 
 **What:** One OWNER-READ / SERVICE-WRITE table `public.closet_items` — an owner's

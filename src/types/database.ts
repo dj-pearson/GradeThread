@@ -2557,8 +2557,30 @@ export interface GradeOutcomeRow {
   sold_at: string | null;
   dispute_reported: boolean;
   source: string;
+  // US-1812: buyer confirm/dispute columns (00421; null on seller-sale rows).
+  buyer_user_id: string | null;
+  buyer_purchase_id: string | null;
+  seller_user_id: string | null;
+  match_status: "confirmed" | "disputed" | null;
+  factor_deltas: Record<string, number>;
+  overall_delta: number | null;
+  dispute_reason: string | null;
+  dispute_severity: "cosmetic" | "material" | null;
+  prompt_version: string | null;
+  guarantee_eligible: boolean;
+  human_review_flagged: boolean;
   created_at: string;
   updated_at: string;
+}
+
+// US-1812: the buyer-facing projection of their own confirm/dispute verdict.
+export interface BuyerGradeOutcomeRow {
+  id: string;
+  buyer_purchase_id: string | null;
+  match_status: "confirmed" | "disputed" | null;
+  dispute_reason: string | null;
+  dispute_severity: "cosmetic" | "material" | null;
+  guarantee_eligible: boolean;
 }
 
 // ─── Growth / Promote suite (00102_growth_suite.sql) ───────────────

@@ -13023,3 +13023,41 @@ US-1702 DONE (edge+web; MIGRATION 00387 — HELD). The story I had missed.
   deno check src/main.ts CLEAN / deno lint 0 / web tsc --noEmit 0 / eslint 0 / tsc -b
   baseline 7 / vite build CLEAN (portfolio chunk bundles). Full edge suite: running.
 - ⚠️ HELD MIGRATION — commit local; NOT pushed until user applies 00420 (after 00419).
+
+## 2026-07-09 — US-1812 (Rewards: confirm/dispute engine + grading feedback loop) — passes:true
+
+The buyer's post-sale verdict — did the arrived item MATCH its grade? — is the
+two-sided moat: one confirm/dispute event fans out to the grading accuracy loop,
+the buyer's Trust Score, the SELLER's Grade Integrity, and the guarantee path.
+- 00421_buyer_grade_confirmations.sql: EXTENDS grade_outcomes with buyer cols
+  (buyer_user_id / buyer_purchase_id / seller_user_id / match_status /
+  factor_deltas jsonb / overall_delta / dispute_reason / dispute_severity /
+  prompt_version / guarantee_eligible / human_review_flagged), a UNIQUE partial
+  idx on buyer_purchase_id (one verdict per purchase, upsert), a seller-scan idx,
+  and a buyer-owner SELECT policy. NEW seller_grade_integrity cache (per-seller
+  aggregate; seller/admin read, service-write) = the US-1912 substrate. US-1108
+  triple + footer, EXPECTED_SCHEMA_VERSION=00421.
+- lib/buyer-grade-confirmation.ts: PURE deriveDisputeSeverity /
+  decideGuaranteeEligible / computeSellerIntegrityScore (smoothed 0–100, material
+  disputes ×2, MIN_INTEGRITY_SAMPLE=5) + impure recordBuyerGradeOutcome
+  orchestrator + recomputeSellerGradeIntegrity. Reuses claim-accuracy.ts
+  ({defect,severity,location}→per-factor deltas). Confirmations emit a
+  grade_confirmed reputation event (US-1817) + recompute Trust Score; a MATERIAL
+  dispute flips grade_reports.needs_human_review (routes to the expert queue —
+  never fabricates a human_reviews correction, grading-engine golden-set rule)
+  and refreshes updatePromptVersionAccuracy. Material + eligible + in-window +
+  over-threshold ⇒ guarantee_eligible (US-1821 claim intake picks it up).
+- accuracy-tracking.ts: both grade_outcomes readers (public stats count +
+  computeOutcomeFeedback) now .neq("source","buyer_arrival") so buyer verdicts
+  don't pollute the seller-sale metrics.
+- Route: POST /api/buyer/purchases/:id/confirm (ownership .eq id/user_id → 404;
+  disputes require a reason or an issue). Tenant isolation: tenant-isolation_test
+  "B cannot confirm/dispute A's purchase" (reuses TEST_USER_A_BUYER_PURCHASE_ID).
+- Web: use-buyer-purchases confirmPurchase mutation + own-outcome read;
+  rewards.tsx PurchaseCard confirm/dispute controls + verdict/guarantee state;
+  database.ts GradeOutcomeRow buyer cols + BuyerGradeOutcomeRow projection.
+- Tests: edge buyer-grade-confirmation_test.ts 15 pass. VERIFIED: deno check
+  src/main.ts CLEAN / deno lint 0 / full edge suite 3352 pass 0 fail / web tsc
+  --noEmit 0 / eslint 0 / tsc -b baseline 7 (none in touched files) / vite build
+  CLEAN + prerender 212 pages.
+- ⚠️ HELD MIGRATION — commit local; NOT pushed until user applies 00421 (after 00420).

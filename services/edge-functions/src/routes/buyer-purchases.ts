@@ -14,6 +14,7 @@ import { isCertificateWithheld } from "../lib/certificate-visibility.ts";
 import { validateImageUpload } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
 import { snapshotCoverageForPurchase } from "../lib/buyer-guarantee-coverage.ts";
+import { recordBuyerGradeOutcome } from "../lib/buyer-grade-confirmation.ts";
 
 export const ARRIVAL_IMAGE_TYPES = ["front", "back", "label", "detail"] as const;
 export type ArrivalImageType = (typeof ARRIVAL_IMAGE_TYPES)[number];
@@ -182,4 +183,61 @@ buyerPurchasesRoutes.post("/purchases/:id/arrival", async (c) => {
   }
 
   return c.json({ ok: true, saved });
+});
+
+// US-1812: confirm (or dispute) that the arrived item matched its grade. The
+// verdict fans out to grade_outcomes + human-review + Trust Score + seller Grade
+// Integrity (see buyer-grade-confirmation.ts). Ownership FIRST — a foreign id
+// hits 0 rows → 404 (never act on an attacker-supplied id, US-268).
+buyerPurchasesRoutes.post("/purchases/:id/confirm", async (c) => {
+  const userId = c.get("userId");
+  const purchaseId = c.req.param("id");
+
+  const { data: purchase } = await supabaseAdmin
+    .from("buyer_purchases")
+    .select("id, grade_report_id")
+    .eq("id", purchaseId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!purchase) return c.json({ error: "Purchase not found." }, 404);
+
+  let body: {
+    match_status?: string;
+    issues?: unknown;
+    dispute_reason?: string | null;
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body." }, 400);
+  }
+
+  if (body.match_status !== "confirmed" && body.match_status !== "disputed") {
+    return c.json({ error: "match_status must be 'confirmed' or 'disputed'." }, 400);
+  }
+  // A dispute needs at least a reason or a structured issue — otherwise it's an
+  // empty complaint that can't feed the accuracy loop.
+  if (body.match_status === "disputed") {
+    const hasReason = typeof body.dispute_reason === "string" && body.dispute_reason.trim().length > 0;
+    const hasIssues = Array.isArray(body.issues) && body.issues.length > 0;
+    if (!hasReason && !hasIssues) {
+      return c.json({ error: "A dispute needs a reason or at least one reported issue." }, 400);
+    }
+  }
+
+  try {
+    const result = await recordBuyerGradeOutcome({
+      userId,
+      purchase: purchase as { id: string; grade_report_id: string },
+      verdict: {
+        matchStatus: body.match_status,
+        issues: body.issues,
+        disputeReason: body.dispute_reason ?? null,
+      },
+    });
+    return c.json({ ok: true, outcome: result });
+  } catch (err) {
+    console.error("[buyer-purchases] confirm failed:", err);
+    return c.json({ error: "Could not record the confirmation." }, 500);
+  }
 });

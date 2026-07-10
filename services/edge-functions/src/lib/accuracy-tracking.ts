@@ -1028,7 +1028,12 @@ export async function computePublicStats(): Promise<PublicStats> {
       .select("id", { count: "exact", head: true })
       .eq("verified_enabled", true)
       .not("verified_handle", "is", null),
-    supabaseAdmin.from("grade_outcomes").select("id", { count: "exact", head: true }),
+    // Sale-outcome count only — exclude US-1812 buyer_arrival confirmations,
+    // which aren't sales.
+    supabaseAdmin
+      .from("grade_outcomes")
+      .select("id", { count: "exact", head: true })
+      .neq("source", "buyer_arrival"),
     // The agreement rate reuses the existing accuracy engine (sample-gated).
     computeAccuracySummary(),
   ]);
@@ -1214,7 +1219,10 @@ export interface OutcomeFeedbackSummary {
 export async function computeOutcomeFeedback(): Promise<OutcomeFeedbackSummary> {
   const { data: outcomes, error } = await supabaseAdmin
     .from("grade_outcomes")
-    .select("grade_report_id, listing_price, sold_price, dispute_reported");
+    .select("grade_report_id, listing_price, sold_price, dispute_reported")
+    // Sale-outcome feedback only — US-1812 buyer_arrival confirmations feed the
+    // seller Grade Integrity aggregate, not this sold-price/dispute-rate metric.
+    .neq("source", "buyer_arrival");
   if (error) throw new Error(`Failed to fetch grade outcomes: ${error.message}`);
 
   const empty: OutcomeFeedbackSummary = {

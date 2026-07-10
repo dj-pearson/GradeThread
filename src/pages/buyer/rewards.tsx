@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useBuyerEntitlements } from "@/hooks/use-buyer-entitlements";
 import { useBuyerPurchases, type PurchaseWithCaptures } from "@/hooks/use-buyer-purchases";
@@ -34,9 +35,11 @@ function readAsDataUrl(file: File): Promise<string> {
 
 // One purchase card with its arrival-capture checklist.
 function PurchaseCard({ purchase }: { purchase: PurchaseWithCaptures }) {
-  const { uploadArrival, isUploading } = useBuyerPurchases();
+  const { uploadArrival, isUploading, confirmPurchase, isConfirming } = useBuyerPurchases();
   const inputs = useRef<Record<string, HTMLInputElement | null>>({});
   const captured = new Set(purchase.captures.map((c) => c.image_type));
+  const [disputing, setDisputing] = useState(false);
+  const [disputeReason, setDisputeReason] = useState("");
 
   async function onPick(type: ArrivalImageType, file: File | undefined) {
     if (!file) return;
@@ -46,6 +49,41 @@ function PurchaseCard({ purchase }: { purchase: PurchaseWithCaptures }) {
       toast.success(`${type} photo saved`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Upload failed");
+    }
+  }
+
+  async function onConfirm() {
+    try {
+      const outcome = await confirmPurchase(purchase.id, { match_status: "confirmed" });
+      toast.success(
+        outcome?.trustScore != null
+          ? `Thanks! Grade confirmed — Trust Score now ${outcome.trustScore}.`
+          : "Thanks! Grade confirmed.",
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not record your verdict");
+    }
+  }
+
+  async function onDispute() {
+    if (!disputeReason.trim()) {
+      toast.error("Tell us what didn't match.");
+      return;
+    }
+    try {
+      const outcome = await confirmPurchase(purchase.id, {
+        match_status: "disputed",
+        dispute_reason: disputeReason.trim(),
+      });
+      setDisputing(false);
+      setDisputeReason("");
+      toast.success(
+        outcome?.guaranteeEligible
+          ? "Mismatch reported — this may qualify for your Grade-Locked guarantee."
+          : "Mismatch reported. Thanks for the honest signal.",
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not record your verdict");
     }
   }
 
@@ -125,6 +163,72 @@ function PurchaseCard({ purchase }: { purchase: PurchaseWithCaptures }) {
               );
             })}
           </div>
+        </div>
+
+        {/* US-1812: confirm the grade matched (or report a mismatch). */}
+        <div className="border-t pt-3">
+          {purchase.outcome ? (
+            purchase.outcome.match_status === "confirmed" ? (
+              <p className="flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                <Check className="h-3.5 w-3.5" /> You confirmed this grade matched.
+              </p>
+            ) : (
+              <div className="space-y-1 text-xs">
+                <p className="font-medium text-amber-700 dark:text-amber-400">
+                  You reported a{" "}
+                  {purchase.outcome.dispute_severity === "material" ? "material" : ""} mismatch.
+                </p>
+                {purchase.outcome.dispute_reason && (
+                  <p className="text-muted-foreground">“{purchase.outcome.dispute_reason}”</p>
+                )}
+                {purchase.outcome.guarantee_eligible && (
+                  <p className="flex items-center gap-1 text-emerald-700 dark:text-emerald-400">
+                    <ShieldCheck className="h-3.5 w-3.5" /> May qualify for your Grade-Locked guarantee.
+                  </p>
+                )}
+              </div>
+            )
+          ) : disputing ? (
+            <div className="space-y-2">
+              <Label htmlFor={`dispute-${purchase.id}`} className="text-xs">
+                What didn&apos;t match the grade?
+              </Label>
+              <Textarea
+                id={`dispute-${purchase.id}`}
+                value={disputeReason}
+                onChange={(e) => setDisputeReason(e.target.value)}
+                placeholder="e.g. arrived with a stain on the front and a broken zipper"
+                rows={2}
+                className="text-sm"
+              />
+              <div className="flex gap-2">
+                <Button size="sm" variant="destructive" disabled={isConfirming} onClick={onDispute}>
+                  Submit mismatch
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={isConfirming}
+                  onClick={() => { setDisputing(false); setDisputeReason(""); }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">Did the item match its grade?</p>
+              <div className="flex gap-2">
+                <Button size="sm" disabled={isConfirming} onClick={onConfirm}>
+                  {isConfirming ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Check className="mr-1 h-3.5 w-3.5" />}
+                  Grade matched
+                </Button>
+                <Button size="sm" variant="outline" disabled={isConfirming} onClick={() => setDisputing(true)}>
+                  Report mismatch
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       </CardContent>
     </Card>

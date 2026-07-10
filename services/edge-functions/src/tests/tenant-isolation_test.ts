@@ -2182,6 +2182,24 @@ Deno.test({
   },
 });
 
+// US-1812: buyer grade confirm/dispute. The confirm route loads the purchase with
+// .eq("id", id).eq("user_id", userId) before recording any outcome, so B posting
+// a verdict on A's purchase hits 0 rows → 404 (never writes a grade_outcomes row
+// against A's purchase or moves A's seller's integrity). Reuses the same seed.
+Deno.test({
+  name: "B cannot confirm/dispute A's purchase",
+  ignore: !CONFIGURED || !A_BUYER_PURCHASE_ID,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/buyer/purchases/${A_BUYER_PURCHASE_ID}/confirm`, {
+      method: "POST",
+      headers: { ...authHeaders(B_JWT!), "Content-Type": "application/json" },
+      body: JSON.stringify({ match_status: "confirmed" }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST buyer grade confirmation to foreign purchase");
+  },
+});
+
 // US-1825: closet items. DELETE is scoped .eq("id",id).eq("user_id",userId), so B
 // deleting A's closet item hits 0 rows (204/ok but no cross-tenant delete); the
 // add-by-certificate path 403s when the caller doesn't own the cert. (Per-case

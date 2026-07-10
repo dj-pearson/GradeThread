@@ -14283,7 +14283,7 @@
         "Each confirm/dispute outcome also updates the seller-side Grade Integrity aggregate (US-1912) for the seller who graded the item — the same event drives model accuracy AND seller reputation"
       ],
       "priority": 1812,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][REWARDS][GRADING][NEW] Load grading-engine skill (owns human_reviews, accuracy tracking, exemplar privacy, confidence caps). Reuse grade_outcomes + human_reviews + ai_prompt_versions.accuracy_score. TIES: feeds insured guarantee eligibility (1819-1821). Depends on capture (1811). Refined 2026-07-09: also feeds seller Grade Integrity (US-1912) — the two-sided loop is the moat."
     },
     {
