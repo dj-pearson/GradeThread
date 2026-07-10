@@ -177,6 +177,7 @@ A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COO
 | passport-backfill | `*/15 * * * *` | `/api/jobs/passport-backfill` | `$FLIPDESK_INTERNAL_JOB_SECRET` | ONE-OFF at launch (idempotent; disable once drained) |
 | passport-integrity-scan | `0 */6 * * *` | `/api/jobs/passport-integrity-scan` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | photo-archive | `0 4 * * *` | `/api/flipdesk/images/archive` | `$FLIPDESK_INTERNAL_JOB_SECRET` | not in the cron_runs ledger |
+| portfolio-alerts | `0 7 * * *` | `/api/jobs/portfolio-alerts` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | publish-batch-reclaim | `*/5 * * * *` | `/api/jobs/publish-batch-reclaim` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | push-token-prune | `0 3 * * *` | `/api/jobs/push-token-prune` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | reconciliation-sweep | `0 5 * * *` | `/api/flipdesk/reconciliation/run` | `$FLIPDESK_INTERNAL_JOB_SECRET` | not in the cron_runs ledger |
@@ -187,7 +188,7 @@ A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COO
 | thumbnail-backfill | `*/5 * * * *` | `/api/jobs/thumbnail-backfill` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | trial-expiry | `15 0 * * *` | `/api/jobs/trial-expiry` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 
-_66 scheduled jobs. Default healthy response: 200 `{"ok":true,...}` (idle runs report skipped/zero counts). Generated from `src/lib/cron-runs.ts` CRON_REGISTRY — do not hand-edit._
+_67 scheduled jobs. Default healthy response: 200 `{"ok":true,...}` (idle runs report skipped/zero counts). Generated from `src/lib/cron-runs.ts` CRON_REGISTRY — do not hand-edit._
 
 <!-- cron-registry:end -->
 

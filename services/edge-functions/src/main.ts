@@ -72,6 +72,7 @@ import { adminDisputesRoutes } from "./routes/admin-disputes.ts";
 import { adminClaimsRoutes } from "./routes/admin-claims.ts";
 import { adminGuaranteePoolRoutes } from "./routes/admin-guarantee-pool.ts";
 import { handleGuaranteePoolCron } from "./routes/jobs-guarantee-pool.ts";
+import { handlePortfolioAlertsCron } from "./routes/jobs-portfolio-alerts.ts";
 import { adminMeasureCardRoutes } from "./routes/admin-measure-cards.ts";
 import { guaranteePublicRoutes } from "./routes/guarantee-public.ts";
 import { adminSupportRoutes } from "./routes/admin-support.ts";
@@ -1422,6 +1423,7 @@ app.post("/api/jobs/content-refresh", (c) => handleContentRefreshCron(c));
 // Schedule on Coolify cron (suggested hourly, e.g. 15 * * * *).
 app.post("/api/jobs/billing-reconciliation", (c) => handleBillingReconciliationCron(c));
 app.post("/api/jobs/guarantee-pool", (c) => handleGuaranteePoolCron(c));
+app.post("/api/jobs/portfolio-alerts", (c) => handlePortfolioAlertsCron(c));
 app.route("/api/content/blog", contentBlogRoutes);
 app.route("/api/content/authors", contentAuthorsRoutes);
 app.route("/api/content/social", contentSocialRoutes);

@@ -13269,3 +13269,28 @@ precision.
 - VERIFIED: deno check CLEAN / lint 0 / full edge suite 3406 pass 0 fail / web tsc
   --noEmit 0 / eslint 0 / tsc -b baseline 7 (none mine) / vite build + prerender 212.
 - ⚠️ HELD MIGRATION — commit local; NOT pushed until user applies 00428 (after 00427).
+
+## 2026-07-10 — US-1827 (Portfolio: dashboard + value-peak/price-drop alerts) — passes:true
+
+Dashboard + value alerts + best-time-to-sell on the US-1826 valuation engine.
+- 00429_portfolio_alerts.sql: closet_item_valuations += peak_estimate_cents /
+  last_alert_estimate_cents / last_alerted_at / sell_guidance; system_settings
+  'buyer.portfolio_alerts' (move_threshold_pct, min_estimate_cents). EXPECTED=00429.
+- lib/portfolio-alerts.ts (PURE, 11 tests): detectValuationAlert (low/none conf +
+  sub-min never alert; new all-time high → 'peak'; ±threshold move from LAST-
+  ALERTED value → 'rise'/'drop' so a drift alerts once) + bestTimeToSell (up+solid+
+  fast-selling → sell_now; down → watch; …) + normalize. Wired into recompute
+  (sell_guidance stored from the price-guide band's medianDaysToSell).
+- routes/jobs-portfolio-alerts.ts cron (job-secret + lock, auto-recorded):
+  Connoisseur buyers only → recompute → detect → notifyBuyer('portfolio', US-1803
+  cadence caps + per-(item,value) dedupe) → persist peak/last-alert. Registered in
+  CRON_REGISTRY; COOLIFY/LAUNCH_CHECKLIST/CRON_SETUP regenerated (drift-guarded).
+- Web: portfolio dashboard — sort (newest/value/gain) + filter (all/gainers/
+  losers) + best-time-to-sell badge, all gated behind the Connoisseur analytics
+  tier (basic totals stay free); upgrade nudge for lower tiers. Dataviz colour/
+  layout conventions honoured (emerald gain / red loss / amber watch; no chart lib
+  — the surface is sortable stat lists + tiles).
+- VERIFIED: deno check CLEAN / lint 0 / full edge suite 3417 pass 0 fail (cron-drift
+  + admin-scope guards green) / web tsc --noEmit 0 / eslint 0 / tsc -b baseline 7
+  (none mine) / vite build + prerender 212 CLEAN.
+- ⚠️ HELD MIGRATION — commit local; NOT pushed until user applies 00429 (after 00428).

@@ -12,6 +12,7 @@ import { getValueHub } from "./value-index.ts";
 import { slugify } from "./value-index.ts";
 import { bandForGrade } from "./resale-condition.ts";
 import { estimateItemValue, type Valuation } from "./portfolio-valuation.ts";
+import { bestTimeToSell } from "./portfolio-alerts.ts";
 
 const DAY_MS = 86_400_000;
 export const VALUATION_TTL_MS = DAY_MS; // recompute at most daily per item
@@ -33,6 +34,7 @@ export interface ClosetValuationRow {
   basis: string[];
   cost_basis_cents: number | null;
   trend: string;
+  sell_guidance: string;
   computed_at: string;
 }
 
@@ -120,6 +122,12 @@ export async function recomputeUserPortfolio(
       ageDays,
     });
 
+    const guidance = bestTimeToSell({
+      trend: v.trend,
+      confidence: v.confidence,
+      medianDaysToSell: band?.medianDaysToSell ?? null,
+    });
+
     rows.push({
       closet_item_id: item.id,
       user_id: userId,
@@ -130,6 +138,7 @@ export async function recomputeUserPortfolio(
       basis: v.basis,
       cost_basis_cents: costBasisCents,
       trend: v.trend,
+      sell_guidance: guidance,
       computed_at: new Date(nowMs).toISOString(),
     });
   }
@@ -155,7 +164,7 @@ export async function getPortfolioValuation(
     supabaseAdmin.from("closet_items").select("id", { count: "exact", head: true }).eq("user_id", userId),
     supabaseAdmin
       .from("closet_item_valuations")
-      .select("closet_item_id, user_id, estimate_cents, low_cents, high_cents, confidence, basis, cost_basis_cents, trend, computed_at")
+      .select("closet_item_id, user_id, estimate_cents, low_cents, high_cents, confidence, basis, cost_basis_cents, trend, sell_guidance, computed_at")
       .eq("user_id", userId),
   ]);
 

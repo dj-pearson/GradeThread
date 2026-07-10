@@ -15,6 +15,7 @@ export interface ItemValuation {
   basis: string[];
   cost_basis_cents: number | null;
   trend: "up" | "down" | "flat" | "unknown";
+  sell_guidance: "sell_now" | "hold" | "watch" | "unknown";
 }
 
 export interface PortfolioTotals {

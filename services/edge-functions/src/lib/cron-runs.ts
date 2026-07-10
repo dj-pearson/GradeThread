@@ -153,6 +153,8 @@ export const CRON_REGISTRY: CronDef[] = [
   { name: "billing-reconciliation", label: "Billing reconciliation", schedule: "0 5 * * *", category: "billing", endpoint: "/api/jobs/billing-reconciliation", recorded: true },
   // US-1822: buyer guarantee claims-pool accrual (once/period) + claim↔drawdown reconciliation.
   { name: "guarantee-pool", label: "Guarantee pool accrual + reconcile", schedule: "0 4 * * *", category: "billing", endpoint: "/api/jobs/guarantee-pool", recorded: true },
+  // US-1827: recompute Connoisseur portfolios + fire value-peak / significant-move alerts.
+  { name: "portfolio-alerts", label: "Portfolio value alerts", schedule: "0 7 * * *", category: "buyer", endpoint: "/api/jobs/portfolio-alerts", recorded: true },
   // Seals legacy certificates into the integrity chain. ONE-OFF at launch;
   // idempotent, safe to re-run; disable once the backlog reads zero.
   { name: "cert-integrity-backfill", label: "Cert-integrity backfill", schedule: "0 6 * * *", category: "maintenance", endpoint: "/api/jobs/cert-integrity-backfill", recorded: true, oneOff: true },

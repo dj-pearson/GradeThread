@@ -14493,7 +14493,7 @@
         "Entitlement-gated depth (basic totals free/Guard; full analytics + alerts Connoisseur)"
       ],
       "priority": 1827,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][PORTFOLIO][NEW] Load dataviz skill for the charts. Reuse notification infra (1803) for value alerts; entitlement gating (1800). Surfaces in buyer dashboard (1802). Depends on valuation engine (1826)."
     },
     {

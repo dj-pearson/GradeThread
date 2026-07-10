@@ -14,12 +14,21 @@ import { useBuyerPortfolioValuation, type ItemValuation } from "@/hooks/use-buye
 
 const usd = (c: number) => `$${(c / 100).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 
+// US-1827: best-time-to-sell guidance label + tone (dataviz colour conventions).
+const GUIDANCE: Record<string, { label: string; cls: string } | undefined> = {
+  sell_now: { label: "Sell now", cls: "text-emerald-600" },
+  hold: { label: "Hold", cls: "text-muted-foreground" },
+  watch: { label: "Watch", cls: "text-amber-600" },
+};
+
 // US-1826: a labeled estimate line (never fabricated precision — an unvalued
-// item just shows nothing; confidence is surfaced honestly).
-function EstimateLine({ v }: { v: ItemValuation | null }) {
+// item just shows nothing; confidence is surfaced honestly). `showGuidance` gates
+// the US-1827 best-time-to-sell suggestion behind the analytics tier.
+function EstimateLine({ v, showGuidance }: { v: ItemValuation | null; showGuidance: boolean }) {
   if (!v || v.estimate_cents == null) return null;
   const trendColor =
     v.trend === "up" ? "text-emerald-600" : v.trend === "down" ? "text-brand-red" : "text-muted-foreground";
+  const g = showGuidance ? GUIDANCE[v.sell_guidance] : undefined;
   return (
     <p className="text-xs">
       <span className="font-semibold tabular-nums">≈ {usd(v.estimate_cents)}</span>{" "}
@@ -31,9 +40,13 @@ function EstimateLine({ v }: { v: ItemValuation | null }) {
         </span>
       )}
       <span className="ml-1 text-muted-foreground">· {v.confidence} confidence</span>
+      {g && <span className={`ml-1 font-medium ${g.cls}`}>· {g.label}</span>}
     </p>
   );
 }
+
+type SortKey = "added" | "value" | "gain";
+type FilterKey = "all" | "gainers" | "losers";
 
 // US-1825: closet / wardrobe portfolio. Add items you own (by certificate number
 // or manually), see and manage your closet. Valuation + dashboard are US-1826/1827.
@@ -48,6 +61,29 @@ export function BuyerPortfolioPage() {
   const [brand, setBrand] = useState("");
   const [type, setType] = useState("");
   const [size, setSize] = useState("");
+
+  // US-1827: full analytics (sort/filter/guidance/alerts) is a Connoisseur benefit;
+  // basic totals stay available to any portfolio-entitled buyer.
+  const isAnalytics = ent.plan === "connoisseur";
+  const [sortKey, setSortKey] = useState<SortKey>("added");
+  const [filterKey, setFilterKey] = useState<FilterKey>("all");
+
+  const gainOf = (id: string) => {
+    const v = valuationFor(id);
+    return v?.estimate_cents != null && v.cost_basis_cents != null ? v.estimate_cents - v.cost_basis_cents : null;
+  };
+  const displayItems = (() => {
+    if (!isAnalytics) return items;
+    let list = [...items];
+    if (filterKey === "gainers") list = list.filter((i) => (gainOf(i.id) ?? 0) > 0);
+    else if (filterKey === "losers") list = list.filter((i) => (gainOf(i.id) ?? 0) < 0);
+    if (sortKey === "value") {
+      list.sort((a, b) => (valuationFor(b.id)?.estimate_cents ?? -1) - (valuationFor(a.id)?.estimate_cents ?? -1));
+    } else if (sortKey === "gain") {
+      list.sort((a, b) => (gainOf(b.id) ?? -Infinity) - (gainOf(a.id) ?? -Infinity));
+    }
+    return list;
+  })();
 
   if (!ent.has("wardrobePortfolio")) {
     return (
@@ -180,9 +216,40 @@ export function BuyerPortfolioPage() {
       </Card>
 
       <div className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          Your closet ({items.length})
-        </h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Your closet ({items.length})
+          </h2>
+          {isAnalytics ? (
+            <div className="flex flex-wrap gap-1 text-xs">
+              {(["added", "value", "gain"] as SortKey[]).map((k) => (
+                <button
+                  key={k}
+                  onClick={() => setSortKey(k)}
+                  className={`rounded px-2 py-1 capitalize ${sortKey === k ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}
+                >
+                  {k === "added" ? "Newest" : k}
+                </button>
+              ))}
+              <span className="mx-1 w-px bg-border" />
+              {(["all", "gainers", "losers"] as FilterKey[]).map((k) => (
+                <button
+                  key={k}
+                  onClick={() => setFilterKey(k)}
+                  className={`rounded px-2 py-1 capitalize ${filterKey === k ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}
+                >
+                  {k}
+                </button>
+              ))}
+            </div>
+          ) : (
+            totals && totals.itemsValued > 0 && (
+              <Link to="/buyer/billing?upgrade=analytics" className="text-xs text-primary underline">
+                Unlock sorting, alerts &amp; sell timing
+              </Link>
+            )
+          )}
+        </div>
         {isLoading ? (
           <div className="flex justify-center py-12">
             <Loader2 className="h-6 w-6 animate-spin text-primary" />
@@ -194,7 +261,7 @@ export function BuyerPortfolioPage() {
             description="Add graded items you own or manual entries to track your wardrobe's value over time."
           />
         ) : (
-          items.map((item) => (
+          displayItems.map((item) => (
             <Card key={item.id}>
               <CardContent className="flex items-center justify-between gap-3 py-4">
                 <div className="min-w-0">
@@ -207,7 +274,7 @@ export function BuyerPortfolioPage() {
                     {item.condition_grade != null ? `Grade ${item.condition_grade.toFixed(1)} · ` : ""}
                     <Badge variant="secondary" className="capitalize">{item.source}</Badge>
                   </p>
-                  <EstimateLine v={valuationFor(item.id)} />
+                  <EstimateLine v={valuationFor(item.id)} showGuidance={isAnalytics} />
                 </div>
                 <div className="flex items-center gap-1">
                   {item.certificate_id && (

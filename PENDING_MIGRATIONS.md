@@ -1,5 +1,22 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ PENDING: 00429_portfolio_alerts.sql (US-1827 portfolio value alerts, 2026-07-10)
+
+**What:** Additive columns on `public.closet_item_valuations` —
+`peak_estimate_cents`, `last_alert_estimate_cents`, `last_alerted_at`,
+`sell_guidance` (default 'unknown'). Plus a `system_settings` row
+`buyer.portfolio_alerts`. Bumps `EXPECTED_SCHEMA_VERSION` → **00429**.
+Self-records '00429'.
+
+**Risk: LOW** — additive columns on a table added this same batch (00428) + one
+settings row; no backfill. **No new CLIENT column read** beyond the valuation
+endpoint (edge); the edge (valuation recompute + the new alerts cron) boot-expects
+00429 — apply BEFORE the push. A new daily cron `/api/jobs/portfolio-alerts` must
+be registered as a Coolify scheduled task (row already in the regenerated
+COOLIFY.md/CRON_SETUP.md). **⚠️ Apply order:** after 00428;
+`scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload schema';`, redeploy
+the edge (boot guard now expects 00429).
+
 ## ⏳ PENDING: 00428_closet_item_valuations.sql (US-1826 portfolio valuation cache, 2026-07-10)
 
 **What:** New `public.closet_item_valuations` — a per-closet-item valuation cache
