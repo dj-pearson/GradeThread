@@ -14661,7 +14661,7 @@
         "Gating + quota via buyer entitlements (1800)"
       ],
       "priority": 1839,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][BINDING][FIT] REUSE US-1776 epic (body_profiles 1777, fit-model.ts 1778, surfaces 1779) — this is the buyer-subscription binding + extension inline surface, not a re-build. Gating via entitlements (1800). Depends on foundation (1795) + fit epic (1776) + extension suite (1833)."
     },
     {

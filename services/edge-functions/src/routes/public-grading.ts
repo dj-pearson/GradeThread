@@ -701,6 +701,12 @@ publicGradingRoutes.post("/grade-from-url", async (c) => {
         fraudFlags: gates.fraud ? fraudFlagsAll : [],
         // US-1837: free basic — the photos worth asking for + a ready-to-send msg.
         coverageGap: gates.coverage ? coverageGapForTitle(title) : null,
+        // US-1839: inline "will it fit me?" — Guard+ entitlement. The fit itself
+        // uses the buyer's SAVED body profile on the fit surface (no listing
+        // measurements are available inline), so this is an entitled deep-link.
+        fit: gates.fit
+          ? { available: true, deepLink: `${publicSiteUrl()}/tools/fit-checker?utm_source=extension&utm_medium=fit` }
+          : null,
         signupPrompt,
         disclaimer: GRADE_CHECK_DISCLAIMER,
         deepLink,

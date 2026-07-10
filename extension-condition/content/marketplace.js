@@ -300,6 +300,16 @@
         body.appendChild(actions);
       }
 
+      // US-1839: inline "will it fit me?" (Guard+ entitlement) — deep-links to the
+      // fit surface, which uses the buyer's saved body profile.
+      if (data.fit && data.fit.available && data.fit.deepLink) {
+        var fitLink = el("a", "gt-cc-link", "Will it fit you? →");
+        fitLink.href = data.fit.deepLink;
+        fitLink.target = "_blank";
+        fitLink.rel = "noopener noreferrer";
+        body.appendChild(fitLink);
+      }
+
       // US-1838: anonymous → prompt sign-in to unlock the paid signals.
       if (data.signupPrompt && data.signupPrompt.url) {
         body.appendChild(el("p", "gt-cc-note", String(data.signupPrompt.message || "")));

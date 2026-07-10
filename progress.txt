@@ -13486,3 +13486,22 @@ Closes the Buyer extension confidence suite epic (US-1833): 1834 discrepancy,
 - VERIFIED: deno check CLEAN / lint 0 / full edge suite 3464 pass 0 fail / node
   --check extension JS OK.
 - No migration; part of the held branch. NEEDS env EXTENSION_TOKEN_SECRET in prod.
+
+## 2026-07-10 — US-1839 (Buyer binding: Fit prediction as a buyer entitlement + inline extension fit) — passes:true
+
+Binds the existing fit engine (US-1776-1779, web src/lib/fit-model.ts + body_profiles
+00407 + free /tools/fit-checker) to the buyer subscription via the extension. NO
+migration; NO re-build of the fit engine.
+- extension-gates.ts: resolveExtensionGates gains `fit` = gateFlags.fitPrediction
+  (Guard+; anonymous → false, fail-safe).
+- /grade-from-url: returns `fit {available, deepLink}` (gated) — an inline
+  entitled deep-link to /tools/fit-checker (which uses the buyer's SAVED body
+  profile; marketplace listings carry no measurements, so inline = deep-link per
+  AC3, not a re-computed fit + no duplicate profile system).
+- Extension client (node --check clean): renders the inline "Will it fit you? →"
+  link when entitled.
+- The free public one-off fit-checker (US-1780) is unchanged; this is the
+  buyer-entitled binding only.
+- VERIFIED: deno check CLEAN / lint 0 / full edge suite 3464 pass 0 fail (gate
+  matrix +fit) / node --check marketplace.js OK.
+- No migration; part of the held branch.

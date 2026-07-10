@@ -51,19 +51,20 @@ Deno.test("bearer: extracts the token from an Authorization header", () => {
 
 Deno.test("gates: anonymous → only free basics, all paid signals OFF", () => {
   const g = resolveExtensionGates(null);
-  assertEquals(g, { discrepancy: false, priceFairness: false, fraud: false, coverage: true, tier: "anonymous" });
+  assertEquals(g, { discrepancy: false, priceFairness: false, fraud: false, coverage: true, fit: false, tier: "anonymous" });
 });
 
-Deno.test("gates: Guard unlocks discrepancy + price-fairness, not fraud", () => {
-  const g = resolveExtensionGates({ plan: "guard", gateFlags: { discrepancyScoring: true, priceFairness: true } });
+Deno.test("gates: Guard unlocks discrepancy + price-fairness + fit, not fraud", () => {
+  const g = resolveExtensionGates({ plan: "guard", gateFlags: { discrepancyScoring: true, priceFairness: true, fitPrediction: true } });
   assert(g.discrepancy);
   assert(g.priceFairness);
+  assert(g.fit); // US-1839 fit is a Guard+ entitlement
   assertEquals(g.fraud, false); // fraud is Connoisseur-only
 });
 
 Deno.test("gates: Connoisseur unlocks everything", () => {
-  const g = resolveExtensionGates({ plan: "connoisseur", gateFlags: { discrepancyScoring: true, priceFairness: true } });
-  assert(g.discrepancy && g.priceFairness && g.fraud && g.coverage);
+  const g = resolveExtensionGates({ plan: "connoisseur", gateFlags: { discrepancyScoring: true, priceFairness: true, fitPrediction: true } });
+  assert(g.discrepancy && g.priceFairness && g.fraud && g.coverage && g.fit);
   assertEquals(g.tier, "connoisseur");
 });
 

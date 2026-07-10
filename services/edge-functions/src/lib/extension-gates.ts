@@ -12,6 +12,7 @@ export interface GateableEntitlements {
   gateFlags: {
     discrepancyScoring?: boolean;
     priceFairness?: boolean;
+    fitPrediction?: boolean;
   };
 }
 
@@ -24,6 +25,8 @@ export interface ExtensionGates {
   fraud: boolean;
   /** coverage-gap photo-request macro (US-1837) — a free basic. */
   coverage: boolean;
+  /** inline "will it fit me?" (US-1839) — Guard+ entitlement. */
+  fit: boolean;
   tier: string;
 }
 
@@ -34,13 +37,14 @@ export interface ExtensionGates {
  */
 export function resolveExtensionGates(ent: GateableEntitlements | null | undefined): ExtensionGates {
   if (!ent) {
-    return { discrepancy: false, priceFairness: false, fraud: false, coverage: true, tier: "anonymous" };
+    return { discrepancy: false, priceFairness: false, fraud: false, coverage: true, fit: false, tier: "anonymous" };
   }
   return {
     discrepancy: ent.gateFlags?.discrepancyScoring === true,
     priceFairness: ent.gateFlags?.priceFairness === true,
     fraud: ent.plan === "connoisseur",
     coverage: true,
+    fit: ent.gateFlags?.fitPrediction === true,
     tier: ent.plan,
   };
 }
