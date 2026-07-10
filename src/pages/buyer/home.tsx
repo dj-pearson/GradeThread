@@ -4,6 +4,7 @@ import { Card } from "@/components/ui/card";
 import { useAuthStore } from "@/stores/auth-store";
 import { useBuyerEntitlements } from "@/hooks/use-buyer-entitlements";
 import { useBuyerPreferences } from "@/hooks/use-buyer-preferences";
+import { TrustLevelCard } from "@/components/buyer/trust-level-card";
 import { BUYER_PLANS } from "@/lib/constants";
 
 // US-1802: buyer home. Empty-state, progressive-disclosure guidance to first
@@ -74,6 +75,8 @@ export function BuyerHomePage() {
           secondhand with confidence — condition, not just claims.
         </p>
       </header>
+
+      <TrustLevelCard />
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">

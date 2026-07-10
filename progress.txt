@@ -12915,3 +12915,26 @@ US-1702 DONE (edge+web; MIGRATION 00387 — HELD). The story I had missed.
 - a11y: label htmlFor+Switch id associations (fixed jsx-a11y/label-has-associated-control).
 - VERIFIED: web tsc --noEmit 0 / eslint 0 / tsc -b at baseline 7 (pre-existing 7-error never-quirk blocks npm-run-build tsc step, unrelated). vite build CLEAN — alerts chunk bundles (3606 modules, exit 0).
 - Commit local; NO migration (rides on the held 00416/00417 still gating the push).
+
+── US-1817: Trust Score — levels, badges & perks unlock (2026-07-09) ──
+- ★ Builds on the US-1816 scoring engine. NO migration (perks derive from
+  buyer_trust_scores.level, already in 00417).
+- CANONICAL edge resolver lib/buyer-reputation-perks.ts: REPUTATION_LEVELS derived
+  from TRUST_LEVELS (so thresholds can't disagree with scoring), REPUTATION_PERKS
+  matrix (guaranteeWindowBonusDays / priorityClaimHandling / earlyDropAccess /
+  rewardMultiplier per level 0..3, MONOTONIC), resolveReputationPerks (fail-safe
+  clamp), reputationLevelMeta, nextReputationLevel, + composition helpers
+  effectiveGuaranteeWindowDays / applyRewardMultiplier. PRECEDENCE documented:
+  reputation perks are ADDITIVE bonuses on the subscription baseline (US-1800) —
+  never remove a plan capability. DOWNGRADE/DECAY: perks are a pure fn of current
+  level → a decayed score drops the level and perks lapse on next recompute (no
+  expiry bookkeeping). One source so guarantee (1819)/rewards (1810)/alerts read it.
+- Web MIRROR src/lib/reputation-perks.ts (lockstep like BUYER_PLANS ↔ buyer-plans;
+  both test files pin identical values) + perkHighlights + levelBadgeClass.
+- UI: use-buyer-trust-score hook (owner-read buyer_trust_scores) + TrustLevelCard
+  (level badge, score, progress-to-next, unlocked perks) surfaced on buyer home.
+- Tests: edge buyer-reputation-perks_test.ts 8 pass + web reputation-perks.test.ts
+  8 pass (matrix pin, monotonic, clamp, downgrade, next-level, composition).
+- VERIFIED: deno lint 0 / deno check buyer-reputation-perks.ts CLEAN / web tsc
+  --noEmit 0 / eslint 0 / tsc -b baseline 7. Full edge suite: running.
+- Commit local; NO migration (still gated behind held 00416/00417).

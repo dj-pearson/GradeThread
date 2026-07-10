@@ -14353,7 +14353,7 @@
         "Downgrade/decay handled gracefully (perks lapse cleanly)"
       ],
       "priority": 1817,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][REPUTATION][NEW] Perks compose with BuyerGateFlags (1800) — document precedence (subscription baseline + reputation bonus). Reuse grade-badge.ts styling conventions for level badges. Depends on scoring engine (1816). TIES: guarantee window (1819), reward multipliers (1813). Refined 2026-07-09: levels/XP ride the shared reward_events/user_reward_state engine (US-1849) — do NOT build a parallel buyer ledger."
     },
     {
