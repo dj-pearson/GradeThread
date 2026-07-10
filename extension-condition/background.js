@@ -91,14 +91,21 @@ async function gradeFromUrls({ imageUrls, brand, title, condition, marketplace, 
     return { ok: false, status: 400, error: "No listing photos to grade." };
   }
   const instanceId = await getInstanceId();
+  // US-1838: a signed buyer token (stored after the account is connected) unlocks
+  // the paid signals + separates quota from anonymous use. Absent → anonymous.
+  const headers = {
+    "Content-Type": "application/json",
+    "X-GT-Extension-Id": instanceId,
+  };
+  try {
+    const { gtBuyerToken } = await chrome.storage.local.get("gtBuyerToken");
+    if (gtBuyerToken && typeof gtBuyerToken === "string") headers["Authorization"] = "Bearer " + gtBuyerToken;
+  } catch (_e) { /* no token → anonymous */ }
   let resp;
   try {
     resp = await fetch(ENDPOINT, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-GT-Extension-Id": instanceId,
-      },
+      headers: headers,
       body: JSON.stringify({
         imageUrls: imageUrls.slice(0, 4),
         brand: brand || undefined,

@@ -13463,3 +13463,26 @@ Edge + extension + web. NO migration.
 - VERIFIED: deno check CLEAN / lint 0 / full edge suite 3455 pass 0 fail / web tsc
   --noEmit 0 / eslint 0 / tsc -b baseline 7 / vite build CLEAN / node --check OK.
 - No migration; part of the held branch.
+
+## 2026-07-10 — US-1838 (Extension: buyer-subscription gating + quota separation) + US-1833 EPIC closed — passes:true
+
+Closes the Buyer extension confidence suite epic (US-1833): 1834 discrepancy,
+1835 price-fairness, 1836 fraud flags, 1837 coverage-gap, 1838 gating. NO migration.
+- lib/extension-token.ts (part of extension-auth_test 9 pass): HMAC-SHA256 signed
+  token (mirrors preview-token.ts) — mintExtensionToken / verifyExtensionToken
+  (fail-CLOSED: bad/expired/tampered → null) / bearerFromHeader. Secret
+  EXTENSION_TOKEN_SECRET.
+- lib/extension-gates.ts (PURE): resolveExtensionGates — FAIL-SAFE (anonymous →
+  only free basics; every paid signal OFF) → per plan gate flags (discrepancy/
+  priceFairness) + fraud reserved for Connoisseur; coverage always free.
+- /grade-from-url: verify Authorization Bearer → getBuyerEntitlements → gate the
+  paid signals (discrepancy/value/priceFairness/fraud now NULL unless entitled);
+  anonymous → signupPrompt with utm funnel attribution. The base objective grade
+  always returns (the hook).
+- POST /api/buyer/extension-token (authed) mints the buyer's token.
+- Extension client (node --check clean): sends the stored buyer token
+  (chrome.storage gtBuyerToken) as Authorization Bearer; renders the signup
+  prompt. (Web→extension token DELIVERY is US-1882's postMessage bridge.)
+- VERIFIED: deno check CLEAN / lint 0 / full edge suite 3464 pass 0 fail / node
+  --check extension JS OK.
+- No migration; part of the held branch. NEEDS env EXTENSION_TOKEN_SECRET in prod.

@@ -300,6 +300,16 @@
         body.appendChild(actions);
       }
 
+      // US-1838: anonymous → prompt sign-in to unlock the paid signals.
+      if (data.signupPrompt && data.signupPrompt.url) {
+        body.appendChild(el("p", "gt-cc-note", String(data.signupPrompt.message || "")));
+        var su = el("a", "gt-cc-link", "Sign in / upgrade →");
+        su.href = data.signupPrompt.url;
+        su.target = "_blank";
+        su.rel = "noopener noreferrer";
+        body.appendChild(su);
+      }
+
       body.appendChild(el("p", "gt-cc-disclaimer", String(data.disclaimer || "")));
 
       if (data.deepLink) {

@@ -7,10 +7,26 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { normalizeHandle, normalizeVisibility } from "../lib/buyer-profile.ts";
+import { mintExtensionToken } from "../lib/extension-token.ts";
 
 type BuyerEnv = { Variables: { userId: string } };
 
 export const buyerProfileRoutes = new Hono<BuyerEnv>();
+
+// US-1838: mint a signed extension token for the logged-in buyer. The buyer app
+// calls this after login and hands the token to the extension, which sends it as
+// `Authorization: Bearer` so its entitlements (and quota) are enforceable
+// separately from the anonymous web grade-checker.
+buyerProfileRoutes.post("/extension-token", async (c) => {
+  const userId = c.get("userId");
+  try {
+    const { token, expiresAt } = await mintExtensionToken(userId);
+    return c.json({ token, expiresAt });
+  } catch (err) {
+    console.error("[buyer-profile] extension-token mint failed:", err);
+    return c.json({ error: "Could not create an extension token." }, 500);
+  }
+});
 
 // Own profile settings (for the buyer settings UI).
 buyerProfileRoutes.get("/profile", async (c) => {

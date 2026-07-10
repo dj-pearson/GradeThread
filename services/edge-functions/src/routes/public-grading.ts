@@ -23,6 +23,9 @@ import { claimedConditionToGrade, scoreDiscrepancy } from "../lib/condition-disc
 import { parsePriceCents, priceFairness } from "../lib/price-fairness.ts";
 import { deriveFraudFlags } from "../lib/fraud-flags.ts";
 import { coverageGapForTitle } from "../lib/coverage-gap.ts";
+import { bearerFromHeader, verifyExtensionToken } from "../lib/extension-token.ts";
+import { resolveExtensionGates } from "../lib/extension-gates.ts";
+import { getBuyerEntitlements } from "../lib/buyer-entitlements.ts";
 
 // US-1836: fraud flags are legally sensitive (a public "these look manipulated"
 // signal), so the whole feature is FAIL-CLOSED behind a kill-switch until the
@@ -661,11 +664,27 @@ publicGradingRoutes.post("/grade-from-url", async (c) => {
       }
     }
     const fairness = priceFairness(parsePriceCents((body as { price?: unknown })?.price), value);
+    const fraudFlagsAll = extensionFraudFlagsEnabled() ? deriveFraudFlags(result.imageAuthenticity) : [];
 
-    // US-1836: coarse, risk-framed fraud flags — fail-closed behind the kill-switch.
-    const fraudFlags = extensionFraudFlagsEnabled()
-      ? deriveFraudFlags(result.imageAuthenticity)
-      : [];
+    // US-1838: authenticate the buyer via the signed extension token → resolve
+    // entitlements → gate the paid VALUE signals by tier. FAIL-SAFE: no/invalid
+    // token (anonymous) unlocks only the free basics (grade + coverage advice)
+    // and gets a signup prompt with funnel attribution. The base objective grade
+    // always returns — it's the hook.
+    const verified = await verifyExtensionToken(bearerFromHeader(c.req.header("authorization")));
+    let ent = null;
+    if (verified) {
+      try {
+        ent = await getBuyerEntitlements(verified.userId);
+      } catch { /* entitlement hiccup → treat as anonymous (fail-safe) */ }
+    }
+    const gates = resolveExtensionGates(ent);
+    const signupPrompt = gates.tier === "anonymous"
+      ? {
+        message: "Sign in to GradeThread to unlock over-grade, price-fairness & fraud signals.",
+        url: `${publicSiteUrl()}/signup?utm_source=extension&utm_medium=gate`,
+      }
+      : null;
 
     return c.json(
       {
@@ -675,13 +694,14 @@ publicGradingRoutes.post("/grade-from-url", async (c) => {
         confidence: result.confidence,
         factorScores: result.factorScores,
         imagesAnalyzed: result.imagesAnalyzed,
-        discrepancy,
-        value,
-        priceFairness: fairness,
-        fraudFlags,
-        // US-1837: the photos worth asking the seller for + a ready-to-send
-        // message (buyer sends manually — ToS safe).
-        coverageGap: coverageGapForTitle(title),
+        tier: gates.tier,
+        discrepancy: gates.discrepancy ? discrepancy : null,
+        value: gates.priceFairness ? value : null,
+        priceFairness: gates.priceFairness ? fairness : null,
+        fraudFlags: gates.fraud ? fraudFlagsAll : [],
+        // US-1837: free basic — the photos worth asking for + a ready-to-send msg.
+        coverageGap: gates.coverage ? coverageGapForTitle(title) : null,
+        signupPrompt,
         disclaimer: GRADE_CHECK_DISCLAIMER,
         deepLink,
       },

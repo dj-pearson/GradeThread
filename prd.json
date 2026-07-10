@@ -14577,7 +14577,7 @@
         "This umbrella tracks US-1834…US-1838"
       ],
       "priority": 1833,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][EXTENSION][EPIC][NEW] REUSES US-1753 extension EPIC + US-1754 endpoint + US-1755/1756 adapters — this epic is the BUYER-VALUE layer + subscription binding on top, not a second extension. NET-NEW mechanics: discrepancy scoring (1834), price-fairness (1835), fraud flags (1836), request-photos macro + watch-from-extension (1837). Gating/quota (1838). DATA: public_grade_reports, Value Index (US-1745), original_photos/authenticity signals. Depends on foundation (1795) + extension epic (1753). Child stories: 1834-1838."
     },
     {
@@ -14647,7 +14647,7 @@
         "Gating fails safe and is covered by tests"
       ],
       "priority": 1838,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][EXTENSION][NEW] Signed extension token (noted in US-1754) to separate quota from web grade-checker. Entitlements (1800). Anonymous cap -> signup funnel (1797) with affiliate attribution. Depends on the suite (1834-1837)."
     },
     {
