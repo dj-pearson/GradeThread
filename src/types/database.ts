@@ -405,6 +405,10 @@ export interface UserRow {
   // US-1814: opt into the buyer confirmer rewards leaderboard + alias (00423).
   rewards_leaderboard_enabled: boolean;
   rewards_display_name: string | null;
+  // US-1818: opt-in public buyer Trust Score profile (00427; private by default).
+  buyer_profile_handle: string | null;
+  buyer_profile_enabled: boolean;
+  buyer_profile_show: Record<string, boolean>;
   // Cross-source sync-conflict email alert: send one email when the open
   // conflict count crosses this number (US-148, migration 00133). NULL disables.
   sync_conflict_email_threshold: number | null;

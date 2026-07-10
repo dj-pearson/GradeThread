@@ -13209,3 +13209,30 @@ Closes the insured Grade-Locked purchase-guarantee epic (US-1819): children
   admin-scope-coverage guard for the new mutation) / web tsc --noEmit 0 / eslint 0
   / tsc -b baseline 7 (none mine) / vite build + prerender 212 CLEAN.
 - ⚠️ HELD MIGRATION — commit local; NOT pushed until user applies 00426 (after 00425).
+
+## 2026-07-10 — US-1818 (Trust Score: public buyer profile + privacy controls) — passes:true
+
+Opt-in public buyer Trust Score profile, mirroring the verified-seller pattern but
+PRIVATE BY DEFAULT + PII-safe by construction. Builds on the trust levels (1817).
+- 00427_buyer_public_profile.sql: users += buyer_profile_handle (unique
+  lower() index) / buyer_profile_enabled (default false) / buyer_profile_show
+  jsonb. Edge-written (users guard untouched). EXPECTED_SCHEMA_VERSION=00427.
+- lib/buyer-profile.ts (PURE, 8 tests): normalizeHandle (3–30 slug, reserved-word
+  block), normalizeVisibility (all-false default = private), buildPublicProfile —
+  the single PII chokepoint that emits ONLY opted-in stats (handle+display always;
+  level/confirmations/member_since each opt-in).
+- routes/buyer-profile.ts (/api/buyer, authed): GET/POST own settings (handle
+  uniqueness check, enabling requires a handle). Public read added to
+  content-public.ts: GET /api/content/public/buyer-profile/:handle — hard-filters
+  to enabled, queries trust level/confirmations only when opted in, 404 (not 403)
+  when private so private ≈ nonexistent.
+- Web: use-buyer-profile hook; src/pages/trust-profile.tsx public page (/trust/
+  :handle, client-rendered + NOINDEX, NOT in PUBLIC_ROUTES — defense-in-depth
+  privacy) + route; buyer/settings.tsx PublicProfileCard (handle + stat toggles +
+  make public/private + view link); database.ts UserRow += 3 cols.
+- SEO posture: intentionally non-indexable (noindex + absent from sitemap), so the
+  "register if indexable" AC is satisfied by not registering. VERIFIED: deno check
+  CLEAN / lint 0 / full edge suite 3398 pass 0 fail / web tsc --noEmit 0 / eslint 0
+  / vitest seo+prerender 778 pass / tsc -b baseline 7 (none mine) / vite build +
+  prerender 212 CLEAN.
+- ⚠️ HELD MIGRATION — commit local; NOT pushed until user applies 00427 (after 00426).

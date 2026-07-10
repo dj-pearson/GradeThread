@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { ChipInput } from "@/components/buyer/chip-input";
 import { useBuyerPreferences } from "@/hooks/use-buyer-preferences";
+import { useBuyerProfile } from "@/hooks/use-buyer-profile";
 
 // US-1798: buyer shopping-preferences editor. Reads/writes the single
 // buyer_preferences row via the shared hook (the same row buyer onboarding
@@ -258,6 +259,103 @@ export function BuyerSettingsPage() {
           Save preferences
         </Button>
       </div>
+
+      <PublicProfileCard />
     </div>
+  );
+}
+
+// US-1818: opt-in public Trust Score profile. Private by default; the buyer picks
+// a handle and which stats to expose, and can disable it any time.
+const STAT_OPTIONS: Array<{ key: "level" | "confirmations" | "member_since"; label: string }> = [
+  { key: "level", label: "Trust level" },
+  { key: "confirmations", label: "Grades confirmed" },
+  { key: "member_since", label: "Member since" },
+];
+
+function PublicProfileCard() {
+  const { profile, isLoading, updateProfile, isUpdating } = useBuyerProfile();
+  const [handle, setHandle] = useState("");
+  const [show, setShow] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    if (profile) {
+      setHandle(profile.handle ?? "");
+      setShow({ ...profile.show });
+    }
+  }, [profile]);
+
+  if (isLoading) return null;
+  const enabled = profile?.enabled ?? false;
+
+  async function onSave(nextEnabled: boolean) {
+    try {
+      await updateProfile({
+        enabled: nextEnabled,
+        handle: handle.trim() || null,
+        show: show as { level?: boolean; confirmations?: boolean; member_since?: boolean },
+      });
+      toast.success(nextEnabled ? "Public profile updated." : "Public profile hidden.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't update your profile.");
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-lg">Public Trust Score profile</CardTitle>
+        <CardDescription>
+          Off by default. Share a page at <code>/trust/&lt;handle&gt;</code> showing only the stats you choose.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="space-y-2">
+          <Label htmlFor="profile-handle">Handle</Label>
+          <Input
+            id="profile-handle"
+            placeholder="thriftscout"
+            value={handle}
+            onChange={(e) => setHandle(e.target.value)}
+            maxLength={30}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>Show on my profile</Label>
+          <div className="flex flex-wrap gap-4">
+            {STAT_OPTIONS.map((opt) => (
+              <label key={opt.key} className="flex items-center gap-2 text-sm">
+                <Checkbox
+                  checked={show[opt.key] ?? false}
+                  onCheckedChange={(v) => setShow((s) => ({ ...s, [opt.key]: v === true }))}
+                />
+                {opt.label}
+              </label>
+            ))}
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button onClick={() => onSave(true)} disabled={isUpdating}>
+            {isUpdating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {enabled ? "Update public profile" : "Make profile public"}
+          </Button>
+          {enabled && (
+            <Button variant="outline" onClick={() => onSave(false)} disabled={isUpdating}>
+              Make private
+            </Button>
+          )}
+          {enabled && profile?.handle && (
+            <a
+              href={`/trust/${profile.handle}`}
+              target="_blank"
+              rel="noreferrer"
+              className="text-sm text-primary underline"
+            >
+              View profile
+            </a>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }

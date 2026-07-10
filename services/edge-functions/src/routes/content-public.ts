@@ -11,6 +11,7 @@ import {
   type SubmissionImageRow as CertSubmissionImageRow,
 } from "../lib/certificate-gallery.ts";
 import { normalizeCertNumber } from "../lib/cert-number.ts";
+import { buildPublicProfile, normalizeVisibility } from "../lib/buyer-profile.ts";
 import {
   type CertImageData,
   fetchImageDataUri,
@@ -1487,3 +1488,70 @@ contentPublicRoutes.get("/referral-leaderboard.json", async (c) => {
   return c.json({ referrers });
 });
 
+
+// ── GET /buyer-profile/:handle ────────────────────────────────────
+// US-1818: the PUBLIC, opt-in buyer Trust Score profile. Hard-filters to
+// buyer_profile_enabled = true and emits ONLY the buyer's opted-in stats
+// (buildPublicProfile is the PII chokepoint) — no email, user id, or purchase
+// detail ever leaves here. 404 (not 403) when the handle isn't a public profile,
+// so a private/absent handle is indistinguishable from a non-existent one.
+contentPublicRoutes.get("/buyer-profile/:handle", async (c) => {
+  const handle = c.req.param("handle");
+  if (!handle) return c.json({ error: "Not found." }, 404);
+
+  const { data: user } = await supabaseAdmin
+    .from("users")
+    .select("id, buyer_profile_handle, buyer_profile_show, rewards_display_name, created_at")
+    .ilike("buyer_profile_handle", handle)
+    .eq("buyer_profile_enabled", true)
+    .maybeSingle();
+  if (!user) return c.json({ error: "Not found." }, 404);
+  const u = user as {
+    id: string;
+    buyer_profile_handle: string;
+    buyer_profile_show: unknown;
+    rewards_display_name: string | null;
+    created_at: string;
+  };
+
+  const vis = normalizeVisibility(u.buyer_profile_show);
+
+  // Trust level (only queried when the buyer opted to show it).
+  let level = 0;
+  let levelLabel = "new";
+  if (vis.level) {
+    const { data: trust } = await supabaseAdmin
+      .from("buyer_trust_scores")
+      .select("level, level_label")
+      .eq("user_id", u.id)
+      .maybeSingle();
+    const t = trust as { level: number; level_label: string } | null;
+    level = t?.level ?? 0;
+    levelLabel = t?.level_label ?? "new";
+  }
+
+  // Confirmed-grade count (only when opted in).
+  let confirmations = 0;
+  if (vis.confirmations) {
+    const { count } = await supabaseAdmin
+      .from("grade_outcomes")
+      .select("id", { count: "exact", head: true })
+      .eq("buyer_user_id", u.id)
+      .eq("source", "buyer_arrival")
+      .eq("match_status", "confirmed");
+    confirmations = count ?? 0;
+  }
+
+  const profile = buildPublicProfile(
+    {
+      handle: u.buyer_profile_handle,
+      displayName: u.rewards_display_name ?? u.buyer_profile_handle,
+      level,
+      levelLabel,
+      memberSince: u.created_at,
+      confirmations,
+    },
+    vis,
+  );
+  return c.json({ profile });
+});

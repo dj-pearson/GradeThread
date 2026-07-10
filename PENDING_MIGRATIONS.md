@@ -1,5 +1,21 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ PENDING: 00427_buyer_public_profile.sql (US-1818 opt-in public buyer profile, 2026-07-10)
+
+**What:** Three additive columns on `public.users` — `buyer_profile_handle`
+(text, unique `lower()` partial index), `buyer_profile_enabled` (boolean, default
+false), `buyer_profile_show` (jsonb). Edge-written via the buyer profile route, so
+the users self-update guard is untouched. Bumps `EXPECTED_SCHEMA_VERSION` →
+**00427**. Self-records '00427'.
+
+**Risk: LOW** — three nullable/defaulted columns on an existing table + one
+partial unique index, no backfill. **The CLIENT reads the settings via the edge**
+(not direct RLS), and both the authed profile route and the public read
+(`/api/content/public/buyer-profile/:handle`) boot-expect 00427 — apply BEFORE
+the push. The public page `/trust/:handle` is NOINDEX + absent from the sitemap.
+**⚠️ Apply order:** after 00426; `scripts/apply-prod-migrations.sh`, then `NOTIFY
+pgrst, 'reload schema';`, redeploy the edge (boot guard now expects 00427).
+
 ## ⏳ PENDING: 00426_guarantee_fraud.sql (US-1823 guarantee anti-fraud controls, 2026-07-10)
 
 **What:** Additive columns — `buyer_guarantee_claims` gains `fraud_flags` (jsonb),

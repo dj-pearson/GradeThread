@@ -14367,7 +14367,7 @@
         "Buyer can disable/redact the public profile at any time"
       ],
       "priority": 1818,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][REPUTATION][NEW] Mirror verified-seller profile (00057 + /verified/:handle) but buyer-side + private-by-default. Register in public-routes.ts if indexable. Depends on levels (1817). PII posture: sensitive; explicit opt-in only."
     },
     {

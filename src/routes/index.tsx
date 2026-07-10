@@ -86,6 +86,7 @@ const PassportPage = lazy(() => import("@/pages/passport").then(m => ({ default:
 const PassportClaimPage = lazy(() => import("@/pages/passport-claim").then(m => ({ default: m.PassportClaimPage })));
 const TagScanPage = lazy(() => import("@/pages/tag-scan").then(m => ({ default: m.TagScanPage })));
 const VerifiedSellerPage = lazy(() => import("@/pages/verified-seller").then(m => ({ default: m.VerifiedSellerPage })));
+const TrustProfilePage = lazy(() => import("@/pages/trust-profile").then(m => ({ default: m.TrustProfilePage })));
 const VerifiedDirectoryPage = lazy(() => import("@/pages/verified-directory").then(m => ({ default: m.VerifiedDirectoryPage })));
 const FlipdeskVerifiedPage = lazy(() => import("@/pages/flipdesk/verified").then(m => ({ default: m.FlipdeskVerifiedPage })));
 // Public status page (US-500) — live component health probed from the
@@ -370,6 +371,9 @@ export const router = createBrowserRouter([
       // /cert/:id): served by the SSR Pages Function in prod; this SPA route is
       // the dev / in-app fallback. NOT registered in PUBLIC_ROUTES (dynamic).
       { path: "/verified/:handle", element: <SuspenseWrapper><VerifiedSellerPage /></SuspenseWrapper> },
+      // US-1818: public opt-in buyer Trust Score profile. Client-rendered + NOINDEX
+      // (private-by-default; deliberately NOT in PUBLIC_ROUTES / the sitemap).
+      { path: "/trust/:handle", element: <SuspenseWrapper><TrustProfilePage /></SuspenseWrapper> },
 
       // Marketing pages (public, prerendered — US-302)
       { path: "/how-it-works", element: <SuspenseWrapper><HowItWorksPage /></SuspenseWrapper> },
