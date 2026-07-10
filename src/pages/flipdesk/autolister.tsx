@@ -93,6 +93,12 @@ import {
   type TriageCondition,
 } from "@/lib/autolister-triage";
 import {
+  type ClientProposedGroup,
+  mergeProposalWindows,
+  planProposeWindows,
+  PROPOSE_WINDOW,
+} from "@/lib/autolister-propose-windows";
+import {
   clearSession,
   idbAvailable,
   loadSession,
@@ -606,6 +612,22 @@ export function FlipdeskAutolisterPage() {
   // condition, and collapse every group's photos to a header-only overview.
   const [triageFilter, setTriageFilter] = useState<TriageCondition | null>(null);
   const [groupsCollapsed, setGroupsCollapsed] = useState(false);
+  // US-1904: AI propose-groups ("AI group remaining"). Windows the ungrouped
+  // photos sequentially; a >1-window pass confirms the metered count first,
+  // shows progress, and is cancellable. Below-floor boundaries land in
+  // `proposalReviews` as chips instead of being applied silently.
+  const [proposing, setProposing] = useState(false);
+  const [proposeProgress, setProposeProgress] = useState<{ done: number; total: number } | null>(
+    null,
+  );
+  const proposeCancelRef = useRef(false);
+  const [proposeConfirm, setProposeConfirm] = useState<
+    | { windows: string[][]; windowCount: number; photoCount: number }
+    | null
+  >(null);
+  const [proposalReviews, setProposalReviews] = useState<
+    { id: string; photoIds: string[]; confidence: number; reason: string }[]
+  >([]);
   // Group ids created by the LAST auto-group run so it can be undone as one
   // action (those photos return to Ungrouped; manually-made groups survive).
   // In-memory only: a mis-grouped but persisted session is reset via
@@ -1737,6 +1759,143 @@ export function FlipdeskAutolisterPage() {
       return;
     }
     await runVerifyWindows(windows, false);
+  }
+
+  // ── US-1904: AI propose-groups ("AI group remaining") ──────────────
+  // Below this confidence, a proposed boundary is surfaced as a review chip
+  // rather than applied — the seller confirms it.
+  const PROPOSE_APPLY_FLOOR = 0.6;
+
+  /** Create groups from proposed photo-id runs in ONE undoable mutation, only
+   *  for photos that are still ungrouped when applied. */
+  function applyProposedGroups(runs: { photoIds: string[] }[]) {
+    applyGroupEdit(
+      `AI grouped ${runs.length} item${runs.length === 1 ? "" : "s"}.`,
+      (prev) => {
+        const grouped = new Set(prev.flatMap((g) => g.photoIds));
+        const created: Group[] = [];
+        for (const run of runs) {
+          const ids = run.photoIds.filter((id) => !grouped.has(id));
+          if (ids.length === 0) continue;
+          for (const id of ids) grouped.add(id);
+          created.push({
+            id: crypto.randomUUID(),
+            name: `Item ${prev.length + created.length + 1}`,
+            photoIds: ids,
+            coverId: ids[0]!,
+          });
+        }
+        return created.length === 0 ? prev : [...prev, ...created];
+      },
+      "split",
+    );
+  }
+
+  async function runProposeWindows(windows: string[][]) {
+    if (windows.length === 0) return;
+    const multi = windows.length > 1;
+    const totalPhotos = ungroupedSorted.length;
+    setProposing(true);
+    proposeCancelRef.current = false;
+    setProposeProgress(multi ? { done: 0, total: totalPhotos } : null);
+    const pathById = new Map(ungroupedSorted.map((p) => [p.id, p.storagePath]));
+    const windowResults: ClientProposedGroup[][] = [];
+    let anyError = false;
+    let done = 0;
+    try {
+      for (const win of windows) {
+        if (proposeCancelRef.current) break;
+        const photos = win
+          .map((id) => ({ id, storage_path: pathById.get(id) ?? "" }))
+          .filter((p) => p.storage_path);
+        try {
+          const res = await edgeFetch("/api/flipdesk/autolister/propose-groups", {
+            method: "POST",
+            json: { photos },
+          });
+          const json = (await res.json().catch(() => ({}))) as {
+            groups?: { photo_ids: string[]; confidence: number; reason: string }[];
+            error?: string;
+          };
+          if (!res.ok) {
+            anyError = true;
+            if (!multi) toast.error(json.error || "Could not propose groups.");
+          } else {
+            windowResults.push(
+              (json.groups ?? []).map((g) => ({
+                photoIds: g.photo_ids,
+                confidence: g.confidence,
+                reason: g.reason,
+              })),
+            );
+          }
+        } catch (err) {
+          anyError = true;
+          if (!multi) {
+            toast.error(`Propose failed: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+        done += win.length;
+        if (multi) setProposeProgress({ done, total: totalPhotos });
+      }
+
+      if (proposeCancelRef.current) {
+        toast.info(`Stopped — proposed over ${done} of ${totalPhotos} photos.`);
+        return;
+      }
+      // A singleton stays a singleton; only multi-photo items are worth applying.
+      const proposals = mergeProposalWindows(windowResults).filter((g) => g.photoIds.length >= 2);
+      if (proposals.length === 0) {
+        if (anyError) toast.error("Some windows couldn't be proposed — try again.");
+        else toast.info("AI didn't find clear item boundaries — group these manually.");
+        return;
+      }
+      const confident = proposals.filter((g) => g.confidence >= PROPOSE_APPLY_FLOOR);
+      const uncertain = proposals.filter((g) => g.confidence < PROPOSE_APPLY_FLOOR);
+      if (confident.length > 0) applyProposedGroups(confident);
+      if (uncertain.length > 0) {
+        setProposalReviews((prev) => [
+          ...prev,
+          ...uncertain.map((g) => ({
+            id: crypto.randomUUID(),
+            photoIds: g.photoIds,
+            confidence: g.confidence,
+            reason: g.reason,
+          })),
+        ]);
+      }
+      toast.success(
+        `AI proposed ${confident.length} item${confident.length === 1 ? "" : "s"}` +
+          (uncertain.length > 0 ? ` — ${uncertain.length} more to review below.` : "."),
+      );
+    } finally {
+      setProposing(false);
+      setProposeProgress(null);
+    }
+  }
+
+  /** 'AI group remaining' — window the ungrouped photos and propose item
+   *  boundaries. A >1-window pass confirms the metered count first. */
+  function proposeGroups() {
+    if (proposing) return;
+    const ids = ungroupedSorted.map((p) => p.id);
+    if (ids.length < 2) {
+      toast.info("Add at least two ungrouped photos first.");
+      return;
+    }
+    const windows = planProposeWindows(ids, PROPOSE_WINDOW);
+    if (windows.length === 0) return;
+    if (windows.length > 1) {
+      setProposeConfirm({ windows, windowCount: windows.length, photoCount: ids.length });
+      return;
+    }
+    void runProposeWindows(windows);
+  }
+
+  function acceptProposalReview(id: string) {
+    const review = proposalReviews.find((r) => r.id === id);
+    if (review) applyProposedGroups([{ photoIds: review.photoIds }]);
+    setProposalReviews((prev) => prev.filter((r) => r.id !== id));
   }
 
   /** Suggestions to chip onto group `gid` (move chips only on the source). */
@@ -2892,6 +3051,39 @@ export function FlipdeskAutolisterPage() {
               <Wand2 className="mr-1 h-4 w-4" />
               Auto-group ({ungrouped.length})
             </Button>
+            {/* US-1904: AI group remaining — a vision pass proposes item
+                boundaries for a timeless dump auto-group can't split. Appears
+                once there are ≥2 ungrouped photos left. */}
+            {entitled && ungrouped.length >= 2 && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={proposeGroups}
+                disabled={proposing}
+                title="AI looks at the remaining photos in shooting order and proposes where each item begins (uses AI actions — you'll see the count first)"
+              >
+                {proposing ? (
+                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="mr-1 h-4 w-4" />
+                )}
+                AI group remaining
+              </Button>
+            )}
+            {proposeProgress && (
+              <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+                Proposed {proposeProgress.done}/{proposeProgress.total} photos…
+                <button
+                  type="button"
+                  className="underline underline-offset-2 hover:text-foreground"
+                  onClick={() => {
+                    proposeCancelRef.current = true;
+                  }}
+                >
+                  Stop
+                </button>
+              </span>
+            )}
             {/* US-1550: fixed-size chunking in the displayed order — the rescue
                 tool when photos carry no capture times for Auto-group to use. */}
             <div
@@ -2938,6 +3130,51 @@ export function FlipdeskAutolisterPage() {
             )}
           </div>
         </div>
+        {/* US-1904: uncertain propose boundaries — created only on the seller's
+            confirmation, never silently applied. */}
+        {proposalReviews.length > 0 && (
+          <div
+            role="region"
+            aria-label="Proposed items to review"
+            className="space-y-1.5 rounded-md border border-amber-500/40 bg-amber-500/5 p-2"
+          >
+            <p className="text-xs font-medium text-amber-800 dark:text-amber-200">
+              {proposalReviews.length} proposed item{proposalReviews.length === 1 ? "" : "s"} the AI
+              wasn't sure about — create the ones that look right:
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {proposalReviews.map((r) => (
+                <span
+                  key={r.id}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs text-amber-800 dark:text-amber-200"
+                  title={r.reason || undefined}
+                >
+                  <Sparkles className="h-3 w-3 shrink-0" />
+                  <span className="max-w-56 truncate">
+                    {r.photoIds.length} photos · {Math.round(r.confidence * 100)}%
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => acceptProposalReview(r.id)}
+                    className="font-semibold underline-offset-2 hover:underline"
+                  >
+                    Create
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Dismiss proposal"
+                    onClick={() =>
+                      setProposalReviews((prev) => prev.filter((x) => x.id !== r.id))
+                    }
+                    className="rounded-full p-0.5 hover:bg-amber-500/20"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
         <UngroupedDropZone>
         {ungrouped.length === 0 ? (
           <p className="rounded-md border border-dashed py-6 text-center text-sm text-muted-foreground">
@@ -3600,6 +3837,42 @@ export function FlipdeskAutolisterPage() {
             >
               <Sparkles className="mr-2 h-4 w-4" />
               Verify all
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* US-1904: metered-action confirm for a multi-window propose pass. */}
+      <Dialog open={!!proposeConfirm} onOpenChange={(o) => !o && setProposeConfirm(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>AI-group {proposeConfirm?.photoCount} photos?</DialogTitle>
+            <DialogDescription>
+              Too many photos for one AI pass, so it runs in {proposeConfirm?.windowCount} batches —{" "}
+              {proposeConfirm?.windowCount} AI action{proposeConfirm?.windowCount === 1 ? "" : "s"}
+              {aiActionsRemaining != null ? ` of your ${aiActionsRemaining} remaining` : ""}. You can
+              stop between batches; confident items are created (undoable), unsure ones show up to
+              review.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setProposeConfirm(null)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={
+                aiActionsRemaining != null &&
+                proposeConfirm != null &&
+                proposeConfirm.windowCount > aiActionsRemaining
+              }
+              onClick={() => {
+                const pending = proposeConfirm;
+                setProposeConfirm(null);
+                if (pending) void runProposeWindows(pending.windows);
+              }}
+            >
+              <Sparkles className="mr-2 h-4 w-4" />
+              Group them
             </Button>
           </DialogFooter>
         </DialogContent>

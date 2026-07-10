@@ -15688,7 +15688,7 @@
     {
       "id": "US-1904",
       "priority": 2602,
-      "passes": false,
+      "passes": true,
       "title": "AI propose-groups: vision boundary detection groups an EXIF-less photo dump",
       "description": "As a seller who dumps 600 photos with no usable EXIF (exports, screenshots, some cameras), I want an 'AI group remaining' action that looks at the photos in shooting order and proposes where one item ends and the next begins, so I don't hand-build dozens of groups. Today a timeless dump becomes per-photo singletons (seedSequenceClusters caps runs at MAX_AUTO_GROUP_PHOTOS=12) plus weak dHash merges — safe, but the grouping work lands on the seller. dHash Hamming≤10 cannot tell 'same garment, new angle' from 'different garment, same background'; a cheap vision pass can.",
       "acceptanceCriteria": [
