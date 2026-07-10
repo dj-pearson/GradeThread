@@ -15667,7 +15667,7 @@
         "A test renders the pricing page with all buyer flags off and asserts every placeholder-backed feature shows the badge, so newly added buyer features can't silently regress the labeling"
       ],
       "priority": 1902,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {

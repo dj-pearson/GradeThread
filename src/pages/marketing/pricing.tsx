@@ -15,6 +15,17 @@ import {
 } from "@/lib/constants";
 import type { FlipdeskPlan as FlipdeskPlanKey } from "@/types/database";
 import { PRICING_FAQS, pricingJsonLd } from "@/pages/marketing/marketing-jsonld";
+import { isBulletComingSoon } from "@/lib/buyer-features";
+
+// US-1902: a buyer feature whose surface isn't live yet is labeled so a paying
+// visitor never clicks a promised feature and lands on a placeholder.
+function ComingSoonBadge() {
+  return (
+    <span className="ml-1.5 inline-flex items-center rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-700 dark:text-amber-300">
+      Coming soon
+    </span>
+  );
+}
 
 const dollars = (cents: number) =>
   cents === 0 ? "$0" : `$${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)}`;
@@ -168,7 +179,10 @@ export function PricingPage() {
                         </p>
                         <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
                           {buyerPlan.features.slice(0, 3).map((f) => (
-                            <li key={f}>• {f}</li>
+                            <li key={f}>
+                              • {f}
+                              {isBulletComingSoon(f) && <ComingSoonBadge />}
+                            </li>
                           ))}
                         </ul>
                       </div>
@@ -205,8 +219,8 @@ export function PricingPage() {
           <h2 className="text-3xl font-bold">Buyer plans</h2>
           <p className="mt-3 text-muted-foreground">
             Shop secondhand with confidence — a second opinion on any listing's
-            condition, condition-based alerts, fit, and grade-locked purchase
-            protection.{" "}
+            condition, condition-based alerts, and fit. Grade-locked purchase
+            protection is on the way.{" "}
             <span className="font-medium text-foreground">
               Already sell with FlipDesk? These come included with your plan
             </span>{" "}
@@ -227,7 +241,10 @@ export function PricingPage() {
                     {plan.features.map((f) => (
                       <li key={f} className="flex items-start gap-2">
                         <Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-brand-navy dark:text-foreground" />
-                        {f}
+                        <span>
+                          {f}
+                          {isBulletComingSoon(f) && <ComingSoonBadge />}
+                        </span>
                       </li>
                     ))}
                   </ul>
