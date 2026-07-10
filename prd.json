@@ -15796,7 +15796,7 @@
     {
       "id": "US-1911",
       "priority": 2609,
-      "passes": false,
+      "passes": true,
       "title": "Photo-QA client calls chunk to the server's 100-item cap (300-item sessions get scored, not 400s)",
       "description": "As a seller with a 150+ group session, I want cover QA and per-item photo QA to actually run instead of silently failing. The /photo-qa endpoint rejects >MAX_QA_ITEMS=100 covers/items per request (flipdesk-autolister.ts:1199), but both clients send everything in ONE request: the intake cover-scan effect (autolister.tsx ~line 806) posts all pending covers, and useRunPhotoQa (src/hooks/use-autolister.ts) posts all itemIds. Cover QA is advisory/fire-and-forget, so past 100 groups the 400 is swallowed and covers just never get scored; the queue path surfaces a raw error toast. MAX_BATCH_ITEMS is 300, so this is reachable today.",
       "acceptanceCriteria": [

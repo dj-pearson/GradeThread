@@ -557,16 +557,30 @@ export function FlipdeskAutolisterQueuePage() {
     const ids = succeededJobs.map((j) => j.inventory_item_id);
     if (ids.length === 0) return;
     try {
-      const { results } = await runPhotoQa.mutateAsync({ itemIds: ids });
+      const { results, requested, failedItemIds } = await runPhotoQa.mutateAsync({
+        itemIds: ids,
+      });
       await queryClient.invalidateQueries({ queryKey: ["autolister_item_meta"] });
+      const scored = results.length;
       const flagged = results.filter((r) => r.score >= 0 && r.score < 80).length;
-      toast.success(
-        flagged > 0
-          ? `Checked ${results.length} item${results.length === 1 ? "" : "s"} — ${flagged} could use better photos.`
-          : `Checked ${results.length} item${results.length === 1 ? "" : "s"} — photos look good.`,
-      );
+      const unscored = failedItemIds.length;
+      const flaggedNote = flagged > 0 ? ` ${flagged} could use better photos.` : "";
+      // US-1911: report partial success honestly (e.g. "Scored 240 of 300")
+      // rather than one all-or-nothing error toast — the hook only rejects when
+      // nothing at all could be scored.
+      if (unscored > 0) {
+        toast.warning(
+          `Scored ${scored} of ${requested}.${flaggedNote} ${unscored} couldn't be checked — try again to finish.`,
+        );
+      } else {
+        toast.success(
+          flagged > 0
+            ? `Checked ${scored} item${scored === 1 ? "" : "s"} —${flaggedNote}`
+            : `Checked ${scored} item${scored === 1 ? "" : "s"} — photos look good.`,
+        );
+      }
     } catch {
-      /* useRunPhotoQa surfaces the error toast */
+      /* useRunPhotoQa surfaces the error toast (only a total failure now) */
     }
   }
 

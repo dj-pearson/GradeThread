@@ -803,16 +803,22 @@ export function FlipdeskAutolisterPage() {
     }
     if (pending.length === 0) return;
     for (const p of pending) coverInFlight.current.add(p.id);
+    // US-1911: the hook chunks `pending` to the server's ≤100-per-request cap
+    // and merges partials as each chunk resolves. onSettled clears in-flight for
+    // ALL pending covers — including any left unscored by a failed chunk — so a
+    // later intake pass (triggered when the grouping changes) retries them.
     coverQa.mutate(
-      { covers: pending },
       {
-        onSuccess: ({ results }) => {
+        covers: pending,
+        onPartial: (results) => {
           setCoverScores((prev) => {
             const next = { ...prev };
             for (const r of results) next[r.cover_id] = r.score;
             return next;
           });
         },
+      },
+      {
         onSettled: () => {
           for (const p of pending) coverInFlight.current.delete(p.id);
         },

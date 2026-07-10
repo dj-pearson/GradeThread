@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { MAX_QA_ITEMS, runChunkedQa } from "@/lib/photo-qa-chunking";
 import type {
   ListingGenerationJobStatus,
   ListingGenerationStatus,
@@ -258,40 +259,95 @@ export interface CoverQaInput {
   storage_path: string;
 }
 
+export interface RunCoverQaResult {
+  /** Scores merged across every chunk whose request succeeded. */
+  results: CoverQaResult[];
+  /** Covers whose chunk failed at the request level — left unscored so a later
+   *  intake pass retries them. */
+  failed: CoverQaInput[];
+}
+
+async function fetchCoverQaChunk(batch: CoverQaInput[]): Promise<CoverQaResult[]> {
+  const res = await edgeFetch("/api/flipdesk/autolister/photo-qa", {
+    method: "POST",
+    json: { covers: batch },
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || "Could not check photos.");
+  return (json as { results: CoverQaResult[] }).results ?? [];
+}
+
 export function useRunCoverQa() {
   return useMutation<
-    { results: CoverQaResult[] },
+    RunCoverQaResult,
     Error,
-    { covers: CoverQaInput[] }
+    { covers: CoverQaInput[]; onPartial?: (chunkResults: CoverQaResult[]) => void }
   >({
-    mutationFn: async ({ covers }) => {
-      const res = await edgeFetch("/api/flipdesk/autolister/photo-qa", {
-        method: "POST",
-        json: { covers },
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || "Could not check photos.");
-      return json as { results: CoverQaResult[] };
-    },
-    // Advisory only: the intake flow swallows failures so a flaky QA pass never
-    // interrupts grouping or blocks the Generate button.
+    // US-1911: chunk to the server's ≤100-per-request cap (MAX_BATCH_ITEMS is
+    // 300, so a big session exceeds it) and issue chunks sequentially, merging
+    // partials as each resolves. Advisory only: never rejects — a failed chunk
+    // poisons only itself and its covers are returned in `failed` so the intake
+    // flow can retry them without interrupting grouping or blocking Generate.
+    mutationFn: async ({ covers, onPartial }) =>
+      runChunkedQa(covers, fetchCoverQaChunk, {
+        maxPerRequest: MAX_QA_ITEMS,
+        onPartial,
+      }),
   });
+}
+
+export interface RunPhotoQaResult {
+  /** Per-item scores merged across every chunk whose request succeeded. An
+   *  individual entry may still carry score -1 for a per-item QA error. */
+  results: PhotoQaItemResult[];
+  /** Total items requested (so the caller can report "Scored X of Y"). */
+  requested: number;
+  /** Ids in chunks that failed at the request level — never scored, so a later
+   *  pass can retry them. */
+  failedItemIds: string[];
+}
+
+async function fetchPhotoQaChunk(batch: string[]): Promise<PhotoQaItemResult[]> {
+  const res = await edgeFetch("/api/flipdesk/autolister/photo-qa", {
+    method: "POST",
+    json: { item_ids: batch },
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || "Could not check photos.");
+  return (json as { results: PhotoQaItemResult[] }).results ?? [];
 }
 
 /**
  * POST /api/flipdesk/autolister/photo-qa — score the given items' photos for
  * listing-readiness and persist the score + issues on each item.
+ *
+ * US-1911: chunks to the server's ≤100-per-request cap and issues chunks
+ * sequentially. A failed chunk no longer poisons the rest — its items surface
+ * in `failedItemIds` and the successful chunks still score, so the caller can
+ * report an honest "Scored X of Y". Only a total wipeout (nothing scored)
+ * rejects, preserving the single-item add-photos flow's error toast.
  */
 export function useRunPhotoQa() {
-  return useMutation<{ results: PhotoQaItemResult[] }, Error, { itemIds: string[] }>({
-    mutationFn: async ({ itemIds }) => {
-      const res = await edgeFetch("/api/flipdesk/autolister/photo-qa", {
-        method: "POST",
-        json: { item_ids: itemIds },
+  return useMutation<
+    RunPhotoQaResult,
+    Error,
+    { itemIds: string[]; onPartial?: (chunkResults: PhotoQaItemResult[]) => void }
+  >({
+    mutationFn: async ({ itemIds, onPartial }) => {
+      let lastError: Error | null = null;
+      const { results, failed } = await runChunkedQa(itemIds, fetchPhotoQaChunk, {
+        maxPerRequest: MAX_QA_ITEMS,
+        onPartial,
+        onChunkError: (err) => {
+          lastError = err instanceof Error ? err : new Error("Could not check photos.");
+        },
       });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || "Could not check photos.");
-      return json as { results: PhotoQaItemResult[] };
+      // Only a total wipeout is an error toast; any partial success resolves so
+      // the caller can report an honest "Scored X of Y".
+      if (results.length === 0 && failed.length > 0) {
+        throw lastError ?? new Error("Could not check photos.");
+      }
+      return { results, requested: itemIds.length, failedItemIds: failed };
     },
     onError: (err) => toast.error(err.message),
   });
