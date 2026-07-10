@@ -14521,7 +14521,7 @@
         "This umbrella tracks US-1830…US-1832"
       ],
       "priority": 1829,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][DEMAND-BOARD][EPIC][NEW] BASELINE: none. Complements alerts (1805): alerts = passive watch; wants = active broadcast that sellers can fulfill. DATA: matches against graded inventory/listings; demand aggregation is a novel seller-facing asset. MONETIZATION: match/intro fee or premium seller demand insights. TIES: reuses matching engine ideas from 1807; seller surface in FlipDesk. Child stories: want model + matching (1830), buyer post UI + seller demand surface (1831), match-fee monetization + notifications (1832). Depends on foundation (1795)."
     },
     {
@@ -14563,7 +14563,7 @@
         "Anti-abuse: prevents circular/self-matching to farm fees"
       ],
       "priority": 1832,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][DEMAND-BOARD][BILLING][NEW] Reuse payments catalog + jobs-billing-reconciliation.ts. Notifications via 1803. Decide fee model vs. seller-entitlement gating (either monetizes; can ship the entitlement-gate first). Depends on matching (1830) + surfaces (1831)."
     },
     {

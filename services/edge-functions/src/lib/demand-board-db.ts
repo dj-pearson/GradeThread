@@ -65,45 +65,67 @@ async function loadDemandCandidates(): Promise<Candidate[]> {
   return out;
 }
 
+export interface NewMatch {
+  certificateId: string;
+  sellerUserId: string | null;
+}
+
 export interface WantMatchResult {
+  /** Total matches for the want (new + already recorded). */
   matched: number;
+  /** Matches recorded for the FIRST time this run — the ones to notify on. */
+  newMatches: NewMatch[];
 }
 
 /**
- * Match one want against the public-cert universe and record want_matches rows
- * (idempotent). Best-effort: a failure logs and returns 0 rather than throwing,
- * so a matching hiccup never blocks the want create. Scoped by the want owner.
+ * Match one want against the public-cert universe and record want_matches rows.
+ * Diffs against already-recorded matches so it returns only the NEW ones (the
+ * notification trigger for US-1832). Best-effort: a failure logs and returns
+ * empty rather than throwing. Scoped by the want owner.
  */
 export async function computeWantMatches(want: WantSearchFields): Promise<WantMatchResult> {
   try {
     const candidates = await loadDemandCandidates();
-    if (candidates.length === 0) return { matched: 0 };
+    if (candidates.length === 0) return { matched: 0, newMatches: [] };
     const search = wantToSearch(want);
 
+    // Already-recorded matches for this want (so we only notify on NEW ones).
+    const { data: existingRows } = await supabaseAdmin
+      .from("want_matches")
+      .select("certificate_id")
+      .eq("want_id", want.id);
+    const existing = new Set((existingRows ?? []).map((r) => (r as { certificate_id: string }).certificate_id));
+
     const rows: Array<Record<string, unknown>> = [];
+    const newMatches: NewMatch[] = [];
+    let matched = 0;
     for (const cert of candidates) {
-      if (rows.length >= MAX_MATCHES_PER_WANT) break;
+      if (matched >= MAX_MATCHES_PER_WANT) break;
       if (cert.sellerUserId === want.user_id) continue; // never match your own item
       if (!matchesSearch(cert, search)) continue;
+      matched++;
+      if (existing.has(cert.certificateId)) continue; // already recorded → not new
       rows.push({
         want_id: want.id,
         buyer_user_id: want.user_id,
         seller_user_id: cert.sellerUserId,
         certificate_id: cert.certificateId,
       });
+      newMatches.push({ certificateId: cert.certificateId, sellerUserId: cert.sellerUserId });
     }
-    if (rows.length === 0) return { matched: 0 };
 
-    const { error } = await supabaseAdmin
-      .from("want_matches")
-      .upsert(rows as never, { onConflict: "want_id,certificate_id", ignoreDuplicates: true });
-    if (error) {
-      console.error("[demand-board] match upsert failed:", error.message);
-      return { matched: 0 };
+    if (rows.length > 0) {
+      const { error } = await supabaseAdmin
+        .from("want_matches")
+        .upsert(rows as never, { onConflict: "want_id,certificate_id", ignoreDuplicates: true });
+      if (error) {
+        console.error("[demand-board] match upsert failed:", error.message);
+        return { matched, newMatches: [] };
+      }
     }
-    return { matched: rows.length };
+    return { matched, newMatches };
   } catch (err) {
     console.error("[demand-board] computeWantMatches failed:", err instanceof Error ? err.message : String(err));
-    return { matched: 0 };
+    return { matched: 0, newMatches: [] };
   }
 }

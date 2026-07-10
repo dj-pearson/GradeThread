@@ -9,12 +9,21 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { aggregatePublicWants, type PublicWantRow } from "../lib/demand-board.ts";
+import { requireFlipdesk } from "../lib/plan-gate.ts";
 
-export const flipdeskDemandRoutes = new Hono();
+type FlipdeskEnv = { Variables: { userId: string; workspaceOwnerId?: string } };
+export const flipdeskDemandRoutes = new Hono<FlipdeskEnv>();
 
 const MAX_PUBLIC_WANTS = 5000;
 
 flipdeskDemandRoutes.get("/", async (c) => {
+  // US-1832 monetization: demand insights are a premium sourcing feature, gated
+  // to the compPulls tier (same as Scout/comps). Blocked → returns the gate's 402.
+  const owner = c.get("workspaceOwnerId") ?? c.get("userId");
+  const gate = await requireFlipdesk(c, { feature: "compPulls", userId: owner });
+  if (gate) return gate;
+
+
   const { data, error } = await supabaseAdmin
     .from("buyer_wants")
     .select("brands, categories, min_grade, max_price_cents")

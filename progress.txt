@@ -13361,3 +13361,27 @@ The buyer + seller surfaces on the US-1830 want model. NO migration (code only).
   --noEmit 0 / eslint 0 / tsc -b baseline 7 (none mine) / vite build + prerender 212.
 - This commit has NO migration (code only) but is part of the held branch (not
   pushed until the user OKs the pending migrations).
+
+## 2026-07-10 — US-1832 (Demand board: monetization + notifications) + US-1829 EPIC closed — passes:true
+
+Closes the 'Graded Wanted' demand board epic (US-1829): model+matching (1830),
+surfaces (1831), monetization+notifications (1832). NO migration (code only).
+- Monetization via ENTITLEMENT-GATE (notes: "can ship the entitlement-gate
+  first"): the seller demand insights surface (GET /api/flipdesk/demand + the
+  /dashboard/flipdesk/demand page + sidebar) is gated to the compPulls tier
+  (same as Scout/comps) via requireFlipdesk — premium sourcing intelligence.
+  Fee accounting = the FlipDesk subscription (already reconciled), so no new
+  Stripe item; documented.
+- Notifications: demand-board-db.computeWantMatches now DIFFS against recorded
+  matches → returns newMatches. New cron jobs-demand-matches (job-secret + lock,
+  auto-recorded; every 6h) re-matches active wants and notifies BOTH sides on
+  NEW matches — buyer via notifyBuyer(condition_alert, deduped) + graded item's
+  seller via notifyUser(system). Registered in CRON_REGISTRY; COOLIFY/LAUNCH/
+  CRON_SETUP regenerated (drift-guarded).
+- Anti-abuse: self-match already skipped (1830); +MAX_ACTIVE_WANTS=25 cap per
+  buyer on create (429). Entitlement model has no per-match fee → no fee-farming
+  vector; documented.
+- VERIFIED: deno check CLEAN / lint 0 / full edge suite 3433 pass 0 fail (cron
+  drift + admin-scope guards green) / web tsc --noEmit 0 / eslint 0 / tsc -b
+  baseline 7 (none mine) / vite build CLEAN.
+- Code-only commit; part of the held branch (not pushed until pending migrations OK'd).

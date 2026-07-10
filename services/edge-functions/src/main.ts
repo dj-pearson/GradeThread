@@ -74,6 +74,7 @@ import { adminClaimsRoutes } from "./routes/admin-claims.ts";
 import { adminGuaranteePoolRoutes } from "./routes/admin-guarantee-pool.ts";
 import { handleGuaranteePoolCron } from "./routes/jobs-guarantee-pool.ts";
 import { handlePortfolioAlertsCron } from "./routes/jobs-portfolio-alerts.ts";
+import { handleDemandMatchesCron } from "./routes/jobs-demand-matches.ts";
 import { adminMeasureCardRoutes } from "./routes/admin-measure-cards.ts";
 import { guaranteePublicRoutes } from "./routes/guarantee-public.ts";
 import { adminSupportRoutes } from "./routes/admin-support.ts";
@@ -384,6 +385,7 @@ app.use("/api/passport-identity/*", authMiddleware);
 // the `state` token from oauth_states identifies the user) + the scheduled
 // /oauth/refresh job (gated by FLIPDESK_INTERNAL_JOB_SECRET header).
 app.use("/api/flipdesk/demand", authMiddleware);
+app.use("/api/flipdesk/demand", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/oauth/start", authMiddleware);
 app.use("/api/flipdesk/ebay/oauth/debug", authMiddleware);
 app.use("/api/flipdesk/ebay/disconnect", authMiddleware);
@@ -1428,6 +1430,7 @@ app.post("/api/jobs/content-refresh", (c) => handleContentRefreshCron(c));
 app.post("/api/jobs/billing-reconciliation", (c) => handleBillingReconciliationCron(c));
 app.post("/api/jobs/guarantee-pool", (c) => handleGuaranteePoolCron(c));
 app.post("/api/jobs/portfolio-alerts", (c) => handlePortfolioAlertsCron(c));
+app.post("/api/jobs/demand-matches", (c) => handleDemandMatchesCron(c));
 app.route("/api/content/blog", contentBlogRoutes);
 app.route("/api/content/authors", contentAuthorsRoutes);
 app.route("/api/content/social", contentSocialRoutes);

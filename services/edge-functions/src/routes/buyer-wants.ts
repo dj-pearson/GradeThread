@@ -13,6 +13,8 @@ import { computeWantMatches } from "../lib/demand-board-db.ts";
 type BuyerEnv = { Variables: { userId: string } };
 export const buyerWantsRoutes = new Hono<BuyerEnv>();
 
+const MAX_ACTIVE_WANTS = 25;
+
 buyerWantsRoutes.get("/wants", async (c) => {
   const userId = c.get("userId");
   const { data, error } = await supabaseAdmin
@@ -36,6 +38,16 @@ buyerWantsRoutes.post("/wants", async (c) => {
   const want = normalizeWantInput(body);
   if (!hasCriteria(want)) {
     return c.json({ error: "Add at least one criterion (brand, category, keyword, grade, or price)." }, 400);
+  }
+
+  // Anti-abuse (US-1832): cap active wants per buyer so the board can't be spammed.
+  const { count } = await supabaseAdmin
+    .from("buyer_wants")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("status", "active");
+  if ((count ?? 0) >= MAX_ACTIVE_WANTS) {
+    return c.json({ error: `You can have up to ${MAX_ACTIVE_WANTS} active wants. Expire one first.` }, 429);
   }
 
   const { data: inserted, error } = await supabaseAdmin
