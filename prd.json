@@ -15746,7 +15746,7 @@
     {
       "id": "US-1908",
       "priority": 2606,
-      "passes": false,
+      "passes": true,
       "title": "Grouping quality telemetry: measure auto-group accuracy so thresholds are tuned on real data",
       "description": "As the product owner, I want to know how well auto-grouping actually performs on real sessions — how much sellers correct it — so DEFAULT_GAP_SECONDS, VISUAL_MERGE_MAX_DISTANCE, and MAX_AUTO_GROUP_PHOTOS get tuned from evidence instead of anecdotes.",
       "acceptanceCriteria": [

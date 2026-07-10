@@ -83,7 +83,17 @@ import {
   autoGroupPhotos,
   compareByProvenance,
   type GroupablePhoto,
+  sequenceRuns,
 } from "@/lib/autolister-grouping";
+import {
+  type GroupEditKind,
+  groupingCorrectionScore,
+  manualGroupsCreated,
+  trackAiSuggestion,
+  trackAutogroupRun,
+  trackGroupEdit,
+  trackGroupingOutcome,
+} from "@/lib/autolister-telemetry";
 import {
   type StagedPhoto,
   type StagedUploadResult,
@@ -1397,6 +1407,11 @@ export function FlipdeskAutolisterPage() {
 
   /** Snapshot for single-level undo of the LAST grouping mutation. */
   const undoGroupsRef = useRef<Group[] | null>(null);
+  // US-1908: the auto-grouper's assignment (photoId → group id) and the ids of
+  // the groups it created, captured at Auto-group time. The correction score at
+  // generate compares these against the final grouping.
+  const autoAssignedRef = useRef<Record<string, string>>({});
+  const autoGroupIdsRef = useRef<Set<string>>(new Set());
 
   /**
    * Apply a grouping mutation with single-level undo: snapshots the previous
@@ -1404,11 +1419,17 @@ export function FlipdeskAutolisterPage() {
    * reference on a no-op (the autolister-group-edits helpers do) so nothing is
    * snapshotted or toasted for nothing. Returns whether it applied.
    */
-  function applyGroupEdit(label: string, apply: (prev: Group[]) => Group[]): boolean {
+  function applyGroupEdit(
+    label: string,
+    apply: (prev: Group[]) => Group[],
+    kind?: GroupEditKind,
+  ): boolean {
     const next = apply(groups);
     if (next === groups) return false;
     undoGroupsRef.current = groups;
     setGroups(next);
+    // US-1908: measure how much sellers correct the auto-grouper.
+    if (kind) trackGroupEdit(kind);
     toast.success(label, {
       action: { label: "Undo", onClick: undoLastGroupEdit },
     });
@@ -1438,8 +1459,10 @@ export function FlipdeskAutolisterPage() {
       `Moved ${photoIds.length === 1 ? "photo" : `${photoIds.length} photos`} to ` +
       `${groupNameOf(targetGroupId)}.`;
     if (
-      applyGroupEdit(label, (prev) =>
-        movePhotosToGroup(prev, photoIds, targetGroupId, beforePhotoId),
+      applyGroupEdit(
+        label,
+        (prev) => movePhotosToGroup(prev, photoIds, targetGroupId, beforePhotoId),
+        "move",
       )
     ) {
       setSelected(new Set());
@@ -1448,18 +1471,22 @@ export function FlipdeskAutolisterPage() {
 
   /** "New group" from the move menu: pull the photo out of any group first. */
   function newGroupFromPhoto(photoId: string) {
-    applyGroupEdit("New group created.", (prev) => {
-      const cleared = movePhotosToGroup(prev, [photoId], null);
-      return [
-        ...cleared,
-        {
-          id: crypto.randomUUID(),
-          name: `Item ${prev.length + 1}`,
-          photoIds: [photoId],
-          coverId: photoId,
-        },
-      ];
-    });
+    applyGroupEdit(
+      "New group created.",
+      (prev) => {
+        const cleared = movePhotosToGroup(prev, [photoId], null);
+        return [
+          ...cleared,
+          {
+            id: crypto.randomUUID(),
+            name: `Item ${prev.length + 1}`,
+            photoIds: [photoId],
+            coverId: photoId,
+          },
+        ];
+      },
+      "split",
+    );
   }
 
   // ── US-1544: AI group-boundary verification ────────────────────────
@@ -1609,8 +1636,16 @@ export function FlipdeskAutolisterPage() {
     return `Move ${n} photo${n === 1 ? "" : "s"} to ${nameOf(s.group_ids[1])}?`;
   }
 
-  function dismissSuggestion(id: string) {
+  /** Remove a suggestion chip without telemetry (used by apply). */
+  function removeSuggestion(id: string) {
     setGroupSuggestions((prev) => prev.filter((s) => s.id !== id));
+  }
+
+  /** User dismissed a suggestion via its ✕ — US-1908 records it as feedback. */
+  function dismissSuggestion(id: string) {
+    const s = groupSuggestions.find((x) => x.id === id);
+    removeSuggestion(id);
+    if (s) trackAiSuggestion({ source: "verify", action: "dismissed", confidence: s.confidence });
   }
 
   // ── US-1546: pre-generate checkpoint ───────────────────────────────
@@ -1688,6 +1723,9 @@ export function FlipdeskAutolisterPage() {
 
   /** Apply one suggestion via the US-1543 undoable mutations. */
   function applySuggestion(s: GroupSuggestionRow) {
+    // US-1908: an applied suggestion is grouping feedback (source verify — the
+    // only suggestion source today; US-1904 propose will pass "propose").
+    trackAiSuggestion({ source: "verify", action: "applied", confidence: s.confidence });
     if (s.type === "merge") {
       mergeGroups([s.group_ids[0]!, s.group_ids[1]!]);
     } else if (s.type === "move") {
@@ -1707,9 +1745,11 @@ export function FlipdeskAutolisterPage() {
             },
           ];
         },
+        "split",
       );
     }
-    dismissSuggestion(s.id);
+    // Not dismissSuggestion — applying isn't a dismissal (no double event).
+    removeSuggestion(s.id);
   }
 
   // US-1543 sensors: the drag handle is a real button, so the pointer sensor
@@ -1746,8 +1786,10 @@ export function FlipdeskAutolisterPage() {
         null;
       if (!targetGroupId) return;
       if (movingIds.length === 1 && fromGroupId === targetGroupId) {
-        applyGroupEdit("Photo order updated.", (prev) =>
-          reorderWithinGroup(prev, targetGroupId, activeId, anchorId),
+        applyGroupEdit(
+          "Photo order updated.",
+          (prev) => reorderWithinGroup(prev, targetGroupId, activeId, anchorId),
+          "reorder",
         );
       } else {
         movePhotos(movingIds, targetGroupId, anchorId);
@@ -1775,6 +1817,7 @@ export function FlipdeskAutolisterPage() {
           coverId: ids[0]!,
         },
       ],
+      "split",
     );
     setSelected(new Set());
   }
@@ -1804,6 +1847,24 @@ export function FlipdeskAutolisterPage() {
     setGroups((prev) => [...prev, ...created]);
     setLastAutoGroupIds(createdIds);
     setSelected(new Set());
+    // US-1908: snapshot the auto-assignment for the generate-time correction
+    // score, and record this run's metrics (counts only — no image data /
+    // filenames). Fires even on the degenerate branch below (that's signal too).
+    for (const g of created) {
+      autoGroupIdsRef.current.add(g.id);
+      for (const pid of g.photoIds) autoAssignedRef.current[pid] = g.id;
+    }
+    const withExif = input.filter((p) => p.capturedAt != null).length;
+    const seqSeeded = sequenceRuns(input)
+      .filter((run) => run.length >= 2)
+      .reduce((n, run) => n + run.length, 0);
+    trackAutogroupRun({
+      photo_count: input.length,
+      group_count: auto.length,
+      singleton_count: auto.filter((g) => g.photoIds.length === 1).length,
+      pct_with_exif: input.length === 0 ? 0 : Math.round((withExif / input.length) * 100) / 100,
+      seq_seeded_count: seqSeeded,
+    });
     // Degenerate grouping (photos without capture times or usable filename
     // sequences collapse into one giant burst): warn instead of celebrating,
     // and lead with Undo — grouping manually from the (shooting-ordered) grid
@@ -1852,6 +1913,8 @@ export function FlipdeskAutolisterPage() {
     setGroups((prev) => [...prev, ...created]);
     setLastAutoGroupIds(createdIds);
     setSelected(new Set());
+    // US-1908: a manual bulk-group action (not the auto-grouper).
+    trackGroupEdit("group_every");
     toast.success(
       `Grouped ${ungroupedSorted.length} photos into ${created.length} item${created.length === 1 ? "" : "s"} of ${n}, following the grid's current order (${UNGROUPED_SORT_LABELS[ungroupedSort].toLowerCase()}).`,
       { action: { label: "Undo", onClick: () => undoAutoGroup(createdIds) } },
@@ -1883,6 +1946,7 @@ export function FlipdeskAutolisterPage() {
     applyGroupEdit(
       "All groups dissolved — photos are back in Ungrouped, in the grid's chosen sort order.",
       (prev) => (prev.length === 0 ? prev : []),
+      "ungroup_all",
     );
     setSelectedGroups(new Set());
     setLastAutoGroupIds(null);
@@ -2006,14 +2070,18 @@ export function FlipdeskAutolisterPage() {
     // US-1543: routed through the shared move transform (cover repair, empty-
     // group dissolution, role pruning) with single-level undo.
     void groupId;
-    applyGroupEdit("Photo moved back to Ungrouped.", (prev) =>
-      movePhotosToGroup(prev, [photoId], null),
+    applyGroupEdit(
+      "Photo moved back to Ungrouped.",
+      (prev) => movePhotosToGroup(prev, [photoId], null),
+      "move",
     );
   }
 
   function deleteGroup(groupId: string) {
-    applyGroupEdit("Group deleted — its photos are back in Ungrouped.", (prev) =>
-      prev.filter((g) => g.id !== groupId),
+    applyGroupEdit(
+      "Group deleted — its photos are back in Ungrouped.",
+      (prev) => prev.filter((g) => g.id !== groupId),
+      "move",
     );
   }
 
@@ -2022,23 +2090,27 @@ export function FlipdeskAutolisterPage() {
   // via the group toolbar's "Merge selected" action. US-1543: undoable.
   function mergeGroups(groupIds: string[]) {
     if (groupIds.length < 2) return;
-    applyGroupEdit(`Merged ${groupIds.length} groups.`, (prev) => {
-      const survivors = prev.filter((g) => !groupIds.includes(g.id));
-      const merged = prev.filter((g) => groupIds.includes(g.id));
-      if (merged.length < 2) return prev;
-      const allIds = Array.from(new Set(merged.flatMap((g) => g.photoIds)));
-      const head = merged[0]!;
-      const combined: Group = {
-        ...head,
-        photoIds: allIds,
-        coverId: allIds.includes(head.coverId) ? head.coverId : (allIds[0] ?? ""),
-      };
-      // Preserve the relative order of the first merged group.
-      const headIdx = prev.findIndex((g) => g.id === head.id);
-      const out = [...survivors];
-      out.splice(Math.min(headIdx, out.length), 0, combined);
-      return out;
-    });
+    applyGroupEdit(
+      `Merged ${groupIds.length} groups.`,
+      (prev) => {
+        const survivors = prev.filter((g) => !groupIds.includes(g.id));
+        const merged = prev.filter((g) => groupIds.includes(g.id));
+        if (merged.length < 2) return prev;
+        const allIds = Array.from(new Set(merged.flatMap((g) => g.photoIds)));
+        const head = merged[0]!;
+        const combined: Group = {
+          ...head,
+          photoIds: allIds,
+          coverId: allIds.includes(head.coverId) ? head.coverId : (allIds[0] ?? ""),
+        };
+        // Preserve the relative order of the first merged group.
+        const headIdx = prev.findIndex((g) => g.id === head.id);
+        const out = [...survivors];
+        out.splice(Math.min(headIdx, out.length), 0, combined);
+        return out;
+      },
+      "merge",
+    );
     setSelectedGroups(new Set());
   }
 
@@ -2060,6 +2132,20 @@ export function FlipdeskAutolisterPage() {
       toast.error("Create at least one group first.");
       return;
     }
+    // US-1908: session-end grouping outcome — how much the seller corrected the
+    // auto-grouper — captured BEFORE generation mutates anything.
+    const finalAssigned: Record<string, string> = {};
+    for (const g of groups) for (const pid of g.photoIds) finalAssigned[pid] = g.id;
+    const correction = groupingCorrectionScore(autoAssignedRef.current, finalAssigned);
+    trackGroupingOutcome({
+      photo_count: staged.length,
+      corrected_count: correction.corrected,
+      correction_pct: Math.round(correction.pct * 100) / 100,
+      manual_groups_created: manualGroupsCreated(
+        autoGroupIdsRef.current,
+        groups.map((g) => g.id),
+      ),
+    });
     setBusy(true);
     try {
       const itemIds: string[] = [];
