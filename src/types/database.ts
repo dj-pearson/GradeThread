@@ -402,6 +402,9 @@ export interface UserRow {
   // shown there (migration 00195).
   referral_leaderboard_enabled: boolean;
   referral_display_name: string | null;
+  // US-1814: opt into the buyer confirmer rewards leaderboard + alias (00423).
+  rewards_leaderboard_enabled: boolean;
+  rewards_display_name: string | null;
   // Cross-source sync-conflict email alert: send one email when the open
   // conflict count crosses this number (US-148, migration 00133). NULL disables.
   sync_conflict_email_threshold: number | null;

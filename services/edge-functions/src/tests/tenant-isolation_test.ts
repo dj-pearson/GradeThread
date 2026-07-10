@@ -2200,6 +2200,12 @@ Deno.test({
   },
 });
 
+// US-1814: buyer rewards leaderboard. No cross-tenant id vector — the opt-in
+// POST /api/buyer/rewards/leaderboard updates ONLY the caller's own users row
+// (.eq("id", userId); no id is taken from the body), and GET returns a PII-free
+// opt-in aggregate (alias + confirmation count) by design. Nothing to scope-test
+// beyond the self-update, which the route's .eq("id", userId) enforces.
+
 // US-1825: closet items. DELETE is scoped .eq("id",id).eq("user_id",userId), so B
 // deleting A's closet item hits 0 rows (204/ok but no cross-tenant delete); the
 // add-by-certificate path 403s when the caller doesn't own the cert. (Per-case

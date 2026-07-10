@@ -13092,3 +13092,31 @@ upgrade), previously a TODO — spendable on authenticity/video metered actions.
   full edge suite 3361 pass 0 fail / web tsc --noEmit 0 / eslint 0 / tsc -b
   baseline 7 (none mine) / vite build + prerender 212 CLEAN.
 - ⚠️ HELD MIGRATION — commit local; NOT pushed until user applies 00422 (after 00421).
+
+## 2026-07-10 — US-1814 (Rewards: buyer surfaces, streaks & impact receipts) + US-1810 EPIC closed — passes:true
+
+Closes the Grade-confirmation Rewards epic (US-1810): its four children
+(1811 link+capture, 1812 confirm/dispute engine, 1813 ledger, 1814 surfaces) are
+all done and every epic AC is met, so the umbrella is marked too.
+- 00423_buyer_rewards_leaderboard.sql: users.rewards_leaderboard_enabled +
+  rewards_display_name (mirrors referral leaderboard 00195; edge-written, so the
+  users self-update guard is untouched). US-1108 triple + footer, EXPECTED=00423.
+- src/lib/buyer-rewards-summary.ts (PURE, vitest 8): computeBuyerRewardsSummary —
+  lifetime confirmations, over-grades caught, current + longest confirmation
+  streak. Reuses north-star startOfWeek/weekKey (Monday-anchored local weeks,
+  DST-safe via re-normalized prevWeekKey stepping).
+- routes/buyer-rewards.ts (mounted /api/buyer): POST /rewards/leaderboard (opt-in
+  + alias, requires a display name to join, self-scoped .eq id userId) + GET
+  /rewards/leaderboard (service-role cross-buyer confirmer ranking — PII-free
+  alias + confirmation count only; caller's own opt-in state included).
+- Web: use-buyer-rewards hook (summary from own grade_outcomes RLS read +
+  leaderboard feed + opt-in mutation); rewards.tsx RewardsSummarySection —
+  streak/lifetime/caught stat row + SHAREABLE receipt (navigator.share →
+  clipboard fallback) + leaderboard opt-in/join + top-10 list. database.ts
+  UserRow gains the two opt-in columns.
+- Tenant isolation: documented no-id-vector note (opt-in is self-scoped; feed is
+  an opt-in public aggregate).
+- VERIFIED: deno check CLEAN / deno lint 0 / full edge suite 3361 pass 0 fail /
+  web tsc --noEmit 0 / eslint 0 / vitest 8 pass / tsc -b baseline 7 (none mine) /
+  vite build + prerender 212 CLEAN.
+- ⚠️ HELD MIGRATION — commit local; NOT pushed until user applies 00423 (after 00422).

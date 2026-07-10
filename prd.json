@@ -14254,7 +14254,7 @@
         "This umbrella tracks US-1811…US-1814"
       ],
       "priority": 1810,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][REWARDS][EPIC][NEW] STRATEGIC: reward mechanic doubles as your cheapest source of labeled post-sale data. DATA: grade_outcomes (listing_price/sold_price/sold_at/dispute_reported) + human_reviews (per-factor corrections) — this loop feeds both. Load grading-engine skill for anything touching human_reviews/accuracy. Reward currency reuses the credits ledger. TIES: gamification/streaks (1815 trust score), circularity receipts (1842). Depends on foundation (1795). Child stories: purchase-link+arrival capture (1811), confirm/dispute engine + feedback loop (1812), reward ledger + anti-abuse (1813), reward surfaces + streaks (1814)."
     },
     {
@@ -14311,7 +14311,7 @@
         "Optional leaderboard opt-in (reuse the referral-leaderboard opt-in pattern)"
       ],
       "priority": 1814,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][REWARDS][GROWTH][NEW] Reuse north-star.ts (streakWeeks/milestones, 00170) + cert-image-render.ts SLAB_FORMATS for share cards + referral-leaderboard opt-in (00195). Surfaces in buyer dashboard (1802). Depends on ledger (1813). TIES: trust score (1815), circularity (1842)."
     },
     {

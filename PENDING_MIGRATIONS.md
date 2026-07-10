@@ -1,5 +1,20 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ PENDING: 00423_buyer_rewards_leaderboard.sql (US-1814 buyer rewards leaderboard opt-in, 2026-07-10)
+
+**What:** Two additive columns on `public.users` — `rewards_leaderboard_enabled`
+(boolean, default false) and `rewards_display_name` (text) — mirroring the
+referral leaderboard opt-in (00195). Both are edge-written (service role) via the
+buyer rewards opt-in route, never client self-update, so the users self-update
+guard is untouched. Bumps `EXPECTED_SCHEMA_VERSION` → **00423**. Self-records '00423'.
+
+**Risk: LOW** — two nullable/defaulted columns on an existing table, no backfill,
+no destructive change. **The CLIENT reads `rewards_*` on frontend auto-deploy**
+(the /buyer/rewards leaderboard opt-in card), and the edge rewards route
+boot-expects 00423 — apply BEFORE the push. **⚠️ Apply order:** after 00422;
+`scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload schema';`, redeploy
+the edge (boot guard now expects 00423).
+
 ## ⏳ PENDING: 00422_buyer_reward_ledger.sql (US-1813 buyer reward ledger + redemption, 2026-07-09)
 
 **What:** Two service-write / owner-read tables — `public.buyer_reward_ledger`

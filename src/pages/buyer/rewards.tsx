@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Camera, Check, Gift, Loader2, Lock, Plus, ShieldCheck } from "lucide-react";
+import { Camera, Check, Flame, Gift, Loader2, Lock, Plus, Share2, ShieldCheck, Trophy } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useBuyerEntitlements } from "@/hooks/use-buyer-entitlements";
 import { useBuyerPurchases, type PurchaseWithCaptures } from "@/hooks/use-buyer-purchases";
+import { useBuyerRewards } from "@/hooks/use-buyer-rewards";
 import type { ArrivalImageType } from "@/types/database";
 
 // US-1811: buyer rewards — link a purchase to its GradeThread grade, then snap
@@ -238,6 +239,148 @@ function PurchaseCard({ purchase }: { purchase: PurchaseWithCaptures }) {
   );
 }
 
+// US-1814: streak + lifetime impact, a shareable receipt, and the opt-in
+// confirmer leaderboard.
+function RewardsSummarySection() {
+  const { summary, leaderboard, myLeaderboard, setLeaderboardOptIn, isUpdatingOptIn } = useBuyerRewards();
+  const [nameDraft, setNameDraft] = useState("");
+
+  // Nothing to celebrate until the buyer has confirmed at least one grade.
+  if (!summary || (summary.lifetimeConfirmations === 0 && summary.caughtOverGraded === 0)) return null;
+
+  async function onShare() {
+    if (!summary) return;
+    const text =
+      `I've confirmed ${summary.lifetimeConfirmations} grade${summary.lifetimeConfirmations === 1 ? "" : "s"} ` +
+      `and caught ${summary.caughtOverGraded} over-graded listing${summary.caughtOverGraded === 1 ? "" : "s"} ` +
+      `on GradeThread — verifying condition, keeping good pieces in circulation. #GradeThread`;
+    try {
+      if (typeof navigator !== "undefined" && navigator.share) {
+        await navigator.share({ title: "My GradeThread rewards", text });
+      } else {
+        await navigator.clipboard.writeText(text);
+        toast.success("Receipt copied — paste it anywhere.");
+      }
+    } catch {
+      /* user cancelled the share sheet — no-op */
+    }
+  }
+
+  const enabled = myLeaderboard?.enabled ?? false;
+  const displayName = myLeaderboard?.display_name ?? "";
+
+  async function onToggleLeaderboard() {
+    try {
+      if (enabled) {
+        await setLeaderboardOptIn({ enabled: false });
+        toast.success("Left the leaderboard.");
+      } else {
+        const name = (nameDraft || displayName).trim();
+        if (!name) {
+          toast.error("Add a display name to join the leaderboard.");
+          return;
+        }
+        await setLeaderboardOptIn({ enabled: true, display_name: name });
+        toast.success("You're on the confirmer leaderboard.");
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't update the leaderboard.");
+    }
+  }
+
+  return (
+    <>
+      {/* Impact receipt (shareable). */}
+      <Card>
+        <CardContent className="space-y-4 py-4">
+          <div className="grid grid-cols-3 gap-3 text-center">
+            <div>
+              <p className="flex items-center justify-center gap-1 text-2xl font-bold">
+                <Flame className="h-5 w-5 text-brand-red" />
+                {summary.currentStreakWeeks}
+              </p>
+              <p className="text-xs text-muted-foreground">week streak</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold">{summary.lifetimeConfirmations}</p>
+              <p className="text-xs text-muted-foreground">grades confirmed</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold">{summary.caughtOverGraded}</p>
+              <p className="text-xs text-muted-foreground">over-grades caught</p>
+            </div>
+          </div>
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground">
+              {summary.lifetimeConfirmations} item{summary.lifetimeConfirmations === 1 ? "" : "s"} verified in
+              circulation · best streak {summary.longestStreakWeeks}w
+            </p>
+            <Button size="sm" variant="outline" onClick={onShare}>
+              <Share2 className="mr-1 h-3.5 w-3.5" /> Share
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Opt-in confirmer leaderboard. */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <Trophy className="h-5 w-5 text-primary" /> Confirmer leaderboard
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {enabled ? (
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">
+                You&apos;re on the board as <span className="font-medium text-foreground">{displayName}</span>.
+              </span>
+              <Button size="sm" variant="ghost" disabled={isUpdatingOptIn} onClick={onToggleLeaderboard}>
+                Leave
+              </Button>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="flex-1 space-y-1">
+                <Label htmlFor="lb-name" className="text-xs">Public display name (alias only)</Label>
+                <Input
+                  id="lb-name"
+                  placeholder="e.g. ThriftScout"
+                  value={nameDraft || displayName}
+                  onChange={(e) => setNameDraft(e.target.value)}
+                  maxLength={40}
+                />
+              </div>
+              <Button size="sm" disabled={isUpdatingOptIn} onClick={onToggleLeaderboard}>
+                {isUpdatingOptIn ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                Join
+              </Button>
+            </div>
+          )}
+
+          {leaderboard.length > 0 ? (
+            <ol className="space-y-1 text-sm">
+              {leaderboard.slice(0, 10).map((row, i) => (
+                <li key={`${row.display_name}-${i}`} className="flex items-center justify-between">
+                  <span className="truncate">
+                    <span className="mr-2 tabular-nums text-muted-foreground">{i + 1}.</span>
+                    {row.display_name}
+                  </span>
+                  <span className="tabular-nums text-muted-foreground">{row.confirmations}</span>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              No confirmers on the board yet — join and be the first.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+    </>
+  );
+}
+
 export function BuyerRewardsPage() {
   const ent = useBuyerEntitlements();
   const { purchases, isLoading, linkPurchase, isLinking, rewardCredits } = useBuyerPurchases();
@@ -315,6 +458,8 @@ export function BuyerRewardsPage() {
           </CardContent>
         </Card>
       )}
+
+      <RewardsSummarySection />
 
       <Card>
         <CardHeader>
