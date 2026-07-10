@@ -13242,3 +13242,30 @@ PRIVATE BY DEFAULT + PII-safe by construction. Builds on the trust levels (1817)
 All three children done: 1816 (score engine), 1817 (levels/badges/perks), 1818
 (public profile). Every epic AC met (transparent accrual, perks composing with
 subscription, score/level view + opt-in public profile). Umbrella marked.
+
+## 2026-07-10 — US-1826 (Portfolio: valuation engine) — passes:true
+
+Opens the Wardrobe Portfolio epic (US-1824) on the closet model (US-1825). A
+defensible, LABELED current-value estimate per closet item — never fabricated
+precision.
+- 00428_closet_item_valuations.sql: per-item valuation cache (estimate/low/high/
+  confidence/basis/cost_basis/trend, owner-read, service-write). Recompute is
+  cost-controlled — cached + TTL-refreshed on read, bounded per user, no live
+  Value Index scan per view. EXPECTED_SCHEMA_VERSION=00428.
+- lib/portfolio-valuation.ts (PURE, 8 tests): estimateItemValue blends weighted
+  anchors — realized (3) > Value Index fair value (2) > depreciated cost basis
+  (1); confidence tracks the best anchor; band from the Value Index range (scaled)
+  else widened by confidence; coarse gain/loss trend vs cost basis; NO signal →
+  null estimate/none (no invented number). depreciationFactor shallow (15%/yr,
+  floored 40%). computePortfolioTotals: gain/loss only over items with BOTH
+  estimate + cost basis.
+- lib/portfolio-valuation-db.ts: resolves cost basis (buyer_purchases by cert),
+  Value Index fair-value band (getValueHub brand-slug match → getPriceGuideEntry
+  → bandForGrade; best-effort, a miss degrades to cost-basis-only), ageDays →
+  engine → cache. getPortfolioValuation recomputes on stale/incomplete cache.
+- Route GET /api/buyer/closet/valuation (scoped) → valuations + totals. Web:
+  use-buyer-portfolio-valuation hook; portfolio page totals card (est. value +
+  unrealized gain/loss + "not an appraisal" label) + per-item EstimateLine.
+- VERIFIED: deno check CLEAN / lint 0 / full edge suite 3406 pass 0 fail / web tsc
+  --noEmit 0 / eslint 0 / tsc -b baseline 7 (none mine) / vite build + prerender 212.
+- ⚠️ HELD MIGRATION — commit local; NOT pushed until user applies 00428 (after 00427).

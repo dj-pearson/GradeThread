@@ -10,6 +10,30 @@ import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useBuyerEntitlements } from "@/hooks/use-buyer-entitlements";
 import { useBuyerCloset } from "@/hooks/use-buyer-closet";
+import { useBuyerPortfolioValuation, type ItemValuation } from "@/hooks/use-buyer-portfolio-valuation";
+
+const usd = (c: number) => `$${(c / 100).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+
+// US-1826: a labeled estimate line (never fabricated precision — an unvalued
+// item just shows nothing; confidence is surfaced honestly).
+function EstimateLine({ v }: { v: ItemValuation | null }) {
+  if (!v || v.estimate_cents == null) return null;
+  const trendColor =
+    v.trend === "up" ? "text-emerald-600" : v.trend === "down" ? "text-brand-red" : "text-muted-foreground";
+  return (
+    <p className="text-xs">
+      <span className="font-semibold tabular-nums">≈ {usd(v.estimate_cents)}</span>{" "}
+      <span className="text-muted-foreground">est.</span>
+      {v.cost_basis_cents != null && (
+        <span className={`ml-1 ${trendColor}`}>
+          {v.trend === "up" ? "▲" : v.trend === "down" ? "▼" : "▬"}{" "}
+          {usd(Math.abs(v.estimate_cents - v.cost_basis_cents))}
+        </span>
+      )}
+      <span className="ml-1 text-muted-foreground">· {v.confidence} confidence</span>
+    </p>
+  );
+}
 
 // US-1825: closet / wardrobe portfolio. Add items you own (by certificate number
 // or manually), see and manage your closet. Valuation + dashboard are US-1826/1827.
@@ -18,6 +42,7 @@ import { useBuyerCloset } from "@/hooks/use-buyer-closet";
 export function BuyerPortfolioPage() {
   const ent = useBuyerEntitlements();
   const { items, isLoading, addItem, isAdding, removeItem, isRemoving } = useBuyerCloset();
+  const { totals, valuationFor } = useBuyerPortfolioValuation();
 
   const [certId, setCertId] = useState("");
   const [brand, setBrand] = useState("");
@@ -93,6 +118,33 @@ export function BuyerPortfolioPage() {
         <h1 className="text-2xl font-bold">Closet Portfolio</h1>
       </div>
 
+      {/* US-1826: portfolio valuation summary (estimates, not appraisals). */}
+      {totals && totals.itemsValued > 0 && (
+        <Card>
+          <CardContent className="flex flex-wrap items-center justify-between gap-4 py-4">
+            <div>
+              <p className="text-xs text-muted-foreground">Estimated value</p>
+              <p className="text-2xl font-bold tabular-nums">{usd(totals.totalEstimateCents)}</p>
+            </div>
+            {totals.costBasisCents > 0 && (
+              <div>
+                <p className="text-xs text-muted-foreground">Unrealized gain/loss</p>
+                <p
+                  className={`text-lg font-semibold tabular-nums ${
+                    totals.unrealizedGainCents >= 0 ? "text-emerald-600" : "text-brand-red"
+                  }`}
+                >
+                  {totals.unrealizedGainCents >= 0 ? "+" : "−"}{usd(Math.abs(totals.unrealizedGainCents))}
+                </p>
+              </div>
+            )}
+            <p className="w-full text-[11px] text-muted-foreground">
+              Estimates from linked purchase prices + GradeThread's Value Index — not a formal appraisal.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">Add an item</CardTitle>
@@ -155,6 +207,7 @@ export function BuyerPortfolioPage() {
                     {item.condition_grade != null ? `Grade ${item.condition_grade.toFixed(1)} · ` : ""}
                     <Badge variant="secondary" className="capitalize">{item.source}</Badge>
                   </p>
+                  <EstimateLine v={valuationFor(item.id)} />
                 </div>
                 <div className="flex items-center gap-1">
                   {item.certificate_id && (

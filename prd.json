@@ -14479,7 +14479,7 @@
         "Recomputation is batched/cached to control cost (reuse Value Index refresh guardrails)"
       ],
       "priority": 1826,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][PORTFOLIO][NEW] Reuse condition-index.ts (Value Index US-1745) + passport-curve.ts buildConditionCurve (US-1282) + durability rankings (US-1772) + grade_outcomes. Cost-basis from purchase links (1811). Label as estimate; no fabricated precision (matches durability/circularity rules). Load durable-jobs skill for batch recompute. Depends on closet model (1825)."
     },
     {

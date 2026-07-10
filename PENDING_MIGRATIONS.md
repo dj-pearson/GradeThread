@@ -1,5 +1,19 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ PENDING: 00428_closet_item_valuations.sql (US-1826 portfolio valuation cache, 2026-07-10)
+
+**What:** New `public.closet_item_valuations` — a per-closet-item valuation cache
+(estimate/low/high cents, confidence, basis jsonb, cost_basis, trend, computed_at;
+owner-read, service-write). No writes to existing tables. Bumps
+`EXPECTED_SCHEMA_VERSION` → **00428**. Self-records '00428'.
+
+**Risk: LOW** — one new isolated table, no backfill. **No CLIENT read of the new
+table** (the portfolio page reads valuations through the edge
+`/api/buyer/closet/valuation`, not direct RLS), but that route boot-expects 00428
+— apply BEFORE the push. Recompute is cached + TTL-refreshed on read (no cron).
+**⚠️ Apply order:** after 00427; `scripts/apply-prod-migrations.sh`, then `NOTIFY
+pgrst, 'reload schema';`, redeploy the edge (boot guard now expects 00428).
+
 ## ⏳ PENDING: 00427_buyer_public_profile.sql (US-1818 opt-in public buyer profile, 2026-07-10)
 
 **What:** Three additive columns on `public.users` — `buyer_profile_handle`

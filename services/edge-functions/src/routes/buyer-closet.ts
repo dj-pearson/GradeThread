@@ -12,9 +12,28 @@
 
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { getPortfolioValuation } from "../lib/portfolio-valuation-db.ts";
+import { computePortfolioTotals } from "../lib/portfolio-valuation.ts";
 
 type BuyerEnv = { Variables: { userId: string } };
 export const buyerClosetRoutes = new Hono<BuyerEnv>();
+
+// US-1826: portfolio valuation — each closet item's current-value estimate +
+// portfolio totals (gain/loss vs cost basis). Cached + TTL-refreshed. Scoped by
+// user_id (US-268).
+buyerClosetRoutes.get("/closet/valuation", async (c) => {
+  const userId = c.get("userId");
+  try {
+    const valuations = await getPortfolioValuation(userId);
+    const totals = computePortfolioTotals(
+      valuations.map((v) => ({ estimateCents: v.estimate_cents, costBasisCents: v.cost_basis_cents })),
+    );
+    return c.json({ valuations, totals });
+  } catch (err) {
+    console.error("[buyer-closet] valuation failed:", err);
+    return c.json({ error: "Could not value your portfolio." }, 500);
+  }
+});
 
 export const CLOSET_SOURCES = ["certificate", "passport", "manual"] as const;
 export type ClosetSource = (typeof CLOSET_SOURCES)[number];
