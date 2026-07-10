@@ -6,6 +6,7 @@ import type {
   ArrivalImageType,
   BuyerPurchaseRow,
   PurchaseArrivalCaptureRow,
+  PurchaseCoverageRow,
 } from "@/types/database";
 
 // US-1811: buyer rewards — link a purchase to its grade + capture arrival photos.
@@ -16,6 +17,7 @@ import type {
 
 export interface PurchaseWithCaptures extends BuyerPurchaseRow {
   captures: PurchaseArrivalCaptureRow[];
+  coverage: PurchaseCoverageRow | null;
 }
 
 export interface LinkPurchaseInput {
@@ -39,20 +41,24 @@ export function useBuyerPurchases() {
   const query = useQuery<PurchaseWithCaptures[]>({
     queryKey: key,
     queryFn: async () => {
-      const [purchasesRes, capturesRes] = await Promise.all([
+      const [purchasesRes, capturesRes, coverageRes] = await Promise.all([
         supabase
           .from("buyer_purchases")
           .select("*")
           .eq("user_id", userId!)
           .order("created_at", { ascending: false }),
         supabase.from("purchase_arrival_captures").select("*").eq("user_id", userId!),
+        supabase.from("purchase_coverage").select("*").eq("user_id", userId!),
       ]);
       if (purchasesRes.error) throw purchasesRes.error;
       if (capturesRes.error) throw capturesRes.error;
+      if (coverageRes.error) throw coverageRes.error;
       const captures = (capturesRes.data ?? []) as PurchaseArrivalCaptureRow[];
+      const coverage = (coverageRes.data ?? []) as PurchaseCoverageRow[];
       return ((purchasesRes.data ?? []) as BuyerPurchaseRow[]).map((p) => ({
         ...p,
         captures: captures.filter((cap) => cap.purchase_id === p.id),
+        coverage: coverage.find((cov) => cov.purchase_id === p.id) ?? null,
       }));
     },
     enabled: !!userId,

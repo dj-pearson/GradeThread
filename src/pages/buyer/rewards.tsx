@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Camera, Check, Gift, Loader2, Lock, Plus } from "lucide-react";
+import { Camera, Check, Gift, Loader2, Lock, Plus, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -70,6 +70,29 @@ function PurchaseCard({ purchase }: { purchase: PurchaseWithCaptures }) {
             <Link to={`/cert/${purchase.certificate_id}`}>Grade</Link>
           </Button>
         </div>
+
+        {/* US-1820: guarantee coverage snapshot. */}
+        {purchase.coverage && (
+          <div className="flex items-center gap-1.5 text-xs">
+            <ShieldCheck
+              className={
+                purchase.coverage.eligible ? "h-3.5 w-3.5 text-emerald-600" : "h-3.5 w-3.5 text-muted-foreground"
+              }
+            />
+            {purchase.coverage.eligible && purchase.coverage.covered_until ? (
+              <span className="text-emerald-700 dark:text-emerald-400">
+                Grade-Locked — covered until{" "}
+                {new Date(purchase.coverage.covered_until).toLocaleDateString()}
+              </span>
+            ) : (
+              <span className="text-muted-foreground">
+                {purchase.coverage.ineligible_reason === "plan_not_covered"
+                  ? "Guarantee not included on your plan"
+                  : "Guarantee coverage unavailable"}
+              </span>
+            )}
+          </div>
+        )}
 
         <div>
           <p className="mb-2 text-xs font-medium text-muted-foreground">

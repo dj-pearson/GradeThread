@@ -3225,6 +3225,23 @@ export interface PurchaseArrivalCaptureRow {
   created_at: string;
 }
 
+// US-1820: insured purchase-guarantee coverage snapshot (one per purchase).
+export interface PurchaseCoverageRow {
+  id: string;
+  user_id: string;
+  purchase_id: string;
+  eligible: boolean;
+  ineligible_reason: string | null;
+  plan_at_purchase: string | null;
+  level_at_purchase: number;
+  window_days: number;
+  payout_cap_cents: number;
+  grade_delta_threshold: number;
+  covered_until: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // ─── Database schema type (for Supabase client) ────────────────────
 
 export interface Database {
@@ -3271,6 +3288,11 @@ export interface Database {
         Row: PurchaseArrivalCaptureRow;
         Insert: { user_id: string; purchase_id: string; image_type: ArrivalImageType; storage_path: string };
         Update: Partial<Pick<PurchaseArrivalCaptureRow, "storage_path">>;
+      };
+      purchase_coverage: {
+        Row: PurchaseCoverageRow;
+        Insert: { user_id: string; purchase_id: string } & Partial<Omit<PurchaseCoverageRow, "id" | "user_id" | "purchase_id" | "created_at" | "updated_at">>;
+        Update: Partial<Omit<PurchaseCoverageRow, "id" | "user_id" | "purchase_id" | "created_at">>;
       };
       buyer_trust_scores: {
         Row: BuyerTrustScoreRow;

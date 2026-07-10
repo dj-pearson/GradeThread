@@ -13,6 +13,7 @@ import { normalizeCertNumber } from "../lib/cert-number.ts";
 import { isCertificateWithheld } from "../lib/certificate-visibility.ts";
 import { validateImageUpload } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
+import { snapshotCoverageForPurchase } from "../lib/buyer-guarantee-coverage.ts";
 
 export const ARRIVAL_IMAGE_TYPES = ["front", "back", "label", "detail"] as const;
 export type ArrivalImageType = (typeof ARRIVAL_IMAGE_TYPES)[number];
@@ -114,7 +115,11 @@ buyerPurchasesRoutes.post("/purchases", async (c) => {
     .select("id, certificate_id, brand, title, purchase_price_cents, marketplace, purchased_at")
     .single();
   if (insErr) return c.json({ error: "Could not save the purchase." }, 500);
-  return c.json({ ok: true, purchase });
+
+  // US-1820: snapshot guarantee coverage at link time (frozen against a later
+  // downgrade). Best-effort — never blocks the purchase link.
+  const coverage = await snapshotCoverageForPurchase(userId, (purchase as { id: string }).id);
+  return c.json({ ok: true, purchase, coverage });
 });
 
 // Upload arrival photos for an owned purchase (hardened pipeline, private bucket).

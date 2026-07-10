@@ -12968,3 +12968,32 @@ US-1702 DONE (edge+web; MIGRATION 00387 — HELD). The story I had missed.
   deno check src/main.ts CLEAN / deno lint 0 / web tsc --noEmit 0 / eslint 0 / tsc -b
   baseline 7 / vite build CLEAN (rewards chunk bundles). Full edge suite: running.
 - ⚠️ HELD MIGRATION — commit local; NOT pushed until user applies 00418 (after 00417).
+
+── US-1820: Guarantee — coverage & eligibility model (2026-07-09) ──
+- ★ Foundation of the insured "Grade-Locked" purchase guarantee epic (US-1819).
+  Consumes US-1817's perk resolver + US-1811's purchase links; UNBLOCKS US-1812's
+  guarantee tie. Distinct from the seller grade-fee guarantee_claims (00197).
+- Migration 00419 (HELD): purchase_coverage — one SNAPSHOT per buyer_purchase
+  (UNIQUE purchase_id), OWNER-READ / SERVICE-WRITE. Frozen terms: eligible +
+  ineligible_reason, plan_at_purchase, level_at_purchase, window_days,
+  payout_cap_cents, grade_delta_threshold, covered_until. EXPECTED_SCHEMA_VERSION →
+  00419. Packaged (LOW; client reads on deploy → apply before push).
+- Engine lib/buyer-guarantee-coverage.ts: PURE resolveCoverageTerms(input) — window
+  = effectiveGuaranteeWindowDays(baseWindow, trustLevel) (the SHARED US-1817 perk
+  composition — subscription baseline + additive reputation bonus); ineligible when
+  !enabled ('coverage_disabled') or no purchaseGuarantee entitlement
+  ('plan_not_covered'), still surfacing the terms an upgrade would unlock; garbage/
+  absent purchase date → anchored on now (no NaN). Config via getSetting
+  `buyer_guarantee_coverage` (no migration to tune). Plus service
+  snapshotCoverageForPurchase(userId, purchaseId) — reads entitlement + trust level
+  NOW, upserts the frozen snapshot; best-effort (never blocks the purchase link).
+- Integration: POST /api/buyer/purchases (US-1811) now snapshots coverage after the
+  purchase upsert + returns it. SNAPSHOT-at-purchase = the AC's non-recompute rule.
+- Web: PurchaseCoverageRow type + use-buyer-purchases reads purchase_coverage (owner
+  RLS) and attaches per purchase; BuyerRewardsPage shows a "Grade-Locked — covered
+  until X" badge or the ineligible reason.
+- Tests: buyer-guarantee-coverage_test.ts 6 pass (plan gate, disabled, window+bonus
+  composition, purchase-date anchor, now-fallback, garbage-date). VERIFIED: deno
+  check src/main.ts CLEAN / deno lint 0 / web tsc --noEmit 0 / eslint 0 / tsc -b
+  baseline 7. Full edge suite: running.
+- ⚠️ HELD MIGRATION — commit local; NOT pushed until user applies 00419 (after 00418).

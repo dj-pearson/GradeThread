@@ -14395,7 +14395,7 @@
         "Migration triple satisfied; tenant-scoped"
       ],
       "priority": 1820,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][GUARANTEE][NEW] Load migrations skill. Snapshot eligibility at purchase (don't recompute against current plan). Reuse purchase links (1811). Terms configurable via admin. Depends on entitlements (1800) + Trust perks (1817)."
     },
     {

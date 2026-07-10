@@ -1,5 +1,25 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ PENDING: 00419_purchase_coverage.sql (US-1820 insured purchase-guarantee coverage model, 2026-07-09)
+
+**What:** One OWNER-READ / SERVICE-WRITE table `public.purchase_coverage` — a
+SNAPSHOT (one per buyer_purchase, UNIQUE(purchase_id)) of whether a linked
+purchase is covered by the insured "Grade-Locked" guarantee and on what FROZEN
+terms (eligible + ineligible_reason, plan_at_purchase, level_at_purchase,
+window_days, payout_cap_cents, grade_delta_threshold, covered_until). Distinct
+from the seller-side grade-fee `guarantee_claims` (00197). The edge snapshots it
+at purchase-link time (POST /api/buyer/purchases) from the buyer's entitlement
+tier (US-1800) + Trust Score level (US-1817), frozen so a later downgrade never
+voids an in-force claim. Bumps `EXPECTED_SCHEMA_VERSION` → **00419**. Self-records.
+
+**Risk: LOW** — one new isolated table, no writes to existing tables. **The CLIENT
+reads it on frontend auto-deploy** (the /buyer/rewards page shows the coverage
+badge), and the edge snapshot writer boot-expects 00419 — apply BEFORE the push.
+Terms are config-tunable via getSetting `buyer_guarantee_coverage` (no migration).
+Claim intake/payout is US-1821 (not built). **⚠️ Apply order:** after 00418;
+`scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload schema';`, redeploy
+the edge (boot guard now expects 00419).
+
 ## ⏳ PENDING: 00418_buyer_purchases.sql (US-1811 buyer purchase-link + arrival capture, 2026-07-09)
 
 **What:** Two OWNER-READ / SERVICE-WRITE tables — `public.buyer_purchases` (a
