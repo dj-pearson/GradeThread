@@ -14535,7 +14535,7 @@
         "Migration triple satisfied"
       ],
       "priority": 1830,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][DEMAND-BOARD][NEW] Load migrations skill. Reuse the alerts matching engine (1807) rather than a second engine. Aggregate exposure to sellers must be PII-safe. Depends on foundation (1795); shares matching infra with alerts (1805)."
     },
     {

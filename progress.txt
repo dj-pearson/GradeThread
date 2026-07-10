@@ -13316,3 +13316,27 @@ Closes the Wardrobe Portfolio epic (US-1824): 1825 closet model, 1826 valuation,
 - VERIFIED: deno check CLEAN / lint 0 / full edge suite 3423 pass 0 fail / web tsc
   --noEmit 0 / eslint 0 / tsc -b baseline 7 (none mine) / vite build + prerender 212.
 - ⚠️ HELD MIGRATION — commit local; NOT pushed until user applies 00430 (after 00429).
+
+## 2026-07-10 — US-1830 (Demand board: want/request model + matching) — passes:true
+
+Opens the 'Graded Wanted' reverse demand board epic (US-1829). Reuses the alerts
+matching engine (condition-alerts.matchesSearch) — one engine, no drift.
+- 00431_buyer_wants.sql: buyer_wants (criteria brands[]/categories[]/keywords[]/
+  min_grade/max_price_cents + size/budget/visibility public|private/status/
+  expires_at; owner-read, service-write) + want_matches (want_id/buyer/seller/
+  certificate_id, UNIQUE(want_id,certificate_id); buyer-owner read). US-1108
+  triple + footer, EXPECTED_SCHEMA_VERSION=00431.
+- lib/demand-board.ts (PURE, 8 tests): normalizeTerms (bounded/de-duped) +
+  normalizeWantInput (grade 0.5-clamp, cents coerce, private default) + hasCriteria
+  (reject all-wildcard) + wantToSearch (project onto AlertSearch) + re-export
+  matchesSearch. lib/demand-board-db.ts: computeWantMatches — matches a want vs
+  the recent public-cert universe (with the grading SELLER), skips self-match,
+  records want_matches idempotently (best-effort).
+- routes/buyer-wants.ts (/api/buyer/wants, scoped): GET own / POST create+match /
+  DELETE (ownership-scoped). Tenant isolation: "B cannot delete A's want".
+- database.ts BuyerWantRow + WantMatchRow (model types for US-1831 UI).
+- Buyer post UI + seller demand surface = US-1831; notifications/monetization =
+  US-1832 (this story is model + matching only).
+- VERIFIED: deno check CLEAN / lint 0 / full edge suite 3431 pass 0 fail / web tsc
+  --noEmit 0 / eslint 0 / tsc -b baseline 7 (none mine) / vite build CLEAN.
+- ⚠️ HELD MIGRATION — commit local; NOT pushed until user applies 00431 (after 00430).

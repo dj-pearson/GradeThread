@@ -2610,6 +2610,33 @@ export interface BuyerRewardLedgerRow {
   created_at: string;
 }
 
+// US-1830: 'Graded Wanted' demand board — a buyer's active want + its matches.
+export interface BuyerWantRow {
+  id: string;
+  user_id: string;
+  brands: string[];
+  categories: string[];
+  keywords: string[];
+  min_grade: number | null;
+  max_price_cents: number | null;
+  size: string | null;
+  budget_cents: number | null;
+  visibility: "public" | "private";
+  status: "active" | "expired" | "fulfilled";
+  expires_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WantMatchRow {
+  id: string;
+  want_id: string;
+  buyer_user_id: string;
+  seller_user_id: string | null;
+  certificate_id: string;
+  created_at: string;
+}
+
 // US-1821: buyer purchase-guarantee claim (owner-read; service-write).
 export type BuyerGuaranteeClaimStatus =
   | "auto_approved"

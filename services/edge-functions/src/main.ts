@@ -194,6 +194,7 @@ import { buyerPurchasesRoutes } from "./routes/buyer-purchases.ts";
 import { buyerClosetRoutes } from "./routes/buyer-closet.ts";
 import { buyerRewardsRoutes } from "./routes/buyer-rewards.ts";
 import { buyerProfileRoutes } from "./routes/buyer-profile.ts";
+import { buyerWantsRoutes } from "./routes/buyer-wants.ts";
 import { supportAssistantRoutes } from "./routes/support-assistant.ts";
 import { authMiddleware } from "./middleware/auth.ts";
 import { adminAuthMiddleware } from "./middleware/admin-auth.ts";
@@ -1462,6 +1463,7 @@ app.route("/api/buyer", buyerPurchasesRoutes);
 app.route("/api/buyer", buyerClosetRoutes);
 app.route("/api/buyer", buyerRewardsRoutes);
 app.route("/api/buyer", buyerProfileRoutes);
+app.route("/api/buyer", buyerWantsRoutes);
 
 // 404
 app.notFound((c) => {

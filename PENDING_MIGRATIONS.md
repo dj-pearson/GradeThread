@@ -1,5 +1,19 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ PENDING: 00431_buyer_wants.sql (US-1830 demand-board want model + matches, 2026-07-10)
+
+**What:** Two new owner-read / service-write tables — `public.buyer_wants` (a
+buyer's active demand criteria + visibility/status/expiry) and
+`public.want_matches` (want↔matched-cert with the grading seller;
+UNIQUE(want_id,certificate_id)). Bumps `EXPECTED_SCHEMA_VERSION` → **00431**.
+Self-records '00431'.
+
+**Risk: LOW** — two new isolated tables, no writes to existing tables, no
+backfill. **The CLIENT reads its own wants/matches via owner RLS on frontend
+auto-deploy** (US-1831 UI), and the edge wants route boot-expects 00431 — apply
+BEFORE the push. **⚠️ Apply order:** after 00430; `scripts/apply-prod-migrations.sh`,
+then `NOTIFY pgrst, 'reload schema';`, redeploy the edge (boot guard now expects 00431).
+
 ## ⏳ PENDING: 00430_closet_promotion.sql (US-1828 closet→FlipDesk list-this link, 2026-07-10)
 
 **What:** One additive column on `public.closet_items` — `promoted_item_id` (uuid

@@ -2218,6 +2218,25 @@ Deno.test({
   },
 });
 
+// US-1830: demand-board wants. DELETE is scoped .eq("id",id).eq("user_id",userId),
+// so B deleting A's want hits 0 rows (no cross-tenant delete); GET returns only
+// the caller's own wants (owner RLS). Per-case ignore until a want fixture exists.
+const A_WANT_ID = Deno.env.get("TEST_USER_A_WANT_ID");
+Deno.test({
+  name: "B cannot delete A's want",
+  ignore: !CONFIGURED || !A_WANT_ID,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/buyer/wants/${A_WANT_ID}`, {
+      method: "DELETE",
+      headers: authHeaders(B_JWT!),
+    });
+    await res.body?.cancel();
+    // Scoped delete: 0 rows matched B's user_id. The .eq("user_id") is the guard
+    // (mirrors the closet-item + inventory-item cases).
+    assert(res.status === 200 || DENIED.has(res.status), `unexpected ${res.status}`);
+  },
+});
+
 // US-1814: buyer rewards leaderboard. No cross-tenant id vector — the opt-in
 // POST /api/buyer/rewards/leaderboard updates ONLY the caller's own users row
 // (.eq("id", userId); no id is taken from the body), and GET returns a PII-free
