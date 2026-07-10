@@ -23,6 +23,19 @@ Deno.test("ineligible when the plan doesn't include the guarantee", () => {
   assertEquals(r.payoutCapCents, DEFAULT_COVERAGE_CONFIG.payoutCapCents);
 });
 
+Deno.test("US-1823: a revoked buyer is ineligible even with plan + trust", () => {
+  const r = resolveCoverageTerms({
+    hasGuaranteeEntitlement: true,
+    trustLevel: 3,
+    purchasedAt: null,
+    coverageRevoked: true,
+    ...base,
+  });
+  assertEquals(r.eligible, false);
+  assertEquals(r.reason, "coverage_revoked");
+  assertEquals(r.coveredUntil, null);
+});
+
 Deno.test("ineligible when coverage is globally disabled", () => {
   const r = resolveCoverageTerms({
     hasGuaranteeEntitlement: true,

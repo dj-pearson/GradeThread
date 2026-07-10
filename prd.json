@@ -14381,7 +14381,7 @@
         "This umbrella tracks US-1820…US-1823"
       ],
       "priority": 1819,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][GUARANTEE][EPIC][NEW] STRATEGIC: highest-LTV lever — turns a one-time grade into a recurring insured relationship. BASELINE: Buyer Guarantee US-867 exists (public claim intake /buyer-guarantee/claim, routes/guarantee-public.ts, lib/guarantee-remedy.ts, migrations 00197/00263/00319 guarantee_remedies, admin/claims.tsx) but v1 has NO automated payouts (manual). This epic adds subscription-gated coverage + automation. Evidence via grade-confirmation flow (1811-1812). TIES: entitlements (1800), Trust Score perks (1817), rewards (1810). LEGAL: coverage terms review required before ship. Child stories: coverage/eligibility model (1820), claim automation/remedy (1821), claims-pool accounting/ops (1822), anti-fraud (1823). Depends on foundation (1795)."
     },
     {
@@ -14437,7 +14437,7 @@
         "Controls are covered by tests and documented"
       ],
       "priority": 1823,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][GUARANTEE][ANTIFRAUD][NEW] Reuse image_authenticity + forensic_analysis tamper detection (ai-grading.ts) + original_photos (US-861) on arrival photos. Penalty into reputation_events (1816). Feeds the manual queue in admin/claims.tsx. Depends on remedy path (1821)."
     },
     {

@@ -65,9 +65,9 @@ export const ADMIN_ROUTER_SCOPES: AdminRouterScope[] = [
   {
     file: "admin-guarantee-pool.ts",
     scope: null,
-    mode: "role-only",
+    mode: "mutations",
     rationale:
-      "Read-only buyer guarantee claims-pool ops dashboard (exposure/loss-ratio/claim outcomes); cap/term edits happen via the system_settings editor, not here.",
+      "GET dashboard (exposure/loss-ratio/outcomes/queue) stays role-gated for any admin; POST /claims/:id/resolve → billing:write (it draws the pool, grants remedy credits, penalizes reputation, and revokes coverage). Cap/term edits happen via the system_settings editor.",
   },
   {
     file: "admin-disputes.ts",

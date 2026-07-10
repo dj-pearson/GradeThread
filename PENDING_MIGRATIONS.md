@@ -1,5 +1,21 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ PENDING: 00426_guarantee_fraud.sql (US-1823 guarantee anti-fraud controls, 2026-07-10)
+
+**What:** Additive columns — `buyer_guarantee_claims` gains `fraud_flags` (jsonb),
+`fraud_score`, `resolved_by`/`resolved_at`/`resolution_note`; `users` gains
+`buyer_coverage_revoked_at` (edge-written coverage revoke). Plus a
+`system_settings` row `buyer.guarantee_fraud`. Bumps `EXPECTED_SCHEMA_VERSION` →
+**00426**. Self-records '00426'.
+
+**Risk: LOW** — additive nullable/defaulted columns on existing tables + one
+settings row; no destructive change, no backfill. **The CLIENT reads the new
+claim columns on frontend auto-deploy** (the admin pool queue shows fraud_flags),
+and the edge (fraud gate in the payout path + admin resolve route) boot-expects
+00426 — apply BEFORE the push. **⚠️ Apply order:** after 00425;
+`scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload schema';`, redeploy
+the edge (boot guard now expects 00426).
+
 ## ⏳ PENDING: 00425_guarantee_pool.sql (US-1822 guarantee claims-pool accounting, 2026-07-10)
 
 **What:** New `public.guarantee_pool_ledger` — an append-only accrual/drawdown

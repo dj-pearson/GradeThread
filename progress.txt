@@ -13180,3 +13180,32 @@ US-1821 remedy path (gates the auto-payout before any credit is granted).
   drift guards: admin-scope-map, CRON_REGISTRY, regenerated cron docs) / web tsc
   --noEmit 0 / eslint 0 / tsc -b baseline 7 (none mine) / vite build + prerender 212.
 - ⚠️ HELD MIGRATION — commit local; NOT pushed until user applies 00425 (after 00424).
+
+## 2026-07-10 — US-1823 (Guarantee: anti-fraud & abuse controls) + US-1819 EPIC closed — passes:true
+
+Closes the insured Grade-Locked purchase-guarantee epic (US-1819): children
+1820 (coverage model), 1821 (claim intake + remedy), 1822 (pool accounting),
+1823 (anti-fraud) all done; every epic AC met, so the umbrella is marked too.
+- 00426_guarantee_fraud.sql: buyer_guarantee_claims += fraud_flags jsonb /
+  fraud_score / resolved_by/at/note; users += buyer_coverage_revoked_at;
+  system_settings 'buyer.guarantee_fraud' (velocity/rejection/trust/evidence
+  thresholds). EXPECTED_SCHEMA_VERSION=00426.
+- lib/guarantee-fraud.ts (PURE, 7 tests): evaluateFraudSignals — weighted
+  velocity / repeat_rejected / low_trust / thin_evidence / grade_tampered
+  (reuses grade_reports.image_authenticity.manipulation_suspected); ≥ threshold
+  ⇒ suspicious. Wired into fileBuyerGuaranteeClaim: computed for EVERY claim
+  (retained on the row for dispute defense); a suspicious claim never auto-pays
+  (downgrade auto→manual BEFORE the pool gate). Deep arrival-photo forensic pass
+  left as a documented flag-gated enhancement (per-claim vision cost).
+- Coverage revoke: resolveCoverageTerms gains coverageRevoked →
+  reason 'coverage_revoked'; snapshotCoverageForPurchase reads
+  users.buyer_coverage_revoked_at (+1 coverage test).
+- Admin adjudication: admin-guarantee-pool reclassified role-only→mutations;
+  POST /claims/:id/resolve (requireScope billing:write) approve (pay+drawdown) /
+  reject / reject_fraud (dispute_overturned reputation penalty + coverage revoke
+  + audit log). Manual-review queue + fraud badges + resolve buttons on the admin
+  page; database.ts BuyerGuaranteeClaimRow += fraud/resolution cols.
+- VERIFIED: deno check CLEAN / lint 0 / full edge suite 3390 pass 0 fail (incl.
+  admin-scope-coverage guard for the new mutation) / web tsc --noEmit 0 / eslint 0
+  / tsc -b baseline 7 (none mine) / vite build + prerender 212 CLEAN.
+- ⚠️ HELD MIGRATION — commit local; NOT pushed until user applies 00426 (after 00425).

@@ -1,9 +1,11 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { AlertTriangle, Loader2, PiggyBank, Settings } from "lucide-react";
+import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 
 // US-1822: buyer guarantee claims-pool ops dashboard. Read-only — cap/term edits
 // live in the system_settings editor (buyer.guarantee_pool / buyer.guarantee_remedy).
@@ -17,6 +19,18 @@ interface PeriodStat {
   drawdownCount: number;
 }
 
+interface PendingClaim {
+  id: string;
+  user_id: string;
+  purchase_id: string;
+  remedy_cents: number;
+  grade_delta: number | null;
+  decision_reason: string | null;
+  fraud_flags: string[];
+  fraud_score: number;
+  created_at: string;
+}
+
 interface PoolData {
   config: {
     period_budget_cents: number;
@@ -27,12 +41,14 @@ interface PoolData {
   periods: PeriodStat[];
   outcomes: Record<string, number>;
   throttled: boolean;
+  pendingClaims: PendingClaim[];
 }
 
 const usd = (c: number) => `$${(c / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const pct = (r: number | null) => (r == null ? "—" : `${(r * 100).toFixed(1)}%`);
 
 export function AdminGuaranteePoolPage() {
+  const queryClient = useQueryClient();
   const { data, isLoading } = useQuery<PoolData>({
     queryKey: ["admin-guarantee-pool"],
     queryFn: async () => {
@@ -41,6 +57,23 @@ export function AdminGuaranteePoolPage() {
       if (!res.ok) throw new Error(json.error || "Failed to load the pool.");
       return json as PoolData;
     },
+  });
+
+  const resolve = useMutation({
+    mutationFn: async ({ id, action }: { id: string; action: "approve" | "reject" | "reject_fraud" }) => {
+      const res = await edgeFetch(`/api/admin/guarantee-pool/claims/${id}/resolve`, {
+        method: "POST",
+        json: { action },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to resolve the claim.");
+      return json;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-guarantee-pool"] });
+      toast.success("Claim resolved.");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to resolve the claim."),
   });
 
   if (isLoading) {
@@ -84,6 +117,50 @@ export function AdminGuaranteePoolPage() {
           <StatCard label="Loss ratio" value={pct(current.lossRatio)} />
         </div>
       )}
+
+      {/* US-1821/1823: manual-review queue (auto-downgrades + fraud-flagged). */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Manual review ({data.pendingClaims.length})</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {data.pendingClaims.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No claims awaiting review.</p>
+          ) : (
+            <div className="space-y-3">
+              {data.pendingClaims.map((cl) => (
+                <div key={cl.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3">
+                  <div className="min-w-0 space-y-1 text-sm">
+                    <p className="font-medium tabular-nums">{usd(cl.remedy_cents)} remedy</p>
+                    <p className="text-xs text-muted-foreground">
+                      {cl.decision_reason ?? "manual review"}
+                      {cl.grade_delta != null ? ` · Δ${cl.grade_delta}` : ""}
+                    </p>
+                    {cl.fraud_flags.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {cl.fraud_flags.map((f) => (
+                          <Badge key={f} variant="destructive" className="text-[10px]">{f.replace(/_/g, " ")}</Badge>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" disabled={resolve.isPending} onClick={() => resolve.mutate({ id: cl.id, action: "approve" })}>
+                      Approve
+                    </Button>
+                    <Button size="sm" variant="outline" disabled={resolve.isPending} onClick={() => resolve.mutate({ id: cl.id, action: "reject" })}>
+                      Reject
+                    </Button>
+                    <Button size="sm" variant="destructive" disabled={resolve.isPending} onClick={() => resolve.mutate({ id: cl.id, action: "reject_fraud" })}>
+                      Fraud
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

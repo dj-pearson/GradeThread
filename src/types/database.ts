@@ -2627,6 +2627,12 @@ export interface BuyerGuaranteeClaimRow {
   remedy_credits: number;
   auto: boolean;
   decision_reason: string | null;
+  // US-1823: anti-fraud signals + admin resolution audit (00426).
+  fraud_flags: string[];
+  fraud_score: number;
+  resolved_by: string | null;
+  resolved_at: string | null;
+  resolution_note: string | null;
   created_at: string;
   updated_at: string;
 }

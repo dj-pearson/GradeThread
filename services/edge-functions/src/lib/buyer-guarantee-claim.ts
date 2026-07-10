@@ -18,6 +18,64 @@ import {
   periodKey,
   recordPoolDrawdown,
 } from "./guarantee-pool.ts";
+import {
+  DEFAULT_GUARANTEE_FRAUD_CONFIG,
+  evaluateFraudSignals,
+  type FraudVerdict,
+  GUARANTEE_FRAUD_SETTING_KEY,
+  normalizeGuaranteeFraudConfig,
+} from "./guarantee-fraud.ts";
+
+const ARRIVAL_TYPE_COUNT = 4; // front/back/label/detail
+
+/** Gather + score the fraud signals for a claim (US-1823). Service-role. */
+async function evaluateClaimFraud(
+  userId: string,
+  purchase: OwnedPurchaseForClaim,
+  period: string,
+): Promise<FraudVerdict> {
+  const config = normalizeGuaranteeFraudConfig(
+    await getSetting<unknown>(GUARANTEE_FRAUD_SETTING_KEY, DEFAULT_GUARANTEE_FRAUD_CONFIG),
+  );
+
+  const [claimsThisPeriodRes, rejectedRes, arrivalRes, trustRes, reportRes] = await Promise.all([
+    supabaseAdmin
+      .from("buyer_guarantee_claims")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .gte("created_at", `${period}-01T00:00:00Z`),
+    supabaseAdmin
+      .from("buyer_guarantee_claims")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .eq("status", "rejected"),
+    supabaseAdmin
+      .from("purchase_arrival_captures")
+      .select("id", { count: "exact", head: true })
+      .eq("purchase_id", purchase.id)
+      .eq("user_id", userId),
+    supabaseAdmin.from("buyer_trust_scores").select("level").eq("user_id", userId).maybeSingle(),
+    supabaseAdmin
+      .from("grade_reports")
+      .select("image_authenticity")
+      .eq("id", purchase.grade_report_id)
+      .maybeSingle(),
+  ]);
+
+  const auth = (reportRes.data as { image_authenticity?: { manipulation_suspected?: boolean } } | null)
+    ?.image_authenticity;
+
+  return evaluateFraudSignals(
+    {
+      claimsThisPeriod: claimsThisPeriodRes.count ?? 0,
+      recentRejectedClaims: rejectedRes.count ?? 0,
+      trustLevel: (trustRes.data as { level: number } | null)?.level ?? 0,
+      hasFullArrivalEvidence: (arrivalRes.count ?? 0) >= ARRIVAL_TYPE_COUNT,
+      gradeAuthenticityFlagged: auth?.manipulation_suspected === true,
+    },
+    config,
+  );
+}
 
 // ── admin-tunable economics ─────────────────────────────────────────────────
 
@@ -241,19 +299,29 @@ export async function fileBuyerGuaranteeClaim(
     nowMs,
   );
 
+  const period = periodKey(nowMs);
+
+  // US-1823: fraud signals — evaluated for EVERY claim (retained on the row for
+  // dispute defense); a suspicious claim never auto-pays.
+  const fraud = await evaluateClaimFraud(userId, purchase, period);
+
   // US-1822: the claims-pool gate — a would-be auto-payout that breaches the
   // per-account cap, the period budget, or the loss-ratio circuit-breaker is
   // downgraded to manual review (never auto-paid past a cap).
-  const period = periodKey(nowMs);
   let finalDecision: ClaimDecision = decision.decision;
   let finalReason = decision.reason;
   if (decision.decision === "auto_approved") {
-    const poolConfig = await getGuaranteePoolConfig();
-    const state = await getPoolPeriodState(period, userId);
-    const gate = evaluatePoolGate(decision.remedyCents, state, poolConfig);
-    if (!gate.allowAuto) {
+    if (fraud.suspicious) {
       finalDecision = "manual_review";
-      finalReason = `pool_${gate.reason}`;
+      finalReason = `fraud:${fraud.reasons.join(",")}`;
+    } else {
+      const poolConfig = await getGuaranteePoolConfig();
+      const state = await getPoolPeriodState(period, userId);
+      const gate = evaluatePoolGate(decision.remedyCents, state, poolConfig);
+      if (!gate.allowAuto) {
+        finalDecision = "manual_review";
+        finalReason = `pool_${gate.reason}`;
+      }
     }
   }
   const isAuto = finalDecision === "auto_approved";
@@ -274,6 +342,8 @@ export async function fileBuyerGuaranteeClaim(
         remedy_credits: isAuto ? decision.remedyCredits : 0,
         auto: isAuto,
         decision_reason: finalReason,
+        fraud_flags: fraud.reasons,
+        fraud_score: fraud.score,
       } as never,
       { onConflict: "purchase_id" },
     )

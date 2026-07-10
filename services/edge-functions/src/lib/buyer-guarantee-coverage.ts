@@ -46,6 +46,8 @@ export interface CoverageInput {
   trustLevel: number;
   /** ISO purchase date; falls back to nowMs when the buyer didn't record one. */
   purchasedAt: string | null;
+  /** US-1823: the buyer's coverage was revoked for upheld fraud. */
+  coverageRevoked?: boolean;
   config: CoverageConfig;
   nowMs: number;
 }
@@ -78,6 +80,10 @@ export function resolveCoverageTerms(input: CoverageInput): CoverageResult {
 
   if (!config.enabled) {
     return { eligible: false, reason: "coverage_disabled", coveredUntil: null, ...base };
+  }
+  // US-1823: an upheld-fraud revoke voids coverage regardless of plan/trust.
+  if (input.coverageRevoked) {
+    return { eligible: false, reason: "coverage_revoked", coveredUntil: null, ...base };
   }
   if (!input.hasGuaranteeEntitlement) {
     return { eligible: false, reason: "plan_not_covered", coveredUntil: null, ...base };
@@ -123,10 +129,20 @@ export async function snapshotCoverageForPurchase(
       .maybeSingle();
     const trustLevel = (trust as { level: number } | null)?.level ?? 0;
 
+    // US-1823: an upheld-fraud coverage revoke voids new coverage snapshots.
+    const { data: userRow } = await supabaseAdmin
+      .from("users")
+      .select("buyer_coverage_revoked_at")
+      .eq("id", userId)
+      .maybeSingle();
+    const coverageRevoked =
+      (userRow as { buyer_coverage_revoked_at: string | null } | null)?.buyer_coverage_revoked_at != null;
+
     const result = resolveCoverageTerms({
       hasGuaranteeEntitlement: ent.gateFlags.purchaseGuarantee === true,
       trustLevel,
       purchasedAt: (purchase as { purchased_at: string | null }).purchased_at,
+      coverageRevoked,
       config,
       nowMs,
     });
