@@ -15703,7 +15703,7 @@
     {
       "id": "US-1905",
       "priority": 2603,
-      "passes": false,
+      "passes": true,
       "title": "IndexedDB session persistence + upload resume after reload (600-photo sessions never lost)",
       "description": "As a seller mid-way through a 600-photo intake, I want the session (staged photos, groups, roles, pending uploads) to survive a tab reload or crash, so I never lose grouping work or queued uploads. Today session state lives in localStorage (autolister:state:<sessionId>) which can overflow on large sessions (explicit 'too large to save fully' warning drops undo snapshots), and in-flight/queued File objects are simply lost on reload (lostUploadCount).",
       "acceptanceCriteria": [

@@ -169,6 +169,36 @@ export async function clearSession(sessionId: string): Promise<void> {
 }
 
 /**
+ * Append one staged photo to a session's `staged` array, atomically (get → put
+ * in one transaction, deduped by id). Used by the upload store when the page is
+ * unmounted: a photo that finishes while detached must land in IDB (the page's
+ * authoritative store), not only localStorage. A no-op if the session row is
+ * missing (the mounted page owns creation) — the localStorage mirror covers it.
+ */
+export async function appendStagedToSession(
+  sessionId: string,
+  photo: { id: string } & Record<string, unknown>,
+): Promise<void> {
+  if (!idbAvailable()) return;
+  await withDb((db) =>
+    runTx<void>(db, SESSION_STORE, "readwrite", (tx, done) => {
+      const store = tx.objectStore(SESSION_STORE);
+      const getReq = store.get(sessionId);
+      getReq.onsuccess = () => {
+        const row = getReq.result as SessionRow | undefined;
+        if (!row) return done(undefined);
+        const staged = Array.isArray(row.staged) ? row.staged : [];
+        if (staged.some((p) => (p as { id?: unknown } | null)?.id === photo.id)) {
+          return done(undefined);
+        }
+        store.put({ ...row, staged: [...staged, photo] });
+        done(undefined);
+      };
+    }),
+  );
+}
+
+/**
  * One-time migration: if IDB has no session yet but localStorage holds one,
  * copy it into IDB (metadata only — localStorage never held blobs). Returns the
  * migrated session, or the existing IDB session, or null.

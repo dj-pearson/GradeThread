@@ -8,6 +8,7 @@ import { ImageDecodeError, processStagedImage } from "@/lib/image-worker-pool";
 import { MediaIntakeError, normalizeToImageFile } from "@/lib/media-intake";
 import { runWithConcurrency } from "@/lib/concurrency";
 import {
+  appendStagedToSession,
   deleteBlob,
   idbAvailable,
   listBlobs,
@@ -804,14 +805,19 @@ function reportBatch(stats: BatchStats) {
 // ── Detached-result persistence (US-1542) ───────────────────────────
 
 /**
- * Merge one finished photo into the persisted intake session
- * (`autolister:state:<sessionId>` — the same key the page rehydrates from),
- * deduped by id. Called only while the page is detached, so it never races
- * the page's own persist effect. Best-effort: on quota failure the photo is
- * still in `results` for the page to claim on its next mount.
+ * Merge one finished photo into the persisted intake session, deduped by id.
+ * Called only while the page is detached, so it never races the page's own
+ * persist effect. US-1905: written to BOTH IndexedDB (the page's authoritative
+ * store, atomic append) and the localStorage mirror; a reload rehydrates from
+ * whichever the page uses. Best-effort: on failure the photo is still in
+ * `results` for the page to claim on its next mount.
  */
 function mergeIntoPersistedSession(sessionId: string, photo: StagedPhoto): void {
   if (typeof window === "undefined") return;
+  // US-1905: land the detached-completed photo in IndexedDB too, so the page's
+  // IDB rehydrate (which ignores localStorage when an IDB session exists) sees
+  // it. Atomic get→put, deduped by id; fire-and-forget.
+  void appendStagedToSession(sessionId, photo as unknown as { id: string } & Record<string, unknown>);
   const key = `autolister:state:${sessionId}`;
   try {
     const raw = window.localStorage.getItem(key);

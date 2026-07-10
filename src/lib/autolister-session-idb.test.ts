@@ -1,6 +1,7 @@
 import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  appendStagedToSession,
   clearSession,
   deleteBlob,
   evictOldestBlobs,
@@ -60,6 +61,19 @@ describe("session state (happy path)", () => {
 
   it("returns null for an unknown session", async () => {
     expect(await loadSession("nope")).toBeNull();
+  });
+
+  it("appends a staged photo atomically, deduped by id", async () => {
+    await saveSession("s1", { staged: [{ id: "p1" }], groups: [], updatedAt: 1 });
+    await appendStagedToSession("s1", { id: "p2" });
+    await appendStagedToSession("s1", { id: "p1" }); // dup id → ignored
+    const loaded = await loadSession("s1");
+    expect(loaded?.staged).toEqual([{ id: "p1" }, { id: "p2" }]);
+  });
+
+  it("appending to a missing session is a no-op (page owns creation)", async () => {
+    await appendStagedToSession("ghost", { id: "p1" });
+    expect(await loadSession("ghost")).toBeNull();
   });
 });
 

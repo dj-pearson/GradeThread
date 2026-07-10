@@ -93,6 +93,13 @@ import {
   type TriageCondition,
 } from "@/lib/autolister-triage";
 import {
+  clearSession,
+  idbAvailable,
+  loadSession,
+  migrateSessionFromLocalStorage,
+  saveSession,
+} from "@/lib/autolister-session-idb";
+import {
   type GroupEditKind,
   groupingCorrectionScore,
   manualGroupsCreated,
@@ -533,9 +540,19 @@ export function FlipdeskAutolisterPage() {
   const folderInputRef = useRef<HTMLInputElement>(null);
 
   const storageKey = `autolister:state:${sessionId.current}`;
+  // US-1543 single-level undo snapshot; US-1905 persists it into the IDB session.
+  // Declared here (not by the mutation helpers) so the persist/rehydrate effects
+  // below can read it.
+  const undoGroupsRef = useRef<Group[] | null>(null);
+  // US-1905: gate persistence until the async IndexedDB rehydrate finishes, so
+  // the localStorage-seeded initial state can't clobber a fuller IDB session
+  // (localStorage may be stale/truncated on large sessions).
+  const hydratedRef = useRef(false);
   // Lazy-rehydrate staged/groups from localStorage so a refresh recovers the
-  // in-flight session. Uploaded photos live in Supabase Storage independently;
-  // only the in-memory grouping state is at risk of loss.
+  // in-flight session (instant first paint + the IndexedDB-unavailable
+  // fallback); US-1905 then overrides from IndexedDB when it's available.
+  // Uploaded photos live in Supabase Storage independently; only the in-memory
+  // grouping state is at risk of loss.
   const [staged, setStaged] = useState<StagedPhoto[]>(() => {
     if (typeof window === "undefined") return [];
     try {
@@ -722,20 +739,78 @@ export function FlipdeskAutolisterPage() {
     }
   }, []);
 
-  // Persist whenever staged / groups change. US-1541: size-guarded — a 600-
-  // photo session's JSON is normally well under quota, but the per-photo
-  // `original` snapshots (pre-edit revert data) can inflate it. On a quota
-  // error, degrade gracefully: retry WITHOUT the snapshots (losing only the
-  // ability to revert edits after a reload), and warn once instead of
-  // silently dropping session recovery.
+  // US-1905: rehydrate the FULL session from IndexedDB on mount (migrating an
+  // existing localStorage session on first run). IDB is authoritative — for a
+  // 600-photo session localStorage may be stale or truncated. `hydratedRef`
+  // gates the persist effect until this completes, so the localStorage-seeded
+  // initial state can't overwrite a fuller IDB session. Undo snapshot restored
+  // too. No IndexedDB (some private-browsing modes) → keep the localStorage
+  // state and mark hydrated immediately.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (idbAvailable()) {
+        try {
+          const raw = (() => {
+            try {
+              return window.localStorage.getItem(storageKey);
+            } catch {
+              return null;
+            }
+          })();
+          const loaded =
+            (await migrateSessionFromLocalStorage(sessionId.current, raw)) ??
+            (await loadSession(sessionId.current));
+          if (!cancelled && loaded) {
+            if (Array.isArray(loaded.staged)) {
+              const idbStaged = loaded.staged as StagedPhoto[];
+              const idbIds = new Set(idbStaged.map((p) => p.id));
+              // Merge, not replace: keep any photo an upload claimed during the
+              // async rehydrate window (IDB is authoritative for the rest).
+              setStaged((cur) => [...idbStaged, ...cur.filter((p) => !idbIds.has(p.id))]);
+            }
+            if (Array.isArray(loaded.groups) && loaded.groups.length > 0) {
+              setGroups(loaded.groups as Group[]);
+            }
+            if (Array.isArray(loaded.undo)) undoGroupsRef.current = loaded.undo as Group[];
+          }
+        } catch {
+          /* keep the localStorage-seeded state */
+        }
+      }
+      if (!cancelled) hydratedRef.current = true;
+      // US-1905: resume uploads persisted before a reload (part 2). Runs after
+      // the localStorage-derived staged identities are synced, so a photo that
+      // finished before the reload isn't re-uploaded.
+      void useAutolisterUploadStore.getState().resumeUploads(sessionId.current);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Persist whenever staged / groups change. US-1905: IndexedDB is the primary
+  // store (no size limit → a 600-photo session saves fully, undo snapshot
+  // included). localStorage remains the fallback when IndexedDB is unavailable,
+  // where the US-1541 size-guard (drop `original` snapshots, warn once) still
+  // applies. Gated on `hydratedRef` so it can't run before the IDB rehydrate.
   const persistWarnedRef = useRef(false);
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined" || !hydratedRef.current) return;
+    if (idbAvailable()) {
+      void saveSession(sessionId.current, {
+        staged,
+        groups,
+        undo: undoGroupsRef.current,
+        sort: { ungroupedSort, groupEvery },
+        updatedAt: Date.now(),
+      });
+      return;
+    }
+    // Fallback: localStorage, size-guarded (only reached without IndexedDB).
     try {
-      window.localStorage.setItem(
-        storageKey,
-        JSON.stringify({ staged, groups }),
-      );
+      window.localStorage.setItem(storageKey, JSON.stringify({ staged, groups }));
       return;
     } catch {
       /* fall through to the slimmed retry */
@@ -746,10 +821,7 @@ export function FlipdeskAutolisterPage() {
         delete copy.original;
         return copy;
       });
-      window.localStorage.setItem(
-        storageKey,
-        JSON.stringify({ staged: slimmed, groups }),
-      );
+      window.localStorage.setItem(storageKey, JSON.stringify({ staged: slimmed, groups }));
       if (!persistWarnedRef.current) {
         persistWarnedRef.current = true;
         toast.warning(
@@ -764,7 +836,7 @@ export function FlipdeskAutolisterPage() {
         );
       }
     }
-  }, [staged, groups, storageKey]);
+  }, [staged, groups, storageKey, ungroupedSort, groupEvery]);
 
   const stagedById = useMemo(
     () => new Map(staged.map((p) => [p.id, p])),
@@ -1455,9 +1527,9 @@ export function FlipdeskAutolisterPage() {
   }
 
   // ── US-1543: undoable grouping mutations + drag-and-drop ───────────
+  // (undoGroupsRef is declared near the session state above so US-1905's
+  // persist/rehydrate effects can read the snapshot.)
 
-  /** Snapshot for single-level undo of the LAST grouping mutation. */
-  const undoGroupsRef = useRef<Group[] | null>(null);
   // US-1908: the auto-grouper's assignment (photoId → group id) and the ids of
   // the groups it created, captured at Auto-group time. The correction score at
   // generate compares these against the final grouping.
@@ -2172,6 +2244,8 @@ export function FlipdeskAutolisterPage() {
   // don't re-show drafts on the next visit.
   function clearStoredSession() {
     if (typeof window === "undefined") return;
+    // US-1905: drop the IndexedDB session + its resume blobs too.
+    void clearSession(sessionId.current);
     try {
       window.localStorage.removeItem(storageKey);
       window.localStorage.removeItem("autolister:sessionId");
