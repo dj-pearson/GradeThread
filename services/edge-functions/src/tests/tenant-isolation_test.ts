@@ -2218,6 +2218,11 @@ Deno.test({
   },
 });
 
+// US-1840: buyer authenticity add-on. No cross-tenant id vector — POST /api/buyer/
+// authenticity acts ONLY on the caller (entitlement + meter both keyed on
+// c.get("userId"); the uploaded photos are the request body, not a foreign id).
+// Nothing to scope-test beyond the self-scoped metering.
+
 // US-1830: demand-board wants. DELETE is scoped .eq("id",id).eq("user_id",userId),
 // so B deleting A's want hits 0 rows (no cross-tenant delete); GET returns only
 // the caller's own wants (owner RLS). Per-case ignore until a want fixture exists.

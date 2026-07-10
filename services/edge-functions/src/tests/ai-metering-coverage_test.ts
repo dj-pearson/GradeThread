@@ -121,6 +121,12 @@ const ALLOWLIST: Record<string, string> = {
   "admin-bulk.ts": "operator tooling (super-admin gated)",
   "admin-jobs.ts": "operator tooling (super-admin gated)",
   "admin-monitoring.ts": "operator tooling (super-admin gated)",
+  "buyer-authenticity.ts":
+    "US-1840 buyer authenticity add-on: metered on the BUYER credit contract " +
+    "(withBuyerMeter authenticity_credits — included allowance → reward credits → " +
+    "upgrade, US-1800/1813), gated by the authenticityAddon entitlement, and " +
+    "additionally bounded by the global daily Vision ceiling (reserveGlobalDailyBudget). " +
+    "It does NOT use the seller-side withAiAction meter, so the marker regex misses it.",
 };
 
 const METER_MARKER = /withAiAction|reserveAiAction|reserve_ai_action/;

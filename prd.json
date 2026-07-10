@@ -14675,7 +14675,7 @@
         "Legal disclaimers preserved (confidence estimate, never definitive)"
       ],
       "priority": 1840,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][BINDING][AUTHENTICITY] REUSE US-1767 epic (scoring 1769, public lookup/pricing 1771). Buyer allowances/credits via entitlements (1800) + CREDIT_PACKS. Load grading-engine skill (confidence caps). Depends on foundation (1795) + authenticity epic (1767)."
     },
     {

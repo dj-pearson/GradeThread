@@ -13505,3 +13505,23 @@ migration; NO re-build of the fit engine.
 - VERIFIED: deno check CLEAN / lint 0 / full edge suite 3464 pass 0 fail (gate
   matrix +fit) / node --check marketplace.js OK.
 - No migration; part of the held branch.
+
+## 2026-07-10 — US-1840 (Buyer binding: Authenticity add-on as buyer credits/gating) — passes:true
+
+Binds the authenticity add-on (US-1767/1769/1771) to the buyer subscription. NO
+migration; NO re-build of the scoring.
+- routes/buyer-authenticity.ts (/api/buyer/authenticity, authed): gates on
+  ent.gateFlags.authenticityAddon (403 not_entitled), meters via
+  withBuyerMeter('authenticity_credits', allowance) — the SAME credit precedence
+  as every buyer feature (included → reward credits → upgrade, 402 quota_exhausted),
+  reserveGlobalDailyBudget global Vision ceiling. Reuses parseAuthenticityCheckBody
+  + getEffectiveTellsForBrand + assessAuthenticity (US-1769); returns ONLY the
+  buyer-safe projection (verdict/confidence/counterfeitRisk/brandAssessed/summary/
+  limitations) — raw red_flags/tell_findings never leave the server. Legal
+  disclaimer (limitations) preserved.
+- ai-metering-coverage_test ALLOWLIST += buyer-authenticity.ts (metered via the
+  BUYER credit contract, not the seller withAiAction marker the regex looks for).
+- Tenant isolation: documented no-id-vector note (self-scoped by userId).
+- VERIFIED: deno check CLEAN / lint 0 / full edge suite 3464 pass 0 fail (fixed the
+  ai-metering-coverage drift the new AI route tripped).
+- No migration; part of the held branch.
