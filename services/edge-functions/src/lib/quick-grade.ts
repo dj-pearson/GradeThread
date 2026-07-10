@@ -37,6 +37,13 @@ export interface QuickGradeResult {
   needsHumanReview: boolean;
   factorScores: CompositeGradeResult["factor_scores"];
   imagesAnalyzed: number;
+  // US-1836: COARSE photo-authenticity signal only (booleans + confidence). The
+  // internal `tells` / `flagged_image_types` NEVER leave the grader.
+  imageAuthenticity: {
+    manipulation_suspected: boolean;
+    manipulation_confidence: number;
+    screenshot_or_watermark_detected: boolean;
+  };
 }
 
 function uint8ToBase64(bytes: Uint8Array): string {
@@ -115,6 +122,7 @@ export async function quickGrade(input: QuickGradeInput): Promise<QuickGradeResu
   }
 
   const composite = await compositeGrade(perImage, garment);
+  const auth = composite.image_authenticity;
   return {
     overallScore: composite.overall_score,
     gradeTier: composite.grade_tier,
@@ -122,5 +130,10 @@ export async function quickGrade(input: QuickGradeInput): Promise<QuickGradeResu
     needsHumanReview: composite.needs_human_review,
     factorScores: composite.factor_scores,
     imagesAnalyzed: perImage.length,
+    imageAuthenticity: {
+      manipulation_suspected: auth?.manipulation_suspected === true,
+      manipulation_confidence: typeof auth?.manipulation_confidence === "number" ? auth.manipulation_confidence : 0,
+      screenshot_or_watermark_detected: auth?.screenshot_or_watermark_detected === true,
+    },
   };
 }

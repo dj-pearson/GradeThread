@@ -21,6 +21,15 @@ import { suggestCategories } from "../lib/ebay-client.ts";
 import { quickGrade } from "../lib/quick-grade.ts";
 import { claimedConditionToGrade, scoreDiscrepancy } from "../lib/condition-discrepancy.ts";
 import { parsePriceCents, priceFairness } from "../lib/price-fairness.ts";
+import { deriveFraudFlags } from "../lib/fraud-flags.ts";
+
+// US-1836: fraud flags are legally sensitive (a public "these look manipulated"
+// signal), so the whole feature is FAIL-CLOSED behind a kill-switch until the
+// risk-framed copy is legal-reviewed AND the Connoisseur tier-gate lands with the
+// extension auth (US-1838). Default off — mirrors PUBLIC_AUTHENTICITY_CHECK_ENABLED.
+export function extensionFraudFlagsEnabled(): boolean {
+  return Deno.env.get("EXTENSION_FRAUD_FLAGS_ENABLED") === "true";
+}
 import { validateImageUpload, IMAGE_CONTENT_TYPE } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
 import { assessAuthenticity } from "../lib/ai-authenticity.ts";
@@ -652,6 +661,11 @@ publicGradingRoutes.post("/grade-from-url", async (c) => {
     }
     const fairness = priceFairness(parsePriceCents((body as { price?: unknown })?.price), value);
 
+    // US-1836: coarse, risk-framed fraud flags — fail-closed behind the kill-switch.
+    const fraudFlags = extensionFraudFlagsEnabled()
+      ? deriveFraudFlags(result.imageAuthenticity)
+      : [];
+
     return c.json(
       {
         estimate: true,
@@ -663,6 +677,7 @@ publicGradingRoutes.post("/grade-from-url", async (c) => {
         discrepancy,
         value,
         priceFairness: fairness,
+        fraudFlags,
         disclaimer: GRADE_CHECK_DISCLAIMER,
         deepLink,
       },

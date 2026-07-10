@@ -259,6 +259,14 @@
         );
       }
 
+      // US-1836: point-of-purchase fraud flags (coarse, risk-framed).
+      if (Array.isArray(data.fraudFlags) && data.fraudFlags.length) {
+        for (var i = 0; i < data.fraudFlags.length; i++) {
+          var ff = data.fraudFlags[i];
+          if (ff && ff.label) body.appendChild(el("p", "gt-cc-disc gt-cc-disc-bad", "⚑ " + ff.label));
+        }
+      }
+
       body.appendChild(el("p", "gt-cc-disclaimer", String(data.disclaimer || "")));
 
       if (data.deepLink) {

@@ -14619,7 +14619,7 @@
         "Quota-metered and tenant-scoped"
       ],
       "priority": 1836,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][EXTENSION][ANTIFRAUD][NEW] Reuse original_photos (US-861) + image_authenticity + forensic_analysis + authenticity_assessment (US-601), expose only public-safe coarse labels (never red_flags[] internal). Load grading-engine skill (owns authenticity confidence caps). LEGAL copy review. Highest tier. Depends on endpoint (1834)."
     },
     {

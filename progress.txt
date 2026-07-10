@@ -13426,3 +13426,22 @@ Edge endpoint + extension client. NO migration.
 - VERIFIED: deno check CLEAN / lint 0 / full edge suite 3445 pass 0 fail / node
   --check all 3 extension JS OK.
 - No migration; part of the held branch.
+
+## 2026-07-10 — US-1836 (Extension: point-of-purchase fraud flags) — passes:true
+
+Coarse, buyer-safe fraud flags on a listing. Edge + extension. NO migration.
+- quick-grade.ts: surfaces a COARSE image_authenticity subset (manipulation_
+  suspected/confidence + screenshot_or_watermark_detected) from the composite —
+  the internal tells[]/flagged_image_types[] NEVER leave the grader.
+- lib/fraud-flags.ts (PURE, 5 tests): deriveFraudFlags → risk-FRAMED coarse labels
+  (possible_edited_photos at ≥0.6 confidence; possible_reused_photos for
+  screenshot/watermark). Copy is hedged ("possible"/"may be"/"ask for…"), never an
+  accusation ("fake/counterfeit/stolen") — asserted in tests.
+- public-grading /grade-from-url: returns `fraudFlags`, FAIL-CLOSED behind
+  extensionFraudFlagsEnabled() (EXTENSION_FRAUD_FLAGS_ENABLED, default off) —
+  mirrors PUBLIC_AUTHENTICITY_CHECK_ENABLED, pending legal copy review. The
+  Connoisseur tier-gate is the extension suite's cross-cutting concern (US-1838).
+- Extension client (node --check clean): renders fraudFlags (⚑ risk labels).
+- VERIFIED: deno check CLEAN / lint 0 / full edge suite 3450 pass 0 fail / node
+  --check marketplace.js OK.
+- No migration; part of the held branch.
