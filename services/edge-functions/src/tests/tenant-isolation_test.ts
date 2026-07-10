@@ -2229,6 +2229,22 @@ Deno.test({
 // add-by-certificate path 403s when the caller doesn't own the cert. (Per-case
 // ignore until the seed provides TEST_USER_A_CLOSET_ITEM_ID.)
 const A_CLOSET_ITEM_ID = Deno.env.get("TEST_USER_A_CLOSET_ITEM_ID");
+// US-1828: the "list this" bridge loads the closet item with .eq("id",id).eq(
+// "user_id",userId) before creating any inventory_item, so B listing A's closet
+// item hits 0 rows → 404 (never promotes A's item into B's inventory).
+Deno.test({
+  name: "B cannot 'list this' A's closet item",
+  ignore: !CONFIGURED || !A_CLOSET_ITEM_ID,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/buyer/closet/${A_CLOSET_ITEM_ID}/list`, {
+      method: "POST",
+      headers: { ...authHeaders(B_JWT!), "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST buyer closet list-this on foreign item");
+  },
+});
 Deno.test({
   name: "B cannot delete A's closet item",
   ignore: !CONFIGURED || !A_CLOSET_ITEM_ID,

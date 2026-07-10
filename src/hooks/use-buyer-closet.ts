@@ -55,6 +55,21 @@ export function useBuyerCloset() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: key }),
   });
 
+  // US-1828: promote a closet item into FlipDesk inventory.
+  const listMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await edgeFetch(`/api/buyer/closet/${id}/list`, {
+        method: "POST",
+        json: {},
+        skipWorkspaceHeader: true,
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? "Could not list this item.");
+      return json as { inventory_item_id: string; sellerOnboarding?: boolean; alreadyListed?: boolean };
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: key }),
+  });
+
   const removeMutation = useMutation({
     mutationFn: async (id: string) => {
       const res = await edgeFetch(`/api/buyer/closet/${id}`, {
@@ -76,5 +91,19 @@ export function useBuyerCloset() {
     isAdding: addMutation.isPending,
     removeItem: (id: string) => removeMutation.mutateAsync(id),
     isRemoving: removeMutation.isPending,
+    listItem: (id: string) => listMutation.mutateAsync(id),
+    isListing: listMutation.isPending,
+    // US-1828: download the insurance CSV (authed fetch → blob).
+    exportCsv: async () => {
+      const res = await edgeFetch("/api/buyer/closet/export.csv", { skipWorkspaceHeader: true });
+      if (!res.ok) throw new Error("Could not export your closet.");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "gradethread-closet.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+    },
   };
 }

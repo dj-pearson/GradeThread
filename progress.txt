@@ -13294,3 +13294,25 @@ Dashboard + value alerts + best-time-to-sell on the US-1826 valuation engine.
   + admin-scope guards green) / web tsc --noEmit 0 / eslint 0 / tsc -b baseline 7
   (none mine) / vite build + prerender 212 CLEAN.
 - ⚠️ HELD MIGRATION — commit local; NOT pushed until user applies 00429 (after 00428).
+
+## 2026-07-10 — US-1828 (Portfolio: insurance export + list-this bridge) + US-1824 EPIC closed — passes:true
+
+Closes the Wardrobe Portfolio epic (US-1824): 1825 closet model, 1826 valuation,
+1827 dashboard+alerts, 1828 export+bridge all done; every epic AC met.
+- 00430_closet_promotion.sql: closet_items += promoted_item_id (FK inventory_items,
+  idempotency + "Listed" state). EXPECTED_SCHEMA_VERSION=00430.
+- lib/closet-export.ts (PURE, 6 tests): csvCell (RFC-4180 escape) + buildClosetCsv
+  (insurance CSV: brand/item/size/grade/cert/estimate/cost-basis, dollarized) +
+  inventoryFromCloset (closet → FlipDesk draft; title fallback, cert URL,
+  suggested price = valuation estimate, garment_type kept in title since closet's
+  is free-text vs inventory's enum).
+- Routes (buyer-closet, scoped by user_id): GET /closet/export.csv (text/csv
+  attachment) + POST /closet/:id/list (ownership → 404; idempotent via
+  promoted_item_id; creates an inventory_items draft; buyer-only accounts get
+  sellerOnboarding:true to prompt seller setup — US-1796, not hard-blocked).
+  Tenant isolation: "B cannot 'list this' A's closet item".
+- Web: portfolio Export (insurance) button + per-item List / Listed→pipeline;
+  onboarding-aware toasts; database.ts ClosetItemRow += promoted_item_id.
+- VERIFIED: deno check CLEAN / lint 0 / full edge suite 3423 pass 0 fail / web tsc
+  --noEmit 0 / eslint 0 / tsc -b baseline 7 (none mine) / vite build + prerender 212.
+- ⚠️ HELD MIGRATION — commit local; NOT pushed until user applies 00430 (after 00429).

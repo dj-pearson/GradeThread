@@ -14451,7 +14451,7 @@
         "This umbrella tracks US-1825…US-1828"
       ],
       "priority": 1824,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][PORTFOLIO][EPIC][NEW] BASELINE: no owned-item/closet concept for buyers (Garment Passport is closest — chain-of-custody). DATA: grade_outcomes (realized price), Value Index (US-1745), durability rankings (US-1772), passport (garment_id). BRIDGE: 'list this' drops into FlipDesk inventory -> the buyer<->seller convergence point. TIES: insurance export, alerts (1805) reused for value alerts. Child stories: closet model (1825), valuation engine (1826), portfolio dashboard + alerts (1827), insurance export + list-to-FlipDesk bridge (1828). Depends on foundation (1795)."
     },
     {
@@ -14507,7 +14507,7 @@
         "Export/bridge actions are tenant-scoped and ownership-verified"
       ],
       "priority": 1828,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][PORTFOLIO][BRIDGE][NEW] Reuse the grade->listing promotion (applyGradeListingPromotion in flipdesk-ebay.ts) + price-suggestions.ts. This is the buyer->seller conversion mechanic. Enabling the seller role uses account model (1796). Load tenant-isolation skill. Depends on valuation (1826)."
     },
     {

@@ -1,5 +1,18 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ PENDING: 00430_closet_promotion.sql (US-1828 closet→FlipDesk list-this link, 2026-07-10)
+
+**What:** One additive column on `public.closet_items` — `promoted_item_id` (uuid
+FK → inventory_items, ON DELETE SET NULL) — the idempotency link + "Listed" state
+for the one-click list-this bridge. No writes to existing rows. Bumps
+`EXPECTED_SCHEMA_VERSION` → **00430**. Self-records '00430'.
+
+**Risk: LOW** — one nullable FK column, no backfill. **The CLIENT reads
+`promoted_item_id`** (the portfolio "Listed" state) and the edge
+(`GET /closet/export.csv`, `POST /closet/:id/list`) boot-expects 00430 — apply
+BEFORE the push. **⚠️ Apply order:** after 00429; `scripts/apply-prod-migrations.sh`,
+then `NOTIFY pgrst, 'reload schema';`, redeploy the edge (boot guard now expects 00430).
+
 ## ⏳ PENDING: 00429_portfolio_alerts.sql (US-1827 portfolio value alerts, 2026-07-10)
 
 **What:** Additive columns on `public.closet_item_valuations` —

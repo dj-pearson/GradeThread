@@ -3318,6 +3318,8 @@ export interface ClosetItemRow {
   condition_grade: number | null;
   title: string | null;
   notes: string | null;
+  // US-1828: the inventory_items id if this closet item was promoted to FlipDesk.
+  promoted_item_id: string | null;
   created_at: string;
   updated_at: string;
 }

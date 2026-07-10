@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Loader2, Lock, Plus, Shirt, Trash2 } from "lucide-react";
+import { Download, Loader2, Lock, Plus, Shirt, Store, Tag, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -54,8 +54,32 @@ type FilterKey = "all" | "gainers" | "losers";
 
 export function BuyerPortfolioPage() {
   const ent = useBuyerEntitlements();
-  const { items, isLoading, addItem, isAdding, removeItem, isRemoving } = useBuyerCloset();
+  const { items, isLoading, addItem, isAdding, removeItem, isRemoving, listItem, isListing, exportCsv } =
+    useBuyerCloset();
   const { totals, valuationFor } = useBuyerPortfolioValuation();
+
+  async function onExport() {
+    try {
+      await exportCsv();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Export failed.");
+    }
+  }
+
+  async function onList(id: string) {
+    try {
+      const res = await listItem(id);
+      if (res.alreadyListed) {
+        toast.info("Already in your FlipDesk inventory.");
+      } else if (res.sellerOnboarding) {
+        toast.success("Draft created! Set up FlipDesk selling to publish it.");
+      } else {
+        toast.success("Added to your FlipDesk inventory as a draft.");
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't list this item.");
+    }
+  }
 
   const [certId, setCertId] = useState("");
   const [brand, setBrand] = useState("");
@@ -149,9 +173,16 @@ export function BuyerPortfolioPage() {
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
-      <div className="flex items-center gap-2">
-        <Shirt className="h-5 w-5 text-primary" />
-        <h1 className="text-2xl font-bold">Closet Portfolio</h1>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Shirt className="h-5 w-5 text-primary" />
+          <h1 className="text-2xl font-bold">Closet Portfolio</h1>
+        </div>
+        {items.length > 0 && (
+          <Button variant="outline" size="sm" onClick={onExport}>
+            <Download className="mr-1.5 h-4 w-4" /> Export (insurance)
+          </Button>
+        )}
       </div>
 
       {/* US-1826: portfolio valuation summary (estimates, not appraisals). */}
@@ -280,6 +311,17 @@ export function BuyerPortfolioPage() {
                   {item.certificate_id && (
                     <Button asChild variant="ghost" size="sm">
                       <Link to={`/cert/${item.certificate_id}`}>Grade</Link>
+                    </Button>
+                  )}
+                  {item.promoted_item_id ? (
+                    <Button asChild variant="ghost" size="sm">
+                      <Link to="/dashboard/flipdesk/pipeline">
+                        <Store className="mr-1 h-3.5 w-3.5" /> Listed
+                      </Link>
+                    </Button>
+                  ) : (
+                    <Button variant="ghost" size="sm" disabled={isListing} onClick={() => onList(item.id)}>
+                      <Tag className="mr-1 h-3.5 w-3.5" /> List
                     </Button>
                   )}
                   <Button

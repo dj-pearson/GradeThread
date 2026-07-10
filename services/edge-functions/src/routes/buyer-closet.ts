@@ -14,6 +14,7 @@ import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { getPortfolioValuation } from "../lib/portfolio-valuation-db.ts";
 import { computePortfolioTotals } from "../lib/portfolio-valuation.ts";
+import { buildClosetCsv, type ClosetExportRow, inventoryFromCloset } from "../lib/closet-export.ts";
 
 type BuyerEnv = { Variables: { userId: string } };
 export const buyerClosetRoutes = new Hono<BuyerEnv>();
@@ -33,6 +34,127 @@ buyerClosetRoutes.get("/closet/valuation", async (c) => {
     console.error("[buyer-closet] valuation failed:", err);
     return c.json({ error: "Could not value your portfolio." }, 500);
   }
+});
+
+// US-1828: insurance-ready CSV export of the owned closet + certified grades +
+// current estimated values. Scoped by user_id (US-268).
+buyerClosetRoutes.get("/closet/export.csv", async (c) => {
+  const userId = c.get("userId");
+  const { data: items, error } = await supabaseAdmin
+    .from("closet_items")
+    .select("id, brand, garment_type, size, condition_grade, certificate_id")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+  if (error) return c.json({ error: "Could not load your closet." }, 500);
+
+  let valById = new Map<string, { estimate_cents: number | null; cost_basis_cents: number | null }>();
+  try {
+    const vals = await getPortfolioValuation(userId);
+    valById = new Map(vals.map((v) => [v.closet_item_id, v]));
+  } catch { /* export still works without valuations */ }
+
+  const rows: ClosetExportRow[] = (items ?? []).map((raw) => {
+    const it = raw as {
+      id: string;
+      brand: string | null;
+      garment_type: string | null;
+      size: string | null;
+      condition_grade: number | null;
+      certificate_id: string | null;
+    };
+    const v = valById.get(it.id);
+    return {
+      brand: it.brand,
+      garment_type: it.garment_type,
+      size: it.size,
+      condition_grade: it.condition_grade,
+      certificate_id: it.certificate_id,
+      estimateCents: v?.estimate_cents ?? null,
+      costBasisCents: v?.cost_basis_cents ?? null,
+    };
+  });
+
+  return new Response(buildClosetCsv(rows), {
+    headers: {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": 'attachment; filename="gradethread-closet.csv"',
+    },
+  });
+});
+
+// US-1828: one-click "list this" — promote a closet item into FlipDesk inventory,
+// pre-filled with grade + cert + a suggested price. Ownership FIRST (foreign id →
+// 0 rows → 404). Idempotent via closet_items.promoted_item_id.
+buyerClosetRoutes.post("/closet/:id/list", async (c) => {
+  const userId = c.get("userId");
+  const closetId = c.req.param("id");
+
+  const { data: item } = await supabaseAdmin
+    .from("closet_items")
+    .select("id, brand, garment_type, size, condition_grade, certificate_id, title, notes, promoted_item_id")
+    .eq("id", closetId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!item) return c.json({ error: "Closet item not found." }, 404);
+  const cl = item as {
+    id: string;
+    brand: string | null;
+    garment_type: string | null;
+    size: string | null;
+    condition_grade: number | null;
+    certificate_id: string | null;
+    title: string | null;
+    notes: string | null;
+    promoted_item_id: string | null;
+  };
+
+  // Idempotent: already promoted → return the existing listing.
+  if (cl.promoted_item_id) {
+    return c.json({ ok: true, inventory_item_id: cl.promoted_item_id, alreadyListed: true });
+  }
+
+  // Account role (US-1796): a buyer with no paid FlipDesk plan is prompted to set
+  // up selling. We still create the draft (it's theirs) and flag onboarding.
+  const { data: userRow } = await supabaseAdmin
+    .from("users")
+    .select("flipdesk_plan")
+    .eq("id", userId)
+    .maybeSingle();
+  const plan = (userRow as { flipdesk_plan: string | null } | null)?.flipdesk_plan ?? null;
+  const sellerOnboarding = !plan || plan === "free";
+
+  // Suggested price from the valuation cache (best-effort).
+  let estimateCents: number | null = null;
+  try {
+    const { data: val } = await supabaseAdmin
+      .from("closet_item_valuations")
+      .select("estimate_cents")
+      .eq("closet_item_id", cl.id)
+      .eq("user_id", userId)
+      .maybeSingle();
+    estimateCents = (val as { estimate_cents: number | null } | null)?.estimate_cents ?? null;
+  } catch { /* no valuation → seller sets the price */ }
+
+  const draft = inventoryFromCloset(cl, estimateCents);
+  const { data: inserted, error: insErr } = await supabaseAdmin
+    .from("inventory_items")
+    .insert({ user_id: userId, ...draft } as never)
+    .select("id")
+    .single();
+  if (insErr) {
+    console.error("[buyer-closet] list promotion failed:", insErr);
+    return c.json({ error: "Could not create the listing draft." }, 500);
+  }
+  const inventoryItemId = (inserted as { id: string }).id;
+
+  // Link back (idempotency + "Listed" state). Scoped by user_id.
+  await supabaseAdmin
+    .from("closet_items")
+    .update({ promoted_item_id: inventoryItemId } as never)
+    .eq("id", cl.id)
+    .eq("user_id", userId);
+
+  return c.json({ ok: true, inventory_item_id: inventoryItemId, sellerOnboarding });
 });
 
 export const CLOSET_SOURCES = ["certificate", "passport", "manual"] as const;
