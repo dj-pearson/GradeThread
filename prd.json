@@ -15610,7 +15610,7 @@
         "Publish path unchanged (already consumes these columns); web test covers prefill + clamp"
       ],
       "priority": 1898,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][UI][LHF] See EBAY_RANKING_PLAYBOOK.md §10. Pure frontend + existing columns; no edge changes expected. Added 2026-07-09."
     },
     {

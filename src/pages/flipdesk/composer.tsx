@@ -103,6 +103,11 @@ import {
   priceChanged,
   textChanged,
 } from "@/lib/listing-ai-diff";
+import {
+  centsToDollarInput,
+  dollarInputToCents,
+  resolveBestOfferThresholds,
+} from "@/lib/best-offer-thresholds";
 import { EbayCompsPanel } from "@/components/flipdesk/ebay-comps-panel";
 import { PublishToEbayDialog } from "@/components/flipdesk/publish-to-ebay-dialog";
 import { ListingKit } from "@/components/flipdesk/listing-kit";
@@ -228,6 +233,11 @@ export function FlipdeskComposerPage() {
   const [listingFormat, setListingFormat] = useState<ListingFormatValue>(
     DEFAULT_LISTING_FORMAT_VALUE,
   );
+  // US-1898: Best Offer toggle + auto-accept/auto-decline (dollar strings; blank
+  // falls back to the comp-derived default at save). Persisted to best_offer_*.
+  const [bestOfferEnabled, setBestOfferEnabled] = useState(false);
+  const [bestOfferAccept, setBestOfferAccept] = useState("");
+  const [bestOfferDecline, setBestOfferDecline] = useState("");
   const [saving, setSaving] = useState(false);
   const [initialised, setInitialised] = useState(false);
   // Lifted from the category picker so the comps panel reacts to a pick
@@ -449,6 +459,11 @@ export function FlipdeskComposerPage() {
       auctionDuration: listing?.auction_duration ?? "DAYS_7",
       variations: listing?.variations ?? null,
     });
+    // US-1898: seed Best Offer from the saved listing; leave the inputs blank
+    // so they show the comp-derived default (filled in on enable / at save).
+    setBestOfferEnabled(listing?.best_offer_enabled ?? false);
+    setBestOfferAccept(centsToDollarInput(listing?.best_offer_auto_accept_cents));
+    setBestOfferDecline(centsToDollarInput(listing?.best_offer_auto_decline_cents));
     const seededPrimary =
       listing?.primary_photo_id &&
       photos.some((p) => p.id === listing.primary_photo_id)
@@ -727,6 +742,20 @@ export function FlipdeskComposerPage() {
         resolvedAspects,
         resolvedSources,
       } = resolveListingFields();
+      // US-1898: resolve Best Offer thresholds — seller overrides win over the
+      // comp-derived default, then clamp to eBay's constraints (decline < accept
+      // < price). Same math the edge re-applies at publish (best-offer.ts).
+      const bestOffer = bestOfferEnabled
+        ? resolveBestOfferThresholds({
+            priceCents: resolvedPrice != null && resolvedPrice > 0
+              ? Math.round(resolvedPrice * 100)
+              : 0,
+            p25Cents: listing?.price_range_low_cents ?? null,
+            p75Cents: listing?.price_range_high_cents ?? null,
+            acceptOverrideCents: dollarInputToCents(bestOfferAccept),
+            declineOverrideCents: dollarInputToCents(bestOfferDecline),
+          })
+        : { autoAcceptCents: null, autoDeclineCents: null };
       const payload: ListingInsert = {
         inventory_item_id: item.id,
         platform: "ebay",
@@ -765,6 +794,10 @@ export function FlipdeskComposerPage() {
         // US-568: persist format + auction terms + variation matrix. Auction
         // prices convert dollars → cents; null when blank or non-auction.
         ...buildFormatPayload(listingFormat),
+        // US-1898: Best Offer (publish already consumes these columns).
+        best_offer_enabled: bestOfferEnabled,
+        best_offer_auto_accept_cents: bestOffer.autoAcceptCents,
+        best_offer_auto_decline_cents: bestOffer.autoDeclineCents,
       };
 
       let listingId: string;
@@ -1539,6 +1572,74 @@ export function FlipdeskComposerPage() {
                   title={item.item_title}
                   grade={item.grade_value}
                 />
+                {/* US-1898: Best Offer — a conversion/negotiation lever, NOT a
+                    ranking factor. Fixed-price only (auctions use their own
+                    reserve/BIN terms). */}
+                {listingFormat.format === "fixed_price" && (
+                  <div className="space-y-2 rounded-md border bg-muted/20 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <Label htmlFor="best-offer" className="text-sm">
+                          Accept Best Offers
+                        </Label>
+                        <p className="text-[11px] text-muted-foreground">
+                          Let buyers negotiate — offers auto-clear within your limits. A
+                          conversion lever, not a ranking factor.
+                        </p>
+                      </div>
+                      <Switch
+                        id="best-offer"
+                        checked={bestOfferEnabled}
+                        onCheckedChange={setBestOfferEnabled}
+                        aria-label="Accept Best Offers on this listing"
+                      />
+                    </div>
+                    {bestOfferEnabled && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <Label htmlFor="bo-accept" className="text-xs">
+                            Auto-accept ≥ ($)
+                          </Label>
+                          <Input
+                            id="bo-accept"
+                            type="number"
+                            inputMode="decimal"
+                            min="0"
+                            step="0.01"
+                            value={bestOfferAccept}
+                            onChange={(e) => setBestOfferAccept(e.target.value)}
+                            placeholder={
+                              centsToDollarInput(listing?.price_range_high_cents) || "auto"
+                            }
+                            className="h-8"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label htmlFor="bo-decline" className="text-xs">
+                            Auto-decline ≤ ($)
+                          </Label>
+                          <Input
+                            id="bo-decline"
+                            type="number"
+                            inputMode="decimal"
+                            min="0"
+                            step="0.01"
+                            value={bestOfferDecline}
+                            onChange={(e) => setBestOfferDecline(e.target.value)}
+                            placeholder={
+                              centsToDollarInput(listing?.price_range_low_cents) || "auto"
+                            }
+                            className="h-8"
+                          />
+                        </div>
+                        <p className="col-span-2 text-[11px] text-muted-foreground">
+                          Blank uses your comp band (p75 accept / p25 decline). Clamped to
+                          eBay&apos;s rule: decline &lt; accept &lt; price.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="schedule-at">Schedule publish (optional)</Label>
