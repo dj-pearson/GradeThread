@@ -13236,3 +13236,9 @@ PRIVATE BY DEFAULT + PII-safe by construction. Builds on the trust levels (1817)
   / vitest seo+prerender 778 pass / tsc -b baseline 7 (none mine) / vite build +
   prerender 212 CLEAN.
 - ⚠️ HELD MIGRATION — commit local; NOT pushed until user applies 00427 (after 00426).
+
+## 2026-07-10 — US-1815 EPIC (Buyer Trust Score & Connoisseur levels) closed — passes:true
+
+All three children done: 1816 (score engine), 1817 (levels/badges/perks), 1818
+(public profile). Every epic AC met (transparent accrual, perks composing with
+subscription, score/level view + opt-in public profile). Umbrella marked.

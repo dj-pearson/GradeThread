@@ -14325,7 +14325,7 @@
         "This umbrella tracks US-1816…US-1818"
       ],
       "priority": 1815,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][REPUTATION][EPIC][NEW] BASELINE: no buyer reputation/rating primitive exists. Compose with (not replace) subscription entitlements — reputation unlocks perks, subscription unlocks features. DATA: reward confirmations (1810), purchase links, guarantee outcomes. TIES: perks interplay with guarantee (1819) + entitlements (1800). Child stories: reputation event model + scoring (1816), levels/badges/perks (1817), public buyer profile + privacy (1818). Depends on foundation (1795)."
     },
     {
