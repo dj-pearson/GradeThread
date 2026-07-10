@@ -299,3 +299,32 @@ export function renderCronDocs(): string {
   return lines.join("\n");
 }
 
+/**
+ * Copy-paste setup blocks — one numbered entry per scheduled job — for the
+ * one-time Coolify registration run-down (CRON_SETUP.md embeds this between the
+ * `<!-- cron-setup:start/end -->` markers; the drift test regenerates it). Every
+ * task's Container is the edge-functions service and its Name is the heading, so
+ * the only per-task fields to paste are Frequency + Command.
+ */
+export function renderCronSetupGuide(): string {
+  const sorted = [...CRON_REGISTRY].sort((a, b) => a.name.localeCompare(b.name));
+  const blocks: string[] = [];
+  sorted.forEach((def, i) => {
+    const secret = def.secretEnv ?? DEFAULT_JOB_SECRET_ENV;
+    const notes: string[] = [];
+    if (def.oneOff) notes.push("ONE-OFF at launch (idempotent; disable once drained)");
+    if (def.healthy) notes.push(def.healthy);
+    const cmd = `curl -fsS -X POST -H "X-Internal-Job-Secret: $${secret}" http://localhost:8787${def.endpoint}`;
+    blocks.push(
+      `### ${i + 1}. ${def.name}`,
+      `**Frequency:** \`${def.schedule}\`${notes.length ? `  ·  _${notes.join("; ")}_` : ""}`,
+      "",
+      "```bash",
+      cmd,
+      "```",
+      "",
+    );
+  });
+  return blocks.join("\n").trimEnd();
+}
+

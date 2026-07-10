@@ -183,6 +183,9 @@ Coolify (Settings → Scheduled Tasks → New). The container field is the
 edge-functions service; the command runs *inside* the container so
 `functions.gradethread.com` resolves over the internal network.
 
+> 📋 For a one-time run-down, **[`CRON_SETUP.md`](./CRON_SETUP.md)** has a
+> copy-paste block (Name · Frequency · Command) for **every** job below.
+
 All scheduled-job handlers authenticate with the `X-Internal-Job-Secret`
 header (not Authorization: Bearer) — the header name must match exactly or
 the handler returns 401. Every task's command follows the same template —

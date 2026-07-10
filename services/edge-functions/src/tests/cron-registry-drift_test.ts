@@ -17,7 +17,7 @@ Deno.env.set(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
 );
 
-const { CRON_REGISTRY, nextCronRun, renderCronDocs } = await import(
+const { CRON_REGISTRY, nextCronRun, renderCronDocs, renderCronSetupGuide } = await import(
   "../lib/cron-runs.ts"
 );
 
@@ -25,6 +25,7 @@ const MAIN_TS = new URL("../main.ts", import.meta.url);
 const EBAY_ROUTES = new URL("../routes/flipdesk-ebay.ts", import.meta.url);
 const COOLIFY = new URL("../../COOLIFY.md", import.meta.url);
 const CHECKLIST = new URL("../../../../LAUNCH_CHECKLIST.md", import.meta.url);
+const CRON_SETUP = new URL("../../CRON_SETUP.md", import.meta.url);
 
 Deno.test("US-1561: every /api/jobs/* route in main.ts is registered (and none is stale)", async () => {
   const main = await Deno.readTextFile(MAIN_TS);
@@ -98,4 +99,17 @@ Deno.test("US-1561: COOLIFY.md and LAUNCH_CHECKLIST.md embed the generated table
         "`deno run --allow-env --allow-net --allow-read scripts/render-cron-docs.ts` and paste between the markers",
     );
   }
+});
+
+Deno.test("CRON_SETUP.md embeds the generated Coolify setup blocks verbatim", async () => {
+  const expected = renderCronSetupGuide().replace(/\r\n/g, "\n").trim();
+  const text = (await Deno.readTextFile(CRON_SETUP)).replace(/\r\n/g, "\n");
+  const m = text.match(/<!-- cron-setup:start[^>]*-->\n([\s\S]*?)\n<!-- cron-setup:end -->/);
+  assert(m, "CRON_SETUP.md: cron-setup markers missing");
+  assertEquals(
+    m![1].trim(),
+    expected,
+    "CRON_SETUP.md drifted from CRON_REGISTRY — regenerate with " +
+      "`deno run --allow-env --allow-net --allow-read scripts/render-cron-setup.ts` and paste between the markers",
+  );
 });
