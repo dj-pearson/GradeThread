@@ -213,6 +213,25 @@
         );
       }
 
+      // US-1834: claimed-vs-objective condition discrepancy signal.
+      var disc = data.discrepancy;
+      if (disc && disc.signal && disc.signal !== "unknown") {
+        var DISC = {
+          over_graded: ["gt-cc-disc-bad", "⚠ Seller may be over-grading"],
+          mild_gap: ["gt-cc-disc-warn", "Slightly better than photos support"],
+          match: ["gt-cc-disc-ok", "✓ Matches the seller's stated condition"],
+        };
+        var d = DISC[disc.signal];
+        if (d) {
+          var node = el("p", "gt-cc-disc " + d[0], d[1]);
+          if (disc.signal !== "match" && disc.claimedGrade != null) {
+            node.textContent = d[1] + " (photos ≈ " + Number(disc.objectiveGrade).toFixed(1) +
+              " vs claimed ≈ " + Number(disc.claimedGrade).toFixed(1) + ")";
+          }
+          body.appendChild(node);
+        }
+      }
+
       body.appendChild(el("p", "gt-cc-disclaimer", String(data.disclaimer || "")));
 
       if (data.deepLink) {
@@ -245,10 +264,18 @@
   }
 
   // ── actions ─────────────────────────────────────────────────────────────
+  // US-1834: the seller's stated condition (label or eBay id) — optional; the
+  // endpoint degrades to 'unknown' when absent.
+  function extractCondition() {
+    if (!adapter || !adapter.condition) return "";
+    return firstText(adapter.condition).slice(0, 60);
+  }
+
   async function runGrade() {
     if (grading) return;
     const title = extractTitle();
     const brand = extractBrand();
+    const condition = extractCondition();
     const imageUrls = extractImageUrls();
     if (!imageUrls.length) {
       renderError(
@@ -259,7 +286,14 @@
     }
     grading = true;
     renderLoading();
-    const res = await send({ type: "GT_CC_GRADE", imageUrls, title, brand });
+    const res = await send({
+      type: "GT_CC_GRADE",
+      imageUrls,
+      title,
+      brand,
+      condition,
+      marketplace: (adapter && adapter.key) || "",
+    });
     grading = false;
     if (!res) {
       renderError("Something interrupted the read. Try again in a moment.", true);

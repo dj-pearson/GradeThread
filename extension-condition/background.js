@@ -86,7 +86,7 @@ async function saveRead(read) {
 }
 
 // ── the grade call ─────────────────────────────────────────────────────
-async function gradeFromUrls({ imageUrls, brand, title }) {
+async function gradeFromUrls({ imageUrls, brand, title, condition, marketplace }) {
   if (!Array.isArray(imageUrls) || imageUrls.length === 0) {
     return { ok: false, status: 400, error: "No listing photos to grade." };
   }
@@ -103,6 +103,10 @@ async function gradeFromUrls({ imageUrls, brand, title }) {
         imageUrls: imageUrls.slice(0, 4),
         brand: brand || undefined,
         title: title || undefined,
+        // US-1834: the seller's claimed condition + marketplace, so the endpoint
+        // can score a claimed-vs-objective discrepancy. Both optional (degrades).
+        condition: condition || undefined,
+        marketplace: marketplace || undefined,
       }),
     });
   } catch (_e) {

@@ -13385,3 +13385,24 @@ surfaces (1831), monetization+notifications (1832). NO migration (code only).
   drift + admin-scope guards green) / web tsc --noEmit 0 / eslint 0 / tsc -b
   baseline 7 (none mine) / vite build CLEAN.
 - Code-only commit; part of the held branch (not pushed until pending migrations OK'd).
+
+## 2026-07-10 — US-1834 (Extension: claimed-vs-objective condition discrepancy) — passes:true
+
+THE extension killer feature — edge endpoint + extension client. NO migration.
+- lib/condition-discrepancy.ts (PURE, 7 tests): claimedConditionToGrade (eBay
+  conditionId map — inverse of repricing.gradeToConditionId, at 2025 pre-loved
+  granularity — + free-text label normalization for any marketplace; absent/
+  unknown → null, graceful) + scoreDiscrepancy (claim ≥2 over objective →
+  over_graded, ≥1 → mild_gap, else match; null → unknown; never flags under-claims).
+- Wired into public-grading /grade-from-url (reuses the SSRF guard + rate-limit
+  hardening, AC4): parses body.condition + body.marketplace → returns
+  `discrepancy` alongside the objective grade.
+- Extension client (extension-condition/, plain JS, node --check clean):
+  background.js forwards condition+marketplace; content/marketplace.js reads the
+  seller condition (new adapter.condition selectors) + renders the signal
+  (over-graded ⚠ / mild gap / match) with the grade comparison; overlay.css disc
+  styles; eBay condition selectors added to BOTH selectors.js and
+  public/extension/marketplace-selectors.json (version bumped 2026.07.3).
+- VERIFIED: deno check CLEAN / lint 0 / full edge suite 3440 pass 0 fail / node
+  --check all 3 extension JS files OK.
+- No migration; part of the held branch (not pushed until pending migrations OK'd).

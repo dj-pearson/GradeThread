@@ -14591,7 +14591,7 @@
         "Endpoint is rate-limited/quota-metered and SSRF-guarded (reuse the grade-check hardening)"
       ],
       "priority": 1834,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][EXTENSION][NEW] THE killer feature. Extend public-grading.ts (quickGrade + gradeCheckRateLimited + safeFetch). Reuse eBay/marketplace condition mappings to normalize the seller's claim. Quota via entitlements (1800). Depends on endpoint (US-1754) + extension MVP (US-1755)."
     },
     {

@@ -20,8 +20,8 @@
 // from telemetry without shipping a new build.
 
 const GT_CC_CONFIG = {
-  version: "2026.07.2",
-  lastVerified: "2026-07-09",
+  version: "2026.07.3",
+  lastVerified: "2026-07-10",
   configUrl: "https://gradethread.com/extension/marketplace-selectors.json",
   adapters: {
     ebay: {
@@ -45,6 +45,12 @@ const GT_CC_CONFIG = {
         "h1.x-item-title__mainTitle",
         "h1[data-testid='x-item-title']",
         ".x-item-title__mainTitle"
+      ],
+      // US-1834: seller's stated condition (degrades to '' if none resolve).
+      condition: [
+        ".x-item-condition-text .ux-textspans",
+        ".x-item-condition-value .ux-textspans",
+        "[data-testid='x-item-condition'] .ux-textspans"
       ],
       itemSpec: {
         row: ".ux-labels-values",

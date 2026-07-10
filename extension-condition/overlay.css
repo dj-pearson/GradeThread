@@ -161,3 +161,9 @@
   #gt-cc-overlay .gt-cc-tier { color: #cfe0ff; }
   #gt-cc-overlay .gt-cc-disclaimer { color: #9a9ab0; }
 }
+
+/* US-1834: claimed-vs-objective condition discrepancy signal. */
+.gt-cc-disc { margin: 6px 0; padding: 6px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; }
+.gt-cc-disc-bad { background: #fde8e8; color: #b42318; }
+.gt-cc-disc-warn { background: #fef3c7; color: #92400e; }
+.gt-cc-disc-ok { background: #e7f6ec; color: #087443; }

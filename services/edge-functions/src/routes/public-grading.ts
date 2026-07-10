@@ -19,6 +19,7 @@ import {
 import { valueAtGrade, type ValueRange } from "../lib/condition-value.ts";
 import { suggestCategories } from "../lib/ebay-client.ts";
 import { quickGrade } from "../lib/quick-grade.ts";
+import { claimedConditionToGrade, scoreDiscrepancy } from "../lib/condition-discrepancy.ts";
 import { validateImageUpload, IMAGE_CONTENT_TYPE } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
 import { assessAuthenticity } from "../lib/ai-authenticity.ts";
@@ -618,6 +619,19 @@ publicGradingRoutes.post("/grade-from-url", async (c) => {
     const deepLink =
       `${publicSiteUrl()}/tools/grade-checker?utm_source=extension&utm_medium=second-opinion`;
 
+    // US-1834: claimed-vs-objective discrepancy. Parse the seller's stated
+    // condition (an eBay conditionId or a free-text label) and score it against
+    // our objective grade so the extension can flag over-graded listings.
+    const rawCondition = (body as { condition?: unknown })?.condition;
+    const marketplace = typeof (body as { marketplace?: unknown })?.marketplace === "string"
+      ? (body as { marketplace: string }).marketplace
+      : null;
+    const claimedGrade = claimedConditionToGrade(
+      typeof rawCondition === "string" || typeof rawCondition === "number" ? rawCondition : null,
+      marketplace,
+    );
+    const discrepancy = scoreDiscrepancy(result.overallScore, claimedGrade);
+
     return c.json(
       {
         estimate: true,
@@ -626,6 +640,7 @@ publicGradingRoutes.post("/grade-from-url", async (c) => {
         confidence: result.confidence,
         factorScores: result.factorScores,
         imagesAnalyzed: result.imagesAnalyzed,
+        discrepancy,
         disclaimer: GRADE_CHECK_DISCLAIMER,
         deepLink,
       },
