@@ -1,11 +1,65 @@
 import { Link, Navigate } from "react-router-dom";
-import { Bell, Chrome, Gift, ScanLine, ShieldCheck, Shirt } from "lucide-react";
+import { Bell, Chrome, Gift, Leaf, ScanLine, Share2, ShieldCheck, Shirt } from "lucide-react";
+import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/stores/auth-store";
 import { useBuyerEntitlements } from "@/hooks/use-buyer-entitlements";
 import { useBuyerPreferences } from "@/hooks/use-buyer-preferences";
+import { useBuyerImpact } from "@/hooks/use-buyer-impact";
 import { TrustLevelCard } from "@/components/buyer/trust-level-card";
 import { BUYER_PLANS } from "@/lib/constants";
+
+// US-1842: circularity impact receipt — the environmental good of buying
+// secondhand, aggregated across the buyer's confirmed purchases (US-1785
+// methodology, a labeled estimate). Shareable for a growth loop.
+function BuyerImpactCard() {
+  const { data } = useBuyerImpact();
+  if (!data || data.confirmedItems === 0) return null;
+  const { impact } = data;
+
+  async function onShare() {
+    const text =
+      `By buying ${data!.confirmedItems} item${data!.confirmedItems === 1 ? "" : "s"} secondhand on GradeThread, ` +
+      `I've saved ~${impact.co2e_kg}kg CO₂e and ~${impact.water_liters.toLocaleString()}L of water vs buying new. ` +
+      `#GradeThread #SecondhandFirst`;
+    try {
+      if (typeof navigator !== "undefined" && navigator.share) await navigator.share({ title: "My GradeThread impact", text });
+      else { await navigator.clipboard.writeText(text); toast.success("Impact copied — share it anywhere."); }
+    } catch { /* share sheet cancelled */ }
+  }
+
+  return (
+    <Card className="space-y-3 p-5">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Leaf className="h-5 w-5 text-emerald-600" />
+          <h2 className="font-semibold">Your circularity impact</h2>
+        </div>
+        <Button variant="outline" size="sm" onClick={onShare}>
+          <Share2 className="mr-1 h-3.5 w-3.5" /> Share
+        </Button>
+      </div>
+      <div className="grid grid-cols-3 gap-3 text-center">
+        <div>
+          <p className="text-xl font-bold tabular-nums">{impact.co2e_kg}</p>
+          <p className="text-xs text-muted-foreground">kg CO₂e saved</p>
+        </div>
+        <div>
+          <p className="text-xl font-bold tabular-nums">{impact.water_liters.toLocaleString()}</p>
+          <p className="text-xs text-muted-foreground">L water saved</p>
+        </div>
+        <div>
+          <p className="text-xl font-bold tabular-nums">{data.confirmedItems}</p>
+          <p className="text-xs text-muted-foreground">items kept in use</p>
+        </div>
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        Estimated vs producing comparable new garments — a conservative, labeled estimate.
+      </p>
+    </Card>
+  );
+}
 
 // US-1802: buyer home. Empty-state, progressive-disclosure guidance to first
 // value — run an extension second-opinion, set a condition alert, verify a
@@ -77,6 +131,8 @@ export function BuyerHomePage() {
       </header>
 
       <TrustLevelCard />
+
+      <BuyerImpactCard />
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">

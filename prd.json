@@ -14703,7 +14703,7 @@
         "No new impact methodology is invented — reuses US-1785"
       ],
       "priority": 1842,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][BINDING][SUSTAINABILITY][GROWTH] REUSE US-1785 circularity epic (factors + share cards). Buyer aggregate ties to confirmed purchases (1810/1811). Surfaces in buyer dashboard (1802). Depends on foundation (1795) + circularity epic (1785)."
     },
     {

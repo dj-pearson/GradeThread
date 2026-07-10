@@ -16,6 +16,7 @@ import { stripImageMetadata } from "../lib/image-metadata.ts";
 import { snapshotCoverageForPurchase } from "../lib/buyer-guarantee-coverage.ts";
 import { recordBuyerGradeOutcome } from "../lib/buyer-grade-confirmation.ts";
 import { fileBuyerGuaranteeClaim } from "../lib/buyer-guarantee-claim.ts";
+import { summarizeUserImpact } from "../lib/impact-estimate.ts";
 
 export const ARRIVAL_IMAGE_TYPES = ["front", "back", "label", "detail"] as const;
 export type ArrivalImageType = (typeof ARRIVAL_IMAGE_TYPES)[number];
@@ -122,6 +123,52 @@ buyerPurchasesRoutes.post("/purchases", async (c) => {
   // downgrade). Best-effort — never blocks the purchase link.
   const coverage = await snapshotCoverageForPurchase(userId, (purchase as { id: string }).id);
   return c.json({ ok: true, purchase, coverage });
+});
+
+// US-1842: the buyer's circularity impact — aggregated across their CONFIRMED
+// purchases (items they bought secondhand + verified kept in circulation). Reuses
+// the US-1785 methodology (summarizeUserImpact) — no new impact model. Scoped by
+// user_id (US-268).
+buyerPurchasesRoutes.get("/impact", async (c) => {
+  const userId = c.get("userId");
+
+  // Confirmed buyer_arrival outcomes → the graded reports the buyer verified.
+  const { data: confirmed } = await supabaseAdmin
+    .from("grade_outcomes")
+    .select("grade_report_id")
+    .eq("buyer_user_id", userId)
+    .eq("source", "buyer_arrival")
+    .eq("match_status", "confirmed");
+  const reportIds = [...new Set((confirmed ?? []).map((r) => (r as { grade_report_id: string }).grade_report_id))];
+  if (reportIds.length === 0) {
+    return c.json({ impact: await summarizeUserImpact({}), confirmedItems: 0 });
+  }
+
+  const { data: reports } = await supabaseAdmin
+    .from("grade_reports")
+    .select("submission_id")
+    .in("id", reportIds);
+  const submissionIds = [...new Set((reports ?? []).map((r) => (r as { submission_id: string }).submission_id))];
+
+  const { data: subs } = await supabaseAdmin
+    .from("submissions")
+    .select("id, garment_category")
+    .in("id", submissionIds);
+
+  // Category counts — one per confirmed report (dedup already applied above).
+  const catBySubmission = new Map<string, string>();
+  for (const s of subs ?? []) {
+    catBySubmission.set((s as { id: string }).id, (s as { garment_category: string | null }).garment_category ?? "");
+  }
+  const typeCounts: Record<string, number> = {};
+  for (const r of reports ?? []) {
+    const cat = catBySubmission.get((r as { submission_id: string }).submission_id) ?? "";
+    if (!cat) continue;
+    typeCounts[cat] = (typeCounts[cat] ?? 0) + 1;
+  }
+
+  const impact = await summarizeUserImpact(typeCounts);
+  return c.json({ impact, confirmedItems: reportIds.length });
 });
 
 // Upload arrival photos for an owned purchase (hardened pipeline, private bucket).

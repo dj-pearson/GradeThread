@@ -13525,3 +13525,21 @@ migration; NO re-build of the scoring.
 - VERIFIED: deno check CLEAN / lint 0 / full edge suite 3464 pass 0 fail (fixed the
   ai-metering-coverage drift the new AI route tripped).
 - No migration; part of the held branch.
+
+## 2026-07-10 — US-1842 (Buyer binding: Circularity impact receipts) — passes:true
+
+NOTE: US-1841 (video-grade credits) SKIPPED — blocked: the video-grade engine
+(US-1762-1766) is all passes:false (not built). US-1843 also blocked (What's It
+Worth US-1750 pending). Took US-1842 (circularity epic US-1785 IS done).
+- Surfaces the buyer's circularity impact on the dashboard. NO migration; NO new
+  methodology (reuses US-1785).
+- Edge GET /api/buyer/impact (buyer-purchases, scoped): aggregates the buyer's
+  CONFIRMED buyer_arrival grade_outcomes → grade_reports → submissions.
+  garment_category counts → summarizeUserImpact (impact-estimate.ts, US-1785) →
+  ImpactSummary (co2e_kg / water_liters / landfill_kg / garment_count).
+- Web: use-buyer-impact hook + BuyerImpactCard on the buyer home dashboard
+  (CO₂e/water/items saved + a labeled-estimate disclaimer) with a shareable card
+  (navigator.share → clipboard) for the growth loop.
+- VERIFIED: deno check CLEAN / lint 0 / full edge suite 3464 pass 0 fail / web tsc
+  --noEmit 0 / eslint 0 / tsc -b baseline 7 / vite build CLEAN.
+- No migration; part of the held branch.
