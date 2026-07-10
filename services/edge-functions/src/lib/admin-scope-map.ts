@@ -63,6 +63,13 @@ export const ADMIN_ROUTER_SCOPES: AdminRouterScope[] = [
     rationale: "Guarantee claims adjudicate grade correctness (approval triggers the remedy).",
   },
   {
+    file: "admin-guarantee-pool.ts",
+    scope: null,
+    mode: "role-only",
+    rationale:
+      "Read-only buyer guarantee claims-pool ops dashboard (exposure/loss-ratio/claim outcomes); cap/term edits happen via the system_settings editor, not here.",
+  },
+  {
     file: "admin-disputes.ts",
     scope: "grading:review",
     mode: "router",

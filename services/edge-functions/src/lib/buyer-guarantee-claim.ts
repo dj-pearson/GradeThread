@@ -11,6 +11,13 @@
 import { supabaseAdmin } from "./supabase.ts";
 import { getSetting } from "./system-settings.ts";
 import { notifyBuyer } from "./buyer-notify.ts";
+import {
+  evaluatePoolGate,
+  getGuaranteePoolConfig,
+  getPoolPeriodState,
+  periodKey,
+  recordPoolDrawdown,
+} from "./guarantee-pool.ts";
 
 // ── admin-tunable economics ─────────────────────────────────────────────────
 
@@ -234,6 +241,23 @@ export async function fileBuyerGuaranteeClaim(
     nowMs,
   );
 
+  // US-1822: the claims-pool gate — a would-be auto-payout that breaches the
+  // per-account cap, the period budget, or the loss-ratio circuit-breaker is
+  // downgraded to manual review (never auto-paid past a cap).
+  const period = periodKey(nowMs);
+  let finalDecision: ClaimDecision = decision.decision;
+  let finalReason = decision.reason;
+  if (decision.decision === "auto_approved") {
+    const poolConfig = await getGuaranteePoolConfig();
+    const state = await getPoolPeriodState(period, userId);
+    const gate = evaluatePoolGate(decision.remedyCents, state, poolConfig);
+    if (!gate.allowAuto) {
+      finalDecision = "manual_review";
+      finalReason = `pool_${gate.reason}`;
+    }
+  }
+  const isAuto = finalDecision === "auto_approved";
+
   // Record the claim (idempotent on purchase_id — a race returns the winner's row).
   const { data: inserted, error: insErr } = await supabaseAdmin
     .from("buyer_guarantee_claims")
@@ -242,14 +266,14 @@ export async function fileBuyerGuaranteeClaim(
         user_id: userId,
         purchase_id: purchase.id,
         grade_report_id: purchase.grade_report_id,
-        status: decision.decision === "auto_approved" ? "auto_approved" : decision.decision,
+        status: finalDecision,
         grade_delta: ev.overall_delta,
         purchase_price_cents: purchase.purchase_price_cents,
         payout_cap_cents: coverage?.payoutCapCents ?? null,
         remedy_cents: decision.remedyCents,
-        remedy_credits: decision.decision === "auto_approved" ? decision.remedyCredits : 0,
-        auto: decision.decision === "auto_approved",
-        decision_reason: decision.reason,
+        remedy_credits: isAuto ? decision.remedyCredits : 0,
+        auto: isAuto,
+        decision_reason: finalReason,
       } as never,
       { onConflict: "purchase_id" },
     )
@@ -258,29 +282,33 @@ export async function fileBuyerGuaranteeClaim(
   if (insErr) throw new Error(`fileBuyerGuaranteeClaim record failed: ${insErr.message}`);
   const claimId = (inserted as { id: string }).id;
 
-  // Auto-approved → grant the remedy credits now (idempotent on the claim id).
-  if (decision.decision === "auto_approved" && decision.remedyCredits > 0) {
-    const { error: grantErr } = await supabaseAdmin.rpc("grant_buyer_reward_credit", {
-      p_user_id: userId,
-      p_reference_id: `guarantee:${claimId}`,
-      p_credits: decision.remedyCredits,
-      p_reason: "guarantee_remedy",
-    });
-    if (grantErr) console.error("[buyer-guarantee] remedy grant failed:", grantErr.message);
+  // Auto-approved → draw down the pool + grant the remedy credits now (both
+  // idempotent on the claim id).
+  if (isAuto) {
+    await recordPoolDrawdown(claimId, userId, decision.remedyCents, period);
+    if (decision.remedyCredits > 0) {
+      const { error: grantErr } = await supabaseAdmin.rpc("grant_buyer_reward_credit", {
+        p_user_id: userId,
+        p_reference_id: `guarantee:${claimId}`,
+        p_credits: decision.remedyCredits,
+        p_reason: "guarantee_remedy",
+      });
+      if (grantErr) console.error("[buyer-guarantee] remedy grant failed:", grantErr.message);
+    }
   }
 
   // Notify the buyer of the outcome (US-1803; best-effort, idempotent).
   const dollars = (decision.remedyCents / 100).toFixed(2);
   await notifyBuyer(userId, {
     category: "guarantee",
-    title: decision.decision === "auto_approved"
+    title: isAuto
       ? "Guarantee claim approved"
-      : decision.decision === "manual_review"
+      : finalDecision === "manual_review"
       ? "Guarantee claim under review"
       : "Guarantee claim received",
-    body: decision.decision === "auto_approved"
+    body: isAuto
       ? `Your Grade-Locked claim was approved for $${dollars} — ${decision.remedyCredits} reward credits added.`
-      : decision.decision === "manual_review"
+      : finalDecision === "manual_review"
       ? "Your Grade-Locked claim is being reviewed by our team. We'll update you shortly."
       : "We reviewed your Grade-Locked claim — see your purchase for details.",
     link: "/buyer/rewards",
@@ -289,10 +317,10 @@ export async function fileBuyerGuaranteeClaim(
 
   return {
     ok: true,
-    status: decision.decision === "auto_approved" ? "auto_approved" : decision.decision,
+    status: finalDecision,
     remedyCents: decision.remedyCents,
-    remedyCredits: decision.decision === "auto_approved" ? decision.remedyCredits : 0,
-    reason: decision.reason,
+    remedyCredits: isAuto ? decision.remedyCredits : 0,
+    reason: finalReason,
     eligible: true,
   };
 }

@@ -117,6 +117,7 @@ A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COO
 > job). Confirm once per deploy: `which curl` in the edge container terminal.
 
 <!-- cron-registry:start (generated - see src/lib/cron-runs.ts + scripts/render-cron-docs.ts; drift-guarded by cron-registry-drift_test.ts) -->
+
 | Task | Schedule (UTC) | Endpoint (POST) | Secret env | Notes |
 |---|---|---|---|---|
 | abuse-scan | `0 */6 * * *` | `/api/jobs/abuse-scan` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
@@ -160,6 +161,7 @@ A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COO
 | grading-monitor | `0 */12 * * *` | `/api/jobs/grading-monitor` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | growth-dispatch | `*/15 * * * *` | `/api/jobs/growth-dispatch` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | gsc-sync | `30 6 * * *` | `/api/jobs/gsc-sync` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| guarantee-pool | `0 4 * * *` | `/api/jobs/guarantee-pool` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | integrity-scan | `0 7 * * *` | `/api/jobs/integrity-scan` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | journey-tick | `30 13 * * *` | `/api/jobs/journey-tick` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | keyword-research | `0 6 * * 1` | `/api/jobs/keyword-research` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
@@ -185,7 +187,8 @@ A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COO
 | thumbnail-backfill | `*/5 * * * *` | `/api/jobs/thumbnail-backfill` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | trial-expiry | `15 0 * * *` | `/api/jobs/trial-expiry` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 
-_65 scheduled jobs. Default healthy response: 200 `{"ok":true,...}` (idle runs report skipped/zero counts). Generated from `src/lib/cron-runs.ts` CRON_REGISTRY — do not hand-edit._
+_66 scheduled jobs. Default healthy response: 200 `{"ok":true,...}` (idle runs report skipped/zero counts). Generated from `src/lib/cron-runs.ts` CRON_REGISTRY — do not hand-edit._
+
 <!-- cron-registry:end -->
 
 **One-off at launch (not scheduled):** POST `/api/jobs/cert-integrity-backfill`

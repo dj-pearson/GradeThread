@@ -151,6 +151,8 @@ export const CRON_REGISTRY: CronDef[] = [
   { name: "audit-anomaly-scan", label: "Audit anomaly scan", schedule: "5 * * * *", category: "safety", endpoint: "/api/jobs/audit-anomaly-scan", recorded: true },
   // US-893: Stripe-vs-DB reconciliation — precompute divergences for the admin console.
   { name: "billing-reconciliation", label: "Billing reconciliation", schedule: "0 5 * * *", category: "billing", endpoint: "/api/jobs/billing-reconciliation", recorded: true },
+  // US-1822: buyer guarantee claims-pool accrual (once/period) + claim↔drawdown reconciliation.
+  { name: "guarantee-pool", label: "Guarantee pool accrual + reconcile", schedule: "0 4 * * *", category: "billing", endpoint: "/api/jobs/guarantee-pool", recorded: true },
   // Seals legacy certificates into the integrity chain. ONE-OFF at launch;
   // idempotent, safe to re-run; disable once the backlog reads zero.
   { name: "cert-integrity-backfill", label: "Cert-integrity backfill", schedule: "0 6 * * *", category: "maintenance", endpoint: "/api/jobs/cert-integrity-backfill", recorded: true, oneOff: true },

@@ -14423,7 +14423,7 @@
         "Circuit-breaker: coverage auto-throttles if loss ratio breaches a threshold"
       ],
       "priority": 1822,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][GUARANTEE][OPS][BILLING][NEW] Reuse jobs-billing-reconciliation.ts pattern + admin surfaces (admin/claims.tsx neighborhood). Caps enforced in the payout path (1821). Load durable-jobs skill for any reconciliation cron. Depends on remedy path (1821)."
     },
     {

@@ -1,5 +1,24 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ PENDING: 00425_guarantee_pool.sql (US-1822 guarantee claims-pool accounting, 2026-07-10)
+
+**What:** New `public.guarantee_pool_ledger` — an append-only accrual/drawdown
+ledger (admin-read only, service-write; `UNIQUE(entry_type, reference_id)`
+idempotency; per-period + per-account indexes). Plus a `system_settings` row
+`buyer.guarantee_pool` (period budget, per-account cap, loss-ratio throttle,
+accrual-per-active-sub). Bumps `EXPECTED_SCHEMA_VERSION` → **00425**.
+Self-records '00425'.
+
+**Risk: LOW** — one new isolated table + one settings row; no writes to existing
+tables, no backfill. **No CLIENT read of the new table** (the admin dashboard
+reads it through the service-role edge, not direct RLS), but the edge (the
+US-1821 payout gate now consults the pool + the new cron/admin routes)
+boot-expects 00425 — apply BEFORE the push. A new daily cron
+`/api/jobs/guarantee-pool` must be registered as a Coolify scheduled task (row
+already in the regenerated COOLIFY.md/CRON_SETUP.md tables). **⚠️ Apply order:**
+after 00424; `scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload
+schema';`, redeploy the edge (boot guard now expects 00425).
+
 ## ⏳ PENDING: 00424_buyer_guarantee_claims.sql (US-1821 buyer guarantee claim intake + remedy, 2026-07-10)
 
 **What:** New `public.buyer_guarantee_claims` (owner/admin read, service-write;

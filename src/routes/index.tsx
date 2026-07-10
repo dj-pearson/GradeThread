@@ -226,6 +226,7 @@ const AdminConditionIndexPage = lazy(() => import("@/pages/admin/condition-index
 const AdminUserDetailPage = lazy(() => import("@/pages/admin/user-detail").then(m => ({ default: m.AdminUserDetailPage })));
 const AdminDisputesPage = lazy(() => import("@/pages/admin/disputes").then(m => ({ default: m.AdminDisputesPage })));
 const AdminClaimsPage = lazy(() => import("@/pages/admin/claims").then(m => ({ default: m.AdminClaimsPage })));
+const AdminGuaranteePoolPage = lazy(() => import("@/pages/admin/guarantee-pool").then(m => ({ default: m.AdminGuaranteePoolPage })));
 const AdminMeasureCardsPage = lazy(() => import("@/pages/admin/measure-cards").then(m => ({ default: m.AdminMeasureCardsPage })));
 const AdminSupportPage = lazy(() => import("@/pages/admin/support").then(m => ({ default: m.AdminSupportPage })));
 const AdminSupportTicketsPage = lazy(() => import("@/pages/admin/support-tickets").then(m => ({ default: m.AdminSupportTicketsPage })));
@@ -642,6 +643,7 @@ export const router = createBrowserRouter([
               { path: "/admin/reviews", element: <SuspenseWrapper><AdminReviewsPage /></SuspenseWrapper> },
               { path: "/admin/disputes", element: <SuspenseWrapper><AdminDisputesPage /></SuspenseWrapper> },
               { path: "/admin/claims", element: <SuspenseWrapper><AdminClaimsPage /></SuspenseWrapper> },
+              { path: "/admin/guarantee-pool", element: <SuspenseWrapper><AdminGuaranteePoolPage /></SuspenseWrapper> },
               { path: "/admin/measure-cards", element: <SuspenseWrapper><AdminMeasureCardsPage /></SuspenseWrapper> },
               { path: "/admin/support", element: <SuspenseWrapper><AdminSupportPage /></SuspenseWrapper> },
               { path: "/admin/support/:id", element: <SuspenseWrapper><AdminSupportPage /></SuspenseWrapper> },

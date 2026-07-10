@@ -13151,3 +13151,32 @@ re-collection. Distinct from the SELLER grade-fee-back guarantee_claims (00197).
   deno check CLEAN / lint 0 / full edge suite 3371 pass 0 fail / web tsc --noEmit
   0 / eslint 0 / tsc -b baseline 7 (none mine) / vite build + prerender 212 CLEAN.
 - ⚠️ HELD MIGRATION — commit local; NOT pushed until user applies 00424 (after 00423).
+
+## 2026-07-10 — US-1822 (Guarantee: claims-pool accounting, caps & ops dashboard) — passes:true
+
+Makes the purchase guarantee financially bounded + observable. Builds on the
+US-1821 remedy path (gates the auto-payout before any credit is granted).
+- 00425_guarantee_pool.sql: guarantee_pool_ledger (append-only accrual/drawdown,
+  admin-read/service-write, UNIQUE(entry_type,reference_id) idempotency, per-
+  period + per-account indexes) + system_settings 'buyer.guarantee_pool' (period
+  budget, per-account cap, loss-ratio throttle, accrual/active-sub). EXPECTED=00425.
+- lib/guarantee-pool.ts: PURE normalize + evaluatePoolGate (per-account cap →
+  period budget → loss-ratio circuit-breaker; a breach downgrades auto→manual) +
+  computePoolPeriodStats (exposure/loss ratio/volume) + periodKey; impure
+  getPoolPeriodState (fail-CLOSED), recordPoolDrawdown/recordPoolAccrual
+  (idempotent). Wired into fileBuyerGuaranteeClaim: gate before auto-approve +
+  record drawdown on grant.
+- routes/jobs-guarantee-pool.ts (cron, job-secret + job-lock, auto-recorded via
+  /api/jobs/* middleware): once-per-period accrual from active buyer subs +
+  claim↔drawdown reconciliation (flags auto_approved claims missing a drawdown).
+  Registered in cron-runs CRON_REGISTRY + COOLIFY/LAUNCH_CHECKLIST/CRON_SETUP
+  regenerated (drift-guarded).
+- routes/admin-guarantee-pool.ts (GET /api/admin/guarantee-pool, admin-gated,
+  classified role-only in admin-scope-map) + src/pages/admin/guarantee-pool.tsx
+  dashboard (exposure/loss-ratio/by-period/outcomes + throttle banner + caps
+  link) + admin-layout nav + route registration.
+- Tests: guarantee-pool_test.ts 11 (gate matrix + stats + config). VERIFIED:
+  deno check CLEAN / lint 0 / full edge suite 3382 pass 0 fail (fixed 3 registry-
+  drift guards: admin-scope-map, CRON_REGISTRY, regenerated cron docs) / web tsc
+  --noEmit 0 / eslint 0 / tsc -b baseline 7 (none mine) / vite build + prerender 212.
+- ⚠️ HELD MIGRATION — commit local; NOT pushed until user applies 00425 (after 00424).

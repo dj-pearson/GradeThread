@@ -70,6 +70,8 @@ import { accessGateMiddleware } from "./lib/access-gate.ts";
 import { adminGradingRoutes } from "./routes/admin-grading.ts";
 import { adminDisputesRoutes } from "./routes/admin-disputes.ts";
 import { adminClaimsRoutes } from "./routes/admin-claims.ts";
+import { adminGuaranteePoolRoutes } from "./routes/admin-guarantee-pool.ts";
+import { handleGuaranteePoolCron } from "./routes/jobs-guarantee-pool.ts";
 import { adminMeasureCardRoutes } from "./routes/admin-measure-cards.ts";
 import { guaranteePublicRoutes } from "./routes/guarantee-public.ts";
 import { adminSupportRoutes } from "./routes/admin-support.ts";
@@ -1072,6 +1074,7 @@ app.route("/api/admin/grading", adminGradingRoutes);
 app.route("/api/admin/disputes", adminDisputesRoutes);
 // US-867: buyer trust-guarantee claim review (admin + super_admin).
 app.route("/api/admin/claims", adminClaimsRoutes);
+app.route("/api/admin/guarantee-pool", adminGuaranteePoolRoutes);
 // US-1579: MeasureCard mail-fulfillment queue (PII lives behind admin auth).
 app.route("/api/admin/measure-cards", adminMeasureCardRoutes);
 // US-839 admin support inbox — read/reply/resolve escalated AI-assistant
@@ -1417,6 +1420,7 @@ app.post("/api/jobs/content-refresh", (c) => handleContentRefreshCron(c));
 // recomputing per page load. OUTSIDE /api/admin; enforces X-Internal-Job-Secret.
 // Schedule on Coolify cron (suggested hourly, e.g. 15 * * * *).
 app.post("/api/jobs/billing-reconciliation", (c) => handleBillingReconciliationCron(c));
+app.post("/api/jobs/guarantee-pool", (c) => handleGuaranteePoolCron(c));
 app.route("/api/content/blog", contentBlogRoutes);
 app.route("/api/content/authors", contentAuthorsRoutes);
 app.route("/api/content/social", contentSocialRoutes);
