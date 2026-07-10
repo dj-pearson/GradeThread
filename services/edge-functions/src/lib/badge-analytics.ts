@@ -12,7 +12,9 @@ import { captureException } from "./observability.ts";
 
 // The ?s= sources that represent a genuine badge click (as opposed to a direct
 // visit or an internal share). Kept tight so the funnel means "badge-driven".
-export const BADGE_CLICK_SOURCES = new Set(["embed", "badge", "qr"]);
+// US-1844: `buyer` = a trust badge clicked inside a GradeThread buyer surface
+// (extension overlay, alerts, watchlist, portfolio) — same attribution ledger.
+export const BADGE_CLICK_SOURCES = new Set(["embed", "badge", "qr", "buyer"]);
 
 export type BadgeTargetType = "cert" | "seller";
 

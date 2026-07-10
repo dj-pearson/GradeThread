@@ -16,6 +16,8 @@ import { useBuyerPreferences } from "@/hooks/use-buyer-preferences";
 import { useSavedSearches } from "@/hooks/use-saved-searches";
 import { useWatchlist } from "@/hooks/use-watchlist";
 import { useBuyerAlertMatches } from "@/hooks/use-buyer-alert-matches";
+import { useBuyerTrustSignals } from "@/hooks/use-buyer-trust-signals";
+import { TrustSignalBadges } from "@/components/buyer/trust-signals";
 import type { SavedSearchRow, WatchlistItemRow } from "@/types/database";
 
 // US-1809: buyer alerts DELIVERY, DIGEST & MANAGEMENT UI — the dashboard that
@@ -175,6 +177,14 @@ export function BuyerAlertsPage() {
   const searches = useSavedSearches();
   const watchlist = useWatchlist();
   const matches = useBuyerAlertMatches();
+  // US-1844: verified badges on watched CERTIFICATE items — the same public
+  // trust cues the cert page shows, so a buyer scanning their watchlist sees at a
+  // glance which items are verified.
+  const { signals: trustSignals } = useBuyerTrustSignals(
+    watchlist.items
+      .filter((it) => it.target_type === "certificate")
+      .map((it) => it.target_id),
+  );
 
   // US-1837: one-click "watch" handoff from the extension — /buyer/alerts?watch=
   // <listing url>. The tenant-scoped write happens HERE, in the buyer's authed
@@ -359,6 +369,13 @@ export function BuyerAlertsPage() {
                         {item.brand ? `${item.brand} · ` : ""}
                         <Badge variant="secondary" className="capitalize">{item.target_type}</Badge>
                       </p>
+                      {item.target_type === "certificate" && (
+                        <TrustSignalBadges
+                          certId={item.target_id}
+                          signals={trustSignals[item.target_id]}
+                          className="mt-1"
+                        />
+                      )}
                     </div>
                     <div className="flex items-center gap-1">
                       {link && (

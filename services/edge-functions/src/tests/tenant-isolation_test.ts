@@ -833,6 +833,59 @@ Deno.test({
   },
 });
 
+// US-1844: buyer trust signals. POST /api/buyer/trust-signals returns the COARSE
+// PUBLIC projection (content-public parity) for a set of cert ids — the same
+// data the anonymous /cert page shows. It is deliberately NOT tenant-scoped (a
+// buyer must see a stranger's listing's public badges), so the boundary that
+// matters is (1) it requires authentication and (2) it NEVER returns an internal
+// field (scores, reasons, PII) for ANY cert — only badges/hasAny/certUrl.
+Deno.test({
+  name: "buyer trust-signals requires authentication",
+  ignore: !BASE,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/buyer/trust-signals`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ certIds: ["anything"] }),
+    });
+    const status = res.status;
+    await res.body?.cancel();
+    assert(status === 401, `unauthenticated trust-signals should 401, got ${status}`);
+  },
+});
+
+Deno.test({
+  // B asks for A's certificate: the public badges ARE returned by design, but the
+  // payload must carry ONLY the coarse projection — no internal scores/reasons.
+  name: "buyer trust-signals leaks no internal fields for a foreign cert",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_CERT_ID"),
+  fn: async () => {
+    const certId = Deno.env.get("TEST_USER_A_CERT_ID")!;
+    const res = await fetch(`${BASE}/api/buyer/trust-signals`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ certIds: [certId] }),
+    });
+    const body = (await res.json().catch(() => ({}))) as {
+      signals?: Record<string, Record<string, unknown>>;
+    };
+    const entry = body.signals?.[certId];
+    if (entry) {
+      const keys = Object.keys(entry).sort();
+      assertEquals(
+        keys,
+        ["badges", "certUrl", "hasAny"],
+        `trust-signals must expose only the coarse projection, got: ${keys.join(", ")}`,
+      );
+      // Never an internal score/summary field, even nested.
+      const blob = JSON.stringify(entry);
+      for (const leak of ["overall_score", "content_hash", "ai_summary", "submission_id", "user_id"]) {
+        assert(!blob.includes(leak), `trust-signals leaked internal field "${leak}"`);
+      }
+    }
+  },
+});
+
 // ── Verified storefront (public seller listings) ────────────────────────
 //
 // GET /api/content/public/sellers/:handle is anonymous + service-role, so the

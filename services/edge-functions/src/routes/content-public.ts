@@ -26,6 +26,7 @@ import { FALLBACK_PNG_BASE64 } from "../lib/cert-og-template.ts";
 import { captureException, readCtxVar } from "../lib/observability.ts";
 import { rankReferrers } from "../lib/referral-rewards.ts";
 import { isBadgeTargetType, recordBadgeClick } from "../lib/badge-analytics.ts";
+import { projectTrustSignals } from "../lib/buyer-trust-signals.ts";
 import { PILLAR_CORNERSTONE_URL, PILLAR_LABELS } from "../lib/content-interlink.ts";
 
 // US-580: these endpoints are anonymous/unauthenticated, so a 500 body must
@@ -645,19 +646,25 @@ contentPublicRoutes.get("/certificates/:id", async (c) => {
   delete publicReport.live_capture;
   delete publicReport.verified_360;
 
+  // US-1844: the coarse public trust signals — the SINGLE projection the buyer
+  // surfaces (extension/alerts/watchlist/portfolio) reuse, so a badge shown on a
+  // buyer surface can never diverge from what the public cert page shows.
+  const trust = projectTrustSignals(rep);
+
   return c.json({
     certificate: {
       ...publicReport,
-      verified_capture_passed: rep.verified_capture?.verified === true,
+      // US-340: positive-only device/recency pass; raw reasons stay server-side.
+      verified_capture_passed: trust.verifiedCapture,
       // US-1283: positive-only. True iff the submission earned the strongest
       // fraud-proof "Live-Verified" badge; the downgrade reasons stay server-side.
-      live_capture_verified: rep.live_capture?.badge === "live_verified",
+      live_capture_verified: trust.liveCaptureVerified,
       // US-1281: positive-only. True iff the submission earned the premium
       // '360-Verified' badge; the raw capture metrics stay server-side.
-      verified_360_badge: rep.verified_360?.badge === "verified_360",
+      verified_360_badge: trust.verified360,
       // US-861: positive-only. True iff the photo-reuse scan ran and found no
       // cross-account match. Never leaks hashes/distances.
-      original_photos_verified: rep.original_photos?.verified === true,
+      original_photos_verified: trust.originalPhotos,
       id: rep.certificate_id,
       title: submission?.title ?? "Graded garment",
       brand: submission?.brand ?? null,

@@ -14731,7 +14731,7 @@
         "Attribution captured (reuse badge click attribution, US-1760)"
       ],
       "priority": 1844,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][BINDING][BADGE] REUSE US-1758 badge epic + public_grade_reports coarse trust labels + cert-integrity.ts. Surface in extension (1833)/alerts (1809)/portfolio (1827). Attribution reuses US-1760. Depends on foundation (1795)."
     },
     {

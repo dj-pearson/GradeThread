@@ -11,6 +11,8 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { useBuyerEntitlements } from "@/hooks/use-buyer-entitlements";
 import { useBuyerCloset } from "@/hooks/use-buyer-closet";
 import { useBuyerPortfolioValuation, type ItemValuation } from "@/hooks/use-buyer-portfolio-valuation";
+import { useBuyerTrustSignals } from "@/hooks/use-buyer-trust-signals";
+import { TrustSignalBadges } from "@/components/buyer/trust-signals";
 
 const usd = (c: number) => `$${(c / 100).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 
@@ -57,6 +59,9 @@ export function BuyerPortfolioPage() {
   const { items, isLoading, addItem, isAdding, removeItem, isRemoving, listItem, isListing, exportCsv } =
     useBuyerCloset();
   const { totals, valuationFor } = useBuyerPortfolioValuation();
+  // US-1844: coarse public trust signals for the certified items in the closet —
+  // the SAME verified badges the public cert page shows, deep-linked to it.
+  const { signals: trustSignals } = useBuyerTrustSignals(items.map((it) => it.certificate_id));
 
   async function onExport() {
     try {
@@ -306,6 +311,13 @@ export function BuyerPortfolioPage() {
                     <Badge variant="secondary" className="capitalize">{item.source}</Badge>
                   </p>
                   <EstimateLine v={valuationFor(item.id)} showGuidance={isAnalytics} />
+                  {item.certificate_id && (
+                    <TrustSignalBadges
+                      certId={item.certificate_id}
+                      signals={trustSignals[item.certificate_id]}
+                      className="mt-1"
+                    />
+                  )}
                 </div>
                 <div className="flex items-center gap-1">
                   {item.certificate_id && (

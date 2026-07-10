@@ -13543,3 +13543,27 @@ Worth US-1750 pending). Took US-1842 (circularity epic US-1785 IS done).
 - VERIFIED: deno check CLEAN / lint 0 / full edge suite 3464 pass 0 fail / web tsc
   --noEmit 0 / eslint 0 / tsc -b baseline 7 / vite build CLEAN.
 - No migration; part of the held branch.
+
+## 2026-07-10 — US-1844 (Buyer binding: Verified badge & trust signals to buyers) — passes:true
+
+Surfaces GradeThread's verified/trust cues as a BUYER trust cue, reusing the
+public projection (no internal signal exposed). NO migration (badge_click_events
+.source is free text — added a `buyer` value to the existing US-1760 ledger).
+- New pure lib buyer-trust-signals.ts: projectTrustSignals + trustSignalBadges —
+  the SINGLE coarse positive-only projection (Verified Capture US-340,
+  Live-Verified US-1283, 360-Verified US-1281, Original Photos US-861,
+  Verified Seller US-1761, Integrity US-1109). content-public.ts cert projection
+  now reuses it (dedupe → can't drift). Unit test buyer-trust-signals_test.ts (5).
+- New edge POST /api/buyer/trust-signals (buyer-trust.ts): batch (≤50) cert-id →
+  coarse signals + certUrl deep-link. Runs the REAL cert-integrity verify
+  (pure hash) per cert; withheld/preliminary certs (US-484) advertise nothing.
+  Intentionally public projection (content-public parity) — documented + a
+  tenant-isolation case proving it requires auth AND leaks no internal field.
+- Attribution: added `buyer` to BADGE_CLICK_SOURCES so buyer badge clicks record
+  through the SAME US-1760 ledger; certUrl carries ?s=buyer.
+- Web: use-buyer-trust-signals hook + <TrustSignalBadges> component (deep-links
+  to /cert/:id, fire-and-forget badge-click ping). Wired into the portfolio
+  (closet certified items) and alerts (watched certificate items) surfaces.
+- VERIFIED: deno check CLEAN / lint 0 / full edge suite 3469 pass 0 fail (+5 new)
+  / web tsc --noEmit 0 / eslint 0 / tsc -b baseline 7 (none mine) / vite build CLEAN.
+- No migration; part of the held branch.
