@@ -1,4 +1,5 @@
 import Foundation
+import GradeThreadCore
 import Observation
 import Supabase
 import SwiftData

@@ -59,6 +59,12 @@ packages:
   PostHog:
     url: https://github.com/PostHog/posthog-ios
     from: 3.0.0
+  # Local, Foundation-only logic package (ios/Packages/GradeThreadCore). Pure
+  # merge/decode/money logic lives here so it is BUILT + UNIT-TESTED on Linux via
+  # `swift test` (no Mac), and consumed by the app as a dependency — one source of
+  # truth, no duplication. Nothing here may import UIKit/SwiftUI/SwiftData/etc.
+  GradeThreadCore:
+    path: Packages/GradeThreadCore
 
 targets:
   GradeThread:
@@ -85,6 +91,8 @@ targets:
         product: Sentry
       - package: PostHog
         product: PostHog
+      - package: GradeThreadCore
+        product: GradeThreadCore
       - target: ShareExtension
         embed: true             # Bundle the extension in the host app (US-189)
       - target: GradeThreadWidget
