@@ -204,6 +204,14 @@ struct StoreKitService: StoreKitProviding {
     func restore() async -> RestoreOutcome {
         do {
             try await AppStore.sync()
+            // Re-link entitlements to OUR backend. `AppStore.sync()` only refreshes
+            // the on-device entitlement set; it does NOT tell the edge. Without
+            // this, a reinstall (or a server row that lost its
+            // appstore_original_transaction_id) leaves the plan/credits locked even
+            // though Restore "succeeded" — an App Store 3.1.1 restore-correctness
+            // problem. Reporting each current entitlement's JWS is idempotent
+            // server-side (ON CONFLICT DO NOTHING for consumables; upsert for subs).
+            await relinkEntitlements()
             return .synced
         } catch StoreKitError.userCancelled {
             // The user dismissed the App Store sign-in sheet — not an error.
@@ -239,6 +247,19 @@ struct StoreKitService: StoreKitProviding {
                 willAutoRenew: willAutoRenew)
         }
         return nil
+    }
+
+    /// Re-report every current entitlement's signed transaction to the edge so the
+    /// server plan/credits reflect what the device is actually entitled to. Used by
+    /// `restore()` (and safe to call at launch) to recover a reinstall or a server
+    /// row that lost its original-transaction link — cases the `Transaction.updates`
+    /// listener doesn't cover because it never redelivers already-finished
+    /// transactions. Every report is idempotent server-side.
+    func relinkEntitlements() async {
+        for await result in Transaction.currentEntitlements {
+            guard case .verified = result else { continue }
+            _ = await reportWithRetry(jws: result.jwsRepresentation)
+        }
     }
 
     /// Result of reporting a signed transaction to the edge.
