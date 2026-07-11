@@ -15979,8 +15979,8 @@
         "Unit tests cover a `javascript:` support URL, an off-allowlist logo, and a benign https support URL"
       ],
       "priority": 1925,
-      "passes": false,
-      "notes": "[P2][Web/Security] Code-review sweep 2026-07-11.",
+      "passes": true,
+      "notes": "[P2][Web/Security] Code-review sweep 2026-07-11. DONE 2026-07-11 — added safeEmbedUrl() to src/lib/return-to.ts (absolute https:// only; rejects javascript:/data:/vbscript:, http: downgrade, protocol-relative //host, relative, and unparseable) and wired embed-grade.tsx to validate ?logo (<img src>) and ?support (<a href>) through it — invalid drops the image/link. A partner-host allowlist is intentionally not applied (open white-label = arbitrary partner hosts); scheme is the enforceable invariant. AC3 covered by vitest in return-to.test.ts: javascript: support rejected, non-https/relative/protocol-relative logo rejected, benign https accepted (17/17 pass). tsc + eslint clean.",
       "relevantPaths": [
         "src/pages/embed-grade.tsx",
         "src/lib/return-to.ts"
