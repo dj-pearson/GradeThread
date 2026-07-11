@@ -31,6 +31,10 @@ struct ContentView: View {
     /// US-1156: rate-limit inbound deep links and hold one that arrives before
     /// sign-in completes so it routes afterward instead of being dropped.
     @State private var lastDeepLinkAt: Date?
+    /// Separate rate-limit clock for auth callbacks so a preceding widget tap's
+    /// gate window can't drop a security-critical (pre-17.4 custom-scheme) auth
+    /// callback that arrives right after it.
+    @State private var lastAuthCallbackAt: Date?
     @State private var pendingDeepLink = PendingDeepLink()
 
     /// First-run welcome carousel. Shown once over everything at launch
@@ -78,18 +82,25 @@ struct ContentView: View {
             }
             .onOpenURL { url in
                 // US-1156: rate-limit inbound URLs so another app can't flood the
-                // custom scheme and spawn unbounded work / ANR us.
+                // custom scheme and spawn unbounded work / ANR us. Classify FIRST,
+                // then gate PER CATEGORY — a single shared gate let a widget tap
+                // consume the window and silently drop an auth callback that
+                // arrived right after it.
                 let now = Date.now
-                guard DeepLinkGate.shouldAccept(last: lastDeepLinkAt, now: now) else { return }
-                lastDeepLinkAt = now
                 // US-752: a home-screen widget tap arrives as a custom-scheme
-                // URL (com.gradethread.app://widget/...). Route it before the
-                // auth-callback handler — which ignores the `widget` host
-                // anyway, but parsing here keeps the two paths explicit.
+                // URL (com.gradethread.app://widget/...). Route it (rate-limited,
+                // it's the floodable surface) before the auth-callback handler.
                 if let widgetLink = WidgetDeepLink.from(url: url) {
+                    guard DeepLinkGate.shouldAccept(last: lastDeepLinkAt, now: now) else { return }
+                    lastDeepLinkAt = now
                     handleWidgetDeepLink(widgetLink)
                     return
                 }
+                // Auth callbacks (universal link / pre-17.4 custom scheme) are
+                // low-frequency and security-critical; their own gate still
+                // prevents flooding without letting a widget tap starve them.
+                guard DeepLinkGate.shouldAccept(last: lastAuthCallbackAt, now: now) else { return }
+                lastAuthCallbackAt = now
                 Task { await authStore.handleAuthCallback(url: url) }
             }
             .onChange(of: authStore.phase) { _, newPhase in
