@@ -5,6 +5,7 @@ import {
   coerceAreaPct,
   coerceDefectType,
   coerceRepairability,
+  coerceSeverity,
   coerceSizeBucket,
   defectPenalty,
   sizeBucketConflict,
@@ -185,4 +186,37 @@ Deno.test("bbox cross-check: tiny box claimed large is a conflict", () => {
   assert(sizeBucketConflict("large", [0.5, 0.5, 0.01, 0.01])); // claims large, box pinhole
   assert(!sizeBucketConflict("medium", [0.1, 0.1, 0.1, 0.1])); // consistent
   assert(!sizeBucketConflict("unknown", [0.5, 0.5, 0.01, 0.01])); // unknown never conflicts
+});
+
+// ── US-1930: off-spec severity is coerced, not dropped ───────────────────────
+
+Deno.test("coerceSeverity: known values pass through case-insensitively (not coerced)", () => {
+  assertEquals(coerceSeverity("minor"), { severity: "minor", coerced: false });
+  assertEquals(coerceSeverity("moderate"), { severity: "moderate", coerced: false });
+  assertEquals(coerceSeverity("major"), { severity: "major", coerced: false });
+  assertEquals(coerceSeverity("  MAJOR "), { severity: "major", coerced: false });
+});
+
+Deno.test("coerceSeverity: off-spec / empty → conservative 'moderate' + coerced flag", () => {
+  assertEquals(coerceSeverity("severe"), { severity: "moderate", coerced: true });
+  assertEquals(coerceSeverity("critical"), { severity: "moderate", coerced: true });
+  assertEquals(coerceSeverity(""), { severity: "moderate", coerced: true });
+  assertEquals(coerceSeverity(undefined), { severity: "moderate", coerced: true });
+  assertEquals(coerceSeverity(null), { severity: "moderate", coerced: true });
+  assertEquals(coerceSeverity(3), { severity: "moderate", coerced: true });
+});
+
+Deno.test("US-1930: a defect with an off-spec severity still derives a ceiling", () => {
+  // A real defect returned as 'severe' must be retained (coerced to moderate)
+  // and still lower a factor below the model's pristine score — the escape the
+  // old drop-on-off-spec filter allowed.
+  const { severity } = coerceSeverity("severe");
+  const r = applyDefectWeighting(PRISTINE, [
+    { defect_type: "hole_puncture", severity, size_bucket: "medium", location: "front" },
+  ]);
+  assert(
+    r.ceilingByFactor.fabric_condition < 10,
+    "a retained moderate defect must derive a fabric ceiling < 10",
+  );
+  assert(r.blendedFactors.fabric_condition < 10);
 });

@@ -37,6 +37,7 @@ import {
   coerceAreaPct,
   coerceDefectType,
   coerceRepairability,
+  coerceSeverity,
   coerceSizeBucket,
   DEFECT_TYPES,
   SIZE_BUCKETS,
@@ -1925,23 +1926,29 @@ export async function compositeGrade(
     // US-1027/1028: structured genuine defects (type/severity/repairability/size)
     // consolidated by the composite. Built here (before the overall recompute) so
     // the deterministic weighting engine can consume them.
+    // US-1930: keep any genuine defect with a defect string; DON'T drop it for
+    // an off-spec severity — on a non-structured-output model a real 'major'
+    // defect returned as e.g. 'severe'/'critical'/'' would otherwise be dropped,
+    // so applyDefectWeighting never derives a ceiling and the grade can exceed
+    // what the defect justifies. Off-spec severities are coerced to a
+    // conservative default (moderate) and counted for drift observability.
+    let severityCoercedCount = 0;
     const defectsFound: DefectFound[] = Array.isArray(parsed.defects_found)
       ? parsed.defects_found
           .filter(
             (d) =>
               typeof d === "object" &&
               d !== null &&
-              typeof (d as { defect?: unknown }).defect === "string" &&
-              ["minor", "moderate", "major"].includes(
-                (d as { severity?: unknown }).severity as string,
-              ),
+              typeof (d as { defect?: unknown }).defect === "string",
           )
           .map((d) => {
             const raw = d as unknown as Record<string, unknown>;
+            const sev = coerceSeverity(raw.severity);
+            if (sev.coerced) severityCoercedCount++;
             return {
               defect: raw.defect as string,
               defect_type: coerceDefectType(raw.defect_type),
-              severity: raw.severity as DefectFound["severity"],
+              severity: sev.severity,
               repairability: coerceRepairability(raw.repairability),
               size_bucket: coerceSizeBucket(raw.size_bucket),
               area_pct: coerceAreaPct(raw.area_pct),
@@ -1951,6 +1958,20 @@ export async function compositeGrade(
             } as DefectFound;
           })
       : [];
+
+    if (severityCoercedCount > 0) {
+      // US-1930: observe prompt/model drift — an off-spec severity string means
+      // the model isn't returning the enum we asked for.
+      console.warn(
+        `[AI Grading][metric] defect_severity_coerced | model=${compositeModel} | ` +
+          `prompt_version=${promptVersion} | count=${severityCoercedCount}`,
+      );
+      void captureServer("grading-engine", "grading.defect_severity_coerced", {
+        model: compositeModel,
+        prompt_version: promptVersion,
+        coerced_count: severityCoercedCount,
+      });
+    }
 
     // US-1029: deterministic defect weighting. Convert genuine defects into
     // per-factor ceilings and blend (min) with the model's scores so the grade
