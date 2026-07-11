@@ -1,4 +1,5 @@
 import Foundation
+import GradeThreadCore
 import SwiftData
 
 /// Local mirror of `sales`. Same conflict policy as LocalListing: the
@@ -65,3 +66,8 @@ final class LocalSale {
         self.createdAt = createdAt
     }
 }
+
+// SalePnL (in GradeThreadCore) computes per-sale P&L against this protocol so the
+// money math is Linux-testable. LocalSale's stored properties already match it,
+// so the conformance is empty. Not `@retroactive` — LocalSale is defined here.
+extension LocalSale: SaleFinancials {}

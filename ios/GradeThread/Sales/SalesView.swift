@@ -47,7 +47,7 @@ struct SalesView: View {
     /// inflated the headline Proceeds total and disagreed with the Money tab for
     /// the same account.
     private var totalProceeds: Double {
-        Money.sum(sales.filter(SalePnL.isCompleted)) { $0.salePrice - $0.platformFees }
+        Money.sum(sales.filter { SalePnL.isCompleted($0) }) { $0.salePrice - $0.platformFees }
     }
 
     var body: some View {

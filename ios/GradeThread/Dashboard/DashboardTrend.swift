@@ -1,4 +1,5 @@
 import Charts
+import GradeThreadCore
 import SwiftUI
 
 /// One day's rolled-up selling figures, used to draw the dashboard trend
