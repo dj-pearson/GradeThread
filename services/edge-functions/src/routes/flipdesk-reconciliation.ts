@@ -265,7 +265,7 @@ flipdeskReconciliationRoutes.get("/queue", async (c) => {
     .order("payout_date", { ascending: false, nullsFirst: false })
     .limit(QUEUE_LIMIT);
   if (payoutsErr) {
-    return c.json({ error: "Failed to load queue", detail: payoutsErr.message }, 500);
+    return failSafe(c, 500, "Failed to load queue", payoutsErr, "reconciliation.queue");
   }
   const payouts = (payoutsRaw ?? []) as PayoutRow[];
 
@@ -573,10 +573,7 @@ flipdeskReconciliationRoutes.post("/match", async (c) => {
     },
   );
   if (linkErr) {
-    return c.json(
-      { error: "Failed to reconcile payout", detail: linkErr.message },
-      500,
-    );
+    return failSafe(c, 500, "Failed to reconcile payout", linkErr, "reconciliation.run");
   }
   const res = (linkRes ?? {}) as { ok?: boolean; error?: string };
   if (!res.ok) {
@@ -667,7 +664,7 @@ flipdeskReconciliationRoutes.get("/conflicts", async (c) => {
     .order("detected_at", { ascending: false })
     .limit(CONFLICT_LIST_LIMIT);
   if (error) {
-    return c.json({ error: "Failed to load conflicts", detail: error.message }, 500);
+    return failSafe(c, 500, "Failed to load conflicts", error, "reconciliation.conflicts");
   }
   const rows = (rowsRaw ?? []) as SyncConflictRow[];
 

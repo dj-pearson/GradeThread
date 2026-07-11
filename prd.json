@@ -16281,8 +16281,8 @@
         "A grep/lint check flags `detail:` populated from a raw error `.message` in edge route responses"
       ],
       "priority": 1943,
-      "passes": false,
-      "notes": "[P3][Edge/Security] Code-review sweep 2026-07-11. Authenticated-only, low severity.",
+      "passes": true,
+      "notes": "[P3][Edge/Security] Code-review sweep 2026-07-11. Authenticated-only, low severity. DONE 2026-07-11 — replaced the 6 raw-error leaks (flipdesk-reconciliation.ts queue/run/conflicts + flipdesk-images.ts bg-remove upload/insert + archive list) with failSafe() from lib/http-errors.ts: logs the redacted raw error server-side under a stable tag, returns a generic client message — no pg/storage .message in the body. Extended the existing no-raw-db-error_test.ts guard (US-1445) with a DETAIL_LEAK regex that flags detail: <member>.message (the raw-error shape) while intentionally not matching the diagnostic detail: err instanceof Error ? err.message : String(err) ternary form used elsewhere.",
       "relevantPaths": [
         "services/edge-functions/src/routes/flipdesk-reconciliation.ts",
         "services/edge-functions/src/routes/flipdesk-images.ts"
