@@ -60,6 +60,12 @@ actor SyncEngine {
     /// Instead of silently no-oping (which drops the re-pull the new scope needs),
     /// the in-flight pull loops once more for the current scope when it finishes.
     private var pendingPullRequested = false
+    /// Set when ``flushPending()`` is called while a flush is already in flight
+    /// (e.g. the inspector's Retry tapped during a background flush). Instead of
+    /// silently no-oping — which made Retry look like it did nothing — the
+    /// in-flight flush loops once more when it finishes, picking up the
+    /// just-cleared retry budget.
+    private var pendingFlushRequested = false
     /// US-1147: set by ``stop()`` so an in-flight flush stops dequeuing further
     /// mutations at a clean boundary (each replay is idempotent, so the one
     /// in-flight is safe to let finish or re-run next launch).
@@ -328,6 +334,12 @@ actor SyncEngine {
         let now = Date()
         if let last = lastReconcileAt, now.timeIntervalSince(last) < Self.reconcileInterval { return }
 
+        // US-1493 (extended): capture the scope at entry. The id-scans below are
+        // their own network round-trips; a workspace switch / sign-out DURING them
+        // means the surviving-id sets belong to the PREVIOUS scope while the store
+        // is being re-scoped — pruning the new tenant's rows against the old scope's
+        // ids. Re-check the epoch before pruning and bail if it moved.
+        let startEpoch = scopeEpoch
         let selfId = try? await SupabaseShared.client.auth.session.user.id.uuidString
         let ownerId = WorkspaceScope.activeOwnerId ?? selfId
 
@@ -361,6 +373,11 @@ actor SyncEngine {
         // All fetches failed (offline) → don't touch the mirror or the throttle.
         guard itemIds != nil || saleIds != nil || expenseIds != nil
                 || listingIds != nil || photoIds != nil else { return }
+
+        // Scope moved while the id-scans were in flight → the id sets are for the
+        // old tenant; discard rather than prune the new tenant's rows against them.
+        // The next pull's reconcile runs for the current scope.
+        guard Self.pullResultApplies(startEpoch: startEpoch, currentEpoch: scopeEpoch) else { return }
 
         await mergeActor.reconcileDeletes(
             itemIds: itemIds,
@@ -1150,10 +1167,24 @@ actor SyncEngine {
     // MARK: - Flush (US-640)
 
     func flushPending() async {
-        guard !isFlushing, !isStopping else { return }
+        guard !isStopping else { return }
+        // A flush requested while one is in flight coalesces into a re-run instead
+        // of no-oping (US: inspector Retry during a background flush). The in-flight
+        // flush loops once more when it finishes, so the retried mutation actually
+        // re-attempts rather than waiting for the next independent sync trigger.
+        guard !isFlushing else { pendingFlushRequested = true; return }
         isFlushing = true
         defer { isFlushing = false }
 
+        var runAgain = true
+        while runAgain {
+            pendingFlushRequested = false
+            await performFlush()
+            runAgain = pendingFlushRequested && !isStopping
+        }
+    }
+
+    private func performFlush() async {
         let allMutations = await snapshotMutations()
         // US-1208: a CREATE still in the queue means its row may not exist on the
         // server yet — it's either still retrying OR has exhausted its budget and
