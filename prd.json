@@ -16130,8 +16130,8 @@
         "Upgrading then immediately navigating away stops the poll promptly"
       ],
       "priority": 1934,
-      "passes": false,
-      "notes": "[P3][Web] Code-review sweep 2026-07-11.",
+      "passes": true,
+      "notes": "[P3][Web] Code-review sweep 2026-07-11. DONE 2026-07-11 — extracted usePollBillingSummary() in use-billing-summary.ts that owns the poll lifecycle: stores the stop-handle in a ref, cancels a prior poll before starting a new one, and clears it on unmount via an effect cleanup. Swapped all four mutation onSuccess callers (useFlipdeskSubscribe/useBuyerSubscribe/useBuyerCancel/useBuyerUncancel) from the fire-and-forget pollBillingSummary(qc) to startPoll(), so the 16s interval never outlives the component. Durable navigation-surviving refresh still handled by the layout reconciler via markCheckoutPending. tsc + eslint (incl. react-hooks) clean.",
       "relevantPaths": [
         "src/hooks/use-billing-summary.ts"
       ]
