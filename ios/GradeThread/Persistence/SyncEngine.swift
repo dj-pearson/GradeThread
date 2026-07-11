@@ -1187,8 +1187,12 @@ actor SyncEngine {
         var blockedTargetIds = Set<String>()
         for mutation in mutations {
             // US-1147: stop cleanly on teardown — replays are idempotent so the
-            // remaining mutations simply flush on the next start/sync.
-            if isStopping { break }
+            // remaining mutations simply flush on the next start/sync. Also break on
+            // task cancellation (a BGTask budget expiry cancels the work Task): the
+            // remaining mutations flush next pass, and stopping here avoids running
+            // `apply()` only to have its network call cancelled and misread as a
+            // failure that burns a retry.
+            if isStopping || Task.isCancelled { break }
             // US-1208: defer an edit whose create hasn't been confirmed yet; it
             // stays queued and flushes on a later pass once the create lands.
             if Self.shouldDeferDependent(mutation, unconfirmedCreateIds: unconfirmedCreateIds) {
@@ -1360,6 +1364,16 @@ actor SyncEngine {
             await markStuck(id: mutation.id, error: replayError.localizedDescription)
             return false
         } catch {
+            // A cancelled replay (the BGTask budget expired / the engine is
+            // stopping, cancelling the work Task — which propagates into the
+            // cancellation-aware URLSession call as a CancellationError or a
+            // cancelled URLError) is NOT a real failure. Marking it failed burned a
+            // retry per BG pass and, after enough budget expiries, force-marked a
+            // perfectly healthy mutation "stuck" in the inspector. Leave it pending
+            // (untouched) so it simply flushes on the next pass.
+            if Task.isCancelled || error is CancellationError {
+                return false
+            }
             await markFailed(id: mutation.id, error: error.localizedDescription)
             return false
         }
