@@ -16067,8 +16067,8 @@
         "Load the `grading-engine` skill"
       ],
       "priority": 1930,
-      "passes": false,
-      "notes": "[P3][Edge/Grading] Code-review sweep 2026-07-11. Load `grading-engine` skill.",
+      "passes": true,
+      "notes": "[P3][Edge/Grading] Code-review sweep 2026-07-11. Load `grading-engine` skill. DONE 2026-07-11 — added coerceSeverity() to defect-weighting.ts (known minor/moderate/major pass through case-insensitively; off-spec/empty/non-string coerce to conservative moderate + coerced flag). ai-grading.ts defects_found no longer drops off-spec severities: keeps any object with a defect string and coerces the severity, so a real major defect returned with an off-spec string on a non-structured-output model is retained and still feeds applyDefectWeighting (derives a ceiling). Coercions counted + logged (warn + grading.defect_severity_coerced metric). Tests in defect-weighting_test.ts cover passthrough/coercion and that a coerced defect derives fabric ceiling<10. No rounding-site or prompt change. node-sim + deno lint clean; full deno check/test in CI.",
       "relevantPaths": [
         "services/edge-functions/src/lib/ai-grading.ts"
       ]
