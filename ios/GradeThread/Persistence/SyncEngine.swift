@@ -194,10 +194,11 @@ actor SyncEngine {
     /// US-1493: whether a completed pull's results may be applied. False when the
     /// scope epoch moved while the fetch was in flight (a workspace switch /
     /// sign-out mid-pull) — the rows belong to the previous tenant, so neither the
-    /// merge nor the watermark advance may run. Pure + static so the mid-pull race
-    /// is unit-testable without standing up the actor + network.
+    /// merge nor the watermark advance may run. Logic lives in
+    /// ``SyncOrdering/pullResultApplies(startEpoch:currentEpoch:)`` (Linux-tested);
+    /// this thin re-export keeps the actor's call sites + integration test intact.
     static func pullResultApplies(startEpoch: Int, currentEpoch: Int) -> Bool {
-        startEpoch == currentEpoch
+        SyncOrdering.pullResultApplies(startEpoch: startEpoch, currentEpoch: currentEpoch)
     }
 
     // MARK: - Pull (incremental)
@@ -981,17 +982,15 @@ actor SyncEngine {
     /// "don't advance". Cursor strings are ISO-8601 and compared lexically,
     /// matching ``SyncWatermark/advance(_:to:)``'s ordering.
     private static func safeCursor<T>(_ fetch: PagedFetch<T>) -> String? {
-        guard let earliestDropped = fetch.droppedCursors.min() else {
-            return fetch.decodedCursors.max()
-        }
-        return fetch.decodedCursors.filter { $0 < earliestDropped }.max()
+        SyncOrdering.safeCursor(
+            decodedCursors: fetch.decodedCursors, droppedCursors: fetch.droppedCursors
+        )
     }
 
-    /// Pure entrypoint for unit tests (US-1210): same logic as ``safeCursor(_:)``
-    /// over explicit cursor lists.
+    /// Pure entrypoint for unit tests (US-1210); delegates to
+    /// ``SyncOrdering/safeCursor(decodedCursors:droppedCursors:)`` (Linux-tested).
     static func safeCursor(decodedCursors: [String], droppedCursors: [String]) -> String? {
-        guard let earliestDropped = droppedCursors.min() else { return decodedCursors.max() }
-        return decodedCursors.filter { $0 < earliestDropped }.max()
+        SyncOrdering.safeCursor(decodedCursors: decodedCursors, droppedCursors: droppedCursors)
     }
 
     private static let itemColumns =
