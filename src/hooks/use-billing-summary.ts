@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useAuthStore } from "@/stores/auth-store";
@@ -133,8 +134,30 @@ export function useBillingSummary() {
 
 // ── Mutations: subscribe / change / cancel / pause / resume ──────
 
-export function useFlipdeskSubscribe() {
+// US-1934: kick pollBillingSummary for fast on-page feedback while OWNING its
+// lifecycle. pollBillingSummary returns a stop-handle; a mutation onSuccess that
+// discards it leaves the 16s interval invalidating ['billing_summary'] after the
+// user navigates away. This hook cancels any prior poll before starting a new
+// one and always stops on unmount. (The durable, navigation-surviving refresh is
+// still handled by the layout-level reconciler via markCheckoutPending.)
+function usePollBillingSummary() {
   const qc = useQueryClient();
+  const stopRef = useRef<(() => void) | null>(null);
+  useEffect(
+    () => () => {
+      stopRef.current?.();
+      stopRef.current = null;
+    },
+    [],
+  );
+  return useCallback(() => {
+    stopRef.current?.();
+    stopRef.current = pollBillingSummary(qc);
+  }, [qc]);
+}
+
+export function useFlipdeskSubscribe() {
+  const startPoll = usePollBillingSummary();
   return useMutation<
     {
       sessionId?: string;
@@ -171,7 +194,7 @@ export function useFlipdeskSubscribe() {
           data.unchanged ? "You're already on that plan." : "Plan updated.",
         );
         if (!data.unchanged) markCheckoutPending("subscription");
-        pollBillingSummary(qc);
+        startPoll();
       }
     },
     onError: (err) => toast.error(err.message),
@@ -181,7 +204,7 @@ export function useFlipdeskSubscribe() {
 // ── Buyer subscription mutations (US-1799) ──────────────────────
 
 export function useBuyerSubscribe() {
-  const qc = useQueryClient();
+  const startPoll = usePollBillingSummary();
   return useMutation<
     { sessionId?: string; url?: string; ok?: boolean; updated?: boolean; unchanged?: boolean },
     Error,
@@ -204,7 +227,7 @@ export function useBuyerSubscribe() {
       if (data.updated) {
         toast.success(data.unchanged ? "You're already on that plan." : "Plan updated.");
         if (!data.unchanged) markCheckoutPending("subscription");
-        pollBillingSummary(qc);
+        startPoll();
       }
     },
     onError: (err) => toast.error(err.message),
@@ -212,7 +235,7 @@ export function useBuyerSubscribe() {
 }
 
 export function useBuyerCancel() {
-  const qc = useQueryClient();
+  const startPoll = usePollBillingSummary();
   return useMutation<{ ok: true }, Error, void>({
     mutationFn: async () => {
       const res = await edgeFetch("/api/payments/buyer/cancel", { method: "POST" });
@@ -222,14 +245,14 @@ export function useBuyerCancel() {
     },
     onSuccess: () => {
       toast.success("Your buyer plan will end at the period close.");
-      pollBillingSummary(qc);
+      startPoll();
     },
     onError: (err) => toast.error(err.message),
   });
 }
 
 export function useBuyerUncancel() {
-  const qc = useQueryClient();
+  const startPoll = usePollBillingSummary();
   return useMutation<{ ok: true }, Error, void>({
     mutationFn: async () => {
       const res = await edgeFetch("/api/payments/buyer/uncancel", { method: "POST" });
@@ -239,7 +262,7 @@ export function useBuyerUncancel() {
     },
     onSuccess: () => {
       toast.success("Your buyer plan will continue.");
-      pollBillingSummary(qc);
+      startPoll();
     },
     onError: (err) => toast.error(err.message),
   });

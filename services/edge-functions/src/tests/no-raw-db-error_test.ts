@@ -17,9 +17,17 @@ const ROUTES_DIR = new URL("../routes/", import.meta.url);
 // <expr> is an identifier / member chain / cast, e.g. error.message,
 // dbErr.message, counterRes.error.message, (e as Error).message.
 const LEAK = /c\.json\(\{\s*error:\s*[A-Za-z_$][\w$.()\s]*\.message\b/;
+// US-1943: the same leak also happens via a `detail:` field populated directly
+// from a raw pg/storage error object's `.message` (e.g.
+// `detail: payoutsErr.message`). Match a `detail:` whose value is a bare member
+// chain ending in `.message` — this is the raw-error shape; the diagnostic
+// `detail: err instanceof Error ? err.message : String(err)` form (a caught JS
+// exception, not a raw provider error) has a `?`/space the class won't cross,
+// so it is intentionally not matched here.
+const DETAIL_LEAK = /\bdetail:\s*[A-Za-z_$][\w$.()]*\.message\b/;
 const OPT_OUT = "safe-raw-error";
 
-Deno.test("no route returns a raw DB error.message in a c.json body (US-1445)", () => {
+Deno.test("no route returns a raw DB error.message in a c.json body (US-1445, US-1943)", () => {
   const offenders: string[] = [];
 
   for (const entry of Deno.readDirSync(ROUTES_DIR)) {
@@ -28,7 +36,7 @@ Deno.test("no route returns a raw DB error.message in a c.json body (US-1445)", 
     const lines = src.split("\n");
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      if (!LEAK.test(line)) continue;
+      if (!LEAK.test(line) && !DETAIL_LEAK.test(line)) continue;
       if (line.includes(OPT_OUT)) continue; // annotated safe (typed/curated msg)
       offenders.push(`${entry.name}:${i + 1}: ${line.trim()}`);
     }

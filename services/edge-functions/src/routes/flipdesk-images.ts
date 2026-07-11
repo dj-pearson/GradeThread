@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { failSafe } from "../lib/http-errors.ts";
 import {
   downloadItemPhoto,
   SENSITIVE_ITEM_PHOTO_TYPES,
@@ -175,10 +176,7 @@ flipdeskImageRoutes.post("/remove-bg", async (c) => {
       contentType: "image/png",
     });
   if (upErr) {
-    return c.json(
-      { error: "Failed to save processed photo", detail: upErr.message },
-      500,
-    );
+    return failSafe(c, 500, "Failed to save processed photo", upErr, "flipdesk-images.bg-remove.upload");
   }
   const { data: pub } = supabaseAdmin.storage
     .from("item-photos")
@@ -211,10 +209,7 @@ flipdeskImageRoutes.post("/remove-bg", async (c) => {
     .select("id")
     .maybeSingle();
   if (insErr) {
-    return c.json(
-      { error: "Failed to record new photo", detail: insErr.message },
-      500,
-    );
+    return failSafe(c, 500, "Failed to record new photo", insErr, "flipdesk-images.bg-remove.insert");
   }
 
   return c.json({
@@ -272,10 +267,7 @@ flipdeskImageRoutes.post("/archive", async (c) => {
     .limit(ARCHIVE_BATCH);
 
   if (error) {
-    return c.json(
-      { error: "Failed to load eligible photos", detail: error.message },
-      500,
-    );
+    return failSafe(c, 500, "Failed to load eligible photos", error, "flipdesk-images.archive.list");
   }
   const eligible = (rows ?? []) as unknown as Array<
     PhotoToArchive & {

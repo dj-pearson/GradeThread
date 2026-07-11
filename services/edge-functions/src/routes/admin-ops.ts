@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import Stripe from "stripe";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { capStringIds } from "../lib/validation.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { requireStepUp } from "../lib/step-up.ts";
 import { acquireJobLock } from "../lib/job-lock.ts";
@@ -574,7 +575,10 @@ adminOpsRoutes.post("/dead-letters/bulk", async (c) => {
   const providerFilter = typeof body.provider === "string" && body.provider.trim()
     ? body.provider.trim()
     : null;
-  const ids = Array.isArray(body.ids) ? body.ids.filter((x): x is string => typeof x === "string") : null;
+  // Cap the id filter — the candidate set is limited to BULK_BATCH_LIMIT per
+  // call anyway, so a larger array can't act on more (US-1944). `null` (no
+  // `ids` key) preserves the "act on all applicable candidates" path.
+  const ids = Array.isArray(body.ids) ? capStringIds(body.ids, BULK_BATCH_LIMIT) : null;
   const reason = action === "discard" ? normalizeDiscardReason(body.reason) : null;
   if (action === "discard" && !reason) {
     return c.json({ error: "A discard reason is required for bulk discard" }, 400);

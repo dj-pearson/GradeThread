@@ -276,6 +276,48 @@ async function fireTransfer(args: {
   saleId: string;
 }): Promise<ProcessResult> {
   const { payoutId, ownerId, consignorId, amount, accountId, stripe, saleId } = args;
+
+  // US-1916: Stripe idempotency keys only dedupe for ~24h, so a transfer that
+  // settled on Stripe but whose DB write-back failed (crash/network blip) would
+  // be retried by sweepConsignorPayouts after the key TTL and create a SECOND
+  // transfer — a real double-pay. Before firing (every sweep retry routes here),
+  // ask Stripe whether a transfer for THIS payout already exists (matched on
+  // metadata.payout_id, time-bounded to the row's created_at); if so, reconcile
+  // the row from it instead of transferring again. A lookup error is treated as
+  // unsafe-to-retry-now (skip, leaving the row retryable) rather than re-firing.
+  // Mirrors the affiliate engine's US-1653 hardening.
+  const { data: rowRaw } = await supabaseAdmin
+    .from("consignor_payouts")
+    .select("created_at")
+    .eq("id", payoutId)
+    .eq("user_id", ownerId)
+    .maybeSingle();
+  const createdAt = (rowRaw as { created_at?: string } | null)?.created_at;
+  const createdAtMs = createdAt ? Date.parse(createdAt) : NaN;
+  const lookup = await findExistingTransfer(stripe, accountId, payoutId, createdAtMs);
+  if (lookup.error) {
+    return {
+      outcome: "skipped",
+      saleId,
+      payoutId,
+      reason: `transfer_lookup_failed: ${lookup.error}`,
+    };
+  }
+  if (lookup.transfer) {
+    await supabaseAdmin
+      .from("consignor_payouts")
+      .update({
+        amount,
+        status: "paid",
+        stripe_transfer_id: lookup.transfer.id,
+        paid_at: new Date().toISOString(),
+        error: null,
+      })
+      .eq("id", payoutId)
+      .eq("user_id", ownerId);
+    return { outcome: "transferred", saleId, payoutId, amount };
+  }
+
   try {
     const transfer = await stripe.transfers.create(
       {
@@ -313,6 +355,51 @@ async function fireTransfer(args: {
       .eq("id", payoutId)
       .eq("user_id", ownerId);
     return { outcome: "failed", saleId, payoutId, reason: message };
+  }
+}
+
+// US-1916: look up whether a Stripe transfer already exists for this payout,
+// matched on metadata.payout_id (set by fireTransfer at create). Bounds the scan
+// to transfers to the consignor's destination created at/after the payout row
+// (minus a clock-skew cushion) — the transfer can't predate the row. Returns the
+// transfer if found, or an `error` string on any Stripe failure so the caller
+// declines to re-fire rather than risk a double-pay on an unreadable state.
+// Explicit bounded page-walk (not the SDK async iterator) so a destination with
+// a long transfer history can't spin the sweep. Exported for the guard test.
+// Mirrors affiliate-payout.ts findExistingTransfer (US-1653).
+export async function findExistingTransfer(
+  stripe: Stripe,
+  accountId: string,
+  payoutId: string,
+  createdAtMs: number,
+): Promise<{ transfer: Stripe.Transfer | null; error?: string }> {
+  const createdGte = Number.isFinite(createdAtMs)
+    ? Math.floor((createdAtMs - 5 * 60 * 1000) / 1000)
+    : undefined;
+  const MAX_PAGES = 5;
+  let startingAfter: string | undefined;
+  try {
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const res = await stripe.transfers.list({
+        destination: accountId,
+        ...(createdGte !== undefined ? { created: { gte: createdGte } } : {}),
+        ...(startingAfter ? { starting_after: startingAfter } : {}),
+        limit: 100,
+      });
+      for (const transfer of res.data) {
+        if (transfer.metadata?.payout_id === payoutId) {
+          return { transfer };
+        }
+      }
+      if (!res.has_more || res.data.length === 0) break;
+      startingAfter = res.data[res.data.length - 1].id;
+    }
+    return { transfer: null };
+  } catch (err) {
+    return {
+      transfer: null,
+      error: err instanceof Error ? err.message : "list_failed",
+    };
   }
 }
 

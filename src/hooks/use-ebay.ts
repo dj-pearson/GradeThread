@@ -5,6 +5,15 @@ import { getFreshAccessToken } from "@/lib/auth-token";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { useAuthStore } from "@/stores/auth-store";
 
+// US-1933: tenant partition for eBay query keys — the active workspace owner
+// (or the user for a solo account). Every eBay query keys on this so a workspace
+// switch or a new sign-in on a shared browser can never serve the prior tenant's
+// cached eBay data, independent of the fragile queryClient.clear() on switch.
+// Mirrors the useEbayPayouts precedent (US-1617 / US-1624).
+function useEbayTenantKey(): string | undefined {
+  return useAuthStore((s) => s.activeWorkspaceOwnerId ?? s.user?.id);
+}
+
 // ── Connection state ────────────────────────────────────────────────
 
 export interface EbayConnection {
@@ -100,8 +109,9 @@ export interface EbayPoliciesResponse {
 // so this also tells us whether a ship-from location exists yet. `enabled`
 // lets callers defer the call until the account is connected.
 export function useEbayPolicies(enabled = true) {
+  const tenantKey = useEbayTenantKey();
   return useQuery({
-    queryKey: ["ebay_policies"],
+    queryKey: ["ebay_policies", tenantKey],
     enabled,
     staleTime: 5 * 60_000,
     queryFn: async (): Promise<EbayPoliciesResponse> => {
@@ -182,8 +192,9 @@ export interface EbayAccountHealth {
 }
 
 export function useEbayAccountHealth(enabled = true) {
+  const tenantKey = useEbayTenantKey();
   return useQuery({
-    queryKey: ["ebay_account_health"],
+    queryKey: ["ebay_account_health", tenantKey],
     enabled,
     staleTime: 30 * 60_000,
     queryFn: async (): Promise<EbayAccountHealth> => {
@@ -213,8 +224,9 @@ export interface EbayListingHealth {
 }
 
 export function useEbayListingHealth(enabled = true) {
+  const tenantKey = useEbayTenantKey();
   return useQuery({
-    queryKey: ["ebay_listing_health"],
+    queryKey: ["ebay_listing_health", tenantKey],
     enabled,
     staleTime: 30 * 60_000,
     queryFn: async (): Promise<EbayListingHealth> => {
@@ -434,8 +446,9 @@ export interface EbayPromotionsResponse {
   promotions?: EbayItemPromotion[];
 }
 export function useEbayPromotions(enabled = true) {
+  const tenantKey = useEbayTenantKey();
   return useQuery({
-    queryKey: ["ebay_promotions"],
+    queryKey: ["ebay_promotions", tenantKey],
     enabled,
     staleTime: 30 * 60_000,
     queryFn: async (): Promise<EbayPromotionsResponse> => {
@@ -1555,8 +1568,9 @@ export interface EbayBuyerMessage {
 }
 
 export function useEbayBestOffers(enabled = true) {
+  const tenantKey = useEbayTenantKey();
   return useQuery({
-    queryKey: ["ebay_best_offers"],
+    queryKey: ["ebay_best_offers", tenantKey],
     enabled,
     queryFn: async (): Promise<EbayBestOffer[]> => {
       const res = await fetch(
@@ -1612,8 +1626,9 @@ export function useEbayRespondOffer() {
 }
 
 export function useEbayEligibleOffers(enabled = true) {
+  const tenantKey = useEbayTenantKey();
   return useQuery({
-    queryKey: ["ebay_eligible_offers"],
+    queryKey: ["ebay_eligible_offers", tenantKey],
     enabled,
     queryFn: async (): Promise<EbayEligibleItem[]> => {
       const res = await fetch(

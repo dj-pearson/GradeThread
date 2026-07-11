@@ -981,6 +981,21 @@ async function handleInvoicePaymentFailed(event: Stripe.Event) {
 
 // ── Checkout completion handlers ─────────────────────────────────
 
+// US-1929: entitlement must require settled funds. Every checkout today is
+// created with `payment_method_types: ["card"]` (synchronous), so a `completed`
+// event implies the money cleared — but if an async method (bank debit) or
+// `automatic_payment_methods` is ever enabled, `completed` can fire while
+// `payment_status` is still "unpaid"/"processing" (the real grant would then be
+// `checkout.session.async_payment_succeeded`). Gate here so a future
+// payment-method change can never grant credits/entitlement on unsettled funds.
+// "no_payment_required" is a legitimate fully-discounted (100%-off) session.
+// Exported for the guard test.
+export function checkoutFundsSettled(
+  paymentStatus: Stripe.Checkout.Session["payment_status"] | null | undefined,
+): boolean {
+  return paymentStatus === "paid" || paymentStatus === "no_payment_required";
+}
+
 async function handleCheckoutCompleted(event: Stripe.Event) {
   const session = event.data.object as Stripe.Checkout.Session;
   const product = session.metadata?.product;
@@ -1003,6 +1018,14 @@ async function handleCheckoutCompleted(event: Stripe.Event) {
   }
 
   if (session.mode !== "payment") return;
+
+  // US-1929: don't grant entitlement on unsettled funds (see checkoutFundsSettled).
+  if (!checkoutFundsSettled(session.payment_status)) {
+    console.warn(
+      `[Webhook] checkout.session.completed not granting entitlement — payment_status=${session.payment_status} session=${session.id}`,
+    );
+    return;
+  }
 
   // Attach customer id on first one-time purchase too. (US-391: reconcile.)
   if (session.customer) {
@@ -1349,18 +1372,50 @@ async function handleChargeRefunded(event: Stripe.Event) {
     ? charge.payment_intent
     : charge.payment_intent?.id ?? null;
 
+  // US-1919: revoke only the refunded fraction. `amount_refunded` is cumulative
+  // for the charge, so this event reflects the total refunded so far; the
+  // per-charge idempotency key means a single charge's clawback lands once.
+  const revoked = proportionalClawback(credits, charge.amount_refunded, charge.amount);
+  if (revoked <= 0) {
+    console.log(`[Webhook] charge.refunded credit_pack refunded=${charge.amount_refunded}/${charge.amount} — nothing to claw back`);
+    return;
+  }
+
   // US-892: share the per-charge idempotency key with the admin-initiated
   // pack-refund flow so the wallet is clawed back EXACTLY ONCE no matter which
   // path runs first (the other no-ops).
   await clawbackCreditPack(
     event,
     userId,
-    credits,
+    revoked,
     charge.id,
     paymentIntentId,
     `pack-refund:${charge.id}`,
     `Refund reversal for charge ${charge.id}`,
   );
+}
+
+// US-1919: scale a credit-pack clawback to the fraction actually refunded /
+// charged back. Stripe fires `charge.refunded` for PARTIAL refunds too (the
+// Dashboard path per US-1414), so a $10 refund on a $50 / 50-credit pack must
+// revoke 10 credits, not all 50. `revoked = round(granted * refunded / total)`,
+// integer credits, half-up, clamped to [0, granted]. Exported for the guard test.
+//   - refunded <= 0  → 0 (nothing was refunded, revoke nothing; also the $0-charge
+//                        refund case, which avoids a divide-by-zero)
+//   - refunded >= total → full pack (a full refund / full chargeback)
+//   - total <= 0 while refunded > 0 → defensive full clawback (no basis to scale;
+//                        can't actually happen — you can't refund more than $0)
+export function proportionalClawback(
+  granted: number,
+  refunded: number,
+  total: number,
+): number {
+  if (!Number.isFinite(granted) || granted <= 0) return 0;
+  if (!Number.isFinite(refunded) || refunded <= 0) return 0;
+  if (!Number.isFinite(total) || total <= 0) return granted;
+  if (refunded >= total) return granted;
+  const revoked = Math.round((granted * refunded) / total);
+  return Math.max(0, Math.min(granted, revoked));
 }
 
 // US-384 / US-1443: DEBIT clawed-back credits from the wallet (not just append a
@@ -1598,12 +1653,37 @@ async function handleChargeDisputeClosed(event: Stripe.Event) {
         console.error(`[Webhook] dispute.closed lost credit_pack invalid credits metadata`);
         return;
       }
+      // US-1919: scale the clawback to the DISPUTED fraction (Stripe permits a
+      // partial dispute). The fraction needs the original charge total, which
+      // isn't on the dispute object — fetch it; if unavailable, fall back to the
+      // full pack (the row-locked RPC clamps at zero, so this never over-revokes
+      // the wallet — it just preserves the prior conservative behavior).
+      let chargeTotal = 0;
+      if (chargeId) {
+        try {
+          const ch = await getStripe().charges.retrieve(chargeId);
+          chargeTotal = typeof ch.amount === "number" ? ch.amount : 0;
+        } catch {
+          console.error(
+            `[Webhook] dispute.closed could not fetch charge ${chargeId} — falling back to full clawback`,
+          );
+        }
+      }
+      const revoked = chargeTotal > 0
+        ? proportionalClawback(credits, dispute.amount, chargeTotal)
+        : credits;
+      if (revoked <= 0) {
+        console.log(
+          `[Webhook] dispute.closed lost credit_pack disputed=${dispute.amount}/${chargeTotal} — nothing to claw back`,
+        );
+        return;
+      }
       // Distinct idempotency key from the refund path so a lost dispute AFTER a
       // partial refund still reconciles; the row-locked RPC clamps at zero.
       await clawbackCreditPack(
         event,
         userId,
-        credits,
+        revoked,
         chargeId ?? dispute.id,
         paymentIntentIdOf(dispute.payment_intent ?? null),
         `dispute-lost:${dispute.id}`,

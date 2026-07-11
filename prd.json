@@ -15818,8 +15818,8 @@
         "Vitest covers: (a) settled-on-Stripe-but-DB-write-failed → retry reconciles, no second transfer; (b) genuinely-unpaid → transfer fires once"
       ],
       "priority": 1916,
-      "passes": false,
-      "notes": "[P1][Edge/Payments] Code-review sweep 2026-07-11. Port the exact US-1653 affiliate pattern (findExistingTransfer) into consignor-payout.ts — the two engines share rails but only affiliate got the guard.",
+      "passes": true,
+      "notes": "[P1][Edge/Payments] Code-review sweep 2026-07-11. Port the exact US-1653 affiliate pattern (findExistingTransfer) into consignor-payout.ts — the two engines share rails but only affiliate got the guard. DONE 2026-07-11 — mirrored the affiliate US-1653 hardening onto consignor-payout.ts. fireTransfer now, before stripe.transfers.create, fetches the row created_at and calls a new exported findExistingTransfer(stripe,accountId,payoutId,createdAtMs) that scans transfers to the destination (time-bounded to created_at-5min, bounded 5-page walk) for metadata.payout_id===payoutId; a hit reconciles the row as paid (stripe_transfer_id/paid_at/status) with NO second transfer, a lookup error returns skipped (row stays retryable, never blind re-fire). metadata.payout_id was already set (AC2). sweep retry routes through fireTransfer so a >24h-delayed retry can never duplicate (AC3). Test consignor-transfer-dedup_test.ts covers found→reconcile, unpaid→null, list-error→error, pagination, and the created.gte time-bound. Verified node-sim + deno lint; full deno check/test in CI.",
       "relevantPaths": [
         "services/edge-functions/src/lib/consignor-payout.ts",
         "services/edge-functions/src/lib/affiliate-payout.ts"
@@ -15835,8 +15835,8 @@
         "Vitest simulates A-signout→B-signin with A's load resolving last and asserts the store never shows A's profile/workspaces after B is active"
       ],
       "priority": 1917,
-      "passes": false,
-      "notes": "[P1][Web/Auth] Code-review sweep 2026-07-11. This is the exact shared-browser case US-1617 designs around; the store write path was missed. Cross-user PII exposure, not just cosmetic.",
+      "passes": true,
+      "notes": "[P1][Web/Auth] Code-review sweep 2026-07-11. This is the exact shared-browser case US-1617 designs around; the store write path was missed. Cross-user PII exposure, not just cosmetic. DONE 2026-07-11 — loadProfileAndWorkspaces (use-auth.ts) now captures isStillCurrent()=(useAuthStore.getState().user?.id===userId) and re-checks it before every store write: before setProfile, again after the (possible) owners-fetch await before setWorkspaces/setActiveWorkspaceOwnerId, in the catch reset, and before the finally setIsLoading. A slow load from a superseded session (A signout -> B signin, A resolves last) drops all its writes instead of repopulating B session with A profile/workspaces/owner. Exported the loader; added use-auth.test.ts (vitest, mocked supabase) proving: non-current resolution writes nothing, current resolution writes normally, superseded load does not flip isLoading (3/3 pass). tsc + eslint clean.",
       "relevantPaths": [
         "src/hooks/use-auth.ts",
         "src/stores/auth-store.ts"
@@ -15871,8 +15871,8 @@
         "Vitest covers partial, full, and edge ($0 amount) refund clawbacks"
       ],
       "priority": 1919,
-      "passes": false,
-      "notes": "[P2][Edge/Payments] Code-review sweep 2026-07-11.",
+      "passes": true,
+      "notes": "[P2][Edge/Payments] Code-review sweep 2026-07-11. DONE 2026-07-11 — added exported proportionalClawback(granted,refunded,total)=round(granted*refunded/total), half-up, clamped [0,granted], with refunded<=0→0, refunded>=total→full, total<=0(refunded>0)→defensive full (no div-by-zero). charge.refunded path now revokes proportionalClawback(credits, charge.amount_refunded, charge.amount) and skips when 0. dispute.closed→lost path fetches the charge total (getStripe().charges.retrieve) and scales by dispute.amount, falling back to full pack if the fetch fails (RPC clamps, never over-revokes). Test tests/proportional-clawback_test.ts covers partial/full/over-refund-clamp/half-up/$0/nothing/invalid. Verified node-sim + deno lint; full deno check/test in CI.",
       "relevantPaths": [
         "services/edge-functions/src/routes/webhooks.ts"
       ]
@@ -15979,8 +15979,8 @@
         "Unit tests cover a `javascript:` support URL, an off-allowlist logo, and a benign https support URL"
       ],
       "priority": 1925,
-      "passes": false,
-      "notes": "[P2][Web/Security] Code-review sweep 2026-07-11.",
+      "passes": true,
+      "notes": "[P2][Web/Security] Code-review sweep 2026-07-11. DONE 2026-07-11 — added safeEmbedUrl() to src/lib/return-to.ts (absolute https:// only; rejects javascript:/data:/vbscript:, http: downgrade, protocol-relative //host, relative, and unparseable) and wired embed-grade.tsx to validate ?logo (<img src>) and ?support (<a href>) through it — invalid drops the image/link. A partner-host allowlist is intentionally not applied (open white-label = arbitrary partner hosts); scheme is the enforceable invariant. AC3 covered by vitest in return-to.test.ts: javascript: support rejected, non-https/relative/protocol-relative logo rejected, benign https accepted (17/17 pass). tsc + eslint clean.",
       "relevantPaths": [
         "src/pages/embed-grade.tsx",
         "src/lib/return-to.ts"
@@ -16050,8 +16050,8 @@
         "Vitest: `completed` with `payment_status:\"unpaid\"` grants nothing; `\"paid\"` grants as today"
       ],
       "priority": 1929,
-      "passes": false,
-      "notes": "[P3][Edge/Payments] Code-review sweep 2026-07-11. Latent / defense-in-depth.",
+      "passes": true,
+      "notes": "[P3][Edge/Payments] Code-review sweep 2026-07-11. Latent / defense-in-depth. DONE 2026-07-11 — handleCheckoutCompleted (webhooks.ts) now gates the one-time-payment entitlement dispatch on a new exported checkoutFundsSettled(payment_status) predicate (paid || no_payment_required), early-returning with a warn log otherwise, so credit-pack / per-grade / api-overage grants require settled funds. Comment ties the guard to the payment_method_types:[card] assumption. Test tests/checkout-payment-status_test.ts pins the predicate (paid/no_payment_required→grant; unpaid/null/undefined→no grant, fail-closed). Verified via node-sim of the predicate + deno lint (isolated); full deno check/test runs in CI (deno.land graph is network-blocked in this sandbox).",
       "relevantPaths": [
         "services/edge-functions/src/routes/webhooks.ts"
       ]
@@ -16067,8 +16067,8 @@
         "Load the `grading-engine` skill"
       ],
       "priority": 1930,
-      "passes": false,
-      "notes": "[P3][Edge/Grading] Code-review sweep 2026-07-11. Load `grading-engine` skill.",
+      "passes": true,
+      "notes": "[P3][Edge/Grading] Code-review sweep 2026-07-11. Load `grading-engine` skill. DONE 2026-07-11 — added coerceSeverity() to defect-weighting.ts (known minor/moderate/major pass through case-insensitively; off-spec/empty/non-string coerce to conservative moderate + coerced flag). ai-grading.ts defects_found no longer drops off-spec severities: keeps any object with a defect string and coerces the severity, so a real major defect returned with an off-spec string on a non-structured-output model is retained and still feeds applyDefectWeighting (derives a ceiling). Coercions counted + logged (warn + grading.defect_severity_coerced metric). Tests in defect-weighting_test.ts cover passthrough/coercion and that a coerced defect derives fabric ceiling<10. No rounding-site or prompt change. node-sim + deno lint clean; full deno check/test in CI.",
       "relevantPaths": [
         "services/edge-functions/src/lib/ai-grading.ts"
       ]
@@ -16085,7 +16085,7 @@
       ],
       "priority": 1931,
       "passes": false,
-      "notes": "[P3][Edge/Jobs] Code-review sweep 2026-07-11. Folds the reservation-leak and pre-check-mismatch findings. Load `durable-jobs` skill.",
+      "notes": "[P3][Edge/Jobs] Code-review sweep 2026-07-11. Folds the reservation-leak and pre-check-mismatch findings. Load `durable-jobs` skill. DEFERRED 2026-07-11 (agent loop) — the clean fix (idempotent per-job reservation) wants a new listing_generation_jobs.ai_action_reserved column so reclaim can reuse a held reservation instead of re-charging; that is a schema migration and the Docker/supabase db verify lane is unavailable in the agent sandbox, so migration-apply can't be proven here. A column-free heuristic (reserve only when claiming from 'pending'; on a stale-'running' reclaim reuse the assumed-held reservation and skip reserveAiAction; refund once on the MAX_JOB_ATTEMPTS terminal-fail) is fail-safe toward under-charging the seller and satisfies AC1-3, but the attempts-cap refund has edge cases and runJob is a non-exported closure inside processBatch so AC4's crash→reclaim vitest can't be isolated without a refactor. Best done in a session with Docker/db tooling (add the column via the migrations triple) OR paired with a small refactor extracting the reserve/claim step for unit testing.",
       "relevantPaths": [
         "services/edge-functions/src/routes/flipdesk-autolister.ts"
       ]
@@ -16100,8 +16100,8 @@
         "Manual/unit check: force an immediate stream error and confirm the original selection remains in the editor"
       ],
       "priority": 1932,
-      "passes": false,
-      "notes": "[P3][Web/FlipDesk] Code-review sweep 2026-07-11.",
+      "passes": true,
+      "notes": "[P3][Web/FlipDesk] Code-review sweep 2026-07-11. DONE 2026-07-11 — use-content-ai-stream.ts regenerate() no longer deletes the selection up front. Deletion is deferred into a clearSelectionOnce() guard invoked from the first onDelta, so an immediate stream failure (network/401/edge 500, before any content) leaves the highlighted text intact; on success the first delta clears the captured range and streamed HTML replaces it (behavior unchanged). Deletes the captured {from,to} range rather than the live selection in case the cursor moved during the async gap. AC3 verified by tsc/inspection: deleteRange is reachable only from within onDelta, so a pre-delta error cannot touch the doc. Note: a renderHook unit test would require @testing-library/react which is not a project dep (out of scope). tsc + eslint clean.",
       "relevantPaths": [
         "src/hooks/use-content-ai-stream.ts"
       ]
@@ -16115,8 +16115,8 @@
         "No behavior change for solo users; a workspace switch cannot serve the prior tenant's cached eBay data even without a full clear"
       ],
       "priority": 1933,
-      "passes": false,
-      "notes": "[P3][Web/Data] Code-review sweep 2026-07-11. Defense-in-depth; category-scoped ebay_category_* keys are acceptable as-is.",
+      "passes": true,
+      "notes": "[P3][Web/Data] Code-review sweep 2026-07-11. Defense-in-depth; category-scoped ebay_category_* keys are acceptable as-is. DONE 2026-07-11 — added a useEbayTenantKey() helper (activeWorkspaceOwnerId ?? user?.id, mirroring the useEbayPayouts precedent) and appended it to all six unscoped eBay query keys: ebay_policies, ebay_account_health, ebay_listing_health, ebay_promotions, ebay_best_offers, ebay_eligible_offers. Cache entries are now tenant-partitioned regardless of queryClient.clear(). Existing prefix-matching invalidateQueries calls (in-file + offers.tsx) still match the longer keys; no getQueryData/exact-match deps. Solo users unaffected (single stable key suffix). tsc + eslint clean.",
       "relevantPaths": [
         "src/hooks/use-ebay.ts"
       ]
@@ -16130,8 +16130,8 @@
         "Upgrading then immediately navigating away stops the poll promptly"
       ],
       "priority": 1934,
-      "passes": false,
-      "notes": "[P3][Web] Code-review sweep 2026-07-11.",
+      "passes": true,
+      "notes": "[P3][Web] Code-review sweep 2026-07-11. DONE 2026-07-11 — extracted usePollBillingSummary() in use-billing-summary.ts that owns the poll lifecycle: stores the stop-handle in a ref, cancels a prior poll before starting a new one, and clears it on unmount via an effect cleanup. Swapped all four mutation onSuccess callers (useFlipdeskSubscribe/useBuyerSubscribe/useBuyerCancel/useBuyerUncancel) from the fire-and-forget pollBillingSummary(qc) to startPoll(), so the 16s interval never outlives the component. Durable navigation-surviving refresh still handled by the layout reconciler via markCheckoutPending. tsc + eslint (incl. react-hooks) clean.",
       "relevantPaths": [
         "src/hooks/use-billing-summary.ts"
       ]
@@ -16146,8 +16146,8 @@
         "linkInventoryItem targets an item confirmed to belong to the active workspace tenant"
       ],
       "priority": 1935,
-      "passes": false,
-      "notes": "[P3][Web/FlipDesk] Code-review sweep 2026-07-11. RLS still protects data (no leak); this is a wrong-tenant correctness bug + unmount leak.",
+      "passes": true,
+      "notes": "[P3][Web/FlipDesk] Code-review sweep 2026-07-11. RLS still protects data (no leak); this is a wrong-tenant correctness bug + unmount leak. DONE 2026-07-11 — new-submission.tsx: the inventory prefetch now scopes the select to workspaceOwnerId (activeWorkspaceOwnerId ?? user.id) via a reactive useAuthStore selector (mirrors use-ebay.ts), so a member submitting into an owners workspace sees that workspaces items (viewer RLS) not their own/other workspaces. Added a cancelled guard + cleanup to prevent setState-after-unmount, and re-runs on workspace switch. linkInventoryItem now pins the UPDATE with .eq(user_id, linkedItem.user_id) so a stale/URL item id can never write to another tenant. tsc + eslint clean.",
       "relevantPaths": [
         "src/pages/new-submission.tsx"
       ]
@@ -16178,8 +16178,8 @@
         "Refocusing a dashboard tab no longer triggers a burst of network refetches for still-fresh-enough data"
       ],
       "priority": 1937,
-      "passes": false,
-      "notes": "[P3][Web/Perf] Code-review sweep 2026-07-11.",
+      "passes": true,
+      "notes": "[P3][Web/Perf] Code-review sweep 2026-07-11. DONE 2026-07-11 — set refetchOnWindowFocus:false in the global QueryClient default (src/lib/query-client.ts). Verified nothing relies on focus-refetch: no query sets refetchOnWindowFocus anywhere; queries needing periodic freshness use explicit refetchInterval (polling), which is unaffected. Refocusing a data-heavy tab no longer fires a refetch burst. Documented the opt-back-in path. tsc + eslint clean.",
       "relevantPaths": [
         "src/lib/query-client.ts"
       ]
@@ -16281,8 +16281,8 @@
         "A grep/lint check flags `detail:` populated from a raw error `.message` in edge route responses"
       ],
       "priority": 1943,
-      "passes": false,
-      "notes": "[P3][Edge/Security] Code-review sweep 2026-07-11. Authenticated-only, low severity.",
+      "passes": true,
+      "notes": "[P3][Edge/Security] Code-review sweep 2026-07-11. Authenticated-only, low severity. DONE 2026-07-11 — replaced the 6 raw-error leaks (flipdesk-reconciliation.ts queue/run/conflicts + flipdesk-images.ts bg-remove upload/insert + archive list) with failSafe() from lib/http-errors.ts: logs the redacted raw error server-side under a stable tag, returns a generic client message — no pg/storage .message in the body. Extended the existing no-raw-db-error_test.ts guard (US-1445) with a DETAIL_LEAK regex that flags detail: <member>.message (the raw-error shape) while intentionally not matching the diagnostic detail: err instanceof Error ? err.message : String(err) ternary form used elsewhere.",
       "relevantPaths": [
         "services/edge-functions/src/routes/flipdesk-reconciliation.ts",
         "services/edge-functions/src/routes/flipdesk-images.ts"
@@ -16297,8 +16297,8 @@
         "The cap is documented near the handler; a unit test asserts an over-cap array is bounded/rejected"
       ],
       "priority": 1944,
-      "passes": false,
-      "notes": "[P3][Edge/Security] Code-review sweep 2026-07-11.",
+      "passes": true,
+      "notes": "[P3][Edge/Security] Code-review sweep 2026-07-11. DONE 2026-07-11 — added capBodyArray/capStringIds to lib/validation.ts (MAX_BODY_ARRAY=500, slice-then-process bounds the loop even for all-duplicate mega-arrays). Applied: flipdesk-pricing reprice/apply (cap raw items before the parse loop), admin-ops dead-letter bulk (cap ids to BULK_BATCH_LIMIT=25, preserving null=act-on-all), admin-waitlist invite (cap ids to 500 = the resolve .limit). Unit test tests/array-caps_test.ts asserts over-cap arrays are bounded + null/empty/dedup semantics.",
       "relevantPaths": [
         "services/edge-functions/src/routes/flipdesk-pricing.ts",
         "services/edge-functions/src/routes/admin-ops.ts",

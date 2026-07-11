@@ -72,6 +72,46 @@ export async function validateJson<T>(
   return { ok: true, data: result.data };
 }
 
+// ── Request-body array caps (US-1944) ────────────────────────────────────────
+//
+// Write endpoints that iterate or `.in(...)`-query over a body array MUST bound
+// it — otherwise a single authenticated caller can submit a very large array
+// (bounded only by the ~256 KB JSON body limit) to force an oversized loop /
+// IN(...) query: a mild per-tenant DoS. These helpers cap the work up front.
+// 500 matches the admin-measure-cards precedent (`.slice(0, 500)`).
+
+export const MAX_BODY_ARRAY = 500;
+
+/**
+ * Bound an untrusted array body to at most `max` entries. Non-arrays → [].
+ * `slice` copies at most `max` elements, so the returned array — and any loop
+ * over it — is bounded regardless of how large the input was.
+ */
+export function capBodyArray<T = unknown>(
+  value: unknown,
+  max: number = MAX_BODY_ARRAY,
+): T[] {
+  return Array.isArray(value) ? (value.slice(0, max) as T[]) : [];
+}
+
+/**
+ * Cap + normalize an array of string ids for a `.in("id", ids)` guard: keeps
+ * non-empty strings, dedupes, and bounds the loop to `max` iterations (the
+ * `slice` up front caps the work even for an all-duplicate mega-array).
+ * Non-arrays → [].
+ */
+export function capStringIds(
+  value: unknown,
+  max: number = MAX_BODY_ARRAY,
+): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  for (const v of value.slice(0, max)) {
+    if (typeof v === "string" && v.length > 0 && !out.includes(v)) out.push(v);
+  }
+  return out;
+}
+
 // ── Base64 / data-URL image validation ──────────────────────────────────────
 
 // MIME types we accept for grading images. Mirrors what Claude Vision accepts.

@@ -49,3 +49,30 @@ export function sanitizeReturnTo(raw: string | null | undefined): string | null 
   }
   return value;
 }
+
+/**
+ * US-1925: validate an attacker-suppliable URL param used in the white-label
+ * grade embed (`?support=`, `?logo=`). The embed URL is fully craftable by a
+ * third party, so a GradeThread-hosted card must not carry a `javascript:` /
+ * `data:` payload or a phishing link that borrows our domain's legitimacy.
+ * Accept ONLY an absolute `https://` URL; reject dangerous schemes, `http:`
+ * downgrades, protocol-relative (`//host`) and relative refs, and anything
+ * unparseable. Returns the normalized href, or null so the caller omits the
+ * link / image.
+ *
+ * A partner-host allowlist is deliberately NOT applied: the embed is open
+ * white-label, so support/logo are legitimately partner-hosted on arbitrary
+ * domains. The enforceable invariant is the scheme — https blocks the
+ * executable / off-site-redirecting vectors, while a broken <img> or an omitted
+ * <a> is the worst case for an otherwise-valid but unwanted host.
+ */
+export function safeEmbedUrl(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  let url: URL;
+  try {
+    url = new URL(raw.trim());
+  } catch {
+    return null; // relative / protocol-relative / malformed → not an absolute URL
+  }
+  return url.protocol === "https:" ? url.href : null;
+}

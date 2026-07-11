@@ -338,6 +338,23 @@ export function coerceRepairability(raw: unknown): Repairability {
   return "permanent";
 }
 
+// US-1930: coerce a model-supplied severity to the enum. A non-structured-output
+// model can return an off-spec / empty severity ("severe", "critical", "") for a
+// GENUINE defect. Dropping such a defect (the old behavior) let a real major
+// defect escape the defect-weighting ceiling, so the grade could exceed what the
+// defect justifies. Never discard: coerce the unknown to the conservative middle
+// ("moderate") so the defect still lowers the grade. `coerced` lets callers log
+// model/prompt drift. Known values pass through case-insensitively.
+export function coerceSeverity(
+  raw: unknown,
+): { severity: DefectSeverity; coerced: boolean } {
+  const s = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  if (s === "minor" || s === "moderate" || s === "major") {
+    return { severity: s, coerced: false };
+  }
+  return { severity: "moderate", coerced: true };
+}
+
 export function coerceAreaPct(raw: unknown): number | null {
   if (typeof raw !== "number" || !Number.isFinite(raw)) return null;
   return Math.max(0, Math.min(100, raw));

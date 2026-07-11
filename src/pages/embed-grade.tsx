@@ -13,6 +13,7 @@ import { useParams, useSearchParams } from "react-router-dom";
 import { History, ShieldCheck } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { GRADE_FACTORS } from "@/lib/constants";
+import { safeEmbedUrl } from "@/lib/return-to";
 import type { PublicGradeReportRow, SubmissionRow } from "@/types/database";
 
 const BRAND_NAVY = "#0F3460";
@@ -41,8 +42,12 @@ export function EmbedGradePage() {
   const [error, setError] = useState(false);
 
   const company = params.get("company");
-  const logo = params.get("logo");
-  const support = params.get("support");
+  // US-1925: logo/support ride in the attacker-craftable iframe URL and land in
+  // <img src> / <a href>. Restrict to absolute https so a GradeThread-hosted
+  // card can't carry a javascript:/data: payload or a phishing Support link;
+  // an invalid value drops the image/link rather than rendering it.
+  const logo = safeEmbedUrl(params.get("logo"));
+  const support = safeEmbedUrl(params.get("support"));
   const color = /^#[0-9a-fA-F]{6}$/.test(params.get("color") ?? "")
     ? (params.get("color") as string)
     : BRAND_NAVY;

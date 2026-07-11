@@ -10,6 +10,14 @@ export const queryClient = new QueryClient({
     queries: {
       staleTime: 5 * 60 * 1000, // 5 minutes
       retry: 1,
+      // US-1937: don't refetch every query on window/tab refocus. On a
+      // data-heavy dashboard/admin tab this fired a burst of network requests
+      // on each refocus for any query older than staleTime. Nothing relies on
+      // focus-refetch — queries that need periodic freshness use an explicit
+      // `refetchInterval` (polling), which is unaffected. A query that ever
+      // genuinely needs focus-refetch can opt back in with
+      // `refetchOnWindowFocus: true`.
+      refetchOnWindowFocus: false,
     },
   },
 });
