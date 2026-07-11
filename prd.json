@@ -16085,7 +16085,7 @@
       ],
       "priority": 1931,
       "passes": false,
-      "notes": "[P3][Edge/Jobs] Code-review sweep 2026-07-11. Folds the reservation-leak and pre-check-mismatch findings. Load `durable-jobs` skill.",
+      "notes": "[P3][Edge/Jobs] Code-review sweep 2026-07-11. Folds the reservation-leak and pre-check-mismatch findings. Load `durable-jobs` skill. DEFERRED 2026-07-11 (agent loop) — the clean fix (idempotent per-job reservation) wants a new listing_generation_jobs.ai_action_reserved column so reclaim can reuse a held reservation instead of re-charging; that is a schema migration and the Docker/supabase db verify lane is unavailable in the agent sandbox, so migration-apply can't be proven here. A column-free heuristic (reserve only when claiming from 'pending'; on a stale-'running' reclaim reuse the assumed-held reservation and skip reserveAiAction; refund once on the MAX_JOB_ATTEMPTS terminal-fail) is fail-safe toward under-charging the seller and satisfies AC1-3, but the attempts-cap refund has edge cases and runJob is a non-exported closure inside processBatch so AC4's crash→reclaim vitest can't be isolated without a refactor. Best done in a session with Docker/db tooling (add the column via the migrations triple) OR paired with a small refactor extracting the reserve/claim step for unit testing.",
       "relevantPaths": [
         "services/edge-functions/src/routes/flipdesk-autolister.ts"
       ]
