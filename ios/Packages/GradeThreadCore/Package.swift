@@ -12,9 +12,13 @@ import PackageDescription
 //
 // The `platforms` line declares Apple minimums for the iOS app integration; it
 // does NOT prevent Linux builds — `swift build` / `swift test` on Linux ignore it.
+// Floor is iOS 17 (NOT 18): `.v18` requires PackageDescription 6.0, but this
+// manifest is `swift-tools-version:5.9` for portability across toolchains, and
+// `.v17` compiles everywhere. The app still targets iOS 18 — a package supporting
+// 17+ integrates fine (17 ≤ 18); this is a pure-logic package with no OS APIs.
 let package = Package(
     name: "GradeThreadCore",
-    platforms: [.iOS(.v18), .macOS(.v13)],
+    platforms: [.iOS(.v17), .macOS(.v13)],
     products: [
         .library(name: "GradeThreadCore", targets: ["GradeThreadCore"]),
     ],

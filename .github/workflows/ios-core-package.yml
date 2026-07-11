@@ -30,9 +30,9 @@ jobs:
   swift-test:
     name: swift test (Linux)
     runs-on: ubuntu-latest
-    # Swift 6.0 (Xcode 16 toolchain) — its PackageDescription knows iOS 18
-    # (.v18), matching the app's deployment target declared in Package.swift.
-    container: swift:6.0
+    # Official Swift toolchain image — no install step. The manifest is
+    # swift-tools-version:5.9 (portable), so any 5.9+ toolchain builds it.
+    container: swift:5.10
     defaults:
       run:
         working-directory: ios/Packages/GradeThreadCore
