@@ -2,75 +2,11 @@ import Charts
 import GradeThreadCore
 import SwiftUI
 
-/// One day's rolled-up selling figures, used to draw the dashboard trend
-/// sparkline. Pure value type so the bucketing math is unit-testable
-/// without a ModelContainer (same split as ``DashboardRollup``).
-struct DashboardTrendPoint: Identifiable, Equatable {
-    let date: Date
-    let revenue: Double
-    let profit: Double
-    var id: Date { date }
-}
-
-enum DashboardTrend {
-
-    /// Bucket sales into one point per day across the trailing `days` window
-    /// (inclusive of today). Days with no sales are present with zeros so the
-    /// line has an even x-axis. Revenue + profit go through ``SalePnL`` (revenue =
-    /// price + shipping collected; net = revenue − all fees − seller costs − cost
-    /// basis) and only COMPLETED sales count, so the sparkline agrees with the
-    /// ``DashboardMetrics`` KPI card above it instead of double-counting refunds
-    /// or using a divergent fees-only profit formula.
-    static func dailySeries(
-        sales: [LocalSale],
-        items: [LocalInventoryItem],
-        days: Int = 14,
-        now: Date = .now,
-        calendar: Calendar = .current
-    ) -> [DashboardTrendPoint] {
-        guard days > 0 else { return [] }
-
-        var costById: [String: Double] = [:]
-        for item in items { costById[item.id] = item.acquiredPrice ?? 0 }
-
-        let today = calendar.startOfDay(for: now)
-        guard let startDay = calendar.date(byAdding: .day, value: -(days - 1), to: today) else {
-            return []
-        }
-
-        // Seed every day in the window so gaps render as zero, not skipped.
-        var revenueByDay: [Date: Double] = [:]
-        var profitByDay: [Date: Double] = [:]
-        var orderedDays: [Date] = []
-        for offset in 0..<days {
-            guard let day = calendar.date(byAdding: .day, value: offset, to: startDay) else { continue }
-            revenueByDay[day] = 0
-            profitByDay[day] = 0
-            orderedDays.append(day)
-        }
-
-        for sale in sales where SalePnL.isCompleted(sale) {
-            let day = calendar.startOfDay(for: sale.saleDate)
-            guard revenueByDay[day] != nil else { continue }  // outside the window
-            let cost = costById[sale.inventoryItemId] ?? 0
-            revenueByDay[day]! += SalePnL.revenue(sale)
-            profitByDay[day]! += SalePnL.net(sale, costBasis: cost)
-        }
-
-        return orderedDays.map {
-            DashboardTrendPoint(
-                date: $0,
-                revenue: revenueByDay[$0] ?? 0,
-                profit: profitByDay[$0] ?? 0
-            )
-        }
-    }
-
-    /// Whether the window has any activity worth charting.
-    static func hasActivity(_ points: [DashboardTrendPoint]) -> Bool {
-        points.contains { $0.revenue != 0 || $0.profit != 0 }
-    }
-}
+// `DashboardTrendPoint` + the daily-bucketing math (`DashboardTrend`) live in
+// GradeThreadCore so they build + unit-test on Linux without a Mac. `LocalSale`
+// / `LocalInventoryItem` conform to `DatedSale` / `ItemCost` (see their models)
+// so the real `@Model` types flow through the package's generic `dailySeries`.
+// Only this SwiftUI/Charts view — which can't leave the app — stays here.
 
 /// Compact revenue sparkline for the dashboard. Area + line, no axes — a
 /// glanceable shape, not a precise chart.

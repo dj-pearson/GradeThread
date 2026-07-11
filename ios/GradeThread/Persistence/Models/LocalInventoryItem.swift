@@ -1,4 +1,5 @@
 import Foundation
+import GradeThreadCore
 import SwiftData
 
 /// Local-cache mirror of Supabase's `inventory_items` / `items_full` row.
@@ -173,3 +174,8 @@ final class LocalInventoryItem {
             && (gradeReportId?.isEmpty ?? true)
     }
 }
+
+// DashboardTrend (in GradeThreadCore) maps a sale's `inventoryItemId` to its
+// cost basis via this protocol. `id` and `acquiredPrice` are already stored, so
+// the conformance is empty. Not `@retroactive` — LocalInventoryItem is here.
+extension LocalInventoryItem: ItemCost {}

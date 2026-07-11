@@ -71,3 +71,8 @@ final class LocalSale {
 // money math is Linux-testable. LocalSale's stored properties already match it,
 // so the conformance is empty. Not `@retroactive` — LocalSale is defined here.
 extension LocalSale: SaleFinancials {}
+
+// DashboardTrend (in GradeThreadCore) buckets sales by day; it needs `saleDate`
+// and `inventoryItemId` on top of the money fields. Both are already stored, so
+// this too is an empty conformance.
+extension LocalSale: DatedSale {}
