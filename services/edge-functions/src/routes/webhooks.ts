@@ -981,6 +981,21 @@ async function handleInvoicePaymentFailed(event: Stripe.Event) {
 
 // ── Checkout completion handlers ─────────────────────────────────
 
+// US-1929: entitlement must require settled funds. Every checkout today is
+// created with `payment_method_types: ["card"]` (synchronous), so a `completed`
+// event implies the money cleared — but if an async method (bank debit) or
+// `automatic_payment_methods` is ever enabled, `completed` can fire while
+// `payment_status` is still "unpaid"/"processing" (the real grant would then be
+// `checkout.session.async_payment_succeeded`). Gate here so a future
+// payment-method change can never grant credits/entitlement on unsettled funds.
+// "no_payment_required" is a legitimate fully-discounted (100%-off) session.
+// Exported for the guard test.
+export function checkoutFundsSettled(
+  paymentStatus: Stripe.Checkout.Session["payment_status"] | null | undefined,
+): boolean {
+  return paymentStatus === "paid" || paymentStatus === "no_payment_required";
+}
+
 async function handleCheckoutCompleted(event: Stripe.Event) {
   const session = event.data.object as Stripe.Checkout.Session;
   const product = session.metadata?.product;
@@ -1003,6 +1018,14 @@ async function handleCheckoutCompleted(event: Stripe.Event) {
   }
 
   if (session.mode !== "payment") return;
+
+  // US-1929: don't grant entitlement on unsettled funds (see checkoutFundsSettled).
+  if (!checkoutFundsSettled(session.payment_status)) {
+    console.warn(
+      `[Webhook] checkout.session.completed not granting entitlement — payment_status=${session.payment_status} session=${session.id}`,
+    );
+    return;
+  }
 
   // Attach customer id on first one-time purchase too. (US-391: reconcile.)
   if (session.customer) {

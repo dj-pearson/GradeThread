@@ -16050,8 +16050,8 @@
         "Vitest: `completed` with `payment_status:\"unpaid\"` grants nothing; `\"paid\"` grants as today"
       ],
       "priority": 1929,
-      "passes": false,
-      "notes": "[P3][Edge/Payments] Code-review sweep 2026-07-11. Latent / defense-in-depth.",
+      "passes": true,
+      "notes": "[P3][Edge/Payments] Code-review sweep 2026-07-11. Latent / defense-in-depth. DONE 2026-07-11 — handleCheckoutCompleted (webhooks.ts) now gates the one-time-payment entitlement dispatch on a new exported checkoutFundsSettled(payment_status) predicate (paid || no_payment_required), early-returning with a warn log otherwise, so credit-pack / per-grade / api-overage grants require settled funds. Comment ties the guard to the payment_method_types:[card] assumption. Test tests/checkout-payment-status_test.ts pins the predicate (paid/no_payment_required→grant; unpaid/null/undefined→no grant, fail-closed). Verified via node-sim of the predicate + deno lint (isolated); full deno check/test runs in CI (deno.land graph is network-blocked in this sandbox).",
       "relevantPaths": [
         "services/edge-functions/src/routes/webhooks.ts"
       ]
