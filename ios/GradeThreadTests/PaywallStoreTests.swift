@@ -19,6 +19,9 @@ final class PaywallStoreTests: XCTestCase {
         // common case. Tests exercising an unresolved/partial catalog override
         // `s.prices` directly or drive it through `load()` (which replaces it).
         s.prices = Dictionary(uniqueKeysWithValues: IAPCatalog.allIds.map { ($0, "$0.00") })
+        // Default to a completed billing fetch (loaded paywall) so the subscription
+        // gate isn't fail-closed; the fail-closed test resets this to false.
+        s.billingLoaded = true
         return s
     }
 
@@ -100,7 +103,8 @@ final class PaywallStoreTests: XCTestCase {
             "com.gradethread.sub.pro.monthly": "$59.00",
             "com.gradethread.credits.25": "$24.99",
         ]
-        // billingLoaded defaults false (fetch never succeeded).
+        // Simulate a failed billing fetch (network/RLS) — gate must fail closed.
+        s.billingLoaded = false
         XCTAssertFalse(s.billingLoaded)
         XCTAssertFalse(s.canPurchase(sub("com.gradethread.sub.pro.monthly")))
         XCTAssertTrue(s.canPurchase(pack("com.gradethread.credits.25")))
@@ -246,6 +250,21 @@ final class PaywallStoreTests: XCTestCase {
         XCTAssertFalse(s.purchaseSucceeded)
         XCTAssertNil(s.purchaseError)             // not a failure
         XCTAssertNil(s.purchasingId)              // spinner cleared
+    }
+
+    // A charged + locally-verified purchase whose server grant didn't confirm must
+    // NOT report success (the old bug fired a success haptic on an unrecorded
+    // purchase). It surfaces the reassuring "processing" state instead.
+    func test_buy_pendingServerConfirmation_showsProcessingNotSuccess() async {
+        let fake = FakeStoreKit(); fake.outcome = .pendingServerConfirmation
+        let s = store(service: fake, billing: .init(plan: "free", status: nil, source: nil, credits: 0))
+        let ok = await s.buy(sub("com.gradethread.sub.pro.monthly"))
+        XCTAssertFalse(ok)
+        XCTAssertTrue(s.purchaseProcessing)       // UI reassures "will appear shortly"
+        XCTAssertFalse(s.purchaseSucceeded)        // NOT a success
+        XCTAssertNil(s.purchaseError)              // NOT a hard error
+        XCTAssertEqual(s.currentPlan, "free")      // no optimistic plan flip
+        XCTAssertNil(s.purchasingId)               // spinner cleared
     }
 
     func test_buy_clearsStripeConflictAtStart() async {

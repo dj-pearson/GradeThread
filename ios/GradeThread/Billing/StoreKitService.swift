@@ -9,6 +9,14 @@ enum PurchaseOutcome: Equatable {
     case pending
     case verificationFailed
     case failed(String)
+    /// The StoreKit purchase completed and verified locally, but the edge
+    /// `/appstore/verify` couldn't be reached to grant credits / switch the plan
+    /// after bounded retries. The transaction is deliberately left UNFINISHED so
+    /// the launch listener (and App Store Server Notifications) reconcile it — so
+    /// this is NOT a failure and NOT a plain success: the entitlement will land
+    /// shortly. The UI must reassure the user rather than claim instant success
+    /// (which fired a success haptic on an unrecorded purchase) or a hard error.
+    case pendingServerConfirmation
     /// The StoreKit purchase verified locally but the edge refused to switch
     /// billing to the App Store because an active Stripe (web) subscription
     /// owns the plan (409 ACTIVE_STRIPE_SUBSCRIPTION). The user must cancel the
@@ -163,7 +171,13 @@ struct StoreKitService: StoreKitProviding {
                                 + "transaction unfinished for listener retry (product \(productId))",
                             category: "iap")
                     }
-                    return report == .stripeConflict ? .stripeConflict : .success
+                    switch report {
+                    case .stripeConflict: return .stripeConflict
+                    // Server never confirmed (left unfinished for listener retry) —
+                    // don't claim success; the entitlement lands once it reconciles.
+                    case .failed: return .pendingServerConfirmation
+                    default: return .success
+                    }
                 case .unverified:
                     Telemetry.backgroundBreadcrumb(
                         "IAP purchase failed local verification (product \(productId))",

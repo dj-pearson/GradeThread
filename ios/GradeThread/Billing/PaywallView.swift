@@ -89,6 +89,17 @@ struct PaywallView: View {
         } message: {
             Text("Your purchase needs approval before it completes. Once it's approved, your plan unlocks automatically — no need to buy again.")
         }
+        // Charged + verified, but the server grant is still catching up. The
+        // transaction is retried automatically; reassure rather than showing a
+        // false "success" or a hard error.
+        .alert("Payment received", isPresented: Binding(
+            get: { store.purchaseProcessing },
+            set: { if !$0 { store.purchaseProcessing = false } }
+        )) {
+            Button("OK", role: .cancel) { store.purchaseProcessing = false }
+        } message: {
+            Text("Thanks — your payment went through. Your purchase will appear shortly, no need to buy again. If it hasn't within a few minutes, tap Restore Purchases.")
+        }
         // The 409 ACTIVE_STRIPE_SUBSCRIPTION dead-end: route to web billing
         // instead of surfacing a bare error.
         .alert("Subscription managed on the web", isPresented: Binding(

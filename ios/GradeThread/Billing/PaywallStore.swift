@@ -83,6 +83,12 @@ final class PaywallStore {
     /// approved, so the UI tells the user it's pending rather than dismissing
     /// silently (US-1144).
     var purchasePending = false
+    /// Set when a purchase verified locally + charged, but the edge couldn't be
+    /// reached to grant it after retries (`.pendingServerConfirmation`). The
+    /// transaction is left unfinished and the listener/ASSN reconcile it, so the
+    /// UI reassures the user it'll appear shortly instead of claiming instant
+    /// success (the old bug fired a success haptic on an unrecorded purchase).
+    var purchaseProcessing = false
 
     /// Outcome of the most recent Restore Purchases tap (US-1251). Previously
     /// restore was fire-and-forget, so a successful restore, a "nothing here",
@@ -295,6 +301,7 @@ final class PaywallStore {
         purchaseError = nil
         stripeConflict = false
         purchasePending = false
+        purchaseProcessing = false
         defer { purchasingId = nil }
 
         let outcome = await service.purchase(productId: entry.productId, appAccountToken: userId)
@@ -329,6 +336,14 @@ final class PaywallStore {
             // Local purchase verified, but the server won't switch billing while
             // a web (Stripe) subscription is active — route the user to web billing.
             stripeConflict = true
+            return false
+        case .pendingServerConfirmation:
+            // Charged + locally verified, but the server grant didn't confirm yet.
+            // The transaction is left unfinished for the listener/ASSN to reconcile,
+            // so refresh (in case it already landed) and reassure — don't claim
+            // success on a purchase the server has no record of yet.
+            await refreshBilling()
+            purchaseProcessing = true
             return false
         case .verificationFailed:
             purchaseError = "Your purchase couldn't be verified. If you were charged, it'll apply shortly."
