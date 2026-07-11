@@ -42,11 +42,15 @@ enum ConsignmentReport {
         for item in soldItems {
             guard let consignor = byId[item.consignorId] else { continue }
             let split = clampPct(item.splitPctOverride ?? consignor.defaultSplitPct)
-            let net = item.salePrice - item.fees
+            // Round each line item to whole cents (Money.cents): consignorPayout is
+            // money OWED to a third party, so `$10.05 × 33.33%` must not carry
+            // fractional-cent noise into the payable, and the per-consignor totals
+            // must foot against a Money-summed equivalent to the cent.
+            let net = Money.cents(item.salePrice - item.fees)
             // Don't pay out on a loss — clamp the consignor's owed amount at 0
             // for a net-negative sale (rare, but a refund-heavy row shouldn't
             // produce a negative "owed").
-            let payout = max(net, 0) * split / 100.0
+            let payout = Money.cents(max(net, 0) * split / 100.0)
 
             var row = rows[item.consignorId] ?? ConsignmentReportRow(
                 consignorId: consignor.id,

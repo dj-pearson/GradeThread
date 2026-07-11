@@ -120,10 +120,13 @@ enum SourceROIRollup {
                 sourceName: name,
                 acquiredCount: a.acquired,
                 soldCount: a.sold,
-                spend: a.spend,
-                revenue: a.revenue,
-                fees: a.fees,
-                cogs: a.cogs
+                // Round each money field to whole cents so the ROI-by-source panel
+                // foots against the Money tab / financial export (which sum the same
+                // values via Money) instead of drifting a cent on a large source.
+                spend: Money.cents(a.spend),
+                revenue: Money.cents(a.revenue),
+                fees: Money.cents(a.fees),
+                cogs: Money.cents(a.cogs)
             )
         }
         .sorted { lhs, rhs in
