@@ -29,7 +29,9 @@ let lastLoadedAt = 0;
 // this window are skipped. refreshProfile() passes force to bypass it.
 const LOAD_DEDUP_MS = 3000;
 
-async function loadProfileAndWorkspaces(
+// Exported for the US-1917 stale-resolution guard test. Not part of the public
+// hook API — components read the store; refreshAuthProfile() is the public entry.
+export async function loadProfileAndWorkspaces(
   userId: string,
   opts?: { force?: boolean },
 ): Promise<void> {
@@ -45,6 +47,15 @@ async function loadProfileAndWorkspaces(
 
   const promise = (async () => {
     const store = useAuthStore.getState();
+    // US-1917: this load is async and uncancellable. On a shared browser a
+    // slow load from the PREVIOUS session can resolve AFTER sign-out
+    // (`s.reset()`) or after a different user signed in, and would otherwise
+    // repopulate profile/workspaces/activeWorkspaceOwnerId with the prior
+    // user's identity. Re-check the live signed-in user against `userId` before
+    // every store write and drop the write when it no longer matches — the
+    // onAuthStateChange handler has already set the current user synchronously
+    // by the time our fetch resolves.
+    const isStillCurrent = () => useAuthStore.getState().user?.id === userId;
     try {
       const [profileRes, membershipsRes] = await Promise.all([
         supabase.from("users").select("*").eq("id", userId).single(),
@@ -55,6 +66,8 @@ async function loadProfileAndWorkspaces(
       ]);
 
       if (profileRes.error) throw profileRes.error;
+      // Stale resolution from a superseded session — drop it before any write.
+      if (!isStillCurrent()) return;
       const userProfile = profileRes.data as UserRow;
       store.setProfile(userProfile);
 
@@ -99,6 +112,9 @@ async function loadProfileAndWorkspaces(
         });
       }
 
+      // Re-check after the (possible) owners fetch await above — the user may
+      // have changed while it was in flight.
+      if (!isStillCurrent()) return;
       const allWorkspaces = [personal, ...memberSummaries];
       store.setWorkspaces(allWorkspaces);
 
@@ -121,13 +137,15 @@ async function loadProfileAndWorkspaces(
       // the very first load, when there's nothing good to preserve; otherwise
       // keep the existing profile/workspaces and leave the dedup window
       // unstamped so the next auth event / mount retries immediately.
-      if (!useAuthStore.getState().profile) {
+      if (isStillCurrent() && !useAuthStore.getState().profile) {
         store.setProfile(null);
         store.setWorkspaces([]);
         store.setActiveWorkspaceOwnerId(null);
       }
     } finally {
-      store.setIsLoading(false);
+      // Only the current load owns the loading flag — a stale resolver must not
+      // flip it for the user who superseded it (that load manages its own).
+      if (isStillCurrent()) store.setIsLoading(false);
     }
   })();
 

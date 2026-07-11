@@ -15835,8 +15835,8 @@
         "Vitest simulates A-signout→B-signin with A's load resolving last and asserts the store never shows A's profile/workspaces after B is active"
       ],
       "priority": 1917,
-      "passes": false,
-      "notes": "[P1][Web/Auth] Code-review sweep 2026-07-11. This is the exact shared-browser case US-1617 designs around; the store write path was missed. Cross-user PII exposure, not just cosmetic.",
+      "passes": true,
+      "notes": "[P1][Web/Auth] Code-review sweep 2026-07-11. This is the exact shared-browser case US-1617 designs around; the store write path was missed. Cross-user PII exposure, not just cosmetic. DONE 2026-07-11 — loadProfileAndWorkspaces (use-auth.ts) now captures isStillCurrent()=(useAuthStore.getState().user?.id===userId) and re-checks it before every store write: before setProfile, again after the (possible) owners-fetch await before setWorkspaces/setActiveWorkspaceOwnerId, in the catch reset, and before the finally setIsLoading. A slow load from a superseded session (A signout -> B signin, A resolves last) drops all its writes instead of repopulating B session with A profile/workspaces/owner. Exported the loader; added use-auth.test.ts (vitest, mocked supabase) proving: non-current resolution writes nothing, current resolution writes normally, superseded load does not flip isLoading (3/3 pass). tsc + eslint clean.",
       "relevantPaths": [
         "src/hooks/use-auth.ts",
         "src/stores/auth-store.ts"
