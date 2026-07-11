@@ -438,7 +438,9 @@ final class PaywallStoreTests: XCTestCase {
     func test_buy_blockedPurchaseDoesNotCallService() async {
         let fake = FakeStoreKit(); fake.outcome = .success
         let s = store(service: fake)
-        s.currentPlan = "pro" // can't re-buy Pro
+        // Already subscribed to this EXACT product — the M10 gate keys on
+        // currentProductId (not the tier), so re-buying the same product is blocked.
+        s.currentProductId = "com.gradethread.sub.pro.monthly"
         let ok = await s.buy(sub("com.gradethread.sub.pro.monthly"))
         XCTAssertFalse(ok)
         XCTAssertNil(fake.purchasedProductId)
