@@ -73,6 +73,8 @@ final class PaywallStoreTests: XCTestCase {
             "com.gradethread.sub.pro.monthly": "$59.00",
             "com.gradethread.sub.business.monthly": "$99.00",
         ]
+        // Billing snapshot fetched successfully (free user, no Stripe).
+        s.billingLoaded = true
         // Free user, no Stripe → can buy Pro.
         XCTAssertTrue(s.canPurchase(sub("com.gradethread.sub.pro.monthly")))
 
@@ -85,6 +87,27 @@ final class PaywallStoreTests: XCTestCase {
         // Managed on web → all subscription purchases blocked.
         s.currentPlan = "free"; s.billingSource = "stripe"; s.subscriptionStatus = "active"
         XCTAssertFalse(s.canPurchase(sub("com.gradethread.sub.pro.monthly")))
+    }
+
+    // Fail CLOSED: when the billing snapshot couldn't be fetched (network/RLS
+    // failure → `billingLoaded` false), a subscription buy is blocked even though
+    // `billingSource` is nil — otherwise a Stripe (web) subscriber whose fetch
+    // failed could start a second, Apple-billed subscription (double-billing).
+    // Consumables stay purchasable (they don't conflict with a web sub).
+    func test_canPurchase_failsClosedWhenBillingUnloaded() {
+        let s = store()
+        s.prices = [
+            "com.gradethread.sub.pro.monthly": "$59.00",
+            "com.gradethread.credits.25": "$24.99",
+        ]
+        // billingLoaded defaults false (fetch never succeeded).
+        XCTAssertFalse(s.billingLoaded)
+        XCTAssertFalse(s.canPurchase(sub("com.gradethread.sub.pro.monthly")))
+        XCTAssertTrue(s.canPurchase(pack("com.gradethread.credits.25")))
+
+        // Once billing loads, a free user can subscribe again.
+        s.billingLoaded = true
+        XCTAssertTrue(s.canPurchase(sub("com.gradethread.sub.pro.monthly")))
     }
 
     func test_canPurchase_consumablesAlwaysAllowed() {

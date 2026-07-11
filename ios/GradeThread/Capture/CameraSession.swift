@@ -158,6 +158,21 @@ public final class CameraSession: NSObject {
                 cont.resume(throwing: CameraError.captureFailed("capture in progress"))
                 return
             }
+            // US-1408 follow-up: never call `capturePhoto` without a live video
+            // connection. AVFoundation raises `NSInvalidArgumentException` ("No
+            // active and enabled video connection") in that case — an Obj-C
+            // exception Swift's `try` CANNOT catch, so the app hard-crashes. This
+            // happens when the shutter is tapped during an interruption (incoming
+            // call, Control Center, FaceTime PiP) or in the brief window after
+            // foregrounding before `startRunning()` has re-activated the session.
+            // Fail with a catchable, user-surfaced error instead.
+            guard let connection = output.connection(with: .video),
+                  connection.isActive, connection.isEnabled else {
+                cont.resume(throwing: CameraError.captureFailed(
+                    "Camera isn't ready yet — try again in a moment."))
+                return
+            }
+
             pendingCompletion = { result in
                 switch result {
                 case .success(let image): cont.resume(returning: image)

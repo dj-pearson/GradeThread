@@ -55,6 +55,14 @@ final class PaywallStore {
     // Current billing state (server truth, enriched by StoreKit for App Store subs).
     var currentPlan: String = "free"
     var billingSource: String?
+    /// True only once a billing snapshot was successfully fetched from the server.
+    /// A network/RLS failure leaves this false so the subscription gate fails
+    /// CLOSED: a Stripe (web) subscriber whose billing fetch fails would otherwise
+    /// see enabled App Store subscribe buttons (`billingSource` stays nil →
+    /// `managedOnWeb` false) and could start a SECOND, Apple-billed subscription
+    /// on top of their web one. A legitimately-free user still fetches a non-nil
+    /// snapshot (source nil), so this never blocks them.
+    var billingLoaded = false
     var subscriptionStatus: String?
     var creditBalance: Int = 0
     /// Renewal/expiry date of the active subscription, for the management card.
@@ -210,8 +218,14 @@ final class PaywallStore {
         guard hasResolvedPrice(entry) else { return false }
         switch entry.kind {
         case let .subscription(plan, _):
-            return !managedOnWeb && !isCurrentPlan(plan)
+            // Fail CLOSED when billing state couldn't be fetched (see
+            // `billingLoaded`): never offer a subscription buy while we can't rule
+            // out an active Stripe (web) subscription, which a second App Store sub
+            // would double-bill on top of.
+            return billingLoaded && !managedOnWeb && !isCurrentPlan(plan)
         case .consumable:
+            // Consumable credit packs don't conflict with a web subscription, so
+            // they stay purchasable even if the billing snapshot is unavailable.
             return true
         }
     }
@@ -367,8 +381,11 @@ final class PaywallStore {
             creditBalance = snapshot.credits
             subscriptionRenewalDate = snapshot.periodEnd
             autoRenewEnabled = !(snapshot.cancelAtPeriodEnd ?? false)
+            billingLoaded = true
         }
-        // Else keep prior values; the paywall still renders with defaults.
+        // Else keep prior values; the paywall still renders with defaults, but
+        // `billingLoaded` stays false so `canPurchase` blocks subscription buys
+        // until we can confirm the user isn't already Stripe-subscribed.
 
         // Enrich from StoreKit's on-device entitlement — the freshest source for
         // App Store-billed subs (the server snapshot lags the webhook). Stripe

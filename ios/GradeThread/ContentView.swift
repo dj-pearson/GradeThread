@@ -154,9 +154,15 @@ struct ContentView: View {
                     // can't serve the next account on this device.
                     Task { await EdgeAPI.shared.clearCache() }
                     PushService.shared.clearTokenOnSignOut()
-                    Task { await syncEngine?.stop() }
+                    // Capture strongly before nil-ing (mirrors the invalidateScope
+                    // pattern above): a deferred `Task { await syncEngine?.stop() }`
+                    // reads the `@State` optional when the task RUNS — after the
+                    // synchronous `= nil` below — so `stop()` would never fire, leaking
+                    // the realtime channel subscription and the engine's connectivity
+                    // Task on every sign-out.
+                    if let engine = syncEngine { Task { await engine.stop() } }
                     syncEngine = nil
-                    Task { await realtimeService?.stop() }
+                    if let rt = realtimeService { Task { await rt.stop() } }
                     realtimeService = nil
                     // Cancel any in-flight uploads + wipe the store so
                     // the next user doesn't see ghost progress bars
