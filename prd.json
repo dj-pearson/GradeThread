@@ -16178,8 +16178,8 @@
         "Refocusing a dashboard tab no longer triggers a burst of network refetches for still-fresh-enough data"
       ],
       "priority": 1937,
-      "passes": false,
-      "notes": "[P3][Web/Perf] Code-review sweep 2026-07-11.",
+      "passes": true,
+      "notes": "[P3][Web/Perf] Code-review sweep 2026-07-11. DONE 2026-07-11 — set refetchOnWindowFocus:false in the global QueryClient default (src/lib/query-client.ts). Verified nothing relies on focus-refetch: no query sets refetchOnWindowFocus anywhere; queries needing periodic freshness use explicit refetchInterval (polling), which is unaffected. Refocusing a data-heavy tab no longer fires a refetch burst. Documented the opt-back-in path. tsc + eslint clean.",
       "relevantPaths": [
         "src/lib/query-client.ts"
       ]
