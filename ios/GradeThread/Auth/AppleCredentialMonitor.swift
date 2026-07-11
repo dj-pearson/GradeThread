@@ -36,7 +36,9 @@ enum AppleCredentialMonitor {
     }
 
     static var storedUserId: String? {
-        if let stored = try? store.retrieve(key: userIdKey), let data = stored,
+        // `try?` on a throwing `-> Data?` flattens to `Data?` (SE-0230), so this
+        // single `if let` yields the non-optional `Data`.
+        if let data = try? store.retrieve(key: userIdKey),
            let id = String(data: data, encoding: .utf8) {
             return id
         }
