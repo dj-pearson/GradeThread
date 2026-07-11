@@ -15610,7 +15610,7 @@
         "Publish path unchanged (already consumes these columns); web test covers prefill + clamp"
       ],
       "priority": 1898,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][UI][LHF] See EBAY_RANKING_PLAYBOOK.md §10. Pure frontend + existing columns; no edge changes expected. Added 2026-07-09."
     },
     {
@@ -15667,13 +15667,13 @@
         "A test renders the pricing page with all buyer flags off and asserts every placeholder-backed feature shows the badge, so newly added buyer features can't silently regress the labeling"
       ],
       "priority": 1902,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
       "id": "US-1903",
       "priority": 2601,
-      "passes": false,
+      "passes": true,
       "title": "Verify-groups covers EVERY group via sequential windows, not just the first ~13",
       "description": "As a seller with a 45-listing session, when I ask AI to verify my groups I want ALL of them checked, not a toast saying 'only the first 13 groups were checked this pass'. Today sampleGroupsForVerify (services/edge-functions/src/lib/ai-group-verify.ts) budgets 40 photos (~3/group → ~13 groups) and the client (verifyGroups() in src/pages/flipdesk/autolister.tsx) sends everything once and surfaces `truncated` as a toast with no way to continue.",
       "acceptanceCriteria": [
@@ -15688,7 +15688,7 @@
     {
       "id": "US-1904",
       "priority": 2602,
-      "passes": false,
+      "passes": true,
       "title": "AI propose-groups: vision boundary detection groups an EXIF-less photo dump",
       "description": "As a seller who dumps 600 photos with no usable EXIF (exports, screenshots, some cameras), I want an 'AI group remaining' action that looks at the photos in shooting order and proposes where one item ends and the next begins, so I don't hand-build dozens of groups. Today a timeless dump becomes per-photo singletons (seedSequenceClusters caps runs at MAX_AUTO_GROUP_PHOTOS=12) plus weak dHash merges — safe, but the grouping work lands on the seller. dHash Hamming≤10 cannot tell 'same garment, new angle' from 'different garment, same background'; a cheap vision pass can.",
       "acceptanceCriteria": [
@@ -15703,7 +15703,7 @@
     {
       "id": "US-1905",
       "priority": 2603,
-      "passes": false,
+      "passes": true,
       "title": "IndexedDB session persistence + upload resume after reload (600-photo sessions never lost)",
       "description": "As a seller mid-way through a 600-photo intake, I want the session (staged photos, groups, roles, pending uploads) to survive a tab reload or crash, so I never lose grouping work or queued uploads. Today session state lives in localStorage (autolister:state:<sessionId>) which can overflow on large sessions (explicit 'too large to save fully' warning drops undo snapshots), and in-flight/queued File objects are simply lost on reload (lostUploadCount).",
       "acceptanceCriteria": [
@@ -15732,7 +15732,7 @@
     {
       "id": "US-1907",
       "priority": 2605,
-      "passes": false,
+      "passes": true,
       "title": "Group triage strip: overview, jump-to-group, and needs-attention filters for 40+ group sessions",
       "description": "As a seller reviewing ~45 proposed groups, I want a sticky overview that shows session health and lets me jump straight to the groups that need work, instead of scrolling a long column hunting for problems.",
       "acceptanceCriteria": [
@@ -15746,7 +15746,7 @@
     {
       "id": "US-1908",
       "priority": 2606,
-      "passes": false,
+      "passes": true,
       "title": "Grouping quality telemetry: measure auto-group accuracy so thresholds are tuned on real data",
       "description": "As the product owner, I want to know how well auto-grouping actually performs on real sessions — how much sellers correct it — so DEFAULT_GAP_SECONDS, VISUAL_MERGE_MAX_DISTANCE, and MAX_AUTO_GROUP_PHOTOS get tuned from evidence instead of anecdotes.",
       "acceptanceCriteria": [
@@ -15796,7 +15796,7 @@
     {
       "id": "US-1911",
       "priority": 2609,
-      "passes": false,
+      "passes": true,
       "title": "Photo-QA client calls chunk to the server's 100-item cap (300-item sessions get scored, not 400s)",
       "description": "As a seller with a 150+ group session, I want cover QA and per-item photo QA to actually run instead of silently failing. The /photo-qa endpoint rejects >MAX_QA_ITEMS=100 covers/items per request (flipdesk-autolister.ts:1199), but both clients send everything in ONE request: the intake cover-scan effect (autolister.tsx ~line 806) posts all pending covers, and useRunPhotoQa (src/hooks/use-autolister.ts) posts all itemIds. Cover QA is advisory/fire-and-forget, so past 100 groups the 400 is swallowed and covers just never get scored; the queue path surfaces a raw error toast. MAX_BATCH_ITEMS is 300, so this is reachable today.",
       "acceptanceCriteria": [

@@ -22,6 +22,8 @@ import {
   RotateCcw,
   Camera,
   Ungroup,
+  ChevronsDownUp,
+  ChevronsUpDown,
   GripVertical,
   FolderInput,
   ArrowUpDown,
@@ -83,7 +85,35 @@ import {
   autoGroupPhotos,
   compareByProvenance,
   type GroupablePhoto,
+  MAX_AUTO_GROUP_PHOTOS,
+  sequenceRuns,
 } from "@/lib/autolister-grouping";
+import {
+  computeTriage,
+  type TriageCondition,
+} from "@/lib/autolister-triage";
+import {
+  type ClientProposedGroup,
+  mergeProposalWindows,
+  planProposeWindows,
+  PROPOSE_WINDOW,
+} from "@/lib/autolister-propose-windows";
+import {
+  clearSession,
+  idbAvailable,
+  loadSession,
+  migrateSessionFromLocalStorage,
+  saveSession,
+} from "@/lib/autolister-session-idb";
+import {
+  type GroupEditKind,
+  groupingCorrectionScore,
+  manualGroupsCreated,
+  trackAiSuggestion,
+  trackAutogroupRun,
+  trackGroupEdit,
+  trackGroupingOutcome,
+} from "@/lib/autolister-telemetry";
 import {
   type StagedPhoto,
   type StagedUploadResult,
@@ -93,6 +123,11 @@ import {
 import { autoEnhance, type EnhanceStats } from "@/lib/image-enhance";
 import { removeImageBackground, type BgMode } from "@/lib/background-removal";
 import { useStartAutolisterBatch, useRunCoverQa } from "@/hooks/use-autolister";
+import {
+  dedupeSuggestions,
+  MAX_VERIFY_SAMPLE_PHOTOS,
+  planVerifyWindows,
+} from "@/lib/autolister-verify-windows";
 import { useBillingSummary } from "@/hooks/use-billing-summary";
 import { useUpgradeDialogStore } from "@/stores/upgrade-dialog-store";
 import {
@@ -187,6 +222,14 @@ interface GroupSuggestionRow {
   reason: string;
 }
 
+// US-1903: one group's verify payload (server-sampled photos) plus the count
+// the windowing helper packs against.
+interface VerifyWindowGroup {
+  id: string;
+  photos: { id: string; storage_path: string }[];
+  photoCount: number;
+}
+
 // Sort key for the name sort. Pre-sourceName photos recover the filename from
 // sourceSig (`name|size|mtime` — name may itself contain "|", so strip the
 // two known trailing segments). null = no name known (e.g. Google imports).
@@ -220,6 +263,13 @@ const UNGROUPED_SORT_LABELS: Record<UngroupedSortMode, string> = {
 // column counts, so every breakpoint windows on full rows.
 const GRID_CHUNK = 105;
 const GROUPS_CHUNK = 24;
+// US-1907: the needs-attention chips in the triage strip, in display order.
+const TRIAGE_CHIPS: { condition: TriageCondition; label: string }[] = [
+  { condition: "singleton", label: "singletons" },
+  { condition: "oversized", label: "oversized" },
+  { condition: "missing_cover_or_tag", label: "missing cover/tag" },
+  { condition: "has_suggestion", label: "AI suggestions" },
+];
 // Cap on visible per-file upload rows — 600 progress bars is its own jank.
 // Errors always render (they need action); the aggregate header carries totals.
 const UPLOAD_ROWS_CAP = 80;
@@ -496,9 +546,19 @@ export function FlipdeskAutolisterPage() {
   const folderInputRef = useRef<HTMLInputElement>(null);
 
   const storageKey = `autolister:state:${sessionId.current}`;
+  // US-1543 single-level undo snapshot; US-1905 persists it into the IDB session.
+  // Declared here (not by the mutation helpers) so the persist/rehydrate effects
+  // below can read it.
+  const undoGroupsRef = useRef<Group[] | null>(null);
+  // US-1905: gate persistence until the async IndexedDB rehydrate finishes, so
+  // the localStorage-seeded initial state can't clobber a fuller IDB session
+  // (localStorage may be stale/truncated on large sessions).
+  const hydratedRef = useRef(false);
   // Lazy-rehydrate staged/groups from localStorage so a refresh recovers the
-  // in-flight session. Uploaded photos live in Supabase Storage independently;
-  // only the in-memory grouping state is at risk of loss.
+  // in-flight session (instant first paint + the IndexedDB-unavailable
+  // fallback); US-1905 then overrides from IndexedDB when it's available.
+  // Uploaded photos live in Supabase Storage independently; only the in-memory
+  // grouping state is at risk of loss.
   const [staged, setStaged] = useState<StagedPhoto[]>(() => {
     if (typeof window === "undefined") return [];
     try {
@@ -548,6 +608,26 @@ export function FlipdeskAutolisterPage() {
   // US-1541: windowed-rendering limits (raised by the LoadMoreSentinels).
   const [ungroupedLimit, setUngroupedLimit] = useState(GRID_CHUNK);
   const [groupsLimit, setGroupsLimit] = useState(GROUPS_CHUNK);
+  // US-1907: triage strip — filter the group list to a needs-attention
+  // condition, and collapse every group's photos to a header-only overview.
+  const [triageFilter, setTriageFilter] = useState<TriageCondition | null>(null);
+  const [groupsCollapsed, setGroupsCollapsed] = useState(false);
+  // US-1904: AI propose-groups ("AI group remaining"). Windows the ungrouped
+  // photos sequentially; a >1-window pass confirms the metered count first,
+  // shows progress, and is cancellable. Below-floor boundaries land in
+  // `proposalReviews` as chips instead of being applied silently.
+  const [proposing, setProposing] = useState(false);
+  const [proposeProgress, setProposeProgress] = useState<{ done: number; total: number } | null>(
+    null,
+  );
+  const proposeCancelRef = useRef(false);
+  const [proposeConfirm, setProposeConfirm] = useState<
+    | { windows: string[][]; windowCount: number; photoCount: number }
+    | null
+  >(null);
+  const [proposalReviews, setProposalReviews] = useState<
+    { id: string; photoIds: string[]; confidence: number; reason: string }[]
+  >([]);
   // Group ids created by the LAST auto-group run so it can be undone as one
   // action (those photos return to Ungrouped; manually-made groups survive).
   // In-memory only: a mis-grouped but persisted session is reset via
@@ -595,6 +675,16 @@ export function FlipdeskAutolisterPage() {
   // auto-applied — rendered as dismissible chips on the affected groups.
   const [groupSuggestions, setGroupSuggestions] = useState<GroupSuggestionRow[]>([]);
   const [verifyingGroups, setVerifyingGroups] = useState(false);
+  // US-1903: the explicit "Verify groups" pass walks ALL groups across
+  // sequential windows (one /verify-groups call each). Progress is shown while
+  // windows run and is cancellable between windows; a >1-window pass asks for
+  // confirmation first (each window is one metered AI action).
+  const [verifyProgress, setVerifyProgress] = useState<{ done: number; total: number } | null>(null);
+  const verifyCancelRef = useRef(false);
+  const [verifyConfirm, setVerifyConfirm] = useState<
+    | { windows: VerifyWindowGroup[][]; windowCount: number; totalGroups: number }
+    | null
+  >(null);
   // US-1546: pre-generate checkpoint — Generate opens this confirm dialog;
   // when photos would be left ungrouped, an explicit acknowledgment gates it.
   const [confirmGenerateOpen, setConfirmGenerateOpen] = useState(false);
@@ -671,20 +761,78 @@ export function FlipdeskAutolisterPage() {
     }
   }, []);
 
-  // Persist whenever staged / groups change. US-1541: size-guarded — a 600-
-  // photo session's JSON is normally well under quota, but the per-photo
-  // `original` snapshots (pre-edit revert data) can inflate it. On a quota
-  // error, degrade gracefully: retry WITHOUT the snapshots (losing only the
-  // ability to revert edits after a reload), and warn once instead of
-  // silently dropping session recovery.
+  // US-1905: rehydrate the FULL session from IndexedDB on mount (migrating an
+  // existing localStorage session on first run). IDB is authoritative — for a
+  // 600-photo session localStorage may be stale or truncated. `hydratedRef`
+  // gates the persist effect until this completes, so the localStorage-seeded
+  // initial state can't overwrite a fuller IDB session. Undo snapshot restored
+  // too. No IndexedDB (some private-browsing modes) → keep the localStorage
+  // state and mark hydrated immediately.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (idbAvailable()) {
+        try {
+          const raw = (() => {
+            try {
+              return window.localStorage.getItem(storageKey);
+            } catch {
+              return null;
+            }
+          })();
+          const loaded =
+            (await migrateSessionFromLocalStorage(sessionId.current, raw)) ??
+            (await loadSession(sessionId.current));
+          if (!cancelled && loaded) {
+            if (Array.isArray(loaded.staged)) {
+              const idbStaged = loaded.staged as StagedPhoto[];
+              const idbIds = new Set(idbStaged.map((p) => p.id));
+              // Merge, not replace: keep any photo an upload claimed during the
+              // async rehydrate window (IDB is authoritative for the rest).
+              setStaged((cur) => [...idbStaged, ...cur.filter((p) => !idbIds.has(p.id))]);
+            }
+            if (Array.isArray(loaded.groups) && loaded.groups.length > 0) {
+              setGroups(loaded.groups as Group[]);
+            }
+            if (Array.isArray(loaded.undo)) undoGroupsRef.current = loaded.undo as Group[];
+          }
+        } catch {
+          /* keep the localStorage-seeded state */
+        }
+      }
+      if (!cancelled) hydratedRef.current = true;
+      // US-1905: resume uploads persisted before a reload (part 2). Runs after
+      // the localStorage-derived staged identities are synced, so a photo that
+      // finished before the reload isn't re-uploaded.
+      void useAutolisterUploadStore.getState().resumeUploads(sessionId.current);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Persist whenever staged / groups change. US-1905: IndexedDB is the primary
+  // store (no size limit → a 600-photo session saves fully, undo snapshot
+  // included). localStorage remains the fallback when IndexedDB is unavailable,
+  // where the US-1541 size-guard (drop `original` snapshots, warn once) still
+  // applies. Gated on `hydratedRef` so it can't run before the IDB rehydrate.
   const persistWarnedRef = useRef(false);
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined" || !hydratedRef.current) return;
+    if (idbAvailable()) {
+      void saveSession(sessionId.current, {
+        staged,
+        groups,
+        undo: undoGroupsRef.current,
+        sort: { ungroupedSort, groupEvery },
+        updatedAt: Date.now(),
+      });
+      return;
+    }
+    // Fallback: localStorage, size-guarded (only reached without IndexedDB).
     try {
-      window.localStorage.setItem(
-        storageKey,
-        JSON.stringify({ staged, groups }),
-      );
+      window.localStorage.setItem(storageKey, JSON.stringify({ staged, groups }));
       return;
     } catch {
       /* fall through to the slimmed retry */
@@ -695,10 +843,7 @@ export function FlipdeskAutolisterPage() {
         delete copy.original;
         return copy;
       });
-      window.localStorage.setItem(
-        storageKey,
-        JSON.stringify({ staged: slimmed, groups }),
-      );
+      window.localStorage.setItem(storageKey, JSON.stringify({ staged: slimmed, groups }));
       if (!persistWarnedRef.current) {
         persistWarnedRef.current = true;
         toast.warning(
@@ -713,7 +858,7 @@ export function FlipdeskAutolisterPage() {
         );
       }
     }
-  }, [staged, groups, storageKey]);
+  }, [staged, groups, storageKey, ungroupedSort, groupEvery]);
 
   const stagedById = useMemo(
     () => new Map(staged.map((p) => [p.id, p])),
@@ -784,6 +929,39 @@ export function FlipdeskAutolisterPage() {
     [groups, coverScores],
   );
 
+  // US-1907: needs-attention buckets + session totals for the triage strip.
+  const triageSummary = useMemo(
+    () =>
+      computeTriage(
+        groups.map((g) => ({
+          id: g.id,
+          photoIds: g.photoIds,
+          coverId: g.coverId,
+          roles: g.roles ?? {},
+        })),
+        groupSuggestions,
+        ungrouped.length,
+        MAX_AUTO_GROUP_PHOTOS,
+      ),
+    [groups, groupSuggestions, ungrouped.length],
+  );
+  // The set of group ids matching the active triage filter (for list filtering).
+  const triageFilterSet = useMemo(
+    () => (triageFilter ? new Set(triageSummary.buckets[triageFilter]) : null),
+    [triageFilter, triageSummary],
+  );
+  // The groups actually rendered: all of them, or just the filtered condition.
+  const shownGroups = useMemo(
+    () => (triageFilterSet ? groups.filter((g) => triageFilterSet.has(g.id)) : groups),
+    [groups, triageFilterSet],
+  );
+  // Clear a stale filter once the seller resolves the last group in that bucket.
+  useEffect(() => {
+    if (triageFilter && triageSummary.buckets[triageFilter].length === 0) {
+      setTriageFilter(null);
+    }
+  }, [triageFilter, triageSummary]);
+
   // US-957: as photos get grouped, score each group's cover so a low-quality
   // cover can be reshot before the (much pricier) AI generation runs. Each pass
   // batches the not-yet-scored covers into a single request; the edge runs the
@@ -803,16 +981,22 @@ export function FlipdeskAutolisterPage() {
     }
     if (pending.length === 0) return;
     for (const p of pending) coverInFlight.current.add(p.id);
+    // US-1911: the hook chunks `pending` to the server's ≤100-per-request cap
+    // and merges partials as each chunk resolves. onSettled clears in-flight for
+    // ALL pending covers — including any left unscored by a failed chunk — so a
+    // later intake pass (triggered when the grouping changes) retries them.
     coverQa.mutate(
-      { covers: pending },
       {
-        onSuccess: ({ results }) => {
+        covers: pending,
+        onPartial: (results) => {
           setCoverScores((prev) => {
             const next = { ...prev };
             for (const r of results) next[r.cover_id] = r.score;
             return next;
           });
         },
+      },
+      {
         onSettled: () => {
           for (const p of pending) coverInFlight.current.delete(p.id);
         },
@@ -1365,9 +1549,14 @@ export function FlipdeskAutolisterPage() {
   }
 
   // ── US-1543: undoable grouping mutations + drag-and-drop ───────────
+  // (undoGroupsRef is declared near the session state above so US-1905's
+  // persist/rehydrate effects can read the snapshot.)
 
-  /** Snapshot for single-level undo of the LAST grouping mutation. */
-  const undoGroupsRef = useRef<Group[] | null>(null);
+  // US-1908: the auto-grouper's assignment (photoId → group id) and the ids of
+  // the groups it created, captured at Auto-group time. The correction score at
+  // generate compares these against the final grouping.
+  const autoAssignedRef = useRef<Record<string, string>>({});
+  const autoGroupIdsRef = useRef<Set<string>>(new Set());
 
   /**
    * Apply a grouping mutation with single-level undo: snapshots the previous
@@ -1375,11 +1564,17 @@ export function FlipdeskAutolisterPage() {
    * reference on a no-op (the autolister-group-edits helpers do) so nothing is
    * snapshotted or toasted for nothing. Returns whether it applied.
    */
-  function applyGroupEdit(label: string, apply: (prev: Group[]) => Group[]): boolean {
+  function applyGroupEdit(
+    label: string,
+    apply: (prev: Group[]) => Group[],
+    kind?: GroupEditKind,
+  ): boolean {
     const next = apply(groups);
     if (next === groups) return false;
     undoGroupsRef.current = groups;
     setGroups(next);
+    // US-1908: measure how much sellers correct the auto-grouper.
+    if (kind) trackGroupEdit(kind);
     toast.success(label, {
       action: { label: "Undo", onClick: undoLastGroupEdit },
     });
@@ -1409,8 +1604,10 @@ export function FlipdeskAutolisterPage() {
       `Moved ${photoIds.length === 1 ? "photo" : `${photoIds.length} photos`} to ` +
       `${groupNameOf(targetGroupId)}.`;
     if (
-      applyGroupEdit(label, (prev) =>
-        movePhotosToGroup(prev, photoIds, targetGroupId, beforePhotoId),
+      applyGroupEdit(
+        label,
+        (prev) => movePhotosToGroup(prev, photoIds, targetGroupId, beforePhotoId),
+        "move",
       )
     ) {
       setSelected(new Set());
@@ -1419,27 +1616,122 @@ export function FlipdeskAutolisterPage() {
 
   /** "New group" from the move menu: pull the photo out of any group first. */
   function newGroupFromPhoto(photoId: string) {
-    applyGroupEdit("New group created.", (prev) => {
-      const cleared = movePhotosToGroup(prev, [photoId], null);
-      return [
-        ...cleared,
-        {
-          id: crypto.randomUUID(),
-          name: `Item ${prev.length + 1}`,
-          photoIds: [photoId],
-          coverId: photoId,
-        },
-      ];
-    });
+    applyGroupEdit(
+      "New group created.",
+      (prev) => {
+        const cleared = movePhotosToGroup(prev, [photoId], null);
+        return [
+          ...cleared,
+          {
+            id: crypto.randomUUID(),
+            name: `Item ${prev.length + 1}`,
+            photoIds: [photoId],
+            coverId: photoId,
+          },
+        ];
+      },
+      "split",
+    );
   }
 
   // ── US-1544: AI group-boundary verification ────────────────────────
 
   /**
-   * One cheap vision call sanity-checks the proposed grouping (adjacent-group
-   * boundaries + intra-group outliers). Suggestions come back as dismissible
-   * chips — never auto-applied. Uses ONE AI action. `checkGroups` lets
-   * autoGroup() verify the groups it JUST created (state not committed yet).
+   * Build the server-sampled verify payload for the eligible groups. Internal
+   * (seller-reference) and measurement photos stay out of the vision pass
+   * (US-1549/US-1571). Groups with no listable photo are dropped.
+   */
+  function buildVerifyPayload(checkGroups: Group[]): VerifyWindowGroup[] {
+    return checkGroups
+      .filter((g) => g.photoIds.length > 0)
+      .map((g) => {
+        const photos = g.photoIds
+          .filter((pid) => !isNonListablePhotoType(g.roles?.[pid] ?? "detail"))
+          .map((pid) => stagedById.get(pid))
+          .filter((p): p is StagedPhoto => !!p)
+          .map((p) => ({ id: p.id, storage_path: p.storagePath }));
+        return { id: g.id, photos, photoCount: photos.length };
+      })
+      .filter((g) => g.photos.length > 0);
+  }
+
+  /**
+   * US-1903: walk `windows` sequentially — one /verify-groups call each — so a
+   * large session gets EVERY group checked, not just the first ~13. Progress is
+   * shown for a multi-window pass and the run is cancellable between windows;
+   * suggestions aggregate across windows and dedupe by (type, group_ids,
+   * photo_ids) before rendering. Each window is one metered AI action.
+   */
+  async function runVerifyWindows(windows: VerifyWindowGroup[][], silent: boolean) {
+    if (windows.length === 0) return;
+    const multi = windows.length > 1;
+    const totalGroups = windows.reduce((n, w) => n + w.length, 0);
+    setVerifyingGroups(true);
+    verifyCancelRef.current = false;
+    setVerifyProgress(multi ? { done: 0, total: totalGroups } : null);
+    const collected: GroupSuggestionRow[] = [];
+    let done = 0;
+    let anyError = false;
+    try {
+      for (const window of windows) {
+        if (verifyCancelRef.current) break;
+        try {
+          const res = await edgeFetch("/api/flipdesk/autolister/verify-groups", {
+            method: "POST",
+            json: { groups: window.map((g) => ({ id: g.id, photos: g.photos })) },
+          });
+          const json = (await res.json().catch(() => ({}))) as {
+            suggestions?: Array<Omit<GroupSuggestionRow, "id">>;
+            error?: string;
+          };
+          if (!res.ok) {
+            anyError = true;
+            if (!silent && !multi) toast.error(json.error || "Could not verify the grouping.");
+          } else {
+            for (const s of json.suggestions ?? []) {
+              collected.push({ ...s, id: crypto.randomUUID() });
+            }
+          }
+        } catch (err) {
+          anyError = true;
+          if (!silent && !multi) {
+            toast.error(`Verify failed: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+        done += window.length;
+        if (multi) setVerifyProgress({ done, total: totalGroups });
+      }
+
+      const deduped = dedupeSuggestions(collected);
+      // Don't clobber existing chips if the whole pass errored with nothing to
+      // show; otherwise the fresh result (even empty) replaces the old chips.
+      if (!(anyError && deduped.length === 0)) setGroupSuggestions(deduped);
+
+      if (verifyCancelRef.current) {
+        if (!silent) toast.info(`Stopped — checked ${done} of ${totalGroups} groups.`);
+      } else if (deduped.length > 0) {
+        toast.info(
+          `AI flagged ${deduped.length} possible grouping fix${deduped.length === 1 ? "" : "es"} — review the highlighted groups.`,
+        );
+      } else if (!silent && anyError) {
+        toast.error("Some groups couldn't be checked — try again.");
+      } else if (!silent) {
+        toast.success("The grouping looks right to the AI.");
+      }
+    } finally {
+      setVerifyingGroups(false);
+      setVerifyProgress(null);
+    }
+  }
+
+  /**
+   * On-demand AI grouping sanity check. Suggestions come back as dismissible
+   * chips — never auto-applied. `checkGroups` lets autoGroup() verify the groups
+   * it JUST created (state not committed yet).
+   *
+   * The silent auto-run after auto-group stays single-window/cheap (one AI
+   * action). The explicit pass covers ALL groups: if it needs more than one
+   * window it first asks the seller to confirm the metered-action count.
    */
   async function verifyGroups(silent: boolean, checkGroups: Group[] = groups) {
     if (verifyingGroups) return;
@@ -1448,59 +1740,162 @@ export function FlipdeskAutolisterPage() {
       if (!silent) toast.info("Group at least two items first — then AI can compare them.");
       return;
     }
-    setVerifyingGroups(true);
-    try {
-      const payloadGroups = eligible
-        .map((g) => ({
-          id: g.id,
-          photos: g.photoIds
-            // US-1549/US-1571: internal (seller-reference) and measurement
-            // (MeasureCard frame) photos stay out of the vision passes.
-            .filter((pid) => !isNonListablePhotoType(g.roles?.[pid] ?? "detail"))
-            .map((pid) => stagedById.get(pid))
-            .filter((p): p is StagedPhoto => !!p)
-            .map((p) => ({ id: p.id, storage_path: p.storagePath })),
-        }))
-        .filter((g) => g.photos.length > 0);
-      if (payloadGroups.length < 2) return;
-      const res = await edgeFetch("/api/flipdesk/autolister/verify-groups", {
-        method: "POST",
-        json: { groups: payloadGroups },
+    const payloadGroups = buildVerifyPayload(checkGroups);
+    if (payloadGroups.length < 2) return;
+    const windows = planVerifyWindows(payloadGroups, MAX_VERIFY_SAMPLE_PHOTOS);
+    if (windows.length === 0) return;
+    if (silent) {
+      // Cheap as before: only the first window runs automatically.
+      await runVerifyWindows([windows[0]!], true);
+      return;
+    }
+    if (windows.length > 1) {
+      // Show the metered-action count up front before spending it.
+      setVerifyConfirm({
+        windows,
+        windowCount: windows.length,
+        totalGroups: payloadGroups.length,
       });
-      const json = (await res.json().catch(() => ({}))) as {
-        suggestions?: Array<Omit<GroupSuggestionRow, "id">>;
-        groups_covered?: number;
-        truncated?: boolean;
-        error?: string;
-      };
-      if (!res.ok) {
-        if (!silent) toast.error(json.error || "Could not verify the grouping.");
+      return;
+    }
+    await runVerifyWindows(windows, false);
+  }
+
+  // ── US-1904: AI propose-groups ("AI group remaining") ──────────────
+  // Below this confidence, a proposed boundary is surfaced as a review chip
+  // rather than applied — the seller confirms it.
+  const PROPOSE_APPLY_FLOOR = 0.6;
+
+  /** Create groups from proposed photo-id runs in ONE undoable mutation, only
+   *  for photos that are still ungrouped when applied. */
+  function applyProposedGroups(runs: { photoIds: string[] }[]) {
+    applyGroupEdit(
+      `AI grouped ${runs.length} item${runs.length === 1 ? "" : "s"}.`,
+      (prev) => {
+        const grouped = new Set(prev.flatMap((g) => g.photoIds));
+        const created: Group[] = [];
+        for (const run of runs) {
+          const ids = run.photoIds.filter((id) => !grouped.has(id));
+          if (ids.length === 0) continue;
+          for (const id of ids) grouped.add(id);
+          created.push({
+            id: crypto.randomUUID(),
+            name: `Item ${prev.length + created.length + 1}`,
+            photoIds: ids,
+            coverId: ids[0]!,
+          });
+        }
+        return created.length === 0 ? prev : [...prev, ...created];
+      },
+      "split",
+    );
+  }
+
+  async function runProposeWindows(windows: string[][]) {
+    if (windows.length === 0) return;
+    const multi = windows.length > 1;
+    const totalPhotos = ungroupedSorted.length;
+    setProposing(true);
+    proposeCancelRef.current = false;
+    setProposeProgress(multi ? { done: 0, total: totalPhotos } : null);
+    const pathById = new Map(ungroupedSorted.map((p) => [p.id, p.storagePath]));
+    const windowResults: ClientProposedGroup[][] = [];
+    let anyError = false;
+    let done = 0;
+    try {
+      for (const win of windows) {
+        if (proposeCancelRef.current) break;
+        const photos = win
+          .map((id) => ({ id, storage_path: pathById.get(id) ?? "" }))
+          .filter((p) => p.storage_path);
+        try {
+          const res = await edgeFetch("/api/flipdesk/autolister/propose-groups", {
+            method: "POST",
+            json: { photos },
+          });
+          const json = (await res.json().catch(() => ({}))) as {
+            groups?: { photo_ids: string[]; confidence: number; reason: string }[];
+            error?: string;
+          };
+          if (!res.ok) {
+            anyError = true;
+            if (!multi) toast.error(json.error || "Could not propose groups.");
+          } else {
+            windowResults.push(
+              (json.groups ?? []).map((g) => ({
+                photoIds: g.photo_ids,
+                confidence: g.confidence,
+                reason: g.reason,
+              })),
+            );
+          }
+        } catch (err) {
+          anyError = true;
+          if (!multi) {
+            toast.error(`Propose failed: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+        done += win.length;
+        if (multi) setProposeProgress({ done, total: totalPhotos });
+      }
+
+      if (proposeCancelRef.current) {
+        toast.info(`Stopped — proposed over ${done} of ${totalPhotos} photos.`);
         return;
       }
-      const rows: GroupSuggestionRow[] = (json.suggestions ?? []).map((s) => ({
-        ...s,
-        id: crypto.randomUUID(),
-      }));
-      setGroupSuggestions(rows);
-      if (rows.length > 0) {
-        toast.info(
-          `AI flagged ${rows.length} possible grouping fix${rows.length === 1 ? "" : "es"} — review the highlighted groups.`,
-          json.truncated
-            ? { description: `Only the first ${json.groups_covered} groups were checked this pass.` }
-            : undefined,
-        );
-      } else if (!silent) {
-        toast.success("The grouping looks right to the AI.");
+      // A singleton stays a singleton; only multi-photo items are worth applying.
+      const proposals = mergeProposalWindows(windowResults).filter((g) => g.photoIds.length >= 2);
+      if (proposals.length === 0) {
+        if (anyError) toast.error("Some windows couldn't be proposed — try again.");
+        else toast.info("AI didn't find clear item boundaries — group these manually.");
+        return;
       }
-    } catch (err) {
-      if (!silent) {
-        toast.error(
-          `Verify failed: ${err instanceof Error ? err.message : String(err)}`,
-        );
+      const confident = proposals.filter((g) => g.confidence >= PROPOSE_APPLY_FLOOR);
+      const uncertain = proposals.filter((g) => g.confidence < PROPOSE_APPLY_FLOOR);
+      if (confident.length > 0) applyProposedGroups(confident);
+      if (uncertain.length > 0) {
+        setProposalReviews((prev) => [
+          ...prev,
+          ...uncertain.map((g) => ({
+            id: crypto.randomUUID(),
+            photoIds: g.photoIds,
+            confidence: g.confidence,
+            reason: g.reason,
+          })),
+        ]);
       }
+      toast.success(
+        `AI proposed ${confident.length} item${confident.length === 1 ? "" : "s"}` +
+          (uncertain.length > 0 ? ` — ${uncertain.length} more to review below.` : "."),
+      );
     } finally {
-      setVerifyingGroups(false);
+      setProposing(false);
+      setProposeProgress(null);
     }
+  }
+
+  /** 'AI group remaining' — window the ungrouped photos and propose item
+   *  boundaries. A >1-window pass confirms the metered count first. */
+  function proposeGroups() {
+    if (proposing) return;
+    const ids = ungroupedSorted.map((p) => p.id);
+    if (ids.length < 2) {
+      toast.info("Add at least two ungrouped photos first.");
+      return;
+    }
+    const windows = planProposeWindows(ids, PROPOSE_WINDOW);
+    if (windows.length === 0) return;
+    if (windows.length > 1) {
+      setProposeConfirm({ windows, windowCount: windows.length, photoCount: ids.length });
+      return;
+    }
+    void runProposeWindows(windows);
+  }
+
+  function acceptProposalReview(id: string) {
+    const review = proposalReviews.find((r) => r.id === id);
+    if (review) applyProposedGroups([{ photoIds: review.photoIds }]);
+    setProposalReviews((prev) => prev.filter((r) => r.id !== id));
   }
 
   /** Suggestions to chip onto group `gid` (move chips only on the source). */
@@ -1523,8 +1918,16 @@ export function FlipdeskAutolisterPage() {
     return `Move ${n} photo${n === 1 ? "" : "s"} to ${nameOf(s.group_ids[1])}?`;
   }
 
-  function dismissSuggestion(id: string) {
+  /** Remove a suggestion chip without telemetry (used by apply). */
+  function removeSuggestion(id: string) {
     setGroupSuggestions((prev) => prev.filter((s) => s.id !== id));
+  }
+
+  /** User dismissed a suggestion via its ✕ — US-1908 records it as feedback. */
+  function dismissSuggestion(id: string) {
+    const s = groupSuggestions.find((x) => x.id === id);
+    removeSuggestion(id);
+    if (s) trackAiSuggestion({ source: "verify", action: "dismissed", confidence: s.confidence });
   }
 
   // ── US-1546: pre-generate checkpoint ───────────────────────────────
@@ -1579,6 +1982,9 @@ export function FlipdeskAutolisterPage() {
 
   /** Scroll to a group card, raising the render window when it's beyond it. */
   function scrollToGroup(groupId: string) {
+    // US-1907: a jump target must render — clear any triage filter that would
+    // exclude it, and (indexing against the FULL list) raise the render window.
+    setTriageFilter(null);
     const idx = groups.findIndex((g) => g.id === groupId);
     if (idx >= 0 && idx >= groupsLimit) {
       setGroupsLimit(Math.ceil((idx + 1) / GROUPS_CHUNK) * GROUPS_CHUNK);
@@ -1602,6 +2008,9 @@ export function FlipdeskAutolisterPage() {
 
   /** Apply one suggestion via the US-1543 undoable mutations. */
   function applySuggestion(s: GroupSuggestionRow) {
+    // US-1908: an applied suggestion is grouping feedback (source verify — the
+    // only suggestion source today; US-1904 propose will pass "propose").
+    trackAiSuggestion({ source: "verify", action: "applied", confidence: s.confidence });
     if (s.type === "merge") {
       mergeGroups([s.group_ids[0]!, s.group_ids[1]!]);
     } else if (s.type === "move") {
@@ -1621,9 +2030,11 @@ export function FlipdeskAutolisterPage() {
             },
           ];
         },
+        "split",
       );
     }
-    dismissSuggestion(s.id);
+    // Not dismissSuggestion — applying isn't a dismissal (no double event).
+    removeSuggestion(s.id);
   }
 
   // US-1543 sensors: the drag handle is a real button, so the pointer sensor
@@ -1660,8 +2071,10 @@ export function FlipdeskAutolisterPage() {
         null;
       if (!targetGroupId) return;
       if (movingIds.length === 1 && fromGroupId === targetGroupId) {
-        applyGroupEdit("Photo order updated.", (prev) =>
-          reorderWithinGroup(prev, targetGroupId, activeId, anchorId),
+        applyGroupEdit(
+          "Photo order updated.",
+          (prev) => reorderWithinGroup(prev, targetGroupId, activeId, anchorId),
+          "reorder",
         );
       } else {
         movePhotos(movingIds, targetGroupId, anchorId);
@@ -1689,6 +2102,7 @@ export function FlipdeskAutolisterPage() {
           coverId: ids[0]!,
         },
       ],
+      "split",
     );
     setSelected(new Set());
   }
@@ -1718,6 +2132,24 @@ export function FlipdeskAutolisterPage() {
     setGroups((prev) => [...prev, ...created]);
     setLastAutoGroupIds(createdIds);
     setSelected(new Set());
+    // US-1908: snapshot the auto-assignment for the generate-time correction
+    // score, and record this run's metrics (counts only — no image data /
+    // filenames). Fires even on the degenerate branch below (that's signal too).
+    for (const g of created) {
+      autoGroupIdsRef.current.add(g.id);
+      for (const pid of g.photoIds) autoAssignedRef.current[pid] = g.id;
+    }
+    const withExif = input.filter((p) => p.capturedAt != null).length;
+    const seqSeeded = sequenceRuns(input)
+      .filter((run) => run.length >= 2)
+      .reduce((n, run) => n + run.length, 0);
+    trackAutogroupRun({
+      photo_count: input.length,
+      group_count: auto.length,
+      singleton_count: auto.filter((g) => g.photoIds.length === 1).length,
+      pct_with_exif: input.length === 0 ? 0 : Math.round((withExif / input.length) * 100) / 100,
+      seq_seeded_count: seqSeeded,
+    });
     // Degenerate grouping (photos without capture times or usable filename
     // sequences collapse into one giant burst): warn instead of celebrating,
     // and lead with Undo — grouping manually from the (shooting-ordered) grid
@@ -1766,6 +2198,8 @@ export function FlipdeskAutolisterPage() {
     setGroups((prev) => [...prev, ...created]);
     setLastAutoGroupIds(createdIds);
     setSelected(new Set());
+    // US-1908: a manual bulk-group action (not the auto-grouper).
+    trackGroupEdit("group_every");
     toast.success(
       `Grouped ${ungroupedSorted.length} photos into ${created.length} item${created.length === 1 ? "" : "s"} of ${n}, following the grid's current order (${UNGROUPED_SORT_LABELS[ungroupedSort].toLowerCase()}).`,
       { action: { label: "Undo", onClick: () => undoAutoGroup(createdIds) } },
@@ -1797,6 +2231,7 @@ export function FlipdeskAutolisterPage() {
     applyGroupEdit(
       "All groups dissolved — photos are back in Ungrouped, in the grid's chosen sort order.",
       (prev) => (prev.length === 0 ? prev : []),
+      "ungroup_all",
     );
     setSelectedGroups(new Set());
     setLastAutoGroupIds(null);
@@ -1920,14 +2355,18 @@ export function FlipdeskAutolisterPage() {
     // US-1543: routed through the shared move transform (cover repair, empty-
     // group dissolution, role pruning) with single-level undo.
     void groupId;
-    applyGroupEdit("Photo moved back to Ungrouped.", (prev) =>
-      movePhotosToGroup(prev, [photoId], null),
+    applyGroupEdit(
+      "Photo moved back to Ungrouped.",
+      (prev) => movePhotosToGroup(prev, [photoId], null),
+      "move",
     );
   }
 
   function deleteGroup(groupId: string) {
-    applyGroupEdit("Group deleted — its photos are back in Ungrouped.", (prev) =>
-      prev.filter((g) => g.id !== groupId),
+    applyGroupEdit(
+      "Group deleted — its photos are back in Ungrouped.",
+      (prev) => prev.filter((g) => g.id !== groupId),
+      "move",
     );
   }
 
@@ -1936,23 +2375,27 @@ export function FlipdeskAutolisterPage() {
   // via the group toolbar's "Merge selected" action. US-1543: undoable.
   function mergeGroups(groupIds: string[]) {
     if (groupIds.length < 2) return;
-    applyGroupEdit(`Merged ${groupIds.length} groups.`, (prev) => {
-      const survivors = prev.filter((g) => !groupIds.includes(g.id));
-      const merged = prev.filter((g) => groupIds.includes(g.id));
-      if (merged.length < 2) return prev;
-      const allIds = Array.from(new Set(merged.flatMap((g) => g.photoIds)));
-      const head = merged[0]!;
-      const combined: Group = {
-        ...head,
-        photoIds: allIds,
-        coverId: allIds.includes(head.coverId) ? head.coverId : (allIds[0] ?? ""),
-      };
-      // Preserve the relative order of the first merged group.
-      const headIdx = prev.findIndex((g) => g.id === head.id);
-      const out = [...survivors];
-      out.splice(Math.min(headIdx, out.length), 0, combined);
-      return out;
-    });
+    applyGroupEdit(
+      `Merged ${groupIds.length} groups.`,
+      (prev) => {
+        const survivors = prev.filter((g) => !groupIds.includes(g.id));
+        const merged = prev.filter((g) => groupIds.includes(g.id));
+        if (merged.length < 2) return prev;
+        const allIds = Array.from(new Set(merged.flatMap((g) => g.photoIds)));
+        const head = merged[0]!;
+        const combined: Group = {
+          ...head,
+          photoIds: allIds,
+          coverId: allIds.includes(head.coverId) ? head.coverId : (allIds[0] ?? ""),
+        };
+        // Preserve the relative order of the first merged group.
+        const headIdx = prev.findIndex((g) => g.id === head.id);
+        const out = [...survivors];
+        out.splice(Math.min(headIdx, out.length), 0, combined);
+        return out;
+      },
+      "merge",
+    );
     setSelectedGroups(new Set());
   }
 
@@ -1960,6 +2403,8 @@ export function FlipdeskAutolisterPage() {
   // don't re-show drafts on the next visit.
   function clearStoredSession() {
     if (typeof window === "undefined") return;
+    // US-1905: drop the IndexedDB session + its resume blobs too.
+    void clearSession(sessionId.current);
     try {
       window.localStorage.removeItem(storageKey);
       window.localStorage.removeItem("autolister:sessionId");
@@ -1974,6 +2419,20 @@ export function FlipdeskAutolisterPage() {
       toast.error("Create at least one group first.");
       return;
     }
+    // US-1908: session-end grouping outcome — how much the seller corrected the
+    // auto-grouper — captured BEFORE generation mutates anything.
+    const finalAssigned: Record<string, string> = {};
+    for (const g of groups) for (const pid of g.photoIds) finalAssigned[pid] = g.id;
+    const correction = groupingCorrectionScore(autoAssignedRef.current, finalAssigned);
+    trackGroupingOutcome({
+      photo_count: staged.length,
+      corrected_count: correction.corrected,
+      correction_pct: Math.round(correction.pct * 100) / 100,
+      manual_groups_created: manualGroupsCreated(
+        autoGroupIdsRef.current,
+        groups.map((g) => g.id),
+      ),
+    });
     setBusy(true);
     try {
       const itemIds: string[] = [];
@@ -2592,6 +3051,39 @@ export function FlipdeskAutolisterPage() {
               <Wand2 className="mr-1 h-4 w-4" />
               Auto-group ({ungrouped.length})
             </Button>
+            {/* US-1904: AI group remaining — a vision pass proposes item
+                boundaries for a timeless dump auto-group can't split. Appears
+                once there are ≥2 ungrouped photos left. */}
+            {entitled && ungrouped.length >= 2 && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={proposeGroups}
+                disabled={proposing}
+                title="AI looks at the remaining photos in shooting order and proposes where each item begins (uses AI actions — you'll see the count first)"
+              >
+                {proposing ? (
+                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="mr-1 h-4 w-4" />
+                )}
+                AI group remaining
+              </Button>
+            )}
+            {proposeProgress && (
+              <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+                Proposed {proposeProgress.done}/{proposeProgress.total} photos…
+                <button
+                  type="button"
+                  className="underline underline-offset-2 hover:text-foreground"
+                  onClick={() => {
+                    proposeCancelRef.current = true;
+                  }}
+                >
+                  Stop
+                </button>
+              </span>
+            )}
             {/* US-1550: fixed-size chunking in the displayed order — the rescue
                 tool when photos carry no capture times for Auto-group to use. */}
             <div
@@ -2638,6 +3130,51 @@ export function FlipdeskAutolisterPage() {
             )}
           </div>
         </div>
+        {/* US-1904: uncertain propose boundaries — created only on the seller's
+            confirmation, never silently applied. */}
+        {proposalReviews.length > 0 && (
+          <div
+            role="region"
+            aria-label="Proposed items to review"
+            className="space-y-1.5 rounded-md border border-amber-500/40 bg-amber-500/5 p-2"
+          >
+            <p className="text-xs font-medium text-amber-800 dark:text-amber-200">
+              {proposalReviews.length} proposed item{proposalReviews.length === 1 ? "" : "s"} the AI
+              wasn't sure about — create the ones that look right:
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {proposalReviews.map((r) => (
+                <span
+                  key={r.id}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs text-amber-800 dark:text-amber-200"
+                  title={r.reason || undefined}
+                >
+                  <Sparkles className="h-3 w-3 shrink-0" />
+                  <span className="max-w-56 truncate">
+                    {r.photoIds.length} photos · {Math.round(r.confidence * 100)}%
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => acceptProposalReview(r.id)}
+                    className="font-semibold underline-offset-2 hover:underline"
+                  >
+                    Create
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Dismiss proposal"
+                    onClick={() =>
+                      setProposalReviews((prev) => prev.filter((x) => x.id !== r.id))
+                    }
+                    className="rounded-full p-0.5 hover:bg-amber-500/20"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
         <UngroupedDropZone>
         {ungrouped.length === 0 ? (
           <p className="rounded-md border border-dashed py-6 text-center text-sm text-muted-foreground">
@@ -2785,13 +3322,15 @@ export function FlipdeskAutolisterPage() {
                   Merge {selectedGroups.size} groups
                 </Button>
               )}
-              {/* US-1544: on-demand AI grouping sanity check (1 AI action). */}
+              {/* US-1544/US-1903: on-demand AI grouping sanity check. Large
+                  sessions are checked across sequential windows (1 AI action
+                  each); progress shows below and the pass can be stopped. */}
               <Button
                 size="sm"
                 variant="outline"
                 onClick={() => void verifyGroups(false)}
                 disabled={verifyingGroups || groups.length < 2}
-                title="AI compares your groups (1 AI action): flags likely merges, splits, and misplaced photos — suggestions only, nothing is changed automatically"
+                title="AI compares your groups: flags likely merges, splits, and misplaced photos — suggestions only, nothing is changed automatically. Large sessions are checked in batches (1 AI action each)."
               >
                 {verifyingGroups ? (
                   <Loader2 className="mr-1 h-4 w-4 animate-spin" />
@@ -2800,6 +3339,20 @@ export function FlipdeskAutolisterPage() {
                 )}
                 Verify groups
               </Button>
+              {verifyProgress && (
+                <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+                  Checked {verifyProgress.done}/{verifyProgress.total} groups…
+                  <button
+                    type="button"
+                    className="underline underline-offset-2 hover:text-foreground"
+                    onClick={() => {
+                      verifyCancelRef.current = true;
+                    }}
+                  >
+                    Stop
+                  </button>
+                </span>
+              )}
               <Button
                 size="sm"
                 variant="secondary"
@@ -2814,6 +3367,25 @@ export function FlipdeskAutolisterPage() {
                 )}
                 Auto-tag all
               </Button>
+              {/* US-1907: collapse every group to a header-only overview. */}
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setGroupsCollapsed((c) => !c)}
+                aria-pressed={groupsCollapsed}
+                title={
+                  groupsCollapsed
+                    ? "Expand every group to show its photos"
+                    : "Collapse every group to a header-only overview"
+                }
+              >
+                {groupsCollapsed ? (
+                  <ChevronsUpDown className="mr-1 h-4 w-4" />
+                ) : (
+                  <ChevronsDownUp className="mr-1 h-4 w-4" />
+                )}
+                {groupsCollapsed ? "Expand all" : "Collapse all"}
+              </Button>
               <Button
                 size="sm"
                 variant="outline"
@@ -2826,7 +3398,98 @@ export function FlipdeskAutolisterPage() {
               </Button>
             </div>
           </div>
-          {groups.slice(0, groupsLimit).map((g) => (
+          {/* US-1907: triage strip — session health + jump-to / filter for
+              large sessions. Appears at ≥12 groups. */}
+          {groups.length >= 12 && (
+            <div
+              role="region"
+              aria-label="Group triage overview"
+              className="sticky top-0 z-20 space-y-2 rounded-md border bg-background/95 p-2 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/80"
+            >
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                <span>
+                  <strong className="text-foreground">{triageSummary.totalGroups}</strong> groups
+                </span>
+                <span>
+                  <strong className="text-foreground">{triageSummary.totalPhotos}</strong> photos
+                </span>
+                <span>
+                  <strong className="text-foreground">{triageSummary.ungroupedCount}</strong>{" "}
+                  ungrouped
+                </span>
+              </div>
+              <div
+                role="toolbar"
+                aria-label="Filter groups by condition"
+                className="flex flex-wrap items-center gap-1.5"
+              >
+                {TRIAGE_CHIPS.map((chip) => {
+                  const count = triageSummary.buckets[chip.condition].length;
+                  if (count === 0) return null;
+                  const active = triageFilter === chip.condition;
+                  return (
+                    <button
+                      key={chip.condition}
+                      type="button"
+                      aria-pressed={active}
+                      aria-label={`${count} ${chip.label} — ${active ? "clear filter" : "filter to these"}`}
+                      onClick={() =>
+                        setTriageFilter((cur) => (cur === chip.condition ? null : chip.condition))
+                      }
+                      className={cn(
+                        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors",
+                        active
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-amber-500/40 bg-amber-500/10 text-amber-800 hover:bg-amber-500/20 dark:text-amber-200",
+                      )}
+                    >
+                      <span className="font-semibold">{count}</span>
+                      {chip.label}
+                    </button>
+                  );
+                })}
+                {triageFilter && (
+                  <button
+                    type="button"
+                    onClick={() => setTriageFilter(null)}
+                    className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                  >
+                    <X className="h-3 w-3" />
+                    Clear filter
+                  </button>
+                )}
+              </div>
+              {/* Mini-map: one slot per group; click to jump. Flagged groups
+                  (any needs-attention bucket) are tinted. */}
+              <nav aria-label="Jump to group" className="flex flex-wrap gap-1">
+                {groups.map((g, i) => {
+                  const flagged =
+                    triageSummary.buckets.singleton.includes(g.id) ||
+                    triageSummary.buckets.oversized.includes(g.id) ||
+                    triageSummary.buckets.missing_cover_or_tag.includes(g.id) ||
+                    triageSummary.buckets.has_suggestion.includes(g.id);
+                  return (
+                    <button
+                      key={g.id}
+                      type="button"
+                      onClick={() => scrollToGroup(g.id)}
+                      aria-label={`Jump to ${g.name || `group ${i + 1}`}${flagged ? " (needs attention)" : ""}`}
+                      title={`${g.name || `Group ${i + 1}`} · ${g.photoIds.length} photo${g.photoIds.length === 1 ? "" : "s"}`}
+                      className={cn(
+                        "h-4 w-4 rounded-sm border text-[0px]",
+                        flagged
+                          ? "border-amber-500/60 bg-amber-500/30 hover:bg-amber-500/50"
+                          : "border-border bg-muted hover:bg-muted-foreground/30",
+                      )}
+                    >
+                      {i + 1}
+                    </button>
+                  );
+                })}
+              </nav>
+            </div>
+          )}
+          {shownGroups.slice(0, groupsLimit).map((g) => (
             <GroupDropZone key={g.id} groupId={g.id}>
             <Card className="p-3">
               <div className="mb-2 flex items-center gap-2">
@@ -2935,6 +3598,7 @@ export function FlipdeskAutolisterPage() {
                   ))}
                 </div>
               )}
+              {!groupsCollapsed && (
               <div className="grid grid-cols-4 gap-2 sm:grid-cols-6 md:grid-cols-8">
                 {g.photoIds.map((pid) => {
                   const p = stagedById.get(pid);
@@ -3043,12 +3707,18 @@ export function FlipdeskAutolisterPage() {
                   );
                 })}
               </div>
+              )}
             </Card>
             </GroupDropZone>
           ))}
-          {groupsLimit < groups.length && (
+          {shownGroups.length === 0 && triageFilter && (
+            <p className="py-4 text-center text-sm text-muted-foreground">
+              No groups match this filter.
+            </p>
+          )}
+          {groupsLimit < shownGroups.length && (
             <LoadMoreSentinel
-              label={`Showing ${groupsLimit} of ${groups.length} groups — scroll for more (use a photo's Move menu to reach unrendered groups)`}
+              label={`Showing ${groupsLimit} of ${shownGroups.length} groups — scroll for more (use a photo's Move menu to reach unrendered groups)`}
               onMore={() => setGroupsLimit((l) => l + GROUPS_CHUNK)}
             />
           )}
@@ -3130,6 +3800,79 @@ export function FlipdeskAutolisterPage() {
             >
               <Sparkles className="mr-2 h-4 w-4" />
               Generate {listableCount} listing{listableCount === 1 ? "" : "s"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* US-1903: metered-action confirm for a multi-window verify pass. Shown
+          before any AI action is spent so the count is never a surprise. */}
+      <Dialog open={!!verifyConfirm} onOpenChange={(o) => !o && setVerifyConfirm(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Verify all {verifyConfirm?.totalGroups} groups?</DialogTitle>
+            <DialogDescription>
+              This session is too large for one AI check, so it runs in{" "}
+              {verifyConfirm?.windowCount} batches — {verifyConfirm?.windowCount} AI action
+              {verifyConfirm?.windowCount === 1 ? "" : "s"}
+              {aiActionsRemaining != null ? ` of your ${aiActionsRemaining} remaining` : ""}. You
+              can stop between batches; suggestions appear as you go.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setVerifyConfirm(null)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={
+                aiActionsRemaining != null &&
+                verifyConfirm != null &&
+                verifyConfirm.windowCount > aiActionsRemaining
+              }
+              onClick={() => {
+                const pending = verifyConfirm;
+                setVerifyConfirm(null);
+                if (pending) void runVerifyWindows(pending.windows, false);
+              }}
+            >
+              <Sparkles className="mr-2 h-4 w-4" />
+              Verify all
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* US-1904: metered-action confirm for a multi-window propose pass. */}
+      <Dialog open={!!proposeConfirm} onOpenChange={(o) => !o && setProposeConfirm(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>AI-group {proposeConfirm?.photoCount} photos?</DialogTitle>
+            <DialogDescription>
+              Too many photos for one AI pass, so it runs in {proposeConfirm?.windowCount} batches —{" "}
+              {proposeConfirm?.windowCount} AI action{proposeConfirm?.windowCount === 1 ? "" : "s"}
+              {aiActionsRemaining != null ? ` of your ${aiActionsRemaining} remaining` : ""}. You can
+              stop between batches; confident items are created (undoable), unsure ones show up to
+              review.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setProposeConfirm(null)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={
+                aiActionsRemaining != null &&
+                proposeConfirm != null &&
+                proposeConfirm.windowCount > aiActionsRemaining
+              }
+              onClick={() => {
+                const pending = proposeConfirm;
+                setProposeConfirm(null);
+                if (pending) void runProposeWindows(pending.windows);
+              }}
+            >
+              <Sparkles className="mr-2 h-4 w-4" />
+              Group them
             </Button>
           </DialogFooter>
         </DialogContent>

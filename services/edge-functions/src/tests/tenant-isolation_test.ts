@@ -2337,3 +2337,28 @@ Deno.test({
     assert(res.status === 200 || DENIED.has(res.status), `unexpected ${res.status}`);
   },
 });
+
+// US-1904: propose-groups fetches staged images by storage_path. Like its
+// verify-groups sibling, every path must live under the CALLER's own
+// `${ownerId}/_staging/…` prefix, checked before any AI work — so B can't hand
+// it a path under another owner's folder to pull that tenant's image into the
+// model. No seed needed: the forged foreign path is rejected on its face (403).
+Deno.test({
+  name: "B cannot propose-groups over a foreign _staging path",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const foreign = "00000000-0000-0000-0000-000000000000/_staging/sess/p1.jpg";
+    const res = await fetch(`${BASE}/api/flipdesk/autolister/propose-groups`, {
+      method: "POST",
+      headers: { ...authHeaders(B_JWT!), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        photos: [
+          { id: "p1", storage_path: foreign },
+          { id: "p2", storage_path: foreign },
+        ],
+      }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST propose-groups with a foreign staging path");
+  },
+});

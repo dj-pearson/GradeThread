@@ -72,7 +72,7 @@ export function sumImpacts(parts: Array<{ estimate: ImpactEstimate; count: numbe
 export async function summarizeClosetImpact(
   typeCounts: Record<string, number>,
 ): Promise<ImpactSummary> {
-  const types = Object.keys(typeCounts).filter((t) => typeCounts[t] > 0);
+  const types = Object.keys(typeCounts).filter((t) => (typeCounts[t] ?? 0) > 0);
   const estimates = await Promise.all(types.map((t) => fetchGarmentImpact(t)));
   const parts = types
     .map((t, i) => ({ estimate: estimates[i], count: typeCounts[t] }))

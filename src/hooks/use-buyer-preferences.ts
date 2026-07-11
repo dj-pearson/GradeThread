@@ -48,7 +48,7 @@ export function useBuyerPreferences(): UseBuyerPreferences {
     mutationFn: async (patch: BuyerPreferencesUpdate) => {
       const { data, error } = await supabase
         .from("buyer_preferences")
-        .upsert({ user_id: userId!, ...patch }, { onConflict: "user_id" })
+        .upsert({ user_id: userId!, ...patch } as never, { onConflict: "user_id" })
         .select("*")
         .single();
       if (error) throw error;

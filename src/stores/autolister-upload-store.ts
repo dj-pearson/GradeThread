@@ -8,6 +8,13 @@ import { ImageDecodeError, processStagedImage } from "@/lib/image-worker-pool";
 import { MediaIntakeError, normalizeToImageFile } from "@/lib/media-intake";
 import { runWithConcurrency } from "@/lib/concurrency";
 import {
+  appendStagedToSession,
+  deleteBlob,
+  idbAvailable,
+  listBlobs,
+  putBlob,
+} from "@/lib/autolister-session-idb";
+import {
   backoffDelayMs,
   RATE_LIMIT_MAX_ATTEMPTS,
   RateLimitedError,
@@ -339,6 +346,8 @@ interface AutolisterUploadState {
   syncStagedIdentities: (sigs: Set<string>, hashes: Set<string>) => void;
   /** Stage a batch of picked files. Resolves when the whole batch settles. */
   enqueueFiles: (files: File[], sessionId: string) => Promise<void>;
+  /** US-1905: after a reload, re-run uploads persisted to IndexedDB. */
+  resumeUploads: (sessionId: string) => Promise<void>;
   /** Re-run failed pipelines without re-picking files. */
   retryTasks: (taskIds: string[]) => Promise<void>;
   dismissTask: (id: string) => void;
@@ -549,10 +558,19 @@ export const useAutolisterUploadStore = create<AutolisterUploadState>((set, get)
         error: err instanceof Error ? err.message : String(err),
       });
     } finally {
-      // Free the duplicate claims unless the photo actually staged (then the
-      // staged-derived set takes over) — a failed/rejected file must remain
-      // re-addable after a retry or dismiss.
-      if (!succeeded) {
+      // US-1905: the persisted resume blob is no longer needed once the upload
+      // succeeds, or once it fails un-retryably (re-running it would only fail
+      // again). A retryable failure keeps its blob so a reload can resume it.
+      if (succeeded) {
+        void deleteBlob(id);
+      } else {
+        const current = get().tasks.find((t) => t.id === id);
+        if (current?.status === "error" && current.retryable === false) {
+          void deleteBlob(id);
+        }
+        // Free the duplicate claims unless the photo actually staged (then the
+        // staged-derived set takes over) — a failed/rejected file must remain
+        // re-addable after a retry or dismiss.
         pipelineSigs.delete(sig);
         if (contentHash) pipelineHashes.delete(contentHash);
       }
@@ -635,6 +653,58 @@ export const useAutolisterUploadStore = create<AutolisterUploadState>((set, get)
         file,
       }));
       set((s) => ({ tasks: [...s.tasks.filter((t) => t.status !== "done"), ...tasks] }));
+      // US-1905: persist each queued file up front so a reload/crash can resume
+      // the upload instead of losing it. Fire-and-forget — never blocks intake.
+      const persistBase = Date.now();
+      tasks.forEach((t, i) => {
+        void putBlob({
+          taskId: t.id,
+          sessionId,
+          sig: fileSig(t.file),
+          name: t.file.name,
+          type: t.file.type,
+          blob: t.file,
+          createdAt: persistBase + i,
+        });
+      });
+      await runWithConcurrency(tasks, UPLOAD_CONCURRENCY, (t) => processUploadTask(t, stats));
+      reportBatch(stats);
+      set((s) => ({ tasks: s.tasks.filter((t) => t.status !== "done") }));
+    },
+
+    // US-1905: resume uploads whose original blobs were persisted to IDB but
+    // never finished (a reload/crash mid-batch). Reuses each blob's task id so
+    // the on-success deleteBlob still matches. Already-staged files (the page
+    // synced their sigs on mount) are skipped; the pipeline re-checks too.
+    resumeUploads: async (sessionId) => {
+      if (!idbAvailable()) return;
+      let blobs: Awaited<ReturnType<typeof listBlobs>>;
+      try {
+        blobs = await listBlobs(sessionId);
+      } catch {
+        return;
+      }
+      if (blobs.length === 0) return;
+      const tasks: UploadTask[] = blobs
+        .filter((b) => !isKnownSig(b.sig))
+        .map((b) => ({
+          id: b.taskId,
+          name: b.name,
+          status: "queued",
+          progress: 0,
+          // Rebuild a File from the stored bytes + original name/type (don't
+          // trust structured clone to preserve the File subtype/MIME).
+          file: new File([b.blob], b.name, { type: b.type }),
+        }));
+      if (tasks.length === 0) return;
+      const state = get();
+      set({
+        sessionId,
+        tasks: [...state.tasks.filter((t) => t.status !== "done"), ...tasks],
+      });
+      const stats: BatchStats = {
+        ok: 0, failed: 0, heicFailed: 0, videoFailed: 0, duplicates: 0, borderline: [],
+      };
       await runWithConcurrency(tasks, UPLOAD_CONCURRENCY, (t) => processUploadTask(t, stats));
       reportBatch(stats);
       set((s) => ({ tasks: s.tasks.filter((t) => t.status !== "done") }));
@@ -735,14 +805,19 @@ function reportBatch(stats: BatchStats) {
 // ── Detached-result persistence (US-1542) ───────────────────────────
 
 /**
- * Merge one finished photo into the persisted intake session
- * (`autolister:state:<sessionId>` — the same key the page rehydrates from),
- * deduped by id. Called only while the page is detached, so it never races
- * the page's own persist effect. Best-effort: on quota failure the photo is
- * still in `results` for the page to claim on its next mount.
+ * Merge one finished photo into the persisted intake session, deduped by id.
+ * Called only while the page is detached, so it never races the page's own
+ * persist effect. US-1905: written to BOTH IndexedDB (the page's authoritative
+ * store, atomic append) and the localStorage mirror; a reload rehydrates from
+ * whichever the page uses. Best-effort: on failure the photo is still in
+ * `results` for the page to claim on its next mount.
  */
 function mergeIntoPersistedSession(sessionId: string, photo: StagedPhoto): void {
   if (typeof window === "undefined") return;
+  // US-1905: land the detached-completed photo in IndexedDB too, so the page's
+  // IDB rehydrate (which ignores localStorage when an IDB session exists) sees
+  // it. Atomic get→put, deduped by id; fire-and-forget.
+  void appendStagedToSession(sessionId, photo as unknown as { id: string } & Record<string, unknown>);
   const key = `autolister:state:${sessionId}`;
   try {
     const raw = window.localStorage.getItem(key);
@@ -769,7 +844,12 @@ if (typeof window !== "undefined") {
   // the count is accurate whenever the unload actually happens.
   useAutolisterUploadStore.subscribe((state) => {
     try {
-      const atRisk = state.tasks.filter((t) => t.status !== "done").length;
+      // US-1905: when IndexedDB is available, unfinished uploads were persisted
+      // and resume after a reload — so they are NOT lost. Only the localStorage
+      // fallback (no IDB) genuinely loses in-flight Files.
+      const atRisk = idbAvailable()
+        ? 0
+        : state.tasks.filter((t) => t.status !== "done").length;
       if (atRisk > 0) {
         window.localStorage.setItem(LOST_UPLOADS_KEY, String(atRisk));
       } else {
@@ -781,10 +861,12 @@ if (typeof window !== "undefined") {
   });
 
   // Full page close/reload is the one thing the web platform cannot survive —
-  // warn while anything is in flight.
+  // warn while anything is in flight. US-1905: with IndexedDB the queued blobs
+  // resume automatically, so the warning is downgraded away in that case; it
+  // only fires on the localStorage fallback where in-flight Files are lost.
   window.addEventListener("beforeunload", (event) => {
     const inFlight = activeCount(useAutolisterUploadStore.getState().tasks);
-    if (inFlight > 0) {
+    if (inFlight > 0 && !idbAvailable()) {
       event.preventDefault();
       // Chrome requires returnValue to be set for the prompt to appear.
       event.returnValue = "";
