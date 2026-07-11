@@ -448,8 +448,10 @@ final class EdgeAPITests: XCTestCase {
     }
 
     // US-794: a 403 carrying the workspace_access_revoked code maps to its own
-    // case (so the client clears the stale scope), while a plain 403 still maps
-    // to .unauthorized. Tests the pure mapper directly — no network/side effects.
+    // case (so the client clears the stale scope). A plain 403 maps to the
+    // distinct `.forbidden` (review follow-up) — NOT `.unauthorized`, so it
+    // doesn't burn a token refresh or say "session expired". Tests the pure
+    // mapper directly — no network/side effects.
     func test_403_withWorkspaceRevokedCode_mapsToWorkspaceAccessRevoked() {
         let body = Data(
             #"{"error":"You don't have access to this workspace","error_code":"workspace_access_revoked"}"#
@@ -458,9 +460,16 @@ final class EdgeAPITests: XCTestCase {
         XCTAssertEqual(EdgeAPIError.from(statusCode: 403, body: body), .workspaceAccessRevoked)
     }
 
-    func test_403_withoutCode_stillMapsToUnauthorized() {
+    func test_403_withoutCode_mapsToForbiddenNotUnauthorized() {
         let body = Data(#"{"error":"forbidden"}"#.utf8)
-        XCTAssertEqual(EdgeAPIError.from(statusCode: 403, body: body), .unauthorized)
+        // Detail is surfaced from the wire `error`; the important part is it's
+        // .forbidden, not .unauthorized (which would trigger a refresh + retry).
+        XCTAssertEqual(EdgeAPIError.from(statusCode: 403, body: body), .forbidden(detail: "forbidden"))
+        XCTAssertNotEqual(EdgeAPIError.from(statusCode: 403, body: body), .unauthorized)
+    }
+
+    func test_401_mapsToUnauthorized() {
+        XCTAssertEqual(EdgeAPIError.from(statusCode: 401, body: Data()), .unauthorized)
     }
 
     // US-1182: the auth middleware's unconfirmed-email 403 uses the short `code`
