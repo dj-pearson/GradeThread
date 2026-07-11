@@ -1,0 +1,44 @@
+# GradeThread project-specific Semgrep rules (Linux — no Mac required).
+#
+# These encode footguns specific to THIS codebase (documented in CLAUDE.md and
+# surfaced in code review) that generic linters and the macOS-only iOS toolchain
+# don't catch. They gate every PR on a Linux runner.
+#
+# Scope: TypeScript/JavaScript only. Semgrep's Swift support is too loose for
+# token-level rules (it can't reliably distinguish `try!` from `try`), so
+# Swift-specific guards live in ios/Scripts/*.py instead.
+#
+# Run locally:   semgrep --config .semgrep/gradethread.yml
+# ERROR severity fails CI. Every rule below currently matches ZERO existing code,
+# so they are regression guards — a new match is a real defect.
+
+rules:
+  - id: supabase-no-or-on-mutation
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >
+      Do NOT use .or() on a supabase-js UPDATE/DELETE (US-1552). The self-hosted
+      prod PostgREST rejects logical operators on mutations (42703 "column
+      <table>.x does not exist" — the update-CTE alias), while the newer
+      local-stack PostgREST accepts them, so CI can't otherwise catch it. Use
+      sequential conditional updates (e.g. try .eq("status","pending"), then
+      .eq("status","running").lt("updated_at", stale)). .or() on a SELECT is fine.
+    patterns:
+      - pattern-either:
+          - pattern: $Q.update(...). ... .or(...)
+          - pattern: $Q.delete(...). ... .or(...)
+          - pattern: $Q.update(...).or(...)
+          - pattern: $Q.delete(...).or(...)
+
+  - id: supabase-private-bucket-public-url
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >
+      The submission-images bucket is PRIVATE (US-276). Never getPublicUrl() it —
+      read only via createSignedUrl with TTL <= 900s. getPublicUrl mints a
+      permanent, unauthenticated URL to grading-label / receipt / PII imagery.
+      item-photos is the only public bucket.
+    patterns:
+      - pattern-either:
+          - pattern: $S.from("submission-images"). ... .getPublicUrl(...)
+          - pattern: $S.from("submission-images").getPublicUrl(...)
