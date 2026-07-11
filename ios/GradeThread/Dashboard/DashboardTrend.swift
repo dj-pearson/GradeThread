@@ -15,8 +15,11 @@ enum DashboardTrend {
 
     /// Bucket sales into one point per day across the trailing `days` window
     /// (inclusive of today). Days with no sales are present with zeros so the
-    /// line has an even x-axis. Profit nets out platform fees + the sold
-    /// item's cost basis, mirroring ``DashboardRollup``.
+    /// line has an even x-axis. Revenue + profit go through ``SalePnL`` (revenue =
+    /// price + shipping collected; net = revenue − all fees − seller costs − cost
+    /// basis) and only COMPLETED sales count, so the sparkline agrees with the
+    /// ``DashboardMetrics`` KPI card above it instead of double-counting refunds
+    /// or using a divergent fees-only profit formula.
     static func dailySeries(
         sales: [LocalSale],
         items: [LocalInventoryItem],
@@ -45,12 +48,12 @@ enum DashboardTrend {
             orderedDays.append(day)
         }
 
-        for sale in sales {
+        for sale in sales where SalePnL.isCompleted(sale) {
             let day = calendar.startOfDay(for: sale.saleDate)
             guard revenueByDay[day] != nil else { continue }  // outside the window
             let cost = costById[sale.inventoryItemId] ?? 0
-            revenueByDay[day]! += sale.salePrice
-            profitByDay[day]! += sale.salePrice - sale.platformFees - cost
+            revenueByDay[day]! += SalePnL.revenue(sale)
+            profitByDay[day]! += SalePnL.net(sale, costBasis: cost)
         }
 
         return orderedDays.map {

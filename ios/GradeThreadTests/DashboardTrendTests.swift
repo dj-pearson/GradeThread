@@ -57,6 +57,19 @@ final class DashboardTrendTests: XCTestCase {
         XCTAssertTrue(DashboardTrend.hasActivity(series))
     }
 
+    func test_refundedSale_excludedFromTrend() throws {
+        let completed = makeSale(itemId: "a", price: 40, date: now)
+        let refunded = makeSale(itemId: "b", price: 100, date: now)
+        refunded.status = "refunded"
+        let series = DashboardTrend.dailySeries(
+            sales: [completed, refunded], items: [], days: 14, now: now, calendar: cal
+        )
+        let last = try XCTUnwrap(series.last)
+        // Only the completed $40 sale counts — the $100 refund is excluded, so
+        // the trend agrees with the DashboardMetrics KPI card.
+        XCTAssertEqual(last.revenue, 40, accuracy: 0.001)
+    }
+
     func test_multipleSalesSameDay_aggregate() throws {
         let s1 = makeSale(itemId: "a", price: 20, date: now)
         let s2 = makeSale(itemId: "b", price: 30, date: now.addingTimeInterval(-3600))

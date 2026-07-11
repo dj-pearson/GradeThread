@@ -216,18 +216,23 @@ final class EdgeAPITests: XCTestCase {
         XCTAssertFalse(EdgeAPI.isTransient(.unauthorized))
     }
 
-    // US-1164: a 5xx on a non-idempotent POST/PATCH must NOT be retried (it may
-    // already have been applied → duplicate sale/listing); 429 + network still
-    // retry for any method, and idempotent methods still retry 5xx.
+    // US-1164 (+ review follow-up): a 5xx OR a network error on a non-idempotent
+    // POST/PATCH must NOT be retried in-line (it may already have been applied →
+    // duplicate sale/listing). Only 429 (rejected, definitively not processed)
+    // retries for any method; idempotent methods still retry 5xx and network.
     func test_shouldRetry_does_not_retry_5xx_on_POST() {
         XCTAssertFalse(EdgeAPI.shouldRetry(.serverError(detail: nil), method: "POST"))
         XCTAssertFalse(EdgeAPI.shouldRetry(.serverError(detail: nil), method: "PATCH"))
         XCTAssertTrue(EdgeAPI.shouldRetry(.serverError(detail: nil), method: "PUT"))
         XCTAssertTrue(EdgeAPI.shouldRetry(.serverError(detail: nil), method: "GET"))
         XCTAssertTrue(EdgeAPI.shouldRetry(.serverError(detail: nil), method: "DELETE"))
-        // Rejected-not-processed + network blips retry for any method.
+        // Network errors follow the same idempotency rule as 5xx.
+        XCTAssertFalse(EdgeAPI.shouldRetry(.network("x"), method: "POST"))
+        XCTAssertFalse(EdgeAPI.shouldRetry(.network("x"), method: "PATCH"))
+        XCTAssertTrue(EdgeAPI.shouldRetry(.network("x"), method: "GET"))
+        XCTAssertTrue(EdgeAPI.shouldRetry(.network("x"), method: "PUT"))
+        // 429 rejected-not-processed retries for any method.
         XCTAssertTrue(EdgeAPI.shouldRetry(.rateLimited(), method: "POST"))
-        XCTAssertTrue(EdgeAPI.shouldRetry(.network("x"), method: "POST"))
         XCTAssertFalse(EdgeAPI.shouldRetry(.badRequest(detail: nil), method: "POST"))
     }
 
