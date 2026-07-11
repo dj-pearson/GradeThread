@@ -183,16 +183,30 @@ export function NewSubmissionPage() {
     () => searchParams.get("item") ?? retakeState?.linkedItemId ?? "none"
   );
 
+  // US-1935: the "Link to inventory item" dropdown must reflect the workspace
+  // being submitted INTO — scope to the active workspace owner (a member acting
+  // in an owner's workspace would otherwise see their own / other workspaces'
+  // items via the viewer RLS policy), and guard against setState-after-unmount.
+  const workspaceOwnerId = useAuthStore(
+    (s) => s.activeWorkspaceOwnerId ?? s.user?.id ?? null
+  );
+
   useEffect(() => {
+    if (!workspaceOwnerId) return;
+    let cancelled = false;
     (async () => {
       const { data } = await supabase
         .from("inventory_items")
         .select("*")
+        .eq("user_id", workspaceOwnerId)
         .is("grade_report_id", null)
         .order("created_at", { ascending: false });
-      setInventoryItems((data ?? []) as InventoryItemRow[]);
+      if (!cancelled) setInventoryItems((data ?? []) as InventoryItemRow[]);
     })();
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceOwnerId]);
 
   const linkedItem =
     linkedItemId === "none"
@@ -537,10 +551,14 @@ export function NewSubmissionPage() {
     // US-1632: supabase-js returns { error }, it does NOT throw — so the old
     // try/catch never fired and a failed link was silent (the warning was dead
     // code). Read the error and surface it.
+    // US-1935: pin the write to the item's owning tenant (= the workspace it was
+    // loaded from) so a stale/URL-supplied linkedItemId can never touch another
+    // tenant's row — belt-and-suspenders with the RLS listing_manager policy.
     const { error } = await supabase
       .from("inventory_items")
       .update(updates as never)
-      .eq("id", linkedItem.id);
+      .eq("id", linkedItem.id)
+      .eq("user_id", linkedItem.user_id);
     if (error) {
       toast.warning(
         "Submission created, but linking to the inventory item failed."

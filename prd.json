@@ -16146,8 +16146,8 @@
         "linkInventoryItem targets an item confirmed to belong to the active workspace tenant"
       ],
       "priority": 1935,
-      "passes": false,
-      "notes": "[P3][Web/FlipDesk] Code-review sweep 2026-07-11. RLS still protects data (no leak); this is a wrong-tenant correctness bug + unmount leak.",
+      "passes": true,
+      "notes": "[P3][Web/FlipDesk] Code-review sweep 2026-07-11. RLS still protects data (no leak); this is a wrong-tenant correctness bug + unmount leak. DONE 2026-07-11 — new-submission.tsx: the inventory prefetch now scopes the select to workspaceOwnerId (activeWorkspaceOwnerId ?? user.id) via a reactive useAuthStore selector (mirrors use-ebay.ts), so a member submitting into an owners workspace sees that workspaces items (viewer RLS) not their own/other workspaces. Added a cancelled guard + cleanup to prevent setState-after-unmount, and re-runs on workspace switch. linkInventoryItem now pins the UPDATE with .eq(user_id, linkedItem.user_id) so a stale/URL item id can never write to another tenant. tsc + eslint clean.",
       "relevantPaths": [
         "src/pages/new-submission.tsx"
       ]
