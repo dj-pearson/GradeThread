@@ -1195,6 +1195,13 @@ actor SyncEngine {
         // from the FULL queue (incl. stuck creates past maxRetries), not just the
         // retry-eligible slice below.
         var unconfirmedCreateIds = Self.unconfirmedCreateTargetIds(allMutations)
+        // A deletePhoto targets a photo by id, but its owning uploadPhoto isn't an
+        // isCreateKind and carries the photo id INSIDE its payload (not targetId),
+        // so the create-before-edit guard above misses it. Track pending upload
+        // photo ids so a deletePhoto can't flush ahead of the upload that creates
+        // that row (which would delete 0 rows, dequeue, then let the upload replay
+        // re-create the photo the user deleted — a resurrected photo).
+        var unconfirmedUploadPhotoIds = Self.unconfirmedUploadPhotoIds(allMutations)
 
         // Skip mutations that have exhausted their auto-retry budget; they stay
         // queued for the inspector (US-641).
@@ -1229,6 +1236,10 @@ actor SyncEngine {
             if Self.shouldDeferDependent(mutation, unconfirmedCreateIds: unconfirmedCreateIds) {
                 continue
             }
+            // Defer a deletePhoto whose photo still has a pending upload (see above).
+            if Self.shouldDeferPhotoDelete(mutation, unconfirmedUploadPhotoIds: unconfirmedUploadPhotoIds) {
+                continue
+            }
             // US-1496: a prior same-target mutation failed this pass — hold this
             // one so a newer snapshot can't land ahead of the older, still-queued
             // one (which would then replay next pass and revert the row).
@@ -1246,6 +1257,12 @@ actor SyncEngine {
             // so they can still flush in THIS pass.
             if Self.isCreateKind(mutation.kind), let target = mutation.targetId {
                 unconfirmedCreateIds.remove(target)
+            }
+            // A just-confirmed photo upload unblocks a deletePhoto queued behind it
+            // so the delete can still flush in THIS pass (upload then delete = gone).
+            if mutation.kind == MutationKind.uploadPhoto.rawValue,
+               let photoId = Self.uploadPhotoId(from: mutation.payload) {
+                unconfirmedUploadPhotoIds.remove(photoId)
             }
             // US-1495: an inventory-item edit reached the server.
             if Self.isInventoryItemEdit(mutation.kind), let target = mutation.targetId {
@@ -1300,6 +1317,25 @@ actor SyncEngine {
     /// not exist yet (US-1208).
     static func unconfirmedCreateTargetIds(_ queue: [PendingMutationSnapshot]) -> Set<String> {
         Set(queue.filter { isCreateKind($0.kind) }.compactMap(\.targetId))
+    }
+
+    /// Photo ids of `uploadPhoto` mutations still in the queue — their `item_photos`
+    /// row may not exist on the server yet, so a `deletePhoto` for one must wait.
+    static func unconfirmedUploadPhotoIds(_ queue: [PendingMutationSnapshot]) -> Set<String> {
+        Set(
+            queue.filter { $0.kind == MutationKind.uploadPhoto.rawValue }
+                .compactMap { uploadPhotoId(from: $0.payload) }
+        )
+    }
+
+    /// A `deletePhoto` must not flush while its photo still has a pending upload —
+    /// its `targetId` is the photo id, matched against the pending upload set.
+    static func shouldDeferPhotoDelete(
+        _ mutation: PendingMutationSnapshot, unconfirmedUploadPhotoIds: Set<String>
+    ) -> Bool {
+        guard mutation.kind == MutationKind.deletePhoto.rawValue,
+              let target = mutation.targetId else { return false }
+        return unconfirmedUploadPhotoIds.contains(target)
     }
 
     /// US-1495: mutation kinds that carry an inventory-item edit — the ones the

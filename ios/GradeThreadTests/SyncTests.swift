@@ -901,6 +901,31 @@ final class SyncTests: XCTestCase {
         XCTAssertTrue(SyncEngine.shouldDeferDependent(edit, unconfirmedCreateIds: unconfirmed))
     }
 
+    func test_deletePhoto_deferredWhileItsUploadPending() {
+        // Offline: upload photo P, then delete P. The delete must NOT flush ahead
+        // of the upload — otherwise it deletes 0 rows, dequeues, and the upload
+        // replay re-creates the photo the user deleted (resurrected photo).
+        let delete = snapshot(kind: .deletePhoto, targetId: "photo-1")
+        XCTAssertTrue(
+            SyncEngine.shouldDeferPhotoDelete(delete, unconfirmedUploadPhotoIds: ["photo-1"]))
+        // A photo with no pending upload flushes normally.
+        XCTAssertFalse(
+            SyncEngine.shouldDeferPhotoDelete(delete, unconfirmedUploadPhotoIds: ["other"]))
+        // The rule applies only to deletePhoto, not other kinds sharing an id.
+        let edit = snapshot(kind: .updateInventoryItem, targetId: "photo-1")
+        XCTAssertFalse(
+            SyncEngine.shouldDeferPhotoDelete(edit, unconfirmedUploadPhotoIds: ["photo-1"]))
+    }
+
+    func test_unconfirmedUploadPhotoIds_extractsPhotoIdFromPayload() {
+        let payload = try! JSONSerialization.data(withJSONObject: ["photo_id": "photo-9"])
+        let upload = SyncEngine.PendingMutationSnapshot(
+            id: UUID().uuidString, kind: MutationKind.uploadPhoto.rawValue, payload: payload,
+            targetId: "item-1", retryCount: 0, lastError: nil, lastAttemptAt: nil,
+            createdAt: Date(timeIntervalSince1970: 0))
+        XCTAssertEqual(SyncEngine.unconfirmedUploadPhotoIds([upload]), ["photo-9"])
+    }
+
     func test_dependentEdit_stuckCreateStillBlocks() {
         // The create has exhausted its retry budget (stuck). The edit (still
         // retry-eligible) must STILL be blocked — a stuck create means the row
