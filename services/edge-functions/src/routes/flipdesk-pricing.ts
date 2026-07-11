@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { capBodyArray } from "../lib/validation.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
 import { acquireJobLock } from "../lib/job-lock.ts";
 import { isFeatureEnabled } from "../lib/feature-flags.ts";
@@ -658,7 +659,10 @@ flipdeskPricingRoutes.post("/reprice/apply", async (c) => {
   } catch {
     return jsonError(c, 400, "Invalid JSON body");
   }
-  const rawItems = Array.isArray(body.items) ? body.items : [];
+  // Cap the input array before iterating so an oversized body can't force an
+  // unbounded loop (US-1944). The valid set is still capped to
+  // MAX_BULK_REPRICE below; MAX_BODY_ARRAY (500) leaves ample room for that.
+  const rawItems = capBodyArray(body.items);
   const requested: Array<{ listingId: string; priceCents: number }> = [];
   for (const r of rawItems) {
     if (!r || typeof r !== "object") continue;

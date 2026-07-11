@@ -16297,8 +16297,8 @@
         "The cap is documented near the handler; a unit test asserts an over-cap array is bounded/rejected"
       ],
       "priority": 1944,
-      "passes": false,
-      "notes": "[P3][Edge/Security] Code-review sweep 2026-07-11.",
+      "passes": true,
+      "notes": "[P3][Edge/Security] Code-review sweep 2026-07-11. DONE 2026-07-11 — added capBodyArray/capStringIds to lib/validation.ts (MAX_BODY_ARRAY=500, slice-then-process bounds the loop even for all-duplicate mega-arrays). Applied: flipdesk-pricing reprice/apply (cap raw items before the parse loop), admin-ops dead-letter bulk (cap ids to BULK_BATCH_LIMIT=25, preserving null=act-on-all), admin-waitlist invite (cap ids to 500 = the resolve .limit). Unit test tests/array-caps_test.ts asserts over-cap arrays are bounded + null/empty/dedup semantics.",
       "relevantPaths": [
         "services/edge-functions/src/routes/flipdesk-pricing.ts",
         "services/edge-functions/src/routes/admin-ops.ts",

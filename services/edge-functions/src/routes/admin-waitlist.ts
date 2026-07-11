@@ -9,6 +9,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { capStringIds } from "../lib/validation.ts";
 import { jsonError } from "../lib/http-errors.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { clearAccessGateCache } from "../lib/access-gate.ts";
@@ -174,7 +175,9 @@ adminWaitlistRoutes.post("/invite", async (c: Context<AdminEnv>) => {
   } catch {
     return jsonError(c, 400, "Invalid JSON body");
   }
-  const ids = Array.isArray(body.ids) ? body.ids.filter((x): x is string => typeof x === "string") : [];
+  // Cap the id filter so an oversized body can't force an unbounded IN(...)
+  // query; 500 matches the `.limit(500)` on the resolve query below (US-1944).
+  const ids = capStringIds(body.ids, 500);
   const cohort = typeof body.cohort === "string" ? body.cohort.trim() : "";
 
   let targetQuery = supabaseAdmin
