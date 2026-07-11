@@ -1,4 +1,5 @@
 import Foundation
+import GradeThreadCore
 
 /// US-677 — per-source ROI + sourcing-budget math, rolled up over the local
 /// SwiftData mirror exactly like ``AnalyticsRollup``/``MoneyRollup``: pure

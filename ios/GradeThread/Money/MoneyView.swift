@@ -1,4 +1,5 @@
 import Charts
+import GradeThreadCore
 import SwiftData
 import SwiftUI
 

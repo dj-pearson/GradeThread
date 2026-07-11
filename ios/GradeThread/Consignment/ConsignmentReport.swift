@@ -1,4 +1,5 @@
 import Foundation
+import GradeThreadCore
 
 /// One consignor's payout summary over the reported sales (US-676).
 struct ConsignmentReportRow: Identifiable, Equatable {

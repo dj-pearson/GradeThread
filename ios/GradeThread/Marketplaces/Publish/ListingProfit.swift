@@ -1,4 +1,5 @@
 import Foundation
+import GradeThreadCore
 
 /// Forward-looking profit/margin estimate for a listing at a given price, so
 /// pricing is a margin decision instead of a guess. Mirrors the web

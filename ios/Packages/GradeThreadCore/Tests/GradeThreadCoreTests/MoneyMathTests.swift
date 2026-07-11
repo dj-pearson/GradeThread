@@ -1,9 +1,9 @@
 import XCTest
-@testable import GradeThread
+@testable import GradeThreadCore
 
 /// US-790: exact money aggregation. Proves `Money` recovers the intended cents
 /// from a binary-float Double and sums without the drift a naive `reduce(0,+)`
-/// accumulates over large sets.
+/// accumulates over large sets. Runs on Linux (`swift test`) via GradeThreadCore.
 final class MoneyMathTests: XCTestCase {
 
     func test_decimal_recoversExactCents() {

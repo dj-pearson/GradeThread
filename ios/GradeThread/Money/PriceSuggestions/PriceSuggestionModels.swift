@@ -1,4 +1,5 @@
 import Foundation
+import GradeThreadCore
 
 /// US-816 — pure model + candidate/suggestion logic for the bulk
 /// price-suggestions surface (iOS parity with web `/dashboard/analytics/

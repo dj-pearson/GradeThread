@@ -1,3 +1,4 @@
+import GradeThreadCore
 import SwiftData
 import SwiftUI
 

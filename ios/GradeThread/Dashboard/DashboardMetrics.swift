@@ -1,4 +1,5 @@
 import Foundation
+import GradeThreadCore
 
 /// Glanceable home-screen rollup over the local SwiftData mirror. Pure
 /// scalars only so the math is unit-testable without a ModelContainer —

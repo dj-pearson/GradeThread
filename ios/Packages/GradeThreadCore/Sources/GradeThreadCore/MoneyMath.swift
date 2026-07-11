@@ -13,11 +13,15 @@ import Foundation
 /// sums in `Decimal` (no drift), and hands back a cents-rounded result. Callers
 /// keep their existing `Double` types — they just swap `reduce(0, +)` for
 /// `Money.sum(...)` to get a penny-exact total.
-enum Money {
+///
+/// Pure Foundation logic — lives in GradeThreadCore so it is unit-tested on
+/// Linux (`swift test`, no Mac), and consumed by the iOS app via `import
+/// GradeThreadCore`.
+public enum Money {
     /// Exact 2-dp `Decimal` for a `Double` dollar amount. `Decimal(double)`
     /// carries the float's full expansion; rounding to 2 places pins it back to
     /// the cents the value was always meant to represent.
-    static func decimal(_ dollars: Double) -> Decimal {
+    public static func decimal(_ dollars: Double) -> Decimal {
         // US-1412: `Decimal(nan/inf)` is undefined and would poison every sum /
         // CSV export it flows into. All callers sum finite stored prices, so this
         // is a latent guard — but a cheap one against a NaN ever sneaking in.
@@ -34,24 +38,24 @@ enum Money {
     /// to the cent — e.g. a listing price before it's sent to eBay, or a single
     /// profit estimate shown next to the Money tab's realized net. Single values
     /// don't need `sum`, but they DO need to round identically to it.
-    static func cents(_ dollars: Double) -> Double {
+    public static func cents(_ dollars: Double) -> Double {
         decimal(dollars).currencyDouble
     }
 
     /// Drift-free sum of `Double` dollar amounts, as an exact `Decimal`.
-    static func sumDecimal<S: Sequence>(_ amounts: S) -> Decimal
+    public static func sumDecimal<S: Sequence>(_ amounts: S) -> Decimal
     where S.Element == Double {
         amounts.reduce(Decimal.zero) { $0 + decimal($1) }
     }
 
     /// Drift-free sum of `Double` dollar amounts, returned as a cents-rounded
     /// `Double` so callers that need a `Double` total stay unchanged downstream.
-    static func sum<S: Sequence>(_ amounts: S) -> Double where S.Element == Double {
+    public static func sum<S: Sequence>(_ amounts: S) -> Double where S.Element == Double {
         sumDecimal(amounts).currencyDouble
     }
 
     /// Drift-free sum of a money field projected from each element.
-    static func sum<S: Sequence>(
+    public static func sum<S: Sequence>(
         _ items: S,
         _ amount: (S.Element) -> Double
     ) -> Double {
@@ -59,7 +63,7 @@ enum Money {
     }
 }
 
-extension Decimal {
+public extension Decimal {
     /// This `Decimal` rounded to cents and converted to `Double` — the boundary
     /// where an exact total re-enters `Double`-typed display / chart code.
     var currencyDouble: Double {
