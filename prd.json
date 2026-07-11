@@ -16115,8 +16115,8 @@
         "No behavior change for solo users; a workspace switch cannot serve the prior tenant's cached eBay data even without a full clear"
       ],
       "priority": 1933,
-      "passes": false,
-      "notes": "[P3][Web/Data] Code-review sweep 2026-07-11. Defense-in-depth; category-scoped ebay_category_* keys are acceptable as-is.",
+      "passes": true,
+      "notes": "[P3][Web/Data] Code-review sweep 2026-07-11. Defense-in-depth; category-scoped ebay_category_* keys are acceptable as-is. DONE 2026-07-11 — added a useEbayTenantKey() helper (activeWorkspaceOwnerId ?? user?.id, mirroring the useEbayPayouts precedent) and appended it to all six unscoped eBay query keys: ebay_policies, ebay_account_health, ebay_listing_health, ebay_promotions, ebay_best_offers, ebay_eligible_offers. Cache entries are now tenant-partitioned regardless of queryClient.clear(). Existing prefix-matching invalidateQueries calls (in-file + offers.tsx) still match the longer keys; no getQueryData/exact-match deps. Solo users unaffected (single stable key suffix). tsc + eslint clean.",
       "relevantPaths": [
         "src/hooks/use-ebay.ts"
       ]
