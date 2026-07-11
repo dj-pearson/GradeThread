@@ -15818,8 +15818,8 @@
         "Vitest covers: (a) settled-on-Stripe-but-DB-write-failed → retry reconciles, no second transfer; (b) genuinely-unpaid → transfer fires once"
       ],
       "priority": 1916,
-      "passes": false,
-      "notes": "[P1][Edge/Payments] Code-review sweep 2026-07-11. Port the exact US-1653 affiliate pattern (findExistingTransfer) into consignor-payout.ts — the two engines share rails but only affiliate got the guard.",
+      "passes": true,
+      "notes": "[P1][Edge/Payments] Code-review sweep 2026-07-11. Port the exact US-1653 affiliate pattern (findExistingTransfer) into consignor-payout.ts — the two engines share rails but only affiliate got the guard. DONE 2026-07-11 — mirrored the affiliate US-1653 hardening onto consignor-payout.ts. fireTransfer now, before stripe.transfers.create, fetches the row created_at and calls a new exported findExistingTransfer(stripe,accountId,payoutId,createdAtMs) that scans transfers to the destination (time-bounded to created_at-5min, bounded 5-page walk) for metadata.payout_id===payoutId; a hit reconciles the row as paid (stripe_transfer_id/paid_at/status) with NO second transfer, a lookup error returns skipped (row stays retryable, never blind re-fire). metadata.payout_id was already set (AC2). sweep retry routes through fireTransfer so a >24h-delayed retry can never duplicate (AC3). Test consignor-transfer-dedup_test.ts covers found→reconcile, unpaid→null, list-error→error, pagination, and the created.gte time-bound. Verified node-sim + deno lint; full deno check/test in CI.",
       "relevantPaths": [
         "services/edge-functions/src/lib/consignor-payout.ts",
         "services/edge-functions/src/lib/affiliate-payout.ts"
