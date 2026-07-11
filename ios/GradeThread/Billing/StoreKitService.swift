@@ -263,7 +263,14 @@ struct StoreKitService: StoreKitProviding {
     }
 
     /// Result of reporting a signed transaction to the edge.
-    private enum VerifyReport: Equatable { case ok, stripeConflict, failed }
+    /// `ownershipMismatch` = the JWS's appAccountToken belongs to a DIFFERENT
+    /// signed-in user (a shared device / account switch); the edge 403s it. It's
+    /// terminal for this session — retrying under the wrong account can never
+    /// succeed — so it's treated like a non-failure so the transaction FINISHES
+    /// and stops being redelivered every launch (the owner's entitlement is still
+    /// reconciled server-side via App Store Server Notifications and re-linked when
+    /// they sign back in and restore).
+    private enum VerifyReport: Equatable { case ok, stripeConflict, failed, ownershipMismatch }
 
     /// Send the signed transaction to the edge, which verifies + reconciles it
     /// into the user's plan/credits. Entitlement is also delivered server-side by
@@ -279,6 +286,14 @@ struct StoreKitService: StoreKitProviding {
         } catch let error as EdgeAPIError {
             if case .badRequest(let detail) = error, detail == "ACTIVE_STRIPE_SUBSCRIPTION" {
                 return .stripeConflict
+            }
+            // A 403 whose body is TRANSACTION_OWNERSHIP_MISMATCH means this JWS
+            // belongs to a different signed-in user — terminal, don't retry-loop it.
+            if case .forbidden(let detail) = error, detail == "TRANSACTION_OWNERSHIP_MISMATCH" {
+                Telemetry.backgroundBreadcrumb(
+                    "IAP verify: transaction belongs to another account — finishing to stop redelivery",
+                    category: "iap")
+                return .ownershipMismatch
             }
             // US-1148: the edge rejected the verify (non-conflict). It self-heals
             // via App Store Server Notifications, but breadcrumb so a systemic
@@ -330,13 +345,28 @@ struct StoreKitService: StoreKitProviding {
     }
 
     /// Drain StoreKit's transaction updates (renewals, refunds, deferred
-    /// purchases). Start once at app launch.
+    /// purchases) and reconcile any already-unfinished transactions. Start once at
+    /// app launch.
     static func startTransactionListener() -> Task<Void, Never> {
         Task.detached {
             let service = StoreKitService()
-            for await update in Transaction.updates {
-                await service.process(update)
+            // Attach to LIVE updates FIRST (US-1405) so a transaction the system
+            // resolves during launch isn't missed while we drain the backlog.
+            async let liveUpdates: Void = {
+                for await update in Transaction.updates {
+                    await service.process(update)
+                }
+            }()
+            // Then reconcile any already-unfinished transactions — interrupted, or
+            // finished-locally-but-never-server-reported. `Transaction.updates` does
+            // NOT redeliver these, so this is their only launch reconcile path.
+            // `process()` is idempotent (server grant is ON CONFLICT DO NOTHING;
+            // finishing an already-finished transaction is a no-op), so a
+            // transaction seen by both streams is safe to process twice.
+            for await result in Transaction.unfinished {
+                await service.process(result)
             }
+            await liveUpdates
         }
     }
 

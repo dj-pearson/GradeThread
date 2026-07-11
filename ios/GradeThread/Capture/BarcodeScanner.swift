@@ -74,6 +74,9 @@ public final class BarcodeScanner: NSObject {
         // US-1408: self-heal from interruptions / runtime errors on this session.
         let center = NotificationCenter.default
         center.addObserver(
+            self, selector: #selector(handleWasInterrupted(_:)),
+            name: AVCaptureSession.wasInterruptedNotification, object: session)
+        center.addObserver(
             self, selector: #selector(handleInterruptionEnded(_:)),
             name: AVCaptureSession.interruptionEndedNotification, object: session)
         center.addObserver(
@@ -141,6 +144,13 @@ public final class BarcodeScanner: NSObject {
             if !session.isRunning { session.startRunning() }
         }
         isRunning = true
+    }
+
+    @objc private nonisolated func handleWasInterrupted(_ note: Notification) {
+        // Mirror CameraSession: an interruption (call, Control Center, PiP) stops
+        // the session, so reflect that in `isRunning` instead of reporting "live"
+        // over a frozen preview; interruptionEnded restarts it.
+        Task { @MainActor in self.isRunning = false }
     }
 
     @objc private nonisolated func handleInterruptionEnded(_ note: Notification) {
