@@ -16100,8 +16100,8 @@
         "Manual/unit check: force an immediate stream error and confirm the original selection remains in the editor"
       ],
       "priority": 1932,
-      "passes": false,
-      "notes": "[P3][Web/FlipDesk] Code-review sweep 2026-07-11.",
+      "passes": true,
+      "notes": "[P3][Web/FlipDesk] Code-review sweep 2026-07-11. DONE 2026-07-11 — use-content-ai-stream.ts regenerate() no longer deletes the selection up front. Deletion is deferred into a clearSelectionOnce() guard invoked from the first onDelta, so an immediate stream failure (network/401/edge 500, before any content) leaves the highlighted text intact; on success the first delta clears the captured range and streamed HTML replaces it (behavior unchanged). Deletes the captured {from,to} range rather than the live selection in case the cursor moved during the async gap. AC3 verified by tsc/inspection: deleteRange is reachable only from within onDelta, so a pre-delta error cannot touch the doc. Note: a renderHook unit test would require @testing-library/react which is not a project dep (out of scope). tsc + eslint clean.",
       "relevantPaths": [
         "src/hooks/use-content-ai-stream.ts"
       ]

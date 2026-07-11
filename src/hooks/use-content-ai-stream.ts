@@ -102,8 +102,19 @@ export function useContentAiStream(editor: Editor | null, postId: string) {
       controllerRef.current = controller;
       setIsStreaming(true);
 
-      // Drop the selection so streamed HTML lands exactly where it was.
-      editor.chain().focus().deleteSelection().run();
+      // US-1932: delete the selection LAZILY — only once the first delta
+      // actually arrives — so an immediate stream failure (network / 401 /
+      // edge 500, before any content) leaves the user's highlighted text
+      // untouched instead of silently losing it. On success the first delta
+      // clears the original range, then streamed HTML lands exactly where it
+      // was. Delete the captured range (not the live selection) in case the
+      // cursor moved during the async gap.
+      let selectionCleared = false;
+      const clearSelectionOnce = () => {
+        if (selectionCleared) return;
+        selectionCleared = true;
+        editor.chain().focus().deleteRange({ from, to }).run();
+      };
       const flusher = createHtmlFlusher(editor);
       try {
         await streamContentSSE(
@@ -111,7 +122,10 @@ export function useContentAiStream(editor: Editor | null, postId: string) {
           { mode, selectionHtml: html, keyword },
           controller.signal,
           {
-            onDelta: flusher.push,
+            onDelta: (text) => {
+              clearSelectionOnce();
+              flusher.push(text);
+            },
             onDone: flusher.flush,
             onError: (m) => toast.error(m),
           },
