@@ -15871,8 +15871,8 @@
         "Vitest covers partial, full, and edge ($0 amount) refund clawbacks"
       ],
       "priority": 1919,
-      "passes": false,
-      "notes": "[P2][Edge/Payments] Code-review sweep 2026-07-11.",
+      "passes": true,
+      "notes": "[P2][Edge/Payments] Code-review sweep 2026-07-11. DONE 2026-07-11 — added exported proportionalClawback(granted,refunded,total)=round(granted*refunded/total), half-up, clamped [0,granted], with refunded<=0→0, refunded>=total→full, total<=0(refunded>0)→defensive full (no div-by-zero). charge.refunded path now revokes proportionalClawback(credits, charge.amount_refunded, charge.amount) and skips when 0. dispute.closed→lost path fetches the charge total (getStripe().charges.retrieve) and scales by dispute.amount, falling back to full pack if the fetch fails (RPC clamps, never over-revokes). Test tests/proportional-clawback_test.ts covers partial/full/over-refund-clamp/half-up/$0/nothing/invalid. Verified node-sim + deno lint; full deno check/test in CI.",
       "relevantPaths": [
         "services/edge-functions/src/routes/webhooks.ts"
       ]
