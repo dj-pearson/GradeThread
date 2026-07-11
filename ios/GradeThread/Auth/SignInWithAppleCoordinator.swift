@@ -18,15 +18,29 @@ import Foundation
 public enum SignInWithAppleCoordinator {
 
     /// Cryptographically-random nonce of `length` URL-safe characters.
+    ///
+    /// Uses rejection sampling so the draw is UNIFORM over the 65-char alphabet:
+    /// mapping a raw 0–255 byte with `% 65` would favour the first 61 characters
+    /// (they'd map from 4 byte values each vs. 3 for the last 4). Bytes at or above
+    /// the largest multiple of the alphabet size (195) are discarded and resampled.
     public static func randomNonce(length: Int = 32) -> String {
         precondition(length > 0)
         let charset: [Character] = Array(
             "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-._"
         )
-        var random = [UInt8](repeating: 0, count: length)
-        let result = SecRandomCopyBytes(kSecRandomDefault, length, &random)
-        precondition(result == errSecSuccess, "SecRandomCopyBytes failed")
-        return String(random.map { charset[Int($0) % charset.count] })
+        let count = charset.count                       // 65
+        // Largest byte value that keeps the draw unbiased: (256 / 65) * 65 - 1 = 194.
+        let maxUnbiased = UInt8((256 / count) * count - 1)
+        var result = ""
+        result.reserveCapacity(length)
+        while result.count < length {
+            var byte: UInt8 = 0
+            let status = SecRandomCopyBytes(kSecRandomDefault, 1, &byte)
+            precondition(status == errSecSuccess, "SecRandomCopyBytes failed")
+            if byte > maxUnbiased { continue }          // biased tail — resample
+            result.append(charset[Int(byte) % count])
+        }
+        return result
     }
 
     public static func hashedNonce(_ input: String) -> String {

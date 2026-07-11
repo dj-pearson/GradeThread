@@ -58,6 +58,15 @@ actor PhotoSignedURLProvider {
     /// the ≤900s bound (US-979 AC).
     var requestedTTLSeconds: Int { ttl }
 
+    /// Drop every cached signed URL. Called on sign-out (alongside
+    /// `EdgeAPI.shared.clearCache()`) so capability-bearing signed URLs — the
+    /// access token lives in the query string — for the PREVIOUS user's private
+    /// grading-label / PII photos don't linger in memory for up to their TTL after
+    /// the account is torn down on a shared device.
+    func clearCache() {
+        cache.removeAll()
+    }
+
     /// Appends a photo's local cache token as an ignored `_cb` query param so an
     /// in-place-rotated private photo busts the client thumbnail caches. The
     /// signed path (and thus the URL, cached ~10 min) is unchanged by a rotate,

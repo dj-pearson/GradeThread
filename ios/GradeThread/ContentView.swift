@@ -153,6 +153,10 @@ struct ContentView: View {
                     // US-1647: flush the EdgeAPI response cache so a cached GET
                     // can't serve the next account on this device.
                     Task { await EdgeAPI.shared.clearCache() }
+                    // Drop cached signed URLs for the previous user's PRIVATE photos
+                    // (capability tokens in the query string) so they don't linger
+                    // in memory up to their TTL after sign-out on a shared device.
+                    Task { await PhotoSignedURLProvider.shared.clearCache() }
                     PushService.shared.clearTokenOnSignOut()
                     // Capture strongly before nil-ing (mirrors the invalidateScope
                     // pattern above): a deferred `Task { await syncEngine?.stop() }`
