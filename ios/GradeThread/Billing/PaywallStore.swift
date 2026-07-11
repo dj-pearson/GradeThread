@@ -54,6 +54,12 @@ final class PaywallStore {
 
     // Current billing state (server truth, enriched by StoreKit for App Store subs).
     var currentPlan: String = "free"
+    /// The EXACT active subscription product id (e.g. `…sub.pro.yearly`), from the
+    /// on-device StoreKit entitlement. Lets the paywall gate only the current
+    /// product rather than the whole tier, so a monthly subscriber can cross-grade
+    /// to the yearly of the SAME tier (previously both intervals rendered as
+    /// "Current" and were un-tappable). nil for free / web-billed users.
+    var currentProductId: String?
     var billingSource: String?
     /// True only once a billing snapshot was successfully fetched from the server.
     /// A network/RLS failure leaves this false so the subscription gate fails
@@ -223,12 +229,14 @@ final class PaywallStore {
         // that dead-ends on tap (App Store 2.1(b)).
         guard hasResolvedPrice(entry) else { return false }
         switch entry.kind {
-        case let .subscription(plan, _):
+        case .subscription:
             // Fail CLOSED when billing state couldn't be fetched (see
             // `billingLoaded`): never offer a subscription buy while we can't rule
             // out an active Stripe (web) subscription, which a second App Store sub
-            // would double-bill on top of.
-            return billingLoaded && !managedOnWeb && !isCurrentPlan(plan)
+            // would double-bill on top of. Block only the EXACT current product —
+            // NOT the whole tier — so a monthly subscriber can still cross-grade to
+            // the yearly of the same tier (and vice versa).
+            return billingLoaded && !managedOnWeb && entry.productId != currentProductId
         case .consumable:
             // Consumable credit packs don't conflict with a web subscription, so
             // they stay purchasable even if the billing snapshot is unavailable.
@@ -319,6 +327,7 @@ final class PaywallStore {
             // already refreshed above.
             if case let .subscription(plan, _) = entry.kind {
                 currentPlan = plan
+                currentProductId = entry.productId
                 billingSource = "appstore"
                 if !Self.entitlingStatuses.contains(subscriptionStatus ?? "") {
                     subscriptionStatus = "active"
@@ -408,6 +417,7 @@ final class PaywallStore {
         if let entitlement = await service.currentSubscription() {
             subscriptionRenewalDate = entitlement.renewalDate ?? subscriptionRenewalDate
             autoRenewEnabled = entitlement.willAutoRenew
+            currentProductId = entitlement.productId
         }
     }
 

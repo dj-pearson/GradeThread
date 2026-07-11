@@ -352,7 +352,9 @@ struct PaywallView: View {
 
     @ViewBuilder
     private func trailing(for entry: IAPCatalogEntry) -> some View {
-        if case let .subscription(plan, _) = entry.kind, store.isCurrentPlan(plan) {
+        if case .subscription = entry.kind, entry.productId == store.currentProductId {
+            // "Current" marks only the EXACT active product, so the other interval
+            // of the same tier stays purchasable (a monthly ↔ yearly cross-grade).
             Text("Current")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(Color.brandEmerald)

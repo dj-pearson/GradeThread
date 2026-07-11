@@ -74,6 +74,7 @@ final class PaywallStoreTests: XCTestCase {
         // StoreKit resolved real prices for these products (loaded paywall).
         s.prices = [
             "com.gradethread.sub.pro.monthly": "$59.00",
+            "com.gradethread.sub.pro.yearly": "$590.00",
             "com.gradethread.sub.business.monthly": "$99.00",
         ]
         // Billing snapshot fetched successfully (free user, no Stripe).
@@ -81,14 +82,17 @@ final class PaywallStoreTests: XCTestCase {
         // Free user, no Stripe → can buy Pro.
         XCTAssertTrue(s.canPurchase(sub("com.gradethread.sub.pro.monthly")))
 
-        // Already on Pro → can't re-buy Pro.
-        s.currentPlan = "pro"
+        // Already on Pro MONTHLY → can't re-buy the exact current product...
+        s.currentPlan = "pro"; s.currentProductId = "com.gradethread.sub.pro.monthly"
         XCTAssertFalse(s.canPurchase(sub("com.gradethread.sub.pro.monthly")))
-        // ...but can still move to Business.
+        // ...but CAN cross-grade to Pro yearly (same tier, different interval)...
+        XCTAssertTrue(s.canPurchase(sub("com.gradethread.sub.pro.yearly")))
+        // ...and can still move to Business.
         XCTAssertTrue(s.canPurchase(sub("com.gradethread.sub.business.monthly")))
 
         // Managed on web → all subscription purchases blocked.
-        s.currentPlan = "free"; s.billingSource = "stripe"; s.subscriptionStatus = "active"
+        s.currentPlan = "free"; s.currentProductId = nil
+        s.billingSource = "stripe"; s.subscriptionStatus = "active"
         XCTAssertFalse(s.canPurchase(sub("com.gradethread.sub.pro.monthly")))
     }
 
