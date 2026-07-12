@@ -15853,7 +15853,7 @@
         "Service-role edge cron paths still acquire/release locks unchanged (service-role bypasses RLS)"
       ],
       "priority": 1918,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][DB/Security] Code-review sweep 2026-07-11. Only table of 239 lacking both RLS and REVOKE. Load the `migrations` skill before touching supabase/migrations.",
       "relevantPaths": [
         "supabase/migrations/00094_job_locks.sql",
@@ -15997,7 +15997,7 @@
         "Migration follows the US-1108 triple (idempotent / EXPECTED_SCHEMA_VERSION bump same commit / self-record footer)"
       ],
       "priority": 1926,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][DB/Security] Code-review sweep 2026-07-11. Load the `migrations` skill.",
       "relevantPaths": [
         "supabase/migrations/00007_notifications.sql",
@@ -16212,7 +16212,7 @@
         "Load the `migrations` skill"
       ],
       "priority": 1939,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][DB] Code-review sweep 2026-07-11. Load `migrations` skill.",
       "relevantPaths": [
         "supabase/migrations/00002_inventory_financial.sql",
@@ -16229,7 +16229,7 @@
         "Migration follows the US-1108 triple; load the `migrations` skill"
       ],
       "priority": 1940,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][DB/Perf] Code-review sweep 2026-07-11. Load `migrations` skill.",
       "relevantPaths": [
         "supabase/migrations/00008_flipdesk_schema.sql",
@@ -16265,7 +16265,7 @@
         "Migration follows the US-1108 triple; load the `migrations` skill"
       ],
       "priority": 1942,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][DB] Code-review sweep 2026-07-11. Load `migrations` skill.",
       "relevantPaths": [
         "supabase/migrations/00001_initial_schema.sql",

@@ -1,5 +1,38 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ PENDING: 00436–00440 — code-review sweep DB fixes (US-1918/1926/1939/1940/1942, 2026-07-12)
+
+Five small, low-risk migrations from the 2026-07-11 code-review sweep. Apply in
+NNNNN order via `scripts/apply-prod-migrations.sh` (all idempotent), then
+`NOTIFY pgrst, 'reload schema';`, then redeploy the edge (boot guard now expects
+**00440**). **None are read by NEW client code** in this branch, so the frontend
+auto-deploy is unaffected. Bumps `EXPECTED_SCHEMA_VERSION` → **00440**.
+
+- **00436_job_locks_lockdown.sql** (US-1918) — `REVOKE ALL ON public.job_locks
+  FROM anon, authenticated` + `ENABLE ROW LEVEL SECURITY` (deny-all, zero
+  policies). Closes the only table lacking both RLS and REVOKE; blocked a
+  logged-in client from clearing/wedging cron leases. **Risk: LOW** — service-role
+  (edge crons) bypasses RLS, so acquire/release RPCs are unchanged.
+- **00437_notifications_insert_policy.sql** (US-1926) — `DROP POLICY IF EXISTS
+  "Service role can insert notifications" ON public.notifications`. That policy
+  was `WITH CHECK (true)` and (since service-role bypasses RLS) let any
+  authenticated user inject notifications into any feed via PostgREST. **Risk:
+  LOW** — service-role edge writes still succeed (bypass RLS); SELECT/UPDATE
+  owner policies untouched.
+- **00438_money_precision.sql** (US-1939) — alters bare `decimal` money columns
+  (inventory_items.acquired_price, listings.listing_price, sales.sale_price/
+  platform_fees, shipments.shipping_cost/label_cost) to `numeric(10,2)` +
+  non-negative CHECKs. **Risk: LOW–MEDIUM** — brief ACCESS EXCLUSIVE + rewrite of
+  these small FlipDesk tables; existing values round to 2dp (already cent-level in
+  practice). Guarded: type change only fires while a column is still unbounded.
+- **00439_flipdesk_fk_indexes.sql** (US-1940) — partial indexes on
+  payout_imports.sale_id and flipdesk_grading_submissions.submission_id (WHERE
+  NOT NULL). **Risk: LOW** — additive indexes on small tables.
+- **00440_api_keys_key_hash_unique.sql** (US-1942) — de-dupes any colliding
+  key_hash rows (keeps earliest), then replaces the plain index with a UNIQUE
+  one. **Risk: LOW** — a genuine collision means a duplicate issuance, not two
+  valid keys; the delete keeps the earliest row per hash.
+
 ## ⏳ PENDING: 00435_sync_state_flipdesk_id_text.sql (bring-your-own-sheet snapshot save, 2026-07-12)
 
 **What:** Widens `public.google_sheet_sync_state.flipdesk_id` from **uuid → text**
