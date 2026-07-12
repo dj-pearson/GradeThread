@@ -64,6 +64,7 @@ import {
   titleKeywords,
   templateGroupFor,
 } from "@/lib/listing-templates";
+import { titleQuality } from "@/lib/title-quality";
 import {
   API_CROSS_LISTING_PLATFORMS,
   EBAY_CONDITION_OPTIONS,
@@ -1427,6 +1428,40 @@ export function FlipdeskComposerPage() {
   }
 
   const titleLen = title.length;
+  // US-1892: title quality meter — utilization band, brand-first, policy/quality
+  // lint, and pack-to-80 suggestions from the listing's mined demand terms +
+  // high-value filled aspects. Pure (src/lib/title-quality.ts, lockstep with the
+  // edge publish lint).
+  const titleMeter = titleQuality({
+    title,
+    brand: item?.brand ?? null,
+    demandTerms: listing?.demand_terms ?? [],
+    aspects:
+      livePickedAspects ??
+      listing?.item_specifics_override ??
+      ebayMapping?.ebay_aspects ??
+      {},
+  });
+  // Merge the existing titleKeywords() chips with the pack suggestions (demand
+  // terms + aspects), dropping any token already in the title and de-duping —
+  // extends the chips rather than duplicating them (AC2).
+  const titleChips: string[] = (() => {
+    const present = new Set(
+      title.toLowerCase().split(/\s+/).map((w) => w.replace(/[^\p{L}\p{N}]/gu, "")).filter(Boolean),
+    );
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const t of [...keywords, ...titleMeter.suggestions.map((s) => s.token)]) {
+      const key = t.toLowerCase();
+      if (!t.trim() || seen.has(key) || present.has(key)) continue;
+      seen.add(key);
+      out.push(t);
+    }
+    return out;
+  })();
+  // A chip that would push the title past 80 is disabled, never truncated (AC2).
+  const chipFits = (kw: string) =>
+    (title.trim() ? title.trim().length + 1 + kw.length : kw.length) <= TITLE_MAX;
   const parsedPreviewPrice = Number.parseFloat(price);
   const previewPrice = Number.isFinite(parsedPreviewPrice)
     ? parsedPreviewPrice
@@ -1619,7 +1654,10 @@ export function FlipdeskComposerPage() {
             <CardHeader>
               <CardTitle>Title</CardTitle>
               <CardDescription>
-                eBay caps titles at {TITLE_MAX} characters. Lead with the brand.
+                eBay caps titles at {TITLE_MAX} characters and every word is
+                searchable — front-load the brand for click-through, fill the
+                space with real keywords, and don't repeat words (duplicates add
+                no ranking benefit). Filled item specifics are also searchable.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -1634,16 +1672,57 @@ export function FlipdeskComposerPage() {
                 <span
                   className={cn(
                     "absolute right-2 top-1/2 -translate-y-1/2 text-[10px] tabular-nums",
-                    titleLen >= TITLE_MAX
+                    titleMeter.utilization.band === "full"
                       ? "font-semibold text-destructive"
-                      : titleLen > 70
-                        ? "text-amber-600 dark:text-amber-400"
+                      : titleMeter.utilization.band === "good"
+                        ? "text-emerald-600 dark:text-emerald-400"
                         : "text-muted-foreground",
                   )}
                 >
                   {titleLen}/{TITLE_MAX}
                 </span>
               </div>
+              {/* US-1892: utilization bar — green in the 70–80 sweet spot. */}
+              <div
+                className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
+                role="progressbar"
+                aria-valuenow={titleMeter.utilization.pct}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-label="Title length utilization"
+              >
+                <div
+                  className={cn(
+                    "h-full rounded-full transition-all",
+                    titleMeter.utilization.band === "good"
+                      ? "bg-emerald-500"
+                      : titleMeter.utilization.band === "full"
+                        ? "bg-destructive"
+                        : "bg-amber-500",
+                  )}
+                  style={{ width: `${titleMeter.utilization.pct}%` }}
+                />
+              </div>
+              {(!titleMeter.brandFirst ||
+                titleMeter.lint.warnings.length > 0 ||
+                titleMeter.lint.policyViolations.length > 0) && (
+                <ul className="space-y-1 text-xs">
+                  {titleMeter.lint.policyViolations.map((v) => (
+                    <li key={v} className="text-destructive">⚠ {v}</li>
+                  ))}
+                  {!titleMeter.brandFirst && item?.brand && (
+                    <li className="text-amber-600 dark:text-amber-400">
+                      Lead with the brand ({item.brand}) — front-loading it lifts
+                      click-through.
+                    </li>
+                  )}
+                  {titleMeter.lint.warnings.map((w) => (
+                    <li key={w} className="text-amber-600 dark:text-amber-400">
+                      {w}
+                    </li>
+                  ))}
+                </ul>
+              )}
               {aiSnapshot && (
                 <AiDiffChip
                   changed={textChanged(aiSnapshot.title, title)}
@@ -1692,17 +1771,27 @@ export function FlipdeskComposerPage() {
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
-                {keywords.map((kw) => (
-                  <button
-                    key={kw}
-                    type="button"
-                    onClick={() => appendKeyword(kw)}
-                    className="inline-flex items-center gap-1 rounded-full border bg-muted/50 px-2 py-0.5 text-xs hover:bg-muted"
-                  >
-                    <Plus className="h-3 w-3" />
-                    {kw}
-                  </button>
-                ))}
+                {titleChips.map((kw) => {
+                  const fits = chipFits(kw);
+                  return (
+                    <button
+                      key={kw}
+                      type="button"
+                      disabled={!fits}
+                      onClick={() => appendKeyword(kw)}
+                      title={fits ? undefined : "Won't fit in 80 characters"}
+                      className={cn(
+                        "inline-flex items-center gap-1 rounded-full border bg-muted/50 px-2 py-0.5 text-xs",
+                        fits
+                          ? "hover:bg-muted"
+                          : "cursor-not-allowed opacity-40",
+                      )}
+                    >
+                      <Plus className="h-3 w-3" />
+                      {kw}
+                    </button>
+                  );
+                })}
               </div>
             </CardContent>
           </Card>

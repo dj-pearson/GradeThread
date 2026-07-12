@@ -1082,6 +1082,10 @@ export interface ListingRow {
   // FlipDesk extensions
   listing_title: string | null;
   listing_description: string | null;
+  // US-546: high-demand eBay search terms mined from live comps (migration
+  // 00154). Fed into the title/description prompt and the US-1892 title meter's
+  // pack-to-80 chips.
+  demand_terms: string[] | null;
   listing_status: ListingStatus;
   watchers: number;
   views: number;

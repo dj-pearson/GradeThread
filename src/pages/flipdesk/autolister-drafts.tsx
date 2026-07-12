@@ -15,6 +15,7 @@ import {
   Check,
   X,
   Pencil,
+  AlertTriangle,
 } from "lucide-react";
 import {
   Card,
@@ -48,6 +49,7 @@ import { useEbayConnection } from "@/hooks/use-ebay";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { cn } from "@/lib/utils";
+import { titleQuality } from "@/lib/title-quality";
 import type { AspectReviewEntry } from "@/types/database";
 
 // US-548: persistent AutoLister "Drafts" cockpit. The generation queue lives
@@ -608,8 +610,19 @@ export function FlipdeskAutolisterDraftsPage() {
                           aria-label={`Select ${titleFor(d)}`}
                         />
                       </TableCell>
-                      <TableCell className="max-w-xs truncate font-medium">
-                        {titleFor(d)}
+                      <TableCell className="max-w-xs font-medium">
+                        <span className="block truncate">{titleFor(d)}</span>
+                        {/* US-1892: flag weak titles (<60 chars or a lint
+                            finding) so a bulk session catches them pre-publish. */}
+                        {titleQuality({ title: titleFor(d) }).weak && (
+                          <Badge
+                            variant="outline"
+                            className="mt-0.5 gap-1 border-amber-500/50 text-[10px] text-amber-600 dark:text-amber-400"
+                          >
+                            <AlertTriangle className="h-3 w-3" />
+                            Weak title
+                          </Badge>
+                        )}
                       </TableCell>
                       <TableCell>
                         {pub?.status === "publishing" ? (

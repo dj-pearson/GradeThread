@@ -15527,8 +15527,8 @@
         "Meter guidance copy reflects the verified model (front-load brand for CTR, no dup tokens, aspects also searchable) — no folklore ('first 35 chars', stemming tricks)"
       ],
       "priority": 1892,
-      "passes": false,
-      "notes": "[P2][SEO][UI] See EBAY_RANKING_PLAYBOOK.md. Builds on demand-terms.ts + listing-templates.ts; keep lint definitions single-source with US-1890 (vendor via JSON like ebay-aspect-registry.json if needed). Added 2026-07-09."
+      "passes": true,
+      "notes": "[P2][SEO][UI] See EBAY_RANKING_PLAYBOOK.md. Builds on demand-terms.ts + listing-templates.ts; keep lint definitions single-source with US-1890 (vendor via JSON like ebay-aspect-registry.json if needed). Added 2026-07-09. | DONE 2026-07-12: src/lib/title-quality.ts (pure, LOCKSTEP mirror of edge title-lint.ts) — lintTitle + titleUtilization(green 70-80) + isBrandFirst + packTitleSuggestions(demand_terms then high-value aspects, fits-80, disabled-not-truncated) + titleQuality/weak; 23 vitest. Composer: utilization bar + brand-first hint + policy/quality lint list + merged pack chips extending titleKeywords (disabled when over 80); guidance copy reflects verified model (front-load brand, no dup tokens, aspects searchable; no folklore). autolister-drafts: Weak title badge (<60 chars or lint finding). ListingRow.demand_terms typed. tsc-b+eslint+build green."
     },
     {
       "id": "US-1893",
