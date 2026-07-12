@@ -961,12 +961,17 @@ export function ItemCanvas({
     if (item.listing_id) {
       const { data: lstRaw } = await supabase
         .from("listings")
-        .select("item_specifics_override, item_specifics_sources")
+        .select(
+          "item_specifics_override, item_specifics_sources, listing_title, listing_description, listing_price",
+        )
         .eq("id", item.listing_id)
         .maybeSingle();
       const lstRow = lstRaw as {
         item_specifics_override: Record<string, string[]> | null;
         item_specifics_sources: AspectSourceMap | null;
+        listing_title: string | null;
+        listing_description: string | null;
+        listing_price: number | null;
       } | null;
       const lp = projectColumnAspects(
         columnFields,
@@ -974,12 +979,46 @@ export function ItemCanvas({
         lstRow?.item_specifics_sources ?? {},
       );
       const lpFinal = projectAttributeAspects(changedAttrs, lp.aspects, lp.sources);
+      const listingUpdate: Record<string, unknown> = {
+        item_specifics_override: lpFinal.aspects,
+        item_specifics_sources: lpFinal.sources,
+      };
+      // Smart-merge draft title/description/price. A DRAFT listing snapshots
+      // these at draft time, and publish reads `listing.X ?? item.X`, so a later
+      // canvas edit was silently SHADOWED at publish. Propagate the canvas edit
+      // to the draft ONLY when the seller hasn't customized that field in the
+      // composer (the draft still holds the item's prior value, or nothing) — so
+      // an eBay-optimized title/price the seller set in the composer is never
+      // clobbered. Live listings sync through the revise path instead (isGtLive).
+      if (!isGtLive) {
+        const newTitle = s.title.trim() || item.item_title;
+        const draftTitle = (lstRow?.listing_title ?? "").trim();
+        if (
+          newTitle &&
+          (draftTitle === "" || draftTitle === (item.item_title ?? "").trim())
+        ) {
+          listingUpdate.listing_title = newTitle;
+        }
+        const draftDesc = (lstRow?.listing_description ?? "").trim();
+        if (
+          draftDesc === "" ||
+          draftDesc === (item.item_description ?? "").trim()
+        ) {
+          listingUpdate.listing_description = trimOrNull(s.description);
+        }
+        const newPrice = priceOrNull(s.target_price);
+        const draftPrice = lstRow?.listing_price ?? null;
+        if (
+          newPrice != null &&
+          newPrice > 0 &&
+          (draftPrice == null || draftPrice === item.target_price)
+        ) {
+          listingUpdate.listing_price = newPrice;
+        }
+      }
       await supabase
         .from("listings")
-        .update({
-          item_specifics_override: lpFinal.aspects,
-          item_specifics_sources: lpFinal.sources,
-        } as never)
+        .update(listingUpdate as never)
         .eq("id", item.listing_id);
     }
 

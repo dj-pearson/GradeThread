@@ -80,6 +80,7 @@ import {
   type ItemAspectSource,
 } from "@/lib/ebay-prefill";
 import { ebayPathToItemCategory } from "@/lib/ebay-category-map";
+import { previewGradingReadiness } from "@/lib/grading-readiness";
 import {
   deriveGarmentDefaults,
   deriveGarmentType,
@@ -407,6 +408,26 @@ export function FlipdeskComposerPage() {
       } | null;
     },
   });
+
+  // Live grading-readiness preview for the drafts-editor grade card, so it flips
+  // to Ready the instant the last requirement is met (photos are DB-immediate;
+  // title is composer state; garment comes from the item). Mirrors the item
+  // canvas — see src/lib/grading-readiness.ts.
+  const gradingPreview = useMemo(
+    () =>
+      previewGradingReadiness({
+        garment_type: ebayMapping?.garment_type ?? null,
+        garment_category: ebayMapping?.garment_category ?? null,
+        title,
+        photoTypes: new Set(photos.map((p) => p.photo_type)),
+      }),
+    [
+      ebayMapping?.garment_type,
+      ebayMapping?.garment_category,
+      title,
+      photos,
+    ],
+  );
 
   // Structured item columns the aspect prefill can draw from — memoized so the
   // picker's seed effect doesn't churn on every render.
@@ -2143,7 +2164,29 @@ export function FlipdeskComposerPage() {
               Inventory drafts consolidation routed around). Self-contained: shows
               the existing grade + certificate when graded, submission status when
               in flight, or the tier picker + Submit when eligible. */}
-          <GradeThisItemCard item={item} />
+          <GradeThisItemCard
+            item={item}
+            preview={gradingPreview}
+            liveFields={{
+              title,
+              garment_type: ebayMapping?.garment_type ?? "",
+              garment_category: ebayMapping?.garment_category ?? "",
+            }}
+            onPatchGarment={(gt, gc) => {
+              // The composer doesn't own garment fields; write them straight to
+              // the item and refresh the ebayMapping read so the preview clears.
+              void (async () => {
+                await supabase
+                  .from("inventory_items")
+                  .update({ garment_type: gt, garment_category: gc } as never)
+                  .eq("id", item.id);
+                await qc.invalidateQueries({
+                  queryKey: ["inventory_item_ebay", item.id],
+                });
+                await qc.invalidateQueries({ queryKey: ["items_full"] });
+              })();
+            }}
+          />
 
           {/* Description */}
           <Card>
