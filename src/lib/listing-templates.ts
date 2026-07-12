@@ -111,6 +111,22 @@ function gradeBlock(item: ItemFullRow): string {
   return `Graded by GradeThread — Condition Grade ${item.grade_value.toFixed(1)}`;
 }
 
+// Idempotently ensure the grade line is present in a description. Mirrors the
+// server's appendCertNumber idempotency (flipdesk-ebay.ts applyGradeListingPromotion,
+// which keys on the "Condition Grade" phrase) so the composer draft stays truthful:
+// an AI rewrite — especially "regenerate" — writes a fresh description that drops
+// the "Graded by GradeThread — Condition Grade X" line, and the seller's preview
+// would then show no grade even though publish re-asserts it. Re-append the block
+// as a trailing paragraph when it's missing. No-op when the item has no grade or a
+// grade line is already present (the server appends the cert # to it at publish).
+export function ensureGradeLine(description: string, item: ItemFullRow): string {
+  const block = gradeBlock(item);
+  if (!block) return description; // no grade on this item
+  if (/Condition Grade/i.test(description)) return description; // already present
+  const trimmed = description.replace(/\s+$/, "");
+  return trimmed.length > 0 ? `${trimmed}\n\n${block}` : block;
+}
+
 export function interpolateDescription(
   template: string,
   item: ItemFullRow,

@@ -12,6 +12,9 @@ import {
   Rocket,
   Sparkles,
   Link2,
+  Store,
+  BadgeCheck,
+  AlertTriangle,
 } from "lucide-react";
 import {
   Card,
@@ -56,6 +59,7 @@ import { useMeasurementPrefs } from "@/stores/measurement-prefs";
 import {
   DESCRIPTION_TEMPLATES,
   interpolateDescription,
+  ensureGradeLine,
   suggestTitle,
   titleKeywords,
   templateGroupFor,
@@ -77,8 +81,10 @@ import { COMPOSER_FOCUS_ANCHORS } from "@/lib/publish-blockers";
 import {
   mapEbayCondition,
   reverseProjectAspectColumns,
+  syncedItemFieldFor,
   type ItemAspectSource,
 } from "@/lib/ebay-prefill";
+import { deriveListingOrigin } from "@/lib/listing-origin";
 import { ebayPathToItemCategory } from "@/lib/ebay-category-map";
 import { previewGradingReadiness } from "@/lib/grading-readiness";
 import {
@@ -190,6 +196,53 @@ function buildFormatPayload(v: ListingFormatValue): Partial<ListingInsert> {
         ? v.variations
         : null,
   };
+}
+
+// Shared item specifics whose value the buyer expects to also see reflected in
+// the free-text description. Item specifics and the description are edited on
+// independent tracks (changing one never rewrites the other), so a changed
+// specific can silently disagree with a stale description — the pre-push
+// reminder below catches exactly that. Keep to fields a buyer reads in prose;
+// e.g. "US Shoe Size" maps to `size`, "Colour" to `color`, via syncedItemFieldFor.
+const SHARED_DESC_FIELDS = ["brand", "size", "color", "material"] as const;
+type SharedDescField = (typeof SHARED_DESC_FIELDS)[number];
+const SHARED_FIELD_LABELS: Record<SharedDescField, string> = {
+  brand: "Brand",
+  size: "Size",
+  color: "Color",
+  material: "Material",
+};
+
+// Collapse an eBay aspect map down to the {brand,size,color,material} values it
+// carries (first non-empty value per field), resolving category-specific aspect
+// names via the shared registry. Used to diff the saved specifics against the
+// live-edited ones without depending on category-specific aspect naming.
+function sharedValuesFromAspects(
+  aspects: Record<string, string[]> | null | undefined,
+  category: string | null,
+): Partial<Record<SharedDescField, string>> {
+  const out: Partial<Record<SharedDescField, string>> = {};
+  if (!aspects) return out;
+  for (const [name, vals] of Object.entries(aspects)) {
+    const field = syncedItemFieldFor(name, category);
+    if (!field || !(SHARED_DESC_FIELDS as readonly string[]).includes(field)) {
+      continue;
+    }
+    const key = field as SharedDescField;
+    if (out[key]) continue;
+    const v = (vals ?? []).map((x) => x.trim()).find((x) => x.length > 0);
+    if (v) out[key] = v;
+  }
+  return out;
+}
+
+// Whole-word, case-insensitive presence check — so a Size of "M" matches "size M"
+// but not "Medium"/"maroon", and "Nike" matches only as its own word.
+function descriptionMentions(description: string, value: string): boolean {
+  const v = value.trim();
+  if (!v) return true;
+  const esc = v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`\\b${esc}\\b`, "i").test(description);
 }
 
 export function FlipdeskComposerPage() {
@@ -720,7 +773,13 @@ export function FlipdeskComposerPage() {
   function applyRewrite(accepted: AcceptedField[]) {
     for (const f of accepted) {
       if (f.field === "title") setTitle(f.value.slice(0, TITLE_MAX));
-      else if (f.field === "description") setDescription(f.value);
+      else if (f.field === "description") {
+        // A rewrite (esp. "regenerate") writes a fresh description that drops the
+        // "Graded by GradeThread — Condition Grade X" line. Re-insert it idempotently
+        // so the draft/preview keeps showing the grade the server re-asserts at
+        // publish (applyGradeListingPromotion). No-op when the item has no grade.
+        setDescription(item ? ensureGradeLine(f.value, item) : f.value);
+      }
     }
     if (accepted.length > 0) {
       toast.success("AI rewrite applied. Save the draft to keep it.");
@@ -740,6 +799,54 @@ export function FlipdeskComposerPage() {
     !!listing &&
     listing.listing_status === "active" &&
     !!listing.platform_offer_id;
+
+  // US-1077/US-1081: listing provenance drives the sync authority AND the badge.
+  // A brand-new draft (no listing row yet) is GradeThread-originated by definition.
+  const listingOrigin = listing ? deriveListingOrigin(listing) : "gradethread";
+  const isEbayOrigin = listingOrigin === "ebay";
+  const ebayItemUrl =
+    listing?.listing_url ||
+    (listing?.platform_listing_id
+      ? `https://www.ebay.com/itm/${listing.platform_listing_id}`
+      : null);
+
+  // Pre-push reminder: item specifics and the description are independent, so a
+  // specific the seller CHANGED this session can leave the description stale. Flag
+  // only changed shared fields (Brand/Size/Color/Material) whose new value the
+  // description doesn't mention — pushing then would need a needless revise/relist.
+  // Baseline = last-saved specifics; current = the live picker edits (or baseline
+  // when untouched). Recomputes live, so editing the description clears it.
+  const specDescMismatches = useMemo<
+    { field: SharedDescField; value: string }[]
+  >(() => {
+    const category =
+      livePickedCategoryId ??
+      listing?.platform_category_id ??
+      ebayMapping?.ebay_category_id ??
+      null;
+    const savedAspects =
+      listing?.item_specifics_override ?? ebayMapping?.ebay_aspects ?? null;
+    const currentAspects = livePickedAspects ?? savedAspects;
+    if (!currentAspects) return [];
+    const base = sharedValuesFromAspects(savedAspects, category);
+    const cur = sharedValuesFromAspects(currentAspects, category);
+    const out: { field: SharedDescField; value: string }[] = [];
+    for (const field of SHARED_DESC_FIELDS) {
+      const val = cur[field];
+      if (!val) continue;
+      const changed =
+        (base[field] ?? "").trim().toLowerCase() !== val.trim().toLowerCase();
+      if (!changed) continue;
+      if (!descriptionMentions(description, val)) out.push({ field, value: val });
+    }
+    return out;
+  }, [
+    livePickedAspects,
+    livePickedCategoryId,
+    listing,
+    ebayMapping,
+    description,
+  ]);
 
   // Resolve the eBay-owned fields from the live picker state, falling back to the
   // saved listing override and the inventory mirror — shared by the draft save
@@ -1373,6 +1480,49 @@ export function FlipdeskComposerPage() {
             Build, preview, and pick photo variants for "{item.item_title}".
           </p>
         </div>
+      </div>
+
+      {/* US-1077/US-1081: listing provenance tag. Provenance decides sync
+          authority — GradeThread-originated listings are edited here and pushed to
+          eBay; eBay-originated ones are mirrors whose fields eBay owns (edit there). */}
+      <div className="flex flex-wrap items-center gap-2">
+        {isEbayOrigin ? (
+          <>
+            <Badge
+              variant="outline"
+              className="gap-1 border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200"
+            >
+              <Store className="h-3.5 w-3.5" />
+              eBay-generated listing
+            </Badge>
+            <span className="text-xs text-muted-foreground">
+              Created on eBay — eBay owns the title, price, and description here.{" "}
+              {ebayItemUrl && (
+                <a
+                  href={ebayItemUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium underline underline-offset-2"
+                >
+                  Edit on eBay ↗
+                </a>
+              )}
+            </span>
+          </>
+        ) : (
+          <>
+            <Badge
+              variant="outline"
+              className="gap-1 border-brand-navy/30 bg-brand-navy/5 text-brand-navy dark:text-foreground"
+            >
+              <BadgeCheck className="h-3.5 w-3.5" />
+              GradeThread-generated listing
+            </Badge>
+            <span className="text-xs text-muted-foreground">
+              GradeThread is the source of truth — edit here, then push to eBay.
+            </span>
+          </>
+        )}
       </div>
 
       {ebayMapping?.ai_generated_aspects_at && (
@@ -2475,6 +2625,31 @@ export function FlipdeskComposerPage() {
             Saving will push your edits — including category, condition, and item
             specifics — to the active listing.
           </p>
+        </div>
+      )}
+
+      {/* Pre-push reminder: item specifics and the description are edited on
+          separate tracks, so a specific changed this session can leave the
+          description stale. Non-blocking — publish/revise stays enabled; this
+          just heads off a needless eBay revise/relist. Clears live as the seller
+          updates the description. */}
+      {specDescMismatches.length > 0 && (
+        <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <div>
+            <p className="font-medium">
+              Item specifics changed — the description may be out of date.
+            </p>
+            <p className="mt-0.5 text-amber-800 dark:text-amber-300/90">
+              You changed{" "}
+              {specDescMismatches
+                .map((m) => `${SHARED_FIELD_LABELS[m.field]} (${m.value})`)
+                .join(", ")}
+              , but the description doesn&apos;t mention{" "}
+              {specDescMismatches.length === 1 ? "it" : "them"}. Update the
+              description before pushing to eBay to avoid a needless revise.
+            </p>
+          </div>
         </div>
       )}
 

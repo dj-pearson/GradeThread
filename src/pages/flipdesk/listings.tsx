@@ -132,6 +132,7 @@ import {
   ITEM_STATUS_LABELS,
 } from "@/lib/constants";
 import { cn } from "@/lib/utils";
+import { deriveListingOrigin } from "@/lib/listing-origin";
 import { itemPhotoThumb } from "@/lib/images";
 import type {
   AspectReviewEntry,
@@ -389,6 +390,7 @@ interface PlatformChip {
   id: string;
   platform: ListingPlatform;
   status: string;
+  origin: "ebay" | "gradethread";
 }
 
 type PayoutState = "cleared" | "pending" | "discrepancy";
@@ -665,7 +667,9 @@ export function FlipdeskListingsPage() {
     queryFn: async (): Promise<Map<string, PlatformChip[]>> => {
       const { data, error } = await supabase
         .from("listings")
-        .select("id, inventory_item_id, platform, listing_status")
+        .select(
+          "id, inventory_item_id, platform, listing_status, listing_origin, platform_listing_id, batch_id, synced_to_ebay_at",
+        )
         .in("listing_status", ["draft", "active", "sold"]);
       if (error) throw error;
       const map = new Map<string, PlatformChip[]>();
@@ -674,12 +678,17 @@ export function FlipdeskListingsPage() {
         inventory_item_id: string;
         platform: ListingPlatform;
         listing_status: string;
+        listing_origin: string | null;
+        platform_listing_id: string | null;
+        batch_id: string | null;
+        synced_to_ebay_at: string | null;
       }>) {
         const arr = map.get(row.inventory_item_id) ?? [];
         arr.push({
           id: row.id,
           platform: row.platform,
           status: row.listing_status,
+          origin: deriveListingOrigin(row),
         });
         map.set(row.inventory_item_id, arr);
       }
@@ -2651,17 +2660,41 @@ export function FlipdeskListingsPage() {
                                   (l) => (
                                     <span
                                       key={l.id}
-                                      title={`${MARKETPLACE_LABELS[l.platform]} — ${l.status}`}
-                                      className={cn(
-                                        "rounded border px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
-                                        l.status === "active"
-                                          ? "border-emerald-400/60 text-emerald-600 dark:text-emerald-400"
-                                          : l.status === "sold"
-                                            ? "border-brand-navy/40 text-brand-navy dark:text-foreground"
-                                            : "text-muted-foreground",
-                                      )}
+                                      className="inline-flex items-center gap-0.5"
                                     >
-                                      {MARKETPLACE_LABELS[l.platform]}
+                                      <span
+                                        title={`${MARKETPLACE_LABELS[l.platform]} — ${l.status}`}
+                                        className={cn(
+                                          "rounded border px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
+                                          l.status === "active"
+                                            ? "border-emerald-400/60 text-emerald-600 dark:text-emerald-400"
+                                            : l.status === "sold"
+                                              ? "border-brand-navy/40 text-brand-navy dark:text-foreground"
+                                              : "text-muted-foreground",
+                                        )}
+                                      >
+                                        {MARKETPLACE_LABELS[l.platform]}
+                                      </span>
+                                      {/* Provenance tag (US-1077/US-1081): only eBay
+                                          listings have a meaningful origin — who owns
+                                          the fields and which way sync flows. */}
+                                      {l.platform === "ebay" && (
+                                        <span
+                                          title={
+                                            l.origin === "ebay"
+                                              ? "Created on eBay — eBay owns the fields; edit on eBay"
+                                              : "Created in GradeThread — source of truth; edit here"
+                                          }
+                                          className={cn(
+                                            "rounded border px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
+                                            l.origin === "ebay"
+                                              ? "border-amber-400/60 text-amber-600 dark:text-amber-400"
+                                              : "border-brand-navy/40 text-brand-navy dark:text-foreground",
+                                          )}
+                                        >
+                                          {l.origin === "ebay" ? "eBay-made" : "GT"}
+                                        </span>
+                                      )}
                                     </span>
                                   ),
                                 )}
