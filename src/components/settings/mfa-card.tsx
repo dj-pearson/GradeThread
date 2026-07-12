@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
+import { challengeAndVerifyTotp } from "@/lib/mfa";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { downloadBlob } from "@/lib/download";
 import { Button } from "@/components/ui/button";
@@ -138,14 +139,7 @@ export function MfaCard() {
     setBusy(true);
     setErr(null);
     try {
-      const ch = await supabase.auth.mfa.challenge({ factorId: enrollFactorId });
-      if (ch.error) throw ch.error;
-      const v = await supabase.auth.mfa.verify({
-        factorId: enrollFactorId,
-        challengeId: ch.data.id,
-        code: code.trim(),
-      });
-      if (v.error) throw v.error;
+      await challengeAndVerifyTotp(enrollFactorId, code);
       // Session is now AAL2 — immediately mint a first set of recovery codes.
       setEnrolling(false);
       setEnrollFactorId(null);
@@ -169,14 +163,7 @@ export function MfaCard() {
     setBusy(true);
     setErr(null);
     try {
-      const ch = await supabase.auth.mfa.challenge({ factorId: factor.id });
-      if (ch.error) throw ch.error;
-      const v = await supabase.auth.mfa.verify({
-        factorId: factor.id,
-        challengeId: ch.data.id,
-        code: code.trim(),
-      });
-      if (v.error) throw v.error;
+      await challengeAndVerifyTotp(factor.id, code);
       setCode("");
       setAal2(true);
       return true;

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ShieldCheck, Loader2, KeyRound } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { challengeAndVerifyTotp } from "@/lib/mfa";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -115,14 +116,7 @@ function EnrollPanel({ onDone }: { onDone: () => void }) {
     setBusy(true);
     setErr(null);
     try {
-      const ch = await supabase.auth.mfa.challenge({ factorId });
-      if (ch.error) throw ch.error;
-      const v = await supabase.auth.mfa.verify({
-        factorId,
-        challengeId: ch.data.id,
-        code: code.trim(),
-      });
-      if (v.error) throw v.error;
+      await challengeAndVerifyTotp(factorId, code);
       onDone(); // session is now AAL2
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -185,14 +179,7 @@ function ChallengePanel({ factorId, onDone }: { factorId: string; onDone: () => 
     setBusy(true);
     setErr(null);
     try {
-      const ch = await supabase.auth.mfa.challenge({ factorId });
-      if (ch.error) throw ch.error;
-      const v = await supabase.auth.mfa.verify({
-        factorId,
-        challengeId: ch.data.id,
-        code: code.trim(),
-      });
-      if (v.error) throw v.error;
+      await challengeAndVerifyTotp(factorId, code);
       onDone();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -257,14 +244,7 @@ export function MfaStepUpDialog({
       const { data: factors } = await supabase.auth.mfa.listFactors();
       const totp = factors?.totp?.find((f) => f.status === "verified");
       if (!totp) throw new Error("No authenticator enrolled.");
-      const ch = await supabase.auth.mfa.challenge({ factorId: totp.id });
-      if (ch.error) throw ch.error;
-      const v = await supabase.auth.mfa.verify({
-        factorId: totp.id,
-        challengeId: ch.data.id,
-        code: code.trim(),
-      });
-      if (v.error) throw v.error;
+      await challengeAndVerifyTotp(totp.id, code);
       setCode("");
       onOpenChange(false);
       onVerified();
