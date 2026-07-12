@@ -15940,7 +15940,7 @@
         "Vitest: cancel while one job is `running` → job ends cancelled, item not advanced, batch stays cancelled, quota reconciled"
       ],
       "priority": 1923,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Edge/Jobs] Code-review sweep 2026-07-11. Load the `durable-jobs` skill.",
       "relevantPaths": [
         "services/edge-functions/src/routes/flipdesk-autolister.ts"
