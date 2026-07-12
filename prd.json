@@ -15498,7 +15498,7 @@
         "deno tests cover trim-at-publish, lint categories, and the brand-acronym allowlist; no behavior change for titles already ≤80 and clean"
       ],
       "priority": 1890,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][SEO][LHF] See EBAY_RANKING_PLAYBOOK.md. Reuses title-trim.ts; touches flipdesk-ebay.ts preflight + revise only (no new route). Added 2026-07-09."
     },
     {
