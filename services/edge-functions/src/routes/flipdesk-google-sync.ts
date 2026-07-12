@@ -118,7 +118,13 @@ interface RunSummary {
   pushed: number;
   pulled: number;
   conflicts: number;
+  /** HARD failures that fail the whole run: can't reach Google, a DB error, an
+   *  invalid map, a missing key column. These drive a non-2xx from /sync/now. */
   errors: string[];
+  /** SOFT per-row data problems (a bad cell value, a duplicate SKU, a mapped
+   *  column absent from the header) — the sync still succeeds; the seller fixes
+   *  these in their sheet. Surfaced as warnings, never a failure status. */
+  warnings: string[];
   /** Per-cell edits not applied because eBay owns the field (US-1083). */
   skippedItems: SkippedItem[];
   /** Whole-run skip (no sheet / already-running lock). */
@@ -282,6 +288,7 @@ export async function syncUserSheet(
     pulled: 0,
     conflicts: 0,
     errors: [],
+    warnings: [],
     skippedItems: [],
   };
 
@@ -706,7 +713,7 @@ async function runMerge(
         const col = tab.columns.find((c) => c.field === field)!;
         const parsed = parsePulledValue(col, value);
         if (!parsed.ok) {
-          summary.errors.push(`${tab.title} "${record.title ?? id}": ${parsed.error}`);
+          summary.warnings.push(`${tab.title} "${record.title ?? id}": ${parsed.error}`);
           // Revert the invalid sheet edit to the FlipDesk value.
           merge.nextSnapshot[field] = dbRow[tab.columns.indexOf(col) + 1]!;
           delete merge.pulls[field];
@@ -920,7 +927,7 @@ async function runMappedMerge(
     return;
   }
   // Note (non-fatal) any mapped columns missing from the sheet header.
-  for (const e of resolved.errors) summary.errors.push(e);
+  for (const e of resolved.errors) summary.warnings.push(e);
 
   const keyCol = resolved.columns.find((c) => c.col.role === "key")!;
   const writableCols = resolved.columns.filter(
@@ -933,7 +940,7 @@ async function runMappedMerge(
     const sku = String(cells[resolved.keyIndex] ?? "").trim();
     if (!sku) return;
     if (sheetBySku.has(sku)) {
-      summary.errors.push(`Duplicate SKU "${sku}" in the sheet — row ${i + 2} skipped`);
+      summary.warnings.push(`Duplicate SKU "${sku}" in the sheet — row ${i + 2} skipped`);
       return;
     }
     sheetBySku.set(sku, { rowNumber: i + 2, cells });
@@ -981,7 +988,7 @@ async function runMappedMerge(
     }
 
     const merge = mergeMappedRow(writableCols, entry.cells, record, snapshots.get(sku));
-    for (const e of merge.errors) summary.errors.push(`${map.tab} "${sku}": ${e}`);
+    for (const e of merge.errors) summary.warnings.push(`${map.tab} "${sku}": ${e}`);
 
     if (Object.keys(merge.pulls).length > 0) {
       const { error } = await supabaseAdmin
@@ -1025,7 +1032,7 @@ async function runMappedMerge(
       if (seen.has(sku)) continue;
       const built = buildCreateFromSheet(writableCols, keyCol, entry.cells, sku);
       if ("error" in built) {
-        summary.errors.push(built.error);
+        summary.warnings.push(built.error);
         continue;
       }
       const { error } = await supabaseAdmin
@@ -1147,13 +1154,18 @@ flipdeskGoogleSyncRoutes.post("/sync/now", async (c) => {
     if (summary.skipped) {
       return c.json({ ok: true, skipped: true, reason: summary.skipped });
     }
-    // US-1481: the run can finish with per-row/connection errors collected in
-    // summary.errors. Don't report that as a clean success — surface a non-2xx
-    // with the error so the UI shows it instead of a "Synced" toast.
+    // US-1481: a HARD failure (couldn't reach Google, a DB error, an invalid
+    // map) fails the run — surface a non-2xx so the UI shows the real cause.
+    // Use 422, NOT 502: Cloudflare intercepts origin 5xx and serves its own
+    // error page WITHOUT CORS headers, which showed in the browser as a CORS
+    // error masking the real problem. A 4xx passes through with CORS intact.
     if (summary.errors.length) {
-      const error = summary.errors[0] ?? "Sync completed with errors.";
-      return c.json({ ok: false, error, ...summary }, 502);
+      const error = summary.errors[0] ?? "Sync failed.";
+      return c.json({ ok: false, error, ...summary }, 422);
     }
+    // SOFT per-row data problems (a bad cell value, a duplicate SKU) are
+    // warnings, not failures — the sync succeeded for every good row. Return
+    // 200 with the warnings so one bad cell no longer reads as a broken sync.
     return c.json({ ok: true, ...summary });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Sync failed.";

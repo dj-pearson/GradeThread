@@ -59,6 +59,9 @@ export interface SyncNowResult {
   pulled?: number;
   conflicts?: number;
   errors?: string[];
+  /** Soft per-row data problems (bad cell values, duplicate SKUs). The sync
+   *  still succeeded for every good row — the seller fixes these in the sheet. */
+  warnings?: string[];
   skippedItems?: SyncSkippedItem[];
 }
 
@@ -187,6 +190,14 @@ export function useSyncNow() {
       toast.success(
         `Synced: ${result.pushed ?? 0} pushed, ${result.pulled ?? 0} pulled.${conflictNote}${skippedNote}`,
       );
+      // Soft per-row data problems don't fail the sync — surface them so the
+      // seller can fix the offending cells without the run reading as broken.
+      const warnings = result.warnings ?? [];
+      if (warnings.length) {
+        toast.warning(
+          `${warnings.length} row${warnings.length === 1 ? "" : "s"} need attention in your sheet — e.g. ${warnings[0]}`,
+        );
+      }
     },
     onError: (err) => toast.error(err.message),
   });
