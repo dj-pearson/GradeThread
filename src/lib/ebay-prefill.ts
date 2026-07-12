@@ -215,24 +215,87 @@ export function deriveAspectsFromItem(
   return out;
 }
 
+// British→American spelling folds so an aspect NAME matches across spellings
+// ("Main Colour" ↔ "Main Color"). Aspect VALUES are folded separately by
+// normalizeAspectValue (US-823); this is names only.
+const NAME_SPELLING: Array<[RegExp, string]> = [
+  [/colour/g, "color"],
+  [/greying|grey/g, "gray"],
+  [/jewellery/g, "jewelry"],
+  [/fibre/g, "fiber"],
+];
+
+// Normalize an eBay aspect NAME for equivalence matching: lowercase, fold
+// British spellings, strip all non-alphanumerics ("Sleeve Length" → "sleevelength").
+function normalizeAspectName(name: string): string {
+  let s = name.trim().toLowerCase();
+  for (const [re, to] of NAME_SPELLING) s = s.replace(re, to);
+  return s.replace(/[^a-z0-9]/g, "");
+}
+
+// Curated groups of aspect NAMES that denote the same concept across categories
+// (already name-normalized). Re-homing a value between members is ALWAYS gated
+// by fillAspect (SELECTION_ONLY validation), so a value the target category
+// can't accept is parked/dropped rather than mis-filed — this only rescues
+// values that genuinely fit. Conservative on purpose (no semantic guesses).
+const ASPECT_NAME_SYNONYMS: string[][] = [
+  ["color", "maincolor", "primarycolor", "colorfamily", "mancolor"],
+  ["material", "fabrictype", "fabric", "outermaterial", "outershellmaterial"],
+  ["size", "clothingsize", "apparelsize"],
+];
+
+function synonymGroupFor(norm: string): string[] | null {
+  return ASPECT_NAME_SYNONYMS.find((g) => g.includes(norm)) ?? null;
+}
+
+// US-824+: find an aspect in the NEW category's spec equivalent to a
+// would-be-dropped `sourceName`, so its value can carry instead of vanish.
+// Exact name-normalized match wins (pure spelling/format difference); a curated
+// synonym-group match is the fallback. Skips aspects already filled (`taken`).
+function findEquivalentAspect(
+  sourceName: string,
+  aspectList: EbayAspect[],
+  taken: Set<string>,
+): EbayAspect | null {
+  const srcNorm = normalizeAspectName(sourceName);
+  const group = synonymGroupFor(srcNorm);
+  let synonymHit: EbayAspect | null = null;
+  for (const a of aspectList) {
+    const an = (a.localizedAspectName ?? "").trim();
+    if (!an) continue;
+    const norm = normalizeAspectName(an);
+    if (taken.has(norm)) continue;
+    if (norm === srcNorm) return a; // exact-normalized: pure format diff, best
+    if (!synonymHit && group && group.includes(norm)) synonymHit = a;
+  }
+  return synonymHit;
+}
+
 // US-824: classify how a draft's already-set aspect values carry into a NEWLY
 // selected category's spec — purely deterministic, NO AI/network call. This is
 // the remap that makes a category change non-destructive:
-//   • kept    — values whose aspect name still exists in the new spec (carried
-//               as-is; cross-category universals like Brand/Color/Material land
-//               here whenever they're valid in the new category)
-//   • derived — aspects newly filled from the item's columns + US-821 canonical
-//               attributes (remapped through the registry + US-823 normalization)
-//   • dropped — previously-set values that don't apply to the new category; the
-//               composer surfaces these in a confirm-before-discard summary so
-//               nothing is silently lost
-// `kept` is passed as `existing` to deriveAspectsFromItem so a kept value is
-// never overwritten by a derived one (user-set values win).
+//   • kept     — values whose aspect name still exists verbatim in the new spec
+//                (cross-category universals like Brand/Color/Material land here)
+//   • remapped — values whose aspect had a DIFFERENT name in the new category
+//                (spelling/format or a curated synonym) and still validate into
+//                it — carried under the new name so AI/AutoLister-filled specifics
+//                survive a category correction instead of dropping. Keyed by the
+//                NEW aspect name; `remappedFrom` maps new→old for provenance/UI.
+//   • derived  — aspects newly filled from the item's columns + US-821 canonical
+//                attributes (remapped through the registry + US-823 normalization)
+//   • dropped  — previously-set values that truly don't apply to the new category
+//                (no equivalent aspect, or the value doesn't validate); the
+//                composer surfaces/parks these so nothing is silently lost
+// kept+remapped are passed as `existing` to deriveAspectsFromItem so they're
+// never overwritten by a derived gap-fill (user/AI-set values win).
 export interface AspectRemapResult {
   kept: Record<string, string[]>;
+  remapped: Record<string, string[]>;
+  /** New aspect name → the old name its value came from (for provenance/UI). */
+  remappedFrom: Record<string, string>;
   derived: Record<string, string[]>;
   dropped: Record<string, string[]>;
-  /** SELECTION_ONLY value rewrites for the derived aspects ("M" → "Medium"). */
+  /** SELECTION_ONLY value rewrites for derived/remapped aspects ("M" → "Medium"). */
   rewrites: Record<string, AspectRewrite>;
 }
 
@@ -247,15 +310,39 @@ export function remapAspectsForCategory(
       .filter((n) => n.length > 0),
   );
   const kept: Record<string, string[]> = {};
-  const dropped: Record<string, string[]> = {};
+  const wouldDrop: Array<[string, string[]]> = [];
   for (const [name, values] of Object.entries(prev)) {
     if (!values || values.length === 0) continue;
     if (valid.has(name)) kept[name] = values;
-    else dropped[name] = values;
+    else wouldDrop.push([name, values]);
   }
+
+  // Try to re-home each would-be-dropped value into an equivalent aspect in the
+  // new category. fillAspect validates it (SELECTION_ONLY → must match an allowed
+  // value), so a value that doesn't fit is left to drop, not mis-filed.
   const rewrites: Record<string, AspectRewrite> = {};
+  const remapped: Record<string, string[]> = {};
+  const remappedFrom: Record<string, string> = {};
+  const dropped: Record<string, string[]> = {};
+  const taken = new Set(Object.keys(kept).map(normalizeAspectName));
+  for (const [name, values] of wouldDrop) {
+    const target = findEquivalentAspect(name, aspectList, taken);
+    if (target) {
+      const filled = fillAspect(target, values, values.length > 1);
+      if (filled.values.length > 0) {
+        const tn = (target.localizedAspectName ?? "").trim();
+        remapped[tn] = filled.values;
+        remappedFrom[tn] = name;
+        taken.add(normalizeAspectName(tn));
+        if (filled.rewrites[0]) rewrites[tn] = filled.rewrites[0];
+        continue;
+      }
+    }
+    dropped[name] = values;
+  }
+
   const derived = item
-    ? deriveAspectsFromItem(item, aspectList, kept, rewrites)
+    ? deriveAspectsFromItem(item, aspectList, { ...kept, ...remapped }, rewrites)
     : {};
 
   // US-1450: fold captured measurements into the category's free-text
@@ -275,7 +362,7 @@ export function remapAspectsForCategory(
               .filter((v) => v.length > 0)
           : [];
     }
-    const existing = { ...kept, ...derived };
+    const existing = { ...kept, ...remapped, ...derived };
     const measured = resolveMeasurementAspects(
       item.measurements,
       categoryAspects,
@@ -286,7 +373,7 @@ export function remapAspectsForCategory(
     }
   }
 
-  return { kept, derived, dropped, rewrites };
+  return { kept, remapped, remappedFrom, derived, dropped, rewrites };
 }
 
 // The structured COLUMNS (brand, size, color, material, style) OWN their eBay

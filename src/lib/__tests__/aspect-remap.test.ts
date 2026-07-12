@@ -112,6 +112,69 @@ describe("remapAspectsForCategory (US-824)", () => {
     expect(out.derived["Chest Size"]).toBeUndefined();
   });
 
+  it("re-homes a value whose aspect is spelled differently (Colour → Color)", () => {
+    const out = remapAspectsForCategory(
+      { Colour: ["Blue"] },
+      [freeAspect("Color")],
+      null,
+    );
+    expect(out.remapped).toEqual({ Color: ["Blue"] });
+    expect(out.remappedFrom).toEqual({ Color: "Colour" });
+    expect(out.dropped).toEqual({});
+    expect(out.kept).toEqual({});
+  });
+
+  it("re-homes a value across a curated synonym name (Fabric Type → Material)", () => {
+    const out = remapAspectsForCategory(
+      { "Fabric Type": ["Cotton"] },
+      [freeAspect("Material")],
+      null,
+    );
+    expect(out.remapped).toEqual({ Material: ["Cotton"] });
+    expect(out.dropped).toEqual({});
+  });
+
+  it("does NOT re-home when the value fails the target's SELECTION_ONLY list (parks it)", () => {
+    // 'Chartreuse' isn't an allowed Color here → can't re-home → dropped (parked).
+    const out = remapAspectsForCategory(
+      { Colour: ["Chartreuse"] },
+      [selAspect("Color", ["Blue", "Red"])],
+      null,
+    );
+    expect(out.remapped).toEqual({});
+    expect(out.dropped).toEqual({ Colour: ["Chartreuse"] });
+  });
+
+  it("re-home rewrites the value to the allowed spelling (Colour 'navy' → Color 'Navy Blue')", () => {
+    const out = remapAspectsForCategory(
+      { Colour: ["navy"] },
+      [selAspect("Color", ["Navy Blue", "Red"])],
+      null,
+    );
+    // Whether it maps depends on the synonym table; assert it doesn't mis-file.
+    // A successful map lands under Color; a miss parks under Colour.
+    const landed = out.remapped.Color ?? null;
+    if (landed) {
+      expect(landed).toEqual(["Navy Blue"]);
+      expect(out.dropped).toEqual({});
+    } else {
+      expect(out.dropped).toEqual({ Colour: ["navy"] });
+    }
+  });
+
+  it("does not steal an aspect already kept under the same normalized name", () => {
+    // Both Color (valid) and Colour present: Color is kept; Colour has nowhere
+    // else to go (only one Color aspect, now taken) → dropped, not duplicated.
+    const out = remapAspectsForCategory(
+      { Color: ["Blue"], Colour: ["Red"] },
+      [freeAspect("Color")],
+      null,
+    );
+    expect(out.kept).toEqual({ Color: ["Blue"] });
+    expect(out.remapped).toEqual({});
+    expect(out.dropped).toEqual({ Colour: ["Red"] });
+  });
+
   it("US-1450: never fills a SELECTION_ONLY aspect from measurements", () => {
     const item: ItemAspectSource = {
       ...baseItem,

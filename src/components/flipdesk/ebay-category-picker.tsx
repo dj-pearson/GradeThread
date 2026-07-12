@@ -195,6 +195,11 @@ export function EbayCategoryPicker({
   // the item's saved category so the first spec load is treated as initial
   // (no discard prompt), not as a user-initiated change.
   const appliedCategoryRef = useRef<string | null>(initialCategoryId);
+  // Parked specifics: values dropped by a category change (no equivalent aspect
+  // in the new category) are held here rather than lost, so switching to a
+  // category that CAN hold them restores them. In-session only (a convenience
+  // atop the confirm dialog). Keyed by their original aspect name.
+  const parkedRef = useRef<Record<string, string[]>>({});
   const appliedCategoryPathRef = useRef<string | null>(null);
   // When a category change would discard previously-entered specifics, we hold
   // the change and ask first instead of dropping silently.
@@ -206,20 +211,49 @@ export function EbayCategoryPicker({
     dropped: Record<string, string[]>;
   } | null>(null);
 
-  // Commit a remap result: keep still-valid values, add the derived gap-fills,
-  // refresh the "sent as" hints, and clear AI/hint markers for dropped aspects.
+  // Commit a remap result: keep still-valid values, carry re-homed (remapped)
+  // values under their new aspect name, add the derived gap-fills, restore any
+  // previously-parked values that now fit, re-park the rest, refresh hints, and
+  // move AI markers.
   const commitRemap = (aspectList: EbayAspect[], result: AspectRemapResult) => {
-    const nextValues = { ...result.kept, ...result.derived };
+    // Restore parked values that fit this category (pure, no AI), then re-park
+    // whatever still has no home along with anything newly dropped.
+    const restore = remapAspectsForCategory(parkedRef.current, aspectList, null);
+    const restored = { ...restore.remapped, ...restore.kept };
+    const consumed = new Set<string>([
+      ...Object.keys(restore.kept),
+      ...Object.values(restore.remappedFrom),
+    ]);
+    const nextParked: Record<string, string[]> = {};
+    for (const [k, v] of Object.entries(parkedRef.current)) {
+      if (!consumed.has(k)) nextParked[k] = v;
+    }
+    for (const [k, v] of Object.entries(result.dropped)) nextParked[k] = v;
+    parkedRef.current = nextParked;
+
+    // Live kept/remapped/derived win over restored gap-fills.
+    const nextValues = {
+      ...restored,
+      ...result.derived,
+      ...result.remapped,
+      ...result.kept,
+    };
     setAspectValues(nextValues);
-    // US-825: kept values keep their prior provenance; the gap-fills the remap
-    // just derived are inventory_derived. Dropped aspects fall away with prune.
+    // US-825: kept values keep their prior provenance; a remapped value carries
+    // the provenance of its OLD aspect name; derived + restored gap-fills are
+    // inventory_derived. Dropped aspects fall away with prune.
     setSources((prev) => {
       const next: AspectSourceMap = {};
       for (const k of Object.keys(result.kept)) {
         if (prev[k]) next[k] = prev[k];
       }
-      for (const k of Object.keys(result.derived)) {
-        next[k] = "inventory_derived";
+      for (const k of Object.keys(result.remapped)) {
+        const from = result.remappedFrom[k];
+        next[k] = from && prev[from] ? prev[from] : "inventory_derived";
+      }
+      for (const k of Object.keys(result.derived)) next[k] = "inventory_derived";
+      for (const k of Object.keys(restored)) {
+        if (!next[k]) next[k] = "inventory_derived";
       }
       return pruneSources(next, nextValues);
     });
@@ -230,14 +264,18 @@ export function EbayCategoryPicker({
       for (const [k, v] of Object.entries(result.rewrites)) merged[k] = v;
       return merged;
     });
-    if (Object.keys(result.dropped).length > 0) {
-      const droppedNames = Object.keys(result.dropped);
-      setAiFilled((prev) => {
-        const next = new Set(prev);
-        for (const n of droppedNames) next.delete(n);
-        return next;
-      });
-    }
+    setAiFilled((prev) => {
+      const next = new Set(prev);
+      for (const n of Object.keys(result.dropped)) next.delete(n);
+      // A re-homed AI value keeps its "AI-filled" badge under the new name.
+      for (const [newName, oldName] of Object.entries(result.remappedFrom)) {
+        if (next.has(oldName)) {
+          next.delete(oldName);
+          next.add(newName);
+        }
+      }
+      return next;
+    });
   };
 
   // When the user picks a different category, refetch its spec and refill
@@ -701,13 +739,15 @@ export function EbayCategoryPicker({
           <AlertDialogHeader>
             <AlertDialogTitle>
               {droppedEntries.length} item{" "}
-              {droppedEntries.length === 1 ? "specific" : "specifics"} won't
-              carry over
+              {droppedEntries.length === 1 ? "specific has" : "specifics have"} no
+              match in the new category
             </AlertDialogTitle>
             <AlertDialogDescription>
-              These values don't apply to the new category and will be removed.
-              Still-valid values (like Brand, Color, Material) are kept, and gaps
-              are refilled from this item — no AI is used.
+              Equivalent values carry over automatically (Brand, Color, Material,
+              and same-meaning specifics under a different name), and gaps are
+              refilled from this item — no AI is used. The ones below have no
+              matching field here, so they&apos;re <strong>set aside</strong> —
+              switch back or pick a category that supports them and they return.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <ul className="max-h-48 space-y-1 overflow-y-auto rounded-md border bg-muted/30 p-3 text-xs">
@@ -724,8 +764,8 @@ export function EbayCategoryPicker({
             <AlertDialogCancel onClick={cancelDiscard}>
               Keep current category
             </AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={confirmDiscard}>
-              Change &amp; remove
+            <AlertDialogAction onClick={confirmDiscard}>
+              Change category
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
