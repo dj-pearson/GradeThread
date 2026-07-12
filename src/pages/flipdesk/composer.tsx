@@ -71,7 +71,7 @@ import {
   isNonListablePhotoType,
 } from "@/lib/constants";
 import { resolveStatus, factsOf } from "@/lib/workflow";
-import { cn, isoToLocalInput, localInputToIso } from "@/lib/utils";
+import { cn, errorMessage, isoToLocalInput, localInputToIso } from "@/lib/utils";
 import { estimateListingProfit } from "@/lib/listing-profit";
 import { COMPOSER_FOCUS_ANCHORS } from "@/lib/publish-blockers";
 import {
@@ -941,9 +941,7 @@ export function FlipdeskComposerPage() {
       toast.success("Draft saved.");
       return listingId;
     } catch (err) {
-      toast.error(
-        `Save failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toast.error(`Save failed: ${errorMessage(err)}`);
       return null;
     } finally {
       setSaving(false);
@@ -969,15 +967,24 @@ export function FlipdeskComposerPage() {
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       toast.success("Storage details saved.");
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
       // Duplicate-SKU partial unique index (user_id, sku): the composer has no
       // merge UI, so send the seller to the item page where that flow lives.
-      if (msg.includes("idx_inventory_items_user_sku")) {
+      // supabase-js rejects with a PostgrestError PLAIN OBJECT (not an Error
+      // instance), so read the pg code/message/details directly — an
+      // `err instanceof Error` gate here would stringify to "[object Object]"
+      // and miss both the constraint match and any real message.
+      const pgErr = err as { code?: string; message?: string; details?: string };
+      const dupText = `${pgErr.message ?? ""} ${pgErr.details ?? ""}`;
+      const isSkuDuplicate =
+        pgErr.code === "23505" &&
+        (dupText.includes("idx_inventory_items_user_sku") ||
+          dupText.toLowerCase().includes("sku"));
+      if (isSkuDuplicate) {
         toast.error(
           "That SKU is already used by another item. Open the item's full page to merge them.",
         );
       } else {
-        toast.error(`Save failed: ${msg}`);
+        toast.error(`Save failed: ${errorMessage(err)}`);
       }
     } finally {
       setSavingStorage(false);
@@ -1044,9 +1051,7 @@ export function FlipdeskComposerPage() {
       await qc.invalidateQueries({ queryKey: ["inventory_item_ebay", item.id] });
       return item.listing_id;
     } catch (err) {
-      toast.error(
-        `Save failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toast.error(`Save failed: ${errorMessage(err)}`);
       return null;
     } finally {
       setSaving(false);
@@ -1132,9 +1137,7 @@ export function FlipdeskComposerPage() {
       }
       for (const f of failed) toast.error(f, { duration: 12_000 });
     } catch (err) {
-      toast.error(
-        `Cross-listing push failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toast.error(`Cross-listing push failed: ${errorMessage(err)}`);
     }
   }
 
