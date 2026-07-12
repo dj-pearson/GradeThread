@@ -187,7 +187,9 @@ export const CRON_REGISTRY: CronDef[] = [
   // run signals in the cron_runs ledger.
   { name: "ebay-performance-sync", label: "eBay performance sync", schedule: "0 */6 * * *", category: "sync", endpoint: "/api/flipdesk/ebay/sync/performance", recorded: true },
   { name: "ebay-publish-due", label: "Scheduled publish-due", schedule: "*/5 * * * *", category: "publish", endpoint: "/api/flipdesk/ebay/jobs/publish-due", recorded: true },
-  { name: "google-sheet-sync", label: "Google Sheet sync", schedule: "*/5 * * * *", category: "sync", endpoint: "/api/flipdesk/google/sync/push", recorded: false },
+  // Recorded via recordEbayCron mounted on the sync/push path (cronNameForPath),
+  // so a missed/failed 5-min sheet sync signals in the cron_runs ledger + ops stream.
+  { name: "google-sheet-sync", label: "Google Sheet sync", schedule: "*/5 * * * *", category: "sync", endpoint: "/api/flipdesk/google/sync/push", recorded: true },
   // Nightly photo archive sweep (cold-storage old originals).
   { name: "photo-archive", label: "Photo archive sweep", schedule: "0 4 * * *", category: "maintenance", endpoint: "/api/flipdesk/images/archive", recorded: false },
   // Payout reconciliation sweep (auto-link payout rows to sales).

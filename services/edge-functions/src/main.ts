@@ -687,6 +687,9 @@ const recordEbayCron = createMiddleware(async (c, next) => {
   }
 });
 app.use("/api/flipdesk/ebay/jobs/*", recordEbayCron);
+// The 5-min Google Sheet sync is a recorded cron too (cronNameForPath resolves
+// "/api/flipdesk/google/sync/push" → "google-sheet-sync"); same generic recorder.
+app.use("/api/flipdesk/google/sync/push", recordEbayCron);
 app.use("/api/flipdesk/ebay/sync/performance", recordEbayCron);
 
 // Admin billing: user JWT auth, then admin role check

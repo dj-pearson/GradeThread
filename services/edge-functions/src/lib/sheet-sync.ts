@@ -301,9 +301,11 @@ export type ParseResult =
 /** Validate + coerce a normalized sheet value for writing to the DB column. */
 export function parsePulledValue(col: ColumnDef, normalized: string): ParseResult {
   if (normalized === "") {
-    // title is NOT NULL in the schema — refuse to blank it from the sheet.
-    if (col.field === "title") {
-      return { ok: false, error: "Title cannot be emptied from the sheet" };
+    // title is NOT NULL in the schema; sku is the identity / CSV-match /
+    // duplicate-merge key — blanking it silently orphans future matching. Refuse
+    // to empty either from the sheet (the cell is rewritten back from the DB).
+    if (col.field === "title" || col.field === "sku") {
+      return { ok: false, error: `${col.header} cannot be emptied from the sheet` };
     }
     return { ok: true, value: null };
   }
@@ -452,7 +454,12 @@ export function buildTabSetupRequests(
     hideColumnRequest(sheetId, 0),
   );
   tab.columns.forEach((col, i) => {
-    if (col.enumValues) requests.push(validationRequest(sheetId, i + 1, col.enumValues));
+    // Only WRITABLE enum columns get the editing dropdown. A read-only enum
+    // (e.g. Category) with a dropdown looks editable but its edits are silently
+    // reverted on the next sync — so render it gray/read-only instead.
+    if (col.enumValues && col.writable) {
+      requests.push(validationRequest(sheetId, i + 1, col.enumValues));
+    }
     if (!col.writable) requests.push(grayFillRequest(sheetId, i + 1, i + 2));
   });
   return requests;

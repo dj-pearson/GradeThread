@@ -2358,8 +2358,28 @@ export interface GoogleConnectionRow {
   sync_status: string;
   sync_error: string | null;
   is_active: boolean;
+  // 00433 "bring your own sheet": per-user column map (NULL = classic generated
+  // tabs). Shape validated in edge code (services/edge-functions/src/lib/sheet-map.ts).
+  sheet_map: SheetMapConfig | null;
   created_at: string;
   updated_at: string;
+}
+
+// Mirror of the edge SheetMap shape (sheet-map.ts) for the mapping UI.
+export interface SheetMapConfig {
+  tab: string;
+  keyColumn: string;
+  createFromSheet: boolean;
+  columns: Array<{
+    header: string;
+    field: string;
+    table: "inventory_items" | "listings" | "sales";
+    role?: "key";
+    writable?: boolean;
+    kind?: "string" | "number" | "currency" | "date" | "enum";
+    enumValues?: string[];
+    labelMap?: Record<string, string>;
+  }>;
 }
 
 export interface GoogleConnectionInsert {

@@ -1,5 +1,25 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ PENDING: 00433_sheet_map.sql ("bring your own sheet" column map, 2026-07-11)
+
+**What:** One additive nullable column `public.google_connections.sheet_map jsonb`
+— a PER-USER column map so the Google Sheets sync can drive the seller's own
+tab/layout (matched/created by their SKU) instead of only the generated
+UUID-keyed tabs. NULL = classic mode (unchanged behavior for every existing
+user). Non-NULL = mapped mode. The map shape is validated in edge code
+(`lib/sheet-map.ts`), not the DB. Bumps `EXPECTED_SCHEMA_VERSION` → **00433**.
+Self-records '00433'.
+
+**Risk: LOW** — one nullable jsonb column, no backfill, no behavior change until a
+user opts into a map (Phase C UI, not built yet). **The CLIENT will READ
+`sheet_map`** via the owner-read RLS on google_connections once the mapping UI
+ships; the edge mapped-merge (Phase B, not built yet) reads it too. Nothing reads
+it yet, so this can apply ahead of the code safely, but it still boot-guards the
+edge to 00433 — apply BEFORE the push. **⚠️ Apply order:** after 00432;
+`scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload schema';`,
+redeploy the edge (boot guard now expects 00433).
+
+
 ## ⏳ PENDING: 00432_promote_listings_default.sql (FlipDesk promoted-listings default → off/opt-in, 2026-07-11)
 
 **What:** Flips eBay Promoted Listings from promote-everything to **off by

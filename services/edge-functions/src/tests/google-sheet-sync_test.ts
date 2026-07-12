@@ -160,6 +160,17 @@ Deno.test("parsePulledValue validates enums and numbers, protects title", () => 
 
   const title = INVENTORY_COLUMNS.find((c) => c.field === "title")!;
   assert(!parsePulledValue(title, "").ok, "title is NOT NULL — can't blank it");
+
+  // SKU is the identity / CSV-match / merge key — blanking it from the sheet is
+  // refused (would silently orphan future matching), like title.
+  const sku = INVENTORY_COLUMNS.find((c) => c.field === "sku")!;
+  assert(!parsePulledValue(sku, "").ok, "sku is the merge key — can't blank it");
+  assertEquals(parsePulledValue(sku, "ABC-123"), { ok: true, value: "ABC-123" });
+
+  // Category is read-only in the sheet (not writable) — it never reaches a pull,
+  // but if parsed it still coerces normally.
+  const category = INVENTORY_COLUMNS.find((c) => c.field === "item_category")!;
+  assertEquals(category.writable, undefined);
 });
 
 // ── tab setup requests ────────────────────────────────────────────────
@@ -178,9 +189,11 @@ Deno.test("buildTabSetupRequests: data tab gets header, frozen row, hidden id, v
   assertEquals(header[0], ID_HEADER);
   assertEquals(header.length, INVENTORY_COLUMNS.length + 1);
 
-  // Status + Category columns carry dropdown validation.
+  // Only WRITABLE enum columns get a dropdown: Status is writable → dropdown;
+  // Category is read-only → gray fill, NO dropdown (a dropdown on a read-only
+  // cell looks editable but its edits are silently reverted).
   const validations = reqs.filter((r) => "setDataValidation" in r);
-  assertEquals(validations.length, 2);
+  assertEquals(validations.length, 1);
 });
 
 Deno.test("buildTabSetupRequests: Conflicts tab offers the two resolution actions", () => {

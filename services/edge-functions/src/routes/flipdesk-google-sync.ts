@@ -41,6 +41,16 @@ import {
   deriveListingOrigin,
   isSheetEditLockedByEbay,
 } from "../lib/sync-precedence.ts";
+import {
+  buildCreateFromSheet,
+  formatMappedValue,
+  mappedPushCells,
+  mergeMappedRow,
+  resolveMappedColumns,
+  type SheetMap,
+  snapshotWritable,
+  validateSheetMap,
+} from "../lib/sheet-map.ts";
 
 // Google Sheets 2-way live sync (US-147).
 //
@@ -294,7 +304,7 @@ export async function syncUserSheet(
   try {
     const { data: connRow, error: connErr } = await supabaseAdmin
       .from("google_connections")
-      .select("sheet_id, is_active")
+      .select("sheet_id, is_active, sheet_map")
       .eq("user_id", userId)
       .maybeSingle();
     // US-1481: a transient DB read failure must NOT be masked as no_sheet (which
@@ -304,10 +314,19 @@ export async function syncUserSheet(
       summary.errors.push(`Failed to load Google connection: ${connErr.message}`);
       return summary;
     }
-    const conn = connRow as { sheet_id: string | null; is_active: boolean } | null;
+    const conn = connRow as {
+      sheet_id: string | null;
+      is_active: boolean;
+      sheet_map: SheetMap | null;
+    } | null;
     if (!conn?.is_active || !conn.sheet_id) {
       return { ...summary, skipped: "no_sheet" };
     }
+
+    // "Bring your own sheet": a valid map drives the seller's OWN tab (SKU-keyed)
+    // instead of the generated fixed tabs. An invalid map surfaces an error
+    // rather than silently falling back to creating generated tabs in their sheet.
+    const mapErrors = conn.sheet_map ? validateSheetMap(conn.sheet_map) : [];
 
     await supabaseAdmin
       .from("google_connections")
@@ -315,7 +334,13 @@ export async function syncUserSheet(
       .eq("user_id", userId);
 
     try {
-      await runMerge(userId, conn.sheet_id, trigger, summary);
+      if (conn.sheet_map && mapErrors.length === 0) {
+        await runMappedMerge(userId, conn.sheet_id, conn.sheet_map, trigger, summary);
+      } else if (conn.sheet_map) {
+        summary.errors.push(`Sheet map is invalid: ${mapErrors[0]}`);
+      } else {
+        await runMerge(userId, conn.sheet_id, trigger, summary);
+      }
       await supabaseAdmin
         .from("google_connections")
         .update({
@@ -500,6 +525,16 @@ async function runMerge(
   );
 
   // 6. Merge each tab.
+  // Snapshot upserts are split by whether the row also needs a SHEET write:
+  //   • earlySnapshotUpserts — rows we only PULLED (no sheet push). Their sheet
+  //     already holds the value, so committing the snapshot BEFORE the Sheets
+  //     cell-writes is safe and closes the window where a Sheets-API failure
+  //     after a committed DB pull would leave the snapshot stale (→ a spurious
+  //     conflict on the next run if GradeThread then edits the field).
+  //   • snapshotUpserts — rows we PUSH to the sheet. Their snapshot must wait
+  //     until the sheet write succeeds, else a failed push would look like a
+  //     sheet edit next run and get pulled back over the DB value.
+  const earlySnapshotUpserts: Row[] = [];
   const snapshotUpserts: Row[] = [];
   const conflictAppends: (string | number)[][] = [];
   // US-148: what the sheet currently says about each listing's price/status/
@@ -726,7 +761,9 @@ async function runMerge(
 
       const nextSnap = merge.nextSnapshot;
       if (JSON.stringify(prevSnapshot ?? null) !== JSON.stringify(nextSnap)) {
-        snapshotUpserts.push({
+        // A pure-pull row (no sheet write pending) is safe to snapshot before the
+        // Sheets writes; a pushed row must wait until its sheet cells land.
+        (needsPush ? snapshotUpserts : earlySnapshotUpserts).push({
           user_id: userId,
           tab: tab.title,
           flipdesk_id: id,
@@ -741,20 +778,27 @@ async function runMerge(
     summary.pushed += appends.length;
   }
 
-  // 7. Write cell updates (chunked to stay friendly to the quota), conflicts,
-  // snapshots, and the Sync Log row.
+  // 7. Persist pure-pull snapshots FIRST (before any Sheets write can throw), so
+  // a committed DB pull can never be left with a stale snapshot.
+  const upsertSnapshots = async (rows: Row[]) => {
+    for (const batch of chunk(rows, 500)) {
+      const { error } = await supabaseAdmin
+        .from("google_sheet_sync_state")
+        .upsert(batch, { onConflict: "user_id,tab,flipdesk_id" });
+      if (error) summary.errors.push(`Snapshot save failed: ${error.message}`);
+    }
+  };
+  await upsertSnapshots(earlySnapshotUpserts);
+
+  // Then write cell updates (chunked to stay friendly to the quota), conflicts,
+  // the pushed-row snapshots, and the Sync Log row.
   for (const batch of chunk(cellUpdates, VALUE_WRITE_CHUNK)) {
     await api.batchUpdateValues(batch);
   }
   for (const batch of chunk(conflictAppends, APPEND_CHUNK)) {
     await api.appendValues(CONFLICTS_TAB, batch);
   }
-  for (const batch of chunk(snapshotUpserts, 500)) {
-    const { error } = await supabaseAdmin
-      .from("google_sheet_sync_state")
-      .upsert(batch, { onConflict: "user_id,tab,flipdesk_id" });
-    if (error) summary.errors.push(`Snapshot save failed: ${error.message}`);
-  }
+  await upsertSnapshots(snapshotUpserts);
 
   // US-148: persist the sheet-vs-FlipDesk disagreements as cross-source
   // conflicts (one open row per listing+field; auto-converges if the sheet
@@ -782,6 +826,230 @@ async function runMerge(
     summary.conflicts,
     logNote,
   ]]);
+}
+
+// ── "Bring your own sheet": SKU-keyed mapped merge ────────────────────
+// Load one flat record per SKU: the inventory row + its best listing (active,
+// then latest) + its latest sale, limited to the fields the map references.
+// Tenant-scoped (inventory by user_id; listings/sales via inventory_items!inner).
+async function loadMappedRecords(
+  userId: string,
+  map: SheetMap,
+): Promise<Map<string, Row>> {
+  const invFields = new Set<string>(["id", "sku"]);
+  for (const c of map.columns) {
+    if (c.table === "inventory_items") invFields.add(c.field);
+  }
+  const listFields = map.columns.filter((c) => c.table === "listings").map((c) => c.field);
+  const saleFields = map.columns.filter((c) => c.table === "sales").map((c) => c.field);
+
+  const invRows = await pageAll((from, to) =>
+    supabaseAdmin.from("inventory_items").select([...invFields].join(", "))
+      .eq("user_id", userId).order("id").range(from, to)
+  );
+  const bySku = new Map<string, Row>();
+  const skuByItemId = new Map<string, string>();
+  for (const row of invRows) {
+    const sku = String(row.sku ?? "").trim();
+    if (!sku || bySku.has(sku)) continue; // no key, or a dup SKU already claimed
+    bySku.set(sku, row);
+    skuByItemId.set(String(row.id), sku);
+  }
+
+  if (listFields.length > 0) {
+    const lrows = await pageAll((from, to) =>
+      supabaseAdmin.from("listings")
+        .select(`inventory_item_id, ${listFields.join(", ")}, inventory_items!inner(user_id)`)
+        .eq("inventory_items.user_id", userId)
+        .order("is_active", { ascending: false })
+        .order("updated_at", { ascending: false })
+        .range(from, to)
+    );
+    for (const l of lrows) {
+      const sku = skuByItemId.get(String(l.inventory_item_id));
+      const rec = sku ? bySku.get(sku) : undefined;
+      if (!rec) continue;
+      for (const f of listFields) if (rec[f] === undefined) rec[f] = l[f]; // first (best) wins
+    }
+  }
+  if (saleFields.length > 0) {
+    const srows = await pageAll((from, to) =>
+      supabaseAdmin.from("sales")
+        .select(`inventory_item_id, ${saleFields.join(", ")}, inventory_items!inner(user_id)`)
+        .eq("inventory_items.user_id", userId)
+        .order("sold_at", { ascending: false })
+        .range(from, to)
+    );
+    for (const s of srows) {
+      const sku = skuByItemId.get(String(s.inventory_item_id));
+      const rec = sku ? bySku.get(sku) : undefined;
+      if (!rec) continue;
+      for (const f of saleFields) if (rec[f] === undefined) rec[f] = s[f];
+    }
+  }
+  return bySku;
+}
+
+async function runMappedMerge(
+  userId: string,
+  sheetId: string,
+  map: SheetMap,
+  _trigger: string,
+  summary: RunSummary,
+): Promise<void> {
+  const token = await getGoogleAccessToken(userId);
+  const api = new SheetsClient(token, sheetId);
+
+  // Read the whole user tab (wide range so any column layout is covered).
+  const range = `'${map.tab}'!A1:ZZ`;
+  const rows = (await api.batchGetValues([range])).get(range) ?? [];
+  if (rows.length === 0) {
+    summary.errors.push(`Tab "${map.tab}" is empty or not found in the sheet.`);
+    return;
+  }
+  const headerRow = rows[0]!;
+  const resolved = resolveMappedColumns(map, headerRow);
+  if (resolved.keyIndex < 0) {
+    summary.errors.push(resolved.errors[0] ?? `Key column "${map.keyColumn}" not found.`);
+    return;
+  }
+  // Note (non-fatal) any mapped columns missing from the sheet header.
+  for (const e of resolved.errors) summary.errors.push(e);
+
+  const keyCol = resolved.columns.find((c) => c.col.role === "key")!;
+  const writableCols = resolved.columns.filter(
+    (c) => c.col.writable && c.col.table === "inventory_items" && c.col.role !== "key",
+  );
+
+  // Index sheet data rows by their SKU (blank/duplicate SKUs are skipped).
+  const sheetBySku = new Map<string, { rowNumber: number; cells: unknown[] }>();
+  rows.slice(1).forEach((cells, i) => {
+    const sku = String(cells[resolved.keyIndex] ?? "").trim();
+    if (!sku) return;
+    if (sheetBySku.has(sku)) {
+      summary.errors.push(`Duplicate SKU "${sku}" in the sheet — row ${i + 2} skipped`);
+      return;
+    }
+    sheetBySku.set(sku, { rowNumber: i + 2, cells });
+  });
+
+  const records = await loadMappedRecords(userId, map);
+
+  const { data: snapRows } = await supabaseAdmin
+    .from("google_sheet_sync_state")
+    .select("flipdesk_id, snapshot")
+    .eq("user_id", userId)
+    .eq("tab", map.tab);
+  const snapshots = new Map<string, Record<string, string>>();
+  for (const r of (snapRows ?? []) as { flipdesk_id: string; snapshot: Record<string, string> }[]) {
+    snapshots.set(r.flipdesk_id, r.snapshot ?? {});
+  }
+
+  const cellUpdates: { range: string; values: (string | number)[][] }[] = [];
+  const appends: (string | number)[][] = [];
+  const earlySnap: Row[] = [];
+  const lateSnap: Row[] = [];
+  const seen = new Set<string>();
+  const width = headerRow.length;
+
+  for (const [sku, record] of records) {
+    seen.add(sku);
+    const entry = sheetBySku.get(sku);
+    if (!entry) {
+      // DB item missing from the sheet → append a new row (mapped cells only;
+      // unmapped columns stay blank). Seed the snapshot from the DB values.
+      const newRow: (string | number)[] = new Array(width).fill("");
+      newRow[resolved.keyIndex] = sku;
+      for (const { col, index } of resolved.columns) {
+        if (col.role === "key") continue;
+        newRow[index] = formatMappedValue(col, record[col.field]);
+      }
+      appends.push(newRow);
+      lateSnap.push({
+        user_id: userId,
+        tab: map.tab,
+        flipdesk_id: sku,
+        snapshot: { ...snapshotWritable(writableCols, record), [keyCol.col.field]: sku },
+      });
+      continue;
+    }
+
+    const merge = mergeMappedRow(writableCols, entry.cells, record, snapshots.get(sku));
+    for (const e of merge.errors) summary.errors.push(`${map.tab} "${sku}": ${e}`);
+
+    if (Object.keys(merge.pulls).length > 0) {
+      const { error } = await supabaseAdmin
+        .from("inventory_items")
+        .update(merge.pulls)
+        .eq("id", record.id)
+        .eq("user_id", userId); // tenant scope (US-268)
+      if (error) {
+        summary.errors.push(`Pull failed for "${sku}": ${error.message}`);
+        // Leave those fields for the next run (don't advance their snapshot).
+        for (const f of Object.keys(merge.pulls)) delete merge.nextSnapshot[f];
+      } else {
+        summary.pulled++;
+      }
+    }
+    summary.conflicts += merge.conflicts.length;
+
+    const pushCells = mappedPushCells(
+      resolved.columns,
+      entry.cells,
+      record,
+      merge.pushFields,
+      new Set(Object.keys(merge.pulls)),
+    );
+    for (const u of pushCells) {
+      cellUpdates.push({
+        range: `'${map.tab}'!${columnLetter(u.colIndex)}${entry.rowNumber}`,
+        values: [[u.value]],
+      });
+    }
+    if (pushCells.length > 0) summary.pushed++;
+
+    const snapRow: Row = { user_id: userId, tab: map.tab, flipdesk_id: sku, snapshot: merge.nextSnapshot };
+    (pushCells.length > 0 ? lateSnap : earlySnap).push(snapRow);
+  }
+
+  // Create-from-sheet: a new unique SKU in the sheet → a new inventory item
+  // (fill-only from the writable columns; requires a Title). Never overwrites.
+  if (map.createFromSheet) {
+    for (const [sku, entry] of sheetBySku) {
+      if (seen.has(sku)) continue;
+      const built = buildCreateFromSheet(writableCols, keyCol, entry.cells, sku);
+      if ("error" in built) {
+        summary.errors.push(built.error);
+        continue;
+      }
+      const { error } = await supabaseAdmin
+        .from("inventory_items")
+        .insert({ user_id: userId, ...built.patch });
+      if (error) {
+        summary.errors.push(`Create "${sku}" failed: ${error.message}`);
+        continue;
+      }
+      summary.pulled++;
+      lateSnap.push({ user_id: userId, tab: map.tab, flipdesk_id: sku, snapshot: built.snapshot });
+    }
+  }
+
+  // Persist pure-pull snapshots BEFORE the Sheets writes (atomicity — same
+  // rationale as the classic merge), then the sheet writes, then the rest.
+  const upsertSnap = async (batchRows: Row[]) => {
+    for (const batch of chunk(batchRows, 500)) {
+      const { error } = await supabaseAdmin
+        .from("google_sheet_sync_state")
+        .upsert(batch, { onConflict: "user_id,tab,flipdesk_id" });
+      if (error) summary.errors.push(`Snapshot save failed: ${error.message}`);
+    }
+  };
+  await upsertSnap(earlySnap);
+  for (const batch of chunk(cellUpdates, VALUE_WRITE_CHUNK)) await api.batchUpdateValues(batch);
+  for (const batch of chunk(appends, APPEND_CHUNK)) await api.appendValues(map.tab, batch);
+  await upsertSnap(lateSnap);
+
+  summary.errors = summary.errors.slice(0, MAX_LOGGED_ERRORS);
 }
 
 // ── Scheduled jobs (internal auth) ────────────────────────────────────
