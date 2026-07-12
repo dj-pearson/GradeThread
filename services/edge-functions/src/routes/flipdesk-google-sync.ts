@@ -49,6 +49,7 @@ import {
   resolveMappedColumns,
   type SheetMap,
   snapshotWritable,
+  normalizeSheetMap,
   validateSheetMap,
 } from "../lib/sheet-map.ts";
 
@@ -322,6 +323,11 @@ export async function syncUserSheet(
     if (!conn?.is_active || !conn.sheet_id) {
       return { ...summary, skipped: "no_sheet" };
     }
+
+    // Heal a legacy saved map (sales field "payout" → the real column
+    // "payout_amount") so a map from the first "bring your own sheet" build
+    // syncs without the seller re-mapping. No-op after the field-name fix.
+    if (conn.sheet_map) conn.sheet_map = normalizeSheetMap(conn.sheet_map);
 
     // "Bring your own sheet": a valid map drives the seller's OWN tab (SKU-keyed)
     // instead of the generated fixed tabs. An invalid map surfaces an error

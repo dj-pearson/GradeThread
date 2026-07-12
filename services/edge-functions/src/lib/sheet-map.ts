@@ -212,7 +212,7 @@ const HEADER_SUGGESTIONS: Record<string, Suggestion> = {
   "fees": { field: "platform_fees", table: "sales", kind: "currency" },
   "shipping cost": { field: "shipping_cost", table: "sales", kind: "currency" },
   "net profit": { field: "net_profit", table: "sales", kind: "currency" },
-  "payout": { field: "payout", table: "sales", kind: "currency" },
+  "payout": { field: "payout_amount", table: "sales", kind: "currency" },
   "tracking": { field: "tracking_number", table: "sales", kind: "string" },
 };
 
@@ -262,10 +262,31 @@ export const MAPPABLE_FIELDS: readonly MappableField[] = [
   { field: "platform_fees", table: "sales", label: "Fees", kind: "currency", writable: false },
   { field: "shipping_cost", table: "sales", label: "Shipping Cost", kind: "currency", writable: false },
   { field: "net_profit", table: "sales", label: "Net Profit", kind: "currency", writable: false },
-  { field: "payout", table: "sales", label: "Payout", kind: "currency", writable: false },
+  { field: "payout_amount", table: "sales", label: "Payout", kind: "currency", writable: false },
   { field: "sold_at", table: "sales", label: "Sale Date", kind: "date", writable: false },
   { field: "tracking_number", table: "sales", label: "Tracking", kind: "string", writable: false },
 ];
+
+// Back-compat: an early "bring your own sheet" build stored the Payout column
+// with field "payout" — the items_full VIEW alias — instead of the real sales
+// TABLE column "payout_amount". The mapped sync selects fields straight off the
+// `sales` table, so such a map 42703'd ("column sales.payout does not exist").
+// Rewrite legacy sales field ids on load so a map saved by that build syncs
+// without the seller re-mapping. Safe to drop once no legacy maps remain.
+const LEGACY_SALES_FIELD_RENAMES: Readonly<Record<string, string>> = {
+  payout: "payout_amount",
+};
+
+export function normalizeSheetMap(map: SheetMap): SheetMap {
+  let changed = false;
+  const columns = map.columns.map((c) => {
+    const renamed = c.table === "sales" ? LEGACY_SALES_FIELD_RENAMES[c.field] : undefined;
+    if (!renamed) return c;
+    changed = true;
+    return { ...c, field: renamed };
+  });
+  return changed ? { ...map, columns } : map;
+}
 
 // ── Validation ────────────────────────────────────────────────────────
 // ── SKU-keyed merge (the mapped analog of sheet-sync's mergeRow) ───────

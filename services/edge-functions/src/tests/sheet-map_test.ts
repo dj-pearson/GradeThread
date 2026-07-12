@@ -6,6 +6,7 @@ import {
   formatSheetDate,
   mappedPushCells,
   mergeMappedRow,
+  normalizeSheetMap,
   parseCurrency,
   parseMappedValue,
   parseSheetDate,
@@ -22,6 +23,30 @@ const col = (over: Partial<SheetMapColumn>): SheetMapColumn => ({
   field: "x",
   table: "inventory_items",
   ...over,
+});
+
+Deno.test("normalizeSheetMap heals legacy sales field payout → payout_amount", () => {
+  const legacy: SheetMap = {
+    tab: "Inventory",
+    keyColumn: "SKU",
+    createFromSheet: false,
+    columns: [
+      col({ header: "SKU", field: "sku", role: "key", writable: true }),
+      col({ header: "Payout", field: "payout", table: "sales", kind: "currency" }),
+    ],
+  };
+  const fixed = normalizeSheetMap(legacy);
+  assertEquals(fixed.columns[1]!.field, "payout_amount");
+  // a payout on the wrong TABLE is not touched (rename is sales-scoped)
+  const notSales = normalizeSheetMap({
+    ...legacy,
+    columns: [col({ header: "Payout", field: "payout", table: "listings" })],
+  });
+  assertEquals(notSales.columns[0]!.field, "payout");
+});
+
+Deno.test("suggestFieldForHeader maps 'payout' to the real sales column", () => {
+  assertEquals(suggestFieldForHeader("Payout")?.field, "payout_amount");
 });
 
 Deno.test("parseCurrency strips $ , and spaces", () => {

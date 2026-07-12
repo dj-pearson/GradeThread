@@ -6,6 +6,7 @@ import {
   MAPPABLE_FIELDS,
   type SheetMap,
   suggestFieldForHeader,
+  normalizeSheetMap,
   validateSheetMap,
 } from "../lib/sheet-map.ts";
 
@@ -566,10 +567,13 @@ flipdeskGoogleRoutes.put("/sheet/map", async (c) => {
   } catch {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
-  const map = body.map as SheetMap | undefined;
-  if (!map || typeof map !== "object") {
+  const raw = body.map as SheetMap | undefined;
+  if (!raw || typeof raw !== "object") {
     return c.json({ error: "A map is required." }, 400);
   }
+  // Heal legacy sales field ids (payout → payout_amount) before validate/store,
+  // so a re-save persists the corrected map and the mapped sync never 42703s.
+  const map = normalizeSheetMap(raw);
   const errors = validateSheetMap(map);
   if (errors.length > 0) {
     return c.json({ error: errors[0], details: errors }, 400);
