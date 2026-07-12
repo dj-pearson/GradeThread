@@ -96,6 +96,42 @@ export function getGradingCompositeModel(): string {
   return getDefaultModel();
 }
 
+// Content-generation model, resolved per content KIND so an operator can route
+// low-stakes short-form (social, email) to the cheaper model while keeping
+// authority long-form (blog, refresh) on the default. `content` is the #1 AI
+// spend slice and is OUTPUT-bound, so prompt caching can't help it — the model
+// tier is the only lever. Config-driven via CONTENT_MODEL_<KIND> Coolify vars;
+// the DEFAULT for every kind is getDefaultModel(), so behavior is UNCHANGED
+// until a var is set. An unknown/typo'd override is refused (warn + fall back)
+// so a bad env value can't take content generation down.
+export type ContentKind = "blog" | "refresh" | "email" | "social";
+
+// Models an operator may route content to. Broader than the grading allowlist
+// (content isn't reproducibility-sensitive) but still gated so a typo can't
+// silently break generation. Mirrors the current + prior default/lightweight ids.
+const CONTENT_MODEL_ALLOWLIST: ReadonlySet<string> = new Set([
+  "claude-opus-4-8",
+  "claude-sonnet-5",
+  "claude-sonnet-4-6",
+  "claude-haiku-4-5-20251001",
+  "claude-haiku-4-5",
+  DEFAULTS.model,
+  DEFAULTS.lightweightModel,
+]);
+
+export function getContentModel(kind: ContentKind): string {
+  const envName = `CONTENT_MODEL_${kind.toUpperCase()}`;
+  const override = Deno.env.get(envName)?.trim();
+  if (override) {
+    if (CONTENT_MODEL_ALLOWLIST.has(override)) return override;
+    console.warn(
+      `[ai-config] ${envName}="${override}" is not a known content model — ` +
+        `falling back to the default content model (${getDefaultModel()}).`,
+    );
+  }
+  return getDefaultModel();
+}
+
 export function getAiTimeoutMs(): number {
   return readNumber("AI_TIMEOUT_MS", DEFAULTS.timeoutMs);
 }

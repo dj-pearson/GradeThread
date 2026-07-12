@@ -20,7 +20,7 @@
 // content_history_index when an issue transitions to `sent`, so future issues
 // (built by ANY send path) don't repeat it.
 
-import { getAiTemperature, getAnthropicClient, getDefaultModel } from "./ai-config.ts";
+import { getAiTemperature, getAnthropicClient, getContentModel } from "./ai-config.ts";
 import { enterAiFeature } from "./ai-feature-context.ts";
 import { supabaseAdmin } from "./supabase.ts";
 import { buildHistoryContext, type ContentProduct } from "./content-history.ts";
@@ -122,7 +122,7 @@ export async function generateEmailIssue(
   });
 
   const client = getAnthropicClient();
-  const model = input.model ?? getDefaultModel();
+  const model = input.model ?? getContentModel("email");
   const temperature = getAiTemperature();
   const startTime = Date.now();
 

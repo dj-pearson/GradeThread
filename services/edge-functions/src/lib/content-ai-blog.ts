@@ -1,7 +1,7 @@
 import {
   getAiTemperature,
   getAnthropicClient,
-  getDefaultModel,
+  getContentModel,
 } from "./ai-config.ts";
 import { enterAiFeature } from "./ai-feature-context.ts";
 import { supabaseAdmin } from "./supabase.ts";
@@ -181,7 +181,7 @@ export async function generateBlogArticle(
   const userPrompt = buildBlogArticleUserPrompt(input.topic);
 
   const client = getAnthropicClient();
-  const model = input.model ?? getDefaultModel();
+  const model = input.model ?? getContentModel("blog");
   const temperature = getAiTemperature();
   const startTime = Date.now();
 

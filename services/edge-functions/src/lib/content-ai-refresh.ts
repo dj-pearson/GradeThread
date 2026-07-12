@@ -1,7 +1,7 @@
 import {
   getAiTemperature,
   getAnthropicClient,
-  getDefaultModel,
+  getContentModel,
 } from "./ai-config.ts";
 import { enterAiFeature } from "./ai-feature-context.ts";
 import { loadKnowledge } from "./content-ai-blog.ts";
@@ -115,7 +115,7 @@ export async function refreshBlogArticle(
   const userPrompt = buildBlogRefreshUserPrompt(input.refresh);
 
   const client = getAnthropicClient();
-  const model = input.model ?? getDefaultModel();
+  const model = input.model ?? getContentModel("refresh");
   const temperature = getAiTemperature();
   const startTime = Date.now();
 
