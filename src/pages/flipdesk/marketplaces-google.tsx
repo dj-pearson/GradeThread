@@ -32,6 +32,7 @@ import {
   useSyncNow,
   useUseExistingSheet,
 } from "@/hooks/use-google-sheets";
+import { SheetMapCard } from "@/components/flipdesk/sheet-map-card";
 
 // Result codes the OAuth callback appends to the wizard URL.
 const CALLBACK_MESSAGES: Record<
@@ -316,6 +317,9 @@ export function FlipdeskMarketplacesGooglePage() {
               </div>
             </CardContent>
           </Card>
+
+          {/* Optional: sync the seller's own tab via a column map (00433). */}
+          <SheetMapCard />
 
           {/* Step 3 — live sync */}
           <Card className={connected && hasSheet ? "" : "opacity-60"}>

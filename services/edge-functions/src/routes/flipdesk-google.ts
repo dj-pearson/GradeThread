@@ -1,6 +1,13 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { encryptToken, decryptToken } from "../lib/crypto-aes.ts";
+import { SheetsClient } from "../lib/google-sheets-api.ts";
+import {
+  MAPPABLE_FIELDS,
+  type SheetMap,
+  suggestFieldForHeader,
+  validateSheetMap,
+} from "../lib/sheet-map.ts";
 
 // Google Sheets connection (US-146). A long-lived OAuth grant that lets FlipDesk
 // read and write ONE designated "FlipDesk Sync" spreadsheet on the user's Drive.
@@ -268,15 +275,17 @@ interface GoogleConnectionRow {
   is_active: boolean;
 }
 
-async function loadConnection(userId: string): Promise<GoogleConnectionRow | null> {
+type ConnWithMap = GoogleConnectionRow & { sheet_map: SheetMap | null };
+
+async function loadConnection(userId: string): Promise<ConnWithMap | null> {
   const { data } = await supabaseAdmin
     .from("google_connections")
     .select(
-      "id, user_id, google_email, access_token_enc, refresh_token_enc, token_expires_at, sheet_id, sheet_url, last_sync_at, sync_status, sync_error, is_active",
+      "id, user_id, google_email, access_token_enc, refresh_token_enc, token_expires_at, sheet_id, sheet_url, last_sync_at, sync_status, sync_error, is_active, sheet_map",
     )
     .eq("user_id", userId)
     .maybeSingle();
-  return (data as GoogleConnectionRow | null) ?? null;
+  return (data as ConnWithMap | null) ?? null;
 }
 
 // Returns a valid access token for the user, refreshing via the refresh token
@@ -367,6 +376,8 @@ flipdeskGoogleRoutes.get("/connection", async (c) => {
     last_sync_at: conn.last_sync_at,
     sync_status: conn.sync_status,
     sync_error: conn.sync_error,
+    // "Bring your own sheet": the current column map (null = classic tabs mode).
+    sheet_map: conn.sheet_map,
   });
 });
 
@@ -471,6 +482,117 @@ flipdeskGoogleRoutes.post("/sheet/use", async (c) => {
     return c.json({ error: "Could not save the sheet selection." }, 500);
   }
   return c.json({ ok: true, sheet_id: sheetId, sheet_url: sheetUrl });
+});
+
+// ── "Bring your own sheet" mapping (00433) ───────────────────────────
+
+// GET /sheet/tabs — the tab titles in the connected spreadsheet.
+flipdeskGoogleRoutes.get("/sheet/tabs", async (c) => {
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const conn = await loadConnection(userId);
+  if (!conn?.sheet_id) return c.json({ error: "No spreadsheet is connected." }, 409);
+  let token: string;
+  try {
+    token = await getGoogleAccessToken(userId);
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "Google is not connected." }, 409);
+  }
+  try {
+    const tabs = await new SheetsClient(token, conn.sheet_id).getTabs();
+    return c.json({ tabs: tabs.map((t) => t.title) });
+  } catch (err) {
+    console.error("[flipdesk-google] tab list failed:", err);
+    return c.json({ error: "Could not read the spreadsheet tabs." }, 502);
+  }
+});
+
+// POST /sheet/map/suggest {tab} — read that tab's header row, auto-suggest a
+// field for each header, and return the field catalog for the mapping UI.
+flipdeskGoogleRoutes.post("/sheet/map/suggest", async (c) => {
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const conn = await loadConnection(userId);
+  if (!conn?.sheet_id) return c.json({ error: "No spreadsheet is connected." }, 409);
+  let body: { tab?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const tab = typeof body.tab === "string" ? body.tab.trim() : "";
+  if (!tab) return c.json({ error: "A tab name is required." }, 400);
+
+  let token: string;
+  try {
+    token = await getGoogleAccessToken(userId);
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "Google is not connected." }, 409);
+  }
+  try {
+    const range = `'${tab}'!1:1`;
+    const rows = (await new SheetsClient(token, conn.sheet_id).batchGetValues([range])).get(range) ?? [];
+    const headers = (rows[0] ?? [])
+      .map((h) => String(h ?? "").trim())
+      .filter((h) => h.length > 0);
+    const suggested = headers
+      .map((h) => suggestFieldForHeader(h))
+      .filter((c): c is NonNullable<typeof c> => c !== null);
+    const keyCol = suggested.find((s) => s.role === "key");
+    return c.json({
+      tab,
+      headers,
+      fields: MAPPABLE_FIELDS,
+      map: {
+        tab,
+        keyColumn: keyCol?.header ?? "",
+        createFromSheet: true,
+        columns: suggested,
+      },
+    });
+  } catch (err) {
+    console.error("[flipdesk-google] header read failed:", err);
+    return c.json({ error: `Could not read the header row of "${tab}".` }, 502);
+  }
+});
+
+// PUT /sheet/map {map} — validate + save the map (mapped mode). DELETE clears it.
+flipdeskGoogleRoutes.put("/sheet/map", async (c) => {
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  if (c.get("workspaceRole") === "viewer") {
+    return c.json({ error: "Viewers can't change the sync mapping." }, 403);
+  }
+  let body: { map?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const map = body.map as SheetMap | undefined;
+  if (!map || typeof map !== "object") {
+    return c.json({ error: "A map is required." }, 400);
+  }
+  const errors = validateSheetMap(map);
+  if (errors.length > 0) {
+    return c.json({ error: errors[0], details: errors }, 400);
+  }
+  const { error } = await supabaseAdmin
+    .from("google_connections")
+    .update({ sheet_map: map })
+    .eq("user_id", userId);
+  if (error) return c.json({ error: "Could not save the mapping." }, 500);
+  return c.json({ ok: true });
+});
+
+flipdeskGoogleRoutes.delete("/sheet/map", async (c) => {
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  if (c.get("workspaceRole") === "viewer") {
+    return c.json({ error: "Viewers can't change the sync mapping." }, 403);
+  }
+  const { error } = await supabaseAdmin
+    .from("google_connections")
+    .update({ sheet_map: null })
+    .eq("user_id", userId);
+  if (error) return c.json({ error: "Could not clear the mapping." }, 500);
+  return c.json({ ok: true });
 });
 
 // ── POST /disconnect ────────────────────────────────────────────────

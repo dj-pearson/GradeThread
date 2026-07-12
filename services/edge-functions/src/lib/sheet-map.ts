@@ -222,6 +222,51 @@ export function suggestFieldForHeader(header: string): SheetMapColumn | null {
   return s ? { header, ...s } : null;
 }
 
+// The catalog of GradeThread fields a sheet column can map to — drives the
+// mapping UI's per-column dropdown. Inventory fields are two-way (writable);
+// listing/sale fields are a read-only mirror.
+export interface MappableField {
+  field: string;
+  table: MappedTable;
+  label: string;
+  kind: MappedKind;
+  writable: boolean;
+  role?: "key";
+  enumValues?: readonly string[];
+}
+export const MAPPABLE_FIELDS: readonly MappableField[] = [
+  { field: "sku", table: "inventory_items", label: "SKU (match key)", kind: "string", writable: true, role: "key" },
+  { field: "title", table: "inventory_items", label: "Title", kind: "string", writable: true },
+  { field: "description", table: "inventory_items", label: "Description", kind: "string", writable: true },
+  { field: "brand", table: "inventory_items", label: "Brand", kind: "string", writable: true },
+  { field: "style", table: "inventory_items", label: "Style", kind: "string", writable: true },
+  { field: "size", table: "inventory_items", label: "Size", kind: "string", writable: true },
+  { field: "color", table: "inventory_items", label: "Color", kind: "string", writable: true },
+  { field: "material", table: "inventory_items", label: "Material", kind: "string", writable: true },
+  { field: "condition_notes", table: "inventory_items", label: "Notes", kind: "string", writable: true },
+  { field: "item_category", table: "inventory_items", label: "Category", kind: "enum", writable: true, enumValues: ITEM_CATEGORY_VALUES },
+  { field: "status", table: "inventory_items", label: "Status", kind: "enum", writable: true, enumValues: ITEM_STATUS_VALUES },
+  { field: "container", table: "inventory_items", label: "Container", kind: "string", writable: true },
+  { field: "sourced_by", table: "inventory_items", label: "Sourced By", kind: "string", writable: true },
+  { field: "location_bin", table: "inventory_items", label: "Location / Bin", kind: "string", writable: true },
+  { field: "acquired_date", table: "inventory_items", label: "Purchase Date", kind: "date", writable: true },
+  { field: "acquired_price", table: "inventory_items", label: "Purchase Price", kind: "currency", writable: true },
+  { field: "target_price", table: "inventory_items", label: "Target Price", kind: "currency", writable: true },
+  // Read-only mirror (GradeThread/eBay owns these)
+  { field: "platform", table: "listings", label: "Listed On (platform)", kind: "string", writable: false },
+  { field: "listing_status", table: "listings", label: "Listing Status", kind: "string", writable: false },
+  { field: "listing_price", table: "listings", label: "List Price", kind: "currency", writable: false },
+  { field: "listing_url", table: "listings", label: "Listing Link", kind: "string", writable: false },
+  { field: "listed_at", table: "listings", label: "List Date", kind: "date", writable: false },
+  { field: "sale_price", table: "sales", label: "Sale Price", kind: "currency", writable: false },
+  { field: "platform_fees", table: "sales", label: "Fees", kind: "currency", writable: false },
+  { field: "shipping_cost", table: "sales", label: "Shipping Cost", kind: "currency", writable: false },
+  { field: "net_profit", table: "sales", label: "Net Profit", kind: "currency", writable: false },
+  { field: "payout", table: "sales", label: "Payout", kind: "currency", writable: false },
+  { field: "sold_at", table: "sales", label: "Sale Date", kind: "date", writable: false },
+  { field: "tracking_number", table: "sales", label: "Tracking", kind: "string", writable: false },
+];
+
 // ── Validation ────────────────────────────────────────────────────────
 // ── SKU-keyed merge (the mapped analog of sheet-sync's mergeRow) ───────
 // These are the row-level primitives the orchestration (runMappedMerge) glues

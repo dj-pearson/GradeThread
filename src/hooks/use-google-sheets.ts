@@ -2,6 +2,27 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useAuthStore } from "@/stores/auth-store";
+import type { SheetMapConfig } from "@/types/database";
+
+export type { SheetMapConfig };
+
+// One selectable target field in the mapping UI's per-column dropdown.
+export interface MappableField {
+  field: string;
+  table: "inventory_items" | "listings" | "sales";
+  label: string;
+  kind: "string" | "number" | "currency" | "date" | "enum";
+  writable: boolean;
+  role?: "key";
+  enumValues?: string[];
+}
+
+export interface SheetMapSuggestion {
+  tab: string;
+  headers: string[];
+  fields: MappableField[];
+  map: SheetMapConfig;
+}
 
 // US-146: Google Sheets connection hooks. The connection grant + sync sheet live
 // under the workspace owner; edgeFetch attaches the X-Workspace-Owner header so
@@ -16,6 +37,8 @@ export interface GoogleConnection {
   last_sync_at?: string | null;
   sync_status?: "never" | "idle" | "syncing" | "error";
   sync_error?: string | null;
+  // "Bring your own sheet": the active column map, or null for classic tabs mode.
+  sheet_map?: SheetMapConfig | null;
 }
 
 // US-1083: a sheet edit not applied because eBay owns the field on an
@@ -164,6 +187,79 @@ export function useSyncNow() {
       toast.success(
         `Synced: ${result.pushed ?? 0} pushed, ${result.pulled ?? 0} pulled.${conflictNote}${skippedNote}`,
       );
+    },
+    onError: (err) => toast.error(err.message),
+  });
+}
+
+// ── "Bring your own sheet" mapping (00433) ───────────────────────────
+
+// The tab titles in the connected spreadsheet (for the "pick your tab" step).
+export function useSheetTabs(enabled: boolean) {
+  const user = useAuthStore((s) => s.user);
+  return useQuery({
+    queryKey: ["google_sheet_tabs", user?.id],
+    enabled: enabled && !!user,
+    staleTime: 60_000,
+    queryFn: async (): Promise<string[]> => {
+      const res = await edgeFetch("/api/flipdesk/google/sheet/tabs");
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Could not read the spreadsheet tabs.");
+      return (json.tabs ?? []) as string[];
+    },
+  });
+}
+
+// Reads a tab's header row and auto-suggests a column map to review.
+export function useSuggestSheetMap() {
+  return useMutation<SheetMapSuggestion, Error, { tab: string }>({
+    mutationFn: async ({ tab }) => {
+      const res = await edgeFetch("/api/flipdesk/google/sheet/map/suggest", {
+        method: "POST",
+        json: { tab },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Could not read that tab.");
+      return json as SheetMapSuggestion;
+    },
+    onError: (err) => toast.error(err.message),
+  });
+}
+
+// Saves the reviewed map (switches the sync to the user's own tab).
+export function useSaveSheetMap() {
+  const qc = useQueryClient();
+  return useMutation<{ ok: true }, Error, { map: SheetMapConfig }>({
+    mutationFn: async ({ map }) => {
+      const res = await edgeFetch("/api/flipdesk/google/sheet/map", {
+        method: "PUT",
+        json: { map },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Could not save the mapping.");
+      return json as { ok: true };
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["google_connection"] });
+      toast.success("Saved your sheet mapping. The next sync uses your tab.");
+    },
+    onError: (err) => toast.error(err.message),
+  });
+}
+
+// Clears the map — reverts to the generated Inventory/Listings/… tabs.
+export function useClearSheetMap() {
+  const qc = useQueryClient();
+  return useMutation<{ ok: true }, Error, void>({
+    mutationFn: async () => {
+      const res = await edgeFetch("/api/flipdesk/google/sheet/map", { method: "DELETE" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Could not clear the mapping.");
+      return json as { ok: true };
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["google_connection"] });
+      toast.success("Reverted to the generated tabs.");
     },
     onError: (err) => toast.error(err.message),
   });
