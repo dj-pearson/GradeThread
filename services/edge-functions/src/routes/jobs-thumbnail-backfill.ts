@@ -66,6 +66,13 @@ export async function handleThumbnailBackfillCron(c: Context): Promise<Response>
       .select("id, storage_path, photo_type")
       .is("thumbnail_url", null)
       .neq("photo_url", "")
+      // A photo archived to R2 (flipdesk-images.ts) has its Supabase object
+      // deleted, so downloadItemPhoto would 404 forever — its bytes live on R2.
+      // Skip it: terminal-status items don't need a Supabase-sourced thumbnail.
+      .eq("archived_to_r2", false)
+      // US-1518 follow-up: skip rows already found to have a permanently-missing
+      // source object (marked below), so a dead pointer is not retried forever.
+      .is("thumbnail_backfill_failed_at", null)
       .not("photo_type", "in", `(${sensitive.join(",")})`)
       .not("storage_path", "is", null)
       .limit(BATCH_LIMIT);
@@ -83,9 +90,26 @@ export async function handleThumbnailBackfillCron(c: Context): Promise<Response>
       try {
         const dl = await downloadItemPhoto(row.storage_path, row.photo_type);
         if ("error" in dl) {
-          console.warn(
-            `[jobs-thumbnail-backfill] download failed for ${row.id}: ${dl.error}`,
-          );
+          // US-1518 follow-up: distinguish a PERMANENTLY missing object (404 in
+          // both buckets — deleted out-of-band or never landed) from a transient
+          // error. A permanent miss is stamped terminal so the query above skips
+          // it on future runs instead of retrying it forever; transient errors
+          // (network / 5xx) are left unmarked and retry as before. Best-effort —
+          // a failed stamp just means we retry once more next run, not a crash.
+          if (/not\s*found/i.test(dl.error)) {
+            await supabaseAdmin
+              .from("item_photos")
+              .update({ thumbnail_backfill_failed_at: new Date().toISOString() })
+              .eq("id", row.id);
+            console.warn(
+              `[jobs-thumbnail-backfill] source object missing for ${row.id} ` +
+                `(${dl.error}) — marked terminal, will not retry`,
+            );
+          } else {
+            console.warn(
+              `[jobs-thumbnail-backfill] download failed for ${row.id}: ${dl.error}`,
+            );
+          }
           failed++;
           continue;
         }

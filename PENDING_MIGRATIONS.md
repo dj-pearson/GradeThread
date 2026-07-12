@@ -1,5 +1,31 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ PENDING: 00434_thumbnail_backfill_failed_marker.sql (thumbnail-backfill orphan retry loop, 2026-07-12)
+
+**What:** One additive nullable column `public.item_photos.thumbnail_backfill_failed_at
+timestamptz`. Gives the thumbnail-backfill cron (`routes/jobs-thumbnail-backfill.ts`)
+a terminal state for a permanently-missing source object. The job selects
+`thumbnail_url IS NULL` rows and downloads each object; a 404-in-both-buckets
+(object deleted out-of-band or never landed) previously left the row NULL, so it
+was re-selected and retried EVERY run forever (log spam + wasted batch slots).
+Now the job stamps this column on a confirmed "not found" and the query skips
+stamped rows. The same commit also adds `.eq("archived_to_r2", false)` to the
+query so R2-archived photos (Supabase object intentionally deleted) stop 404ing
+too. Bumps `EXPECTED_SCHEMA_VERSION` → **00434**. Self-records '00434'.
+
+**Risk: LOW** — one nullable timestamp column, no backfill, no behavior change for
+healthy rows; only changes how *failures* are handled. **No CLIENT read** — the
+column is edge-only (the cron writes it; nothing on the frontend reads it), so the
+frontend auto-deploy on push is unaffected. Reversible: `UPDATE item_photos SET
+thumbnail_backfill_failed_at = NULL WHERE ...` to retry after a storage repair.
+**⚠️ Apply order:** after 00433; `scripts/apply-prod-migrations.sh`, then
+`NOTIFY pgrst, 'reload schema';`, redeploy the edge (boot guard now expects 00434).
+
+**Note (not part of this migration):** 3 live *drafted* items lost photo objects
+out-of-band (Peter Millar Quarter-Zip, Acegolfs Golf Pants, Magashoni Cardigan);
+the first two are below the front+back required set and need re-shooting. This
+migration only stops the retry loop — it does not delete those broken rows.
+
 ## ⏳ PENDING: 00433_sheet_map.sql ("bring your own sheet" column map, 2026-07-11)
 
 **What:** One additive nullable column `public.google_connections.sheet_map jsonb`
