@@ -136,7 +136,10 @@ import type {
   ItemPhotoRow,
   ListingInsert,
   ListingRow,
+  InventoryItemRow,
 } from "@/types/database";
+import { MergeSkuDialog } from "@/components/flipdesk/merge-sku-dialog";
+import { rowToMergeValues, type MergeValues } from "@/lib/merge-values";
 
 const TITLE_MAX = 80;
 
@@ -225,6 +228,16 @@ export function FlipdeskComposerPage() {
   const [storageLocation, setStorageLocation] = useState("");
   const [storageContainer, setStorageContainer] = useState("");
   const [savingStorage, setSavingStorage] = useState(false);
+  // Duplicate-SKU merge: set when a storage save hits the (user_id, sku) unique
+  // index — holds the field-shaped values of both records so the MergeSkuDialog
+  // can resolve conflicts, then merge_inventory_items combines them in place.
+  const [mergeState, setMergeState] = useState<{
+    sku: string;
+    existingId: string;
+    current: MergeValues;
+    existing: MergeValues;
+  } | null>(null);
+  const [merging, setMerging] = useState(false);
   // US-561: Promoted Listings. promoteEnabled mirrors !promo_opt_out (promote by
   // default); promoRate is the seller's accepted/adjusted ad rate (%) seeded
   // from the category suggestion; promoSuggested holds the fetched suggestion so
@@ -967,12 +980,11 @@ export function FlipdeskComposerPage() {
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       toast.success("Storage details saved.");
     } catch (err) {
-      // Duplicate-SKU partial unique index (user_id, sku): the composer has no
-      // merge UI, so send the seller to the item page where that flow lives.
-      // supabase-js rejects with a PostgrestError PLAIN OBJECT (not an Error
-      // instance), so read the pg code/message/details directly — an
-      // `err instanceof Error` gate here would stringify to "[object Object]"
-      // and miss both the constraint match and any real message.
+      // Duplicate-SKU partial unique index (user_id, sku) → offer to merge the
+      // two records in place (same flow as the item page). supabase-js rejects
+      // with a PostgrestError PLAIN OBJECT (not an Error instance), so read the
+      // pg code/message/details directly — an `err instanceof Error` gate here
+      // would stringify to "[object Object]" and miss the constraint match.
       const pgErr = err as { code?: string; message?: string; details?: string };
       const dupText = `${pgErr.message ?? ""} ${pgErr.details ?? ""}`;
       const isSkuDuplicate =
@@ -980,14 +992,144 @@ export function FlipdeskComposerPage() {
         (dupText.includes("idx_inventory_items_user_sku") ||
           dupText.toLowerCase().includes("sku"));
       if (isSkuDuplicate) {
-        toast.error(
-          "That SKU is already used by another item. Open the item's full page to merge them.",
-        );
+        const newSku = storageSku.trim();
+        // Load both raw rows (the pre-existing SKU owner + this survivor) so the
+        // dialog can compare field-by-field. `.limit(1)` (not `.maybeSingle()`)
+        // so a stray >1-row state can't itself throw and mask the duplicate.
+        const [dupRes, survRes] = await Promise.all([
+          supabase
+            .from("inventory_items")
+            .select("*")
+            .eq("user_id", item.user_id)
+            .eq("sku", newSku)
+            .neq("id", item.id)
+            .order("updated_at", { ascending: false })
+            .limit(1),
+          supabase
+            .from("inventory_items")
+            .select("*")
+            .eq("id", item.id)
+            .limit(1),
+        ]);
+        const dupRow = ((dupRes.data ?? [])[0] as InventoryItemRow | undefined);
+        const survRow = ((survRes.data ?? [])[0] as InventoryItemRow | undefined);
+        if (dupRow && survRow) {
+          setMergeState({
+            sku: newSku,
+            existingId: dupRow.id,
+            current: rowToMergeValues(survRow),
+            existing: rowToMergeValues(dupRow),
+          });
+        } else {
+          // The index says the SKU is taken, but we couldn't load the other row
+          // (RLS, a filter, or it was just deleted). Say so plainly.
+          toast.error(
+            `SKU "${newSku}" is already used by another item, but it couldn't be loaded to merge — refresh and try again.`,
+          );
+        }
       } else {
         toast.error(`Save failed: ${errorMessage(err)}`);
       }
     } finally {
       setSavingStorage(false);
+    }
+  }
+
+  // Map the merge dialog's chosen field values back to inventory_items columns.
+  // Only the keys the user took from the EXISTING record are written; everything
+  // else already carries the survivor's value. Mirrors the item canvas's persist
+  // conventions (trim → null, numeric prices, empties → null).
+  function mergeOverridesToItemUpdate(
+    v: Partial<MergeValues>,
+  ): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    const strTrim = (s: string) => (s.trim() === "" ? null : s.trim());
+    const priceNum = (s: string) => {
+      const t = s.trim();
+      if (t === "") return null;
+      const n = Number(t);
+      return Number.isFinite(n) ? n : null;
+    };
+    if (v.title !== undefined)
+      out.title = v.title.trim() || item?.item_title || "";
+    if (v.container !== undefined) out.container = strTrim(v.container);
+    if (v.brand !== undefined) out.brand = strTrim(v.brand);
+    if (v.style !== undefined) out.style = strTrim(v.style);
+    if (v.size !== undefined) out.size = strTrim(v.size);
+    if (v.color !== undefined) out.color = strTrim(v.color);
+    if (v.material !== undefined) out.material = strTrim(v.material);
+    if (v.description !== undefined) out.description = strTrim(v.description);
+    if (v.condition_notes !== undefined)
+      out.condition_notes = strTrim(v.condition_notes);
+    if (v.item_category !== undefined)
+      out.item_category = v.item_category === "" ? null : v.item_category;
+    if (v.sourced_by !== undefined) out.sourced_by = strTrim(v.sourced_by);
+    if (v.status !== undefined) out.status = v.status;
+    if (v.acquired_date !== undefined)
+      out.acquired_date = v.acquired_date || null;
+    if (v.acquired_price !== undefined)
+      out.acquired_price = priceNum(v.acquired_price);
+    if (v.target_price !== undefined)
+      out.target_price = priceNum(v.target_price);
+    if (v.comp_set !== undefined)
+      out.comp_set = v.comp_set.filter(
+        (c) => Number.isFinite(c.price) && c.price > 0,
+      );
+    if (v.measurements !== undefined)
+      out.measurements =
+        Object.keys(v.measurements).length > 0 ? v.measurements : null;
+    return out;
+  }
+
+  // Confirmed duplicate-SKU merge: the RPC atomically re-points photos, listings,
+  // sales and grading history onto this item, deletes the duplicate, and CLAIMS
+  // the SKU. Then the user's field choices (plus this composer's location/
+  // container edits, which the rolled-back save never persisted) are written.
+  async function handleMergeConfirm(overrides: Partial<MergeValues>) {
+    if (!item || !mergeState) return;
+    setMerging(true);
+    try {
+      const rpcClient = supabase as unknown as {
+        rpc: (
+          fn: string,
+          args: Record<string, unknown>,
+        ) => Promise<{ data: unknown; error: Error | null }>;
+      };
+      const { error } = await rpcClient.rpc("merge_inventory_items", {
+        p_survivor_id: item.id,
+        p_duplicate_id: mergeState.existingId,
+        p_sku: mergeState.sku,
+      });
+      if (error) throw error;
+
+      // The RPC already claimed the SKU; persist the resolved field choices and
+      // the location/container the original save couldn't commit.
+      const patch = mergeOverridesToItemUpdate(overrides);
+      patch.location_bin = storageLocation.trim() || null;
+      patch.container = storageContainer.trim() || null;
+      setStorageSku(mergeState.sku);
+      setMergeState(null);
+      // Photos/listings/sales were re-pointed server-side — refresh broadly.
+      await qc.invalidateQueries();
+      try {
+        const { error: upErr } = await supabase
+          .from("inventory_items")
+          .update(patch as never)
+          .eq("id", item.id);
+        if (upErr) throw upErr;
+        toast.success("Records merged — this item now owns the SKU.");
+      } catch (persistErr) {
+        // The merge committed; only the field choices failed to save.
+        toast.error(
+          `Records merged, but saving your field choices failed: ${errorMessage(
+            persistErr,
+          )}. Review the item and save again.`,
+        );
+      }
+    } catch (err) {
+      toast.error(`Merge failed: ${errorMessage(err)}`);
+    } finally {
+      setMerging(false);
     }
   }
 
@@ -2419,6 +2561,18 @@ export function FlipdeskComposerPage() {
         fieldLabels={{ title: "Title", description: "Description" }}
         onApply={applyRewrite}
       />
+
+      {mergeState && (
+        <MergeSkuDialog
+          open
+          sku={mergeState.sku}
+          current={mergeState.current}
+          existing={mergeState.existing}
+          merging={merging}
+          onCancel={() => setMergeState(null)}
+          onConfirm={(overrides) => void handleMergeConfirm(overrides)}
+        />
+      )}
     </div>
   );
 }

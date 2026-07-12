@@ -11,31 +11,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { ITEM_STATUS_LABELS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
-import type { ItemComp, ItemStatus, ItemCategory } from "@/types/database";
+import type { ItemStatus, ItemComp } from "@/types/database";
+import type { MergeValues } from "@/lib/merge-values";
 
-// The form-shaped values compared during a duplicate-SKU merge. Matches the
-// editable fields of the item canvas (everything the user can resolve);
-// non-UI columns (grade linkage, eBay taxonomy, …) are coalesced server-side
-// by the merge_inventory_items RPC.
-export interface MergeValues {
-  title: string;
-  container: string;
-  brand: string;
-  style: string;
-  size: string;
-  color: string;
-  material: string;
-  description: string;
-  condition_notes: string;
-  item_category: ItemCategory | "";
-  sourced_by: string;
-  status: ItemStatus;
-  acquired_date: string;
-  acquired_price: string;
-  target_price: string;
-  comp_set: ItemComp[];
-  measurements: Record<string, number | string>;
-}
+// Re-exported so the dialog stays the one-stop import for merge consumers; the
+// shape + row mapper live in @/lib/merge-values (see rowToMergeValues there).
+export type { MergeValues } from "@/lib/merge-values";
 
 type FieldKey = keyof MergeValues;
 

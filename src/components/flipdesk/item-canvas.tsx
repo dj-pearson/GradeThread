@@ -75,10 +75,8 @@ import { MeasurementPhotoEditor } from "@/components/flipdesk/measurement-photo-
 import { PnlPanel } from "@/components/flipdesk/pnl-panel";
 import { MarkListedDialog } from "@/components/flipdesk/mark-listed-dialog";
 import { RecordSaleDialog } from "@/components/flipdesk/record-sale-dialog";
-import {
-  MergeSkuDialog,
-  type MergeValues,
-} from "@/components/flipdesk/merge-sku-dialog";
+import { MergeSkuDialog } from "@/components/flipdesk/merge-sku-dialog";
+import { rowToMergeValues, type MergeValues } from "@/lib/merge-values";
 import { CategoryCheckCard } from "@/components/flipdesk/category-check-card";
 import { FitWidget } from "@/components/fit/fit-widget";
 import { EbayCatalogMatchCard } from "@/components/flipdesk/ebay-catalog-match-card";
@@ -341,34 +339,6 @@ function heavyFromItem(item: ItemFullRow): HeavyFields {
     photo_count: partial.photo_count ?? 0,
     has_required_photos: partial.has_required_photos ?? false,
     ai_field_sources: partial.ai_field_sources ?? null,
-  };
-}
-
-// Form-shaped view of a raw inventory_items row, for the duplicate-SKU merge
-// comparison (same string conventions as EditState).
-function rowToMergeValues(row: InventoryItemRow): MergeValues {
-  return {
-    title: row.title ?? "",
-    container: row.container ?? "",
-    brand: row.brand ?? "",
-    style: row.style ?? "",
-    size: row.size ?? "",
-    color: row.color ?? "",
-    material: row.material ?? "",
-    description: row.description ?? "",
-    condition_notes: row.condition_notes ?? "",
-    item_category: row.item_category ?? "",
-    sourced_by: row.sourced_by ?? "",
-    status: row.status,
-    acquired_date: row.acquired_date?.slice(0, 10) ?? "",
-    acquired_price:
-      row.acquired_price == null ? "" : String(row.acquired_price),
-    target_price: row.target_price == null ? "" : String(row.target_price),
-    comp_set: Array.isArray(row.comp_set) ? row.comp_set : [],
-    measurements:
-      row.measurements && typeof row.measurements === "object"
-        ? row.measurements
-        : {},
   };
 }
 
