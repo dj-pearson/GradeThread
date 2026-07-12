@@ -15887,7 +15887,7 @@
         "Vitest: grant throws once then succeeds on retry → buyer ends with exactly one credit grant and correct balance"
       ],
       "priority": 1920,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Edge/Payments] Code-review sweep 2026-07-11. Relates to the Play Billing epic US-1366 but is a discrete ordering bug.",
       "relevantPaths": [
         "services/edge-functions/src/lib/google-play/verify.ts",
