@@ -5,25 +5,53 @@
 -- ENUMS
 -- ══════════════════════════════════════════════════════════
 
-CREATE TYPE public.user_plan AS ENUM ('free', 'starter', 'professional', 'enterprise');
-CREATE TYPE public.garment_type AS ENUM ('tops', 'bottoms', 'outerwear', 'dresses', 'footwear', 'accessories');
-CREATE TYPE public.garment_category AS ENUM (
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'user_plan') THEN
+    CREATE TYPE public.user_plan AS ENUM ('free', 'starter', 'professional', 'enterprise');
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'garment_type') THEN
+    CREATE TYPE public.garment_type AS ENUM ('tops', 'bottoms', 'outerwear', 'dresses', 'footwear', 'accessories');
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'garment_category') THEN
+    CREATE TYPE public.garment_category AS ENUM (
   't-shirt', 'shirt', 'blouse', 'sweater', 'hoodie',
   'jacket', 'coat', 'jeans', 'pants', 'shorts',
   'skirt', 'dress', 'sneakers', 'boots', 'sandals',
   'hat', 'bag', 'belt', 'scarf', 'other'
 );
-CREATE TYPE public.submission_status AS ENUM ('pending', 'processing', 'completed', 'failed', 'disputed');
-CREATE TYPE public.grade_tier AS ENUM ('NWT', 'NWOT', 'Excellent', 'Very Good', 'Good', 'Fair', 'Poor');
-CREATE TYPE public.image_type AS ENUM ('front', 'back', 'label', 'detail', 'defect');
-CREATE TYPE public.dispute_status AS ENUM ('open', 'under_review', 'resolved', 'rejected');
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'submission_status') THEN
+    CREATE TYPE public.submission_status AS ENUM ('pending', 'processing', 'completed', 'failed', 'disputed');
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'grade_tier') THEN
+    CREATE TYPE public.grade_tier AS ENUM ('NWT', 'NWOT', 'Excellent', 'Very Good', 'Good', 'Fair', 'Poor');
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'image_type') THEN
+    CREATE TYPE public.image_type AS ENUM ('front', 'back', 'label', 'detail', 'defect');
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'dispute_status') THEN
+    CREATE TYPE public.dispute_status AS ENUM ('open', 'under_review', 'resolved', 'rejected');
+  END IF;
+END $$;
 
 -- ══════════════════════════════════════════════════════════
 -- TABLES
 -- ══════════════════════════════════════════════════════════
 
 -- Users (extends auth.users)
-CREATE TABLE public.users (
+CREATE TABLE IF NOT EXISTS public.users (
   id            uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   email         text NOT NULL,
   full_name     text,
@@ -37,7 +65,7 @@ CREATE TABLE public.users (
 );
 
 -- Submissions
-CREATE TABLE public.submissions (
+CREATE TABLE IF NOT EXISTS public.submissions (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id       uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
   garment_type  public.garment_type NOT NULL,
@@ -51,7 +79,7 @@ CREATE TABLE public.submissions (
 );
 
 -- Submission Images
-CREATE TABLE public.submission_images (
+CREATE TABLE IF NOT EXISTS public.submission_images (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   submission_id uuid NOT NULL REFERENCES public.submissions(id) ON DELETE CASCADE,
   image_type    public.image_type NOT NULL,
@@ -61,7 +89,7 @@ CREATE TABLE public.submission_images (
 );
 
 -- Grade Reports
-CREATE TABLE public.grade_reports (
+CREATE TABLE IF NOT EXISTS public.grade_reports (
   id                        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   submission_id             uuid NOT NULL REFERENCES public.submissions(id) ON DELETE CASCADE,
   overall_score             numeric(3,1) NOT NULL CHECK (overall_score >= 1.0 AND overall_score <= 10.0),
@@ -80,7 +108,7 @@ CREATE TABLE public.grade_reports (
 );
 
 -- Disputes
-CREATE TABLE public.disputes (
+CREATE TABLE IF NOT EXISTS public.disputes (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   grade_report_id uuid NOT NULL REFERENCES public.grade_reports(id) ON DELETE CASCADE,
   user_id         uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
@@ -92,7 +120,7 @@ CREATE TABLE public.disputes (
 );
 
 -- API Keys
-CREATE TABLE public.api_keys (
+CREATE TABLE IF NOT EXISTS public.api_keys (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id     uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
   name        text NOT NULL,
@@ -107,16 +135,16 @@ CREATE TABLE public.api_keys (
 -- INDEXES
 -- ══════════════════════════════════════════════════════════
 
-CREATE INDEX idx_submissions_user_id ON public.submissions(user_id);
-CREATE INDEX idx_submissions_status ON public.submissions(status);
-CREATE INDEX idx_submissions_created_at ON public.submissions(created_at DESC);
-CREATE INDEX idx_submission_images_submission_id ON public.submission_images(submission_id);
-CREATE INDEX idx_grade_reports_submission_id ON public.grade_reports(submission_id);
-CREATE INDEX idx_grade_reports_certificate_id ON public.grade_reports(certificate_id) WHERE certificate_id IS NOT NULL;
-CREATE INDEX idx_disputes_grade_report_id ON public.disputes(grade_report_id);
-CREATE INDEX idx_disputes_user_id ON public.disputes(user_id);
-CREATE INDEX idx_api_keys_user_id ON public.api_keys(user_id);
-CREATE INDEX idx_api_keys_key_hash ON public.api_keys(key_hash);
+CREATE INDEX IF NOT EXISTS idx_submissions_user_id ON public.submissions(user_id);
+CREATE INDEX IF NOT EXISTS idx_submissions_status ON public.submissions(status);
+CREATE INDEX IF NOT EXISTS idx_submissions_created_at ON public.submissions(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_submission_images_submission_id ON public.submission_images(submission_id);
+CREATE INDEX IF NOT EXISTS idx_grade_reports_submission_id ON public.grade_reports(submission_id);
+CREATE INDEX IF NOT EXISTS idx_grade_reports_certificate_id ON public.grade_reports(certificate_id) WHERE certificate_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_disputes_grade_report_id ON public.disputes(grade_report_id);
+CREATE INDEX IF NOT EXISTS idx_disputes_user_id ON public.disputes(user_id);
+CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON public.api_keys(user_id);
+CREATE INDEX IF NOT EXISTS idx_api_keys_key_hash ON public.api_keys(key_hash);
 
 -- ══════════════════════════════════════════════════════════
 -- TRIGGERS
@@ -131,14 +159,17 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS set_users_updated_at ON public.users;
 CREATE TRIGGER set_users_updated_at
   BEFORE UPDATE ON public.users
   FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
+DROP TRIGGER IF EXISTS set_submissions_updated_at ON public.submissions;
 CREATE TRIGGER set_submissions_updated_at
   BEFORE UPDATE ON public.submissions
   FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
+DROP TRIGGER IF EXISTS set_disputes_updated_at ON public.disputes;
 CREATE TRIGGER set_disputes_updated_at
   BEFORE UPDATE ON public.disputes
   FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
@@ -158,6 +189,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
@@ -174,28 +206,34 @@ ALTER TABLE public.disputes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.api_keys ENABLE ROW LEVEL SECURITY;
 
 -- Users: own data only
+DROP POLICY IF EXISTS "Users can view own profile" ON public.users;
 CREATE POLICY "Users can view own profile"
   ON public.users FOR SELECT
   USING (auth.uid() = id);
 
+DROP POLICY IF EXISTS "Users can update own profile" ON public.users;
 CREATE POLICY "Users can update own profile"
   ON public.users FOR UPDATE
   USING (auth.uid() = id);
 
 -- Submissions: own data only
+DROP POLICY IF EXISTS "Users can view own submissions" ON public.submissions;
 CREATE POLICY "Users can view own submissions"
   ON public.submissions FOR SELECT
   USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can create submissions" ON public.submissions;
 CREATE POLICY "Users can create submissions"
   ON public.submissions FOR INSERT
   WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can update own submissions" ON public.submissions;
 CREATE POLICY "Users can update own submissions"
   ON public.submissions FOR UPDATE
   USING (auth.uid() = user_id);
 
 -- Submission Images: via submission ownership
+DROP POLICY IF EXISTS "Users can view own submission images" ON public.submission_images;
 CREATE POLICY "Users can view own submission images"
   ON public.submission_images FOR SELECT
   USING (
@@ -206,6 +244,7 @@ CREATE POLICY "Users can view own submission images"
     )
   );
 
+DROP POLICY IF EXISTS "Users can create submission images" ON public.submission_images;
 CREATE POLICY "Users can create submission images"
   ON public.submission_images FOR INSERT
   WITH CHECK (
@@ -217,6 +256,7 @@ CREATE POLICY "Users can create submission images"
   );
 
 -- Grade Reports: own data + public certificate view
+DROP POLICY IF EXISTS "Users can view own grade reports" ON public.grade_reports;
 CREATE POLICY "Users can view own grade reports"
   ON public.grade_reports FOR SELECT
   USING (
@@ -227,28 +267,34 @@ CREATE POLICY "Users can view own grade reports"
     )
   );
 
+DROP POLICY IF EXISTS "Public can view grade reports with certificates" ON public.grade_reports;
 CREATE POLICY "Public can view grade reports with certificates"
   ON public.grade_reports FOR SELECT
   USING (certificate_id IS NOT NULL);
 
 -- Disputes: own data only
+DROP POLICY IF EXISTS "Users can view own disputes" ON public.disputes;
 CREATE POLICY "Users can view own disputes"
   ON public.disputes FOR SELECT
   USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can create disputes" ON public.disputes;
 CREATE POLICY "Users can create disputes"
   ON public.disputes FOR INSERT
   WITH CHECK (auth.uid() = user_id);
 
 -- API Keys: own data only
+DROP POLICY IF EXISTS "Users can view own API keys" ON public.api_keys;
 CREATE POLICY "Users can view own API keys"
   ON public.api_keys FOR SELECT
   USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can create API keys" ON public.api_keys;
 CREATE POLICY "Users can create API keys"
   ON public.api_keys FOR INSERT
   WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can delete own API keys" ON public.api_keys;
 CREATE POLICY "Users can delete own API keys"
   ON public.api_keys FOR DELETE
   USING (auth.uid() = user_id);
@@ -264,9 +310,11 @@ VALUES (
   false,
   10485760, -- 10MB
   ARRAY['image/jpeg', 'image/png', 'image/webp']
-);
+)
+ON CONFLICT (id) DO NOTHING;
 
 -- Storage RLS: users can manage files in their own folder
+DROP POLICY IF EXISTS "Users can upload to own folder" ON storage.objects;
 CREATE POLICY "Users can upload to own folder"
   ON storage.objects FOR INSERT
   WITH CHECK (
@@ -274,6 +322,7 @@ CREATE POLICY "Users can upload to own folder"
     AND (storage.foldername(name))[1] = auth.uid()::text
   );
 
+DROP POLICY IF EXISTS "Users can view own files" ON storage.objects;
 CREATE POLICY "Users can view own files"
   ON storage.objects FOR SELECT
   USING (
@@ -281,6 +330,7 @@ CREATE POLICY "Users can view own files"
     AND (storage.foldername(name))[1] = auth.uid()::text
   );
 
+DROP POLICY IF EXISTS "Users can delete own files" ON storage.objects;
 CREATE POLICY "Users can delete own files"
   ON storage.objects FOR DELETE
   USING (

@@ -1,5 +1,16 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ℹ️ NO-APPLY: 00001–00007 idempotency backfill (US-1941, 2026-07-12)
+
+Edits 00001/00002/00003/00005/00006/00007 to add replay guards (`CREATE TABLE/
+INDEX IF NOT EXISTS`, `DROP POLICY/TRIGGER IF EXISTS` before create, `DO $$ …
+pg_type` enum guards, `ON CONFLICT DO NOTHING` on the storage.buckets seed, a
+`pg_publication_tables` guard on the notifications realtime ADD). **No prod
+action required and NO `EXPECTED_SCHEMA_VERSION` change** — these migrations are
+already applied on prod; the change only makes re-running the directory
+(`apply-prod-migrations.sh`) a safe no-op instead of erroring on the first
+duplicate `CREATE TYPE`/`POLICY`. Semantically identical to the original schema.
+
 ## ⏳ PENDING: 00436–00440 — code-review sweep DB fixes (US-1918/1926/1939/1940/1942, 2026-07-12)
 
 Five small, low-risk migrations from the 2026-07-11 code-review sweep. Apply in

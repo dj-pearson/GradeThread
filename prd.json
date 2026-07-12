@@ -16246,7 +16246,7 @@
         "Change is semantically identical to the original schema (no data/structure change) — verified against a fresh apply; load the `migrations` skill"
       ],
       "priority": 1941,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][DB] Code-review sweep 2026-07-11. Editing historical migrations — do NOT alter resulting schema. Load `migrations` skill.",
       "relevantPaths": [
         "supabase/migrations/00001_initial_schema.sql",
