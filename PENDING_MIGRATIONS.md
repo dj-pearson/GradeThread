@@ -1,5 +1,21 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ PENDING: 00435_sync_state_flipdesk_id_text.sql (bring-your-own-sheet snapshot save, 2026-07-12)
+
+**What:** Widens `public.google_sheet_sync_state.flipdesk_id` from **uuid → text**
+(guarded; no-op if already text). The mapped "bring your own sheet" sync (00433)
+keys snapshot rows by the seller's SKU (an arbitrary string like "286"), but the
+column was uuid — so the snapshot save threw `22P02 invalid input syntax for type
+uuid: "286"` and failed the whole run. text holds both a UUID (classic sync) and
+a SKU (mapped). Bumps `EXPECTED_SCHEMA_VERSION` → **00435**. Self-records '00435'.
+
+**Risk: LOW–MEDIUM** — a column TYPE change on a PK column briefly takes ACCESS
+EXCLUSIVE + rewrites the (small) sync-state table and its PK index. Lossless
+(every uuid casts to its text form); the classic sync already uses flipdesk_id as
+a string key, so no code change is needed. **No CLIENT read** of this column.
+**⚠️ Apply order:** after 00434; `scripts/apply-prod-migrations.sh`, then
+`NOTIFY pgrst, 'reload schema';`, redeploy the edge (boot guard now expects 00435).
+
 ## ⏳ PENDING: 00434_thumbnail_backfill_failed_marker.sql (thumbnail-backfill orphan retry loop, 2026-07-12)
 
 **What:** One additive nullable column `public.item_photos.thumbnail_backfill_failed_at
