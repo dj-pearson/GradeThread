@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/lib/supabase";
 import { advanceItemStatus } from "@/lib/status-writer";
+import { todayLocalDate } from "@/lib/local-date";
 import type { ItemFullRow, ListingInsert } from "@/types/database";
 
 // Quick "this is live on eBay now" action — the manual bridge until the
@@ -29,7 +30,7 @@ export function MarkListedDialog({
   const qc = useQueryClient();
   const [url, setUrl] = useState("");
   const [price, setPrice] = useState("");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(todayLocalDate());
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -38,7 +39,7 @@ export function MarkListedDialog({
       setPrice(
         String(item.list_price ?? item.target_price ?? ""),
       );
-      setDate(new Date().toISOString().slice(0, 10));
+      setDate(todayLocalDate());
     }
   }, [item]);
 

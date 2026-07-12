@@ -15956,7 +15956,7 @@
         "Sale/purchase/expense recorded at 23:00 local on Dec 31 (US Pacific) defaults to Dec 31 and appears in that year's Tax-P&L export"
       ],
       "priority": 1924,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Web/FlipDesk] Code-review sweep 2026-07-11. Finishes the US-1636 migration; distinct from the timezone-aware drops story US-1361.",
       "relevantPaths": [
         "src/lib/local-date.ts",

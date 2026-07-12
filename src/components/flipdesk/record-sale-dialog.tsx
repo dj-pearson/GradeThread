@@ -17,6 +17,7 @@ import { FieldError } from "@/components/ui/form-feedback";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { advanceItemStatus } from "@/lib/status-writer";
+import { todayLocalDate } from "@/lib/local-date";
 import { useEbayConnection, useEbayEndListing } from "@/hooks/use-ebay";
 import type { ItemFullRow, SaleInsert } from "@/types/database";
 
@@ -58,7 +59,7 @@ export function RecordSaleDialog({
     tax: "",
     other_costs: "",
     buyer_username: "",
-    sale_date: new Date().toISOString().slice(0, 10),
+    sale_date: todayLocalDate(),
   });
   const [saving, setSaving] = useState(false);
   const [priceError, setPriceError] = useState<string | null>(null);
@@ -74,7 +75,7 @@ export function RecordSaleDialog({
         tax: "",
         other_costs: "",
         buyer_username: "",
-        sale_date: new Date().toISOString().slice(0, 10),
+        sale_date: todayLocalDate(),
       });
     }
   }, [item]);

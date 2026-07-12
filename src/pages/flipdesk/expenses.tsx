@@ -46,6 +46,7 @@ import {
   EXPENSE_CATEGORY_LABELS,
 } from "@/lib/constants";
 import { downloadExpensesCsv } from "@/lib/csv-export";
+import { todayLocalDate } from "@/lib/local-date";
 import type { ExpenseRow, ExpenseCategory, ExpenseInsert } from "@/types/database";
 
 function monthKey(d: string): string {
@@ -254,7 +255,7 @@ function AddExpenseDialog({
   );
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(todayLocalDate());
   const [saving, setSaving] = useState(false);
 
   async function save() {
