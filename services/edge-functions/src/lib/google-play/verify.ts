@@ -295,30 +295,33 @@ export async function processGooglePlayPurchase(
     };
   }
 
-  // Consumable: claim the ledger row before granting (exactly-once).
-  const owned = await deps.claimConsumable(
+  // Consumable (US-1920): GRANT FIRST, then record the ledger claim.
+  //
+  // grant_grade_credits is idempotent on the `googleplay:<token>` key, so
+  // (re-)granting a replayed purchase is safe and returns the same balance.
+  // Recording the google_processed_purchases dedup row only AFTER a successful
+  // grant means a grant failure leaves NO orphaned ledger row: the earlier
+  // claim-first ordering wrote the dedup row before granting, so if grantCredits
+  // threw, the client's retry saw claim === already-processed and short-circuited
+  // to a stale balance — the buyer paid and never received the credits. With
+  // grant-first, a failed grant throws (→ 400, nothing recorded) and the retry
+  // re-attempts the idempotent grant. On a genuine replay the grant is a no-op
+  // and the claim returns false, which we surface as `already_processed` with the
+  // TRUE post-grant balance.
+  const balance = await deps.grantCredits(ctx.userId, mapping.credits, ctx.purchaseToken);
+  const firstClaim = await deps.claimConsumable(
     ctx.userId,
     ctx.productId,
     ctx.purchaseToken,
     mapping.credits,
     info.orderId,
   );
-  if (!owned) {
-    return {
-      ok: true,
-      kind: "consumable",
-      plan: user.flipdesk_plan ?? "free",
-      status: user.subscription_status ?? "none",
-      creditsBalance: user.grade_credit_balance ?? 0,
-      reason: "already_processed",
-    };
-  }
-  const balance = await deps.grantCredits(ctx.userId, mapping.credits, ctx.purchaseToken);
   return {
     ok: true,
     kind: "consumable",
     plan: user.flipdesk_plan ?? "free",
     status: user.subscription_status ?? "none",
     creditsBalance: balance ?? user.grade_credit_balance ?? 0,
+    ...(firstClaim ? {} : { reason: "already_processed" as const }),
   };
 }

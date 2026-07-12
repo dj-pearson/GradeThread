@@ -17,8 +17,10 @@ Deno.env.set(
 const {
   deriveBatchStatus,
   insufficientAiActionsBody,
+  isHaltedBatchStatus,
   MAX_BATCH_ITEMS,
   MAX_PUBLISH_BATCH_ITEMS,
+  settleAfterGeneration,
   withTimeout,
 } = await import("../routes/flipdesk-autolister.ts");
 
@@ -37,6 +39,38 @@ Deno.test("deriveBatchStatus: failed when none succeeded", () => {
 
 Deno.test("deriveBatchStatus: partial on a mix", () => {
   assertEquals(deriveBatchStatus(7, 3, 0), "partial");
+});
+
+// ── US-1923: batch cancel can't be reverted by an in-flight worker ────
+
+Deno.test("US-1923: isHaltedBatchStatus true only for terminal statuses", () => {
+  // Terminal (an operator cancel flips every open job to failed → terminal).
+  assert(isHaltedBatchStatus("completed"));
+  assert(isHaltedBatchStatus("failed"));
+  assert(isHaltedBatchStatus("partial"));
+  // Non-terminal / unknown → keep working.
+  assert(!isHaltedBatchStatus("running"));
+  assert(!isHaltedBatchStatus("pending"));
+  assert(!isHaltedBatchStatus(null));
+  assert(!isHaltedBatchStatus(undefined));
+});
+
+Deno.test("US-1923: a cancelled batch stays terminal (all open jobs → failed)", () => {
+  // adminCancelGenerationBatch flips pending+running jobs to 'failed', then
+  // finalizeBatch re-derives from the rows. With N succeeded already and the
+  // rest cancelled, the batch is 'partial'; with none succeeded, 'failed'.
+  assertEquals(deriveBatchStatus(0, 10, 0), "failed"); // cancelled before any success
+  assertEquals(deriveBatchStatus(3, 7, 0), "partial"); // 3 done, 7 cancelled
+  // And the worker's own finalize after cancel re-derives the SAME terminal
+  // status (no open jobs remain), so it can't flip the batch back to completed.
+});
+
+Deno.test("US-1923: settleAfterGeneration — cancelled job refunds and skips item advance", () => {
+  // Conditional success write won (job was still 'running'): advance + keep spend.
+  assertEquals(settleAfterGeneration(true), { advanceItem: true, refundReservation: false });
+  // Write matched nothing (cancel flipped the job to 'failed' mid-generation):
+  // don't advance the item, refund the reserved AI action (reconcile the cap).
+  assertEquals(settleAfterGeneration(false), { advanceItem: false, refundReservation: true });
 });
 
 // ── US-1545: 300-item batches + count-aware quota pre-check ─────────

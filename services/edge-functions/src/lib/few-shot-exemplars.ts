@@ -543,8 +543,12 @@ export async function evalExemplarSet(
 
   // Dynamic imports break the static cycle (see header note).
   const { downloadCaseImage, evalThresholds } = await import("./grading-eval.ts");
-  const { analyzeImage, compositeGrade, COMPOSITE_SYSTEM_PROMPT, COMPOSITE_PROMPT_VERSION } =
-    await import("./ai-grading.ts");
+  const {
+    analyzeImage,
+    compositeGrade,
+    composeExemplarPrompt,
+    resolveActiveCompositePrompt,
+  } = await import("./ai-grading.ts");
 
   // Scope the golden set to the set's category when it's a scoped set, mirroring
   // runEval's garment_scope handling.
@@ -579,12 +583,11 @@ export async function evalExemplarSet(
     );
   }
 
-  // The candidate composite prompt = code-default composite system + the block.
-  const compositeOverride = {
-    text: `${COMPOSITE_SYSTEM_PROMPT}\n\n${set.block_text}`,
-    versionName: `${COMPOSITE_PROMPT_VERSION}+${set.version_name}`,
-  };
-
+  // US-1922: the candidate composite prompt = the ACTIVE composite prompt (DB
+  // override → code default, resolved PER CASE category exactly as the live grade
+  // path does) + the exemplar block. Composing onto the hard-coded default here
+  // (the old bug) meant a set was gated against a different base than it runs
+  // under whenever a DB composite override is active, defeating the eval gate.
   let errSum = 0;
   let scored = 0;
   let agreed = 0;
@@ -610,6 +613,13 @@ export async function evalExemplarSet(
           ),
         );
       }
+      // Resolve the active composite base for THIS case's category (same as the
+      // live path) and compose the candidate block onto it via the shared helper.
+      const activeBase = await resolveActiveCompositePrompt(row.garment_category || null);
+      const compositeOverride = {
+        text: composeExemplarPrompt(activeBase.text, set.block_text),
+        versionName: `${activeBase.versionName}+${set.version_name}`,
+      };
       const result = await compositeGrade(
         perImage,
         {

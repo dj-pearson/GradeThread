@@ -35,6 +35,7 @@ import { useAuthStore } from "@/stores/auth-store";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { useSources } from "@/hooks/use-sources";
 import { ITEM_CATEGORIES } from "@/lib/constants";
+import { todayLocalDate } from "@/lib/local-date";
 import type { InventoryItemInsert, ItemCategory } from "@/types/database";
 
 const STORAGE_KEY = "flipdesk-bulk-intake-session";
@@ -81,7 +82,7 @@ function freshSession(): BulkSession {
     sourceNew: "",
     sourcedBy: "",
     container: "",
-    purchaseDate: new Date().toISOString().slice(0, 10),
+    purchaseDate: todayLocalDate(),
     haulTotal: "",
     items: [],
     draft: { ...EMPTY_DRAFT },

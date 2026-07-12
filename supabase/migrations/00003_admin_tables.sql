@@ -5,7 +5,11 @@
 -- ENUMS
 -- ══════════════════════════════════════════════════════════
 
-CREATE TYPE public.user_role AS ENUM ('user', 'reviewer', 'admin', 'super_admin');
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'user_role') THEN
+    CREATE TYPE public.user_role AS ENUM ('user', 'reviewer', 'admin', 'super_admin');
+  END IF;
+END $$;
 
 -- ══════════════════════════════════════════════════════════
 -- ALTER EXISTING TABLES
@@ -13,7 +17,7 @@ CREATE TYPE public.user_role AS ENUM ('user', 'reviewer', 'admin', 'super_admin'
 
 -- Add role column to users table
 ALTER TABLE public.users
-  ADD COLUMN role public.user_role NOT NULL DEFAULT 'user';
+  ADD COLUMN IF NOT EXISTS role public.user_role NOT NULL DEFAULT 'user';
 
 -- ══════════════════════════════════════════════════════════
 -- HELPER FUNCTIONS
@@ -48,7 +52,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
 -- ══════════════════════════════════════════════════════════
 
 -- Admin Audit Log
-CREATE TABLE public.admin_audit_log (
+CREATE TABLE IF NOT EXISTS public.admin_audit_log (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   admin_user_id   uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
   action          text NOT NULL,
@@ -59,7 +63,7 @@ CREATE TABLE public.admin_audit_log (
 );
 
 -- Human Reviews (for low-confidence AI grades)
-CREATE TABLE public.human_reviews (
+CREATE TABLE IF NOT EXISTS public.human_reviews (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   grade_report_id uuid NOT NULL REFERENCES public.grade_reports(id) ON DELETE CASCADE,
   reviewer_id     uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
@@ -70,7 +74,7 @@ CREATE TABLE public.human_reviews (
 );
 
 -- AI Prompt Versions (track prompt iterations and accuracy)
-CREATE TABLE public.ai_prompt_versions (
+CREATE TABLE IF NOT EXISTS public.ai_prompt_versions (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   version_name    text NOT NULL,
   prompt_text     text NOT NULL,
@@ -85,20 +89,20 @@ CREATE TABLE public.ai_prompt_versions (
 -- ══════════════════════════════════════════════════════════
 
 -- Admin Audit Log
-CREATE INDEX idx_admin_audit_log_admin_user_id ON public.admin_audit_log(admin_user_id);
-CREATE INDEX idx_admin_audit_log_action ON public.admin_audit_log(action);
-CREATE INDEX idx_admin_audit_log_target_type ON public.admin_audit_log(target_type);
-CREATE INDEX idx_admin_audit_log_created_at ON public.admin_audit_log(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_admin_audit_log_admin_user_id ON public.admin_audit_log(admin_user_id);
+CREATE INDEX IF NOT EXISTS idx_admin_audit_log_action ON public.admin_audit_log(action);
+CREATE INDEX IF NOT EXISTS idx_admin_audit_log_target_type ON public.admin_audit_log(target_type);
+CREATE INDEX IF NOT EXISTS idx_admin_audit_log_created_at ON public.admin_audit_log(created_at DESC);
 
 -- Human Reviews
-CREATE INDEX idx_human_reviews_grade_report_id ON public.human_reviews(grade_report_id);
-CREATE INDEX idx_human_reviews_reviewer_id ON public.human_reviews(reviewer_id);
+CREATE INDEX IF NOT EXISTS idx_human_reviews_grade_report_id ON public.human_reviews(grade_report_id);
+CREATE INDEX IF NOT EXISTS idx_human_reviews_reviewer_id ON public.human_reviews(reviewer_id);
 
 -- AI Prompt Versions
-CREATE INDEX idx_ai_prompt_versions_is_active ON public.ai_prompt_versions(is_active) WHERE is_active = true;
+CREATE INDEX IF NOT EXISTS idx_ai_prompt_versions_is_active ON public.ai_prompt_versions(is_active) WHERE is_active = true;
 
 -- Users role index for RLS helper functions
-CREATE INDEX idx_users_role ON public.users(role);
+CREATE INDEX IF NOT EXISTS idx_users_role ON public.users(role);
 
 -- ══════════════════════════════════════════════════════════
 -- ROW LEVEL SECURITY
@@ -109,40 +113,49 @@ ALTER TABLE public.human_reviews ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ai_prompt_versions ENABLE ROW LEVEL SECURITY;
 
 -- Admin Audit Log: admins only (read + write)
+DROP POLICY IF EXISTS "Admins can view audit log" ON public.admin_audit_log;
 CREATE POLICY "Admins can view audit log"
   ON public.admin_audit_log FOR SELECT
   USING (public.is_admin());
 
+DROP POLICY IF EXISTS "Admins can create audit log entries" ON public.admin_audit_log;
 CREATE POLICY "Admins can create audit log entries"
   ON public.admin_audit_log FOR INSERT
   WITH CHECK (public.is_admin());
 
 -- Human Reviews: admins and reviewers (read + write)
+DROP POLICY IF EXISTS "Admins and reviewers can view human reviews" ON public.human_reviews;
 CREATE POLICY "Admins and reviewers can view human reviews"
   ON public.human_reviews FOR SELECT
   USING (public.is_reviewer_or_admin());
 
+DROP POLICY IF EXISTS "Admins and reviewers can create human reviews" ON public.human_reviews;
 CREATE POLICY "Admins and reviewers can create human reviews"
   ON public.human_reviews FOR INSERT
   WITH CHECK (public.is_reviewer_or_admin());
 
+DROP POLICY IF EXISTS "Admins and reviewers can update human reviews" ON public.human_reviews;
 CREATE POLICY "Admins and reviewers can update human reviews"
   ON public.human_reviews FOR UPDATE
   USING (public.is_reviewer_or_admin());
 
 -- AI Prompt Versions: admins only (full CRUD)
+DROP POLICY IF EXISTS "Admins can view AI prompt versions" ON public.ai_prompt_versions;
 CREATE POLICY "Admins can view AI prompt versions"
   ON public.ai_prompt_versions FOR SELECT
   USING (public.is_admin());
 
+DROP POLICY IF EXISTS "Admins can create AI prompt versions" ON public.ai_prompt_versions;
 CREATE POLICY "Admins can create AI prompt versions"
   ON public.ai_prompt_versions FOR INSERT
   WITH CHECK (public.is_admin());
 
+DROP POLICY IF EXISTS "Admins can update AI prompt versions" ON public.ai_prompt_versions;
 CREATE POLICY "Admins can update AI prompt versions"
   ON public.ai_prompt_versions FOR UPDATE
   USING (public.is_admin());
 
+DROP POLICY IF EXISTS "Admins can delete AI prompt versions" ON public.ai_prompt_versions;
 CREATE POLICY "Admins can delete AI prompt versions"
   ON public.ai_prompt_versions FOR DELETE
   USING (public.is_admin());

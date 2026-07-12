@@ -1,7 +1,7 @@
 // Google Play Billing verification: product classification, Play API response
 // parsing, the pure subscription→users-update, and the idempotent grant
 // orchestration (dependency-injected, so no DB / live Play API needed).
-import { assert, assertEquals } from "@std/assert";
+import { assert, assertEquals, assertRejects } from "@std/assert";
 import {
   classifyAndroidProduct,
   computeGoogleUserUpdate,
@@ -97,6 +97,7 @@ interface Rec {
   claims: number;
   grants: Array<{ credits: number; token: string }>;
   events: number;
+  granted: Set<string>;
 }
 
 function fakeDeps(opts: {
@@ -106,7 +107,7 @@ function fakeDeps(opts: {
   /** userId currently holding the subscription token (null = unbound). */
   tokenOwner?: string | null;
 }): { deps: GooglePlayDeps; rec: Rec } {
-  const rec: Rec = { applied: [], claims: 0, grants: [], events: 0 };
+  const rec: Rec = { applied: [], claims: 0, grants: [], events: 0, granted: new Set() };
   const deps: GooglePlayDeps = {
     verifyPurchase: () =>
       Promise.resolve(
@@ -135,6 +136,14 @@ function fakeDeps(opts: {
       return Promise.resolve(!opts.alreadyProcessed);
     },
     grantCredits: (_u, credits, token) => {
+      // Model grant_grade_credits idempotency on the googleplay:<token> key: a
+      // repeat grant for an already-granted purchase does not add credits again,
+      // it just returns the current balance. A purchase flagged alreadyProcessed
+      // was granted in a prior request, so treat it as already-granted here.
+      if (opts.alreadyProcessed || rec.granted.has(token)) {
+        return Promise.resolve(100);
+      }
+      rec.granted.add(token);
       rec.grants.push({ credits, token });
       return Promise.resolve(100);
     },
@@ -399,5 +408,82 @@ Deno.test("orchestration: replayed consumable → idempotent (no second grant)",
   assert(r.ok);
   assertEquals(r.reason, "already_processed");
   assertEquals(rec.claims, 1); // gate consulted...
-  assertEquals(rec.grants.length, 0); // ...but no credits granted
+  assertEquals(rec.grants.length, 0); // ...but no NET credits granted (idempotent)
+});
+
+// US-1920: a grant failure must leave the purchase reclaimable — no orphaned
+// dedup row that would make the client's retry short-circuit to a stale balance
+// with the credits never granted. Grant-first + idempotent grant means the
+// buyer ends with exactly ONE net grant and the correct balance after retry.
+Deno.test("orchestration: consumable grant throws once, succeeds on retry → exactly one grant", async () => {
+  // Shared server-side state across the two verify calls (the real DB).
+  const processed = new Set<string>(); // google_processed_purchases ledger
+  const granted = new Map<string, number>(); // grant_grade_credits idempotency
+  let balance = 5;
+  let grantAttempts = 0;
+  let failNextGrant = true;
+
+  const deps: GooglePlayDeps = {
+    verifyPurchase: () =>
+      Promise.resolve({
+        valid: true,
+        orderId: "GPA.x",
+        expiryMillis: null,
+        autoRenewing: false,
+        obfuscatedExternalAccountId: null,
+      }),
+    loadBillingUser: () =>
+      Promise.resolve({
+        flipdesk_plan: "free",
+        subscription_status: "none",
+        billing_source: null,
+        grade_credit_balance: balance,
+      }),
+    findSubscriptionTokenOwner: () => Promise.resolve(null),
+    applySubscription: () => Promise.resolve(),
+    claimConsumable: (_u, _p, token) => {
+      // ON CONFLICT DO NOTHING: true only if WE insert the dedup row.
+      if (processed.has(token)) return Promise.resolve(false);
+      processed.add(token);
+      return Promise.resolve(true);
+    },
+    grantCredits: (_u, credits, token) => {
+      grantAttempts += 1;
+      if (failNextGrant) {
+        failNextGrant = false;
+        return Promise.reject(new Error("grant_grade_credits failed: transient"));
+      }
+      // Idempotent on the token: grant once, thereafter return the same balance.
+      if (!granted.has(token)) {
+        granted.set(token, credits);
+        balance += credits;
+      }
+      return Promise.resolve(balance);
+    },
+    recordEvent: () => Promise.resolve(),
+  };
+
+  // First attempt: grant throws BEFORE the dedup row is written.
+  await assertRejects(() =>
+    processGooglePlayPurchase(
+      { userId: "u1", productId: "credits_50", purchaseToken: "tok" },
+      deps,
+      NOW,
+    )
+  );
+  assertEquals(processed.has("tok"), false); // no orphaned dedup row
+  assertEquals(granted.size, 0); // nothing granted yet
+
+  // Retry: grant succeeds, then the claim is recorded.
+  const r = await processGooglePlayPurchase(
+    { userId: "u1", productId: "credits_50", purchaseToken: "tok" },
+    deps,
+    NOW,
+  );
+  assert(r.ok);
+  assertEquals(r.kind, "consumable");
+  assertEquals(grantAttempts, 2); // failed once, succeeded once
+  assertEquals(granted.get("tok"), 50); // exactly one net grant
+  assertEquals(r.creditsBalance, 55); // 5 + 50
+  assertEquals(processed.has("tok"), true); // dedup row now recorded
 });

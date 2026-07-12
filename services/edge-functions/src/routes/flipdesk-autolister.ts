@@ -174,6 +174,29 @@ export function deriveBatchStatus(
   return failed === 0 ? "completed" : succeeded === 0 ? "failed" : "partial";
 }
 
+// US-1923: a batch only reaches a terminal status once no jobs are open. During
+// a normal run the worker's not-yet-dispatched jobs are still 'pending' (open),
+// so a terminal status observed WHILE the worker still has jobs to dispatch can
+// only mean an operator cancel flipped every open job to 'failed'. The worker
+// polls this between concurrency slices to halt promptly instead of spending
+// quota on the rest.
+export function isHaltedBatchStatus(status: string | null | undefined): boolean {
+  return status === "completed" || status === "failed" || status === "partial";
+}
+
+// US-1923: decide the follow-up after generateListing returns, given whether the
+// conditional (status='running') success write actually claimed the job. When it
+// didn't (`won=false`), an operator cancel flipped the job to 'failed' mid-flight
+// — don't advance the item, and refund the AI action reserved for it so the cap
+// isn't charged for cancelled work.
+export function settleAfterGeneration(
+  won: boolean,
+): { advanceItem: boolean; refundReservation: boolean } {
+  return won
+    ? { advanceItem: true, refundReservation: false }
+    : { advanceItem: false, refundReservation: true };
+}
+
 /**
  * US-1545: count-aware quota pre-check for batch enqueue. A batch reserves one
  * AI action per item; when the month's remainder can't cover the whole batch,
@@ -395,10 +418,38 @@ async function processBatch(
         GENERATION_TIMEOUT_MS,
         "Listing generation",
       );
-      await supabaseAdmin
+      // US-1923: the success write is CONDITIONAL on the job still being
+      // 'running'. If an operator cancel (adminCancelGenerationBatch) flipped
+      // this job to 'failed' while generation was in flight, this update matches
+      // nothing — we must NOT flip the cancelled job back to 'success', advance
+      // its item, or (via the worker's finalizeBatch) re-terminalize the batch
+      // out of its cancelled state. Sequential `.eq` (no `.or()` on a mutation,
+      // US-1552). `.select().maybeSingle()` tells us whether we actually won it.
+      const { data: won, error: winErr } = await supabaseAdmin
         .from("listing_generation_jobs")
         .update({ status: "success", listing_id: result.listingId, error: null })
-        .eq("id", job.id);
+        .eq("id", job.id)
+        .eq("status", "running")
+        .select("id")
+        .maybeSingle();
+      if (winErr) {
+        // Uncertain write — leave the job for the reclaim sweeper rather than
+        // refunding paid-for work or advancing the item on a shaky result.
+        console.error(
+          `[flipdesk-autolister] job ${job.id} success write failed: ${winErr.message}`,
+        );
+        return;
+      }
+      const settle = settleAfterGeneration(won != null);
+      if (settle.refundReservation) {
+        // Cancelled mid-flight: the job stays 'failed'. Reconcile the AI action
+        // we reserved for it and stop — no item advance, no batch re-terminalize.
+        console.log(
+          `[flipdesk-autolister] job ${job.id}: cancelled mid-generation — refunding reservation`,
+        );
+        await refundAiAction(ownerId);
+        return;
+      }
       // Auto-advance the item to 'drafted' so a generated listing lands in the
       // Drafts tab directly — no manual "move to draft" step (web + iOS). Guarded
       // to pre-publish statuses so re-generating a live/sold item isn't regressed.
@@ -445,6 +496,23 @@ async function processBatch(
       `[flipdesk-autolister] batch ${batchId}: worker started, ${jobs.length} job(s)`,
     );
     for (let i = 0; i < jobs.length; i += CONCURRENCY) {
+      // US-1923: stop promptly if the batch was cancelled while we were working
+      // (its status went terminal with jobs still queued). The claim guard
+      // already skips the now-'failed' pending jobs, but bailing here avoids the
+      // wasted claim round-trips for the remainder.
+      if (i > 0) {
+        const { data: b } = await supabaseAdmin
+          .from("listing_generation_batches")
+          .select("status")
+          .eq("id", batchId)
+          .maybeSingle();
+        if (isHaltedBatchStatus((b as { status?: string } | null)?.status)) {
+          console.log(
+            `[flipdesk-autolister] batch ${batchId}: cancelled — skipping remaining ${jobs.length - i} job(s)`,
+          );
+          break;
+        }
+      }
       await Promise.all(jobs.slice(i, i + CONCURRENCY).map((j) => runJob(j)));
       // Live progress + heartbeat for the reclaim sweeper.
       await finalizeBatch(batchId);

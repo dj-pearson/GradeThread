@@ -335,7 +335,21 @@ const SERVICE_ROLE_ONLY = new Set([
   // (service role), mined for negative/new-keyword recommendations; read via
   // /api/admin/ads/*. owner_user_id = who ran the sync (operator naming).
   "ads_search_terms",
+  // US-1918: lease-based cron overlap locks (migration 00094, locked down in
+  // 00436). No owner column — pure infra. REVOKE ALL + deny-all RLS; the edge
+  // cron paths use the service-role client (bypasses RLS). Forced into the guard
+  // via SERVICE_ONLY_FORCED below so a regression that drops the RLS fails CI.
+  "job_locks",
 ]);
+
+// Service-role-only tables with NO user_id and NO parent FK (pure operator /
+// infrastructure tables). They are not auto-discovered as tenant tables, so we
+// force them into the guard here to lock in RLS-enabled + zero-policy (deny-all)
+// and catch a regression that removes that protection. Each must also appear in
+// SERVICE_ROLE_ONLY above.
+const SERVICE_ONLY_FORCED = [
+  "job_locks",
+];
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.
 const TENANT_PREDICATE_TOKENS = [
@@ -408,7 +422,11 @@ Deno.test("every tenant-scoped table has restrictive RLS", async () => {
   const tenantTables = [...schema.tableBlocks.keys()].filter((t) =>
     hasUserId(t, schema)
   );
-  const checked = new Set<string>([...tenantTables, ...PARENT_SCOPED]);
+  const checked = new Set<string>([
+    ...tenantTables,
+    ...PARENT_SCOPED,
+    ...SERVICE_ONLY_FORCED,
+  ]);
 
   const problems: string[] = [];
 
@@ -450,5 +468,63 @@ Deno.test("every tenant-scoped table has restrictive RLS", async () => {
     problems.length === 0,
     `Tenant-isolation RLS guard found ${problems.length} issue(s):\n` +
       problems.map((p) => `  - ${p}`).join("\n"),
+  );
+});
+
+// US-1926: the `notifications` table is declared unqualified (CREATE TABLE
+// notifications, not public.notifications) so the main guard above — which keys
+// off `public.<table>` — never sees it. Its original INSERT policy used
+// `WITH CHECK (true)`, which (since service-role bypasses RLS) let any
+// authenticated client inject notifications into any user's feed. This
+// order-aware check confirms no permissive INSERT policy on notifications
+// survives after DROP POLICY statements are applied, so a re-introduction fails
+// the build. A non-service (anon/authenticated) client thus cannot INSERT a
+// notification for another user_id.
+Deno.test("notifications has no permissive INSERT policy (US-1926)", async () => {
+  const names: string[] = [];
+  for await (const entry of Deno.readDir(MIGRATIONS_DIR)) {
+    if (entry.isFile && entry.name.endsWith(".sql")) names.push(entry.name);
+  }
+  names.sort();
+  const parts: string[] = [];
+  for (const name of names) {
+    parts.push(await Deno.readTextFile(new URL(name, MIGRATIONS_DIR)));
+  }
+  const sql = parts.join("\n");
+
+  // Active INSERT policies on notifications, in file order, honoring later DROPs.
+  const active = new Map<string, string>(); // policy name -> normalized body
+  const polRe =
+    /CREATE POLICY\s+"([^"]+)"\s+ON\s+(?:public\.)?notifications([\s\S]*?);/gi;
+  const dropRe =
+    /DROP POLICY\s+(?:IF EXISTS\s+)?"([^"]+)"\s+ON\s+(?:public\.)?notifications/gi;
+
+  // Walk the concatenated SQL once, applying CREATE/DROP in positional order.
+  const events: { pos: number; kind: "create" | "drop"; name: string; body?: string }[] = [];
+  for (const m of sql.matchAll(polRe)) {
+    events.push({ pos: m.index!, kind: "create", name: m[1]!, body: m[2]! });
+  }
+  for (const m of sql.matchAll(dropRe)) {
+    events.push({ pos: m.index!, kind: "drop", name: m[1]! });
+  }
+  events.sort((a, b) => a.pos - b.pos);
+  for (const e of events) {
+    if (e.kind === "create") active.set(e.name, e.body!.replace(/\s+/g, " ").toLowerCase());
+    else active.delete(e.name);
+  }
+
+  const offenders: string[] = [];
+  for (const [name, body] of active) {
+    if (/for\s+insert/.test(body) && /with check\s*\(\s*true\s*\)/.test(body)) {
+      offenders.push(name);
+    }
+  }
+
+  assert(
+    offenders.length === 0,
+    `notifications has permissive WITH CHECK(true) INSERT policy(ies): ` +
+      offenders.join(", ") +
+      ` — notifications are inserted only by the service-role edge (bypasses RLS); ` +
+      `drop the client INSERT policy or scope it to auth.uid() = user_id.`,
   );
 });

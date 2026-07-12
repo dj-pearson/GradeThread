@@ -42,6 +42,7 @@ import {
 } from "@/hooks/use-ai-extract";
 import type { AiFieldSource } from "@/types/database";
 import { deriveGarmentDefaults } from "@/lib/garment-mapping";
+import { todayLocalDate } from "@/lib/local-date";
 
 const DRAFT_TITLE = "Untitled draft";
 
@@ -77,7 +78,7 @@ export function SnapCatalog() {
   const [sourcedBy, setSourcedBy] = useState("");
   const [cost, setCost] = useState("");
   const [purchaseDate, setPurchaseDate] = useState(() =>
-    new Date().toISOString().slice(0, 10),
+    todayLocalDate(),
   );
 
   const creatingRef = useRef(false);

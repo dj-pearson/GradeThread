@@ -65,6 +65,7 @@ import type {
   AiFieldSource,
 } from "@/types/database";
 import { deriveGarmentDefaults } from "@/lib/garment-mapping";
+import { todayLocalDate } from "@/lib/local-date";
 
 // Form fields the AI extractor can fill.
 const AI_FILLABLE_FIELDS = [
@@ -116,7 +117,7 @@ const INITIAL: FormState = {
   source_id: "",
   source_new: "",
   sourced_by: "",
-  purchase_date: new Date().toISOString().slice(0, 10),
+  purchase_date: todayLocalDate(),
   purchase_price: "",
   description: "",
   condition_notes: "",

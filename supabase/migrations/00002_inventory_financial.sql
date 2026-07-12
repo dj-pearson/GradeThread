@@ -5,20 +5,28 @@
 -- ENUMS
 -- ══════════════════════════════════════════════════════════
 
-CREATE TYPE public.item_status AS ENUM (
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'item_status') THEN
+    CREATE TYPE public.item_status AS ENUM (
   'acquired', 'grading', 'graded', 'listed', 'sold', 'shipped', 'completed', 'returned'
 );
+  END IF;
+END $$;
 
-CREATE TYPE public.listing_platform AS ENUM (
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'listing_platform') THEN
+    CREATE TYPE public.listing_platform AS ENUM (
   'ebay', 'poshmark', 'mercari', 'depop', 'grailed', 'facebook', 'offerup', 'other'
 );
+  END IF;
+END $$;
 
 -- ══════════════════════════════════════════════════════════
 -- TABLES
 -- ══════════════════════════════════════════════════════════
 
 -- Inventory Items
-CREATE TABLE public.inventory_items (
+CREATE TABLE IF NOT EXISTS public.inventory_items (
   id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id           uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
   title             text NOT NULL,
@@ -39,7 +47,7 @@ CREATE TABLE public.inventory_items (
 );
 
 -- Listings
-CREATE TABLE public.listings (
+CREATE TABLE IF NOT EXISTS public.listings (
   id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   inventory_item_id   uuid NOT NULL REFERENCES public.inventory_items(id) ON DELETE CASCADE,
   platform            public.listing_platform NOT NULL,
@@ -54,7 +62,7 @@ CREATE TABLE public.listings (
 );
 
 -- Sales
-CREATE TABLE public.sales (
+CREATE TABLE IF NOT EXISTS public.sales (
   id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   inventory_item_id uuid NOT NULL REFERENCES public.inventory_items(id) ON DELETE CASCADE,
   listing_id        uuid REFERENCES public.listings(id) ON DELETE SET NULL,
@@ -67,7 +75,7 @@ CREATE TABLE public.sales (
 );
 
 -- Shipments
-CREATE TABLE public.shipments (
+CREATE TABLE IF NOT EXISTS public.shipments (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   sale_id         uuid NOT NULL REFERENCES public.sales(id) ON DELETE CASCADE,
   carrier         text NOT NULL,
@@ -86,36 +94,39 @@ CREATE TABLE public.shipments (
 -- ══════════════════════════════════════════════════════════
 
 -- Inventory Items
-CREATE INDEX idx_inventory_items_user_id ON public.inventory_items(user_id);
-CREATE INDEX idx_inventory_items_status ON public.inventory_items(status);
-CREATE INDEX idx_inventory_items_submission_id ON public.inventory_items(submission_id) WHERE submission_id IS NOT NULL;
-CREATE INDEX idx_inventory_items_grade_report_id ON public.inventory_items(grade_report_id) WHERE grade_report_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_inventory_items_user_id ON public.inventory_items(user_id);
+CREATE INDEX IF NOT EXISTS idx_inventory_items_status ON public.inventory_items(status);
+CREATE INDEX IF NOT EXISTS idx_inventory_items_submission_id ON public.inventory_items(submission_id) WHERE submission_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_inventory_items_grade_report_id ON public.inventory_items(grade_report_id) WHERE grade_report_id IS NOT NULL;
 
 -- Listings
-CREATE INDEX idx_listings_inventory_item_id ON public.listings(inventory_item_id);
-CREATE INDEX idx_listings_platform ON public.listings(platform);
-CREATE INDEX idx_listings_is_active ON public.listings(is_active) WHERE is_active = true;
+CREATE INDEX IF NOT EXISTS idx_listings_inventory_item_id ON public.listings(inventory_item_id);
+CREATE INDEX IF NOT EXISTS idx_listings_platform ON public.listings(platform);
+CREATE INDEX IF NOT EXISTS idx_listings_is_active ON public.listings(is_active) WHERE is_active = true;
 
 -- Sales
-CREATE INDEX idx_sales_inventory_item_id ON public.sales(inventory_item_id);
-CREATE INDEX idx_sales_listing_id ON public.sales(listing_id) WHERE listing_id IS NOT NULL;
-CREATE INDEX idx_sales_sale_date ON public.sales(sale_date DESC);
+CREATE INDEX IF NOT EXISTS idx_sales_inventory_item_id ON public.sales(inventory_item_id);
+CREATE INDEX IF NOT EXISTS idx_sales_listing_id ON public.sales(listing_id) WHERE listing_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_sales_sale_date ON public.sales(sale_date DESC);
 
 -- Shipments
-CREATE INDEX idx_shipments_sale_id ON public.shipments(sale_id);
+CREATE INDEX IF NOT EXISTS idx_shipments_sale_id ON public.shipments(sale_id);
 
 -- ══════════════════════════════════════════════════════════
 -- TRIGGERS
 -- ══════════════════════════════════════════════════════════
 
+DROP TRIGGER IF EXISTS set_inventory_items_updated_at ON public.inventory_items;
 CREATE TRIGGER set_inventory_items_updated_at
   BEFORE UPDATE ON public.inventory_items
   FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
+DROP TRIGGER IF EXISTS set_listings_updated_at ON public.listings;
 CREATE TRIGGER set_listings_updated_at
   BEFORE UPDATE ON public.listings
   FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
+DROP TRIGGER IF EXISTS set_shipments_updated_at ON public.shipments;
 CREATE TRIGGER set_shipments_updated_at
   BEFORE UPDATE ON public.shipments
   FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
@@ -130,23 +141,28 @@ ALTER TABLE public.sales ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.shipments ENABLE ROW LEVEL SECURITY;
 
 -- Inventory Items: own data only
+DROP POLICY IF EXISTS "Users can view own inventory items" ON public.inventory_items;
 CREATE POLICY "Users can view own inventory items"
   ON public.inventory_items FOR SELECT
   USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can create inventory items" ON public.inventory_items;
 CREATE POLICY "Users can create inventory items"
   ON public.inventory_items FOR INSERT
   WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can update own inventory items" ON public.inventory_items;
 CREATE POLICY "Users can update own inventory items"
   ON public.inventory_items FOR UPDATE
   USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can delete own inventory items" ON public.inventory_items;
 CREATE POLICY "Users can delete own inventory items"
   ON public.inventory_items FOR DELETE
   USING (auth.uid() = user_id);
 
 -- Listings: via inventory item ownership
+DROP POLICY IF EXISTS "Users can view own listings" ON public.listings;
 CREATE POLICY "Users can view own listings"
   ON public.listings FOR SELECT
   USING (
@@ -157,6 +173,7 @@ CREATE POLICY "Users can view own listings"
     )
   );
 
+DROP POLICY IF EXISTS "Users can create listings" ON public.listings;
 CREATE POLICY "Users can create listings"
   ON public.listings FOR INSERT
   WITH CHECK (
@@ -167,6 +184,7 @@ CREATE POLICY "Users can create listings"
     )
   );
 
+DROP POLICY IF EXISTS "Users can update own listings" ON public.listings;
 CREATE POLICY "Users can update own listings"
   ON public.listings FOR UPDATE
   USING (
@@ -177,6 +195,7 @@ CREATE POLICY "Users can update own listings"
     )
   );
 
+DROP POLICY IF EXISTS "Users can delete own listings" ON public.listings;
 CREATE POLICY "Users can delete own listings"
   ON public.listings FOR DELETE
   USING (
@@ -188,6 +207,7 @@ CREATE POLICY "Users can delete own listings"
   );
 
 -- Sales: via inventory item ownership
+DROP POLICY IF EXISTS "Users can view own sales" ON public.sales;
 CREATE POLICY "Users can view own sales"
   ON public.sales FOR SELECT
   USING (
@@ -198,6 +218,7 @@ CREATE POLICY "Users can view own sales"
     )
   );
 
+DROP POLICY IF EXISTS "Users can create sales" ON public.sales;
 CREATE POLICY "Users can create sales"
   ON public.sales FOR INSERT
   WITH CHECK (
@@ -208,6 +229,7 @@ CREATE POLICY "Users can create sales"
     )
   );
 
+DROP POLICY IF EXISTS "Users can update own sales" ON public.sales;
 CREATE POLICY "Users can update own sales"
   ON public.sales FOR UPDATE
   USING (
@@ -218,6 +240,7 @@ CREATE POLICY "Users can update own sales"
     )
   );
 
+DROP POLICY IF EXISTS "Users can delete own sales" ON public.sales;
 CREATE POLICY "Users can delete own sales"
   ON public.sales FOR DELETE
   USING (
@@ -229,6 +252,7 @@ CREATE POLICY "Users can delete own sales"
   );
 
 -- Shipments: via sale -> inventory item ownership
+DROP POLICY IF EXISTS "Users can view own shipments" ON public.shipments;
 CREATE POLICY "Users can view own shipments"
   ON public.shipments FOR SELECT
   USING (
@@ -240,6 +264,7 @@ CREATE POLICY "Users can view own shipments"
     )
   );
 
+DROP POLICY IF EXISTS "Users can create shipments" ON public.shipments;
 CREATE POLICY "Users can create shipments"
   ON public.shipments FOR INSERT
   WITH CHECK (
@@ -251,6 +276,7 @@ CREATE POLICY "Users can create shipments"
     )
   );
 
+DROP POLICY IF EXISTS "Users can update own shipments" ON public.shipments;
 CREATE POLICY "Users can update own shipments"
   ON public.shipments FOR UPDATE
   USING (
@@ -262,6 +288,7 @@ CREATE POLICY "Users can update own shipments"
     )
   );
 
+DROP POLICY IF EXISTS "Users can delete own shipments" ON public.shipments;
 CREATE POLICY "Users can delete own shipments"
   ON public.shipments FOR DELETE
   USING (

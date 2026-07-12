@@ -15498,7 +15498,7 @@
         "deno tests cover trim-at-publish, lint categories, and the brand-acronym allowlist; no behavior change for titles already ≤80 and clean"
       ],
       "priority": 1890,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][SEO][LHF] See EBAY_RANKING_PLAYBOOK.md. Reuses title-trim.ts; touches flipdesk-ebay.ts preflight + revise only (no new route). Added 2026-07-09."
     },
     {
@@ -15853,7 +15853,7 @@
         "Service-role edge cron paths still acquire/release locks unchanged (service-role bypasses RLS)"
       ],
       "priority": 1918,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][DB/Security] Code-review sweep 2026-07-11. Only table of 239 lacking both RLS and REVOKE. Load the `migrations` skill before touching supabase/migrations.",
       "relevantPaths": [
         "supabase/migrations/00094_job_locks.sql",
@@ -15887,7 +15887,7 @@
         "Vitest: grant throws once then succeeds on retry → buyer ends with exactly one credit grant and correct balance"
       ],
       "priority": 1920,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Edge/Payments] Code-review sweep 2026-07-11. Relates to the Play Billing epic US-1366 but is a discrete ordering bug.",
       "relevantPaths": [
         "services/edge-functions/src/lib/google-play/verify.ts",
@@ -15905,7 +15905,7 @@
         "Load the `grading-engine` skill before editing; keep the three-rounding-sites lockstep intact"
       ],
       "priority": 1921,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Edge/Grading] Code-review sweep 2026-07-11. Load `grading-engine` skill. Fraud/trust-boundary issue, not just accuracy.",
       "relevantPaths": [
         "services/edge-functions/src/lib/ai-grading.ts"
@@ -15922,7 +15922,7 @@
         "Load the `grading-engine` skill; respects prompt-version lifecycle"
       ],
       "priority": 1922,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Edge/Grading] Code-review sweep 2026-07-11. Load `grading-engine` skill.",
       "relevantPaths": [
         "services/edge-functions/src/lib/few-shot-exemplars.ts",
@@ -15940,7 +15940,7 @@
         "Vitest: cancel while one job is `running` → job ends cancelled, item not advanced, batch stays cancelled, quota reconciled"
       ],
       "priority": 1923,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Edge/Jobs] Code-review sweep 2026-07-11. Load the `durable-jobs` skill.",
       "relevantPaths": [
         "services/edge-functions/src/routes/flipdesk-autolister.ts"
@@ -15956,7 +15956,7 @@
         "Sale/purchase/expense recorded at 23:00 local on Dec 31 (US Pacific) defaults to Dec 31 and appears in that year's Tax-P&L export"
       ],
       "priority": 1924,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Web/FlipDesk] Code-review sweep 2026-07-11. Finishes the US-1636 migration; distinct from the timezone-aware drops story US-1361.",
       "relevantPaths": [
         "src/lib/local-date.ts",
@@ -15997,7 +15997,7 @@
         "Migration follows the US-1108 triple (idempotent / EXPECTED_SCHEMA_VERSION bump same commit / self-record footer)"
       ],
       "priority": 1926,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][DB/Security] Code-review sweep 2026-07-11. Load the `migrations` skill.",
       "relevantPaths": [
         "supabase/migrations/00007_notifications.sql",
@@ -16212,7 +16212,7 @@
         "Load the `migrations` skill"
       ],
       "priority": 1939,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][DB] Code-review sweep 2026-07-11. Load `migrations` skill.",
       "relevantPaths": [
         "supabase/migrations/00002_inventory_financial.sql",
@@ -16229,7 +16229,7 @@
         "Migration follows the US-1108 triple; load the `migrations` skill"
       ],
       "priority": 1940,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][DB/Perf] Code-review sweep 2026-07-11. Load `migrations` skill.",
       "relevantPaths": [
         "supabase/migrations/00008_flipdesk_schema.sql",
@@ -16246,7 +16246,7 @@
         "Change is semantically identical to the original schema (no data/structure change) — verified against a fresh apply; load the `migrations` skill"
       ],
       "priority": 1941,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][DB] Code-review sweep 2026-07-11. Editing historical migrations — do NOT alter resulting schema. Load `migrations` skill.",
       "relevantPaths": [
         "supabase/migrations/00001_initial_schema.sql",
@@ -16265,7 +16265,7 @@
         "Migration follows the US-1108 triple; load the `migrations` skill"
       ],
       "priority": 1942,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][DB] Code-review sweep 2026-07-11. Load `migrations` skill.",
       "relevantPaths": [
         "supabase/migrations/00001_initial_schema.sql",

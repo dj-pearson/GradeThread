@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { trimTitleToLimit, trimTitleWithReport } from "../lib/title-trim.ts";
+import { lintTitle } from "../lib/title-lint.ts";
 import { roleAtLeast } from "../lib/workspace-roles.ts";
 import {
   filterListablePhotos,
@@ -5106,9 +5108,15 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
     // fall back to the values that were actually PUBLISHED (the listing row),
     // then the inventory_items mirror — never let a photo reorder silently
     // revert the live title/description.
-    const finalTitle = hasTitle
-      ? (nextTitle as string)
-      : (row.listing.listing_title ?? item.title ?? "").trim();
+    // US-1890: the revise/grade-resync re-PUT is often automated (photos-only
+    // sync, grade line refresh), so a stored over-length title can't be fixed by
+    // a human here — trim it on a word boundary defensively so eBay never rejects
+    // the revision for a >80-char title.
+    const finalTitle = trimTitleToLimit(
+      hasTitle
+        ? (nextTitle as string)
+        : (row.listing.listing_title ?? item.title ?? "").trim(),
+    );
     const finalDesc = hasDesc
       ? (nextDesc as string)
       : (
@@ -5507,6 +5515,8 @@ flipdeskEbayRoutes.post("/listings/validate", async (c) => {
   return c.json({
     ok: result.blockers.length === 0,
     blockers: result.blockers,
+    // US-1890: non-blocking title-quality warnings (duplicate/ALL-CAPS/filler).
+    warnings: result.warnings,
     // US-828: aspects that won't be sent for value-validation reasons, so the
     // composer can warn "X was not sent" before the seller publishes.
     aspectDiagnostics: result.aspectDiagnostics,
@@ -7508,6 +7518,9 @@ interface PublishContextOk {
   // null when blockers includes a missing-policy entry. Push must re-check.
   policies: PolicySet | null;
   blockers: string[];
+  // US-1890: non-blocking title-quality findings (duplicate tokens, ALL-CAPS,
+  // promotional filler) for the composer to surface. Publish is not blocked.
+  warnings: string[];
   // US-828: aspect values omitted from the eBay payload for value-validation
   // reasons, so the client can surface "X was not sent" (empty = nothing dropped).
   aspectDiagnostics: PublishAspectDiagnostic[];
@@ -8397,8 +8410,27 @@ export async function assemblePublishContext(
     blockers.push("Set a target price.");
   }
 
-  const title = (listing?.listing_title ?? item.title ?? "").trim();
-  if (!title) blockers.push("Set a title.");
+  // US-1890: guarantee an eBay-legal title before it reaches the Inventory API.
+  // The composer caps input at 80, but a stored/bulk-edited/API-written title can
+  // still be over-length or carry policy phrases — trim on a word boundary (the
+  // legal form always feeds summary.title as a backstop) and surface a fixable
+  // preflight blocker + policy/quality lint.
+  const rawTitle = (listing?.listing_title ?? item.title ?? "").trim();
+  const titleTrim = trimTitleWithReport(rawTitle);
+  const title = titleTrim.title;
+  const titleWarnings: string[] = [];
+  if (!title) {
+    blockers.push("Set a title.");
+  } else if (titleTrim.trimmed) {
+    blockers.push(
+      `Title is over eBay's 80-character limit. Trim to: "${title}"`,
+    );
+  }
+  if (rawTitle) {
+    const lint = lintTitle(rawTitle);
+    for (const v of lint.policyViolations) blockers.push(v);
+    titleWarnings.push(...lint.warnings);
+  }
 
   // Look up policies last — only blocks if everything else is ready, but
   // surface the missing prereqs as part of `blockers` either way.
@@ -8602,6 +8634,7 @@ export async function assemblePublishContext(
     photos: photosWithUrl,
     policies,
     blockers,
+    warnings: titleWarnings,
     aspectDiagnostics,
     sku,
     summary,
