@@ -15905,7 +15905,7 @@
         "Load the `grading-engine` skill before editing; keep the three-rounding-sites lockstep intact"
       ],
       "priority": 1921,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Edge/Grading] Code-review sweep 2026-07-11. Load `grading-engine` skill. Fraud/trust-boundary issue, not just accuracy.",
       "relevantPaths": [
         "services/edge-functions/src/lib/ai-grading.ts"
