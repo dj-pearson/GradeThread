@@ -79,6 +79,11 @@ import {
   reverseProjectAspectColumns,
   type ItemAspectSource,
 } from "@/lib/ebay-prefill";
+import { ebayPathToItemCategory } from "@/lib/ebay-category-map";
+import {
+  deriveGarmentDefaults,
+  deriveGarmentType,
+} from "@/lib/garment-mapping";
 import type { AspectSourceMap } from "@/lib/aspect-provenance";
 import { EbayCategoryPicker } from "@/components/flipdesk/ebay-category-picker";
 import { ConditionIndexValueHint } from "@/components/flipdesk/condition-index-value-hint";
@@ -246,6 +251,12 @@ export function FlipdeskComposerPage() {
   const [livePickedCategoryId, setLivePickedCategoryId] = useState<
     string | null
   >(null);
+  // The breadcrumb path of the eBay category the seller just picked, so a save
+  // can derive the coarse item_category from it (category coupling). Null until
+  // they change the category this session.
+  const [livePickedCategoryPath, setLivePickedCategoryPath] = useState<
+    string | null
+  >(null);
   // US-557: the aspect map lifted out of the category picker. The picker no
   // longer has its own Save — saveDraft is the single Save that writes these to
   // BOTH the listing override and the inventory mirror, so aspect edits can't
@@ -368,11 +379,16 @@ export function FlipdeskComposerPage() {
       color: string | null;
       material: string | null;
       attributes: Record<string, string | string[]> | null;
+      // For the category coupling: the real coarse category + grading axis, so a
+      // save cascades a corrected eBay category to them only when they'd change.
+      item_category: string | null;
+      garment_type: string | null;
+      garment_category: string | null;
     } | null> => {
       const { data, error } = await supabase
         .from("inventory_items")
         .select(
-          "ebay_category_id, ebay_aspects, ebay_aspect_sources, ai_generated_aspects_at, color, material, attributes",
+          "ebay_category_id, ebay_aspects, ebay_aspect_sources, ai_generated_aspects_at, color, material, attributes, item_category, garment_type, garment_category",
         )
         .eq("id", id!)
         .maybeSingle();
@@ -385,6 +401,9 @@ export function FlipdeskComposerPage() {
         color: string | null;
         material: string | null;
         attributes: Record<string, string | string[]> | null;
+        item_category: string | null;
+        garment_type: string | null;
+        garment_category: string | null;
       } | null;
     },
   });
@@ -722,6 +741,28 @@ export function FlipdeskComposerPage() {
     return { resolvedPrice, resolvedCategoryId, resolvedAspects, resolvedSources };
   }
 
+  // Category coupling: when the seller fixes the eBay category here, derive the
+  // coarse item_category from the chosen breadcrumb and cascade it — plus the
+  // garment_type/category grading axis it seeds when the FAMILY changes — onto
+  // the item in the SAME save, so one correction propagates to all three
+  // category axes. Returns extra inventory_items patch fields, or {} when we
+  // can't confidently derive a coarse category or it already matches.
+  function categoryCascadePatch(): Record<string, unknown> {
+    const derived = ebayPathToItemCategory(livePickedCategoryPath);
+    if (!derived) return {};
+    const current = ebayMapping?.item_category ?? null;
+    if (derived === current) return {};
+    const patch: Record<string, unknown> = { item_category: derived };
+    // Only re-derive the garment axis when the coarse FAMILY actually changes,
+    // so a same-family correction keeps the seller's garment pick.
+    if (deriveGarmentType(derived) !== deriveGarmentType(current)) {
+      const g = deriveGarmentDefaults(derived);
+      patch.garment_type = g.garment_type;
+      patch.garment_category = g.garment_category;
+    }
+    return patch;
+  }
+
   // Reverse-sync shared fields: fold manual/AI edits made in the eBay specifics
   // editor back into the item's structured fields (brand/size/color/material/
   // style columns + US-821 canonical attributes) in the SAME save, so shared
@@ -866,6 +907,7 @@ export function FlipdeskComposerPage() {
           measurements:
             Object.keys(measurements).length > 0 ? measurements : null,
           ...aspectWriteBackPatch(resolvedAspects, resolvedSources),
+          ...categoryCascadePatch(),
         } as never)
         .eq("id", item.id);
       if (sErr) throw sErr;
@@ -972,6 +1014,7 @@ export function FlipdeskComposerPage() {
           ebay_aspects: resolvedAspects,
           ebay_aspect_sources: resolvedSources,
           ...aspectWriteBackPatch(resolvedAspects, resolvedSources),
+          ...categoryCascadePatch(),
         } as never)
         .eq("id", item.id);
       if (sErr) throw sErr;
@@ -1384,7 +1427,10 @@ export function FlipdeskComposerPage() {
               }
               seedQuery={item.item_title ?? ""}
               itemFields={itemAspectSource}
-              onCategoryChange={setLivePickedCategoryId}
+              onCategoryChange={(id, path) => {
+                setLivePickedCategoryId(id);
+                setLivePickedCategoryPath(path ?? null);
+              }}
               onAspectsChange={setLivePickedAspects}
               onSourcesChange={setLivePickedSources}
               onMissingRequiredChange={setMissingRequired}

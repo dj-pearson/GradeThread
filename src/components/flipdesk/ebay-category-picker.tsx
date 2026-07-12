@@ -58,9 +58,14 @@ interface Props {
   // after the saved values are applied is prefilled from these, so the user
   // isn't re-typing data the item already has. Pass a MEMOIZED object.
   itemFields?: ItemAspectSource | null;
-  // Notifies the parent every time the user picks (or clears) a category,
-  // so siblings like the comps panel can react before the save is committed.
-  onCategoryChange?: (categoryId: string | null) => void;
+  // Notifies the parent every time the user picks (or clears) a category, so
+  // siblings can react before the save is committed. The breadcrumb path is
+  // passed too (when known) so the composer can derive the coarse item_category
+  // from the chosen eBay leaf (category coupling).
+  onCategoryChange?: (
+    categoryId: string | null,
+    categoryPath?: string | null,
+  ) => void;
   // US-557: surfaces the live aspect map to the parent on every edit. The
   // composer owns persistence now — there's ONE Save (the draft save) that
   // writes these aspects to both the listing override and the inventory mirror,
@@ -332,7 +337,7 @@ export function EbayCategoryPicker({
     setPendingDiscard(null);
     setCategoryId(backId);
     setCategoryPath(backPath);
-    onCategoryChange?.(backId);
+    onCategoryChange?.(backId, backPath);
   }
 
   const aspects: EbayAspect[] = useMemo(
@@ -388,7 +393,7 @@ export function EbayCategoryPicker({
     setCategoryPath(s.categoryTreePath);
     setQuery("");
     setChanging(false);
-    onCategoryChange?.(s.categoryId);
+    onCategoryChange?.(s.categoryId, s.categoryTreePath);
   }
 
   function clearCategory() {
@@ -401,7 +406,7 @@ export function EbayCategoryPicker({
     setPrefillHints({});
     appliedCategoryRef.current = null;
     appliedCategoryPathRef.current = null;
-    onCategoryChange?.(null);
+    onCategoryChange?.(null, null);
   }
 
   function setAspect(name: string, value: string, cardinality: string) {

@@ -65,7 +65,7 @@ import {
   REQUIRED_PHOTO_TYPES,
   EBAY_DEPARTMENT_OPTIONS,
 } from "@/lib/constants";
-import { deriveGarmentDefaults } from "@/lib/garment-mapping";
+import { deriveGarmentDefaults, deriveGarmentType } from "@/lib/garment-mapping";
 import { useEbayReviseListing, type ReviseListingPatch } from "@/hooks/use-ebay";
 import { CompEditor } from "@/components/flipdesk/comp-editor";
 import { PhotoUploader } from "@/components/flipdesk/photo-uploader";
@@ -686,6 +686,32 @@ export function ItemCanvas({
 
   function patchAttr(key: string, v: string) {
     setState((s) => ({ ...s, attributes: { ...s.attributes, [key]: v } }));
+  }
+
+  // Category coupling: changing item_category re-derives garment_type/
+  // garment_category when the coarse FAMILY changes (e.g. clothing → shoes, or a
+  // non-garment category), so grading — keyed on item_category + garment_type —
+  // stays consistent with the correction. Same-family tweaks keep the seller's
+  // garment pick. (The eBay leaf lives in the composer; fixing it there cascades
+  // back the other way via ebayPathToItemCategory.)
+  function changeItemCategory(next: ItemCategory | "") {
+    const prevFamily = deriveGarmentType(state.item_category || null);
+    const nextFamily = deriveGarmentType(next || null);
+    setState((s) => {
+      const patched = { ...s, item_category: next };
+      if (nextFamily !== prevFamily) {
+        const g = deriveGarmentDefaults(next || null);
+        patched.garment_type = g.garment_type ?? "";
+        patched.garment_category = g.garment_category ?? "";
+      }
+      return patched;
+    });
+    setAiFields((prev) => {
+      if (!prev.has("item_category")) return prev;
+      const nextSet = new Set(prev);
+      nextSet.delete("item_category");
+      return nextSet;
+    });
   }
 
   async function handleCompleteWithAi() {
@@ -1489,10 +1515,7 @@ export function ItemCanvas({
             <Select
               value={state.item_category || "__none"}
               onValueChange={(v) =>
-                patch(
-                  "item_category",
-                  v === "__none" ? "" : (v as ItemCategory),
-                )
+                changeItemCategory(v === "__none" ? "" : (v as ItemCategory))
               }
             >
               <SelectTrigger>
