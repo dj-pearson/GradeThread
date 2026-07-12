@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -83,6 +83,7 @@ import { CategoryCheckCard } from "@/components/flipdesk/category-check-card";
 import { FitWidget } from "@/components/fit/fit-widget";
 import { EbayCatalogMatchCard } from "@/components/flipdesk/ebay-catalog-match-card";
 import { GradeThisItemCard } from "@/components/flipdesk/grade-this-item-card";
+import { previewGradingReadiness } from "@/lib/grading-readiness";
 import {
   resolveStatus,
   nextAction,
@@ -621,26 +622,57 @@ export function ItemCanvas({
   // Photo readiness (count + the front/back/tag/detail completeness flag) — the
   // items_full view computes these as per-row correlated subqueries, which the
   // list now omits (US-404). Derive them here for the single open item.
+  //
+  // Shares the ["item_photos", item.id] cache with PhotoManager/PhotoUploader
+  // (same key + shape) so adding/retagging a photo — which invalidates that key
+  // — refreshes photo_count/has_required_photos AND the live grading preview
+  // below WITHOUT waiting for a save to bump items_full. Fixes the stale
+  // "requirements not met" the grade card showed after a retag/detail add.
+  // NB: select("*") + order sort_order matches PhotoManager's query for this
+  // exact key, so the shared cache entry keeps the full-row shape PhotoManager
+  // reads (a slimmer select here would re-cache and break it). We only need
+  // photo_type off it.
+  const { data: livePhotoRows } = useQuery({
+    queryKey: ["item_photos", item.id],
+    queryFn: async (): Promise<{ photo_type: string }[]> => {
+      const { data, error } = await supabase
+        .from("item_photos")
+        .select("*")
+        .eq("inventory_item_id", item.id)
+        .order("sort_order", { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as { photo_type: string }[];
+    },
+  });
+  const photoTypeSet = useMemo(
+    () => new Set((livePhotoRows ?? []).map((r) => r.photo_type)),
+    [livePhotoRows],
+  );
   useEffect(() => {
-    let cancelled = false;
-    void supabase
-      .from("item_photos")
-      .select("photo_type")
-      .eq("inventory_item_id", item.id)
-      .then(({ data }) => {
-        if (cancelled || !data) return;
-        const rows = data as { photo_type: string }[];
-        const types = new Set(rows.map((r) => r.photo_type));
-        setHeavy((h) => ({
-          ...h,
-          photo_count: rows.length,
-          has_required_photos: REQUIRED_PHOTO_TYPES.every((t) => types.has(t)),
-        }));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [item.id]);
+    if (!livePhotoRows) return;
+    setHeavy((h) => ({
+      ...h,
+      photo_count: livePhotoRows.length,
+      has_required_photos: REQUIRED_PHOTO_TYPES.every((t) =>
+        photoTypeSet.has(t),
+      ),
+    }));
+  }, [livePhotoRows, photoTypeSet]);
+
+  // Live grading-readiness preview off the edit form + photo cache, so the
+  // "Submit for grading" card flips to Ready the instant the last requirement is
+  // met — no save round-trip. Server /submit stays authoritative (doSubmit
+  // persists these fields first). See src/lib/grading-readiness.ts.
+  const gradingPreview = useMemo(
+    () =>
+      previewGradingReadiness({
+        garment_type: state.garment_type || null,
+        garment_category: state.garment_category || null,
+        title: state.title,
+        photoTypes: photoTypeSet,
+      }),
+    [state.garment_type, state.garment_category, state.title, photoTypeSet],
+  );
 
   function patch<K extends keyof EditState>(k: K, v: EditState[K]) {
     setState((s) => ({ ...s, [k]: v }));
@@ -1680,7 +1712,19 @@ export function ItemCanvas({
         </div>
 
         <div id="canvas-grading" className="scroll-mt-4">
-          <GradeThisItemCard item={item} />
+          <GradeThisItemCard
+            item={item}
+            preview={gradingPreview}
+            liveFields={{
+              title: state.title,
+              garment_type: state.garment_type,
+              garment_category: state.garment_category,
+            }}
+            onPatchGarment={(gt, gc) => {
+              patch("garment_type", gt);
+              patch("garment_category", gc);
+            }}
+          />
         </div>
 
         {/* eBay category check — only when the item has an active eBay

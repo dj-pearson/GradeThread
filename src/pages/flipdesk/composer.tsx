@@ -51,6 +51,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useItemsFull } from "@/hooks/use-items-full";
+import { useSellerPromoDefaults } from "@/hooks/use-seller-promo-defaults";
 import { useMeasurementPrefs } from "@/stores/measurement-prefs";
 import {
   DESCRIPTION_TEMPLATES,
@@ -283,6 +284,10 @@ export function FlipdeskComposerPage() {
   const crossPush = useCrossPush();
   // US-1490: push edits to an ALREADY-published eBay listing (Save & resubmit).
   const reviseListing = useEbayReviseListing();
+  // 00432: seller's Promoted-Listings defaults — seed the promote toggle/rate/
+  // mode when this listing has no explicit choice yet (off by default, opt-in).
+  const { data: promoDefaults, isLoading: promoDefaultsLoading } =
+    useSellerPromoDefaults();
 
   // Shared items_full read — single source of truth across FlipDesk (US-419).
   const { data: items = [], isLoading } = useItemsFull();
@@ -319,7 +324,7 @@ export function FlipdeskComposerPage() {
     return () => clearTimeout(t);
   }, [isLoading, item, focusParams]);
 
-  const { data: photos = EMPTY_PHOTOS } = useQuery({
+  const { data: photos = EMPTY_PHOTOS, isLoading: photosLoading } = useQuery({
     queryKey: ["item_photos", id],
     enabled: !!id,
     queryFn: async (): Promise<ItemPhotoRow[]> => {
@@ -415,6 +420,10 @@ export function FlipdeskComposerPage() {
   useEffect(() => {
     if (initialised || !item) return;
     if (item.listing_id && !listing) return; // wait for the listing fetch
+    if (promoDefaultsLoading) return; // wait for the seller promote default
+    // Wait for photos too — seeding primary_photo_id against an empty (still-
+    // loading) set would seed null and Save would WIPE the saved primary photo.
+    if (photosLoading) return;
     setTitle(
       (listing?.listing_title ?? item.item_title ?? "").slice(0, TITLE_MAX),
     );
@@ -436,17 +445,25 @@ export function FlipdeskComposerPage() {
     setPriceEstimated(listing?.price_is_estimated ?? false);
     setPriceCompSource(listing?.price_comp_source ?? null);
     setScheduledAt(isoToLocalInput(listing?.scheduled_publish_at ?? null));
-    // US-561: promote by default unless this listing explicitly opted out. Seed
-    // the rate from the seller's saved value; the suggestion effect fills it in
-    // once the resolved category is known (when no saved rate exists yet).
-    setPromoteEnabled(!(listing?.promo_opt_out ?? false));
+    // 00432: promotion is off by default, opt-in per seller. Seed the toggle from
+    // this listing's explicit override, else the seller default. Mode/rate seed
+    // from the listing, else the seller default; the suggestion effect fills the
+    // rate from the category once resolved (when neither has a saved value).
+    setPromoteEnabled(
+      listing?.promote_override ??
+        promoDefaults?.promote_listings_by_default ??
+        false,
+    );
+    const seedMode = listing?.promo_mode ?? promoDefaults?.default_promo_mode;
     setPromoMode(
-      listing?.promo_mode === "cpc" || listing?.promo_mode === "smart"
-        ? listing.promo_mode
-        : "cps",
+      seedMode === "cpc" || seedMode === "smart" ? seedMode : "cps",
     );
     setPromoRate(
-      listing?.promo_rate_pct != null ? String(listing.promo_rate_pct) : "",
+      listing?.promo_rate_pct != null
+        ? String(listing.promo_rate_pct)
+        : promoDefaults?.default_promo_rate_pct != null
+          ? String(promoDefaults.default_promo_rate_pct)
+          : "",
     );
     // US-568: seed listing format + auction terms + variation matrix.
     const centsToStr = (c: number | null | undefined) =>
@@ -478,7 +495,15 @@ export function FlipdeskComposerPage() {
     setStorageLocation(item.location_bin ?? "");
     setStorageContainer(item.container ?? "");
     setInitialised(true);
-  }, [initialised, item, listing, photos]);
+  }, [
+    initialised,
+    item,
+    listing,
+    photos,
+    photosLoading,
+    promoDefaultsLoading,
+    promoDefaults,
+  ]);
 
   // US-561: the category that publish will use, for the Promoted Listings ad-rate
   // suggestion (mirrors the resolution order in saveDraft / assemblePublishContext).
@@ -777,9 +802,11 @@ export function FlipdeskComposerPage() {
         reviewed_at: new Date().toISOString(),
         is_active: false,
         primary_photo_id: primaryPhotoId,
-        // US-561: persist the Promoted Listings choice. Opt-out when the toggle
-        // is off; otherwise store the accepted/adjusted rate (a blank box falls
-        // back to the category suggestion at publish, so persist null then).
+        // 00432: persist the Promoted Listings choice as an EXPLICIT per-listing
+        // override (saving the composer is a deliberate decision, so it no longer
+        // inherits the seller default). Keep promo_opt_out in sync for the legacy
+        // read sites (item page, marketplaces, scheduled drops).
+        promote_override: promoteEnabled,
         promo_opt_out: !promoteEnabled,
         // US-1447: persist the chosen mode; CPC ignores the % (bid is the
         // ad-group max-CPC), so only store a rate in CPS mode.

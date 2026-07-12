@@ -4499,6 +4499,7 @@ interface PromoListingRow {
   platform_listing_id: string | null;
   platform_category_id: string | null;
   promo_opt_out: boolean | null;
+  promote_override: boolean | null;
   promo_rate_pct: number | null;
   promo_ad_id: string | null;
   promo_status: string | null;
@@ -4512,7 +4513,7 @@ async function loadPromoRow(
   const { data } = await supabaseAdmin
     .from("listings")
     .select(
-      "platform_listing_id, platform_category_id, promo_opt_out, promo_rate_pct, promo_ad_id, promo_status, platform_fields, inventory_items!inner(user_id)",
+      "platform_listing_id, platform_category_id, promo_opt_out, promote_override, promo_rate_pct, promo_ad_id, promo_status, platform_fields, inventory_items!inner(user_id)",
     )
     .eq("id", listingId)
     .maybeSingle();
@@ -4533,8 +4534,30 @@ flipdeskEbayRoutes.get("/listings/:id/promotion", async (c) => {
   const row = await loadPromoRow(listingId, userId);
   if (!row) return c.json({ error: "Listing not found" }, 404);
   const saleActive = typeof row.platform_fields?.markdown_promotion_id === "string";
+  // 00432: seller defaults, so the client can show the EFFECTIVE promotion state
+  // (override ?? default) and seed the default rate from the seller's setting.
+  const { data: ownerRow } = await supabaseAdmin
+    .from("users")
+    .select(
+      "promote_listings_by_default, default_promo_rate_pct, default_promo_mode",
+    )
+    .eq("id", userId)
+    .maybeSingle();
+  const owner = ownerRow as {
+    promote_listings_by_default: boolean | null;
+    default_promo_rate_pct: number | null;
+    default_promo_mode: string | null;
+  } | null;
+  const promoteByDefault = owner?.promote_listings_by_default ?? false;
+  const effectivePromote = row.promote_override ?? promoteByDefault;
   return c.json({
     opt_out: row.promo_opt_out ?? false,
+    // Tri-state per-listing override (null = inherit) + the resolved effective state.
+    promote_override: row.promote_override,
+    effective_promote: effectivePromote,
+    promote_by_default: promoteByDefault,
+    default_rate_pct: owner?.default_promo_rate_pct ?? null,
+    default_mode: owner?.default_promo_mode ?? null,
     rate_pct: row.promo_rate_pct,
     ad_id: row.promo_ad_id,
     status: row.promo_status,
@@ -4601,6 +4624,9 @@ flipdeskEbayRoutes.post("/listings/:id/promotion", async (c) => {
     .from("listings")
     .update({
       promo_opt_out: false,
+      // 00432: an explicit opt-in pins the tri-state override on, so it no longer
+      // inherits the (off-by-default) seller default.
+      promote_override: true,
       promo_rate_pct: appliedRate,
       promo_ad_id: adId,
       promo_status: "active",
@@ -4638,6 +4664,8 @@ flipdeskEbayRoutes.delete("/listings/:id/promotion", async (c) => {
     .from("listings")
     .update({
       promo_opt_out: true,
+      // 00432: explicit opt-out pins the tri-state override off.
+      promote_override: false,
       promo_ad_id: null,
       promo_status: null,
     } as never)
@@ -5962,7 +5990,7 @@ export async function publishItemForOwner(
         ebayListingId: listingId,
         ratePct: ctx.summary.promotedAdRate,
         // US-1447: honour the listing's chosen promotion mode (CPS / CPC / Smart).
-        mode: promoModeFor((listing as { promo_mode?: string } | null)?.promo_mode),
+        mode: ctx.summary.promotedMode,
       });
     }
 
@@ -6265,7 +6293,7 @@ async function publishVariationListing(args: {
       ebayListingId: listingId,
       ratePct: ctx.summary.promotedAdRate,
       // US-1447: honour the listing's chosen promotion mode (CPS / CPC / Smart).
-      mode: promoModeFor((listing as { promo_mode?: string } | null)?.promo_mode),
+      mode: ctx.summary.promotedMode,
     });
   }
 
@@ -7446,6 +7474,12 @@ interface PublishListing {
   // off for this listing entirely.
   promo_rate_pct: number | null;
   promo_opt_out: boolean | null;
+  // 00432: tri-state per-listing promotion override (NULL = inherit the seller
+  // default users.promote_listings_by_default; true/false explicit).
+  promote_override: boolean | null;
+  // US-1447: per-listing Promoted-Listings mode ('cps'|'cpc'|'smart'); null →
+  // seller default → cps.
+  promo_mode: string | null;
   // US-568: format + auction terms + variation matrix (migration 00160).
   listing_format: string | null;
   auction_start_price_cents: number | null;
@@ -7495,8 +7529,12 @@ interface PublishContextOk {
     bestOfferAutoAccept: string | null;
     bestOfferAutoDecline: string | null;
     // US-561: effective Promoted Listings ad rate (%) to attach at publish, or
-    // null when the seller opted out. Defaults to the category suggestion.
+    // null when the listing shouldn't be promoted (00432: off by default unless
+    // the per-listing override or the seller default opts in).
     promotedAdRate: number | null;
+    // 00432: resolved Promoted Listings mode (listing choice → seller default →
+    // cps). Only meaningful when promotedAdRate != null.
+    promotedMode: "cps" | "cpc" | "smart";
     // US-568: listing format + auction terms (money as eBay strings) + the
     // variation matrix. format is "FIXED_PRICE" (default) or "AUCTION"; the
     // auction* values are only meaningful for AUCTION. variations is null for a
@@ -7984,13 +8022,29 @@ export async function assemblePublishContext(
   }
   const item = itemRow as PublishItem;
 
+  // 00432: seller's Promoted-Listings defaults — used when a listing hasn't made
+  // an explicit per-listing choice (promote_override IS NULL). Best-effort: a
+  // missing row leaves promotion off-by-default (the safe direction).
+  const { data: ownerRow } = await supabaseAdmin
+    .from("users")
+    .select(
+      "promote_listings_by_default, default_promo_rate_pct, default_promo_mode",
+    )
+    .eq("id", userId)
+    .maybeSingle();
+  const owner = ownerRow as {
+    promote_listings_by_default: boolean | null;
+    default_promo_rate_pct: number | null;
+    default_promo_mode: string | null;
+  } | null;
+
   // Most recent eBay-platform listing draft for this item (if any).
   // Pull the AutoLister-edited columns too — composer/bulk-edit writes here
   // and these must reach eBay at publish (US-319/320/321).
   const { data: listingRow } = await supabaseAdmin
     .from("listings")
     .select(
-      "id, listing_title, listing_description, listing_price, price_is_estimated, ebay_condition, ebay_condition_description, quantity, best_offer_enabled, best_offer_auto_accept_cents, best_offer_auto_decline_cents, price_range_low_cents, price_range_high_cents, platform_category_id, item_specifics_override, item_specifics_sources, scheduled_publish_at, badge_enabled, slab_image_mode, shipping_policy_id, payment_policy_id, return_policy_id, promo_rate_pct, promo_opt_out, promo_mode, listing_format, auction_start_price_cents, auction_reserve_price_cents, auction_buy_it_now_price_cents, auction_duration, variations, listing_origin, listing_status, is_active, platform_listing_id, batch_id, synced_to_ebay_at",
+      "id, listing_title, listing_description, listing_price, price_is_estimated, ebay_condition, ebay_condition_description, quantity, best_offer_enabled, best_offer_auto_accept_cents, best_offer_auto_decline_cents, price_range_low_cents, price_range_high_cents, platform_category_id, item_specifics_override, item_specifics_sources, scheduled_publish_at, badge_enabled, slab_image_mode, shipping_policy_id, payment_policy_id, return_policy_id, promo_rate_pct, promo_opt_out, promote_override, promo_mode, listing_format, auction_start_price_cents, auction_reserve_price_cents, auction_buy_it_now_price_cents, auction_duration, variations, listing_origin, listing_status, is_active, platform_listing_id, batch_id, synced_to_ebay_at",
     )
     .eq("inventory_item_id", itemId)
     .eq("platform", "ebay")
@@ -8523,14 +8577,20 @@ export async function assemblePublishContext(
     auctionBuyItNowPrice,
     auctionDuration,
     variations,
-    // US-561: resolve the ad rate to attach — opt-out wins, then the seller's
-    // chosen rate, else the category suggestion. The composer surfaces the same
-    // suggestion so "promote by default" stays transparent + adjustable.
+    // 00432: resolve the ad rate — a legacy opt-out wins, else the per-listing
+    // override, else the seller default (off by default). Rate: listing choice →
+    // seller default → category suggestion. The composer surfaces the same
+    // suggestion so the resolution stays transparent + adjustable.
     promotedAdRate: resolvePublishAdRate({
       optOut: listing?.promo_opt_out,
+      promoteOverride: listing?.promote_override,
+      defaultPromote: owner?.promote_listings_by_default ?? false,
       chosenRatePct: listing?.promo_rate_pct,
+      defaultRatePct: owner?.default_promo_rate_pct,
       categoryId,
     }),
+    // Mode: per-listing choice → seller default → cps.
+    promotedMode: promoModeFor(listing?.promo_mode ?? owner?.default_promo_mode),
   };
 
   return {

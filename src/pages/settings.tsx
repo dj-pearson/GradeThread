@@ -40,6 +40,7 @@ import {
   Bell,
 } from "lucide-react";
 import { toast } from "sonner";
+import { PromotedListingsDefaultCard } from "@/components/flipdesk/promoted-listings-default-card";
 import { useFlipdeskTourStore } from "@/stores/flipdesk-tour-store";
 import { useOnboardingTourStore } from "@/stores/onboarding-tour-store";
 import { useArchivePhotos } from "@/hooks/use-image-archive";
@@ -1043,6 +1044,9 @@ export function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* 00432: Promoted Listings default (off by default, opt-in). */}
+      <PromotedListingsDefaultCard />
 
         </TabsContent>
 

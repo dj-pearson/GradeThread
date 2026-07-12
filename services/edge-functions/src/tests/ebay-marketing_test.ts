@@ -68,6 +68,98 @@ Deno.test("resolvePublishAdRate: no chosen rate falls back to the category sugge
   );
 });
 
+// ── 00432: off-by-default, opt-in per seller ───────────────────────────────
+Deno.test("resolvePublishAdRate: no override + seller default OFF → null", () => {
+  assertEquals(
+    resolvePublishAdRate({
+      optOut: false,
+      promoteOverride: null,
+      defaultPromote: false,
+      chosenRatePct: null,
+      categoryId: "15709",
+    }),
+    null,
+  );
+});
+
+Deno.test("resolvePublishAdRate: no override + seller default ON → suggestion", () => {
+  assertEquals(
+    resolvePublishAdRate({
+      optOut: false,
+      promoteOverride: null,
+      defaultPromote: true,
+      chosenRatePct: null,
+      categoryId: "15709",
+    }),
+    11,
+  );
+});
+
+Deno.test("resolvePublishAdRate: per-listing override true wins over seller default OFF", () => {
+  assertEquals(
+    resolvePublishAdRate({
+      optOut: false,
+      promoteOverride: true,
+      defaultPromote: false,
+      chosenRatePct: null,
+      categoryId: null,
+    }),
+    8,
+  );
+});
+
+Deno.test("resolvePublishAdRate: per-listing override false wins over seller default ON", () => {
+  assertEquals(
+    resolvePublishAdRate({
+      optOut: false,
+      promoteOverride: false,
+      defaultPromote: true,
+      chosenRatePct: 10,
+      categoryId: "15709",
+    }),
+    null,
+  );
+});
+
+Deno.test("resolvePublishAdRate: seller default rate used when promoting with no listing rate", () => {
+  assertEquals(
+    resolvePublishAdRate({
+      optOut: false,
+      promoteOverride: true,
+      defaultPromote: false,
+      chosenRatePct: null,
+      defaultRatePct: 6,
+      categoryId: "15709",
+    }),
+    6,
+  );
+  // Listing's own rate still beats the seller default.
+  assertEquals(
+    resolvePublishAdRate({
+      optOut: false,
+      promoteOverride: true,
+      defaultPromote: false,
+      chosenRatePct: 9,
+      defaultRatePct: 6,
+      categoryId: null,
+    }),
+    9,
+  );
+});
+
+Deno.test("resolvePublishAdRate: legacy opt-out still wins even with override/default", () => {
+  assertEquals(
+    resolvePublishAdRate({
+      optOut: true,
+      promoteOverride: true,
+      defaultPromote: true,
+      chosenRatePct: 10,
+      categoryId: "15709",
+    }),
+    null,
+  );
+});
+
 // ── US-1447 chunk 2: Smart Targeting exports exist and are wire-shaped ──────
 // The network functions (suggestMaxCpc / ensureSmartCampaign /
 // createSmartAdForListing) are eBay-API-bound like the CPS/CPC creators above

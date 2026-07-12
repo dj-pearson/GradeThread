@@ -60,18 +60,42 @@ export function suggestedAdRateForCategory(categoryId?: string | null): number {
 }
 
 /**
- * Resolve the effective ad rate to attach at publish given the listing's
- * opt-out flag, its explicitly-chosen rate, and the category suggestion. Pure.
- * Returns null when the listing opted out (no promotion).
+ * Resolve the effective ad rate to attach at publish. Pure. Returns null when
+ * the listing shouldn't be promoted.
+ *
+ * Promotion is off by default, opt-in per seller (migration 00432):
+ *   - A legacy explicit opt-out (optOut=true) always wins → no promotion.
+ *   - Otherwise the tri-state per-listing override decides: promoteOverride if
+ *     set (true/false), else the seller default (defaultPromote), else — for
+ *     legacy callers that pass neither signal — the old "promote" behavior.
+ * Rate precedence when promoting: the listing's chosen rate → the seller's
+ * default rate → the category suggestion. All clamped to [MIN, MAX].
  */
 export function resolvePublishAdRate(args: {
   optOut: boolean | null | undefined;
   chosenRatePct: number | null | undefined;
   categoryId?: string | null;
+  // 00432 tri-state + seller defaults. Omit to keep the legacy promote-unless-
+  // opted-out behavior (any caller that hasn't migrated).
+  promoteOverride?: boolean | null;
+  defaultPromote?: boolean | null;
+  defaultRatePct?: number | null;
 }): number | null {
   if (args.optOut) return null;
+
+  const promote =
+    args.promoteOverride != null
+      ? args.promoteOverride
+      : args.defaultPromote != null
+        ? args.defaultPromote
+        : true; // legacy default: promote unless opted out
+  if (!promote) return null;
+
   if (args.chosenRatePct != null && args.chosenRatePct > 0) {
     return clampRate(args.chosenRatePct);
+  }
+  if (args.defaultRatePct != null && args.defaultRatePct > 0) {
+    return clampRate(args.defaultRatePct);
   }
   return suggestedAdRateForCategory(args.categoryId);
 }

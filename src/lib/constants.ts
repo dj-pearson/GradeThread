@@ -1054,6 +1054,17 @@ export const FLIPDESK_PHOTO_TYPES = [
 // (src/lib/photo-profiles.ts → usePhotoProfile); this remains the default/
 // fallback for clothing and for any consumer that hasn't loaded a profile.
 export const REQUIRED_PHOTO_TYPES = ["front", "back"] as const;
+// Grading needs at least ONE fabric close-up (weave/knit/seam) — it's what the
+// fabric_condition factor (30% of the score) is read from, and the pipeline's
+// image-quality gate abstains without it. Client mirror of
+// FABRIC_CLOSEUP_PHOTO_TYPES in services/edge-functions/src/routes/flipdesk-grading.ts;
+// the two MUST stay in lockstep. Consumed by previewGradingReadiness().
+export const FABRIC_CLOSEUP_PHOTO_TYPES = [
+  "detail",
+  "detail_2",
+  "detail_3",
+  "detail_4",
+] as const;
 export const OPTIONAL_PHOTO_TYPES = [
   "tag",
   "detail",

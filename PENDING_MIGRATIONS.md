@@ -1,5 +1,37 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ PENDING: 00432_promote_listings_default.sql (FlipDesk promoted-listings default → off/opt-in, 2026-07-11)
+
+**What:** Flips eBay Promoted Listings from promote-everything to **off by
+default, opt-in per seller**. Adds three columns on `public.users`
+(`promote_listings_by_default` bool DEFAULT false, `default_promo_rate_pct`
+numeric, `default_promo_mode` text) and one tri-state column on
+`public.listings` (`promote_override` bool, NULL = inherit the seller default).
+Publish now resolves promotion as `promote_override ?? promote_listings_by_default`
+(a legacy `promo_opt_out=true` still force-disables). Bumps
+`EXPECTED_SCHEMA_VERSION` → **00432**. Self-records '00432'.
+
+**Backfill (one UPDATE):** `listings.promote_override = false WHERE
+promo_opt_out = true` — preserves EXPLICIT opt-outs. Every other listing stays
+NULL → inherits the (off-by-default) seller default. **Live ads already on eBay
+are untouched; this only affects the NEXT publish/revise.** Consequence: a
+currently-promoted listing that was never explicitly opted out will NOT
+re-promote on its next publish until the seller flips their new default on in
+Settings → FlipDesk → Promoted Listings. (This is the intended "off by default"
+behavior, confirmed with the user 2026-07-11.)
+
+**Risk: LOW–MEDIUM** — additive columns + one narrow backfill, no destructive
+change. But it CHANGES AD-SPEND BEHAVIOR on re-publish, and **the CLIENT reads
+the new columns on frontend auto-deploy**: the composer seeds the promote
+toggle/rate/mode from `users.promote_*` + `listings.promote_override`
+(`useSellerPromoDefaults`), and Settings reads/writes `users.promote_*`
+directly via RLS self-update (the columns are NOT in the
+`guard_users_protected_columns` list, so self-update is allowed). The edge
+publish path + `GET/POST/DELETE /listings/:id/promotion` boot-expect 00432.
+**Apply BEFORE the push.** **⚠️ Apply order:** after 00431;
+`scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload schema';`,
+redeploy the edge (boot guard now expects 00432).
+
 ## ⏳ PENDING: 00431_buyer_wants.sql (US-1830 demand-board want model + matches, 2026-07-10)
 
 **What:** Two new owner-read / service-write tables — `public.buyer_wants` (a

@@ -141,6 +141,15 @@ export function PhotoManager({
     },
   });
 
+  // A photo edit (reorder/retag/delete/rotate/remove-bg) can change the cover
+  // (lowest sort_order) or its image. The Listings table cover query keys under
+  // the ["items_full", …] prefix, so invalidate BOTH keys — otherwise the
+  // Listings row thumbnail stays stale for up to its 5-min staleTime.
+  async function invalidatePhotos() {
+    await qc.invalidateQueries({ queryKey: ["item_photos", itemId] });
+    await qc.invalidateQueries({ queryKey: ["items_full"] });
+  }
+
   // Any pending/processing grading submission blocks deleting graded photos.
   const { data: gradingInFlight = false } = useQuery({
     queryKey: ["grading-inflight", itemId],
@@ -179,10 +188,10 @@ export function PhotoManager({
             .eq("id", p.id)
         )
       );
-      await qc.invalidateQueries({ queryKey: ["item_photos", itemId] });
+      await invalidatePhotos();
     } catch {
       toast.error("Failed to save the new photo order.");
-      await qc.invalidateQueries({ queryKey: ["item_photos", itemId] });
+      await invalidatePhotos();
     }
   }
 
@@ -201,7 +210,7 @@ export function PhotoManager({
     photosDirtyRef.current = true;
     try {
       await persistRetag(supabase, photo, photoType);
-      await qc.invalidateQueries({ queryKey: ["item_photos", itemId] });
+      await invalidatePhotos();
     } catch {
       toast.error("Failed to change the photo type.");
     }
@@ -211,7 +220,7 @@ export function PhotoManager({
     photosDirtyRef.current = true;
     try {
       await persistDelete(supabase, photo);
-      await qc.invalidateQueries({ queryKey: ["item_photos", itemId] });
+      await invalidatePhotos();
       toast.success("Photo deleted.");
     } catch (err) {
       toast.error(
@@ -307,12 +316,26 @@ export function PhotoManager({
             .upload(path, blob, { upsert: true, contentType: "image/jpeg" });
           if (upErr) throw upErr;
           photosDirtyRef.current = true;
+          // A rotate/edit re-encodes the FULL image and busts photo_url, but the
+          // pre-generated thumbnail still holds the OLD orientation — and
+          // itemPhotoThumb() prefers thumbnail_url, so every gallery/cover kept
+          // showing the un-rotated image while zoom + eBay (which read photo_url)
+          // were correct. Drop the stale thumbnail so those surfaces fall back to
+          // the cache-busted, rotated photo_url. Best-effort remove the orphan.
+          const oldThumb = editingPhoto.thumbnail_storage_path;
+          if (oldThumb) {
+            void supabase.storage.from("item-photos").remove([oldThumb]);
+          }
           const { data: pub } = supabase.storage.from("item-photos").getPublicUrl(path);
           await supabase
             .from("item_photos")
-            .update({ photo_url: `${pub.publicUrl}?v=${Date.now()}` } as never)
+            .update({
+              photo_url: `${pub.publicUrl}?v=${Date.now()}`,
+              thumbnail_url: null,
+              thumbnail_storage_path: null,
+            } as never)
             .eq("id", editingPhoto.id);
-          await qc.invalidateQueries({ queryKey: ["item_photos", itemId] });
+          await invalidatePhotos();
           toast.success("Photo updated.");
           setEditingPhoto(null);
         }}

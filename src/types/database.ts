@@ -319,6 +319,12 @@ export interface UserRow {
   business_name: string | null;
   business_phone: string | null;
   ship_from_address: ShipFromAddress | null;
+  // 00432: seller Promoted-Listings defaults. promote_listings_by_default is the
+  // off-by-default opt-in; a new/un-configured listing follows it. rate/mode are
+  // fallbacks (null → category suggestion / 'cps').
+  promote_listings_by_default: boolean;
+  default_promo_rate_pct: number | null;
+  default_promo_mode: string | null;
   /** @deprecated legacy single-plan enum; use flipdesk_plan + grade_credit_balance (US-201/US-225). */
   plan: UserPlan;
   role: UserRole;
@@ -1149,6 +1155,10 @@ export interface ListingRow {
   // created at publish; lifecycle status ('active'|'failed'|eBay's adStatus);
   // accrued ad spend (cents, charged only on sale); last performance sync.
   promo_opt_out: boolean;
+  // 00432: tri-state per-listing promotion override — NULL inherits the seller
+  // default users.promote_listings_by_default, true/false is explicit. Publish
+  // uses promote_override ?? seller default (promotion is off by default).
+  promote_override: boolean | null;
   // US-1447 (migration 00330): 'cps' (Cost-Per-Sale, default) or 'cpc'
   // (Cost-Per-Click / Priority) Promoted Listings mode for this listing.
   promo_mode: string;
@@ -2252,6 +2262,8 @@ export interface ListingInsert {
   // ad rate; promo_opt_out turns promotion off for this listing.
   promo_rate_pct?: number | null;
   promo_opt_out?: boolean;
+  // 00432: tri-state per-listing promotion override (null = inherit seller default).
+  promote_override?: boolean | null;
   // US-1447: 'cps' | 'cpc' Promoted Listings mode (migration 00330).
   promo_mode?: string;
   // US-568: format + auction terms + variation matrix.

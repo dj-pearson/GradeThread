@@ -45,6 +45,7 @@ import {
   type GarmentType,
   type GarmentCategory,
 } from "@/lib/garment-mapping";
+import type { GradingReadiness } from "@/lib/grading-readiness";
 import type { ItemFullRow } from "@/types/database";
 
 const TIER_OPTIONS: GradingTier[] = ["standard", "premium", "express"];
@@ -80,7 +81,20 @@ function relativeTime(iso: string | null): string {
 //   1. Item already graded — shows the score + tier + link to certificate
 //   2. Submission in flight — shows status, tier, submitted-at, polls every 8s
 //   3. Eligible to grade — shows tier picker + price + "Submit" with validation
-export function GradeThisItemCard({ item }: { item: ItemFullRow }) {
+// `preview`, `liveFields` and `onPatchGarment` let the card reflect readiness
+// LIVE off the canvas edit form + photo cache (no save round-trip). When they're
+// omitted (card used standalone) it falls back to the server /validate result.
+export function GradeThisItemCard({
+  item,
+  preview,
+  liveFields,
+  onPatchGarment,
+}: {
+  item: ItemFullRow;
+  preview?: GradingReadiness;
+  liveFields?: { title: string; garment_type: string; garment_category: string };
+  onPatchGarment?: (gt: GarmentType, gc: GarmentCategory) => void;
+}) {
   const { data: submissions = [], isLoading } = useItemGradingSubmissions(
     item.id,
   );
@@ -154,8 +168,29 @@ export function GradeThisItemCard({ item }: { item: ItemFullRow }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tier, item.id, item.updated_at, item.grade_value, inflight, pendingReview, submissions.length]);
 
+  // The server /submit re-validates the PERSISTED row, but title/garment_type/
+  // garment_category live in the canvas edit form until a save (photos are
+  // already written to item_photos on upload/retag). Persist just those three
+  // requirement fields so a live-"Ready" card always submits cleanly without a
+  // separate Save. No-op when the card isn't fed live fields.
+  async function persistRequirementFields() {
+    if (!liveFields) return;
+    const update: Record<string, unknown> = {
+      title: liveFields.title.trim() || item.item_title,
+      garment_type: liveFields.garment_type || null,
+      garment_category: liveFields.garment_category || null,
+    };
+    const { error } = await supabase
+      .from("inventory_items")
+      .update(update as never)
+      .eq("id", item.id);
+    if (error) throw error;
+    await qc.invalidateQueries({ queryKey: ["items_full"] });
+  }
+
   async function doSubmit() {
     try {
+      await persistRequirementFields();
       const res = await submit.mutateAsync({
         inventoryItemId: item.id,
         tier,
@@ -201,6 +236,12 @@ export function GradeThisItemCard({ item }: { item: ItemFullRow }) {
   async function saveGarment(gt: GarmentType | "", gc: GarmentCategory | "") {
     if (!gt || !gc) {
       toast.error("Pick a garment type and category.");
+      return;
+    }
+    // Live path: push into the canvas edit form. The preview clears the garment
+    // blocker immediately and doSubmit persists it — no round-trip here.
+    if (onPatchGarment) {
+      onPatchGarment(gt, gc);
       return;
     }
     setSavingGarment(true);
@@ -349,8 +390,11 @@ export function GradeThisItemCard({ item }: { item: ItemFullRow }) {
   }
 
   // ── State 3: eligible (or has blockers) ─────────────────────────────
-  const ready = validation?.ready ?? false;
-  const blockers = validation?.blockers ?? [];
+  // Prefer the live preview (edit form + photo cache) so readiness updates the
+  // instant the last requirement is met; fall back to the server /validate when
+  // the card is used without live inputs.
+  const ready = preview ? preview.ready : validation?.ready ?? false;
+  const blockers = preview ? preview.blockers : validation?.blockers ?? [];
   const lastFailed = latest && latest.status === "failed" ? latest : null;
 
   // US-1423: when the garment fields are the ONLY thing blocking grading, show a
@@ -500,7 +544,7 @@ export function GradeThisItemCard({ item }: { item: ItemFullRow }) {
                 <CheckCircle2 className="h-3.5 w-3.5" />
                 Ready to grade
               </span>
-            ) : isLoading || validate.isPending ? (
+            ) : isLoading || (!preview && validate.isPending) ? (
               "Checking readiness…"
             ) : (
               "Fix the above before submitting."

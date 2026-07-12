@@ -268,6 +268,9 @@ export function PhotoUploader({
         .eq("id", photo.id);
       if (error) throw error;
       await qc.invalidateQueries({ queryKey: ["item_photos", itemId] });
+      // Deleting a photo can change the cover; the Listings table cover keys
+      // under the ["items_full", …] prefix, so refresh it too.
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
       onChange?.();
     } catch (err) {
       toast.error(
@@ -289,13 +292,28 @@ export function PhotoUploader({
       .from("item-photos")
       .upload(path, blob, { upsert: true, contentType: "image/jpeg" });
     if (upErr) throw upErr;
+    // Drop the stale thumbnail — it still holds the pre-rotation orientation and
+    // itemPhotoThumb() prefers it over photo_url, so galleries showed the old
+    // image while zoom + eBay were correct. Nulling it falls the thumbnail
+    // surfaces back to the cache-busted, rotated photo_url. Best-effort orphan
+    // cleanup. (Mirrors the same fix in photo-manager.tsx.)
+    const oldThumb = editingPhoto.thumbnail_storage_path;
+    if (oldThumb) {
+      void supabase.storage.from("item-photos").remove([oldThumb]);
+    }
     const { data: pub } = supabase.storage.from("item-photos").getPublicUrl(path);
     const { error: dbErr } = await supabase
       .from("item_photos")
-      .update({ photo_url: `${pub.publicUrl}?v=${Date.now()}` } as never)
+      .update({
+        photo_url: `${pub.publicUrl}?v=${Date.now()}`,
+        thumbnail_url: null,
+        thumbnail_storage_path: null,
+      } as never)
       .eq("id", editingPhoto.id);
     if (dbErr) throw dbErr;
     await qc.invalidateQueries({ queryKey: ["item_photos", itemId] });
+    // A rotate/edit changes the cover image; refresh the Listings cover too.
+    await qc.invalidateQueries({ queryKey: ["items_full"] });
     onChange?.();
     toast.success("Photo updated.");
     setEditingPhoto(null);
