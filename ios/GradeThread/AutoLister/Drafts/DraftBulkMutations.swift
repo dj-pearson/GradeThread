@@ -1,4 +1,5 @@
 import Foundation
+import GradeThreadCore
 
 /// Pure helpers for AutoLister bulk draft mutations (US-820): price math + the
 /// field-change descriptor applied to an editable row. Dependency-free (only

@@ -1,4 +1,5 @@
 import Foundation
+import GradeThreadCore
 import SwiftData
 
 /// Background ``ModelActor`` that owns a single private ``ModelContext`` off

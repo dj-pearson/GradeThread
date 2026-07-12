@@ -1,4 +1,5 @@
 import Foundation
+import GradeThreadCore
 
 /// One month's revenue bucket for the chart.
 struct MonthlyRevenue: Equatable, Identifiable {

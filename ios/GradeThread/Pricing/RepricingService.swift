@@ -23,7 +23,7 @@ enum RepricingError: LocalizedError, Equatable {
 protocol RepricingProviding {
     func suggestions() async throws -> [RepricingSuggestion]
     /// Applies a suggestion; returns the new price (dollars).
-    func apply(id: String) async throws -> Double
+    func apply(id: String) async throws -> Double?
     func dismiss(id: String) async throws
     /// Triggers a fresh scan of active listings; returns the result counts.
     func scan() async throws -> RepricingScanResult
@@ -56,11 +56,13 @@ final class RepricingService: RepricingProviding {
         return response.suggestions
     }
 
-    func apply(id: String) async throws -> Double {
+    func apply(id: String) async throws -> Double? {
         let response: RepricingApplyResponse = try await send(
             path: "/api/flipdesk/pricing/suggestions/\(id)/apply", method: "POST"
         )
-        return response.newPrice ?? 0
+        // nil when the server confirmed the apply without echoing a price — the
+        // caller must NOT render that as "$0.00" (a false "priced to zero").
+        return response.newPrice
     }
 
     func dismiss(id: String) async throws {

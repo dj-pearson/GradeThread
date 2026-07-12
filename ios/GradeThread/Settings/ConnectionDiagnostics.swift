@@ -123,7 +123,9 @@ struct ConnectionDiagnostics {
         }
         let jpeg = Self.probeJPEG
         let path = "/storage/v1/object/item-photos/\(userId.lowercased())/diagnostics/probe.jpg"
-        var components = URLComponents(url: AppConfig.supabaseURL, resolvingAgainstBaseURL: false)!
+        guard var components = URLComponents(url: AppConfig.supabaseURL, resolvingAgainstBaseURL: false) else {
+            lines.append("bad supabase url"); return
+        }
         components.path = path
         guard let url = components.url else { lines.append("bad storage url"); return }
 

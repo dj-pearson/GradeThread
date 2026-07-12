@@ -1,4 +1,5 @@
 import Foundation
+import GradeThreadCore
 
 /// US-812 — Money-tab financial analytics parity with the web `/finances`
 /// page. Pure rollups over the local SwiftData mirror (same testable split as

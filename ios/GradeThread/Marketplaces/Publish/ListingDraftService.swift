@@ -1,4 +1,5 @@
 import Foundation
+import GradeThreadCore
 import Supabase
 
 /// Persists composer edits (title / condition / description) to the eBay

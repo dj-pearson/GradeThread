@@ -1,3 +1,4 @@
+import GradeThreadCore
 import SwiftData
 import SwiftUI
 
@@ -40,8 +41,13 @@ struct SalesView: View {
     /// processing fees, seller costs, and cost basis via ``SalePnL``) — the
     /// Sales list is a quick per-order payout view, labeled "proceeds" so the
     /// same order is never shown as "net" with a different number elsewhere.
+    ///
+    /// Only COMPLETED sales count, matching every Money/Dashboard rollup
+    /// (`SalePnL.isCompleted`). Without this filter a refunded/cancelled order
+    /// inflated the headline Proceeds total and disagreed with the Money tab for
+    /// the same account.
     private var totalProceeds: Double {
-        Money.sum(sales) { $0.salePrice - $0.platformFees }
+        Money.sum(sales.filter { SalePnL.isCompleted($0) }) { $0.salePrice - $0.platformFees }
     }
 
     var body: some View {

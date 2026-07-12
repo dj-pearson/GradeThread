@@ -1,0 +1,46 @@
+name: Static analysis (Linux)
+
+# Fast, Mac-free static analysis that gates every PR on a Linux runner — a
+# companion to the macOS-only iOS build/test in ios-ci.yml. Catches codebase-
+# specific footguns (Semgrep) and Swift force-unwrap regressions (Python guard)
+# in ~1 minute, before spending macOS-runner minutes.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: static-analysis-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  semgrep:
+    name: Semgrep (project rules)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Semgrep
+        run: pip install "semgrep==1.169.0"
+      - name: Run project ruleset
+        # --error: exit non-zero on any finding. Every rule in .semgrep/ is a
+        # zero-existing-match regression guard, so any hit is a real defect.
+        run: semgrep scan --config .semgrep/ --error --metrics=off
+
+  swift-guards:
+    name: Swift guards (Python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: No force try!/as! in app sources
+        run: python3 ios/Scripts/no-force-unwrap.py

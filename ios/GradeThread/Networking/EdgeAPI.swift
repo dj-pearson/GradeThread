@@ -488,14 +488,18 @@ public actor EdgeAPI {
     }
 
     /// US-1164: which transient errors are safe to retry for a given HTTP method.
-    /// A 5xx on a non-idempotent POST/PATCH may have been applied server-side
-    /// before the failure, so blind-retrying risks a duplicate sale/listing — we
-    /// retry 5xx only for idempotent methods. Network blips and 429 (rejected,
-    /// not processed) remain retryable for any method.
+    /// A 5xx OR a network error (timeout / connection-lost) on a non-idempotent
+    /// POST/PATCH may have been applied server-side before the response was lost,
+    /// so blind-retrying risks a duplicate sale/listing (no request carries an
+    /// Idempotency-Key) — we retry both only for idempotent methods. A network
+    /// blip that never reached the server is thus not auto-retried in-line for a
+    /// write; the durable offline mutation queue (whose replays ARE idempotent
+    /// upserts-by-client-id) covers those. Only 429 (rejected, definitively NOT
+    /// processed) stays retryable for any method.
     static func shouldRetry(_ error: EdgeAPIError, method: String) -> Bool {
         switch error {
-        case .network, .rateLimited: return true
-        case .serverError: return isIdempotent(method)
+        case .rateLimited: return true
+        case .network, .serverError: return isIdempotent(method)
         default: return false
         }
     }

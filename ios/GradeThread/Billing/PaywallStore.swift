@@ -54,7 +54,21 @@ final class PaywallStore {
 
     // Current billing state (server truth, enriched by StoreKit for App Store subs).
     var currentPlan: String = "free"
+    /// The EXACT active subscription product id (e.g. `…sub.pro.yearly`), from the
+    /// on-device StoreKit entitlement. Lets the paywall gate only the current
+    /// product rather than the whole tier, so a monthly subscriber can cross-grade
+    /// to the yearly of the SAME tier (previously both intervals rendered as
+    /// "Current" and were un-tappable). nil for free / web-billed users.
+    var currentProductId: String?
     var billingSource: String?
+    /// True only once a billing snapshot was successfully fetched from the server.
+    /// A network/RLS failure leaves this false so the subscription gate fails
+    /// CLOSED: a Stripe (web) subscriber whose billing fetch fails would otherwise
+    /// see enabled App Store subscribe buttons (`billingSource` stays nil →
+    /// `managedOnWeb` false) and could start a SECOND, Apple-billed subscription
+    /// on top of their web one. A legitimately-free user still fetches a non-nil
+    /// snapshot (source nil), so this never blocks them.
+    var billingLoaded = false
     var subscriptionStatus: String?
     var creditBalance: Int = 0
     /// Renewal/expiry date of the active subscription, for the management card.
@@ -75,6 +89,12 @@ final class PaywallStore {
     /// approved, so the UI tells the user it's pending rather than dismissing
     /// silently (US-1144).
     var purchasePending = false
+    /// Set when a purchase verified locally + charged, but the edge couldn't be
+    /// reached to grant it after retries (`.pendingServerConfirmation`). The
+    /// transaction is left unfinished and the listener/ASSN reconcile it, so the
+    /// UI reassures the user it'll appear shortly instead of claiming instant
+    /// success (the old bug fired a success haptic on an unrecorded purchase).
+    var purchaseProcessing = false
 
     /// Outcome of the most recent Restore Purchases tap (US-1251). Previously
     /// restore was fire-and-forget, so a successful restore, a "nothing here",
@@ -209,9 +229,17 @@ final class PaywallStore {
         // that dead-ends on tap (App Store 2.1(b)).
         guard hasResolvedPrice(entry) else { return false }
         switch entry.kind {
-        case let .subscription(plan, _):
-            return !managedOnWeb && !isCurrentPlan(plan)
+        case .subscription:
+            // Fail CLOSED when billing state couldn't be fetched (see
+            // `billingLoaded`): never offer a subscription buy while we can't rule
+            // out an active Stripe (web) subscription, which a second App Store sub
+            // would double-bill on top of. Block only the EXACT current product —
+            // NOT the whole tier — so a monthly subscriber can still cross-grade to
+            // the yearly of the same tier (and vice versa).
+            return billingLoaded && !managedOnWeb && entry.productId != currentProductId
         case .consumable:
+            // Consumable credit packs don't conflict with a web subscription, so
+            // they stay purchasable even if the billing snapshot is unavailable.
             return true
         }
     }
@@ -281,6 +309,7 @@ final class PaywallStore {
         purchaseError = nil
         stripeConflict = false
         purchasePending = false
+        purchaseProcessing = false
         defer { purchasingId = nil }
 
         let outcome = await service.purchase(productId: entry.productId, appAccountToken: userId)
@@ -298,6 +327,7 @@ final class PaywallStore {
             // already refreshed above.
             if case let .subscription(plan, _) = entry.kind {
                 currentPlan = plan
+                currentProductId = entry.productId
                 billingSource = "appstore"
                 if !Self.entitlingStatuses.contains(subscriptionStatus ?? "") {
                     subscriptionStatus = "active"
@@ -315,6 +345,14 @@ final class PaywallStore {
             // Local purchase verified, but the server won't switch billing while
             // a web (Stripe) subscription is active — route the user to web billing.
             stripeConflict = true
+            return false
+        case .pendingServerConfirmation:
+            // Charged + locally verified, but the server grant didn't confirm yet.
+            // The transaction is left unfinished for the listener/ASSN to reconcile,
+            // so refresh (in case it already landed) and reassure — don't claim
+            // success on a purchase the server has no record of yet.
+            await refreshBilling()
+            purchaseProcessing = true
             return false
         case .verificationFailed:
             purchaseError = "Your purchase couldn't be verified. If you were charged, it'll apply shortly."
@@ -367,8 +405,11 @@ final class PaywallStore {
             creditBalance = snapshot.credits
             subscriptionRenewalDate = snapshot.periodEnd
             autoRenewEnabled = !(snapshot.cancelAtPeriodEnd ?? false)
+            billingLoaded = true
         }
-        // Else keep prior values; the paywall still renders with defaults.
+        // Else keep prior values; the paywall still renders with defaults, but
+        // `billingLoaded` stays false so `canPurchase` blocks subscription buys
+        // until we can confirm the user isn't already Stripe-subscribed.
 
         // Enrich from StoreKit's on-device entitlement — the freshest source for
         // App Store-billed subs (the server snapshot lags the webhook). Stripe
@@ -376,6 +417,7 @@ final class PaywallStore {
         if let entitlement = await service.currentSubscription() {
             subscriptionRenewalDate = entitlement.renewalDate ?? subscriptionRenewalDate
             autoRenewEnabled = entitlement.willAutoRenew
+            currentProductId = entitlement.productId
         }
     }
 

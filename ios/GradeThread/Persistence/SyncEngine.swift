@@ -1,4 +1,5 @@
 import Foundation
+import GradeThreadCore
 import Observation
 import Supabase
 import SwiftData
@@ -60,6 +61,12 @@ actor SyncEngine {
     /// Instead of silently no-oping (which drops the re-pull the new scope needs),
     /// the in-flight pull loops once more for the current scope when it finishes.
     private var pendingPullRequested = false
+    /// Set when ``flushPending()`` is called while a flush is already in flight
+    /// (e.g. the inspector's Retry tapped during a background flush). Instead of
+    /// silently no-oping — which made Retry look like it did nothing — the
+    /// in-flight flush loops once more when it finishes, picking up the
+    /// just-cleared retry budget.
+    private var pendingFlushRequested = false
     /// US-1147: set by ``stop()`` so an in-flight flush stops dequeuing further
     /// mutations at a clean boundary (each replay is idempotent, so the one
     /// in-flight is safe to let finish or re-run next launch).
@@ -187,10 +194,11 @@ actor SyncEngine {
     /// US-1493: whether a completed pull's results may be applied. False when the
     /// scope epoch moved while the fetch was in flight (a workspace switch /
     /// sign-out mid-pull) — the rows belong to the previous tenant, so neither the
-    /// merge nor the watermark advance may run. Pure + static so the mid-pull race
-    /// is unit-testable without standing up the actor + network.
+    /// merge nor the watermark advance may run. Logic lives in
+    /// ``SyncOrdering/pullResultApplies(startEpoch:currentEpoch:)`` (Linux-tested);
+    /// this thin re-export keeps the actor's call sites + integration test intact.
     static func pullResultApplies(startEpoch: Int, currentEpoch: Int) -> Bool {
-        startEpoch == currentEpoch
+        SyncOrdering.pullResultApplies(startEpoch: startEpoch, currentEpoch: currentEpoch)
     }
 
     // MARK: - Pull (incremental)
@@ -328,6 +336,12 @@ actor SyncEngine {
         let now = Date()
         if let last = lastReconcileAt, now.timeIntervalSince(last) < Self.reconcileInterval { return }
 
+        // US-1493 (extended): capture the scope at entry. The id-scans below are
+        // their own network round-trips; a workspace switch / sign-out DURING them
+        // means the surviving-id sets belong to the PREVIOUS scope while the store
+        // is being re-scoped — pruning the new tenant's rows against the old scope's
+        // ids. Re-check the epoch before pruning and bail if it moved.
+        let startEpoch = scopeEpoch
         let selfId = try? await SupabaseShared.client.auth.session.user.id.uuidString
         let ownerId = WorkspaceScope.activeOwnerId ?? selfId
 
@@ -361,6 +375,11 @@ actor SyncEngine {
         // All fetches failed (offline) → don't touch the mirror or the throttle.
         guard itemIds != nil || saleIds != nil || expenseIds != nil
                 || listingIds != nil || photoIds != nil else { return }
+
+        // Scope moved while the id-scans were in flight → the id sets are for the
+        // old tenant; discard rather than prune the new tenant's rows against them.
+        // The next pull's reconcile runs for the current scope.
+        guard Self.pullResultApplies(startEpoch: startEpoch, currentEpoch: scopeEpoch) else { return }
 
         await mergeActor.reconcileDeletes(
             itemIds: itemIds,
@@ -963,17 +982,15 @@ actor SyncEngine {
     /// "don't advance". Cursor strings are ISO-8601 and compared lexically,
     /// matching ``SyncWatermark/advance(_:to:)``'s ordering.
     private static func safeCursor<T>(_ fetch: PagedFetch<T>) -> String? {
-        guard let earliestDropped = fetch.droppedCursors.min() else {
-            return fetch.decodedCursors.max()
-        }
-        return fetch.decodedCursors.filter { $0 < earliestDropped }.max()
+        SyncOrdering.safeCursor(
+            decodedCursors: fetch.decodedCursors, droppedCursors: fetch.droppedCursors
+        )
     }
 
-    /// Pure entrypoint for unit tests (US-1210): same logic as ``safeCursor(_:)``
-    /// over explicit cursor lists.
+    /// Pure entrypoint for unit tests (US-1210); delegates to
+    /// ``SyncOrdering/safeCursor(decodedCursors:droppedCursors:)`` (Linux-tested).
     static func safeCursor(decodedCursors: [String], droppedCursors: [String]) -> String? {
-        guard let earliestDropped = droppedCursors.min() else { return decodedCursors.max() }
-        return decodedCursors.filter { $0 < earliestDropped }.max()
+        SyncOrdering.safeCursor(decodedCursors: decodedCursors, droppedCursors: droppedCursors)
     }
 
     private static let itemColumns =
@@ -1150,10 +1167,24 @@ actor SyncEngine {
     // MARK: - Flush (US-640)
 
     func flushPending() async {
-        guard !isFlushing, !isStopping else { return }
+        guard !isStopping else { return }
+        // A flush requested while one is in flight coalesces into a re-run instead
+        // of no-oping (US: inspector Retry during a background flush). The in-flight
+        // flush loops once more when it finishes, so the retried mutation actually
+        // re-attempts rather than waiting for the next independent sync trigger.
+        guard !isFlushing else { pendingFlushRequested = true; return }
         isFlushing = true
         defer { isFlushing = false }
 
+        var runAgain = true
+        while runAgain {
+            pendingFlushRequested = false
+            await performFlush()
+            runAgain = pendingFlushRequested && !isStopping
+        }
+    }
+
+    private func performFlush() async {
         let allMutations = await snapshotMutations()
         // US-1208: a CREATE still in the queue means its row may not exist on the
         // server yet — it's either still retrying OR has exhausted its budget and
@@ -1164,6 +1195,13 @@ actor SyncEngine {
         // from the FULL queue (incl. stuck creates past maxRetries), not just the
         // retry-eligible slice below.
         var unconfirmedCreateIds = Self.unconfirmedCreateTargetIds(allMutations)
+        // A deletePhoto targets a photo by id, but its owning uploadPhoto isn't an
+        // isCreateKind and carries the photo id INSIDE its payload (not targetId),
+        // so the create-before-edit guard above misses it. Track pending upload
+        // photo ids so a deletePhoto can't flush ahead of the upload that creates
+        // that row (which would delete 0 rows, dequeue, then let the upload replay
+        // re-create the photo the user deleted — a resurrected photo).
+        var unconfirmedUploadPhotoIds = Self.unconfirmedUploadPhotoIds(allMutations)
 
         // Skip mutations that have exhausted their auto-retry budget; they stay
         // queued for the inspector (US-641).
@@ -1187,11 +1225,19 @@ actor SyncEngine {
         var blockedTargetIds = Set<String>()
         for mutation in mutations {
             // US-1147: stop cleanly on teardown — replays are idempotent so the
-            // remaining mutations simply flush on the next start/sync.
-            if isStopping { break }
+            // remaining mutations simply flush on the next start/sync. Also break on
+            // task cancellation (a BGTask budget expiry cancels the work Task): the
+            // remaining mutations flush next pass, and stopping here avoids running
+            // `apply()` only to have its network call cancelled and misread as a
+            // failure that burns a retry.
+            if isStopping || Task.isCancelled { break }
             // US-1208: defer an edit whose create hasn't been confirmed yet; it
             // stays queued and flushes on a later pass once the create lands.
             if Self.shouldDeferDependent(mutation, unconfirmedCreateIds: unconfirmedCreateIds) {
+                continue
+            }
+            // Defer a deletePhoto whose photo still has a pending upload (see above).
+            if Self.shouldDeferPhotoDelete(mutation, unconfirmedUploadPhotoIds: unconfirmedUploadPhotoIds) {
                 continue
             }
             // US-1496: a prior same-target mutation failed this pass — hold this
@@ -1211,6 +1257,12 @@ actor SyncEngine {
             // so they can still flush in THIS pass.
             if Self.isCreateKind(mutation.kind), let target = mutation.targetId {
                 unconfirmedCreateIds.remove(target)
+            }
+            // A just-confirmed photo upload unblocks a deletePhoto queued behind it
+            // so the delete can still flush in THIS pass (upload then delete = gone).
+            if mutation.kind == MutationKind.uploadPhoto.rawValue,
+               let photoId = Self.uploadPhotoId(from: mutation.payload) {
+                unconfirmedUploadPhotoIds.remove(photoId)
             }
             // US-1495: an inventory-item edit reached the server.
             if Self.isInventoryItemEdit(mutation.kind), let target = mutation.targetId {
@@ -1265,6 +1317,25 @@ actor SyncEngine {
     /// not exist yet (US-1208).
     static func unconfirmedCreateTargetIds(_ queue: [PendingMutationSnapshot]) -> Set<String> {
         Set(queue.filter { isCreateKind($0.kind) }.compactMap(\.targetId))
+    }
+
+    /// Photo ids of `uploadPhoto` mutations still in the queue — their `item_photos`
+    /// row may not exist on the server yet, so a `deletePhoto` for one must wait.
+    static func unconfirmedUploadPhotoIds(_ queue: [PendingMutationSnapshot]) -> Set<String> {
+        Set(
+            queue.filter { $0.kind == MutationKind.uploadPhoto.rawValue }
+                .compactMap { uploadPhotoId(from: $0.payload) }
+        )
+    }
+
+    /// A `deletePhoto` must not flush while its photo still has a pending upload —
+    /// its `targetId` is the photo id, matched against the pending upload set.
+    static func shouldDeferPhotoDelete(
+        _ mutation: PendingMutationSnapshot, unconfirmedUploadPhotoIds: Set<String>
+    ) -> Bool {
+        guard mutation.kind == MutationKind.deletePhoto.rawValue,
+              let target = mutation.targetId else { return false }
+        return unconfirmedUploadPhotoIds.contains(target)
     }
 
     /// US-1495: mutation kinds that carry an inventory-item edit — the ones the
@@ -1360,6 +1431,16 @@ actor SyncEngine {
             await markStuck(id: mutation.id, error: replayError.localizedDescription)
             return false
         } catch {
+            // A cancelled replay (the BGTask budget expired / the engine is
+            // stopping, cancelling the work Task — which propagates into the
+            // cancellation-aware URLSession call as a CancellationError or a
+            // cancelled URLError) is NOT a real failure. Marking it failed burned a
+            // retry per BG pass and, after enough budget expiries, force-marked a
+            // perfectly healthy mutation "stuck" in the inspector. Leave it pending
+            // (untouched) so it simply flushes on the next pass.
+            if Task.isCancelled || error is CancellationError {
+                return false
+            }
             await markFailed(id: mutation.id, error: error.localizedDescription)
             return false
         }

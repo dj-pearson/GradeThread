@@ -10,22 +10,46 @@ import Foundation
 /// Email/password (and any non-Apple) sessions have no stored id, so the check
 /// is a no-op for them.
 enum AppleCredentialMonitor {
-    private static let userIdKey = "com.gradethread.auth.appleUserId"
+    /// The Apple `user` is a durable per-user identifier, so it lives in the
+    /// Keychain (encrypted at rest, this-device-only) rather than `UserDefaults`
+    /// (an unencrypted plist readable from a backup / jailbroken device) —
+    /// consistent with how the app stores its auth session. A dedicated service
+    /// keeps it separate from the Supabase SDK's session store.
+    private static let store = KeychainLocalStorage(service: "com.gradethread.app.apple-credential")
+    private static let userIdKey = "appleUserId"
+    /// The pre-Keychain `UserDefaults` location, kept only to migrate + scrub
+    /// installs that still hold the id in plaintext.
+    private static let legacyDefaultsKey = "com.gradethread.auth.appleUserId"
 
     /// Persist the Apple user id after a successful Sign in with Apple
     /// (`ASAuthorizationAppleIDCredential.user`).
     static func record(userId: String) {
-        UserDefaults.standard.set(userId, forKey: userIdKey)
+        try? store.store(key: userIdKey, value: Data(userId.utf8))
+        UserDefaults.standard.removeObject(forKey: legacyDefaultsKey)  // scrub legacy plaintext
     }
 
     /// Forget the stored id — called on sign-out / after handling a revocation
     /// so a later non-Apple sign-in doesn't carry a stale id.
     static func clear() {
-        UserDefaults.standard.removeObject(forKey: userIdKey)
+        try? store.remove(key: userIdKey)
+        UserDefaults.standard.removeObject(forKey: legacyDefaultsKey)
     }
 
     static var storedUserId: String? {
-        UserDefaults.standard.string(forKey: userIdKey)
+        // `try?` on a throwing `-> Data?` flattens to `Data?` (SE-0230), so this
+        // single `if let` yields the non-optional `Data`.
+        if let data = try? store.retrieve(key: userIdKey),
+           let id = String(data: data, encoding: .utf8) {
+            return id
+        }
+        // One-time migration: move a legacy UserDefaults value into the Keychain
+        // and scrub the plaintext copy.
+        if let legacy = UserDefaults.standard.string(forKey: legacyDefaultsKey) {
+            try? store.store(key: userIdKey, value: Data(legacy.utf8))
+            UserDefaults.standard.removeObject(forKey: legacyDefaultsKey)
+            return legacy
+        }
+        return nil
     }
 
     /// True ONLY when there's a stored Apple credential and Apple definitively

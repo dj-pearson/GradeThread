@@ -69,7 +69,9 @@ final class RepricingStore {
         do {
             let newPrice = try await service.apply(id: suggestion.id)
             suggestions.removeAll { $0.id == suggestion.id }
-            banner = "Repriced to \(Self.dollars(newPrice))."
+            // Only name a price when the server returned one — otherwise a nil
+            // (confirmed apply, no price echoed) would render "Repriced to $0.00".
+            banner = newPrice.map { "Repriced to \(Self.dollars($0))." } ?? "Reprice applied."
             HapticFeedback.success()
         } catch {
             rowErrors[suggestion.id] = Self.message(error)

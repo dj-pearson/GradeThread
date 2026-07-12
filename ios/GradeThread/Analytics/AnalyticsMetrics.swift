@@ -1,4 +1,5 @@
 import Foundation
+import GradeThreadCore
 
 /// Reseller analytics rolled up over the local SwiftData mirror — same pattern
 /// as ``DashboardRollup``/``MoneyRollup``: pure functions over `@Query` arrays

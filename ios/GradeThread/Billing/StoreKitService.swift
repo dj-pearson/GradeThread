@@ -9,6 +9,14 @@ enum PurchaseOutcome: Equatable {
     case pending
     case verificationFailed
     case failed(String)
+    /// The StoreKit purchase completed and verified locally, but the edge
+    /// `/appstore/verify` couldn't be reached to grant credits / switch the plan
+    /// after bounded retries. The transaction is deliberately left UNFINISHED so
+    /// the launch listener (and App Store Server Notifications) reconcile it — so
+    /// this is NOT a failure and NOT a plain success: the entitlement will land
+    /// shortly. The UI must reassure the user rather than claim instant success
+    /// (which fired a success haptic on an unrecorded purchase) or a hard error.
+    case pendingServerConfirmation
     /// The StoreKit purchase verified locally but the edge refused to switch
     /// billing to the App Store because an active Stripe (web) subscription
     /// owns the plan (409 ACTIVE_STRIPE_SUBSCRIPTION). The user must cancel the
@@ -163,7 +171,13 @@ struct StoreKitService: StoreKitProviding {
                                 + "transaction unfinished for listener retry (product \(productId))",
                             category: "iap")
                     }
-                    return report == .stripeConflict ? .stripeConflict : .success
+                    switch report {
+                    case .stripeConflict: return .stripeConflict
+                    // Server never confirmed (left unfinished for listener retry) —
+                    // don't claim success; the entitlement lands once it reconciles.
+                    case .failed: return .pendingServerConfirmation
+                    default: return .success
+                    }
                 case .unverified:
                     Telemetry.backgroundBreadcrumb(
                         "IAP purchase failed local verification (product \(productId))",
@@ -190,6 +204,14 @@ struct StoreKitService: StoreKitProviding {
     func restore() async -> RestoreOutcome {
         do {
             try await AppStore.sync()
+            // Re-link entitlements to OUR backend. `AppStore.sync()` only refreshes
+            // the on-device entitlement set; it does NOT tell the edge. Without
+            // this, a reinstall (or a server row that lost its
+            // appstore_original_transaction_id) leaves the plan/credits locked even
+            // though Restore "succeeded" — an App Store 3.1.1 restore-correctness
+            // problem. Reporting each current entitlement's JWS is idempotent
+            // server-side (ON CONFLICT DO NOTHING for consumables; upsert for subs).
+            await relinkEntitlements()
             return .synced
         } catch StoreKitError.userCancelled {
             // The user dismissed the App Store sign-in sheet — not an error.
@@ -227,8 +249,28 @@ struct StoreKitService: StoreKitProviding {
         return nil
     }
 
+    /// Re-report every current entitlement's signed transaction to the edge so the
+    /// server plan/credits reflect what the device is actually entitled to. Used by
+    /// `restore()` (and safe to call at launch) to recover a reinstall or a server
+    /// row that lost its original-transaction link — cases the `Transaction.updates`
+    /// listener doesn't cover because it never redelivers already-finished
+    /// transactions. Every report is idempotent server-side.
+    func relinkEntitlements() async {
+        for await result in Transaction.currentEntitlements {
+            guard case .verified = result else { continue }
+            _ = await reportWithRetry(jws: result.jwsRepresentation)
+        }
+    }
+
     /// Result of reporting a signed transaction to the edge.
-    private enum VerifyReport: Equatable { case ok, stripeConflict, failed }
+    /// `ownershipMismatch` = the JWS's appAccountToken belongs to a DIFFERENT
+    /// signed-in user (a shared device / account switch); the edge 403s it. It's
+    /// terminal for this session — retrying under the wrong account can never
+    /// succeed — so it's treated like a non-failure so the transaction FINISHES
+    /// and stops being redelivered every launch (the owner's entitlement is still
+    /// reconciled server-side via App Store Server Notifications and re-linked when
+    /// they sign back in and restore).
+    private enum VerifyReport: Equatable { case ok, stripeConflict, failed, ownershipMismatch }
 
     /// Send the signed transaction to the edge, which verifies + reconciles it
     /// into the user's plan/credits. Entitlement is also delivered server-side by
@@ -244,6 +286,14 @@ struct StoreKitService: StoreKitProviding {
         } catch let error as EdgeAPIError {
             if case .badRequest(let detail) = error, detail == "ACTIVE_STRIPE_SUBSCRIPTION" {
                 return .stripeConflict
+            }
+            // A 403 whose body is TRANSACTION_OWNERSHIP_MISMATCH means this JWS
+            // belongs to a different signed-in user — terminal, don't retry-loop it.
+            if case .forbidden(let detail) = error, detail == "TRANSACTION_OWNERSHIP_MISMATCH" {
+                Telemetry.backgroundBreadcrumb(
+                    "IAP verify: transaction belongs to another account — finishing to stop redelivery",
+                    category: "iap")
+                return .ownershipMismatch
             }
             // US-1148: the edge rejected the verify (non-conflict). It self-heals
             // via App Store Server Notifications, but breadcrumb so a systemic
@@ -295,13 +345,28 @@ struct StoreKitService: StoreKitProviding {
     }
 
     /// Drain StoreKit's transaction updates (renewals, refunds, deferred
-    /// purchases). Start once at app launch.
+    /// purchases) and reconcile any already-unfinished transactions. Start once at
+    /// app launch.
     static func startTransactionListener() -> Task<Void, Never> {
         Task.detached {
             let service = StoreKitService()
-            for await update in Transaction.updates {
-                await service.process(update)
+            // Attach to LIVE updates FIRST (US-1405) so a transaction the system
+            // resolves during launch isn't missed while we drain the backlog.
+            async let liveUpdates: Void = {
+                for await update in Transaction.updates {
+                    await service.process(update)
+                }
+            }()
+            // Then reconcile any already-unfinished transactions — interrupted, or
+            // finished-locally-but-never-server-reported. `Transaction.updates` does
+            // NOT redeliver these, so this is their only launch reconcile path.
+            // `process()` is idempotent (server grant is ON CONFLICT DO NOTHING;
+            // finishing an already-finished transaction is a no-op), so a
+            // transaction seen by both streams is safe to process twice.
+            for await result in Transaction.unfinished {
+                await service.process(result)
             }
+            await liveUpdates
         }
     }
 

@@ -1,4 +1,5 @@
 import Foundation
+import GradeThreadCore
 import SwiftData
 
 /// Local mirror of `sales`. Same conflict policy as LocalListing: the
@@ -65,3 +66,13 @@ final class LocalSale {
         self.createdAt = createdAt
     }
 }
+
+// SalePnL (in GradeThreadCore) computes per-sale P&L against this protocol so the
+// money math is Linux-testable. LocalSale's stored properties already match it,
+// so the conformance is empty. Not `@retroactive` — LocalSale is defined here.
+extension LocalSale: SaleFinancials {}
+
+// DashboardTrend (in GradeThreadCore) buckets sales by day; it needs `saleDate`
+// and `inventoryItemId` on top of the money fields. Both are already stored, so
+// this too is an empty conformance.
+extension LocalSale: DatedSale {}

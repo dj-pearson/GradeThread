@@ -1,0 +1,46 @@
+name: Core package (Linux swift test)
+
+# Builds + unit-tests the platform-agnostic GradeThreadCore SwiftPM package on
+# LINUX — no Mac, no simulator, no Xcode. This is the "run it, don't just reason
+# about it" gate for the pure logic extracted out of the iOS app (merge policy
+# today; money/decode logic as it migrates). The macOS ios-ci.yml still owns the
+# full app build + UI tests; this runs in seconds and catches pure-logic
+# regressions on every push.
+#
+# Runs in the official Swift container so there's no toolchain-install step.
+
+on:
+  push:
+    paths:
+      - "ios/Packages/GradeThreadCore/**"
+      - ".github/workflows/ios-core-package.yml"
+  pull_request:
+    paths:
+      - "ios/Packages/GradeThreadCore/**"
+      - ".github/workflows/ios-core-package.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: core-package-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  swift-test:
+    name: swift test (Linux)
+    runs-on: ubuntu-latest
+    # Official Swift toolchain image — no install step. The manifest is
+    # swift-tools-version:5.9 (portable), so any 5.9+ toolchain builds it.
+    container: swift:5.10
+    defaults:
+      run:
+        working-directory: ios/Packages/GradeThreadCore
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: swift --version
+      - name: Build
+        run: swift build
+      - name: Test
+        run: swift test --parallel

@@ -37,6 +37,14 @@ public final class CameraSession: NSObject {
     private let output = AVCapturePhotoOutput()
     private var didConfigure = false
     private var pendingCompletion: ((Result<UIImage, Error>) -> Void)?
+    /// Identifies the in-flight capture so a watchdog timeout from an earlier shot
+    /// can't resolve a newer one. Cleared in lockstep with `pendingCompletion`.
+    private var pendingCaptureID: UUID?
+    /// How long to wait for the photo delegate before failing the capture. Without
+    /// this, a delegate that never fires (session torn down mid-shot, a silently
+    /// dropped capture during an interruption) suspends the awaiting Task forever,
+    /// leaving `isCapturing` true and the shutter permanently disabled.
+    private static let captureTimeout: Duration = .seconds(12)
 
     /// US-1408: the caller's INTENT to be running. iOS auto-stops a running
     /// `AVCaptureSession` on a phone call, Control Center / FaceTime PiP, or when
@@ -109,6 +117,9 @@ public final class CameraSession: NSObject {
 
     public func stop() {
         shouldBeRunning = false
+        // Tearing the session down cancels any in-flight capture: its delegate
+        // will never fire, so resolve the awaiting Task now instead of leaking it.
+        finishPendingCapture(.failure(CameraError.captureFailed("Capture cancelled.")))
         let session = self.session
         sessionQueue.async {
             if session.isRunning { session.stopRunning() }
@@ -158,11 +169,38 @@ public final class CameraSession: NSObject {
                 cont.resume(throwing: CameraError.captureFailed("capture in progress"))
                 return
             }
+            // US-1408 follow-up: never call `capturePhoto` without a live video
+            // connection. AVFoundation raises `NSInvalidArgumentException` ("No
+            // active and enabled video connection") in that case — an Obj-C
+            // exception Swift's `try` CANNOT catch, so the app hard-crashes. This
+            // happens when the shutter is tapped during an interruption (incoming
+            // call, Control Center, FaceTime PiP) or in the brief window after
+            // foregrounding before `startRunning()` has re-activated the session.
+            // Fail with a catchable, user-surfaced error instead.
+            guard let connection = output.connection(with: .video),
+                  connection.isActive, connection.isEnabled else {
+                cont.resume(throwing: CameraError.captureFailed(
+                    "Camera isn't ready yet — try again in a moment."))
+                return
+            }
+
+            let captureID = UUID()
+            pendingCaptureID = captureID
             pendingCompletion = { result in
                 switch result {
                 case .success(let image): cont.resume(returning: image)
                 case .failure(let error): cont.resume(throwing: error)
                 }
+            }
+
+            // Watchdog: if the delegate hasn't delivered within the timeout, fail
+            // this capture (and only this one — guarded by `captureID`) so the
+            // awaiting Task can't hang and strand the shutter.
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: Self.captureTimeout)
+                guard let self, self.pendingCaptureID == captureID else { return }
+                self.finishPendingCapture(
+                    .failure(CameraError.captureFailed("Camera timed out — please try again.")))
             }
 
             let settings = AVCapturePhotoSettings(format: [
@@ -256,20 +294,28 @@ extension CameraSession: AVCapturePhotoCaptureDelegate {
     }
 
     private func deliver(photo: AVCapturePhoto, error: Error?) {
-        let completion = pendingCompletion
-        pendingCompletion = nil
-
         if let error {
-            completion?(.failure(error))
+            finishPendingCapture(.failure(error))
             return
         }
         guard
             let data = photo.fileDataRepresentation(),
             let image = UIImage(data: data)
         else {
-            completion?(.failure(CameraError.captureFailed("no image data")))
+            finishPendingCapture(.failure(CameraError.captureFailed("no image data")))
             return
         }
-        completion?(.success(image))
+        finishPendingCapture(.success(image))
+    }
+
+    /// Resolve the in-flight capture exactly once. Every resolution path — the
+    /// photo delegate, the watchdog timeout, and `stop()` — routes through here,
+    /// so the underlying continuation is resumed once and only once (a second
+    /// call is a no-op because `pendingCompletion` is already nil).
+    private func finishPendingCapture(_ result: Result<UIImage, Error>) {
+        guard let completion = pendingCompletion else { return }
+        pendingCompletion = nil
+        pendingCaptureID = nil
+        completion(result)
     }
 }

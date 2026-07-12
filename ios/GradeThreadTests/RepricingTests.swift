@@ -102,6 +102,17 @@ final class RepricingTests: XCTestCase {
         XCTAssertNil(store.rowErrors["a"])
     }
 
+    func test_apply_withoutServerPrice_bannerHasNoFalseZero() async {
+        let s = makeSuggestion(id: "a")
+        let fake = FakeRepricingService(suggestions: [s])
+        fake.applyPrice = nil            // server confirmed the apply, echoed no price
+        let store = RepricingStore(service: fake)
+        await store.load()
+        await store.apply(s)
+        XCTAssertEqual(store.banner, "Reprice applied.")   // NOT "Repriced to $0.00."
+        XCTAssertNil(store.rowErrors["a"])
+    }
+
     func test_apply_failure_keepsRow_andSetsRowError() async {
         let s = makeSuggestion(id: "a")
         let fake = FakeRepricingService(suggestions: [s])
@@ -150,6 +161,9 @@ private final class FakeRepricingService: RepricingProviding {
     var suggestionsList: [RepricingSuggestion]
     var suggestionsError: Error?
     var applyError: Error?
+    /// Price the fake `apply` echoes; nil simulates the server confirming the
+    /// apply without a price (must not render as "$0.00").
+    var applyPrice: Double? = 25.0
     var dismissError: Error?
 
     init(suggestions: [RepricingSuggestion]) {
@@ -161,9 +175,9 @@ private final class FakeRepricingService: RepricingProviding {
         return suggestionsList
     }
 
-    func apply(id: String) async throws -> Double {
+    func apply(id: String) async throws -> Double? {
         if let applyError { throw applyError }
-        return 25.0
+        return applyPrice
     }
 
     func dismiss(id: String) async throws {

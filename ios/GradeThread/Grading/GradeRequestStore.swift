@@ -246,6 +246,20 @@ final class GradeRequestStore {
                     phase = .failed(status.error ?? "Grading failed. You weren't charged — please retake the photos and try again.")
                     return
                 }
+            } catch EdgeAPIError.decoding(let detail) {
+                // A DECODE error means the server IS reachable but returned a
+                // payload we couldn't parse — typically a report still mid-write
+                // (a transiently-null score, or a field the pipeline hasn't
+                // populated yet). That is NOT a lost connection, so it must NOT
+                // count toward the `consecutiveFailures` streak — otherwise a grade
+                // that actually landed (and may have been charged) surfaced to the
+                // user as "Lost connection" after ~4 polls. Keep polling: a later
+                // complete payload decodes and surfaces the grade, or the window
+                // elapses to the recoverable `.stillProcessing` state.
+                Telemetry.breadcrumb(
+                    "grade poll decode blip (server reachable, payload incomplete): \(detail)",
+                    category: "grading"
+                )
             } catch {
                 consecutiveFailures += 1
                 Telemetry.breadcrumb(

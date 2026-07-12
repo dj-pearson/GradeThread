@@ -154,6 +154,12 @@ struct AutolisterService: AutolisterBatching {
             forHTTPHeaderField: "Content-Type"
         )
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        // US-670: scope the staged sample to the active workspace, mirroring
+        // EdgeAPI.buildRequest. Without it, a user working inside a shared
+        // workspace stages the verification photo under their personal tenant.
+        if let workspaceOwner = WorkspaceScope.activeOwnerId {
+            request.setValue(workspaceOwner, forHTTPHeaderField: "X-Workspace-Owner")
+        }
 
         var body = Data()
         func appendField(_ text: String) { body.append(Data(text.utf8)) }

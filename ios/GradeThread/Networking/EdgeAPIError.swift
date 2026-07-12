@@ -20,6 +20,13 @@ public enum EdgeAPIError: LocalizedError, Equatable {
     /// header to read and stay nil).
     case rateLimited(retryAfter: TimeInterval? = nil)
     case notFound(detail: String?)
+    /// A generic 403 with no known discriminator — the action is genuinely
+    /// forbidden (RLS denial, a permission the plan/role lacks), NOT an expired
+    /// session. Distinct from `.unauthorized` so `EdgeAPI` does NOT burn a token
+    /// refresh (a fresh token can't grant a permission the user doesn't have) and
+    /// the UI shows "you don't have permission" instead of the misleading
+    /// "session expired" that invited a needless sign-out.
+    case forbidden(detail: String?)
     case badRequest(detail: String?)
     case serverError(detail: String?)
     case decoding(String)
@@ -54,6 +61,8 @@ public enum EdgeAPIError: LocalizedError, Equatable {
             return "You're going a little too fast. Try again in a moment."
         case .notFound(let detail):
             return detail ?? "We couldn't find that."
+        case .forbidden(let detail):
+            return detail ?? "You don't have permission to do that."
         case .badRequest(let detail):
             return detail ?? "Something about that request wasn't right."
         case .serverError(let detail):
@@ -114,7 +123,10 @@ public enum EdgeAPIError: LocalizedError, Equatable {
             return .offerNotOpen
         }
         switch statusCode {
-        case 401, 403: return .unauthorized
+        case 401:      return .unauthorized
+        // A 403 with no known discriminator is a genuine permission denial, not an
+        // expired session — don't trigger the refresh + "session expired" path.
+        case 403:      return .forbidden(detail: detail)
         case 404:      return .notFound(detail: detail)
         case 429:      return .rateLimited()
         case 400...499: return .badRequest(detail: detail)

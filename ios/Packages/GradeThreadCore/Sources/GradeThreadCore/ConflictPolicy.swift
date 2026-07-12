@@ -21,18 +21,22 @@ import Foundation
 /// - **Newest-write-wins** — neutral fields, decided by comparing the
 ///   `updatedAt` timestamps. Falls through whenever neither side claims
 ///   precedence (e.g. `notes`, `sku`).
-enum ConflictPolicy {
+///
+/// Pure Foundation logic — lives in GradeThreadCore so it is unit-tested on
+/// Linux (no SwiftData / UIKit), and consumed by the iOS app via `import
+/// GradeThreadCore`.
+public enum ConflictPolicy {
 
     /// Picks the post-merge value for a server-authoritative field. Server
     /// always wins because no client edit makes sense for these.
-    static func resolveServerOwned<T>(local: T, server: T) -> T {
+    public static func resolveServerOwned<T>(local: T, server: T) -> T {
         server
     }
 
     /// Picks the post-merge value for a user-edited field. If the local
     /// row has unflushed local changes we keep the local value; otherwise
     /// the server wins.
-    static func resolveUserOwned<T: Equatable>(
+    public static func resolveUserOwned<T: Equatable>(
         local: T,
         server: T,
         hasLocalChanges: Bool
@@ -42,7 +46,7 @@ enum ConflictPolicy {
 
     /// Picks the post-merge value for a neutral field by comparing the
     /// row-level `updatedAt` timestamps.
-    static func resolveByTimestamp<T>(
+    public static func resolveByTimestamp<T>(
         local: T,
         server: T,
         localUpdatedAt: Date,
@@ -67,7 +71,7 @@ enum ConflictPolicy {
     ///   the iOS client must not overwrite these fields.
     /// - GradeThread-originated (or unknown): same as ``resolveUserOwned`` —
     ///   local wins while dirty, server wins when clean.
-    static func resolveEbayOwnedListingField<T: Equatable>(
+    public static func resolveEbayOwnedListingField<T: Equatable>(
         local: T,
         server: T,
         hasLocalChanges: Bool,

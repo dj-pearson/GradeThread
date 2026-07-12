@@ -19,6 +19,9 @@ final class PaywallStoreTests: XCTestCase {
         // common case. Tests exercising an unresolved/partial catalog override
         // `s.prices` directly or drive it through `load()` (which replaces it).
         s.prices = Dictionary(uniqueKeysWithValues: IAPCatalog.allIds.map { ($0, "$0.00") })
+        // Default to a completed billing fetch (loaded paywall) so the subscription
+        // gate isn't fail-closed; the fail-closed test resets this to false.
+        s.billingLoaded = true
         return s
     }
 
@@ -71,20 +74,48 @@ final class PaywallStoreTests: XCTestCase {
         // StoreKit resolved real prices for these products (loaded paywall).
         s.prices = [
             "com.gradethread.sub.pro.monthly": "$59.00",
+            "com.gradethread.sub.pro.yearly": "$590.00",
             "com.gradethread.sub.business.monthly": "$99.00",
         ]
+        // Billing snapshot fetched successfully (free user, no Stripe).
+        s.billingLoaded = true
         // Free user, no Stripe → can buy Pro.
         XCTAssertTrue(s.canPurchase(sub("com.gradethread.sub.pro.monthly")))
 
-        // Already on Pro → can't re-buy Pro.
-        s.currentPlan = "pro"
+        // Already on Pro MONTHLY → can't re-buy the exact current product...
+        s.currentPlan = "pro"; s.currentProductId = "com.gradethread.sub.pro.monthly"
         XCTAssertFalse(s.canPurchase(sub("com.gradethread.sub.pro.monthly")))
-        // ...but can still move to Business.
+        // ...but CAN cross-grade to Pro yearly (same tier, different interval)...
+        XCTAssertTrue(s.canPurchase(sub("com.gradethread.sub.pro.yearly")))
+        // ...and can still move to Business.
         XCTAssertTrue(s.canPurchase(sub("com.gradethread.sub.business.monthly")))
 
         // Managed on web → all subscription purchases blocked.
-        s.currentPlan = "free"; s.billingSource = "stripe"; s.subscriptionStatus = "active"
+        s.currentPlan = "free"; s.currentProductId = nil
+        s.billingSource = "stripe"; s.subscriptionStatus = "active"
         XCTAssertFalse(s.canPurchase(sub("com.gradethread.sub.pro.monthly")))
+    }
+
+    // Fail CLOSED: when the billing snapshot couldn't be fetched (network/RLS
+    // failure → `billingLoaded` false), a subscription buy is blocked even though
+    // `billingSource` is nil — otherwise a Stripe (web) subscriber whose fetch
+    // failed could start a second, Apple-billed subscription (double-billing).
+    // Consumables stay purchasable (they don't conflict with a web sub).
+    func test_canPurchase_failsClosedWhenBillingUnloaded() {
+        let s = store()
+        s.prices = [
+            "com.gradethread.sub.pro.monthly": "$59.00",
+            "com.gradethread.credits.25": "$24.99",
+        ]
+        // Simulate a failed billing fetch (network/RLS) — gate must fail closed.
+        s.billingLoaded = false
+        XCTAssertFalse(s.billingLoaded)
+        XCTAssertFalse(s.canPurchase(sub("com.gradethread.sub.pro.monthly")))
+        XCTAssertTrue(s.canPurchase(pack("com.gradethread.credits.25")))
+
+        // Once billing loads, a free user can subscribe again.
+        s.billingLoaded = true
+        XCTAssertTrue(s.canPurchase(sub("com.gradethread.sub.pro.monthly")))
     }
 
     func test_canPurchase_consumablesAlwaysAllowed() {
@@ -223,6 +254,21 @@ final class PaywallStoreTests: XCTestCase {
         XCTAssertFalse(s.purchaseSucceeded)
         XCTAssertNil(s.purchaseError)             // not a failure
         XCTAssertNil(s.purchasingId)              // spinner cleared
+    }
+
+    // A charged + locally-verified purchase whose server grant didn't confirm must
+    // NOT report success (the old bug fired a success haptic on an unrecorded
+    // purchase). It surfaces the reassuring "processing" state instead.
+    func test_buy_pendingServerConfirmation_showsProcessingNotSuccess() async {
+        let fake = FakeStoreKit(); fake.outcome = .pendingServerConfirmation
+        let s = store(service: fake, billing: .init(plan: "free", status: nil, source: nil, credits: 0))
+        let ok = await s.buy(sub("com.gradethread.sub.pro.monthly"))
+        XCTAssertFalse(ok)
+        XCTAssertTrue(s.purchaseProcessing)       // UI reassures "will appear shortly"
+        XCTAssertFalse(s.purchaseSucceeded)        // NOT a success
+        XCTAssertNil(s.purchaseError)              // NOT a hard error
+        XCTAssertEqual(s.currentPlan, "free")      // no optimistic plan flip
+        XCTAssertNil(s.purchasingId)               // spinner cleared
     }
 
     func test_buy_clearsStripeConflictAtStart() async {
@@ -392,7 +438,9 @@ final class PaywallStoreTests: XCTestCase {
     func test_buy_blockedPurchaseDoesNotCallService() async {
         let fake = FakeStoreKit(); fake.outcome = .success
         let s = store(service: fake)
-        s.currentPlan = "pro" // can't re-buy Pro
+        // Already subscribed to this EXACT product — the M10 gate keys on
+        // currentProductId (not the tier), so re-buying the same product is blocked.
+        s.currentProductId = "com.gradethread.sub.pro.monthly"
         let ok = await s.buy(sub("com.gradethread.sub.pro.monthly"))
         XCTAssertFalse(ok)
         XCTAssertNil(fake.purchasedProductId)
