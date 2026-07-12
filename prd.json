@@ -15554,8 +15554,8 @@
         "Deno tests cover each grade band per condition-policy fixture; existing category-remap fallback behavior unchanged for non-apparel"
       ],
       "priority": 1894,
-      "passes": false,
-      "notes": "[P1][SEO][Grading-adjacent] See EBAY_RANKING_PLAYBOOK.md §7. Touches condition mapping in flipdesk-ebay.ts only — if grade-band constants move into grading libs, load the grading-engine skill. Added 2026-07-09."
+      "passes": true,
+      "notes": "[P1][SEO][Grading-adjacent] See EBAY_RANKING_PLAYBOOK.md §7. Touches condition mapping in flipdesk-ebay.ts only — if grade-band constants move into grading libs, load the grading-engine skill. Added 2026-07-09. | DONE 2026-07-12: publish-preflight.ts adds calibrated 2025 pre-loved apparel grade bands (APPAREL_CONDITION_BANDS + mapGradeToApparelCondition/mapGradeToBaseCondition/isApparelPrelovedCategory/resolveEbayCondition) + conditionDescriptionConsistency; wired into all 3 flipdesk-ebay publish/revise/re-PUT sites (explicit editor value wins; non-apparel unchanged; apparel now reaches 2990/3010 and low grades no longer fail-to-publish). 34 deno tests. SPIKE FINDING (conditionDescriptors): eBay Inventory API structured conditionDescriptors are category-gated — supported for Trading Cards/some collectibles (grader/grade/cert descriptor ids) but NOT exposed for general APPAREL leaves as of 2025. Apparel condition granularity is carried by conditionId (2990/3000/3010) + free-text conditionDescription only; the Trading API path is gated the same way. So GradeThread grade+cert CANNOT be wired into structured descriptors for apparel — kept the existing approach (Condition Grade item specific + conditionDescription + /cert/:id per grade-listing-no-image-overlay). Revisit if eBay extends descriptors to apparel."
     },
     {
       "id": "US-1895",

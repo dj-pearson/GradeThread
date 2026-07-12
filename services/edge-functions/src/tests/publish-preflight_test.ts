@@ -1,16 +1,22 @@
 // US-473 + US-566: publish pre-flight — image cap/de-dup/order, category
 // condition allow-list validation, and image reachability probing.
 
-import { assertEquals } from "@std/assert";
+import { assert, assertEquals } from "@std/assert";
 import {
+  APPAREL_CONDITION_BANDS,
   checkImageReachability,
+  conditionDescriptionConsistency,
   CONDITION_ENUM_TO_ID,
   conditionOptionsForCategory,
   dedupeAndCapImages,
   EBAY_MAX_IMAGES,
   imageCapBlocker,
+  isApparelPrelovedCategory,
+  mapGradeToApparelCondition,
+  mapGradeToBaseCondition,
   reachabilityBlocker,
   remapConditionForCategory,
+  resolveEbayCondition,
   validateConditionForCategory,
 } from "../lib/publish-preflight.ts";
 
@@ -202,4 +208,117 @@ Deno.test("network errors are treated as reachable (best-effort)", async () => {
 Deno.test("reachabilityBlocker phrases the unreachable set", () => {
   const msg = reachabilityBlocker({ unreachable: ["a", "b"] });
   assertEquals(msg!.includes("2 photos"), true);
+});
+
+// ── US-1894: grade → eBay 2025 pre-loved apparel condition bands ──────────────
+
+const NON_APPAREL_USED = ["1000", "3000", "4000", "5000", "6000"]; // legacy ladder
+
+Deno.test("isApparelPrelovedCategory detects the 2990/3010 apparel set", () => {
+  assert(isApparelPrelovedCategory(APPAREL_CONDITIONS));
+  assert(isApparelPrelovedCategory(["1000", "3010"]));
+  assert(!isApparelPrelovedCategory(NON_APPAREL_USED));
+  assert(!isApparelPrelovedCategory([]));
+});
+
+Deno.test("apparel bands map each grade tier to the pre-loved scale", () => {
+  const m = (g: number) => mapGradeToApparelCondition(g, null);
+  assertEquals(m(9.9), "NEW"); // NWT tier
+  assertEquals(m(9.2), "NEW_OTHER"); // NWOT tier
+  assertEquals(m(8.0), "PRE_OWNED_EXCELLENT"); // 2990
+  assertEquals(m(7.5), "PRE_OWNED_EXCELLENT"); // band edge (inclusive)
+  assertEquals(m(6.0), "USED_EXCELLENT"); // 3000 = Pre-owned - Good
+  assertEquals(m(5.0), "USED_EXCELLENT"); // band edge (inclusive)
+  assertEquals(m(4.9), "PRE_OWNED_FAIR"); // 3010
+  assertEquals(m(2.0), "PRE_OWNED_FAIR"); // never falls off the pre-loved scale
+});
+
+Deno.test("apparel band edges track the named constants", () => {
+  const m = (g: number) => mapGradeToApparelCondition(g, null);
+  assertEquals(m(APPAREL_CONDITION_BANDS.NEW_MIN), "NEW");
+  assertEquals(m(APPAREL_CONDITION_BANDS.NEW_OTHER_MIN), "NEW_OTHER");
+  assertEquals(m(APPAREL_CONDITION_BANDS.PRE_OWNED_EXCELLENT_MIN), "PRE_OWNED_EXCELLENT");
+  assertEquals(m(APPAREL_CONDITION_BANDS.PRE_OWNED_GOOD_MIN), "USED_EXCELLENT");
+});
+
+Deno.test("apparel bands honor tag labels + defect hint", () => {
+  assertEquals(mapGradeToApparelCondition(6.0, "NWT"), "NEW");
+  assertEquals(mapGradeToApparelCondition(6.0, "NWOT"), "NEW_OTHER");
+  assertEquals(mapGradeToApparelCondition(9.9, "New with defects"), "NEW_WITH_DEFECTS");
+  assertEquals(mapGradeToApparelCondition(null, null), "USED_EXCELLENT");
+});
+
+Deno.test("resolveEbayCondition: apparel leaf uses pre-loved bands, always in-range", () => {
+  // Grade 8 excellent → 2990 (unreachable via the legacy ladder + downgrade-only remap).
+  assertEquals(
+    resolveEbayCondition({ explicit: null, grade: 8.0, label: null, allowedConditionIds: APPAREL_CONDITIONS }),
+    "PRE_OWNED_EXCELLENT",
+  );
+  // Grade 4 fair → 3010 (the legacy ladder produced 6000, which apparel rejects
+  // with nothing worse allowed → old code blocked the publish).
+  assertEquals(
+    resolveEbayCondition({ explicit: null, grade: 4.0, label: null, allowedConditionIds: APPAREL_CONDITIONS }),
+    "PRE_OWNED_FAIR",
+  );
+});
+
+Deno.test("resolveEbayCondition: explicit editor value wins (only allow-list-remapped)", () => {
+  // Explicit NEW is accepted by the apparel leaf → returned untouched.
+  assertEquals(
+    resolveEbayCondition({ explicit: "NEW", grade: 4.0, label: null, allowedConditionIds: APPAREL_CONDITIONS }),
+    "NEW",
+  );
+  // Explicit LIKE_NEW is rejected by apparel → remapped down, not to a grade band.
+  assertEquals(
+    resolveEbayCondition({ explicit: "LIKE_NEW", grade: 9.0, label: null, allowedConditionIds: APPAREL_CONDITIONS }),
+    "PRE_OWNED_EXCELLENT",
+  );
+});
+
+Deno.test("resolveEbayCondition: NON-apparel category is unchanged (base ladder + remap)", () => {
+  for (const grade of [9.9, 8.0, 6.5, 5.0, 3.0]) {
+    const base = mapGradeToBaseCondition(grade, null);
+    assertEquals(
+      resolveEbayCondition({ explicit: null, grade, label: null, allowedConditionIds: NON_APPAREL_USED }),
+      remapConditionForCategory(base, NON_APPAREL_USED),
+    );
+  }
+});
+
+Deno.test("resolveEbayCondition: unknown allow-list leaves the base condition untouched", () => {
+  assertEquals(
+    resolveEbayCondition({ explicit: null, grade: 8.0, label: null, allowedConditionIds: [] }),
+    mapGradeToBaseCondition(8.0, null),
+  );
+});
+
+// ── US-1894 AC2: condition-description consistency ─────────────────────────────
+
+Deno.test("condition description flags superlatives on lower tiers", () => {
+  const fair = conditionDescriptionConsistency("PRE_OWNED_FAIR", "In flawless, like new shape!");
+  assert(!fair.ok);
+  assert(fair.warnings.length >= 1);
+
+  const good = conditionDescriptionConsistency("USED_EXCELLENT", "Pristine, no signs of wear");
+  assert(!good.ok);
+});
+
+Deno.test("condition description allows honest text + higher tiers", () => {
+  assertEquals(
+    conditionDescriptionConsistency("PRE_OWNED_FAIR", "Visible fading and a small stain on the hem").ok,
+    true,
+  );
+  // Excellent / NEW may use strong language.
+  assertEquals(conditionDescriptionConsistency("PRE_OWNED_EXCELLENT", "flawless").ok, true);
+  assertEquals(conditionDescriptionConsistency("NEW", "pristine, unworn").ok, true);
+  // Empty text passes.
+  assertEquals(conditionDescriptionConsistency("PRE_OWNED_FAIR", "").ok, true);
+  assertEquals(conditionDescriptionConsistency("PRE_OWNED_FAIR", null).ok, true);
+});
+
+Deno.test("condition description word-boundary: 'mint' inside a word does not fire", () => {
+  assertEquals(
+    conditionDescriptionConsistency("PRE_OWNED_FAIR", "faint minty-green colour, worn").ok,
+    true,
+  );
 });

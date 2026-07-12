@@ -214,6 +214,193 @@ export function remapConditionForCategory(
   return best ? best.cond : null;
 }
 
+// ── US-1894: grade → eBay 2025 pre-loved apparel condition mapping ───────────
+//
+// eBay split apparel "Used" into a 3-tier PRE-OWNED scale in Jan-2025:
+//   • Pre-owned - Excellent (2990)  — worn a handful of times, no visible flaws
+//   • Pre-owned - Good      (3000)  — light, expected wear (eBay's "used" id)
+//   • Pre-owned - Fair      (3010)  — noticeable wear/flaws, still wearable
+// plus the "new" family: New (1000), New without tags (1500 / NEW_OTHER), and
+// New with imperfections (1750 / NEW_WITH_DEFECTS).
+//
+// The base map (mapGradeToBaseCondition) targets the LEGACY used ladder
+// (USED_EXCELLENT/VERY_GOOD/GOOD/ACCEPTABLE = 3000/4000/5000/6000). That ladder
+// never produces 2990 or 3010, and remapConditionForCategory only ever moves
+// EQUAL-OR-WORSE — so on an apparel leaf that accepts ONLY {1000,1500,1750,2990,
+// 3000,3010} a low-grade item mapped to 6000 has nothing worse allowed and fails
+// to publish (the flip side of the 25021 overstatement bug). The apparel band
+// map below targets the pre-loved scale directly so every grade lands in-range.
+
+// GradeThread scale → apparel pre-loved condition. Bands are calibrated to the
+// tier boundaries in CLAUDE.md (NWT 10 / NWOT 9 / Excellent 8 / Very Good 7 /
+// Good 6 / Fair 5 / Poor 3-4). Named so a reviewer can see the mapping at a
+// glance; keep in lockstep with mapGradeToApparelCondition.
+export const APPAREL_CONDITION_BANDS = {
+  /** ≥ this → New (1000): the NWT tier. */
+  NEW_MIN: 9.75,
+  /** ≥ this → New without tags (1500): the NWOT tier. */
+  NEW_OTHER_MIN: 9.0,
+  /** ≥ this → Pre-owned - Excellent (2990). */
+  PRE_OWNED_EXCELLENT_MIN: 7.5,
+  /** ≥ this → Pre-owned - Good (3000, USED_EXCELLENT enum). Below → Fair (3010). */
+  PRE_OWNED_GOOD_MIN: 5.0,
+} as const;
+
+/**
+ * Legacy grade → condition ladder (the historical mapEbayCondition body, made
+ * shared so flipdesk-ebay and this module stay single-source). Used for
+ * NON-apparel categories and as the pre-remap default. Explicit editor values
+ * still win upstream.
+ */
+export function mapGradeToBaseCondition(
+  grade: number | null,
+  label: string | null,
+): EbayCondition {
+  const upper = (label ?? "").toUpperCase();
+  const isNwot = upper.includes("NWOT") || upper.includes("WITHOUT TAGS");
+  const isNwt = !isNwot && (upper.includes("NWT") || upper.includes("WITH TAGS"));
+  if (isNwt) return "NEW";
+  if (isNwot) return "NEW_OTHER";
+  if (grade != null) {
+    if (grade >= 9.75) return "NEW";
+    if (grade >= 9.0) return "NEW_OTHER";
+    if (grade >= 7.5) return "USED_EXCELLENT";
+    if (grade >= 6.0) return "USED_VERY_GOOD";
+    if (grade >= 4.5) return "USED_GOOD";
+    return "USED_ACCEPTABLE";
+  }
+  return "USED_EXCELLENT";
+}
+
+/**
+ * Grade → eBay 2025 pre-loved APPAREL condition (the {NEW, NEW_OTHER,
+ * NEW_WITH_DEFECTS, PRE_OWNED_EXCELLENT, USED_EXCELLENT=Good, PRE_OWNED_FAIR}
+ * set). A label carrying a "new with defects / imperfections" hint maps to
+ * NEW_WITH_DEFECTS even at a high grade (a flaw on an otherwise-new item).
+ */
+export function mapGradeToApparelCondition(
+  grade: number | null,
+  label: string | null,
+): EbayCondition {
+  const upper = (label ?? "").toUpperCase();
+  const isNwot = upper.includes("NWOT") || upper.includes("WITHOUT TAGS");
+  const isNwt = !isNwot && (upper.includes("NWT") || upper.includes("WITH TAGS"));
+  const hasDefectHint = upper.includes("DEFECT") || upper.includes("IMPERFECT") ||
+    upper.includes("NWD");
+  // A flaw on an otherwise-NEW item → New with defects (1750). Only in the NEW
+  // grade range: a defect on a worn item is just normal pre-owned wear.
+  const inNewRange = isNwt || isNwot ||
+    (grade != null && grade >= APPAREL_CONDITION_BANDS.NEW_OTHER_MIN);
+  if (hasDefectHint && inNewRange) return "NEW_WITH_DEFECTS";
+  if (isNwt) return "NEW";
+  if (isNwot) return "NEW_OTHER";
+  if (grade == null) return "USED_EXCELLENT"; // = Pre-owned - Good (3000)
+  if (grade >= APPAREL_CONDITION_BANDS.NEW_MIN) return "NEW";
+  if (grade >= APPAREL_CONDITION_BANDS.NEW_OTHER_MIN) return "NEW_OTHER";
+  if (grade >= APPAREL_CONDITION_BANDS.PRE_OWNED_EXCELLENT_MIN) {
+    return "PRE_OWNED_EXCELLENT";
+  }
+  if (grade >= APPAREL_CONDITION_BANDS.PRE_OWNED_GOOD_MIN) return "USED_EXCELLENT";
+  return "PRE_OWNED_FAIR";
+}
+
+/**
+ * True when the category's allow-list is the apparel pre-loved taxonomy — i.e.
+ * it accepts the granular apparel ids 2990 (Excellent) or 3010 (Fair). These
+ * ids only appear on clothing/shoe/accessory leaves, so their presence is the
+ * signal to map via the pre-loved bands rather than the legacy used ladder.
+ */
+export function isApparelPrelovedCategory(
+  allowedConditionIds: string[],
+): boolean {
+  if (!allowedConditionIds || allowedConditionIds.length === 0) return false;
+  return allowedConditionIds.includes("2990") ||
+    allowedConditionIds.includes("3010");
+}
+
+/**
+ * Unified condition resolver for the publish/revise path (US-1894).
+ *   1. An explicit editor value always wins (only allow-list-remapped for safety).
+ *   2. Else, on an apparel pre-loved category, map the grade via the 2025 bands.
+ *   3. Else, use the legacy base ladder (non-apparel unchanged).
+ * The result is always passed through remapConditionForCategory so it can never
+ * overstate quality nor emit an id the leaf rejects. Returns null only when even
+ * the remap can't find a representable equal-or-worse condition (caller blocks).
+ */
+export function resolveEbayCondition(params: {
+  explicit?: string | null;
+  grade: number | null;
+  label: string | null;
+  allowedConditionIds: string[];
+}): EbayCondition | null {
+  const { explicit, grade, label, allowedConditionIds } = params;
+  const desired = explicit && explicit.trim()
+    ? (explicit.trim() as EbayCondition)
+    : isApparelPrelovedCategory(allowedConditionIds)
+    ? mapGradeToApparelCondition(grade, label)
+    : mapGradeToBaseCondition(grade, label);
+  return remapConditionForCategory(desired, allowedConditionIds);
+}
+
+// Superlatives that contradict a lower pre-owned tier — a "flawless" claim on a
+// Good/Fair listing invites INAD ("item not as described") returns and, per
+// eBay's own guidance, suppresses visibility. Lower-cased, whole-word matched.
+const CONTRADICTORY_SUPERLATIVES = [
+  "flawless",
+  "pristine",
+  "mint",
+  "like new",
+  "as new",
+  "perfect condition",
+  "no flaws",
+  "no signs of wear",
+  "immaculate",
+  "unworn",
+];
+
+// The tiers a superlative would contradict (Good / Fair / worse). "Excellent"
+// and the NEW family may legitimately use strong language.
+const LOWER_PREOWNED_TIERS = new Set<EbayCondition>([
+  "USED_EXCELLENT", // = Pre-owned - Good
+  "PRE_OWNED_FAIR",
+  "USED_VERY_GOOD",
+  "USED_GOOD",
+  "USED_ACCEPTABLE",
+  "FOR_PARTS_OR_NOT_WORKING",
+]);
+
+export interface ConditionDescriptionCheck {
+  ok: boolean;
+  /** Human-readable contradictions found (empty when ok). */
+  warnings: string[];
+}
+
+/**
+ * US-1894 AC2: flag condition-description text that contradicts the chosen tier
+ * (e.g. "flawless" on a Pre-owned - Fair listing). Pure + caller decides whether
+ * to warn, block, or strip. Empty/absent text and higher tiers pass.
+ */
+export function conditionDescriptionConsistency(
+  condition: EbayCondition,
+  text: string | null | undefined,
+): ConditionDescriptionCheck {
+  const body = (text ?? "").toLowerCase();
+  if (!body.trim() || !LOWER_PREOWNED_TIERS.has(condition)) {
+    return { ok: true, warnings: [] };
+  }
+  const warnings: string[] = [];
+  for (const phrase of CONTRADICTORY_SUPERLATIVES) {
+    // Word-boundary match so "mint" doesn't fire inside "mintable" etc.
+    const re = new RegExp(`\\b${phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`);
+    if (re.test(body)) {
+      warnings.push(
+        `"${phrase}" contradicts the "${labelForConditionId(CONDITION_ENUM_TO_ID[condition])}" condition`,
+      );
+    }
+  }
+  return { ok: warnings.length === 0, warnings };
+}
+
 export interface CategoryConditionOption {
   /** The emittable eBay condition enum (what the Inventory API takes). */
   value: EbayCondition;

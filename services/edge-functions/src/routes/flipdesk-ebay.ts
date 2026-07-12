@@ -139,7 +139,8 @@ import {
   imageCapBlocker,
   reachabilityBlocker,
   validateConditionForCategory,
-  remapConditionForCategory,
+  resolveEbayCondition,
+  mapGradeToBaseCondition,
   conditionOptionsForCategory,
 } from "../lib/publish-preflight.ts";
 import {
@@ -5043,11 +5044,18 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
     if (reviseCategoryId) {
       try {
         const { conditionIds } = await getItemConditionPolicies(reviseCategoryId);
-        const remapped = remapConditionForCategory(reviseCondition, conditionIds);
+        // US-1894: apparel-aware resolve (2025 pre-loved bands on apparel leaves)
+        // + allow-list remap; explicit editor value still wins.
+        const remapped = resolveEbayCondition({
+          explicit: listingCondition,
+          grade: item.grade_value,
+          label: item.grade_label,
+          allowedConditionIds: conditionIds,
+        });
         if (remapped !== null && remapped !== reviseCondition) {
           console.log(
-            `[flipdesk-ebay] revise condition "${reviseCondition}" not accepted ` +
-              `by category ${reviseCategoryId}; auto-picked "${remapped}"`,
+            `[flipdesk-ebay] revise condition "${reviseCondition}" resolved to ` +
+              `"${remapped}" for category ${reviseCategoryId}`,
           );
           reviseCondition = remapped;
         }
@@ -7827,7 +7835,13 @@ export async function resyncGradeToLiveListing(
   if (categoryId) {
     try {
       const { conditionIds } = await getItemConditionPolicies(categoryId);
-      const remapped = remapConditionForCategory(condition, conditionIds);
+      // US-1894: apparel-aware resolve + allow-list remap; explicit value wins.
+      const remapped = resolveEbayCondition({
+        explicit: listing.ebay_condition,
+        grade: item.grade_value,
+        label: item.grade_label as string | null,
+        allowedConditionIds: conditionIds,
+      });
       if (remapped && remapped !== condition) condition = remapped;
     } catch { /* best-effort — leave the resolved condition */ }
   }
@@ -8513,14 +8527,22 @@ export async function assemblePublishContext(
   if (categoryId) {
     try {
       const { conditionIds } = await getItemConditionPolicies(categoryId);
-      const remapped = remapConditionForCategory(condition, conditionIds);
+      // US-1894: apparel-aware resolve (2025 pre-loved bands on apparel leaves)
+      // + allow-list remap. Non-apparel categories resolve identically to the
+      // legacy base→remap path. Explicit editor value still wins.
+      const remapped = resolveEbayCondition({
+        explicit: listing?.ebay_condition,
+        grade: item.grade_value,
+        label: item.grade_label,
+        allowedConditionIds: conditionIds,
+      });
       if (remapped === null) {
         const condBlocker = validateConditionForCategory(condition, conditionIds);
         if (condBlocker) blockers.push(condBlocker);
       } else if (remapped !== condition) {
         console.log(
-          `[flipdesk-ebay] condition "${condition}" not accepted by category ` +
-            `${categoryId}; auto-picked "${remapped}"`,
+          `[flipdesk-ebay] condition "${condition}" resolved to "${remapped}" ` +
+            `for category ${categoryId}`,
         );
         condition = remapped;
       }
@@ -8641,35 +8663,17 @@ export async function assemblePublishContext(
   };
 }
 
-// Maps GradeThread's 1-10 grade to an eBay clothing condition string. eBay's
-// `condition` enum field on inventory_item PUT accepts these symbolic names;
-// note that not every leaf category accepts every value — categories with
-// stricter taxonomies (vintage, designer) may reject anything but NEW vs
-// USED_EXCELLENT. We default to USED_EXCELLENT for missing grades.
+// Maps GradeThread's 1-10 grade to an eBay clothing condition string. Delegates
+// to the shared, unit-tested base ladder in publish-preflight.ts (single-source
+// with US-1894's apparel-band mapping). This produces the pre-remap DEFAULT; the
+// publish/revise path resolves the final condition via resolveEbayCondition,
+// which switches to eBay's 2025 pre-loved apparel bands on apparel leaves and
+// then remaps against the category allow-list (never overstating quality).
 function mapEbayCondition(
   grade: number | null,
-  label: string | null
+  label: string | null,
 ): string {
-  // Tier labels (CLAUDE.md): NWT 10, NWOT 9, Excellent 8, … . eBay's apparel
-  // conditions distinguish New WITH tags (NEW/1000) from New WITHOUT tags
-  // (NEW_OTHER/1500). The grade-9 NWOT tier used to map to LIKE_NEW (2750),
-  // which most apparel categories reject (publish error 25021) — NEW_OTHER is
-  // the correct "new without tags" condition. The publish path further auto-
-  // corrects this against the leaf category's allow-list (remapConditionForCategory).
-  const upper = (label ?? "").toUpperCase();
-  const isNwot = upper.includes("NWOT") || upper.includes("WITHOUT TAGS");
-  const isNwt = !isNwot && (upper.includes("NWT") || upper.includes("WITH TAGS"));
-  if (isNwt) return "NEW";
-  if (isNwot) return "NEW_OTHER";
-  if (grade != null) {
-    if (grade >= 9.75) return "NEW";
-    if (grade >= 9.0) return "NEW_OTHER";
-    if (grade >= 7.5) return "USED_EXCELLENT";
-    if (grade >= 6.0) return "USED_VERY_GOOD";
-    if (grade >= 4.5) return "USED_GOOD";
-    return "USED_ACCEPTABLE";
-  }
-  return "USED_EXCELLENT";
+  return mapGradeToBaseCondition(grade, label);
 }
 
 // Resolves an in-app path against the configured frontend origin. Used for
