@@ -95,6 +95,11 @@ import {
 import type { AspectSourceMap } from "@/lib/aspect-provenance";
 import { advanceItemStatus } from "@/lib/status-writer";
 import { deriveListingOrigin } from "@/lib/listing-origin";
+import {
+  changesFromItemDiff,
+  syncTitle,
+  trimTitleToLimit,
+} from "@/lib/title-sync";
 import { cn, errorMessage } from "@/lib/utils";
 import {
   AiFillPanel,
@@ -115,6 +120,7 @@ import type {
   GarmentCategory,
   AiFieldSource,
   InventoryItemRow,
+  ListingAiSnapshot,
 } from "@/types/database";
 
 // Helper to render a human label from a kebab/snake enum value.
@@ -932,7 +938,7 @@ export function ItemCanvas({
       const { data: lstRaw } = await supabase
         .from("listings")
         .select(
-          "item_specifics_override, item_specifics_sources, listing_title, listing_description, listing_price",
+          "item_specifics_override, item_specifics_sources, listing_title, listing_description, listing_price, title_variants, ai_generated_snapshot",
         )
         .eq("id", item.listing_id)
         .maybeSingle();
@@ -942,6 +948,8 @@ export function ItemCanvas({
         listing_title: string | null;
         listing_description: string | null;
         listing_price: number | null;
+        title_variants: Array<{ label?: string; title?: string; active?: boolean }> | null;
+        ai_generated_snapshot: ListingAiSnapshot | null;
       } | null;
       const lp = projectColumnAspects(
         columnFields,
@@ -984,6 +992,57 @@ export function ItemCanvas({
           (draftPrice == null || draftPrice === item.target_price)
         ) {
           listingUpdate.listing_price = newPrice;
+        }
+      }
+      // US-1891: backwards title sync. When the seller corrects a searchable
+      // field (brand/size/color/style/department), substitute it into the
+      // listing TITLE too — the one field buyers search hardest, which nothing
+      // else rebuilds. Never touch an eBay-origin mirror (sync-precedence guard).
+      const titleFieldChanges = changesFromItemDiff(
+        {
+          brand: item.brand,
+          size: item.size,
+          color: item.color,
+          style: item.style,
+          department: loadedAttrs.current.strings.department,
+        },
+        {
+          brand: s.brand,
+          size: s.size,
+          color: s.color,
+          style: s.style,
+          department: s.attributes.department,
+        },
+      );
+      if (!lockedByEbay && titleFieldChanges.length > 0) {
+        // Sync the title as it will stand after the draft smart-merge above.
+        const baseTitle =
+          (typeof listingUpdate.listing_title === "string"
+            ? listingUpdate.listing_title
+            : null) ??
+          lstRow?.listing_title ??
+          item.item_title ??
+          "";
+        const syncedTitle = syncTitle(baseTitle, titleFieldChanges);
+        if (syncedTitle && syncedTitle !== trimTitleToLimit(baseTitle)) {
+          listingUpdate.listing_title = syncedTitle;
+          // AC4: both A/B title variants get the substitution.
+          const variants = lstRow?.title_variants;
+          if (Array.isArray(variants)) {
+            listingUpdate.title_variants = variants.map((v) =>
+              v && typeof v.title === "string"
+                ? { ...v, title: syncTitle(v.title, titleFieldChanges) }
+                : v,
+            );
+          }
+          // AC2/AC3: a hand-edited title (diverged from the AI snapshot) or a
+          // LIVE GradeThread listing flags needs_review — the composer surfaces
+          // the diff chip / "listing out of date — push update" prompt (which
+          // uses the revise-in-place path; never an auto end/relist).
+          const snapTitle = (lstRow?.ai_generated_snapshot?.title ?? "").trim();
+          const handEdited = snapTitle !== "" &&
+            trimTitleToLimit(baseTitle) !== trimTitleToLimit(snapTitle);
+          if (handEdited || isGtLive) listingUpdate.needs_review = true;
         }
       }
       await supabase

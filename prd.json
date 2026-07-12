@@ -15513,8 +15513,8 @@
         "Tests: brand swap, size swap, hand-edited title flagging, ebay-origin refusal, 80-char re-trim after a longer brand name"
       ],
       "priority": 1891,
-      "passes": false,
-      "notes": "[P1][SEO] The founder's explicit backwards-mapping ask (2026-07-09). See EBAY_RANKING_PLAYBOOK.md. Coordinates with SYNC_SOURCE_OF_TRUTH.md — listing_title stays GT-owned for GT-origin listings. Added 2026-07-09."
+      "passes": true,
+      "notes": "[P1][SEO] The founder's explicit backwards-mapping ask (2026-07-09). See EBAY_RANKING_PLAYBOOK.md. Coordinates with SYNC_SOURCE_OF_TRUTH.md — listing_title stays GT-owned for GT-origin listings. Added 2026-07-09. | DONE 2026-07-12: title-sync.ts (edge lib + frontend LOCKSTEP mirror) — applyTitleSubstitution (token-boundary, case-transfer, multi-word brand, size Size-L/Sz-L/bare, no-op when absent) + syncTitle (batch + trimTitleToLimit re-trim) + changesFromItemDiff; 14 deno + 8 vitest. Wired into item-canvas persist(): GT-origin non-ebay listings substitute changed brand/size/color/style/department into listing_title + BOTH title_variants; draft in-place, live GT + hand-edited (vs ai_generated_snapshot) set needs_review (composer AiDiffChip already renders the diff+revert; live = push-update via revise path); lockedByEbay guard skips ebay-origin. Aspect projection (US-822/824) unchanged. Edge AI-apply path regenerates titles wholesale so needs no sync. tsc-b+deno+eslint+build green."
     },
     {
       "id": "US-1892",
