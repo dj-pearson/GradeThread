@@ -7,6 +7,7 @@ import { processSubmission } from "../lib/grading-pipeline.ts";
 import { IN_APP_CAPTURE_SOURCE } from "../lib/verified-capture.ts";
 import { validateImageUpload } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
+import { validateVideoUpload } from "../lib/video-validation.ts";
 import { computePhashFromImage } from "../lib/perceptual-hash.ts";
 import {
   GRADE_TIERS,
@@ -78,6 +79,14 @@ const REQUIRED_IMAGE_TYPES = ["front", "back", "label"];
 // the number of distinct IMAGE_TYPES slots; duplicate types are also rejected
 // below so cost scales with garment coverage, not attacker choice. (HIGH-1)
 const MAX_IMAGES_PER_SUBMISSION = IMAGE_TYPES.length;
+
+// US-1763: optional walk-around video clip. Caps keep a single grade's storage
+// + (future US-1764) frame-extraction cost bounded — a short clip, not a movie.
+// The bytes land in the same private submission bucket + owner folder as the
+// photos; grading FROM the video is a separate story, so this branch only
+// accepts, validates (magic-byte sniff + size + duration), and stores it.
+const MAX_VIDEO_BYTES = 60 * 1024 * 1024; // 60 MB
+const MAX_VIDEO_DURATION_SECONDS = 45;
 
 // Optional seller-declared intentional design features. Passed to the grader
 // as a hint so factory distressing isn't read as damage. Allowlist keeps the
@@ -377,6 +386,32 @@ gradeRoutes.post("/submit", async (c) => {
     }
   }
 
+  // US-1763: optional walk-around video. Validate BEFORE creating the
+  // submission so a bad/oversized/over-long clip is rejected as cheaply as a bad
+  // image (magic-byte sniff, not the client MIME). Held in memory for the upload
+  // step below once the submission row exists.
+  let videoUpload:
+    | { bytes: Uint8Array; contentType: string; ext: string; durationSeconds: number | null }
+    | null = null;
+  const videoEntry = formData.get("video");
+  if (videoEntry instanceof File && videoEntry.size > 0) {
+    const vBytes = new Uint8Array(await videoEntry.arrayBuffer());
+    const vVerdict = validateVideoUpload(vBytes, {
+      maxBytes: MAX_VIDEO_BYTES,
+      maxDurationSeconds: MAX_VIDEO_DURATION_SECONDS,
+    });
+    if (!vVerdict.ok) {
+      errors.push(`Invalid video: ${vVerdict.reason}`);
+    } else {
+      videoUpload = {
+        bytes: vBytes,
+        contentType: vVerdict.contentType,
+        ext: vVerdict.ext,
+        durationSeconds: vVerdict.durationSeconds,
+      };
+    }
+  }
+
   if (errors.length > 0) {
     return c.json({ error: "Validation failed", details: errors }, 400);
   }
@@ -609,6 +644,38 @@ gradeRoutes.post("/submit", async (c) => {
     }
     await supabaseAdmin.from("submissions").delete().eq("id", submissionId);
     return c.json({ error: "Failed to save image records" }, 500);
+  }
+
+  // US-1763: store the validated walk-around video (if any) alongside the
+  // photos in the private bucket + owner folder, then record its path on the
+  // submission for US-1764 to consume. The clip is supplementary to the
+  // photo-based grade, so a storage/patch failure is best-effort (logged) — it
+  // must not fail an otherwise-good submission.
+  if (videoUpload) {
+    const videoPath =
+      `${ownerId}/${submissionId}/video_${Date.now()}.${videoUpload.ext}`;
+    const { error: videoUploadError } = await supabaseAdmin.storage
+      .from("submission-images")
+      .upload(videoPath, videoUpload.bytes, {
+        contentType: videoUpload.contentType,
+        upsert: false,
+      });
+    if (videoUploadError) {
+      console.error("Failed to upload video:", videoUploadError);
+    } else {
+      const { error: videoPatchError } = await supabaseAdmin
+        .from("submissions")
+        .update({
+          video_storage_path: videoPath,
+          video_content_type: videoUpload.contentType,
+          video_duration_seconds: videoUpload.durationSeconds,
+        })
+        .eq("id", submissionId)
+        .eq("user_id", ownerId);
+      if (videoPatchError) {
+        console.error("Failed to record video path:", videoPatchError);
+      }
+    }
   }
 
   // US-949: now that the retake submission exists with its images, mark the

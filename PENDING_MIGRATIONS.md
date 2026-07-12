@@ -44,6 +44,24 @@ auto-deploy is unaffected. Bumps `EXPECTED_SCHEMA_VERSION` → **00440**.
   one. **Risk: LOW** — a genuine collision means a duplicate issuance, not two
   valid keys; the delete keeps the earliest row per hash.
 
+## ⏳ PENDING: 00441_submission_video.sql (US-1763 walk-around video grading, 2026-07-12)
+
+Adds three **nullable** columns to `public.submissions` —
+`video_storage_path text`, `video_content_type text`,
+`video_duration_seconds numeric` — so the grade `/submit` video branch can
+persist the reference to an uploaded walk-around clip (stored in the private
+`submission-images` bucket, same per-user folder + RLS as the photos). The
+follow-on frame-extraction story (US-1764) consumes these. Apply after 00440 via
+`scripts/apply-prod-migrations.sh` (idempotent `ADD COLUMN IF NOT EXISTS`), then
+`NOTIFY pgrst, 'reload schema';`, then redeploy the edge (boot guard now expects
+**00441**). Bumps `EXPECTED_SCHEMA_VERSION` → **00441**.
+
+**Risk: LOW** — additive nullable columns, no rewrite, no default. **No CLIENT
+read** of these columns in this branch (the edge writes them; nothing on the
+frontend reads them yet), so the Cloudflare Pages auto-deploy is unaffected — but
+the EDGE write path (`grade.ts`) sets them, so the edge redeploy must follow the
+migration (standard boot-guard order).
+
 ## ⏳ PENDING: 00435_sync_state_flipdesk_id_text.sql (bring-your-own-sheet snapshot save, 2026-07-12)
 
 **What:** Widens `public.google_sheet_sync_state.flipdesk_id` from **uuid → text**

@@ -13626,8 +13626,8 @@
         "Client guidance for HEVC/HEIC-container edge cases (transcode or reject with a clear message)"
       ],
       "priority": 1763,
-      "passes": false,
-      "notes": "[P2][VIDEO-GRADE][NEW] Extend upload-validation.ts (sniffImageFormat -> add video magic bytes) + IMAGE_TYPES/multipart parse in grade.ts. Reuse the private submission-images bucket RLS pattern."
+      "passes": true,
+      "notes": "[P2][VIDEO-GRADE][NEW] Extend upload-validation.ts (sniffImageFormat -> add video magic bytes) + IMAGE_TYPES/multipart parse in grade.ts. Reuse the private submission-images bucket RLS pattern. | DONE 2026-07-12: lib/video-validation.ts (mp4/mov/webm magic-byte sniff, HEIF-image reject, byte+duration caps, best-effort ISO-BMFF mvhd + EBML Info/Duration parse, fail-open) + 20 deno tests; grade.ts /submit video branch validates before submission-create, stores to private submission-images bucket at owner/submission path, patches submissions.video_* (tenant-scoped); migration 00441 (held). US-1764 consumes video_storage_path."
     },
     {
       "id": "US-1764",
