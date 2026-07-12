@@ -15922,7 +15922,7 @@
         "Load the `grading-engine` skill; respects prompt-version lifecycle"
       ],
       "priority": 1922,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Edge/Grading] Code-review sweep 2026-07-11. Load `grading-engine` skill.",
       "relevantPaths": [
         "services/edge-functions/src/lib/few-shot-exemplars.ts",

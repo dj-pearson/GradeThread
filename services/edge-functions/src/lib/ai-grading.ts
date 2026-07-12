@@ -1725,6 +1725,33 @@ export function shouldAppendActiveExemplars(
   return !hasPromptOverride && !suppressExemplars;
 }
 
+// US-1922: the ONE way a few-shot exemplar block is composed onto a base
+// composite prompt. Both the live grade path (compositeGrade) and the exemplar
+// eval gate (few-shot-exemplars.ts evalExemplarSet) route through this so a set
+// is measured against the byte-identical base string it will run under. Empty
+// block → base unchanged (grading behavior identical when no set is active).
+export function composeExemplarPrompt(
+  baseText: string,
+  exemplarBlock: string,
+): string {
+  return exemplarBlock ? `${baseText}\n\n${exemplarBlock}` : baseText;
+}
+
+// US-1922: resolve the ACTIVE composite prompt (DB override → code default) for
+// a category — the SAME resolution the live grade path uses. The eval gate must
+// compose a candidate exemplar block onto THIS base, not the hard-coded default,
+// or a set can pass the golden-set gate yet regress live grading whenever a DB
+// composite override is active. No bucketKey → the champion (active) prompt, not
+// a canary, which is what a gate should measure against.
+export function resolveActiveCompositePrompt(
+  garmentCategory: string | null,
+): Promise<ResolvedPrompt> {
+  return resolveActivePrompt("composite", garmentCategory, {
+    text: COMPOSITE_SYSTEM_PROMPT,
+    versionName: COMPOSITE_PROMPT_VERSION,
+  });
+}
+
 export async function compositeGrade(
   perImageResults: PerImageAnalysis[],
   garmentInfo: GarmentInfo,
@@ -1797,7 +1824,9 @@ export async function compositeGrade(
     const exemplarBlock = await getActiveExemplarBlock(
       garmentInfo.garment_category || null,
     );
-    if (exemplarBlock) systemText = `${systemText}\n\n${exemplarBlock}`;
+    // US-1922: compose via the shared helper so the eval gate can compose the
+    // candidate block onto the identical base string this path runs under.
+    systemText = composeExemplarPrompt(systemText, exemplarBlock);
   }
 
   // Cache the static composite system prompt (tier definitions + weights + the
