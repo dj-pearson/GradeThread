@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1952,
+  "nextId": 1963,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -16438,6 +16438,215 @@
         "src/pages/marketing/grading-by-category.tsx",
         "src/pages/marketing/design-vs-damage.tsx",
         "services/edge-functions/src/lib/defect-weighting.ts"
+      ]
+    },
+    {
+      "id": "US-1952",
+      "title": "EPIC: Apple-style continuous-scroll homepage — dissolve the 12 compartments into one flowing film",
+      "description": "As GradeThread, we want the homepage to read as ONE cohesive, continuously-flowing experience (like apple.com/ipad-air) instead of 12 stacked, hard-bordered sections. Today src/pages/landing.tsx is 12 <section> blocks separated by `border-t` seams and alternating bg fills, and the tuned WebGL hero orb (hero-orb.tsx) is trapped in the hero and dies at 100vh — nothing carries the eye across the seams. This epic introduces a scroll-experience layer built on GSAP (free since 2025-04, incl. ScrollTrigger + SplitText, bundle-able / CSP-safe) + Lenis smooth-scroll (lenis/react) + the EXISTING raw Three.js orb (evolved, NOT rewritten to react-three-fiber). The four cohesion levers: (1) unified momentum scroll, (2) a single continuous background field that morphs with global scroll progress so section seams disappear, (3) the orb promoted to a persistent 'grade object' that travels + transforms down the page and RESOLVES into the certificate score, (4) GSAP pinned/scrubbed scenes that stage-tell instead of stack. HARD RULES for every child story: progressive enhancement over the prerendered HTML (bots / no-JS / prefers-reduced-motion see the final static layout — same gate pattern hero-backdrop.tsx already uses); the scroll engine lazy-loads AFTER first paint so the eager landing bundle + LCP never regress; Lenis and heavy scenes are disabled on touch + reduced-motion + save-data; a single GSAP context with full teardown on SPA unmount (mirror the orb's existing dispose discipline); the bundle-budget CI check stays green. 21st.dev is used a-la-carte (npx shadcn add <url>) to source polished shadcn-compatible blocks, NOT as a dependency/engine. Framer/Motion is intentionally NOT added (one scroll engine only).",
+      "acceptanceCriteria": [
+        "A written build order exists (this epic) with the child stories below sequenced Phase 1 -> Phase 5",
+        "The final homepage reads as one continuous field: no hard `border-t` compartment seams, a background that flows across the whole page, and the hero orb visibly travels/transforms rather than dying at the hero",
+        "Every motion feature degrades to the current static prerendered layout under prefers-reduced-motion, no-JS, and bot/prerender rendering — verified",
+        "No LCP/CLS regression and the bundle-budget CI check remains green after the engine is added (measured, not assumed)",
+        "All child stories US-<foundation..hardening> are completed and their individual ACs met"
+      ],
+      "priority": 2606,
+      "passes": false,
+      "notes": "[P1][Web/Marketing][Epic] Apple-style flowed-homepage design plan 2026-07-13. Deep-dive conclusion after surveying the wider toolset (GSAP, Lenis, Motion/framer, react-three-fiber+drei ScrollControls, Theatre.js, Rive, Lottie, Spline, native CSS scroll-driven animations, View Transitions). Chosen stack: NATIVE-FIRST — use CSS scroll-driven animations (animation-timeline: view()/scroll()) + the View Transitions API wherever they suffice (cheap, no JS), and reserve GSAP(+ScrollTrigger+SplitText, now free/bundle-able) + Lenis for the hard parts only (pinning, scrubbed 3D choreography, orb->certificate). KEEP the raw three.js orb (do NOT add react-three-fiber/drei); one continuous morphing background is the single highest-impact 'not compartments' lever. Rejected for v1 but noted as options: Motion/react (declarative alt engine), Theatre.js (visual timeline editor for the 3D choreography), Rive (lightweight illustrated scenes), R3F drei ScrollControls (would require rewriting the tuned orb). Progressive-enhancement + reduced-motion parity mandatory (reuse hero-backdrop gating). The FlipDesk pinned-pipeline child resolves QA US-1949. Build order = descending child-story priority.",
+      "relevantPaths": [
+        "src/pages/landing.tsx",
+        "src/components/marketing/hero-orb.tsx",
+        "src/components/marketing/hero-backdrop.tsx",
+        "src/index.css",
+        "package.json"
+      ]
+    },
+    {
+      "id": "US-1953",
+      "title": "Scroll-experience engine foundation: GSAP + Lenis, gated + lazy, progressive enhancement",
+      "description": "As GradeThread, we want a single reusable scroll-experience layer that all homepage scenes plug into, without regressing the prerendered baseline. Add `gsap` and `lenis` (deps). Create a <ScrollExperienceProvider> (e.g. src/components/marketing/scroll-experience/) that, ONLY after hydration and ONLY when allowed (not prefers-reduced-motion, pointer:fine + min-width for smooth-scroll, not save-data), initializes Lenis, registers ScrollTrigger, drives Lenis's raf via GSAP's ticker with lagSmoothing disabled and time converted s->ms, and exposes a single global scroll-progress (0..1) + a helper to register scene timelines inside ONE gsap.context() for clean teardown. On SPA unmount it destroys Lenis, removes the ticker fn, kills the context, and refreshes ScrollTrigger. The whole engine must be code-split so it loads AFTER first paint and does not enter the eager landing chunk (mirror how hero-orb lazy-loads `three`). When gated off it is a no-op and the existing static layout stands.",
+      "acceptanceCriteria": [
+        "`gsap` and `lenis` added to dependencies; engine code lives in its own lazy chunk, not the eager landing graph (verified in build output); bundle-budget CI stays green",
+        "Under prefers-reduced-motion / no-JS / touch(save-data) the provider is a no-op — native scroll, current layout unchanged",
+        "Lenis raf is driven by the GSAP ticker (autoRaf:false), lagSmoothing(0), ScrollTrigger.update on Lenis scroll; no scroll-jank/jump",
+        "On route change away from `/`, Lenis is destroyed, the ticker fn removed, gsap.context reverted, and ScrollTrigger refreshed — no leaks (mirrors hero-orb cleanup)",
+        "A unit/integration test asserts the provider mounts inert under a mocked reduced-motion match and initializes only when allowed"
+      ],
+      "priority": 2605,
+      "passes": false,
+      "notes": "[P1][Web/Foundation] Apple-style flowed-homepage design plan 2026-07-13. Phase 1. GSAP is free since 2025-04 and bundled (no CDN -> CSP-safe). Lenis has a first-class lenis/react package. Reuse the exact gating shape from hero-backdrop.tsx. Everything downstream depends on this.",
+      "relevantPaths": [
+        "src/pages/landing.tsx",
+        "src/components/marketing/hero-backdrop.tsx",
+        "package.json",
+        "public/_headers"
+      ]
+    },
+    {
+      "id": "US-1954",
+      "title": "Continuous background field + remove section seams (the highest-impact cohesion lever)",
+      "description": "As a visitor, we want the homepage background to feel like one continuous field, so the page stops reading as separate boxes. Replace the per-section seams (the `border-t` dividers and the alternating `bg-card`/`bg-brand-navy`/`bg-card/50` fills in landing.tsx) with a SINGLE fixed background layer behind all content whose gradient/palette morphs as a function of the global scroll progress from the engine (navy hero -> lighter mid -> navy final-CTA), so sections become transparent panels floating over one field. Keep the existing ambient brand glows but promote them to this shared layer with light parallax. Preserve text contrast at every scroll position (scrim where needed) and keep the prerendered/reduced-motion fallback as a tasteful STATIC brand gradient. This is intentionally shippable independently of the orb/scene work.",
+      "acceptanceCriteria": [
+        "The `border-t` compartment seams and alternating section bg fills are removed; sections are transparent over one continuous background layer",
+        "Background palette interpolates with global scroll progress (navy -> light -> navy) on capable clients; static brand gradient under reduced-motion / no-JS / prerender",
+        "Text/AA contrast is preserved at all scroll positions (WCAG AA for body text); no readability regression in light or dark theme",
+        "Prerendered HTML still renders correct first paint (the background layer never blocks or shifts LCP; no CLS)"
+      ],
+      "priority": 2604,
+      "passes": false,
+      "notes": "[P2][Web/Design] Apple-style flowed-homepage design plan 2026-07-13. Phase 1. Single biggest 'not compartments' lever and low-risk. Can land before the orb/scene stories. Watch dark-mode contrast (see memory: bg-brand-navy dark-mode invisibility).",
+      "relevantPaths": [
+        "src/pages/landing.tsx",
+        "src/index.css"
+      ]
+    },
+    {
+      "id": "US-1955",
+      "title": "Promote the hero orb to a persistent, scroll-driven 'grade object' spine",
+      "description": "As a visitor, we want the hero's 3D object to travel and transform down the page as a visual through-line, instead of dying at the hero. Refactor hero-orb.tsx + hero-backdrop.tsx into a persistent object that renders into a FIXED full-viewport layer (single WebGL context, reused across the whole page) and exposes hooks for a scroll-driven scene controller: global scroll progress + per-act targets map to the orb's position, scale, rotation, and shader color/noise uniforms (driven by a GSAP timeline on the engine). Keep ALL existing gating (desktop + WebGL + motion-OK), the tab-hidden pause, and the full dispose-on-unmount. Preserve current hero look at progress=0 so there is no visual regression above the fold and no LCP impact.",
+      "acceptanceCriteria": [
+        "The orb renders in a fixed layer with ONE WebGL context reused across sections (not re-created per section)",
+        "Scroll progress drives orb transform + shader uniforms via a GSAP timeline; at progress=0 the hero is visually identical to today",
+        "All current gates preserved (min-width/pointer/reduced-motion/save-data/WebGL probe), tab-hidden pause kept, and full teardown on SPA unmount (rAF, GL context, geometry, material, listeners)",
+        "No LCP regression: prerendered hero copy remains the LCP element; orb still never blocks paint and is absent on gated clients"
+      ],
+      "priority": 2603,
+      "passes": false,
+      "notes": "[P2][Web/3D] Apple-style flowed-homepage design plan 2026-07-13. Phase 2. KEEP raw three.js (no react-three-fiber). The orb becomes the spine that later resolves into the certificate (US cert-assemble). GSAP drives uniforms; the shader itself is unchanged.",
+      "relevantPaths": [
+        "src/components/marketing/hero-orb.tsx",
+        "src/components/marketing/hero-backdrop.tsx",
+        "src/pages/landing.tsx"
+      ]
+    },
+    {
+      "id": "US-1956",
+      "title": "Hero headline + CTA cinematic reveal (GSAP SplitText line-mask), LCP-safe",
+      "description": "As a visitor, we want the hero copy to arrive cinematically, so first impression matches Apple-grade polish — without hurting SEO/LCP. Use GSAP SplitText (free, a11y-baked) to mask-reveal the H1 by line/word and stagger the badge + CTA buttons on load, with a subtle scroll-linked settle. CRITICAL: the prerendered H1 text must remain present and be the LCP element — enhance AFTER hydration by animating FROM the visible prerendered state (never hidden-until-JS, which would blank the H1 for bots and hurt LCP). Under reduced-motion / no-JS the copy shows its final state with zero motion.",
+      "acceptanceCriteria": [
+        "H1 + badge + CTAs reveal via SplitText mask/stagger on capable clients only",
+        "Prerendered H1 text is present in initial HTML and remains the LCP element; no blank-until-JS; no LCP regression measured",
+        "prefers-reduced-motion and no-JS render the final copy with no motion; SplitText a11y (screen-reader text intact) verified",
+        "Cleanup: SplitText reverts and timelines are killed on unmount (inside the engine gsap.context)"
+      ],
+      "priority": 2602,
+      "passes": false,
+      "notes": "[P2][Web/Motion] Apple-style flowed-homepage design plan 2026-07-13. Phase 2. SplitText was rewritten with baked-in screen-reader accessibility + masking. Guard LCP carefully — animate from the prerendered visible state, don't hide it.",
+      "relevantPaths": [
+        "src/pages/landing.tsx"
+      ]
+    },
+    {
+      "id": "US-1957",
+      "title": "Signature scene: the orb resolves into the certificate (pinned, factor bars scrub-fill)",
+      "description": "As a visitor, we want the abstract hero orb to visibly BECOME the concrete product, so the hero and the certificate feel like one idea. Build a pinned ScrollTrigger scene where, as the user scrolls into the 'See the actual product' section, the persistent grade object travels to and resolves into the SampleCertificatePreview score ring (9.0), and the five weighted factor Progress bars fill one-by-one as the scroll scrubs (reusing the existing SAMPLE_CERT data + GRADE_FACTORS). This is the emotional centerpiece tying Act 1 (orb) to Act 3 (certificate). Desktop pin+scrub; graceful static fallback elsewhere.",
+      "acceptanceCriteria": [
+        "Pinned scene: orb transitions into the certificate score ring; the 5 factor bars fill in sequence tied to scroll scrub",
+        "Reuses SAMPLE_CERT / GRADE_FACTORS (no divergent data); the completed certificate matches the current SampleCertificatePreview",
+        "prefers-reduced-motion / mobile / no-JS render the fully-assembled certificate statically (no pin, no scrub)",
+        "Pin cleanup + ScrollTrigger refresh on unmount; no layout jump when the pin releases (no CLS)"
+      ],
+      "priority": 2601,
+      "passes": false,
+      "notes": "[P3][Web/Motion] Apple-style flowed-homepage design plan 2026-07-13. Phase 3. The money moment. Depends on the persistent grade-object story. Keep the certificate data single-sourced from landing.tsx SAMPLE_CERT.",
+      "relevantPaths": [
+        "src/pages/landing.tsx",
+        "src/components/marketing/hero-orb.tsx"
+      ]
+    },
+    {
+      "id": "US-1958",
+      "title": "'How It Works' as a pinned, in-place 4-step sequence",
+      "description": "As a visitor, we want the 4-step 'How It Works' to advance in place as we scroll, so it feels like a guided sequence rather than 4 static cards. Convert the howItWorks grid in landing.tsx into a pinned ScrollTrigger scene: the section holds the viewport while the 4 steps (Upload -> AI Grades -> Get Grade -> Share) advance one at a time with a connective progress line, optionally with the grade object passing through. Desktop pin+advance; mobile + reduced-motion fall back to the current simple stacked/grid cards.",
+      "acceptanceCriteria": [
+        "Desktop: pinned section where the 4 steps advance in-place on scroll with a progress connector",
+        "Mobile + prefers-reduced-motion + no-JS: current static 4-card layout, no pin",
+        "Content parity with the existing `howItWorks` data; #how-it-works anchor + the hero \"See How It Works\" jump still land correctly with pinning active",
+        "Pin teardown + refresh on unmount; no CLS on pin release"
+      ],
+      "priority": 2600,
+      "passes": false,
+      "notes": "[P3][Web/Motion] Apple-style flowed-homepage design plan 2026-07-13. Phase 3. Note the existing #how-it-works anchor navigation must still work with ScrollTrigger pinning (Lenis + anchor offset).",
+      "relevantPaths": [
+        "src/pages/landing.tsx"
+      ]
+    },
+    {
+      "id": "US-1959",
+      "title": "FlipDesk pipeline as a horizontal scroll-pinned track with real product imagery (also fixes US-1949)",
+      "description": "As a high-volume reseller, we want to SEE the FlipDesk pipeline as one continuous horizontal journey, so the workflow feels real instead of 6 icon cards. Convert the 'Now with FlipDesk' section into a horizontal-scroll pinned track (source & scout -> grade -> AutoLister -> list & cross-list -> reprice -> reconcile) that advances horizontally as the user scrolls vertically, with REAL AutoLister/pipeline screenshots parallaxing in (optimized via <Image>/responsive-image, no CLS). This doubles as the fix for QA finding US-1949 (FlipDesk is described but never shown). Mobile + reduced-motion: a simple vertical stack with the same imagery.",
+      "acceptanceCriteria": [
+        "Desktop: horizontal-scroll pinned pipeline of the 6 stages advancing on vertical scroll",
+        "Real FlipDesk/AutoLister screenshots included via responsive-image (correct srcset, no CLS, item-photos/allowed asset only — no PII/grading labels)",
+        "Mobile + prefers-reduced-motion + no-JS: vertical stacked stages with the same content/imagery",
+        "Resolves US-1949 (mark it addressed); pin/scroll teardown clean; no horizontal overflow on the page body"
+      ],
+      "priority": 2599,
+      "passes": false,
+      "notes": "[P3][Web/Motion+Conversion] Apple-style flowed-homepage design plan 2026-07-13. Phase 4. Kills two birds: cohesion + QA US-1949 (FlipDesk never shown). Source screenshots from the real AutoLister UI; keep imagery within the public item-photos policy.",
+      "relevantPaths": [
+        "src/pages/landing.tsx",
+        "src/components/responsive-image.tsx",
+        "src/pages/marketing/flipdesk.tsx"
+      ]
+    },
+    {
+      "id": "US-1960",
+      "title": "System-wide scroll-reveal + parallax pass (native CSS scroll-driven, GSAP fallback) + unified vertical rhythm",
+      "description": "As a visitor, we want every remaining section to reveal and breathe consistently, so the whole page shares one motion language. Introduce a small reusable reveal primitive and apply it across the remaining sections: StatCounters + PROOF_STATS count up on enter, StandardJustifications reveal in sequence, feature/FlipDesk cards stagger in, pricing + FAQ + final CTA settle, plus subtle parallax depth on the shared background glows. IMPLEMENTATION: prefer NATIVE CSS scroll-driven animations (animation-timeline: view() for enter reveals, scroll() for parallax) so the simple reveal/parallax layer costs ZERO JS on supporting browsers; fall back to the GSAP engine's ScrollTrigger only where native isn't supported or for the count-ups. Do NOT add a second JS animation library (no Framer/Motion). Unify vertical rhythm/spacing so pacing feels intentional (Apple-like generous, consistent gaps). All reveals no-op (final state) under prefers-reduced-motion.",
+      "acceptanceCriteria": [
+        "A single reusable reveal/stagger primitive is used across stats, justifications, features, pricing, FAQ, CTA (no per-section bespoke animation code)",
+        "Simple reveals + parallax use native CSS scroll-driven animations (animation-timeline: view()/scroll()) where supported; GSAP ScrollTrigger is the fallback + drives the count-ups only",
+        "PROOF_STATS + StatCounters count up on first enter; numbers match the honest data sources (no fabricated values); StatCounters honest-data gating (US-865) intact",
+        "Consistent vertical rhythm/spacing tokens applied; parallax depth on background glows",
+        "prefers-reduced-motion / no-JS: all content in final state, zero motion; no second animation library added"
+      ],
+      "priority": 2598,
+      "passes": false,
+      "notes": "[P3][Web/Motion] Apple-style flowed-homepage design plan 2026-07-13. Phase 4. Native-first: CSS scroll-driven animations (Chromium shipped; Safari/FF progressive) handle the cheap reveal/parallax layer with zero JS, GSAP only as fallback + for count-ups. Keeps bundle lean and matches the perf goal.",
+      "relevantPaths": [
+        "src/pages/landing.tsx",
+        "src/components/marketing/stat-counters.tsx",
+        "src/components/marketing/standard-justifications.tsx",
+        "src/index.css"
+      ]
+    },
+    {
+      "id": "US-1961",
+      "title": "Cross-page cohesion: View Transitions API for SPA nav + shared motion tokens",
+      "description": "As a visitor, we want moving between pages (home -> interior marketing pages) to feel continuous, so the WHOLE site feels like one product, not just the homepage. Adopt the native View Transitions API for React Router SPA navigations (progressive: gated to supporting browsers, plain instant nav fallback otherwise), and extract a shared set of motion tokens (easing curves, durations, stagger steps) into a small module reused by the scroll engine, the reveal primitive, and route transitions so timing feels unified sitewide. No new heavy dependency — VT is native.",
+      "acceptanceCriteria": [
+        "Route changes use the View Transitions API where supported, with a no-op instant-nav fallback elsewhere (and under reduced-motion)",
+        "A shared motion-tokens module (easings/durations/stagger) exists and is consumed by the engine, the reveal primitive, and route transitions",
+        "No layout/scroll-restoration regressions on navigation; no new heavyweight dependency added"
+      ],
+      "priority": 2597,
+      "passes": false,
+      "notes": "[P3][Web/Motion] Apple-style flowed-homepage design plan 2026-07-13. Phase 5. Native View Transitions = free cross-page morphs; addresses the user's 'whole site fits together' goal beyond just the homepage. Coordinate with React Router v7 navigation.",
+      "relevantPaths": [
+        "src/routes/index.tsx",
+        "src/lib/motion/tokens.ts",
+        "src/pages/landing.tsx"
+      ]
+    },
+    {
+      "id": "US-1962",
+      "title": "Performance, bundle-budget, accessibility & cross-device hardening for the scroll experience",
+      "description": "As GradeThread, we want the new scroll experience to be fast, accessible, and safe on every device before it ships. Do a hardening pass: verify the engine chunks stay lazy and the bundle-budget CI check is green; measure Core Web Vitals (LCP unchanged, CLS ~0 through all pins, healthy INP under continuous scroll animation); full prefers-reduced-motion + keyboard + screen-reader passes (focus order intact through pinned sections, skip-to-content works, no motion-sickness triggers); verify mobile/touch fallbacks (Lenis off, no pins, simpler reveals) and low-power/no-WebGL fallbacks; cross-browser incl. Safari; confirm the PWA service worker caches the new chunks correctly.",
+      "acceptanceCriteria": [
+        "Bundle-budget CI check green; engine + scene chunks confirmed lazy (not in the eager landing graph)",
+        "CWV: LCP not regressed vs baseline, CLS ~0 across every pin release, INP healthy during scroll animation (measured, numbers recorded in notes)",
+        "Full a11y pass: reduced-motion parity, keyboard focus order through pinned scenes, screen-reader unaffected, respects users who disable motion",
+        "Verified fallbacks on mobile/touch, low-power/no-WebGL, and Safari; PWA SW serves the new chunks without stale-bundle issues"
+      ],
+      "priority": 2596,
+      "passes": false,
+      "notes": "[P2][Web/Perf+A11y] Apple-style flowed-homepage design plan 2026-07-13. Phase 5. Gate before shipping the epic. See memories: preexisting bundle-budget CI, pwa-sw-stale-bundle-on-deploy, background-build success marker.",
+      "relevantPaths": [
+        "src/pages/landing.tsx",
+        "scripts/verify.mjs",
+        "public/_routes.json"
       ]
     }
   ]
