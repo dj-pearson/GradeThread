@@ -96,6 +96,7 @@ const fragmentShader = /* glsl */ `
   uniform vec3 uRed;
   uniform vec3 uNight;
   uniform float uTime;
+  uniform float uScroll;
   varying vec3 vNormal;
   varying vec3 vView;
   varying float vNoise;
@@ -104,15 +105,16 @@ const fragmentShader = /* glsl */ `
     // Fresnel rim — bright at glancing angles, faint head-on.
     float fres = pow(1.0 - clamp(dot(normalize(vNormal), normalize(vView)), 0.0, 1.0), 2.4);
 
-    // Noise + slow time sweep drives the navy↔red gradient across the shell.
-    float mixT = clamp(0.5 + 0.5 * sin(vNoise * 2.0 + uTime * 0.3), 0.0, 1.0);
+    // Noise + slow time sweep drives the navy↔red gradient across the shell;
+    // scrolling biases the whole shell hotter (toward red) as the orb descends.
+    float mixT = clamp(0.5 + 0.5 * sin(vNoise * 2.0 + uTime * 0.3) + uScroll * 0.35, 0.0, 1.0);
     vec3 shell = mix(uNavy, uRed, mixT);
 
     // Deep core fades to night so the centre stays translucent, rim glows.
     vec3 color = mix(uNight, shell, fres);
-    color += uRed * fres * 0.35; // red bloom on the rim
+    color += uRed * fres * (0.35 + uScroll * 0.5); // red bloom on the rim, hotter as you scroll
 
-    float alpha = 0.18 + fres * 0.78;
+    float alpha = 0.32 + fres * 0.68;
     gl_FragColor = vec4(color, alpha);
   }
 `;
@@ -136,7 +138,10 @@ export default function HeroOrb() {
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
-    camera.position.z = 4.2;
+    // Pulled back so the whole orb — including its bright fresnel rim — sits
+    // inside the mask on a full-viewport canvas (US-1955); closer than this and
+    // the glowing rim lands in the masked-off edges and the orb reads as faint.
+    camera.position.z = 4.7;
 
     const renderer = new THREE.WebGLRenderer({
       antialias: true,
@@ -156,6 +161,7 @@ export default function HeroOrb() {
       depthWrite: false,
       uniforms: {
         uTime: { value: 0 },
+        uScroll: { value: 0 },
         uNavy: { value: NAVY.clone() },
         uRed: { value: RED.clone() },
         uNight: { value: NIGHT.clone() },
@@ -167,8 +173,9 @@ export default function HeroOrb() {
     // Captured once — `uniforms` is a string-indexed record, so under
     // noUncheckedIndexedAccess each lookup is `IUniform | undefined`.
     const uTime = material.uniforms.uTime!;
+    const uScroll = material.uniforms.uScroll!;
 
-    // Smoothed pointer parallax (cheap; no scroll coupling).
+    // Smoothed pointer parallax (cheap).
     const pointer = { x: 0, y: 0, tx: 0, ty: 0 };
     const onPointerMove = (e: PointerEvent) => {
       pointer.tx = (e.clientX / window.innerWidth - 0.5) * 0.6;
@@ -176,12 +183,20 @@ export default function HeroOrb() {
     };
     window.addEventListener("pointermove", onPointerMove, { passive: true });
 
+    // US-1955: the orb is the page's spine. It reads normalized page-scroll
+    // progress (0..1) each frame and travels/shrinks/heats as you descend, so
+    // it flows out of the hero and down the page instead of dying at 100vh.
+    // Cache the scroll range (reading scrollHeight per-frame forces reflow).
+    let maxScroll = Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
+    const scroll = { v: 0 };
+
     const onResize = () => {
       const w = mount.clientWidth || window.innerWidth;
       const h = mount.clientHeight || window.innerHeight;
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       renderer.setSize(w, h);
+      maxScroll = Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
     };
     window.addEventListener("resize", onResize);
 
@@ -204,7 +219,25 @@ export default function HeroOrb() {
       pointer.x += (pointer.tx - pointer.x) * 0.05;
       pointer.y += (pointer.ty - pointer.y) * 0.05;
 
-      mesh.rotation.y = t * 0.12 + pointer.x;
+      // Smoothly track page-scroll progress (0..1) and let it choreograph the
+      // orb: drift right + up, shrink, and dim as it leaves the hero, then hand
+      // off to the certificate scene in a later phase. eased toward the target
+      // so momentum scroll stays buttery.
+      const target = Math.min(Math.max(window.scrollY / maxScroll, 0), 1);
+      scroll.v += (target - scroll.v) * 0.08;
+      const p = scroll.v;
+      uScroll.value = p;
+
+      mesh.position.x = p * 1.75;
+      mesh.position.y = p * 0.5;
+      mesh.scale.setScalar(1 - p * 0.5);
+
+      // Bold at the hero, then eased down to a faint ambient presence through
+      // the copy-dense middle so it stays a travelling accent without hurting
+      // readability.
+      mount.style.opacity = String(1 - p * 0.55);
+
+      mesh.rotation.y = t * 0.12 + pointer.x + p * 0.8;
       mesh.rotation.x = pointer.y * 0.6;
       renderer.render(scene, camera);
     };
@@ -229,7 +262,8 @@ export default function HeroOrb() {
     <div
       ref={mountRef}
       aria-hidden="true"
-      className="pointer-events-none absolute inset-0 -z-10 opacity-90 [mask-image:radial-gradient(55%_55%_at_50%_34%,black,transparent_72%)]"
+      style={{ opacity: 1 }}
+      className="pointer-events-none fixed inset-0 -z-[8] [mask-image:radial-gradient(64%_62%_at_50%_40%,black,transparent_80%)]"
     />
   );
 }
