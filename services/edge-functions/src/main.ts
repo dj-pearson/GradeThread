@@ -38,6 +38,7 @@ import { flipdeskAiRoutes } from "./routes/flipdesk-ai.ts";
 import { flipdeskScoutRoutes } from "./routes/flipdesk-scout.ts";
 import { flipdeskMeasureRoutes } from "./routes/flipdesk-measure.ts";
 import { flipdeskForecastRoutes } from "./routes/flipdesk-forecast.ts";
+import { flipdeskEquityRoutes } from "./routes/flipdesk-equity.ts";
 import { flipdeskProductRoutes } from "./routes/flipdesk-product.ts";
 import { flipdeskTemplatesRoutes } from "./routes/flipdesk-templates.ts";
 import {
@@ -480,6 +481,7 @@ app.use("/api/flipdesk/automations/*", authMiddleware);
 // consumed inside the authed app. (See the deny-by-default guard test that now
 // fails the build if a new /api/flipdesk/* router is added without auth.)
 app.use("/api/flipdesk/forecast/*", authMiddleware);
+app.use("/api/flipdesk/equity/*", authMiddleware);
 app.use("/api/flipdesk/photo-profiles/*", authMiddleware);
 
 // US-585: waitlist / beta access gate. Mounted AFTER authMiddleware for each
@@ -618,6 +620,7 @@ app.use("/api/flipdesk/consignment/*", workspaceMiddleware);
 app.use("/api/flipdesk/pricing/*", workspaceMiddleware);
 app.use("/api/flipdesk/automations/*", workspaceMiddleware);
 app.use("/api/flipdesk/forecast/*", workspaceMiddleware);
+app.use("/api/flipdesk/equity/*", workspaceMiddleware);
 app.use("/api/keys/*", workspaceMiddleware);
 
 // US-584: cron-run ledger. Every /api/jobs/* hit that presents the internal
@@ -1029,6 +1032,10 @@ app.route("/api/flipdesk/measure", flipdeskMeasureRoutes);
 // days-to-sell, 12-month resale projection + CI from the owner's SKU-class sale
 // ledger. Tenant-scoped; compPulls plan tier + passport_forecast kill-switch.
 app.route("/api/flipdesk/forecast", flipdeskForecastRoutes);
+// US-1869 Inventory Equity — conservative per-item liquidation value + tenant
+// aggregate from CACHED comps (zero new eBay/AI calls). Tenant-scoped; base
+// flipdesk gate + inventory_equity kill-switch. Display-only (US-1868 fence).
+app.route("/api/flipdesk/equity", flipdeskEquityRoutes);
 app.route("/api/flipdesk/product", flipdeskProductRoutes);
 app.route("/api/flipdesk/templates", flipdeskTemplatesRoutes);
 app.route("/api/flipdesk/autolister", flipdeskAutolisterRoutes);

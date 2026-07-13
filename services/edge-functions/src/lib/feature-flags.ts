@@ -54,7 +54,11 @@ export type FeatureKey =
   // The /api/jobs/journey-tick cron gates on this; flipping it off halts every
   // journey send fleet-wide within the flag cache TTL. Individual journeys also
   // gate on email_journeys.enabled (all seeded off).
-  | "lifecycle_journeys";
+  | "lifecycle_journeys"
+  // US-1869: Inventory Equity liquidation-value surface. Ops kill-switch on top
+  // of the base flipdesk gate; fail-open (default on) so the /api/flipdesk/equity
+  // route can be disabled platform-wide without a redeploy.
+  | "inventory_equity";
 
 // The full targeting rule for one flag (one feature_flags row).
 export interface FeatureFlagRule {

@@ -15166,7 +15166,7 @@
       ]
     },
     {
-      "passes": false,
+      "passes": true,
       "priority": 1869,
       "id": "US-1869",
       "title": "Inventory Equity: liquidation-value model (edge lib + endpoint)",
@@ -15178,7 +15178,7 @@
         "Edge endpoint returns per-item values + tenant aggregate (total equity, valued/unvalued counts, by-category and by-grade-band breakdowns); tenant-scoped per US-268 with tenant-isolation_test.ts cases.",
         "deno unit tests cover the haircut math, confidence banding, and the no-grade/no-comps exclusion paths."
       ],
-      "notes": "[P2][Equity] Child of US-1868. Conservatism is the product: a number the seller trusts beats a number that flatters. Keep the model in one lib so a future Phase 2 (if ever approved) reuses it unchanged. Added 2026-07-09.",
+      "notes": "[P2][Equity] Child of US-1868. Conservatism is the product: a number the seller trusts beats a number that flatters. Keep the model in one lib so a future Phase 2 (if ever approved) reuses it unchanged. Added 2026-07-09. | DONE 2026-07-12: lib/inventory-equity.ts (pure) — marketMedianFromComps + velocityFactor/stalenessFactor (named haircut constants, monotone, never inflate) + liquidationValue (conservative, confidence band widened by low market-confidence, ungraded/no-comps EXCLUDED never guessed) + aggregateEquity (total, valued/unvalued+reason, byCategory, byGradeBand); 11 deno tests. Endpoint GET /api/flipdesk/equity (flipdesk-equity.ts): owner-scoped inventory_items/sales/listings, personal median days-to-sell velocity + per-item staleness, composes CACHED comp_set ONLY (zero eBay/AI calls); base flipdesk gate + inventory_equity kill-switch (fail-open). Registered in main.ts (auth+workspace middleware). Tenant-scoping static guard test (no id-surface; all reads .eq user_id owner) + flipdesk-auth-coverage passes. deno test/lint/check green. Phase-1 display-only per US-1868 fence.",
       "relevantPaths": [
         "services/edge-functions/src/lib/sold-comps.ts",
         "services/edge-functions/src/lib/value-index.ts",
