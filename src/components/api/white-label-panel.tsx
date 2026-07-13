@@ -1,7 +1,13 @@
 // US-596: white-label / embeddable results for partner platforms. Lets a
 // Business-plan partner store their brand (name, color, logo, support URL) and
-// generates a copy-paste <iframe> snippet that renders any GradeThread grade
-// certificate under that brand at /embed/grade/:id.
+// generates a copy-paste snippet that renders any GradeThread grade certificate
+// under that brand.
+//
+// US-1936: the snippet is a <script> widget, not an <iframe>. The zone ships
+// X-Frame-Options: DENY + CSP frame-ancestors 'none' globally (anti-clickjacking,
+// public/_headers), so a same-origin iframe is blocked cross-site — the grade
+// widget injects itself straight into the host DOM instead (functions/embed/
+// grade/[id].ts), the same pattern the cert trust badge uses.
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Copy, Loader2, Palette } from "lucide-react";
@@ -34,8 +40,11 @@ function buildEmbedSnippet(certId: string, b: Branding): string {
   if (b.logo_url) params.set("logo", b.logo_url);
   if (b.support_url) params.set("support", b.support_url);
   const qs = params.toString();
-  const src = `${origin}/embed/grade/${encodeURIComponent(certId || "CERTIFICATE_ID")}${qs ? `?${qs}` : ""}`;
-  return `<iframe src="${src}" width="100%" height="520" style="border:0;max-width:480px" title="Condition grade" loading="lazy"></iframe>`;
+  // US-1936: script widget (injects into the host DOM), not an iframe (blocked by
+  // the zone's frame-ancestors 'none'). The `.js` suffix routes to the widget
+  // Function; branding rides the query, exactly like the old iframe src.
+  const src = `${origin}/embed/grade/${encodeURIComponent(certId || "CERTIFICATE_ID")}.js${qs ? `?${qs}` : ""}`;
+  return `<script src="${src}" async></script>`;
 }
 
 export function WhiteLabelPanel() {

@@ -16161,8 +16161,8 @@
         "The chosen path is verified to render cross-origin from an allowed partner origin and to remain blocked from a non-allowed origin"
       ],
       "priority": 1936,
-      "passes": false,
-      "notes": "[P3][Web/Security] Code-review sweep 2026-07-11. Functional + posture-consistency; pairs with the embed param-validation story.",
+      "passes": true,
+      "notes": "[P3][Web/Security] Code-review sweep 2026-07-11. Functional + posture-consistency; pairs with the embed param-validation story.\n\nIMPLEMENTED 2026-07-13 (agent loop). Chose the script-widget delivery model (AC option B) — the proven pattern the cert trust badge already uses (functions/embed/cert/[id].ts), whose comment documents WHY per-path _headers cant scope frame-ancestors on this Pages setup (Pages JOINS duplicate header values rather than overriding, and frame-ancestors cant express the open per-partner allowlist a white-label embed needs). New Pages Function functions/embed/grade/[id].ts serves an injectable <script> that renders the full branded grade card into the host DOM from the anonymous /api/content/public/certificates/:id endpoint (hard-filters to public/certified reports, US-268); pure builders in functions/embed/grade/widget.ts (validated+escaped, unit-tested in src/test/embed-grade-widget.test.ts, 11 cases). white-label-panel.tsx now emits <script src=.../embed/grade/CERT.js?branding> instead of the never-worked <iframe>. Non-.js requests to /embed/grade/:id delegate to serveSpaShell so the legacy standalone page still works. /embed/* already in _routes.json. AC2 note: for a script widget the origin-block clause is N/A (scripts render on any host, its public data); the enforced invariant is public-only data + XSS-safe injection. Verified: 11/11 vitest, tsc -b clean, eslint clean.",
       "relevantPaths": [
         "public/_headers",
         "src/pages/embed-grade.tsx",

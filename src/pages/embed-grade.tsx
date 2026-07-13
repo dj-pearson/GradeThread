@@ -1,9 +1,14 @@
-// US-596: white-label embeddable grade result. Rendered inside a partner
-// platform's <iframe> (snippet generated in the API keys → White-label panel),
-// so it deliberately carries NO GradeThread app chrome — just a compact,
-// brandable condition-grade card. Branding (company name, color, logo, support
-// link) comes from query params baked into the iframe src, so a partner needs
-// no server call to theme it.
+// US-596: white-label embeddable grade result — a compact, brandable
+// condition-grade card that deliberately carries NO GradeThread app chrome.
+// Branding (company name, color, logo, support link) comes from query params, so
+// a partner needs no server call to theme it.
+//
+// US-1936: the partner-facing embed is now delivered as a script WIDGET
+// (functions/embed/grade/[id].ts), not an iframe — the zone's global
+// X-Frame-Options: DENY + frame-ancestors 'none' block cross-site framing. This
+// SPA route survives as the standalone TOP-LEVEL view (e.g. opening the embed
+// URL directly), where framing restrictions don't apply; the widget renders the
+// same card server-side. Keep the two in visual/validation lockstep.
 //
 // It reads the column-restricted public_grade_reports view (US-348) — the same
 // public-safe source the full /cert/:id page uses — so nothing private is ever
