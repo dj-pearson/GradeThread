@@ -1,5 +1,26 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ PENDING: 00442_inventory_equity_snapshots.sql (US-1870 equity trend, 2026-07-12)
+
+New tenant table `public.inventory_equity_snapshots` (user_id, snapshot_date,
+total/low/high cents, valued/unvalued counts) with `UNIQUE(user_id, snapshot_date)`
+for daily-idempotent upserts, RLS **read-own** (`auth.uid() = user_id`; the
+nightly job writes via the service-role client). Powers the equity-over-time
+trend chart. Apply after 00441 via `scripts/apply-prod-migrations.sh`
+(idempotent), then `NOTIFY pgrst, 'reload schema';`, then redeploy the edge (boot
+guard now expects **00442**). Bumps `EXPECTED_SCHEMA_VERSION` → **00442**.
+
+**Risk: LOW** — additive table + indexes, no rewrite of existing data. The web
+reads it via the tenant-scoped `/api/flipdesk/equity/trend` edge route (not a
+direct client PostgREST read), so the Cloudflare Pages auto-deploy is unaffected;
+the EDGE reads/writes it, so the edge redeploy must follow the migration.
+
+**⚙️ ALSO — OPS (not a migration):** register a **daily Coolify scheduled task**
+that curls `POST /api/functions/api/jobs/equity-snapshot` with the internal job
+secret header (same pattern as the other `jobs-*` crons; mind the curl-in-image
+gotcha). Until it runs on ≥2 distinct days, the trend chart stays hidden (needs
+≥2 snapshots) — the rest of the equity card works immediately.
+
 ## ℹ️ NO-APPLY: 00001–00007 idempotency backfill (US-1941, 2026-07-12)
 
 Edits 00001/00002/00003/00005/00006/00007 to add replay guards (`CREATE TABLE/

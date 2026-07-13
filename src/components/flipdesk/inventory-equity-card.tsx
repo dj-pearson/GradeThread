@@ -42,6 +42,50 @@ interface EquityResponse {
   aggregate: EquityAggregate;
 }
 
+interface TrendPoint {
+  snapshot_date: string;
+  total_equity_cents: number;
+}
+interface TrendResponse {
+  currency: string;
+  points: TrendPoint[];
+}
+
+// Pure SVG sparkline of total equity over time — no chart lib. Scales to the
+// series min/max; a flat series still draws a centered line.
+function EquitySparkline({ points }: { points: TrendPoint[] }) {
+  const w = 240;
+  const h = 40;
+  const vals = points.map((p) => p.total_equity_cents);
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
+  const span = max - min || 1;
+  const stepX = points.length > 1 ? w / (points.length - 1) : 0;
+  const coords = points.map((p, i) => {
+    const x = i * stepX;
+    const y = h - 4 - ((p.total_equity_cents - min) / span) * (h - 8);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+  return (
+    <svg
+      viewBox={`0 0 ${w} ${h}`}
+      className="h-10 w-full"
+      preserveAspectRatio="none"
+      role="img"
+      aria-label="Inventory equity trend"
+    >
+      <polyline
+        points={coords.join(" ")}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        className="text-primary"
+        vectorEffect="non-scaling-stroke"
+      />
+    </svg>
+  );
+}
+
 const usd = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD",
@@ -106,6 +150,19 @@ export function InventoryEquityCard() {
     retry: 1,
   });
 
+  const { data: trend } = useQuery({
+    queryKey: ["flipdesk-equity-trend"],
+    queryFn: async (): Promise<TrendResponse | null> => {
+      const res = await edgeFetch("/api/flipdesk/equity/trend");
+      if (!res.ok) return null;
+      return (await res.json()) as TrendResponse;
+    },
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+    // Only worth fetching once the summary loaded and the feature is on.
+    enabled: !!data,
+  });
+
   // Feature off, or a transient error — stay quiet rather than shout.
   if (data === null || isError) return null;
 
@@ -137,6 +194,16 @@ export function InventoryEquityCard() {
                 {money(data.aggregate.totalHighCents)}
               </div>
             </div>
+
+            {/* US-1870: equity-over-time trend (needs ≥2 nightly snapshots). */}
+            {trend && trend.points.length >= 2 && (
+              <div>
+                <div className="mb-1 text-xs font-medium text-muted-foreground">
+                  Equity over time
+                </div>
+                <EquitySparkline points={trend.points} />
+              </div>
+            )}
 
             <div className="flex flex-wrap gap-2 text-xs">
               <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-emerald-700 dark:text-emerald-300">

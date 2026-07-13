@@ -157,6 +157,7 @@ import { handleListingPromptPromoteCron } from "./routes/jobs-listing-prompt-pro
 import { handleExemplarAssemblyCron } from "./routes/jobs-exemplar-assembly.ts";
 import { handleConfidenceCalibrationCron } from "./routes/jobs-confidence-calibration.ts";
 import { handleNorthStarDigestCron } from "./routes/jobs-north-star.ts";
+import { handleEquitySnapshotCron } from "./routes/jobs-equity-snapshot.ts";
 import { handleBuyerDigestCron } from "./routes/jobs-buyer-digest.ts";
 import { handleConditionAlertsCron } from "./lib/condition-alerts.ts";
 import { handleContentWatchdogCron } from "./routes/jobs-content-watchdog.ts";
@@ -1379,6 +1380,8 @@ app.post("/api/jobs/confidence-calibration", (c) => handleConfidenceCalibrationC
 // tied to items-listed-per-week, with streak tracking. Handler enforces the
 // job secret. Schedule on Coolify cron (weekly, e.g. Mon 14:00 UTC).
 app.post("/api/jobs/north-star-digest", (c) => handleNorthStarDigestCron(c));
+// US-1870: nightly Inventory Equity snapshot for the equity-over-time trend.
+app.post("/api/jobs/equity-snapshot", (c) => handleEquitySnapshotCron(c));
 // US-1803: buyer notification digest (daily; weekly-mode buyers flushed Mondays).
 app.post("/api/jobs/buyer-digest", (c) => handleBuyerDigestCron(c));
 // US-1807 buyer condition-alerts matching sweep (public-cert universe).

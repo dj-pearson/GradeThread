@@ -112,15 +112,10 @@ async function personalSellThroughDays(owner: string): Promise<number | null> {
   return median(days);
 }
 
-flipdeskEquityRoutes.get("/", async (c) => {
-  const owner = c.get("workspaceOwnerId") ?? c.get("userId");
-
-  const gate = await requireFlipdesk(c, { userId: owner });
-  if (gate) return gate;
-  if (!(await isFeatureEnabled("inventory_equity"))) {
-    return c.json({ error: "Inventory Equity is not enabled." }, 404);
-  }
-
+// Compute the full equity picture for one owner from CACHED comps (zero eBay/AI
+// calls). Tenant-scoped by `owner`. Shared by the GET route and the nightly
+// snapshot job (US-1870) so both agree exactly.
+export async function computeEquityForOwner(owner: string) {
   const nowMs = Date.now();
   const [velocity, { data: itemsRaw }, { data: listingsRaw }] = await Promise.all([
     personalSellThroughDays(owner),
@@ -196,10 +191,42 @@ flipdeskEquityRoutes.get("/", async (c) => {
     })),
   );
 
-  return c.json({
-    currency: "USD",
-    personalSellThroughDays: velocity,
-    aggregate,
-    items: perItem,
-  });
+  return { currency: "USD", personalSellThroughDays: velocity, aggregate, items: perItem };
+}
+
+flipdeskEquityRoutes.get("/", async (c) => {
+  const owner = c.get("workspaceOwnerId") ?? c.get("userId");
+
+  const gate = await requireFlipdesk(c, { userId: owner });
+  if (gate) return gate;
+  if (!(await isFeatureEnabled("inventory_equity"))) {
+    return c.json({ error: "Inventory Equity is not enabled." }, 404);
+  }
+
+  return c.json(await computeEquityForOwner(owner));
+});
+
+// US-1870: equity-over-time trend — the caller's own daily snapshots (newest
+// first), written by the nightly job. Tenant-scoped.
+flipdeskEquityRoutes.get("/trend", async (c) => {
+  const owner = c.get("workspaceOwnerId") ?? c.get("userId");
+  const gate = await requireFlipdesk(c, { userId: owner });
+  if (gate) return gate;
+
+  const { data } = await supabaseAdmin
+    .from("inventory_equity_snapshots")
+    .select("snapshot_date, total_equity_cents, total_low_cents, total_high_cents, valued_count, unvalued_count")
+    .eq("user_id", owner)
+    .order("snapshot_date", { ascending: false })
+    .limit(120);
+
+  const points = ((data ?? []) as Array<{
+    snapshot_date: string;
+    total_equity_cents: number;
+    total_low_cents: number;
+    total_high_cents: number;
+    valued_count: number;
+    unvalued_count: number;
+  }>).reverse(); // oldest→newest for charting
+  return c.json({ currency: "USD", points });
 });

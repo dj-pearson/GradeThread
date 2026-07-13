@@ -15187,7 +15187,7 @@
       ]
     },
     {
-      "passes": false,
+      "passes": true,
       "priority": 1870,
       "id": "US-1870",
       "title": "Inventory Equity: web dashboard + equity-over-time trend",
@@ -15199,7 +15199,7 @@
         "Estimate disclaimer copy present wherever the number renders (per the US-1868 scope fence — no borrowing-capacity language).",
         "Dashboard queries tenant-scoped; dataviz consistent with existing analytics styling."
       ],
-      "notes": "[P2][Equity] Child of US-1868, depends on US-1869. Snapshot cron must be registered in Coolify scheduled tasks (remember the curl-in-image gotcha). Added 2026-07-09. | PARTIAL 2026-07-12: DONE = InventoryEquityCard (src/components/flipdesk/inventory-equity-card.tsx) consuming /api/flipdesk/equity — total equity + confidence band (totalLow/High), valued/unvalued counts, by-category/brand/grade breakdown bars, grade-these CTA into pipeline (organic grading loop), estimate disclaimer (no borrowing-capacity language per US-1868), self-gates on the kill-switch 404; dropped into flipdesk analytics.tsx. Strengthened US-1869 aggregateEquity with totalLowCents/totalHighCents + byBrand (+ endpoint loads brand); 11 deno tests. tsc-b+eslint+deno lint+build green. REMAINING (AC3) = equity_snapshots migration + nightly snapshot job (Coolify cron) + equity-over-time trend chart (+ a /equity/trend read endpoint). Trend needs historical snapshots so renders once data accrues.",
+      "notes": "[P2][Equity] Child of US-1868, depends on US-1869. Snapshot cron must be registered in Coolify scheduled tasks (remember the curl-in-image gotcha). Added 2026-07-09. | PARTIAL 2026-07-12: DONE = InventoryEquityCard (src/components/flipdesk/inventory-equity-card.tsx) consuming /api/flipdesk/equity — total equity + confidence band (totalLow/High), valued/unvalued counts, by-category/brand/grade breakdown bars, grade-these CTA into pipeline (organic grading loop), estimate disclaimer (no borrowing-capacity language per US-1868), self-gates on the kill-switch 404; dropped into flipdesk analytics.tsx. Strengthened US-1869 aggregateEquity with totalLowCents/totalHighCents + byBrand (+ endpoint loads brand); 11 deno tests. tsc-b+eslint+deno lint+build green. REMAINING (AC3) = equity_snapshots migration + nightly snapshot job (Coolify cron) + equity-over-time trend chart (+ a /equity/trend read endpoint). Trend needs historical snapshots so renders once data accrues. | AC3 DONE 2026-07-12: migration 00442 inventory_equity_snapshots (tenant table, RLS read-own, UNIQUE(user_id,snapshot_date) daily-idempotent; EXPECTED_SCHEMA_VERSION->00442; packaged held); extracted computeEquityForOwner() shared by route+job; nightly job jobs-equity-snapshot.ts (POST /api/jobs/equity-snapshot, requireJobSecret+jobLock, upserts daily snapshot per unsold-inventory owner, feature-gated) registered in main.ts; GET /api/flipdesk/equity/trend (tenant-scoped, last 120 snapshots); inline SVG sparkline in the card (shows once >=2 snapshots exist). tenant guard test extended (+inventory_equity_snapshots). 25 deno tests + tsc-b+eslint+build green. OPS: register the daily Coolify scheduled task (documented in PENDING_MIGRATIONS.md).",
       "relevantPaths": [
         "src/pages/flipdesk/analytics.tsx",
         "src/pages/flipdesk/overview.tsx",

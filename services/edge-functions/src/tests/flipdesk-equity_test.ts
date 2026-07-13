@@ -12,7 +12,12 @@ const src = Deno.readTextFileSync(
   new URL("../routes/flipdesk-equity.ts", import.meta.url),
 );
 
-const MULTI_TENANT_TABLES = ["inventory_items", "sales", "listings"];
+const MULTI_TENANT_TABLES = [
+  "inventory_items",
+  "sales",
+  "listings",
+  "inventory_equity_snapshots",
+];
 
 Deno.test("every multi-tenant read is user_id-scoped", () => {
   for (const table of MULTI_TENANT_TABLES) {
