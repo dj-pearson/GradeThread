@@ -26,6 +26,10 @@ const SELECTORS = {
 };
 
 beforeAll(async () => {
+  // The guard is a vanilla-JS UMD file (extension/ has no allowJs in tsconfig.app),
+  // imported only for its globalThis side effect; its runtime API is asserted via
+  // the ListerGuard interface above, so the module itself needs no static types.
+  // @ts-expect-error — untyped .js side-effect import
   await import("../../extension/lister-guard.js");
   guard = (globalThis as unknown as { GT_LISTER_GUARD: ListerGuard }).GT_LISTER_GUARD;
 });

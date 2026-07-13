@@ -1,0 +1,470 @@
+// GradeThread Condition Check — generic marketplace content script (US-1756)
+//
+// One code path, many marketplaces. It resolves the adapter matching the
+// current host (from the bundled config, or the remotely-updatable override the
+// background worker caches), and — if the page is a detail/item page — extracts
+// the listing's gallery image URLs (+ title and brand), then renders a
+// non-intrusive overlay that grades them on demand via the public
+// /grade-from-url endpoint (US-1754).
+//
+// Graceful fallback (US-1756 AC3): if the host matches no enabled adapter, or a
+// site's selectors resolve no images, the overlay says so plainly rather than
+// grading an empty set or showing a wrong read — every marketplace's DOM can be
+// corrected from the remote config without a store resubmission.
+//
+// Why click-to-grade (not auto on load): each read spends a Vision call and the
+// public endpoint is quota-capped. See README.
+
+(function () {
+  "use strict";
+
+  const IMG = self.GT_CC_IMG; // pure helpers (content/image-utils.cjs)
+  const DEFAULT_CFG = self.GT_CC_CONFIG; // bundled default (selectors.js)
+  const HARD_MAX_URLS = 4; // endpoint cap — never exceed regardless of adapter
+  const OVERLAY_ID = "gt-cc-overlay";
+
+  if (!IMG || !DEFAULT_CFG) return; // dependencies failed to load — bail quietly
+
+  let CFG = DEFAULT_CFG;
+  let adapter = null;
+  let grading = false;
+
+  async function send(msg) {
+    try {
+      return await chrome.runtime.sendMessage(msg);
+    } catch (_e) {
+      return null; // worker asleep / context invalidated
+    }
+  }
+
+  // ── extraction (adapter-driven) ─────────────────────────────────────────
+  function firstText(selectors) {
+    for (const sel of selectors || []) {
+      let el;
+      try {
+        el = document.querySelector(sel);
+      } catch (_e) {
+        continue; // a bad remote selector never breaks extraction
+      }
+      const txt = el && el.textContent && el.textContent.trim();
+      if (txt) return txt;
+    }
+    return "";
+  }
+
+  function extractTitle() {
+    return firstText(adapter.title).slice(0, 200);
+  }
+
+  function extractBrand() {
+    // Most fashion marketplaces expose brand as a labeled link/element.
+    const direct = firstText(adapter.brandSelectors);
+    if (direct) return direct.slice(0, 80);
+    // eBay-style item-specifics table fallback.
+    const spec = adapter.itemSpec;
+    if (spec && spec.row) {
+      let rows = [];
+      try {
+        rows = document.querySelectorAll(spec.row);
+      } catch (_e) {
+        rows = [];
+      }
+      const wanted = (spec.brandLabels || []).map((s) => s.toLowerCase());
+      for (const row of rows) {
+        const labelEl = row.querySelector(spec.label);
+        const label = labelEl && labelEl.textContent && labelEl.textContent.trim().toLowerCase();
+        if (!label) continue;
+        if (wanted.some((w) => label.includes(w))) {
+          const valEl = row.querySelector(spec.value);
+          const val = valEl && valEl.textContent && valEl.textContent.trim();
+          if (val) return val.slice(0, 80);
+        }
+      }
+    }
+    return "";
+  }
+
+  function extractImageUrls() {
+    let imgs = [];
+    for (const sel of adapter.gallery || []) {
+      let found;
+      try {
+        found = document.querySelectorAll(sel);
+      } catch (_e) {
+        continue;
+      }
+      if (found && found.length) {
+        imgs = Array.from(found);
+        break;
+      }
+    }
+    const attrs = adapter.imageAttrs || ["src"];
+    const urls = [];
+    for (const el of imgs) {
+      const candidates = attrs.map((a) => firstSrcFromAttr(el, a));
+      const chosen = IMG.pickImageUrl(candidates);
+      if (chosen) urls.push(IMG.applyUrlUpgrade(chosen, adapter.urlUpgrade));
+    }
+    const cap = Math.min(HARD_MAX_URLS, Number(adapter.maxImages) || HARD_MAX_URLS);
+    return IMG.dedupeUrls(urls, cap);
+  }
+
+  // `srcset` needs its largest candidate pulled out; plain attrs are read as-is.
+  function firstSrcFromAttr(el, attr) {
+    const raw = el.getAttribute(attr);
+    if (!raw) return null;
+    // US-1880: pick the max-width srcset candidate (order is not guaranteed), not
+    // whatever happened to be last.
+    if (attr === "srcset") return IMG.srcsetLargest(raw);
+    return raw;
+  }
+
+  // ── overlay UI ─────────────────────────────────────────────────────────
+  function el(tag, cls, text) {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text; // textContent — never innerHTML with listing data
+    return n;
+  }
+
+  function removeOverlay() {
+    const existing = document.getElementById(OVERLAY_ID);
+    if (existing) existing.remove();
+  }
+
+  function mountRoot() {
+    removeOverlay();
+    const root = el("div", "gt-cc-root");
+    root.id = OVERLAY_ID;
+    root.setAttribute("dir", "ltr");
+    document.body.appendChild(root);
+    return root;
+  }
+
+  function header() {
+    const bar = el("div", "gt-cc-head");
+    bar.appendChild(el("span", "gt-cc-brand", "GradeThread"));
+    bar.appendChild(el("span", "gt-cc-badge", "condition check"));
+    const close = el("button", "gt-cc-close");
+    close.setAttribute("type", "button");
+    close.setAttribute("aria-label", "Close GradeThread condition check");
+    close.textContent = "×"; // ×
+    close.addEventListener("click", removeOverlay);
+    bar.appendChild(close);
+    return bar;
+  }
+
+  function renderState(build) {
+    const root = mountRoot();
+    root.appendChild(header());
+    const body = el("div", "gt-cc-body");
+    build(body);
+    root.appendChild(body);
+  }
+
+  function renderLauncher() {
+    renderState((body) => {
+      const label = (adapter && adapter.label) || "this listing";
+      body.appendChild(el("p", "gt-cc-lead", "Independent AI condition read on this " + label + " listing."));
+      const btn = el("button", "gt-cc-cta");
+      btn.setAttribute("type", "button");
+      btn.textContent = "Get condition read";
+      btn.addEventListener("click", () => runGrade());
+      body.appendChild(btn);
+    });
+  }
+
+  function renderLoading() {
+    renderState((body) => {
+      const spin = el("div", "gt-cc-spin");
+      spin.setAttribute("aria-hidden", "true");
+      body.appendChild(spin);
+      body.appendChild(el("p", "gt-cc-lead", "Reading the listing photos…"));
+    });
+  }
+
+  function scoreClass(score) {
+    if (score >= 9) return "gt-cc-s-excellent";
+    if (score >= 7) return "gt-cc-s-good";
+    if (score >= 5) return "gt-cc-s-fair";
+    if (score >= 3) return "gt-cc-s-poor";
+    return "gt-cc-s-bad";
+  }
+
+  function renderResult(data) {
+    renderState((body) => {
+      const scoreWrap = el("div", "gt-cc-scorewrap");
+      const score = el("div", "gt-cc-score " + scoreClass(data.overallScore));
+      score.textContent = Number(data.overallScore).toFixed(1);
+      const meta = el("div", "gt-cc-meta");
+      meta.appendChild(el("div", "gt-cc-tier", String(data.gradeTier || "")));
+      const conf = Math.round(Number(data.confidence || 0) * 100);
+      meta.appendChild(el("div", "gt-cc-conf", "Confidence " + conf + "%"));
+      scoreWrap.appendChild(score);
+      scoreWrap.appendChild(meta);
+      body.appendChild(scoreWrap);
+
+      if (Number(data.confidence || 0) < 0.75) {
+        body.appendChild(
+          el("p", "gt-cc-note", "Low confidence from listing photos — grade it properly for a reliable read.")
+        );
+      }
+
+      // US-1834: claimed-vs-objective condition discrepancy signal.
+      var disc = data.discrepancy;
+      if (disc && disc.signal && disc.signal !== "unknown") {
+        var DISC = {
+          over_graded: ["gt-cc-disc-bad", "⚠ Seller may be over-grading"],
+          mild_gap: ["gt-cc-disc-warn", "Slightly better than photos support"],
+          match: ["gt-cc-disc-ok", "✓ Matches the seller's stated condition"],
+        };
+        var d = DISC[disc.signal];
+        if (d) {
+          var node = el("p", "gt-cc-disc " + d[0], d[1]);
+          if (disc.signal !== "match" && disc.claimedGrade != null) {
+            node.textContent = d[1] + " (photos ≈ " + Number(disc.objectiveGrade).toFixed(1) +
+              " vs claimed ≈ " + Number(disc.claimedGrade).toFixed(1) + ")";
+          }
+          body.appendChild(node);
+        }
+      }
+
+      // US-1835: condition-adjusted price-fairness meter.
+      var pf = data.priceFairness;
+      var val = data.value;
+      if (pf && pf.verdict && pf.verdict !== "unknown" && val) {
+        var PF = {
+          low: ["gt-cc-disc-ok", "✓ Priced below fair value — a deal"],
+          fair: ["gt-cc-disc-ok", "Priced fairly for its condition"],
+          high: ["gt-cc-disc-bad", "⚠ Priced above fair value"],
+        };
+        var p = PF[pf.verdict];
+        if (p) {
+          var fairLine = el("p", "gt-cc-disc " + p[0], p[1]);
+          if (typeof pf.deltaPct === "number") {
+            fairLine.textContent = p[1] + " (" + (pf.deltaPct > 0 ? "+" : "") + pf.deltaPct + "% vs typical)";
+          }
+          body.appendChild(fairLine);
+        }
+        body.appendChild(
+          el(
+            "p",
+            "gt-cc-note",
+            "Condition-adjusted value: $" + Math.round(val.lowCents / 100) + "–$" +
+              Math.round(val.highCents / 100),
+          ),
+        );
+      }
+
+      // US-1836: point-of-purchase fraud flags (coarse, risk-framed).
+      if (Array.isArray(data.fraudFlags) && data.fraudFlags.length) {
+        for (var i = 0; i < data.fraudFlags.length; i++) {
+          var ff = data.fraudFlags[i];
+          if (ff && ff.label) body.appendChild(el("p", "gt-cc-disc gt-cc-disc-bad", "⚑ " + ff.label));
+        }
+      }
+
+      // US-1837: coverage-gap "request the missing photos" macro + watch handoff.
+      var cg = data.coverageGap;
+      if (cg && Array.isArray(cg.recommendedPhotos) && cg.recommendedPhotos.length) {
+        body.appendChild(el("p", "gt-cc-note", "For a confident grade, ask the seller for:"));
+        var ul = el("ul", "gt-cc-photos");
+        for (var k = 0; k < cg.recommendedPhotos.length; k++) {
+          ul.appendChild(el("li", null, String(cg.recommendedPhotos[k])));
+        }
+        body.appendChild(ul);
+        var actions = el("div", "gt-cc-actions");
+        var copyBtn = el("button", "gt-cc-secondary");
+        copyBtn.setAttribute("type", "button");
+        copyBtn.textContent = "Copy photo request";
+        copyBtn.addEventListener("click", function () {
+          try {
+            navigator.clipboard.writeText(String(cg.message || ""));
+            copyBtn.textContent = "Copied — paste it to the seller";
+          } catch (_e) {
+            copyBtn.textContent = "Couldn't copy — select the list above";
+          }
+        });
+        actions.appendChild(copyBtn);
+        // Auth-free watch: hand off to the logged-in buyer app, which does the
+        // tenant-scoped write (US-1806). No automated messaging.
+        var watch = el("a", "gt-cc-secondary");
+        watch.textContent = "Watch on GradeThread";
+        watch.href = "https://gradethread.com/buyer/alerts?watch=" + encodeURIComponent(location.href);
+        watch.target = "_blank";
+        watch.rel = "noopener noreferrer";
+        actions.appendChild(watch);
+        body.appendChild(actions);
+      }
+
+      // US-1839: inline "will it fit me?" (Guard+ entitlement) — deep-links to the
+      // fit surface, which uses the buyer's saved body profile.
+      if (data.fit && data.fit.available && data.fit.deepLink) {
+        var fitLink = el("a", "gt-cc-link", "Will it fit you? →");
+        fitLink.href = data.fit.deepLink;
+        fitLink.target = "_blank";
+        fitLink.rel = "noopener noreferrer";
+        body.appendChild(fitLink);
+      }
+
+      // US-1838: anonymous → prompt sign-in to unlock the paid signals.
+      if (data.signupPrompt && data.signupPrompt.url) {
+        body.appendChild(el("p", "gt-cc-note", String(data.signupPrompt.message || "")));
+        var su = el("a", "gt-cc-link", "Sign in / upgrade →");
+        su.href = data.signupPrompt.url;
+        su.target = "_blank";
+        su.rel = "noopener noreferrer";
+        body.appendChild(su);
+      }
+
+      body.appendChild(el("p", "gt-cc-disclaimer", String(data.disclaimer || "")));
+
+      if (data.deepLink) {
+        const a = el("a", "gt-cc-link", "Grade it properly →");
+        a.href = data.deepLink;
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+        body.appendChild(a);
+      }
+
+      const again = el("button", "gt-cc-secondary");
+      again.setAttribute("type", "button");
+      again.textContent = "Re-read";
+      again.addEventListener("click", () => runGrade());
+      body.appendChild(again);
+    });
+  }
+
+  function renderError(message, canRetry) {
+    renderState((body) => {
+      body.appendChild(el("p", "gt-cc-lead", message));
+      if (canRetry) {
+        const retry = el("button", "gt-cc-cta");
+        retry.setAttribute("type", "button");
+        retry.textContent = "Try again";
+        retry.addEventListener("click", () => runGrade());
+        body.appendChild(retry);
+      }
+    });
+  }
+
+  // ── actions ─────────────────────────────────────────────────────────────
+  // US-1834: the seller's stated condition (label or eBay id) — optional; the
+  // endpoint degrades to 'unknown' when absent.
+  function extractCondition() {
+    if (!adapter || !adapter.condition) return "";
+    return firstText(adapter.condition).slice(0, 60);
+  }
+
+  // US-1835: the listing price — optional; endpoint rates fairness when present.
+  function extractPrice() {
+    if (!adapter || !adapter.price) return "";
+    return firstText(adapter.price).slice(0, 24);
+  }
+
+  async function runGrade() {
+    if (grading) return;
+    const title = extractTitle();
+    const brand = extractBrand();
+    const condition = extractCondition();
+    const imageUrls = extractImageUrls();
+    if (!imageUrls.length) {
+      renderError(
+        "Couldn't find this listing's photos. The site may have changed its layout — try reloading.",
+        true
+      );
+      return;
+    }
+    grading = true;
+    renderLoading();
+    const res = await send({
+      type: "GT_CC_GRADE",
+      imageUrls,
+      title,
+      brand,
+      condition,
+      price: extractPrice(),
+      marketplace: (adapter && adapter.key) || "",
+    });
+    grading = false;
+    if (!res) {
+      renderError("Something interrupted the read. Try again in a moment.", true);
+      return;
+    }
+    if (res.ok && res.data) {
+      renderResult(res.data);
+      send({
+        type: "GT_CC_SAVE_READ",
+        read: {
+          url: location.href,
+          title: title || document.title,
+          marketplace: (adapter && adapter.key) || "",
+          overallScore: res.data.overallScore,
+          gradeTier: res.data.gradeTier,
+          confidence: res.data.confidence,
+          at: Date.now(),
+        },
+      });
+      return;
+    }
+    if (res.status === 429) {
+      renderError(res.error || "You've hit the free read limit for now. Try again later.", false);
+      return;
+    }
+    renderError(res.error || "Couldn't grade this listing right now.", true);
+  }
+
+  // ── boot ─────────────────────────────────────────────────────────────────
+  async function boot() {
+    // US-1879: prefer the remotely-updatable config, but ONLY when it is a valid
+    // upgrade — a stale/rolled-back hosted file must never downgrade the bundled
+    // adapters (which could drop a newly-shipped marketplace). chooseConfig
+    // enforces the version floor; a blocked downgrade is logged, not silent.
+    const remote = await send({ type: "GT_CC_GET_CONFIG" });
+    const chosen = IMG.chooseConfig(DEFAULT_CFG, remote);
+    CFG = chosen.config;
+    if (chosen.reason === "downgrade-blocked") {
+      console.warn(
+        "[GT-CC] hosted config v" + (remote && remote.version) +
+          " is older than bundled v" + DEFAULT_CFG.version +
+          " — keeping bundled adapters (no downgrade).",
+      );
+    }
+
+    adapter = IMG.resolveAdapter(CFG.adapters, location.host);
+    if (!adapter || adapter.enabled === false) return; // unknown/disabled site — no-op
+    if (!IMG.isDetailPage(adapter, location.pathname)) return; // not a listing page
+
+    // Permanent per-site opt-out from the popup.
+    const settings = await send({ type: "GT_CC_GET_SETTINGS" });
+    const host = location.host;
+    if (settings && Array.isArray(settings.disabledHosts) && settings.disabledHosts.includes(host)) {
+      return;
+    }
+
+    renderLauncher();
+    if (settings && settings.autoRun) runGrade(); // opt-in auto-run
+  }
+
+  // Marketplaces are SPA-ish; re-boot on client-side navigation between listings.
+  let lastPath = location.pathname;
+  const reboot = () => {
+    if (location.pathname !== lastPath) {
+      lastPath = location.pathname;
+      removeOverlay();
+      grading = false;
+      boot();
+    }
+  };
+  window.addEventListener("popstate", reboot);
+  for (const m of ["pushState", "replaceState"]) {
+    const orig = history[m];
+    history[m] = function () {
+      const r = orig.apply(this, arguments);
+      setTimeout(reboot, 300);
+      return r;
+    };
+  }
+
+  boot();
+})();

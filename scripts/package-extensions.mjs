@@ -49,6 +49,15 @@ const EXTENSIONS = [
     // externally_connectable is Firefox-unsupported → Chrome only until US-1882.
     firefox: { blocked: "uses externally_connectable (Firefox-unsupported) — needs the postMessage bridge (US-1882)" },
   },
+  {
+    // US-1873: the merged extension (buyer research + seller Lister, role-gated).
+    // Supersedes the two folders above once it reaches store parity (US-1872 AC5).
+    dir: "extension-unified",
+    name: "gradethread",
+    role: "unified",
+    // Inherits the Lister's externally_connectable → Chrome only until US-1882.
+    firefox: { blocked: "uses externally_connectable (Firefox-unsupported) — needs the postMessage bridge (US-1882)" },
+  },
 ];
 
 // Files/dirs never shipped to a store (dev-only or noise).

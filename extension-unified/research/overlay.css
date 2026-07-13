@@ -1,0 +1,173 @@
+/* GradeThread Condition Check — injected overlay styles (US-1755)
+ *
+ * Scoped under .gt-cc-root and reset-hardened so eBay's page styles don't bleed
+ * in. Fixed bottom-right, high z-index, non-intrusive, brand-colored. */
+
+#gt-cc-overlay.gt-cc-root {
+  all: initial;
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 2147483000; /* below the max so native dialogs still win */
+  width: 300px;
+  max-width: calc(100vw - 40px);
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color: #1a1a2e;
+  background: #ffffff;
+  border: 1px solid #e6e6ef;
+  border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(15, 52, 96, 0.22);
+  overflow: hidden;
+}
+
+#gt-cc-overlay .gt-cc-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: #0f3460;
+  color: #ffffff;
+}
+#gt-cc-overlay .gt-cc-brand {
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.2px;
+}
+#gt-cc-overlay .gt-cc-badge {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: #cfe0ff;
+}
+#gt-cc-overlay .gt-cc-close {
+  all: unset;
+  cursor: pointer;
+  margin-left: auto;
+  font-size: 18px;
+  line-height: 1;
+  color: #cfe0ff;
+  padding: 0 4px;
+}
+#gt-cc-overlay .gt-cc-close:hover { color: #ffffff; }
+
+#gt-cc-overlay .gt-cc-body {
+  padding: 14px 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+#gt-cc-overlay .gt-cc-lead {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #33334d;
+}
+
+#gt-cc-overlay .gt-cc-cta {
+  all: unset;
+  cursor: pointer;
+  text-align: center;
+  background: #e94560;
+  color: #ffffff;
+  font-weight: 600;
+  font-size: 13px;
+  padding: 10px 14px;
+  border-radius: 10px;
+}
+#gt-cc-overlay .gt-cc-cta:hover { background: #d43a53; }
+
+#gt-cc-overlay .gt-cc-secondary {
+  all: unset;
+  cursor: pointer;
+  text-align: center;
+  color: #0f3460;
+  font-weight: 600;
+  font-size: 12px;
+  padding: 6px;
+}
+#gt-cc-overlay .gt-cc-secondary:hover { text-decoration: underline; }
+
+#gt-cc-overlay .gt-cc-spin {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 4px solid #e6e6ef;
+  border-top-color: #0f3460;
+  animation: gt-cc-spin 0.8s linear infinite;
+  margin: 4px auto 0;
+}
+@keyframes gt-cc-spin { to { transform: rotate(360deg); } }
+
+#gt-cc-overlay .gt-cc-scorewrap {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+#gt-cc-overlay .gt-cc-score {
+  flex: 0 0 auto;
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  font-weight: 700;
+  color: #ffffff;
+}
+#gt-cc-overlay .gt-cc-s-excellent { background: #1f9d55; }
+#gt-cc-overlay .gt-cc-s-good { background: #3a9d5d; }
+#gt-cc-overlay .gt-cc-s-fair { background: #d19a1e; }
+#gt-cc-overlay .gt-cc-s-poor { background: #d97a2b; }
+#gt-cc-overlay .gt-cc-s-bad { background: #e94560; }
+#gt-cc-overlay .gt-cc-meta { display: flex; flex-direction: column; gap: 3px; }
+#gt-cc-overlay .gt-cc-tier {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f3460;
+}
+#gt-cc-overlay .gt-cc-conf { font-size: 12px; color: #6b6b80; }
+
+#gt-cc-overlay .gt-cc-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #a4462d;
+  background: #fdf0ea;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+#gt-cc-overlay .gt-cc-disclaimer {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #8a8a9c;
+}
+#gt-cc-overlay .gt-cc-link {
+  color: #e94560;
+  font-weight: 600;
+  font-size: 13px;
+  text-decoration: none;
+}
+#gt-cc-overlay .gt-cc-link:hover { text-decoration: underline; }
+
+@media (prefers-color-scheme: dark) {
+  #gt-cc-overlay.gt-cc-root {
+    background: #1a1a2e;
+    color: #f5f5f5;
+    border-color: #2c2c44;
+  }
+  #gt-cc-overlay .gt-cc-lead { color: #d7d7e2; }
+  #gt-cc-overlay .gt-cc-tier { color: #cfe0ff; }
+  #gt-cc-overlay .gt-cc-disclaimer { color: #9a9ab0; }
+}
+
+/* US-1834: claimed-vs-objective condition discrepancy signal. */
+.gt-cc-disc { margin: 6px 0; padding: 6px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; }
+.gt-cc-disc-bad { background: #fde8e8; color: #b42318; }
+.gt-cc-disc-warn { background: #fef3c7; color: #92400e; }
+.gt-cc-disc-ok { background: #e7f6ec; color: #087443; }
+
+/* US-1837: coverage-gap photo request + actions. */
+.gt-cc-photos { margin: 4px 0 8px; padding-left: 18px; font-size: 12px; line-height: 1.5; }
+.gt-cc-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }

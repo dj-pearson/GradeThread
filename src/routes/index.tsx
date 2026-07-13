@@ -80,6 +80,7 @@ const BillingPage = lazy(() => import("@/pages/billing").then(m => ({ default: m
 const ApiKeysPage = lazy(() => import("@/pages/api-keys").then(m => ({ default: m.ApiKeysPage })));
 const TeamPage = lazy(() => import("@/pages/team").then(m => ({ default: m.TeamPage })));
 const AcceptInvitePage = lazy(() => import("@/pages/accept-invite").then(m => ({ default: m.AcceptInvitePage })));
+const ConnectExtensionPage = lazy(() => import("@/pages/connect-extension").then(m => ({ default: m.ConnectExtensionPage })));
 const PriceSuggestionsPage = lazy(() => import("@/pages/price-suggestions").then(m => ({ default: m.PriceSuggestionsPage })));
 const CertificatePage = lazy(() => import("@/pages/certificate").then(m => ({ default: m.CertificatePage })));
 const PassportPage = lazy(() => import("@/pages/passport").then(m => ({ default: m.PassportPage })));
@@ -511,6 +512,11 @@ export const router = createBrowserRouter([
       // signed-out users. The page redirects to /signup or /login as
       // needed and resumes after auth.
       { path: "/accept-invite", element: <SuspenseWrapper><AcceptInvitePage /></SuspenseWrapper> },
+
+      // US-1873: unified-extension connect page. Opened from the extension popup
+      // with ?ext=<id>; mints an extension token and hands it to the extension.
+      // Public — self-handles the signed-out case (redirects to /login?next=).
+      { path: "/connect-extension", element: <SuspenseWrapper><ConnectExtensionPage /></SuspenseWrapper> },
 
       // Protected dashboard routes
       {

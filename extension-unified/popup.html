@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="popup.css" />
+    <title>GradeThread</title>
+  </head>
+  <body>
+    <header class="pop-head">
+      <img src="icons/icon48.png" alt="" class="pop-logo" />
+      <div class="pop-head-text">
+        <span class="pop-brand">GradeThread</span>
+        <span class="pop-sub" id="roleSub">Condition Check</span>
+      </div>
+      <span class="pop-ver" id="version"></span>
+    </header>
+
+    <main class="pop-body">
+      <!-- Account / sign-in -->
+      <section class="pop-section pop-account" id="accountSection">
+        <div class="pop-acct-row">
+          <div>
+            <div class="pop-acct-state" id="acctState">Not signed in</div>
+            <div class="pop-acct-sub" id="acctSummary">
+              Buyer research is free for everyone. Sign in to unlock more.
+            </div>
+          </div>
+          <div class="pop-badges" id="acctBadges"></div>
+        </div>
+        <button class="pop-cta" id="connectBtn" type="button">Sign in to unlock</button>
+        <button class="pop-linkbtn" id="disconnectBtn" type="button" hidden>Sign out of this extension</button>
+      </section>
+
+      <!-- Research (always) -->
+      <section class="pop-section">
+        <h2 class="pop-h2">Condition Check</h2>
+        <p class="pop-lead">
+          An independent AI condition read while you shop eBay, Poshmark, Grailed,
+          Mercari, Depop &amp; Vinted. Open a listing and click “Get condition read”.
+        </p>
+        <label class="pop-toggle">
+          <input type="checkbox" id="autoRun" />
+          <span>Auto-run on each supported listing</span>
+        </label>
+        <label class="pop-toggle" id="siteToggleWrap" hidden>
+          <input type="checkbox" id="siteEnabled" />
+          <span id="siteToggleLabel">Enabled on this site</span>
+        </label>
+      </section>
+
+      <section class="pop-section">
+        <h2 class="pop-h2">Recent reads</h2>
+        <ul class="pop-reads" id="reads">
+          <li class="pop-empty">No reads yet — open a listing and get a condition read.</li>
+        </ul>
+      </section>
+
+      <!-- Seller tools (only when entitled) -->
+      <section class="pop-section pop-seller" id="sellerSection" hidden>
+        <h2 class="pop-h2">Seller tools — Lister</h2>
+        <p class="pop-lead">
+          Cross-post FlipDesk drafts to Poshmark, Mercari &amp; Grailed from your
+          own logged-in browser tab. GradeThread never sees your marketplace
+          password or cookies — automation runs entirely on your device.
+        </p>
+        <ul class="pop-platforms" id="platforms"></ul>
+
+        <div class="pop-tos" id="tosBlock">
+          <label class="pop-tos-row">
+            <input type="checkbox" id="tosCheck" />
+            <span>
+              I understand the Lister fills forms in <em>my</em> browser session and
+              that <strong>I am responsible</strong> for each marketplace’s Terms of
+              Service. <a id="termsLink" href="#" target="_blank" rel="noopener noreferrer">Read the terms</a>.
+            </span>
+          </label>
+          <button class="pop-cta" id="acceptTos" type="button" disabled>Accept &amp; enable</button>
+          <p class="pop-accepted" id="acceptedNote" hidden></p>
+          <button class="pop-linkbtn" id="revokeTos" type="button" hidden>Revoke consent</button>
+        </div>
+      </section>
+
+      <!-- Locked seller teaser (authenticated buyer, no seller plan) -->
+      <section class="pop-section pop-seller-locked" id="sellerLockedSection" hidden>
+        <h2 class="pop-h2">Seller tools</h2>
+        <p class="pop-lead">
+          Cross-posting to Poshmark, Mercari &amp; Grailed unlocks with an active
+          FlipDesk plan.
+        </p>
+        <a class="pop-cta" id="upgradeBtn" href="#" target="_blank" rel="noopener noreferrer">See FlipDesk plans</a>
+      </section>
+
+      <footer class="pop-foot">
+        <a id="privacy" href="#" target="_blank" rel="noopener noreferrer">Privacy</a>
+        <a id="help" href="#" target="_blank" rel="noopener noreferrer">How it works</a>
+      </footer>
+    </main>
+
+    <!-- Read the ACTUAL versioned Lister selectors config for honest platform
+         status (no hand-maintained duplicate). Assigns self.GT_LISTER_SELECTORS. -->
+    <script src="lister/selectors.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>

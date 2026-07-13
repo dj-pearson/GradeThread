@@ -26,6 +26,7 @@ export default tseslint.config(
       "ds-bundle/**",
       "extension/**",
       "extension-condition/**",
+      "extension-unified/**",
     ],
   },
   {

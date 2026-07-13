@@ -1,0 +1,94 @@
+# GradeThread — unified browser extension (US-1872 / US-1873)
+
+**One install, role- and subscription-aware.** This folder merges the two legacy
+extensions into a single MV3 extension:
+
+- **Condition Check (buyer research)** — from `extension-condition/` (US-1755/1756).
+  An independent AI condition read on eBay / Poshmark / Grailed / Mercari / Depop /
+  Vinted listing pages. **Always on** — anonymous-capable, quota-capped.
+- **Lister (seller cross-post)** — from `extension/` (US-716). Cross-post + delist
+  FlipDesk drafts into Poshmark / Mercari / Grailed from the seller's own logged-in
+  tab. **Unlocks only for an active paid FlipDesk account.**
+
+Founder decision 2026-07-09: sellers doing sourcing/comping ARE buyers in the same
+session — two installs and two store listings is friction. See
+[[unified-extension-decision]] (agent memory) and prd.json US-1872..US-1885.
+
+## Layout (module boundaries kept for a clean store-review narrative)
+
+```
+manifest.json        one MV3 manifest — both permission sets + all content scripts
+background.js        one service worker — routes GT_CC_* + GT_LISTER_* + entitlements
+registry.js          feature registry — resolves capabilities from entitlements+settings
+popup.html/js/css    role-aware popup (US-1885)
+onboarding.html      first-run page opened on install (US-1885 AC4)
+research/            buyer overlay  (selectors.js, image-utils.cjs, marketplace.js, overlay.css)
+lister/              seller Lister  (selectors.js, lister-guard.js, common.js, poshmark/mercari/grailed.js)
+icons/               shared icon set
+test/                zero-dep node guards (run in verify:web via scripts/test-extensions.mjs)
+```
+
+## The gate (US-1873)
+
+`registry.js` is the single source of truth for "what may this install do?":
+
+| capability | granted when |
+|---|---|
+| `research` | **always** (anonymous allowed, quota-capped server-side) |
+| `autoRun`  | buyer setting |
+| `lister` / `delist` | `sellerEnabled` — an **active paid FlipDesk** plan |
+
+`background.js` fetches `GET https://functions.gradethread.com/api/grading/public/entitlements`
+with the signed extension token (US-1838), normalizes it through the registry, and
+**refuses** `GT_LISTER_LIST` / `GT_LISTER_DELIST` when `lister` is false. **Fail-safe:**
+any lookup gap or malformed response resolves to anonymous (buyer-only) — a hiccup
+never unlocks seller tools. The cache is short (5 min) and a token set/clear
+invalidates it, so a sign-in / upgrade / lapse takes effect without a tab reload.
+
+## Auth / token flow
+
+1. The buyer app mints a token: `POST /api/buyer/extension-token` (US-1838).
+2. The connect page posts it to the extension via `externally_connectable`:
+   `chrome.runtime.sendMessage(extId, { type: "GT_SET_TOKEN", token })`.
+3. `background.js` stores it as `gtBuyerToken`, invalidates the entitlement cache,
+   and re-resolves capabilities. `GT_CLEAR_TOKEN` signs out.
+
+The popup's **Sign in** button opens `gradethread.com/connect-extension?ext=<id>`
+to launch this flow. *(The `/connect-extension` frontend page is the remaining
+half — it mints the token and posts `GT_SET_TOKEN` back. The extension side is
+complete.)*
+
+## Privacy posture (rewritten for the merged permission set — US-1872 AC4)
+
+The old Lister claim "not host-permitted on gradethread.com" no longer holds once
+merged. The posture is now:
+
+> **No `cookies` permission and no access to your marketplace accounts.** Condition
+> Check sends only the public listing photos already on the page to GradeThread's
+> public endpoint (nothing is persisted server-side). Lister automation runs
+> entirely on your device — GradeThread never receives your marketplace password or
+> cookies, and records a cross-listing only from your own GradeThread session.
+
+## Wiring for the single extension id (US-1873 AC5)
+
+Once published, the unified extension has ONE id. Update:
+
+- **`VITE_LISTER_EXTENSION_ID`** → the unified id (the frontend bridge
+  `src/lib/lister-extension.ts` sends `GT_LISTER_LIST`/`GT_LISTER_DELIST` to it
+  unchanged).
+- **`EXTENSION_ALLOWED_ORIGINS`** (edge, `main.ts`) → add `chrome-extension://<id>`
+  so the grade + entitlements endpoints accept its CORS origin.
+- **`externally_connectable`** already trusts `*.gradethread.com`.
+
+## Cross-browser
+
+Chrome/Edge only for now. Firefox is blocked by `externally_connectable`
+(unsupported) — needs the `window.postMessage` bridge (US-1882). The packager
+(`scripts/package-extensions.mjs`) emits a Chrome zip and skips Firefox with that
+reason.
+
+## Status vs the two legacy folders
+
+`extension/` and `extension-condition/` remain until this reaches store parity
+(US-1872 AC5), then they're removed and US-1757 store distribution targets this
+folder only. The reliability/coverage fixes (US-1874..1884) land **here**.
