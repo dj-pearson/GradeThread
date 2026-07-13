@@ -14,6 +14,7 @@ const {
   dedupeUrls,
   resolveAdapter,
   isDetailPage,
+  srcsetLargest,
   isValidConfig,
   compareVersions,
   chooseConfig,
@@ -36,11 +37,30 @@ assert.equal(
   "https://i.ebayimg.com/g/AbC/s-l1600.jpg?x=1",
   "preserves a query string",
 );
-const POSH = { pattern: "/s_[a-z0-9]+/", replacement: "/l_", flags: "i" };
+// US-1880: the shipped Poshmark rule against a REAL CloudFront URL shape — size
+// is a FILENAME prefix (…/<postId>/s_<hash>.jpg), not a path segment.
+const POSH = { pattern: "/(?:s|m|t)_(?=[^/]*$)", replacement: "/l_", flags: "i" };
 assert.equal(
-  applyUrlUpgrade("https://dcdn.example/posts/abc/s_150/photo.jpg", POSH),
-  "https://dcdn.example/posts/abc/l_photo.jpg",
-  "Poshmark size token upgrade",
+  applyUrlUpgrade("https://di2ponv0v5otw.cloudfront.net/posts/2021/06/12/60c5abcd/s_60c5abcdef012345.jpg", POSH),
+  "https://di2ponv0v5otw.cloudfront.net/posts/2021/06/12/60c5abcd/l_60c5abcdef012345.jpg",
+  "Poshmark s_ filename prefix -> l_ (full-res)",
+);
+assert.equal(
+  applyUrlUpgrade("https://di2ponv0v5otw.cloudfront.net/posts/x/m_abc.jpg", POSH),
+  "https://di2ponv0v5otw.cloudfront.net/posts/x/l_abc.jpg",
+  "m_ (medium) also upgrades to l_",
+);
+assert.equal(
+  applyUrlUpgrade("https://di2ponv0v5otw.cloudfront.net/posts/x/l_abc.jpg", POSH),
+  "https://di2ponv0v5otw.cloudfront.net/posts/x/l_abc.jpg",
+  "an already-large l_ URL is left unchanged",
+);
+// Regression guard: the OLD path-segment regex never matched this real shape —
+// that was the bug (thumbnails got graded).
+assert.equal(
+  "https://di2ponv0v5otw.cloudfront.net/posts/x/s_abc.jpg".replace(/\/s_[a-z0-9]+\//i, "/l_"),
+  "https://di2ponv0v5otw.cloudfront.net/posts/x/s_abc.jpg",
+  "old '/s_[a-z0-9]+/' pattern left the thumbnail unchanged (the US-1880 bug)",
 );
 assert.equal(applyUrlUpgrade("https://x/y.jpg", null), "https://x/y.jpg", "no upgrade cfg -> unchanged");
 assert.equal(
@@ -78,6 +98,32 @@ assert.equal(isDetailPage({ detect: { pathIncludes: ["/itm/"] } }, "/itm/123"), 
 assert.equal(isDetailPage({ detect: { pathIncludes: ["/itm/"] } }, "/sch/i.html"), false, "non-item path");
 assert.equal(isDetailPage({ detect: { pathRegex: "^/items/\\d+" } }, "/items/999"), true, "pathRegex match");
 assert.equal(isDetailPage({ detect: {} }, "/anything"), false, "no detect rules -> false");
+
+// ── srcsetLargest (US-1880: max-width, not last) ─────────────────────────
+assert.equal(
+  srcsetLargest("https://x/s.jpg 320w, https://x/l.jpg 1600w, https://x/m.jpg 640w"),
+  "https://x/l.jpg",
+  "picks the max-width candidate regardless of position (not the last)",
+);
+assert.equal(
+  srcsetLargest("https://x/big.jpg 1600w, https://x/small.jpg 320w"),
+  "https://x/big.jpg",
+  "largest-first srcset still resolves to the largest (not last)",
+);
+assert.equal(
+  srcsetLargest("https://x/1x.jpg 1x, https://x/3x.jpg 3x, https://x/2x.jpg 2x"),
+  "https://x/3x.jpg",
+  "no widths -> falls back to max pixel density",
+);
+assert.equal(
+  srcsetLargest("https://cdn/img/w_100,h_100/a.jpg 800w, https://cdn/img/w_50,h_50/b.jpg 400w"),
+  "https://cdn/img/w_100,h_100/a.jpg",
+  "URLs containing commas aren't mangled (split on comma+space)",
+);
+assert.equal(srcsetLargest("https://x/only.jpg"), "https://x/only.jpg", "single no-descriptor candidate");
+assert.equal(srcsetLargest(""), null, "empty -> null");
+assert.equal(srcsetLargest(null), null, "non-string -> null");
+assert.equal(srcsetLargest("not-a-url 800w"), null, "no http(s) candidate -> null");
 
 // ── compareVersions (US-1879) ────────────────────────────────────────────
 assert.equal(compareVersions("2026.07.4", "2026.07.4"), 0, "equal versions");

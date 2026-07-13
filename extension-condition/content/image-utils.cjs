@@ -96,6 +96,37 @@
     return false;
   }
 
+  // US-1880: pick the LARGEST candidate from a `srcset` value. The old content
+  // script assumed the last comma-token was largest — but srcset order is not
+  // guaranteed, so a "1600w, 320w" set graded the thumbnail. Parse the width (`w`)
+  // / density (`x`) descriptors and choose the max: highest width wins; if no
+  // widths are present, highest density; ties resolve to the later candidate.
+  // Splits on comma-then-whitespace so a CDN URL that itself contains a comma
+  // (e.g. Cloudinary transforms) isn't mangled. Returns the URL, or null.
+  function srcsetLargest(srcset) {
+    if (typeof srcset !== "string" || !srcset.trim()) return null;
+    const candidates = srcset.split(/,\s+/).map((s) => s.trim()).filter(Boolean);
+    let best = null; // { url, w, x, idx }
+    candidates.forEach((cand, idx) => {
+      const parts = cand.split(/\s+/);
+      const url = parts[0];
+      if (!url || !/^https?:\/\//i.test(url)) return;
+      let w = 0, x = 0;
+      for (let i = 1; i < parts.length; i++) {
+        const mw = /^(\d+(?:\.\d+)?)w$/i.exec(parts[i]);
+        const mx = /^(\d+(?:\.\d+)?)x$/i.exec(parts[i]);
+        if (mw) w = parseFloat(mw[1]);
+        else if (mx) x = parseFloat(mx[1]);
+      }
+      const cur = { url, w, x, idx };
+      if (!best) { best = cur; return; }
+      if (cur.w !== best.w) { if (cur.w > best.w) best = cur; return; }
+      if (cur.x !== best.x) { if (cur.x > best.x) best = cur; return; }
+      best = cur; // equal descriptors → prefer the later candidate
+    });
+    return best ? best.url : null;
+  }
+
   // ── US-1879: remote-config integrity ───────────────────────────────────────
   // The hosted config (marketplace-selectors.json) can be updated without a store
   // resubmission, but it must only ever UPGRADE the bundled adapters — a stale or
@@ -165,6 +196,7 @@
     dedupeUrls,
     resolveAdapter,
     isDetailPage,
+    srcsetLargest,
     isValidConfig,
     compareVersions,
     chooseConfig,

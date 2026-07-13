@@ -26,7 +26,7 @@
 // from telemetry without shipping a new build.
 
 const GT_CC_CONFIG = {
-  version: "2026.07.4",
+  version: "2026.07.5",
   lastVerified: "2026-07-10",
   configUrl: "https://gradethread.com/extension/marketplace-selectors.json",
   adapters: {
@@ -34,7 +34,11 @@ const GT_CC_CONFIG = {
       label: "eBay",
       enabled: true,
       verified: true,
-      hosts: ["ebay.com", "ebay.co.uk", "ebay.de", "ebay.ca", "ebay.com.au"],
+      hosts: [
+        "ebay.com", "ebay.co.uk", "ebay.de", "ebay.ca", "ebay.com.au",
+        "ebay.fr", "ebay.it", "ebay.es", "ebay.ie", "ebay.nl",
+        "ebay.at", "ebay.ch", "ebay.pl", "ebay.be"
+      ],
       detect: { pathIncludes: ["/itm/"] },
       gallery: [
         ".ux-image-carousel-item img",
@@ -86,7 +90,12 @@ const GT_CC_CONFIG = {
         "img[src*='cloudfront'][src*='posts']"
       ],
       imageAttrs: ["src", "data-src"],
-      urlUpgrade: { pattern: "/s_[a-z0-9]+/", replacement: "/l_", flags: "i" },
+      // US-1880: Poshmark encodes size as a FILENAME prefix (…/<postId>/s_<hash>.jpg
+      // → l_ for the large render), NOT a path segment. The old "/s_[a-z0-9]+/"
+      // required a trailing slash that real CloudFront URLs don't have, so it
+      // never matched and thumbnails got graded. Match the s_/m_/t_ prefix at the
+      // filename start (lookahead: no more slashes follow) and upgrade to l_.
+      urlUpgrade: { pattern: "/(?:s|m|t)_(?=[^/]*$)", replacement: "/l_", flags: "i" },
       title: ["h1.listing__title", "[data-et-name='listing_title']", "h1"],
       brandSelectors: ["a[data-et-name='brand']", ".listing__brand", "a[href*='/brand/']"],
       maxImages: 4
@@ -152,7 +161,10 @@ const GT_CC_CONFIG = {
       verified: false,
       hosts: [
         "vinted.com", "vinted.co.uk", "vinted.fr", "vinted.de", "vinted.es",
-        "vinted.it", "vinted.nl", "vinted.pl", "vinted.lt", "vinted.cz"
+        "vinted.it", "vinted.nl", "vinted.pl", "vinted.lt", "vinted.cz",
+        "vinted.be", "vinted.at", "vinted.ro", "vinted.hu", "vinted.sk",
+        "vinted.pt", "vinted.se", "vinted.lu", "vinted.hr", "vinted.gr",
+        "vinted.dk", "vinted.fi"
       ],
       detect: { pathIncludes: ["/items/"] },
       gallery: [

@@ -113,12 +113,9 @@
   function firstSrcFromAttr(el, attr) {
     const raw = el.getAttribute(attr);
     if (!raw) return null;
-    if (attr === "srcset") {
-      // "url1 320w, url2 640w" — take the last (largest) URL token.
-      const parts = raw.split(",").map((s) => s.trim()).filter(Boolean);
-      const last = parts[parts.length - 1];
-      return last ? last.split(/\s+/)[0] : null;
-    }
+    // US-1880: pick the max-width srcset candidate (order is not guaranteed), not
+    // whatever happened to be last.
+    if (attr === "srcset") return IMG.srcsetLargest(raw);
     return raw;
   }
 
