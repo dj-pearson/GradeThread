@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1945,
+  "nextId": 1952,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -16303,6 +16303,141 @@
         "services/edge-functions/src/routes/flipdesk-pricing.ts",
         "services/edge-functions/src/routes/admin-ops.ts",
         "services/edge-functions/src/routes/admin-waitlist.ts"
+      ]
+    },
+    {
+      "id": "US-1945",
+      "title": "Public /cert/:id certificate pages 404 in production — the verify-a-grade trust chain is dead",
+      "description": "As a buyer, we want every published grade certificate at /cert/:id to render, so a buyer can verify a grade before paying. In production (2026-07-13) every /cert/<uuid> linked off the live Verified Seller profile /verified/pearson returns HTTP 404 serving the BLOG's not-found body ('That post doesn't exist... Back to the blog') — confirmed across 16+ real cert IDs by two independent QA personas. A made-up cert id returns the IDENTICAL 404, so a buyer cannot distinguish a genuine certificate from a forgery. The Pages Function functions/cert/[id].ts exists and /cert/* IS in public/_routes.json, so this is a deploy/runtime failure (Function erroring then Pages fallback, or prod cert-lookup/migration drift), NOT a missing route. This breaks the core product promise ('a certificate buyers can verify'). SECONDARY: /verify tells buyers to look for 'Cert #GT-7K2M9'-style codes (src/lib/cert-number.ts) but the actual cert artifacts/URLs are raw UUIDs, so the code a buyer is told to find does not appear on the cert.",
+      "acceptanceCriteria": [
+        "/cert/<valid-id> renders the full certificate (grade + five-factor breakdown + date + methodology version + confidence + tamper-evident check) in production for real published certs from /verified/pearson",
+        "An INVALID or nonexistent cert id returns a distinct, cert-branded 'certificate not found / could not be verified' page — never the blog 404 and never byte-identical to a valid cert's error, so genuine vs forged is distinguishable",
+        "Root cause identified and documented (deploy emitted the Function / prod cert lookup works); a post-deploy smoke check asserts /cert/<seeded-id> returns 200",
+        "The homepage sample-certificate card links to a real, working seeded certificate (currently it is not a link)",
+        "Reconcile the advertised 'Cert #GT-XXXXX' format (cert-number.ts) with the cert identity actually shown on the page/URL"
+      ],
+      "priority": 2611,
+      "passes": false,
+      "notes": "[P1][Web/SSR][Blocker] 5-persona QA sweep 2026-07-13. Cert 404 independently confirmed by the buyer-auditor and vintage-seller personas across 16+ real IDs off /verified/pearson; blog-branded 404 body + /cert/* present in _routes.json means Function deploy/runtime failure, not a missing route. Likely relates to functions-not-typechecked-by-build and/or prod-migration-drift. Treat as a LAUNCH BLOCKER — the entire 'verifiable certificate' value prop is non-functional in prod. Needs prod deploy verification (cannot be reproduced on local build alone).",
+      "relevantPaths": [
+        "functions/cert/[id].ts",
+        "public/_routes.json",
+        "src/pages/certificate.tsx",
+        "src/lib/cert-number.ts",
+        "src/pages/marketing/verify.tsx"
+      ]
+    },
+    {
+      "id": "US-1946",
+      "title": "'100% AI-vs-expert agreement' headline stat is shown without its sample size (n~13-14, only 19 items graded)",
+      "description": "As GradeThread, we want every accuracy claim to carry its denominator, so skeptical buyers and sellers trust it. The homepage (src/pages/landing.tsx) and marketing surfaces headline 'AI-vs-expert agreement: 100%' (and 'Mean error 0.00') with no sample size. /transparency honestly discloses the real basis — n=13-14 expert reviews across only 19 items ever graded, 63.1% average model confidence, 0 graded sales tracked — but the headline surfaces strip that context. Four of five QA personas (power reseller, buyer, vintage seller, data nerd) independently flagged the bare '100%' as puffery/deceptive; the data-nerd persona called it 'actively misleading'. The transparency page itself is a model of honesty — the fix is only the headline surfaces.",
+      "acceptanceCriteria": [
+        "Every surface that shows the agreement/accuracy stat displays the sample size inline (e.g. '100% within 1/2 pt, n=14 expert reviews') or suppresses the topline percentage until n is statistically meaningful",
+        "'Mean error 0.00' likewise carries its n or is suppressed while the sample is tiny",
+        "A guard/test asserts the marketing accuracy stat is never rendered without an accompanying n"
+      ],
+      "priority": 1946,
+      "passes": false,
+      "notes": "[P2][Web/Content] 5-persona QA sweep 2026-07-13. Flagged by 4 of 5 personas. Transparency page is honest and shows n; only the marketing headline strips it. Low-effort, high-trust fix.",
+      "relevantPaths": [
+        "src/pages/landing.tsx",
+        "src/components/marketing/stat-counters-logic.ts",
+        "src/pages/marketing/transparency.tsx",
+        "src/pages/marketing/for-resellers.tsx"
+      ]
+    },
+    {
+      "id": "US-1947",
+      "title": "Condition Index value tables fail basic sanity: non-monotonic pricing, impossible per-grade comp counts, frozen ranges, tier-label mismatch",
+      "description": "As GradeThread, we want the public /condition-index value-by-grade tables (and the /whats-it-worth estimator) internally consistent, since they are a flagship SEO/trust asset that states 'no number on this page is fabricated'. QA (data-nerd persona, corroborated by the vintage persona) found: (1) NON-MONOTONIC pricing — Carhartt WIP jacket grade-9.0/8.5 = $230 ($187-$306) but grade-10.0/9.5 (NWT) = $218 ($150-$258): better condition priced lower. (2) IMPOSSIBLE per-grade n — each of ~10 grade rows shows ~25 comps while the item total is ~74 ('median of 74 condition-matched listings'); 10x25 far exceeds 74, so per-grade counts are not real per-bucket samples. (3) FROZEN ranges — the range upper bound is identical across 6 grades and low grades show typical == range floor exactly, indicating a base-price x grade-multiplier formula presented as raw sold comps. (4) BUCKETING — 10.0==9.5 and 9.0==8.5 collapse to identical value/range/n, so the half-point precision shown is illusory. (5) TIER-LABEL MISMATCH — the /whats-it-worth grade dropdown labels 'NWT'=9.5 and shows 'Below Average' (a tier absent from the published seven-tier scale where NWT=10), contradicting the 'one published standard' claim from inside the tool.",
+      "acceptanceCriteria": [
+        "Value-by-grade is monotonic non-increasing (a higher grade is never priced below a lower grade) for every item",
+        "Per-grade comp counts reflect the actual per-bucket sample, or the n column is removed; the sum across buckets never exceeds the item comp total",
+        "Range low/high are computed from each grade's own comp distribution, OR the point value is relabeled a 'modeled estimate' rather than presented as sold-comp median",
+        "The /whats-it-worth grade dropdown labels/anchors match the published seven-tier scale exactly (NWT=10, no 'Below Average' tier)",
+        "A test asserts grade-monotonicity and bucket-count sanity on generated Condition Index data"
+      ],
+      "priority": 1947,
+      "passes": false,
+      "notes": "[P2][Edge+Web/Data] 5-persona QA sweep 2026-07-13. Public flagship data asset; two basic integrity checks (monotonicity, bucket n <= total) both fail. Data-nerd persona would not price off it. Tier-label mismatch corroborated by vintage persona.",
+      "relevantPaths": [
+        "services/edge-functions/src/lib/condition-index-seedgen.ts",
+        "services/edge-functions/src/lib/condition-index.ts",
+        "src/pages/marketing/whats-it-worth.tsx",
+        "src/hooks/use-condition-index.ts",
+        "functions/condition-index/[[path]].ts"
+      ]
+    },
+    {
+      "id": "US-1948",
+      "title": "Homepage positioning + first-touch jargon repels the casual/first-time seller (site speaks only to pro 'resellers/flippers')",
+      "description": "As a first-time closet-cleaner, we want to feel the product is for us, not only for professional resellers. Every public surface says 'resellers / flippers / FlipDesk / your reseller workflow / Join resellers who trust GradeThread'; the novice QA persona concluded 'this is for pros, not me' within seconds and would close the tab — despite a genuinely welcoming free tier and the friendly /whats-it-worth hook that would convert her. First-touch jargon compounds it: the hero uses 'rubric' and 'FlipDesk' unexplained; pricing/FAQ pile on 'AI actions', 'service-level target', 'cross-list', 'live API/sync', 'comps', 'reconciliation'; the sample certificate shows 'NWT/NWOT' with no expansion. The free option IS stated well ('3 Standard grades a month free', '14-day trial, no card') — the gap is purely positioning and reading level for a non-technical newcomer.",
+      "acceptanceCriteria": [
+        "Homepage offers a casual-seller lane/message (e.g. 'Just cleaning out your closet? Grade a few items, no experience needed') and routes newcomers to /whats-it-worth",
+        "Hero and pricing intro remove or gloss first-touch jargon (rubric, FlipDesk, AI actions, service-level target); NWT/NWOT expanded on the sample certificate card",
+        "Pro-only terminology (API, AutoLister, comps, reconciliation) is reserved for deeper reseller pages"
+      ],
+      "priority": 1948,
+      "passes": false,
+      "notes": "[P3][Web/Growth] 5-persona QA sweep 2026-07-13. Novice persona bounced on positioning despite a good free tier. Recovers a whole casual-seller segment currently repelled at the door.",
+      "relevantPaths": [
+        "src/pages/landing.tsx",
+        "src/pages/marketing/pricing.tsx",
+        "src/pages/marketing/for-resellers.tsx"
+      ]
+    },
+    {
+      "id": "US-1949",
+      "title": "FlipDesk is described but never shown publicly; contradictory 'Join waitlist' CTA signals vaporware",
+      "description": "As a high-volume reseller evaluating FlipDesk, we want to see the actual tool before signing up. The public site describes FlipDesk with icon+text cards but shows ZERO product screenshots, GIFs, or demo; the genuinely strong AutoLister (batch upload, HEIC/Live Photo, auto-group, bulk generate, auto-publish) is only visible AFTER signup. The power-reseller persona had to commit on faith and nearly bounced. Compounding the vaporware read: the homepage closing section pairs 'Join waitlist' next to 'Start Grading Free' even though the product is clearly live — a mixed launch signal at the exact conversion moment.",
+      "acceptanceCriteria": [
+        "Homepage and /for-resellers show real FlipDesk/AutoLister imagery (screenshots and/or a short Loom/GIF) of the bulk pipeline",
+        "The contradictory 'Join waitlist' CTA is removed or reconciled now that the product is live"
+      ],
+      "priority": 1949,
+      "passes": false,
+      "notes": "[P3][Web/Conversion] 5-persona QA sweep 2026-07-13. Power-reseller persona: the tool is strong but hidden behind a signup wall; 'Join waitlist' next to 'Start Grading Free' reads as vaporware.",
+      "relevantPaths": [
+        "src/pages/landing.tsx",
+        "src/pages/marketing/for-resellers.tsx",
+        "src/pages/marketing/flipdesk.tsx"
+      ]
+    },
+    {
+      "id": "US-1950",
+      "title": "Inner marketing routes render a 2-3s blank spinner (not prerendered like the homepage); intermittent homepage scroll-freeze",
+      "description": "As any visitor, we want marketing pages to appear instantly. The homepage is prerendered and paints instantly, but inner marketing routes (/for-resellers, /whats-it-worth, /how-it-works, /signup) render a blank page behind a 2-3s client-side loading spinner — a bounce trigger flagged by the power-reseller persona and inconsistent with the fast homepage. Additionally an intermittent renderer freeze was observed while scrolling the homepage FlipDesk section (a screenshot call timed out ~30s, one blank frame, recovered on retry; no console errors) — smells like a heavy scroll animation.",
+      "acceptanceCriteria": [
+        "Inner marketing routes are prerendered/SSR (parity with the homepage) so first paint has content — no multi-second blank spinner",
+        "The intermittent homepage FlipDesk-section scroll freeze is investigated and resolved (profile/trim scroll animations)"
+      ],
+      "priority": 1950,
+      "passes": false,
+      "notes": "[P3][Web/Perf+SSR] 5-persona QA sweep 2026-07-13. Homepage is prerendered and instant; interior marketing routes are client-rendered with a 2-3s blank spinner. See seo-content-page-wiring / prerender registry.",
+      "relevantPaths": [
+        "scripts/prerender.mjs",
+        "src/prerender/entry-server.tsx",
+        "src/lib/seo/public-routes.ts",
+        "src/pages/marketing/for-resellers.tsx",
+        "src/pages/marketing/whats-it-worth.tsx"
+      ]
+    },
+    {
+      "id": "US-1951",
+      "title": "Cosmetic-factor grading guidance penalizes 'repairs' as flat damage — contradicts the site's own vintage/patina content",
+      "description": "As a vintage/luxury seller, we want quality repairs treated as value-preserving, not lumped with damage. The published guidance (/grading-by-category, vintage section) lists 'holes, stains, brittleness, and repairs' as penalized — folding a museum-quality reweave or sympathetic darning in with moth holes. This contradicts the site's own excellent /design-vs-damage guide (patina/factory distressing 'not penalized', graded 'against as-made condition'). The vintage QA persona flagged that on archival goods a professional repair PRESERVES value; flattening it into the Cosmetic penalty mis-grades exactly the high-value pieces that need nuance. The canonical Cosmetic factor page (/grading/cosmetic-appearance) also lacks any patina/age carve-out where an AI would anchor.",
+      "acceptanceCriteria": [
+        "Guidance distinguishes value-preserving quality repairs from damage (mirroring the design-vs-damage distinction) rather than penalizing all repairs equally",
+        "The Cosmetic factor definition includes an explicit vintage/patina 'expected wear for age' carve-out",
+        "If the factor definition or grading prompt changes, update all rounding/prompt sites in lockstep (load the grading-engine skill first)"
+      ],
+      "priority": 1951,
+      "passes": false,
+      "notes": "[P3][Grading/Content] 5-persona QA sweep 2026-07-13. Vintage persona: rubric contradicts the site's own best content. Primarily a content fix; if the grading prompt/criteria change, honor the grading-engine contract.",
+      "relevantPaths": [
+        "src/pages/marketing/grading-by-category.tsx",
+        "src/pages/marketing/design-vs-damage.tsx",
+        "services/edge-functions/src/lib/defect-weighting.ts"
       ]
     }
   ]
