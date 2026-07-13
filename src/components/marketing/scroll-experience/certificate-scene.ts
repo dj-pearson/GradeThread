@@ -1,4 +1,6 @@
 import { gsap } from "gsap";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
+import { orbFocus } from "./orb-bus";
 
 /**
  * US-1957 — the signature scene. As you scroll through the "See the actual
@@ -41,6 +43,16 @@ export function initCertificateScene(): () => void {
 
     if (ring) {
       tl.to(ring, { scale: 1, opacity: 1, ease: "back.out(1.6)", duration: 0.4 }, 0);
+      // Emerald grade-halo that blooms in as the orb docks behind the ring.
+      tl.to(
+        ring,
+        {
+          boxShadow: "0 0 44px 6px rgba(16,185,129,0.5)",
+          duration: 0.5,
+          ease: "power2.out",
+        },
+        0.1,
+      );
     }
     if (scoreEl) {
       tl.to(
@@ -63,9 +75,43 @@ export function initCertificateScene(): () => void {
         0.15,
       );
     }
+
+    // Halo: over a wider range than the assembly, command the orb (US-1955) to
+    // converge on the grade ring, hold as a halo through the section's center,
+    // then release so it resumes travelling down the page. strength bells 0→1→0.
+    if (ring) {
+      ScrollTrigger.create({
+        trigger: scene,
+        start: "top 68%",
+        end: "bottom 38%",
+        onEnter: () => {
+          orbFocus.active = true;
+          orbFocus.targetEl = ring;
+        },
+        onEnterBack: () => {
+          orbFocus.active = true;
+          orbFocus.targetEl = ring;
+        },
+        onLeave: () => {
+          orbFocus.active = false;
+          orbFocus.strength = 0;
+        },
+        onLeaveBack: () => {
+          orbFocus.active = false;
+          orbFocus.strength = 0;
+        },
+        onUpdate: (self) => {
+          orbFocus.strength = Math.sin(self.progress * Math.PI);
+        },
+      });
+    }
   }, scene);
 
   return () => {
+    // Release the orb before tearing down the scene.
+    orbFocus.active = false;
+    orbFocus.strength = 0;
+    orbFocus.targetEl = null;
     ctx.revert(); // reverts animations + clears runtime inline styles → assembled
     if (scoreEl) scoreEl.textContent = finalScore.toFixed(1);
   };

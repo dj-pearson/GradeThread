@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
+import { orbFocus } from "./scroll-experience/orb-bus";
 
 /**
  * HeroOrb — a self-contained WebGL "condition orb" that sits BEHIND the hero
@@ -189,6 +190,9 @@ export default function HeroOrb() {
     // Cache the scroll range (reading scrollHeight per-frame forces reflow).
     let maxScroll = Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
     const scroll = { v: 0 };
+    // Reused each frame to project the halo target's screen position into world
+    // space (no per-frame allocation).
+    const focusVec = new THREE.Vector3();
 
     const onResize = () => {
       const w = mount.clientWidth || window.innerWidth;
@@ -226,16 +230,46 @@ export default function HeroOrb() {
       const target = Math.min(Math.max(window.scrollY / maxScroll, 0), 1);
       scroll.v += (target - scroll.v) * 0.08;
       const p = scroll.v;
-      uScroll.value = p;
 
-      mesh.position.x = p * 1.75;
-      mesh.position.y = p * 0.5;
-      mesh.scale.setScalar(1 - p * 0.5);
+      // Default (scroll-driven) targets: drift right, shrink, dim, heat.
+      let tx = p * 1.75;
+      let ty = p * 0.5;
+      let ts = 1 - p * 0.5;
+      let th = p;
+      let to = 1 - p * 0.55;
 
-      // Bold at the hero, then eased down to a faint ambient presence through
-      // the copy-dense middle so it stays a travelling accent without hurting
-      // readability.
-      mount.style.opacity = String(1 - p * 0.55);
+      // US-1957 halo: when the certificate scene is active, converge on the
+      // grade ring (read its live screen rect → world space) so the orb forms a
+      // halo around the 9.0, then release (strength ramps 0→1→0) and resume the
+      // downward travel.
+      const focus = orbFocus;
+      if (focus.active && focus.targetEl && focus.strength > 0.001) {
+        const r = focus.targetEl.getBoundingClientRect();
+        if (r.width > 0) {
+          const ndcX = ((r.left + r.width / 2) / window.innerWidth) * 2 - 1;
+          const ndcY = -(((r.top + r.height / 2) / window.innerHeight) * 2 - 1);
+          focusVec.set(ndcX, ndcY, 0.5).unproject(camera).sub(camera.position);
+          const dist = -camera.position.z / focusVec.z;
+          const wx = camera.position.x + focusVec.x * dist;
+          const wy = camera.position.y + focusVec.y * dist;
+          const s = focus.strength;
+          tx += (wx - tx) * s;
+          ty += (wy - ty) * s;
+          ts += (focus.scale - ts) * s;
+          th = Math.max(th, focus.heat * s);
+          to += (0.98 - to) * s;
+        }
+      }
+
+      uScroll.value = th;
+
+      // Ease the mesh toward the targets so both scroll travel and halo docking
+      // stay buttery.
+      mesh.position.x += (tx - mesh.position.x) * 0.12;
+      mesh.position.y += (ty - mesh.position.y) * 0.12;
+      const curScale = mesh.scale.x;
+      mesh.scale.setScalar(curScale + (ts - curScale) * 0.12);
+      mount.style.opacity = String(to);
 
       mesh.rotation.y = t * 0.12 + pointer.x + p * 0.8;
       mesh.rotation.x = pointer.y * 0.6;
