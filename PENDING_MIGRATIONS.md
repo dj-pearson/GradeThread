@@ -4,6 +4,17 @@
 > The sections below for those are historical; the only NEW held migration is
 > **00443** at the top.
 
+## ⏳ PENDING: 00444_user_badges.sql (US-1850 achievements, 2026-07-13)
+
+New tenant table `public.user_badges` (user_id, badge_key, earned_at, context)
+with `UNIQUE(user_id, badge_key)` for idempotent awards + RLS read-own. The badge
+DEFINITIONS catalog is in code (lib/rewards-badges.ts) — criteria are predicates.
+Apply after 00443 via `scripts/apply-prod-migrations.sh`, `NOTIFY pgrst`, redeploy
+the edge (boot guard now expects **00444**). Bumps `EXPECTED_SCHEMA_VERSION` → **00444**.
+
+**Risk: LOW** — additive table, no rewrite. No CLIENT read yet (the award engine
+writes it; the profile/card surfacing — US-1850 AC3 — is not built).
+
 ## ⏳ PENDING: 00443_rewards_xp_engine.sql (US-1849 rewards XP engine, 2026-07-13)
 
 REUSES the reputation_events ledger (00417) for the XP track (no parallel

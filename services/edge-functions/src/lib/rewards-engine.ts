@@ -10,6 +10,7 @@
 // on the dedupe key) and recomputes the user_reward_state cache.
 
 import { emitReputationEvent } from "./buyer-trust-score.ts";
+import { awardBadges } from "./rewards-badges.ts";
 import { supabaseAdmin } from "./supabase.ts";
 
 // Reward-only event types (added to the reputation_events CHECK in 00443). The
@@ -178,7 +179,18 @@ export async function grantReward(
     source: opts.source ?? "rewards",
     occurredAt: opts.occurredAt,
   });
-  return recomputeRewardState(userId);
+  const state = await recomputeRewardState(userId);
+  // US-1850: re-check achievements after a rewardable action (best-effort — a
+  // badge-award failure never fails the reward grant).
+  try {
+    await awardBadges(userId);
+  } catch (err) {
+    console.error(
+      "[rewards] badge award failed:",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+  return state;
 }
 
 /** The reward event types the XP scorer reads (the trust-only types are skipped). */

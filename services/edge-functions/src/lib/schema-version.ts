@@ -37,7 +37,7 @@ import { edgeEnv } from "./env.ts";
 
 // Bump this in the SAME commit that adds a migration. = highest NNNNN in
 // supabase/migrations/. (00435_sync_state_flipdesk_id_text.sql)
-export const EXPECTED_SCHEMA_VERSION = "00443";
+export const EXPECTED_SCHEMA_VERSION = "00444";
 
 export type SchemaVersionComparison = "match" | "behind" | "ahead" | "unknown";
 
