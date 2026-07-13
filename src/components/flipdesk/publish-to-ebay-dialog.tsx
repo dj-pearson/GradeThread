@@ -26,6 +26,7 @@ import {
   useValidatePublish,
   type PublishSummary,
 } from "@/hooks/use-ebay";
+import { cn } from "@/lib/utils";
 import { EbayPublishDisclaimer } from "@/components/flipdesk/ebay-publish-disclaimer";
 
 interface Props {
@@ -67,6 +68,7 @@ export function PublishToEbayDialog({
   }, [open, itemId]);
 
   const summary: PublishSummary | undefined = validate.data?.summary;
+  const coverage = validate.data?.recommendedCoverage;
   const blockers = validate.data?.blockers ?? [];
   const canPublish = !!validate.data?.ok && blockers.length === 0;
   const isPublishing = publish.isPending;
@@ -257,6 +259,61 @@ export function PublishToEbayDialog({
                   .
                 </p>
               </div>
+            )}
+          </div>
+        )}
+
+        {/* US-1895: recommended-aspect coverage (non-blocking). eBay's
+            RECOMMENDED specifics ranked by 30-day buyer search volume — filling
+            them lifts findability. Computed on the edge (single source with the
+            required-blocker rule), rendered here. */}
+        {!result && !validate.isPending && coverage && coverage.total > 0 && (
+          <div className="space-y-2 rounded-md border p-3">
+            <div className="flex items-center justify-between text-sm font-medium">
+              <span>Recommended specifics</span>
+              <span
+                className={cn(
+                  "tabular-nums",
+                  coverage.filled >= coverage.total
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-muted-foreground",
+                )}
+              >
+                {coverage.filled}/{coverage.total}
+              </span>
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-emerald-500 transition-all"
+                style={{
+                  width: `${Math.round((coverage.filled / coverage.total) * 100)}%`,
+                }}
+              />
+            </div>
+            {coverage.missing.length > 0 && (
+              <>
+                <p className="text-xs text-muted-foreground">
+                  Filling these (eBay's most-searched, in order) helps buyers find
+                  the listing:
+                </p>
+                <div className="flex flex-wrap gap-1">
+                  {coverage.missing.slice(0, 8).map((name) => (
+                    <span
+                      key={name}
+                      className="rounded-full border bg-muted/50 px-2 py-0.5 text-xs"
+                    >
+                      {name}
+                    </span>
+                  ))}
+                </div>
+                <Link
+                  to={`/dashboard/flipdesk/items/${itemId}/draft`}
+                  className="text-xs text-primary underline"
+                  onClick={() => onOpenChange(false)}
+                >
+                  Fill in the composer
+                </Link>
+              </>
             )}
           </div>
         )}

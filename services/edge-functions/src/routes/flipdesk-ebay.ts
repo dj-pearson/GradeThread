@@ -23,8 +23,10 @@ import {
   resolveMeasurementAspects,
 } from "../lib/measurements.ts";
 import {
+  type AspectCoverage,
   type AspectSourceMap,
   mergeSources,
+  recommendedAspectCoverage,
   requiredMissingAspects,
   sourcesFor,
 } from "../lib/aspect-provenance.ts";
@@ -5528,6 +5530,8 @@ flipdeskEbayRoutes.post("/listings/validate", async (c) => {
     // US-828: aspects that won't be sent for value-validation reasons, so the
     // composer can warn "X was not sent" before the seller publishes.
     aspectDiagnostics: result.aspectDiagnostics,
+    // US-1895: recommended-aspect coverage (N/M + ranked missing) for the meter.
+    recommendedCoverage: result.recommendedCoverage,
     summary: result.summary,
   });
 });
@@ -7529,6 +7533,9 @@ interface PublishContextOk {
   // US-1890: non-blocking title-quality findings (duplicate tokens, ALL-CAPS,
   // promotional filler) for the composer to surface. Publish is not blocked.
   warnings: string[];
+  // US-1895: how many of eBay's RECOMMENDED aspects (ranked by 30-day buyer
+  // search volume) the listing fills — surfaced non-blocking in the composer.
+  recommendedCoverage: AspectCoverage;
   // US-828: aspect values omitted from the eBay payload for value-validation
   // reasons, so the client can surface "X was not sent" (empty = nothing dropped).
   aspectDiagnostics: PublishAspectDiagnostic[];
@@ -7584,8 +7591,12 @@ interface AspectSpecRaw {
     aspectRequired?: boolean;
     aspectMode?: string;
     itemToAspectCardinality?: string; // "SINGLE" | "MULTI"
+    // US-1895: "REQUIRED" | "RECOMMENDED" | "OPTIONAL".
+    aspectUsage?: string;
   };
   aspectValues?: Array<{ localizedValue?: string }>;
+  // US-1895: eBay's real 30-day buyer-search-volume ranking for the aspect.
+  relevanceIndicator?: { searchCount?: number };
 }
 
 // US-1503: name -> allowedValues[] map ([] = free-text) from the raw category
@@ -8217,6 +8228,9 @@ export async function assemblePublishContext(
     }
   }
   let requiredMissing: string[] = [];
+  // US-1895: recommended-aspect coverage (non-blocking); populated alongside the
+  // required-blocker check below from the same category spec.
+  let recommendedCoverage: AspectCoverage = { filled: 0, total: 0, missing: [] };
   // US-828: aspects the publish path declined to send for VALUE-validation
   // reasons (a SELECTION_ONLY value not in eBay's allowed set, even after the
   // US-823 normalizer). Surfaced in the publish/validate response so the client
@@ -8340,6 +8354,9 @@ export async function assemblePublishContext(
       // Run on the sanitized map so a required aspect whose only value was
       // invalid (and thus omitted) correctly surfaces as a fixable blocker.
       requiredMissing = requiredMissingAspects(list, sanitizedAspects);
+      // US-1895: recommended coverage from the SAME spec + sanitized map, so the
+      // composer meter and the required blocker are computed from one source.
+      recommendedCoverage = recommendedAspectCoverage(list, sanitizedAspects);
       if (requiredMissing.length > 0) {
         // Diagnostic: log WHY each missing aspect couldn't be auto-filled —
         // its mode, a sample of eBay's allowed values, and the item text we
@@ -8657,6 +8674,7 @@ export async function assemblePublishContext(
     policies,
     blockers,
     warnings: titleWarnings,
+    recommendedCoverage,
     aspectDiagnostics,
     sku,
     summary,

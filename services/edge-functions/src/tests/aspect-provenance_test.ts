@@ -5,9 +5,12 @@
 //   • the persist merge that combines them → mergeSources(...)
 // and assert requiredMissingAspects matches the rule the publish blocker uses.
 //   deno test src/tests/aspect-provenance_test.ts
-import { assertEquals } from "@std/assert";
+import { assert, assertEquals } from "@std/assert";
 import {
+  type AspectCoverage,
   mergeSources,
+  type RankedAspectSpec,
+  recommendedAspectCoverage,
   type RequiredAspectSpec,
   requiredMissingAspects,
   sourcesFor,
@@ -77,4 +80,71 @@ Deno.test("mergeSources: prunes sources whose value was cleared", () => {
   // Size cleared (no value) — its source must not linger.
   const next = mergeSources(prior, {}, { Brand: ["Nike"], Size: [] });
   assertEquals(next, { Brand: "manual" });
+});
+
+// ── US-1895: recommended-aspect coverage ───────────────────────────
+
+const rec = (
+  name: string,
+  usage: "REQUIRED" | "RECOMMENDED" | "OPTIONAL",
+  searchCount?: number,
+): RankedAspectSpec => ({
+  localizedAspectName: name,
+  aspectConstraint: { aspectUsage: usage, aspectRequired: usage === "REQUIRED" },
+  ...(searchCount != null ? { relevanceIndicator: { searchCount } } : {}),
+});
+
+Deno.test("coverage counts only RECOMMENDED aspects, filled vs total", () => {
+  const list = [
+    rec("Brand", "REQUIRED"),
+    rec("Department", "RECOMMENDED", 900),
+    rec("Type", "RECOMMENDED", 500),
+    rec("Occasion", "OPTIONAL", 100),
+  ];
+  const cov: AspectCoverage = recommendedAspectCoverage(list, { Department: ["Men"] });
+  assertEquals(cov.total, 2); // only the two RECOMMENDED
+  assertEquals(cov.filled, 1); // Department filled
+  assertEquals(cov.missing, ["Type"]); // Occasion is OPTIONAL, Brand REQUIRED
+});
+
+Deno.test("missing recommended are ranked by search volume (desc)", () => {
+  const list = [
+    rec("Style", "RECOMMENDED", 200),
+    rec("Color", "RECOMMENDED", 1500),
+    rec("Material", "RECOMMENDED", 800),
+  ];
+  const cov = recommendedAspectCoverage(list, {});
+  assertEquals(cov.missing, ["Color", "Material", "Style"]);
+  assertEquals(cov.filled, 0);
+  assertEquals(cov.total, 3);
+});
+
+Deno.test("empty-string values do not count as filled", () => {
+  const list = [rec("Type", "RECOMMENDED", 100)];
+  assertEquals(recommendedAspectCoverage(list, { Type: ["", "  "] }).filled, 0);
+  assertEquals(recommendedAspectCoverage(list, { Type: ["Tee"] }).filled, 1);
+});
+
+Deno.test("no recommended aspects → zeroed coverage", () => {
+  const cov = recommendedAspectCoverage([rec("Brand", "REQUIRED")], {});
+  assertEquals(cov, { filled: 0, total: 0, missing: [] });
+});
+
+Deno.test("ties on search volume are name-ordered (deterministic)", () => {
+  const list = [rec("Zeta", "RECOMMENDED", 0), rec("Alpha", "RECOMMENDED", 0)];
+  assertEquals(recommendedAspectCoverage(list, {}).missing, ["Alpha", "Zeta"]);
+});
+
+Deno.test("coverage aligns with the required rule (no overlap double-count)", () => {
+  const list = [
+    rec("Brand", "REQUIRED"),
+    rec("Size", "REQUIRED"),
+    rec("Color", "RECOMMENDED", 300),
+  ];
+  const map = { Brand: ["Nike"] };
+  // required still flags Size; recommended coverage is independent (Color).
+  assert(requiredMissingAspects(list, map).includes("Size"));
+  const cov = recommendedAspectCoverage(list, map);
+  assertEquals(cov.total, 1);
+  assertEquals(cov.missing, ["Color"]);
 });

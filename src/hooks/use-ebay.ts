@@ -1309,9 +1309,19 @@ export interface PublishSummary {
   conditionDescription: string;
 }
 
+// US-1895: how many of eBay's RECOMMENDED aspects (ranked by 30-day buyer
+// search volume) the listing fills.
+export interface AspectCoverage {
+  filled: number;
+  total: number;
+  missing: string[];
+}
+
 export interface ValidatePublishResponse {
   ok: boolean;
   blockers: string[];
+  warnings?: string[];
+  recommendedCoverage?: AspectCoverage;
   summary?: PublishSummary;
 }
 

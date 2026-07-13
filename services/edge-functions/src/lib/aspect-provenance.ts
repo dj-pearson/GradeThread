@@ -37,6 +37,58 @@ export function requiredMissingAspects(
     .filter((n) => n.length > 0 && (aspectMap[n]?.length ?? 0) === 0);
 }
 
+/// US-1895: eBay Taxonomy aspect spec fields beyond the required flag — the
+/// RECOMMENDED usage tier + the 30-day buyer-search-volume ranking. Both are
+/// already in the cached get_item_aspects_for_category payload; this reads them.
+export interface RankedAspectSpec extends RequiredAspectSpec {
+  aspectConstraint?: {
+    aspectRequired?: boolean;
+    /// "REQUIRED" | "RECOMMENDED" | "OPTIONAL"
+    aspectUsage?: string;
+  };
+  /// eBay's real 30-day search-volume signal for this aspect.
+  relevanceIndicator?: { searchCount?: number };
+}
+
+export interface AspectCoverage {
+  /// Recommended aspects that have at least one non-empty value.
+  filled: number;
+  /// Total recommended aspects for the category.
+  total: number;
+  /// Unfilled recommended aspect names, ranked by search volume (desc) — eBay's
+  /// own ordering of what buyers filter on most.
+  missing: string[];
+}
+
+/// US-1895: how many of eBay's RECOMMENDED aspects the listing fills. The single
+/// source for the composer meter + the drafts coverage column, kept beside the
+/// required-blocker rule so they can never disagree. An aspect counts as filled
+/// when it has ≥1 non-empty value. Pure + deterministic.
+export function recommendedAspectCoverage(
+  list: RankedAspectSpec[],
+  aspectMap: Record<string, string[]>,
+): AspectCoverage {
+  const recommended = list.filter(
+    (a) =>
+      (a.aspectConstraint?.aspectUsage ?? "").toUpperCase() === "RECOMMENDED" &&
+      (a.localizedAspectName ?? "").length > 0,
+  );
+  let filled = 0;
+  const missing: Array<{ name: string; rank: number }> = [];
+  for (const a of recommended) {
+    const name = a.localizedAspectName!;
+    const hasValue = (aspectMap[name] ?? []).some((v) => v.trim() !== "");
+    if (hasValue) {
+      filled++;
+    } else {
+      missing.push({ name, rank: a.relevanceIndicator?.searchCount ?? 0 });
+    }
+  }
+  // Highest search volume first; stable by name on ties for a deterministic order.
+  missing.sort((a, b) => b.rank - a.rank || a.name.localeCompare(b.name));
+  return { filled, total: recommended.length, missing: missing.map((m) => m.name) };
+}
+
 /// Build a source map marking every name in `names` as `source`. Used by the AI
 /// generation path (ai_extracted) and the deterministic derivation path
 /// (inventory_derived) to record provenance for the keys they filled.
