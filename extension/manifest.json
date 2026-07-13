@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "GradeThread Lister",
   "version": "0.1.0",
-  "description": "List your FlipDesk drafts to Poshmark, Mercari, and Grailed from your OWN logged-in browser session. GradeThread never sees your marketplace password or cookies.",
+  "description": "One-click cross-list FlipDesk drafts to Poshmark, Mercari & Grailed from your own browser. GradeThread never sees your passwords.",
   "permissions": ["storage"],
   "host_permissions": [
     "https://*.poshmark.com/*",

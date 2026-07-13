@@ -9,6 +9,9 @@
 // row using the user's existing SaaS session.
 
 (function () {
+  // Cross-browser API alias (Firefox: `browser`/promises; Chrome: `chrome`).
+  const chrome = globalThis.browser || globalThis.chrome;
+
   const GT = {};
 
   GT.log = function (msg) {

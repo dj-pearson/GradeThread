@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "GradeThread — Condition Check & Lister",
   "version": "0.3.0",
-  "description": "AI condition read while you shop eBay, Poshmark, Grailed, Mercari, Depop & Vinted — plus one-click cross-listing to Poshmark/Mercari/Grailed for FlipDesk sellers. Never sees your marketplace password or cookies.",
+  "description": "AI condition reads while you shop eBay, Poshmark, Grailed, Mercari, Depop & Vinted — plus cross-listing for FlipDesk sellers.",
   "permissions": ["storage", "activeTab"],
   "host_permissions": [
     "https://gradethread.com/*",
@@ -34,6 +34,11 @@
     "512": "icons/icon512.png"
   },
   "content_scripts": [
+    {
+      "matches": ["https://gradethread.com/*", "https://*.gradethread.com/*"],
+      "js": ["gt-bridge.js"],
+      "run_at": "document_start"
+    },
     {
       "matches": [
         "https://*.ebay.com/itm/*",

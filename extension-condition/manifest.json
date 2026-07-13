@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "GradeThread Condition Check",
   "version": "0.2.0",
-  "description": "Get an independent GradeThread AI condition read on a listing while you shop eBay, Poshmark, Grailed, Mercari, Depop, and Vinted — buy pre-owned clothing with confidence.",
+  "description": "Independent AI condition reads while you shop eBay, Poshmark, Grailed, Mercari, Depop & Vinted — buy secondhand with confidence.",
   "permissions": ["storage", "activeTab"],
   "host_permissions": [
     "https://gradethread.com/*",

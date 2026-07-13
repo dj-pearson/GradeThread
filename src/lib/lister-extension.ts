@@ -88,11 +88,29 @@ export function listerExtensionId(): string {
   return (import.meta.env.VITE_LISTER_EXTENSION_ID as string | undefined) ?? "";
 }
 
-/** True when the Lister UI should be offered (flag on, id set, chrome present). */
+// US-1882: the gradethread.com bridge content script (gt-bridge.js) drops a
+// synchronous DOM marker when our unified extension is installed. This is the
+// reliable cross-browser "installed?" signal — Firefox never injects a page-side
+// chrome.runtime, and on Chromium chrome.runtime can be present via *another*
+// extension. Present in BOTH browsers when our extension is installed.
+function bridgeAvailable(): boolean {
+  try {
+    return (
+      typeof document !== "undefined" &&
+      document.documentElement?.dataset?.gtExtBridge === "1"
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** True when the Lister UI should be offered (flag on + a transport is present). */
 export function isListerAvailable(): boolean {
   if (import.meta.env.VITE_LISTER_EXTENSION !== "true") return false;
-  if (!listerExtensionId()) return false;
-  return typeof chromeRuntime()?.sendMessage === "function";
+  // Preferred, precise signal (our extension, either browser).
+  if (bridgeAvailable()) return true;
+  // Chromium externally_connectable fallback (needs the configured id).
+  return typeof chromeRuntime()?.sendMessage === "function" && !!listerExtensionId();
 }
 
 // Pure: assemble the extension payload from a generated per-platform variant +
@@ -141,55 +159,112 @@ export interface ListerDelistPayload {
 export function sendDelistToLister(
   payload: ListerDelistPayload,
 ): Promise<ListerResult> {
-  return sendMessageToLister({ type: "GT_LISTER_DELIST", payload });
+  return sendExtensionMessage<ListerResult>({ type: "GT_LISTER_DELIST", payload });
 }
 
 /** Send a payload to the extension; resolves with its result. */
 export function sendToLister(payload: ListerPayload): Promise<ListerResult> {
-  return sendMessageToLister({ type: "GT_LISTER_LIST", payload });
+  return sendExtensionMessage<ListerResult>({ type: "GT_LISTER_LIST", payload });
 }
 
-// Shared transport for both the list + delist messages.
-function sendMessageToLister(message: {
-  type: string;
-  payload: unknown;
-}): Promise<ListerResult> {
+const EXTENSION_TIMEOUT_MS = 130000;
+
+// Response envelope from either transport — a superset of ListerResult so the
+// typed lister helpers (and the connect page's GT_SET_TOKEN) share one sender.
+export interface ExtensionResponse {
+  ok?: boolean;
+  error?: string;
+  timedOut?: boolean;
+  needsConsent?: boolean;
+  needsUpgrade?: boolean;
+  capabilities?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+// Chromium externally_connectable transport (page → extension by id).
+function sendViaRuntime(
+  runtime: NonNullable<ChromeRuntimeLike["runtime"]>,
+  id: string,
+  message: { type: string; [key: string]: unknown },
+): Promise<ExtensionResponse> {
   return new Promise((resolve) => {
-    const runtime = chromeRuntime();
-    const id = listerExtensionId();
-    if (!runtime?.sendMessage || !id) {
-      resolve({ ok: false, error: "GradeThread Lister extension not detected." });
-      return;
-    }
     let settled = false;
-    const done = (r: ListerResult) => {
-      if (!settled) {
-        settled = true;
-        resolve(r);
-      }
+    const done = (r: ExtensionResponse) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      resolve(r);
     };
-    // Belt-and-braces timeout in case the extension never calls back.
     const timer = window.setTimeout(
       () => done({ ok: false, timedOut: true, error: "The extension didn't respond." }),
-      130000,
+      EXTENSION_TIMEOUT_MS,
     );
     try {
-      runtime.sendMessage(id, message, (response) => {
-        window.clearTimeout(timer);
+      runtime.sendMessage!(id, message, (response) => {
         if (runtime.lastError) {
           done({
             ok: false,
-            error:
-              runtime.lastError.message ||
-              "Couldn't reach the GradeThread Lister extension.",
+            error: runtime.lastError.message || "Couldn't reach the GradeThread extension.",
           });
           return;
         }
-        done((response as ListerResult) ?? { ok: false, error: "Empty response." });
+        done((response as ExtensionResponse) ?? { ok: false, error: "Empty response." });
       });
     } catch (err) {
-      window.clearTimeout(timer);
       done({ ok: false, error: err instanceof Error ? err.message : String(err) });
     }
   });
+}
+
+// US-1882: window.postMessage ↔ background bridge (Firefox, and any browser where
+// externally_connectable is unavailable). The gradethread.com content script
+// (gt-bridge.js) relays the envelope to the background and posts the reply back.
+let bridgeSeq = 0;
+function sendViaBridge(
+  message: { type: string; [key: string]: unknown },
+): Promise<ExtensionResponse> {
+  return new Promise((resolve) => {
+    const reqId = `gt-${Date.now()}-${(bridgeSeq += 1)}`;
+    let settled = false;
+    const done = (r: ExtensionResponse) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      window.removeEventListener("message", onMessage);
+      resolve(r);
+    };
+    const onMessage = (event: MessageEvent) => {
+      if (event.source !== window) return;
+      const d = event.data as
+        | { __gtExtRes?: boolean; id?: string; response?: ExtensionResponse }
+        | null;
+      if (!d || d.__gtExtRes !== true || d.id !== reqId) return;
+      done(d.response ?? { ok: false, error: "Empty response." });
+    };
+    const timer = window.setTimeout(
+      () => done({ ok: false, timedOut: true, error: "The extension didn't respond." }),
+      EXTENSION_TIMEOUT_MS,
+    );
+    window.addEventListener("message", onMessage);
+    window.postMessage({ __gtExtReq: true, id: reqId, message }, window.location.origin);
+  });
+}
+
+/**
+ * Send a message to the unified extension over the best available transport:
+ * Chromium externally_connectable when present, else the gradethread.com
+ * postMessage bridge (Firefox). `opts.extensionId` overrides the configured id —
+ * the connect page passes the actual install id it received via `?ext=`.
+ */
+export function sendExtensionMessage<T = ExtensionResponse>(
+  message: { type: string; [key: string]: unknown },
+  opts?: { extensionId?: string },
+): Promise<T> {
+  const runtime = chromeRuntime();
+  const id = opts?.extensionId || listerExtensionId();
+  let p: Promise<ExtensionResponse>;
+  if (runtime?.sendMessage && id) p = sendViaRuntime(runtime, id, message);
+  else if (bridgeAvailable()) p = sendViaBridge(message);
+  else p = Promise.resolve({ ok: false, error: "GradeThread extension not detected." });
+  return p as unknown as Promise<T>;
 }

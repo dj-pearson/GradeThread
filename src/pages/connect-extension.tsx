@@ -1,18 +1,19 @@
-// US-1873 / US-1885: connect the unified browser extension to the signed-in
-// account. The extension's popup "Sign in" opens this page with `?ext=<id>`. Here
-// we mint a short-lived signed extension token (POST /api/buyer/extension-token,
-// US-1838) and hand it to the extension via externally_connectable messaging
-// (GT_SET_TOKEN), so the install becomes account-scoped — its research quota and
-// the seller Lister gate now resolve from THIS account's entitlements.
+// US-1873 / US-1885 / US-1882: connect the unified browser extension to the
+// signed-in account. The extension's popup "Sign in" opens this page with
+// `?ext=<id>`. Here we mint a short-lived signed extension token (POST
+// /api/buyer/extension-token, US-1838) and hand it to the extension, which stores
+// it and re-resolves its capabilities (research quota + the seller Lister gate).
 //
-// The token is the only thing that crosses to the extension; no marketplace
-// credentials, no Supabase session. The extension stores it and re-resolves its
-// capabilities immediately.
+// Transport is cross-browser via sendExtensionMessage: Chromium uses
+// externally_connectable (targeting the ?ext= id); Firefox uses the gradethread.com
+// postMessage bridge (gt-bridge.js). Only the token crosses to the extension — no
+// password, no Supabase session, no marketplace credentials.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/hooks/use-auth";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { sendExtensionMessage } from "@/lib/lister-extension";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -23,31 +24,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-// Minimal ambient for the page→extension messaging API Chrome injects when the
-// extension's externally_connectable matches this origin. Avoids a hard
-// @types/chrome dependency in the web tsconfig (mirrors src/lib/lister-extension.ts).
-interface ChromeExtMessaging {
-  runtime?: {
-    sendMessage?: (
-      extensionId: string,
-      message: unknown,
-      callback: (response: unknown) => void,
-    ) => void;
-    lastError?: { message?: string };
-  };
-}
-function chromeRuntime(): ChromeExtMessaging["runtime"] | undefined {
-  return (globalThis as unknown as { chrome?: ChromeExtMessaging }).chrome?.runtime;
-}
-
-type Phase =
-  | "checking"
-  | "need-signin"
-  | "missing-ext"
-  | "no-chrome"
-  | "connecting"
-  | "connected"
-  | "error";
+type Phase = "checking" | "need-signin" | "connecting" | "connected" | "error";
 
 interface Capabilities {
   authenticated?: boolean;
@@ -66,22 +43,13 @@ const Spinner = () => (
 export function ConnectExtensionPage() {
   const { user, isLoading } = useAuth();
   const [params] = useSearchParams();
-  const extId = params.get("ext");
+  const extId = params.get("ext") ?? undefined;
   const [phase, setPhase] = useState<Phase>("checking");
   const [error, setError] = useState<string>("");
   const [caps, setCaps] = useState<Capabilities | null>(null);
   const attempted = useRef(false);
 
   const connect = useCallback(async () => {
-    if (!extId) {
-      setPhase("missing-ext");
-      return;
-    }
-    const runtime = chromeRuntime();
-    if (!runtime?.sendMessage) {
-      setPhase("no-chrome");
-      return;
-    }
     setPhase("connecting");
     // 1. Mint the signed extension token for THIS account.
     let token: string;
@@ -102,25 +70,23 @@ export function ConnectExtensionPage() {
       setPhase("error");
       return;
     }
-    // 2. Hand it to the extension.
-    runtime.sendMessage(extId, { type: "GT_SET_TOKEN", token }, (response) => {
-      if (runtime.lastError) {
-        setError(
-          runtime.lastError.message ||
-            "Couldn't reach the GradeThread extension. Make sure it's installed and enabled.",
-        );
-        setPhase("error");
-        return;
-      }
-      const resp = (response as { ok?: boolean; capabilities?: Capabilities } | null) ?? null;
-      if (resp && resp.ok) {
-        setCaps(resp.capabilities ?? null);
-        setPhase("connected");
-      } else {
-        setError("The extension rejected the connection. Update it and try again.");
-        setPhase("error");
-      }
-    });
+    // 2. Hand it to the extension over the best transport.
+    const resp = await sendExtensionMessage<{
+      ok?: boolean;
+      error?: string;
+      capabilities?: Capabilities;
+    }>({ type: "GT_SET_TOKEN", token }, { extensionId: extId });
+    if (resp.ok) {
+      setCaps(resp.capabilities ?? null);
+      setPhase("connected");
+    } else {
+      setError(
+        resp.error && !/not detected/i.test(resp.error)
+          ? resp.error
+          : "We couldn't reach the GradeThread extension. Make sure it's installed and enabled in this browser, then open this page again from its popup.",
+      );
+      setPhase("error");
+    }
   }, [extId]);
 
   useEffect(() => {
@@ -207,22 +173,6 @@ export function ConnectExtensionPage() {
                 </ul>
               )}
             </div>
-          )}
-
-          {phase === "missing-ext" && (
-            <p className="text-sm text-muted-foreground py-2">
-              Open this page from the GradeThread extension's popup (the{" "}
-              <span className="font-medium">Sign in</span> button) so we know which
-              install to connect.
-            </p>
-          )}
-
-          {phase === "no-chrome" && (
-            <p className="text-sm text-muted-foreground py-2">
-              We couldn't find the GradeThread extension in this browser. Install it,
-              then open this page again from its popup. (The extension currently
-              supports Chrome and Edge.)
-            </p>
           )}
 
           {phase === "error" && (

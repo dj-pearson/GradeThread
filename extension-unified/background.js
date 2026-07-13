@@ -27,7 +27,15 @@
 // Lister automation runs entirely on-device; GradeThread records a cross-listing
 // only from the seller's own SaaS session.
 
-importScripts("lister/selectors.js", "lister/lister-guard.js", "registry.js");
+// Cross-browser bootstrap. Chrome runs this as an MV3 service worker (importScripts
+// available; APIs on `chrome`, promise-based). Firefox runs it as a non-persistent
+// EVENT PAGE — there is no importScripts, and the deps are loaded ahead of this file
+// via background.scripts in the manifest — and exposes the APIs (promise-based) as
+// `browser`. So: only importScripts when it exists, and alias the API namespace.
+if (typeof importScripts === "function") {
+  importScripts("lister/selectors.js", "lister/lister-guard.js", "registry.js");
+}
+const chrome = globalThis.browser || globalThis.chrome;
 
 // ── endpoints / constants ────────────────────────────────────────────────
 const SITE = "https://gradethread.com";
@@ -401,10 +409,24 @@ async function handleDelistRequest(payload, sendResponse) {
   }, 120000);
 }
 
-// ── External messages from the GradeThread SaaS ───────────────────────────
-// externally_connectable locks the sender to *.gradethread.com; the guard is a
-// defense-in-depth re-check on the browser-attested origin.
-chrome.runtime.onMessageExternal.addListener(function (msg, sender, sendResponse) {
+// ── Messages from the GradeThread SaaS ────────────────────────────────────
+// Two transports reach this one handler:
+//   • Chromium: externally_connectable → onMessageExternal (registered below).
+//   • Firefox / any: the gradethread.com bridge content script (gt-bridge.js)
+//     relays them as INTERNAL messages, routed here from onMessage.
+// Either way the origin is re-checked against *.gradethread.com (defense in depth;
+// the bridge path especially MUST verify sender.origin, since any content script
+// could otherwise post an internal message).
+const EXTERNAL_TYPES = new Set([
+  "GT_PING",
+  "GT_LISTER_PING",
+  "GT_SET_TOKEN",
+  "GT_CLEAR_TOKEN",
+  "GT_LISTER_LIST",
+  "GT_LISTER_DELIST",
+]);
+
+function handleExternalMessage(msg, sender, sendResponse) {
   if (!self.GT_LISTER_GUARD.isOriginAllowed(sender)) {
     sendResponse({ ok: false, error: "Unauthorized origin." });
     return false;
@@ -478,13 +500,28 @@ chrome.runtime.onMessageExternal.addListener(function (msg, sender, sendResponse
 
   sendResponse({ ok: false, error: "Unknown message type." });
   return false;
-});
+}
+
+// Chromium only — Firefox has no externally_connectable / onMessageExternal, so
+// guard the registration (accessing .addListener on undefined would throw and
+// abort the whole worker/event-page load). Firefox reaches handleExternalMessage
+// via the bridge path in onMessage below.
+if (chrome.runtime.onMessageExternal) {
+  chrome.runtime.onMessageExternal.addListener(handleExternalMessage);
+}
 
 // ── Internal messages from content scripts + popup ────────────────────────
 chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
   if (!msg || typeof msg.type !== "string") {
     sendResponse(null);
     return false;
+  }
+
+  // Bridge path (US-1882): the gradethread.com bridge content script relays SaaS
+  // messages here as internal messages. handleExternalMessage re-verifies the
+  // sender origin (gradethread.com) before acting.
+  if (EXTERNAL_TYPES.has(msg.type)) {
+    return handleExternalMessage(msg, sender, sendResponse);
   }
 
   // Lister: synchronous per-tab handlers (no async needed).

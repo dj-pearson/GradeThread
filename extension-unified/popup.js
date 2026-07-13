@@ -10,6 +10,9 @@
 // token flow on gradethread.com, which posts the signed token back to the
 // extension (GT_SET_TOKEN) so entitlements + quota become account-scoped.
 
+// Cross-browser API alias (Firefox: `browser`/promises; Chrome: `chrome`).
+const chrome = globalThis.browser || globalThis.chrome;
+
 const SITE = "https://gradethread.com";
 
 // US-1885 AC3: versioned Lister consent — bump this when the Lister terms change
@@ -59,16 +62,13 @@ async function activeHost() {
 }
 
 function send(msg) {
-  return new Promise((resolve) => {
-    try {
-      chrome.runtime.sendMessage(msg, (res) => {
-        if (chrome.runtime.lastError) resolve(null);
-        else resolve(res);
-      });
-    } catch (_e) {
-      resolve(null);
-    }
-  });
+  // Promise form works on both Chrome (MV3) and Firefox (browser.*); a failure
+  // (worker asleep / no receiver) resolves to null rather than rejecting.
+  try {
+    return Promise.resolve(chrome.runtime.sendMessage(msg)).catch(() => null);
+  } catch (_e) {
+    return Promise.resolve(null);
+  }
 }
 
 // ── links / version ────────────────────────────────────────────────────────

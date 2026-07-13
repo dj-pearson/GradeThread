@@ -13,9 +13,12 @@
 //   • condition-check (BUYER) is Firefox-ready — content-script + runtime
 //     messaging only. We emit a Firefox variant with a gecko id and an
 //     event-page background (broad MV3 compat).
-//   • lister (SELLER) uses `externally_connectable` (page→extension messaging),
-//     which Firefox does NOT support — so its Firefox zip is SKIPPED until the
-//     postMessage transport bridge (US-1882) lands. Chrome is unaffected.
+//   • gradethread (UNIFIED) is Firefox-ready (US-1881/1882): the browser bits are
+//     handled in-code (browser.* alias, importScripts guard, postMessage bridge
+//     replacing externally_connectable) and the FF manifest transform lists the
+//     background deps as event-page scripts + strips externally_connectable.
+//   • lister (SELLER, legacy) still uses raw `externally_connectable` — Firefox zip
+//     SKIPPED (superseded by the unified extension anyway). Chrome is unaffected.
 
 import {
   readFileSync,
@@ -55,8 +58,19 @@ const EXTENSIONS = [
     dir: "extension-unified",
     name: "gradethread",
     role: "unified",
-    // Inherits the Lister's externally_connectable → Chrome only until US-1882.
-    firefox: { blocked: "uses externally_connectable (Firefox-unsupported) — needs the postMessage bridge (US-1882)" },
+    // US-1881/1882: Firefox-ready. externally_connectable is replaced by the
+    // gradethread.com postMessage bridge (gt-bridge.js), the service worker runs as
+    // an event page (background.scripts, in dependency order — Firefox has no
+    // importScripts), and the API namespace is aliased (browser/promises).
+    firefox: {
+      geckoId: "unified@gradethread.com",
+      backgroundScripts: [
+        "lister/selectors.js",
+        "lister/lister-guard.js",
+        "registry.js",
+        "background.js",
+      ],
+    },
   },
 ];
 
@@ -163,6 +177,15 @@ function validateManifest(manifest, absDir, problems) {
   for (const k of ["name", "version", "description"]) {
     if (!manifest[k]) problems.push(`manifest missing "${k}"`);
   }
+  // Chrome Web Store hard limits — an over-long field 400s the upload with a
+  // cryptic message, so fail here (locally) instead. Store caps: name ≤ 45,
+  // description ≤ 132 (character counts, not bytes).
+  if (typeof manifest.name === "string" && manifest.name.length > 45) {
+    problems.push(`"name" is ${manifest.name.length} chars (store max 45)`);
+  }
+  if (typeof manifest.description === "string" && manifest.description.length > 132) {
+    problems.push(`"description" is ${manifest.description.length} chars (store max 132)`);
+  }
   const refs = new Set();
   for (const v of Object.values(manifest.icons || {})) refs.add(v);
   for (const v of Object.values((manifest.action || {}).default_icon || {})) refs.add(v);
@@ -178,13 +201,21 @@ function validateManifest(manifest, absDir, problems) {
 }
 
 // Firefox needs a gecko id and, for broad MV3 compat, an event-page background
-// (background.scripts) rather than a service worker.
-function firefoxManifest(manifest, geckoId) {
+// (background.scripts) rather than a service worker. `firefox.backgroundScripts`
+// lets an extension list the deps Chrome loads via importScripts (Firefox has no
+// importScripts), in load order, ending with the worker file itself.
+function firefoxManifest(manifest, firefox) {
   const m = JSON.parse(JSON.stringify(manifest));
-  m.browser_specific_settings = { gecko: { id: geckoId } };
+  m.browser_specific_settings = { gecko: { id: firefox.geckoId } };
   if (m.background?.service_worker) {
-    m.background = { scripts: [m.background.service_worker] };
+    const scripts = firefox.backgroundScripts?.length
+      ? firefox.backgroundScripts
+      : [m.background.service_worker];
+    m.background = { scripts };
   }
+  // externally_connectable is unsupported on Firefox (AMO linter flags it); the
+  // gradethread.com postMessage bridge content script replaces it (US-1882).
+  delete m.externally_connectable;
   return m;
 }
 
@@ -226,7 +257,7 @@ for (const ext of EXTENSIONS) {
   if (ext.firefox?.blocked) {
     report.push(`  ⚠ firefox SKIPPED — ${ext.firefox.blocked}`);
   } else if (ext.firefox?.geckoId) {
-    const ffManifest = firefoxManifest(manifest, ext.firefox.geckoId);
+    const ffManifest = firefoxManifest(manifest, ext.firefox);
     const ffEntries = files.map((f) =>
       toPosix(f) === "manifest.json"
         ? { name: "manifest.json", data: Buffer.from(JSON.stringify(ffManifest, null, 2) + "\n", "utf8") }

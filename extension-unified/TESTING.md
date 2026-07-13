@@ -1,6 +1,6 @@
 # Testing the unified extension locally
 
-## 1. Load it unpacked (Chrome / Edge)
+## 1a. Load it unpacked (Chrome / Edge)
 
 1. `chrome://extensions` → enable **Developer mode**.
 2. **Load unpacked** → select `extension-unified/`.
@@ -8,6 +8,23 @@
    Pin the extension so the popup is one click away.
 
 On first install a **welcome tab** (`onboarding.html`) opens automatically.
+
+## 1b. Load it temporarily (Firefox)
+
+Firefox runs the SAME `extension-unified/` folder (the browser-specific bits —
+event-page background, `browser.*` promises, and the postMessage bridge — are all
+handled in-code; only the manifest transforms differ, which the packaged zip
+applies). To test the exact store artifact, load the built zip:
+
+1. `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on…**
+2. Select `dist-ext/gradethread-v0.3.0-firefox.zip` (or its `manifest.json` after
+   unzipping). The gecko id is `unified@gradethread.com`.
+3. Inspect the background **event page** from that same page if you need the console.
+
+Buyer research works immediately (§2). Sign-in / seller tools go through the
+gradethread.com **postMessage bridge** instead of `externally_connectable` — the
+frontend picks the transport automatically, so §3 is identical once the env values
+are set (the bridge needs no extension id).
 
 ## 2. Zero-config: buyer research (anonymous)
 

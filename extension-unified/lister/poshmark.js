@@ -5,27 +5,33 @@
 // selectors and reports the result back. No-op on every other Poshmark page.
 
 (function () {
+  // Cross-browser API alias (Firefox: `browser`/promises; Chrome: `chrome`).
+  const chrome = globalThis.browser || globalThis.chrome;
   const GT = self.GTLister;
   const SEL = self.GT_LISTER_SELECTORS;
   if (!GT || !SEL) return;
 
-  chrome.runtime.sendMessage({ type: "GT_LISTER_GET_JOB" }, async function (job) {
-    if (chrome.runtime.lastError || !job || job.platform !== "poshmark") return;
-    const payload = Object.assign({ platform: "poshmark", platformLabel: "Poshmark" }, job.payload);
-    let partial;
-    try {
-      partial = job.kind === "delist"
-        ? await GT.runDelistFlow(SEL.poshmark.delist, payload)
-        : await GT.runFlow(SEL.poshmark, payload, { autoSubmit: false });
-    } catch (err) {
-      partial = {
-        ok: false,
-        manual: true,
-        error: "Poshmark " + (job.kind === "delist" ? "delist" : "listing") +
-          " failed: " + (err && err.message ? err.message : String(err)),
-        version: SEL.poshmark.version,
-      };
-    }
-    chrome.runtime.sendMessage(GT.result(job.jobId, partial));
-  });
+  // Promise form so the query resolves on Firefox too (its `chrome.*` is
+  // callback-only); a rejected send (worker asleep / no job) is a quiet no-op.
+  Promise.resolve(chrome.runtime.sendMessage({ type: "GT_LISTER_GET_JOB" }))
+    .then(async function (job) {
+      if (!job || job.platform !== "poshmark") return;
+      const payload = Object.assign({ platform: "poshmark", platformLabel: "Poshmark" }, job.payload);
+      let partial;
+      try {
+        partial = job.kind === "delist"
+          ? await GT.runDelistFlow(SEL.poshmark.delist, payload)
+          : await GT.runFlow(SEL.poshmark, payload, { autoSubmit: false });
+      } catch (err) {
+        partial = {
+          ok: false,
+          manual: true,
+          error: "Poshmark " + (job.kind === "delist" ? "delist" : "listing") +
+            " failed: " + (err && err.message ? err.message : String(err)),
+          version: SEL.poshmark.version,
+        };
+      }
+      chrome.runtime.sendMessage(GT.result(job.jobId, partial));
+    })
+    .catch(function () { /* no queued job / worker asleep */ });
 })();

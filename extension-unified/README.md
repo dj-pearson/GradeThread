@@ -80,12 +80,32 @@ Once published, the unified extension has ONE id. Update:
   so the grade + entitlements endpoints accept its CORS origin.
 - **`externally_connectable`** already trusts `*.gradethread.com`.
 
-## Cross-browser
+## Cross-browser (US-1881 / US-1882)
 
-Chrome/Edge only for now. Firefox is blocked by `externally_connectable`
-(unsupported) — needs the `window.postMessage` bridge (US-1882). The packager
-(`scripts/package-extensions.mjs`) emits a Chrome zip and skips Firefox with that
-reason.
+Chrome, Edge, **and Firefox**. The packager emits both a Chrome zip
+(`-chrome.zip`) and a Firefox zip (`-firefox.zip`, gecko id
+`unified@gradethread.com`). Three things make Firefox work from one codebase:
+
+1. **API namespace** — Firefox's `chrome.*` is callback-only; only `browser.*`
+   returns promises. Every script aliases `const chrome = globalThis.browser ||
+   globalThis.chrome` so `await chrome.storage…` resolves in both browsers
+   (callback-style `sendMessage` in the Lister content scripts was converted to
+   promise form for the same reason).
+2. **Background** — Chrome runs `background.js` as a service worker (via
+   `importScripts`); Firefox runs it as a non-persistent **event page**. The
+   `importScripts` call is guarded (`typeof importScripts === "function"`), and the
+   Firefox manifest lists the deps in `background.scripts` (in load order) — the
+   packager does this transform.
+3. **`externally_connectable` → postMessage bridge** — Firefox doesn't support
+   page→extension messaging by id. `gt-bridge.js` (a content script on
+   gradethread.com) relays `window.postMessage` envelopes to the background and
+   back, and drops a `data-gt-ext-bridge` DOM marker the SaaS uses to detect the
+   install. The background re-checks the sender origin + entitlement on the bridge
+   path exactly as it does for `externally_connectable`. The frontend
+   (`src/lib/lister-extension.ts`) picks the transport automatically: Chromium uses
+   `externally_connectable`, Firefox uses the bridge. The packager strips
+   `externally_connectable` from the Firefox manifest (AMO flags the unsupported
+   key).
 
 ## Status vs the two legacy folders
 

@@ -18,6 +18,11 @@
 (function () {
   "use strict";
 
+  // Firefox exposes the (promise-based) API as `browser`; Chrome as `chrome`
+  // (promise-based in MV3). Alias so `await chrome.runtime.sendMessage(...)` works
+  // in both — Firefox's `chrome.*` is callback-only and would not resolve.
+  const chrome = globalThis.browser || globalThis.chrome;
+
   const IMG = self.GT_CC_IMG; // pure helpers (content/image-utils.cjs)
   const DEFAULT_CFG = self.GT_CC_CONFIG; // bundled default (selectors.js)
   const HARD_MAX_URLS = 4; // endpoint cap — never exceed regardless of adapter
