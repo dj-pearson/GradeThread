@@ -39,6 +39,7 @@ import { LaunchBanner } from "@/components/launch-banner";
 import { StandardJustifications } from "@/components/marketing/standard-justifications";
 import { StatCounters } from "@/components/marketing/stat-counters";
 import { HeroBackdrop } from "@/components/marketing/hero-backdrop";
+import { ScrollExperience } from "@/components/marketing/scroll-experience/scroll-experience";
 import { WaitlistForm } from "@/components/waitlist-form";
 import { NewsletterSignup } from "@/components/newsletter-signup";
 import { LANDING_FAQS } from "@/pages/landing-faqs";
@@ -559,6 +560,7 @@ function SampleCertificatePreview() {
 
 export function LandingPage() {
   return (
+    <ScrollExperience>
     <div className="flex min-h-screen flex-col">
       <SEO
         canonicalUrl="https://gradethread.com/"
@@ -653,7 +655,7 @@ export function LandingPage() {
       <StatCounters />
 
       {/* Proof band — objective product facts only (no fabricated ratings). */}
-      <section className="border-t border-b bg-brand-navy px-6 py-10 text-white">
+      <section className="gt-panel-dark px-6 py-10 text-white">
         <div className="mx-auto max-w-5xl">
           <p className="text-center text-xs font-semibold uppercase tracking-wider text-white/60">
             One published, objective methodology
@@ -676,14 +678,16 @@ export function LandingPage() {
       </section>
 
       {/* Why GradeThread is the standard — the four justifications (US-1297). */}
-      <section className="border-t px-6 py-20">
-        <StandardJustifications intro="GradeThread is the standard for pre-owned clothing condition because a grade here is objective, published, reproducible, and independently verifiable — not one more seller's opinion." />
+      <section className="px-6 py-20">
+        <div data-gt-reveal>
+          <StandardJustifications intro="GradeThread is the standard for pre-owned clothing condition because a grade here is objective, published, reproducible, and independently verifiable — not one more seller's opinion." />
+        </div>
       </section>
 
       {/* See the product — embedded sample certificate (US-604). */}
       <section className="px-6 py-20">
         <div className="mx-auto grid max-w-5xl items-center gap-12 lg:grid-cols-2">
-          <div>
+          <div data-gt-reveal>
             <Badge variant="secondary" className="mb-4 rounded-full px-3 py-1 glass-card">
               See the actual product
             </Badge>
@@ -709,22 +713,24 @@ export function LandingPage() {
               ))}
             </ul>
           </div>
-          <SampleCertificatePreview />
+          <div data-gt-reveal>
+            <SampleCertificatePreview />
+          </div>
         </div>
       </section>
 
       {/* Features */}
-      <section className="border-t bg-card/50 backdrop-blur-sm px-6 py-20">
+      <section className="px-6 py-20">
         <div className="mx-auto max-w-5xl">
-          <h2 className="text-center text-3xl font-extrabold font-display">
+          <h2 data-gt-reveal className="text-center text-3xl font-extrabold font-display">
             Why GradeThread?
           </h2>
-          <p className="mx-auto mt-3 max-w-2xl text-center text-muted-foreground">
+          <p data-gt-reveal className="mx-auto mt-3 max-w-2xl text-center text-muted-foreground">
             The standard in pre-owned clothing condition assessment.
           </p>
           <div className="mt-12 grid gap-8 md:grid-cols-3">
             {features.map((feature) => (
-              <div key={feature.title} className="text-center rounded-2xl border border-border/40 bg-card/60 p-6 shadow-sm hover:shadow-md hover:border-brand-navy/20 dark:hover:border-white/10 transition-all duration-300 glass-card">
+              <div key={feature.title} data-gt-reveal className="text-center rounded-2xl border border-border/40 bg-card/60 p-6 shadow-sm hover:shadow-md hover:border-brand-navy/20 dark:hover:border-white/10 transition-all duration-300 glass-card">
                 <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-brand-navy/10 text-brand-navy dark:bg-brand-navy/30 dark:text-white mb-4">
                   <feature.icon className="h-6 w-6" />
                 </div>
@@ -754,13 +760,13 @@ export function LandingPage() {
         <div className="absolute top-1/2 left-1/2 -z-10 h-72 w-72 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand-navy/5 blur-[100px]" />
         
         <div className="mx-auto max-w-5xl">
-          <h2 className="text-center text-3xl font-extrabold font-display">How It Works</h2>
-          <p className="mx-auto mt-3 max-w-2xl text-center text-muted-foreground">
+          <h2 data-gt-reveal className="text-center text-3xl font-extrabold font-display">How It Works</h2>
+          <p data-gt-reveal className="mx-auto mt-3 max-w-2xl text-center text-muted-foreground">
             Four simple steps from photo to verified grade certificate.
           </p>
           <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {howItWorks.map((item) => (
-              <div key={item.step} className="relative rounded-2xl border border-border/40 bg-card/60 p-6 text-center shadow-sm hover:shadow-md hover:border-brand-red/20 transition-all duration-300 glass-card">
+              <div key={item.step} data-gt-reveal className="relative rounded-2xl border border-border/40 bg-card/60 p-6 text-center shadow-sm hover:shadow-md hover:border-brand-red/20 transition-all duration-300 glass-card">
                 <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-brand-navy text-white mb-4">
                   <item.icon className="h-5 w-5" />
                 </div>
@@ -778,9 +784,9 @@ export function LandingPage() {
       </section>
 
       {/* Now with FlipDesk */}
-      <section className="border-t bg-card/50 backdrop-blur-sm px-6 py-20">
+      <section className="px-6 py-20">
         <div className="mx-auto max-w-5xl">
-          <div className="flex flex-col items-center text-center">
+          <div data-gt-reveal className="flex flex-col items-center text-center">
             <Badge className="mb-4 bg-brand-red text-white hover:bg-brand-red shadow-sm px-3 py-1 rounded-full">
               Now with FlipDesk
             </Badge>
@@ -832,7 +838,7 @@ export function LandingPage() {
                   "Track payouts, fees, per-item P&L, and consignor splits so you always know your real margins.",
               },
             ].map((item) => (
-              <div key={item.title} className="text-center rounded-2xl border border-border/40 bg-card/60 p-6 shadow-sm hover:shadow-md hover:border-brand-red/20 transition-all duration-300 glass-card">
+              <div key={item.title} data-gt-reveal className="text-center rounded-2xl border border-border/40 bg-card/60 p-6 shadow-sm hover:shadow-md hover:border-brand-red/20 transition-all duration-300 glass-card">
                 <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-brand-red/10 text-brand-red-text mb-4">
                   <item.icon className="h-5 w-5" />
                 </div>
@@ -860,7 +866,7 @@ export function LandingPage() {
       {/* Pricing */}
       <section id="pricing" className="px-6 py-20">
         <div className="mx-auto max-w-6xl space-y-16">
-          <div className="space-y-3 text-center">
+          <div data-gt-reveal className="space-y-3 text-center">
             <h2 className="text-3xl font-extrabold font-display">Simple, transparent pricing</h2>
             <p className="mx-auto max-w-2xl text-muted-foreground">
               GradeThread is two products on one bill: a workflow tool you
@@ -881,9 +887,9 @@ export function LandingPage() {
       </section>
 
       {/* FAQ */}
-      <section id="faq" className="border-t bg-card px-6 py-20">
+      <section id="faq" className="px-6 py-20">
         <div className="mx-auto max-w-2xl">
-          <h2 className="text-center text-3xl font-extrabold font-display">
+          <h2 data-gt-reveal className="text-center text-3xl font-extrabold font-display">
             Frequently Asked Questions
           </h2>
           <div className="mt-10 rounded-lg border bg-background p-6">
@@ -895,11 +901,11 @@ export function LandingPage() {
       </section>
 
       {/* Final CTA */}
-      <section className="bg-brand-navy px-6 py-20 text-center text-white">
-        <h2 className="text-3xl font-extrabold font-display">
+      <section className="gt-panel-dark px-6 py-20 text-center text-white">
+        <h2 data-gt-reveal className="text-3xl font-extrabold font-display">
           Ready to Grade Smarter?
         </h2>
-        <p className="mx-auto mt-3 max-w-xl text-white/80">
+        <p data-gt-reveal className="mx-auto mt-3 max-w-xl text-white/80">
           Join resellers who trust GradeThread to standardize their condition
           grading, build buyer confidence, and increase sales.
         </p>
@@ -919,7 +925,7 @@ export function LandingPage() {
       </section>
 
       {/* US-912: newsletter signup — capture leads before signup (double opt-in). */}
-      <section className="border-t bg-card/50 px-6 py-16 text-center">
+      <section className="px-6 py-16 text-center">
         <h2 className="text-2xl font-extrabold font-display">
           Resale grading tips in your inbox
         </h2>
@@ -992,5 +998,6 @@ export function LandingPage() {
         </div>
       </footer>
     </div>
+    </ScrollExperience>
   );
 }

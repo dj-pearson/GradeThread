@@ -302,3 +302,117 @@
   box-shadow: 0 0 16px rgba(240, 61, 95, 0.18);
 }
 
+/* ── Scroll experience (US-1952 epic) ──────────────────────────────────────
+   The landing page's "one continuous film". Progressive enhancement only: the
+   base rules below render a tasteful static field for prerender / no-JS /
+   reduced-motion, and the [data-scroll-enhanced] rules (set by
+   <ScrollExperience> on capable, motion-OK clients) make the field drift with
+   the `--gt-scroll` progress variable. */
+
+/* Registered so `--gt-scroll` animates as a real number in calc(); if the
+   browser lacks @property support the raw token still works as a calc operand. */
+@property --gt-scroll {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+
+/* Lenis smooth-scroll base styles (only take effect once Lenis adds its classes
+   to <html>; inert otherwise). */
+html.lenis,
+html.lenis body {
+  height: auto;
+}
+.lenis.lenis-smooth {
+  scroll-behavior: auto !important;
+}
+.lenis.lenis-smooth [data-lenis-prevent] {
+  overscroll-behavior: contain;
+}
+.lenis.lenis-stopped {
+  overflow: clip;
+}
+
+/* US-1954: the single continuous background field behind the whole page. Base =
+   static soft brand gradient (prerender / reduced-motion). */
+.gt-continuous-bg {
+  position: fixed;
+  inset: 0;
+  z-index: -10;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      55% 45% at 50% 0%,
+      color-mix(in oklab, var(--color-brand-navy) 14%, transparent),
+      transparent 72%
+    ),
+    radial-gradient(
+      45% 40% at 82% 26%,
+      color-mix(in oklab, var(--color-brand-red) 9%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      70% 55% at 18% 88%,
+      color-mix(in oklab, var(--color-brand-navy) 16%, transparent),
+      transparent 72%
+    ),
+    var(--background);
+}
+
+/* Enhanced: the gradient stops drift with scroll progress for a subtle
+   "living field" parallax, and the red bloom intensifies as you descend. */
+:root[data-scroll-enhanced] .gt-continuous-bg {
+  background:
+    radial-gradient(
+      60% 50% at 50% calc(2% - var(--gt-scroll) * 34%),
+      color-mix(in oklab, var(--color-brand-navy) 18%, transparent),
+      transparent 72%
+    ),
+    radial-gradient(
+      52% 46% at calc(84% - var(--gt-scroll) * 58%)
+        calc(20% + var(--gt-scroll) * 60%),
+      color-mix(
+        in oklab,
+        var(--color-brand-red) calc(10% + var(--gt-scroll) * 16%),
+        transparent
+      ),
+      transparent 70%
+    ),
+    radial-gradient(
+      72% 58% at calc(14% + var(--gt-scroll) * 46%)
+        calc(92% - var(--gt-scroll) * 44%),
+      color-mix(in oklab, var(--color-brand-navy) 20%, transparent),
+      transparent 72%
+    ),
+    var(--background);
+}
+
+/* US-1954: the two intentional dark "moments" (proof band, final CTA). A
+   translucent navy glass panel so the field bleeds through the edges instead of
+   a hard full-bleed rectangle with seams — keeps white text well over AA. */
+.gt-panel-dark {
+  background: color-mix(in oklab, var(--color-brand-navy) 92%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+:root:not(.dark) .gt-panel-dark {
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.04);
+}
+
+/* US-1954/1960: scroll-reveal. The hidden FROM-state (`gt-reveal-init`) is added
+   by <ScrollExperience> in JS, so no-JS / bots / prefers-reduced-motion never
+   hide content; IntersectionObserver adds `gt-reveal-in` to animate it home. The
+   global reduced-motion rule also zeroes these transitions as a second guard. */
+[data-gt-reveal].gt-reveal-init {
+  opacity: 0;
+  transform: translateY(28px);
+  transition:
+    opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform;
+}
+[data-gt-reveal].gt-reveal-in {
+  opacity: 1;
+  transform: none;
+}
+
