@@ -42,6 +42,29 @@
     }
   }
 
+  // A stable identity for THIS listing, so a return visit recalls the same grade
+  // (the background worker keys its grade cache on this). Normalize to origin +
+  // path, lowercased, trailing slash trimmed — drops tracking/query params so the
+  // same item is recognized across visits.
+  function listingKey() {
+    try {
+      const u = new URL(location.href);
+      return (u.origin + u.pathname).toLowerCase().replace(/\/+$/, "");
+    } catch (_e) {
+      return (location.host + location.pathname).toLowerCase();
+    }
+  }
+
+  function timeAgo(ts) {
+    const s = Math.max(0, Math.floor((Date.now() - Number(ts)) / 1000));
+    if (s < 60) return "just now";
+    const m = Math.floor(s / 60);
+    if (m < 60) return m + "m ago";
+    const h = Math.floor(m / 60);
+    if (h < 24) return h + "h ago";
+    return Math.floor(h / 24) + "d ago";
+  }
+
   // ── extraction (adapter-driven) ─────────────────────────────────────────
   function firstText(selectors) {
     for (const sel of selectors || []) {
@@ -196,8 +219,16 @@
     return "gt-cc-s-bad";
   }
 
-  function renderResult(data) {
+  function renderResult(data, savedAt) {
     renderState((body) => {
+      // A recalled read — show the buyer this is the SAME grade from a prior visit,
+      // not a fresh (and possibly different) roll. "Re-read" below forces a new one.
+      if (savedAt) {
+        body.appendChild(
+          el("p", "gt-cc-saved", "Saved read · " + timeAgo(savedAt) + " — same grade as before.")
+        );
+      }
+
       const scoreWrap = el("div", "gt-cc-scorewrap");
       const score = el("div", "gt-cc-score " + scoreClass(data.overallScore));
       score.textContent = Number(data.overallScore).toFixed(1);
@@ -390,6 +421,7 @@
       condition,
       price: extractPrice(),
       marketplace: (adapter && adapter.key) || "",
+      listingKey: listingKey(), // background caches the result under this key
     });
     grading = false;
     if (!res) {
@@ -444,6 +476,15 @@
     const settings = await send({ type: "GT_CC_GET_SETTINGS" });
     const host = location.host;
     if (settings && Array.isArray(settings.disabledHosts) && settings.disabledHosts.includes(host)) {
+      return;
+    }
+
+    // Recall: if this exact listing was already graded, show that SAME grade
+    // instead of the launcher (a return visit to a graded item is stable, and it
+    // spends no quota). "Re-read" in the result forces a fresh grade.
+    const cached = await send({ type: "GT_CC_GET_CACHED", listingKey: listingKey() });
+    if (cached && cached.data) {
+      renderResult(cached.data, cached.at);
       return;
     }
 

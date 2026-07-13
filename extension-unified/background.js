@@ -50,6 +50,14 @@ const CONFIG_CACHE_KEY = "ccConfigCache";
 const ENT_TTL_MS = 5 * 60 * 1000;
 const ENT_CACHE_KEY = "gtEntCache";
 const MAX_RECENT = 20;
+// Per-listing grade recall (so revisiting an item returns the SAME grade instead
+// of re-rolling a fresh — and slightly different — read, and doesn't spend quota).
+// Keyed by the normalized listing URL; a TTL keeps a stale read from masking a
+// relisted/edited item, and a cap bounds storage. The buyer can always "Re-read"
+// to force a fresh grade, which overwrites the cached entry.
+const GRADE_CACHE_KEY = "gradeCacheByKey";
+const GRADE_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+const GRADE_CACHE_MAX = 100;
 
 const SUPPORTED_LISTER = {
   poshmark: "Poshmark",
@@ -231,6 +239,43 @@ async function gradeFromUrls({ imageUrls, brand, title, condition, marketplace, 
     status: resp.status,
     error: (json && json.error) || "Couldn't grade this listing right now.",
   };
+}
+
+// ── per-listing grade recall cache ────────────────────────────────────────
+async function readGradeCache(listingKey) {
+  if (!listingKey || typeof listingKey !== "string") return null;
+  try {
+    const out = await ext.storage.local.get(GRADE_CACHE_KEY);
+    const map = (out && out[GRADE_CACHE_KEY]) || {};
+    const entry = map[listingKey];
+    if (!entry || typeof entry.at !== "number" || !entry.data) return null;
+    if (Date.now() - entry.at > GRADE_CACHE_TTL_MS) return null;
+    return { data: entry.data, at: entry.at };
+  } catch (_e) {
+    return null;
+  }
+}
+
+async function clearGradeCache() {
+  try {
+    await ext.storage.local.remove(GRADE_CACHE_KEY);
+  } catch (_e) { /* nothing to clear */ }
+}
+
+async function writeGradeCache(listingKey, data) {
+  if (!listingKey || typeof listingKey !== "string" || !data) return;
+  try {
+    const out = await ext.storage.local.get(GRADE_CACHE_KEY);
+    const map = (out && out[GRADE_CACHE_KEY]) || {};
+    map[listingKey] = { data, at: Date.now() };
+    // Evict the oldest entries when over the cap.
+    const keys = Object.keys(map);
+    if (keys.length > GRADE_CACHE_MAX) {
+      keys.sort((a, b) => (map[a].at || 0) - (map[b].at || 0));
+      for (const k of keys.slice(0, keys.length - GRADE_CACHE_MAX)) delete map[k];
+    }
+    await ext.storage.local.set({ [GRADE_CACHE_KEY]: map });
+  } catch (_e) { /* storage unavailable/full — recall just won't warm this time */ }
 }
 
 // ── recent reads history ──────────────────────────────────────────────────
@@ -463,6 +508,10 @@ function handleExternalMessage(msg, sender, sendResponse) {
       }
       await ext.storage.local.set({ gtBuyerToken: msg.token });
       await invalidateEntCache();
+      // Entitlements (which paid signals a grade includes) just changed, so drop
+      // the recall cache — a return visit should re-grade with the new account's
+      // tier rather than replay the anonymous read.
+      await clearGradeCache();
       const caps = await getCapabilities(true);
       sendResponse({ ok: true, capabilities: caps });
     })();
@@ -473,6 +522,7 @@ function handleExternalMessage(msg, sender, sendResponse) {
     (async () => {
       await ext.storage.local.remove("gtBuyerToken");
       await invalidateEntCache();
+      await clearGradeCache();
       sendResponse({ ok: true, capabilities: await getCapabilities(true) });
     })();
     return true;
@@ -558,8 +608,17 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
       case "GT_CC_GET_SETTINGS":
         sendResponse(await getSettings());
         break;
-      case "GT_CC_GRADE":
-        sendResponse(await gradeFromUrls(msg));
+      case "GT_CC_GRADE": {
+        const out = await gradeFromUrls(msg);
+        // Warm the per-listing recall cache so a return visit shows the same grade.
+        if (out && out.ok && out.data && msg.listingKey) {
+          await writeGradeCache(msg.listingKey, out.data);
+        }
+        sendResponse(out);
+        break;
+      }
+      case "GT_CC_GET_CACHED":
+        sendResponse(await readGradeCache(msg.listingKey));
         break;
       case "GT_CC_SAVE_READ":
         await saveRead(msg.read);

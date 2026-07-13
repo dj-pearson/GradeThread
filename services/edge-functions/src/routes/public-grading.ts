@@ -609,6 +609,37 @@ function publicSiteUrl(): string {
   return (Deno.env.get("PUBLIC_SITE_URL")?.trim() || "https://gradethread.com").replace(/\/$/, "");
 }
 
+// Assign sensible VIEW types to a marketplace listing's scraped gallery photos.
+// The extension can't know which photo is which, so it used to send every URL as
+// "detail" — which tells the composite grader the set is all close-ups with NO
+// primary front/back coverage, so it (correctly, given that framing) docks its
+// own confidence_score. Real galleries conventionally LEAD with the hero/front
+// shot, then a back/alternate view, then close-ups, so typing the first two as
+// front/back gives the grader the primary-angle coverage a listing usually has.
+// A "front"/"back" per-image prompt is also a better fit for a full-garment shot
+// than "detail" (which narrows the model to stitching/hardware). This changes the
+// grader's INPUT framing, not any prompt text and not the post-composite
+// confidence policy — the model still reports whatever confidence it earns. Pure;
+// exported for the edge test. Never emits more types than there are images.
+const GALLERY_VIEW_ORDER = ["front", "back", "detail", "detail_2", "detail_3", "detail_4"];
+export function assignGalleryImageTypes(count: number): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < count; i++) out.push(GALLERY_VIEW_ORDER[i] ?? "detail");
+  return out;
+}
+
+// The "ask the seller for these photos" coverage-gap macro is only worth showing
+// when it would actually help: when the read came back low-confidence OR the
+// listing had too few photos to cover the item. On a confident read of a
+// well-photographed listing, surfacing a full "ask for 7 photos" list reads as
+// "this grade is unreliable" when it isn't — so we suppress it. Pure; exported
+// for the edge test.
+export const COVERAGE_GAP_CONFIDENCE_BAR = 0.75;
+export const COVERAGE_GAP_MIN_IMAGES = 3;
+export function shouldRequestCoveragePhotos(confidence: number, imagesAnalyzed: number): boolean {
+  return confidence < COVERAGE_GAP_CONFIDENCE_BAR || imagesAnalyzed < COVERAGE_GAP_MIN_IMAGES;
+}
+
 publicGradingRoutes.post("/grade-from-url", async (c) => {
   try {
     const ip = clientIpFor(c);
@@ -640,8 +671,9 @@ publicGradingRoutes.post("/grade-from-url", async (c) => {
 
     let result;
     try {
+      const viewTypes = assignGalleryImageTypes(parsed.urls.length);
       result = await quickGrade({
-        images: parsed.urls.map((url) => ({ url, type: "detail" })),
+        images: parsed.urls.map((url, i) => ({ url, type: viewTypes[i] })),
         garment: { brand: brand ?? null, title: title ?? "" },
       });
     } catch (err) {
@@ -728,7 +760,13 @@ publicGradingRoutes.post("/grade-from-url", async (c) => {
         priceFairness: gates.priceFairness ? fairness : null,
         fraudFlags: gates.fraud ? fraudFlagsAll : [],
         // US-1837: free basic — the photos worth asking for + a ready-to-send msg.
-        coverageGap: gates.coverage ? coverageGapForTitle(title) : null,
+        // Only when it would help (low confidence or too few photos); a confident
+        // read of a well-photographed listing doesn't get the "ask for 7 photos"
+        // list, which otherwise reads as "this grade is unreliable".
+        coverageGap:
+          gates.coverage && shouldRequestCoveragePhotos(result.confidence, result.imagesAnalyzed)
+            ? coverageGapForTitle(title)
+            : null,
         // US-1839: inline "will it fit me?" — Guard+ entitlement. The fit itself
         // uses the buyer's SAVED body profile on the fit surface (no listing
         // measurements are available inline), so this is an entitled deep-link.

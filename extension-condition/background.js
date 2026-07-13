@@ -23,6 +23,14 @@ const CONFIG_TTL_HIT_MS = 6 * 60 * 60 * 1000;
 const CONFIG_TTL_MISS_MS = 10 * 60 * 1000;
 const CONFIG_CACHE_KEY = "ccConfigCache";
 const MAX_RECENT = 20;
+// Per-listing grade recall (so revisiting an item returns the SAME grade instead
+// of re-rolling a fresh — and slightly different — read, and doesn't spend quota).
+// Keyed by the normalized listing URL; a TTL keeps a stale read from masking a
+// relisted/edited item, and a cap bounds storage. "Re-read" forces a fresh grade,
+// which overwrites the cached entry.
+const GRADE_CACHE_KEY = "gradeCacheByKey";
+const GRADE_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+const GRADE_CACHE_MAX = 100;
 
 // ── per-install instance id (quota key) ──────────────────────────────────
 async function getInstanceId() {
@@ -94,6 +102,36 @@ async function getSettings() {
     autoRun: Boolean(out.autoRun),
     disabledHosts: Array.isArray(out.disabledHosts) ? out.disabledHosts : [],
   };
+}
+
+// ── per-listing grade recall cache ────────────────────────────────────────
+async function readGradeCache(listingKey) {
+  if (!listingKey || typeof listingKey !== "string") return null;
+  try {
+    const out = await chrome.storage.local.get(GRADE_CACHE_KEY);
+    const map = (out && out[GRADE_CACHE_KEY]) || {};
+    const entry = map[listingKey];
+    if (!entry || typeof entry.at !== "number" || !entry.data) return null;
+    if (Date.now() - entry.at > GRADE_CACHE_TTL_MS) return null;
+    return { data: entry.data, at: entry.at };
+  } catch (_e) {
+    return null;
+  }
+}
+
+async function writeGradeCache(listingKey, data) {
+  if (!listingKey || typeof listingKey !== "string" || !data) return;
+  try {
+    const out = await chrome.storage.local.get(GRADE_CACHE_KEY);
+    const map = (out && out[GRADE_CACHE_KEY]) || {};
+    map[listingKey] = { data, at: Date.now() };
+    const keys = Object.keys(map);
+    if (keys.length > GRADE_CACHE_MAX) {
+      keys.sort((a, b) => (map[a].at || 0) - (map[b].at || 0));
+      for (const k of keys.slice(0, keys.length - GRADE_CACHE_MAX)) delete map[k];
+    }
+    await chrome.storage.local.set({ [GRADE_CACHE_KEY]: map });
+  } catch (_e) { /* storage unavailable/full — recall just won't warm this time */ }
 }
 
 // ── recent reads history ────────────────────────────────────────────────
@@ -177,8 +215,16 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       case "GT_CC_GET_SETTINGS":
         sendResponse(await getSettings());
         break;
-      case "GT_CC_GRADE":
-        sendResponse(await gradeFromUrls(msg));
+      case "GT_CC_GRADE": {
+        const out = await gradeFromUrls(msg);
+        if (out && out.ok && out.data && msg.listingKey) {
+          await writeGradeCache(msg.listingKey, out.data);
+        }
+        sendResponse(out);
+        break;
+      }
+      case "GT_CC_GET_CACHED":
+        sendResponse(await readGradeCache(msg.listingKey));
         break;
       case "GT_CC_SAVE_READ":
         await saveRead(msg.read);

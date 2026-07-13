@@ -15,6 +15,8 @@ const {
   parseGradeFromUrlBody,
   parseAuthenticityCheckBody,
   publicAuthenticityCheckEnabled,
+  assignGalleryImageTypes,
+  shouldRequestCoveragePhotos,
 } = await import("../routes/public-grading.ts");
 
 // A canonical 1x1 PNG (valid magic bytes + IHDR + IDAT + IEND).
@@ -147,6 +149,25 @@ Deno.test("parseGradeFromUrlBody: accepts imageUrl, imageUrls, caps at 4, reject
   assert(!parseGradeFromUrlBody({ imageUrl: "not a url" }).ok);
   assert(!parseGradeFromUrlBody({ imageUrl: "ftp://example.com/a.jpg" }).ok);
   assert(!parseGradeFromUrlBody(null).ok);
+});
+
+// ── grade-from-url gallery view typing + coverage-gap gating ─────────────────
+Deno.test("assignGalleryImageTypes: first two are front/back, rest detail, never over-emits", () => {
+  assertEquals(assignGalleryImageTypes(0), []);
+  assertEquals(assignGalleryImageTypes(1), ["front"]);
+  assertEquals(assignGalleryImageTypes(2), ["front", "back"]);
+  assertEquals(assignGalleryImageTypes(3), ["front", "back", "detail"]);
+  assertEquals(assignGalleryImageTypes(4), ["front", "back", "detail", "detail_2"]);
+});
+
+Deno.test("shouldRequestCoveragePhotos: only when low-confidence OR too few photos", () => {
+  // Confident read of a well-photographed listing → suppress the ask-for-photos list.
+  assertEquals(shouldRequestCoveragePhotos(0.85, 4), false);
+  assertEquals(shouldRequestCoveragePhotos(0.75, 3), false);
+  // Low confidence → surface it even with plenty of photos.
+  assert(shouldRequestCoveragePhotos(0.6, 4));
+  // Too few photos → surface it even when confident.
+  assert(shouldRequestCoveragePhotos(0.9, 2));
 });
 
 // ── US-1771: public authenticity-check body parsing + fail-closed gate ───────

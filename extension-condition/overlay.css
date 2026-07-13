@@ -137,6 +137,15 @@
   border-radius: 8px;
   padding: 8px 10px;
 }
+#gt-cc-overlay .gt-cc-saved {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #3f6b52;
+  background: #eef6f0;
+  border-radius: 8px;
+  padding: 6px 10px;
+}
 #gt-cc-overlay .gt-cc-disclaimer {
   margin: 0;
   font-size: 11px;
