@@ -9,6 +9,7 @@
     "/login",
     "/signup",
     "/accept-invite",
+    "/connect-extension",
     "/cert/*",
     "/passport/*",
     "/verified/*",

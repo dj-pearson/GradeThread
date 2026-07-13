@@ -92,6 +92,7 @@ export const DISALLOWED_PATHS: readonly string[] = [
   "/auth/",
   "/api/",
   "/accept-invite",
+  "/connect-extension",
 ];
 
 export function buildRobotsTxt(opts: {
