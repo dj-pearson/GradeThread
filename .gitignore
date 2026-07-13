@@ -126,3 +126,11 @@ ds-bundle/
 supabase/.temp/cli-latest
 Flip Tracker - Listings.csv
 Flip Tracker - Thrift Flip Tracker (1).csv
+
+# Extension packaging output (US-1757) + stray local zips
+dist-ext/
+/extension.zip
+
+# Extension packaging output (US-1757) + stray local zips
+dist-ext/
+/extension.zip
