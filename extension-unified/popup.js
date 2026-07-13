@@ -76,8 +76,8 @@ function initStaticLinks() {
   const version = document.getElementById("version");
   version.textContent = "v" + chrome.runtime.getManifest().version;
   document.getElementById("privacy").href = SITE + "/privacy?utm_source=extension&utm_medium=popup";
-  document.getElementById("help").href = SITE + "/help/extension?utm_source=extension&utm_medium=popup";
-  document.getElementById("termsLink").href = SITE + "/legal/acceptable-use?utm_source=extension&utm_medium=popup";
+  document.getElementById("help").href = SITE + "/?utm_source=extension&utm_medium=popup";
+  document.getElementById("termsLink").href = SITE + "/acceptable-use?utm_source=extension&utm_medium=popup";
   const upgrade = document.getElementById("upgradeBtn");
   if (upgrade) upgrade.href = SITE + "/pricing?utm_source=extension&utm_medium=popup&utm_campaign=lister-upgrade";
 }

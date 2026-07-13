@@ -43,7 +43,11 @@ const EXTENSIONS = [
     dir: "extension-condition",
     name: "gradethread-condition-check",
     role: "buyer",
-    firefox: { geckoId: "condition-check@gradethread.com" },
+    firefox: {
+      geckoId: "condition-check@gradethread.com",
+      // Same grading transmission as the unified extension.
+      dataCollection: { required: ["websiteContent"] },
+    },
   },
   {
     dir: "extension",
@@ -70,6 +74,11 @@ const EXTENSIONS = [
         "registry.js",
         "background.js",
       ],
+      // Firefox data-consent (mzl.la/firefox-builtin-data-consent): the condition
+      // read transmits the listing's page content (image URLs + title/brand/price)
+      // to the grading endpoint on user action. Nothing is persisted server-side
+      // and no PII/cookies are read, so websiteContent is the only category.
+      dataCollection: { required: ["websiteContent"] },
     },
   },
 ];
@@ -177,11 +186,11 @@ function validateManifest(manifest, absDir, problems) {
   for (const k of ["name", "version", "description"]) {
     if (!manifest[k]) problems.push(`manifest missing "${k}"`);
   }
-  // Chrome Web Store hard limits — an over-long field 400s the upload with a
-  // cryptic message, so fail here (locally) instead. Store caps: name ≤ 45,
-  // description ≤ 132 (character counts, not bytes).
-  if (typeof manifest.name === "string" && manifest.name.length > 45) {
-    problems.push(`"name" is ${manifest.name.length} chars (store max 45)`);
+  // Store hard limits — an over-long field rejects the upload with a cryptic
+  // message, so fail here (locally) instead. Firefox AMO caps the name at 30
+  // (stricter than Chrome's 45); description ≤ 132. Character counts, not bytes.
+  if (typeof manifest.name === "string" && manifest.name.length > 30) {
+    problems.push(`"name" is ${manifest.name.length} chars (AMO max 30)`);
   }
   if (typeof manifest.description === "string" && manifest.description.length > 132) {
     problems.push(`"description" is ${manifest.description.length} chars (store max 132)`);
@@ -198,6 +207,26 @@ function validateManifest(manifest, absDir, problems) {
   for (const r of refs) {
     if (!existsSync(join(absDir, r))) problems.push(`manifest references missing file: ${r}`);
   }
+  // Icon dimensions must match their manifest key — Chrome rejects a "128" icon
+  // that isn't exactly 128×128 (and it's an easy mismatch to miss). Read the PNG
+  // IHDR (bytes 16–23, big-endian) directly; dependency-free.
+  for (const [size, rel] of Object.entries(manifest.icons || {})) {
+    const px = Number(size);
+    if (!Number.isFinite(px)) continue;
+    const abs = join(absDir, rel);
+    if (!existsSync(abs)) continue; // already reported as missing above
+    const dim = pngSize(readFileSync(abs));
+    if (!dim) problems.push(`icon ${rel} is not a valid PNG`);
+    else if (dim.w !== px || dim.h !== px) {
+      problems.push(`icon "${size}" (${rel}) is ${dim.w}×${dim.h}, must be ${px}×${px}`);
+    }
+  }
+}
+
+// Width/height from a PNG's IHDR chunk, or null if not a PNG.
+function pngSize(buf) {
+  if (buf.length < 24 || buf[0] !== 0x89 || buf[1] !== 0x50) return null;
+  return { w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) };
 }
 
 // Firefox needs a gecko id and, for broad MV3 compat, an event-page background
@@ -207,6 +236,11 @@ function validateManifest(manifest, absDir, problems) {
 function firefoxManifest(manifest, firefox) {
   const m = JSON.parse(JSON.stringify(manifest));
   m.browser_specific_settings = { gecko: { id: firefox.geckoId } };
+  // Firefox now REQUIRES a data-collection disclosure on new add-ons/versions
+  // (mzl.la/firefox-builtin-data-consent). Declared per-extension; defaults to
+  // "no user data collected".
+  m.browser_specific_settings.gecko.data_collection_permissions =
+    firefox.dataCollection || { required: ["none"] };
   if (m.background?.service_worker) {
     const scripts = firefox.backgroundScripts?.length
       ? firefox.backgroundScripts

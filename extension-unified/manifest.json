@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "GradeThread — Condition Check & Lister",
-  "version": "0.3.0",
+  "name": "GradeThread: Grade & List",
+  "version": "0.3.2",
   "description": "AI condition reads while you shop eBay, Poshmark, Grailed, Mercari, Depop & Vinted — plus cross-listing for FlipDesk sellers.",
   "permissions": ["storage", "activeTab"],
   "host_permissions": [
