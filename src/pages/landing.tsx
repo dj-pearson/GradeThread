@@ -725,7 +725,7 @@ export function LandingPage() {
               ))}
             </ul>
           </div>
-          <div data-gt-reveal>
+          <div data-cert-card>
             <SampleCertificatePreview />
           </div>
         </div>

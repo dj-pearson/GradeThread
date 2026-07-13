@@ -20,38 +20,47 @@ export function initCertificateScene(): () => void {
   const scene = document.querySelector<HTMLElement>("[data-cert-scene]");
   if (!scene) return () => {};
 
+  const card = scene.querySelector<HTMLElement>("[data-cert-card]");
   const ring = scene.querySelector<HTMLElement>("[data-cert-ring]");
   const scoreEl = scene.querySelector<HTMLElement>("[data-cert-score]");
   const bars = gsap.utils.toArray<HTMLElement>("[data-cert-bar]", scene);
   const finalScore = scoreEl ? parseFloat(scoreEl.textContent || "0") || 0 : 0;
 
   const ctx = gsap.context(() => {
-    // Runtime-only FROM-state (never in CSS/markup).
+    // Runtime-only FROM-state (never in CSS/markup) so no-engine renders assembled.
+    if (card) gsap.set(card, { opacity: 0, y: 44 });
     if (bars.length) gsap.set(bars, { scaleX: 0 });
-    if (ring) gsap.set(ring, { scale: 0.7, opacity: 0 });
+    if (ring) gsap.set(ring, { scale: 0.85, opacity: 0 });
     if (scoreEl) scoreEl.textContent = "0.0";
 
     const counter = { v: 0 };
+    // ONE long, gentle scrub across the whole section entrance — the card eases
+    // in, then the ring/score/bars assemble — so the section reads as a single
+    // continuous glide rather than a reveal-pop followed by a bouncy assembly.
+    // No overshoot easings (they read as "hard" when tied to scroll).
     const tl = gsap.timeline({
       scrollTrigger: {
         trigger: scene,
-        start: "top 78%",
-        end: "center 52%",
-        scrub: 0.6,
+        start: "top 92%",
+        end: "center 56%",
+        scrub: 1,
       },
     });
 
+    if (card) {
+      tl.to(card, { opacity: 1, y: 0, ease: "power1.out", duration: 0.6 }, 0);
+    }
     if (ring) {
-      tl.to(ring, { scale: 1, opacity: 1, ease: "back.out(1.6)", duration: 0.4 }, 0);
-      // Emerald grade-halo that blooms in as the orb docks behind the ring.
+      tl.to(ring, { scale: 1, opacity: 1, ease: "power2.out", duration: 0.55 }, 0.1);
+      // Emerald grade-halo that blooms in as the orb converges behind the ring.
       tl.to(
         ring,
         {
           boxShadow: "0 0 44px 6px rgba(16,185,129,0.5)",
-          duration: 0.5,
+          duration: 0.6,
           ease: "power2.out",
         },
-        0.1,
+        0.2,
       );
     }
     if (scoreEl) {
@@ -59,20 +68,20 @@ export function initCertificateScene(): () => void {
         counter,
         {
           v: finalScore,
-          duration: 0.55,
+          duration: 0.6,
           ease: "none",
           onUpdate: () => {
             scoreEl.textContent = counter.v.toFixed(1);
           },
         },
-        0,
+        0.15,
       );
     }
     if (bars.length) {
       tl.to(
         bars,
-        { scaleX: 1, ease: "power2.out", duration: 0.5, stagger: 0.12 },
-        0.15,
+        { scaleX: 1, ease: "power2.out", duration: 0.6, stagger: 0.1 },
+        0.25,
       );
     }
 
@@ -82,8 +91,8 @@ export function initCertificateScene(): () => void {
     if (ring) {
       ScrollTrigger.create({
         trigger: scene,
-        start: "top 68%",
-        end: "bottom 38%",
+        start: "top 82%",
+        end: "bottom 24%",
         onEnter: () => {
           orbFocus.active = true;
           orbFocus.targetEl = ring;

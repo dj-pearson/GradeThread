@@ -23,6 +23,11 @@ export function initScrollEngine(): () => void {
     // We drive rAF from GSAP's ticker below, so Lenis must not run its own loop.
     autoRaf: false,
     smoothWheel: true,
+    // A slightly lower lerp + gentle wheel multiplier make the whole-page glide
+    // feel smoother/continuous end-to-end (the brief was "smooth from beginning
+    // to end") without feeling sluggish.
+    lerp: 0.085,
+    wheelMultiplier: 0.9,
     // Momentum feels good with a pointer; on touch we keep native scrolling.
     // (Lenis defaults to native touch; being explicit for intent.)
   });
