@@ -163,7 +163,11 @@ export function computeTrustScore(
 // ─── DB helpers (service-role; scope every query by user_id — US-268) ────────
 
 export interface EmitReputationEventInput {
-  eventType: ReputationEventType;
+  // US-1849: the reputation_events ledger is shared with the rewards XP track,
+  // so the emitter accepts any event_type in the DB CHECK set (ReputationEventType
+  // for trust + RewardEventType for XP) — hence `string`. The DB CHECK is the
+  // validity guard; callers pass their own typed union (grantReward → RewardEventType).
+  eventType: ReputationEventType | string;
   /** Defaults true; pass false to record an unverified (non-scoring) event. */
   verified?: boolean;
   magnitude?: number | null;

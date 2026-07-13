@@ -1,5 +1,25 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+> **00435–00442 were applied to prod + pushed on 2026-07-12** (user confirmed).
+> The sections below for those are historical; the only NEW held migration is
+> **00443** at the top.
+
+## ⏳ PENDING: 00443_rewards_xp_engine.sql (US-1849 rewards XP engine, 2026-07-13)
+
+REUSES the reputation_events ledger (00417) for the XP track (no parallel
+ledger, per US-1849). Two changes: (1) extends the `reputation_events` event_type
+CHECK with the reward-only types (`coverage_completed`, `badge_embedded`,
+`aspects_filled`, `marketplace_connected`, `verified_share`) — a DROP + re-ADD of
+`reputation_events_event_type_check`, idempotent; (2) adds `public.user_reward_state`
+(user_id PK, xp_total/level/current_streak/longest_streak) with RLS read-own.
+Apply after 00442 via `scripts/apply-prod-migrations.sh`, `NOTIFY pgrst`, redeploy
+the edge (boot guard now expects **00443**). Bumps `EXPECTED_SCHEMA_VERSION` → **00443**.
+
+**Risk: LOW** — additive table + a CHECK widening (never rejects existing rows;
+only ADDS allowed values). Reward events are ignored by the trust scorer, so the
+buyer Trust Score is unaffected. **No CLIENT read** of the new table in this
+branch (the edge writes it; nothing on the frontend reads it yet).
+
 ## ⏳ PENDING: 00442_inventory_equity_snapshots.sql (US-1870 equity trend, 2026-07-12)
 
 New tenant table `public.inventory_equity_snapshots` (user_id, snapshot_date,
