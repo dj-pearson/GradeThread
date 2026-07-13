@@ -397,6 +397,7 @@ app.use("/api/flipdesk/ebay/category/*", authMiddleware);
 app.use("/api/flipdesk/ebay/listings/*", authMiddleware);
 app.use("/api/flipdesk/ebay/payouts/*", authMiddleware);
 app.use("/api/flipdesk/ebay/comps", authMiddleware);
+app.use("/api/flipdesk/ebay/aspect-coverage", authMiddleware);
 app.use("/api/flipdesk/ebay/policies", authMiddleware);
 app.use("/api/flipdesk/ebay/policies/*", authMiddleware);
 // US-1623: these eBay sub-paths were missing from the per-path whitelist, so
@@ -551,6 +552,7 @@ app.use("/api/flipdesk/ebay/category/*", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/listings/*", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/payouts/*", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/comps", workspaceMiddleware);
+app.use("/api/flipdesk/ebay/aspect-coverage", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/policies", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/policies/*", workspaceMiddleware);
 // US-1623: workspace scope for the newly-authed eBay sub-paths (they resolve

@@ -202,6 +202,8 @@ export const CRON_REGISTRY: CronDef[] = [
   { name: "content-tick", label: "Content scheduler tick", schedule: "0 * * * *", category: "content", endpoint: "/api/content/scheduler/tick", recorded: false, secretEnv: "CONTENT_INTERNAL_JOB_SECRET", healthy: "200 with skipped:true when idle (cadence gate) — NOT ok:true" },
   // US-882: weekly content digest email to admins.
   { name: "content-digest", label: "Content weekly digest", schedule: "0 14 * * 1", category: "content", endpoint: "/api/content/scheduler/digest", recorded: false, secretEnv: "CONTENT_INTERNAL_JOB_SECRET" },
+  // US-1870: nightly Inventory Equity snapshot → the equity-over-time trend.
+  { name: "equity-snapshot", label: "Inventory Equity snapshot", schedule: "15 5 * * *", category: "flipdesk", endpoint: "/api/jobs/equity-snapshot", recorded: true },
 ];
 
 // US-1645: resolve a request path to its CRON_REGISTRY job name (by exact
