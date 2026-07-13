@@ -96,5 +96,77 @@
     return false;
   }
 
-  return { applyUrlUpgrade, pickImageUrl, dedupeUrls, resolveAdapter, isDetailPage };
+  // ── US-1879: remote-config integrity ───────────────────────────────────────
+  // The hosted config (marketplace-selectors.json) can be updated without a store
+  // resubmission, but it must only ever UPGRADE the bundled adapters — a stale or
+  // rolled-back hosted file would otherwise silently downgrade every adapter and
+  // could make a newly-bundled marketplace vanish. These helpers gate that.
+
+  // True when a value is a usable config object (a non-empty adapters map). Mirrors
+  // the background worker's shape check so both sides agree on "valid".
+  function isValidConfig(c) {
+    return !!(
+      c && typeof c === "object" && c.adapters &&
+      typeof c.adapters === "object" && Object.keys(c.adapters).length > 0
+    );
+  }
+
+  // Semver-ish compare of the dotted version strings ("2026.07.4"). Compares
+  // numeric components left-to-right (missing components count as 0); if the
+  // numeric cores are equal, a pre-release tag ("2026.07.4-draft") sorts BEFORE
+  // the plain release. Returns -1 (a<b), 0 (equal), or 1 (a>b). Non-strings /
+  // empty parse as version 0.
+  function compareVersions(a, b) {
+    const parse = (v) => {
+      const s = String(v == null ? "" : v).trim();
+      const dash = s.indexOf("-");
+      const core = dash === -1 ? s : s.slice(0, dash);
+      const pre = dash === -1 ? "" : s.slice(dash + 1);
+      const nums = core.split(".").map((x) => {
+        const n = parseInt(x, 10);
+        return Number.isFinite(n) ? n : 0;
+      });
+      return { nums, pre };
+    };
+    const pa = parse(a), pb = parse(b);
+    const len = Math.max(pa.nums.length, pb.nums.length);
+    for (let i = 0; i < len; i++) {
+      const x = pa.nums[i] || 0, y = pb.nums[i] || 0;
+      if (x !== y) return x < y ? -1 : 1;
+    }
+    if (pa.pre && !pb.pre) return -1; // pre-release < release
+    if (!pa.pre && pb.pre) return 1;
+    if (pa.pre !== pb.pre) return pa.pre < pb.pre ? -1 : 1;
+    return 0;
+  }
+
+  // Decide which config the content script should use. The remote is trusted only
+  // when it is structurally valid AND its version is >= the bundled version. Any
+  // other case keeps the bundle (a stale/rolled-back/invalid/absent remote can
+  // never downgrade the shipped adapters). Returns { config, source, reason } so
+  // the caller can log a blocked downgrade.
+  function chooseConfig(bundled, remote) {
+    if (!isValidConfig(remote)) {
+      return { config: bundled, source: "bundled", reason: remote ? "invalid-remote" : "no-remote" };
+    }
+    // A valid remote but an unreadable bundle → trust the remote.
+    if (!isValidConfig(bundled)) {
+      return { config: remote, source: "remote", reason: "no-bundled" };
+    }
+    if (compareVersions(remote.version, bundled.version) >= 0) {
+      return { config: remote, source: "remote", reason: "upgrade" };
+    }
+    return { config: bundled, source: "bundled", reason: "downgrade-blocked" };
+  }
+
+  return {
+    applyUrlUpgrade,
+    pickImageUrl,
+    dedupeUrls,
+    resolveAdapter,
+    isDetailPage,
+    isValidConfig,
+    compareVersions,
+    chooseConfig,
+  };
 });

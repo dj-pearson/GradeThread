@@ -15339,8 +15339,8 @@
         "Adapter merge semantics documented in the config _comment (which file wins and when)"
       ],
       "priority": 1879,
-      "passes": false,
-      "notes": "Audit findings 5/7/14/27 + integration gap (4). Cheap, high-leverage: the remote-update mechanism is the product's answer to selector rot."
+      "passes": true,
+      "notes": "Audit findings 5/7/14/27 + integration gap (4). Cheap, high-leverage: the remote-update mechanism is the product's answer to selector rot.\n\nIMPLEMENTED 2026-07-13 (agent loop). AC1: added compareVersions + chooseConfig to the shared pure module image-utils.cjs (dotted-numeric semver-ish compare, pre-release < release); marketplace.js boot() now uses IMG.chooseConfig(DEFAULT_CFG, remote) so the hosted config is applied ONLY when version>=bundled, else keeps the bundle and console.warns the blocked downgrade. AC2: background.getRemoteConfig now caches in chrome.storage.session (survives SW death, unlike the old module var) with honest TTLs — 6h for a hit, 10min for a miss. AC3: new extension-condition/test/config-sync.test.cjs parses selectors.js GT_CC_CONFIG (via new Function(self)) + public/extension/marketplace-selectors.json and deepStrictEquals version+lastVerified+adapters (proven to catch adapter drift). AC4: scripts/test-extensions.mjs runs all extension-condition/test/*.test.cjs and is wired into verify.mjs web lane. AC5: merge semantics (version-floor rule) documented in the json _comment + selectors.js header. Verified: node scripts/test-extensions.mjs green (image-utils incl. new compareVersions/chooseConfig cases + config-sync), node --check all 4 JS, JSON valid, drift-detection sanity check, eslint clean on the .mjs scripts (.cjs are eslint-ignored by repo config). No migration."
     },
     {
       "id": "US-1880",

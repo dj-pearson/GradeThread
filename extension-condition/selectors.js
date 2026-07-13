@@ -14,6 +14,12 @@
 // failure. Fix selectors in BOTH this file and
 // public/extension/marketplace-selectors.json, bumping version + lastVerified.
 //
+// US-1879 — merge rule: the hosted copy is used ONLY when its `version` is >= this
+// bundled `version` (dotted-numeric compare via IMG.chooseConfig); a stale/rolled-
+// back hosted file can never downgrade these adapters. The config-sync guard test
+// (test/config-sync.test.cjs, run in verify:web) fails the build if the two files
+// drift on version/lastVerified/adapters — so edit them together.
+//
 // `verified`: eBay's selectors were checked against the live site (US-1755).
 // The other adapters are best-effort starting points; the graceful fallback +
 // remote update path (US-1756 AC2/AC3) exist precisely so they can be corrected

@@ -419,9 +419,20 @@
 
   // ── boot ─────────────────────────────────────────────────────────────────
   async function boot() {
-    // Prefer the remotely-updatable config; fall back to the bundled default.
-    const merged = await send({ type: "GT_CC_GET_CONFIG" });
-    if (merged && merged.adapters) CFG = merged;
+    // US-1879: prefer the remotely-updatable config, but ONLY when it is a valid
+    // upgrade — a stale/rolled-back hosted file must never downgrade the bundled
+    // adapters (which could drop a newly-shipped marketplace). chooseConfig
+    // enforces the version floor; a blocked downgrade is logged, not silent.
+    const remote = await send({ type: "GT_CC_GET_CONFIG" });
+    const chosen = IMG.chooseConfig(DEFAULT_CFG, remote);
+    CFG = chosen.config;
+    if (chosen.reason === "downgrade-blocked") {
+      console.warn(
+        "[GT-CC] hosted config v" + (remote && remote.version) +
+          " is older than bundled v" + DEFAULT_CFG.version +
+          " — keeping bundled adapters (no downgrade).",
+      );
+    }
 
     adapter = IMG.resolveAdapter(CFG.adapters, location.host);
     if (!adapter || adapter.enabled === false) return; // unknown/disabled site — no-op

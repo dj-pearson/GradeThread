@@ -62,6 +62,9 @@ if (on("web")) {
   run("web: prd-lint", "node scripts/prd-lint.mjs");
   run("web: script tests (prd-lint/digest)", "npm run test:scripts");
   run("web: eslint", "npm run lint");
+  // US-1879: the browser extensions' zero-dep node tests (pure adapter helpers +
+  // the bundled⇄hosted config sync guard) — cheap, so run before the heavy lanes.
+  run("web: extension tests (condition-check)", "node scripts/test-extensions.mjs");
   run("web: tsc -b", "npx tsc -b");
   // Build BEFORE vitest: the prerender suite validates dist/, and CI runs it
   // after `npm run build`. Testing first would check a STALE dist — any newly

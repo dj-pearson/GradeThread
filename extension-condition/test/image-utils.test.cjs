@@ -14,6 +14,9 @@ const {
   dedupeUrls,
   resolveAdapter,
   isDetailPage,
+  isValidConfig,
+  compareVersions,
+  chooseConfig,
 } = require("../content/image-utils.cjs");
 
 // ── applyUrlUpgrade (config-driven) ──────────────────────────────────────
@@ -75,5 +78,38 @@ assert.equal(isDetailPage({ detect: { pathIncludes: ["/itm/"] } }, "/itm/123"), 
 assert.equal(isDetailPage({ detect: { pathIncludes: ["/itm/"] } }, "/sch/i.html"), false, "non-item path");
 assert.equal(isDetailPage({ detect: { pathRegex: "^/items/\\d+" } }, "/items/999"), true, "pathRegex match");
 assert.equal(isDetailPage({ detect: {} }, "/anything"), false, "no detect rules -> false");
+
+// ── compareVersions (US-1879) ────────────────────────────────────────────
+assert.equal(compareVersions("2026.07.4", "2026.07.4"), 0, "equal versions");
+assert.equal(compareVersions("2026.07.10", "2026.07.4"), 1, "10 > 4 numerically (not lexically)");
+assert.equal(compareVersions("2026.07.4", "2026.07.10"), -1, "4 < 10");
+assert.equal(compareVersions("2026.08.0", "2026.07.99"), 1, "minor bump beats patch");
+assert.equal(compareVersions("2027.1.0", "2026.12.9"), 1, "year bump wins");
+assert.equal(compareVersions("2026.07", "2026.07.0"), 0, "missing patch == .0");
+assert.equal(compareVersions("2026.07.4-draft", "2026.07.4"), -1, "pre-release < release");
+assert.equal(compareVersions("2026.07.4", "2026.07.4-draft"), 1, "release > pre-release");
+assert.equal(compareVersions("", "2026.07.4"), -1, "empty parses as 0 → older");
+assert.equal(compareVersions(null, undefined), 0, "both empty → equal");
+
+// ── isValidConfig (US-1879) ──────────────────────────────────────────────
+assert.equal(isValidConfig({ adapters: { ebay: {} } }), true, "non-empty adapters map is valid");
+assert.equal(isValidConfig({ adapters: {} }), false, "empty adapters map is invalid");
+assert.equal(isValidConfig({}), false, "no adapters is invalid");
+assert.equal(isValidConfig(null), false, "null is invalid");
+
+// ── chooseConfig (US-1879: remote only ever upgrades) ─────────────────────
+const BUNDLED = { version: "2026.07.4", adapters: { ebay: { hosts: ["ebay.com"] } } };
+const newer = { version: "2026.07.9", adapters: { ebay: { hosts: ["ebay.com", "ebay.fr"] } } };
+const older = { version: "2026.06.1", adapters: { ebay: { hosts: ["ebay.com"] } } };
+const same = { version: "2026.07.4", adapters: { ebay: { hosts: ["ebay.com"] }, vinted: {} } };
+
+assert.equal(chooseConfig(BUNDLED, newer).config, newer, "newer remote is used");
+assert.equal(chooseConfig(BUNDLED, newer).reason, "upgrade", "newer → upgrade");
+assert.equal(chooseConfig(BUNDLED, same).config, same, "same-version remote is used (>=)");
+assert.equal(chooseConfig(BUNDLED, older).config, BUNDLED, "older remote is REJECTED (no downgrade)");
+assert.equal(chooseConfig(BUNDLED, older).reason, "downgrade-blocked", "older → downgrade-blocked");
+assert.equal(chooseConfig(BUNDLED, null).config, BUNDLED, "no remote → bundled");
+assert.equal(chooseConfig(BUNDLED, { version: "9.9.9" }).config, BUNDLED, "invalid remote (no adapters) → bundled");
+assert.equal(chooseConfig(BUNDLED, { adapters: {} }).reason, "invalid-remote", "empty-adapters remote → invalid-remote");
 
 console.log("image-utils.test.cjs: all assertions passed");

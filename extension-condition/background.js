@@ -16,7 +16,12 @@
 const ENDPOINT = "https://functions.gradethread.com/api/grading/public/grade-from-url";
 const SITE = "https://gradethread.com";
 const CONFIG_URL = "https://gradethread.com/extension/marketplace-selectors.json";
-const CONFIG_TTL_MS = 6 * 60 * 60 * 1000; // refresh the hosted selectors every 6h
+// US-1879: honest TTLs — a good fetch is trusted for 6h, but a MISS (unreachable
+// / bad shape) is only cached ~10min so a transient outage doesn't strand every
+// read on the bundled default for a full 6h.
+const CONFIG_TTL_HIT_MS = 6 * 60 * 60 * 1000;
+const CONFIG_TTL_MISS_MS = 10 * 60 * 1000;
+const CONFIG_CACHE_KEY = "ccConfigCache";
 const MAX_RECENT = 20;
 
 // ── per-install instance id (quota key) ──────────────────────────────────
@@ -34,27 +39,50 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 // ── remotely-updatable selector config (cached) ──────────────────────────
-let configCache = null; // { at, config }
+// US-1879: the cache lives in chrome.storage.session, not SW module memory —
+// Chrome kills an idle service worker ~30s after the last event, so a module var
+// almost never survived and every restart re-fetched. storage.session persists
+// for the browser session (cleared on browser close), giving the TTLs real teeth.
 
 function validConfig(c) {
   return c && typeof c === "object" && c.adapters && typeof c.adapters === "object" &&
     Object.keys(c.adapters).length > 0;
 }
 
+async function readConfigCache() {
+  try {
+    const out = await chrome.storage.session.get(CONFIG_CACHE_KEY);
+    return out && out[CONFIG_CACHE_KEY] ? out[CONFIG_CACHE_KEY] : null;
+  } catch (_e) {
+    return null;
+  }
+}
+
+async function writeConfigCache(entry) {
+  try {
+    await chrome.storage.session.set({ [CONFIG_CACHE_KEY]: entry });
+  } catch (_e) { /* session storage unavailable — degrade to always-fetch */ }
+}
+
 async function getRemoteConfig() {
   const now = Date.now();
-  if (configCache && now - configCache.at < CONFIG_TTL_MS) return configCache.config;
+  const cached = await readConfigCache();
+  if (cached && typeof cached.at === "number") {
+    // A hit (config present) is trusted for 6h; a miss only ~10min.
+    const ttl = cached.config ? CONFIG_TTL_HIT_MS : CONFIG_TTL_MISS_MS;
+    if (now - cached.at < ttl) return cached.config;
+  }
   try {
     const resp = await fetch(CONFIG_URL, { cache: "no-cache" });
     if (!resp.ok) throw new Error("config " + resp.status);
     const json = await resp.json();
     if (!validConfig(json)) throw new Error("config shape");
-    configCache = { at: now, config: json };
+    await writeConfigCache({ at: now, config: json });
     return json;
   } catch (_e) {
-    // No hosted override (or unreachable). Cache the miss briefly so we don't
-    // hammer the URL, and let the content script keep its bundled default.
-    configCache = { at: now, config: null };
+    // No hosted override (or unreachable). Cache the miss briefly (short TTL) so
+    // we don't hammer the URL, and let the content script keep its bundled default.
+    await writeConfigCache({ at: now, config: null });
     return null;
   }
 }
