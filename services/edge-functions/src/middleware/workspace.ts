@@ -130,3 +130,41 @@ export function requireWorkspaceRole(min: WorkspaceRole) {
     await next();
   });
 }
+
+// HTTP verbs that change state. GET/HEAD/OPTIONS are reads.
+const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+/**
+ * US-1928: baseline write floor for the FlipDesk + grade surface. A `viewer` is
+ * a read-only workspace member — the role's whole contract — yet most mutating
+ * routes never checked the role, so a viewer could write / spend AI credits in
+ * the owner's tenant. Mounted broadly (`/api/flipdesk/*`, `/api/grade/*`) AFTER
+ * workspaceMiddleware, this blocks a viewer from ANY mutating verb in one place,
+ * so a new mutating route can't silently authorize a viewer.
+ *
+ * Fail-safe by design: it acts ONLY when the resolved role is exactly "viewer".
+ * Public sub-paths under the surface (provider webhooks, OAuth callbacks) and
+ * job-secret crons never run workspaceMiddleware, so `workspaceRole` is undefined
+ * there and the request passes through untouched — same for owner/member/
+ * listing_manager/admin. Routes needing a HIGHER floor (admin disconnects,
+ * listing_manager publishes) keep their own inline check on top of this baseline.
+ */
+export const blockViewerWrites = createMiddleware<WorkspaceEnv>(
+  async (c, next) => {
+    if (
+      MUTATING_METHODS.has(c.req.method) &&
+      c.get("workspaceRole") === "viewer"
+    ) {
+      return c.json(
+        {
+          error:
+            "Your workspace role is view-only. Ask a workspace admin for edit " +
+            "access to make changes.",
+          error_code: "workspace_viewer_readonly",
+        },
+        403,
+      );
+    }
+    await next();
+  },
+);

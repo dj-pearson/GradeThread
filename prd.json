@@ -16033,8 +16033,8 @@
         "Load the `tenant-isolation` skill"
       ],
       "priority": 1928,
-      "passes": false,
-      "notes": "[P3][Edge/Security] Code-review sweep 2026-07-11. Systemic hardening — no live vuln found. Load `tenant-isolation` skill.",
+      "passes": true,
+      "notes": "[P3][Edge/Security] Code-review sweep 2026-07-11. Systemic hardening — no live vuln found. Load `tenant-isolation` skill.\n\nIMPLEMENTED 2026-07-13 (agent loop). The audit found the gap was WIDER than the story framed ('no live vuln found'): of 152 mutating flipdesk/grade routes, only a handful had an inline role floor — ~100 (all of flipdesk-ai.ts AI-spend routes, most of flipdesk-ebay.ts writes, autolister staging/generation, automations, google-sync, etc.) had NONE, so a view-only workspace member could publish/ship/spend AI credits in the owner tenant. Chose a shared BASELINE over 100 per-route edits: new blockViewerWrites middleware (middleware/workspace.ts) — method-aware, fires only when workspaceRole==='viewer' on POST/PUT/PATCH/DELETE — mounted broadly on /api/flipdesk/* and /api/grade/* AFTER workspaceMiddleware. Public webhook/OAuth sub-paths and job-secret crons carry no role and pass through untouched; owner/member/listing_manager/admin unaffected. Higher floors (admin disconnects, listing_manager publishes) stay as inline checks on top. Guard test flipdesk-role-floor-coverage_test.ts asserts both mounts exist, every flipdesk/grade router mount sits under a blockViewerWrites mount (prefix-level, robust vs helper-delegated floors), and correct ordering (AC1/AC2/AC3). Behavioral test block-viewer-writes_test.ts proves viewer blocked on mutations, allowed on GET, others pass, no-role passes. Note: guard enforces the VIEWER baseline universally; it does not assert the specific higher floor per route (those stay inline). Verified: deno check main.ts clean, deno lint clean, targeted tests + full edge suite green.",
       "relevantPaths": [
         "services/edge-functions/src/routes",
         "services/edge-functions/src/middleware/workspace.ts"

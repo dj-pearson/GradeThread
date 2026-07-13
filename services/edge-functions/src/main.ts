@@ -216,7 +216,7 @@ import {
   apiV1WriteLimit,
 } from "./middleware/api-v1-rate.ts";
 import { apiUsageMiddleware } from "./lib/api-usage-log.ts";
-import { workspaceMiddleware } from "./middleware/workspace.ts";
+import { blockViewerWrites, workspaceMiddleware } from "./middleware/workspace.ts";
 import { securityHeaders } from "./middleware/security-headers.ts";
 import { bodyLimit, BodyTooLargeError } from "./middleware/body-limit.ts";
 import { assertAdminMfaConfig, assertNoProdDebugFlags, isProduction } from "./lib/env.ts";
@@ -625,6 +625,17 @@ app.use("/api/flipdesk/automations/*", workspaceMiddleware);
 app.use("/api/flipdesk/forecast/*", workspaceMiddleware);
 app.use("/api/flipdesk/equity/*", workspaceMiddleware);
 app.use("/api/keys/*", workspaceMiddleware);
+
+// US-1928: baseline write floor — a view-only workspace member (viewer) may not
+// use any mutating verb on the FlipDesk / grade surface. Mounted broadly and
+// AFTER every workspaceMiddleware line above so the role is already resolved;
+// it fires only when the role is exactly "viewer" (public webhook/OAuth sub-paths
+// and job-secret crons carry no role and pass through). Specific higher floors
+// (admin disconnects, listing_manager publishes) stay as inline checks on top.
+// The flipdesk-role-floor-coverage guard test fails the build if these mounts go
+// missing or a mutating surface router is mounted outside their coverage.
+app.use("/api/flipdesk/*", blockViewerWrites);
+app.use("/api/grade/*", blockViewerWrites);
 
 // US-584: cron-run ledger. Every /api/jobs/* hit that presents the internal
 // job secret (i.e. a legit scheduled call, not an unauthenticated probe) is
