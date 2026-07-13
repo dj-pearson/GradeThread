@@ -510,6 +510,8 @@ export function AdminReliabilityPage() {
                                   <img
                                     src={p.signed_url}
                                     alt={`${p.image_type} photo`}
+                                    loading="lazy"
+                                    decoding="async"
                                     className="aspect-square w-full rounded-md border object-cover"
                                   />
                                   <figcaption className="mt-1 text-center text-xs text-muted-foreground">

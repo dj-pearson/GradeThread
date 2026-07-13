@@ -16194,8 +16194,8 @@
         "A quick before/after check confirms reduced initial image bytes on a long gallery route"
       ],
       "priority": 1938,
-      "passes": false,
-      "notes": "[P3][Web/Perf] Code-review sweep 2026-07-11. Low-confidence/targeted — audit per-surface, do not blanket-apply.",
+      "passes": true,
+      "notes": "[P3][Web/Perf] Code-review sweep 2026-07-11. Low-confidence/targeted — audit per-surface, do not blanket-apply. | DONE 2026-07-12: per-surface audit of all src <img>. FlipDesk gallery/list thumbnails (autolister/listings/offers/scout/ebay-comps/photo-manager grid) ALREADY had loading=lazy in fixed-size containers (no CLS). Added loading=lazy+decoding=async to the 2 genuine below-fold grid galleries that lacked it: admin reliability itemPhotos grid + new-submission photos grid (both aspect-square containers = intrinsic dims). Left eager (AC2): logos, MFA QR, cert lightbox, badge-studio preview, editor/measurement canvases, photo-manager modal viewer, scout-buy/snap single captured-photo previews, per-slot upload previews. tsc-b+eslint+build green. No blanket-apply per the note.",
       "relevantPaths": [
         "src/components/flipdesk",
         "src/pages/flipdesk"

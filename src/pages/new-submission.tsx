@@ -998,6 +998,8 @@ export function NewSubmissionPage() {
                         <img
                           src={photo.preview}
                           alt={`${photo.imageType} photo`}
+                          loading="lazy"
+                          decoding="async"
                           className="h-full w-full object-cover"
                         />
                       </div>
