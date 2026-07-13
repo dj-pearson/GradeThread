@@ -10,6 +10,7 @@
 // All endpoint hosts switch between sandbox and production based on EBAY_ENV.
 
 import { supabaseAdmin } from "./supabase.ts";
+import { grantReward } from "./rewards-engine.ts";
 import { decryptToken, encryptToken } from "./crypto-aes.ts";
 import { withRetry, isRetryableError, isRateLimitError } from "./retry.ts";
 import { fetchWithTimeout, getBreaker } from "./circuit-breaker.ts";
@@ -878,6 +879,23 @@ export async function upsertConnection(args: {
     });
   if (error) {
     throw new Error(`Failed to insert eBay connection: ${error.message}`);
+  }
+
+  // US-1849: reward the platform-stickiness moment on a NEW connection only
+  // (this branch is the first-connect path; reconnects hit the update branch
+  // above). Idempotent on marketplace+account so a disconnect/reconnect of the
+  // same account never double-awards. Best-effort — never fail the connect.
+  try {
+    await grantReward(args.userId, "marketplace_connected", {
+      referenceId: `ebay:${handle ?? args.externalAccountId ?? "primary"}`,
+      source: "ebay",
+      metadata: { marketplace: "ebay" },
+    });
+  } catch (err) {
+    console.error(
+      "[rewards] marketplace_connected grant failed:",
+      err instanceof Error ? err.message : String(err),
+    );
   }
 }
 
