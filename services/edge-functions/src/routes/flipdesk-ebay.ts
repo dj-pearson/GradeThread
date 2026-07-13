@@ -5536,6 +5536,93 @@ flipdeskEbayRoutes.post("/listings/validate", async (c) => {
   });
 });
 
+// US-1895: bulk recommended-aspect coverage for the AutoLister drafts list, so a
+// bulk session can sort/fix low-coverage drafts. Body { itemIds: string[] } →
+// { coverage: { [itemId]: { filled, total, missing } } }. Tenant-scoped: only
+// the caller's own items resolve (foreign ids simply don't match and are
+// omitted). Category specs are cached + de-duped so a page of drafts sharing a
+// category costs one Taxonomy read. Uses the same recommendedAspectCoverage
+// rule as the composer meter + publish preflight (single source).
+flipdeskEbayRoutes.post("/aspect-coverage", async (c) => {
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  let body: { itemIds?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const itemIds = Array.isArray(body.itemIds)
+    ? [...new Set(body.itemIds.filter((x): x is string => typeof x === "string"))]
+        .slice(0, 200)
+    : [];
+  if (itemIds.length === 0) return c.json({ coverage: {} });
+
+  // Owner-scoped: per-listing canonical aspects + category first, item mirror as
+  // the fallback for drafts that never got a listing override.
+  const [{ data: listingsRaw }, { data: itemsRaw }] = await Promise.all([
+    supabaseAdmin
+      .from("listings")
+      .select("inventory_item_id, platform_category_id, item_specifics_override")
+      .eq("user_id", userId)
+      .in("inventory_item_id", itemIds),
+    supabaseAdmin
+      .from("inventory_items")
+      .select("id, ebay_category_id, ebay_aspects")
+      .eq("user_id", userId)
+      .in("id", itemIds),
+  ]);
+
+  const listingByItem = new Map<
+    string,
+    { platform_category_id: string | null; item_specifics_override: Record<string, string[]> | null }
+  >();
+  for (const l of (listingsRaw ?? []) as Array<{
+    inventory_item_id: string;
+    platform_category_id: string | null;
+    item_specifics_override: Record<string, string[]> | null;
+  }>) listingByItem.set(l.inventory_item_id, l);
+
+  const itemById = new Map<
+    string,
+    { ebay_category_id: string | null; ebay_aspects: Record<string, string[]> | null }
+  >();
+  for (const it of (itemsRaw ?? []) as Array<{
+    id: string;
+    ebay_category_id: string | null;
+    ebay_aspects: Record<string, string[]> | null;
+  }>) itemById.set(it.id, it);
+
+  // Fetch each distinct category's spec once.
+  const specCache = new Map<string, AspectSpecRaw[]>();
+  async function specFor(categoryId: string): Promise<AspectSpecRaw[]> {
+    const hit = specCache.get(categoryId);
+    if (hit) return hit;
+    try {
+      const resp = await getCategoryAspects(categoryId);
+      const raw = (resp.aspects as Record<string, unknown>).aspects;
+      const list = Array.isArray(raw) ? (raw as AspectSpecRaw[]) : [];
+      specCache.set(categoryId, list);
+      return list;
+    } catch {
+      specCache.set(categoryId, []);
+      return [];
+    }
+  }
+
+  const coverage: Record<string, AspectCoverage> = {};
+  for (const itemId of itemIds) {
+    const listing = listingByItem.get(itemId);
+    const item = itemById.get(itemId);
+    if (!listing && !item) continue; // not owned → omit
+    const categoryId = listing?.platform_category_id ?? item?.ebay_category_id ?? null;
+    if (!categoryId) continue;
+    const aspects = listing?.item_specifics_override ?? item?.ebay_aspects ?? {};
+    coverage[itemId] = recommendedAspectCoverage(await specFor(categoryId), aspects);
+  }
+
+  return c.json({ coverage });
+});
+
 // US-561: lightweight category → suggested Promoted Listings ad rate. The
 // composer surfaces this as the default ad rate so "promote by default" stays
 // transparent — the seller accepts, adjusts, or opts out before publish. Pure

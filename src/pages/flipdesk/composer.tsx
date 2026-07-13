@@ -135,6 +135,7 @@ import {
   useEbayConnection,
   useEbayPolicies,
   useEbayReviseListing,
+  useRecommendedCoverage,
 } from "@/hooks/use-ebay";
 import { useCrossPush } from "@/hooks/use-cross-listing";
 import { useSellThroughForecast } from "@/hooks/use-forecast";
@@ -375,6 +376,10 @@ export function FlipdeskComposerPage() {
     () => items.find((it) => it.id === id) ?? null,
     [items, id],
   );
+
+  // US-1895: recommended-aspect coverage for the composer meter (edge single
+  // source). Refetched when its key is invalidated after an aspect save below.
+  const { data: aspectCoverage } = useRecommendedCoverage(item?.id);
 
   // US-954: when arriving from an AutoLister pre-flight blocker deep-link
   // (`?focus=<field>`), scroll the offending field into view and focus it once
@@ -1059,6 +1064,8 @@ export function FlipdeskComposerPage() {
       await qc.invalidateQueries({
         queryKey: ["inventory_item_ebay", item.id],
       });
+      // US-1895: refresh the recommended-coverage meter after an aspect save.
+      await qc.invalidateQueries({ queryKey: ["recommended-coverage", item.id] });
       toast.success("Draft saved.");
       return listingId;
     } catch (err) {
@@ -1804,6 +1811,46 @@ export function FlipdeskComposerPage() {
               never from a transient empty map that a save would persist as a
               wipe. */}
           <div id="composer-category">
+          {/* US-1895: recommended-aspect coverage (non-blocking). eBay's
+              RECOMMENDED specifics ranked by 30-day buyer search volume — filling
+              them lifts findability. Required specifics stay a publish blocker. */}
+          {aspectCoverage && aspectCoverage.total > 0 && (
+            <Card className="mb-4">
+              <CardContent className="space-y-2 py-3">
+                <div className="flex items-center justify-between text-sm font-medium">
+                  <span>Recommended specifics</span>
+                  <span
+                    className={cn(
+                      "tabular-nums",
+                      aspectCoverage.filled >= aspectCoverage.total
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : "text-muted-foreground",
+                    )}
+                  >
+                    {aspectCoverage.filled}/{aspectCoverage.total}
+                  </span>
+                </div>
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full rounded-full bg-emerald-500 transition-all"
+                    style={{
+                      width: `${Math.round((aspectCoverage.filled / aspectCoverage.total) * 100)}%`,
+                    }}
+                  />
+                </div>
+                {aspectCoverage.missing.length > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Most-searched still empty:{" "}
+                    <span className="text-foreground">
+                      {aspectCoverage.missing.slice(0, 6).join(", ")}
+                    </span>
+                    . Fill them in the specifics below (use “Derive from item” to
+                    autofill what we can).
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )}
           {listingLoading || ebayMappingLoading ? (
             <Card>
               <CardContent className="py-6">

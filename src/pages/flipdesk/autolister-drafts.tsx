@@ -45,7 +45,7 @@ import {
 } from "@/components/ui/table";
 import { toast } from "sonner";
 import { useBulkPublish } from "@/hooks/use-autolister";
-import { useEbayConnection } from "@/hooks/use-ebay";
+import { useBulkAspectCoverage, useEbayConnection } from "@/hooks/use-ebay";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { cn } from "@/lib/utils";
@@ -77,7 +77,13 @@ interface DraftRow {
 }
 
 // US-548: sort options for the cockpit.
-type SortKey = "created_desc" | "created_asc" | "price_desc" | "price_asc" | "title_asc";
+type SortKey =
+  | "created_desc"
+  | "created_asc"
+  | "price_desc"
+  | "price_asc"
+  | "title_asc"
+  | "coverage_asc";
 
 function fmtRelative(iso: string): string {
   const t = new Date(iso).getTime();
@@ -145,6 +151,15 @@ export function FlipdeskAutolisterDraftsPage() {
     () => drafts.map((d) => d.inventory_item_id),
     [drafts],
   );
+  // US-1895: recommended-aspect coverage per draft, so a bulk session can sort
+  // + fix low-coverage drafts before publishing (one de-duped edge call).
+  const { data: coverageByItem = {} } = useBulkAspectCoverage(itemIds);
+  // Ratio (0..1) for sorting; unknown/no-recommended coverage sinks to the end.
+  const coverageRatio = (itemId: string): number => {
+    const c = coverageByItem[itemId];
+    if (!c || c.total === 0) return 2;
+    return c.filled / c.total;
+  };
   const { data: titles = {} } = useQuery<Record<string, string>>({
     queryKey: ["autolister_drafts_titles", user?.id, itemIds.length],
     enabled: itemIds.length > 0,
@@ -194,13 +209,18 @@ export function FlipdeskAutolisterDraftsPage() {
           return (a.listing_price ?? 0) - (b.listing_price ?? 0);
         case "title_asc":
           return titleFor(a).localeCompare(titleFor(b));
+        case "coverage_asc":
+          return (
+            coverageRatio(a.inventory_item_id) -
+            coverageRatio(b.inventory_item_id)
+          );
         case "created_desc":
         default:
           return b.created_at.localeCompare(a.created_at);
       }
     });
     return rows;
-  }, [filtered, sortKey, titles]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [filtered, sortKey, titles, coverageByItem]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // US-548: a draft is "ready" to publish when it isn't flagged for review,
   // carries a real price + category, and isn't already on a schedule. Bulk
@@ -483,6 +503,7 @@ export function FlipdeskAutolisterDraftsPage() {
                   <SelectItem value="price_desc">Price: high → low</SelectItem>
                   <SelectItem value="price_asc">Price: low → high</SelectItem>
                   <SelectItem value="title_asc">Title: A → Z</SelectItem>
+                  <SelectItem value="coverage_asc">Coverage: low first</SelectItem>
                 </SelectContent>
               </Select>
               {/* US-549: publish the keyboard-selected subset. */}
@@ -572,6 +593,8 @@ export function FlipdeskAutolisterDraftsPage() {
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Price</TableHead>
                     <TableHead>Category</TableHead>
+                    {/* US-1895: recommended-aspect coverage. */}
+                    <TableHead>Specifics</TableHead>
                     <TableHead>Scheduled</TableHead>
                     <TableHead>Created</TableHead>
                     <TableHead>Batch</TableHead>
@@ -707,6 +730,38 @@ export function FlipdeskAutolisterDraftsPage() {
                           </Badge>
                         )}
                       </TableCell>
+                      {/* US-1895: recommended-aspect coverage N/M. */}
+                      <TableCell>
+                        {(() => {
+                          const cov = coverageByItem[d.inventory_item_id];
+                          if (!cov || cov.total === 0) {
+                            return (
+                              <span className="text-xs text-muted-foreground">
+                                —
+                              </span>
+                            );
+                          }
+                          return (
+                            <span
+                              className={cn(
+                                "text-xs tabular-nums",
+                                cov.filled >= cov.total
+                                  ? "text-emerald-600 dark:text-emerald-400"
+                                  : cov.filled / cov.total < 0.5
+                                    ? "text-amber-600 dark:text-amber-400"
+                                    : "text-muted-foreground",
+                              )}
+                              title={
+                                cov.missing.length > 0
+                                  ? `Missing: ${cov.missing.slice(0, 6).join(", ")}`
+                                  : "All recommended specifics filled"
+                              }
+                            >
+                              {cov.filled}/{cov.total}
+                            </span>
+                          );
+                        })()}
+                      </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         {d.scheduled_publish_at ? (
                           <span className="inline-flex items-center gap-1">
@@ -768,7 +823,7 @@ export function FlipdeskAutolisterDraftsPage() {
                     </TableRow>
                     {isEditing && (
                       <TableRow data-draft-editor className="bg-muted/40 hover:bg-muted/40">
-                        <TableCell colSpan={9} className="py-3">
+                        <TableCell colSpan={10} className="py-3">
                           <div className="flex flex-wrap items-end gap-3">
                             <div className="min-w-[16rem] flex-1 space-y-1">
                               <label

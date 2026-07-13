@@ -1356,6 +1356,60 @@ export function useValidatePublish() {
   });
 }
 
+// US-1895: recommended-aspect coverage for a single item, from the same
+// preflight/validate source (recommendedAspectCoverage on the edge). Read-only
+// query for the composer meter; refetches when its ["recommended-coverage", id]
+// key is invalidated after an aspect save.
+export function useRecommendedCoverage(itemId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["recommended-coverage", itemId],
+    enabled: !!itemId,
+    staleTime: 60_000,
+    retry: 1,
+    queryFn: async (): Promise<AspectCoverage | null> => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/listings/validate`,
+        {
+          method: "POST",
+          headers: await ebayHeaders(),
+          body: JSON.stringify({ inventory_item_id: itemId }),
+        },
+      );
+      if (!res.ok) return null;
+      const json = (await res.json().catch(() => ({}))) as ValidatePublishResponse;
+      return json.recommendedCoverage ?? null;
+    },
+  });
+}
+
+// US-1895: bulk recommended-aspect coverage for a set of items (the AutoLister
+// drafts list), so low-coverage drafts are sortable/fixable in bulk. One call
+// per visible page; the edge de-dupes category-spec fetches.
+export function useBulkAspectCoverage(itemIds: string[]) {
+  const key = [...itemIds].sort().join(",");
+  return useQuery({
+    queryKey: ["aspect-coverage-bulk", key],
+    enabled: itemIds.length > 0,
+    staleTime: 60_000,
+    retry: 1,
+    queryFn: async (): Promise<Record<string, AspectCoverage>> => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/aspect-coverage`,
+        {
+          method: "POST",
+          headers: await ebayHeaders(),
+          body: JSON.stringify({ itemIds }),
+        },
+      );
+      if (!res.ok) return {};
+      const json = (await res.json().catch(() => ({}))) as {
+        coverage?: Record<string, AspectCoverage>;
+      };
+      return json.coverage ?? {};
+    },
+  });
+}
+
 export function usePublishToEbay() {
   const qc = useQueryClient();
   return useMutation<PublishResponse, Error, { itemId: string; relist?: boolean }>({
