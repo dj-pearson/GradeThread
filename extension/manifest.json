@@ -3,13 +3,10 @@
   "name": "GradeThread Lister",
   "version": "0.1.0",
   "description": "List your FlipDesk drafts to Poshmark, Mercari, and Grailed from your OWN logged-in browser session. GradeThread never sees your marketplace password or cookies.",
-  "permissions": ["storage", "tabs"],
+  "permissions": ["storage"],
   "host_permissions": [
-    "https://poshmark.com/*",
     "https://*.poshmark.com/*",
-    "https://www.mercari.com/*",
     "https://*.mercari.com/*",
-    "https://www.grailed.com/*",
     "https://*.grailed.com/*"
   ],
   "externally_connectable": {
@@ -20,10 +17,16 @@
     "default_popup": "popup.html",
     "default_title": "GradeThread Lister",
     "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
       "128": "icons/icon128.png"
     }
   },
   "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
     "128": "icons/icon128.png",
     "256": "icons/icon256.png",
     "512": "icons/icon512.png"

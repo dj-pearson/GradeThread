@@ -22,6 +22,9 @@ const GT_LISTER_SELECTORS = {
     version: "2026.06.1",
     lastVerified: "2026-06-13",
     newListingUrl: "https://poshmark.com/create-listing",
+    // US-1876: known domains a delist URL must host-match (subdomains included).
+    // The background rejects any delist listingUrl outside these.
+    hosts: ["poshmark.com"],
     // The form is considered "present" only if every required selector resolves.
     required: ["title", "description", "submit"],
     fields: {
@@ -60,6 +63,7 @@ const GT_LISTER_SELECTORS = {
     version: "2026.06.0-draft",
     lastVerified: null,
     newListingUrl: "https://www.mercari.com/sell/",
+    hosts: ["mercari.com"],
     required: ["title", "description", "price", "submit"],
     fields: {
       title: 'input[name="name"], input[data-testid="Name"]',
@@ -85,6 +89,7 @@ const GT_LISTER_SELECTORS = {
     version: "2026.06.0-draft",
     lastVerified: null,
     newListingUrl: "https://www.grailed.com/sell/",
+    hosts: ["grailed.com"],
     required: ["title", "description", "price", "submit"],
     fields: {
       title: 'input[name="title"], input#title',

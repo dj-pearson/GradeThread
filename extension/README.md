@@ -82,9 +82,10 @@ and reported back to GradeThread.
 
 | File | Role |
 |------|------|
-| `manifest.json` | MV3 manifest (minimal permissions; `externally_connectable` = gradethread.com only) |
+| `manifest.json` | MV3 manifest (minimal permissions — `storage` only; `externally_connectable` = gradethread.com only) |
 | `background.js` | Service worker: receives the SaaS payload, opens the tab, relays the result |
-| `selectors.js` | **Versioned** per-platform selectors + flows (the thing that breaks) |
+| `lister-guard.js` | Pure navigation-safety guard (US-1876): pins list URLs to `selectors.js`, host-matches delist URLs, checks `sender.origin`. Unit-tested in `src/test/lister-guard.test.ts` |
+| `selectors.js` | **Versioned** per-platform selectors + flows (the thing that breaks) + delist `hosts` allowlist |
 | `content/common.js` | Shared fill / probe / photo-attach helpers (React-safe value setter) |
 | `content/{poshmark,mercari,grailed}.js` | Per-platform content scripts |
 | `popup.{html,css,js}` | Status + clickwrap consent |

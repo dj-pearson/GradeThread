@@ -12,6 +12,15 @@
 // the user's browser; GradeThread servers receive only the listing URL the
 // SaaS tab itself records using the user's existing SaaS session.
 
+// US-1876: the trusted marketplace config (bundled selectors.js) and the pure
+// navigation-safety guard (lister-guard.js) are loaded into this classic MV3
+// service worker via importScripts. The guard is what decides which URLs the
+// worker will open, so navigation targets can never come from the external
+// message (an XSS on a *.gradethread.com page must not be able to steer the
+// extension to an arbitrary URL). GT_LISTER_SELECTORS / GT_LISTER_GUARD land on
+// `self`.
+importScripts("selectors.js", "lister-guard.js");
+
 const SUPPORTED = {
   poshmark: "Poshmark",
   mercari: "Mercari",
@@ -31,14 +40,10 @@ function makeJobId() {
   return "job-" + jobSeq + "-" + Date.now();
 }
 
+// AC4: prefer the browser-attested sender.origin (fall back to sender.url) when
+// deciding whether the message came from GradeThread. Delegated to the pure guard.
 function originAllowed(sender) {
-  const url = (sender && sender.url) || "";
-  try {
-    const host = new URL(url).host;
-    return host === "gradethread.com" || host.endsWith(".gradethread.com");
-  } catch (_e) {
-    return false;
-  }
+  return self.GT_LISTER_GUARD.isOriginAllowed(sender);
 }
 
 function isValidPayload(p) {
@@ -61,8 +66,13 @@ function isValidDelistPayload(p) {
     typeof p === "object" &&
     typeof p.platform === "string" &&
     SUPPORTED[p.platform] &&
-    typeof p.listingUrl === "string" &&
-    /^https:\/\//.test(p.listingUrl)
+    // AC1: the listing URL must be https AND host-match the platform's known
+    // domains (selectors config) — never just "any https URL from the message".
+    self.GT_LISTER_GUARD.isAllowedDelistUrl(
+      self.GT_LISTER_SELECTORS,
+      p.platform,
+      p.listingUrl,
+    )
   );
 }
 
@@ -127,10 +137,22 @@ async function handleListRequest(payload, sendResponse) {
     return;
   }
 
+  // AC1: open the platform's new-listing URL from the bundled selectors config —
+  // NOT payload.newListingUrl. The message can't steer the extension to an
+  // arbitrary URL; an unknown/misconfigured platform is rejected here.
+  const newListingUrl = self.GT_LISTER_GUARD.newListingUrlFor(
+    self.GT_LISTER_SELECTORS,
+    payload.platform,
+  );
+  if (!newListingUrl) {
+    sendResponse({ ok: false, error: "Unsupported marketplace." });
+    return;
+  }
+
   const jobId = makeJobId();
   let tab;
   try {
-    tab = await chrome.tabs.create({ url: payload.newListingUrl, active: true });
+    tab = await chrome.tabs.create({ url: newListingUrl, active: true });
   } catch (_e) {
     sendResponse({ ok: false, error: "Couldn't open the marketplace tab." });
     return;

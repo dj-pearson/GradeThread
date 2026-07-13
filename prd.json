@@ -15294,8 +15294,8 @@
         "originAllowed uses sender.origin (with sender.url fallback) for the defense-in-depth check"
       ],
       "priority": 1876,
-      "passes": false,
-      "notes": "Audit findings F8/F19/F20/F21/F22."
+      "passes": true,
+      "notes": "Audit findings F8/F19/F20/F21/F22.\n\nIMPLEMENTED 2026-07-13 (agent loop). Closed the XSS-driven arbitrary-navigation primitive (F8/F19): extracted pure guard extension/lister-guard.js (UMD — loads on self in the MV3 worker via importScripts, on globalThis in vitest). AC1: handleListRequest opens newListingUrlFor(selectors, platform) from the bundled selectors.js config, NEVER payload.newListingUrl; isValidDelistPayload now requires isAllowedDelistUrl (https + host-match against selectors[platform].hosts). AC2: dropped tabs permission (only tabs.create/onRemoved/sender.tab used — none need it). AC3: generated 16/32/48 icons by box-downscaling icon128.png via a Node zlib PNG codec (no image lib available), wired into icons + action.default_icon; collapsed redundant apex host_permissions (Chrome *.host matches the apex). AC4: originAllowed uses sender.origin with sender.url fallback. Verified: 9/9 vitest (src/test/lister-guard.test.ts: origin allow, url pinning, delist host-match incl. the poshmark.com.evil.com bypass), node --check on all extension JS, manifest JSON valid + all 6 icon refs exist. Extension has no test harness so behavioral verification of the wiring is manual per README; the security-critical decision logic is unit-tested."
     },
     {
       "id": "US-1877",
