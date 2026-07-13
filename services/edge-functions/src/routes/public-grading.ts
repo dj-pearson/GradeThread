@@ -25,7 +25,11 @@ import { deriveFraudFlags } from "../lib/fraud-flags.ts";
 import { coverageGapForTitle } from "../lib/coverage-gap.ts";
 import { bearerFromHeader, verifyExtensionToken } from "../lib/extension-token.ts";
 import { resolveExtensionGates } from "../lib/extension-gates.ts";
-import { getBuyerEntitlements } from "../lib/buyer-entitlements.ts";
+import {
+  ANONYMOUS_EXTENSION_ENTITLEMENTS,
+  getBuyerEntitlements,
+  getExtensionEntitlements,
+} from "../lib/buyer-entitlements.ts";
 
 // US-1836: fraud flags are legally sensitive (a public "these look manipulated"
 // signal), so the whole feature is FAIL-CLOSED behind a kill-switch until the
@@ -281,6 +285,30 @@ publicGradingRoutes.get("/durability/:brand", async (c) => {
     return c.json(dto, 200, { "Cache-Control": "public, max-age=600, s-maxage=3600" });
   } catch {
     return c.json({ error: "Failed to load durability" }, 500);
+  }
+});
+
+// ── Unified-extension entitlements (US-1873) ─────────────────────────
+// GET /entitlements — the unified browser extension calls this with its signed
+// extension token (Authorization: Bearer) to learn which tools to activate:
+// everyone gets the buyer research overlay; the seller Lister unlocks only for an
+// ACTIVE PAID FlipDesk account. OPTIONAL auth — no/invalid token returns the
+// anonymous default (buyer-only) rather than 401, so a logged-out install still
+// works. Tenant-safe by construction: the userId comes from the HMAC-signed token
+// (verifyExtensionToken), never from the request, so no cross-tenant read is
+// possible. FAIL-SAFE: any lookup error resolves to the anonymous default so a
+// hiccup never falsely unlocks seller tools.
+publicGradingRoutes.get("/entitlements", async (c) => {
+  const verified = await verifyExtensionToken(bearerFromHeader(c.req.header("authorization")));
+  if (!verified) {
+    return c.json(ANONYMOUS_EXTENSION_ENTITLEMENTS, 200, { "Cache-Control": "no-store" });
+  }
+  try {
+    const ent = await getExtensionEntitlements(verified.userId);
+    return c.json(ent, 200, { "Cache-Control": "no-store, private" });
+  } catch (err) {
+    console.error("public-grading /entitlements:", err instanceof Error ? err.message : String(err));
+    return c.json(ANONYMOUS_EXTENSION_ENTITLEMENTS, 200, { "Cache-Control": "no-store" });
   }
 });
 

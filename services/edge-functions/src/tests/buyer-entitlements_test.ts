@@ -4,6 +4,7 @@ import { assert, assertEquals } from "@std/assert";
 import {
   buyerFeatureEnabled,
   resolveBuyerEntitlements,
+  resolveSellerEntitlement,
 } from "../lib/buyer-entitlements.ts";
 import { effectiveDigestMode } from "../lib/buyer-plans.ts";
 
@@ -105,5 +106,72 @@ Deno.test("resolveBuyerEntitlements: a lapsed seller loses the seller-derived bu
   assertEquals(
     resolveBuyerEntitlements("guard", "active", { flipdeskPlan: "business", flipdeskStatus: "canceled" }).plan,
     "guard",
+  );
+});
+
+// ── US-1873: unified-extension seller gate (Lister unlocks on an active PAID
+// FlipDesk plan) ─────────────────────────────────────────────────────────────
+Deno.test("resolveSellerEntitlement: active paid FlipDesk tiers unlock the Lister", () => {
+  for (const plan of ["starter", "pro", "business"]) {
+    const ent = resolveSellerEntitlement({ flipdeskPlan: plan, flipdeskStatus: "active" });
+    assertEquals(ent.sellerEnabled, true, `${plan}/active must unlock`);
+    assertEquals(ent.flipdeskPlan, plan);
+  }
+});
+
+Deno.test("resolveSellerEntitlement: free tier and buyer-only accounts do NOT unlock", () => {
+  assertEquals(resolveSellerEntitlement({ flipdeskPlan: "free", flipdeskStatus: "active" }).sellerEnabled, false);
+  assertEquals(resolveSellerEntitlement({ flipdeskPlan: null, flipdeskStatus: null }).sellerEnabled, false);
+  assertEquals(resolveSellerEntitlement({}).sellerEnabled, false);
+});
+
+Deno.test("resolveSellerEntitlement: an explicitly-lapsed subscription does NOT unlock (fail-safe)", () => {
+  // These are the statuses effectivePlanFor treats as non-entitling → free. (An
+  // empty/unknown status fails OPEN — keeps the plan — matching how FlipDesk gates
+  // its own seller caps everywhere on the edge, so we don't over-assert it here.)
+  for (const status of ["paused", "canceled", "none"]) {
+    const ent = resolveSellerEntitlement({ flipdeskPlan: "pro", flipdeskStatus: status });
+    assertEquals(ent.sellerEnabled, false, `pro/${status} must not unlock`);
+    assertEquals(ent.flipdeskPlan, "free");
+  }
+});
+
+Deno.test("resolveSellerEntitlement: trial window is honored deterministically", () => {
+  const now = new Date("2026-07-13T00:00:00Z");
+  // In-window trial on a paid tier → unlocked.
+  assertEquals(
+    resolveSellerEntitlement(
+      { flipdeskPlan: "business", flipdeskStatus: "trialing", trialEndsAt: "2026-07-20T00:00:00Z" },
+      now,
+    ).sellerEnabled,
+    true,
+  );
+  // Expired trial → free → locked.
+  assertEquals(
+    resolveSellerEntitlement(
+      { flipdeskPlan: "business", flipdeskStatus: "trialing", trialEndsAt: "2026-07-01T00:00:00Z" },
+      now,
+    ).sellerEnabled,
+    false,
+  );
+});
+
+Deno.test("resolveSellerEntitlement: past_due stays unlocked in grace, locks past it", () => {
+  const now = new Date("2026-07-13T00:00:00Z");
+  // Fresh past_due (anchor just now) → still in grace → unlocked.
+  assertEquals(
+    resolveSellerEntitlement(
+      { flipdeskPlan: "pro", flipdeskStatus: "past_due", pastDueSince: "2026-07-12T00:00:00Z" },
+      now,
+    ).sellerEnabled,
+    true,
+  );
+  // Long past due (well beyond the grace window) → locked.
+  assertEquals(
+    resolveSellerEntitlement(
+      { flipdeskPlan: "pro", flipdeskStatus: "past_due", pastDueSince: "2026-01-01T00:00:00Z" },
+      now,
+    ).sellerEnabled,
+    false,
   );
 });

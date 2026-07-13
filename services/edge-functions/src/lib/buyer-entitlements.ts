@@ -81,6 +81,96 @@ export function resolveBuyerEntitlements(
   return { plan: key, ...BUYER_PLAN_ENTITLEMENTS[key] };
 }
 
+// ── US-1873: unified-extension entitlements (buyer research for everyone, the
+// seller Lister on top for PAID FlipDesk accounts) ───────────────────────────
+//
+// The unified browser extension calls GET /api/grading/public/entitlements with
+// its signed extension token to learn which tools to activate. Everyone gets the
+// buyer research overlay; the seller Lister unlocks ONLY when the account is on an
+// ACTIVE PAID FlipDesk tier — reusing effectivePlanFor so a lapsed / paused /
+// expired-trial seller loses it exactly as they lose seller caps (free = floor).
+
+/** FlipDesk tiers that count as "an active seller plan" for the Lister. */
+export const PAID_FLIPDESK_PLANS = new Set(["starter", "pro", "business"]);
+
+export interface SellerEntitlement {
+  /** True → the account may use the seller Lister tools. */
+  sellerEnabled: boolean;
+  /** Effective FlipDesk plan ("free" when unset/lapsed/paused/expired). */
+  flipdeskPlan: string;
+}
+
+/**
+ * Pure: does this account's FlipDesk plan unlock the seller Lister? `now` is
+ * injectable so the trial/grace-window cases are deterministically testable.
+ */
+export function resolveSellerEntitlement(
+  seller: SellerPlanInput,
+  now: Date = new Date(),
+): SellerEntitlement {
+  const flipdeskPlan = effectivePlanFor(
+    seller.flipdeskPlan ?? "free",
+    seller.flipdeskStatus ?? null,
+    seller.trialEndsAt ?? null,
+    now,
+    seller.pastDueSince ?? null,
+  );
+  return { sellerEnabled: PAID_FLIPDESK_PLANS.has(flipdeskPlan), flipdeskPlan };
+}
+
+export interface ExtensionEntitlements {
+  authenticated: boolean;
+  /** Seller Lister gate (paid FlipDesk). */
+  sellerEnabled: boolean;
+  /** Effective FlipDesk plan. */
+  flipdeskPlan: string;
+  /** Buyer research tier (everyone gets at least "free"). */
+  buyerPlan: BuyerPlanKey;
+}
+
+/** Anonymous default — buyer research only, no seller tools. Fail-safe. */
+export const ANONYMOUS_EXTENSION_ENTITLEMENTS: ExtensionEntitlements = {
+  authenticated: false,
+  sellerEnabled: false,
+  flipdeskPlan: "free",
+  buyerPlan: "free",
+};
+
+/**
+ * Load the unified-extension entitlements from the caller's OWN users row.
+ * `userId` MUST be the id from the verified extension token (never a request-body
+ * value) — the read is tenant-scoped by construction (US-268). Falls back to the
+ * anonymous default on any read gap so a hiccup never falsely unlocks seller tools.
+ */
+export async function getExtensionEntitlements(userId: string): Promise<ExtensionEntitlements> {
+  const { data } = await supabaseAdmin
+    .from("users")
+    .select(
+      "buyer_plan, buyer_subscription_status, flipdesk_plan, subscription_status, trial_ends_at, past_due_since",
+    )
+    .eq("id", userId)
+    .maybeSingle();
+  const row = data as
+    | {
+      buyer_plan?: string;
+      buyer_subscription_status?: string;
+      flipdesk_plan?: string;
+      subscription_status?: string;
+      trial_ends_at?: string | null;
+      past_due_since?: string | null;
+    }
+    | null;
+  const seller: SellerPlanInput = {
+    flipdeskPlan: row?.flipdesk_plan,
+    flipdeskStatus: row?.subscription_status,
+    trialEndsAt: row?.trial_ends_at ?? null,
+    pastDueSince: row?.past_due_since ?? null,
+  };
+  const { sellerEnabled, flipdeskPlan } = resolveSellerEntitlement(seller);
+  const buyer = resolveBuyerEntitlements(row?.buyer_plan, row?.buyer_subscription_status, seller);
+  return { authenticated: true, sellerEnabled, flipdeskPlan, buyerPlan: buyer.plan };
+}
+
 /** True when the plan unlocks `feature`. */
 export function buyerFeatureEnabled(
   ent: BuyerEntitlements,
