@@ -13,6 +13,8 @@ const {
   decideGuaranteeEligible,
   computeSellerIntegrityScore,
   MIN_INTEGRITY_SAMPLE,
+  MIN_CONFIRMED_FOR_TIER,
+  sellerIntegrityTier,
 } = await import("../lib/buyer-grade-confirmation.ts");
 
 const NOW = Date.UTC(2026, 6, 9);
@@ -183,4 +185,57 @@ Deno.test("integrity: score never drops below 0", () => {
 
 Deno.test("integrity: MIN_INTEGRITY_SAMPLE is the smoothing floor", () => {
   assertEquals(MIN_INTEGRITY_SAMPLE, 5);
+});
+
+// ─── sellerIntegrityTier (US-1912) ──────────────────────────────────────────
+
+Deno.test("tier: below the confirmed-volume floor is non-displayable 'building'", () => {
+  const r = sellerIntegrityTier({ integrityScore: 100, confirmedCount: 3 });
+  assertEquals(r.tier, "building");
+  assertEquals(r.displayable, false);
+  assertEquals(r.nextTier, "verified");
+  assertEquals(r.nextTierGaps, [`${MIN_CONFIRMED_FOR_TIER - 3} more confirmed outcomes`]);
+});
+
+Deno.test("tier: a low score above the floor is still Verified (never a bad public score)", () => {
+  const r = sellerIntegrityTier({ integrityScore: 40, confirmedCount: 12 });
+  assertEquals(r.tier, "verified");
+  assertEquals(r.displayable, true);
+});
+
+Deno.test("tier: reliable at score ≥90 with ≥10 confirmed", () => {
+  const r = sellerIntegrityTier({ integrityScore: 92, confirmedCount: 15 });
+  assertEquals(r.tier, "reliable");
+  assertEquals(r.nextTier, "trusted");
+});
+
+Deno.test("tier: trusted requires score+volume+coverage+tenure", () => {
+  const base = { integrityScore: 96, confirmedCount: 30, avgCoveragePct: 80, tenureDays: 120, gradedVolume: 60 };
+  assertEquals(sellerIntegrityTier(base).tier, "trusted");
+  // Missing coverage floor drops it back to reliable.
+  assertEquals(sellerIntegrityTier({ ...base, avgCoveragePct: 60 }).tier, "reliable");
+  // Too little tenure also drops it.
+  assertEquals(sellerIntegrityTier({ ...base, tenureDays: 30 }).tier, "reliable");
+});
+
+Deno.test("tier: elite is the top, gated hardest", () => {
+  const r = sellerIntegrityTier({ integrityScore: 99, confirmedCount: 60, avgCoveragePct: 95, tenureDays: 200, gradedVolume: 150 });
+  assertEquals(r.tier, "elite");
+  assertEquals(r.nextTier, null);
+  assertEquals(r.nextTierGaps, []);
+});
+
+Deno.test("tier: unknown coverage/tenure never blocks (not gated on null)", () => {
+  // Score+volume qualify for trusted; coverage/tenure unknown → still trusted.
+  const r = sellerIntegrityTier({ integrityScore: 96, confirmedCount: 30, gradedVolume: 60 });
+  assertEquals(r.tier, "trusted");
+});
+
+Deno.test("tier: gaps explain the path to the next tier", () => {
+  const r = sellerIntegrityTier({ integrityScore: 92, confirmedCount: 15, avgCoveragePct: 60, tenureDays: 30, gradedVolume: 20 });
+  assertEquals(r.tier, "reliable");
+  // needs score≥95, +10 confirmed, coverage≥75, 90d tenure, +20 graded
+  assertEquals(r.nextTierGaps.includes("integrity ≥ 95"), true);
+  assertEquals(r.nextTierGaps.some((g) => g.includes("confirmed outcomes")), true);
+  assertEquals(r.nextTierGaps.includes("avg photo coverage ≥ 75%"), true);
 });

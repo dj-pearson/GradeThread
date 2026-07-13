@@ -119,6 +119,142 @@ export function computeSellerIntegrityScore(c: SellerIntegrityCounts): number {
   return Math.round(Math.min(100, Math.max(0, score)));
 }
 
+// ─── Pure: seller integrity TIERS (US-1912) ─────────────────────────────────
+
+/**
+ * Anti-gaming display floor: below this many CONFIRMED buyer outcomes we never
+ * show a tier (one lucky/unlucky early outcome shouldn't mint a public rank).
+ * A seller under the floor reads as "building history", never a bad score.
+ */
+export const MIN_CONFIRMED_FOR_TIER = 10;
+
+export type SellerIntegrityTier =
+  | "building"
+  | "verified"
+  | "reliable"
+  | "trusted"
+  | "elite";
+
+export interface SellerIntegrityTierInputs {
+  /** 0–100 from computeSellerIntegrityScore. */
+  integrityScore: number;
+  /**
+   * Confirmed buyer outcomes. MUST already exclude self-purchases / linked-
+   * account confirmations (reuse the referral self-click blocking) and count
+   * disputes only AFTER human-review resolution — this pure function trusts the
+   * counts it's given.
+   */
+  confirmedCount: number;
+  /** Average photo-coverage % (0–100), or null when unknown (then not gated on). */
+  avgCoveragePct?: number | null;
+  /** Lifetime graded volume. */
+  gradedVolume?: number;
+  /** Account tenure in days. */
+  tenureDays?: number;
+}
+
+export interface SellerIntegrityTierResult {
+  tier: SellerIntegrityTier;
+  label: string;
+  /** false below the confirmed-volume floor — the UI shows "building history". */
+  displayable: boolean;
+  /** Transparent, explainable drivers of the current tier. */
+  reasons: string[];
+  nextTier: SellerIntegrityTier | null;
+  /** What the seller needs to reach nextTier. */
+  nextTierGaps: string[];
+}
+
+interface TierRule {
+  tier: SellerIntegrityTier;
+  label: string;
+  minScore: number;
+  minConfirmed: number;
+  /** Gated ONLY when the value is known (null coverage/tenure never blocks). */
+  minCoveragePct?: number;
+  minTenureDays?: number;
+  minGradedVolume?: number;
+}
+
+// Best → worst. Thresholds are the policy — legible by design. "verified" is the
+// baseline every above-floor seller meets (minScore 0), so a rule always matches.
+const TIER_LADDER: readonly TierRule[] = [
+  { tier: "elite", label: "Elite Grader", minScore: 98, minConfirmed: 50, minCoveragePct: 90, minTenureDays: 180, minGradedVolume: 100 },
+  { tier: "trusted", label: "Trusted Grader", minScore: 95, minConfirmed: 25, minCoveragePct: 75, minTenureDays: 90, minGradedVolume: 40 },
+  { tier: "reliable", label: "Reliable Grader", minScore: 90, minConfirmed: 10 },
+  { tier: "verified", label: "Verified Grader", minScore: 0, minConfirmed: 10 },
+];
+
+/**
+ * Map an integrity score + volume/coverage/tenure to a named, explainable tier
+ * (US-1912 AC1/AC2). Anti-gameable via the confirmed-volume floor; coverage and
+ * tenure gate the top tiers only when known. Pure + deterministic.
+ */
+export function sellerIntegrityTier(
+  inputs: SellerIntegrityTierInputs,
+): SellerIntegrityTierResult {
+  const { integrityScore, confirmedCount } = inputs;
+  const coverage = inputs.avgCoveragePct ?? null;
+  const tenure = inputs.tenureDays ?? null;
+  const volume = inputs.gradedVolume ?? 0;
+
+  if (confirmedCount < MIN_CONFIRMED_FOR_TIER) {
+    return {
+      tier: "building",
+      label: "Building history",
+      displayable: false,
+      reasons: [
+        `${confirmedCount}/${MIN_CONFIRMED_FOR_TIER} confirmed buyer outcomes — a tier appears once you reach ${MIN_CONFIRMED_FOR_TIER}.`,
+      ],
+      nextTier: "verified",
+      nextTierGaps: [`${MIN_CONFIRMED_FOR_TIER - confirmedCount} more confirmed outcomes`],
+    };
+  }
+
+  const meets = (r: TierRule): boolean =>
+    integrityScore >= r.minScore &&
+    confirmedCount >= r.minConfirmed &&
+    (r.minCoveragePct == null || coverage == null || coverage >= r.minCoveragePct) &&
+    (r.minTenureDays == null || tenure == null || tenure >= r.minTenureDays) &&
+    (r.minGradedVolume == null || volume >= r.minGradedVolume);
+
+  let idx = TIER_LADDER.findIndex(meets);
+  if (idx < 0) idx = TIER_LADDER.length - 1; // baseline always applies above the floor
+  const rule = TIER_LADDER[idx]!;
+
+  const reasons = [
+    `Integrity ${integrityScore}/100 across ${confirmedCount} confirmed buyer outcomes.`,
+  ];
+  if (coverage != null) reasons.push(`Average photo coverage ${Math.round(coverage)}%.`);
+
+  const nextRule = idx > 0 ? TIER_LADDER[idx - 1]! : null;
+  const gaps: string[] = [];
+  if (nextRule) {
+    if (integrityScore < nextRule.minScore) gaps.push(`integrity ≥ ${nextRule.minScore}`);
+    if (confirmedCount < nextRule.minConfirmed) {
+      gaps.push(`${nextRule.minConfirmed - confirmedCount} more confirmed outcomes`);
+    }
+    if (nextRule.minCoveragePct != null && (coverage ?? 0) < nextRule.minCoveragePct) {
+      gaps.push(`avg photo coverage ≥ ${nextRule.minCoveragePct}%`);
+    }
+    if (nextRule.minTenureDays != null && (tenure ?? 0) < nextRule.minTenureDays) {
+      gaps.push(`${nextRule.minTenureDays}-day account tenure`);
+    }
+    if (nextRule.minGradedVolume != null && volume < nextRule.minGradedVolume) {
+      gaps.push(`${nextRule.minGradedVolume - volume} more graded items`);
+    }
+  }
+
+  return {
+    tier: rule.tier,
+    label: rule.label,
+    displayable: true,
+    reasons,
+    nextTier: nextRule?.tier ?? null,
+    nextTierGaps: gaps,
+  };
+}
+
 // ─── Impure: seller integrity recompute (service-role) ──────────────────────
 
 /**
