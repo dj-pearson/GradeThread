@@ -64,6 +64,7 @@ function compConfidence(count: number): number {
 interface ItemRow {
   id: string;
   item_title: string | null;
+  brand: string | null;
   item_category: string | null;
   garment_category: string | null;
   grade_value: number | null;
@@ -125,7 +126,7 @@ flipdeskEquityRoutes.get("/", async (c) => {
     personalSellThroughDays(owner),
     supabaseAdmin
       .from("inventory_items")
-      .select("id, item_title, item_category, garment_category, grade_value, comp_set, created_at")
+      .select("id, item_title, brand, item_category, garment_category, grade_value, comp_set, created_at")
       .eq("user_id", owner)
       .not("status", "in", REALIZED_STATUSES)
       .limit(INVENTORY_CAP),
@@ -163,10 +164,12 @@ flipdeskEquityRoutes.get("/", async (c) => {
       daysListed,
     });
     const category = (it.item_category ?? it.garment_category ?? "").trim() || null;
+    const brand = (it.brand ?? "").trim() || null;
     return {
       id: it.id,
       title: it.item_title,
       category,
+      brand,
       gradeValue: grade,
       valued: liquidation.valued,
       reason: liquidation.reason ?? null,
@@ -188,6 +191,7 @@ flipdeskEquityRoutes.get("/", async (c) => {
         confidence: p.confidence,
       },
       category: p.category,
+      brand: p.brand,
       gradeValue: p.gradeValue,
     })),
   );

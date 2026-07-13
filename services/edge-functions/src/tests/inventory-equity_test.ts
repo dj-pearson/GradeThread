@@ -104,10 +104,10 @@ Deno.test("gradeBand buckets", () => {
 
 Deno.test("aggregate: valued items sum to total, unvalued only counted", () => {
   const items = [
-    { liquidation: liquidationValue({ marketMedianCents: 10_000, marketConfidence: 1, gradeValue: 9, personalSellThroughDays: 20, daysListed: 0 }), category: "Dresses", gradeValue: 9 },
-    { liquidation: liquidationValue({ marketMedianCents: 4000, marketConfidence: 1, gradeValue: 6, personalSellThroughDays: 20, daysListed: 0 }), category: "Dresses", gradeValue: 6 },
-    { liquidation: liquidationValue({ marketMedianCents: null, marketConfidence: 0, gradeValue: 8, personalSellThroughDays: 20, daysListed: 0 }), category: "Shoes", gradeValue: 8 },
-    { liquidation: liquidationValue({ marketMedianCents: 5000, marketConfidence: 1, gradeValue: null, personalSellThroughDays: 20, daysListed: 0 }), category: "Shoes", gradeValue: null },
+    { liquidation: liquidationValue({ marketMedianCents: 10_000, marketConfidence: 1, gradeValue: 9, personalSellThroughDays: 20, daysListed: 0 }), category: "Dresses", brand: "Nike", gradeValue: 9 },
+    { liquidation: liquidationValue({ marketMedianCents: 4000, marketConfidence: 1, gradeValue: 6, personalSellThroughDays: 20, daysListed: 0 }), category: "Dresses", brand: "Nike", gradeValue: 6 },
+    { liquidation: liquidationValue({ marketMedianCents: null, marketConfidence: 0, gradeValue: 8, personalSellThroughDays: 20, daysListed: 0 }), category: "Shoes", brand: "Adidas", gradeValue: 8 },
+    { liquidation: liquidationValue({ marketMedianCents: 5000, marketConfidence: 1, gradeValue: null, personalSellThroughDays: 20, daysListed: 0 }), category: "Shoes", brand: null, gradeValue: null },
   ];
   const agg = aggregateEquity(items);
   assertEquals(agg.valuedCount, 2);
@@ -116,12 +116,18 @@ Deno.test("aggregate: valued items sum to total, unvalued only counted", () => {
   assertEquals(agg.unvaluedByReason.no_grade, 1);
   const expected = items[0]!.liquidation.liquidationCents! + items[1]!.liquidation.liquidationCents!;
   assertEquals(agg.totalEquityCents, expected);
+  // total confidence band = sum of per-item low/high
+  assertEquals(agg.totalLowCents, items[0]!.liquidation.lowCents! + items[1]!.liquidation.lowCents!);
+  assertEquals(agg.totalHighCents, items[0]!.liquidation.highCents! + items[1]!.liquidation.highCents!);
+  assert(agg.totalLowCents <= agg.totalEquityCents && agg.totalEquityCents <= agg.totalHighCents);
   assertEquals(agg.byCategory["Dresses"]!.count, 2);
   assertEquals(agg.byCategory["Dresses"]!.cents, expected);
+  assertEquals(agg.byBrand["Nike"]!.count, 2);
   assertEquals(agg.byGradeBand["9.0-10"]!.count, 1);
   assertEquals(agg.byGradeBand["5.0-6.9"]!.count, 1);
   // unvalued never lands in a bucket
   assertEquals(agg.byCategory["Shoes"], undefined);
+  assertEquals(agg.byBrand["Adidas"], undefined);
 });
 
 Deno.test("aggregate: empty inventory is a zeroed aggregate", () => {

@@ -52,6 +52,7 @@ import {
 import { ShareOutcomesToggle } from "@/components/flipdesk/share-outcomes-toggle";
 import { EbayAccountHealthCard } from "@/components/flipdesk/ebay-account-health-card";
 import { EbayListingHealthCard } from "@/components/flipdesk/ebay-listing-health-card";
+import { InventoryEquityCard } from "@/components/flipdesk/inventory-equity-card";
 import {
   fetchReturnReduction,
   gradedReturnAdvantage,
@@ -203,6 +204,10 @@ function SellThroughReport() {
         <EbayAccountHealthCard />
         <EbayListingHealthCard />
       </div>
+
+      {/* US-1870: Inventory Equity — estimated liquidation value of graded stock.
+          Self-gates (renders nothing when the kill-switch is off). */}
+      <InventoryEquityCard />
 
       {rows.length === 0 ? (
         <Card>

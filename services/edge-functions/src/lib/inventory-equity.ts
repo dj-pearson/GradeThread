@@ -166,6 +166,7 @@ export function gradeBand(gradeValue: number | null): string {
 export interface EquityItem {
   liquidation: LiquidationValue;
   category: string | null;
+  brand: string | null;
   gradeValue: number | null;
 }
 
@@ -176,11 +177,15 @@ export interface EquityBucket {
 
 export interface EquityAggregate {
   totalEquityCents: number;
+  /** Total conservative confidence band (sum of per-item low/high). */
+  totalLowCents: number;
+  totalHighCents: number;
   valuedCount: number;
   unvaluedCount: number;
   /** Why the unvalued items were excluded. */
   unvaluedByReason: Record<UnvaluedReason, number>;
   byCategory: Record<string, EquityBucket>;
+  byBrand: Record<string, EquityBucket>;
   byGradeBand: Record<string, EquityBucket>;
 }
 
@@ -191,11 +196,24 @@ export interface EquityAggregate {
 export function aggregateEquity(items: EquityItem[]): EquityAggregate {
   const agg: EquityAggregate = {
     totalEquityCents: 0,
+    totalLowCents: 0,
+    totalHighCents: 0,
     valuedCount: 0,
     unvaluedCount: 0,
     unvaluedByReason: { no_grade: 0, no_comps: 0 },
     byCategory: {},
+    byBrand: {},
     byGradeBand: {},
+  };
+  const bump = (
+    map: Record<string, EquityBucket>,
+    key: string,
+    cents: number,
+  ) => {
+    const b = map[key] ?? { cents: 0, count: 0 };
+    b.cents += cents;
+    b.count++;
+    map[key] = b;
   };
   for (const it of items) {
     const { liquidation } = it;
@@ -206,19 +224,13 @@ export function aggregateEquity(items: EquityItem[]): EquityAggregate {
     }
     const cents = liquidation.liquidationCents;
     agg.totalEquityCents += cents;
+    agg.totalLowCents += liquidation.lowCents ?? cents;
+    agg.totalHighCents += liquidation.highCents ?? cents;
     agg.valuedCount++;
 
-    const catKey = (it.category ?? "").trim() || "uncategorized";
-    const cat = agg.byCategory[catKey] ?? { cents: 0, count: 0 };
-    cat.cents += cents;
-    cat.count++;
-    agg.byCategory[catKey] = cat;
-
-    const bandKey = gradeBand(it.gradeValue);
-    const band = agg.byGradeBand[bandKey] ?? { cents: 0, count: 0 };
-    band.cents += cents;
-    band.count++;
-    agg.byGradeBand[bandKey] = band;
+    bump(agg.byCategory, (it.category ?? "").trim() || "uncategorized", cents);
+    bump(agg.byBrand, (it.brand ?? "").trim() || "unbranded", cents);
+    bump(agg.byGradeBand, gradeBand(it.gradeValue), cents);
   }
   return agg;
 }
