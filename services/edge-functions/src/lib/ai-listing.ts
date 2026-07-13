@@ -317,7 +317,10 @@ Hard rules:
   confident read rather than omitting it.
 - description: a clean opening line, then attribute bullets, then the condition
   statement, then measurements if provided. Buyer-friendly, follows eBay best
-  practices.
+  practices. NEVER mention, describe, or disclaim a thrift/retail price tag,
+  price sticker, or any original/sticker price visible in a photo — a price
+  shown in a photo is NOT a listing fact; ignore it entirely and never add "for
+  reference only" notes about it.
 - suggested_price_cents: a reasonable starting price in US cents based on the
   item, brand, and condition. The system may refine this from comparable sales.
 - confidence: your overall confidence (0..1) that this listing is accurate.

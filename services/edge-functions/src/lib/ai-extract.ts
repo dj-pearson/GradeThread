@@ -244,7 +244,7 @@ Hard rules:
 - title: produce a clean, listing-ready title (brand + key descriptors), not a copy of the raw text.
 - color: a single primary color word. material: the primary fabric/material.
 - condition_notes: only condition hints explicitly present in the input.
-- description: compose a clean, buyer-facing LISTING description — an opening line, then the key attributes (brand, item type, size, color, material), then an HONEST condition statement. Use ONLY what the photos/text/known fields support; never invent attributes or upgrade condition (over-promising condition causes returns). Keep it concise — a short paragraph or a few bullet-style lines. Always return a description when there is enough signal to write one.
+- description: compose a clean, buyer-facing LISTING description — an opening line, then the key attributes (brand, item type, size, color, material), then an HONEST condition statement. Use ONLY what the photos/text/known fields support; never invent attributes or upgrade condition (over-promising condition causes returns). Keep it concise — a short paragraph or a few bullet-style lines. Always return a description when there is enough signal to write one. NEVER mention, describe, or disclaim a thrift/retail price tag, price sticker, or any original/sticker price visible in a photo — a price shown in a photo is NOT a listing fact; ignore it entirely and never add "for reference only" notes about it.
 - For every field you return, give a calibrated confidence from 0 to 1, and a source string.
 
 Photo guidance (when photos are present):
@@ -1439,6 +1439,10 @@ Rules:
 - CONDITION HONESTY IS CRITICAL: only state condition facts that are present in
   the supplied condition notes or that you can plainly see in the photos. Never
   invent or upgrade condition claims — over-promising condition causes returns.
+- NEVER mention, describe, or disclaim a thrift/retail price tag, price sticker,
+  or any original/sticker price visible in a photo. A price shown in a photo is
+  NOT a listing fact — ignore it entirely and never add "for reference only" or
+  similar notes about it.
 - Do not fabricate attributes that were not supplied.`;
 
 const LISTING_TOOL: Anthropic.Tool = {
@@ -1601,6 +1605,10 @@ Rules:
 - CONDITION HONESTY IS CRITICAL: never invent attributes and never upgrade or
   soften a condition claim — over-promising condition causes returns.
 - Only use facts present in the supplied text, attributes, or photos.
+- NEVER mention, describe, or disclaim a thrift/retail price tag, price sticker,
+  or any original/sticker price visible in a photo. A price shown in a photo is
+  NOT a listing fact — ignore it entirely and never add "for reference only" or
+  similar notes about it.
 - For TITLE rewrites the result must be 80 characters or fewer.
 - Return a calibrated 0..1 confidence for your rewrite.`;
 
