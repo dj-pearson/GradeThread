@@ -25,7 +25,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
 import { SEO } from "@/components/seo";
 import { Image } from "@/components/responsive-image";
 import { VerifiedBadge } from "@/components/verified/verified-badge";
@@ -486,8 +485,11 @@ function SampleCertificatePreview() {
       </div>
       <CardContent className="space-y-6 pt-6">
         <div className="flex flex-col items-center gap-4 sm:flex-row sm:gap-6">
-          <div className="flex h-24 w-24 flex-shrink-0 items-center justify-center rounded-full border-4 border-emerald-500">
-            <span className="text-3xl font-bold text-emerald-500">
+          <div
+            data-cert-ring
+            className="flex h-24 w-24 flex-shrink-0 items-center justify-center rounded-full border-4 border-emerald-500"
+          >
+            <span data-cert-score className="text-3xl font-bold text-emerald-500">
               {SAMPLE_CERT.overallScore.toFixed(1)}
             </span>
           </div>
@@ -521,11 +523,20 @@ function SampleCertificatePreview() {
                     {score.toFixed(1)}
                   </span>
                 </div>
-                <Progress
-                  value={score * 10}
+                <div
+                  role="progressbar"
+                  aria-valuenow={score * 10}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
                   aria-label={`${factor.label} score: ${score.toFixed(1)} out of 10`}
-                  className="h-1.5 [&>div]:bg-emerald-500"
-                />
+                  className="h-1.5 w-full overflow-hidden rounded-full bg-emerald-500/15"
+                >
+                  <div
+                    data-cert-bar
+                    className="h-full origin-left rounded-full bg-emerald-500"
+                    style={{ width: `${score * 10}%` }}
+                  />
+                </div>
               </div>
             );
           })}
@@ -685,8 +696,9 @@ export function LandingPage() {
         </div>
       </section>
 
-      {/* See the product — embedded sample certificate (US-604). */}
-      <section className="px-6 py-20">
+      {/* See the product — embedded sample certificate (US-604). US-1957: this
+          section is the "certificate assembles on scroll" signature scene. */}
+      <section data-cert-scene className="px-6 py-20">
         <div className="mx-auto grid max-w-5xl items-center gap-12 lg:grid-cols-2">
           <div data-gt-reveal>
             <Badge variant="secondary" className="mb-4 rounded-full px-3 py-1 glass-card">
