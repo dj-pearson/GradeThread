@@ -8,6 +8,22 @@
 // detail-page detection.
 
 const assert = require("node:assert");
+const fs = require("node:fs");
+const path = require("node:path");
+
+// image-utils.js is a UMD content script (.js so Chrome will load it — Chrome
+// rejects .cjs content scripts). The repo is type:module, so require() of a .js
+// throws ERR_REQUIRE_ESM; load it the same way the config guards load selectors.js
+// — run its source with an injected `self` and read the global it assigns.
+function loadImageUtils() {
+  const src = fs.readFileSync(path.resolve(__dirname, "..", "research", "image-utils.js"), "utf8");
+  const selfObj = {};
+  // eslint-disable-next-line no-new-func
+  new Function("self", src)(selfObj);
+  assert.ok(selfObj.GT_CC_IMG, "image-utils.js must assign self.GT_CC_IMG");
+  return selfObj.GT_CC_IMG;
+}
+
 const {
   applyUrlUpgrade,
   pickImageUrl,
@@ -18,7 +34,7 @@ const {
   isValidConfig,
   compareVersions,
   chooseConfig,
-} = require("../research/image-utils.cjs");
+} = loadImageUtils();
 
 // ── applyUrlUpgrade (config-driven) ──────────────────────────────────────
 const EBAY = { pattern: "/s-l\\d+(?:_\\d+)?(\\.[a-z0-9]+)(?=($|\\?))", replacement: "/s-l1600$1", flags: "i" };

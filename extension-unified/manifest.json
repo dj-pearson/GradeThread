@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "GradeThread: Grade & List",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "AI condition reads while you shop eBay, Poshmark, Grailed, Mercari, Depop & Vinted — plus cross-listing for FlipDesk sellers.",
   "permissions": ["storage", "activeTab"],
   "host_permissions": [
@@ -84,7 +84,7 @@
         "https://*.vinted.dk/items/*",
         "https://*.vinted.fi/items/*"
       ],
-      "js": ["research/selectors.js", "research/image-utils.cjs", "research/marketplace.js"],
+      "js": ["research/selectors.js", "research/image-utils.js", "research/marketplace.js"],
       "css": ["research/overlay.css"],
       "run_at": "document_idle"
     },

@@ -35,7 +35,7 @@
 if (typeof importScripts === "function") {
   importScripts("lister/selectors.js", "lister/lister-guard.js", "registry.js");
 }
-const chrome = globalThis.browser || globalThis.chrome;
+const ext = globalThis.browser || globalThis.chrome;
 
 // ── endpoints / constants ────────────────────────────────────────────────
 const SITE = "https://gradethread.com";
@@ -59,22 +59,22 @@ const SUPPORTED_LISTER = {
 
 // ── per-install instance id (research quota key) ──────────────────────────
 async function getInstanceId() {
-  const { instanceId } = await chrome.storage.local.get("instanceId");
+  const { instanceId } = await ext.storage.local.get("instanceId");
   if (instanceId) return instanceId;
   const id = (crypto.randomUUID && crypto.randomUUID()) ||
     "gt-" + Date.now() + "-" + Math.random().toString(36).slice(2);
-  await chrome.storage.local.set({ instanceId: id });
+  await ext.storage.local.set({ instanceId: id });
   return id;
 }
 
 // ── first-run onboarding + instance id ────────────────────────────────────
-chrome.runtime.onInstalled.addListener((details) => {
+ext.runtime.onInstalled.addListener((details) => {
   getInstanceId();
   // US-1885 AC4: open a role-aware onboarding page on fresh install so first-run
   // isn't a dead-end via the puzzle-piece menu. Only on install (not on update).
   if (details && details.reason === "install") {
     try {
-      chrome.tabs.create({ url: chrome.runtime.getURL("onboarding.html") });
+      ext.tabs.create({ url: ext.runtime.getURL("onboarding.html") });
     } catch (_e) { /* tabs may be unavailable in some contexts */ }
   }
 });
@@ -87,7 +87,7 @@ function validConfig(c) {
 
 async function readConfigCache() {
   try {
-    const out = await chrome.storage.session.get(CONFIG_CACHE_KEY);
+    const out = await ext.storage.session.get(CONFIG_CACHE_KEY);
     return out && out[CONFIG_CACHE_KEY] ? out[CONFIG_CACHE_KEY] : null;
   } catch (_e) {
     return null;
@@ -96,7 +96,7 @@ async function readConfigCache() {
 
 async function writeConfigCache(entry) {
   try {
-    await chrome.storage.session.set({ [CONFIG_CACHE_KEY]: entry });
+    await ext.storage.session.set({ [CONFIG_CACHE_KEY]: entry });
   } catch (_e) { /* session storage unavailable — degrade to always-fetch */ }
 }
 
@@ -122,7 +122,7 @@ async function getRemoteConfig() {
 
 // ── settings ──────────────────────────────────────────────────────────────
 async function getSettings() {
-  const out = await chrome.storage.local.get(["autoRun", "disabledHosts"]);
+  const out = await ext.storage.local.get(["autoRun", "disabledHosts"]);
   return {
     autoRun: Boolean(out.autoRun),
     disabledHosts: Array.isArray(out.disabledHosts) ? out.disabledHosts : [],
@@ -134,7 +134,7 @@ async function getSettings() {
 // storage.session; a token set/clear invalidates it. FAIL-SAFE to anonymous.
 async function readEntCache() {
   try {
-    const out = await chrome.storage.session.get(ENT_CACHE_KEY);
+    const out = await ext.storage.session.get(ENT_CACHE_KEY);
     return out && out[ENT_CACHE_KEY] ? out[ENT_CACHE_KEY] : null;
   } catch (_e) {
     return null;
@@ -143,20 +143,20 @@ async function readEntCache() {
 
 async function writeEntCache(entry) {
   try {
-    await chrome.storage.session.set({ [ENT_CACHE_KEY]: entry });
+    await ext.storage.session.set({ [ENT_CACHE_KEY]: entry });
   } catch (_e) { /* session storage unavailable — degrade to always-fetch */ }
 }
 
 async function invalidateEntCache() {
   try {
-    await chrome.storage.session.remove(ENT_CACHE_KEY);
+    await ext.storage.session.remove(ENT_CACHE_KEY);
   } catch (_e) { /* nothing to clear */ }
 }
 
 async function fetchEntitlements() {
   const headers = {};
   try {
-    const { gtBuyerToken } = await chrome.storage.local.get("gtBuyerToken");
+    const { gtBuyerToken } = await ext.storage.local.get("gtBuyerToken");
     if (gtBuyerToken && typeof gtBuyerToken === "string") {
       headers["Authorization"] = "Bearer " + gtBuyerToken;
     }
@@ -199,7 +199,7 @@ async function gradeFromUrls({ imageUrls, brand, title, condition, marketplace, 
     "X-GT-Extension-Id": instanceId,
   };
   try {
-    const { gtBuyerToken } = await chrome.storage.local.get("gtBuyerToken");
+    const { gtBuyerToken } = await ext.storage.local.get("gtBuyerToken");
     if (gtBuyerToken && typeof gtBuyerToken === "string") headers["Authorization"] = "Bearer " + gtBuyerToken;
   } catch (_e) { /* no token → anonymous */ }
   let resp;
@@ -236,7 +236,7 @@ async function gradeFromUrls({ imageUrls, brand, title, condition, marketplace, 
 // ── recent reads history ──────────────────────────────────────────────────
 async function saveRead(read) {
   if (!read || typeof read !== "object") return;
-  const { recentReads } = await chrome.storage.local.get("recentReads");
+  const { recentReads } = await ext.storage.local.get("recentReads");
   const list = Array.isArray(recentReads) ? recentReads : [];
   list.unshift({
     url: String(read.url || ""),
@@ -247,7 +247,7 @@ async function saveRead(read) {
     confidence: Number(read.confidence),
     at: Number(read.at) || Date.now(),
   });
-  await chrome.storage.local.set({ recentReads: list.slice(0, MAX_RECENT) });
+  await ext.storage.local.set({ recentReads: list.slice(0, MAX_RECENT) });
 }
 
 // ── Lister job lifecycle ──────────────────────────────────────────────────
@@ -289,7 +289,7 @@ function isValidDelistPayload(p) {
 }
 
 async function tosAccepted() {
-  const out = await chrome.storage.local.get("tosAcceptedAt");
+  const out = await ext.storage.local.get("tosAcceptedAt");
   return Boolean(out && out.tosAcceptedAt);
 }
 
@@ -333,7 +333,7 @@ async function handleListRequest(payload, sendResponse) {
   const jobId = makeJobId();
   let tab;
   try {
-    tab = await chrome.tabs.create({ url: newListingUrl, active: true });
+    tab = await ext.tabs.create({ url: newListingUrl, active: true });
   } catch (_e) {
     sendResponse({ ok: false, error: "Couldn't open the marketplace tab." });
     return;
@@ -379,7 +379,7 @@ async function handleDelistRequest(payload, sendResponse) {
   const jobId = makeJobId();
   let tab;
   try {
-    tab = await chrome.tabs.create({ url: payload.listingUrl, active: true });
+    tab = await ext.tabs.create({ url: payload.listingUrl, active: true });
   } catch (_e) {
     sendResponse({ ok: false, error: "Couldn't open the marketplace tab." });
     return;
@@ -461,7 +461,7 @@ function handleExternalMessage(msg, sender, sendResponse) {
         sendResponse({ ok: false, error: "No token." });
         return;
       }
-      await chrome.storage.local.set({ gtBuyerToken: msg.token });
+      await ext.storage.local.set({ gtBuyerToken: msg.token });
       await invalidateEntCache();
       const caps = await getCapabilities(true);
       sendResponse({ ok: true, capabilities: caps });
@@ -471,7 +471,7 @@ function handleExternalMessage(msg, sender, sendResponse) {
 
   if (msg.type === "GT_CLEAR_TOKEN") {
     (async () => {
-      await chrome.storage.local.remove("gtBuyerToken");
+      await ext.storage.local.remove("gtBuyerToken");
       await invalidateEntCache();
       sendResponse({ ok: true, capabilities: await getCapabilities(true) });
     })();
@@ -506,12 +506,12 @@ function handleExternalMessage(msg, sender, sendResponse) {
 // guard the registration (accessing .addListener on undefined would throw and
 // abort the whole worker/event-page load). Firefox reaches handleExternalMessage
 // via the bridge path in onMessage below.
-if (chrome.runtime.onMessageExternal) {
-  chrome.runtime.onMessageExternal.addListener(handleExternalMessage);
+if (ext.runtime.onMessageExternal) {
+  ext.runtime.onMessageExternal.addListener(handleExternalMessage);
 }
 
 // ── Internal messages from content scripts + popup ────────────────────────
-chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
+ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
   if (!msg || typeof msg.type !== "string") {
     sendResponse(null);
     return false;
@@ -580,7 +580,7 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
 });
 
 // Clean up if the marketplace tab is closed before reporting.
-chrome.tabs.onRemoved.addListener(function (tabId) {
+ext.tabs.onRemoved.addListener(function (tabId) {
   delete jobsByTab[tabId];
 });
 

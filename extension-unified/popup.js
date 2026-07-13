@@ -11,7 +11,7 @@
 // extension (GT_SET_TOKEN) so entitlements + quota become account-scoped.
 
 // Cross-browser API alias (Firefox: `browser`/promises; Chrome: `chrome`).
-const chrome = globalThis.browser || globalThis.chrome;
+const ext = globalThis.browser || globalThis.chrome;
 
 const SITE = "https://gradethread.com";
 
@@ -55,7 +55,7 @@ function timeAgo(ts) {
 
 async function activeHost() {
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const [tab] = await ext.tabs.query({ active: true, currentWindow: true });
     if (tab && tab.url) return new URL(tab.url).host;
   } catch (_e) { /* no activeTab access */ }
   return null;
@@ -65,7 +65,7 @@ function send(msg) {
   // Promise form works on both Chrome (MV3) and Firefox (browser.*); a failure
   // (worker asleep / no receiver) resolves to null rather than rejecting.
   try {
-    return Promise.resolve(chrome.runtime.sendMessage(msg)).catch(() => null);
+    return Promise.resolve(ext.runtime.sendMessage(msg)).catch(() => null);
   } catch (_e) {
     return Promise.resolve(null);
   }
@@ -74,7 +74,7 @@ function send(msg) {
 // ── links / version ────────────────────────────────────────────────────────
 function initStaticLinks() {
   const version = document.getElementById("version");
-  version.textContent = "v" + chrome.runtime.getManifest().version;
+  version.textContent = "v" + ext.runtime.getManifest().version;
   document.getElementById("privacy").href = SITE + "/privacy?utm_source=extension&utm_medium=popup";
   document.getElementById("help").href = SITE + "/?utm_source=extension&utm_medium=popup";
   document.getElementById("termsLink").href = SITE + "/acceptable-use?utm_source=extension&utm_medium=popup";
@@ -124,13 +124,13 @@ function renderAccount(caps) {
 
 // ── research settings ───────────────────────────────────────────────────────
 async function initResearch() {
-  const { autoRun, disabledHosts } = await chrome.storage.local.get(["autoRun", "disabledHosts"]);
+  const { autoRun, disabledHosts } = await ext.storage.local.get(["autoRun", "disabledHosts"]);
   const disabled = Array.isArray(disabledHosts) ? disabledHosts : [];
 
   const autoEl = document.getElementById("autoRun");
   autoEl.checked = Boolean(autoRun);
   autoEl.addEventListener("change", () => {
-    chrome.storage.local.set({ autoRun: autoEl.checked });
+    ext.storage.local.set({ autoRun: autoEl.checked });
   });
 
   const host = await activeHost();
@@ -142,18 +142,18 @@ async function initResearch() {
     label.textContent = "Enabled on " + host;
     box.checked = !disabled.includes(host);
     box.addEventListener("change", async () => {
-      const cur = (await chrome.storage.local.get("disabledHosts")).disabledHosts || [];
+      const cur = (await ext.storage.local.get("disabledHosts")).disabledHosts || [];
       const set = new Set(Array.isArray(cur) ? cur : []);
       if (box.checked) set.delete(host);
       else set.add(host);
-      await chrome.storage.local.set({ disabledHosts: Array.from(set) });
+      await ext.storage.local.set({ disabledHosts: Array.from(set) });
     });
   }
 }
 
 async function renderReads() {
   const ul = document.getElementById("reads");
-  const { recentReads } = await chrome.storage.local.get("recentReads");
+  const { recentReads } = await ext.storage.local.get("recentReads");
   const list = Array.isArray(recentReads) ? recentReads : [];
   if (!list.length) return; // keep the empty-state <li>
   ul.textContent = "";
@@ -222,7 +222,7 @@ function renderPlatforms() {
 
 // US-1885 AC3: versioned + revocable consent.
 async function renderConsent() {
-  const out = await chrome.storage.local.get(["tosAcceptedAt", "tosVersion"]);
+  const out = await ext.storage.local.get(["tosAcceptedAt", "tosVersion"]);
   const accepted = out && out.tosAcceptedAt && out.tosVersion === TOS_VERSION;
   const note = document.getElementById("acceptedNote");
   const check = document.getElementById("tosCheck");
@@ -257,14 +257,14 @@ function wireConsent() {
   });
   btn.addEventListener("click", async () => {
     if (!check.checked) return;
-    await chrome.storage.local.set({
+    await ext.storage.local.set({
       tosAcceptedAt: new Date().toISOString(),
       tosVersion: TOS_VERSION,
     });
     renderConsent();
   });
   revoke.addEventListener("click", async () => {
-    await chrome.storage.local.remove(["tosAcceptedAt", "tosVersion"]);
+    await ext.storage.local.remove(["tosAcceptedAt", "tosVersion"]);
     renderConsent();
   });
 }
@@ -295,16 +295,16 @@ function wireAccount() {
     // Launches the US-1838 token flow: the connect page mints an extension token
     // (POST /api/buyer/extension-token) and posts it back via GT_SET_TOKEN so this
     // install becomes account-scoped. `ext` lets the page target this extension id.
-    const url = SITE + "/connect-extension?ext=" + encodeURIComponent(chrome.runtime.id) +
+    const url = SITE + "/connect-extension?ext=" + encodeURIComponent(ext.runtime.id) +
       "&utm_source=extension&utm_medium=popup";
     try {
-      chrome.tabs.create({ url });
+      ext.tabs.create({ url });
     } catch (_e) {
       window.open(url, "_blank", "noopener");
     }
   });
   disconnect.addEventListener("click", async () => {
-    await chrome.storage.local.remove("gtBuyerToken");
+    await ext.storage.local.remove("gtBuyerToken");
     const caps = await send({ type: "GT_GET_CAPABILITIES", force: true });
     applyCapabilities(caps || {});
   });

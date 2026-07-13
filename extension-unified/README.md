@@ -22,7 +22,7 @@ background.js        one service worker — routes GT_CC_* + GT_LISTER_* + entit
 registry.js          feature registry — resolves capabilities from entitlements+settings
 popup.html/js/css    role-aware popup (US-1885)
 onboarding.html      first-run page opened on install (US-1885 AC4)
-research/            buyer overlay  (selectors.js, image-utils.cjs, marketplace.js, overlay.css)
+research/            buyer overlay  (selectors.js, image-utils.js, marketplace.js, overlay.css)
 lister/              seller Lister  (selectors.js, lister-guard.js, common.js, poshmark/mercari/grailed.js)
 icons/               shared icon set
 test/                zero-dep node guards (run in verify:web via scripts/test-extensions.mjs)
