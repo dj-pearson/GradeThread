@@ -845,7 +845,25 @@ contentPublicRoutes.get("/cert-image/:id", async (c) => {
       heroDataUri,
       certUrl: `${PUBLIC_SITE_URL}/cert/${certId}?s=qr`,
     };
-    const png = await renderCertImage(kind, format, data);
+    // A hero photo in a format satori/resvg can't rasterize (HEIC, AVIF, a
+    // corrupt/truncated file) makes renderCertImage THROW, which would fall
+    // through to the transparent fallback — a fully BLANK graded photo for a
+    // perfectly valid, certified report. Degrade instead of blanking: if a
+    // render that embedded the hero fails, retry once WITHOUT it. buildCertSlabHtml
+    // renders a visible branded card (big score + tier) when heroImageUrl is null,
+    // so the seller/buyer still gets a real graded photo, just without the garment
+    // shot. Only a no-hero render that ALSO fails serves the transparent fallback.
+    let png: Uint8Array;
+    try {
+      png = await renderCertImage(kind, format, data);
+    } catch (renderErr) {
+      if (!data.heroDataUri) throw renderErr; // nothing to strip → genuine failure
+      captureException(renderErr, {
+        route: "cert-image",
+        tags: { certId, kind, retry: "no-hero" },
+      });
+      png = await renderCertImage(kind, format, { ...data, heroDataUri: null });
+    }
 
     // Store durably (best-effort — a store failure still serves this render).
     await supabaseAdmin.storage
