@@ -312,8 +312,8 @@ function ResultCard({
     <div className="rounded-lg border border-brand-navy/30 bg-brand-navy/5 p-5">
       <p className="text-sm text-muted-foreground">
         A grade {point.grade.toFixed(1)} ({tierLabelForGrade(point.grade)}){" "}
-        <span className="font-medium text-foreground">{label}</span> typically
-        sells for about
+        <span className="font-medium text-foreground">{label}</span> has a
+        modeled resale estimate of about
       </p>
       <p className="mt-1 text-4xl font-bold tabular-nums text-brand-navy dark:text-foreground">
         {median}
@@ -325,8 +325,9 @@ function ResultCard({
         </p>
       )}
       <p className="mt-3 text-xs text-muted-foreground">
-        Based on {point.sampleSize.toLocaleString()} sold comparable
-        {point.sampleSize === 1 ? "" : "s"}
+        Modeled from {point.sampleSize.toLocaleString()} condition-matched
+        comparable{point.sampleSize === 1 ? "" : "s"} in this grade&rsquo;s
+        condition band
         {refreshed ? ` · last refreshed ${refreshed}` : ""}.
       </p>
       <div className="mt-4 flex flex-wrap items-center gap-3">
