@@ -16566,8 +16566,8 @@
         "Pin teardown + refresh on unmount; no CLS on pin release"
       ],
       "priority": 2600,
-      "passes": false,
-      "notes": "[P3][Web/Motion] Apple-style flowed-homepage design plan 2026-07-13. Phase 3. Note the existing #how-it-works anchor navigation must still work with ScrollTrigger pinning (Lenis + anchor offset).",
+      "passes": true,
+      "notes": "[P3][Web/Motion] Apple-style flowed-homepage design plan 2026-07-13. Phase 3. Note the existing #how-it-works anchor navigation must still work with ScrollTrigger pinning (Lenis + anchor offset). DONE 2026-07-13 — How-It-Works rebuilt as a connected sequence: a progress rail threads the four step icons (desktop 4-col; hidden on the stacked mobile layout) and its red fill scrubs left→right with scroll (howitworks-scene.ts, gsap.context, from-state runtime-only so no-engine shows it full), while the step cards reveal in stagger. NON-PINNED on purpose — ScrollTrigger pin fights Lenis (see US-1959 note); the scrubbed fill is smoother and matches the whole-page-smooth ask. Verified in-browser.",
       "relevantPaths": [
         "src/pages/landing.tsx"
       ]

@@ -814,8 +814,13 @@ export function LandingPage() {
         </div>
       </section>
 
-      {/* How It Works */}
-      <section id="how-it-works" className="px-6 py-20 relative overflow-hidden">
+      {/* How It Works — US-1958: a connected 4-step sequence; a scroll-scrubbed
+          progress rail threads the steps (desktop) as you move through. */}
+      <section
+        id="how-it-works"
+        data-hiw-scene
+        className="px-6 py-20 relative overflow-hidden"
+      >
         {/* Subtle background glow */}
         <div className="absolute top-1/2 left-1/2 -z-10 h-72 w-72 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand-navy/5 blur-[100px]" />
         
@@ -824,9 +829,22 @@ export function LandingPage() {
           <p data-gt-reveal className="mx-auto mt-3 max-w-2xl text-center text-muted-foreground">
             Four simple steps from photo to verified grade certificate.
           </p>
-          <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-            {howItWorks.map((item) => (
-              <div key={item.step} data-gt-reveal className="relative rounded-2xl border border-border/40 bg-card/60 p-6 text-center shadow-sm hover:shadow-md hover:border-brand-red/20 transition-all duration-300 glass-card">
+          <div className="relative mt-12">
+            {/* Progress rail threading the four step icons (desktop 4-col only).
+                Sits behind the glass cards; its red fill scrubs left→right with
+                scroll to make the steps read as one advancing sequence. */}
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute left-[12.5%] right-[12.5%] top-12 hidden h-0.5 -translate-y-1/2 overflow-hidden rounded-full bg-border lg:block"
+            >
+              <div
+                data-hiw-fill
+                className="h-full w-full origin-left rounded-full bg-brand-red"
+              />
+            </div>
+            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+              {howItWorks.map((item) => (
+                <div key={item.step} data-gt-reveal className="relative rounded-2xl border border-border/40 bg-card/60 p-6 text-center shadow-sm hover:shadow-md hover:border-brand-red/20 transition-all duration-300 glass-card">
                 <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-brand-navy text-white mb-4">
                   <item.icon className="h-5 w-5" />
                 </div>
@@ -838,7 +856,8 @@ export function LandingPage() {
                   {item.description}
                 </p>
               </div>
-            ))}
+              ))}
+            </div>
           </div>
         </div>
       </section>

@@ -119,7 +119,10 @@ export function PublishToEbayDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      {/* [&>*]:min-w-0 lets every direct grid child shrink — without it a long
+          Title/Notes value forces the grid track wider than max-w-lg and the
+          whole dialog overflows horizontally (US-1552-style layout bug). */}
+      <DialogContent className="max-w-lg [&>*]:min-w-0">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {relist ? (
@@ -201,7 +204,10 @@ export function PublishToEbayDialog({
             </div>
             <ul className="space-y-1 rounded-md border bg-amber-50 p-3 text-xs dark:bg-amber-950/30">
               {blockers.map((b) => (
-                <li key={b} className="text-amber-900 dark:text-amber-200">
+                <li
+                  key={b}
+                  className="break-words text-amber-900 dark:text-amber-200"
+                >
                   • {b}
                 </li>
               ))}
@@ -413,15 +419,16 @@ function Row({
 }) {
   return (
     <div className="flex items-baseline justify-between gap-3">
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+      <div className="flex-shrink-0 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
         {label}
       </div>
       <div
-        className={
-          truncate
-            ? "max-w-[60%] truncate text-right font-medium"
-            : "text-right font-medium"
-        }
+        className={cn(
+          "min-w-0 flex-1 text-right font-medium",
+          // truncate keeps single-line values from pushing the dialog wide;
+          // non-truncated values wrap on words instead of overflowing.
+          truncate ? "truncate" : "break-words",
+        )}
       >
         {value}
       </div>

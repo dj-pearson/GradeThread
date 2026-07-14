@@ -2,6 +2,7 @@ import Lenis from "lenis";
 import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { initCertificateScene } from "./certificate-scene";
+import { initHowItWorksScene } from "./howitworks-scene";
 
 /**
  * Tier-1 scroll engine (US-1953) — Lenis momentum smooth-scroll synced to GSAP's
@@ -43,8 +44,9 @@ export function initScrollEngine(): () => void {
   gsap.ticker.add(raf);
   gsap.ticker.lagSmoothing(0);
 
-  // Signature scene: the certificate assembles on scroll (US-1957).
-  const disposeCertScene = initCertificateScene();
+  // Scroll scenes.
+  const disposeCertScene = initCertificateScene(); // US-1957
+  const disposeHiwScene = initHowItWorksScene(); // US-1958
 
   // Lenis changes the document height/positions; make sure the ScrollTrigger
   // scenes measure against the final layout.
@@ -54,6 +56,7 @@ export function initScrollEngine(): () => void {
     // Revert scene contexts FIRST (restores their runtime inline styles to the
     // fully-assembled state) before the blanket trigger kill below.
     disposeCertScene();
+    disposeHiwScene();
     lenis.off("scroll", onScroll);
     gsap.ticker.remove(raf);
     gsap.ticker.lagSmoothing(500, 33); // restore GSAP's default
