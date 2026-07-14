@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { certificateDisplayNumber } from "@/lib/cert-number";
 import { QRCodeSVG } from "qrcode.react";
 import {
   Shield,
@@ -537,10 +536,11 @@ export function CertificatePage() {
     { name: "Grade Certificate", url: `${SITE_URL}/cert/${id ?? ""}` },
   ];
 
-  // PSA-style public number: the stored cert number (00307), falling back to the
-  // UUID-derived label for any legacy report not yet backfilled.
-  const certNumber =
-    gradeReport.certificate_number ?? certificateDisplayNumber(id);
+  // PSA-style public number: ONLY the stored, verifiable cert number (00307).
+  // US-1945: never fall back to a UUID-derived look-alike — that code isn't
+  // stored and would fail the /verify lookup, so a report without a real number
+  // simply shows none (it's still identified by its /cert/<id> URL + QR).
+  const certNumber = gradeReport.certificate_number ?? null;
 
   return (
     <div className="min-h-screen bg-background">

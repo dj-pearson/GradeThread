@@ -1,24 +1,15 @@
-// Human-facing certificate number derived from the random `certificate_id` UUID.
+// Certificate-number helpers for the buyer-facing /verify flow.
 //
-// The full UUID stays the canonical id (it's the /cert/<id> URL and the lookup
-// key, and being random it's unguessable/non-enumerable — the safe choice). This
-// is ONLY a clean, PSA-style label for display on the certificate page and as a
-// bare reference in listings (no URL — eBay forbids off-eBay links).
-//
-// Accepts either a bare cert id or a full ".../cert/<id>" URL.
-export function certificateDisplayNumber(
-  certIdOrUrl: string | null | undefined,
-): string | null {
-  if (!certIdOrUrl) return null;
-  // Pull the id from a /cert/<id> URL, else use the whole string; drop any
-  // query/hash/whitespace from a paste.
-  const m = certIdOrUrl.match(/\/cert\/([^/?#\s]+)/i);
-  const candidate = m?.[1] ?? certIdOrUrl;
-  const id = candidate.split(/[?#\s]/)[0] ?? "";
-  const hex = id.replace(/-/g, "").toUpperCase();
-  if (hex.length < 8) return null;
-  return `GT-${hex.slice(0, 4)}-${hex.slice(4, 8)}`;
-}
+// US-1945: there is ONE human-facing certificate-number scheme — the stored,
+// unique `grade_reports.certificate_number` (`GT-XXXXXXX`, Crockford base32,
+// minted at grading time; see the edge cert-number lib). That is the code
+// printed on the certificate, advertised on /verify, and resolvable via the
+// public by-number lookup. We intentionally do NOT derive a second, look-alike
+// number from the certificate UUID: a UUID-derived "GT-XXXX-XXXX" is not stored
+// and never resolves through /verify, so printing it as "Certificate No." would
+// hand buyers a code that fails verification. When a report has no
+// `certificate_number`, the certificate is identified by its /cert/<uuid> URL +
+// QR instead, and no verifiable-looking number is shown.
 
 // Normalize buyer-typed input for a /verify lookup: uppercase, strip spaces +
 // dashes, and ensure a single "GT-" prefix (so "gt 7k2m9", "7K2M9", "GT-7K2M9"
