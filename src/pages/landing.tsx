@@ -12,8 +12,6 @@ import {
   Check,
   ChevronDown,
   Compass,
-  Boxes,
-  Tag,
   Layers,
   Gauge,
   Shapes,
@@ -40,6 +38,7 @@ import { StatCounters } from "@/components/marketing/stat-counters";
 import { HeroBackdrop } from "@/components/marketing/hero-backdrop";
 import { ScrollExperience } from "@/components/marketing/scroll-experience/scroll-experience";
 import { NewsletterSignup } from "@/components/newsletter-signup";
+import { FLIPDESK_STAGES } from "@/components/marketing/flipdesk-stages";
 import { LANDING_FAQS } from "@/pages/landing-faqs";
 import {
   CREDIT_PACKS,
@@ -124,51 +123,6 @@ const howItWorks = [
 // US-1959: the FlipDesk pipeline, shown as a horizontal scroll-pinned track
 // (source → grade → list → sell → reconcile) with stylized product mocks,
 // instead of static icon cards. Falls back to a swipeable row on mobile.
-const FLIPDESK_STAGES = [
-  {
-    icon: Boxes,
-    title: "Source & scout",
-    description:
-      "Log thrift hauls, estate sales, and auction lots — and let ScoutAI pull real sold comps so you only buy what flips.",
-    mock: ["Sourced 42 items", "ScoutAI comps ✓", "Est. margin +38%"],
-  },
-  {
-    icon: Award,
-    title: "Grade for trust",
-    description:
-      "Send items straight to GradeThread and attach a verified grade, certificate, and Garment Passport.",
-    mock: ["Grade 9.0 · NWOT", "Certificate issued", "Passport linked"],
-  },
-  {
-    icon: Layers,
-    title: "AutoLister",
-    description:
-      "Turn photos into ready-to-publish, AI-written listings in bulk, then time launches with scheduled drops.",
-    mock: ["37 photos → 12 drafts", "AI titles written", "Scheduled 6:00pm"],
-  },
-  {
-    icon: Tag,
-    title: "List & cross-list",
-    description:
-      "Compose eBay-ready titles, descriptions, and item specifics with a live preview, and cross-list to more channels.",
-    mock: ["eBay · Poshmark", "Item specifics ✓", "Live preview"],
-  },
-  {
-    icon: Gauge,
-    title: "Reprice automatically",
-    description:
-      "Repricing rules and bulk pricing keep prices moving toward a sale without manual edits.",
-    mock: ["Rule: −5% / 14 days", "18 prices updated", "3 sales triggered"],
-  },
-  {
-    icon: BarChart3,
-    title: "Reconcile profit",
-    description:
-      "Track payouts, fees, per-item P&L, and consignor splits so you always know your real margins.",
-    mock: ["Payout $1,284", "Fees reconciled", "Net P&L +$612"],
-  },
-];
-
 const faqs = LANDING_FAQS;
 
 const FLIPDESK_ORDER: FlipdeskPlanKey[] = ["free", "starter", "pro", "business"];

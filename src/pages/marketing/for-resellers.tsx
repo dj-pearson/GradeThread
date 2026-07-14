@@ -13,6 +13,7 @@ import {
   MarketingCTA,
 } from "@/components/marketing/marketing-layout";
 import { StatCounters } from "@/components/marketing/stat-counters";
+import { FlipDeskPipelinePreview } from "@/components/marketing/flipdesk-pipeline-preview";
 
 const BENEFITS = [
   {
@@ -173,6 +174,37 @@ export function ForResellersPage() {
             </Link>
             .
           </p>
+        </div>
+      </section>
+
+      {/* US-1949: show the FlipDesk pipeline, don't just describe it. Honest
+          stylized mocks (not screenshots) of the bulk source→grade→list→
+          reprice→reconcile flow so resellers can see the tool before signup. */}
+      <section className="py-16">
+        <div className="mx-auto max-w-3xl px-6 text-center">
+          <h2 className="text-3xl font-bold">The full reseller workflow, built in</h2>
+          <p className="mx-auto mt-3 max-w-2xl text-muted-foreground">
+            FlipDesk runs your whole pipeline — source, catalog, grade, list,
+            reprice, and reconcile every item without leaving the app. Here&rsquo;s
+            each stage of the tool.
+          </p>
+        </div>
+        <div className="mt-10">
+          <FlipDeskPipelinePreview />
+        </div>
+        <p className="mx-auto mt-4 max-w-2xl px-6 text-center text-xs text-muted-foreground">
+          Stylized preview of the FlipDesk workspace — a peek at the tool, not a
+          screenshot.
+        </p>
+        <div className="mt-8 text-center">
+          <Link to="/signup">
+            <Button
+              size="lg"
+              className="bg-brand-navy text-white hover:bg-brand-navy/90"
+            >
+              Try FlipDesk Free
+            </Button>
+          </Link>
         </div>
       </section>
 
