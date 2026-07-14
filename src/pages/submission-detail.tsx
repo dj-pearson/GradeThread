@@ -39,6 +39,11 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -707,12 +712,27 @@ export function SubmissionDetailPage() {
             {formatLabel(submission.status)}
           </Badge>
           {submission.status === "completed" && gradeReport?.certificate_id && (
-            <Button variant="outline" size="sm" asChild>
-              <Link to={`/cert/${gradeReport.certificate_id}`}>
-                <Share2 className="mr-1 h-4 w-4" />
-                Share Certificate
-              </Link>
-            </Button>
+            // US: the header "Share Certificate" button used to be a plain Link to
+            // /cert/:id — it just navigated to the page instead of offering share
+            // options. Open the real share actions (native share sheet + one-tap
+            // channels + copy link + Save as PDF) in a popover, reusing the same
+            // CertShareActions the post-grade prompt uses below.
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <Share2 className="mr-1 h-4 w-4" />
+                  Share Certificate
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-auto max-w-[92vw] p-3">
+                <CertShareActions
+                  certificateId={gradeReport.certificate_id}
+                  title={submission.title}
+                  score={gradeReport.overall_score}
+                  tier={gradeReport.grade_tier}
+                />
+              </PopoverContent>
+            </Popover>
           )}
           {canDispute && (
             <Dialog open={disputeDialogOpen} onOpenChange={setDisputeDialogOpen}>
