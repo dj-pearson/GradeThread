@@ -31,8 +31,29 @@ for (let i = 0; i < args.length; i++) {
 }
 
 const BASE = (positional[0] || process.env.BASE_URL || "https://gradethread.com").replace(/\/+$/, "");
-const certId = flags.cert || process.env.SMOKE_CERT_ID;
+let certId = flags.cert || process.env.SMOKE_CERT_ID;
 const verifiedHandle = flags.verified || process.env.SMOKE_VERIFIED_HANDLE;
+
+// US-1945: the cert-SSR check used to SKIP silently whenever no id was supplied —
+// which is exactly how the prod "every /cert/:id 404s" outage shipped undetected.
+// Self-seed instead: pull a real, currently-published cert id from the live
+// sitemap-certs.xml (the public list of indexable certs). If the sitemap lists
+// certs, the cert check becomes REQUIRED — a 404 on a cert the sitemap advertises
+// is the exact regression we must catch. Only a genuinely empty sitemap (no
+// public certs yet) leaves it skipped.
+async function discoverCertId() {
+  if (certId) return { id: certId, seeded: false };
+  try {
+    const res = await fetch(`${BASE}/sitemap-certs.xml`, { redirect: "follow" });
+    if (!res.ok) return { id: null, seeded: false };
+    const xml = await res.text();
+    const m = xml.match(/\/cert\/([^<>\s?#]+)/i);
+    if (m?.[1]) return { id: m[1], seeded: true };
+  } catch {
+    /* network/parse failure — fall through to skip */
+  }
+  return { id: null, seeded: false };
+}
 
 // A marker is a substring that ONLY a Function-rendered response contains.
 // `optional: true` checks skip (warn, don't fail) when no sample id is supplied.
@@ -71,6 +92,20 @@ let warned = 0;
 
 async function run() {
   console.log(`Smoke-checking Pages Functions on ${BASE}\n`);
+
+  // Resolve the cert id (explicit flag/env, else self-seed from the sitemap).
+  const disco = await discoverCertId();
+  const certCheck = checks.find((c) => c.name === "cert SSR");
+  if (disco.id) {
+    certId = disco.id;
+    certCheck.path = `/cert/${encodeURIComponent(disco.id)}`;
+    // A cert the sitemap advertises MUST render — promote to a hard check.
+    if (disco.seeded) {
+      certCheck.optional = false;
+      console.log(`  ℹ cert SSR: auto-seeded id ${disco.id} from sitemap-certs.xml (required)\n`);
+    }
+  }
+
   for (const c of checks) {
     if (!c.path) {
       console.log(`  ⚠ ${c.name}: SKIPPED (${c.optionalHint})`);

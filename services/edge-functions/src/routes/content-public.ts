@@ -562,10 +562,70 @@ contentPublicRoutes.get("/sitemap.json", async (c) => {
 // Columns safe to expose publicly (the in-code allowlist gate). We deliberately
 // omit confidence_score, detailed_notes, model_version internals, and the
 // owner user_id.
-const CERT_REPORT_COLUMNS =
+//
+// US-1945: split into GENESIS (present since 00001_initial_schema) and the
+// post-genesis additions. A single missing column makes the WHOLE PostgREST
+// select error (42703) -> publicError 500 -> the cert Function reads null ->
+// EVERY certificate 404s. That is exactly the prod failure mode when migration
+// drift leaves a recent column (certificate_number 00307, live_capture 00314,
+// verified_360 00316, etc.) unapplied. So we try the full allowlist first and,
+// on a missing-column error, fall back to the genesis-only set — a valid cert
+// always renders its grade, and the absent extras degrade gracefully (the cert
+// number falls back to the UUID-derived label; trust badges read as absent).
+const CERT_REPORT_GENESIS_COLUMNS =
   "overall_score, grade_tier, fabric_condition_score, structural_integrity_score, " +
   "cosmetic_appearance_score, functional_elements_score, odor_cleanliness_score, " +
-  "ai_summary, buyer_writeup, certificate_id, certificate_number, created_at, submission_id, verified_capture, original_photos, live_capture, verified_360";
+  "ai_summary, certificate_id, created_at, submission_id";
+
+// Added after 00001; individually null-safe downstream (buyer_writeup 00118,
+// verified_capture 00138, original_photos 00194, certificate_number 00307,
+// live_capture 00314, verified_360 00316).
+const CERT_REPORT_EXTRA_COLUMNS =
+  "buyer_writeup, certificate_number, verified_capture, original_photos, live_capture, verified_360";
+
+const CERT_REPORT_COLUMNS = `${CERT_REPORT_GENESIS_COLUMNS}, ${CERT_REPORT_EXTRA_COLUMNS}`;
+
+// A PostgREST "column ... does not exist" error (Postgres 42703 / PostgREST
+// PGRST204). Used to trigger the genesis-only fallback under migration drift.
+function isMissingColumnError(err: unknown): boolean {
+  const e = err as { code?: string; message?: string } | null;
+  const code = e?.code ?? "";
+  if (code === "42703" || code === "PGRST204") return true;
+  const msg = (e?.message ?? "").toLowerCase();
+  return msg.includes("does not exist") && msg.includes("column");
+}
+
+// Load a public grade report by certificate_id with the drift fallback (US-1945).
+// Preserves BOTH in-code publicity gates on every path: look up BY
+// certificate_id and .not("certificate_id","is",null). Returns the same
+// { data, error } shape the caller already handles.
+async function loadPublicCertReport(certId: string) {
+  const full = await supabaseAdmin
+    .from("grade_reports")
+    .select(CERT_REPORT_COLUMNS)
+    .eq("certificate_id", certId)
+    .not("certificate_id", "is", null)
+    .maybeSingle();
+  if (!full.error || !isMissingColumnError(full.error)) return full;
+
+  // Migration drift: a post-genesis column is missing in this database. Log it
+  // (this is an ops problem to fix — apply the held migrations) but do NOT let
+  // it take down the whole certificate surface.
+  captureException(full.error, {
+    route: "GET /certificates/:id",
+    url: "cert column drift — falling back to genesis columns (apply pending migrations)",
+  });
+  console.error(
+    "content-public cert: column drift, genesis fallback:",
+    full.error.message,
+  );
+  return await supabaseAdmin
+    .from("grade_reports")
+    .select(CERT_REPORT_GENESIS_COLUMNS)
+    .eq("certificate_id", certId)
+    .not("certificate_id", "is", null)
+    .maybeSingle();
+}
 
 // Signed-URL TTL for certificate images (seconds). Long enough for an edge
 // cache window; the cert SSR caches the HTML, not the URL, so this just needs
@@ -581,12 +641,7 @@ const CERT_IMAGE_TTL = 15 * 60;
 contentPublicRoutes.get("/certificates/:id", async (c) => {
   const certId = c.req.param("id");
 
-  const { data: report, error } = await supabaseAdmin
-    .from("grade_reports")
-    .select(CERT_REPORT_COLUMNS)
-    .eq("certificate_id", certId)
-    .not("certificate_id", "is", null)
-    .maybeSingle();
+  const { data: report, error } = await loadPublicCertReport(certId);
   if (error) return publicError(c, error, "query");
   if (!report) return c.json({ error: "Not found" }, 404);
   const rep = report as unknown as CertReportRow;
