@@ -30,6 +30,10 @@ const AUTH_OR_FLOW_EXACT = new Set([
   // to the edge, no static content to index). The policy page /buyer-guarantee
   // IS registered + prerendered; the form itself is intentionally not.
   "/buyer-guarantee/claim",
+  // Links the browser extension to the signed-in account (token flow) — a
+  // utility page, not indexable content, so it's intentionally not in
+  // PUBLIC_ROUTES. (Fixes the pre-existing CI web-lane red.)
+  "/connect-extension",
 ]);
 
 /** A router path that should have a static, indexable registry entry. */
