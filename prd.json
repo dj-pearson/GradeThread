@@ -16909,7 +16909,7 @@
         "Respects the iOS notification category/preferences (NotificationCategories.swift listing.ended)"
       ],
       "priority": 1977,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][Edge/Notifications] iOS listing-lifecycle audit 2026-07-14. notifyListingEnded in-app only (selling-activity-notify.ts:207-208), fired at flipdesk-ebay.ts:3155. iOS category exists NotificationCategories.swift:19,53. iOS push infra already present.",
       "relevantPaths": [
         "services/edge-functions/src/lib/selling-activity-notify.ts",

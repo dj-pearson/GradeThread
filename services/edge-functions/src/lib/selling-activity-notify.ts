@@ -8,8 +8,9 @@
 // way, gated by the user's preferences on each channel:
 //   • in-app — gated inside notifyUser() by PREF_KEY (default ON).
 //   • push   — gated here by pushAllowed() against notification_preferences
-//              (default ON), and only sale_recorded / payout_imported carry a
-//              push (the iOS app defines no category for listing-live / status).
+//              (default ON). sale_recorded, payout_imported, and (US-1977)
+//              listing-ended carry a push; listing-live has no iOS category so
+//              it stays in-app only.
 //
 // Best-effort across the board: a channel failure (or APNs/DB simply being
 // unconfigured) NEVER throws — a notification problem must not break the
@@ -21,7 +22,11 @@
 
 import { supabaseAdmin } from "./supabase.ts";
 import { notifyUser, type NotifyInput, PREF_KEY } from "./notify.ts";
-import { pushPayoutCleared, pushSaleCreated } from "./transactional-push.ts";
+import {
+  pushListingEnded,
+  pushPayoutCleared,
+  pushSaleCreated,
+} from "./transactional-push.ts";
 
 const ITEM_LINK = (itemId: string) => `/dashboard/flipdesk/items/${itemId}`;
 const RECONCILIATION_LINK = "/dashboard/flipdesk/reconciliation";
@@ -204,13 +209,20 @@ export function notifyListingLive(
   return deliver(userId, { inApp: buildListingLive(opts) }, deps);
 }
 
-/** A listing ended without selling and returned to drafts. In-app only. */
+/**
+ * A listing ended on eBay (ended unsold, sold out, or removed by eBay) and the
+ * item returned to drafts. US-1977: fires in-app AND a push (category
+ * listing.ended), gated by the selling_activity preference like sale_recorded.
+ */
 export function notifyListingEnded(
   userId: string,
   opts: { itemTitle: string | null; itemId: string },
   deps: SellingActivityDeps = defaultDeps,
 ): Promise<void> {
-  return deliver(userId, { inApp: buildListingEnded(opts) }, deps);
+  return deliver(userId, {
+    inApp: buildListingEnded(opts),
+    push: (uid) => pushListingEnded(uid, opts.itemTitle),
+  }, deps);
 }
 
 /** One or more payouts were imported (webhook sync or CSV upload). */

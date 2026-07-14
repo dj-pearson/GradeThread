@@ -49,6 +49,23 @@ export function pushSaleCreated(userId: string, title?: string | null): Promise<
   });
 }
 
+/**
+ * US-1977: a live listing ended on eBay — ended unsold, sold out, or removed by
+ * eBay (e.g. a policy issue) — and the item is back in Drafts to relist. Parity
+ * with pushSaleCreated / pushOfferReceived; the iOS app defines the matching
+ * `listing.ended` notification category.
+ */
+export function pushListingEnded(userId: string, itemTitle?: string | null): Promise<void> {
+  return safePush(userId, {
+    title: "Listing ended",
+    body: itemTitle
+      ? `"${itemTitle}" ended on eBay — it's back in Drafts to relist.`
+      : "A listing ended on eBay — it's back in Drafts to relist.",
+    category: "listing.ended",
+    data: { kind: "listing_ended" },
+  });
+}
+
 /** A payout was imported / cleared for the user. */
 export function pushPayoutCleared(userId: string, count: number): Promise<void> {
   return safePush(userId, {

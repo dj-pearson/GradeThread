@@ -121,16 +121,24 @@ Deno.test("notifyPayoutImported fires in-app + push, gated by the payouts catego
   assertEquals(off.calls.push, 0);
 });
 
-Deno.test("listing-live / listing-ended deliver in-app only (no push channel)", async () => {
+Deno.test("listing-live delivers in-app only (no iOS category → no push channel)", async () => {
   const live = spyDeps(null);
   await notifyListingLive("u1", { itemTitle: "Tee", itemId: "i1" }, live.deps);
   assertEquals(live.calls.inApp[0].type, "listing_live");
   assertEquals(live.calls.push, 0);
+});
 
-  const ended = spyDeps(null);
-  await notifyListingEnded("u1", { itemTitle: "Tee", itemId: "i1" }, ended.deps);
-  assertEquals(ended.calls.inApp[0].type, "item_status_change");
-  assertEquals(ended.calls.push, 0);
+Deno.test("US-1977: listing-ended fires in-app + push, gated by selling_activity", async () => {
+  const on = spyDeps(null);
+  await notifyListingEnded("u1", { itemTitle: "Tee", itemId: "i1" }, on.deps);
+  assertEquals(on.calls.inApp[0].type, "item_status_change");
+  assertEquals(on.calls.push, 1); // now pushes (category listing.ended)
+
+  // Respects the user's selling_activity push preference (AC3): in-app still fires.
+  const off = spyDeps({ selling_activity: { push: false } });
+  await notifyListingEnded("u1", { itemTitle: "Tee", itemId: "i1" }, off.deps);
+  assertEquals(off.calls.inApp.length, 1);
+  assertEquals(off.calls.push, 0);
 });
 
 Deno.test("a missing userId is a no-op (tenant-safe guard)", async () => {
