@@ -242,6 +242,35 @@ try {
   } catch (err) {
     console.warn(`[prerender] transparency seed fetch failed (${err?.message ?? err}) — rendering placeholders (non-fatal).`);
   }
+
+  // US-976 / US-1775 (indexability): same build-time seed for the other
+  // data-report pages, so their aggregate figures land in the crawlable HTML
+  // (AI answer engines don't run JS). Generalized keyed seed — see
+  // src/lib/seo/prerender-seed.ts. EVERY fetch is best-effort and non-fatal:
+  // a failure just leaves that page rendering the pre-seed placeholders.
+  const { setPrerenderSeed } = await vite.ssrLoadModule(
+    "/src/lib/seo/prerender-seed.ts",
+  );
+  const SEEDED_REPORTS = [
+    { key: "resale-condition-report", path: "/api/grading/public/resale-condition-report" },
+    { key: "durability-report", path: "/api/grading/public/durability-report" },
+  ];
+  for (const { key, path } of SEEDED_REPORTS) {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 10_000);
+      const res = await fetch(`${edgeBase}${path}`, { signal: ctrl.signal });
+      clearTimeout(timer);
+      if (res.ok) {
+        setPrerenderSeed(key, await res.json());
+        console.log(`[prerender] ${key} seed fetched — live figures will be in the static HTML.`);
+      } else {
+        console.warn(`[prerender] ${key} seed fetch returned ${res.status} — rendering placeholders (non-fatal).`);
+      }
+    } catch (err) {
+      console.warn(`[prerender] ${key} seed fetch failed (${err?.message ?? err}) — rendering placeholders (non-fatal).`);
+    }
+  }
   prerenderedPaths = PUBLIC_ROUTES.map((r) => r.path);
 
   // Guard: every registered route must be renderable, and vice versa, so a new

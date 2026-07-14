@@ -6,6 +6,11 @@ import { MarketingLayout, MarketingCTA } from "@/components/marketing/marketing-
 import { SITE_URL } from "@/lib/seo/public-routes";
 import { edgeApiUrl } from "@/lib/edge-api";
 import {
+  escapeJsonForScript,
+  resolvePrerenderSeed,
+  seedDomId,
+} from "@/lib/seo/prerender-seed";
+import {
   DURABILITY_REPORT_FAQS,
   DURABILITY_REPORT_PUBLISHED,
   durabilityReportJsonLd,
@@ -20,6 +25,9 @@ import {
 
 const CANONICAL = `${SITE_URL}/state-of-durability`;
 const PENDING = "Not enough data yet";
+// US-1775 (indexability): stable key for the build-time seed so the brand
+// rankings land in the crawlable HTML (see src/lib/seo/prerender-seed.ts).
+const SEED_KEY = "durability-report";
 
 interface BrandFinding {
   brand: string;
@@ -91,6 +99,10 @@ function BrandTable({ rows, kind }: { rows: BrandFinding[]; kind: "durable" | "f
 }
 
 function DurabilityReportBody() {
+  // US-1775 (indexability): seed initial data from the build-time fetch so the
+  // rankings land in the crawlable HTML (SSR) and hydrate without a flash
+  // (inline JSON). Degrades to fetch-on-mount when unseeded.
+  const seed = resolvePrerenderSeed<DurabilityReport>(SEED_KEY);
   const { data } = useQuery<DurabilityReport>({
     queryKey: ["durability-report"],
     queryFn: async () => {
@@ -98,12 +110,20 @@ function DurabilityReportBody() {
       if (!res.ok) throw new Error("Failed to load report");
       return res.json();
     },
+    initialData: seed ?? undefined,
     staleTime: 10 * 60 * 1000,
   });
 
   const sample = data?.sample;
   return (
     <>
+      {data && (
+        <script
+          type="application/json"
+          id={seedDomId(SEED_KEY)}
+          dangerouslySetInnerHTML={{ __html: escapeJsonForScript(data) }}
+        />
+      )}
       <section className="border-t bg-card px-6 py-12">
         <div className="mx-auto grid max-w-4xl gap-4 sm:grid-cols-3">
           {[
