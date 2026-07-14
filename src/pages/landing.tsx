@@ -667,8 +667,8 @@ export function LandingPage() {
       <section className="relative flex flex-col items-center justify-center px-6 py-24 text-center lg:py-32 overflow-hidden">
         {/* Ambient background glows — also the static "poster" fallback shown
             when the WebGL orb is gated off (mobile / reduced-motion / no GL). */}
-        <div className="absolute top-1/4 left-1/2 -z-10 h-72 w-72 -translate-x-1/2 rounded-full bg-brand-red/10 blur-[100px]" />
-        <div className="absolute bottom-1/4 left-1/3 -z-10 h-96 w-96 rounded-full bg-brand-navy/15 blur-[120px] dark:bg-brand-navy/35" />
+        <div className="gt-parallax-cx absolute top-1/4 left-1/2 -z-10 h-72 w-72 -translate-x-1/2 rounded-full bg-brand-red/10 blur-[100px]" />
+        <div className="gt-parallax absolute bottom-1/4 left-1/3 -z-10 h-96 w-96 rounded-full bg-brand-navy/15 blur-[120px] dark:bg-brand-navy/35" />
 
         {/* Readability scrim — sits above the orb, below the copy, so the
             paragraph keeps contrast over the animated graphic. */}
@@ -724,7 +724,10 @@ export function LandingPage() {
               <div key={stat.label} className="flex flex-col items-center text-center">
                 <stat.icon aria-hidden="true" className="mb-2 h-5 w-5 text-brand-red" />
                 <dt className="sr-only">{stat.label}</dt>
-                <dd className="text-3xl font-extrabold font-display tabular-nums">
+                <dd
+                  data-countup
+                  className="text-3xl font-extrabold font-display tabular-nums"
+                >
                   {stat.value}
                 </dd>
                 <p aria-hidden="true" className="mt-1 text-xs text-white/70">

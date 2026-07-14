@@ -58,6 +58,8 @@ export function ScrollExperience({ children }: { children: ReactNode }) {
     // never hide anything.
     let revealObserver: IntersectionObserver | null = null;
     const revealEls: HTMLElement[] = [];
+    let countObserver: IntersectionObserver | null = null;
+    const countEls: { el: HTMLElement; final: string }[] = [];
 
     if (!reduced) {
       root.setAttribute("data-scroll-enhanced", "");
@@ -96,6 +98,45 @@ export function ScrollExperience({ children }: { children: ReactNode }) {
           revealEls.push(el);
         }
       }
+
+      // ── Tier 0c: count-up for [data-countup] on first enter (US-1960) ────────
+      // Numbers ease from 0 to their prerendered value. JS-driven, so no-JS /
+      // bots keep the final value; we restore it exactly on complete + teardown.
+      const nums = Array.from(
+        document.querySelectorAll<HTMLElement>("[data-countup]"),
+      );
+      if (nums.length > 0 && "IntersectionObserver" in window) {
+        countObserver = new IntersectionObserver(
+          (entries, obs) => {
+            for (const entry of entries) {
+              if (!entry.isIntersecting) continue;
+              const el = entry.target as HTMLElement;
+              obs.unobserve(el);
+              const final = (el.textContent ?? "").trim();
+              const m = final.match(/^(\d+)(\D*)$/);
+              if (!m) continue;
+              const target = parseInt(m[1]!, 10);
+              const suffix = m[2] ?? "";
+              const duration = 900;
+              let start = 0;
+              const step = (ts: number) => {
+                if (!start) start = ts;
+                const t = Math.min((ts - start) / duration, 1);
+                const eased = 1 - Math.pow(1 - t, 3);
+                el.textContent = Math.round(eased * target) + suffix;
+                if (t < 1) window.requestAnimationFrame(step);
+                else el.textContent = final;
+              };
+              window.requestAnimationFrame(step);
+            }
+          },
+          { threshold: 0.5 },
+        );
+        for (const el of nums) {
+          countEls.push({ el, final: (el.textContent ?? "").trim() });
+          countObserver.observe(el);
+        }
+      }
     }
 
     // ── Tier 1: momentum smooth-scroll + ScrollTrigger (gated + lazy) ──────────
@@ -128,6 +169,8 @@ export function ScrollExperience({ children }: { children: ReactNode }) {
         el.classList.remove("gt-reveal-init", "gt-reveal-in");
         el.style.removeProperty("transition-delay");
       }
+      countObserver?.disconnect();
+      for (const { el, final } of countEls) el.textContent = final;
       root.removeAttribute("data-scroll-enhanced");
       root.style.removeProperty("--gt-scroll");
       disposeRef.current?.();

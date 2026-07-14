@@ -456,6 +456,39 @@ html.lenis body {
   animation-delay: 0.34s;
 }
 
+/* US-1960: native CSS scroll-driven parallax on decorative background glows —
+   zero JS, per-element progress via animation-timeline: view(). Guarded by
+   @supports (so unsupported browsers show a static glow) and reduced-motion.
+   Two variants so the parallax composes with a glow's centering transform. */
+@keyframes gtParallaxY {
+  from {
+    transform: translateY(-14%);
+  }
+  to {
+    transform: translateY(14%);
+  }
+}
+@keyframes gtParallaxCxY {
+  from {
+    transform: translate(-50%, -14%);
+  }
+  to {
+    transform: translate(-50%, 14%);
+  }
+}
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .gt-parallax {
+      animation: gtParallaxY linear both;
+      animation-timeline: view();
+    }
+    .gt-parallax-cx {
+      animation: gtParallaxCxY linear both;
+      animation-timeline: view();
+    }
+  }
+}
+
 /* US-1959: FlipDesk pipeline — a swipeable horizontal gallery. Hidden
    scrollbar, snap, and a soft edge-fade that both polishes the look and hints
    that the row scrolls (a peek of the next panel does the rest). */

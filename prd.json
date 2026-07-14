@@ -16603,8 +16603,8 @@
         "prefers-reduced-motion / no-JS: all content in final state, zero motion; no second animation library added"
       ],
       "priority": 2598,
-      "passes": false,
-      "notes": "[P3][Web/Motion] Apple-style flowed-homepage design plan 2026-07-13. Phase 4. Native-first: CSS scroll-driven animations (Chromium shipped; Safari/FF progressive) handle the cheap reveal/parallax layer with zero JS, GSAP only as fallback + for count-ups. Keeps bundle lean and matches the perf goal.",
+      "passes": true,
+      "notes": "[P3][Web/Motion] Apple-style flowed-homepage design plan 2026-07-13. Phase 4. Native-first: CSS scroll-driven animations (Chromium shipped; Safari/FF progressive) handle the cheap reveal/parallax layer with zero JS, GSAP only as fallback + for count-ups. Keeps bundle lean and matches the perf goal. DONE 2026-07-13 — reveal primitive (data-gt-reveal, IntersectionObserver) already shared across sections from Phase 1. Added: (1) count-up for [data-countup] numbers (PROOF_STATS band) easing 0→value on first enter, JS-driven so no-JS/bots keep the final value, restored exactly on complete+teardown; non-numeric values (1.0–10.0) skipped by the parser. (2) native CSS scroll-driven parallax (.gt-parallax/.gt-parallax-cx via animation-timeline: view()) on the hero background glows — zero JS, guarded by @supports + prefers-reduced-motion so unsupported browsers show a static glow. Broader scroll-linked depth already provided by the continuous background field (US-1954). Verified numbers render correct final values; parallax guarded.",
       "relevantPaths": [
         "src/pages/landing.tsx",
         "src/components/marketing/stat-counters.tsx",
