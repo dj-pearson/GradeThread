@@ -105,6 +105,12 @@ export async function buildValueCurve(
     };
   });
 
+  // US-1947: comps are fetched per condition BUCKET and value is positioned per
+  // grade within a bucket, which can INVERT across buckets (a higher grade worth
+  // less than a lower one when the better condition has thinner/cheaper comps).
+  // A better grade must never be valued below a worse one — enforce it.
+  enforceGradeMonotonic(points);
+
   // Distinct buckets → sum each bucket's count once (grades share buckets).
   const totalSampleSize = [...buckets.values()].reduce((sum, s) => sum + s.count, 0);
 
@@ -118,6 +124,43 @@ export async function buildValueCurve(
     totalSampleSize,
     refreshedAt: new Date().toISOString(),
   };
+}
+
+/**
+ * US-1947: make a value curve monotonic in grade. Because comps are bucketed by
+ * eBay condition, a naive per-grade value can invert across buckets — but a
+ * better condition grade must never be worth less than a worse one. We clamp
+ * each field (low/median/high) to a running maximum as grade increases, lifting
+ * any inverted higher grade up to the floor the lower grades set, then keep each
+ * point internally ordered (low ≤ median ≤ high). Null (insufficient) points are
+ * left untouched. Mutates in place. Exported for unit testing.
+ */
+export function enforceGradeMonotonic(points: CurvePoint[]): void {
+  const asc = [...points].sort((a, b) => a.grade - b.grade);
+  let lo = -Infinity;
+  let med = -Infinity;
+  let hi = -Infinity;
+  for (const p of asc) {
+    if (p.lowCents != null) {
+      lo = Math.max(lo, p.lowCents);
+      p.lowCents = lo;
+    }
+    if (p.medianCents != null) {
+      med = Math.max(med, p.medianCents);
+      p.medianCents = med;
+    }
+    if (p.highCents != null) {
+      hi = Math.max(hi, p.highCents);
+      p.highCents = hi;
+    }
+    // Keep the range internally consistent after clamping.
+    if (p.lowCents != null && p.medianCents != null) {
+      p.lowCents = Math.min(p.lowCents, p.medianCents);
+    }
+    if (p.highCents != null && p.medianCents != null) {
+      p.highCents = Math.max(p.highCents, p.medianCents);
+    }
+  }
 }
 
 interface CurveRow {

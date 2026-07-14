@@ -8,9 +8,8 @@ Deno.env.set(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
 );
 
-const { buildValueCurve, normalizeItemKey, CURVE_GRADE_POINTS } = await import(
-  "../lib/condition-curve.ts"
-);
+const { buildValueCurve, normalizeItemKey, CURVE_GRADE_POINTS, enforceGradeMonotonic } =
+  await import("../lib/condition-curve.ts");
 
 function statsFor(conditionId: string) {
   // Return richer comps for the "used" bucket; thin for new buckets.
@@ -69,4 +68,35 @@ Deno.test("a bucket fetch failure degrades that bucket's grades to insufficient,
   assertEquals(g6.sufficient, false);
   const g9 = curve.points.find((p) => p.grade === 9)!; // 1500 bucket → ok-ish
   assert(g9 !== undefined);
+});
+
+// US-1947: a better grade must never be valued below a worse one, even when the
+// higher-condition bucket has cheaper/thinner comps than a lower one (the
+// "grade-9 priced above grade-10" bug the Condition Index QA found).
+Deno.test("enforceGradeMonotonic lifts an inverted higher grade (value never decreases with grade)", () => {
+  const points = [
+    { grade: 10, lowCents: 15000, medianCents: 21800, highCents: 25800, sampleSize: 25, sufficient: true },
+    // Inverted: grade 9 is priced ABOVE grade 10.
+    { grade: 9, lowCents: 18700, medianCents: 23000, highCents: 30600, sampleSize: 25, sufficient: true },
+    { grade: 8, lowCents: 10000, medianCents: 15000, highCents: 20000, sampleSize: 20, sufficient: true },
+    // Insufficient point stays untouched (null).
+    { grade: 3, lowCents: null, medianCents: null, highCents: null, sampleSize: 0, sufficient: false },
+  ];
+  enforceGradeMonotonic(points);
+  const med = (grade: number): number =>
+    points.find((p) => p.grade === grade)!.medianCents!;
+  // Non-decreasing with grade: 10 ≥ 9 ≥ 8.
+  assert(med(10) >= med(9), "grade 10 must be ≥ grade 9");
+  assert(med(9) >= med(8), "grade 9 must be ≥ grade 8");
+  // The inverted grade-10 was lifted up to the grade-9 floor.
+  assertEquals(med(10), 23000);
+  // Each point keeps low ≤ median ≤ high; the insufficient point stays null.
+  for (const p of points) {
+    if (p.medianCents === null) {
+      assertEquals(p.lowCents, null);
+      continue;
+    }
+    assert(p.lowCents! <= p.medianCents!, "low ≤ median");
+    assert(p.medianCents! <= p.highCents!, "median ≤ high");
+  }
 });
