@@ -43,7 +43,7 @@ const CATEGORIES = [
     name: "Vintage",
     leadFactor: "Design vs. damage",
     watch:
-      "Age-appropriate character — soft hand, gentle fading, a single-stitch patina — is expected, not penalized. Holes, stains, brittleness, and repairs are.",
+      "Age-appropriate character — soft hand, gentle fading, a single-stitch patina — is expected wear for age, not penalized. Fresh holes, stains, and brittleness are. A quality professional repair (a museum-grade reweave, sympathetic darning) is judged on how well it preserves the piece — not lumped in with damage — though the mend is disclosed either way.",
     shoot: "Tags and construction details, plus any flaw and any patina.",
   },
 ];

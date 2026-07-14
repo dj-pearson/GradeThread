@@ -107,7 +107,10 @@ export function ResellerGradingGuidePage() {
               <span className="font-medium text-foreground">
                 Cosmetic appearance (20%)
               </span>{" "}
-              — marks, wrinkling, print condition.
+              — marks, wrinkling, print condition. Age-appropriate patina on
+              vintage is expected wear for age, and a quality professional
+              repair is judged on preservation — neither is lumped in with
+              damage.
             </li>
             <li>
               <span className="font-medium text-foreground">

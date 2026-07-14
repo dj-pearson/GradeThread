@@ -1385,7 +1385,7 @@ export const GRADING_BY_CATEGORY_FAQS = [
   },
   {
     q: "How are vintage items graded differently?",
-    a: "Vintage is still graded against its as-made condition, but age-appropriate character — a soft hand, gentle fading, a single-stitch tee's patina — isn't treated as damage. Holes, stains, brittleness, and repairs are. That's why getting the design-versus-damage call right matters most on vintage.",
+    a: "Vintage is still graded against its as-made condition, but age-appropriate character — a soft hand, gentle fading, a single-stitch tee's patina — is expected wear for age, not damage. Fresh holes, stains, and brittleness are. A quality professional repair — a museum-grade reweave or sympathetic darning — is graded on how well it preserves the piece rather than lumped in with damage, though the mend is always disclosed. That's why getting the design-versus-damage call right matters most on vintage.",
   },
   {
     q: "Does category change how I should photograph for a grade?",

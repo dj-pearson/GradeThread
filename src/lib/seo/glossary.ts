@@ -299,12 +299,13 @@ const FACTOR_CONTENT: Record<GradeFactorKey, FactorContent> = {
   },
   cosmetic_appearance: {
     definition:
-      "Cosmetic Appearance accounts for 20% of the overall grade. It captures the garment's visual presentation — how clean, crisp, and well-kept it looks at a glance, beyond the fabric and construction.",
+      "Cosmetic Appearance accounts for 20% of the overall grade. It captures the garment's visual presentation — how clean, crisp, and well-kept it looks at a glance, beyond the fabric and construction. It is assessed against the garment's as-made state: age-appropriate patina on vintage — a soft hand, gentle fading, a single-stitch tee's character — is expected wear for age, not a cosmetic penalty. A quality professional repair, such as a museum-grade reweave or sympathetic darning, is judged on how well it preserves the piece rather than lumped in with damage (the mend is always disclosed either way).",
     lookFor: [
       "Surface marks, scuffs, or visible blemishes",
       "Wrinkling, misshaping, or poor drape",
       "Print, graphic, or embellishment condition",
       "Overall 'shelf appeal' and presentation",
+      "Expected wear for age on vintage (patina, gentle fading) — not counted as a cosmetic defect",
     ],
     examples: [
       "A graphic tee judged on whether the print is cracked or vibrant.",
@@ -314,6 +315,10 @@ const FACTOR_CONTENT: Record<GradeFactorKey, FactorContent> = {
       {
         q: "What is cosmetic appearance in a condition grade?",
         a: "Cosmetic Appearance captures how clean, crisp, and well-kept a garment looks at a glance — surface marks, wrinkling, and print condition. It is 20% of the overall grade.",
+      },
+      {
+        q: "Do vintage patina or quality repairs lower the cosmetic score?",
+        a: "No. Age-appropriate patina and expected wear for age on vintage aren't cosmetic penalties — the piece is graded against its as-made state, the same design-versus-damage distinction used everywhere else. And a quality professional repair, like a museum-grade reweave or sympathetic darning, is judged on how well it preserves the garment rather than lumped in with damage, though the mend is always disclosed.",
       },
     ],
   },
