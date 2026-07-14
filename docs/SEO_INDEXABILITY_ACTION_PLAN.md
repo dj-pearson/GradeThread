@@ -100,13 +100,72 @@ problem is almost certainly NOT missing plumbing. It's a combination of:
 
 ---
 
+## Measured indexable surface (build of 2026-07-14)
+
+Authoritative static count from `dist/seo-manifest.json` (what the sitemap emits):
+**213 static registry URLs**, GSC-segmented as **75 marketing** + **138 grading pSEO**.
+
+| Bucket | URLs | Nature |
+|---|---:|---|
+| Condition glossary (reseller terms) | 45 | templated |
+| Flaw library | 33 | templated |
+| Garment grading guides | 33 | templated |
+| Marketplace comparisons (`/compare`) | 17 | templated |
+| Tier/factor glossary spokes | 12 | templated |
+| Reselling guides | 11 | templated |
+| Marketplace condition standards | 10 | templated |
+| FlipDesk landings | 5 | templated |
+| Free tools | 3 | interactive |
+| Grading standard/scale/methodology | 7 | hand-written |
+| Legal | 10 | hand-written |
+| Top-level marketing/company | 27 | hand-written |
+
+**~169 of 213 (79%) are programmatic/templated; only ~44 are hand-written.**
+
+On top of this, dynamic (DB/edge) families NOT in the static count — count them from
+GSC per-sitemap "Discovered URLs" or the public feeds: `/blog/*` + tags, `/cert/*`
+(every public certificate — likely the largest family + highest thin-content risk),
+`/verified/*` sellers, `/authors/*`, `/condition-index/*`, `/value/{brand}/{item}`,
+`/durability/{brand}`.
+
+**Judgment:** for a young/low-authority domain this is on the large side and fits the
+"Discovered / Crawled – currently not indexed" profile. Trim/`noindex` the thinnest
+grading pSEO AFTER GSC confirms which segment (`sitemap-grading.xml` indexation rate)
+is being filtered — cut on data, not estimate.
+
+## What GENERATES the pSEO — and how to stop it
+
+Three layers produce these pages; only the third one keeps *growing* the surface:
+
+1. **Build-time static generators** — checked-in data modules under `src/lib/seo/*.ts`
+   (`glossary.ts`, `reseller-glossary.ts`, `flaw-library.ts`, `garment-guides.ts`,
+   `comparison-guides.ts`, `reselling-guides.ts`, `platform-standards.ts`,
+   `opportunist-guides.ts`, `flipdesk-landing.ts`). Each exports a hand-authored array
+   that `PUBLIC_ROUTES` spreads in → the 213 static URLs. **Inert**: they only grow when
+   someone adds entries. To shrink: remove a family's spread from `PUBLIC_ROUTES`
+   (or gate it `noindex`).
+2. **Runtime index generators** — `/condition-index/*`, `/value/*`, `/durability/*` are
+   edge-SSR'd from `condition_index_seeds` (**54 seed rows**, `00190_*`) × the eBay
+   comp curves, with a `MIN_INDEX_TOTAL_SAMPLE = 8` suppression floor. Bounded today at
+   ~54 items. Stays bounded **as long as no auto-seed job runs**.
+3. **The factory that scales it: the Ralph autonomous loop + the `prd.json` backlog.**
+   `scripts/ralph/` (ralph.sh / run.mjs) works `passes:false` stories autonomously.
+   The pending epic **US-1745 "Scale the Condition/Value Index into a programmatic-SEO
+   engine"** explicitly wants to grow "the current 54-seed index into **thousands** of
+   brand × category × condition `/value` pages." That is the pSEO explosion to stop.
+
+**To stop new pSEO from being generated:**
+- [ ] **Stop the Ralph loop** so it can't pick up more SEO stories — `scripts/ralph/stop-ralph.sh`
+      (or `kill-ralph.sh`). If it runs as a Coolify scheduled task / server cron, disable that too.
+- [ ] **Park US-1745 (and any `[VALUE-INDEX]` child stories)** in `prd.json` — remove it from the
+      active backlog (or mark done/on-hold) so nothing implements the thousands-of-pages expansion.
+      **Do this only after Ralph is stopped** (CLAUDE.md: stop the loop before rewriting `prd.json`,
+      or a running iteration clobbers the edit).
+- [ ] **Do not run any auto-seed generation** against `condition_index_seeds` — keeping it at 54
+      keeps the dynamic `/value` space small.
+
 ## Notes
 
-- Static indexable surface = ~40 enumerated routes in `PUBLIC_ROUTES` **plus** several
-  generated pSEO families (glossary, reseller-glossary, flipdesk landings, reselling
-  guides, flaw library, garment guides, 16 comparisons, 9 platform standards, free
-  tools, …). Exact total is only knowable from a build (`dist/seo-manifest.json`) or
-  GSC — measure it before deciding what to trim.
 - `hreflang` is intentionally omitted (single-locale en site) — not a defect.
 - The `noindex` usages that exist (404, blog previews, photo-less certs, trust
   profiles, admin) are all correct.
