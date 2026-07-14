@@ -16,6 +16,11 @@ import {
 import { SITE_URL } from "@/lib/seo/public-routes";
 import { edgeApiUrl } from "@/lib/edge-api";
 import {
+  escapeJsonForScript,
+  resolvePrerenderSeed,
+  seedDomId,
+} from "@/lib/seo/prerender-seed";
+import {
   RESALE_REPORT_FAQS,
   RESALE_REPORT_PUBLISHED,
   resaleConditionReportJsonLd,
@@ -31,6 +36,9 @@ import {
 
 const CANONICAL = `${SITE_URL}/resale-condition-report`;
 const PENDING = "Not enough data yet";
+// US-976 (indexability): stable key for the build-time seed so the aggregate
+// figures land in the crawlable HTML (see src/lib/seo/prerender-seed.ts).
+const SEED_KEY = "resale-condition-report";
 
 interface ResaleRollup {
   fulfilled_sales: number;
@@ -96,6 +104,12 @@ function formatDate(iso: string | null): string | null {
 }
 
 function useResaleConditionReport() {
+  // US-976 (indexability): initial data comes from the build-time seed — during
+  // SSR from the prerender-set module, in the browser from the inline JSON script
+  // the prerender baked in. Either way the figures are in the initial render
+  // (crawlers read them without JS; humans see them at mount), and TanStack Query
+  // revalidates live as before. With no seed the query fetches on mount as before.
+  const seed = resolvePrerenderSeed<ResaleConditionReport>(SEED_KEY);
   return useQuery<ResaleConditionReport>({
     queryKey: ["resale-condition-report"],
     queryFn: async () => {
@@ -103,6 +117,7 @@ function useResaleConditionReport() {
       if (!res.ok) throw new Error(`Resale condition report unavailable (${res.status})`);
       return res.json();
     },
+    initialData: seed ?? undefined,
     staleTime: 10 * 60 * 1000,
     retry: 1,
   });
@@ -170,6 +185,17 @@ export function ResaleConditionReportPage() {
         : null;
 
   return (
+    <>
+      {/* US-976 (indexability): embed the report so (a) the prerendered HTML
+          carries it for the live SPA's initialData and (b) hydration shows the
+          same figures the crawlable HTML had — no numbers→spinner→numbers flash. */}
+      {data && (
+        <script
+          type="application/json"
+          id={seedDomId(SEED_KEY)}
+          dangerouslySetInnerHTML={{ __html: escapeJsonForScript(data) }}
+        />
+      )}
     <MarketingLayout
       title="State of Resale Condition Report"
       description="Original GradeThread data on how a garment's condition grade drives buyer return rate, sell-through, and resale value on the standardized 1.0–10.0 scale."
@@ -546,5 +572,6 @@ export function ResaleConditionReportPage() {
 
       <MarketingCTA />
     </MarketingLayout>
+    </>
   );
 }
