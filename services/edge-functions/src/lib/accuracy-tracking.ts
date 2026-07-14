@@ -737,6 +737,13 @@ export async function computeWeeklyAccuracySummary(): Promise<AccuracySummary> {
 // Below this many reviewed/sold items we don't publish a rate — too small to
 // be meaningful, and a single outlier would distort it.
 const PUBLIC_MIN_SAMPLE = 10;
+// US-1946: the headline AI-vs-expert AGREEMENT figure is cited as a bare
+// percentage on marketing surfaces (the homepage stat counters), where — unlike
+// the /transparency table — it can't carry its sample size inline. A percentage
+// off a handful of reviews (a single disagreement swings it ~10% at n=10) reads
+// as puffery, so the % is withheld until the sample is genuinely citable. This
+// is deliberately higher than the per-category floor above.
+const PUBLIC_MIN_AGREEMENT_SAMPLE = 100;
 // Cap the rows scanned for the cheap confidence/review-rate aggregate. At
 // launch scale this is every row; it bounds cost as volume grows. The figure
 // is described as "recent grades" on the page so the cap is truthful.
@@ -874,8 +881,12 @@ async function loadCitableReliability(): Promise<
 
 // Publish a rate only when there's a meaningful sample behind it; otherwise
 // null so the page says "not enough data yet" instead of a misleading number.
-function publishedRate(rate: number, sample: number): number | null {
-  return sample >= PUBLIC_MIN_SAMPLE ? rate : null;
+function publishedRate(
+  rate: number,
+  sample: number,
+  min: number = PUBLIC_MIN_SAMPLE,
+): number | null {
+  return sample >= min ? rate : null;
 }
 
 // US-866: project the internal per-category accuracy onto a public-safe, sample-
@@ -959,7 +970,11 @@ export async function computePublicTransparency(): Promise<PublicTransparencyRep
       graded_sales: gradedSales,
     },
     quality: {
-      human_agreement_rate: publishedRate(accuracy.global_agreement_rate, humanReviews),
+      human_agreement_rate: publishedRate(
+        accuracy.global_agreement_rate,
+        humanReviews,
+        PUBLIC_MIN_AGREEMENT_SAMPLE, // US-1946: bare % needs a robust sample
+      ),
       mean_absolute_error: publishedRate(accuracy.global_mean_absolute_error, humanReviews),
       intentional_misread_rate: publishedRate(
         accuracy.global_intentional_misread_rate,
@@ -1043,7 +1058,11 @@ export async function computePublicStats(): Promise<PublicStats> {
     items_graded: graded.count ?? 0,
     verified_sellers: sellers.count ?? 0,
     graded_sales: sales.count ?? 0,
-    agreement_rate: publishedRate(accuracy.global_agreement_rate, accuracy.total_reviews),
+    agreement_rate: publishedRate(
+      accuracy.global_agreement_rate,
+      accuracy.total_reviews,
+      PUBLIC_MIN_AGREEMENT_SAMPLE, // US-1946: bare % needs a robust sample
+    ),
   };
 }
 

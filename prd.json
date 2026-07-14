@@ -16337,8 +16337,8 @@
         "A guard/test asserts the marketing accuracy stat is never rendered without an accompanying n"
       ],
       "priority": 1946,
-      "passes": false,
-      "notes": "[P2][Web/Content] 5-persona QA sweep 2026-07-13. Flagged by 4 of 5 personas. Transparency page is honest and shows n; only the marketing headline strips it. Low-effort, high-trust fix.",
+      "passes": true,
+      "notes": "[P2][Web/Content] 5-persona QA sweep 2026-07-13. Flagged by 4 of 5 personas. Transparency page is honest and shows n; only the marketing headline strips it. Low-effort, high-trust fix. DONE 2026-07-13 (local main, edge — deploys via Coolify on push, no migration). Root cause: accuracy-tracking.ts published the AI-vs-expert AGREEMENT percentage once sample >= PUBLIC_MIN_SAMPLE (10) — so at n=14 the homepage StatCounters showed a bare \"100%\" with no n (the counter format can't carry a sample size, unlike /transparency). Fix: added PUBLIC_MIN_AGREEMENT_SAMPLE=100 and gated BOTH agreement figures on it (the /transparency headline human_agreement_rate + the /stats feed agreement_rate that drives the marketing counters); publishedRate() gained an optional min param. Below 100 reviews the rate is null → the counter omits it (client resolveCounters already drops null) and /transparency says \"not enough data yet\". Per-category floor + MAE/dispute rates unchanged (still 10). The grading pages' \"100%\" is factor-weights-sum (legitimate, untouched). deno check + lint clean; grading-accuracy/shadow/model-comparison tests green. Threshold is a documented, tunable constant.",
       "relevantPaths": [
         "src/pages/landing.tsx",
         "src/components/marketing/stat-counters-logic.ts",
