@@ -66,6 +66,7 @@ import {
   ResellerGlossaryHubPage,
   ResellerGlossaryTermPage,
 } from "@/pages/marketing/reseller-glossary";
+import { HtmlSitemapPage } from "@/pages/marketing/sitemap";
 import { VerifiedDirectoryPage } from "@/pages/verified-directory";
 import { StatusPage } from "@/pages/status";
 import { ReferralLeaderboardPage } from "@/pages/referral-leaderboard";
@@ -161,6 +162,8 @@ const PAGES: Record<string, React.ReactNode> = {
   // client-side; the prerendered shell carries the methodology + Dataset JSON-LD.
   "/resale-condition-report": <ResaleConditionReportPage />,
   "/state-of-durability": <StateOfDurabilityPage />,
+  // US-291: human HTML sitemap (long-tail internal-link discovery surface).
+  "/sitemap": <HtmlSitemapPage />,
   "/verify": <VerifyGradePage />,
   // US-1106: buyer-facing "scan before you buy" passport lookup landing.
   "/scan": <PassportScanPage />,
@@ -337,6 +340,7 @@ export const ROUTE_PAGE_MODULES: Record<string, string> = {
   "/transparency": `${M}marketing/transparency`,
   "/resale-condition-report": `${M}marketing/resale-condition-report`,
   "/state-of-durability": `${M}marketing/state-of-durability`,
+  "/sitemap": `${M}marketing/sitemap`,
   "/verify": `${M}marketing/verify`,
   "/scan": `${M}marketing/passport-scan`,
   "/developers": `${M}marketing/developers`,

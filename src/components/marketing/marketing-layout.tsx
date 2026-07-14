@@ -135,12 +135,23 @@ export function MarketingLayout({
               height={24}
               className="h-6 w-auto"
             />
-            <div className="grid grid-cols-2 gap-8 sm:grid-cols-3">
+            <div className="grid grid-cols-2 gap-8 sm:grid-cols-3 lg:grid-cols-4">
               <FooterColumn title="Product">
                 <FooterLink to="/how-it-works">How It Works</FooterLink>
                 <FooterLink to="/pricing">Pricing</FooterLink>
                 <FooterLink to="/for-resellers">For Resellers</FooterLink>
                 <FooterLink to="/condition-grading">Condition Grading</FooterLink>
+              </FooterColumn>
+              {/* US-291: surface the pSEO hubs so the long programmatic tail
+                  (glossary, comparisons, standards, guides, tools) is reachable
+                  by crawlers via the global footer, not only the XML sitemap. */}
+              <FooterColumn title="Guides & Tools">
+                <FooterLink to="/grading/scale">Grading Scale</FooterLink>
+                <FooterLink to="/grading/glossary">Condition Glossary</FooterLink>
+                <FooterLink to="/condition-index">Condition Index</FooterLink>
+                <FooterLink to="/compare">Compare Marketplaces</FooterLink>
+                <FooterLink to="/reselling">Reselling Guides</FooterLink>
+                <FooterLink to="/tools/grade-checker">Free Grading Tools</FooterLink>
               </FooterColumn>
               <FooterColumn title="Sellers">
                 <FooterLink to="/whats-it-worth">What's It Worth?</FooterLink>
@@ -195,6 +206,10 @@ export function MarketingLayout({
               </Link>
               <Link to="/status" className="hover:text-foreground">
                 Status
+              </Link>
+              {/* US-291: human HTML sitemap — one hop to every public page. */}
+              <Link to="/sitemap" className="hover:text-foreground">
+                Sitemap
               </Link>
               <button
                 type="button"

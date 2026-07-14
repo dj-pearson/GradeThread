@@ -159,6 +159,8 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/accessibility": "2026-04-01",
   "/status": "2026-06-12",
   "/leaderboard": "2026-06-13",
+  // US-291: human HTML sitemap (long-tail internal-link discovery surface).
+  "/sitemap": "2026-07-14",
 };
 
 /** Stable content-change date for a route's sitemap <lastmod>. */
@@ -548,6 +550,18 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     description:
       "The GradeThread top-referrers leaderboard — members who share GradeThread and earn grade credits when friends join and qualify.",
     changefreq: "daily",
+    priority: 0.3,
+  },
+  {
+    // US-291: human-readable HTML sitemap — one in-site hop to every public page,
+    // so the long programmatic tail (glossary spokes, comparisons, platform
+    // standards, guides) is reachable by crawlers via internal links, not only
+    // the XML sitemap. Derives its links from this same registry.
+    path: "/sitemap",
+    title: "Sitemap",
+    description:
+      "Every public GradeThread page in one place — the grading standard and glossary, marketplace comparisons, reselling guides, free tools, and data reports.",
+    changefreq: "weekly",
     priority: 0.3,
   },
   // Condition-grading glossary hub (US-303): one page per grade tier + factor,
