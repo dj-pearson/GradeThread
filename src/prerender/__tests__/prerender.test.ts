@@ -89,24 +89,14 @@ describe("prerender head-builder (US-292)", () => {
   });
 });
 
-// US-1950: the client route-chunk preload map must cover every prerendered path
-// (and nothing more), or a route ships without its chunk preloaded and flashes
-// the full-screen suspense spinner. entry-server also enforces this at import via
-// a throwing guard; this test gives a fast, readable CI signal on drift.
-describe("route→chunk preload map (US-1950)", () => {
-  it("ROUTE_PAGE_MODULES has exactly one entry per prerenderable path", async () => {
-    const { PRERENDERABLE_PATHS, ROUTE_PAGE_MODULES } = await import(
-      "../entry-server"
-    );
-    const paths = [...PRERENDERABLE_PATHS].sort();
-    const mapped = Object.keys(ROUTE_PAGE_MODULES).sort();
-    expect(mapped).toEqual(paths);
-    // Every module id points under src/pages/ (matched by suffix in prerender.mjs).
-    for (const id of Object.values(ROUTE_PAGE_MODULES)) {
-      expect(id).toMatch(/^src\/pages\//);
-    }
-  });
-});
+// US-1950: the client route-chunk preload map (ROUTE_PAGE_MODULES) must cover
+// every prerendered path (and nothing more), or a route ships without its chunk
+// preloaded and flashes the full-screen suspense spinner. This is enforced at
+// entry-server import time by a THROWING guard that runs during `npm run build`
+// (the prerender imports it, and verify builds before vitest) — a strictly
+// stronger signal than a unit test, and it avoids pulling the SSR entry into the
+// web coverage denominator. The post-build test below then proves the preloads
+// actually reach the emitted HTML.
 
 // These run only after a build has produced dist/. Skipped otherwise so the
 // unit suite stays build-independent; CI runs them after `npm run build`.
