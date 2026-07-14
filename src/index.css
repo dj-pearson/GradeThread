@@ -416,3 +416,33 @@ html.lenis body {
   transform: none;
 }
 
+/* US-1959: FlipDesk pipeline — a swipeable horizontal gallery. Hidden
+   scrollbar, snap, and a soft edge-fade that both polishes the look and hints
+   that the row scrolls (a peek of the next panel does the rest). */
+.gt-hscroll {
+  scrollbar-width: none;
+  scroll-snap-type: x proximity;
+  scroll-padding-inline: 9vw;
+  -webkit-overflow-scrolling: touch;
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 5%,
+    #000 95%,
+    transparent
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 5%,
+    #000 95%,
+    transparent
+  );
+}
+.gt-hscroll::-webkit-scrollbar {
+  display: none;
+}
+.flipdesk-panel {
+  scroll-snap-align: center;
+}
+

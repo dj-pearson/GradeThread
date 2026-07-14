@@ -121,6 +121,54 @@ const howItWorks = [
   },
 ];
 
+// US-1959: the FlipDesk pipeline, shown as a horizontal scroll-pinned track
+// (source → grade → list → sell → reconcile) with stylized product mocks,
+// instead of static icon cards. Falls back to a swipeable row on mobile.
+const FLIPDESK_STAGES = [
+  {
+    icon: Boxes,
+    title: "Source & scout",
+    description:
+      "Log thrift hauls, estate sales, and auction lots — and let ScoutAI pull real sold comps so you only buy what flips.",
+    mock: ["Sourced 42 items", "ScoutAI comps ✓", "Est. margin +38%"],
+  },
+  {
+    icon: Award,
+    title: "Grade for trust",
+    description:
+      "Send items straight to GradeThread and attach a verified grade, certificate, and Garment Passport.",
+    mock: ["Grade 9.0 · NWOT", "Certificate issued", "Passport linked"],
+  },
+  {
+    icon: Layers,
+    title: "AutoLister",
+    description:
+      "Turn photos into ready-to-publish, AI-written listings in bulk, then time launches with scheduled drops.",
+    mock: ["37 photos → 12 drafts", "AI titles written", "Scheduled 6:00pm"],
+  },
+  {
+    icon: Tag,
+    title: "List & cross-list",
+    description:
+      "Compose eBay-ready titles, descriptions, and item specifics with a live preview, and cross-list to more channels.",
+    mock: ["eBay · Poshmark", "Item specifics ✓", "Live preview"],
+  },
+  {
+    icon: Gauge,
+    title: "Reprice automatically",
+    description:
+      "Repricing rules and bulk pricing keep prices moving toward a sale without manual edits.",
+    mock: ["Rule: −5% / 14 days", "18 prices updated", "3 sales triggered"],
+  },
+  {
+    icon: BarChart3,
+    title: "Reconcile profit",
+    description:
+      "Track payouts, fees, per-item P&L, and consignor splits so you always know your real margins.",
+    mock: ["Payout $1,284", "Fees reconciled", "Net P&L +$612"],
+  },
+];
+
 const faqs = LANDING_FAQS;
 
 const FLIPDESK_ORDER: FlipdeskPlanKey[] = ["free", "starter", "pro", "business"];
@@ -795,9 +843,11 @@ export function LandingPage() {
         </div>
       </section>
 
-      {/* Now with FlipDesk */}
-      <section className="px-6 py-20">
-        <div className="mx-auto max-w-5xl">
+      {/* Now with FlipDesk — US-1959: the pipeline as a swipeable horizontal
+          gallery (source → grade → list → sell → reconcile) with product mocks,
+          replacing the flat icon grid and putting the tool on the page (US-1949). */}
+      <section className="relative py-20">
+        <div className="mx-auto max-w-5xl px-6">
           <div data-gt-reveal className="flex flex-col items-center text-center">
             <Badge className="mb-4 bg-brand-red text-white hover:bg-brand-red shadow-sm px-3 py-1 rounded-full">
               Now with FlipDesk
@@ -811,67 +861,70 @@ export function LandingPage() {
               every item without leaving the app.
             </p>
           </div>
-          <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {[
-              {
-                icon: Boxes,
-                title: "Source & scout",
-                description:
-                  "Log thrift hauls, estate sales, and auction lots — and let ScoutAI pull real sold comps so you only buy what flips.",
-              },
-              {
-                icon: Award,
-                title: "Grade for trust",
-                description:
-                  "Send items straight to GradeThread and attach a verified grade, certificate, and Garment Passport.",
-              },
-              {
-                icon: Layers,
-                title: "AutoLister",
-                description:
-                  "Turn photos into ready-to-publish, AI-written listings in bulk, then time launches with scheduled drops.",
-              },
-              {
-                icon: Tag,
-                title: "List & cross-list",
-                description:
-                  "Compose eBay-ready titles, descriptions, and item specifics with a live preview, and cross-list to more channels.",
-              },
-              {
-                icon: Gauge,
-                title: "Reprice automatically",
-                description:
-                  "Repricing rules and bulk pricing keep prices moving toward a sale without manual edits.",
-              },
-              {
-                icon: BarChart3,
-                title: "Reconcile profit",
-                description:
-                  "Track payouts, fees, per-item P&L, and consignor splits so you always know your real margins.",
-              },
-            ].map((item) => (
-              <div key={item.title} data-gt-reveal className="text-center rounded-2xl border border-border/40 bg-card/60 p-6 shadow-sm hover:shadow-md hover:border-brand-red/20 transition-all duration-300 glass-card">
-                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-brand-red/10 text-brand-red-text mb-4">
-                  <item.icon className="h-5 w-5" />
-                </div>
-                <h3 className="text-base font-semibold font-display">{item.title}</h3>
-                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                  {item.description}
-                </p>
-              </div>
-            ))}
-          </div>
-          <div className="mt-10 text-center">
-            <Link to="/signup">
-              <Button
-                size="lg"
-                className="bg-brand-navy text-white hover:bg-brand-navy/90 font-medium hover:scale-[1.02] active:scale-[0.98] transition-all"
+        </div>
+
+        {/* Default: a swipeable horizontal scroller (mobile / reduced-motion /
+            no-engine). On a capable desktop, flipdesk-scene.ts pins the section
+            and scrubs this track horizontally as you scroll vertically. */}
+        <div data-flipdesk-viewport className="gt-hscroll mt-12 overflow-x-auto">
+          <ol
+            data-flipdesk-track
+            className="flex w-max gap-6 px-6 md:px-[9vw]"
+          >
+            {FLIPDESK_STAGES.map((stage, i) => (
+              <li
+                key={stage.title}
+                data-flipdesk-panel
+                className="flipdesk-panel flex w-[80vw] max-w-[340px] flex-shrink-0 flex-col rounded-3xl border border-border/40 bg-card/60 p-6 shadow-sm glass-card sm:w-[340px]"
               >
-                <Compass className="mr-2 h-4 w-4" />
-                Try FlipDesk Free
-              </Button>
-            </Link>
-          </div>
+                <div className="mb-4 flex items-center justify-between">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-brand-red/10 text-brand-red-text">
+                    <stage.icon className="h-5 w-5" />
+                  </div>
+                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-brand-navy text-xs font-bold text-white">
+                    {i + 1}
+                  </span>
+                </div>
+                {/* Stylized product mock — a peek at the tool, not a real screenshot. */}
+                <div className="mb-4 rounded-xl border border-border/50 bg-background/70 p-3">
+                  <div className="mb-2 flex gap-1.5">
+                    <span className="h-2 w-2 rounded-full bg-brand-red/50" />
+                    <span className="h-2 w-2 rounded-full bg-amber-400/60" />
+                    <span className="h-2 w-2 rounded-full bg-emerald-400/60" />
+                  </div>
+                  <ul className="space-y-1.5">
+                    {stage.mock.map((line) => (
+                      <li
+                        key={line}
+                        className="flex items-center gap-2 text-xs text-muted-foreground"
+                      >
+                        <Check className="h-3 w-3 flex-shrink-0 text-emerald-500" />
+                        {line}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <h3 className="text-base font-semibold font-display">
+                  {stage.title}
+                </h3>
+                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                  {stage.description}
+                </p>
+              </li>
+            ))}
+          </ol>
+        </div>
+
+        <div className="mx-auto mt-10 max-w-5xl px-6 text-center">
+          <Link to="/signup">
+            <Button
+              size="lg"
+              className="bg-brand-navy text-white hover:bg-brand-navy/90 font-medium hover:scale-[1.02] active:scale-[0.98] transition-all"
+            >
+              <Compass className="mr-2 h-4 w-4" />
+              Try FlipDesk Free
+            </Button>
+          </Link>
         </div>
       </section>
 

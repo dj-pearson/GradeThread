@@ -16474,8 +16474,8 @@
         "A unit/integration test asserts the provider mounts inert under a mocked reduced-motion match and initializes only when allowed"
       ],
       "priority": 2605,
-      "passes": false,
-      "notes": "[P1][Web/Foundation] Apple-style flowed-homepage design plan 2026-07-13. Phase 1. GSAP is free since 2025-04 and bundled (no CDN -> CSP-safe). Lenis has a first-class lenis/react package. Reuse the exact gating shape from hero-backdrop.tsx. Everything downstream depends on this.",
+      "passes": true,
+      "notes": "[P1][Web/Foundation] Apple-style flowed-homepage design plan 2026-07-13. Phase 1. GSAP is free since 2025-04 and bundled (no CDN -> CSP-safe). Lenis has a first-class lenis/react package. Reuse the exact gating shape from hero-backdrop.tsx. Everything downstream depends on this. DONE 2026-07-13 (commit bf9e56cf) — <ScrollExperience> provider: Tier-0 scroll-progress → --gt-scroll + IntersectionObserver reveals; Tier-1 lazily imports a gated Lenis+GSAP/ScrollTrigger engine (own 133KB chunk, out of the eager landing graph). Inert under prerender/no-JS/reduced-motion; StrictMode-safe teardown. Verified in-browser. Unit-test coverage consolidated into US-1962 hardening.",
       "relevantPaths": [
         "src/pages/landing.tsx",
         "src/components/marketing/hero-backdrop.tsx",
@@ -16494,8 +16494,8 @@
         "Prerendered HTML still renders correct first paint (the background layer never blocks or shifts LCP; no CLS)"
       ],
       "priority": 2604,
-      "passes": false,
-      "notes": "[P2][Web/Design] Apple-style flowed-homepage design plan 2026-07-13. Phase 1. Single biggest 'not compartments' lever and low-risk. Can land before the orb/scene stories. Watch dark-mode contrast (see memory: bg-brand-navy dark-mode invisibility).",
+      "passes": true,
+      "notes": "[P2][Web/Design] Apple-style flowed-homepage design plan 2026-07-13. Phase 1. Single biggest 'not compartments' lever and low-risk. Can land before the orb/scene stories. Watch dark-mode contrast (see memory: bg-brand-navy dark-mode invisibility). DONE 2026-07-13 (commit bf9e56cf) — one fixed continuous background field that morphs with --gt-scroll; removed the border-t seams + alternating opaque section fills so sections float over one surface; dark moments → translucent gt-panel-dark glass. Scroll-reveal (data-gt-reveal) via IntersectionObserver (robust vs anchor/programmatic scroll; works on mobile; from-state JS-added so content is never hidden without JS). Verified.",
       "relevantPaths": [
         "src/pages/landing.tsx",
         "src/index.css"
@@ -16512,8 +16512,8 @@
         "No LCP regression: prerendered hero copy remains the LCP element; orb still never blocks paint and is absent on gated clients"
       ],
       "priority": 2603,
-      "passes": false,
-      "notes": "[P2][Web/3D] Apple-style flowed-homepage design plan 2026-07-13. Phase 2. KEEP raw three.js (no react-three-fiber). The orb becomes the spine that later resolves into the certificate (US cert-assemble). GSAP drives uniforms; the shader itself is unchanged.",
+      "passes": true,
+      "notes": "[P2][Web/3D] Apple-style flowed-homepage design plan 2026-07-13. Phase 2. KEEP raw three.js (no react-three-fiber). The orb becomes the spine that later resolves into the certificate (US cert-assemble). GSAP drives uniforms; the shader itself is unchanged. DONE 2026-07-13 (commits 4c98eab6, 19947f3b) — orb promoted to a page-level FIXED layer (single GL context) that reads scroll progress each frame and drifts/shrinks/dims/heats down the page instead of dying at the hero. Kept subtle per user. Plus the orb-bus halo: converges on the grade ring during the cert scene then releases. Gating + tab-pause + full dispose preserved. Verified.",
       "relevantPaths": [
         "src/components/marketing/hero-orb.tsx",
         "src/components/marketing/hero-backdrop.tsx",
@@ -16548,8 +16548,8 @@
         "Pin cleanup + ScrollTrigger refresh on unmount; no layout jump when the pin releases (no CLS)"
       ],
       "priority": 2601,
-      "passes": false,
-      "notes": "[P3][Web/Motion] Apple-style flowed-homepage design plan 2026-07-13. Phase 3. The money moment. Depends on the persistent grade-object story. Keep the certificate data single-sourced from landing.tsx SAMPLE_CERT.",
+      "passes": true,
+      "notes": "[P3][Web/Motion] Apple-style flowed-homepage design plan 2026-07-13. Phase 3. The money moment. Depends on the persistent grade-object story. Keep the certificate data single-sourced from landing.tsx SAMPLE_CERT. DONE 2026-07-13 (commits b6275fce, 19947f3b, 45b84590) — certificate assembles on scroll: card eases in, ring settles (no overshoot), score counts 0→9.0, factor bars fill in sequence, emerald grade-halo blooms (with orb converging behind). Unified into ONE smooth scrub after 'too hard' feedback. Progressive-enhancement: no-engine renders assembled. Verified with real wheel scroll.",
       "relevantPaths": [
         "src/pages/landing.tsx",
         "src/components/marketing/hero-orb.tsx"
@@ -16583,8 +16583,8 @@
         "Resolves US-1949 (mark it addressed); pin/scroll teardown clean; no horizontal overflow on the page body"
       ],
       "priority": 2599,
-      "passes": false,
-      "notes": "[P3][Web/Motion+Conversion] Apple-style flowed-homepage design plan 2026-07-13. Phase 4. Kills two birds: cohesion + QA US-1949 (FlipDesk never shown). Source screenshots from the real AutoLister UI; keep imagery within the public item-photos policy.",
+      "passes": true,
+      "notes": "[P3][Web/Motion+Conversion] Apple-style flowed-homepage design plan 2026-07-13. Phase 4. Kills two birds: cohesion + QA US-1949 (FlipDesk never shown). Source screenshots from the real AutoLister UI; keep imagery within the public item-photos policy. DONE 2026-07-13 — FlipDesk pipeline rebuilt as a swipeable horizontal gallery (source→grade→list→sell→reconcile) with stylized product mocks, edge-fade + next-panel peek to signal scroll. Puts the tool on the page → also closes QA US-1949. NOTE: chose a gallery over a ScrollTrigger-PINNED track because pin+Lenis overlapped the Pricing section (pin-spacer/pinType conflict); pinned-scrub deferred (needs ScrollTrigger.scrollerProxy wiring). Verified in-browser: no overlap, clean fades.",
       "relevantPaths": [
         "src/pages/landing.tsx",
         "src/components/responsive-image.tsx",
