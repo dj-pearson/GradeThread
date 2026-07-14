@@ -16378,8 +16378,8 @@
         "Pro-only terminology (API, AutoLister, comps, reconciliation) is reserved for deeper reseller pages"
       ],
       "priority": 1948,
-      "passes": false,
-      "notes": "[P3][Web/Growth] 5-persona QA sweep 2026-07-13. Novice persona bounced on positioning despite a good free tier. Recovers a whole casual-seller segment currently repelled at the door.",
+      "passes": true,
+      "notes": "[P3][Web/Growth] 5-persona QA sweep 2026-07-13. Novice persona bounced on positioning despite a good free tier. Recovers a whole casual-seller segment currently repelled at the door. DONE 2026-07-14 — casual-seller on-ramp + hero de-jargon (copy). (1) Hero badge broadened resellers->pre-owned clothing (removes the first-glance exclusion). (2) Hero paragraph: glossed rubric->standard, pulled the pro-only FlipDesk out of first-touch, and added an inclusive close (clearing out a closet OR a full reselling business). (3) New on-ramp line under the CTAs: Just cleaning out your closet? See what your clothes are worth - free, no account needed -> /whats-it-worth (the friendly no-account tool). (4) Expanded NWT/NWOT on the sample certificate card (New Without Tags). Reseller positioning intact; pro terms (AutoLister/API/reconciliation) stay on the deeper pricing cards / reseller pages per the AC. Build green + 212 prerender; verified in-browser. Copy is easy to tune if the voice needs adjusting.",
       "relevantPaths": [
         "src/pages/landing.tsx",
         "src/pages/marketing/pricing.tsx",

@@ -547,8 +547,10 @@ function SampleCertificatePreview() {
             >
               {SAMPLE_CERT.tier}
             </Badge>
+            {/* US-1948: expand the tier abbreviation so a newcomer isn't left
+                guessing what "NWOT" means. */}
             <p className="mt-1 text-sm text-muted-foreground">
-              Overall Condition Grade
+              New Without Tags (NWOT) · Overall Condition Grade
             </p>
             <p className="mt-2 text-base font-medium">{SAMPLE_CERT.title}</p>
           </div>
@@ -678,7 +680,7 @@ export function LandingPage() {
         />
 
         <Badge variant="secondary" className="gt-hero-rise gt-hero-rise-1 mb-6 text-sm font-medium border-brand-navy/10 dark:border-white/10 glass-card px-4 py-1.5 rounded-full">
-          The condition-grading standard for resellers
+          The condition-grading standard for pre-owned clothing
         </Badge>
         <h1 className="gt-hero-lift max-w-3xl text-4xl font-extrabold tracking-tight sm:text-5xl lg:text-6xl font-display">
           The Trusted Standard for Clothing{" "}
@@ -687,9 +689,10 @@ export function LandingPage() {
         <p className="gt-hero-rise gt-hero-rise-2 mt-6 max-w-xl text-lg text-muted-foreground">
           GradeThread gives every pre-owned garment an objective 1.0–10.0
           condition grade and a certificate buyers can verify — one published
-          rubric, applied the same way every time, so a grade means the same
-          thing everywhere. Cut returns, sell faster, and run the whole
-          reselling workflow in FlipDesk.
+          standard, applied the same way every time, so a grade means the same
+          thing everywhere. Sell faster, cut returns, and build buyer trust —
+          whether you're clearing out a closet or running a full reselling
+          business.
         </p>
         <div className="gt-hero-rise gt-hero-rise-3 mt-10 flex flex-col gap-3 sm:flex-row sm:gap-4">
           <Link to="/signup">
@@ -707,6 +710,19 @@ export function LandingPage() {
             </Button>
           </a>
         </div>
+        {/* US-1948: a casual-seller on-ramp so first-timers/closet-cleaners don't
+            read the "for resellers" framing as "not for me". Routes to the
+            no-account /whats-it-worth tool. */}
+        <p className="gt-hero-rise gt-hero-rise-3 mt-6 text-sm text-muted-foreground">
+          Just cleaning out your closet?{" "}
+          <Link
+            to="/whats-it-worth"
+            className="font-medium text-brand-red-text underline-offset-4 hover:underline"
+          >
+            See what your clothes are worth
+          </Link>{" "}
+          — free, no account needed.
+        </p>
       </section>
 
       {/* Live platform counters (US-865) — real aggregate social proof. Renders
