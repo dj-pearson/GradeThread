@@ -89,6 +89,25 @@ describe("prerender head-builder (US-292)", () => {
   });
 });
 
+// US-1950: the client route-chunk preload map must cover every prerendered path
+// (and nothing more), or a route ships without its chunk preloaded and flashes
+// the full-screen suspense spinner. entry-server also enforces this at import via
+// a throwing guard; this test gives a fast, readable CI signal on drift.
+describe("route→chunk preload map (US-1950)", () => {
+  it("ROUTE_PAGE_MODULES has exactly one entry per prerenderable path", async () => {
+    const { PRERENDERABLE_PATHS, ROUTE_PAGE_MODULES } = await import(
+      "../entry-server"
+    );
+    const paths = [...PRERENDERABLE_PATHS].sort();
+    const mapped = Object.keys(ROUTE_PAGE_MODULES).sort();
+    expect(mapped).toEqual(paths);
+    // Every module id points under src/pages/ (matched by suffix in prerender.mjs).
+    for (const id of Object.values(ROUTE_PAGE_MODULES)) {
+      expect(id).toMatch(/^src\/pages\//);
+    }
+  });
+});
+
 // These run only after a build has produced dist/. Skipped otherwise so the
 // unit suite stays build-independent; CI runs them after `npm run build`.
 const hasDist = existsSync(dist("index.html"));
@@ -100,6 +119,26 @@ describe.skipIf(!hasDist)("prerendered dist output (US-292)", () => {
     expect(html).toContain("application/ld+json");
     // body actually populated (not the empty SPA shell)
     expect(html).toMatch(/<div id="root"><[a-z]/);
+  });
+
+  it("inner marketing routes preload their own route chunk (US-1950)", () => {
+    // The client render (createRoot, not hydrate) suspends on the lazy route
+    // until its chunk downloads; prerender injects a <link rel=modulepreload> for
+    // that chunk so it's already in flight. Assert the page's own chunk is
+    // preloaded (a route named like the page module → e.g. how-it-works-*.js).
+    for (const [routePath, chunkStem] of [
+      ["/how-it-works", "how-it-works"],
+      ["/for-resellers", "for-resellers"],
+      ["/whats-it-worth", "whats-it-worth"],
+    ] as const) {
+      const html = readFileSync(dist(`${routePath.replace(/^\//, "")}.html`), "utf8");
+      const re = new RegExp(
+        `<link rel="modulepreload"[^>]*href="/assets/${chunkStem}-[^"]+\\.js"`,
+      );
+      expect(re.test(html), `${routePath} should modulepreload its ${chunkStem} chunk`).toBe(
+        true,
+      );
+    }
   });
 
   it("each registered route emitted a static HTML file with one title", () => {

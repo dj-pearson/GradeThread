@@ -89,6 +89,87 @@ function validateHeadIntegrity(html, body, routePath) {
   }
 }
 
+// US-1950: build a `(routePath) => "<link rel=modulepreload ...>"` resolver from
+// the client bundle manifest. Returns a resolver that always yields a string
+// (possibly empty) — every failure mode degrades to "" (no preload) rather than
+// throwing, so a manifest hiccup can never break the build.
+function createPreloadResolver(bundlePath, routeModules) {
+  let bundle;
+  try {
+    bundle = JSON.parse(readFileSync(bundlePath, "utf8"));
+  } catch (err) {
+    console.warn(
+      `[prerender] no chunk manifest at ${bundlePath.replace(root + "/", "")} ` +
+        `(${err?.message ?? err}) — skipping route-chunk modulepreloads.`,
+    );
+    return () => "";
+  }
+
+  const chunkOf = (f) => bundle[f];
+
+  // Transitive closure of a chunk's imported chunks (itself included).
+  function closure(start) {
+    const seen = new Set();
+    const stack = Array.isArray(start) ? [...start] : [start];
+    while (stack.length) {
+      const f = stack.pop();
+      if (!f || seen.has(f)) continue;
+      seen.add(f);
+      const info = chunkOf(f);
+      if (info) for (const im of info.imports) if (!seen.has(im)) stack.push(im);
+    }
+    return seen;
+  }
+
+  // Chunks already loaded by the entry bootstrap (the entry chunk + everything it
+  // statically imports). index.html modulepreloads these, so we must NOT repeat
+  // them — the route only needs the DELTA.
+  const entryChunks = Object.entries(bundle)
+    .filter(([, info]) => info.isEntry)
+    .map(([f]) => f);
+  const eager = closure(entryChunks);
+
+  // Index: page-module id (path suffix) → its built chunk filename. A page module
+  // lands in exactly one chunk (its lazy() split point), matched by source path.
+  function findChunkForModule(moduleId) {
+    const needle = `${moduleId}.`; // ".tsx"/".ts" — avoids "foo" matching "foobar"
+    for (const [file, info] of Object.entries(bundle)) {
+      if (info.modules.some((m) => m.replace(/\\/g, "/").includes(needle))) {
+        return file;
+      }
+    }
+    return null;
+  }
+
+  const cache = new Map();
+  let missWarned = false;
+
+  return function resolvePreloads(routePath) {
+    if (cache.has(routePath)) return cache.get(routePath);
+    const moduleId = routeModules[routePath];
+    let tags = "";
+    if (moduleId) {
+      const pageChunk = findChunkForModule(moduleId);
+      if (pageChunk) {
+        const needed = [...closure(pageChunk)].filter((f) => !eager.has(f));
+        // Page chunk first (it's the leaf the router awaits), then its deps.
+        needed.sort((a, b) => (a === pageChunk ? -1 : b === pageChunk ? 1 : 0));
+        tags = needed
+          .map((f) => `<link rel="modulepreload" crossorigin href="/${f}">`)
+          .join("");
+      } else if (!missWarned) {
+        missWarned = true;
+        console.warn(
+          `[prerender] ${routePath}: no chunk found for module "${moduleId}" ` +
+            `— route-chunk preload skipped (page still works, just not preloaded).`,
+        );
+      }
+    }
+    cache.set(routePath, tags);
+    return tags;
+  };
+}
+
 if (!existsSync(templatePath)) {
   fail(`dist/index.html not found — run \`vite build\` before prerendering.`);
 }
@@ -127,9 +208,8 @@ let written = 0;
 // by the trailing-slash _redirects generation after vite closes (US-426).
 let prerenderedPaths = [];
 try {
-  const { renderRoute, PRERENDERABLE_PATHS } = await vite.ssrLoadModule(
-    "/src/prerender/entry-server.tsx",
-  );
+  const { renderRoute, PRERENDERABLE_PATHS, ROUTE_PAGE_MODULES } =
+    await vite.ssrLoadModule("/src/prerender/entry-server.tsx");
   const { buildHeadTags, stripHeadTagsFromBody } = await vite.ssrLoadModule(
     "/src/prerender/head-builder.ts",
   );
@@ -182,12 +262,28 @@ try {
   const beforeHead = template.slice(0, headStartIdx);
   const afterHead = template.slice(headEndIdx);
 
+  // US-1950: build the per-route chunk-preload resolver from the client build's
+  // module manifest (build-meta/bundle-modules.json, emitted by the
+  // bundle-modules-manifest Vite plugin during `vite build`, which runs before
+  // this script). For each prerendered route we resolve its page module → its
+  // built chunk → the transitive set of chunks that chunk needs, MINUS the chunks
+  // the entry bootstrap already modulepreloads (vendor-react/query/supabase +
+  // index). Emitting <link rel="modulepreload"> for that delta means the route's
+  // JS is already in flight when the client createRoot render begins, so it never
+  // suspends into the full-screen spinner. Fail-SAFE: any resolution miss (no
+  // manifest, unmapped route, chunk not found) just emits nothing for that route
+  // — the page keeps its prior behavior, the build never breaks.
+  const resolvePreloads = createPreloadResolver(
+    join(root, "build-meta", "bundle-modules.json"),
+    ROUTE_PAGE_MODULES ?? {},
+  );
+
   // US-420: measure prerender duration so we can keep it flat as routes grow.
   const renderStart = performance.now();
 
   const renderOne = async (route) => {
     const body = stripHeadTagsFromBody(renderRoute(route.path));
-    const head = buildHeadTags(route);
+    const head = buildHeadTags(route) + resolvePreloads(route.path);
 
     let html = beforeHead + head + afterHead;
     html = html.replace(BODY_MARKER, body);
