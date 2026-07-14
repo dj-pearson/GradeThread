@@ -4047,6 +4047,31 @@ flipdeskEbayRoutes.post("/listings/:id/price", async (c) => {
 
   const row = await loadListingOwned(listingId, userId);
   if (!row.ok) return c.json(row.error, row.status);
+
+  // US-1976: enforce the read-only-mirror contract server-side (same gate as
+  // /revise). An eBay-origin listing is a mirror — eBay owns its price — so a
+  // reprice here would be overwritten on the next inbound sync. A rare eBay
+  // import can carry a platform_offer_id, so the offer-id check below is NOT a
+  // sufficient guard; gate on origin first.
+  const priceOrigin = deriveListingOrigin({
+    listing_origin: row.listing.listing_origin,
+    platform: "ebay",
+    platform_listing_id: row.listing.platform_listing_id,
+    batch_id: row.listing.batch_id,
+    synced_to_ebay_at: row.listing.synced_to_ebay_at,
+  });
+  if (priceOrigin === "ebay") {
+    const { locked } = validateEbayOriginEdit(priceOrigin, ["listing_price"]);
+    return c.json(
+      {
+        error:
+          "This listing was created on eBay, so eBay owns its price. Edit it on eBay — changes here would be overwritten on the next sync.",
+        locked_fields: locked,
+      },
+      409
+    );
+  }
+
   if (!row.listing.platform_offer_id) {
     return c.json(
       {
@@ -5439,6 +5464,33 @@ flipdeskEbayRoutes.delete("/listings/:id", async (c) => {
 
   const row = await loadListingOwned(listingId, userId);
   if (!row.ok) return c.json(row.error, row.status);
+
+  // US-1976: enforce the read-only-mirror contract server-side (same gate as
+  // /revise). An eBay-origin listing is a mirror — eBay owns its live status —
+  // so ending it here would be re-created as active on the next inbound sync.
+  // The seller must end it on eBay. Gate on origin before any withdraw, since a
+  // rare eBay import can still carry a platform_offer_id.
+  const endOrigin = deriveListingOrigin({
+    listing_origin: row.listing.listing_origin,
+    platform: "ebay",
+    platform_listing_id: row.listing.platform_listing_id,
+    batch_id: row.listing.batch_id,
+    synced_to_ebay_at: row.listing.synced_to_ebay_at,
+  });
+  if (endOrigin === "ebay") {
+    const { locked } = validateEbayOriginEdit(endOrigin, [
+      "listing_status",
+      "is_active",
+    ]);
+    return c.json(
+      {
+        error:
+          "This listing was created on eBay, so eBay owns its status. End it on eBay — ending it here would be undone on the next sync.",
+        locked_fields: locked,
+      },
+      409
+    );
+  }
 
   // Best-effort withdraw of the live eBay offer, then ALWAYS reconcile the local
   // row to ended. A withdraw can legitimately fail because the listing is already

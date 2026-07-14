@@ -16891,7 +16891,7 @@
         "Regression test covers an eBay-origin row that carries a platform_offer_id"
       ],
       "priority": 1976,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Edge+iOS/Sync] iOS listing-lifecycle audit 2026-07-14. Missing origin gate: flipdesk-ebay.ts:5433 (DELETE), :4030 (price). revise gate at :4821. iOS heuristic ItemCanvasView.swift:706-707. See SYNC_SOURCE_OF_TRUTH.md.",
       "relevantPaths": [
         "services/edge-functions/src/routes/flipdesk-ebay.ts",

@@ -701,10 +701,18 @@ struct ItemCanvasView: View {
 
             if let active = activeEbayListing {
                 // US-1086: provenance badge + editing affordance based on listing_origin.
-                // Prefer `listingOrigin` from DB; fall back to `platformOfferId` heuristic
-                // for rows synced before the column was backfilled.
+                // Prefer `listingOrigin` from DB; fall back for rows synced before the
+                // column was backfilled.
+                // US-1976: the fallback must require POSITIVE evidence of eBay origin,
+                // mirroring the server's deriveListingOrigin (which defaults to
+                // gradethread and only returns "ebay" when a platform listing id is
+                // present). The old `platformOfferId == nil` alone mislabeled a
+                // GT-origin listing with no offer id (e.g. a manual "mark listed" row)
+                // as a locked "Edit on eBay" mirror. Now: eBay-origin only when it
+                // exists on eBay (platformListingId) AND we never published it (no offer).
                 let isEbayOriginated = active.listingOrigin == "ebay" ||
-                    (active.listingOrigin == nil && active.platformOfferId == nil)
+                    (active.listingOrigin == nil && active.platformOfferId == nil &&
+                        active.platformListingId != nil)
 
                 if isEbayOriginated {
                     // eBay-originated mirror: user must edit on eBay; GradeThread locks
