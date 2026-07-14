@@ -13383,19 +13383,6 @@
       "notes": "[CI-Unmask 2026-07-07][CI][Support][US-1595] PII-scrubbing correctness — treat as security-relevant."
     },
     {
-      "id": "US-1745",
-      "title": "EPIC: Scale the Condition/Value Index into a programmatic-SEO engine",
-      "description": "As GradeThread, I want the existing Condition/Value Index expanded from a handful of curated seeds into thousands of programmatic /value pages so that we own the enormous 'how much is my {brand} {item} in {condition} worth' long-tail search intent and funnel that traffic into free grading and certification.",
-      "acceptanceCriteria": [
-        "Grows the current 54-seed index (condition_index_seeds) into a data-driven, sample-gated URL space of thousands of brand x category x condition pages",
-        "New pages reuse the existing eBay-comp value curves (condition_price_curves) and the >=8-sample suppression floor so no thin/fabricated pages ship",
-        "Every value page interlinks to the free grade-checker, matching certificates, and durability rankings; measurable organic traffic lift tracked"
-      ],
-      "priority": 1745,
-      "passes": false,
-      "notes": "[P2][VALUE-INDEX][EPIC][SEO] BASELINE (already built): /condition-index hub+slug via functions/condition-index/[[path]].ts; condition_index_seeds (54 rows, 00190) + condition_price_curves (00098/00100); lib/condition-index.ts + condition-curve.ts (buildValueCurve) + condition-value.ts (valueAtGrade); MIN_INDEX_TOTAL_SAMPLE=8; data = eBay Browse comps via ebay-client.searchBrowseComps. TECH/3P: no new 3P needed (eBay Browse API already integrated); Cloudflare Pages Functions Model B (edge-SSR) is the delivery model. TIES: /whats-it-worth (US-849), grade-checker, certificate examples, durability rankings (EPIC 7). BUYER: free 'what is this worth in X condition' answer page. SELLER: pricing confidence + entry into grading. Child stories: value-page URL space, auto-seed generation, interlinking+JSON-LD, comp-refresh scale/guardrails."
-    },
-    {
       "id": "US-1746",
       "title": "Value Index: data-driven auto-seed generation (54 -> thousands)",
       "description": "As GradeThread, I want the condition_index_seeds set auto-generated from real demand and comp depth so that the index scales far beyond the 54 hand-curated entries without producing thin pages.",
