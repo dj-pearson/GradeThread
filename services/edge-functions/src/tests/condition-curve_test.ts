@@ -58,6 +58,33 @@ Deno.test("curve has a point per grade and is monotonic-ish (higher grade ≥ lo
   assertEquals(g5.sufficient, true);
 });
 
+// US-1947 bucket-count sanity on GENERATED curve data: because comps are fetched
+// once per condition bucket and shared by every grade in that bucket, per-grade
+// `sampleSize` REPEATS and its naive sum overstates the real sample. The honest
+// aggregate is `totalSampleSize` = the sum over DISTINCT buckets (each counted
+// once) — it must never exceed the naive per-grade sum, and each bucket's own
+// count must never exceed the total.
+Deno.test("totalSampleSize sums DISTINCT buckets once (never the inflated per-grade sum)", async () => {
+  const { fetcher } = fakeFetcher();
+  const curve = await buildValueCurve({ categoryId: "57988", brand: "Patagonia" }, fetcher);
+  const sufficient = curve.points.filter((p) => p.sufficient);
+  const naivePerGradeSum = sufficient.reduce((s, p) => s + p.sampleSize, 0);
+  // The shared-bucket reality: the naive per-grade sum inflates past the honest total.
+  assert(
+    naivePerGradeSum > curve.totalSampleSize,
+    "per-grade sampleSize should repeat across a bucket, inflating the naive sum",
+  );
+  // Each grade's sampleSize is a single bucket's count — never more than the total.
+  for (const p of sufficient) {
+    assert(
+      p.sampleSize <= curve.totalSampleSize,
+      `grade ${p.grade} bucket count ${p.sampleSize} must be ≤ total ${curve.totalSampleSize}`,
+    );
+  }
+  // The used bucket ("3000") has 14 comps and the two new buckets 4 each → 22 distinct.
+  assertEquals(curve.totalSampleSize, 14 + 4 + 4);
+});
+
 Deno.test("a bucket fetch failure degrades that bucket's grades to insufficient, not a thrown curve", async () => {
   const fetcher = (args: { conditionId?: string }) => {
     if (args.conditionId === "3000") return Promise.reject(new Error("eBay 503"));
