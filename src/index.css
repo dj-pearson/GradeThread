@@ -122,6 +122,13 @@
 /* Light mode - GradeThread brand */
 :root {
   --radius: 0.625rem;
+  /* US-1961: shared motion tokens (mirror of src/lib/motion/tokens.ts) — the
+     reveal, hero-entrance, and cross-page view-transition CSS all read these so
+     the whole site shares one timing feel. */
+  --gt-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --gt-dur: 0.7s;
+  --gt-dur-slow: 0.8s;
+  --gt-dur-page: 0.35s;
   --background: #fafafc;
   --foreground: #0e0e1a;
   --card: #ffffff;
@@ -407,8 +414,8 @@ html.lenis body {
   opacity: 0;
   transform: translateY(28px);
   transition:
-    opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
-    transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+    opacity var(--gt-dur) var(--gt-ease),
+    transform var(--gt-dur) var(--gt-ease);
   will-change: opacity, transform;
 }
 [data-gt-reveal].gt-reveal-in {
@@ -441,10 +448,10 @@ html.lenis body {
   }
 }
 .gt-hero-lift {
-  animation: gtHeroLift 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: gtHeroLift var(--gt-dur-slow) var(--gt-ease) both;
 }
 .gt-hero-rise {
-  animation: gtHeroRise 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: gtHeroRise var(--gt-dur) var(--gt-ease) both;
 }
 .gt-hero-rise-1 {
   animation-delay: 0.08s;
@@ -517,5 +524,25 @@ html.lenis body {
 }
 .flipdesk-panel {
   scroll-snap-align: center;
+}
+
+/* US-1961: cross-page View Transitions. React Router triggers
+   document.startViewTransition on nav Links tagged `viewTransition`; here we
+   tune the default root cross-fade with the shared tokens so moving between
+   pages feels continuous. Unsupported browsers ignore these rules (instant
+   nav); reduced-motion makes every transition instant. */
+@media (prefers-reduced-motion: no-preference) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: var(--gt-dur-page);
+    animation-timing-function: var(--gt-ease);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
 }
 

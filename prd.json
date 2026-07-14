@@ -16622,8 +16622,8 @@
         "No layout/scroll-restoration regressions on navigation; no new heavyweight dependency added"
       ],
       "priority": 2597,
-      "passes": false,
-      "notes": "[P3][Web/Motion] Apple-style flowed-homepage design plan 2026-07-13. Phase 5. Native View Transitions = free cross-page morphs; addresses the user's 'whole site fits together' goal beyond just the homepage. Coordinate with React Router v7 navigation.",
+      "passes": true,
+      "notes": "[P3][Web/Motion] Apple-style flowed-homepage design plan 2026-07-13. Phase 5. Native View Transitions = free cross-page morphs; addresses the user's 'whole site fits together' goal beyond just the homepage. Coordinate with React Router v7 navigation. DONE 2026-07-13 — (1) shared motion-tokens module src/lib/motion/tokens.ts, mirrored as CSS vars (--gt-ease/--gt-dur/--gt-dur-slow/--gt-dur-page) in :root; refactored the reveal + hero-entrance CSS to consume the vars and the count-up JS to consume motion.durationSlow, so reveals/hero/count-up/view-transitions share one timing feel. (2) Cross-page View Transitions via React Router v7 viewTransition prop on the shared marketing nav + FooterLink (covers every marketing page), tuned with a ::view-transition root cross-fade using the shared tokens; guarded so unsupported browsers get instant nav and reduced-motion makes transitions instant. No new dependency (native API). Build green + 212 prerender.",
       "relevantPaths": [
         "src/routes/index.tsx",
         "src/lib/motion/tokens.ts",

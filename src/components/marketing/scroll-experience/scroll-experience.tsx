@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { ContinuousBackground } from "./continuous-background";
+import { motion } from "@/lib/motion/tokens";
 
 /**
  * <ScrollExperience> (US-1953 foundation) — progressive-enhancement wrapper that
@@ -117,7 +118,9 @@ export function ScrollExperience({ children }: { children: ReactNode }) {
               if (!m) continue;
               const target = parseInt(m[1]!, 10);
               const suffix = m[2] ?? "";
-              const duration = 900;
+              // Shared motion token (US-1961) so the count-up matches the
+              // reveal/hero timing feel.
+              const duration = motion.durationSlow * 1000;
               let start = 0;
               const step = (ts: number) => {
                 if (!start) start = ts;

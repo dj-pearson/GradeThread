@@ -72,20 +72,25 @@ export function MarketingLayout({
           />
         </Link>
         <nav className="hidden items-center gap-6 text-sm text-muted-foreground md:flex">
-          <Link to="/how-it-works" className="hover:text-foreground">
+          {/* viewTransition (US-1961): cross-page cross-fade where supported. */}
+          <Link to="/how-it-works" viewTransition className="hover:text-foreground">
             How It Works
           </Link>
-          <Link to="/pricing" className="hover:text-foreground">
+          <Link to="/pricing" viewTransition className="hover:text-foreground">
             Pricing
           </Link>
-          <Link to="/for-resellers" className="hover:text-foreground">
+          <Link to="/for-resellers" viewTransition className="hover:text-foreground">
             For Resellers
           </Link>
-          <Link to="/condition-grading" className="hover:text-foreground">
+          <Link
+            to="/condition-grading"
+            viewTransition
+            className="hover:text-foreground"
+          >
             Condition Grading
           </Link>
           {/* US-1109: top-of-funnel lead magnet, promoted into the primary nav. */}
-          <Link to="/whats-it-worth" className="hover:text-foreground">
+          <Link to="/whats-it-worth" viewTransition className="hover:text-foreground">
             What's It Worth?
           </Link>
         </nav>
@@ -233,7 +238,9 @@ function FooterColumn({
 
 function FooterLink({ to, children }: { to: string; children: React.ReactNode }) {
   return (
-    <Link to={to} className="hover:text-foreground">
+    // viewTransition (US-1961): cross-fade between marketing pages so the site
+    // feels continuous. No-op on browsers without the View Transitions API.
+    <Link to={to} viewTransition className="hover:text-foreground">
       {children}
     </Link>
   );
