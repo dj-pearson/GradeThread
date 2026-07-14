@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1963,
+  "nextId": 1981,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -16634,6 +16634,341 @@
         "src/pages/landing.tsx",
         "scripts/verify.mjs",
         "public/_routes.json"
+      ]
+    },
+    {
+      "id": "US-1963",
+      "title": "EPIC — eBay inbound-sync reliability (subscription mgmt, order backstop, hardened fetch)",
+      "description": "As GradeThread, we want inbound eBay sync (sales, payouts, returns) to be resilient so a misconfigured or dropped notification never silently stops a seller's revenue sync. Today we receive & verify webhooks but have no way to create/verify Notification API subscriptions, no periodic order-sync backstop, and four API families bypass the hardened fetch path (no breaker/retry). This epic tracks US-1964 (subscription management), US-1965 (order-sync cron backstop), and US-1966 (route Finances/Marketing/Disputes/Post-Order through fetchAuthed).",
+      "acceptanceCriteria": [
+        "Child stories US-1964, US-1965, US-1966 all pass",
+        "A dropped or unconfigured notification no longer causes a permanently missed sale — the backstop cron reconciles it",
+        "In-app visibility of which Notification API topics are actually subscribed per environment"
+      ],
+      "priority": 2610,
+      "passes": false,
+      "notes": "[P1][Edge/Sync][Epic] iOS listing-lifecycle audit 2026-07-14. Biggest structural blind spot in the eBay integration: inbound sync depends entirely on manual dev-portal config with no in-app verification + no automatic backstop. See memory ios-listing-lifecycle-audit-2026-07-14.",
+      "relevantPaths": [
+        "services/edge-functions/src/routes/flipdesk-webhooks.ts",
+        "services/edge-functions/src/lib/ebay-client.ts",
+        "services/edge-functions/src/main.ts"
+      ]
+    },
+    {
+      "id": "US-1964",
+      "title": "eBay Notification API subscription & destination management (create/list/verify per env)",
+      "description": "As an operator, I want GradeThread to programmatically create and verify eBay Notification API destinations + topic subscriptions so inbound events don't depend on manual dev-portal config. Today there is NO call to POST /commerce/notification/v1/destination or /subscription anywhere — topics are configured by hand and the app cannot enumerate what is actually subscribed, so an unconfigured/expired topic silently drops all events of that type.",
+      "acceptanceCriteria": [
+        "Edge can create/update a notification destination (our webhook endpoint) and subscribe the required topics (order/sale, payout, return, cancellation, account-deletion) via /commerce/notification/v1/*",
+        "Edge can list current subscriptions and surface, per environment, which required topics are missing (admin-visible health check)",
+        "Idempotent: re-running does not duplicate destinations/subscriptions; handles the marketplace-account-deletion topic already in use",
+        "Startup or scheduled reconcile logs a warning if any required topic is unsubscribed"
+      ],
+      "priority": 2609,
+      "passes": false,
+      "notes": "[P1][Edge/Notification] iOS listing-lifecycle audit 2026-07-14. grep-confirmed: no commerce/notification subscription writer exists; only the verified receiver (flipdesk-webhooks.ts) + public_key verify (ebay-notification-verify.ts). Substring topic router already tolerant (ebay-webhook-topics.ts).",
+      "relevantPaths": [
+        "services/edge-functions/src/routes/flipdesk-webhooks.ts",
+        "services/edge-functions/src/lib/ebay-webhook-topics.ts",
+        "services/edge-functions/src/lib/ebay-client.ts"
+      ]
+    },
+    {
+      "id": "US-1965",
+      "title": "Scheduled periodic order-sync cron backstop for all active eBay connections",
+      "description": "As a seller, I want my sales to appear in GradeThread even if a webhook is dropped or a topic was never subscribed. Today order/sale ingest is webhook-driven + manual pull only (triggerEbaySyncForUser + POST /listings/pull); there is no cron that periodically sweeps orders for every active connection. Add a scheduled task that runs the idempotent incremental order pull across all connections as a safety net.",
+      "acceptanceCriteria": [
+        "New Coolify-scheduled edge job pulls recent orders (incremental lastmodifieddate cursor) for every active marketplace_connection on an interval",
+        "Reuses the existing idempotent order ingest so no duplicate sales are created and it composes with webhook + parked-event drain",
+        "Respects the getOrders/getTransactions 2-year start-date limit (errorId 30830) — never requests a start date >2yr old",
+        "Job is registered like other crons (has curl in image — see edge-cron-curl gotcha) and records a cron_runs row"
+      ],
+      "priority": 2608,
+      "passes": false,
+      "notes": "[P1][Edge/Jobs] iOS listing-lifecycle audit 2026-07-14. Combined with US-1964 this closes the silent-revenue-sync failure mode. listRecentOrders (ebay-client.ts:3021) already incremental+paginated; just needs an all-connections scheduled driver. Heed edge-cron-curl-gotcha memory.",
+      "relevantPaths": [
+        "services/edge-functions/src/routes/flipdesk-ebay.ts",
+        "services/edge-functions/src/main.ts",
+        "docker-compose.coolify.yml"
+      ]
+    },
+    {
+      "id": "US-1966",
+      "title": "Route Finances/Marketing/Disputes/Post-Order eBay calls through the hardened fetch path",
+      "description": "As GradeThread, we want every eBay API family to back off gracefully on 429/5xx. The main REST path (fetchAuthed) has the circuit breaker, withRetry, and Retry-After handling, but Finances, Marketing, Disputes, and Post-Order roll their own fetch with none of that, so they throw hard under load. Marketing POSTs additionally omit Content-Language/Accept-Language (a known cause of eBay error 25709 on campaign/promotion creates).",
+      "acceptanceCriteria": [
+        "Finances (ebay-client.ts listRecentTransactions/getPayouts/getPayout), Marketing (ebay-marketing.ts marketingFetch), Disputes (ebay-disputes.ts disputeFetch), Post-Order (ebay-postorder.ts) all honor breaker + retry + Retry-After",
+        "Marketing requests send Content-Language + Accept-Language (locale-mapped like localeForMarketplace) on POST/PUT",
+        "Host differences preserved (apiz host for Finances, /post-order/v2, IAF auth where required)",
+        "A simulated 429 with Retry-After backs off instead of throwing on each of the four families (test)"
+      ],
+      "priority": 1966,
+      "passes": false,
+      "notes": "[P2][Edge/eBay] iOS listing-lifecycle audit 2026-07-14. Finances (ebay-client.ts:3149/3304/3346), Marketing (ebay-marketing.ts:113), Disputes (ebay-disputes.ts:39), Post-Order (ebay-postorder.ts:32) bypass fetchAuthed. Only Feed API rolls its own fetch WITH withRetry. Marketing headers ebay-marketing.ts:120-129.",
+      "relevantPaths": [
+        "services/edge-functions/src/lib/ebay-marketing.ts",
+        "services/edge-functions/src/lib/ebay-disputes.ts",
+        "services/edge-functions/src/lib/ebay-postorder.ts",
+        "services/edge-functions/src/lib/ebay-client.ts"
+      ]
+    },
+    {
+      "id": "US-1967",
+      "title": "Fix the dead 'Send offer to interested buyers' button (license sell.negotiation scope or hide)",
+      "description": "As a seller, I should never see a button that always fails. The iOS Negotiation UI shows an eligible-items list and a send-offer action, but the edge route returns 501 because the sell.negotiation scope is deliberately omitted from the production eBay consent — reconnecting cannot fix it. Either add the scope to the production keyset + consent flow and wire the endpoints, or hide the send-offer surface until the scope is licensed. (Incoming best offers work fine via the Trading API and are unaffected.)",
+      "acceptanceCriteria": [
+        "Decision recorded: license sell.negotiation in prod OR feature-flag the send-offer UI off",
+        "If licensed: find_eligible_items + send_offer_to_interested_buyers work end-to-end from iOS and web; no 501/403 for a connected seller",
+        "If deferred: the send-offer entry points (iOS NegotiationService.sendOffer surfaces) are hidden/disabled with honest copy — no dead button, no misleading 'reconnect' prompt",
+        "Incoming best-offer respond (accept/decline/counter) remains working"
+      ],
+      "priority": 2607,
+      "passes": false,
+      "notes": "[P1][iOS+Edge/Negotiation] iOS listing-lifecycle audit 2026-07-14. Edge POST /negotiation/send-offer returns 501; scope gated off (ebay-client.ts:198-212, flipdesk-ebay.ts:7030-7048,7188). iOS NegotiationService.swift:47. A shipped always-failing feature is worse than an absent one.",
+      "relevantPaths": [
+        "services/edge-functions/src/routes/flipdesk-ebay.ts",
+        "services/edge-functions/src/lib/ebay-client.ts",
+        "ios/GradeThread/Marketplaces/NegotiationService.swift"
+      ]
+    },
+    {
+      "id": "US-1968",
+      "title": "bulkMigrateListing — bring a seller's existing eBay (Trading) listings under management",
+      "description": "As an established reseller onboarding to GradeThread, I want to manage my existing eBay listings, not just view them. Today Trading-created listings import read-only (getAllActiveEbaySelling) and relist explicitly refuses eBay-origin, so a new customer's live catalog can never be revised/repriced/promoted through GradeThread — a major onboarding wall. Implement Inventory API bulk_migrate_listing to convert eligible legacy listings into managed Inventory offers.",
+      "acceptanceCriteria": [
+        "Edge calls POST /sell/inventory/v1/bulk_migrate_listing for eligible active Trading listings and links the resulting SKU/offerId to the inventory_items/listings rows",
+        "Migrated listings flip to a managed origin so revise/reprice/withdraw/relist/promote become available (respecting the sync source-of-truth contract)",
+        "Ineligible listings (variations/other) are reported with the eBay reason, not silently dropped",
+        "Idempotent; a seller can trigger migration from the app and see progress/results"
+      ],
+      "priority": 1968,
+      "passes": false,
+      "notes": "[P2][Edge/Inventory] iOS listing-lifecycle audit 2026-07-14. No bulkMigrateListing anywhere; relist refuses origin==='ebay' (flipdesk-ebay.ts:6503). See SYNC_SOURCE_OF_TRUTH.md — migration changes a mirror into a GT-managed listing. Unlocks managing existing catalogs (most customers' day one).",
+      "relevantPaths": [
+        "services/edge-functions/src/lib/ebay-client.ts",
+        "services/edge-functions/src/lib/ebay-trading.ts",
+        "services/edge-functions/src/routes/flipdesk-ebay.ts",
+        "SYNC_SOURCE_OF_TRUTH.md"
+      ]
+    },
+    {
+      "id": "US-1969",
+      "title": "EPIC — iOS listing composer consolidation (Best Offer, schedule, save-draft, quantity/end, meters)",
+      "description": "As a reseller using the phone as my primary tool, I want one coherent composer that exposes the same conversion levers the web has. The iOS submission flow is fragmented across item canvas + a separate specifics sheet + a publish-only dialog, so Best Offer, scheduled publish, save-draft, single-item quantity/end, auction, and variations are unreachable for the ordinary photograph-and-list flow. This epic tracks US-1970..US-1975 to close the iOS↔web composer parity gaps.",
+      "acceptanceCriteria": [
+        "Child stories US-1970 (Best Offer), US-1971 (schedule), US-1972 (save-draft), US-1973 (quantity/end), US-1974 (quality meters), US-1975 (auction/variations) tracked to completion",
+        "A single-item, camera-created listing can set Best Offer, schedule, and save-as-draft without leaving the compose flow",
+        "No feature empty-state points to a control that doesn't exist on iOS"
+      ],
+      "priority": 2600,
+      "passes": false,
+      "notes": "[P2][iOS/Composer][Epic] iOS listing-lifecycle audit 2026-07-14. Server + web already support these; gaps are missing iOS UI. Root cause = composer fragmentation across ItemCanvasView + EbayCategorySpecificsView + PublishDialog. See memory ios-listing-lifecycle-audit-2026-07-14 for the parity matrix.",
+      "relevantPaths": [
+        "ios/GradeThread/Marketplaces/Publish/PublishDialog.swift",
+        "ios/GradeThread/Inventory/ItemCanvas/ItemCanvasView.swift",
+        "src/pages/flipdesk/composer.tsx"
+      ]
+    },
+    {
+      "id": "US-1970",
+      "title": "iOS: Best Offer on single-item composer (toggle + auto-accept/decline) incl. camera-created items",
+      "description": "As a seller, I want to enable Best Offer with auto-accept/auto-decline thresholds when publishing a single item from my phone. The web composer has this; the iOS single-item composer has none, and the only iOS surface (AutoLister bulk grid) is a bare boolean that filters batchId != nil — so a camera/canvas-created item can NEVER get Best Offer on iOS. Add Best Offer + thresholds to the single-item composer and persist them on the draft.",
+      "acceptanceCriteria": [
+        "PublishDialog ComposerForm has a Best Offer toggle + auto-accept and auto-decline threshold inputs, matching web behavior",
+        "Values persist on the listing draft and are consumed by the publish context (parity with web composer.tsx:2100-2153 / persisted :1013-1015)",
+        "Best Offer is settable for manually/camera-created items (not gated on batchId)",
+        "Round-trips: reopening the composer shows the saved Best Offer settings"
+      ],
+      "priority": 1970,
+      "passes": false,
+      "notes": "[P2][iOS/Composer] iOS listing-lifecycle audit 2026-07-14. iOS ComposerForm lacks it; bulk grid bool only + DraftsBulkEditStore.load filters batchId!=nil (:161) excluding manual items. Web: composer.tsx:2100-2153. Best Offer is a primary conversion lever.",
+      "relevantPaths": [
+        "ios/GradeThread/Marketplaces/Publish/PublishDialog.swift",
+        "ios/GradeThread/AutoLister/Drafts/DraftsBulkEditStore.swift",
+        "src/pages/flipdesk/composer.tsx"
+      ]
+    },
+    {
+      "id": "US-1971",
+      "title": "iOS: 'Schedule publish' control in the composer (fixes the dead Scheduled Drops empty state)",
+      "description": "As a seller, I want to schedule a listing for a peak-time drop from my phone. The Scheduled Drops screen's empty state tells users to open a draft and 'Schedule publish', but no such control exists in the iOS composer — the service can only reschedule/cancel drops that already have a scheduled time (set from web). Add a schedule-publish date/time control to the composer so an iOS-only seller can create the first schedule.",
+      "acceptanceCriteria": [
+        "Composer has a 'Schedule publish' control that sets scheduled_publish_at on the draft (parity with web composer.tsx:2170)",
+        "A scheduled listing appears in Scheduled Drops and can then be rescheduled/cancelled (existing ScheduledDropsService paths)",
+        "Scheduled Drops empty-state copy matches the now-real control (no dead-end)",
+        "Publishing respects the schedule end-to-end (server consumes scheduled_publish_at)"
+      ],
+      "priority": 1971,
+      "passes": false,
+      "notes": "[P2][iOS/Composer] iOS listing-lifecycle audit 2026-07-14. Dead empty state ScheduledDropsView.swift:87; ScheduledDropsService.swift:15,36 only reschedule/cancel non-null. Web control composer.tsx:2170 (state :266).",
+      "relevantPaths": [
+        "ios/GradeThread/Marketplaces/Publish/PublishDialog.swift",
+        "ios/GradeThread/Marketplaces/ScheduledDrops/ScheduledDropsView.swift",
+        "ios/GradeThread/Marketplaces/ScheduledDrops/ScheduledDropsService.swift"
+      ]
+    },
+    {
+      "id": "US-1972",
+      "title": "iOS: standalone 'Save draft' in the composer (persist edits without publishing)",
+      "description": "As a seller who drafts now and publishes later, I want to save composer edits without publishing. On iOS, edits persist only as the first step of runPush; closing offers only Discard/Keep-editing, so a typed description, condition note, or promo choice is lost unless the seller completes a publish. Add a Save action that writes the listing draft (title/description/condition note/best-offer/schedule/promo) independently of publishing.",
+      "acceptanceCriteria": [
+        "Composer has an explicit Save that calls saveDraft without triggering the push (parity with web composer.tsx:958)",
+        "Closing the composer with unsaved edits offers Save (not only Discard/Keep-editing)",
+        "Saved drafts reopen with all fields intact including Best Offer and schedule",
+        "No work loss on backgrounding/dismiss mid-edit"
+      ],
+      "priority": 1972,
+      "passes": false,
+      "notes": "[P2][iOS/Composer] iOS listing-lifecycle audit 2026-07-14. iOS persists only at runPush (PublishDialog.swift:452); close options :109-118 have no Save. Web independent Save composer.tsx:958-1015.",
+      "relevantPaths": [
+        "ios/GradeThread/Marketplaces/Publish/PublishDialog.swift",
+        "ios/GradeThread/Marketplaces/Listing/ListingDraftService.swift",
+        "src/pages/flipdesk/composer.tsx"
+      ]
+    },
+    {
+      "id": "US-1973",
+      "title": "iOS: single-item quantity / out-of-stock control + 'End listing' button on item detail",
+      "description": "As a seller, I want to pull one live item out of stock (or end it) directly from the item screen. Today the revise body has no quantity field, and ending a single listing requires going to the inventory list → select → bulk 'End listing'. Add a single-item quantity/out-of-stock control and an End-listing action on the item detail so common one-item maintenance doesn't force the bulk tools.",
+      "acceptanceCriteria": [
+        "Item detail / revise flow can set quantity (incl. 0 = out of stock) and it reaches eBay via updateOfferFields/bulkUpdatePriceQuantity",
+        "A single-item 'End listing' action exists on the item screen and calls the withdraw path (DELETE /listings/:id → withdrawOffer)",
+        "Actions respect the sync source-of-truth contract (blocked for eBay-origin mirrors)",
+        "Confirmation + success/failure feedback consistent with existing revise UX"
+      ],
+      "priority": 1973,
+      "passes": false,
+      "notes": "[P2][iOS/Maintenance] iOS listing-lifecycle audit 2026-07-14. EbayPublishService revise Body has no quantity (:126-132); end is bulk-only (BulkActionExecutor.swift:261). Consider OUT_OF_STOCK program opt-in (US-1979) for evergreen multi-qty.",
+      "relevantPaths": [
+        "ios/GradeThread/Marketplaces/EbayPublishService.swift",
+        "ios/GradeThread/Inventory/ItemCanvas/ItemCanvasView.swift",
+        "ios/GradeThread/Inventory/Bulk/BulkActionExecutor.swift"
+      ]
+    },
+    {
+      "id": "US-1974",
+      "title": "iOS: surface validate warnings + recommended-coverage (title-quality & aspect meters)",
+      "description": "As a seller, I want the same pre-publish quality guidance on iOS that the web shows. The /validate endpoint already returns title-quality `warnings` and `recommendedCoverage`, but the iOS ValidateResponse decodes only ok/blockers/summary/aspectDiagnostics, so iOS sellers see only hard blockers. Decode the extra fields and render a title-quality meter and recommended-aspect coverage meter.",
+      "acceptanceCriteria": [
+        "iOS ValidateResponse decodes warnings + recommendedCoverage (EbayPublishTypes.swift)",
+        "Composer renders a title-quality meter and recommended-coverage meter (parity with web composer.tsx:1442,1817)",
+        "Warnings are advisory (do not block publish) and are visually distinct from hard blockers"
+      ],
+      "priority": 1974,
+      "passes": false,
+      "notes": "[P3][iOS/Composer] iOS listing-lifecycle audit 2026-07-14. Fields already returned by edge (flipdesk-ebay.ts:5528-5534) but dropped by iOS decoder (EbayPublishTypes.swift:6-15).",
+      "relevantPaths": [
+        "ios/GradeThread/Marketplaces/Publish/EbayPublishTypes.swift",
+        "ios/GradeThread/Marketplaces/Publish/PublishDialog.swift",
+        "services/edge-functions/src/routes/flipdesk-ebay.ts"
+      ]
+    },
+    {
+      "id": "US-1975",
+      "title": "iOS: auction format + multi-variant (variations) editor in the composer",
+      "description": "As an auction or multi-variant seller, I want to create these listings from iOS. The web composer supports auction (start/reserve/BIN/duration) and size/color variation matrices with per-variant qty/price, and the server already consumes listing_format/auction_*/variations from the draft — but iOS has no format selector or variation editor, so every iOS publish is fixed-price single-variant. Add the format selector and variation editor to the iOS composer.",
+      "acceptanceCriteria": [
+        "Composer offers fixed-price vs auction; auction exposes start/reserve/BIN/duration (parity with listing-format-controls.tsx)",
+        "Variation editor supports size/color matrices with per-variant qty/price, feeding inventory_item_group publish",
+        "Server consumption verified end-to-end (flipdesk-ebay.ts:5841-5949) — an iOS-created auction/variation listing publishes correctly"
+      ],
+      "priority": 1975,
+      "passes": false,
+      "notes": "[P3][iOS/Composer] iOS listing-lifecycle audit 2026-07-14. Purely missing iOS UI; web listing-format-controls.tsx:101-161,190+; server already consumes it. Trailing item in the composer epic (severity depends on seller type).",
+      "relevantPaths": [
+        "ios/GradeThread/Marketplaces/Publish/PublishDialog.swift",
+        "src/components/flipdesk/listing-format-controls.tsx",
+        "services/edge-functions/src/routes/flipdesk-ebay.ts"
+      ]
+    },
+    {
+      "id": "US-1976",
+      "title": "Gate end/reprice edge routes on listing_origin + fix the iOS origin fallback heuristic",
+      "description": "As GradeThread, we want the read-only-mirror contract enforced consistently. DELETE /listings/:id and POST /listings/:id/price have no listing_origin check (unlike /revise), so a rare eBay-origin import carrying an offer id could be repriced/ended against the mirror contract. Separately, the iOS origin fallback (nil origin + nil offer id ⇒ treat as eBay-origin) can mislabel a GT-origin listing as a locked 'Edit on eBay' mirror. Add the origin gate server-side and tighten the client heuristic.",
+      "acceptanceCriteria": [
+        "DELETE /listings/:id and POST /listings/:id/price reject eBay-origin listings with the same 409/locked-field contract as /revise (flipdesk-ebay.ts:4821)",
+        "iOS origin determination no longer labels a GT-origin listing as eBay-origin when the mirror hasn't backfilled listing_origin (ItemCanvasView.swift:706-707)",
+        "Regression test covers an eBay-origin row that carries a platform_offer_id"
+      ],
+      "priority": 1976,
+      "passes": false,
+      "notes": "[P2][Edge+iOS/Sync] iOS listing-lifecycle audit 2026-07-14. Missing origin gate: flipdesk-ebay.ts:5433 (DELETE), :4030 (price). revise gate at :4821. iOS heuristic ItemCanvasView.swift:706-707. See SYNC_SOURCE_OF_TRUTH.md.",
+      "relevantPaths": [
+        "services/edge-functions/src/routes/flipdesk-ebay.ts",
+        "ios/GradeThread/Inventory/ItemCanvas/ItemCanvasView.swift",
+        "SYNC_SOURCE_OF_TRUTH.md"
+      ]
+    },
+    {
+      "id": "US-1977",
+      "title": "Push notification for listing.ended (ended-unsold / ended-by-eBay)",
+      "description": "As a seller, I want to be pushed when eBay ends my listing, not just see it in-app. notifyListingEnded is documented in-app only and fires only during the relist-reconcile sync path; the iOS listing.ended category exists but never receives a push. Wire listing.ended into the transactional push pipeline the way sale.created and offer.received are.",
+      "acceptanceCriteria": [
+        "listing.ended emits an APNs push (parity with sale.created / offer.received in transactional-push.ts)",
+        "Fired both on ended-unsold and ended-by-eBay detection (not only relist-reconcile)",
+        "Respects the iOS notification category/preferences (NotificationCategories.swift listing.ended)"
+      ],
+      "priority": 1977,
+      "passes": false,
+      "notes": "[P3][Edge/Notifications] iOS listing-lifecycle audit 2026-07-14. notifyListingEnded in-app only (selling-activity-notify.ts:207-208), fired at flipdesk-ebay.ts:3155. iOS category exists NotificationCategories.swift:19,53. iOS push infra already present.",
+      "relevantPaths": [
+        "services/edge-functions/src/lib/selling-activity-notify.ts",
+        "services/edge-functions/src/lib/transactional-push.ts",
+        "ios/GradeThread/Notifications/NotificationCategories.swift"
+      ]
+    },
+    {
+      "id": "US-1978",
+      "title": "eBay lifecycle cleanup verbs: end variation listings, delete stale offers/items, order-level refund",
+      "description": "As GradeThread, we want complete lifecycle control. Missing: withdrawByInventoryItemGroup (no way to END a multi-variation listing), DELETE inventory_item/{sku} and DELETE offer/{id} cleanup (stale unpublished offers/items accumulate and complicate SKU reuse), and Fulfillment order-level issueRefund (a seller can't issue a goodwill/partial refund outside a return case). Implement these verbs and expose the relevant ones.",
+      "acceptanceCriteria": [
+        "withdrawByInventoryItemGroup ends a published variation listing; wired to the end path",
+        "DELETE /inventory_item/{sku} and DELETE /offer/{id} available for cleanup of stale unpublished artifacts (guarded, not destructive to live listings)",
+        "Fulfillment issueRefund supports proactive/partial refunds outside a return case",
+        "Each new call routes through the hardened fetch path (see US-1966)"
+      ],
+      "priority": 1978,
+      "passes": false,
+      "notes": "[P3][Edge/Inventory+Fulfillment] iOS listing-lifecycle audit 2026-07-14. Absent: withdrawByInventoryItemGroup, DELETE inventory_item/offer, Fulfillment order-level issueRefund (refunds only via Post-Order return issue_refund today).",
+      "relevantPaths": [
+        "services/edge-functions/src/lib/ebay-client.ts",
+        "services/edge-functions/src/lib/ebay-postorder.ts",
+        "services/edge-functions/src/routes/flipdesk-ebay.ts"
+      ]
+    },
+    {
+      "id": "US-1979",
+      "title": "eBay marketing/monetization polish: real CPS ad-rate, route item-promotion writes, out-of-stock opt-in",
+      "description": "As a seller, I want better-informed monetization controls. Three gaps: (1) the CPS promoted-listings ad rate is a hardcoded 4-category heuristic instead of eBay's recommendation data; (2) item-promotion write functions (order/volume/coupon promos) are built but never routed; (3) the Account API OUT_OF_STOCK program opt-in isn't managed, which matters for evergreen multi-quantity clothing that should stay live at qty 0.",
+      "acceptanceCriteria": [
+        "CPS suggested ad rate comes from eBay's recommendation/suggested-bid data rather than suggestedAdRateForCategory's hardcoded map",
+        "item_promotion create/update/delete are exposed via routes + UI (create/edit order/volume/coupon promos)",
+        "Seller can opt in/out of the OUT_OF_STOCK program via Account API and keep multi-qty listings live at zero stock"
+      ],
+      "priority": 1979,
+      "passes": false,
+      "notes": "[P3][Edge/Marketing] iOS listing-lifecycle audit 2026-07-14. CPS rate hardcoded ebay-marketing.ts:38-60 (suggest_max_cpc IS used for CPC/Smart). item_promotion writes built but unrouted (:1194,1305-1341). No /sell/account/v1/program opt-in / OUT_OF_STOCK.",
+      "relevantPaths": [
+        "services/edge-functions/src/lib/ebay-marketing.ts",
+        "services/edge-functions/src/lib/ebay-client.ts",
+        "services/edge-functions/src/routes/flipdesk-ebay.ts"
+      ]
+    },
+    {
+      "id": "US-1980",
+      "title": "eBay Media API: video upload for listings",
+      "description": "As a clothing seller, I want to add video to my listings to lift conversion. Today images are passed as external URLs only (InventoryItemPayload.imageUrls) and there is no video support. Integrate the eBay Media API (/commerce/media) to upload video and attach it to listings.",
+      "acceptanceCriteria": [
+        "Edge can create a video resource via /commerce/media, poll until processed, and attach the video to a listing/inventory item",
+        "iOS/web can add a video during compose and see it reflected on the published listing",
+        "Media routes through the hardened fetch path and handles the async processing states"
+      ],
+      "priority": 1980,
+      "passes": false,
+      "notes": "[P3][Edge/Media] iOS listing-lifecycle audit 2026-07-14. No Media API; images external-URL only (InventoryItemPayload.imageUrls). Nice-to-have; video is a real apparel conversion lever.",
+      "relevantPaths": [
+        "services/edge-functions/src/lib/ebay-client.ts",
+        "services/edge-functions/src/routes/flipdesk-ebay.ts"
       ]
     }
   ]
