@@ -366,32 +366,20 @@ html.lenis body {
     var(--background);
 }
 
-/* Enhanced: the gradient stops drift with scroll progress for a subtle
-   "living field" parallax, and the red bloom intensifies as you descend. */
+/* Enhanced: a subtle "living field" drift as you scroll.
+   US-1950 (perf): this was previously done by recomputing three radial-gradient
+   `at` positions AND a `color-mix` percentage from `calc(... var(--gt-scroll))`.
+   Because --gt-scroll changes every scroll frame (rAF), that repainted this
+   full-viewport `position:fixed` layer on EVERY frame — a gradient/color-mix
+   can't be composited — which was the intermittent homepage/FlipDesk-section
+   scroll freeze (a full-screen repaint per frame, stacked with the WebGL orb +
+   Lenis). We keep the static base gradient (inherited from the base rule) and
+   express the drift as a COMPOSITED transform: --gt-scroll now only feeds
+   `transform`, so scrolling moves the layer on the compositor with zero repaint.
+   The slight scale() gives margin so the translate never exposes a bg edge. */
 :root[data-scroll-enhanced] .gt-continuous-bg {
-  background:
-    radial-gradient(
-      60% 50% at 50% calc(2% - var(--gt-scroll) * 34%),
-      color-mix(in oklab, var(--color-brand-navy) 18%, transparent),
-      transparent 72%
-    ),
-    radial-gradient(
-      52% 46% at calc(84% - var(--gt-scroll) * 58%)
-        calc(20% + var(--gt-scroll) * 60%),
-      color-mix(
-        in oklab,
-        var(--color-brand-red) calc(10% + var(--gt-scroll) * 16%),
-        transparent
-      ),
-      transparent 70%
-    ),
-    radial-gradient(
-      72% 58% at calc(14% + var(--gt-scroll) * 46%)
-        calc(92% - var(--gt-scroll) * 44%),
-      color-mix(in oklab, var(--color-brand-navy) 20%, transparent),
-      transparent 72%
-    ),
-    var(--background);
+  transform: scale(1.12) translate3d(0, calc(var(--gt-scroll) * -5%), 0);
+  will-change: transform;
 }
 
 /* US-1954: the two intentional dark "moments" (proof band, final CTA). A

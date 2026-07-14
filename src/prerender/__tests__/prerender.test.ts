@@ -89,6 +89,15 @@ describe("prerender head-builder (US-292)", () => {
   });
 });
 
+// US-1950: the client route-chunk preload map (ROUTE_PAGE_MODULES) must cover
+// every prerendered path (and nothing more), or a route ships without its chunk
+// preloaded and flashes the full-screen suspense spinner. This is enforced at
+// entry-server import time by a THROWING guard that runs during `npm run build`
+// (the prerender imports it, and verify builds before vitest) — a strictly
+// stronger signal than a unit test, and it avoids pulling the SSR entry into the
+// web coverage denominator. The post-build test below then proves the preloads
+// actually reach the emitted HTML.
+
 // These run only after a build has produced dist/. Skipped otherwise so the
 // unit suite stays build-independent; CI runs them after `npm run build`.
 const hasDist = existsSync(dist("index.html"));
@@ -100,6 +109,26 @@ describe.skipIf(!hasDist)("prerendered dist output (US-292)", () => {
     expect(html).toContain("application/ld+json");
     // body actually populated (not the empty SPA shell)
     expect(html).toMatch(/<div id="root"><[a-z]/);
+  });
+
+  it("inner marketing routes preload their own route chunk (US-1950)", () => {
+    // The client render (createRoot, not hydrate) suspends on the lazy route
+    // until its chunk downloads; prerender injects a <link rel=modulepreload> for
+    // that chunk so it's already in flight. Assert the page's own chunk is
+    // preloaded (a route named like the page module → e.g. how-it-works-*.js).
+    for (const [routePath, chunkStem] of [
+      ["/how-it-works", "how-it-works"],
+      ["/for-resellers", "for-resellers"],
+      ["/whats-it-worth", "whats-it-worth"],
+    ] as const) {
+      const html = readFileSync(dist(`${routePath.replace(/^\//, "")}.html`), "utf8");
+      const re = new RegExp(
+        `<link rel="modulepreload"[^>]*href="/assets/${chunkStem}-[^"]+\\.js"`,
+      );
+      expect(re.test(html), `${routePath} should modulepreload its ${chunkStem} chunk`).toBe(
+        true,
+      );
+    }
   });
 
   it("each registered route emitted a static HTML file with one title", () => {

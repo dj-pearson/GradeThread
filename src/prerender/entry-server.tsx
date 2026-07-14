@@ -304,3 +304,121 @@ export function renderRoute(path: string): string {
 // The set of paths this entry can render — the prerender script asserts this
 // matches the route registry so a new public route can't silently skip SSR.
 export const PRERENDERABLE_PATHS = Object.keys(PAGES);
+
+// US-1950: the source module the CLIENT router lazy-loads for each prerendered
+// path. main.tsx mounts with createRoot (a client render, NOT hydrateRoot — the
+// intentional "prerender as a fast poster" design), so React discards the
+// prerendered HTML and re-renders from scratch; every route is lazy() behind a
+// full-screen <SuspenseWrapper> fallback, so that client render SUSPENDS into a
+// 2-3s blank spinner while the route's JS chunk downloads. The prerendered <head>
+// preloads only the eager vendor chunks, never the route chunk — so even an
+// instantly-painted page flashes the spinner. The prerender resolves each of
+// these module ids to its built chunk (via build-meta/bundle-modules.json) and
+// emits a <link rel="modulepreload"> so the route chunk is already in flight when
+// the client render begins — no suspend, no spinner flash. Kept in lockstep with
+// PAGES by the guard below (a missing/extra key fails the build). Paths where
+// several routes share one page module (glossary, guides, comparisons, …) all
+// point at that shared module. Match is by path suffix, so no extension needed.
+const M = "src/pages/";
+export const ROUTE_PAGE_MODULES: Record<string, string> = {
+  "/": `${M}landing`,
+  "/how-it-works": `${M}marketing/how-it-works`,
+  "/pricing": `${M}marketing/pricing`,
+  "/for-resellers": `${M}marketing/for-resellers`,
+  "/flipdesk": `${M}marketing/flipdesk`,
+  "/sell-used-clothes-ebay": `${M}marketing/sell-used-clothes-ebay`,
+  "/faq": `${M}marketing/faq`,
+  "/condition-grading": `${M}marketing/condition-grading`,
+  "/grading-standard": `${M}marketing/grading-standard`,
+  "/grading/scale": `${M}marketing/grading-scale`,
+  "/grading/methodology": `${M}marketing/grading-methodology`,
+  "/grading/graded-clothing-meaning": `${M}marketing/grading-disambiguation`,
+  "/grading/vs-authentication": `${M}marketing/grading-disambiguation`,
+  "/transparency": `${M}marketing/transparency`,
+  "/resale-condition-report": `${M}marketing/resale-condition-report`,
+  "/state-of-durability": `${M}marketing/state-of-durability`,
+  "/verify": `${M}marketing/verify`,
+  "/scan": `${M}marketing/passport-scan`,
+  "/developers": `${M}marketing/developers`,
+  "/whats-it-worth": `${M}marketing/whats-it-worth`,
+  "/buyer-guarantee": `${M}marketing/buyer-guarantee`,
+  "/about": `${M}marketing/about`,
+  "/verified": `${M}verified-directory`,
+  "/reduce-returns": `${M}marketing/reduce-returns`,
+  "/reseller-grading-guide": `${M}marketing/reseller-grading-guide`,
+  "/design-vs-damage": `${M}marketing/design-vs-damage`,
+  "/resale-value-by-condition": `${M}marketing/resale-value-by-condition`,
+  "/grading-by-category": `${M}marketing/grading-by-category`,
+  "/privacy": `${M}legal/privacy`,
+  "/terms": `${M}legal/terms`,
+  "/cookies": `${M}legal/cookies`,
+  "/acceptable-use": `${M}legal/acceptable-use`,
+  "/refund": `${M}legal/refund`,
+  "/imprint": `${M}legal/imprint`,
+  "/dpa": `${M}legal/dpa`,
+  "/subprocessors": `${M}legal/subprocessors`,
+  "/dmca": `${M}legal/dmca`,
+  "/accessibility": `${M}legal/accessibility`,
+  "/status": `${M}status`,
+  "/leaderboard": `${M}referral-leaderboard`,
+  // Dynamic families — every path in the family shares one page module.
+  ...Object.fromEntries(
+    GLOSSARY_ENTRIES.map((e) => [e.path, `${M}marketing/grading-glossary`]),
+  ),
+  [RESELLER_GLOSSARY_HUB_PATH]: `${M}marketing/reseller-glossary`,
+  ...Object.fromEntries(
+    RESELLER_TERMS.map((t) => [resellerTermPath(t.slug), `${M}marketing/reseller-glossary`]),
+  ),
+  ...Object.fromEntries(
+    FLIPDESK_LANDINGS.map((l) => [l.path, `${M}marketing/flipdesk-landing`]),
+  ),
+  [RESELLING_PILLAR_PATH]: `${M}marketing/reselling`,
+  ...Object.fromEntries(
+    RESELLING_GUIDES.map((g) => [resellingGuidePath(g.slug), `${M}marketing/reselling`]),
+  ),
+  [FLAW_LIBRARY_HUB_PATH]: `${M}marketing/flaw-library`,
+  ...Object.fromEntries(
+    FLAW_ENTRIES.map((f) => [flawPath(f.slug), `${M}marketing/flaw-library`]),
+  ),
+  [GARMENT_GUIDES_HUB_PATH]: `${M}marketing/garment-guides`,
+  ...Object.fromEntries(
+    GARMENT_GUIDES.map((g) => [guidePath(g.slug), `${M}marketing/garment-guides`]),
+  ),
+  [COMPARE_HUB_PATH]: `${M}marketing/compare`,
+  ...Object.fromEntries(
+    COMPARISONS.map((c) => [comparePath(c.slug), `${M}marketing/compare`]),
+  ),
+  ...Object.fromEntries(
+    OPPORTUNIST_GUIDES.map((g) => [g.path, `${M}marketing/opportunist-guide`]),
+  ),
+  [RETURNS_SPINE_PATH]: `${M}marketing/reduce-ebay-returns`,
+  [PLATFORM_STANDARDS_HUB_PATH]: `${M}marketing/platform-standards`,
+  ...Object.fromEntries(
+    PLATFORM_STANDARDS.map((s) => [platformStandardPath(s.slug), `${M}marketing/platform-standards`]),
+  ),
+  [WHERE_TO_SELL_PATH]: `${M}marketing/where-to-sell`,
+  [CROSSLIST_APPS_PATH]: `${M}marketing/crosslisting-apps`,
+  [CONDITION_CHART_PATH]: `${M}marketing/condition-chart`,
+  [GRADE_CHECKER_PATH]: `${M}tools/grade-checker`,
+  [AUTHENTICITY_CHECK_PATH]: `${M}tools/authenticity-check`,
+  [FIT_CHECKER_PATH]: `${M}tools/fit-checker`,
+  [FOR_BRANDS_PATH]: `${M}marketing/for-brands`,
+};
+
+// Lockstep guard: every prerendered path must have a page-module mapping and
+// vice versa. A drift here means a new route would silently ship without its
+// chunk preloaded (the exact regression US-1950 fixes), so fail loudly at
+// import time (the prerender build imports this module).
+{
+  const pages = Object.keys(PAGES).sort();
+  const mapped = Object.keys(ROUTE_PAGE_MODULES).sort();
+  if (JSON.stringify(pages) !== JSON.stringify(mapped)) {
+    const missing = pages.filter((p) => !(p in ROUTE_PAGE_MODULES));
+    const extra = mapped.filter((p) => !(p in PAGES));
+    throw new Error(
+      `[prerender] ROUTE_PAGE_MODULES out of sync with PAGES.` +
+        (missing.length ? ` Missing: ${missing.join(", ")}.` : "") +
+        (extra.length ? ` Extra: ${extra.join(", ")}.` : ""),
+    );
+  }
+}
