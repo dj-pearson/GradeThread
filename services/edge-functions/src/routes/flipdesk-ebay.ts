@@ -51,6 +51,7 @@ import {
   getCatalogProduct,
   getCustomerServiceMetric,
   getListingViolations,
+  isLeafCategory,
   getListingViolationsSummary,
   getPayouts,
   searchCatalogProducts,
@@ -145,6 +146,7 @@ import {
   mapGradeToBaseCondition,
   conditionOptionsForCategory,
 } from "../lib/publish-preflight.ts";
+import { leafCategoryBlocker } from "../lib/category-leaf.ts";
 import {
   getAllActiveEbaySelling,
   getItemSpecifics,
@@ -8671,6 +8673,37 @@ export async function assemblePublishContext(
     : mapEbayCondition(item.grade_value, item.grade_label);
   const conditionDescription =
     (listing?.ebay_condition_description ?? item.condition_notes ?? "").trim();
+
+  // US-1893: verify the category id resolves to a LEAF before we attempt to
+  // publish. A non-leaf or unknown id (from manual entry, CSV import, or an older
+  // row) otherwise fails eBay with an opaque error — and the condition-policy /
+  // aspect fetches below silently no-op on a non-leaf, so publish would proceed
+  // and fail downstream. Cache-first (no live Taxonomy call for already-validated
+  // ids); on a non-leaf/unknown id, block with the top suggested LEAF as a fix,
+  // reusing the SAME suggestCategories call the category-check card uses.
+  if (categoryId) {
+    try {
+      const leaf = await isLeafCategory(categoryId);
+      if (leaf !== true) {
+        const leafQuery = (title ?? item.title ?? "").trim();
+        const leafSuggestions = leafQuery
+          ? await suggestCategories(leafQuery).catch(() => [])
+          : [];
+        const leafBlocker = leafCategoryBlocker(
+          leaf,
+          categoryId,
+          leafSuggestions[0] ?? null,
+        );
+        if (leafBlocker) blockers.push(leafBlocker);
+      }
+    } catch (err) {
+      // Best-effort: a transient Taxonomy failure must not false-block a publish.
+      console.warn(
+        "[flipdesk-ebay] leaf-category preflight (non-blocking):",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
 
   // US-566 / US-1296+: reconcile the resolved condition with the leaf category's
   // allowed conditions (Sell Metadata get_item_condition_policies, cached). eBay

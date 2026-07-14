@@ -15527,7 +15527,7 @@
         "Category-check-card logic and this guard share the suggestion call; deno test covers leaf-pass, non-leaf-block, and cache-hit paths"
       ],
       "priority": 1893,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][SEO] See EBAY_RANKING_PLAYBOOK.md — wrong/shallow category = filtered out of browse + wrong required-aspect set; category misuse is a policy offense. Added 2026-07-09."
     },
     {

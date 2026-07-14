@@ -19,6 +19,11 @@ import {
   type RetryOptions,
 } from "./retry.ts";
 import { fetchWithTimeout, getBreaker } from "./circuit-breaker.ts";
+import {
+  cachedAspectsProveLeaf,
+  parseSubtreeIsLeaf,
+  type SubtreeResponse,
+} from "./category-leaf.ts";
 import { createSharedTokenCache, type SharedTokenCache } from "./coherent-cache.ts";
 
 // US-499: bounded deadline on every eBay HTTP call. eBay is occasionally slow;
@@ -1267,6 +1272,58 @@ export async function getCategoryName(
   );
 
   return { id: categoryId, name: bc.name, path: bc.path };
+}
+
+// US-1893: is this category id a publishable LEAF? eBay only lets you list
+// against a leaf; a non-leaf/unknown id fails publish with an opaque error, so
+// the publish preflight validates it up front.
+//
+// Cache-first: a cached ebay_category_aspects row with NON-EMPTY aspects proves
+// leaf-ness (the aspects endpoint only succeeds on leaves), so an already-
+// validated id — anything the composer fetched specifics for — costs no live
+// Taxonomy call. Otherwise ask get_category_subtree.
+//
+// Returns true (leaf) / false (branch) / null (eBay couldn't resolve the id —
+// treat as unknown and block). THROWS on a transient error so the caller's
+// best-effort try/catch doesn't false-block a legitimate publish.
+export async function isLeafCategory(
+  categoryId: string
+): Promise<boolean | null> {
+  const marketplaceId = getMarketplaceId();
+  const treeId = getCategoryTreeId();
+
+  const { data: cached } = await supabaseAdmin
+    .from("ebay_category_aspects")
+    .select("aspects")
+    .eq("marketplace_id", marketplaceId)
+    .eq("category_tree_id", treeId)
+    .eq("category_id", categoryId)
+    .maybeSingle();
+  if (cached && cachedAspectsProveLeaf(cached.aspects)) return true;
+
+  const token = await getAppAccessToken();
+  const url =
+    `${apiHost()}/commerce/taxonomy/v1/category_tree/${treeId}` +
+    `/get_category_subtree?category_id=${encodeURIComponent(categoryId)}`;
+  const res = await ebayFetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "X-EBAY-C-MARKETPLACE-ID": marketplaceId,
+      "Accept-Language": "en-US",
+    },
+  });
+  // 400/404 = eBay says this id isn't a valid category in the tree → unknown.
+  if (res.status === 400 || res.status === 404) return null;
+  if (!res.ok) {
+    // Transient/other failure — surface it so the caller treats the check as
+    // best-effort (non-blocking) rather than blocking on a flaky call.
+    const text = await res.text();
+    throw new Error(
+      `eBay category subtree failed (${res.status}): ${text.slice(0, 200)}`
+    );
+  }
+  const payload = (await res.json()) as SubtreeResponse;
+  return parseSubtreeIsLeaf(payload);
 }
 
 // Aspect cache TTL: aspects change rarely. Keep entries warm for 30 days.
