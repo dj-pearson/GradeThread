@@ -416,6 +416,46 @@ html.lenis body {
   transform: none;
 }
 
+/* US-1956: hero cinematic entrance — pure CSS so nothing sits on the critical
+   path. LCP-safe: the H1 (the LCP element) lifts with opacity kept at 1
+   (transform-only), so the browser records it at first paint; the non-LCP
+   badge / subtitle / CTAs fade-rise with a stagger. No-JS / bots see the final
+   DOM; the global prefers-reduced-motion rule collapses the durations to ~0 so
+   everything lands in its final state with no motion. */
+@keyframes gtHeroLift {
+  from {
+    transform: translateY(14px);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+@keyframes gtHeroRise {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.gt-hero-lift {
+  animation: gtHeroLift 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.gt-hero-rise {
+  animation: gtHeroRise 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.gt-hero-rise-1 {
+  animation-delay: 0.08s;
+}
+.gt-hero-rise-2 {
+  animation-delay: 0.22s;
+}
+.gt-hero-rise-3 {
+  animation-delay: 0.34s;
+}
+
 /* US-1959: FlipDesk pipeline — a swipeable horizontal gallery. Hidden
    scrollbar, snap, and a soft edge-fade that both polishes the look and hints
    that the row scrolls (a peek of the next panel does the rest). */

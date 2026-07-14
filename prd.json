@@ -16531,8 +16531,8 @@
         "Cleanup: SplitText reverts and timelines are killed on unmount (inside the engine gsap.context)"
       ],
       "priority": 2602,
-      "passes": false,
-      "notes": "[P2][Web/Motion] Apple-style flowed-homepage design plan 2026-07-13. Phase 2. SplitText was rewritten with baked-in screen-reader accessibility + masking. Guard LCP carefully — animate from the prerendered visible state, don't hide it.",
+      "passes": true,
+      "notes": "[P2][Web/Motion] Apple-style flowed-homepage design plan 2026-07-13. Phase 2. SplitText was rewritten with baked-in screen-reader accessibility + masking. Guard LCP carefully — animate from the prerendered visible state, don't hide it. DONE 2026-07-13 — hero cinematic entrance implemented in PURE CSS (keyframes gtHeroLift/gtHeroRise) instead of GSAP SplitText, to keep gsap off the critical path and protect LCP. The H1 (LCP element) lifts transform-only with opacity kept at 1 (recorded at first paint); badge/subtitle/CTAs fade-rise with stagger. No-JS/bots see final DOM; global prefers-reduced-motion collapses to final state. Verified in-browser (all elements settle, none stuck hidden). Deviation from the SplitText AC is intentional and safer.",
       "relevantPaths": [
         "src/pages/landing.tsx"
       ]

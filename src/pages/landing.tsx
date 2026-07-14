@@ -677,21 +677,21 @@ export function LandingPage() {
           className="pointer-events-none absolute left-1/2 top-1/2 -z-[5] h-[30rem] w-[46rem] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 rounded-full bg-background/65 blur-2xl"
         />
 
-        <Badge variant="secondary" className="mb-6 text-sm font-medium border-brand-navy/10 dark:border-white/10 glass-card px-4 py-1.5 rounded-full">
+        <Badge variant="secondary" className="gt-hero-rise gt-hero-rise-1 mb-6 text-sm font-medium border-brand-navy/10 dark:border-white/10 glass-card px-4 py-1.5 rounded-full">
           The condition-grading standard for resellers
         </Badge>
-        <h1 className="max-w-3xl text-4xl font-extrabold tracking-tight sm:text-5xl lg:text-6xl font-display">
+        <h1 className="gt-hero-lift max-w-3xl text-4xl font-extrabold tracking-tight sm:text-5xl lg:text-6xl font-display">
           The Trusted Standard for Clothing{" "}
           <span className="bg-gradient-to-r from-brand-red to-rose-500 bg-clip-text text-transparent drop-shadow-sm">Condition Grading</span>
         </h1>
-        <p className="mt-6 max-w-xl text-lg text-muted-foreground">
+        <p className="gt-hero-rise gt-hero-rise-2 mt-6 max-w-xl text-lg text-muted-foreground">
           GradeThread gives every pre-owned garment an objective 1.0–10.0
           condition grade and a certificate buyers can verify — one published
           rubric, applied the same way every time, so a grade means the same
           thing everywhere. Cut returns, sell faster, and run the whole
           reselling workflow in FlipDesk.
         </p>
-        <div className="mt-10 flex flex-col gap-3 sm:flex-row sm:gap-4">
+        <div className="gt-hero-rise gt-hero-rise-3 mt-10 flex flex-col gap-3 sm:flex-row sm:gap-4">
           <Link to="/signup">
             <Button
               size="lg"
