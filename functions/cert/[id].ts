@@ -15,7 +15,6 @@ import {
   certificateProductLd,
   escape,
   fetchJson,
-  notFoundResponse,
   renderBreadcrumbs,
   renderSsrResponse,
   siteUrl,
@@ -24,6 +23,7 @@ import {
   withEdgeCache,
   type PagesEnv,
 } from "../_shared/blog-render";
+import { certNotFoundResponse } from "./cert-not-found";
 
 interface PublicCertificate {
   id: string;
@@ -103,28 +103,16 @@ export const onRequestGet: PagesFunction<PagesEnv> = (context: Ctx) =>
 // US-1945: a DISTINCT, cert-branded 404 — never the generic/blog one — so a
 // buyer following a certificate link that can't be resolved gets a clear
 // "certificate not found" (and can't confuse it with a genuine verified cert).
-function certNotFound(env: PagesEnv): Response {
-  return notFoundResponse(env, {
-    title: "Certificate not found — GradeThread",
-    heading: "Certificate not found",
-    message:
-      "This grade certificate could not be found or verified. It may have been " +
-      "removed, or the link may be incorrect. " +
-      '<a href="/verified">Browse verified sellers &rarr;</a>',
-    canonicalPath: "/verified",
-  });
-}
-
 async function renderCertificate(context: Ctx): Promise<Response> {
   const { params, env } = context;
   const id = String(params.id ?? "");
-  if (!id) return certNotFound(env);
+  if (!id) return certNotFoundResponse(env);
 
   const data = await fetchJson<CertResponse>(
     env,
     `/api/content/public/certificates/${encodeURIComponent(id)}`,
   );
-  if (!data?.certificate) return certNotFound(env);
+  if (!data?.certificate) return certNotFoundResponse(env);
 
   const cert = data.certificate;
   // US-1945: only the stored, verifiable certificate_number is shown as
