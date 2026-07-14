@@ -114,6 +114,12 @@ export function publishedGradeRows(curve: ConditionCurveLite): GradeRow[] {
 }
 
 // ── Visible per-grade plain-language value summary ───────────────────
+// US-1947: the per-grade figure is a MODELED estimate positioned within a
+// condition bucket, not a distinct sold median per half-point — grades that fall
+// in the same condition band draw on the same comp pool, so we never print a
+// per-grade "N comps" badge (it repeats across a band and its naive sum would
+// exceed the item's total sample). The authoritative sample count is stated once
+// in the methodology block below.
 export function renderPerGradeSummary(curve: ConditionCurveLite): string {
   const rows = publishedGradeRows(curve);
   if (rows.length === 0) return "";
@@ -125,15 +131,18 @@ export function renderPerGradeSummary(curve: ConditionCurveLite): string {
           : "";
       return `<li><a class="ci-grade" href="${r.tier.path}">Grade ${escape(
         fmtGrade(r.grade),
-      )} · ${escape(r.tier.label)}</a> — typically <strong>${dollars(
+      )} · ${escape(r.tier.label)}</a> — modeled estimate <strong>${dollars(
         r.median,
-      )}</strong>${range} <span class="muted">· ${r.sampleSize} comps</span></li>`;
+      )}</strong>${range}</li>`;
     })
     .join("");
   return `<section class="ci-summary">
       <h2>Value at each condition grade</h2>
-      <p>What a <strong>${escape(curve.label)}</strong> is typically worth at each GradeThread
-      condition grade, from condition-matched resale comps. Click a grade to see what it means.</p>
+      <p>A <strong>modeled resale estimate</strong> for a <strong>${escape(curve.label)}</strong> at
+      each GradeThread condition grade, positioned from ${curve.totalSampleSize} condition-matched
+      resale comparables. Grades in the same condition band draw on the same comp pool, so figures
+      are modeled estimates rather than a separate sold median per half-point. Click a grade to see
+      what it means.</p>
       <ul>${items}</ul>
     </section>`;
 }
@@ -142,12 +151,14 @@ export function renderPerGradeSummary(curve: ConditionCurveLite): string {
 export function renderMethodology(curve: ConditionCurveLite): string {
   return `<section class="ci-method">
       <h2>Methodology</h2>
-      <p class="muted">Each value is the <strong>median of ${curve.totalSampleSize}
-      condition-matched resale listings</strong> for this item, bucketed by GradeThread's
-      objective 1.0&ndash;10.0 condition grade and last refreshed
-      <strong>${escape(formatDate(curve.refreshedAt))}</strong>. Ranges show the typical
-      low&ndash;high. Grades that lack enough comps are omitted rather than estimated, so no
-      number on this page is fabricated. Figures are resale estimates, not guaranteed sale prices.</p>
+      <p class="muted">Each value is a <strong>modeled estimate</strong> positioned from the
+      <strong>${curve.totalSampleSize} condition-matched resale listings</strong> gathered for this
+      item, bucketed by GradeThread's objective 1.0&ndash;10.0 condition grade and last refreshed
+      <strong>${escape(formatDate(curve.refreshedAt))}</strong>. Grades that fall in the same
+      condition band share a comp bucket, so their ranges can repeat within a band; the
+      low&ndash;high shows the typical band spread, not a distinct per-grade distribution. Grades
+      that lack enough comps are omitted rather than estimated, so no number on this page is
+      fabricated. Figures are resale estimates, not guaranteed sale prices.</p>
     </section>`;
 }
 
@@ -185,17 +196,20 @@ export function renderExampleCertificates(curve: ConditionCurveLite): string {
 
 // ── FAQPage JSON-LD: one Q per published grade anchor ────────────────
 /**
- * "What is a grade-8 (Excellent) <item> worth?" → the median from the curve.
- * Only published grades with a real median become questions, so the structured
- * data never asserts a fabricated number.
+ * "What is a grade-8 (Excellent) <item> worth?" → the modeled estimate from the
+ * curve. Only published grades with a real median become questions, so the
+ * structured data never asserts a fabricated number. US-1947: the answer cites
+ * the item's TOTAL condition-matched sample (curve.totalSampleSize), never the
+ * per-grade sampleSize — that field is the shared condition-bucket count, so
+ * asserting it per grade would over-state the sample behind each figure.
  */
 export function conditionFaqs(curve: ConditionCurveLite): BlogFaq[] {
   const date = formatDate(curve.refreshedAt);
   return publishedGradeRows(curve).map((r) => ({
     q: `What is a grade-${fmtGrade(r.grade)} (${r.tier.label}) ${curve.label} worth?`,
-    a: `A ${curve.label} in ${r.tier.label} condition (grade ${fmtGrade(r.grade)}) is typically worth about ${dollars(
+    a: `A ${curve.label} in ${r.tier.label} condition (grade ${fmtGrade(r.grade)}) has a modeled resale estimate of about ${dollars(
       r.median,
-    )}, based on ${r.sampleSize} condition-matched resale comps. Updated ${date}. This is a resale estimate, not a guaranteed sale price.`,
+    )}, from GradeThread's condition-band analysis of ${curve.totalSampleSize} condition-matched resale comps for this item. Updated ${date}. This is a resale estimate, not a guaranteed sale price.`,
   }));
 }
 

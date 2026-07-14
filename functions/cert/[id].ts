@@ -15,7 +15,6 @@ import {
   certificateProductLd,
   escape,
   fetchJson,
-  notFoundResponse,
   renderBreadcrumbs,
   renderSsrResponse,
   siteUrl,
@@ -24,6 +23,7 @@ import {
   withEdgeCache,
   type PagesEnv,
 } from "../_shared/blog-render";
+import { certNotFoundResponse } from "./cert-not-found";
 
 interface PublicCertificate {
   id: string;
@@ -97,45 +97,31 @@ function gradeBandMeaning(score: number): string {
   );
 }
 
-// PSA-style public certificate number derived from the random certificate UUID.
-// The UUID stays the canonical id/URL (unguessable, non-enumerable); this is a
-// clean display label only. Mirrors src/lib/cert-number.ts certificateDisplayNumber.
-function certDisplayNumber(certId: string): string {
-  const hex = certId.replace(/-/g, "").toUpperCase();
-  return hex.length >= 8 ? `GT-${hex.slice(0, 4)}-${hex.slice(4, 8)}` : certId;
-}
-
 export const onRequestGet: PagesFunction<PagesEnv> = (context: Ctx) =>
   withEdgeCache(context, () => renderCertificate(context));
 
 // US-1945: a DISTINCT, cert-branded 404 — never the generic/blog one — so a
 // buyer following a certificate link that can't be resolved gets a clear
 // "certificate not found" (and can't confuse it with a genuine verified cert).
-function certNotFound(env: PagesEnv): Response {
-  return notFoundResponse(env, {
-    title: "Certificate not found — GradeThread",
-    heading: "Certificate not found",
-    message:
-      "This grade certificate could not be found or verified. It may have been " +
-      "removed, or the link may be incorrect. " +
-      '<a href="/verified">Browse verified sellers &rarr;</a>',
-    canonicalPath: "/verified",
-  });
-}
-
 async function renderCertificate(context: Ctx): Promise<Response> {
   const { params, env } = context;
   const id = String(params.id ?? "");
-  if (!id) return certNotFound(env);
+  if (!id) return certNotFoundResponse(env);
 
   const data = await fetchJson<CertResponse>(
     env,
     `/api/content/public/certificates/${encodeURIComponent(id)}`,
   );
-  if (!data?.certificate) return certNotFound(env);
+  if (!data?.certificate) return certNotFoundResponse(env);
 
   const cert = data.certificate;
-  const certNo = cert.certificate_number || certDisplayNumber(cert.id);
+  // US-1945: only the stored, verifiable certificate_number is shown as
+  // "Certificate No." — never a UUID-derived look-alike that /verify can't
+  // resolve. Absent a real number the cert is identified by its URL + QR.
+  const certNo = cert.certificate_number || null;
+  const certNoSuffix = certNo
+    ? ` · Certificate No. <code>${escape(certNo)}</code>`
+    : "";
   const base = siteUrl(env);
   const canonical = `${base}/cert/${cert.id}`;
   const score = cert.overall_score.toFixed(1);
@@ -223,7 +209,7 @@ async function renderCertificate(context: Ctx): Promise<Response> {
 
   const bodyHtml = `${renderBreadcrumbs(breadcrumbItems, base)}
   <main class="container container--wide">
-  <p class="cert-eyebrow">Verified Grade Certificate · Certificate No. <code>${escape(certNo)}</code></p>
+  <p class="cert-eyebrow">Verified Grade Certificate${certNoSuffix}</p>
   <h1>${escape(cert.title)}${cert.brand ? ` <span style="color:var(--muted)">— ${escape(cert.brand)}</span>` : ""}</h1>
   <div class="cert-hero">
     <div class="cert-score" style="background:${scoreColor(cert.overall_score)}">${escape(score)}</div>
@@ -242,7 +228,7 @@ async function renderCertificate(context: Ctx): Promise<Response> {
   ${factorsHtml}
   <h2>${cert.buyer_writeup ? "Condition Report" : "AI Analysis Summary"}</h2>
   <div class="cert-report">${escape(cert.buyer_writeup || cert.ai_summary)}</div>
-  <p class="cert-eyebrow" style="margin-top:24px">Graded on ${escape(gradedOn)} · Certificate No. <code>${escape(certNo)}</code></p>
+  <p class="cert-eyebrow" style="margin-top:24px">Graded on ${escape(gradedOn)}${certNoSuffix}</p>
   <a class="cta" href="/?utm_source=certificate&utm_medium=organic">Grade your own garment with GradeThread &rarr;</a>
 </main>`;
 

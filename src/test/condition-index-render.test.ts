@@ -21,6 +21,10 @@ import { escape, faqPageJsonLd, formatDate } from "../../functions/_shared/blog-
 // edge-SSR'd by functions/condition-index/[[path]].ts; testing the helpers here
 // is the SSR↔structured-data guard (AC5) — same pattern as blog-geo.test.ts.
 
+// US-1947: per-grade `sampleSize` is the SHARED condition-bucket count, so it
+// repeats across the grades in a band and its naive sum (25+25+25 = 75) exceeds
+// the item's real total (42). The render must never present it as an additive
+// per-grade sample; totalSampleSize is the only honest aggregate.
 const CURVE: ConditionCurveLite = {
   slug: "patagonia-better-sweater",
   label: "Patagonia Better Sweater",
@@ -29,9 +33,9 @@ const CURVE: ConditionCurveLite = {
   totalSampleSize: 42,
   refreshedAt: "2026-06-01T00:00:00.000Z",
   points: [
-    { grade: 9, lowCents: 9000, medianCents: 11000, highCents: 13000, sampleSize: 6 },
-    { grade: 8, lowCents: 7000, medianCents: 8500, highCents: 10000, sampleSize: 20 },
-    { grade: 6, lowCents: 4000, medianCents: 5000, highCents: 6000, sampleSize: 16 },
+    { grade: 9, lowCents: 9000, medianCents: 11000, highCents: 13000, sampleSize: 25 },
+    { grade: 8, lowCents: 7000, medianCents: 8500, highCents: 10000, sampleSize: 25 },
+    { grade: 6, lowCents: 4000, medianCents: 5000, highCents: 6000, sampleSize: 25 },
     // A thin grade that survived to the DTO with NO median must never render a number.
     { grade: 4, lowCents: null, medianCents: null, highCents: null, sampleSize: 0 },
   ],
@@ -69,7 +73,17 @@ describe("renderPerGradeSummary (US-847)", () => {
     expect(html).toContain("Value at each condition grade");
     expect(html).toContain('href="/grading/excellent"');
     expect(html).toContain("$85"); // median of grade 8 (8500 cents)
-    expect(html).toContain("20 comps");
+  });
+  // US-1947 bucket-count sanity: the shared per-grade sampleSize (25 each here)
+  // must never surface as an additive per-grade "N comps" badge — a reader who
+  // summed them (75) would exceed the item's real total (42). The figure is
+  // relabeled a modeled estimate and only the honest total is shown, once.
+  it("presents modeled estimates and never a per-grade comp count", () => {
+    expect(html).toContain("modeled estimate");
+    expect(html).toContain("modeled resale estimate");
+    expect(html).not.toMatch(/\d+\s*comps/); // no per-grade "25 comps" badge
+    expect(html).not.toContain("25 comps");
+    expect(html).toContain("42 condition-matched"); // the one honest aggregate
   });
   it("never emits a row for a suppressed/median-less grade", () => {
     expect(html).not.toContain("Grade 4");
@@ -90,6 +104,15 @@ describe("renderMethodology (US-847)", () => {
     expect(html).toContain("42");
     expect(html).toContain(formatDate(CURVE.refreshedAt)); // locale/TZ-agnostic
     expect(html).toContain("omitted rather than estimated");
+  });
+  // US-1947: the value is a modeled estimate positioned from the bucketed comps,
+  // NOT a per-grade sold median — the old "median of N listings" wording implied
+  // a distinct sold sample behind each grade.
+  it("labels values as modeled estimates and explains band-shared buckets", () => {
+    const html = renderMethodology(CURVE);
+    expect(html).toContain("modeled estimate");
+    expect(html).not.toContain("Each value is the <strong>median of");
+    expect(html).toContain("share a comp bucket");
   });
 });
 
@@ -122,11 +145,14 @@ describe("renderExampleCertificates (US-847)", () => {
 
 describe("conditionFaqs + FAQPage JSON-LD (US-847)", () => {
   const faqs = conditionFaqs(CURVE);
-  it("asks one question per published grade anchor with the median answer", () => {
+  it("asks one question per published grade anchor with the modeled-estimate answer", () => {
     expect(faqs).toHaveLength(3);
     expect(faqs[0]!.q).toBe("What is a grade-9 (NWOT) Patagonia Better Sweater worth?");
     expect(faqs[1]!.a).toContain("$85");
-    expect(faqs[1]!.a).toContain("20 condition-matched resale comps");
+    expect(faqs[1]!.a).toContain("modeled resale estimate");
+    // US-1947: cites the item TOTAL (42), never the shared per-grade sampleSize (25).
+    expect(faqs[1]!.a).toContain("42 condition-matched resale comps");
+    expect(faqs[1]!.a).not.toContain("25 condition-matched resale comps");
   });
   it("produces valid FAQPage JSON-LD", () => {
     const ld = faqPageJsonLd(faqs) as Record<string, unknown>;
