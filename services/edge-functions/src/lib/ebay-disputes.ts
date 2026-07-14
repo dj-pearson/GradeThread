@@ -17,7 +17,12 @@
 // insufficient-scope.
 
 import { fetchWithTimeout } from "./circuit-breaker.ts";
-import { apiHost, getMarketplaceId, getUserAccessToken } from "./ebay-client.ts";
+import {
+  apiHost,
+  ebayHardenedFetch,
+  getMarketplaceId,
+  getUserAccessToken,
+} from "./ebay-client.ts";
 
 const EBAY_TIMEOUT_MS = 20_000;
 
@@ -42,7 +47,9 @@ async function disputeFetch<T>(
   init?: RequestInit,
 ): Promise<T> {
   const token = await getUserAccessToken(userId);
-  const res = await fetchWithTimeout(
+  // US-1966: route through the shared hardened path so a 429/5xx backs off
+  // (breaker + retry + Retry-After) instead of throwing on the first attempt.
+  const res = await ebayHardenedFetch(
     `${apiHost()}${path}`,
     {
       ...init,

@@ -12,7 +12,12 @@
 import { supabaseAdmin } from "./supabase.ts";
 import { grantReward } from "./rewards-engine.ts";
 import { decryptToken, encryptToken } from "./crypto-aes.ts";
-import { withRetry, isRetryableError, isRateLimitError } from "./retry.ts";
+import {
+  withRetry,
+  isRetryableError,
+  isRateLimitError,
+  type RetryOptions,
+} from "./retry.ts";
 import { fetchWithTimeout, getBreaker } from "./circuit-breaker.ts";
 import { createSharedTokenCache, type SharedTokenCache } from "./coherent-cache.ts";
 
@@ -39,6 +44,50 @@ function ebayFetch(
   init?: RequestInit,
 ): Promise<Response> {
   return fetchWithTimeout(input, init ?? {}, EBAY_TIMEOUT_MS);
+}
+
+// US-1966: shared hardened fetch at the Response level. Applies the SAME
+// resilience as fetchAuthed — the one shared eBay breaker (US-499), withRetry's
+// bounded exponential backoff, and eBay's Retry-After (US-406) — but returns the
+// raw Response instead of a parsed body. That's what lets the Finances,
+// Marketing, Disputes and Post-Order families (different hosts, auth schemes, and
+// benign-status branching like Finances' 404/204) share the retry/breaker path
+// while keeping their own request shape and error handling.
+//
+// Only 429/5xx are retried (and count as breaker failures via isRetryableError);
+// every other status — success AND the 4xx a caller must inspect — is returned
+// as-is. Retrying non-idempotent POSTs is safe here for the same reason it is in
+// fetchAuthed: a 429/5xx means eBay rejected the request before mutating state.
+export async function ebayHardenedFetch(
+  input: string | URL,
+  init?: RequestInit,
+  timeoutMs: number = EBAY_TIMEOUT_MS,
+  // retryOpts is a test seam (inject a deterministic sleep/random); production
+  // callers omit it and get withRetry's defaults.
+  retryOpts?: RetryOptions,
+): Promise<Response> {
+  return await ebayBreaker().execute(() =>
+    withRetry(async () => {
+      const res = await fetchWithTimeout(input, init ?? {}, timeoutMs);
+      if (res.status === 429 || res.status >= 500) {
+        // Drain the body so the connection is released before we back off, then
+        // throw a retryable error carrying status + Retry-After so withRetry
+        // waits exactly as long as eBay asked (mirrors fetchAuthedOnce).
+        const text = await res.text().catch(() => "");
+        const err = new Error(
+          `eBay ${init?.method ?? "GET"} ${input} failed (${res.status}): ${text.slice(0, 300)}`,
+        ) as Error & { status: number; retryAfterMs?: number };
+        err.status = res.status;
+        const retryAfter = parseRetryAfter(
+          res.headers.get("retry-after") ??
+            res.headers.get("x-ebay-c-rlogid-retry-after"),
+        );
+        if (retryAfter !== null) err.retryAfterMs = retryAfter;
+        throw err;
+      }
+      return res;
+    }, retryOpts)
+  );
 }
 
 export type EbayEnv = "sandbox" | "production";
@@ -1429,7 +1478,7 @@ export interface MissingPolicies {
 // US, but other marketplaces (EBAY_GB → en-GB, EBAY_DE → de-DE) need the
 // right BCP-47 tag in BOTH Accept-Language and Content-Language headers.
 // eBay error 25709 surfaces when either is missing or invalid.
-function localeForMarketplace(): string {
+export function localeForMarketplace(): string {
   const mp = getMarketplaceId();
   switch (mp) {
     case "EBAY_GB":
@@ -3147,7 +3196,7 @@ export async function listRecentTransactions(
   for (let i = 0; i < TRANSACTIONS_PAGE_CEILING; i++) {
     const url =
       `${baseHost}/sell/finances/v1/transaction?limit=${limit}&offset=${offset}${filter}`;
-    const res = await ebayFetch(url, {
+    const res = await ebayHardenedFetch(url, {
       headers: {
         Authorization: `Bearer ${token}`,
         "X-EBAY-C-MARKETPLACE-ID": getMarketplaceId(),
@@ -3302,7 +3351,7 @@ export async function getPayouts(
 
   for (let i = 0; i < maxPages; i++) {
     const url = `${baseHost}/sell/finances/v1/payout?limit=${limit}&offset=${offset}${filter}`;
-    const res = await ebayFetch(url, {
+    const res = await ebayHardenedFetch(url, {
       headers: {
         Authorization: `Bearer ${token}`,
         "X-EBAY-C-MARKETPLACE-ID": getMarketplaceId(),
@@ -3344,7 +3393,7 @@ export async function getPayout(
   const token = await getUserAccessToken(userId);
   const locale = localeForMarketplace();
   const url = `${apizHost()}/sell/finances/v1/payout/${encodeURIComponent(payoutId)}`;
-  const res = await ebayFetch(url, {
+  const res = await ebayHardenedFetch(url, {
     headers: {
       Authorization: `Bearer ${token}`,
       "X-EBAY-C-MARKETPLACE-ID": getMarketplaceId(),

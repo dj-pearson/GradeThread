@@ -18,8 +18,13 @@
 // Marketing surface stays self-contained.
 
 import { supabaseAdmin } from "./supabase.ts";
-import { fetchWithTimeout } from "./circuit-breaker.ts";
-import { apiHost, getMarketplaceId, getUserAccessToken } from "./ebay-client.ts";
+import {
+  apiHost,
+  ebayHardenedFetch,
+  getMarketplaceId,
+  getUserAccessToken,
+  localeForMarketplace,
+} from "./ebay-client.ts";
 
 const EBAY_TIMEOUT_MS = 20_000;
 
@@ -116,7 +121,8 @@ async function marketingFetch<T>(
   init?: RequestInit,
 ): Promise<{ body: T; location: string | null }> {
   const token = await getUserAccessToken(userId);
-  const res = await fetchWithTimeout(
+  const locale = localeForMarketplace();
+  const res = await ebayHardenedFetch(
     `${apiHost()}${path}`,
     {
       ...init,
@@ -125,6 +131,12 @@ async function marketingFetch<T>(
         "Content-Type": "application/json",
         Accept: "application/json",
         "X-EBAY-C-MARKETPLACE-ID": getMarketplaceId(),
+        // US-1966: eBay Marketing (Sell API) requires BOTH locale headers on
+        // mutating requests; the missing Accept-Language was a known cause of
+        // error 25709 on campaign/promotion creates. Sent on every request for
+        // parity with fetchAuthedOnce.
+        "Accept-Language": locale,
+        "Content-Language": locale,
         ...(init?.headers ?? {}),
       },
     },
