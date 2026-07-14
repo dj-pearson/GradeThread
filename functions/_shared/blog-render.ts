@@ -601,15 +601,37 @@ export function renderBreadcrumbs(
   return `<nav class="${cls}" aria-label="Breadcrumb">${parts}</nav>`;
 }
 
-export function notFoundResponse(env: PagesEnv): Response {
+/**
+ * A shared 404 for the SSR Pages Functions. The DEFAULT is generic (US-1945) —
+ * previously it was blog-specific ("That post doesn't exist… Back to the blog"),
+ * which every dynamic surface (cert, verified seller, passport, condition-index,
+ * value, durability, authors) reused, so e.g. a missing GRADE CERTIFICATE told
+ * the buyer to "go back to the blog". Callers can pass surface-appropriate copy;
+ * the cert Function in particular passes a distinct "certificate not found" page
+ * so a genuine-but-missing cert is never indistinguishable from a random 404.
+ * `heading`/`message` are trusted caller-controlled strings (may contain HTML).
+ */
+export function notFoundResponse(
+  env: PagesEnv,
+  opts?: {
+    title?: string;
+    heading?: string;
+    message?: string;
+    canonicalPath?: string;
+  },
+): Response {
+  const base = siteUrl(env);
   return new Response(
     renderLayout({
-      title: "Not found — GradeThread",
+      title: opts?.title ?? "Not found — GradeThread",
       description: "The page you're looking for doesn't exist.",
-      canonicalUrl: `${siteUrl(env)}/blog`,
+      canonicalUrl: `${base}${opts?.canonicalPath ?? "/"}`,
       twitterSite: twitterSiteHandle(env),
       noindex: true,
-      bodyHtml: `<main class="container"><h1>404</h1><p>That post doesn't exist (or was unpublished). <a href="/blog">Back to the blog</a>.</p></main>`,
+      bodyHtml: `<main class="container"><h1>${opts?.heading ?? "404"}</h1><p>${
+        opts?.message ??
+        `We couldn't find that page. <a href="/">Go to GradeThread &rarr;</a>`
+      }</p></main>`,
     }),
     { status: 404, headers: { "Content-Type": "text/html; charset=utf-8" } },
   );
