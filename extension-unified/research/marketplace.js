@@ -24,6 +24,7 @@
   const chrome = globalThis.browser || globalThis.chrome;
 
   const IMG = self.GT_CC_IMG; // pure helpers (research/image-utils.js)
+  const FMT = self.GT_CC_FMT; // US-1884: pure result-formatting (condition-format.js)
   const DEFAULT_CFG = self.GT_CC_CONFIG; // bundled default (selectors.js)
   const HARD_MAX_URLS = 4; // endpoint cap — never exceed regardless of adapter
   const OVERLAY_ID = "gt-cc-overlay";
@@ -230,8 +231,12 @@
       }
 
       const scoreWrap = el("div", "gt-cc-scorewrap");
-      const score = el("div", "gt-cc-score " + scoreClass(data.overallScore));
-      score.textContent = Number(data.overallScore).toFixed(1);
+      // US-1884 (AC5): a NaN / non-finite overall score must never render as
+      // "NaN" — show an em dash and a neutral class instead.
+      var overallNum = Number(data.overallScore);
+      var overallSafe = isFinite(overallNum) ? overallNum : null;
+      const score = el("div", "gt-cc-score " + scoreClass(overallSafe == null ? 0 : overallSafe));
+      score.textContent = overallSafe == null ? "—" : overallSafe.toFixed(1);
       const meta = el("div", "gt-cc-meta");
       meta.appendChild(el("div", "gt-cc-tier", String(data.gradeTier || "")));
       const conf = Math.round(Number(data.confidence || 0) * 100);
@@ -244,6 +249,36 @@
         body.appendChild(
           el("p", "gt-cc-note", "Low confidence from listing photos — grade it properly for a reliable read.")
         );
+      }
+
+      // US-1884: the five factor scores as compact labeled bars (the endpoint
+      // already returns factorScores; the overlay used to drop them). NaN /
+      // out-of-range factors are filtered out by FMT.factorBars — never rendered.
+      if (FMT) {
+        var bars = FMT.factorBars(data.factorScores);
+        if (bars.length) {
+          body.appendChild(el("p", "gt-cc-factors-h", FMT.STRINGS.factorsHeading));
+          var flist = el("div", "gt-cc-factors");
+          for (var bi = 0; bi < bars.length; bi++) {
+            var bar = bars[bi];
+            var frow = el("div", "gt-cc-factor");
+            frow.appendChild(el("span", "gt-cc-factor-label", bar.label));
+            var track = el("span", "gt-cc-factor-track");
+            var fill = el("span", "gt-cc-factor-fill " + bar.cls);
+            fill.style.width = bar.pct + "%";
+            track.appendChild(fill);
+            frow.appendChild(track);
+            frow.appendChild(el("span", "gt-cc-factor-num", bar.score.toFixed(1)));
+            flist.appendChild(frow);
+          }
+          body.appendChild(flist);
+        }
+        // US-1884: "Graded from N photos" + a nudge for thin photo sets.
+        var pc = FMT.photoCountLabel(data.imagesAnalyzed);
+        if (pc) body.appendChild(el("p", "gt-cc-photocount", pc));
+        if (FMT.lowCoverage(data.imagesAnalyzed)) {
+          body.appendChild(el("p", "gt-cc-note", FMT.STRINGS.lowCoverageNudge));
+        }
       }
 
       // US-1834: claimed-vs-objective condition discrepancy signal.

@@ -160,6 +160,17 @@
 }
 #gt-cc-overlay .gt-cc-link:hover { text-decoration: underline; }
 
+/* US-1884: condition factor breakdown bars + photo-coverage line. Fills reuse
+   the .gt-cc-s-* severity palette above. */
+#gt-cc-overlay .gt-cc-factors-h { margin: 4px 0 2px; font-size: 12px; font-weight: 700; color: #0f3460; }
+#gt-cc-overlay .gt-cc-factors { display: flex; flex-direction: column; gap: 5px; }
+#gt-cc-overlay .gt-cc-factor { display: flex; align-items: center; gap: 8px; }
+#gt-cc-overlay .gt-cc-factor-label { flex: 0 0 74px; font-size: 12px; color: #4a4a5e; }
+#gt-cc-overlay .gt-cc-factor-track { flex: 1 1 auto; height: 8px; border-radius: 4px; background: #ececf1; overflow: hidden; }
+#gt-cc-overlay .gt-cc-factor-fill { display: block; height: 100%; border-radius: 4px; min-width: 2px; }
+#gt-cc-overlay .gt-cc-factor-num { flex: 0 0 auto; width: 26px; text-align: right; font-size: 12px; font-weight: 700; color: #0f3460; font-variant-numeric: tabular-nums; }
+#gt-cc-overlay .gt-cc-photocount { margin: 2px 0 0; font-size: 11px; color: #6b6b80; }
+
 @media (prefers-color-scheme: dark) {
   #gt-cc-overlay.gt-cc-root {
     background: #1a1a2e;
@@ -169,6 +180,12 @@
   #gt-cc-overlay .gt-cc-lead { color: #d7d7e2; }
   #gt-cc-overlay .gt-cc-tier { color: #cfe0ff; }
   #gt-cc-overlay .gt-cc-disclaimer { color: #9a9ab0; }
+  /* US-1884: dark overrides for the factor breakdown + photo-coverage line. */
+  #gt-cc-overlay .gt-cc-factors-h { color: #cfe0ff; }
+  #gt-cc-overlay .gt-cc-factor-label { color: #c7c7d6; }
+  #gt-cc-overlay .gt-cc-factor-num { color: #eaeaf2; }
+  #gt-cc-overlay .gt-cc-factor-track { background: #2c2c44; }
+  #gt-cc-overlay .gt-cc-photocount { color: #9a9ab0; }
 }
 
 /* US-1834: claimed-vs-objective condition discrepancy signal. */

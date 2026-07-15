@@ -65,7 +65,7 @@
         "https://*.vinted.dk/items/*",
         "https://*.vinted.fi/items/*"
       ],
-      "js": ["selectors.js", "content/image-utils.js", "content/marketplace.js"],
+      "js": ["selectors.js", "content/image-utils.js", "content/condition-format.js", "content/marketplace.js"],
       "css": ["overlay.css"],
       "run_at": "document_idle"
     }
