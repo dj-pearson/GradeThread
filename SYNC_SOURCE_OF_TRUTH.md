@@ -65,6 +65,30 @@ This composes with the ownership table above: on inbound pull `brand/size/color/
 remain fill-if-blank (`EBAY_OWNED_ITEM_SPECIFIC_FIELDS`); the reverse write-back only runs on
 GradeThread editing surfaces and the GT-side publish path.
 
+## Measurements ↔ eBay measurement aspects (live mirror)
+
+Flat garment measurements (`inventory_items.measurements` jsonb) and matching eBay free-text
+item specifics (Inseam, Chest Size, Length, …) are a **live last-write-wins mirror** on the
+composer — both editors are visible together, so typing in either updates the other
+immediately (including clears). This is separate from the column↔aspect save-time contract
+above.
+
+- **Name map:** `MEASUREMENT_SPECS` in `src/lib/measurements.ts` (mirrored on the edge) —
+  canonical keys (`inseam`, `chest`, …) → ordered eBay aspect-name candidates.
+- **Free-text only:** never write a numeric measurement into a `SELECTION_ONLY` aspect
+  (e.g. a “Sleeve Length” style dropdown). Skip reverse parse for those too.
+- **Forward (Measurements → aspects):** `forceMeasurementAspects` overwrites matching
+  free-text aspects; provenance → `inventory_derived`. Blanking a measurement clears the
+  aspect only when it was `inventory_derived` (manual/AI specifics are left alone).
+- **Reverse (aspects → Measurements):** a manual edit in the specifics editor parses
+  `"32"`, `"32 in"`, `"81 cm"`, etc. back into the stored number (lengths → inches) and
+  updates the Measurements section. Loop-guarded so a forward projection does not echo.
+- **Units:** stored lengths remain inches; aspect strings honor the seller’s in/cm preference
+  via `formatMeasurementValue` (US-648).
+- **Publish / category remap:** still uses fill-only `resolveMeasurementAspects` for empty
+  aspects (never clobbers an already-set specific). Live sync is the composer UX; the
+  fill-only path remains the safe gap-fill for remap and publish.
+
 ## What this model deliberately removes
 
 - **No push-before-pull, no per-field dirty-tracking, no outbound retry queue for live-listing edits.** Earlier drafts needed these to protect local edits from an authoritative eBay pull. Provenance makes them unnecessary: GT-originated listings are never overwritten on editable fields, and eBay-originated listings are read-only mirrors with no local edits to protect.

@@ -34,6 +34,14 @@ import {
   type StoredAspectProvenance,
 } from "@/lib/aspect-provenance";
 import {
+  forceMeasurementAspects,
+  measurementKeyForAspect,
+  measurementLabel,
+  measurementsNumericallyEqual,
+  parseMeasurementAspectValue,
+  type LengthUnit,
+} from "@/lib/measurements";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -58,6 +66,11 @@ interface Props {
   // after the saved values are applied is prefilled from these, so the user
   // isn't re-typing data the item already has. Pass a MEMOIZED object.
   itemFields?: ItemAspectSource | null;
+  // Live Measurements section values — projected onto matching free-text eBay
+  // aspects (and reverse-synced from manual aspect edits). Last-write-wins.
+  measurements?: Record<string, number | string>;
+  onMeasurementsChange?: (next: Record<string, number | string>) => void;
+  measurementUnit?: LengthUnit;
   // Notifies the parent every time the user picks (or clears) a category, so
   // siblings can react before the save is committed. The breadcrumb path is
   // passed too (when known) so the composer can derive the coarse item_category
@@ -101,6 +114,9 @@ export function EbayCategoryPicker({
   initialAspectSources,
   seedQuery,
   itemFields,
+  measurements,
+  onMeasurementsChange,
+  measurementUnit = "in",
   onCategoryChange,
   onAspectsChange,
   onSourcesChange,
@@ -192,10 +208,37 @@ export function EbayCategoryPicker({
   useEffect(() => {
     aspectValuesRef.current = aspectValues;
   }, [aspectValues]);
+  const sourcesRef = useRef(sources);
+  useEffect(() => {
+    sourcesRef.current = sources;
+  }, [sources]);
   const categoryPathRef = useRef(categoryPath);
   useEffect(() => {
     categoryPathRef.current = categoryPath;
   }, [categoryPath]);
+  // Live measurement ↔ aspect bridge: skip reverse write-back while we are
+  // projecting Measurements → aspects so the lift echo cannot loop.
+  const syncingFromMeasurementsRef = useRef(false);
+  const measurementsRef = useRef(measurements);
+  useEffect(() => {
+    measurementsRef.current = measurements;
+  }, [measurements]);
+
+  // Remap must NOT re-fire on measurement-only churn (live sync owns that).
+  // Columns / category / title still trigger a deterministic refill.
+  const itemFieldsRemapKey = useMemo(() => {
+    if (!itemFields) return "";
+    return JSON.stringify({
+      brand: itemFields.brand,
+      size: itemFields.size,
+      color: itemFields.color,
+      material: itemFields.material,
+      style: itemFields.style,
+      title: itemFields.title,
+      item_category: itemFields.item_category,
+      attributes: itemFields.attributes,
+    });
+  }, [itemFields]);
   // The category whose spec is currently reflected in `aspectValues`. Starts at
   // the item's saved category so the first spec load is treated as initial
   // (no discard prompt), not as a user-initiated change.
@@ -287,6 +330,8 @@ export function EbayCategoryPicker({
   // deterministically from data we already have (still-valid values + the
   // item's columns/US-821 attributes mapped through the registry) — zero AI.
   // A genuine change that would discard values is gated behind a confirm.
+  // Measurement-only churn is excluded via itemFieldsRemapKey — live sync below
+  // owns Measurements ↔ aspect projection.
   useEffect(() => {
     if (!aspectsQuery.data) return;
     const aspectList = aspectsQuery.data.aspects.aspects ?? [];
@@ -312,8 +357,56 @@ export function EbayCategoryPicker({
     appliedCategoryRef.current = categoryId;
     appliedCategoryPathRef.current = categoryPathRef.current;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aspectsQuery.data, itemFields]);
+  }, [aspectsQuery.data, itemFieldsRemapKey]);
 
+  // Live Measurements → free-text eBay measurement aspects (last-write-wins).
+  useEffect(() => {
+    if (!onMeasurementsChange) return;
+    if (!aspectsQuery.data) return;
+    const aspectList = aspectsQuery.data.aspects.aspects ?? [];
+    const categoryAspects: Record<string, string[]> = {};
+    for (const a of aspectList) {
+      const name = (a.localizedAspectName ?? "").trim();
+      if (!name) continue;
+      categoryAspects[name] =
+        a.aspectConstraint?.aspectMode === "SELECTION_ONLY"
+          ? (a.aspectValues ?? [])
+              .map((v) => v.localizedValue ?? "")
+              .filter((v) => v.length > 0)
+          : [];
+    }
+    const { aspects: forced, cleared } = forceMeasurementAspects(
+      measurements ?? {},
+      categoryAspects,
+      aspectValuesRef.current,
+      measurementUnit,
+      sourcesRef.current,
+    );
+    if (Object.keys(forced).length === 0 && cleared.length === 0) return;
+
+    syncingFromMeasurementsRef.current = true;
+    setAspectValues((prev) => {
+      const next = { ...prev };
+      for (const [name, values] of Object.entries(forced)) next[name] = values;
+      for (const name of cleared) delete next[name];
+      return next;
+    });
+    setSources((prev) => {
+      const next = { ...prev };
+      for (const name of Object.keys(forced)) next[name] = "inventory_derived";
+      for (const name of cleared) delete next[name];
+      return next;
+    });
+    // Release the guard after React flushes the aspect lift effects.
+    queueMicrotask(() => {
+      syncingFromMeasurementsRef.current = false;
+    });
+  }, [
+    measurements,
+    measurementUnit,
+    aspectsQuery.data,
+    onMeasurementsChange,
+  ]);
   function confirmDiscard() {
     if (!pendingDiscard || !aspectsQuery.data) return;
     const aspectList = aspectsQuery.data.aspects.aspects ?? [];
@@ -443,6 +536,30 @@ export function EbayCategoryPicker({
       delete next[name];
       return next;
     });
+
+    // Reverse: free-text measurement aspects → Measurements section.
+    if (syncingFromMeasurementsRef.current || !onMeasurementsChange) return;
+    const measKey = measurementKeyForAspect(name);
+    if (!measKey) return;
+    // Skip SELECTION_ONLY (style dropdowns like "Short Sleeve").
+    const aspectMeta = (aspectsQuery.data?.aspects.aspects ?? []).find(
+      (a) => a.localizedAspectName === name,
+    );
+    if (aspectMeta?.aspectConstraint?.aspectMode === "SELECTION_ONLY") return;
+
+    const raw = nextArr[0]?.trim() ?? "";
+    const currentMeas = measurementsRef.current ?? {};
+    if (!raw) {
+      if (!(measKey in currentMeas)) return;
+      const next = { ...currentMeas };
+      delete next[measKey];
+      onMeasurementsChange(next);
+      return;
+    }
+    const parsed = parseMeasurementAspectValue(measKey, raw);
+    if (parsed == null) return;
+    if (measurementsNumericallyEqual(currentMeas[measKey], parsed)) return;
+    onMeasurementsChange({ ...currentMeas, [measKey]: parsed });
   }
 
   async function handleAiFill() {
@@ -815,25 +932,40 @@ function AspectGroup({
         {title} ({aspects.length})
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
-        {aspects.map((a) => (
-          <AspectField
-            key={a.localizedAspectName}
-            aspect={a}
-            value={values[a.localizedAspectName] ?? []}
-            source={sources[a.localizedAspectName]}
-            aiMetaItem={aiMeta[a.localizedAspectName]}
-            rewrite={rewrites[a.localizedAspectName]}
-            needsReview={isNeedsReview(a.localizedAspectName)}
-            syncedField={syncedItemFieldFor(a.localizedAspectName, itemCategory)}
-            onChange={(v) =>
-              onChange(
-                a.localizedAspectName,
-                v,
-                a.aspectConstraint.itemToAspectCardinality ?? "SINGLE"
-              )
-            }
-          />
-        ))}
+        {aspects.map((a) => {
+            const columnSynced = syncedItemFieldFor(
+              a.localizedAspectName,
+              itemCategory,
+            );
+            const measKey =
+              !columnSynced &&
+              a.aspectConstraint?.aspectMode !== "SELECTION_ONLY"
+                ? measurementKeyForAspect(a.localizedAspectName)
+                : null;
+            const syncedField =
+              columnSynced ??
+              (measKey ? `measurements · ${measurementLabel(measKey)}` : null);
+            return (
+              <AspectField
+                key={a.localizedAspectName}
+                aspect={a}
+                value={values[a.localizedAspectName] ?? []}
+                source={sources[a.localizedAspectName]}
+                aiMetaItem={aiMeta[a.localizedAspectName]}
+                rewrite={rewrites[a.localizedAspectName]}
+                needsReview={isNeedsReview(a.localizedAspectName)}
+                syncedField={syncedField}
+                measurementSynced={!!measKey}
+                onChange={(v) =>
+                  onChange(
+                    a.localizedAspectName,
+                    v,
+                    a.aspectConstraint.itemToAspectCardinality ?? "SINGLE"
+                  )
+                }
+              />
+            );
+          })}
       </div>
     </div>
   );
@@ -847,6 +979,7 @@ function AspectField({
   rewrite,
   needsReview,
   syncedField,
+  measurementSynced,
   onChange,
 }: {
   aspect: EbayAspect;
@@ -855,8 +988,10 @@ function AspectField({
   aiMetaItem?: { confidence: number; source: string };
   rewrite?: AspectRewrite;
   needsReview?: boolean;
-  /** Item column this aspect is two-way synced with (brand/size/color/…). */
+  /** Item column / Measurements field this aspect is two-way synced with. */
   syncedField?: string | null;
+  /** True when syncedField is a Measurements section key (live mirror). */
+  measurementSynced?: boolean;
   onChange: (v: string) => void;
 }) {
   const cardinality = aspect.aspectConstraint.itemToAspectCardinality ?? "SINGLE";
@@ -890,12 +1025,15 @@ function AspectField({
             Review
           </span>
         )}
-        {/* Two-way sync hint: edits here update the item field and vice versa,
-            so the seller knows one entry feeds both surfaces. */}
+        {/* Two-way sync hint: edits here update the paired field and vice versa. */}
         {syncedField && (
           <span
             className="rounded bg-muted px-1 py-0.5 text-[9px] font-medium text-muted-foreground"
-            title={`Synced with the item's ${syncedField.replace(/_/g, " ")} field — editing either one updates both on save.`}
+            title={
+              measurementSynced
+                ? `Synced live with the Measurements section (${syncedField.replace(/^measurements · /, "")}) — editing either one updates both.`
+                : `Synced with the item's ${syncedField.replace(/_/g, " ")} field — editing either one updates both on save.`
+            }
           >
             ⇄ {syncedField.replace(/_/g, " ")}
           </span>
