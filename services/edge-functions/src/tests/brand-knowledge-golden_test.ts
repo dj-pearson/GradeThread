@@ -184,6 +184,31 @@ const CASES: GoldenCase[] = [
     input: decodedFrom({ brand: "Gap" }),
     expect: { brand: "Gap" },
   },
+  // US-1731: Alo Yoga has NO tag-code decoder (identity = fabric line + care tag),
+  // so its golden cases prove the enrichment stays correct without one — a single
+  // known style fills the style the AI missed, ambiguous styles are never guessed
+  // (Airlift vs Airbrush), and a non-code never false-recovers a brand.
+  {
+    name: "Alo single known style fills the style the AI missed",
+    brand: "Alo Yoga",
+    pack: pack("Alo Yoga", "aloyoga", [style("Airlift Legging")]),
+    input: decodedFrom({ brand: "Alo Yoga" }),
+    expect: { brand: "Alo Yoga", style: "Airlift Legging" },
+  },
+  {
+    name: "Alo ambiguous styles (Airlift vs Airbrush) — never guess a style",
+    brand: "Alo Yoga",
+    pack: pack("Alo Yoga", "aloyoga", [style("Airlift Legging"), style("Airbrush Legging")]),
+    input: decodedFrom({ brand: "Alo Yoga" }),
+    expect: { brand: "Alo Yoga", noStyle: true },
+  },
+  {
+    name: "Alo non-code tag — no false-positive brand recovery (no decoder)",
+    brand: "Alo Yoga",
+    pack: pack("Alo Yoga", "aloyoga", [style("Airlift Legging"), style("Airbrush Legging")]),
+    input: decodedFrom({ styleCode: "NOT-A-CODE" }),
+    expect: { noBrand: true },
+  },
 ];
 
 // ── the gate ────────────────────────────────────────────────────────────────

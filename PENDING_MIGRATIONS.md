@@ -4,6 +4,27 @@
 > The sections below for those are historical; the only NEW held migration is
 > **00443** at the top.
 
+## ⏳ PENDING: 00447_alo_yoga_brand_knowledge.sql (US-1731 Alo Yoga brand KB, 2026-07-15)
+
+Data-only seed into the five `brand_knowledge*` reference tables (00389): one
+`brand_knowledge` row for Alo Yoga (aliases, RN 87370 / Color Image Apparel,
+country + auth tells), 5 `brand_styles` (Airlift / Airbrush / 7-8 High-Waist /
+Accolade Hoodie / Muse Sweatpant with the Airlift-vs-Airbrush sheen/matte
+disambiguation), 5 `brand_colorways` (named colors), and 3 `brand_size_charts`
+(women's bottoms + tops from the published Alo guide; men's tops as a standard
+activewear-alpha approximation). Every fact carries `source_url` + `confidence`
+and `verified=false` (US-1715 admin queue confirms later). Idempotent
+(`on conflict do nothing` / brand_knowledge `do update`). Apply after 00446 via
+`scripts/apply-prod-migrations.sh`, `NOTIFY pgrst, 'reload schema';`, redeploy the
+edge (boot guard now expects **00447**). Bumps `EXPECTED_SCHEMA_VERSION` → **00447**.
+
+**Risk: LOW** — data-only into deny-all global-reference tables (no tenant data,
+no schema change, no rewrite). **No CLIENT read** — the KB is read only by the edge
+resolver (`brand-knowledge.ts` DB-first, with the in-code `sizing-charts.ts`
+fallback that this commit ALSO extends, so the resolver already works before the
+SQL lands — the DB seed just upgrades confidence/coverage). Frontend auto-deploy
+on push is unaffected.
+
 ## ⏳ PENDING: 00446_listing_gen_v2_prompt.sql (US-1900 listing-gen prompt v-next, 2026-07-14)
 
 Registers the `listing_gen_v2` prompt version in `public.ai_prompt_versions` as a

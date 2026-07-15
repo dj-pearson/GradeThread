@@ -36,6 +36,57 @@ export interface SizingChart {
 // ── Seed charts ─────────────────────────────────────────────────────────────
 // Approximations from widely published size guides; refine as we learn.
 export const SIZING_CHARTS: SizingChart[] = [
+  // US-1731: Alo Yoga (women's from the published Alo size guide; men's is the
+  // standard activewear-alpha approximation). Mirrors migration 00447's
+  // brand_size_charts seed.
+  {
+    brand: "Alo Yoga",
+    brandMatch: ["alo yoga", "aloyoga", "alo"],
+    department: "Women",
+    garment: "Bottoms (leggings / pants)",
+    categoryMatch: ["bottom", "legging", "pant", "short", "tight", "jogger", "sweatpant"],
+    note:
+      "Alo women's bottoms run alpha; waist is the primary signal, hip secondary. " +
+      "XS–L per the published guide; XXS/XL extend ~1.5–2in each way. High-rise " +
+      "waistbands lie flat — measure flat and double the waistband.",
+    rows: [
+      { size: "XS", measurements: { waist: "25-26.5", hip: "34.5-36" } },
+      { size: "S", measurements: { waist: "27-28.5", hip: "36.5-38" } },
+      { size: "M", measurements: { waist: "29-30.5", hip: "38.5-40" } },
+      { size: "L", measurements: { waist: "31-33", hip: "40.5-42" } },
+    ],
+  },
+  {
+    brand: "Alo Yoga",
+    brandMatch: ["alo yoga", "aloyoga", "alo"],
+    department: "Women",
+    garment: "Tops",
+    categoryMatch: ["top", "tank", "tee", "shirt", "bra", "hoodie", "jacket", "long sleeve"],
+    note: "Alo women's tops run alpha (XS–L published; XXS/XL extend ~2in); bust is the primary signal.",
+    rows: [
+      { size: "XS", measurements: { bust: "32-34" } },
+      { size: "S", measurements: { bust: "34-36" } },
+      { size: "M", measurements: { bust: "36-38" } },
+      { size: "L", measurements: { bust: "38-40" } },
+    ],
+  },
+  {
+    brand: "Alo Yoga",
+    brandMatch: ["alo yoga", "aloyoga", "alo"],
+    department: "Men",
+    garment: "Tops",
+    categoryMatch: ["top", "tee", "shirt", "polo", "hoodie", "jacket", "long sleeve"],
+    note:
+      "Alo men's tops run alpha; chest is the primary signal. Standard US activewear-alpha " +
+      "approximation (lower confidence) — refine with Alo-specific men's data.",
+    rows: [
+      { size: "S", measurements: { chest: "35-37" } },
+      { size: "M", measurements: { chest: "38-40" } },
+      { size: "L", measurements: { chest: "41-43" } },
+      { size: "XL", measurements: { chest: "44-46" } },
+      { size: "XXL", measurements: { chest: "47-49" } },
+    ],
+  },
   {
     brand: "Lululemon",
     brandMatch: ["lululemon", "lulu"],
