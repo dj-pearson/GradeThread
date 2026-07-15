@@ -29,6 +29,7 @@
   let CFG = DEFAULT_CFG;
   let adapter = null;
   let grading = false;
+  let escHandler = null; // US-1884 (AC3): active Esc-to-dismiss listener, if any.
 
   async function send(msg) {
     try {
@@ -154,6 +155,11 @@
   function removeOverlay() {
     const existing = document.getElementById(OVERLAY_ID);
     if (existing) existing.remove();
+    // US-1884 (AC3): tear down the Esc-to-dismiss listener with the overlay.
+    if (escHandler) {
+      document.removeEventListener("keydown", escHandler, true);
+      escHandler = null;
+    }
   }
 
   function mountRoot() {
@@ -161,7 +167,16 @@
     const root = el("div", "gt-cc-root");
     root.id = OVERLAY_ID;
     root.setAttribute("dir", "ltr");
+    // US-1884 (AC3): announce loading→result/error transitions to assistive tech.
+    root.setAttribute("role", "status");
+    root.setAttribute("aria-live", "polite");
     document.body.appendChild(root);
+    // US-1884 (AC3): Escape closes the overlay. Capture phase so a site's own key
+    // handlers can't swallow it; one listener per mounted overlay.
+    escHandler = function (e) {
+      if (e.key === "Escape" || e.key === "Esc") removeOverlay();
+    };
+    document.addEventListener("keydown", escHandler, true);
     return root;
   }
 
@@ -178,12 +193,21 @@
     return bar;
   }
 
-  function renderState(build) {
+  function renderState(build, opts) {
     const root = mountRoot();
     root.appendChild(header());
     const body = el("div", "gt-cc-body");
     build(body);
     root.appendChild(body);
+    // US-1884 (AC3): on a terminal state (result/error) move focus to the close
+    // button so keyboard users land on the overlay; never steal focus during the
+    // transient loading state.
+    if (opts && opts.focusClose) {
+      const closeBtn = root.querySelector(".gt-cc-close");
+      if (closeBtn && typeof closeBtn.focus === "function") {
+        try { closeBtn.focus(); } catch (_e) { /* focus may be denied — harmless */ }
+      }
+    }
   }
 
   function renderLauncher() {
@@ -398,7 +422,7 @@
       again.textContent = "Re-read";
       again.addEventListener("click", () => runGrade());
       body.appendChild(again);
-    });
+    }, { focusClose: true });
   }
 
   function renderError(message, canRetry) {
@@ -411,7 +435,7 @@
         retry.addEventListener("click", () => runGrade());
         body.appendChild(retry);
       }
-    });
+    }, { focusClose: true });
   }
 
   // ── actions ─────────────────────────────────────────────────────────────
