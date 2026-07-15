@@ -148,6 +148,7 @@ import {
   conditionOptionsForCategory,
   resolveCategoryLeafStatus,
   leafCategoryBlocker,
+  photoStandardsPreflight,
   type LeafCategorySuggestion,
 } from "../lib/publish-preflight.ts";
 import {
@@ -5587,7 +5588,10 @@ flipdeskEbayRoutes.post("/listings/validate", async (c) => {
     ok: result.blockers.length === 0,
     blockers: result.blockers,
     // US-1890: non-blocking title-quality warnings (duplicate/ALL-CAPS/filler).
+    // US-1896 also folds picture-standards (hero <1600px zoom) warnings in here.
     warnings: result.warnings,
+    // US-1896: hero-thumbnail reorder nudge (first photo is a tag/detail shot).
+    photoNudge: result.photoNudge,
     // US-828: aspects that won't be sent for value-validation reasons, so the
     // composer can warn "X was not sent" before the seller publishes.
     aspectDiagnostics: result.aspectDiagnostics,
@@ -7680,7 +7684,11 @@ interface PublishContextOk {
   blockers: string[];
   // US-1890: non-blocking title-quality findings (duplicate tokens, ALL-CAPS,
   // promotional filler) for the composer to surface. Publish is not blocked.
+  // US-1896 also folds picture-standards (hero <1600px zoom-disabled) warnings here.
   warnings: string[];
+  // US-1896: hero-thumbnail reorder nudge ("your search thumbnail is a tag shot —
+  // drag a full front view first"), or null when the first photo is a full view.
+  photoNudge: string | null;
   // US-1895: how many of eBay's RECOMMENDED aspects (ranked by 30-day buyer
   // search volume) the listing fills — surfaced non-blocking in the composer.
   recommendedCoverage: AspectCoverage;
@@ -8271,20 +8279,25 @@ export async function assemblePublishContext(
 
   const { data: photoRows } = await supabaseAdmin
     .from("item_photos")
-    .select("id, storage_path, photo_url, photo_type, sort_order")
+    // US-1896: width/height feed the picture-standards preflight (dimensions),
+    // photo_type feeds the hero-thumbnail nudge.
+    .select("id, storage_path, photo_url, photo_type, sort_order, width, height")
     .eq("inventory_item_id", itemId)
     .order("sort_order", { ascending: true });
 
   // US-1549: 'internal' photos (price tags, receipts) are excluded from the
   // whole publish context — they never reach eBay, never count toward the
   // photo blockers, and never surface as the composer's gallery.
-  const photos: PublishPhoto[] = filterListablePhotos((photoRows ?? []) as Array<{
+  const listablePhotoRows = filterListablePhotos((photoRows ?? []) as Array<{
     id: string;
     storage_path: string | null;
     photo_url: string | null;
     photo_type: string | null;
     sort_order: number;
-  }>).map((p) => {
+    width: number | null;
+    height: number | null;
+  }>);
+  const photos: PublishPhoto[] = listablePhotoRows.map((p) => {
     // Prefer the stored public URL; fall back to computing one from the
     // storage_path — but never for sensitive private-bucket photos (US-979).
     return {
@@ -8295,6 +8308,11 @@ export async function assemblePublishContext(
   });
 
   const blockers: string[] = [];
+  // US-1896: picture-standards results (non-blocking zoom warning + hero-thumbnail
+  // reorder nudge) are collected here in the photo section below and merged into
+  // the response after the title-quality warnings are built.
+  const photoWarnings: string[] = [];
+  let photoNudge: string | null = null;
   // US-1509: surfaced first — nothing else matters while the item is already live.
   if (liveEbayMirrorBlocker) blockers.push(liveEbayMirrorBlocker);
   // Category resolution: listing-row override wins (AutoLister writes here);
@@ -8612,6 +8630,24 @@ export async function assemblePublishContext(
     );
     const capBlocker = imageCapBlocker(capResult, PREFLIGHT_MAX_IMAGES);
     if (capBlocker) blockers.push(capBlocker);
+
+    // US-1896: eBay picture-standards preflight over the photos that will
+    // actually reach eBay. A sub-500px photo is a fixable blocker; a hero under
+    // 1600px is a zoom warning; a tag/detail/defect hero triggers the reorder
+    // nudge. Fail-open on unknown dimensions (older rows without width/height).
+    const standards = photoStandardsPreflight(
+      listablePhotoRows
+        .filter((p) => !!ebayPublicPhotoUrl(p))
+        .map((p) => ({
+          photo_type: p.photo_type,
+          width: p.width ?? null,
+          height: p.height ?? null,
+          sort_order: p.sort_order,
+        })),
+    );
+    for (const b of standards.blockers) blockers.push(b);
+    for (const w of standards.warnings) photoWarnings.push(w);
+    photoNudge = standards.nudge;
   }
 
   // Price priority: explicit listing edits beat inventory defaults so a user
@@ -8863,7 +8899,11 @@ export async function assemblePublishContext(
     photos: photosWithUrl,
     policies,
     blockers,
-    warnings: titleWarnings,
+    // US-1890 title-quality warnings + US-1896 picture-standards (zoom) warnings.
+    warnings: [...titleWarnings, ...photoWarnings],
+    // US-1896: hero-thumbnail reorder nudge ("your search thumbnail is a tag
+    // shot — drag a full front view first"), or null when the hero is fine.
+    photoNudge,
     recommendedCoverage,
     aspectDiagnostics,
     sku,

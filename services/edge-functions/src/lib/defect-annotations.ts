@@ -25,6 +25,7 @@ import {
   type PerImageAnalysisLike,
   type PhotoAnnotation,
 } from "./disclosure.ts";
+import { readImageDimensions } from "./upload-validation.ts";
 
 // Severity tones mirror the client compositor (design.md §3B).
 const SEVERITY_COLOR: Record<string, number> = {
@@ -349,6 +350,8 @@ export async function applyAutoDefectAnnotations(
       if (upErr) continue;
       const url = supabaseAdmin.storage.from("item-photos").getPublicUrl(destPath)
         .data.publicUrl;
+      // US-1896: record dimensions for the picture-standards preflight.
+      const outDims = readImageDimensions(out);
       const { error: insErr } = await supabaseAdmin.from("item_photos").insert({
         inventory_item_id: item.id,
         photo_url: url,
@@ -356,6 +359,8 @@ export async function applyAutoDefectAnnotations(
         photo_type: "defect",
         sort_order: nextSort,
         bytes: out.byteLength,
+        width: outDims?.width ?? null,
+        height: outDims?.height ?? null,
       });
       if (insErr) continue;
       nextSort += 1;

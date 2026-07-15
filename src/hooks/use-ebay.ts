@@ -1321,6 +1321,9 @@ export interface ValidatePublishResponse {
   ok: boolean;
   blockers: string[];
   warnings?: string[];
+  // US-1896: hero-thumbnail reorder nudge ("your search thumbnail is a tag shot
+  // — drag a full front view first"), or null when the first photo is fine.
+  photoNudge?: string | null;
   recommendedCoverage?: AspectCoverage;
   summary?: PublishSummary;
 }

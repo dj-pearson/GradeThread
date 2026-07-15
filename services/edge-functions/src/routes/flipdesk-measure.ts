@@ -50,6 +50,7 @@ import {
   withAiAction,
 } from "../lib/ai-metering.ts";
 import { checkQuota } from "./flipdesk-ai.ts";
+import { readImageDimensions } from "../lib/upload-validation.ts";
 
 export const flipdeskMeasureRoutes = new Hono<{
   Variables: {
@@ -610,6 +611,8 @@ flipdeskMeasureRoutes.post("/overlay", async (c) => {
   const sortOrder =
     ((maxRow as { sort_order: number | null } | null)?.sort_order ?? 0) + 1;
 
+  // US-1896: record dimensions for the picture-standards preflight.
+  const overlayDims = readImageDimensions(jpeg);
   const { data: inserted, error: insErr } = await supabaseAdmin
     .from("item_photos")
     .insert({
@@ -618,6 +621,8 @@ flipdeskMeasureRoutes.post("/overlay", async (c) => {
       storage_path: path,
       photo_url: publicUrl,
       sort_order: sortOrder,
+      width: overlayDims?.width ?? null,
+      height: overlayDims?.height ?? null,
     } as never)
     .select("id")
     .maybeSingle();

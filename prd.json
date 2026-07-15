@@ -15569,7 +15569,7 @@
         "Existing filterListablePhotos/dedupeAndCapImages behavior unchanged; deno + web tests for the blocker, warning, and nudge trigger"
       ],
       "priority": 1896,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][SEO] See EBAY_RANKING_PLAYBOOK.md §6. Migration must follow the migrations skill (idempotent + version bump + self-record). Added 2026-07-09."
     },
     {

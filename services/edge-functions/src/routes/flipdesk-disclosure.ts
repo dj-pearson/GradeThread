@@ -6,6 +6,7 @@ import {
   type DisclosureInput,
   type PerImageAnalysisLike,
 } from "../lib/disclosure.ts";
+import { readImageDimensions } from "../lib/upload-validation.ts";
 
 // Auto-Disclosure Engine endpoints. Everything is scoped through the OWNING
 // inventory_item: we verify the caller owns the item (user_id === owner) before
@@ -273,6 +274,8 @@ flipdeskDisclosureRoutes.post("/item/:itemId/annotated-photo", async (c) => {
       ? ((maxSort as { sort_order: number }).sort_order ?? 0) + 1
       : 0;
 
+  // US-1896: record dimensions for the picture-standards preflight.
+  const discDims = readImageDimensions(bytes);
   const { data: inserted, error: insErr } = await supabaseAdmin
     .from("item_photos")
     .insert({
@@ -282,6 +285,8 @@ flipdeskDisclosureRoutes.post("/item/:itemId/annotated-photo", async (c) => {
       photo_type: "defect",
       sort_order: nextSort,
       bytes: bytes.byteLength,
+      width: discDims?.width ?? null,
+      height: discDims?.height ?? null,
     })
     .select("id")
     .maybeSingle();

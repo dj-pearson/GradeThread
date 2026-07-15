@@ -11,6 +11,7 @@ import {
   putR2Object,
   r2PublicUrl,
 } from "../lib/r2-client.ts";
+import { readImageDimensions } from "../lib/upload-validation.ts";
 
 // Image processing pipeline (client-side, see PhotoUploader) and
 // cold-storage archival to Cloudflare R2.
@@ -196,6 +197,10 @@ flipdeskImageRoutes.post("/remove-bg", async (c) => {
       ? ((maxSort as { sort_order: number }).sort_order ?? 0) + 1
       : photo.sort_order + 1;
 
+  // US-1896: record the processed image's dimensions so the picture-standards
+  // preflight can evaluate this flatlay (a GOOD_HERO type a seller may promote
+  // to the search thumbnail) for the 500px floor / 1600px zoom threshold.
+  const bgDims = readImageDimensions(new Uint8Array(outputArrayBuf));
   const { data: inserted, error: insErr } = await supabaseAdmin
     .from("item_photos")
     .insert({
@@ -205,6 +210,8 @@ flipdeskImageRoutes.post("/remove-bg", async (c) => {
       photo_type: "flatlay",
       sort_order: nextSort,
       bytes: outputArrayBuf.byteLength,
+      width: bgDims?.width ?? null,
+      height: bgDims?.height ?? null,
     })
     .select("id")
     .maybeSingle();

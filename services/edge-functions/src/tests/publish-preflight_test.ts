@@ -17,6 +17,10 @@ import {
   type LeafCategorySuggestion,
   mapGradeToApparelCondition,
   mapGradeToBaseCondition,
+  PHOTO_MIN_LONGEST_PX,
+  PHOTO_ZOOM_LONGEST_PX,
+  type PhotoStandardsPhoto,
+  photoStandardsPreflight,
   reachabilityBlocker,
   remapConditionForCategory,
   resolveCategoryLeafStatus,
@@ -405,4 +409,119 @@ Deno.test("resolveCategoryLeafStatus + blocker: cache-miss leaf passes end-to-en
     probeLeafStatus: () => Promise.resolve("leaf" as CategoryLeafStatus),
   });
   assertEquals(leafCategoryBlocker("11554", status, LEAF_SUGGESTION), null);
+});
+
+// ── US-1896: photo standards preflight ─────────────────────────────────────
+
+const P = (
+  o: Partial<PhotoStandardsPhoto> & { sort_order: number },
+): PhotoStandardsPhoto => ({ photo_type: "front", width: 2000, height: 2000, ...o });
+
+Deno.test("photoStandards: empty set → no blockers/warnings/nudge", () => {
+  const r = photoStandardsPreflight([]);
+  assertEquals(r.blockers, []);
+  assertEquals(r.warnings, []);
+  assertEquals(r.nudge, null);
+});
+
+Deno.test("photoStandards: an all-good set is clean", () => {
+  const r = photoStandardsPreflight([
+    P({ sort_order: 0, photo_type: "front", width: 2000, height: 1600 }),
+    P({ sort_order: 1, photo_type: "back", width: 1600, height: 2000 }),
+  ]);
+  assertEquals(r.blockers, []);
+  assertEquals(r.warnings, []);
+  assertEquals(r.nudge, null);
+});
+
+Deno.test("photoStandards: a sub-500px photo is a fixable BLOCKER", () => {
+  const r = photoStandardsPreflight([
+    P({ sort_order: 0, photo_type: "front", width: 2000, height: 2000 }),
+    P({ sort_order: 1, photo_type: "detail", width: 480, height: 300 }),
+  ]);
+  assertEquals(r.blockers.length, 1);
+  assert(r.blockers[0].includes(String(PHOTO_MIN_LONGEST_PX)));
+  assert(r.blockers[0].startsWith("A photo is"));
+});
+
+Deno.test("photoStandards: multiple sub-500px photos are pluralized in one blocker", () => {
+  const r = photoStandardsPreflight([
+    P({ sort_order: 0, photo_type: "front", width: 400, height: 400 }),
+    P({ sort_order: 1, photo_type: "back", width: 300, height: 499 }),
+  ]);
+  assertEquals(r.blockers.length, 1);
+  assert(r.blockers[0].includes("2 photos are"));
+});
+
+Deno.test("photoStandards: longest SIDE (not both) decides the 500px floor", () => {
+  // 300x600 → longest 600 ≥ 500 → not a blocker.
+  const ok = photoStandardsPreflight([P({ sort_order: 0, width: 300, height: 600 })]);
+  assertEquals(ok.blockers, []);
+  // 300x400 → longest 400 < 500 → blocker.
+  const bad = photoStandardsPreflight([P({ sort_order: 0, width: 300, height: 400 })]);
+  assertEquals(bad.blockers.length, 1);
+});
+
+Deno.test("photoStandards: hero under 1600px longest side is a zoom WARNING (not a blocker)", () => {
+  const r = photoStandardsPreflight([
+    P({ sort_order: 0, photo_type: "front", width: 1200, height: 900 }),
+  ]);
+  assertEquals(r.blockers, []);
+  assertEquals(r.warnings.length, 1);
+  assert(r.warnings[0].includes(String(PHOTO_ZOOM_LONGEST_PX)));
+  assert(r.warnings[0].includes("1200px"));
+});
+
+Deno.test("photoStandards: only the HERO (lowest sort_order) drives the zoom warning", () => {
+  // A small non-hero photo (≥500) must not warn; hero is large → no warning.
+  const r = photoStandardsPreflight([
+    P({ sort_order: 1, photo_type: "detail", width: 800, height: 800 }),
+    P({ sort_order: 0, photo_type: "front", width: 2400, height: 2400 }),
+  ]);
+  assertEquals(r.warnings, []);
+});
+
+Deno.test("photoStandards: unknown dimensions fail OPEN (no blocker, no warning)", () => {
+  const r = photoStandardsPreflight([
+    P({ sort_order: 0, photo_type: "front", width: null, height: null }),
+    P({ sort_order: 1, photo_type: "back", width: 100, height: null }),
+  ]);
+  assertEquals(r.blockers, []);
+  assertEquals(r.warnings, []);
+});
+
+Deno.test("photoStandards: first photo being a tag/detail/defect shot triggers the reorder NUDGE", () => {
+  const tag = photoStandardsPreflight([
+    P({ sort_order: 0, photo_type: "tag", width: 2000, height: 2000 }),
+    P({ sort_order: 1, photo_type: "front", width: 2000, height: 2000 }),
+  ]);
+  assert(tag.nudge && tag.nudge.includes("tag"));
+
+  const defect = photoStandardsPreflight([P({ sort_order: 0, photo_type: "defect", width: 2000, height: 2000 })]);
+  assert(defect.nudge && defect.nudge.includes("flaw"));
+
+  const detail2 = photoStandardsPreflight([P({ sort_order: 0, photo_type: "detail_2", width: 2000, height: 2000 })]);
+  assert(detail2.nudge && detail2.nudge.includes("detail"));
+});
+
+Deno.test("photoStandards: front/back/flatlay/on_model heroes never nudge", () => {
+  for (const t of ["front", "back", "flatlay", "on_model"]) {
+    const r = photoStandardsPreflight([P({ sort_order: 0, photo_type: t, width: 2000, height: 2000 })]);
+    assertEquals(r.nudge, null, `${t} hero should not nudge`);
+  }
+});
+
+Deno.test("photoStandards: an unknown/absent hero photo_type does not nudge (fail-open)", () => {
+  const nullType = photoStandardsPreflight([P({ sort_order: 0, photo_type: null, width: 2000, height: 2000 })]);
+  assertEquals(nullType.nudge, null);
+});
+
+Deno.test("photoStandards: does not mutate or reorder the caller's array", () => {
+  const input: PhotoStandardsPhoto[] = [
+    P({ sort_order: 2, photo_type: "detail", width: 2000, height: 2000 }),
+    P({ sort_order: 0, photo_type: "front", width: 2000, height: 2000 }),
+  ];
+  const snapshot = input.map((p) => p.sort_order);
+  photoStandardsPreflight(input);
+  assertEquals(input.map((p) => p.sort_order), snapshot);
 });

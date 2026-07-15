@@ -196,6 +196,22 @@ function dimensionsFor(
   return null;
 }
 
+/**
+ * US-1896: cheap width/height read for an already-trusted image byte payload
+ * (e.g. a photo WE just generated: remove.bg output, a rendered overlay). No
+ * validation — just sniff the format and parse the header dimensions. Returns
+ * null when the format is unknown/HEIC or the header can't be parsed, so callers
+ * persist width/height only when they're actually known (the picture-standards
+ * preflight fails open on null dimensions).
+ */
+export function readImageDimensions(
+  bytes: Uint8Array,
+): { width: number; height: number } | null {
+  const format = sniffImageFormat(bytes);
+  if (!format) return null;
+  return dimensionsFor(format, bytes);
+}
+
 export function validateImageUpload(
   bytes: Uint8Array,
   opts: ValidateOptions = {},

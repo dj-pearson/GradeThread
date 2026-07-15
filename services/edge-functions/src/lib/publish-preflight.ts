@@ -66,6 +66,121 @@ export function imageCapBlocker(
   );
 }
 
+// ── US-1896: photo standards preflight ─────────────────────────────────
+//
+// eBay's picture standards drive both listing eligibility and search ranking
+// (EBAY_RANKING_PLAYBOOK.md §6): a photo under 500px on its longest side is
+// below eBay's hard minimum (a fixable BLOCKER), and a hero photo under 1600px
+// disables buyer zoom / hurts ranking (a WARNING). Separately, the FIRST photo
+// is the search-result thumbnail — leading with a tag/detail/defect shot instead
+// of a full front/flat view costs click-through, so we NUDGE a reorder.
+//
+// Pure + fail-open on unknown dimensions (older rows have no width/height yet,
+// backfilled lazily) — mirrors validateImageUpload's US-529 min-dimension check,
+// which also only enforces when the dimensions are parseable.
+
+/** eBay's hard minimum for a listable photo's longest side. */
+export const PHOTO_MIN_LONGEST_PX = 500;
+/** Below this longest side, eBay disables buyer zoom on the hero image. */
+export const PHOTO_ZOOM_LONGEST_PX = 1600;
+
+// Photo types that make a good search-result thumbnail (a full view of the
+// item). Anything else as the FIRST photo triggers the reorder nudge. Mirrors
+// the flipdesk_photo_type storage vocabulary (photo-profiles.ts).
+const GOOD_HERO_PHOTO_TYPES: ReadonlySet<string> = new Set([
+  "front",
+  "back",
+  "flatlay",
+  "on_model",
+]);
+
+export interface PhotoStandardsPhoto {
+  photo_type: string | null;
+  width: number | null;
+  height: number | null;
+  sort_order: number;
+}
+
+export interface PhotoStandardsResult {
+  /** Fixable blockers (a photo below eBay's 500px hard minimum). */
+  blockers: string[];
+  /** Non-blocking warnings (hero under 1600px = zoom disabled). */
+  warnings: string[];
+  /** First-photo reorder nudge (thumbnail is a tag/detail/defect shot), or null. */
+  nudge: string | null;
+}
+
+/** Longest side of a photo, or null when either dimension is unknown. */
+function longestSide(p: { width: number | null; height: number | null }): number | null {
+  if (p.width == null || p.height == null) return null;
+  if (!Number.isFinite(p.width) || !Number.isFinite(p.height)) return null;
+  const longest = Math.max(p.width, p.height);
+  return longest > 0 ? longest : null;
+}
+
+/**
+ * Evaluate a set of LISTABLE photos (already filtered by filterListablePhotos
+ * and sorted by sort_order) against eBay's picture standards. Pure; fail-open on
+ * unknown dimensions. The hero photo is the lowest sort_order (the cover / first
+ * thumbnail). Does NOT mutate or reorder the input.
+ */
+export function photoStandardsPreflight(
+  photos: readonly PhotoStandardsPhoto[],
+): PhotoStandardsResult {
+  const blockers: string[] = [];
+  const warnings: string[] = [];
+  let nudge: string | null = null;
+  if (photos.length === 0) return { blockers, warnings, nudge };
+
+  // Count photos whose KNOWN longest side is below the 500px hard minimum.
+  let tooSmall = 0;
+  for (const p of photos) {
+    const longest = longestSide(p);
+    if (longest != null && longest < PHOTO_MIN_LONGEST_PX) tooSmall++;
+  }
+  if (tooSmall > 0) {
+    blockers.push(
+      `${tooSmall === 1 ? "A photo is" : `${tooSmall} photos are`} smaller than ` +
+        `eBay's ${PHOTO_MIN_LONGEST_PX}px minimum on the longest side. Re-shoot or ` +
+        `re-upload ${tooSmall === 1 ? "it" : "them"} at a higher resolution to publish.`,
+    );
+  }
+
+  // Hero = lowest sort_order. Copy before sort so the caller's array is untouched.
+  const hero = [...photos].sort((a, b) => a.sort_order - b.sort_order)[0];
+
+  // Warning: hero under 1600px → eBay zoom disabled (fail-open when unknown).
+  const heroLongest = longestSide(hero);
+  if (heroLongest != null && heroLongest < PHOTO_ZOOM_LONGEST_PX) {
+    warnings.push(
+      `Your main photo is ${heroLongest}px on its longest side — under ` +
+        `${PHOTO_ZOOM_LONGEST_PX}px, so eBay disables buyer zoom and it may rank ` +
+        `lower. Use a larger version for the best listing.`,
+    );
+  }
+
+  // Nudge: hero is a tag/detail/defect-type shot rather than a full view. Only
+  // when the type is known and NOT a good-thumbnail type.
+  const heroType = (hero.photo_type ?? "").trim();
+  if (heroType && !GOOD_HERO_PHOTO_TYPES.has(heroType)) {
+    nudge =
+      `Your search thumbnail is a ${heroTypeLabel(heroType)} shot — drag a full ` +
+      `front or flat-lay view first so buyers see the whole item in search results.`;
+  }
+
+  return { blockers, warnings, nudge };
+}
+
+/** Friendly noun for a photo_type in the reorder nudge. */
+function heroTypeLabel(photoType: string): string {
+  if (photoType.startsWith("tag")) return "tag";
+  if (photoType.startsWith("detail")) return "detail";
+  if (photoType === "defect") return "flaw";
+  if (photoType === "interior") return "interior";
+  if (photoType.startsWith("measurement")) return "measurement";
+  return photoType.replace(/_/g, " ");
+}
+
 // ── Condition validation against the leaf category ─────────────────────
 //
 // The Inventory API takes a symbolic condition enum (NEW, USED_EXCELLENT…) but

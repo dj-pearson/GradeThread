@@ -26,7 +26,12 @@ import {
 } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/lib/supabase";
-import { FLIPDESK_PHOTO_TYPES, PHOTO_TYPE_LABELS } from "@/lib/constants";
+import {
+  FLIPDESK_PHOTO_TYPES,
+  PHOTO_TYPE_LABELS,
+  isNonListablePhotoType,
+} from "@/lib/constants";
+import { firstPhotoNudge } from "@/lib/photo-standards";
 import { PhotoEditorDialog } from "@/components/flipdesk/photo-editor-dialog";
 import { useRemoveBackground, useRemoveBgCapability } from "@/hooks/use-remove-bg";
 import { itemPhotoThumb } from "@/lib/images";
@@ -206,6 +211,25 @@ export function PhotoManager({
     void persistOrder(next);
   }
 
+  // US-1896: one-click reorder for the first-photo nudge — move the suggested
+  // full-view photo to the front (index 0 = eBay cover / search thumbnail).
+  function makeHero(photoId: string) {
+    const idx = order.findIndex((p) => p.id === photoId);
+    if (idx <= 0) return; // already the hero (or not found)
+    const next = arrayMove(order, idx, 0);
+    setOrder(next); // optimistic
+    void persistOrder(next);
+  }
+
+  // US-1896: live nudge when the search thumbnail (lowest sort_order among the
+  // LISTABLE photos — internal/measurement shots never reach eBay) is a
+  // tag/detail/defect shot rather than a full front/flat-lay view. Client mirror
+  // of the edge picture-standards preflight; publish re-checks server-side.
+  const listableOrder = order.filter(
+    (p) => !isNonListablePhotoType(p.photo_type),
+  );
+  const heroNudge = firstPhotoNudge(listableOrder);
+
   async function retag(photo: ItemPhotoRow, photoType: FlipdeskPhotoType) {
     photosDirtyRef.current = true;
     try {
@@ -249,6 +273,20 @@ export function PhotoManager({
       <p className="text-xs text-muted-foreground">
         Drag to reorder. The first photo is the listing's main image.
       </p>
+      {heroNudge && (
+        <div className="flex flex-col gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 sm:flex-row sm:items-center sm:justify-between dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
+          <span>{heroNudge.message}</span>
+          {heroNudge.suggestedHeroId && (
+            <button
+              type="button"
+              onClick={() => makeHero(heroNudge.suggestedHeroId!)}
+              className="shrink-0 self-start rounded-md bg-amber-600 px-2 py-1 font-medium text-white hover:bg-amber-700 sm:self-auto"
+            >
+              Make it the main photo
+            </button>
+          )}
+        </div>
+      )}
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}

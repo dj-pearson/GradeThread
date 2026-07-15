@@ -70,6 +70,10 @@ export function PublishToEbayDialog({
   const summary: PublishSummary | undefined = validate.data?.summary;
   const coverage = validate.data?.recommendedCoverage;
   const blockers = validate.data?.blockers ?? [];
+  // US-1896: non-blocking picture-standards + title-quality warnings, and the
+  // hero-thumbnail reorder nudge. Surfaced but never block publish.
+  const warnings = validate.data?.warnings ?? [];
+  const photoNudge = validate.data?.photoNudge ?? null;
   const canPublish = !!validate.data?.ok && blockers.length === 0;
   const isPublishing = publish.isPending;
 
@@ -268,6 +272,29 @@ export function PublishToEbayDialog({
             )}
           </div>
         )}
+
+        {/* US-1896: non-blocking picture-standards / title-quality warnings and
+            the hero-thumbnail reorder nudge. These never block publish — they
+            just tell the seller how to rank/convert better. */}
+        {!result &&
+          !validate.isPending &&
+          (warnings.length > 0 || photoNudge) && (
+            <ul className="space-y-1 rounded-md border border-sky-200 bg-sky-50 p-3 text-xs dark:border-sky-500/30 dark:bg-sky-950/30">
+              {warnings.map((w) => (
+                <li
+                  key={w}
+                  className="break-words text-sky-900 dark:text-sky-200"
+                >
+                  • {w}
+                </li>
+              ))}
+              {photoNudge && (
+                <li className="break-words text-sky-900 dark:text-sky-200">
+                  • {photoNudge}
+                </li>
+              )}
+            </ul>
+          )}
 
         {/* US-1895: recommended-aspect coverage (non-blocking). eBay's
             RECOMMENDED specifics ranked by 30-day buyer search volume — filling
