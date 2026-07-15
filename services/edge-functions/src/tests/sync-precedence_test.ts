@@ -22,6 +22,7 @@ import {
   buildCsvFillPatch,
   buildListingPullPatch,
   deriveListingOrigin,
+  ebayOriginWriteLock,
   EBAY_OWNED_FIELDS,
   EBAY_OWNED_ITEM_SPECIFIC_FIELDS,
   EBAY_OWNED_LISTING_FIELDS,
@@ -511,4 +512,80 @@ Deno.test("buildListingPullPatch never produces GT-owned item field keys", () =>
       );
     }
   }
+});
+
+// ── US-1976: ebayOriginWriteLock (end/reprice/revise lifecycle gate) ─────────
+
+Deno.test("ebayOriginWriteLock: reprice on an eBay-imported listing is locked", () => {
+  const lock = ebayOriginWriteLock(
+    { platform: "ebay", platform_listing_id: "EBY-1" },
+    ["listing_price"],
+  );
+  assert(lock.locked);
+  assertEquals(lock.lockedFields, ["listing_price"]);
+});
+
+Deno.test("ebayOriginWriteLock: end (listing_status/is_active) on an eBay-imported listing is locked", () => {
+  const lock = ebayOriginWriteLock(
+    { platform: "ebay", platform_listing_id: "EBY-2" },
+    ["listing_status", "is_active"],
+  );
+  assert(lock.locked);
+  assertEquals(lock.lockedFields, ["listing_status", "is_active"]);
+});
+
+Deno.test("ebayOriginWriteLock: AC3 — an eBay-origin row that CARRIES an offer id is still locked", () => {
+  // The whole point of the origin gate: provenance does NOT depend on
+  // platform_offer_id, so an eBay-imported mirror that happens to have an offer
+  // id (from the sync) must NOT slip past the reprice/end gate as if editable.
+  const signals = {
+    platform: "ebay",
+    platform_listing_id: "EBY-3",
+    // no batch_id / synced_to_ebay_at → eBay-originated
+  };
+  assertEquals(deriveListingOrigin(signals), "ebay");
+  assert(ebayOriginWriteLock(signals, ["listing_price"]).locked);
+  assert(ebayOriginWriteLock(signals, ["listing_status", "is_active"]).locked);
+});
+
+Deno.test("ebayOriginWriteLock: a persisted listing_origin='ebay' locks even without eBay signals", () => {
+  const lock = ebayOriginWriteLock(
+    { listing_origin: "ebay" },
+    ["listing_price"],
+  );
+  assert(lock.locked);
+  assertEquals(lock.lockedFields, ["listing_price"]);
+});
+
+Deno.test("ebayOriginWriteLock: GradeThread-originated listings are never locked", () => {
+  // Published from FlipDesk (batch_id) → GT owns it, even for eBay-owned fields.
+  const gtBatch = ebayOriginWriteLock(
+    { platform: "ebay", platform_listing_id: "999", batch_id: "batch-1" },
+    ["listing_price", "listing_status", "is_active"],
+  );
+  assertEquals(gtBatch.locked, false);
+  assertEquals(gtBatch.lockedFields, []);
+
+  // Ambiguous (no signals) defaults to gradethread → not locked.
+  assertEquals(ebayOriginWriteLock({}, ["listing_price"]).locked, false);
+
+  // A persisted gradethread marker wins even with an eBay id present.
+  assertEquals(
+    ebayOriginWriteLock(
+      { listing_origin: "gradethread", platform: "ebay", platform_listing_id: "1" },
+      ["listing_status"],
+    ).locked,
+    false,
+  );
+});
+
+Deno.test("ebayOriginWriteLock: non-eBay-owned fields never lock, even on eBay origin", () => {
+  // grade_value/condition_notes are GradeThread-owned; requesting them alone
+  // yields no locked fields (they fall into `other` in validateEbayOriginEdit).
+  const lock = ebayOriginWriteLock(
+    { platform: "ebay", platform_listing_id: "EBY-4" },
+    ["grade_value", "condition_notes"],
+  );
+  assertEquals(lock.locked, false);
+  assertEquals(lock.lockedFields, []);
 });

@@ -16891,8 +16891,8 @@
         "Regression test covers an eBay-origin row that carries a platform_offer_id"
       ],
       "priority": 1976,
-      "passes": false,
-      "notes": "[P2][Edge+iOS/Sync] iOS listing-lifecycle audit 2026-07-14. Missing origin gate: flipdesk-ebay.ts:5433 (DELETE), :4030 (price). revise gate at :4821. iOS heuristic ItemCanvasView.swift:706-707. See SYNC_SOURCE_OF_TRUTH.md.",
+      "passes": true,
+      "notes": "[P2][Edge+iOS/Sync] iOS listing-lifecycle audit 2026-07-14. Missing origin gate: flipdesk-ebay.ts:5433 (DELETE), :4030 (price). revise gate at :4821. iOS heuristic ItemCanvasView.swift:706-707. See SYNC_SOURCE_OF_TRUTH.md. DONE 2026-07-14: added pure ebayOriginWriteLock(signals,fields) to sync-precedence.ts; wired 409+locked_fields gate into POST /listings/:id/price + DELETE /listings/:id (before their offer-id checks); /revise now also consults persisted listing_origin. iOS ItemCanvasView origin heuristic unified to isEbayOriginated() defaulting nil->gradethread (server parity) so an un-backfilled GT listing is no longer mislabeled eBay. Regression tests incl. AC3 eBay-origin-row-with-offer-id in sync-precedence_test.ts (44 pass).",
       "relevantPaths": [
         "services/edge-functions/src/routes/flipdesk-ebay.ts",
         "ios/GradeThread/Inventory/ItemCanvas/ItemCanvasView.swift",

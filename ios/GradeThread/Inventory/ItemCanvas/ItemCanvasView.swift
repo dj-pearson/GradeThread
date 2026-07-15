@@ -102,13 +102,20 @@ struct ItemCanvasView: View {
 
     /// A GradeThread-originated live listing is revisable in place via Save & Sync.
     /// eBay-originated (imported) listings are locked mirrors — user edits on eBay.
-    /// US-1086: prefer `listingOrigin` from the DB; fall back to `platformOfferId`
-    /// for rows synced before the column was backfilled.
+    /// US-1976: mirror the server `deriveListingOrigin` default. `listingOrigin`
+    /// is authoritative when persisted; otherwise DEFAULT to gradethread — the
+    /// server's ambiguous default — instead of guessing eBay from a missing
+    /// offer id, which mislabelled a GT-origin listing (whose `listingOrigin`
+    /// hadn't backfilled yet) as a locked eBay mirror. The edge revise/price/end
+    /// routes carry the batch_id/synced_to_ebay_at signals iOS lacks and are the
+    /// single enforcement point if a genuinely eBay-origin row slips through.
+    private func isEbayOriginated(_ l: LocalListing) -> Bool {
+        l.listingOrigin == "ebay"
+    }
+
     private var gtLiveListing: LocalListing? {
         guard let l = activeEbayListing else { return nil }
-        let isGT = l.listingOrigin == "gradethread" ||
-            (l.listingOrigin == nil && l.platformOfferId != nil)
-        return isGT ? l : nil
+        return isEbayOriginated(l) ? nil : l
     }
 
     /// True when the item's edited target price differs from what's published on
@@ -700,13 +707,12 @@ struct ItemCanvasView: View {
             }
 
             if let active = activeEbayListing {
-                // US-1086: provenance badge + editing affordance based on listing_origin.
-                // Prefer `listingOrigin` from DB; fall back to `platformOfferId` heuristic
-                // for rows synced before the column was backfilled.
-                let isEbayOriginated = active.listingOrigin == "ebay" ||
-                    (active.listingOrigin == nil && active.platformOfferId == nil)
+                // US-1976: provenance badge + editing affordance based on
+                // listing_origin, defaulting to gradethread when unset (server
+                // parity) so a not-yet-backfilled GT listing isn't shown locked.
+                let ebayOriginated = isEbayOriginated(active)
 
-                if isEbayOriginated {
+                if ebayOriginated {
                     // eBay-originated mirror: user must edit on eBay; GradeThread locks
                     // eBay-owned fields and never overwrites them on sync.
                     HStack(spacing: 5) {

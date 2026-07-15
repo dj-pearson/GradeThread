@@ -189,6 +189,7 @@ import {
 } from "../lib/comps-ladder.ts";
 import {
   deriveListingOrigin,
+  ebayOriginWriteLock,
   validateEbayOriginEdit,
 } from "../lib/sync-precedence.ts";
 import { resolveAdapter } from "../lib/marketplace-adapters/index.ts";
@@ -4052,6 +4053,32 @@ flipdeskEbayRoutes.post("/listings/:id/price", async (c) => {
 
   const row = await loadListingOwned(listingId, userId);
   if (!row.ok) return c.json(row.error, row.status);
+
+  // US-1976: an eBay-originated listing is a read-only mirror — eBay owns its
+  // price, so reject a reprice with the same 409 + locked_fields contract as
+  // /revise. Checked BEFORE the offer-id gate so an eBay-origin row that carries
+  // an offer id is still rejected as locked, not silently repriced.
+  const priceLock = ebayOriginWriteLock(
+    {
+      listing_origin: row.listing.listing_origin,
+      platform: "ebay",
+      platform_listing_id: row.listing.platform_listing_id,
+      batch_id: row.listing.batch_id,
+      synced_to_ebay_at: row.listing.synced_to_ebay_at,
+    },
+    ["listing_price"],
+  );
+  if (priceLock.locked) {
+    return c.json(
+      {
+        error:
+          "This listing was created on eBay, so eBay owns its price. Reprice it on eBay — changes here would be overwritten on the next sync.",
+        locked_fields: priceLock.lockedFields,
+      },
+      409
+    );
+  }
+
   if (!row.listing.platform_offer_id) {
     return c.json(
       {
@@ -4818,6 +4845,9 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
   // listing_title, description → listing_description, listing_price, and
   // photos → product imagery — all EBAY_OWNED_LISTING_FIELDS.
   const origin = deriveListingOrigin({
+    // US-1976: consult the persisted marker first (parity with the /price + end
+    // gates), falling back to the provenance signals until it backfills.
+    listing_origin: row.listing.listing_origin,
     platform: "ebay",
     platform_listing_id: row.listing.platform_listing_id,
     batch_id: row.listing.batch_id,
@@ -5444,6 +5474,32 @@ flipdeskEbayRoutes.delete("/listings/:id", async (c) => {
 
   const row = await loadListingOwned(listingId, userId);
   if (!row.ok) return c.json(row.error, row.status);
+
+  // US-1976: an eBay-originated listing is a read-only mirror — eBay owns its
+  // lifecycle, so reject an end from FlipDesk with the same 409 + locked_fields
+  // contract as /revise. Ending it here would either fight eBay's own state or
+  // be overwritten on the next inbound sync. Checked BEFORE the offer-id branch
+  // so an eBay-origin row that carries an offer id is still rejected as locked.
+  const endLock = ebayOriginWriteLock(
+    {
+      listing_origin: row.listing.listing_origin,
+      platform: "ebay",
+      platform_listing_id: row.listing.platform_listing_id,
+      batch_id: row.listing.batch_id,
+      synced_to_ebay_at: row.listing.synced_to_ebay_at,
+    },
+    ["listing_status", "is_active"],
+  );
+  if (endLock.locked) {
+    return c.json(
+      {
+        error:
+          "This listing was created on eBay, so eBay owns its lifecycle. End it on eBay — ending it here would be overwritten on the next sync.",
+        locked_fields: endLock.lockedFields,
+      },
+      409
+    );
+  }
 
   // Best-effort withdraw of the live eBay offer, then ALWAYS reconcile the local
   // row to ended. A withdraw can legitimately fail because the listing is already

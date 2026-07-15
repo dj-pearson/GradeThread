@@ -256,6 +256,38 @@ export function validateEbayOriginEdit(
   return { locked, allowed, other };
 }
 
+// ── US-1976 lifecycle write lock ────────────────────────────────────────────
+
+export interface EbayOriginLockResult {
+  /** True when the listing is eBay-originated AND ≥1 requested field is locked. */
+  locked: boolean;
+  /** The eBay-owned fields being rejected (empty when not locked). */
+  lockedFields: EbayOwnedListingField[];
+}
+
+/**
+ * US-1976: the shared write-lock decision for a listing-lifecycle action
+ * (reprice, end/delete, revise). An eBay-originated listing is a read-only
+ * mirror — eBay owns its fields AND its lifecycle — so a write to any
+ * EBAY_OWNED_LISTING_FIELD must be rejected server-side with the same 409 +
+ * `locked_fields` contract regardless of which route attempts it.
+ *
+ * Composes deriveListingOrigin (a persisted `listing_origin` wins; otherwise the
+ * provenance signals decide, defaulting to 'gradethread') with
+ * validateEbayOriginEdit. Pure — the route turns a `locked` result into the 409
+ * response. Crucially, origin does NOT depend on `platform_offer_id`: an
+ * eBay-originated mirror that happens to carry an offer id is still locked.
+ */
+export function ebayOriginWriteLock(
+  signals: ListingOriginSignals,
+  requestedFields: string[],
+): EbayOriginLockResult {
+  const origin = deriveListingOrigin(signals);
+  if (origin !== "ebay") return { locked: false, lockedFields: [] };
+  const { locked } = validateEbayOriginEdit(origin, requestedFields);
+  return { locked: locked.length > 0, lockedFields: locked };
+}
+
 // ── Listing provenance (US-1077 marker / US-1083 Sheets guard) ──────────────
 
 const EBAY_OWNED_LISTING_FIELD_SET: ReadonlySet<string> = new Set(
