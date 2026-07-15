@@ -170,6 +170,51 @@ export function buildSellerBadgeHtml(input: SellerBadgeInput): string {
 </div>`;
 }
 
+// ── Achievement badge card (US-1850 AC3) ─────────────────────────────────
+// A shareable card for an EARNED gamification badge (rewards-badges.ts
+// BADGE_CATALOG). Reuses the cert-image-render (Satori→PNG) path like the trust
+// + seller badges. Tier drives the medal colour (bronze/silver/gold); the card
+// is self-describing (name + what it's for) so it stands alone when shared.
+const TIER_COLOR: Record<string, string> = {
+  bronze: "#a97142",
+  silver: "#9ca3af",
+  gold: "#d4af37",
+};
+
+export interface AchievementBadgeInput {
+  width: number;
+  height: number;
+  name: string;
+  description: string;
+  tier: string; // bronze | silver | gold (unknown → navy medal)
+  /** e.g. "Earned Jul 2026", or null to omit. */
+  earnedLabel?: string | null;
+}
+
+export function buildAchievementBadgeHtml(input: AchievementBadgeInput): string {
+  const s = input.height / 180;
+  const px = (n: number) => Math.round(n * s);
+  const medal = px(128);
+  const tierColor = TIER_COLOR[input.tier.toLowerCase()] ?? BRAND_NAVY;
+  const tierLabel = input.tier ? input.tier.toUpperCase() : "";
+  const earned = input.earnedLabel ? ` · ${escapeHtml(input.earnedLabel)}` : "";
+
+  return `<div style="display:flex;align-items:center;height:${input.height}px;width:${input.width}px;background:${BRAND_NAVY};color:${TEXT_LIGHT};font-family:${FONT};border-radius:${px(16)}px;padding:0 ${px(36)}px;">
+  <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:${medal}px;height:${medal}px;border-radius:50%;background:${tierColor};margin-right:${px(32)}px;">
+    <div style="display:flex;font-size:${px(46)}px;font-weight:700;line-height:1;color:#fff;">★</div>
+    <div style="display:flex;font-size:${px(13)}px;font-weight:700;letter-spacing:1px;color:rgba(255,255,255,0.9);">${escapeHtml(tierLabel)}</div>
+  </div>
+  <div style="display:flex;flex-direction:column;flex:1;">
+    <div style="display:flex;align-items:center;gap:${px(10)}px;font-size:${px(20)}px;font-weight:600;color:rgba(255,255,255,0.85);margin-bottom:${px(6)}px;">
+      <div style="width:${px(26)}px;height:${px(26)}px;border-radius:${px(7)}px;background:${BRAND_RED};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:${px(15)}px;color:#fff;">G</div>
+      GradeThread Achievement
+    </div>
+    <div style="display:flex;font-size:${px(36)}px;font-weight:700;line-height:1.1;">${escapeHtml(truncate(input.name, 28))}</div>
+    <div style="display:flex;font-size:${px(16)}px;color:rgba(255,255,255,0.6);margin-top:${px(6)}px;">${escapeHtml(truncate(input.description, 60))}${earned}</div>
+  </div>
+</div>`;
+}
+
 // ── Digital slab (PSA-style graded photo) ────────────────────────────────
 export interface CertSlabInput {
   width: number;

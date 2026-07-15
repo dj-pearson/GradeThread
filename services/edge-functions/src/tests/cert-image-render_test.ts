@@ -8,11 +8,13 @@ import {
   type CertImageData,
   fetchImageDataUri,
   isSellerBadgeFormat,
+  renderAchievementBadge,
   renderCertImage,
   renderSellerBadge,
   SELLER_BADGE_FORMATS,
   type SellerBadgeFormat,
 } from "../lib/cert-image-render.ts";
+import { buildAchievementBadgeHtml } from "../lib/cert-og-template.ts";
 
 const DATA: CertImageData = {
   certId: "6d0d0f7a-23db-41f2-a891-5245e89eb504",
@@ -31,6 +33,49 @@ function isPng(bytes: Uint8Array): boolean {
 
 Deno.test("renders a valid OG card PNG", async () => {
   assert(isPng(await renderCertImage("og", "square", DATA)));
+});
+
+Deno.test("US-1850: renders a valid achievement badge PNG", async () => {
+  assert(
+    isPng(
+      await renderAchievementBadge({
+        name: "Century",
+        description: "Graded 100 items.",
+        tier: "silver",
+        earnedLabel: "Earned Jul 2026",
+      }),
+    ),
+  );
+});
+
+Deno.test("US-1850: achievement badge template escapes + carries name/tier/description", () => {
+  const html = buildAchievementBadgeHtml({
+    width: 700,
+    height: 180,
+    name: "Viral <Find>",
+    description: "A shared grade earned 10 verified clicks.",
+    tier: "gold",
+    earnedLabel: null,
+  });
+  assert(html.includes("Viral &lt;Find&gt;"), "name is HTML-escaped");
+  assert(html.includes("verified clicks"), "description present");
+  assert(html.includes("#d4af37"), "gold tier colour applied");
+  assert(html.includes("GOLD"), "tier label present");
+  assert(html.includes("GradeThread Achievement"), "brand line present");
+  assert(!html.includes("<Find>"), "raw angle brackets never leak");
+});
+
+Deno.test("US-1850: an unknown tier falls back to the brand navy medal (no crash)", () => {
+  const html = buildAchievementBadgeHtml({
+    width: 700,
+    height: 180,
+    name: "Mystery",
+    description: "Hidden badge.",
+    tier: "platinum",
+    earnedLabel: null,
+  });
+  assert(html.includes("700px"), "renders at the given width");
+  assert(html.includes("PLATINUM"), "tier label still shown");
 });
 
 Deno.test("renders a valid badge PNG", async () => {

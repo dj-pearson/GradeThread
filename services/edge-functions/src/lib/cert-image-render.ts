@@ -12,6 +12,7 @@ import satori from "satori";
 import { html } from "satori-html";
 import { initWasm, Resvg } from "@resvg/resvg-wasm";
 import {
+  buildAchievementBadgeHtml,
   buildCertBadgeHtml,
   buildCertOgHtml,
   buildCertSlabHtml,
@@ -73,6 +74,31 @@ export function renderSellerBadge(
     }),
     fmt.width,
     fmt.height,
+  );
+}
+
+export interface AchievementBadgeData {
+  name: string;
+  description: string;
+  tier: string; // bronze | silver | gold
+  earnedLabel?: string | null;
+}
+
+/** Render an earned achievement badge (US-1850 AC3) to shareable PNG bytes. */
+export function renderAchievementBadge(d: AchievementBadgeData): Promise<Uint8Array> {
+  const width = 700;
+  const height = 180;
+  return renderPng(
+    buildAchievementBadgeHtml({
+      width,
+      height,
+      name: d.name,
+      description: d.description,
+      tier: d.tier,
+      earnedLabel: d.earnedLabel ?? null,
+    }),
+    width,
+    height,
   );
 }
 
