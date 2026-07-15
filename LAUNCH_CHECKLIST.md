@@ -52,6 +52,7 @@ Each row: confirm `/health/ready` → `features.<group>` is `"ok"`.
 | (also) | `COMPANY_POSTAL_ADDRESS` | a sent email footer shows the real address (CAN-SPAM) | ☐ |
 | (also) | `MONITOR_ALERT_EMAIL`, `DISPUTE_ALERT_EMAIL` | grading-monitor / dispute alerts route correctly | ☐ |
 | `email_deliverability` (US-915) | `SES_CONFIGURATION_SET`, `SES_MARKETING_FROM_EMAIL/NAME`, `SES_AWS_REGION/ACCESS_KEY_ID/SECRET_ACCESS_KEY`, `SES_DKIM_VERIFIED`, `SES_SPF_ALIGNED`, `SES_DMARC_POLICY`, `MARKETING_UNSUBSCRIBE_MAILTO` | boot log shows NO `[BOOT] deliverability:` warnings; a marketing send arrives from `news.gradethread.com` with a Gmail/Apple-Mail one-click unsubscribe. **Full runbook: [`DELIVERABILITY.md`](DELIVERABILITY.md).** | ☐ |
+| `buyer_extension` (US-1754 / US-1883) | `EXTENSION_ALLOWED_ORIGINS` (comma-sep `chrome-extension://<id>` / `moz-extension://<id>`); **`CF_ORIGIN_SECRET` strongly recommended** | extension overlay grades a live listing (CORS OK); with `CF_ORIGIN_SECRET` set + the CF Transform Rule live, a direct-to-origin request that rotates `X-Forwarded-For` can no longer mint per-IP quota (US-1883 AC1). Empty origins ⇒ extension can't reach the public endpoints. | ☐ |
 
 ### 1c. Frontend (Cloudflare Pages → Settings → Environment variables → Production)
 
