@@ -2294,6 +2294,22 @@ Deno.test({
     assert(res.status === 200 || DENIED.has(res.status), `unexpected ${res.status}`);
   },
 });
+// US-1847 (AC1): PATCH is scoped .eq("id",id).eq("user_id",userId) → maybeSingle,
+// so B updating A's want hits 0 rows → 404 (never flips A's want status). DELETE
+// was covered; this closes the mutating-verb gap on the same route. Same fixture.
+Deno.test({
+  name: "B cannot update (PATCH) A's want",
+  ignore: !CONFIGURED || !A_WANT_ID,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/buyer/wants/${A_WANT_ID}`, {
+      method: "PATCH",
+      headers: { ...authHeaders(B_JWT!), "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "fulfilled" }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "PATCH buyer want owned by another tenant");
+  },
+});
 
 // US-1814: buyer rewards leaderboard. No cross-tenant id vector — the opt-in
 // POST /api/buyer/rewards/leaderboard updates ONLY the caller's own users row
@@ -2337,6 +2353,41 @@ Deno.test({
     assert(res.status === 200 || DENIED.has(res.status), `unexpected ${res.status}`);
   },
 });
+// US-1847 (AC1) + US-1825: closet add-by-certificate. certOwnership(userId,
+// certificate_id) gates the write via an owner-verified parent — a buyer adding a
+// cert they neither submitted nor purchased is 403 BEFORE any closet_items row is
+// written. A's cert is the id B doesn't own (reuses the trust-signals fixture).
+Deno.test({
+  name: "B cannot add A's certificate to B's closet",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_CERT_ID"),
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/buyer/closet`, {
+      method: "POST",
+      headers: { ...authHeaders(B_JWT!), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        source: "certificate",
+        certificate_id: Deno.env.get("TEST_USER_A_CERT_ID"),
+      }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST buyer closet add of a foreign-owned certificate");
+  },
+});
+
+// US-1847 (AC1) audit — buyer routes with NO cross-tenant id/path vector, so no
+// scope-test case is possible or needed (documented so every buyer route is
+// accounted for):
+//   • POST /api/buyer/purchases (link) — the cert lookup is intentionally PUBLIC
+//     (same predicate as the public cert page: certificate_id not null); the
+//     buyer_purchases upsert is keyed on the caller's own user_id.
+//   • GET /api/buyer/impact, GET /api/buyer/closet/valuation,
+//     GET /api/buyer/closet/export.csv, GET /api/buyer/wants — self-scoped reads
+//     (.eq("user_id"|"buyer_user_id", userId)); return only the caller's own rows.
+//   • POST /api/buyer/wants — inserts with the caller's user_id (cap-checked);
+//     takes no foreign id.
+//   • GET/POST /api/buyer/profile, POST /api/buyer/profile/extension-token —
+//     act ONLY on the caller's own users row (.eq("id", userId)); the token is
+//     minted for c.get("userId"). No id is read from the body.
 
 // US-1904: propose-groups fetches staged images by storage_path. Like its
 // verify-groups sibling, every path must live under the CALLER's own
