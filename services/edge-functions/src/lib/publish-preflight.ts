@@ -512,3 +512,74 @@ export function reachabilityBlocker(result: ReachabilityResult): string | null {
     `Re-upload the affected photo${n === 1 ? "" : "s"} in the composer and try again.`
   );
 }
+
+// ── US-1893: leaf-category guard ───────────────────────────────────────
+//
+// eBay only lets items list under a LEAF category. A category id that arrives
+// from manual entry, CSV import, or an older row can be a PARENT node, which
+// eBay rejects at publish with an opaque error. The publish preflight verifies
+// leaf-ness up front and surfaces a fixable blocker naming the best leaf
+// suggestion instead. Leaf resolution is cache-first (a category we've already
+// fetched aspects for is a proven leaf), so an already-validated id costs no
+// live Taxonomy call — see resolveCategoryLeafStatus + the route wiring.
+
+export type CategoryLeafStatus = "leaf" | "non_leaf" | "not_found" | "unverified";
+
+/** The top get_category_suggestions leaf, offered as the one-click fix. */
+export interface LeafCategorySuggestion {
+  categoryId: string;
+  categoryName: string;
+  categoryTreePath?: string | null;
+}
+
+export interface LeafGuardDeps {
+  /**
+   * True when the id has cached leaf-only metadata (aspects) — a proven leaf, so
+   * we can pass WITHOUT a live Taxonomy call. `get_item_aspects_for_category`
+   * only returns aspects for leaf categories, so a populated cache row is proof.
+   */
+  hasCachedLeaf: (categoryId: string) => Promise<boolean>;
+  /** Live Taxonomy leaf probe — only invoked on a cache miss. */
+  probeLeafStatus: (categoryId: string) => Promise<CategoryLeafStatus>;
+}
+
+/**
+ * Resolve a category id's leaf status, cache-first. An already-validated
+ * (aspect-cached) id short-circuits to "leaf" and never touches the live probe.
+ */
+export async function resolveCategoryLeafStatus(
+  categoryId: string,
+  deps: LeafGuardDeps,
+): Promise<CategoryLeafStatus> {
+  if (await deps.hasCachedLeaf(categoryId)) return "leaf";
+  return await deps.probeLeafStatus(categoryId);
+}
+
+/**
+ * Turn a resolved leaf status into a publish blocker string, or null to pass.
+ *
+ * - "leaf": listable → null.
+ * - "unverified": we couldn't reach Taxonomy (transient) → fail OPEN (null); a
+ *   hiccup on our side must never block a seller's publish.
+ * - "non_leaf" / "not_found": a real, fixable problem → a blocker that names the
+ *   top suggested leaf as a one-click fix when we have one.
+ */
+export function leafCategoryBlocker(
+  categoryId: string | null,
+  status: CategoryLeafStatus,
+  suggestion: LeafCategorySuggestion | null,
+): string | null {
+  if (!categoryId) return null; // "Pick an eBay category." is a separate blocker.
+  if (status === "leaf" || status === "unverified") return null;
+  const problem =
+    status === "not_found"
+      ? `eBay category ${categoryId} could not be found in the current category tree`
+      : `eBay category ${categoryId} is a parent category, not a specific (leaf) category items can list under`;
+  if (suggestion) {
+    const where = suggestion.categoryTreePath
+      ? ` (${suggestion.categoryTreePath})`
+      : "";
+    return `${problem}. Use "${suggestion.categoryName}"${where} — category ${suggestion.categoryId} — instead.`;
+  }
+  return `${problem}. Pick a specific (leaf) category for this item.`;
+}

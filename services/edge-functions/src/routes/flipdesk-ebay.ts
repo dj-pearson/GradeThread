@@ -45,6 +45,8 @@ import {
   debugSnapshot,
   ebayListingUrl,
   exchangeCodeForTokens,
+  categoryHasCachedLeafAspects,
+  fetchCategoryLeafStatus,
   getCategoryAspects,
   getCategoryName,
   getItemConditionPolicies,
@@ -144,6 +146,9 @@ import {
   resolveEbayCondition,
   mapGradeToBaseCondition,
   conditionOptionsForCategory,
+  resolveCategoryLeafStatus,
+  leafCategoryBlocker,
+  type LeafCategorySuggestion,
 } from "../lib/publish-preflight.ts";
 import {
   getAllActiveEbaySelling,
@@ -8239,6 +8244,10 @@ export async function assemblePublishContext(
   // Category resolution: listing-row override wins (AutoLister writes here);
   // fall back to inventory_items for legacy / single-item composer flows.
   let categoryId = listing?.platform_category_id ?? item.ebay_category_id ?? null;
+  // US-1893: track whether we JUST resolved the category from a Taxonomy
+  // suggestion (which is always a leaf) so the leaf-guard below can skip a
+  // redundant probe for it.
+  let categoryWasSuggested = false;
   // Auto-resolve a real eBay leaf category when the item never got one. Items
   // created via the single-item composer / manual catalog skip AutoLister's
   // suggestCategories step (ai-listing.ts), so categoryId is null even though
@@ -8256,6 +8265,7 @@ export async function assemblePublishContext(
         const suggestions = await suggestCategories(query);
         if (suggestions.length > 0) {
           categoryId = suggestions[0]!.categoryId;
+          categoryWasSuggested = true; // a Taxonomy suggestion is always a leaf.
           // Persist so subsequent publishes (and the composer) reuse it.
           // Prefer the listing row when one exists; always mirror onto the
           // item so legacy/no-listing flows pick it up too.
@@ -8276,6 +8286,43 @@ export async function assemblePublishContext(
     }
   }
   if (!categoryId) blockers.push("Pick an eBay category.");
+  // US-1893: leaf-category guard. A manually-set / imported / legacy category id
+  // can be a PARENT node, which eBay rejects at publish with an opaque error (and
+  // a non-leaf is filtered out of Browse and gets the wrong required-aspect set).
+  // Verify leaf-ness up front — cache-first, so an already-validated category
+  // costs no live Taxonomy call — and on a non-leaf/unknown id surface a fixable
+  // blocker naming the top get_category_suggestions leaf as the one-click fix.
+  // Skip when we JUST resolved the id from a suggestion (guaranteed leaf).
+  if (categoryId && !categoryWasSuggested) {
+    try {
+      const leafStatus = await resolveCategoryLeafStatus(categoryId, {
+        hasCachedLeaf: categoryHasCachedLeafAspects,
+        probeLeafStatus: fetchCategoryLeafStatus,
+      });
+      if (leafStatus === "non_leaf" || leafStatus === "not_found") {
+        // Same suggestion mechanism the category-check card uses (suggestCategories).
+        const fixQuery = [item.brand, item.title, item.item_category]
+          .map((s) => (typeof s === "string" ? s.trim() : ""))
+          .filter((s) => s.length > 0)
+          .join(" ")
+          .trim();
+        let suggestion: LeafCategorySuggestion | null = null;
+        if (fixQuery) {
+          try {
+            const suggestions = await suggestCategories(fixQuery);
+            if (suggestions.length > 0) suggestion = suggestions[0]!;
+          } catch (err) {
+            console.error("[flipdesk-ebay] leaf-guard suggestion lookup:", err);
+          }
+        }
+        const blocker = leafCategoryBlocker(categoryId, leafStatus, suggestion);
+        if (blocker) blockers.push(blocker);
+      }
+    } catch (err) {
+      // Never let the guard itself break a publish — log and continue.
+      console.error("[flipdesk-ebay] leaf-category guard:", err);
+    }
+  }
   // Aspect map: prefer item_specifics_override (the AutoLister-edited copy);
   // fall back to the inventory mirror. The inventory mirror feeds legacy flows.
   // US-1505: coerce string-valued legacy rows ({Fit:"Slim"}) to string[] before

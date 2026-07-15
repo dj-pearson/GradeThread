@@ -4,6 +4,7 @@
 import { assert, assertEquals } from "@std/assert";
 import {
   APPAREL_CONDITION_BANDS,
+  type CategoryLeafStatus,
   checkImageReachability,
   conditionDescriptionConsistency,
   CONDITION_ENUM_TO_ID,
@@ -12,10 +13,13 @@ import {
   EBAY_MAX_IMAGES,
   imageCapBlocker,
   isApparelPrelovedCategory,
+  leafCategoryBlocker,
+  type LeafCategorySuggestion,
   mapGradeToApparelCondition,
   mapGradeToBaseCondition,
   reachabilityBlocker,
   remapConditionForCategory,
+  resolveCategoryLeafStatus,
   resolveEbayCondition,
   validateConditionForCategory,
 } from "../lib/publish-preflight.ts";
@@ -321,4 +325,84 @@ Deno.test("condition description word-boundary: 'mint' inside a word does not fi
     conditionDescriptionConsistency("PRE_OWNED_FAIR", "faint minty-green colour, worn").ok,
     true,
   );
+});
+
+// ── US-1893: leaf-category guard ───────────────────────────────────────────────
+
+const LEAF_SUGGESTION: LeafCategorySuggestion = {
+  categoryId: "11554",
+  categoryName: "Dresses",
+  categoryTreePath: "Clothing › Women › Dresses",
+};
+
+Deno.test("leafCategoryBlocker: a leaf category passes (no blocker)", () => {
+  assertEquals(leafCategoryBlocker("11554", "leaf", null), null);
+  assertEquals(leafCategoryBlocker("11554", "leaf", LEAF_SUGGESTION), null);
+});
+
+Deno.test("leafCategoryBlocker: no category id → null (a separate blocker owns that)", () => {
+  assertEquals(leafCategoryBlocker(null, "not_found", LEAF_SUGGESTION), null);
+});
+
+Deno.test("leafCategoryBlocker: unverified fails OPEN — an outage never blocks publish", () => {
+  assertEquals(leafCategoryBlocker("11554", "unverified", null), null);
+  assertEquals(leafCategoryBlocker("11554", "unverified", LEAF_SUGGESTION), null);
+});
+
+Deno.test("leafCategoryBlocker: non-leaf id → fixable blocker naming the suggested leaf", () => {
+  const msg = leafCategoryBlocker("15724", "non_leaf", LEAF_SUGGESTION);
+  assertEquals(typeof msg, "string");
+  assert(msg!.includes("15724")); // the bad parent id
+  assert(msg!.includes("parent category")); // why it's blocked
+  assert(msg!.includes("Dresses")); // the one-click fix name
+  assert(msg!.includes("11554")); // the fix id
+  assert(msg!.includes("Clothing › Women › Dresses")); // the breadcrumb
+});
+
+Deno.test("leafCategoryBlocker: unknown/not-found id → distinct 'not found' blocker", () => {
+  const msg = leafCategoryBlocker("99999999", "not_found", LEAF_SUGGESTION);
+  assertEquals(typeof msg, "string");
+  assert(msg!.includes("could not be found"));
+  assert(msg!.includes("11554")); // still offers the fix
+});
+
+Deno.test("leafCategoryBlocker: non-leaf with no suggestion → generic fixable copy", () => {
+  const msg = leafCategoryBlocker("15724", "non_leaf", null);
+  assertEquals(typeof msg, "string");
+  assert(msg!.includes("Pick a specific (leaf) category"));
+});
+
+Deno.test("resolveCategoryLeafStatus: cache hit → 'leaf' WITHOUT a live probe", async () => {
+  let probed = 0;
+  const status = await resolveCategoryLeafStatus("11554", {
+    hasCachedLeaf: () => Promise.resolve(true),
+    probeLeafStatus: () => {
+      probed++;
+      return Promise.resolve("non_leaf" as CategoryLeafStatus);
+    },
+  });
+  assertEquals(status, "leaf");
+  assertEquals(probed, 0); // the whole point: already-validated ids skip the API.
+});
+
+Deno.test("resolveCategoryLeafStatus: cache miss → falls through to the live probe", async () => {
+  let probed = 0;
+  const status = await resolveCategoryLeafStatus("15724", {
+    hasCachedLeaf: () => Promise.resolve(false),
+    probeLeafStatus: (id) => {
+      probed++;
+      assertEquals(id, "15724");
+      return Promise.resolve("non_leaf" as CategoryLeafStatus);
+    },
+  });
+  assertEquals(status, "non_leaf");
+  assertEquals(probed, 1);
+});
+
+Deno.test("resolveCategoryLeafStatus + blocker: cache-miss leaf passes end-to-end", async () => {
+  const status = await resolveCategoryLeafStatus("11554", {
+    hasCachedLeaf: () => Promise.resolve(false),
+    probeLeafStatus: () => Promise.resolve("leaf" as CategoryLeafStatus),
+  });
+  assertEquals(leafCategoryBlocker("11554", status, LEAF_SUGGESTION), null);
 });

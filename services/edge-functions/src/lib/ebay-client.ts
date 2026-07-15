@@ -1105,6 +1105,75 @@ export async function suggestCategories(
   });
 }
 
+// US-1893: leaf-category guard support.
+//
+// A category with a cached, NON-EMPTY aspects payload is a proven LEAF: eBay's
+// get_item_aspects_for_category only returns aspects for leaf categories, so a
+// populated cache row is proof of leaf-ness. This lets the publish leaf-guard
+// pass any already-validated category with zero live Taxonomy calls. A row that
+// only has a cached category_name (aspects still null) is NOT proof and returns
+// false, so the guard falls through to the live probe.
+export async function categoryHasCachedLeafAspects(
+  categoryId: string,
+): Promise<boolean> {
+  const { data, error } = await supabaseAdmin
+    .from("ebay_category_aspects")
+    .select("aspects")
+    .eq("marketplace_id", getMarketplaceId())
+    .eq("category_tree_id", getCategoryTreeId())
+    .eq("category_id", categoryId)
+    .maybeSingle();
+  if (error) return false;
+  const body = data?.aspects as { aspects?: unknown } | null;
+  return Array.isArray(body?.aspects) && body.aspects.length > 0;
+}
+
+// Live Taxonomy probe: does this category id resolve to a listable LEAF node?
+// Reads `leafCategoryTreeNode` from get_category_subtree (falling back to the
+// presence of child nodes). A 400/404 for the id means it isn't in the tree
+// (unknown); a transient 5xx / network error returns "unverified" so the guard
+// can fail open rather than block a publish on our outage.
+export async function fetchCategoryLeafStatus(
+  categoryId: string,
+): Promise<"leaf" | "non_leaf" | "not_found" | "unverified"> {
+  const marketplaceId = getMarketplaceId();
+  const treeId = getCategoryTreeId();
+  try {
+    const token = await getAppAccessToken();
+    const url =
+      `${apiHost()}/commerce/taxonomy/v1/category_tree/${treeId}` +
+      `/get_category_subtree?category_id=${encodeURIComponent(categoryId)}`;
+    const res = await ebayFetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "X-EBAY-C-MARKETPLACE-ID": marketplaceId,
+        "Accept-Language": "en-US",
+      },
+    });
+    // eBay returns 400 (invalid category_id) or 404 for an id not in the tree.
+    if (res.status === 400 || res.status === 404) return "not_found";
+    if (!res.ok) return "unverified"; // transient (5xx / rate limit) → fail open.
+    const payload = (await res.json()) as {
+      categorySubtreeNode?: {
+        category?: { categoryId?: string };
+        leafCategoryTreeNode?: boolean;
+        childCategoryTreeNodes?: unknown[];
+      };
+    };
+    const node = payload.categorySubtreeNode;
+    if (!node?.category?.categoryId) return "not_found";
+    const isLeaf =
+      node.leafCategoryTreeNode === true ||
+      (node.leafCategoryTreeNode === undefined &&
+        (!Array.isArray(node.childCategoryTreeNodes) ||
+          node.childCategoryTreeNodes.length === 0));
+    return isLeaf ? "leaf" : "non_leaf";
+  } catch (err) {
+    console.error("[ebay-client] category leaf-status lookup failed:", err);
+    return "unverified";
+  }
+}
+
 // Resolves a category id to its human-readable name + breadcrumb path
 // (e.g. "Clothing › Men › Suits & Blazers › Blazers"). Cached in
 // ebay_category_aspects.category_name so repeated lookups are free.

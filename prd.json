@@ -15527,8 +15527,8 @@
         "Category-check-card logic and this guard share the suggestion call; deno test covers leaf-pass, non-leaf-block, and cache-hit paths"
       ],
       "priority": 1893,
-      "passes": false,
-      "notes": "[P2][SEO] See EBAY_RANKING_PLAYBOOK.md — wrong/shallow category = filtered out of browse + wrong required-aspect set; category misuse is a policy offense. Added 2026-07-09."
+      "passes": true,
+      "notes": "[P2][SEO] See EBAY_RANKING_PLAYBOOK.md — wrong/shallow category = filtered out of browse + wrong required-aspect set; category misuse is a policy offense. Added 2026-07-09. | 2026-07-14 DONE (no migration — cache-piggybacked, pushable). Leaf guard added to the publish preflight. Pure logic in publish-preflight.ts: resolveCategoryLeafStatus(cache-first via injected deps) + leafCategoryBlocker(status,suggestion). Data helpers in ebay-client.ts: categoryHasCachedLeafAspects (a non-empty ebay_category_aspects.aspects row is PROOF of leaf-ness since get_item_aspects_for_category only returns for leaves -> already-validated ids cost ZERO live Taxonomy calls, AC1) and fetchCategoryLeafStatus (live get_category_subtree probe reading leafCategoryTreeNode, only on cache miss; 400/404=not_found, 5xx/network=unverified->fail-open so an outage never blocks publish). Wired into assemblePublishContext (flipdesk-ebay.ts) after category resolution: non_leaf/not_found pushes a fixable blocker naming the top suggestCategories leaf for brand+title+item_category as the one-click fix (AC2); skipped when categoryId was JUST auto-resolved from a suggestion. Shares suggestCategories with the category-check card (AC3). 9 new deno tests: leaf-pass, non-leaf-block-with-suggestion, not-found, unverified-fail-open, null-id, no-suggestion, cache-hit(no probe), cache-miss(probe), e2e. No new route/multi-tenant table (ebay_category_aspects is a shared taxonomy cache) -> no tenant-isolation case. Verified: deno check src/main.ts + deno lint + full deno test 3661 passed/0 failed."
     },
     {
       "id": "US-1894",
