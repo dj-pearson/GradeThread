@@ -49,6 +49,22 @@ export function pushSaleCreated(userId: string, title?: string | null): Promise<
   });
 }
 
+/**
+ * US-1977: a listing ended without selling (expired / ended on Seller Hub /
+ * out of stock / removed by eBay) and returned to Drafts. Category "listing.ended"
+ * matches the iOS NotificationCategories entry so the app groups + deep-links it.
+ */
+export function pushListingEnded(userId: string, title?: string | null): Promise<void> {
+  return safePush(userId, {
+    title: "Listing ended",
+    body: title
+      ? `"${title}" ended on eBay without selling — it's back in Drafts to relist.`
+      : "A listing ended on eBay without selling — it's back in Drafts to relist.",
+    category: "listing.ended",
+    data: { kind: "listing_ended" },
+  });
+}
+
 /** A payout was imported / cleared for the user. */
 export function pushPayoutCleared(userId: string, count: number): Promise<void> {
   return safePush(userId, {

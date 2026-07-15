@@ -16909,8 +16909,8 @@
         "Respects the iOS notification category/preferences (NotificationCategories.swift listing.ended)"
       ],
       "priority": 1977,
-      "passes": false,
-      "notes": "[P3][Edge/Notifications] iOS listing-lifecycle audit 2026-07-14. notifyListingEnded in-app only (selling-activity-notify.ts:207-208), fired at flipdesk-ebay.ts:3155. iOS category exists NotificationCategories.swift:19,53. iOS push infra already present.",
+      "passes": true,
+      "notes": "[P3][Edge/Notifications] iOS listing-lifecycle audit 2026-07-14. notifyListingEnded in-app only (selling-activity-notify.ts:207-208), fired at flipdesk-ebay.ts:3155. iOS category exists NotificationCategories.swift:19,53. iOS push infra already present. DONE 2026-07-14: added pushListingEnded (category listing.ended) to transactional-push.ts; notifyListingEnded now fans out in-app + push gated by selling_activity pref. Both ended-unsold + ended-by-eBay detection already funnel through this single site (endedItemIds -> Path-A reconcile), so AC2 covered. iOS NotificationCategories.listingEnded already present. selling-activity-notify_test.ts updated (push fires + opt-out suppresses).",
       "relevantPaths": [
         "services/edge-functions/src/lib/selling-activity-notify.ts",
         "services/edge-functions/src/lib/transactional-push.ts",
