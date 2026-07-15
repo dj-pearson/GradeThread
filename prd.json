@@ -15625,8 +15625,8 @@
         "Eval fixtures extended with a policy-phrase case (a tempting 'fits like' item) asserting the ban holds"
       ],
       "priority": 1900,
-      "passes": false,
-      "notes": "[P2][SEO][AI] See EBAY_RANKING_PLAYBOOK.md §2/§3. Prompt-version lifecycle per ai-listing.ts conventions; do not hot-swap the active prompt. Added 2026-07-09."
+      "passes": true,
+      "notes": "[P2][SEO][AI] See EBAY_RANKING_PLAYBOOK.md §2/§3. Prompt-version lifecycle per ai-listing.ts conventions; do not hot-swap the active prompt. Added 2026-07-09. DONE 2026-07-14: listing_gen_v2 prompt (policy title rules + AI-summary description guidance) registered as inactive prompt version (00446, held); resolvePromptText version registry; policy-phrase regression test (listing-gen-prompt-v2_test.ts). Activation ops-gated via listing-eval + US-547 acceptance."
     },
     {
       "id": "US-1901",

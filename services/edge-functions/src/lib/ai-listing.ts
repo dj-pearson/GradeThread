@@ -103,6 +103,13 @@ function activeCompConfidence(count: number): number {
 // for accuracy/eval attribution. Mirrors PER_IMAGE_PROMPT_VERSION etc.
 export const LISTING_GEN_PROMPT_VERSION = "listing_gen_v1";
 
+// US-1900: the v-next challenger. Registered as an INACTIVE ai_prompt_versions
+// row (migration 00446) so it can be eval-gated and A/B-trialed via the
+// existing lifecycle WITHOUT hot-swapping the live v1 prompt. Its text lives in
+// code (LISTING_GEN_SYSTEM_PROMPT_V2) and the DB row carries empty prompt_text —
+// resolvePromptText() maps the version_name back to the code constant.
+export const LISTING_GEN_PROMPT_VERSION_V2 = "listing_gen_v2";
+
 // eBay Sell API condition enum values. Kept in sync with mapEbayCondition in
 // flipdesk-ebay.ts so generated drafts publish without a translation step.
 export const EBAY_CONDITION_VALUES = [
@@ -327,6 +334,98 @@ Hard rules:
 - Do not fabricate attributes, brands, sizes, or model numbers not supported by
   the photos or supplied attributes.`;
 
+// US-1900: listing_gen_v2 — the policy/AI-summary-era challenger. Adds the
+// verified eBay policy title rules (no cross-brand comparison, no duplicate
+// title token, prefer buyer-typed qualifiers) and description guidance for the
+// era where eBay AI-summarizes descriptions for buyers. Ships through the
+// eval gate + acceptance loop before it can go active; never hot-swaps v1.
+// See EBAY_RANKING_PLAYBOOK.md §2/§3.
+export const LISTING_GEN_SYSTEM_PROMPT_V2 =
+  `You are an expert eBay listing creator for FlipDesk, a reseller tool. Given
+photos of a single second-hand item (and optionally known attributes and
+measurements), produce a complete, accurate, publish-ready eBay listing by
+calling the create_ebay_listing tool.
+
+Hard rules:
+- TAG GROUND TRUTH (when supplied) is read verbatim off the garment's care/brand
+  label and is AUTHORITATIVE. Use those brand/size/fiber/style values exactly,
+  weighted ABOVE your own visual inference — never contradict, "correct", or
+  override them, and never substitute a value you merely think you see.
+- title: <= 80 characters (eBay's hard limit). Lead with brand, then item type,
+  then the most search-relevant attributes (size, color, model, style code).
+  No ALL-CAPS spam, no emoji, no keyword stuffing of unrelated terms.
+- title — NEVER compare to another brand. Comparison phrases like "style of
+  <brand>", "similar to <brand>", "inspired by <brand>", or "fits like <brand>"
+  hijack another brand's search traffic and are an eBay search-manipulation
+  policy violation for clothing. State only THIS item's actual brand. (Benign
+  fit phrasing like "fits like a glove" is fine — the ban is on naming another
+  brand.)
+- title — NEVER repeat a word/token within the title. eBay's search gives no
+  ranking benefit to a duplicated keyword, and it wastes the 80-char surface.
+  Each token earns its place once; spend the freed space on a NEW qualifier.
+- title — when space is tight, PREFER buyer-typed qualifiers (era, fit, pattern,
+  silhouette, named style/model) over repeating a token an item specific already
+  carries. The aspects (Brand, Size, Color, Material, Department, …) are indexed
+  separately, so a word already living in a filled aspect adds little in the
+  title; a distinctive buyer-search qualifier adds more.
+- HIGH-DEMAND SEARCH TERMS (when supplied) are the words buyers actually search
+  for this brand/category, mined from live eBay listings. Prefer them in the
+  title and description WHERE THEY TRUTHFULLY DESCRIBE THIS ITEM — they rank and
+  convert. Never add a term that doesn't match the item just because it's
+  popular (that's keyword stuffing and causes returns).
+- title_variant: OPTIONAL. A second, meaningfully DIFFERENT <=80-char title for
+  the same item (e.g. lead with a different high-demand term or reorder the
+  keywords) so its sell-through can be compared against the primary title. Leave
+  it empty only if you genuinely cannot phrase a distinct, equally-accurate
+  alternative. Must obey every title rule above.
+- suggested_category_query: a short natural-language category for this item
+  (e.g. "men's athletic shoes", "vintage advertising sign"). Do NOT invent an
+  eBay category id — the system resolves the real leaf category from this query.
+- ebay_condition: choose the single best value from the allowed enum based on
+  what the photos actually show.
+- condition_description: a short, buyer-facing, HONEST condition narrative.
+  Only state condition facts visible in the photos or supplied in known
+  attributes. Never invent or upgrade condition — over-promising causes returns.
+  Call out visible flaws plainly. Keep the wording CONSISTENT with the chosen
+  ebay_condition tier: a "New with tags"/like-new tier must not describe wear,
+  and a used tier must not read as flawless.
+- item_specifics: fill aspects you can determine from the photos/attributes
+  (Brand, Size, Color, Material, Style, Department, etc.). When an allowed-aspect
+  list is provided, use ONLY those aspect names and prefer their allowed values.
+  Omit any aspect you cannot determine — never guess. EXCEPTION: for clothing,
+  "Department" (Men / Women / Unisex Adult / Boys / Girls / Unisex Kids / Baby /
+  Maternity) is almost always required by eBay and is usually evident from the
+  garment's cut, styling, and labeling — set it whenever the photos support a
+  confident read rather than omitting it.
+- description: write FACTUAL, SCANNABLE prose — a clean opening line, then
+  attribute bullets, then the condition statement (consistent with the condition
+  tier above), then the measurements block if provided. eBay now AI-SUMMARIZES
+  descriptions for buyers, so plain accurate sentences and clear structured
+  facts summarize well; a keyword list or repeated phrases do not — never dump a
+  block of comma-separated keywords. NEVER mention, describe, or disclaim a
+  thrift/retail price tag, price sticker, or any original/sticker price visible
+  in a photo — a price shown in a photo is NOT a listing fact; ignore it
+  entirely and never add "for reference only" notes about it.
+- MEASUREMENTS: when measurements are supplied, PRESERVE them as a clearly
+  labeled block in the description (flat measurements in inches) — buyers rely on
+  them and they must survive verbatim.
+- suggested_price_cents: a reasonable starting price in US cents based on the
+  item, brand, and condition. The system may refine this from comparable sales.
+- confidence: your overall confidence (0..1) that this listing is accurate.
+- Do not fabricate attributes, brands, sizes, or model numbers not supported by
+  the photos or supplied attributes.`;
+
+// US-1900: registry mapping a listing_gen version_name -> its in-code prompt
+// text. A DB ai_prompt_versions row with EMPTY prompt_text resolves its text
+// through this map by version_name (so a version can be registered/eval-gated
+// via a lightweight row without duplicating the prompt into SQL). Unknown
+// names fall back to the v1 code default. Keep this the single source of truth
+// for which versions are "code-backed".
+const CODE_PROMPT_TEXT: Record<string, string> = {
+  [LISTING_GEN_PROMPT_VERSION]: LISTING_GEN_SYSTEM_PROMPT,
+  [LISTING_GEN_PROMPT_VERSION_V2]: LISTING_GEN_SYSTEM_PROMPT_V2,
+};
+
 const LISTING_GEN_TOOL: Anthropic.Tool = {
   name: "create_ebay_listing",
   description: "Return a complete, publish-ready eBay listing for the item.",
@@ -414,8 +513,17 @@ interface ListingPromptBundle {
 const PROMPT_CACHE_TTL_MS = 60_000;
 let cachedBundle: { value: ListingPromptBundle; expiresAt: number } | null = null;
 
-function pickPromptText(promptText: string | null, fallback: string): string {
-  return promptText && promptText.trim().length > 0 ? promptText : fallback;
+// Resolve the effective prompt text for a DB ai_prompt_versions row: a non-empty
+// prompt_text wins (a fully DB-authored override), otherwise the row's
+// version_name is looked up in the in-code registry (US-1900), falling back to
+// the v1 code default for any unknown/legacy version_name. This is how an
+// empty-text row like seeded listing_gen_v1 / listing_gen_v2 gets its text.
+function resolvePromptText(
+  promptText: string | null,
+  versionName: string,
+): string {
+  if (promptText && promptText.trim().length > 0) return promptText;
+  return CODE_PROMPT_TEXT[versionName] ?? LISTING_GEN_SYSTEM_PROMPT;
 }
 
 // FNV-1a → unit float in [0,1). Deterministic (no Math.random) so the same key
@@ -449,7 +557,7 @@ async function loadListingPromptBundle(): Promise<ListingPromptBundle> {
     if (!error && Array.isArray(activeData) && activeData.length > 0) {
       const picked = activeData[0] as { version_name: string; prompt_text: string | null };
       champion = {
-        text: pickPromptText(picked.prompt_text, codeDefault.text),
+        text: resolvePromptText(picked.prompt_text, picked.version_name),
         versionName: picked.version_name,
       };
     }
@@ -467,7 +575,7 @@ async function loadListingPromptBundle(): Promise<ListingPromptBundle> {
     if (Array.isArray(trialData) && trialData.length > 0) {
       const picked = trialData[0] as { version_name: string; prompt_text: string | null };
       challenger = {
-        text: pickPromptText(picked.prompt_text, codeDefault.text),
+        text: resolvePromptText(picked.prompt_text, picked.version_name),
         versionName: picked.version_name,
       };
     }

@@ -4,6 +4,34 @@
 > The sections below for those are historical; the only NEW held migration is
 > **00443** at the top.
 
+## ⏳ PENDING: 00446_listing_gen_v2_prompt.sql (US-1900 listing-gen prompt v-next, 2026-07-14)
+
+Registers the `listing_gen_v2` prompt version in `public.ai_prompt_versions` as a
+single INACTIVE row (empty `prompt_text`; stage `listing_gen`; `is_active=false`).
+v2's text lives in code (`ai-listing.ts:LISTING_GEN_SYSTEM_PROMPT_V2`) and is
+resolved from the row's `version_name` by the new `resolvePromptText()` — so the
+row just registers the version + drives the lifecycle flags. v2 adds the verified
+eBay policy title rules (no cross-brand comparison, no duplicate title token,
+prefer buyer-typed qualifiers over aspect-carried tokens) + AI-summary-era
+description guidance. Apply after 00445 via `scripts/apply-prod-migrations.sh`
+(idempotent `NOT EXISTS`-guarded INSERT), `NOTIFY pgrst, 'reload schema';`,
+redeploy the edge (boot guard now expects **00446**). Bumps
+`EXPECTED_SCHEMA_VERSION` → **00446**.
+
+**Risk: LOW** — a single additive, INACTIVE config row; changes NOTHING at
+runtime on its own. v1 stays the live champion. **No CLIENT read.** v2 becomes
+the A/B challenger only after an operator runs the listing-eval gate
+(`runListingEval` sets `eval_passed`) and flips `in_trial=true`; it goes active
+only via `activatePromptVersion`. Nothing about the frontend auto-deploy depends
+on this row.
+
+**⚙️ ALSO — OPS (not a migration), to actually ship v2:** after applying, an
+operator runs the listing-gen eval against the seeded `listing_eval_cases` for
+`listing_gen_v2` (admin grading/eval trigger), confirms it clears the gate
+(title ≤80 + ≥75% required-aspect coverage + price-band), sets `in_trial=true`
+to start the US-547 acceptance A/B, then `activatePromptVersion` promotes it once
+its keep-rate beats v1. Until then v1 is unchanged.
+
 ## ⏳ PENDING: 00445_autolister_job_ai_reserved.sql (US-1931 idempotent AI reservation, 2026-07-14)
 
 Adds `ai_reserved boolean not null default false` to `public.listing_generation_jobs`
