@@ -17,7 +17,12 @@
 // insufficient-scope.
 
 import { fetchWithTimeout } from "./circuit-breaker.ts";
-import { apiHost, getMarketplaceId, getUserAccessToken } from "./ebay-client.ts";
+import {
+  apiHost,
+  ebayResilientFetch,
+  getMarketplaceId,
+  getUserAccessToken,
+} from "./ebay-client.ts";
 
 const EBAY_TIMEOUT_MS = 20_000;
 
@@ -42,7 +47,11 @@ async function disputeFetch<T>(
   init?: RequestInit,
 ): Promise<T> {
   const token = await getUserAccessToken(userId);
-  const res = await fetchWithTimeout(
+  // US-1966: go through the hardened path (breaker + withRetry + Retry-After)
+  // like the main Sell path. 429/5xx are retried/backed-off; a benign 404 (see
+  // isBenignDisputeNotFound) is a normal non-retryable response returned
+  // unchanged, so the `!res.ok` branch below still handles it.
+  const res = await ebayResilientFetch(
     `${apiHost()}${path}`,
     {
       ...init,
@@ -54,7 +63,7 @@ async function disputeFetch<T>(
         ...(init?.headers ?? {}),
       },
     },
-    EBAY_TIMEOUT_MS,
+    { label: `PaymentDispute ${init?.method ?? "GET"} ${path}`, timeoutMs: EBAY_TIMEOUT_MS },
   );
   if (!res.ok) {
     const text = await res.text();

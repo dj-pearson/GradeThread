@@ -16703,8 +16703,8 @@
         "A simulated 429 with Retry-After backs off instead of throwing on each of the four families (test)"
       ],
       "priority": 1966,
-      "passes": false,
-      "notes": "[P2][Edge/eBay] iOS listing-lifecycle audit 2026-07-14. Finances (ebay-client.ts:3149/3304/3346), Marketing (ebay-marketing.ts:113), Disputes (ebay-disputes.ts:39), Post-Order (ebay-postorder.ts:32) bypass fetchAuthed. Only Feed API rolls its own fetch WITH withRetry. Marketing headers ebay-marketing.ts:120-129.",
+      "passes": true,
+      "notes": "[P2][Edge/eBay] iOS listing-lifecycle audit 2026-07-14. Finances (ebay-client.ts:3149/3304/3346), Marketing (ebay-marketing.ts:113), Disputes (ebay-disputes.ts:39), Post-Order (ebay-postorder.ts:32) bypass fetchAuthed. Only Feed API rolls its own fetch WITH withRetry. Marketing headers ebay-marketing.ts:120-129. DONE 2026-07-14: all four families now route through ebayResilientFetch/fetchWithEbayRetry (Finances+Marketing already converted; this commit converts disputeFetch + postOrderFetch, preserving IAF auth + benign-404). Added ebay-resilient-fetch_test.ts (429+Retry-After backoff, 2xx/404/business-4xx pass-through, 5xx exhaustion).",
       "relevantPaths": [
         "services/edge-functions/src/lib/ebay-marketing.ts",
         "services/edge-functions/src/lib/ebay-disputes.ts",

@@ -17,7 +17,12 @@
 // and verify ownership) — these helpers take eBay-side ids only and perform no
 // ownership checks themselves.
 
-import { apiHost, getMarketplaceId, getUserAccessToken } from "./ebay-client.ts";
+import {
+  apiHost,
+  ebayResilientFetch,
+  getMarketplaceId,
+  getUserAccessToken,
+} from "./ebay-client.ts";
 
 const POST_ORDER_TIMEOUT_MS = 20_000;
 
@@ -35,13 +40,14 @@ async function postOrderFetch<T>(
   init?: RequestInit,
 ): Promise<T> {
   const token = await getUserAccessToken(userId);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), POST_ORDER_TIMEOUT_MS);
-  let res: Response;
-  try {
-    res = await fetch(`${apiHost()}/post-order/v2${path}`, {
+  // US-1966: route through the hardened path (breaker + withRetry + Retry-After
+  // + timeout) like the main Sell path, preserving the Post-Order IAF auth
+  // scheme + /post-order/v2 host. 429/5xx back off; other responses (2xx, 404,
+  // business 4xx) are returned unchanged so the errorId branch below still runs.
+  const res = await ebayResilientFetch(
+    `${apiHost()}/post-order/v2${path}`,
+    {
       ...init,
-      signal: controller.signal,
       headers: {
         // Post-Order API requires the IAF scheme, NOT Bearer.
         Authorization: `IAF ${token}`,
@@ -49,10 +55,9 @@ async function postOrderFetch<T>(
         "X-EBAY-C-MARKETPLACE-ID": getMarketplaceId(),
         ...(init?.headers ?? {}),
       },
-    });
-  } finally {
-    clearTimeout(timer);
-  }
+    },
+    { label: `Post-Order ${init?.method ?? "GET"} ${path}`, timeoutMs: POST_ORDER_TIMEOUT_MS },
+  );
 
   if (!res.ok) {
     const text = await res.text();
