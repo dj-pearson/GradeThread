@@ -12,7 +12,7 @@
 import { supabaseAdmin } from "./supabase.ts";
 import { grantReward } from "./rewards-engine.ts";
 import { decryptToken, encryptToken } from "./crypto-aes.ts";
-import { withRetry, isRetryableError, isRateLimitError } from "./retry.ts";
+import { withRetry, isRetryableError, isRateLimitError, type RetryOptions } from "./retry.ts";
 import { fetchWithTimeout, getBreaker } from "./circuit-breaker.ts";
 import { createSharedTokenCache, type SharedTokenCache } from "./coherent-cache.ts";
 
@@ -39,6 +39,63 @@ function ebayFetch(
   init?: RequestInit,
 ): Promise<Response> {
   return fetchWithTimeout(input, init ?? {}, EBAY_TIMEOUT_MS);
+}
+
+// US-1966: the main Sell path (fetchAuthed) has the breaker + withRetry +
+// Retry-After handling, but the side-channel families (Finances, Marketing,
+// Disputes, Post-Order) rolled their own bare fetch with none of it, so they
+// threw hard under load. These two helpers bring those families to parity.
+//
+// `fetchWithEbayRetry` wraps a single fetch attempt in withRetry, throwing a
+// rich retryable error (status + retryAfterMs) ONLY on 429/5xx so the backoff
+// honors eBay's Retry-After and the breaker counts transient failures. EVERY
+// other response (2xx, 404, 204, other 4xx) is RETURNED unchanged, so each
+// family keeps its own status-specific handling (e.g. Finances' 404/204 → stop
+// paginating, Disputes' benign 404). Exported for unit tests (inject a fake
+// `doFetch` + a no-op `sleep`); `parseRetryAfter` is hoisted below.
+export async function fetchWithEbayRetry(
+  doFetch: () => Promise<Response>,
+  opts: { label?: string } & RetryOptions = {},
+): Promise<Response> {
+  const { label, ...retry } = opts;
+  return await withRetry(async () => {
+    const res = await doFetch();
+    if (res.status === 429 || res.status >= 500) {
+      // Free the socket and keep the body for context; 429/5xx bodies aren't
+      // matched on errorId (they're transient), so consuming it here is safe.
+      const text = await res.text().catch(() => "");
+      const err = new Error(
+        `eBay ${label ?? "request"} failed (${res.status}): ${text.slice(0, 400)}`,
+      ) as Error & { status: number; retryAfterMs?: number };
+      err.status = res.status;
+      const ra = parseRetryAfter(
+        res.headers.get("retry-after") ??
+          res.headers.get("x-ebay-c-rlogid-retry-after"),
+      );
+      if (ra !== null) err.retryAfterMs = ra;
+      throw err;
+    }
+    return res;
+  }, retry);
+}
+
+// `ebayResilientFetch` composes the shared breaker OUTSIDE the retry (US-499: a
+// fully-retried-then-failed call counts as one breaker failure) around
+// fetchWithEbayRetry over a timeout-bounded fetch. The side-channel families
+// call THIS instead of a raw fetch.
+export function ebayResilientFetch(
+  url: string | URL,
+  init: RequestInit = {},
+  opts: { timeoutMs?: number; label?: string } = {},
+): Promise<Response> {
+  const label = opts.label ??
+    `${init.method ?? "GET"} ${typeof url === "string" ? url : url.toString()}`;
+  return ebayBreaker().execute(() =>
+    fetchWithEbayRetry(
+      () => fetchWithTimeout(url, init, opts.timeoutMs ?? EBAY_TIMEOUT_MS),
+      { label },
+    )
+  );
 }
 
 export type EbayEnv = "sandbox" | "production";
@@ -1498,7 +1555,7 @@ export interface MissingPolicies {
 // US, but other marketplaces (EBAY_GB → en-GB, EBAY_DE → de-DE) need the
 // right BCP-47 tag in BOTH Accept-Language and Content-Language headers.
 // eBay error 25709 surfaces when either is missing or invalid.
-function localeForMarketplace(): string {
+export function localeForMarketplace(): string {
   const mp = getMarketplaceId();
   switch (mp) {
     case "EBAY_GB":
@@ -3216,7 +3273,8 @@ export async function listRecentTransactions(
   for (let i = 0; i < TRANSACTIONS_PAGE_CEILING; i++) {
     const url =
       `${baseHost}/sell/finances/v1/transaction?limit=${limit}&offset=${offset}${filter}`;
-    const res = await ebayFetch(url, {
+    // US-1966: breaker + retry + Retry-After (parity with the main Sell path).
+    const res = await ebayResilientFetch(url, {
       headers: {
         Authorization: `Bearer ${token}`,
         "X-EBAY-C-MARKETPLACE-ID": getMarketplaceId(),
@@ -3371,7 +3429,8 @@ export async function getPayouts(
 
   for (let i = 0; i < maxPages; i++) {
     const url = `${baseHost}/sell/finances/v1/payout?limit=${limit}&offset=${offset}${filter}`;
-    const res = await ebayFetch(url, {
+    // US-1966: breaker + retry + Retry-After (parity with the main Sell path).
+    const res = await ebayResilientFetch(url, {
       headers: {
         Authorization: `Bearer ${token}`,
         "X-EBAY-C-MARKETPLACE-ID": getMarketplaceId(),
@@ -3413,7 +3472,8 @@ export async function getPayout(
   const token = await getUserAccessToken(userId);
   const locale = localeForMarketplace();
   const url = `${apizHost()}/sell/finances/v1/payout/${encodeURIComponent(payoutId)}`;
-  const res = await ebayFetch(url, {
+  // US-1966: breaker + retry + Retry-After (parity with the main Sell path).
+  const res = await ebayResilientFetch(url, {
     headers: {
       Authorization: `Bearer ${token}`,
       "X-EBAY-C-MARKETPLACE-ID": getMarketplaceId(),

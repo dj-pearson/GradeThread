@@ -18,8 +18,13 @@
 // Marketing surface stays self-contained.
 
 import { supabaseAdmin } from "./supabase.ts";
-import { fetchWithTimeout } from "./circuit-breaker.ts";
-import { apiHost, getMarketplaceId, getUserAccessToken } from "./ebay-client.ts";
+import {
+  apiHost,
+  ebayResilientFetch,
+  getMarketplaceId,
+  getUserAccessToken,
+  localeForMarketplace,
+} from "./ebay-client.ts";
 
 const EBAY_TIMEOUT_MS = 20_000;
 
@@ -116,7 +121,12 @@ async function marketingFetch<T>(
   init?: RequestInit,
 ): Promise<{ body: T; location: string | null }> {
   const token = await getUserAccessToken(userId);
-  const res = await fetchWithTimeout(
+  const locale = localeForMarketplace();
+  // US-1966: route through the shared resilient fetch (breaker + retry +
+  // Retry-After) AND send Content-Language + Accept-Language — the Marketing
+  // POSTs (campaign/promotion creates) omitted Content-Language, a known cause
+  // of eBay error 25709. Content-Type/Accept-Language mirror the main Sell path.
+  const res = await ebayResilientFetch(
     `${apiHost()}${path}`,
     {
       ...init,
@@ -124,11 +134,13 @@ async function marketingFetch<T>(
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
         Accept: "application/json",
+        "Accept-Language": locale,
+        "Content-Language": locale,
         "X-EBAY-C-MARKETPLACE-ID": getMarketplaceId(),
         ...(init?.headers ?? {}),
       },
     },
-    EBAY_TIMEOUT_MS,
+    { timeoutMs: EBAY_TIMEOUT_MS, label: `Marketing ${init?.method ?? "GET"} ${path}` },
   );
   if (!res.ok) {
     const text = await res.text();
