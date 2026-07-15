@@ -107,7 +107,7 @@ const CONCURRENCY = 3; // vision calls are heavy; mirror flipdesk-ai bulk-extrac
 const GENERATION_TIMEOUT_MS = 240_000;
 // US-525: a job started this many times (incl. reclaim resumes) is failed
 // terminally rather than resumed forever.
-const MAX_JOB_ATTEMPTS = 5;
+export const MAX_JOB_ATTEMPTS = 5;
 // US-525: a 'running' job whose updated_at is older than this was left by a
 // dead worker and is eligible for reclaim. Must exceed GENERATION_TIMEOUT_MS so
 // a live, generating job is never reclaimed out from under its worker.
@@ -198,6 +198,23 @@ export function settleAfterGeneration(
 }
 
 /**
+ * US-1931: decide whether runJob must reserve an AI action for this job.
+ *
+ * The reservation is IDEMPOTENT per job id, keyed off the persisted
+ * `ai_reserved` flag (migration 00445). A job that already holds a reservation
+ * from a prior (crashed) attempt REUSES it on reclaim rather than charging the
+ * owner's monthly cap again — so a crash loop consumes at most ONE reservation
+ * per item, not one per attempt (up to MAX_JOB_ATTEMPTS before). This is also
+ * what keeps `insufficientAiActionsBody`'s `used` snapshot in agreement with
+ * the authoritative per-item reservations under a reserved-then-reclaimed run.
+ */
+export function needsAiReservation(
+  job: { ai_reserved?: boolean | null },
+): boolean {
+  return job.ai_reserved !== true;
+}
+
+/**
  * US-1545: count-aware quota pre-check for batch enqueue. A batch reserves one
  * AI action per item; when the month's remainder can't cover the whole batch,
  * return the 402 body (with the numbers, so the UI can say "trim or upgrade")
@@ -254,6 +271,37 @@ async function markJobFailed(jobId: string, message: string): Promise<void> {
     .from("listing_generation_jobs")
     .update({ status: "failed", error: message.slice(0, 1000) })
     .eq("id", jobId);
+}
+
+// US-1931: per-job AI-reservation flag writes. `markJobReserved` is persisted
+// immediately after a successful reserve and BEFORE the long generateListing
+// call, so a crash mid-generation is resumed (via reclaim) without a second
+// charge — the reclaimed job sees ai_reserved=true and reuses the reservation.
+// `releaseJobReservation` clears the flag whenever the reservation is refunded
+// (generation failure, cancel mid-flight, terminal abandonment) so a later
+// retry/reclaim reserves afresh rather than reusing a now-refunded slot.
+async function markJobReserved(jobId: string): Promise<void> {
+  const { error } = await supabaseAdmin
+    .from("listing_generation_jobs")
+    .update({ ai_reserved: true })
+    .eq("id", jobId);
+  if (error) {
+    console.error(
+      `[flipdesk-autolister] job ${jobId} reserve-flag write failed: ${error.message}`,
+    );
+  }
+}
+
+async function releaseJobReservation(jobId: string): Promise<void> {
+  const { error } = await supabaseAdmin
+    .from("listing_generation_jobs")
+    .update({ ai_reserved: false })
+    .eq("id", jobId);
+  if (error) {
+    console.error(
+      `[flipdesk-autolister] job ${jobId} release-flag write failed: ${error.message}`,
+    );
+  }
 }
 
 /**
@@ -319,7 +367,9 @@ async function loadBatchTemplate(
 async function processBatch(
   batchId: string,
   ownerId: string,
-  jobs: Array<{ id: string; inventory_item_id: string; attempts?: number }>,
+  jobs: Array<
+    { id: string; inventory_item_id: string; attempts?: number; ai_reserved?: boolean | null }
+  >,
   useComps: boolean,
   limit: number,
 ): Promise<void> {
@@ -347,11 +397,18 @@ async function processBatch(
   }
 
   async function runJob(
-    job: { id: string; inventory_item_id: string; attempts?: number },
+    job: { id: string; inventory_item_id: string; attempts?: number; ai_reserved?: boolean | null },
   ): Promise<void> {
     const attempts = job.attempts ?? 0;
     // US-525: don't resume a job forever.
     if (attempts >= MAX_JOB_ATTEMPTS) {
+      // US-1931: if this abandoned job still holds a reservation from an earlier
+      // attempt, release it — a terminally-failed item must not keep an AI action
+      // charged against the owner's monthly cap.
+      if (job.ai_reserved === true) {
+        await refundAiAction(ownerId);
+        await releaseJobReservation(job.id);
+      }
       await markJobFailed(
         job.id,
         "Generation abandoned after repeated interruptions. Retry from the queue if needed.",
@@ -396,20 +453,28 @@ async function processBatch(
     }
     if (!claimed) return;
 
-    // US-527: atomic, cap-aware reservation.
-    let reserved = false;
-    try {
-      reserved = await reserveAiAction(ownerId, limit);
-    } catch (err) {
-      await markJobFailed(job.id, err instanceof Error ? err.message : "Quota check failed");
-      return;
-    }
-    if (!reserved) {
-      await markJobFailed(
-        job.id,
-        "Monthly AI action limit reached — this item was not generated. Your allowance resets next month.",
-      );
-      return;
+    // US-527/US-1931: atomic, cap-aware, IDEMPOTENT-per-job reservation. If this
+    // job already reserved on a prior attempt (crash-interrupted, now reclaimed),
+    // reuse that reservation instead of charging the cap again — see
+    // needsAiReservation. Otherwise reserve once and persist the flag BEFORE the
+    // long generateListing call, so a crash mid-generation resumes without a
+    // second charge.
+    if (needsAiReservation(job)) {
+      let reserved = false;
+      try {
+        reserved = await reserveAiAction(ownerId, limit);
+      } catch (err) {
+        await markJobFailed(job.id, err instanceof Error ? err.message : "Quota check failed");
+        return;
+      }
+      if (!reserved) {
+        await markJobFailed(
+          job.id,
+          "Monthly AI action limit reached — this item was not generated. Your allowance resets next month.",
+        );
+        return;
+      }
+      await markJobReserved(job.id);
     }
 
     try {
@@ -448,6 +513,7 @@ async function processBatch(
           `[flipdesk-autolister] job ${job.id}: cancelled mid-generation — refunding reservation`,
         );
         await refundAiAction(ownerId);
+        await releaseJobReservation(job.id);
         return;
       }
       // Auto-advance the item to 'drafted' so a generated listing lands in the
@@ -482,8 +548,11 @@ async function processBatch(
         console.error("[flipdesk-autolister] defect annotation failed:", annErr);
       }
     } catch (err) {
-      // Generation failed (incl. timeout) — give the reserved quota slot back.
+      // Generation failed (incl. timeout) — give the reserved quota slot back
+      // and clear the per-job reservation flag so a later reclaim/retry reserves
+      // afresh rather than reusing a now-refunded reservation (US-1931).
       await refundAiAction(ownerId);
+      await releaseJobReservation(job.id);
       await markJobFailed(job.id, err instanceof Error ? err.message : "Generation failed");
     }
   }
@@ -1614,15 +1683,18 @@ flipdeskAutolisterRoutes.post("/batch/:id/retry-failed", async (c) => {
     .from("listing_generation_batches")
     .update({ status: "running", error: null })
     .eq("id", batchId);
+  // US-1931: clear ai_reserved too — a previously-failed job had its reservation
+  // refunded, so an explicit retry must reserve afresh (never reuse a released
+  // slot). These are all 'failed' jobs, so blanket-clearing is safe here.
   await supabaseAdmin
     .from("listing_generation_jobs")
-    .update({ status: "pending", error: null, attempts: 0 })
+    .update({ status: "pending", error: null, attempts: 0, ai_reserved: false })
     .in("id", jobs.map((j) => j.id));
 
   void processBatch(
     batchId,
     ownerId,
-    jobs.map((j) => ({ ...j, attempts: 0 })),
+    jobs.map((j) => ({ ...j, attempts: 0, ai_reserved: false })),
     useComps,
     limit,
   ).catch((err) =>
@@ -1695,14 +1767,15 @@ flipdeskAutolisterRoutes.post("/batch/:id/resume", async (c) => {
 
   // Re-read the now-resettable set (everything currently 'pending' for this batch)
   // to drive processBatch. A fresh 'running' job we left alone is excluded.
+  // US-1931: carry ai_reserved so a crash-interrupted job reuses its reservation.
   const { data: openJobs, error: jobsErr } = await supabaseAdmin
     .from("listing_generation_jobs")
-    .select("id, inventory_item_id, attempts")
+    .select("id, inventory_item_id, attempts, ai_reserved")
     .eq("batch_id", batchId)
     .eq("status", "pending");
   if (jobsErr) return c.json({ error: "Could not load jobs." }, 500);
   const jobs = (openJobs ?? []) as Array<
-    { id: string; inventory_item_id: string; attempts: number }
+    { id: string; inventory_item_id: string; attempts: number; ai_reserved: boolean | null }
   >;
   if (jobs.length === 0) {
     return c.json({ error: "Nothing to resume — no unfinished jobs." }, 400);
@@ -1738,13 +1811,16 @@ export async function adminRetryGenerationBatch(
   if (!batch) return { ok: false, error: "Batch not found" };
   const b = batch as { user_id: string; use_comps: boolean | null };
 
+  // US-1931: carry ai_reserved so an in-flight (pending/running) job reclaimed by
+  // an admin retry reuses its reservation; a failed job (ai_reserved cleared on
+  // refund) reserves afresh.
   const { data: openJobs } = await supabaseAdmin
     .from("listing_generation_jobs")
-    .select("id, inventory_item_id, attempts")
+    .select("id, inventory_item_id, attempts, ai_reserved")
     .eq("batch_id", batchId)
     .in("status", ["failed", "pending", "running"]);
   const jobs = (openJobs ?? []) as Array<
-    { id: string; inventory_item_id: string; attempts: number }
+    { id: string; inventory_item_id: string; attempts: number; ai_reserved: boolean | null }
   >;
   if (jobs.length === 0) return { ok: false, error: "No incomplete jobs to retry." };
 
@@ -1867,13 +1943,15 @@ export async function handleAutolisterReclaimCron(c: Context): Promise<Response>
       .maybeSingle();
     if (!claimedBatch) continue; // lost the race to another tick
 
+    // US-1931: carry ai_reserved so a crash-interrupted job resumed by the
+    // reclaim cron reuses its reservation instead of charging the cap again.
     const { data: openJobs } = await supabaseAdmin
       .from("listing_generation_jobs")
-      .select("id, inventory_item_id, attempts")
+      .select("id, inventory_item_id, attempts, ai_reserved")
       .eq("batch_id", b.id)
       .in("status", ["pending", "running"]);
     const jobs = (openJobs ?? []) as Array<
-      { id: string; inventory_item_id: string; attempts: number }
+      { id: string; inventory_item_id: string; attempts: number; ai_reserved: boolean | null }
     >;
 
     if (jobs.length === 0) {

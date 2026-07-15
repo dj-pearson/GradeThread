@@ -19,7 +19,9 @@ const {
   insufficientAiActionsBody,
   isHaltedBatchStatus,
   MAX_BATCH_ITEMS,
+  MAX_JOB_ATTEMPTS,
   MAX_PUBLISH_BATCH_ITEMS,
+  needsAiReservation,
   settleAfterGeneration,
   withTimeout,
 } = await import("../routes/flipdesk-autolister.ts");
@@ -111,6 +113,71 @@ Deno.test("US-1545: an already-over-cap month reports remaining 0, never negativ
   const body = insufficientAiActionsBody(10, 200, 230);
   assert(body !== null);
   assertEquals(body.remaining, 0);
+});
+
+// ── US-1931: idempotent-per-job AI reservation (no crash-loop leak) ──
+
+Deno.test("US-1931: needsAiReservation only when the job holds no reservation", () => {
+  // Fresh job (flag absent / false / null) → must reserve.
+  assert(needsAiReservation({}));
+  assert(needsAiReservation({ ai_reserved: false }));
+  assert(needsAiReservation({ ai_reserved: null }));
+  // Already reserved on a prior (crashed) attempt → reuse, never re-charge.
+  assert(!needsAiReservation({ ai_reserved: true }));
+});
+
+Deno.test("US-1931: crash-after-reserve → reclaim consumes exactly ONE reservation", () => {
+  // Model the authoritative monthly counter + the job's persisted ai_reserved
+  // flag, and replay runJob's reservation decision across a crash loop: reserve
+  // only when needsAiReservation, and persist the flag immediately (as runJob
+  // does via markJobReserved, BEFORE the long generateListing call). A crash
+  // after that leaves ai_reserved=true, so the reclaimed attempt reuses it.
+  let counter = 0; // reserve_ai_action increments; refund decrements
+  const job: { ai_reserved: boolean } = { ai_reserved: false };
+
+  // Attempt 1..MAX_JOB_ATTEMPTS-1: reserve (if needed), persist flag, then the
+  // container dies mid-generation — no refund runs (that's the leak the fix
+  // closes). The persisted flag is what survives the crash.
+  for (let attempt = 1; attempt < MAX_JOB_ATTEMPTS; attempt++) {
+    if (needsAiReservation(job)) {
+      counter += 1; // reserveAiAction
+      job.ai_reserved = true; // markJobReserved (persisted before work)
+    }
+    // ...crash here (no refund).
+  }
+  // Final reclaim attempt: reservation is reused, generation succeeds — the
+  // reservation is legitimately kept (never refunded).
+  if (needsAiReservation(job)) {
+    counter += 1;
+    job.ai_reserved = true;
+  }
+
+  assertEquals(counter, 1); // exactly one net reservation for the one item
+});
+
+Deno.test("US-1931: a genuinely-failed job releases its reservation, retry reserves afresh", () => {
+  // Generation failure path refunds AND clears the flag (releaseJobReservation),
+  // so an explicit retry reserves a fresh action rather than reusing a released
+  // slot — and the counter nets back to zero for the failed item.
+  let counter = 0;
+  const job: { ai_reserved: boolean } = { ai_reserved: false };
+
+  // First attempt: reserve, then generation throws → refund + clear flag.
+  if (needsAiReservation(job)) {
+    counter += 1;
+    job.ai_reserved = true;
+  }
+  counter -= 1; // refundAiAction
+  job.ai_reserved = false; // releaseJobReservation
+  assertEquals(counter, 0);
+
+  // Explicit retry: the released flag means a fresh reservation is charged.
+  assert(needsAiReservation(job));
+  if (needsAiReservation(job)) {
+    counter += 1;
+    job.ai_reserved = true;
+  }
+  assertEquals(counter, 1);
 });
 
 Deno.test("withTimeout: resolves when the work finishes in time", async () => {

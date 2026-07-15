@@ -4,6 +4,23 @@
 > The sections below for those are historical; the only NEW held migration is
 > **00443** at the top.
 
+## ⏳ PENDING: 00445_autolister_job_ai_reserved.sql (US-1931 idempotent AI reservation, 2026-07-14)
+
+Adds `ai_reserved boolean not null default false` to `public.listing_generation_jobs`
+(existing tenant table — no new table, no new RLS). Makes the AutoLister per-item
+AI-action reservation IDEMPOTENT per job id: a crash between reserve and refund no
+longer leaks the reservation, and on reclaim the job REUSES its reservation
+(`ai_reserved=true`) instead of charging the owner's monthly cap again (was up to
+MAX_JOB_ATTEMPTS=5 charges for one item under a crash loop). Apply after 00444 via
+`scripts/apply-prod-migrations.sh`, `NOTIFY pgrst, 'reload schema';`, redeploy the
+edge (boot guard now expects **00445**). Bumps `EXPECTED_SCHEMA_VERSION` → **00445**.
+
+**Risk: LOW** — additive column with a default (no rewrite, no lock beyond the
+add-column catalog update). **No CLIENT read** — only the edge worker
+(`flipdesk-autolister.ts`) reads/writes the column; the frontend never touches it,
+so the Cloudflare Pages auto-deploy on push is safe even before the SQL is applied
+(the edge boot guard, not the frontend, is what gates on 00445).
+
 ## ⏳ PENDING: 00444_user_badges.sql (US-1850 achievements, 2026-07-13)
 
 New tenant table `public.user_badges` (user_id, badge_key, earned_at, context)
