@@ -43,6 +43,7 @@ import { stripImageMetadata } from "../lib/image-metadata.ts";
 import { assessAuthenticity } from "../lib/ai-authenticity.ts";
 import { getEffectiveTellsForBrand } from "../lib/brand-authenticity.ts";
 import { recordAiUsage } from "../lib/ai-usage.ts";
+import { clientIp } from "../middleware/rate-limit.ts";
 import { AiCeilingError, reserveGlobalDailyBudget } from "../lib/ai-limiter.ts";
 
 // Public, UNAUTHENTICATED grading-transparency surface (US-326).
@@ -329,12 +330,18 @@ const GRADE_CHECK_MAX_BYTES = 8 * 1024 * 1024;
 // counter (like ai-global-daily) is the follow-up if abuse warrants it.
 const gradeCheckHits = new Map<string, number[]>();
 
-function clientIpFor(c: Context): string {
-  const cf = c.req.header("cf-connecting-ip")?.trim();
-  if (cf) return cf;
-  const xff = c.req.header("x-forwarded-for");
-  const first = xff?.split(",")[0]?.trim();
-  return first || "unknown";
+// US-1883/US-354: the ONLY trustworthy per-IP identifier is the hardened
+// clientIp() — it proves the request transited Cloudflare (cf-origin-secret) and
+// reads CF-Connecting-IP, which CF overwrites so a caller can't spoof it. The old
+// implementation here trusted the client-controlled X-Forwarded-For in
+// production, so a direct-to-origin attacker rotated that header to mint an
+// unlimited number of distinct per-IP quota buckets (an unmetered-grading bypass
+// on grade-check / grade-from-url / authenticity-check). A request with no
+// trustworthy IP now collapses to ONE shared sentinel bucket — a degraded
+// ceiling, but never unlimited — instead of a spoofable per-header bucket.
+export const NO_TRUSTWORTHY_IP = "no-trustworthy-ip";
+export function clientIpFor(c: Context): string {
+  return clientIp(c) ?? NO_TRUSTWORTHY_IP;
 }
 
 export function gradeCheckRateLimited(ip: string, now: number): boolean {

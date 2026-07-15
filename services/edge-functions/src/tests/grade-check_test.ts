@@ -17,7 +17,18 @@ const {
   publicAuthenticityCheckEnabled,
   assignGalleryImageTypes,
   shouldRequestCoveragePhotos,
+  clientIpFor,
+  NO_TRUSTWORTHY_IP,
 } = await import("../routes/public-grading.ts");
+
+// Minimal Hono-Context stand-in exposing only what clientIpFor reads.
+function ipCtx(headers: Record<string, string>): Parameters<typeof clientIpFor>[0] {
+  const lower: Record<string, string> = {};
+  for (const [k, v] of Object.entries(headers)) lower[k.toLowerCase()] = v;
+  return {
+    req: { header: (name: string) => lower[name.toLowerCase()] },
+  } as unknown as Parameters<typeof clientIpFor>[0];
+}
 
 // A canonical 1x1 PNG (valid magic bytes + IHDR + IDAT + IEND).
 const ONE_PX_PNG =
@@ -39,6 +50,75 @@ Deno.test("prepareGradeCheckImage: rejects non-string input", () => {
   assert(!prepareGradeCheckImage(undefined).ok);
   assert(!prepareGradeCheckImage(null).ok);
   assert(!prepareGradeCheckImage(123).ok);
+});
+
+// ─── US-1883 AC1: hardened client-IP for the public grading quota ─────────
+// The per-IP free-grade quota is keyed by clientIpFor(). It MUST resolve the IP
+// via the hardened clientIp() (US-354): CF-Connecting-IP only, and only when the
+// request proved it transited Cloudflare. Trusting the client-controlled
+// X-Forwarded-For in production let an attacker rotate the header to mint an
+// unlimited number of distinct per-IP buckets (an unmetered-grading bypass).
+
+Deno.test("US-1883: in production, rotating X-Forwarded-For all collapses to ONE shared bucket (no per-header bypass)", () => {
+  const prev = Deno.env.get("EDGE_ENV");
+  Deno.env.set("EDGE_ENV", "production");
+  try {
+    // No CF-Connecting-IP (direct-to-origin), attacker rotates XFF each request.
+    const a = clientIpFor(ipCtx({ "x-forwarded-for": "1.2.3.4" }));
+    const b = clientIpFor(ipCtx({ "x-forwarded-for": "5.6.7.8" }));
+    const c = clientIpFor(ipCtx({ "x-forwarded-for": "9.9.9.9, 1.1.1.1" }));
+    // All three share the sentinel bucket → the quota can't be evaded by
+    // spoofing XFF, because XFF is never trusted in production.
+    assertEquals(a, NO_TRUSTWORTHY_IP);
+    assertEquals(b, NO_TRUSTWORTHY_IP);
+    assertEquals(c, NO_TRUSTWORTHY_IP);
+  } finally {
+    if (prev === undefined) Deno.env.delete("EDGE_ENV");
+    else Deno.env.set("EDGE_ENV", prev);
+  }
+});
+
+Deno.test("US-1883: in production, CF-Connecting-IP IS trusted (CF overwrites it, so it can't be spoofed)", () => {
+  const prev = Deno.env.get("EDGE_ENV");
+  const prevSecret = Deno.env.get("CF_ORIGIN_SECRET");
+  Deno.env.set("EDGE_ENV", "production");
+  // No origin-secret configured → the network layer is trusted (secret check inert).
+  Deno.env.delete("CF_ORIGIN_SECRET");
+  try {
+    assertEquals(
+      clientIpFor(ipCtx({ "cf-connecting-ip": "203.0.113.7", "x-forwarded-for": "1.2.3.4" })),
+      "203.0.113.7",
+    );
+  } finally {
+    if (prev === undefined) Deno.env.delete("EDGE_ENV");
+    else Deno.env.set("EDGE_ENV", prev);
+    if (prevSecret !== undefined) Deno.env.set("CF_ORIGIN_SECRET", prevSecret);
+  }
+});
+
+Deno.test("US-1883: when CF_ORIGIN_SECRET is set, a spoofed CF-Connecting-IP without the secret gets the sentinel bucket", () => {
+  const prev = Deno.env.get("EDGE_ENV");
+  const prevSecret = Deno.env.get("CF_ORIGIN_SECRET");
+  Deno.env.set("EDGE_ENV", "production");
+  Deno.env.set("CF_ORIGIN_SECRET", "s3cret-token");
+  try {
+    // Direct-to-origin forgery: CF-Connecting-IP present but no matching secret
+    // header → not trusted → sentinel (never a spoofed per-IP bucket).
+    assertEquals(
+      clientIpFor(ipCtx({ "cf-connecting-ip": "203.0.113.7" })),
+      NO_TRUSTWORTHY_IP,
+    );
+    // With the matching secret it transited CF → the IP is trusted.
+    assertEquals(
+      clientIpFor(ipCtx({ "cf-connecting-ip": "203.0.113.7", "cf-origin-secret": "s3cret-token" })),
+      "203.0.113.7",
+    );
+  } finally {
+    if (prev === undefined) Deno.env.delete("EDGE_ENV");
+    else Deno.env.set("EDGE_ENV", prev);
+    if (prevSecret === undefined) Deno.env.delete("CF_ORIGIN_SECRET");
+    else Deno.env.set("CF_ORIGIN_SECRET", prevSecret);
+  }
 });
 
 Deno.test("prepareGradeCheckImage: rejects a data URL that isn't a real image (magic-byte sniff)", () => {
