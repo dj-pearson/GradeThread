@@ -4,6 +4,41 @@
 > The sections below for those are historical; the only NEW held migration is
 > **00443** at the top.
 
+## ⏳ PENDING: 00451_rls_initplan_perf.sql (US-1927 RLS initplan perf, 2026-07-15)
+
+Pure PLANNER optimization of the high-traffic per-user RLS policies — **no
+schema change, no semantic change, no tenant-isolation change (US-268)**.
+Rewrites the hot-path policies to the Supabase-recommended initplan form
+(`(select auth.uid())`) so the caller identity is hoisted to a single per-
+statement initplan instead of being re-evaluated per candidate row, and gives
+every workspace-member-helper policy a cheap owner fast-path disjunct
+(`(select auth.uid()) = user_id OR is_workspace_member…`) so the SECURITY
+DEFINER helper is never CALLED for owner rows on a single-tenant scan. Tables
+covered: submissions, submission_images, grade_reports, inventory_items,
+listings, sales, shipments, item_photos (both the owner and workspace-member
+policies on each). Also `CREATE OR REPLACE`s `is_workspace_member` /
+`is_workspace_member_with_role` (internal `auth.uid()` → `(select auth.uid())`,
+owner OR-branch kept as the short-circuit) and adds the covering index
+`idx_workspace_members_owner_member_role (owner_id, member_id, role)`.
+
+**Set membership is provably unchanged:** `(select auth.uid())` returns the
+identical value as `auth.uid()`, and the added owner disjunct is already implied
+by the helper's first OR branch. Every policy is `DROP … IF EXISTS` +
+`CREATE` (CREATE POLICY has no OR REPLACE) so the file is idempotent/re-runnable;
+DDL is transactional so there is no window without a policy.
+
+**Risk: LOW** — RLS logic identical; only the plan shape changes. **No CLIENT
+read impact** (no columns/tables added or removed; the frontend's existing
+PostgREST reads behave identically, just faster). Apply after 00450 via
+`scripts/apply-prod-migrations.sh` (idempotent), then `NOTIFY pgrst, 'reload
+schema';` (policies/functions changed), then redeploy the edge (boot guard now
+expects **00451**). Bumps `EXPECTED_SCHEMA_VERSION` → **00451**.
+
+**⚠️ verify:db / live EXPLAIN NOT run locally (Docker down at author time)** —
+AC3 (EXPLAIN confirming the initplan `InitPlan … $0 = auth.uid()` form on a
+representative large per-user SELECT) must be confirmed either in a Docker-up
+`npm run verify:db` run or against prod after apply.
+
 ## ⏳ PENDING: 00450_madewell_jcrew_brand_knowledge.sql (US-1730 Madewell & J.Crew brand KB, 2026-07-15)
 
 Data-only seed of the `brand_knowledge*` tables for the two J.Crew-Group banners
