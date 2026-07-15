@@ -448,6 +448,11 @@
       renderError(res.error || "You've hit the free read limit for now. Try again later.", false);
       return;
     }
+    // US-1883 (AC3): 503 capacity signal → NON-retryable "at capacity" state.
+    if (res.status === 503 || res.code === "at_capacity" || res.retryable === false) {
+      renderError(res.error || "GradeThread is at capacity right now. Try again later.", false);
+      return;
+    }
     renderError(res.error || "Couldn't grade this listing right now.", true);
   }
 

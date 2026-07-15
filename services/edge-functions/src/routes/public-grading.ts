@@ -344,6 +344,20 @@ export function clientIpFor(c: Context): string {
   return clientIp(c) ?? NO_TRUSTWORTHY_IP;
 }
 
+// US-1883 (AC3): server-side capacity conditions (the global AI daily ceiling /
+// concurrency) return a 503 carrying this machine-readable code + retryable:false
+// so the extension renders "GradeThread is at capacity, try later" as a
+// NON-retryable state — distinct from a bad-URL 400 (which invited quota-burning
+// retries when the AI ceiling was mis-reported as the user's fault).
+export const AT_CAPACITY_CODE = "at_capacity";
+export function atCapacityBody(): { error: string; code: string; retryable: false } {
+  return {
+    error: "GradeThread is at capacity right now. Please try again later.",
+    code: AT_CAPACITY_CODE,
+    retryable: false,
+  };
+}
+
 export function gradeCheckRateLimited(ip: string, now: number): boolean {
   const recent = (gradeCheckHits.get(ip) ?? []).filter((t) => now - t < GRADE_CHECK_WINDOW_MS);
   if (recent.length >= GRADE_CHECK_PER_IP_PER_HOUR) {
@@ -489,6 +503,11 @@ publicGradingRoutes.post("/grade-check", async (c) => {
       200,
     );
   } catch (err) {
+    // US-1883 (AC3): capacity (global AI ceiling) → distinct non-retryable 503,
+    // not a generic 500, so the client stops retrying and burning quota.
+    if (err instanceof AiCeilingError) {
+      return c.json(atCapacityBody(), 503);
+    }
     // US-580: unauthenticated surface — never echo raw error detail.
     console.error(
       "public-grading /grade-check:",
@@ -684,6 +703,13 @@ publicGradingRoutes.post("/grade-from-url", async (c) => {
         garment: { brand: brand ?? null, title: title ?? "" },
       });
     } catch (err) {
+      // US-1883 (AC3): a global AI-ceiling / capacity error is OUR limit, not the
+      // caller's bad URL — return a distinct, machine-readable 503 the extension
+      // renders as non-retryable ("at capacity, try later") so a retry storm
+      // doesn't burn quota, instead of the misleading bad-URL 400 below.
+      if (err instanceof AiCeilingError) {
+        return c.json(atCapacityBody(), 503);
+      }
       // A fetch/SSRF/analysis failure on the caller's URL is a 400, not a 500 —
       // the input (an unreachable or non-image URL) is at fault, not the server.
       console.error(
@@ -864,8 +890,10 @@ publicGradingRoutes.post("/authenticity-check", async (c) => {
     try {
       await reserveGlobalDailyBudget();
     } catch (err) {
+      // US-1883 (AC3): shared machine-readable 503 capacity shape across all
+      // public grading endpoints (was a bare 429 here).
       if (err instanceof AiCeilingError) {
-        return c.json({ error: "The authenticity checker is busy right now. Try again later." }, 429);
+        return c.json(atCapacityBody(), 503);
       }
       throw err;
     }

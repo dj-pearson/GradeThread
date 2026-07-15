@@ -16,6 +16,7 @@ import {
 } from "./ai-grading.ts";
 import { safeFetch } from "./ssrf.ts";
 import { captureException } from "./observability.ts";
+import { AiCeilingError } from "./ai-limiter.ts";
 
 // Bound cost/latency: a quick grade never analyzes more than this many images.
 const MAX_QUICK_IMAGES = 4;
@@ -114,6 +115,12 @@ export async function quickGrade(input: QuickGradeInput): Promise<QuickGradeResu
     try {
       perImage.push(await analyzeImage(dataUri, type, garment.garment_type, garment.garment_category));
     } catch (err) {
+      // US-1883 (AC3): a global AI-ceiling / capacity error is SYSTEMIC, not a
+      // per-image problem — retrying the remaining images just burns more budget
+      // and, worse, the empty result below masks it as "Image analysis failed"
+      // which the public routes mis-report as a bad-URL 400. Propagate it so the
+      // caller can return a distinct 503 "at capacity".
+      if (err instanceof AiCeilingError) throw err;
       captureException(err, { level: "warn", route: "quick-grade.analyze" });
     }
   }

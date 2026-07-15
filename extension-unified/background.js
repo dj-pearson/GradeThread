@@ -234,10 +234,14 @@ async function gradeFromUrls({ imageUrls, brand, title, condition, marketplace, 
     json = null;
   }
   if (resp.ok && json) return { ok: true, status: resp.status, data: json };
+  // US-1883 (AC3): thread the machine-readable capacity code + retryable flag so
+  // the overlay can render a 503 "at_capacity" as a NON-retryable state.
   return {
     ok: false,
     status: resp.status,
     error: (json && json.error) || "Couldn't grade this listing right now.",
+    code: (json && json.code) || null,
+    retryable: json && json.retryable === false ? false : true,
   };
 }
 

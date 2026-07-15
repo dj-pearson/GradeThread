@@ -194,10 +194,16 @@ async function gradeFromUrls({ imageUrls, brand, title, condition, marketplace, 
     json = null;
   }
   if (resp.ok && json) return { ok: true, status: resp.status, data: json };
+  // US-1883 (AC3): a 503 with code "at_capacity" is OUR capacity limit, not a bad
+  // listing — thread the machine-readable code + retryable flag so the overlay
+  // can render a NON-retryable "GradeThread is at capacity" state instead of
+  // offering a retry that just burns more quota.
   return {
     ok: false,
     status: resp.status,
     error: (json && json.error) || "Couldn't grade this listing right now.",
+    code: (json && json.code) || null,
+    retryable: json && json.retryable === false ? false : true,
   };
 }
 

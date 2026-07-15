@@ -19,6 +19,8 @@ const {
   shouldRequestCoveragePhotos,
   clientIpFor,
   NO_TRUSTWORTHY_IP,
+  atCapacityBody,
+  AT_CAPACITY_CODE,
 } = await import("../routes/public-grading.ts");
 
 // Minimal Hono-Context stand-in exposing only what clientIpFor reads.
@@ -119,6 +121,19 @@ Deno.test("US-1883: when CF_ORIGIN_SECRET is set, a spoofed CF-Connecting-IP wit
     if (prevSecret === undefined) Deno.env.delete("CF_ORIGIN_SECRET");
     else Deno.env.set("CF_ORIGIN_SECRET", prevSecret);
   }
+});
+
+// ─── US-1883 AC3: capacity 503 body is machine-readable + non-retryable ──────
+// The extension keys off code/retryable to render a NON-retryable "at capacity"
+// state distinct from a bad-URL 400 (which invited quota-burning retries).
+Deno.test("US-1883 AC3: atCapacityBody() is machine-readable and marked non-retryable", () => {
+  const body = atCapacityBody();
+  assertEquals(body.code, AT_CAPACITY_CODE);
+  assertEquals(AT_CAPACITY_CODE, "at_capacity");
+  assertEquals(body.retryable, false);
+  assert(typeof body.error === "string" && body.error.length > 0);
+  // Distinct from the bad-URL 400 copy so the two never get conflated.
+  assert(!/points to a public photo/i.test(body.error));
 });
 
 Deno.test("prepareGradeCheckImage: rejects a data URL that isn't a real image (magic-byte sniff)", () => {
