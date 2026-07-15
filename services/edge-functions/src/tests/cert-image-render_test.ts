@@ -16,6 +16,14 @@ import {
 } from "../lib/cert-image-render.ts";
 import { buildAchievementBadgeHtml } from "../lib/cert-og-template.ts";
 
+// rewards-badges.ts imports supabase at load → prime dummy env, then dynamic-import.
+Deno.env.set("SUPABASE_URL", Deno.env.get("SUPABASE_URL") ?? "http://localhost:54321");
+Deno.env.set(
+  "SUPABASE_SERVICE_ROLE_KEY",
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
+);
+const { badgeByKey } = await import("../lib/rewards-badges.ts");
+
 const DATA: CertImageData = {
   certId: "6d0d0f7a-23db-41f2-a891-5245e89eb504",
   title: "Moussy Vintage White Distressed Cropped Jeans",
@@ -63,6 +71,22 @@ Deno.test("US-1850: achievement badge template escapes + carries name/tier/descr
   assert(html.includes("GOLD"), "tier label present");
   assert(html.includes("GradeThread Achievement"), "brand line present");
   assert(!html.includes("<Find>"), "raw angle brackets never leak");
+});
+
+Deno.test("US-1850: /achievement-badge/:key path — a real catalog badge renders a PNG", async () => {
+  // Mirrors the GET /achievement-badge/:key route logic (badgeByKey → render).
+  const def = badgeByKey("grades_100");
+  assert(def, "grades_100 is in the catalog");
+  const png = await renderAchievementBadge({
+    name: def!.name,
+    description: def!.description,
+    tier: def!.tier,
+  });
+  assert(isPng(png));
+});
+
+Deno.test("US-1850: an unknown badge key resolves to undefined (route serves the fallback)", () => {
+  assertEquals(badgeByKey("not-a-real-badge"), undefined);
 });
 
 Deno.test("US-1850: an unknown tier falls back to the brand navy medal (no crash)", () => {

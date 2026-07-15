@@ -16,6 +16,7 @@ import {
   type CertImageData,
   fetchImageDataUri,
   isSellerBadgeFormat,
+  renderAchievementBadge,
   renderCertImage,
   renderSellerBadge,
   type SellerBadgeFormat,
@@ -26,6 +27,7 @@ import { FALLBACK_PNG_BASE64 } from "../lib/cert-og-template.ts";
 import { captureException, readCtxVar } from "../lib/observability.ts";
 import { rankReferrers } from "../lib/referral-rewards.ts";
 import { isBadgeTargetType, recordBadgeClick } from "../lib/badge-analytics.ts";
+import { badgeByKey } from "../lib/rewards-badges.ts";
 import { projectTrustSignals } from "../lib/buyer-trust-signals.ts";
 import { PILLAR_CORNERSTONE_URL, PILLAR_LABELS } from "../lib/content-interlink.ts";
 
@@ -929,6 +931,34 @@ contentPublicRoutes.get("/seller-badge/:handle", async (c) => {
     return new Response(new Uint8Array(png), { status: 200, headers: certImageHeaders(CERT_IMG_CACHE) });
   } catch (err) {
     captureException(err, { route: "seller-badge", tags: { handle, format } });
+    return serveFallback();
+  }
+});
+
+// ── GET /achievement-badge/:key ───────────────────────────────────
+// US-1850 AC3: a shareable PNG card for a gamification badge, rendered on the edge
+// from the PUBLIC BADGE_CATALOG definition (name/description/tier) — proxied by a
+// Pages Function like the other badges. An unknown key or render error returns the
+// transparent FALLBACK PNG (never a broken image). The card describes the badge;
+// whether a given user EARNED it is a separate, authenticated read.
+contentPublicRoutes.on("HEAD", "/achievement-badge/:key", () =>
+  new Response(null, { status: 200, headers: certImageHeaders(CERT_IMG_CACHE) }));
+
+contentPublicRoutes.get("/achievement-badge/:key", async (c) => {
+  const key = c.req.param("key").trim();
+  const serveFallback = () =>
+    new Response(fallbackPng(), { status: 200, headers: certImageHeaders("public, max-age=300") });
+  const def = badgeByKey(key);
+  if (!def) return serveFallback();
+  try {
+    const png = await renderAchievementBadge({
+      name: def.name,
+      description: def.description,
+      tier: def.tier,
+    });
+    return new Response(new Uint8Array(png), { status: 200, headers: certImageHeaders(CERT_IMG_CACHE) });
+  } catch (err) {
+    captureException(err, { route: "achievement-badge", tags: { key } });
     return serveFallback();
   }
 });
