@@ -4,6 +4,24 @@
 > The sections below for those are historical; the only NEW held migration is
 > **00443** at the top.
 
+## ⏳ PENDING: 00449_free_people_brand_knowledge.sql (US-1729 Free People brand KB, 2026-07-15)
+
+Data-only seed of the `brand_knowledge*` tables for Free People (URBN): one
+`brand_knowledge` row (sub-line-on-the-tag identity, imported/URBN country note —
+RN omitted as unsourced), 5 `brand_styles` = the SUB-LINES (We The Free denim /
+Intimately lingerie / FP Movement activewear / FP One elevated / Endless
+Summer≡free-est), 2 `brand_colorways` (Black+hex, Ivory), and 2 `brand_size_charts`
+(women's tops/dresses alpha XS-XL from the published guide + We-The-Free denim
+numeric 24-31). Every fact `source_url` + `confidence`, `verified=false`.
+Idempotent. Apply after 00448 via `scripts/apply-prod-migrations.sh`,
+`NOTIFY pgrst, 'reload schema';`, redeploy the edge (boot guard now expects
+**00449**). Bumps `EXPECTED_SCHEMA_VERSION` → **00449**.
+
+**Risk: LOW** — data-only into deny-all global-reference tables; no schema change.
+**No CLIENT read** — read only by the edge resolver (`brand-knowledge.ts`, with the
+`sizing-charts.ts` in-code fallback this commit also adds, so it works before the
+SQL lands).
+
 ## ⏳ PENDING: 00448_athleta_brand_knowledge.sql (US-1732 Athleta brand KB, 2026-07-15)
 
 Data-only seed/refine of the `brand_knowledge*` tables for Athleta: one

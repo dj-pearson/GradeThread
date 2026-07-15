@@ -233,6 +233,30 @@ const CASES: GoldenCase[] = [
     input: decodedFrom({ styleCode: "NOT-A-CODE" }),
     expect: { noBrand: true },
   },
+  // US-1729: Free People — decoder-less (sub-line + care-tag). Same guarantees:
+  // a single known sub-line fills, ambiguous sub-lines are never guessed, and a
+  // non-code never false-recovers a brand.
+  {
+    name: "Free People single known sub-line fills the style the AI missed",
+    brand: "Free People",
+    pack: pack("Free People", "freepeople", [style("We The Free")]),
+    input: decodedFrom({ brand: "Free People" }),
+    expect: { brand: "Free People", style: "We The Free" },
+  },
+  {
+    name: "Free People ambiguous sub-lines (We The Free vs Intimately) — never guess",
+    brand: "Free People",
+    pack: pack("Free People", "freepeople", [style("We The Free"), style("Intimately")]),
+    input: decodedFrom({ brand: "Free People" }),
+    expect: { brand: "Free People", noStyle: true },
+  },
+  {
+    name: "Free People non-code tag — no false-positive brand recovery (no decoder)",
+    brand: "Free People",
+    pack: pack("Free People", "freepeople", [style("We The Free"), style("Intimately")]),
+    input: decodedFrom({ styleCode: "NOT-A-CODE" }),
+    expect: { noBrand: true },
+  },
 ];
 
 // ── the gate ────────────────────────────────────────────────────────────────

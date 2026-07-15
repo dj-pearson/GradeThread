@@ -87,6 +87,46 @@ export const SIZING_CHARTS: SizingChart[] = [
       { size: "XXL", measurements: { chest: "47-49" } },
     ],
   },
+  // US-1729: Free People (URBN). Women's tops/dresses (alpha) + denim (numeric).
+  // Mirrors migration 00449's brand_size_charts seed.
+  {
+    brand: "Free People",
+    brandMatch: ["free people", "freepeople", "fp"],
+    department: "Women",
+    garment: "Tops & dresses (alpha)",
+    categoryMatch: ["top", "tee", "shirt", "blouse", "dress", "tunic", "sweater", "hoodie", "jacket", "tank", "bodysuit"],
+    note:
+      "Free People women's tops/dresses run alpha; bust is the primary signal. XS-L per " +
+      "the published guide; XL extends ~+2in. FP runs relaxed/oversized — a garment often " +
+      "measures larger than the alpha implies.",
+    rows: [
+      { size: "XS", measurements: { bust: "33", waist: "25" } },
+      { size: "S", measurements: { bust: "34", waist: "26" } },
+      { size: "M", measurements: { bust: "35", waist: "27" } },
+      { size: "L", measurements: { bust: "36", waist: "28" } },
+      { size: "XL", measurements: { bust: "38", waist: "30" } },
+    ],
+  },
+  {
+    brand: "Free People",
+    brandMatch: ["free people", "freepeople", "we the free", "fp"],
+    department: "Women",
+    garment: "Denim (numeric waist)",
+    categoryMatch: ["jean", "denim", "pant", "bottom"],
+    note:
+      "Free People / We The Free denim uses a numeric waist label (24-31) approx = natural " +
+      "waist in inches. Measure the flat waistband and double it.",
+    rows: [
+      { size: "24", measurements: { waist: "24-24.5" } },
+      { size: "25", measurements: { waist: "25-25.5" } },
+      { size: "26", measurements: { waist: "26-26.5" } },
+      { size: "27", measurements: { waist: "27-27.5" } },
+      { size: "28", measurements: { waist: "28-28.5" } },
+      { size: "29", measurements: { waist: "29-29.5" } },
+      { size: "30", measurements: { waist: "30-31" } },
+      { size: "31", measurements: { waist: "31-32" } },
+    ],
+  },
   {
     brand: "Lululemon",
     brandMatch: ["lululemon", "lulu"],
