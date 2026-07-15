@@ -16419,8 +16419,8 @@
         "If the factor definition or grading prompt changes, update all rounding/prompt sites in lockstep (load the grading-engine skill first)"
       ],
       "priority": 1951,
-      "passes": false,
-      "notes": "[P3][Grading/Content] 5-persona QA sweep 2026-07-13. Vintage persona: rubric contradicts the site's own best content. Primarily a content fix; if the grading prompt/criteria change, honor the grading-engine contract.",
+      "passes": true,
+      "notes": "[P3][Grading/Content] 5-persona QA sweep 2026-07-13. Vintage persona: rubric contradicts the site's own best content. Primarily a content fix; if the grading prompt/criteria change, honor the grading-engine contract. | 2026-07-14 DONE (content-only, no grading-prompt/rounding change — honors the grading-engine contract by NOT touching the prompt/defect-weighting engine). AC1: grading-by-category vintage row now distinguishes value-preserving quality repairs (professional reweaving/sympathetic darning) from damage (moth holes/stains/brittleness/crude-unstable repairs). design-vs-damage field guide gains a \"Repairs\" row (professional stable repair = design/value-preserving vs crude/unstable fix = damage). AC2: canonical Cosmetic factor page (/grading/cosmetic-appearance via glossary.ts FACTOR_CONTENT) definition now carries an explicit as-made/patina \"expected wear for age\" carve-out + a new FAQ (\"Does patina or a vintage repair lower the cosmetic grade?\") + a vintage example — FAQ auto-flows into FAQPage JSON-LD. AC3 N/A: no factor-definition-as-graded/prompt/rounding change, so no lockstep needed. Verified: web tsc -b + build (213 prerendered) + eslint + vitest (glossary + seo + prerender all green).",
       "relevantPaths": [
         "src/pages/marketing/grading-by-category.tsx",
         "src/pages/marketing/design-vs-damage.tsx",

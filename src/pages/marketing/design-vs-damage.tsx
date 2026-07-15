@@ -31,6 +31,11 @@ const ROWS = [
     design: "All-over sanding, pre-pilled or slubby fabric the garment was made with.",
     damage: "Localized pilling at friction points, thinning elbows, or a snagged pull.",
   },
+  {
+    effect: "Repairs",
+    design: "Professional, stable repairs — museum-grade reweaving, sympathetic darning, matched thread — that restore the as-made state and preserve value.",
+    damage: "Crude or unstable fixes — mismatched patches, glue, puckered stitching — layered over an unaddressed flaw.",
+  },
 ];
 
 export function DesignVsDamagePage() {

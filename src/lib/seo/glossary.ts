@@ -299,7 +299,7 @@ const FACTOR_CONTENT: Record<GradeFactorKey, FactorContent> = {
   },
   cosmetic_appearance: {
     definition:
-      "Cosmetic Appearance accounts for 20% of the overall grade. It captures the garment's visual presentation — how clean, crisp, and well-kept it looks at a glance, beyond the fabric and construction.",
+      "Cosmetic Appearance accounts for 20% of the overall grade. It captures the garment's visual presentation — how clean, crisp, and well-kept it looks at a glance, beyond the fabric and construction. A garment is judged against its as-made condition, so age-appropriate patina and expected wear for its era are not penalized, and quality, value-preserving repairs are distinguished from damage.",
     lookFor: [
       "Surface marks, scuffs, or visible blemishes",
       "Wrinkling, misshaping, or poor drape",
@@ -309,11 +309,16 @@ const FACTOR_CONTENT: Record<GradeFactorKey, FactorContent> = {
     examples: [
       "A graphic tee judged on whether the print is cracked or vibrant.",
       "A handbag assessed for corner scuffs and surface sheen.",
+      "A vintage jacket whose age-appropriate patina and clean professional reweave are read as character, not cosmetic flaws.",
     ],
     faqs: [
       {
         q: "What is cosmetic appearance in a condition grade?",
         a: "Cosmetic Appearance captures how clean, crisp, and well-kept a garment looks at a glance — surface marks, wrinkling, and print condition. It is 20% of the overall grade.",
+      },
+      {
+        q: "Does patina or a vintage repair lower the cosmetic grade?",
+        a: "No. Cosmetic Appearance is judged against a garment's as-made condition, so age-appropriate patina and expected wear for its era are not penalized. Quality, value-preserving repairs — professional reweaving or sympathetic darning — are treated as care, not damage; only crude or unstable repairs and incidental flaws layered on top count against the grade.",
       },
     ],
   },
