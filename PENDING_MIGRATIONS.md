@@ -4,6 +4,24 @@
 > The sections below for those are historical; the only NEW held migration is
 > **00443** at the top.
 
+## ⏳ PENDING: 00450_madewell_jcrew_brand_knowledge.sql (US-1730 Madewell & J.Crew brand KB, 2026-07-15)
+
+Data-only seed of the `brand_knowledge*` tables for the two J.Crew-Group banners
+in one pack: `brand_knowledge` for Madewell (new) + J.Crew (enriches the bare
+00389 row); `brand_styles` = Madewell fits (Perfect Vintage tapered / Roadtripper
+skinny / Curvy contour block) + J.Crew numbered fits (484 Slim / 770 Straight /
+1040 Athletic) + Ludlow suiting + Tilly; 2 `brand_colorways`; 2 `brand_size_charts`
+(J.Crew men's chinos numeric + men's shirts alpha — Madewell women's denim already
+in 00389). The generic letter+digit item code is captured as an informational tell,
+NOT a brand-recovering decoder (format isn't unique). Every fact `source_url` +
+`confidence`, `verified=false`. Idempotent. Apply after 00449 via
+`scripts/apply-prod-migrations.sh`, `NOTIFY pgrst, 'reload schema';`, redeploy the
+edge (boot guard now expects **00450**). Bumps `EXPECTED_SCHEMA_VERSION` → **00450**.
+
+**Risk: LOW** — data-only into deny-all global-reference tables; no schema change.
+**No CLIENT read** — edge resolver only (`brand-knowledge.ts` + `sizing-charts.ts`
+in-code fallback this commit also adds).
+
 ## ⏳ PENDING: 00449_free_people_brand_knowledge.sql (US-1729 Free People brand KB, 2026-07-15)
 
 Data-only seed of the `brand_knowledge*` tables for Free People (URBN): one

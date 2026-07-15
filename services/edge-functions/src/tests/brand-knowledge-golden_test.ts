@@ -257,6 +257,29 @@ const CASES: GoldenCase[] = [
     input: decodedFrom({ styleCode: "NOT-A-CODE" }),
     expect: { noBrand: true },
   },
+  // US-1730: Madewell & J.Crew (sister banners, decoder-less — the item code is
+  // not brand-unique so it must NEVER recover a brand). Same guarantees.
+  {
+    name: "Madewell single known fit fills the style the AI missed",
+    brand: "Madewell",
+    pack: pack("Madewell", "madewell", [style("The Perfect Vintage Jean")]),
+    input: decodedFrom({ brand: "Madewell" }),
+    expect: { brand: "Madewell", style: "The Perfect Vintage Jean" },
+  },
+  {
+    name: "J.Crew ambiguous fits (484 vs 770) — never guess a fit",
+    brand: "J.Crew",
+    pack: pack("J.Crew", "jcrew", [style("484 Slim"), style("770 Straight")]),
+    input: decodedFrom({ brand: "J.Crew" }),
+    expect: { brand: "J.Crew", noStyle: true },
+  },
+  {
+    name: "Madewell generic item code — no false-positive brand recovery",
+    brand: "Madewell",
+    pack: pack("Madewell", "madewell", [style("The Perfect Vintage Jean"), style("Roadtripper Jean")]),
+    input: decodedFrom({ styleCode: "NW282" }),
+    expect: { noBrand: true },
+  },
 ];
 
 // ── the gate ────────────────────────────────────────────────────────────────

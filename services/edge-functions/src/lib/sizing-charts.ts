@@ -87,6 +87,44 @@ export const SIZING_CHARTS: SizingChart[] = [
       { size: "XXL", measurements: { chest: "47-49" } },
     ],
   },
+  // US-1730: J.Crew men's chinos (numeric) + shirts (alpha). Mirrors 00450.
+  // (Madewell women's denim is already seeded above.)
+  {
+    brand: "J.Crew",
+    brandMatch: ["j.crew", "jcrew", "j crew"],
+    department: "Men",
+    garment: "Chinos / pants (waist x inseam)",
+    categoryMatch: ["chino", "pant", "trouser", "bottom", "short"],
+    note:
+      "J.Crew men's chinos/pants are labeled W (waist) x L (inseam) in inches; the numbered " +
+      "FIT (484/770/1040) sets the leg cut, not the size. Measure the flat waistband and double it.",
+    rows: [
+      { size: "28", measurements: { waist: "28" } },
+      { size: "30", measurements: { waist: "30" } },
+      { size: "31", measurements: { waist: "31" } },
+      { size: "32", measurements: { waist: "32" } },
+      { size: "33", measurements: { waist: "33" } },
+      { size: "34", measurements: { waist: "34" } },
+      { size: "36", measurements: { waist: "36" } },
+      { size: "38", measurements: { waist: "38" } },
+    ],
+  },
+  {
+    brand: "J.Crew",
+    brandMatch: ["j.crew", "jcrew", "j crew"],
+    department: "Men",
+    garment: "Shirts (alpha)",
+    categoryMatch: ["shirt", "tee", "polo", "oxford", "sweater", "hoodie"],
+    note: "J.Crew men's shirts run alpha; chest is the primary signal. Dress shirts also sold neck x sleeve.",
+    rows: [
+      { size: "XS", measurements: { chest: "32-34" } },
+      { size: "S", measurements: { chest: "35-37" } },
+      { size: "M", measurements: { chest: "38-40" } },
+      { size: "L", measurements: { chest: "41-43" } },
+      { size: "XL", measurements: { chest: "44-46" } },
+      { size: "XXL", measurements: { chest: "47-49" } },
+    ],
+  },
   // US-1729: Free People (URBN). Women's tops/dresses (alpha) + denim (numeric).
   // Mirrors migration 00449's brand_size_charts seed.
   {
