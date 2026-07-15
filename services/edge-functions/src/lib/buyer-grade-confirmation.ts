@@ -119,6 +119,77 @@ export function computeSellerIntegrityScore(c: SellerIntegrityCounts): number {
   return Math.round(Math.min(100, Math.max(0, score)));
 }
 
+// ─── Pure: anti-gaming outcome filter (US-1912 AC2) ─────────────────────────
+
+/** One raw buyer-arrival outcome row, as read from grade_outcomes. */
+export interface SellerOutcomeRow {
+  buyer_user_id: string | null;
+  match_status: string | null; // "confirmed" | "disputed" | …
+  dispute_severity: string | null; // "cosmetic" | "material" | null
+  /**
+   * True once this outcome's dispute has been RESOLVED by human review (US-1812).
+   * When undefined, the resolution state is unknown and — under
+   * `requireResolvedDispute` — the disputed outcome is treated as NOT yet counting
+   * (a dispute never dents a seller's score until an expert has ruled on it).
+   */
+  dispute_resolved?: boolean;
+}
+
+export interface CountableOutcomeOptions {
+  /** The seller whose integrity is being computed. */
+  sellerUserId: string;
+  /**
+   * Accounts linked to the seller (same person / colluding). A confirmation from
+   * any of these — like a self-purchase — is excluded so a seller can't inflate
+   * their own score. Reuses the referral self-click-blocking idea (US-864).
+   */
+  linkedUserIds?: ReadonlySet<string>;
+  /**
+   * When true (default), a disputed outcome counts ONLY once `dispute_resolved`
+   * is true — an unresolved dispute is excluded entirely (not bad, not total) so a
+   * frivolous dispute can't dent a seller's score before an expert rules (AC2).
+   */
+  requireResolvedDispute?: boolean;
+}
+
+/**
+ * US-1912 AC2 — turn raw buyer-arrival outcomes into anti-gamed
+ * SellerIntegrityCounts: drop self-purchase + linked-account confirmations, and
+ * (by default) count a dispute only after human-review resolution. Pure; the
+ * impure recompute assembles the rows and passes them here. Confirmations from
+ * excluded accounts are dropped entirely; a resolved MATERIAL dispute counts
+ * double (mirrors computeSellerIntegrityScore's weighting via material_dispute_count).
+ */
+export function countableSellerOutcomes(
+  rows: readonly SellerOutcomeRow[],
+  opts: CountableOutcomeOptions,
+): SellerIntegrityCounts {
+  const linked = opts.linkedUserIds ?? new Set<string>();
+  const requireResolved = opts.requireResolvedDispute ?? true;
+  let confirmed = 0;
+  let disputed = 0;
+  let material = 0;
+  for (const r of rows) {
+    const buyer = r.buyer_user_id;
+    // Self-purchase / linked-account confirmations never count (anti-gaming).
+    if (buyer && (buyer === opts.sellerUserId || linked.has(buyer))) continue;
+    if (r.match_status === "confirmed") {
+      confirmed++;
+    } else if (r.match_status === "disputed") {
+      // A dispute counts only once resolved by human review (default).
+      if (requireResolved && r.dispute_resolved !== true) continue;
+      disputed++;
+      if (r.dispute_severity === "material") material++;
+    }
+  }
+  return {
+    confirmed_count: confirmed,
+    disputed_count: disputed,
+    material_dispute_count: material,
+    total_outcomes: confirmed + disputed,
+  };
+}
+
 // ─── Pure: seller integrity TIERS (US-1912) ─────────────────────────────────
 
 /**
@@ -270,30 +341,37 @@ export async function recomputeSellerGradeIntegrity(
   try {
     const { data, error } = await supabaseAdmin
       .from("grade_outcomes")
-      .select("match_status, dispute_severity")
+      // US-1912 AC2: buyer_user_id drives the self/linked-account exclusion;
+      // human_review_flagged tells us a dispute went to the review queue.
+      .select("buyer_user_id, match_status, dispute_severity, human_review_flagged")
       .eq("seller_user_id", sellerUserId)
       .eq("source", "buyer_arrival");
     if (error) {
       console.error("[BuyerGradeConfirm] seller integrity load failed:", error.message);
       return null;
     }
-    let confirmed = 0;
-    let disputed = 0;
-    let material = 0;
-    for (const r of data ?? []) {
-      const row = r as { match_status: string | null; dispute_severity: string | null };
-      if (row.match_status === "confirmed") confirmed++;
-      else if (row.match_status === "disputed") {
-        disputed++;
-        if (row.dispute_severity === "material") material++;
-      }
-    }
-    const counts: SellerIntegrityCounts = {
-      confirmed_count: confirmed,
-      disputed_count: disputed,
-      material_dispute_count: material,
-      total_outcomes: confirmed + disputed,
-    };
+    // US-1912 AC2 anti-gaming: drop self-purchase/linked-account confirmations and
+    // count a dispute only after human-review resolution. We approximate
+    // "resolved" as "was NOT flagged into the review queue" — a material dispute
+    // (human_review_flagged=true) stays PENDING (uncounted, benefit-of-the-doubt to
+    // the seller) until an expert rules; a minor dispute that never needed review
+    // counts immediately. Re-counting a flagged dispute once its human review
+    // RESOLVES still needs the grade_reports/human_reviews join (remaining AC2).
+    const outcomeRows: SellerOutcomeRow[] = (data ?? []).map((r) => {
+      const row = r as {
+        buyer_user_id: string | null;
+        match_status: string | null;
+        dispute_severity: string | null;
+        human_review_flagged: boolean | null;
+      };
+      return {
+        buyer_user_id: row.buyer_user_id,
+        match_status: row.match_status,
+        dispute_severity: row.dispute_severity,
+        dispute_resolved: row.human_review_flagged !== true,
+      };
+    });
+    const counts = countableSellerOutcomes(outcomeRows, { sellerUserId });
     const integrity_score = computeSellerIntegrityScore(counts);
     const { error: upErr } = await supabaseAdmin
       .from("seller_grade_integrity")

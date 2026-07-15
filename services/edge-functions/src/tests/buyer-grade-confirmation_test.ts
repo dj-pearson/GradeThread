@@ -15,6 +15,7 @@ const {
   MIN_INTEGRITY_SAMPLE,
   MIN_CONFIRMED_FOR_TIER,
   sellerIntegrityTier,
+  countableSellerOutcomes,
 } = await import("../lib/buyer-grade-confirmation.ts");
 
 const NOW = Date.UTC(2026, 6, 9);
@@ -238,4 +239,75 @@ Deno.test("tier: gaps explain the path to the next tier", () => {
   assertEquals(r.nextTierGaps.includes("integrity ≥ 95"), true);
   assertEquals(r.nextTierGaps.some((g) => g.includes("confirmed outcomes")), true);
   assertEquals(r.nextTierGaps.includes("avg photo coverage ≥ 75%"), true);
+});
+
+// ─── US-1912 AC2: anti-gaming outcome filter ────────────────────────────────
+const SELLER = "seller-1";
+const row = (
+  buyer: string | null,
+  match: string,
+  severity: string | null = null,
+  resolved = true,
+) => ({ buyer_user_id: buyer, match_status: match, dispute_severity: severity, dispute_resolved: resolved });
+
+Deno.test("countableSellerOutcomes: excludes self-purchase confirmations", () => {
+  const counts = countableSellerOutcomes(
+    [row("buyer-a", "confirmed"), row(SELLER, "confirmed"), row("buyer-b", "confirmed")],
+    { sellerUserId: SELLER },
+  );
+  // The seller's own confirmation is dropped → 2, not 3.
+  assertEquals(counts.confirmed_count, 2);
+  assertEquals(counts.total_outcomes, 2);
+});
+
+Deno.test("countableSellerOutcomes: excludes linked-account confirmations", () => {
+  const counts = countableSellerOutcomes(
+    [row("buyer-a", "confirmed"), row("alt-account", "confirmed")],
+    { sellerUserId: SELLER, linkedUserIds: new Set(["alt-account"]) },
+  );
+  assertEquals(counts.confirmed_count, 1);
+});
+
+Deno.test("countableSellerOutcomes: an UNRESOLVED dispute does not count (not bad, not total)", () => {
+  const counts = countableSellerOutcomes(
+    [row("buyer-a", "confirmed"), row("buyer-b", "disputed", "material", false)],
+    { sellerUserId: SELLER },
+  );
+  assertEquals(counts.confirmed_count, 1);
+  assertEquals(counts.disputed_count, 0); // unresolved → excluded entirely
+  assertEquals(counts.material_dispute_count, 0);
+  assertEquals(counts.total_outcomes, 1);
+});
+
+Deno.test("countableSellerOutcomes: a RESOLVED material dispute counts once + flags material", () => {
+  const counts = countableSellerOutcomes(
+    [row("buyer-a", "confirmed"), row("buyer-b", "disputed", "material", true)],
+    { sellerUserId: SELLER },
+  );
+  assertEquals(counts.disputed_count, 1);
+  assertEquals(counts.material_dispute_count, 1);
+  assertEquals(counts.total_outcomes, 2);
+});
+
+Deno.test("countableSellerOutcomes: requireResolvedDispute:false counts disputes regardless", () => {
+  const counts = countableSellerOutcomes(
+    [row("buyer-b", "disputed", "cosmetic", false)],
+    { sellerUserId: SELLER, requireResolvedDispute: false },
+  );
+  assertEquals(counts.disputed_count, 1);
+  assertEquals(counts.material_dispute_count, 0);
+});
+
+Deno.test("countableSellerOutcomes: a self-purchase DISPUTE is also excluded (no self-sabotage/gaming)", () => {
+  const counts = countableSellerOutcomes(
+    [row(SELLER, "disputed", "material", true), row("buyer-a", "confirmed")],
+    { sellerUserId: SELLER },
+  );
+  assertEquals(counts.disputed_count, 0);
+  assertEquals(counts.confirmed_count, 1);
+});
+
+Deno.test("countableSellerOutcomes: null buyer_user_id is kept (can't attribute to self/linked)", () => {
+  const counts = countableSellerOutcomes([row(null, "confirmed")], { sellerUserId: SELLER });
+  assertEquals(counts.confirmed_count, 1);
 });
