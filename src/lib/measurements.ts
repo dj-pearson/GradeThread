@@ -137,6 +137,134 @@ export function applyMeasurementsBlock(
 }
 
 /**
+ * Map an eBay aspect name onto a canonical measurement key via MEASUREMENT_SPECS
+ * candidates (case-insensitive). Returns null when the aspect isn't a known
+ * measurement field.
+ */
+export function measurementKeyForAspect(aspectName: string): string | null {
+  const lower = aspectName.trim().toLowerCase();
+  if (!lower) return null;
+  for (const [key, spec] of Object.entries(MEASUREMENT_SPECS)) {
+    if (spec.aspects.some((a) => a.toLowerCase() === lower)) return key;
+  }
+  return null;
+}
+
+/**
+ * Parse an eBay aspect string back into the stored measurement number.
+ * Lengths: "32", "32 in", "81 cm" → inches. Shoes: "US 10" / "10". mm: "42 mm".
+ */
+export function parseMeasurementAspectValue(
+  key: string,
+  raw: string,
+): number | null {
+  const text = raw.trim();
+  if (!text) return null;
+  const kind = MEASUREMENT_SPECS[key]?.kind ?? "length";
+
+  if (kind === "shoe") {
+    const m = text.match(/^(?:us\s*)?(\d+(?:\.\d+)?)$/i);
+    return m ? coerceMeasurement(m[1]) : null;
+  }
+  if (kind === "mm") {
+    const m = text.match(/^(\d+(?:\.\d+)?)\s*(?:mm)?$/i);
+    return m ? coerceMeasurement(m[1]) : null;
+  }
+
+  const m = text.match(/^(\d+(?:\.\d+)?)\s*(in|inch|inches|cm|centimeters?)?$/i);
+  if (!m) return null;
+  const n = coerceMeasurement(m[1]);
+  if (n == null) return null;
+  const unitToken = (m[2] ?? "in").toLowerCase();
+  if (unitToken.startsWith("cm") || unitToken.startsWith("centimeter")) {
+    return coerceMeasurement(Math.round((n / IN_TO_CM) * 100) / 100);
+  }
+  return n;
+}
+
+/**
+ * True when two measurement values are numerically equivalent (within 0.01),
+ * so "32 in" ↔ 32 does not thrash a live sync loop.
+ */
+export function measurementsNumericallyEqual(
+  a: unknown,
+  b: unknown,
+): boolean {
+  const na = coerceMeasurement(a);
+  const nb = coerceMeasurement(b);
+  if (na == null || nb == null) return na == null && nb == null;
+  return Math.abs(na - nb) < 0.01;
+}
+
+export type ForceMeasurementAspectsResult = {
+  /** Aspects to set/overwrite (formatted values). */
+  aspects: Record<string, string[]>;
+  /** Aspect names that should be cleared (measurement blanked). */
+  cleared: string[];
+};
+
+/**
+ * Live last-write-wins projection of measurements onto free-text category
+ * aspects. Unlike resolveMeasurementAspects (fill-only), this OVERWRITES
+ * matching aspects and reports clears when a measurement key was blanked.
+ *
+ * `categoryAspects`: name → allowedValues (`[]` = free-text).
+ * `sources`: optional provenance; a blanked measurement clears an aspect when
+ * it is inventory_derived OR its current value still matches a prior format.
+ */
+export function forceMeasurementAspects(
+  measurements: Measurements,
+  categoryAspects: Record<string, string[]>,
+  existing: Record<string, string[]> = {},
+  unit: LengthUnit = "in",
+  sources: Record<string, string | undefined> = {},
+): ForceMeasurementAspectsResult {
+  const aspects: Record<string, string[]> = {};
+  const cleared: string[] = [];
+  const meas = measurements && typeof measurements === "object" ? measurements : {};
+
+  const freeTextByLower = new Map<string, string>();
+  for (const [name, allowed] of Object.entries(categoryAspects)) {
+    if (!Array.isArray(allowed) || allowed.length === 0) {
+      freeTextByLower.set(name.toLowerCase(), name);
+    }
+  }
+
+  // Resolve each measurement key to at most one free-text aspect in the category.
+  const keyToAspect = new Map<string, string>();
+  for (const [key, spec] of Object.entries(MEASUREMENT_SPECS)) {
+    for (const candidate of spec.aspects) {
+      const canonical = freeTextByLower.get(candidate.toLowerCase());
+      if (canonical) {
+        keyToAspect.set(key, canonical);
+        break;
+      }
+    }
+  }
+
+  for (const [key, canonical] of keyToAspect) {
+    const hasKey = key in meas;
+    const formatted = hasKey ? formatMeasurementValue(key, meas[key], unit) : null;
+    if (formatted) {
+      const current = existing[canonical]?.[0]?.trim() ?? "";
+      if (current !== formatted) {
+        aspects[canonical] = [formatted];
+      }
+      continue;
+    }
+
+    // Blanked / missing measurement → clear aspect when it looks measurement-owned.
+    const current = existing[canonical]?.[0]?.trim() ?? "";
+    if (!current) continue;
+    // Only clear aspects we previously projected from measurements. A manual
+    // (or AI) Inseam stays put when Measurements simply never had that key.
+    if (sources[canonical] === "inventory_derived") cleared.push(canonical);
+  }
+
+  return { aspects, cleared };
+}
+
+/**
  * Map stored measurements onto a category's eBay measurement aspects. Fills an
  * aspect only when one of the key's candidate names exists in the category spec
  * AND is free-text (empty allowedValues), and the aspect isn't already set.

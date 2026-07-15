@@ -502,7 +502,9 @@ export function FlipdeskComposerPage() {
   );
 
   // Structured item columns the aspect prefill can draw from — memoized so the
-  // picker's seed effect doesn't churn on every render.
+  // picker's seed effect doesn't churn on every render. Live measurements are
+  // included so category remap fill-only uses current composer values; the
+  // picker's remap key deliberately ignores measurement-only churn.
   const itemAspectSource = useMemo<ItemAspectSource | null>(
     () =>
       item
@@ -517,12 +519,13 @@ export function FlipdeskComposerPage() {
             condition_notes: item.notes,
             item_category: item.category,
             attributes: ebayMapping?.attributes ?? null,
-            // US-1450: carry measurements so the picker folds them into the
-            // category's free-text measurement aspects (fill-only).
-            measurements: item.measurements,
+            // Live Measurements state — fill-only fold on category remap, plus
+            // the picker's dedicated live last-write-wins bridge.
+            measurements:
+              Object.keys(measurements).length > 0 ? measurements : null,
           }
         : null,
-    [item, ebayMapping],
+    [item, ebayMapping, measurements],
   );
 
   // Seed editable fields once the item, photos, and listing have settled.
@@ -1879,6 +1882,11 @@ export function FlipdeskComposerPage() {
               }
               seedQuery={item.item_title ?? ""}
               itemFields={itemAspectSource}
+              measurements={initialised ? measurements : undefined}
+              onMeasurementsChange={
+                initialised ? setMeasurements : undefined
+              }
+              measurementUnit={measurementUnit}
               onCategoryChange={(id, path) => {
                 setLivePickedCategoryId(id);
                 setLivePickedCategoryPath(path ?? null);
@@ -2565,8 +2573,8 @@ export function FlipdeskComposerPage() {
             <CardHeader>
               <CardTitle>Measurements</CardTitle>
               <CardDescription>
-                Flat measurements buyers ask about. Saved to the item and
-                folded into the category's measurement specifics at publish.
+                Flat measurements buyers ask about. Synced live with matching
+                free-text eBay item specifics (Inseam, Length, Chest, …).
               </CardDescription>
             </CardHeader>
             <CardContent>

@@ -2,8 +2,12 @@ import { describe, it, expect } from "vitest";
 import {
   applyMeasurementsBlock,
   buildMeasurementLines,
+  forceMeasurementAspects,
   formatMeasurementValue,
   MEASUREMENTS_BLOCK_START,
+  measurementKeyForAspect,
+  measurementsNumericallyEqual,
+  parseMeasurementAspectValue,
   resolveMeasurementAspects,
 } from "@/lib/measurements";
 
@@ -49,6 +53,88 @@ describe("resolveMeasurementAspects", () => {
     expect(
       resolveMeasurementAspects({ waist: 30 }, { "Waist Size": [] }, { "Waist Size": ["32"] }),
     ).toEqual({});
+  });
+});
+
+describe("measurementKeyForAspect", () => {
+  it("maps known aspect names case-insensitively", () => {
+    expect(measurementKeyForAspect("Inseam")).toBe("inseam");
+    expect(measurementKeyForAspect("chest size")).toBe("chest");
+    expect(measurementKeyForAspect("Pit to Pit")).toBe("chest");
+  });
+  it("returns null for unrelated aspects", () => {
+    expect(measurementKeyForAspect("Brand")).toBeNull();
+    expect(measurementKeyForAspect("")).toBeNull();
+  });
+});
+
+describe("parseMeasurementAspectValue", () => {
+  it("parses bare numbers and inch/cm suffixes into inches", () => {
+    expect(parseMeasurementAspectValue("inseam", "32")).toBe(32);
+    expect(parseMeasurementAspectValue("inseam", "32 in")).toBe(32);
+    expect(parseMeasurementAspectValue("inseam", "81.28 cm")).toBe(32);
+  });
+  it("parses shoe and mm kinds", () => {
+    expect(parseMeasurementAspectValue("size_us", "US 10.5")).toBe(10.5);
+    expect(parseMeasurementAspectValue("case_diameter", "42 mm")).toBe(42);
+  });
+  it("rejects non-numeric strings", () => {
+    expect(parseMeasurementAspectValue("sleeve", "Short Sleeve")).toBeNull();
+    expect(parseMeasurementAspectValue("inseam", "")).toBeNull();
+  });
+});
+
+describe("measurementsNumericallyEqual", () => {
+  it("treats near-equal numbers as equal", () => {
+    expect(measurementsNumericallyEqual(32, "32")).toBe(true);
+    expect(measurementsNumericallyEqual(32, 32.005)).toBe(true);
+    expect(measurementsNumericallyEqual(32, 30)).toBe(false);
+  });
+});
+
+describe("forceMeasurementAspects (live overwrite)", () => {
+  it("overwrites an already-set free-text aspect", () => {
+    expect(
+      forceMeasurementAspects(
+        { inseam: 34 },
+        { Inseam: [] },
+        { Inseam: ["32 in"] },
+      ),
+    ).toEqual({ aspects: { Inseam: ["34 in"] }, cleared: [] });
+  });
+  it("skips SELECTION_ONLY aspects", () => {
+    expect(
+      forceMeasurementAspects(
+        { sleeve: 25 },
+        { "Sleeve Length": ["Short Sleeve", "Long Sleeve"] },
+        {},
+      ),
+    ).toEqual({ aspects: {}, cleared: [] });
+  });
+  it("clears inventory_derived aspects when the measurement is blanked", () => {
+    expect(
+      forceMeasurementAspects(
+        {},
+        { Inseam: [] },
+        { Inseam: ["32 in"] },
+        "in",
+        { Inseam: "inventory_derived" },
+      ),
+    ).toEqual({ aspects: {}, cleared: ["Inseam"] });
+  });
+  it("is a no-op when the aspect already matches the formatted value", () => {
+    expect(
+      forceMeasurementAspects(
+        { inseam: 32 },
+        { Inseam: [] },
+        { Inseam: ["32 in"] },
+      ),
+    ).toEqual({ aspects: {}, cleared: [] });
+  });
+  it("honors cm preference when projecting", () => {
+    expect(
+      forceMeasurementAspects({ inseam: 30 }, { Inseam: [] }, {}, "cm"),
+    ).toEqual({ aspects: { Inseam: ["76.2 cm"] }, cleared: [] });
   });
 });
 
