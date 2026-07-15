@@ -195,14 +195,17 @@ export const SIZING_CHARTS: SizingChart[] = [
     department: "Women",
     garment: "Tops",
     categoryMatch: ["top", "tee", "shirt", "tank", "bra", "hoodie", "jacket"],
-    note: "Athleta women's tops run alpha (XXS–XL); bust is the primary signal.",
+    // US-1732: refined to the published Athleta guide + numeric map (mirrors 00448).
+    note:
+      "Athleta women's tops run alpha (XXS–3X) with a numeric map (XXS≈00, XS≈0-2, " +
+      "S≈4-6, M≈8-10, L≈12-14, XL≈16-18); bust is the primary signal. 1X-3X extend ~+2.5in/step.",
     rows: [
-      { size: "XXS", measurements: { bust: "30-31" } },
-      { size: "XS", measurements: { bust: "32-33" } },
-      { size: "S", measurements: { bust: "34-35" } },
-      { size: "M", measurements: { bust: "36-37.5" } },
+      { size: "XXS", measurements: { bust: "32.5" } },
+      { size: "XS", measurements: { bust: "32.5-33.5" } },
+      { size: "S", measurements: { bust: "34.5-35.5" } },
+      { size: "M", measurements: { bust: "36.5-37.5" } },
       { size: "L", measurements: { bust: "38.5-40" } },
-      { size: "XL", measurements: { bust: "41-43" } },
+      { size: "XL", measurements: { bust: "41.5-43.5" } },
     ],
   },
   {
@@ -211,14 +214,18 @@ export const SIZING_CHARTS: SizingChart[] = [
     department: "Women",
     garment: "Bottoms (leggings / pants)",
     categoryMatch: ["bottom", "legging", "pant", "short", "tight", "jogger"],
-    note: "Athleta women's bottoms run alpha (XXS–XL); waist is the primary signal.",
+    // US-1732: refined to the published Athleta guide + numeric map (mirrors 00448).
+    note:
+      "Athleta women's bottoms run alpha (XXS–3X) with a numeric map (XXS≈00, XS≈0-2, " +
+      "S≈4-6, M≈8-10, L≈12-14, XL≈16-18); waist is the primary signal, hip secondary. " +
+      "1X-3X extend ~+2.5in waist/step.",
     rows: [
-      { size: "XXS", measurements: { waist: "24-25", hip: "33-34" } },
-      { size: "XS", measurements: { waist: "26-27", hip: "35-36" } },
-      { size: "S", measurements: { waist: "28-29", hip: "37-38.5" } },
-      { size: "M", measurements: { waist: "30-31.5", hip: "39.5-41" } },
-      { size: "L", measurements: { waist: "32.5-34", hip: "42-43.5" } },
-      { size: "XL", measurements: { waist: "35-37", hip: "44.5-46.5" } },
+      { size: "XXS", measurements: { waist: "24", hip: "34.5" } },
+      { size: "XS", measurements: { waist: "25-26", hip: "35.5-36.5" } },
+      { size: "S", measurements: { waist: "27-28", hip: "37.5-38.5" } },
+      { size: "M", measurements: { waist: "29-30", hip: "39.5-40.5" } },
+      { size: "L", measurements: { waist: "31-32.5", hip: "41.5-43" } },
+      { size: "XL", measurements: { waist: "34-36", hip: "44.5-46.5" } },
     ],
   },
   {

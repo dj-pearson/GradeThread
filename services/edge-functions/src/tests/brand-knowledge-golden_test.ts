@@ -209,6 +209,30 @@ const CASES: GoldenCase[] = [
     input: decodedFrom({ styleCode: "NOT-A-CODE" }),
     expect: { noBrand: true },
   },
+  // US-1732: Athleta — also decoder-less (fabric line + care-tag size). Same
+  // guarantees: single known style fills, its confusable Powervita pair is never
+  // guessed, and a non-code never false-recovers a brand.
+  {
+    name: "Athleta single known style fills the style the AI missed",
+    brand: "Athleta",
+    pack: pack("Athleta", "athleta", [style("Salutation Tight")]),
+    input: decodedFrom({ brand: "Athleta" }),
+    expect: { brand: "Athleta", style: "Salutation Tight" },
+  },
+  {
+    name: "Athleta ambiguous Powervita styles (Salutation vs Elation) — never guess",
+    brand: "Athleta",
+    pack: pack("Athleta", "athleta", [style("Salutation Tight"), style("Elation Tight")]),
+    input: decodedFrom({ brand: "Athleta" }),
+    expect: { brand: "Athleta", noStyle: true },
+  },
+  {
+    name: "Athleta non-code tag — no false-positive brand recovery (no decoder)",
+    brand: "Athleta",
+    pack: pack("Athleta", "athleta", [style("Salutation Tight"), style("Elation Tight")]),
+    input: decodedFrom({ styleCode: "NOT-A-CODE" }),
+    expect: { noBrand: true },
+  },
 ];
 
 // ── the gate ────────────────────────────────────────────────────────────────

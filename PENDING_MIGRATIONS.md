@@ -4,6 +4,24 @@
 > The sections below for those are historical; the only NEW held migration is
 > **00443** at the top.
 
+## ⏳ PENDING: 00448_athleta_brand_knowledge.sql (US-1732 Athleta brand KB, 2026-07-15)
+
+Data-only seed/refine of the `brand_knowledge*` tables for Athleta: one
+`brand_knowledge` row (Gap Inc brand, fabric-line auth tells, alpha+numeric size
+markers — RN omitted as unsourced), 5 `brand_styles` (Salutation BRUSHED vs
+Elation SMOOTH Powervita vs Ultimate firm SuperSonic; woven Brooklyn ankle pant;
+Rainier low-confidence), 3 `brand_colorways`, and an UPSERT (`do update`) of the
+two existing 00389 Athleta `brand_size_charts` to the sourced XXS-XL measurements
++ the numeric map (XXS≈00 … XL≈16-18) in the note. Every fact `source_url` +
+`confidence`, `verified=false`. Idempotent. Apply after 00447 via
+`scripts/apply-prod-migrations.sh`, `NOTIFY pgrst, 'reload schema';`, redeploy the
+edge (boot guard now expects **00448**). Bumps `EXPECTED_SCHEMA_VERSION` → **00448**.
+
+**Risk: LOW** — data-only into deny-all global-reference tables; the size-chart
+upsert only REFINES existing rows (adds hip + numeric note). **No CLIENT read** —
+read only by the edge resolver (`brand-knowledge.ts`, with the `sizing-charts.ts`
+in-code fallback this commit also refines, so it works before the SQL lands).
+
 ## ⏳ PENDING: 00447_alo_yoga_brand_knowledge.sql (US-1731 Alo Yoga brand KB, 2026-07-15)
 
 Data-only seed into the five `brand_knowledge*` reference tables (00389): one
