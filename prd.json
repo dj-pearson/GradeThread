@@ -2074,7 +2074,7 @@
         "Server consumption verified end-to-end (flipdesk-ebay.ts:5841-5949) — an iOS-created auction/variation listing publishes correctly"
       ],
       "priority": 2601,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][iOS/Composer] iOS listing-lifecycle audit 2026-07-14. Purely missing iOS UI; web listing-format-controls.tsx:101-161,190+; server already consumes it. Trailing item in the composer epic (severity depends on seller type).",
       "relevantPaths": [
         "ios/GradeThread/Marketplaces/Publish/PublishDialog.swift",
