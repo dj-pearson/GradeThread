@@ -21,6 +21,18 @@ struct ListingDraftSettings: Equatable {
     var autoAcceptCents: Int?
     var autoDeclineCents: Int?
     var scheduledPublishAt: Date?
+    /// US-1975: the seller's OWN auction terms, for the same reason as the Best
+    /// Offer thresholds — `summary.auctionStartPrice` is the server's resolution
+    /// (it falls back to the listing price), so seeding the box with it would pin
+    /// a moving target into the override column on the next save.
+    var auctionStartPriceCents: Int?
+    var auctionReservePriceCents: Int?
+    var auctionBuyItNowPriceCents: Int?
+    var auctionDuration: String?
+    /// US-1975: the RAW saved matrix — not `summary.variations`, which the server
+    /// already normalized (an in-progress matrix with one in-stock row normalizes
+    /// to null, and re-seeding from that would silently discard the seller's work).
+    var variations: ListingVariationsPayload?
 
     /// No listing row yet (a camera-created item that was never saved), or the
     /// read failed — the composer falls back to the summary's own defaults.
@@ -54,7 +66,60 @@ struct ListingDraftSettings: Equatable {
         case .at(let date): next.scheduledPublishAt = date
         case .clear: next.scheduledPublishAt = nil
         }
+        // US-1975: mirror the format write below — auction terms only persist for
+        // an AUCTION draft (they're nulled for fixed price, so a format flip can't
+        // leave stale terms behind), and variations only for a fixed-price one.
+        if let choice = edits.listingFormat {
+            let auction = choice.isAuction
+            next.auctionStartPriceCents = auction
+                ? BestOfferValidation.cents(choice.startPriceText, formatter: formatter) : nil
+            next.auctionReservePriceCents = auction
+                ? BestOfferValidation.cents(choice.reservePriceText, formatter: formatter) : nil
+            next.auctionBuyItNowPriceCents = auction
+                ? BestOfferValidation.cents(choice.buyItNowText, formatter: formatter) : nil
+            next.auctionDuration = auction ? choice.duration : nil
+            next.variations = auction ? nil : choice.variations?.payload(formatter: formatter)
+        }
         return next
+    }
+}
+
+/// US-1975: the `listings` format columns one save writes, resolved once so the
+/// UPDATE and INSERT branches can't disagree about field ownership. `known ==
+/// false` means the composer never showed the control, so the save must leave
+/// every one of these columns untouched.
+///
+/// LOCKSTEP with the web composer's `buildFormatPayload` (composer.tsx): the two
+/// clients write the same columns from the same rules, and
+/// `assemblePublishContext` reads them without caring which one wrote.
+private struct FormatColumns {
+    let known: Bool
+    let listingFormat: String?
+    let startCents: Int?
+    let reserveCents: Int?
+    let buyItNowCents: Int?
+    let duration: String?
+    let variations: ListingVariationsPayload?
+
+    init(_ choice: ComposerFormatChoice?, formatter: CurrencyFormatter = CurrencyFormatter()) {
+        guard let choice else {
+            known = false
+            listingFormat = nil
+            startCents = nil
+            reserveCents = nil
+            buyItNowCents = nil
+            duration = nil
+            variations = nil
+            return
+        }
+        known = true
+        listingFormat = choice.format.rawValue
+        let auction = choice.isAuction
+        startCents = auction ? BestOfferValidation.cents(choice.startPriceText, formatter: formatter) : nil
+        reserveCents = auction ? BestOfferValidation.cents(choice.reservePriceText, formatter: formatter) : nil
+        buyItNowCents = auction ? BestOfferValidation.cents(choice.buyItNowText, formatter: formatter) : nil
+        duration = auction ? choice.duration : nil
+        variations = auction ? nil : choice.variations?.payload(formatter: formatter)
     }
 }
 
@@ -80,6 +145,12 @@ struct ListingDraftService {
         let best_offer_auto_accept_cents: Int?
         let best_offer_auto_decline_cents: Int?
         let scheduled_publish_at: String?
+        // US-1975: the seller's own format overrides (see ListingDraftSettings).
+        let auction_start_price_cents: Int?
+        let auction_reserve_price_cents: Int?
+        let auction_buy_it_now_price_cents: Int?
+        let auction_duration: String?
+        let variations: ListingVariationsPayload?
     }
 
     /// Read the composer-relevant settings off the item's most-recent eBay
@@ -91,7 +162,9 @@ struct ListingDraftService {
             .from("listings")
             .select(
                 "best_offer_enabled, best_offer_auto_accept_cents, "
-                    + "best_offer_auto_decline_cents, scheduled_publish_at"
+                    + "best_offer_auto_decline_cents, scheduled_publish_at, "
+                    + "auction_start_price_cents, auction_reserve_price_cents, "
+                    + "auction_buy_it_now_price_cents, auction_duration, variations"
             )
             .eq("inventory_item_id", value: inventoryItemId)
             .eq("platform", value: "ebay")
@@ -107,7 +180,12 @@ struct ListingDraftService {
             // The column is a timestamptz; PostgREST emits fractional seconds,
             // which the default `.iso8601` strategy rejects — so parse through
             // the fractional-tolerant helper (US-1127 pattern).
-            scheduledPublishAt: row.scheduled_publish_at.flatMap(ScheduledDropScheduling.parseTimestamp)
+            scheduledPublishAt: row.scheduled_publish_at.flatMap(ScheduledDropScheduling.parseTimestamp),
+            auctionStartPriceCents: row.auction_start_price_cents,
+            auctionReservePriceCents: row.auction_reserve_price_cents,
+            auctionBuyItNowPriceCents: row.auction_buy_it_now_price_cents,
+            auctionDuration: row.auction_duration,
+            variations: row.variations
         )
     }
 
@@ -215,6 +293,15 @@ struct ListingDraftService {
         let acceptCents = edits.bestOffer.flatMap { BestOfferValidation.cents($0.autoAcceptText) }
         let declineCents = edits.bestOffer.flatMap { BestOfferValidation.cents($0.autoDeclineText) }
 
+        // US-1975: nil `listingFormat` = the control wasn't shown → leave the
+        // format columns alone. When it WAS shown we write the whole set, with
+        // the same field ownership the web composer's `buildFormatPayload` uses:
+        // auction terms are nulled for a fixed-price draft and variations for an
+        // auction (eBay has no multi-variation auction), so flipping the format
+        // can never leave the other side's stale values to be picked up by
+        // `assemblePublishContext`.
+        let format = FormatColumns(edits.listingFormat)
+
         if let row = existing.first {
             struct Update: Encodable {
                 // US-1648: the composer's price must persist on a re-save too —
@@ -242,6 +329,8 @@ struct ListingDraftService {
                 let best_offer_auto_decline_cents: Int?
                 // US-1971: .unchanged leaves an existing scheduled drop alone.
                 let schedule: ComposerScheduleEdit
+                // US-1975: `known == false` leaves every format column alone.
+                let format: FormatColumns
 
                 enum CodingKeys: String, CodingKey {
                     case listing_price
@@ -254,6 +343,12 @@ struct ListingDraftService {
                     case best_offer_auto_accept_cents
                     case best_offer_auto_decline_cents
                     case scheduled_publish_at
+                    case listing_format
+                    case auction_start_price_cents
+                    case auction_reserve_price_cents
+                    case auction_buy_it_now_price_cents
+                    case auction_duration
+                    case variations
                 }
                 // US-1501: `ebay_condition_description` is encoded EXPLICITLY (null
                 // when nil) so CLEARING the composer condition note actually clears
@@ -302,6 +397,21 @@ struct ListingDraftService {
                     case .clear:
                         try c.encodeNil(forKey: .scheduled_publish_at)
                     }
+                    // US-1975: same reasoning as promo/Best Offer — when the
+                    // control was shown, every format column is written
+                    // EXPLICITLY (null included). Nil-omission would strand the
+                    // old format's values: switching an auction draft back to
+                    // fixed price would leave auction_start_price_cents set, and
+                    // turning multi-variant off would leave the matrix in place
+                    // for `assemblePublishContext` to publish anyway.
+                    if format.known {
+                        try c.encode(format.listingFormat, forKey: .listing_format)
+                        try c.encode(format.startCents, forKey: .auction_start_price_cents)
+                        try c.encode(format.reserveCents, forKey: .auction_reserve_price_cents)
+                        try c.encode(format.buyItNowCents, forKey: .auction_buy_it_now_price_cents)
+                        try c.encode(format.duration, forKey: .auction_duration)
+                        try c.encode(format.variations, forKey: .variations)
+                    }
                 }
             }
             try await supabase
@@ -322,7 +432,8 @@ struct ListingDraftService {
                     best_offer_enabled: bestOfferEnabled,
                     best_offer_auto_accept_cents: acceptCents,
                     best_offer_auto_decline_cents: declineCents,
-                    schedule: edits.schedule
+                    schedule: edits.schedule,
+                    format: format
                 ))
                 .eq("id", value: row.id)
                 .execute()
@@ -353,6 +464,15 @@ struct ListingDraftService {
                 let best_offer_auto_accept_cents: Int?
                 let best_offer_auto_decline_cents: Int?
                 let scheduled_publish_at: String?
+                // US-1975: nil-omission is right on a fresh row too — the columns
+                // default to fixed-price / no auction terms / no matrix, which is
+                // exactly "the control wasn't shown".
+                let listing_format: String?
+                let auction_start_price_cents: Int?
+                let auction_reserve_price_cents: Int?
+                let auction_buy_it_now_price_cents: Int?
+                let auction_duration: String?
+                let variations: ListingVariationsPayload?
             }
             try await supabase
                 .from("listings")
@@ -375,7 +495,13 @@ struct ListingDraftService {
                     best_offer_enabled: bestOfferEnabled,
                     best_offer_auto_accept_cents: acceptCents,
                     best_offer_auto_decline_cents: declineCents,
-                    scheduled_publish_at: Self.scheduleInsertValue(edits.schedule)
+                    scheduled_publish_at: Self.scheduleInsertValue(edits.schedule),
+                    listing_format: format.listingFormat,
+                    auction_start_price_cents: format.startCents,
+                    auction_reserve_price_cents: format.reserveCents,
+                    auction_buy_it_now_price_cents: format.buyItNowCents,
+                    auction_duration: format.duration,
+                    variations: format.variations
                 ))
                 .execute()
         }
@@ -452,6 +578,10 @@ struct ComposerEdits: Equatable {
     /// US-1971: what to do with the draft's `scheduled_publish_at`.
     /// `.unchanged` (the default) leaves an existing scheduled drop alone.
     var schedule: ComposerScheduleEdit = .unchanged
+    /// US-1975: the composer's listing format + auction terms + variation matrix.
+    /// nil = the control was never shown, so `saveDraft` leaves `listing_format`,
+    /// the `auction_*` columns, and `variations` untouched.
+    var listingFormat: ComposerFormatChoice? = nil
 }
 
 /// US-1972: what the composer currently holds, reported up to the parent on

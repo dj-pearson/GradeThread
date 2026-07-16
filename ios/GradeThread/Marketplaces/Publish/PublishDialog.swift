@@ -771,6 +771,11 @@ private struct ComposerForm: View {
     /// US-1971: scheduled publish. Off = publish immediately on Push.
     @State private var scheduleEnabled: Bool
     @State private var scheduleDate: Date
+    /// US-1975: listing format (fixed price / auction), the auction terms, and
+    /// the multi-variant matrix. The server has consumed all of these since
+    /// US-568; iOS had no UI for them, so every iOS publish was a fixed-price
+    /// single-variant listing regardless of what the draft said.
+    @State private var formatChoice: ComposerFormatChoice
 
     // US-1497: synchronous in-flight guard (the CounterOfferSheet isSubmitting
     // pattern). Set true on tap BEFORE `onPush`, so the button disables in the
@@ -799,6 +804,8 @@ private struct ComposerForm: View {
         // US-1970: the two Best Offer threshold boxes (.decimalPad — no Return
         // key, so they rely on the form's shared keyboard Done toolbar).
         case bestOfferAccept, bestOfferDecline
+        // US-1975: the auction term boxes (also .decimalPad).
+        case auctionStart, auctionReserve, auctionBuyItNow
     }
 
     /// US-1242: the validated summary had no usable price (zero/blank/unparseable),
@@ -939,6 +946,31 @@ private struct ComposerForm: View {
         // US-1971: an already-scheduled draft reopens with its schedule showing.
         _scheduleEnabled = State(initialValue: draftSettings.scheduledPublishAt != nil)
         _scheduleDate = State(initialValue: draftSettings.scheduledPublishAt ?? Self.defaultScheduleDate())
+        _formatChoice = State(
+            initialValue: Self.seededFormatChoice(summary: summary, settings: draftSettings)
+        )
+    }
+
+    /// US-1975: what the format editor starts from. The SELECTOR reads the
+    /// summary — the draft-settings fetch fails soft to `.none`, and misreading
+    /// an auction draft as fixed price would silently rewrite its format on the
+    /// next save. The auction PRICE boxes and the matrix read the seller's own
+    /// saved columns for the mirror-image reason: `summary.auctionStartPrice`
+    /// falls back to the listing price and `summary.variations` is already
+    /// normalized (an in-progress matrix comes back null), so seeding from either
+    /// would pin or discard something the seller never chose (US-1512/US-1970).
+    /// Also the baseline the dirty check compares against, so it mirrors `init`.
+    private static func seededFormatChoice(
+        summary: PublishSummary, settings: ListingDraftSettings
+    ) -> ComposerFormatChoice {
+        ComposerFormatChoice(
+            format: summary.composerFormat,
+            startPriceText: seedCentsText(settings.auctionStartPriceCents),
+            reservePriceText: seedCentsText(settings.auctionReservePriceCents),
+            buyItNowText: seedCentsText(settings.auctionBuyItNowPriceCents),
+            duration: AuctionDuration.normalize(settings.auctionDuration),
+            variations: settings.variations.map(ComposerVariations.init(payload:))
+        )
     }
 
     /// US-1970: cents → an editable, LOCALE-formatted string that round-trips
@@ -985,6 +1017,7 @@ private struct ComposerForm: View {
             || (promoteEnabled && promoRateText != Self.seedRateText(summary.promotedAdRate))
             || bestOffer != Self.seededBestOffer(summary: summary, settings: draftSettings)
             || scheduleEdit != .unchanged
+            || formatChoice != Self.seededFormatChoice(summary: summary, settings: draftSettings)
     }
 
     /// US-1970: what the Best Offer controls were seeded with — the baseline the
@@ -1027,6 +1060,20 @@ private struct ComposerForm: View {
         BestOfferValidation.error(bestOffer, priceCents: effectivePriceCents)
     }
 
+    /// US-1975: the blocking format problem, if any (bad auction terms, or a
+    /// matrix the server would silently drop back to a single-SKU listing).
+    private var formatError: String? {
+        ListingFormatValidation.error(formatChoice, priceCents: effectivePriceCents)
+    }
+
+    /// US-1975: the Best Offer choice this composer sends. eBay rejects Best
+    /// Offer on an auction and the server suppresses it (`format === "FIXED_PRICE"`
+    /// in the publish path), so an auction sends nil — leaving the columns alone
+    /// rather than persisting terms that can never apply.
+    private var effectiveBestOffer: ComposerBestOffer? {
+        formatChoice.allowsBestOffer ? bestOffer : nil
+    }
+
     /// The edits both commit paths (Save and Push) send up. Built once here so
     /// a scheduled save and an immediate push can never disagree about what the
     /// composer holds.
@@ -1049,8 +1096,9 @@ private struct ComposerForm: View {
             promoRatePct: summary.promotedAdRateKnown && promoteEnabled
                 ? PromotedAdRate.parse(promoRateText)
                 : nil,
-            bestOffer: bestOffer,
-            schedule: schedule
+            bestOffer: effectiveBestOffer,
+            schedule: schedule,
+            listingFormat: formatChoice
         )
     }
 
@@ -1062,7 +1110,7 @@ private struct ComposerForm: View {
     /// commit buttons and the close confirmation's Save — a blank title or
     /// non-positive price would be rejected by `saveDraft` anyway (US-789).
     private var canSave: Bool {
-        !trimmedTitle.isEmpty && !priceInvalid && bestOfferError == nil
+        !trimmedTitle.isEmpty && !priceInvalid && bestOfferError == nil && formatError == nil
     }
 
     /// US-1972: what the parent needs to save this form on the seller's behalf
@@ -1189,6 +1237,7 @@ private struct ComposerForm: View {
                 }
 
                 priceSection
+                formatSection
                 bestOfferSection
                 scheduleSection
                 promoSection
@@ -1666,6 +1715,112 @@ private struct ComposerForm: View {
         .clipShape(Capsule())
     }
 
+    // MARK: - Listing format + variations (US-1975)
+
+    /// Format selector, the auction terms, and the multi-variant matrix. Auction
+    /// and variations are mutually exclusive (eBay has no multi-variation
+    /// auction), so choosing one clears the other — the web composer's rule.
+    @ViewBuilder
+    private var formatSection: some View {
+        fieldGroup("Listing format") {
+            Picker("Listing format", selection: formatBinding) {
+                ForEach(ComposerListingFormat.allCases) { option in
+                    Text(option.label).tag(option)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            if formatChoice.isAuction {
+                auctionFields
+            } else {
+                variationsControl
+            }
+
+            if let formatError {
+                Label(formatError, systemImage: "exclamationmark.triangle")
+                    .font(.caption2)
+                    .foregroundStyle(Color.brandRed)
+                    .accessibilityElement(children: .combine)
+            }
+        }
+    }
+
+    /// Switching to auction drops the variation matrix rather than leaving it to
+    /// be silently ignored at publish.
+    private var formatBinding: Binding<ComposerListingFormat> {
+        Binding(
+            get: { formatChoice.format },
+            set: { next in
+                formatChoice.format = next
+                if next == .auction { formatChoice.variations = nil }
+            }
+        )
+    }
+
+    @ViewBuilder
+    private var auctionFields: some View {
+        Text("Bidding runs for the duration you pick. The winning bid is the sale price — buyers can\u{2019}t send offers on an auction.")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        thresholdField(
+            label: "Starting bid",
+            text: $formatChoice.startPriceText,
+            // The server starts the auction at the listing price when this is
+            // blank, so show that resolution rather than an empty hint.
+            placeholder: summary.auctionStartPrice ?? summary.priceValue,
+            field: .auctionStart
+        )
+        thresholdField(
+            label: "Reserve (optional)",
+            text: $formatChoice.reservePriceText,
+            placeholder: nil,
+            field: .auctionReserve
+        )
+        thresholdField(
+            label: "Buy It Now (optional)",
+            text: $formatChoice.buyItNowText,
+            placeholder: nil,
+            field: .auctionBuyItNow
+        )
+        Picker("Duration", selection: $formatChoice.duration) {
+            ForEach(AuctionDuration.all, id: \.self) { value in
+                Text(AuctionDuration.label(value)).tag(value)
+            }
+        }
+        .pickerStyle(.menu)
+        .tint(Color.brandNavy)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// The multi-variant toggle + matrix. Enabling it forces fixed price (the
+    /// selector above is already fixed price whenever this is reachable).
+    @ViewBuilder
+    private var variationsControl: some View {
+        Toggle(isOn: variationsToggle) {
+            Text("Multi-variant (sizes / colors)")
+                .font(.subheadline)
+        }
+        .tint(Color.brandNavy)
+
+        if let binding = Binding($formatChoice.variations) {
+            VariationMatrixEditor(variations: binding, currency: summary.currency ?? "USD")
+        } else {
+            Text("One listing, one SKU. Turn this on to sell several sizes or colors under a single listing.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var variationsToggle: Binding<Bool> {
+        Binding(
+            get: { formatChoice.variations != nil },
+            set: { on in
+                formatChoice.variations = on ? ComposerVariations.seeded() : nil
+                if on { formatChoice.format = .fixedPrice }
+            }
+        )
+    }
+
     // MARK: - Best Offer (US-1970)
 
     /// Best Offer toggle + optional auto-accept / auto-decline thresholds. The
@@ -1674,6 +1829,15 @@ private struct ComposerForm: View {
     /// waited on the seller.
     @ViewBuilder
     private var bestOfferSection: some View {
+        // US-1975: eBay allows no Best Offer on an auction (the server drops the
+        // terms), so the control is hidden rather than left to look effective.
+        if formatChoice.allowsBestOffer {
+            bestOfferControls
+        }
+    }
+
+    @ViewBuilder
+    private var bestOfferControls: some View {
         fieldGroup("Best Offer") {
             Toggle(isOn: $bestOffer.enabled) {
                 Text("Accept offers")
@@ -1904,6 +2068,158 @@ private struct ComposerForm: View {
     private static func dollars(_ amount: Double) -> String {
         // US-1155: locale/override currency symbol rather than a hardcoded "$".
         CurrencyFormatter().formatDisplay(amount)
+    }
+}
+
+/// US-1975: the size/color matrix editor. Each row is one purchasable
+/// combination with its own quantity and (optional) price — the shape
+/// `publishVariationListing` turns into an eBay inventory_item_group.
+private struct VariationMatrixEditor: View {
+    @Binding var variations: ComposerVariations
+    let currency: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            variesByRow
+            ForEach($variations.variants) { $variant in
+                VariantRow(
+                    variant: $variant,
+                    specifications: variations.specifications,
+                    currency: currency,
+                    onRemove: removeAction(for: variant.id)
+                )
+            }
+            addButton
+            Text("Leave a variant\u{2019}s price blank to sell it at the listing price. eBay needs at least two in-stock variants — with fewer, this publishes as a single listing.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var variesByRow: some View {
+        HStack(spacing: 10) {
+            ForEach(ComposerVariations.specOptions, id: \.self) { spec in
+                Toggle(isOn: specBinding(spec)) {
+                    Text("Varies by \(spec)")
+                        .font(.caption.weight(.semibold))
+                }
+                .toggleStyle(.button)
+                .tint(Color.brandNavy)
+            }
+        }
+    }
+
+    private var addButton: some View {
+        Button {
+            AppRouter.haptic()
+            var aspects: [String: String] = [:]
+            for spec in variations.specifications { aspects[spec] = "" }
+            variations.variants.append(ComposerVariant(aspects: aspects))
+        } label: {
+            Label("Add variant", systemImage: "plus")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Color.brandNavy)
+        }
+    }
+
+    /// Turning a varies-by spec on/off rewrites every row's aspect set, keeping
+    /// the values already typed for the specs that survive. At least one spec has
+    /// to remain — a matrix that varies by nothing isn't a variation listing.
+    private func specBinding(_ spec: String) -> Binding<Bool> {
+        Binding(
+            get: { variations.specifications.contains(spec) },
+            set: { on in
+                let next = on
+                    ? variations.specifications + [spec]
+                    : variations.specifications.filter { $0 != spec }
+                guard !next.isEmpty else { return }
+                variations = ComposerVariations(
+                    specifications: next,
+                    variants: variations.variants.map { variant in
+                        var aspects: [String: String] = [:]
+                        for name in next { aspects[name] = variant.aspects[name] ?? "" }
+                        var copy = variant
+                        copy.aspects = aspects
+                        return copy
+                    }
+                )
+            }
+        )
+    }
+
+    /// Removing the last row would leave a matrix with nothing to re-enable it
+    /// from, so the final row keeps no delete control (turn multi-variant off
+    /// instead). Returned as an optional action so the row can't type-infer its
+    /// way into an always-enabled button.
+    private func removeAction(for id: UUID) -> (() -> Void)? {
+        guard variations.variants.count > 1 else { return nil }
+        return { variations.variants.removeAll { $0.id == id } }
+    }
+
+    private struct VariantRow: View {
+        @Binding var variant: ComposerVariant
+        let specifications: [String]
+        let currency: String
+        /// nil when this is the last row — a matrix with no rows has nothing to
+        /// re-enable it from.
+        var onRemove: (() -> Void)?
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(specifications, id: \.self) { spec in
+                    HStack(spacing: 6) {
+                        Text(spec)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .frame(width: 52, alignment: .leading)
+                        TextField(spec, text: aspectBinding(spec))
+                            .textFieldStyle(.roundedBorder)
+                            .accessibilityLabel("Variant \(spec)")
+                    }
+                }
+                HStack(spacing: 6) {
+                    Text("Qty")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    TextField("1", text: $variant.quantityText)
+                        .keyboardType(.numberPad)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(maxWidth: 56)
+                        .accessibilityLabel("Variant quantity")
+                    Text(currency)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    TextField("Listing price", text: $variant.priceText)
+                        .keyboardType(.decimalPad)
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityLabel("Variant price")
+                    if let onRemove {
+                        Button(role: .destructive) {
+                            AppRouter.haptic()
+                            onRemove()
+                        } label: {
+                            Image(systemName: "trash")
+                                .scaledIconFont(size: 14, maxSize: 22)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("Remove variant")
+                    }
+                }
+            }
+            .padding(8)
+            .background(
+                RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous)
+                    .fill(Color.secondary.opacity(0.08))
+            )
+        }
+
+        private func aspectBinding(_ spec: String) -> Binding<String> {
+            Binding(
+                get: { variant.aspects[spec] ?? "" },
+                set: { variant.aspects[spec] = $0 }
+            )
+        }
     }
 }
 

@@ -192,6 +192,28 @@ struct PublishSummary: Decodable, Equatable {
     /// the composer seeds as a blank box meaning "use the comp-derived default".
     let bestOfferAutoAccept: String?
     let bestOfferAutoDecline: String?
+    /// US-1975: the eBay offer format this publish resolves to — `"FIXED_PRICE"`
+    /// or `"AUCTION"` (derived server-side from `listings.listing_format`). The
+    /// edge has always sent it; iOS never read it, so every iOS publish was
+    /// fixed-price. An absent key decodes as fixed price, matching the column
+    /// default.
+    let format: String?
+    /// US-1975: the RESOLVED auction terms as eBay money strings — `nil` for a
+    /// fixed-price draft. `auctionStartPrice` falls back to the listing price
+    /// server-side when the seller set no explicit starting bid, so it's a
+    /// suggestion to show as a placeholder, NOT a value to seed the box with
+    /// (that would pin it into the override column — the US-1512/US-1970 trap).
+    let auctionStartPrice: String?
+    let auctionReservePrice: String?
+    let auctionBuyItNowPrice: String?
+    /// US-1975: `DAYS_n` for an auction, `GTC` for fixed price.
+    let auctionDuration: String?
+    /// US-1975: the multi-variant matrix the publish will send, already
+    /// NORMALIZED by the server (`normalizeVariations` drops out-of-stock and
+    /// malformed variants, and returns null below two purchasable combinations).
+    /// So this reflects what would publish — not necessarily what's saved on the
+    /// draft; the editor seeds from the raw column instead.
+    let variations: ListingVariationsPayload?
 
     private enum CodingKeys: String, CodingKey {
         case title, description, condition
@@ -203,6 +225,12 @@ struct PublishSummary: Decodable, Equatable {
         case bestOfferEnabled
         case bestOfferAutoAccept
         case bestOfferAutoDecline
+        case format
+        case auctionStartPrice
+        case auctionReservePrice
+        case auctionBuyItNowPrice
+        case auctionDuration
+        case variations
     }
 
     init(from decoder: Decoder) throws {
@@ -223,6 +251,14 @@ struct PublishSummary: Decodable, Equatable {
         bestOfferEnabled = try c.decodeIfPresent(Bool.self, forKey: .bestOfferEnabled) ?? false
         bestOfferAutoAccept = try c.decodeIfPresent(String.self, forKey: .bestOfferAutoAccept)
         bestOfferAutoDecline = try c.decodeIfPresent(String.self, forKey: .bestOfferAutoDecline)
+        // US-1975: an older edge that omits these decodes as a plain fixed-price
+        // single-variant publish — exactly what iOS did before this story.
+        format = try c.decodeIfPresent(String.self, forKey: .format)
+        auctionStartPrice = try c.decodeIfPresent(String.self, forKey: .auctionStartPrice)
+        auctionReservePrice = try c.decodeIfPresent(String.self, forKey: .auctionReservePrice)
+        auctionBuyItNowPrice = try c.decodeIfPresent(String.self, forKey: .auctionBuyItNowPrice)
+        auctionDuration = try c.decodeIfPresent(String.self, forKey: .auctionDuration)
+        variations = try c.decodeIfPresent(ListingVariationsPayload.self, forKey: .variations)
     }
 
     /// Memberwise init for `merging`, tests, and previews (the custom Decodable
@@ -239,7 +275,13 @@ struct PublishSummary: Decodable, Equatable {
         promotedAdRateKnown: Bool = false,
         bestOfferEnabled: Bool = false,
         bestOfferAutoAccept: String? = nil,
-        bestOfferAutoDecline: String? = nil
+        bestOfferAutoDecline: String? = nil,
+        format: String? = nil,
+        auctionStartPrice: String? = nil,
+        auctionReservePrice: String? = nil,
+        auctionBuyItNowPrice: String? = nil,
+        auctionDuration: String? = nil,
+        variations: ListingVariationsPayload? = nil
     ) {
         self.title = title
         self.description = description
@@ -253,7 +295,16 @@ struct PublishSummary: Decodable, Equatable {
         self.bestOfferEnabled = bestOfferEnabled
         self.bestOfferAutoAccept = bestOfferAutoAccept
         self.bestOfferAutoDecline = bestOfferAutoDecline
+        self.format = format
+        self.auctionStartPrice = auctionStartPrice
+        self.auctionReservePrice = auctionReservePrice
+        self.auctionBuyItNowPrice = auctionBuyItNowPrice
+        self.auctionDuration = auctionDuration
+        self.variations = variations
     }
+
+    /// US-1975: the format the composer seeds its selector from.
+    var composerFormat: ComposerListingFormat { ComposerListingFormat(summaryFormat: format) }
 
     /// US-1237: best-effort brand pulled from the eBay aspect map, used to
     /// narrow the composer's comp lookup. The aspect key is canonical-cased
@@ -322,8 +373,411 @@ struct PublishSummary: Decodable, Equatable {
             bestOfferAutoAccept: edits.bestOffer.map { Self.blankToNil($0.autoAcceptText) }
                 ?? base.bestOfferAutoAccept,
             bestOfferAutoDecline: edits.bestOffer.map { Self.blankToNil($0.autoDeclineText) }
-                ?? base.bestOfferAutoDecline
+                ?? base.bestOfferAutoDecline,
+            // US-1975: the composer seeds its format SELECTOR from the summary
+            // (the draft-settings read fails soft to `.none`, and misreading an
+            // auction draft as fixed price would silently rewrite the format on
+            // the next save), so a resume must carry the seller's choice here or
+            // "Try again" reverts it. The auction PRICE strings stay the base's
+            // resolution — they're placeholders; the typed values live in the
+            // draft settings, which the push already advanced (`applying`).
+            format: edits.listingFormat.map(\.format.summaryFormat) ?? base.format,
+            auctionStartPrice: base.auctionStartPrice,
+            auctionReservePrice: base.auctionReservePrice,
+            auctionBuyItNowPrice: base.auctionBuyItNowPrice,
+            auctionDuration: base.auctionDuration,
+            variations: base.variations
         )
+    }
+}
+
+// MARK: - Composer listing format + variations (US-1975)
+
+/// US-1975: the two listing formats the composer offers. Raw values are the
+/// `listings.listing_format` column's enum (LOCKSTEP with the web composer's
+/// `LISTING_FORMATS` — the projects can't import each other).
+enum ComposerListingFormat: String, CaseIterable, Identifiable, Equatable {
+    case fixedPrice = "fixed_price"
+    case auction
+
+    var id: String { rawValue }
+
+    /// Mirrors web `LISTING_FORMAT_LABELS`.
+    var label: String {
+        switch self {
+        case .fixedPrice: return "Fixed price"
+        case .auction: return "Auction"
+        }
+    }
+
+    /// The eBay offer format the server resolves this to — the value that comes
+    /// back on ``PublishSummary/format``.
+    var summaryFormat: String {
+        switch self {
+        case .fixedPrice: return "FIXED_PRICE"
+        case .auction: return "AUCTION"
+        }
+    }
+
+    /// Seed from the validate summary's resolved offer format. Anything other
+    /// than an explicit `"AUCTION"` (including an absent key on an older edge)
+    /// is fixed price, matching the server's own `listing_format === "auction"`
+    /// test and the column default.
+    init(summaryFormat: String?) {
+        self = summaryFormat == "AUCTION" ? .auction : .fixedPrice
+    }
+}
+
+/// US-1975: eBay's `listingDuration` values valid for an auction offer, plus
+/// their labels. LOCKSTEP with web `AUCTION_DURATIONS` / `AUCTION_DURATION_LABELS`.
+enum AuctionDuration {
+    static let all = ["DAYS_1", "DAYS_3", "DAYS_5", "DAYS_7", "DAYS_10"]
+    /// What the server falls back to for an auction draft with no stored
+    /// duration (`assemblePublishContext`), so the picker starts there too.
+    static let fallback = "DAYS_7"
+
+    static func label(_ raw: String) -> String {
+        switch raw {
+        case "DAYS_1": return "1 day"
+        case "DAYS_3": return "3 days"
+        case "DAYS_5": return "5 days"
+        case "DAYS_7": return "7 days"
+        case "DAYS_10": return "10 days"
+        default: return raw
+        }
+    }
+
+    /// An unknown/absent stored duration resolves to the server's own fallback
+    /// rather than showing the seller a value eBay would reject.
+    static func normalize(_ raw: String?) -> String {
+        guard let raw, all.contains(raw) else { return fallback }
+        return raw
+    }
+}
+
+/// US-1975: one variant of a multi-variant listing, as persisted in the
+/// `listings.variations` jsonb. Wire shape — keys are VERBATIM snake_case: both
+/// readers use a decoder with no key strategy (the publish service's plain
+/// `JSONDecoder`, and supabase-swift's PostgREST client).
+struct ListingVariantPayload: Codable, Equatable {
+    /// The varies-by values for this combination, e.g. `["Size": "M"]`. Every
+    /// specification must have a value or the server drops the variant.
+    var aspects: [String: String]
+    var quantity: Int
+    var priceCents: Int?
+    var skuSuffix: String?
+
+    enum CodingKeys: String, CodingKey {
+        case aspects, quantity
+        case priceCents = "price_cents"
+        case skuSuffix = "sku_suffix"
+    }
+
+    init(aspects: [String: String], quantity: Int, priceCents: Int? = nil, skuSuffix: String? = nil) {
+        self.aspects = aspects
+        self.quantity = quantity
+        self.priceCents = priceCents
+        self.skuSuffix = skuSuffix
+    }
+
+    /// Tolerant decode: this reads a free-form jsonb column that predates iOS
+    /// (the web composer and AutoLister both write it). A partial row degrades
+    /// to an empty/zero variant — which the editor and the server both drop —
+    /// rather than throwing and taking the whole draft read (and so the seller's
+    /// saved matrix) down with it.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        aspects = try c.decodeIfPresent([String: String].self, forKey: .aspects) ?? [:]
+        quantity = try c.decodeIfPresent(Int.self, forKey: .quantity) ?? 0
+        priceCents = try c.decodeIfPresent(Int.self, forKey: .priceCents)
+        skuSuffix = try c.decodeIfPresent(String.self, forKey: .skuSuffix)
+    }
+}
+
+/// US-1975: the shape of `listings.variations` — the varies-by aspect names plus
+/// every combination. Mirrors web `ListingVariations` / the edge's interface.
+struct ListingVariationsPayload: Codable, Equatable {
+    var specifications: [String]
+    var variants: [ListingVariantPayload]
+
+    /// Declared explicitly rather than left to synthesis — the custom
+    /// `init(from:)` below is exactly the case where relying on the synthesized
+    /// keys has bitten this file before.
+    enum CodingKeys: String, CodingKey {
+        case specifications, variants
+    }
+
+    init(specifications: [String], variants: [ListingVariantPayload]) {
+        self.specifications = specifications
+        self.variants = variants
+    }
+
+    /// Tolerant for the same reason as ``ListingVariantPayload/init(from:)``.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        specifications = try c.decodeIfPresent([String].self, forKey: .specifications) ?? []
+        variants = try c.decodeIfPresent([ListingVariantPayload].self, forKey: .variants) ?? []
+    }
+}
+
+/// US-1975: one editable row of the composer's variation matrix. Quantity and
+/// price are held as the raw strings the seller typed (parsed at the boundary —
+/// price through the locale-tolerant ``CurrencyFormatter``, never `Double(_:)`).
+/// A blank price means "use the listing price for this variant".
+struct ComposerVariant: Equatable, Identifiable {
+    let id: UUID
+    var aspects: [String: String]
+    var quantityText: String
+    var priceText: String
+
+    init(
+        id: UUID = UUID(),
+        aspects: [String: String] = [:],
+        quantityText: String = "1",
+        priceText: String = ""
+    ) {
+        self.id = id
+        self.aspects = aspects
+        self.quantityText = quantityText
+        self.priceText = priceText
+    }
+
+    /// Whole units, floored at 0. A `.numberPad` gives digits only, so a plain
+    /// `Int` parse is right here — unlike the price, which is locale-formatted.
+    var quantity: Int {
+        max(0, Int(quantityText.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0)
+    }
+
+    /// Equality is over the CONTENT, deliberately ignoring `id`: the composer's
+    /// dirty check rebuilds its seed baseline on every render, which mints fresh
+    /// ids — an id-sensitive `==` would report a phantom edit immediately and
+    /// permanently (the dirty ratchet never resets), blocking swipe-dismiss on a
+    /// composer the seller never touched. `id` exists only for `ForEach`.
+    static func == (lhs: ComposerVariant, rhs: ComposerVariant) -> Bool {
+        lhs.aspects == rhs.aspects
+            && lhs.quantityText == rhs.quantityText
+            && lhs.priceText == rhs.priceText
+    }
+}
+
+/// US-1975: the composer's size/color matrix.
+struct ComposerVariations: Equatable {
+    var specifications: [String]
+    var variants: [ComposerVariant]
+
+    /// The varies-by specs a clothing seller actually uses — same pair the web
+    /// editor offers.
+    static let specOptions = ["Size", "Color"]
+
+    /// A fresh matrix: varies by Size, with the two rows eBay needs at minimum
+    /// for a multi-variation listing (fewer and the server publishes it as a
+    /// plain single-SKU listing instead).
+    static func seeded() -> ComposerVariations {
+        ComposerVariations(
+            specifications: ["Size"],
+            variants: [ComposerVariant(aspects: ["Size": ""]), ComposerVariant(aspects: ["Size": ""])]
+        )
+    }
+
+    /// Seed the editor from the saved column.
+    init(payload: ListingVariationsPayload) {
+        let specs = payload.specifications.isEmpty ? ["Size"] : payload.specifications
+        var rows = payload.variants.map { variant -> ComposerVariant in
+            var aspects: [String: String] = [:]
+            for spec in specs { aspects[spec] = variant.aspects[spec] ?? "" }
+            return ComposerVariant(
+                aspects: aspects,
+                quantityText: String(max(0, variant.quantity)),
+                priceText: variant.priceCents.map { ComposerVariations.priceText($0) } ?? ""
+            )
+        }
+        // A saved-but-empty matrix still opens the editor with rows to fill,
+        // rather than a variation listing with nothing in it.
+        if rows.isEmpty { rows = ComposerVariations.seeded().variants }
+        specifications = specs
+        variants = rows
+    }
+
+    init(specifications: [String], variants: [ComposerVariant]) {
+        self.specifications = specifications
+        self.variants = variants
+    }
+
+    /// cents → an editable, LOCALE-formatted string that round-trips back through
+    /// `CurrencyFormatter().parse` (US-1236 — `String(format:"%.2f")` would pin a
+    /// "." separator a comma-decimal locale then misreads).
+    private static func priceText(_ cents: Int) -> String {
+        DraftEditRow.priceString2dp(Double(cents) / 100)
+    }
+
+    /// The persistable matrix, or nil when there's nothing publishable. Mirrors
+    /// the server's `normalizeVariations` so what we save is what it will send:
+    /// blank aspect values drop the variant, out-of-stock rows drop, and fewer
+    /// than two purchasable combinations is not a variation listing at all.
+    func payload(formatter: CurrencyFormatter = CurrencyFormatter()) -> ListingVariationsPayload? {
+        let specs = specifications
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !specs.isEmpty else { return nil }
+        let rows: [ListingVariantPayload] = variants.compactMap { variant -> ListingVariantPayload? in
+            var aspects: [String: String] = [:]
+            for spec in specs {
+                let value = (variant.aspects[spec] ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !value.isEmpty else { return nil }
+                aspects[spec] = value
+            }
+            guard variant.quantity > 0 else { return nil }
+            return ListingVariantPayload(
+                aspects: aspects,
+                quantity: variant.quantity,
+                priceCents: BestOfferValidation.cents(variant.priceText, formatter: formatter)
+            )
+        }
+        guard rows.count >= 2 else { return nil }
+        return ListingVariationsPayload(specifications: specs, variants: rows)
+    }
+}
+
+/// US-1975: the composer's format choice — the selector, the auction terms as
+/// the raw strings the seller typed, and the variation matrix. Auction and
+/// variations are MUTUALLY EXCLUSIVE (eBay has no multi-variation auction), so
+/// the editor clears one when the other is chosen.
+///
+/// An empty auction box means "let the server resolve it" (the starting bid
+/// falls back to the listing price; reserve and Buy It Now simply don't apply) —
+/// it is not zero.
+struct ComposerFormatChoice: Equatable {
+    var format: ComposerListingFormat
+    var startPriceText: String
+    var reservePriceText: String
+    var buyItNowText: String
+    var duration: String
+    /// nil = single-SKU listing.
+    var variations: ComposerVariations?
+
+    init(
+        format: ComposerListingFormat = .fixedPrice,
+        startPriceText: String = "",
+        reservePriceText: String = "",
+        buyItNowText: String = "",
+        duration: String = AuctionDuration.fallback,
+        variations: ComposerVariations? = nil
+    ) {
+        self.format = format
+        self.startPriceText = startPriceText
+        self.reservePriceText = reservePriceText
+        self.buyItNowText = buyItNowText
+        self.duration = duration
+        self.variations = variations
+    }
+
+    var isAuction: Bool { format == .auction }
+
+    /// eBay does not allow Best Offer on an auction offer, and the server
+    /// suppresses `bestOfferTerms` unless the format is FIXED_PRICE — so the
+    /// composer hides the control rather than showing terms that get dropped.
+    var allowsBestOffer: Bool { !isAuction }
+}
+
+/// US-1975: pure validation for the format editor. The server defensively drops
+/// whatever it can't use (an under-filled matrix silently becomes a single-SKU
+/// listing; a blank starting bid becomes the listing price) — which is right for
+/// the server and wrong for the seller, who deserves to know BEFORE tapping Push
+/// that the auction/matrix they built isn't the one that will publish.
+enum ListingFormatValidation {
+    /// The blocking problem with this format configuration, or nil when it's
+    /// publishable. `priceCents` is the effective listing price in cents; pass 0
+    /// when it isn't known yet (the composer blocks Push on an invalid price
+    /// separately, so the price-relative rules stay quiet).
+    static func error(
+        _ choice: ComposerFormatChoice,
+        priceCents: Int,
+        formatter: CurrencyFormatter = CurrencyFormatter()
+    ) -> String? {
+        choice.isAuction
+            ? auctionError(choice, priceCents: priceCents, formatter: formatter)
+            : variationsError(choice, formatter: formatter)
+    }
+
+    private static func auctionError(
+        _ choice: ComposerFormatChoice,
+        priceCents: Int,
+        formatter: CurrencyFormatter
+    ) -> String? {
+        let start = cents(choice.startPriceText, formatter: formatter)
+        if filled(choice.startPriceText), start == nil {
+            return "Enter a starting bid greater than 0, or leave it blank to start at the listing price."
+        }
+        if filled(choice.reservePriceText), cents(choice.reservePriceText, formatter: formatter) == nil {
+            return "Enter a reserve price greater than 0, or leave it blank for no reserve."
+        }
+        if filled(choice.buyItNowText), cents(choice.buyItNowText, formatter: formatter) == nil {
+            return "Enter a Buy It Now price greater than 0, or leave it blank for none."
+        }
+        // A blank starting bid publishes at the listing price (the server's
+        // fallback), so that's what the reserve/BIN rules compare against.
+        let effectiveStart = start ?? (priceCents > 0 ? priceCents : nil)
+        if let reserve = cents(choice.reservePriceText, formatter: formatter),
+           let effectiveStart, reserve < effectiveStart {
+            return "Reserve price must be at or above the starting bid."
+        }
+        if let bin = cents(choice.buyItNowText, formatter: formatter) {
+            if let effectiveStart, bin <= effectiveStart {
+                return "Buy It Now must be above the starting bid."
+            }
+            if let reserve = cents(choice.reservePriceText, formatter: formatter), bin < reserve {
+                return "Buy It Now must be at or above the reserve price."
+            }
+        }
+        if !AuctionDuration.all.contains(choice.duration) {
+            return "Pick an auction duration."
+        }
+        return nil
+    }
+
+    private static func variationsError(
+        _ choice: ComposerFormatChoice,
+        formatter: CurrencyFormatter
+    ) -> String? {
+        guard let variations = choice.variations else { return nil }
+        if variations.specifications.isEmpty {
+            return "Pick at least one thing the listing varies by."
+        }
+        for variant in variations.variants {
+            for spec in variations.specifications {
+                let value = (variant.aspects[spec] ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if value.isEmpty {
+                    return "Give every variant a \(spec.lowercased())."
+                }
+            }
+            if filled(variant.priceText), cents(variant.priceText, formatter: formatter) == nil {
+                return "Enter a variant price greater than 0, or leave it blank to use the listing price."
+            }
+        }
+        // The matrix eBay would actually receive — the server drops out-of-stock
+        // rows, so "two rows, one in stock" is a single-SKU listing in disguise.
+        guard let payload = variations.payload(formatter: formatter) else {
+            return "Add at least two in-stock variants, or turn off multi-variant."
+        }
+        let combinations = payload.variants.map { variant in
+            payload.specifications.map { variant.aspects[$0] ?? "" }.joined(separator: "\u{1F}")
+        }
+        if Set(combinations).count != combinations.count {
+            return "Each variant must be a different combination."
+        }
+        return nil
+    }
+
+    private static func filled(_ text: String) -> Bool {
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Money parsing is identical to the Best Offer thresholds' (locale-tolerant,
+    /// positive-only, whole cents) — one rule, one implementation.
+    private static func cents(_ text: String, formatter: CurrencyFormatter) -> Int? {
+        BestOfferValidation.cents(text, formatter: formatter)
     }
 }
 

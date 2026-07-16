@@ -58,6 +58,31 @@ Deno.test("normalizeVariations: drops out-of-stock + incomplete variants", () =>
   assertEquals(out?.variants.map((v) => v.aspects.Size).sort(), ["L", "M"]);
 });
 
+// US-1975: the iOS composer now writes `listings.variations` itself. It has no
+// way to run this code (Swift can't import the edge), so pin the contract from
+// this side: the exact JSON the iOS editor encodes must survive the publish
+// path's normalization unchanged — same keys, same casing, same null handling.
+// The Swift end is `ListingVariationsPayload` (EbayPublishTypes.swift), whose
+// CodingKeys produce this shape and whose encoder OMITS nil optionals rather
+// than writing them.
+Deno.test("normalizeVariations: the iOS composer's payload publishes verbatim", () => {
+  const iosWrite = JSON.parse(`{
+    "specifications": ["Size", "Color"],
+    "variants": [
+      { "aspects": { "Size": "M", "Color": "Blue" }, "quantity": 2, "price_cents": 4250 },
+      { "aspects": { "Size": "L", "Color": "Blue" }, "quantity": 1 }
+    ]
+  }`);
+  const out = normalizeVariations(iosWrite);
+  assertEquals(out?.specifications, ["Size", "Color"]);
+  assertEquals(out?.variants.length, 2);
+  assertEquals(out?.variants[0]?.price_cents, 4250);
+  // An omitted price_cents means "sell at the listing price" — it must reach the
+  // publish path as null, not 0 (which would be a free variant).
+  assertEquals(out?.variants[1]?.price_cents, null);
+  assertEquals(out?.variants[1]?.sku_suffix, null);
+});
+
 Deno.test("variantSku: explicit suffix wins, else slug of the aspect values", () => {
   assertEquals(
     variantSku("GT-123", {
