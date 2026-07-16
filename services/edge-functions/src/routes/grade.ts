@@ -17,7 +17,7 @@ import {
   runPaymentPrecedence,
   tierSupportsAuthenticityAddon,
 } from "../lib/grade-billing.ts";
-import { captureException } from "../lib/observability.ts";
+import { captureException, readCtxVar } from "../lib/observability.ts";
 import { featureDisabledBody, isFeatureEnabled } from "../lib/feature-flags.ts";
 import { aiBudgetExceededBody, isAiBudgetExhausted } from "../lib/ai-budget-gate.ts";
 import { quickGrade } from "../lib/quick-grade.ts";
@@ -713,7 +713,7 @@ gradeRoutes.post("/submit", async (c) => {
   }
 
   if (precedence.paid) {
-    kickPipeline(submissionId, c.get("correlationId"));
+    kickPipeline(submissionId, readCtxVar(c, "correlationId"));
     return c.json({
       submissionId,
       status: "processing",
@@ -806,7 +806,7 @@ gradeRoutes.post("/pay/:id", async (c) => {
   }
 
   if (precedence.paid) {
-    kickPipeline(submissionId, c.get("correlationId"));
+    kickPipeline(submissionId, readCtxVar(c, "correlationId"));
     return c.json({
       submissionId,
       status: "processing",
@@ -1057,7 +1057,7 @@ gradeRoutes.post("/snap", async (c) => {
   } catch (err) {
     // Refund the reserved snap so a transient grading failure isn't counted.
     await supabaseAdmin.rpc("refund_snap", { p_user_id: ownerId }).then(() => {}, () => {});
-    captureException(err, { route: "grade.snap", correlationId: c.get("correlationId") });
+    captureException(err, { route: "grade.snap", correlationId: readCtxVar(c, "correlationId") });
     return c.json({ error: "Couldn't grade that photo. Try a clearer, well-lit shot." }, 502);
   }
 

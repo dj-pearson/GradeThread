@@ -637,6 +637,48 @@ Deno.test({
   },
 });
 
+// US-1965: the eBay order-sync backstop sweeps EVERY active tenant's connection
+// (it resolves the owner from each connection row, never from the request), so
+// it must be reachable ONLY by the cron with the matching job secret — never a
+// user JWT and never a bogus secret. Otherwise any signed-in user could trigger
+// an all-tenant order sync.
+Deno.test({
+  name: "eBay order-backstop job rejects a user JWT (must use job secret)",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/jobs/ebay-order-backstop`, {
+      method: "POST",
+      headers: authHeaders(A_JWT!),
+    });
+    const status = res.status;
+    await res.body?.cancel();
+    assert(
+      status === 401,
+      `POST /jobs/ebay-order-backstop with a user JWT should 401 (no job secret), got ${status}`,
+    );
+  },
+});
+
+Deno.test({
+  name: "eBay order-backstop job rejects a bogus X-Internal-Job-Secret",
+  ignore: !BASE,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/jobs/ebay-order-backstop`, {
+      method: "POST",
+      headers: {
+        "X-Internal-Job-Secret": "wrong-secret-value",
+        "Content-Type": "application/json",
+      },
+    });
+    const status = res.status;
+    await res.body?.cancel();
+    assert(
+      status === 401,
+      `POST /jobs/ebay-order-backstop with a bogus job secret should 401, got ${status}`,
+    );
+  },
+});
+
 // ── Photo Dump Reconciliation (US-290) ──────────────────────────────────
 //
 // New surfaces: /api/flipdesk/ai/classify-photos (item-scoped), the reconcile

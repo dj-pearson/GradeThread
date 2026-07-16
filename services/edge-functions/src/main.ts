@@ -169,6 +169,7 @@ import { handleRecordAttribution } from "./routes/ads-attribution.ts";
 import { handleBillingReconciliationCron } from "./routes/jobs-billing-reconciliation.ts";
 import { handleAiBudgetCron } from "./routes/jobs-ai-budget.ts";
 import { handleMarketplaceEventsCron } from "./routes/jobs-marketplace-events.ts";
+import { handleEbayOrderBackstopCron } from "./routes/jobs-ebay-order-backstop.ts";
 import { adminSeoRoutes, handleGscSyncCron } from "./routes/admin-seo.ts";
 import { adminGrowthRoutes, handleGrowthDispatchCron } from "./routes/admin-growth.ts";
 import { adminAdsRoutes } from "./routes/admin-ads.ts";
@@ -1403,6 +1404,11 @@ app.post("/api/jobs/condition-alerts", (c) => handleConditionAlertsCron(c));
 // arrived before the connection's account_handle/external_account_id hydrated,
 // and dead-letters the ones that never link. Handler enforces the job secret.
 app.post("/api/jobs/ebay-pending-webhooks", (c) => handleEbayPendingWebhooksCron(c));
+// US-1965 eBay order-sync backstop. Safety net for dropped/unsubscribed
+// notifications: sweeps the stalest active eBay connections and fires the same
+// incremental idempotent order pull for them. Handler enforces the job secret;
+// the /api/jobs/* middleware records it to cron_runs.
+app.post("/api/jobs/ebay-order-backstop", (c) => handleEbayOrderBackstopCron(c));
 // US-308/US-309 admin SEO endpoints. /summary + /gsc/sync are admin JWT
 // gated by the /api/admin/* middleware groups above.
 app.route("/api/admin/seo", adminSeoRoutes);

@@ -128,6 +128,11 @@ export const CRON_REGISTRY: CronDef[] = [
   { name: "passport-backfill", label: "Garment Passport backfill", schedule: "*/15 * * * *", category: "maintenance", endpoint: "/api/jobs/passport-backfill", recorded: true, oneOff: true },
   { name: "listing-prompt-promote", label: "Listing-prompt auto-promote", schedule: "0 9 * * *", category: "grading", endpoint: "/api/jobs/listing-prompt-promote", recorded: true },
   { name: "ebay-pending-webhooks", label: "eBay parked-webhook drain", schedule: "*/15 * * * *", category: "sync", endpoint: "/api/jobs/ebay-pending-webhooks", recorded: true },
+  // US-1965: order-sync backstop — sweeps the stalest active eBay connections
+  // and fires the incremental idempotent order pull, so a dropped/unsubscribed
+  // notification never becomes a permanently missing sale. Reuses the per-tenant
+  // sync lock + idempotent ingest, so it composes with the webhook path.
+  { name: "ebay-order-backstop", label: "eBay order-sync backstop", schedule: "*/30 * * * *", category: "sync", endpoint: "/api/jobs/ebay-order-backstop", recorded: true, healthy: "200 with {ok:true, candidates, started, alreadyRunning, ...}; started/candidates can be 0 when every connection synced recently" },
   { name: "gsc-sync", label: "Search Console sync", schedule: "30 6 * * *", category: "seo", endpoint: "/api/jobs/gsc-sync", recorded: true },
   { name: "growth-dispatch", label: "Scheduled-campaign dispatch", schedule: "*/15 * * * *", category: "growth", endpoint: "/api/jobs/growth-dispatch", recorded: true },
   { name: "north-star-digest", label: "North Star weekly digest", schedule: "0 14 * * 1", category: "growth", endpoint: "/api/jobs/north-star-digest", recorded: true },
