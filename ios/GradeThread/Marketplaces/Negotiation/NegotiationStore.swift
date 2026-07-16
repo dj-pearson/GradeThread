@@ -33,7 +33,57 @@ final class NegotiationStore {
     /// send-offer toolbar entry can hide on subsequent visits instead of walking
     /// the user into a dead end again. Reset only on a successful probe (the
     /// feature reactivates automatically when the scope lands — US-1421).
+    /// US-1967: `loadCapability()` now sets this on APPEAR, so the entry point
+    /// never renders in the unavailable case — previously it took a failed
+    /// send/eligible round trip to learn, meaning the button was always live
+    /// (and always doomed) on the first visit after launch.
     private(set) var sendOfferUnavailable = false
+
+    /// US-1967: the server's reason + copy for the disabled state, so the view
+    /// can explain honestly instead of guessing (and never says "reconnect"
+    /// when reconnecting can't help).
+    private(set) var sendOfferUnavailableDetail: String?
+    private(set) var sendOfferNeedsReconnect = false
+
+    /// US-1967: should the send-offer entry point render at all? Hidden only
+    /// when the feature is UNFIXABLE (the deployment lacks the sell.negotiation
+    /// licence) — a dead button with no remedy. When a reconnect would genuinely
+    /// enable it, the entry stays so the sheet can say so; that's the one case
+    /// where a "reconnect" prompt is honest rather than misleading.
+    var showSendOfferEntry: Bool { !sendOfferUnavailable || sendOfferNeedsReconnect }
+
+    /// US-1967: probe the capability before rendering any send-offer entry
+    /// point. A probe FAILURE leaves the feature enabled — a transient network
+    /// blip shouldn't hide a working feature; the send path still gates on its
+    /// own 501.
+    func loadCapability() async {
+        do {
+            let cap = try await service.capability()
+            applyCapability(cap)
+        } catch EdgeAPIError.featureUnavailable(let detail) {
+            // Older edge builds have no /capabilities route but still gate the
+            // send path — honor that answer too.
+            markUnavailable(detail: detail, needsReconnect: false)
+        } catch {
+            // Unknown — leave as-is rather than hiding a usable feature.
+        }
+    }
+
+    private func applyCapability(_ cap: NegotiationCapability) {
+        guard !cap.sendOfferAvailable else {
+            sendOfferUnavailable = false
+            sendOfferUnavailableDetail = nil
+            sendOfferNeedsReconnect = false
+            return
+        }
+        markUnavailable(detail: cap.detail, needsReconnect: cap.needsReconnect)
+    }
+
+    private func markUnavailable(detail: String?, needsReconnect: Bool) {
+        sendOfferUnavailable = true
+        sendOfferUnavailableDetail = detail
+        sendOfferNeedsReconnect = needsReconnect
+    }
 
     init(service: NegotiationProviding = NegotiationService()) {
         self.service = service
@@ -130,9 +180,13 @@ final class NegotiationStore {
         do {
             let count = try await service.eligibleItems().count
             sendOfferUnavailable = false
+            sendOfferUnavailableDetail = nil
+            sendOfferNeedsReconnect = false
             return .count(count)
         } catch EdgeAPIError.featureUnavailable(let detail) {
-            sendOfferUnavailable = true
+            // US-1967: keep the reconnect flag from the capability probe — the
+            // 501 body's copy already carries the distinction.
+            markUnavailable(detail: detail, needsReconnect: sendOfferNeedsReconnect)
             return .unavailable(detail: detail)
         } catch {
             return .failed
@@ -159,7 +213,9 @@ final class NegotiationStore {
         } catch let error as EdgeAPIError {
             // US-1510: a capability gate isn't a retryable failure — remember it
             // so the surface hides, and let errorDescription carry the calm copy.
-            if case .featureUnavailable = error { sendOfferUnavailable = true }
+            if case .featureUnavailable(let detail) = error {
+                markUnavailable(detail: detail, needsReconnect: sendOfferNeedsReconnect)
+            }
             actionError = error.localizedDescription
             HapticFeedback.error()
             return false

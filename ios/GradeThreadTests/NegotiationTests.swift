@@ -176,6 +176,105 @@ final class NegotiationTests: XCTestCase {
         XCTAssertEqual(fake.sendOfferCalls.last?.discount, "15")
     }
 
+    // MARK: - US-1967: capability probe gates the send-offer entry point
+
+    // The core of US-1967: the entry point must be gone BEFORE the seller can
+    // tap it — i.e. from the probe alone, with no failed send round trip.
+    func test_store_capabilityProbe_hidesEntryPointWithoutASendAttempt() async {
+        let fake = FakeNegotiation()
+        fake.capabilityResult = NegotiationCapability(
+            sendOfferAvailable: false,
+            code: "feature_unavailable",
+            detail: "Sending offers to interested buyers isn't available yet on this eBay connection."
+        )
+        let store = NegotiationStore(service: fake)
+        XCTAssertTrue(store.showSendOfferEntry, "entry starts visible until probed")
+
+        await store.loadCapability()
+
+        XCTAssertFalse(store.showSendOfferEntry, "no dead button once known unavailable")
+        XCTAssertTrue(store.sendOfferUnavailable)
+        XCTAssertNotNil(store.sendOfferUnavailableDetail, "must carry honest copy")
+        // AC3: no misleading 'reconnect' prompt for an unfixable state.
+        XCTAssertFalse(store.sendOfferNeedsReconnect)
+        XCTAssertEqual(
+            store.sendOfferUnavailableDetail?.localizedCaseInsensitiveContains("reconnect"),
+            false
+        )
+        XCTAssertTrue(fake.sendOfferCalls.isEmpty, "must not probe by attempting a send")
+    }
+
+    // A reconnect genuinely fixes this one, so the entry stays and the sheet
+    // gets to offer the fix — the one case where "reconnect" is honest.
+    func test_store_capabilityProbe_reconnectRequiredKeepsEntryVisible() async {
+        let fake = FakeNegotiation()
+        fake.capabilityResult = NegotiationCapability(
+            sendOfferAvailable: false,
+            code: "reconnect_required",
+            detail: "Your eBay authorization predates the send-offers permission. Reconnect your eBay account to enable it."
+        )
+        let store = NegotiationStore(service: fake)
+        await store.loadCapability()
+
+        XCTAssertTrue(store.sendOfferUnavailable)
+        XCTAssertTrue(store.sendOfferNeedsReconnect)
+        XCTAssertTrue(store.showSendOfferEntry, "an actionable fix keeps the entry")
+    }
+
+    func test_store_capabilityProbe_availableKeepsEntry() async {
+        let fake = FakeNegotiation()
+        let store = NegotiationStore(service: fake)
+        await store.loadCapability()
+        XCTAssertTrue(store.showSendOfferEntry)
+        XCTAssertFalse(store.sendOfferUnavailable)
+        XCTAssertNil(store.sendOfferUnavailableDetail)
+    }
+
+    // A transient probe failure must not hide a working feature.
+    func test_store_capabilityProbe_transientFailureLeavesEntryVisible() async {
+        let fake = FakeNegotiation()
+        fake.capabilityError = EdgeAPIError.network("offline")
+        let store = NegotiationStore(service: fake)
+        await store.loadCapability()
+        XCTAssertTrue(store.showSendOfferEntry)
+        XCTAssertFalse(store.sendOfferUnavailable)
+    }
+
+    // Once the scope is licensed the feature returns on its own — no client
+    // change, no stale sticky gate.
+    func test_store_capabilityProbe_recoversWhenScopeIsLicensed() async {
+        let fake = FakeNegotiation()
+        fake.capabilityResult = NegotiationCapability(
+            sendOfferAvailable: false, code: "feature_unavailable", detail: "Not available yet."
+        )
+        let store = NegotiationStore(service: fake)
+        await store.loadCapability()
+        XCTAssertFalse(store.showSendOfferEntry)
+
+        fake.capabilityResult = NegotiationCapability(sendOfferAvailable: true)
+        await store.loadCapability()
+        XCTAssertTrue(store.showSendOfferEntry)
+        XCTAssertNil(store.sendOfferUnavailableDetail)
+    }
+
+    // AC4: the incoming best-offer path is unaffected by the send-offer gate —
+    // accept/decline/counter keep working while send-offer is unavailable.
+    func test_store_incomingOffersUnaffectedByUnavailableSendOffer() async {
+        let fake = FakeNegotiation(offers: [.init(bestOfferId: "bo1", itemId: "i1", price: 20)])
+        fake.capabilityResult = NegotiationCapability(
+            sendOfferAvailable: false, code: "feature_unavailable", detail: "Not available yet."
+        )
+        let store = NegotiationStore(service: fake)
+        await store.loadCapability()
+        await store.loadOffers()
+        XCTAssertFalse(store.showSendOfferEntry)
+
+        let ok = await store.accept(store.offers[0])
+        XCTAssertTrue(ok, "incoming best offers run on the Trading API — unaffected")
+        XCTAssertEqual(fake.respondCalls.last?.action, "Accept")
+        XCTAssertNil(store.actionError)
+    }
+
     // MARK: - Fake
 
     final class FakeNegotiation: NegotiationProviding, @unchecked Sendable {
@@ -188,6 +287,10 @@ final class NegotiationTests: XCTestCase {
         // US-1510: injectable failures.
         var eligibleError: Error?
         var respondError: Error?
+        // US-1967: capability probe result (defaults to "feature works").
+        var capabilityResult = NegotiationCapability(sendOfferAvailable: true)
+        var capabilityError: Error?
+        private(set) var capabilityCalls = 0
 
         init(
             offers: [BestOffer] = [], messages: [BuyerMessage] = [],
@@ -200,6 +303,13 @@ final class NegotiationTests: XCTestCase {
 
         func offers() async throws -> [BestOffer] { offersList }
         func messages() async throws -> [BuyerMessage] { messagesList }
+
+        func capability() async throws -> NegotiationCapability {
+            capabilityCalls += 1
+            if let capabilityError { throw capabilityError }
+            return capabilityResult
+        }
+
         func eligibleItems() async throws -> [EligibleNegotiationItem] {
             if let eligibleError { throw eligibleError }
             return eligible

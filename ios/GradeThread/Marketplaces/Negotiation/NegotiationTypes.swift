@@ -63,6 +63,28 @@ struct BuyerMessage: Decodable, Identifiable, Equatable {
     }
 }
 
+/// US-1967: whether this eBay connection can send offers to interested buyers.
+/// The sell.negotiation scope isn't licensed on the production keyset, so those
+/// endpoints 501 there — the inbox probes this on appear and hides the entry
+/// point rather than shipping a button that always fails. Decoded via EdgeAPI's
+/// convertFromSnakeCase decoder (`send_offer_available` → `sendOfferAvailable`).
+struct NegotiationCapability: Decodable, Equatable {
+    let sendOfferAvailable: Bool
+    /// `feature_unavailable` (nothing the seller can do) or `reconnect_required`
+    /// (a re-consent genuinely fixes it). Nil when the feature works.
+    let code: String?
+    /// Server-authored, seller-facing copy for the disabled state.
+    let detail: String?
+
+    var needsReconnect: Bool { code == "reconnect_required" }
+
+    init(sendOfferAvailable: Bool, code: String? = nil, detail: String? = nil) {
+        self.sendOfferAvailable = sendOfferAvailable
+        self.code = code
+        self.detail = detail
+    }
+}
+
 /// A listing eligible for a seller-initiated offer to interested buyers.
 struct EligibleNegotiationItem: Decodable, Identifiable, Equatable {
     let listingId: String

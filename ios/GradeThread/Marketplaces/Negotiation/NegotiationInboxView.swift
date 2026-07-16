@@ -95,10 +95,12 @@ struct NegotiationInboxView: View {
         .navigationTitle("Offers & messages")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            // US-1510: hide the send-offer entry once the server has said the
-            // feature is unavailable on this connection (sticky per store) —
-            // otherwise it stays visible and the sheet explains the state.
-            if tab == .offers && !store.sendOfferUnavailable {
+            // US-1510/US-1967: hide the send-offer entry when the server says
+            // the feature can't work on this connection — resolved by the
+            // capability probe in `.task` BEFORE the first render, so there's no
+            // window where the button is live but doomed. It stays visible when
+            // a reconnect would fix it, so the sheet can offer that fix.
+            if tab == .offers && store.showSendOfferEntry {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { showSendOffer = true } label: {
                         Label("Send offer", systemImage: "paperplane")
@@ -107,6 +109,10 @@ struct NegotiationInboxView: View {
             }
         }
         .task {
+            // US-1967: resolve the send-offer capability BEFORE the toolbar can
+            // offer it — otherwise the button renders live on every fresh launch
+            // and only reveals itself as dead after the seller taps it.
+            await store.loadCapability()
             await store.loadOffers()
             await store.loadMessages()
         }

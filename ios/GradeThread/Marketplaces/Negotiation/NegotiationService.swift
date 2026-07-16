@@ -6,6 +6,8 @@ import Foundation
 protocol NegotiationProviding {
     func offers() async throws -> [BestOffer]
     func respond(bestOfferId: String, itemId: String, action: String, counterPrice: Double?, message: String?) async throws
+    /// US-1967: cheap capability probe — can this connection send offers at all?
+    func capability() async throws -> NegotiationCapability
     func eligibleItems() async throws -> [EligibleNegotiationItem]
     func sendOffer(listingIds: [String], discountPercentage: String, message: String?) async throws
     func messages() async throws -> [BuyerMessage]
@@ -37,6 +39,10 @@ struct NegotiationService: NegotiationProviding {
             "/api/flipdesk/ebay/negotiation/offers/\(bestOfferId)/respond",
             body: Body(itemId: itemId, action: action, counterPrice: counterPrice, message: message)
         )
+    }
+
+    func capability() async throws -> NegotiationCapability {
+        try await EdgeAPI.shared.getJSON("/api/flipdesk/ebay/negotiation/capabilities")
     }
 
     func eligibleItems() async throws -> [EligibleNegotiationItem] {

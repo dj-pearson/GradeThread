@@ -831,6 +831,22 @@ Deno.test({
   },
 });
 
+// US-1967: the capability probe reads the caller's own connection flag, so it
+// must not answer for an anonymous caller either.
+Deno.test({
+  name: "negotiation capabilities requires authentication",
+  ignore: !BASE,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/ebay/negotiation/capabilities`);
+    const status = res.status;
+    await res.body?.cancel();
+    assert(
+      status === 401,
+      `unauthenticated negotiation/capabilities should 401, got ${status}`,
+    );
+  },
+});
+
 Deno.test({
   name: "respond-to-best-offer requires authentication",
   ignore: !BASE,

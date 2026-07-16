@@ -7119,6 +7119,81 @@ export function negotiationScope403Body(deploymentHasScope: boolean) {
   return deploymentHasScope ? NEGOTIATION_RECONNECT : NEGOTIATION_UNAVAILABLE;
 }
 
+// US-1967 DECISION: sell.negotiation stays UNLICENSED on the production keyset
+// (eBay gates it behind extra contracts, and requesting it fails the whole
+// consent screen — see getScopes in ebay-client.ts). So send-offer is DEFERRED,
+// not shipped-broken: clients must be able to learn the capability is off
+// BEFORE rendering an entry point, rather than discovering it from a 501 after
+// the seller taps. That's what this pure resolver + /negotiation/capabilities
+// exist for. Re-licensing needs no client change — add the scope to EBAY_SCOPES
+// and every gated surface reappears on its own.
+export interface NegotiationCapability {
+  send_offer_available: boolean;
+  /** Machine-readable reason when unavailable; null when the feature works. */
+  code: "feature_unavailable" | "reconnect_required" | null;
+  /** Honest, seller-facing copy for the disabled state; null when available. */
+  detail: string | null;
+}
+
+/**
+ * Pure capability resolution — exported for tests.
+ * - deployment lacks the scope  → permanently unavailable; nothing the seller
+ *   can do, so the copy must NOT suggest reconnecting (that's the US-1967 bug:
+ *   a misleading "reconnect" prompt for an unfixable state).
+ * - deployment has it but THIS token 403'd → the token predates the grant, so a
+ *   re-consent genuinely fixes it.
+ */
+export function negotiationCapability(
+  deploymentHasScope: boolean,
+  connectionDenied: boolean,
+): NegotiationCapability {
+  if (!deploymentHasScope) {
+    return {
+      send_offer_available: false,
+      code: NEGOTIATION_UNAVAILABLE.code,
+      detail: NEGOTIATION_UNAVAILABLE.error,
+    };
+  }
+  if (connectionDenied) {
+    return {
+      send_offer_available: false,
+      code: NEGOTIATION_RECONNECT.code,
+      detail: NEGOTIATION_RECONNECT.error,
+    };
+  }
+  return { send_offer_available: true, code: null, detail: null };
+}
+
+// GET /negotiation/capabilities — can this connection send offers to buyers?
+// Cheap by design: reads the deployment scope list + the connection's sticky
+// denial flag, and NEVER calls eBay — clients hit it on every inbox open to
+// decide whether to render the send-offer entry point at all.
+flipdeskEbayRoutes.get("/negotiation/capabilities", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  let denied = false;
+  try {
+    // US-268: service role bypasses RLS — scope to the tenant explicitly.
+    const { data } = await supabaseAdmin
+      .from("marketplace_connections")
+      .select("negotiation_access_denied")
+      .eq("user_id", userId)
+      .eq("marketplace", "ebay")
+      .eq("is_active", true)
+      .limit(1)
+      .maybeSingle();
+    denied = (data as { negotiation_access_denied: boolean | null } | null)
+      ?.negotiation_access_denied === true;
+  } catch (err) {
+    // A flag-read hiccup must not fabricate availability — fall back to the
+    // deployment-level answer, which is the one that matters in production.
+    console.warn("[flipdesk-ebay] negotiation capability flag read failed:", err);
+  }
+  return c.json(negotiationCapability(isNegotiationScopeAvailable(), denied));
+});
+
 // US-1421: persist the per-connection denial (tenant-scoped; service role
 // bypasses RLS — US-268). Best-effort: the 501 must reach the client even if
 // the flag write hiccups.

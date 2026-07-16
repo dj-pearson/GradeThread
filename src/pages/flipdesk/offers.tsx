@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import {
   Check,
   ImageOff,
+  Info,
   Loader2,
   MessageSquare,
   Reply,
@@ -24,6 +25,7 @@ import {
   useEbayConnection,
   useEbayEligibleOffers,
   useEbayMessages,
+  useEbayNegotiationCapability,
   useEbayReplyMessage,
   useEbayRespondOffer,
   useEbaySendOffer,
@@ -238,7 +240,15 @@ function OfferRow({ offer }: { offer: EbayBestOffer }) {
 // ── Send offers to interested buyers ────────────────────────────────
 function SendOfferCard() {
   const [open, setOpen] = useState(false);
-  const { data: items = [], isLoading } = useEbayEligibleOffers(open);
+  // US-1967: ask whether the feature works before offering it. The eligible
+  // query stays disabled while unavailable so we never fire a request whose
+  // only possible outcome is a 501.
+  const { data: capability, isLoading: capLoading } =
+    useEbayNegotiationCapability();
+  const unavailable = capability?.sendOfferAvailable === false;
+  const { data: items = [], isLoading } = useEbayEligibleOffers(
+    open && !unavailable,
+  );
   const send = useEbaySendOffer();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [discount, setDiscount] = useState("10");
@@ -291,7 +301,36 @@ function SendOfferCard() {
           Send a private discount offer to buyers watching your eligible
           listings.
         </p>
-        {!open ? (
+        {capLoading ? (
+          <Skeleton className="h-9 w-36" />
+        ) : unavailable ? (
+          // US-1967: no dead button. The server's own copy distinguishes "not
+          // licensed yet" (nothing to do) from "reconnect to enable" (a real
+          // fix), so don't paper over it with a generic message.
+          <div className="flex items-start gap-2 rounded-md border border-dashed p-3">
+            <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+            <div className="space-y-1">
+              <p className="text-sm font-medium">
+                {capability?.code === "reconnect_required"
+                  ? "Reconnect eBay to enable this"
+                  : "Not available yet"}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                {capability?.detail ??
+                  "Sending offers to interested buyers isn't available on this eBay connection yet."}
+              </p>
+              {capability?.code === "reconnect_required" && (
+                <Button asChild variant="outline" size="sm" className="mt-1">
+                  <a href="/dashboard/flipdesk/marketplaces">Reconnect eBay</a>
+                </Button>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Best Offers from buyers are unaffected — you can still accept,
+                decline, and counter them above.
+              </p>
+            </div>
+          </div>
+        ) : !open ? (
           <Button variant="outline" onClick={() => setOpen(true)}>
             Choose listings
           </Button>

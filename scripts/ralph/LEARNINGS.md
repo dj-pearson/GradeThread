@@ -861,6 +861,24 @@ memory — not a progress log (the harness records progress separately).
   clobber the attribute sources. Only `/extract` is called from iOS (always with
   a required `item_id`); AutoLister does its eBay prep server-side (ai-listing.ts).
 
+## eBay OAuth scopes — the two UNLICENSED ones (US-1510/1421/1967)
+- `sell.negotiation` (send-offer-to-interested-buyers) and
+  `commerce.identity.readonly` (seller account_handle) are DELIBERATELY omitted
+  from `getScopes()` (ebay-client.ts): the Production keyset isn't licensed for
+  them, and requesting an unlicensed scope makes the whole consent screen fail
+  `invalid_scope` — breaking EVERY (re)connect, not just the feature. So "fix
+  the 501 by adding the scope" is a TRAP; the decision (US-1967) is to keep them
+  off and gate the UI. Sandbox grants them, so this can't be caught locally.
+- Gate a scope-dependent UI on `GET /negotiation/capabilities` (pure resolver
+  `negotiationCapability(deploymentHasScope, connectionDenied)`), probed on
+  appear — NOT on a sticky flag set by a failed call, which still renders a live
+  button on the first visit after launch (that WAS the US-1967 bug). Distinguish
+  `feature_unavailable` (unfixable → hide the entry) from `reconnect_required`
+  (this token predates a granted scope → keep it and offer the reconnect); a
+  reconnect prompt for the unlicensed case is a lie. Probe failure must degrade
+  to AVAILABLE — a blip shouldn't hide a working feature. Incoming Best Offers
+  ride the Trading API and are unaffected by any of this.
+
 ## Consignor auto-payout (US-1112)
 - A consigned item's sale auto-creates the consignor payout: PURE math/decision
   in `lib/consignor-payout-math.ts` (no env → unit-testable) +

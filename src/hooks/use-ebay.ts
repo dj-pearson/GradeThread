@@ -1692,6 +1692,40 @@ export function useEbayRespondOffer() {
   });
 }
 
+// US-1967: whether this connection can send offers to interested buyers at all.
+// The sell.negotiation scope isn't licensed on the production keyset, so the
+// send-offer endpoints 501 there — surfaces gate on this instead of rendering a
+// button that always fails. Cheap (no eBay round trip); a failed probe degrades
+// to "available" so a transient blip can't hide a working feature.
+export interface EbayNegotiationCapability {
+  sendOfferAvailable: boolean;
+  code: "feature_unavailable" | "reconnect_required" | null;
+  detail: string | null;
+}
+
+export function useEbayNegotiationCapability(enabled = true) {
+  const tenantKey = useEbayTenantKey();
+  return useQuery({
+    queryKey: ["ebay_negotiation_capability", tenantKey],
+    enabled,
+    // Licensing state doesn't change minute to minute.
+    staleTime: 5 * 60 * 1000,
+    queryFn: async (): Promise<EbayNegotiationCapability> => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/negotiation/capabilities`,
+        { headers: await ebayHeaders() },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) return { sendOfferAvailable: true, code: null, detail: null };
+      return {
+        sendOfferAvailable: json.send_offer_available !== false,
+        code: json.code ?? null,
+        detail: json.detail ?? null,
+      };
+    },
+  });
+}
+
 export function useEbayEligibleOffers(enabled = true) {
   const tenantKey = useEbayTenantKey();
   return useQuery({
