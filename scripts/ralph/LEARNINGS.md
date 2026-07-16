@@ -51,7 +51,12 @@ memory — not a progress log (the harness records progress separately).
   (`supabaseAdmin`) crashes at import: `SUPABASE_URL is not set`. Fix like
   `ops-jobs_test.ts`: `Deno.env.set("SUPABASE_URL", …)` + `SUPABASE_SERVICE_ROLE_KEY`
   FIRST, then `const { fn } = await import("../lib/x.ts")` (dynamic, after the env
-  set) — a static top-of-file import still runs before the env lines.
+  set) — a static top-of-file import still runs before the env lines. The FULL
+  `deno test` suite MASKS a missing env dance (one shared process: an
+  alphabetically-earlier test's `Deno.env.set` already ran and supabase.ts is
+  evaluated once), so a file can pass in CI yet crash run ALONE — e.g.
+  `listing-photo-budget_test.ts` does. Smoke a new edge test file BY ITSELF, and
+  set env with `??`-defaults so you never clobber a real value.
 - Adding a cron means FOUR edits or `cron-registry-drift_test.ts` fails: the
   `/api/jobs/*` route in main.ts, a CRON_REGISTRY entry (cron-runs.ts), AND the
   generated tables in COOLIFY.md + LAUNCH_CHECKLIST.md (`cron-registry` markers)
