@@ -4130,3 +4130,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026 11:55:02 AM
 ---
+## US-1963: EPIC — eBay inbound-sync reliability (subscription mgmt, order backstop, hardened fetch)
+- Status: COMPLETE
+- Timestamp: Thu, Jul 16, 2026  2:17:34 PM
+---

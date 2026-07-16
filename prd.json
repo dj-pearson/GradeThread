@@ -1856,7 +1856,7 @@
         "In-app visibility of which Notification API topics are actually subscribed per environment"
       ],
       "priority": 2610,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][Edge/Sync][Epic] iOS listing-lifecycle audit 2026-07-14. Biggest structural blind spot in the eBay integration: inbound sync depends entirely on manual dev-portal config with no in-app verification + no automatic backstop. See memory ios-listing-lifecycle-audit-2026-07-14.",
       "relevantPaths": [
         "services/edge-functions/src/routes/flipdesk-webhooks.ts",
