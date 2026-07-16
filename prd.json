@@ -2056,7 +2056,7 @@
         "Warnings are advisory (do not block publish) and are visually distinct from hard blockers"
       ],
       "priority": 2602,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][iOS/Composer] iOS listing-lifecycle audit 2026-07-14. Fields already returned by edge (flipdesk-ebay.ts:5528-5534) but dropped by iOS decoder (EbayPublishTypes.swift:6-15).",
       "relevantPaths": [
         "ios/GradeThread/Marketplaces/Publish/EbayPublishTypes.swift",
