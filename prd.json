@@ -1756,7 +1756,7 @@
     {
       "id": "US-1909",
       "priority": 2607,
-      "passes": false,
+      "passes": true,
       "title": "iOS AutoLister grouping parity: filename-sequence + bounded merges + full verify coverage",
       "description": "As an iOS seller, I want the same grouping quality the web workbench has. Today iOS auto-grouping is EXIF time-gap only (PhotoGrouping.swift defers dHash), has no filename-sequence signal, and no windowed verify / propose-groups access.",
       "acceptanceCriteria": [

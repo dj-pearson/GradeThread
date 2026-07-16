@@ -4146,3 +4146,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jul 16, 2026  2:32:36 PM
 ---
+## US-1909: iOS AutoLister grouping parity: filename-sequence + bounded merges + full verify coverage
+- Status: COMPLETE
+- Timestamp: Thu, Jul 16, 2026  2:47:24 PM
+---
