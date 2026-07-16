@@ -1960,6 +1960,14 @@
         "ios/GradeThread/Marketplaces/Publish/PublishDialog.swift",
         "ios/GradeThread/Inventory/ItemCanvas/ItemCanvasView.swift",
         "src/pages/flipdesk/composer.tsx"
+      ],
+      "dependsOn": [
+        "US-1970",
+        "US-1971",
+        "US-1972",
+        "US-1973",
+        "US-1974",
+        "US-1975"
       ]
     },
     {
@@ -1972,7 +1980,7 @@
         "Best Offer is settable for manually/camera-created items (not gated on batchId)",
         "Round-trips: reopening the composer shows the saved Best Offer settings"
       ],
-      "priority": 1970,
+      "priority": 2606,
       "passes": false,
       "notes": "[P2][iOS/Composer] iOS listing-lifecycle audit 2026-07-14. iOS ComposerForm lacks it; bulk grid bool only + DraftsBulkEditStore.load filters batchId!=nil (:161) excluding manual items. Web: composer.tsx:2100-2153. Best Offer is a primary conversion lever.",
       "relevantPaths": [
@@ -1991,7 +1999,7 @@
         "Scheduled Drops empty-state copy matches the now-real control (no dead-end)",
         "Publishing respects the schedule end-to-end (server consumes scheduled_publish_at)"
       ],
-      "priority": 1971,
+      "priority": 2605,
       "passes": false,
       "notes": "[P2][iOS/Composer] iOS listing-lifecycle audit 2026-07-14. Dead empty state ScheduledDropsView.swift:87; ScheduledDropsService.swift:15,36 only reschedule/cancel non-null. Web control composer.tsx:2170 (state :266).",
       "relevantPaths": [
@@ -2010,7 +2018,7 @@
         "Saved drafts reopen with all fields intact including Best Offer and schedule",
         "No work loss on backgrounding/dismiss mid-edit"
       ],
-      "priority": 1972,
+      "priority": 2604,
       "passes": false,
       "notes": "[P2][iOS/Composer] iOS listing-lifecycle audit 2026-07-14. iOS persists only at runPush (PublishDialog.swift:452); close options :109-118 have no Save. Web independent Save composer.tsx:958-1015.",
       "relevantPaths": [
@@ -2029,7 +2037,7 @@
         "Actions respect the sync source-of-truth contract (blocked for eBay-origin mirrors)",
         "Confirmation + success/failure feedback consistent with existing revise UX"
       ],
-      "priority": 1973,
+      "priority": 2603,
       "passes": false,
       "notes": "[P2][iOS/Maintenance] iOS listing-lifecycle audit 2026-07-14. EbayPublishService revise Body has no quantity (:126-132); end is bulk-only (BulkActionExecutor.swift:261). Consider OUT_OF_STOCK program opt-in (US-1979) for evergreen multi-qty.",
       "relevantPaths": [
@@ -2047,7 +2055,7 @@
         "Composer renders a title-quality meter and recommended-coverage meter (parity with web composer.tsx:1442,1817)",
         "Warnings are advisory (do not block publish) and are visually distinct from hard blockers"
       ],
-      "priority": 1974,
+      "priority": 2602,
       "passes": false,
       "notes": "[P3][iOS/Composer] iOS listing-lifecycle audit 2026-07-14. Fields already returned by edge (flipdesk-ebay.ts:5528-5534) but dropped by iOS decoder (EbayPublishTypes.swift:6-15).",
       "relevantPaths": [
@@ -2065,7 +2073,7 @@
         "Variation editor supports size/color matrices with per-variant qty/price, feeding inventory_item_group publish",
         "Server consumption verified end-to-end (flipdesk-ebay.ts:5841-5949) — an iOS-created auction/variation listing publishes correctly"
       ],
-      "priority": 1975,
+      "priority": 2601,
       "passes": false,
       "notes": "[P3][iOS/Composer] iOS listing-lifecycle audit 2026-07-14. Purely missing iOS UI; web listing-format-controls.tsx:101-161,190+; server already consumes it. Trailing item in the composer epic (severity depends on seller type).",
       "relevantPaths": [
