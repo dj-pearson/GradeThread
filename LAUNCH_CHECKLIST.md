@@ -148,6 +148,7 @@ A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COO
 | drip-tick | `0 * * * *` | `/api/drip/tick` | `$DRIP_INTERNAL_JOB_SECRET` |  |
 | durability-aggregate | `0 2 * * *` | `/api/jobs/durability-aggregate` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | ebay-leave-feedback | `0 10 * * *` | `/api/flipdesk/ebay/jobs/leave-feedback` | `$FLIPDESK_INTERNAL_JOB_SECRET` | 200; no-op unless system setting feedback.auto_leave=true |
+| ebay-notification-reconcile | `17 */6 * * *` | `/api/jobs/ebay-notification-reconcile` | `$FLIPDESK_INTERNAL_JOB_SECRET` | 200 with {ok:true, healthy:true, missingBuckets:[]}; created/enabled empty on a steady-state run |
 | ebay-order-backstop | `*/30 * * * *` | `/api/jobs/ebay-order-backstop` | `$FLIPDESK_INTERNAL_JOB_SECRET` | 200 with {ok:true, candidates, started, alreadyRunning, ...}; started/candidates can be 0 when every connection synced recently |
 | ebay-orders-sync | `*/30 * * * *` | `/api/flipdesk/ebay/listings/pull` | `$FLIPDESK_INTERNAL_JOB_SECRET` | not in the cron_runs ledger |
 | ebay-pending-webhooks | `*/15 * * * *` | `/api/jobs/ebay-pending-webhooks` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
@@ -191,7 +192,7 @@ A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COO
 | thumbnail-backfill | `*/5 * * * *` | `/api/jobs/thumbnail-backfill` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | trial-expiry | `15 0 * * *` | `/api/jobs/trial-expiry` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 
-_70 scheduled jobs. Default healthy response: 200 `{"ok":true,...}` (idle runs report skipped/zero counts). Generated from `src/lib/cron-runs.ts` CRON_REGISTRY — do not hand-edit._
+_71 scheduled jobs. Default healthy response: 200 `{"ok":true,...}` (idle runs report skipped/zero counts). Generated from `src/lib/cron-runs.ts` CRON_REGISTRY — do not hand-edit._
 <!-- cron-registry:end -->
 
 **One-off at launch (not scheduled):** POST `/api/jobs/cert-integrity-backfill`

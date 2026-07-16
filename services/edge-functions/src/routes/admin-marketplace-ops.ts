@@ -27,7 +27,13 @@
 
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
-import { jsonError } from "../lib/http-errors.ts";
+import { failSafe, jsonError } from "../lib/http-errors.ts";
+import { isEbayConfigured } from "../lib/ebay-client.ts";
+import {
+  getNotificationHealth,
+  reconcileNotifications,
+  warnOnMissingTopics,
+} from "../lib/ebay-notification-subscriptions.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { requireStepUp } from "../lib/step-up.ts";
 import { getSetting } from "../lib/system-settings.ts";
@@ -443,4 +449,92 @@ adminMarketplaceOpsRoutes.post("/orphan-sales/:id/match", async (c) => {
     return jsonError(c, status, result.error);
   }
   return c.json({ ok: true, sale_id: result.sale_id, created: result.created });
+});
+
+// ── eBay Notification API health + reconcile (US-1964) ────────────────
+//
+// Inbound sync (sales/payouts/returns) depends on app-level Notification API
+// subscriptions that were previously only configurable — and only visible — in
+// eBay's developer portal. These two endpoints make that state readable and
+// repairable in-app, per environment (sandbox and production are separate eBay
+// configs; the reported `env` says which one the running service is bound to).
+
+// GET /notifications — read-only health probe. Which required topic buckets are
+// actually subscribed, and to a destination that reaches US. No writes, so it's
+// safe for the console to poll.
+adminMarketplaceOpsRoutes.get("/notifications", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ configured: false, health: null });
+  }
+  try {
+    const health = await getNotificationHealth();
+    // AC4: an unsubscribed topic is warned about on every read, not only by the
+    // cron — so it shows up in logs the moment an operator looks at the console.
+    warnOnMissingTopics(health, "admin probe");
+    return c.json({ configured: true, health });
+  } catch (err) {
+    return failSafe(
+      c,
+      502,
+      "Couldn't read eBay notification config.",
+      err,
+      "ebay.notifications.health",
+    );
+  }
+});
+
+// POST /notifications/reconcile — create/update our destinations and subscribe
+// every required topic. Idempotent (a healthy config performs zero writes), but
+// it DOES mutate the shared, app-wide eBay config for the whole environment, so
+// it carries the same super_admin + MFA step-up + audit gate as the other
+// mutations on this router.
+adminMarketplaceOpsRoutes.post("/notifications/reconcile", async (c) => {
+  if (c.get("adminRole") !== "super_admin") {
+    return jsonError(c, 403, "Super admin required to reconcile eBay notifications.");
+  }
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
+
+  if (!isEbayConfigured()) {
+    return jsonError(c, 409, "eBay is not configured in this environment.");
+  }
+  const verificationToken = Deno.env.get("EBAY_VERIFICATION_TOKEN")?.trim();
+  if (!verificationToken) {
+    // eBay validates a destination by calling our challenge endpoint, which
+    // can't answer without this token — so the reconcile would fail anyway.
+    return jsonError(
+      c,
+      409,
+      "EBAY_VERIFICATION_TOKEN is not set; eBay cannot validate our webhook endpoints.",
+    );
+  }
+
+  try {
+    const result = await reconcileNotifications({ verificationToken });
+    warnOnMissingTopics(result.health, "admin reconcile");
+
+    await writeAuditLog(c, {
+      action: "marketplace_notifications.reconcile",
+      targetType: "ebay_notification_config",
+      targetId: result.env,
+      details: {
+        env: result.env,
+        created: result.created,
+        enabled: result.enabled,
+        repointed: result.repointed,
+        already_current: result.alreadyCurrent,
+        missing_buckets: result.health.missingBuckets,
+        errors: result.errors,
+      },
+    });
+    return c.json({ ok: true, ...result });
+  } catch (err) {
+    return failSafe(
+      c,
+      502,
+      "Couldn't reconcile eBay notifications.",
+      err,
+      "ebay.notifications.reconcile",
+    );
+  }
 });

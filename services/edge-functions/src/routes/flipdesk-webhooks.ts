@@ -9,6 +9,7 @@ import { verifyEbayNotification } from "../lib/ebay-notification-verify.ts";
 import { captureException, recordMetric } from "../lib/observability.ts";
 import { triggerEbaySyncForUser } from "./flipdesk-ebay.ts";
 import { classifyEbayTopic } from "../lib/ebay-webhook-topics.ts";
+import { notificationEndpointUrl } from "../lib/ebay-notification-subscriptions.ts";
 import { pollMarketplaceEventsForUser } from "../lib/marketplace-event-poll.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
 import { acquireJobLock } from "../lib/job-lock.ts";
@@ -79,6 +80,33 @@ function reportWebhookFailure(
 // and SKIP signature verification while wiring up a sandbox subscription. This
 // is IGNORED when EDGE_ENV=production (see isDebugAllowed in lib/env.ts) —
 // verification can never be bypassed in prod. See W4 doc comment for details.
+// US-1964: eBay's ownership handshake for THIS endpoint. eBay calls it when a
+// destination pointing here is created/updated (and periodically after), and
+// refuses the destination if the response doesn't match — so without this GET,
+// ensureDestination("general", …) can never succeed and no order/payout/return
+// topic can be subscribed. Same scheme + same verification token as the
+// account-deletion endpoint's handshake below; only the endpoint URL in the
+// hash differs (it MUST be the exact URL registered with eBay).
+flipdeskWebhookRoutes.get("/ebay", async (c) => {
+  const verificationToken = Deno.env.get("EBAY_VERIFICATION_TOKEN");
+  const challengeCode = c.req.query("challenge_code");
+
+  if (!verificationToken) {
+    console.error(
+      "[flipdesk-webhooks] EBAY_VERIFICATION_TOKEN is not set; cannot answer eBay handshake",
+    );
+    return c.json({ error: "Webhook not configured" }, 503);
+  }
+  if (!challengeCode) {
+    return c.json({ error: "Missing challenge_code" }, 400);
+  }
+
+  const challengeResponse = await sha256Hex(
+    challengeCode + verificationToken + notificationEndpointUrl(),
+  );
+  return c.json({ challengeResponse }, 200);
+});
+
 flipdeskWebhookRoutes.post("/ebay", async (c) => {
   const verificationToken = Deno.env.get("EBAY_VERIFICATION_TOKEN");
   if (!verificationToken) {

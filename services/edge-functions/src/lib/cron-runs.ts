@@ -133,6 +133,10 @@ export const CRON_REGISTRY: CronDef[] = [
   // notification never becomes a permanently missing sale. Reuses the per-tenant
   // sync lock + idempotent ingest, so it composes with the webhook path.
   { name: "ebay-order-backstop", label: "eBay order-sync backstop", schedule: "*/30 * * * *", category: "sync", endpoint: "/api/jobs/ebay-order-backstop", recorded: true, healthy: "200 with {ok:true, candidates, started, alreadyRunning, ...}; started/candidates can be 0 when every connection synced recently" },
+  // US-1964: re-asserts the app-level eBay Notification API destinations +
+  // topic subscriptions and warns on any required topic left unsubscribed. A
+  // healthy config is a no-op, so this runs infrequently — it's drift detection.
+  { name: "ebay-notification-reconcile", label: "eBay notification reconcile", schedule: "17 */6 * * *", category: "sync", endpoint: "/api/jobs/ebay-notification-reconcile", recorded: true, healthy: "200 with {ok:true, healthy:true, missingBuckets:[]}; created/enabled empty on a steady-state run" },
   { name: "gsc-sync", label: "Search Console sync", schedule: "30 6 * * *", category: "seo", endpoint: "/api/jobs/gsc-sync", recorded: true },
   { name: "growth-dispatch", label: "Scheduled-campaign dispatch", schedule: "*/15 * * * *", category: "growth", endpoint: "/api/jobs/growth-dispatch", recorded: true },
   { name: "north-star-digest", label: "North Star weekly digest", schedule: "0 14 * * 1", category: "growth", endpoint: "/api/jobs/north-star-digest", recorded: true },

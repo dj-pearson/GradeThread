@@ -52,6 +52,13 @@ memory — not a progress log (the harness records progress separately).
   `ops-jobs_test.ts`: `Deno.env.set("SUPABASE_URL", …)` + `SUPABASE_SERVICE_ROLE_KEY`
   FIRST, then `const { fn } = await import("../lib/x.ts")` (dynamic, after the env
   set) — a static top-of-file import still runs before the env lines.
+- Adding a cron means FOUR edits or `cron-registry-drift_test.ts` fails: the
+  `/api/jobs/*` route in main.ts, a CRON_REGISTRY entry (cron-runs.ts), AND the
+  generated tables in COOLIFY.md + LAUNCH_CHECKLIST.md (`cron-registry` markers)
+  + CRON_SETUP.md (`cron-setup` markers). `scripts/render-cron-{docs,setup}.ts`
+  only PRINT to stdout — they don't write; splice the output between the markers
+  yourself (the test compares VERBATIM). Both need SUPABASE_URL/
+  SUPABASE_SERVICE_ROLE_KEY set or they die on the supabase.ts import.
 
 ## Architecture / routing
 - Two hosts, easy to confuse: Supabase/Kong = `api.gradethread.com` (Supabase

@@ -170,6 +170,7 @@ import { handleBillingReconciliationCron } from "./routes/jobs-billing-reconcili
 import { handleAiBudgetCron } from "./routes/jobs-ai-budget.ts";
 import { handleMarketplaceEventsCron } from "./routes/jobs-marketplace-events.ts";
 import { handleEbayOrderBackstopCron } from "./routes/jobs-ebay-order-backstop.ts";
+import { handleEbayNotificationReconcileCron } from "./routes/jobs-ebay-notification-reconcile.ts";
 import { adminSeoRoutes, handleGscSyncCron } from "./routes/admin-seo.ts";
 import { adminGrowthRoutes, handleGrowthDispatchCron } from "./routes/admin-growth.ts";
 import { adminAdsRoutes } from "./routes/admin-ads.ts";
@@ -1409,6 +1410,8 @@ app.post("/api/jobs/ebay-pending-webhooks", (c) => handleEbayPendingWebhooksCron
 // incremental idempotent order pull for them. Handler enforces the job secret;
 // the /api/jobs/* middleware records it to cron_runs.
 app.post("/api/jobs/ebay-order-backstop", (c) => handleEbayOrderBackstopCron(c));
+app.post("/api/jobs/ebay-notification-reconcile", (c) =>
+  handleEbayNotificationReconcileCron(c));
 // US-308/US-309 admin SEO endpoints. /summary + /gsc/sync are admin JWT
 // gated by the /api/admin/* middleware groups above.
 app.route("/api/admin/seo", adminSeoRoutes);

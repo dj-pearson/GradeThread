@@ -220,294 +220,301 @@ curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/flipdesk/ebay/jobs/leave-feedback
 ```
 
-### 29. ebay-order-backstop
+### 29. ebay-notification-reconcile
+**Frequency:** `17 */6 * * *`  ·  _200 with {ok:true, healthy:true, missingBuckets:[]}; created/enabled empty on a steady-state run_
+
+```bash
+curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/ebay-notification-reconcile
+```
+
+### 30. ebay-order-backstop
 **Frequency:** `*/30 * * * *`  ·  _200 with {ok:true, candidates, started, alreadyRunning, ...}; started/candidates can be 0 when every connection synced recently_
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/ebay-order-backstop
 ```
 
-### 30. ebay-orders-sync
+### 31. ebay-orders-sync
 **Frequency:** `*/30 * * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/flipdesk/ebay/listings/pull
 ```
 
-### 31. ebay-pending-webhooks
+### 32. ebay-pending-webhooks
 **Frequency:** `*/15 * * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/ebay-pending-webhooks
 ```
 
-### 32. ebay-performance-sync
+### 33. ebay-performance-sync
 **Frequency:** `0 */6 * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/flipdesk/ebay/sync/performance
 ```
 
-### 33. ebay-promoted-sync
+### 34. ebay-promoted-sync
 **Frequency:** `0 */6 * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/flipdesk/ebay/jobs/promoted-sync
 ```
 
-### 34. ebay-publish-due
+### 35. ebay-publish-due
 **Frequency:** `*/5 * * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/flipdesk/ebay/jobs/publish-due
 ```
 
-### 35. ebay-token-refresh
+### 36. ebay-token-refresh
 **Frequency:** `0 * * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/flipdesk/ebay/oauth/refresh
 ```
 
-### 36. email-retry
+### 37. email-retry
 **Frequency:** `*/5 * * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/email-retry
 ```
 
-### 37. equity-snapshot
+### 38. equity-snapshot
 **Frequency:** `15 5 * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/equity-snapshot
 ```
 
-### 38. exemplar-assembly
+### 39. exemplar-assembly
 **Frequency:** `0 12 * * 0`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/exemplar-assembly
 ```
 
-### 39. google-sheet-sync
+### 40. google-sheet-sync
 **Frequency:** `*/5 * * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/flipdesk/google/sync/push
 ```
 
-### 40. googleplay-expiry-sweep
+### 41. googleplay-expiry-sweep
 **Frequency:** `50 1 * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/googleplay-expiry-sweep
 ```
 
-### 41. grading-batch-reclaim
+### 42. grading-batch-reclaim
 **Frequency:** `*/5 * * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/grading-batch-reclaim
 ```
 
-### 42. grading-monitor
+### 43. grading-monitor
 **Frequency:** `0 */12 * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/grading-monitor
 ```
 
-### 43. growth-dispatch
+### 44. growth-dispatch
 **Frequency:** `*/15 * * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/growth-dispatch
 ```
 
-### 44. gsc-sync
+### 45. gsc-sync
 **Frequency:** `30 6 * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/gsc-sync
 ```
 
-### 45. guarantee-pool
+### 46. guarantee-pool
 **Frequency:** `0 4 * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/guarantee-pool
 ```
 
-### 46. integrity-scan
+### 47. integrity-scan
 **Frequency:** `0 7 * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/integrity-scan
 ```
 
-### 47. journey-tick
+### 48. journey-tick
 **Frequency:** `30 13 * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/journey-tick
 ```
 
-### 48. keyword-research
+### 49. keyword-research
 **Frequency:** `0 6 * * 1`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/keyword-research
 ```
 
-### 49. listing-prompt-promote
+### 50. listing-prompt-promote
 **Frequency:** `0 9 * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/listing-prompt-promote
 ```
 
-### 50. marketplace-events
+### 51. marketplace-events
 **Frequency:** `*/15 * * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/marketplace-events
 ```
 
-### 51. newsletter-ab-finalize
+### 52. newsletter-ab-finalize
 **Frequency:** `*/15 * * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/newsletter-ab-finalize
 ```
 
-### 52. newsletter-dispatch
+### 53. newsletter-dispatch
 **Frequency:** `0 * * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/newsletter-dispatch
 ```
 
-### 53. newsletter-kickoff
+### 54. newsletter-kickoff
 **Frequency:** `0 * * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $NEWSLETTER_INTERNAL_JOB_SECRET" http://localhost:8787/api/newsletter/scheduler/tick
 ```
 
-### 54. newsletter-topic-bank-refill
+### 55. newsletter-topic-bank-refill
 **Frequency:** `0 5 * * 1`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/newsletter-topic-bank-refill
 ```
 
-### 55. newsletter-tuning
+### 56. newsletter-tuning
 **Frequency:** `45 12 * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/newsletter-tuning
 ```
 
-### 56. north-star-digest
+### 57. north-star-digest
 **Frequency:** `0 14 * * 1`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/north-star-digest
 ```
 
-### 57. operator-brief
+### 58. operator-brief
 **Frequency:** `0 13 * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/operator-brief
 ```
 
-### 58. passport-backfill
+### 59. passport-backfill
 **Frequency:** `*/15 * * * *`  ·  _ONE-OFF at launch (idempotent; disable once drained)_
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/passport-backfill
 ```
 
-### 59. passport-integrity-scan
+### 60. passport-integrity-scan
 **Frequency:** `0 */6 * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/passport-integrity-scan
 ```
 
-### 60. photo-archive
+### 61. photo-archive
 **Frequency:** `0 4 * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/flipdesk/images/archive
 ```
 
-### 61. portfolio-alerts
+### 62. portfolio-alerts
 **Frequency:** `0 7 * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/portfolio-alerts
 ```
 
-### 62. publish-batch-reclaim
+### 63. publish-batch-reclaim
 **Frequency:** `*/5 * * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/publish-batch-reclaim
 ```
 
-### 63. push-token-prune
+### 64. push-token-prune
 **Frequency:** `0 3 * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/push-token-prune
 ```
 
-### 64. reconciliation-sweep
+### 65. reconciliation-sweep
 **Frequency:** `0 5 * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/flipdesk/reconciliation/run
 ```
 
-### 65. reprice-rules
+### 66. reprice-rules
 **Frequency:** `0 */6 * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/reprice-rules
 ```
 
-### 66. reprice-scan
+### 67. reprice-scan
 **Frequency:** `0 */6 * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/reprice-scan
 ```
 
-### 67. stuck-submissions
+### 68. stuck-submissions
 **Frequency:** `*/10 * * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/stuck-submissions
 ```
 
-### 68. sync-reaper
+### 69. sync-reaper
 **Frequency:** `*/15 * * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/sync-reaper
 ```
 
-### 69. thumbnail-backfill
+### 70. thumbnail-backfill
 **Frequency:** `*/5 * * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/thumbnail-backfill
 ```
 
-### 70. trial-expiry
+### 71. trial-expiry
 **Frequency:** `15 0 * * *`
 
 ```bash

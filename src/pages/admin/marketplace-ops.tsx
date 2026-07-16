@@ -33,12 +33,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   AlertTriangle,
   Ban,
+  BellRing,
+  CheckCircle2,
   GitMerge,
   Link2,
   RefreshCw,
   Unplug,
   Workflow,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface PageMeta {
   page: number;
@@ -93,6 +96,51 @@ interface ConflictsResponse {
   conflicts: ConflictRow[];
   page: PageMeta;
 }
+
+// US-1964: eBay Notification API health. `env` matters — sandbox and production
+// are entirely separate eBay configs, so "subscribed" is only ever true OF AN
+// ENVIRONMENT. A bucket is healthy only when some topic in it is ENABLED *and*
+// delivers to the destination we own (see `misrouted`).
+interface NotificationTopicHealth {
+  topicId: string;
+  subscribed: boolean;
+  status: string | null;
+  destinationId: string | null;
+  misrouted: boolean;
+}
+
+interface NotificationBucketHealth {
+  bucket: string;
+  destination: string;
+  endpoint: string;
+  healthy: boolean;
+  topics: NotificationTopicHealth[];
+}
+
+interface NotificationHealth {
+  env: string;
+  destinations: Array<{
+    kind: string;
+    endpoint: string;
+    destinationId: string | null;
+    status: string | null;
+  }>;
+  buckets: NotificationBucketHealth[];
+  missingBuckets: string[];
+  ok: boolean;
+}
+
+interface NotificationsResponse {
+  configured: boolean;
+  health: NotificationHealth | null;
+}
+
+const BUCKET_LABELS: Record<string, string> = {
+  order: "Orders & sales",
+  payout: "Payouts",
+  return: "Returns & cancellations",
+  account_deletion: "Account deletion (compliance)",
+};
 
 interface OrphanRow {
   id: string;
@@ -249,9 +297,9 @@ export function AdminMarketplaceOpsPage() {
   const isSuperAdmin = profile?.role === "super_admin";
   const qc = useQueryClient();
 
-  const [tab, setTab] = useState<"sync-runs" | "conflicts" | "orphan-sales" | "pipeline">(
-    "sync-runs",
-  );
+  const [tab, setTab] = useState<
+    "sync-runs" | "conflicts" | "orphan-sales" | "pipeline" | "notifications"
+  >("sync-runs");
   const [runPage, setRunPage] = useState(1);
   const [conflictPage, setConflictPage] = useState(1);
   const [orphanPage, setOrphanPage] = useState(1);
@@ -377,7 +425,24 @@ export function AdminMarketplaceOpsPage() {
     staleTime: 30_000,
   });
 
+  // US-1964: live probe of eBay's Notification API config. It calls out to eBay,
+  // so keep it lazy (tab-gated) and cache it a little longer than the DB reads.
+  const notificationsQuery = useQuery({
+    queryKey: ["admin-marketplace-notifications"],
+    queryFn: async (): Promise<NotificationsResponse> => {
+      const res = await edgeFetch("/api/admin/marketplace/notifications");
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error((json as { error?: string })?.error ?? "Failed to load");
+      }
+      return json;
+    },
+    enabled: tab === "notifications",
+    staleTime: 60_000,
+  });
+
   const invalidateAll = () => {
+    qc.invalidateQueries({ queryKey: ["admin-marketplace-notifications"] });
     qc.invalidateQueries({ queryKey: ["admin-marketplace-sync-runs"] });
     qc.invalidateQueries({ queryKey: ["admin-marketplace-conflicts"] });
     qc.invalidateQueries({ queryKey: ["admin-marketplace-orphans"] });
@@ -516,8 +581,23 @@ export function AdminMarketplaceOpsPage() {
       },
     );
 
+  const reconcileNotifications = () =>
+    run(
+      "notifications",
+      () =>
+        edgeFetch("/api/admin/marketplace/notifications/reconcile", {
+          method: "POST",
+          silentGate: true,
+        }),
+      () => {
+        toast.success("Reconciled eBay notification subscriptions");
+        qc.invalidateQueries({ queryKey: ["admin-marketplace-notifications"] });
+      },
+    );
+
   const summary = runsQuery.data?.summary;
   const pc = pipelineCountsQuery.data;
+  const notif = notificationsQuery.data;
 
   return (
     <div className="space-y-6">
@@ -535,6 +615,7 @@ export function AdminMarketplaceOpsPage() {
           <TabsTrigger value="conflicts">Conflicts</TabsTrigger>
           <TabsTrigger value="orphan-sales">Orphan sales</TabsTrigger>
           <TabsTrigger value="pipeline">Pipeline</TabsTrigger>
+          <TabsTrigger value="notifications">Notifications</TabsTrigger>
         </TabsList>
 
         {/* ── Sync runs ── */}
@@ -1163,6 +1244,159 @@ export function AdminMarketplaceOpsPage() {
                   />
                 </TabsContent>
               </Tabs>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── eBay Notification API (US-1964) ── */}
+        <TabsContent value="notifications" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <BellRing className="h-4 w-4" />
+                    eBay notification subscriptions
+                    {notif?.health && (
+                      <Badge variant="outline" className="font-mono text-xs">
+                        {notif.health.env}
+                      </Badge>
+                    )}
+                  </CardTitle>
+                  <CardDescription>
+                    Which inbound topics eBay is actually delivering to us in this environment.
+                    An unsubscribed topic means those events never arrive — the order-sync
+                    backstop cron is the only thing covering the gap until it's fixed.
+                  </CardDescription>
+                </div>
+                {isSuperAdmin && notif?.configured && (
+                  <Button
+                    size="sm"
+                    onClick={reconcileNotifications}
+                    disabled={workingId === "notifications"}
+                  >
+                    <RefreshCw
+                      className={cn(
+                        "mr-2 h-4 w-4",
+                        workingId === "notifications" && "animate-spin",
+                      )}
+                    />
+                    Reconcile
+                  </Button>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {notificationsQuery.isLoading && <Skeleton className="h-32 w-full" />}
+
+              {notificationsQuery.isError && (
+                <p className="text-sm text-destructive">
+                  Couldn't reach eBay to read the notification config.
+                </p>
+              )}
+
+              {notif && !notif.configured && (
+                <p className="text-sm text-muted-foreground">
+                  eBay isn't configured in this environment.
+                </p>
+              )}
+
+              {notif?.health && (
+                <>
+                  <div
+                    className={cn(
+                      "flex items-center gap-2 rounded-md border p-3 text-sm",
+                      notif.health.ok
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                        : "border-amber-200 bg-amber-50 text-amber-900",
+                    )}
+                  >
+                    {notif.health.ok ? (
+                      <>
+                        <CheckCircle2 className="h-4 w-4" />
+                        All required topics are subscribed and routed to us.
+                      </>
+                    ) : (
+                      <>
+                        <AlertTriangle className="h-4 w-4" />
+                        Not receiving:{" "}
+                        {notif.health.missingBuckets
+                          .map((b) => BUCKET_LABELS[b] ?? b)
+                          .join(", ")}
+                      </>
+                    )}
+                  </div>
+
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Topic bucket</TableHead>
+                        <TableHead>State</TableHead>
+                        <TableHead>eBay topics</TableHead>
+                        <TableHead>Delivers to</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {notif.health.buckets.map((b) => (
+                        <TableRow key={b.bucket}>
+                          <TableCell className="font-medium">
+                            {BUCKET_LABELS[b.bucket] ?? b.bucket}
+                          </TableCell>
+                          <TableCell>
+                            <Badge
+                              variant="outline"
+                              className={
+                                b.healthy
+                                  ? "border-emerald-200 bg-emerald-100 text-emerald-800"
+                                  : "border-amber-200 bg-amber-100 text-amber-800"
+                              }
+                            >
+                              {b.healthy ? "subscribed" : "not received"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="space-y-1">
+                            {b.topics.length === 0 ? (
+                              <span className="text-xs text-muted-foreground">
+                                no matching topic in eBay's catalog
+                              </span>
+                            ) : (
+                              b.topics.map((t) => (
+                                <div key={t.topicId} className="text-xs">
+                                  <span className="font-mono">{t.topicId}</span>{" "}
+                                  <span className="text-muted-foreground">
+                                    — {t.subscribed ? (t.status ?? "unknown") : "not subscribed"}
+                                    {t.misrouted && " (delivering elsewhere)"}
+                                  </span>
+                                </div>
+                              ))
+                            )}
+                          </TableCell>
+                          <TableCell
+                            className="max-w-[18rem] truncate text-xs text-muted-foreground"
+                            title={b.endpoint}
+                          >
+                            {b.endpoint}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+
+                  <div className="space-y-1 text-xs text-muted-foreground">
+                    {notif.health.destinations.map((d) => (
+                      <div key={d.kind}>
+                        <span className="font-medium">{d.kind}</span> destination:{" "}
+                        {d.destinationId ? (
+                          <span className="font-mono">{d.destinationId}</span>
+                        ) : (
+                          <span className="text-amber-700">not registered</span>
+                        )}
+                        {d.status && ` · ${d.status}`}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
