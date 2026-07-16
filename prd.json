@@ -1981,7 +1981,7 @@
         "Round-trips: reopening the composer shows the saved Best Offer settings"
       ],
       "priority": 2606,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][iOS/Composer] iOS listing-lifecycle audit 2026-07-14. iOS ComposerForm lacks it; bulk grid bool only + DraftsBulkEditStore.load filters batchId!=nil (:161) excluding manual items. Web: composer.tsx:2100-2153. Best Offer is a primary conversion lever.",
       "relevantPaths": [
         "ios/GradeThread/Marketplaces/Publish/PublishDialog.swift",

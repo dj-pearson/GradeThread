@@ -4158,3 +4158,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jul 16, 2026  3:35:01 PM
 ---
+## US-1970: iOS: Best Offer on single-item composer (toggle + auto-accept/decline) incl. camera-created items
+- Status: COMPLETE
+- Timestamp: Thu, Jul 16, 2026  3:58:14 PM
+---
