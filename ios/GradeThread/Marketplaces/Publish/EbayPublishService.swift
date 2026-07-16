@@ -114,6 +114,7 @@ public final class EbayPublishService {
         title: String? = nil,
         description: String? = nil,
         price: Double? = nil,
+        quantity: Int? = nil,
         syncPhotos: Bool = false,
         resyncFields: Bool = false
     ) async -> ReviseOutcome {
@@ -123,10 +124,14 @@ public final class EbayPublishService {
         // US-1503: `resync_ebay_fields` forces the structured re-PUT (category/
         // condition/specifics/measurements/grade) so a measurement or column edit
         // reaches the live listing — web "Save & resubmit" parity (US-1490).
+        // US-1973: `quantity` rides the same body — the server maps it onto the
+        // offer's `availableQuantity` (updateOfferFields / bulkUpdatePriceQuantity),
+        // where 0 means out of stock without withdrawing the offer.
         struct Body: Encodable {
             let title: String?
             let description: String?
             let listing_price: Double?
+            let quantity: Int?
             let photos: Bool?
             let resync_ebay_fields: Bool?
         }
@@ -138,6 +143,7 @@ public final class EbayPublishService {
                     title: title,
                     description: description,
                     listing_price: price,
+                    quantity: quantity,
                     photos: syncPhotos ? true : nil,
                     resync_ebay_fields: resyncFields ? true : nil
                 )
@@ -153,6 +159,22 @@ public final class EbayPublishService {
         } catch {
             return .failed(message: Self.networkFailureMessage(error))
         }
+    }
+
+    // MARK: - Quantity (US-1973)
+
+    /// Sets the live listing's available quantity. `0` pulls it out of stock —
+    /// the offer stays published (and relists in one tap) but nothing is
+    /// buyable, which is what a seller wants for a temporarily unavailable item.
+    /// Ending the listing outright is ``endListing(listingId:)``.
+    func updateQuantity(listingId: String, quantity: Int) async -> ReviseOutcome {
+        // The server rejects a negative quantity (400); catch it before the
+        // round-trip so the control shows actionable copy, mirroring the
+        // price guard in `updatePrice`.
+        guard quantity >= 0 else {
+            return .failed(message: "Enter a quantity of 0 or more.")
+        }
+        return await revise(listingId: listingId, quantity: quantity)
     }
 
     // MARK: - US-1508: offline Save & Sync revise replay

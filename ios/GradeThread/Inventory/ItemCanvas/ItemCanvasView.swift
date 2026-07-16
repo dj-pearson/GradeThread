@@ -138,6 +138,33 @@ struct ItemCanvasView: View {
         }
     }
 
+    /// US-1973: optimistically mirror a confirmed quantity/end onto the local
+    /// rows so the canvas reflects it before the next pull. `hasLocalChanges`
+    /// guards each value against a racing pull that predates the server write
+    /// (US-1249 policy). Ending also flips the item to `drafted` — what the
+    /// server does — which the editable-signature `onChange` folds into the form
+    /// (no-op while the user is mid-edit, so it can't clobber a draft).
+    private func applyListingMaintenance(
+        _ applied: ListingMaintenanceStore.Applied,
+        to listing: LocalListing
+    ) {
+        switch applied {
+        case .quantity(let quantity):
+            listing.quantity = quantity
+        case .ended:
+            listing.listingStatus = "ended"
+            listing.endedAt = .now
+            item.status = "drafted"
+            item.updatedAt = .now
+            // The eBay side may still be live (US-1506, surfaced in the toast) —
+            // pull so the mirror reconciles to whatever actually happened.
+            NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
+        }
+        listing.hasLocalChanges = true
+        listing.updatedAt = .now
+        modelContext.saveOrLog("applyListingMaintenance")
+    }
+
     /// Whether publishing this item is a relist: it was previously listed (an
     /// ended draft, or a still-live listing being replaced) rather than a
     /// first-time publish.
@@ -380,6 +407,22 @@ struct ItemCanvasView: View {
             // US-1044/1045: Promoted Listings + Sale controls for the live eBay listing.
             if let listing = activeEbayListing {
                 EbayMarketingControls(listingId: listing.id)
+            }
+            // US-1973: single-item quantity / out-of-stock + End listing. Only for
+            // a GradeThread-originated listing — eBay owns an imported mirror's
+            // quantity and lifecycle (the edge 409s both writes), and the
+            // eBay-origin branch of `listingsSection` already says "edit on eBay".
+            if let listing = gtLiveListing {
+                ListingMaintenanceControls(
+                    listingId: listing.id,
+                    quantity: listing.quantity,
+                    onApplied: { applyListingMaintenance($0, to: listing) },
+                    onToast: { actionToast = $0 }
+                )
+                // The store seeds its stepper once from `quantity`; keying on the
+                // listing id rebuilds it if the canvas resolves a different live
+                // listing (e.g. after a relist) instead of keeping the old seed.
+                .id(listing.id)
             }
             specificsSection
             if canPublish {

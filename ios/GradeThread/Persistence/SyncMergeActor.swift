@@ -414,6 +414,14 @@ actor SyncMergeActor {
                     local: local.listingStatus, server: status,
                     hasLocalChanges: local.hasLocalChanges, listingOrigin: origin)
             }
+            // US-1973: quantity is eBay-owned + editable, same class as price —
+            // resolve it through the provenance policy so a just-set local
+            // out-of-stock isn't clobbered by a racing pull that predates it.
+            if let quantity = remote.quantity {
+                local.quantity = ConflictPolicy.resolveEbayOwnedListingField(
+                    local: local.quantity ?? quantity, server: quantity,
+                    hasLocalChanges: local.hasLocalChanges, listingOrigin: origin)
+            }
             local.listingOrigin = remote.listing_origin
             // US-1511: last push failure is server-owned (written by the edge on
             // a failed publish/revise, cleared on success) — copy verbatim so a

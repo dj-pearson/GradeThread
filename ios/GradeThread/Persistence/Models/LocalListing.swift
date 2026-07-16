@@ -29,6 +29,13 @@ final class LocalListing {
     var listedAt: Date?
     var endedAt: Date?
 
+    /// US-1973: the listed available quantity. eBay-owned + editable (same class
+    /// as price/status), so the merge routes it through the provenance policy.
+    /// `0` = out of stock: the offer stays published but nothing is buyable.
+    /// Nil on rows synced before the column was mirrored — the maintenance
+    /// control seeds a single-item default in that case.
+    var quantity: Int?
+
     // Engagement metrics (US-151 — not actively populated yet)
     var viewsTotal: Int?
     var watchersCount: Int?

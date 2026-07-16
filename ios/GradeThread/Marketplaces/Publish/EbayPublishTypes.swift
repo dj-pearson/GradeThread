@@ -313,6 +313,15 @@ struct EndListingResponse: Decodable, Equatable {
         endedOnEbay = try c.decodeIfPresent(Bool.self, forKey: .endedOnEbay) ?? false
         note = try c.decodeIfPresent(String.self, forKey: .note)
     }
+
+    /// Memberwise init for tests / previews (the Decodable init above replaces
+    /// the synthesized one).
+    init(ok: Bool, listingId: String, endedOnEbay: Bool, note: String? = nil) {
+        self.ok = ok
+        self.listingId = listingId
+        self.endedOnEbay = endedOnEbay
+        self.note = note
+    }
 }
 
 /// `402 PAYMENT_REQUIRED` body emitted by the edge plan gate (plan-gate.ts):
