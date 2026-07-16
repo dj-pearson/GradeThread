@@ -527,6 +527,14 @@ memory — not a progress log (the harness records progress separately).
   `Persistence/GradeThreadSchema.swift` — it's the authority, not this file).
   Additive optionals (US-1973's `LocalListing.quantity`) get an implicit nil
   default, so the existing `init` needs no change.
+- Adding a field to a decode-only `struct` (e.g. `ValidateResponse`) silently
+  breaks its SYNTHESIZED memberwise init at every construction site — tests and
+  previews build these positionally (DraftsTests builds ValidateResponse). Swift
+  doesn't compile on the Windows loop host, so it only fails on iOS CI. Give the
+  struct an EXPLICIT init whose new params default to nil (US-1974), and grep
+  `TypeName(` across GradeThread + GradeThreadTests before adding the field. Same
+  for a custom `init(from:)`: declare `CodingKeys` explicitly (every peer in
+  EbayPublishTypes.swift does) rather than relying on synthesis.
 - Adding a DEFAULT-valued associated value to an existing enum case is fully
   backward-compatible: `case rateLimited(retryAfter: TimeInterval? = nil)` lets
   every bare `.rateLimited` CONSTRUCTION keep compiling (default fills in) AND
