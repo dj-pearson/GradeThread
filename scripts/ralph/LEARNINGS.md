@@ -448,23 +448,22 @@ memory — not a progress log (the harness records progress separately).
   the `/revise` endpoint, which now clears `sync_drift` on success.
 
 ## Android conversion backlog (US-1299…US-1396)
-- This backlog has NO checked-in Android code (no `android/` dir, zero `*.kt`/
-  `*.gradle.kts`/`AndroidManifest.xml` tracked) and this is a WINDOWS host with
-  no Android SDK / Gradle / emulator. Every US-1300+ story is "Device/Android-
-  toolchain-gated" → not buildable or verifiable here. Audit/QA stories
-  (e.g. US-1396 accessibility audit) presuppose a running app, so they cannot be
-  honestly completed — do NOT fabricate an audit/test result; leave a note and
-  stop without emitting STORY_DONE (same rule as a blocked story). Prefer the
-  highest-priority web/edge story instead when one is available.
-- This ALSO covers build/release/CI-infra stories (e.g. US-1391 Gradle build +
-  signing + android-ci.yml) — they LOOK like "just config files" but presuppose
-  the non-existent Android source tree (app/widget/share-target modules) AND an
-  Android toolchain to build/test/lint. A `gradlew build` CI on an empty repo
-  fails on a real PR, and ACs like "Widget + share-target targets build in CI"
-  can't be honestly verified. Don't scaffold a green-looking build for code that
-  doesn't exist; the web verify steps (tsc/build/vitest) never exercise Android.
-  Verified: the "completed" siblings US-1392…US-1396 are prd.json-only no-ops
-  (git show: each commit touched ONLY prd.json + progress.txt, zero code).
+- The Android client is REAL and this host CAN build it. `android/` is tracked
+  (100+ `*.kt`, Gradle wrapper, `android-ci.yml`) and the Windows loop host has
+  the toolchain (scoop temurin17-jdk + gradle; `local.properties` → `sdk.dir`).
+  US-1300+ stories ARE implementable and verifiable here — US-1321…US-1328 each
+  landed real `feat(android)` code. The "Device/Android-toolchain-gated" tag in
+  the story `notes` predates the scaffold and is NOT a reason to refuse a story.
+  (This supersedes the old "no `android/` dir, no SDK/Gradle" note, which was
+  true only before 2026-06 — do not restore it without re-checking `git ls-files
+  android`.)
+- Verify Android work from `android/` with
+  `./gradlew assembleDebug testDebugUnitTest lintDebug` (mirrors android-ci.yml).
+  The web steps (tsc/build:locked/vitest) NEVER exercise Kotlin, so they are not
+  sufficient evidence for these stories.
+- Still genuinely ungated-able: emulator/device-only ACs (e.g. US-1396
+  accessibility audit) presuppose a running app on a device. Don't fabricate an
+  audit/test result — leave a note and stop without emitting STORY_DONE.
 
 ## iOS (Swift)
 - The two intake draft stores are INDEPENDENT by design (US-1234): details-first
