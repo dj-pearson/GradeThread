@@ -1742,7 +1742,7 @@
     {
       "id": "US-1906",
       "priority": 2604,
-      "passes": false,
+      "passes": true,
       "title": "True virtualization of the grouping workbench (600 photos scroll smooth, DnD intact)",
       "description": "As a seller working a 600-photo session, I want the ungrouped grid and group list to stay fast however far I scroll. Today the page uses IntersectionObserver load-more chunks (GRID_CHUNK=105, GROUPS_CHUNK=24) — fine at first paint, but a fully-expanded session mounts every tile and drag interactions degrade.",
       "acceptanceCriteria": [
