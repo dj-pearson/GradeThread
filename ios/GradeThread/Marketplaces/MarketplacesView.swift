@@ -144,7 +144,11 @@ struct MarketplacesView: View {
     // means adding a `.api` connection card here; the rest of the surface
     // (and cross-listing entry points) iterate over this list.
     private enum ChannelTier {
-        case api          // live API connector (eBay, Shopify) — managed on the web dashboard
+        // Live API connector. eBay is managed in-app (connectionCard above);
+        // Shopify is web-only, and is the sole `.api` entry in `phasedChannels`
+        // — hence the "manage on web" badge. A future in-app channel listed here
+        // would need its own tier rather than reusing this badge.
+        case api
         // US-745: no-API marketplaces now cross-list in-app via the copy/paste
         // Listing Kit (open a drafted item → Listing Kit), replacing the prior
         // "Coming soon" / browser-extension-only treatment for these platforms.
@@ -184,7 +188,7 @@ struct MarketplacesView: View {
             Text("More channels")
                 .font(.subheadline.weight(.semibold))
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Text("eBay + Shopify connect via API on the web dashboard. For Poshmark, Mercari, Grailed & Depop, open a drafted item and tap Listing Kit to copy each platform's tailored fields — title, description, tags, condition & category — straight into the app.")
+            Text("eBay connects right here in the app — use the card above to link a seller account. Shopify connects via API on the web dashboard. For Poshmark, Mercari, Grailed & Depop, open a drafted item and tap Listing Kit to copy each platform's tailored fields — title, description, tags, condition & category — straight into the app.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
