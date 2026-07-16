@@ -80,6 +80,25 @@ const UA_STYLE_NUMBER_DECODER: BrandDecoder = {
   examples: [],
 };
 
+// US-1734: the Arc'teryx style_name decoder EXACTLY as migration 00453 seeds it
+// into brand_style_codes. Arc'teryx is the only brand in the outdoor group whose
+// garment-printed identifier is REGULAR — and it is a NAME system, not a number:
+// [MODEL] + [weight-class SUFFIX]. Fixturing the shipped spec is the point: a bad
+// pattern in the migration fails here rather than in production.
+const ARCTERYX_STYLE_NAME_DECODER: BrandDecoder = {
+  decoderKind: "style_name",
+  description:
+    'Arc\'teryx MODEL + weight-class SUFFIX printed on the garment/tag (SL/LT/AR/SV/MX/FL) — e.g. "Atom LT", "Beta AR".',
+  pattern:
+    "^(?<style>(?:Alpha|Beta|Gamma|Zeta|Atom|Cerium|Proton|Delta|Nuclei|Sabre|Sentinel|Rush|Kyanite|Incendo|Squamish)\\s+(?:SL|LT|AR|SV|MX|FL))$",
+  extractionRules: {
+    fieldMap: { style: "styleCode" },
+    transforms: { style: "upper" },
+    confidence: 0.7,
+  },
+  examples: [],
+};
+
 function style(styleName: string): BrandStyleKnowledge {
   return {
     styleName,
@@ -470,6 +489,169 @@ const CASES: GoldenCase[] = [
     brand: "Sweaty Betty",
     pack: pack("Sweaty Betty", "sweatybetty", [style("Power"), style("Zero Gravity")]),
     input: decodedFrom({ styleCode: "SB6438Z" }),
+    expect: { noBrand: true },
+  },
+  // US-1734 outdoor & technical group. Arc'teryx carries the group's CUT-TAG
+  // cases: with the brand tag gone, the model+suffix left on the garment is
+  // enough for 00453's spec to recover the brand on its own.
+  {
+    name: "Arc'teryx cut brand tag — the model+suffix recovers the brand",
+    brand: "Arc'teryx",
+    pack: pack("Arc'teryx", "arcteryx", [], [ARCTERYX_STYLE_NAME_DECODER]),
+    input: decodedFrom({ styleCode: "Atom LT" }), // no AI brand
+    expect: { brand: "Arc'teryx", recovery: true },
+  },
+  {
+    name: "Arc'teryx Beta AR also recovers the brand off a cut tag",
+    brand: "Arc'teryx",
+    pack: pack("Arc'teryx", "arcteryx", [], [ARCTERYX_STYLE_NAME_DECODER]),
+    input: decodedFrom({ styleCode: "Beta AR" }),
+    expect: { brand: "Arc'teryx", recovery: true },
+  },
+  {
+    name: "Arc'teryx model+suffix overrides a wrong AI brand + surfaces conflict",
+    brand: "Arc'teryx",
+    pack: pack("Arc'teryx", "arcteryx", [], [ARCTERYX_STYLE_NAME_DECODER]),
+    input: decodedFrom({ brand: "The North Face", styleCode: "Alpha SV" }),
+    expect: { brand: "Arc'teryx", conflictOn: "brand", recovery: true },
+  },
+  {
+    name: "Arc'teryx bare model word — no false-positive recovery",
+    // "Alpha" on its own is ordinary English; 00453's pattern requires the
+    // SUFFIX too, precisely so a tag that merely says "Alpha" can't mint a brand.
+    brand: "Arc'teryx",
+    pack: pack("Arc'teryx", "arcteryx", [], [ARCTERYX_STYLE_NAME_DECODER]),
+    input: decodedFrom({ styleCode: "Alpha" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Arc'teryx bare suffix — no false-positive recovery",
+    brand: "Arc'teryx",
+    pack: pack("Arc'teryx", "arcteryx", [], [ARCTERYX_STYLE_NAME_DECODER]),
+    input: decodedFrom({ styleCode: "AR" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Arc'teryx ambiguous insulation lines (Atom synthetic vs Cerium down) — never guess",
+    brand: "Arc'teryx",
+    pack: pack("Arc'teryx", "arcteryx", [style("Atom"), style("Cerium")], [
+      ARCTERYX_STYLE_NAME_DECODER,
+    ]),
+    input: decodedFrom({ brand: "Arc'teryx" }),
+    expect: { brand: "Arc'teryx", noStyle: true },
+  },
+  // The other five are decoder-less by design: their item numbers are retailer
+  // SKUs, not brand-unique formats. Their guarantee is that enrichment stays
+  // correct WITHOUT a decoder.
+  {
+    name: "Columbia single known style fills the style the AI missed",
+    brand: "Columbia",
+    pack: pack("Columbia", "columbia", [style("Steens Mountain")]),
+    input: decodedFrom({ brand: "Columbia" }),
+    expect: { brand: "Columbia", style: "Steens Mountain" },
+  },
+  {
+    name: "Columbia ambiguous Interchange parkas (Bugaboo vs Whirlibird) — never guess",
+    brand: "Columbia",
+    pack: pack("Columbia", "columbia", [style("Bugaboo"), style("Whirlibird")]),
+    input: decodedFrom({ brand: "Columbia" }),
+    expect: { brand: "Columbia", noStyle: true },
+  },
+  {
+    name: "Columbia retailer item number — no false-positive brand recovery (no decoder)",
+    brand: "Columbia",
+    pack: pack("Columbia", "columbia", [style("Bugaboo"), style("Whirlibird")]),
+    input: decodedFrom({ styleCode: "WM1234-010" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Marmot single known style fills the style the AI missed",
+    brand: "Marmot",
+    pack: pack("Marmot", "marmot", [style("PreCip")]),
+    input: decodedFrom({ brand: "Marmot" }),
+    expect: { brand: "Marmot", style: "PreCip" },
+  },
+  {
+    name: "Marmot ambiguous rain shells (MemBrain PreCip vs Gore-Tex Minimalist) — never guess",
+    brand: "Marmot",
+    pack: pack("Marmot", "marmot", [style("PreCip"), style("Minimalist")]),
+    input: decodedFrom({ brand: "Marmot" }),
+    expect: { brand: "Marmot", noStyle: true },
+  },
+  {
+    name: "Marmot retailer item number — no false-positive brand recovery (no decoder)",
+    brand: "Marmot",
+    pack: pack("Marmot", "marmot", [style("PreCip"), style("Minimalist")]),
+    input: decodedFrom({ styleCode: "41200-001" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "REI Co-op single known style fills the style the AI missed",
+    brand: "REI Co-op",
+    pack: pack("REI Co-op", "reicoop", [style("Rainier Rain Jacket")]),
+    input: decodedFrom({ brand: "REI Co-op" }),
+    expect: { brand: "REI Co-op", style: "Rainier Rain Jacket" },
+  },
+  {
+    name: "REI Co-op ambiguous shells (coated Rainier vs Gore-Tex XeroDry) — never guess",
+    brand: "REI Co-op",
+    pack: pack("REI Co-op", "reicoop", [style("Rainier Rain Jacket"), style("XeroDry GTX")]),
+    input: decodedFrom({ brand: "REI Co-op" }),
+    expect: { brand: "REI Co-op", noStyle: true },
+  },
+  {
+    name: "REI Co-op item number — no false-positive brand recovery (no decoder)",
+    brand: "REI Co-op",
+    pack: pack("REI Co-op", "reicoop", [style("Rainier Rain Jacket"), style("XeroDry GTX")]),
+    input: decodedFrom({ styleCode: "1234567" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "L.L.Bean single known style fills the style the AI missed",
+    brand: "L.L.Bean",
+    pack: pack("L.L.Bean", "llbean", [style("Bean Boot")]),
+    input: decodedFrom({ brand: "L.L.Bean" }),
+    expect: { brand: "L.L.Bean", style: "Bean Boot" },
+  },
+  {
+    name: "L.L.Bean ambiguous heritage models (Bean Boot vs Boat and Tote) — never guess",
+    brand: "L.L.Bean",
+    pack: pack("L.L.Bean", "llbean", [style("Bean Boot"), style("Boat and Tote")]),
+    input: decodedFrom({ brand: "L.L.Bean" }),
+    expect: { brand: "L.L.Bean", noStyle: true },
+  },
+  {
+    name: "L.L.Bean item number — no false-positive brand recovery (no decoder)",
+    brand: "L.L.Bean",
+    pack: pack("L.L.Bean", "llbean", [style("Bean Boot"), style("Boat and Tote")]),
+    input: decodedFrom({ styleCode: "TA512345" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Mountain Hardwear single known style fills the style the AI missed",
+    brand: "Mountain Hardwear",
+    pack: pack("Mountain Hardwear", "mountainhardwear", [style("Ghost Whisperer")]),
+    input: decodedFrom({ brand: "Mountain Hardwear" }),
+    expect: { brand: "Mountain Hardwear", style: "Ghost Whisperer" },
+  },
+  {
+    name: "Mountain Hardwear ambiguous down jackets (Ghost Whisperer vs Stretchdown) — never guess",
+    brand: "Mountain Hardwear",
+    pack: pack("Mountain Hardwear", "mountainhardwear", [
+      style("Ghost Whisperer"),
+      style("Stretchdown"),
+    ]),
+    input: decodedFrom({ brand: "Mountain Hardwear" }),
+    expect: { brand: "Mountain Hardwear", noStyle: true },
+  },
+  {
+    name: "Mountain Hardwear item number — no false-positive brand recovery (no decoder)",
+    brand: "Mountain Hardwear",
+    pack: pack("Mountain Hardwear", "mountainhardwear", [
+      style("Ghost Whisperer"),
+      style("Stretchdown"),
+    ]),
+    input: decodedFrom({ styleCode: "OM1234" }),
     expect: { noBrand: true },
   },
 ];

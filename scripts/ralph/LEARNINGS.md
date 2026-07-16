@@ -998,6 +998,13 @@ memory — not a progress log (the harness records progress separately).
   disambiguation + `findSizingCharts` reachability). The content test is easy to
   miss; every prior group has one (`alo-yoga-`, `athleta-`, `free-people-`,
   `madewell-jcrew-`, `athleisure-content_test.ts`).
+- Some brands are ALREADY covered by a SHARED multi-brand chart — the 00389
+  `thenorthfacepatagoniaouterwear` row / its `sizing-charts.ts` twin matched
+  north face+patagonia+columbia+arcteryx. Giving such a brand its OWN chart makes
+  `findSizingCharts` return BOTH (same numbers twice, competing for the 3-chart
+  prompt budget), so narrow the shared `brandMatch` in the SAME commit — in-code
+  AND via an UPDATE of the DB row (US-1734 did this for columbia+arcteryx). Check
+  for a shared chart before adding a per-brand one.
 - `verified=false` is CORRECT and intentional on every seeded fact even though
   the AC says "marked verified before the story passes" — verification is the
   US-1715 human admin queue's job. Every prior group shipped verified=false; do

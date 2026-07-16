@@ -4,6 +4,52 @@
 > The sections below for those are historical; the only NEW held migration is
 > **00443** at the top.
 
+## ⏳ PENDING: 00453_outdoor_brand_knowledge.sql (US-1734 outdoor brand KB, 2026-07-16)
+
+Data-only seed of the `brand_knowledge*` tables for the outdoor/technical tier
+beside the two flagships already seeded (Patagonia 00395 / The North Face 00396):
+**Columbia, Arc'teryx, Marmot, REI Co-op, L.L.Bean, Mountain Hardwear**.
+`brand_knowledge` ×6 (Columbia/Arc'teryx/Marmot/L.L.Bean enrich their bare 00389
+alias-only rows; REI Co-op + Mountain Hardwear are new); `brand_styles` ×24 (the
+fabric tech that IS identity here — Columbia's Omni- family + the two Interchange
+parkas, Arc'teryx's Gore-Tex/insulation lines, Marmot's MemBrain-vs-Gore-Tex
+shells, REI's house models, the Bean Boot, Ghost Whisperer); `brand_style_codes`
+×1 (**Arc'teryx only** — its MODEL + weight-class SUFFIX naming system is the sole
+regular, garment-printed identifier in the group; the Columbia/Marmot/REI/Bean
+item numbers are retailer SKUs and are deliberately NOT seeded as decoders);
+`brand_colorways` ×5; and `brand_size_charts` ×14 (all BODY inches, each note
+saying so; the `sizing-charts.ts` in-code fallback carries the 10 highest-traffic).
+Every fact carries `source_url` + `confidence` and lands `verified=false` for the
+US-1715 admin queue. Idempotent (`on conflict do nothing` / `do update`). Apply
+after 00452 via `scripts/apply-prod-migrations.sh`, `NOTIFY pgrst, 'reload
+schema';`, redeploy the edge (boot guard now expects **00453**). Bumps
+`EXPECTED_SCHEMA_VERSION` → **00453**.
+
+**Contains one UPDATE of an existing row** (the only non-insert in the file):
+Columbia and Arc'teryx now have their own `brand_size_charts`, so the shared 00389
+`thenorthfacepatagoniaouterwear` row's `brand_match` narrows to
+`{north face, patagonia}`. Without it the resolver returns BOTH the shared row and
+the brand row for one brand — two charts with the same numbers competing for the
+3-chart prompt budget. The North Face + Patagonia still reach the shared chart
+(asserted in `outdoor-content_test.ts`). Mirrored in the in-code fallback.
+
+**Risk: LOW** — data-only into deny-all global-reference tables; no schema
+change. **No CLIENT read** — edge resolver only (`brand-knowledge.ts` + the
+`sizing-charts.ts` in-code fallback this commit also extends), so the Cloudflare
+auto-deploy on push cannot break on it.
+
+**⚠️ verify:db NOT run locally (the Docker engine is STILL hung — `docker ps`
+timed out at 25s, same as at 00452's authoring).** The SQL was instead validated
+STATICALLY against 00389's table definitions: every column exists, all five
+`on conflict` targets match real unique indexes (`brand_knowledge.brand_key`,
+`brand_styles_key_idx`, `brand_style_codes_key_idx`, `brand_colorways_key_idx`,
+`brand_size_charts_key_idx`), every `confidence` sits in the `numeric(3,2)
+CHECK (0..1)` range, and a lexical pass confirmed quote/dollar-quote parity with
+all 34 embedded JSON blocks parsing. The Arc'teryx decoder pattern is
+additionally fixtured VERBATIM in `brand-knowledge-golden_test.ts` (3/3 recovery,
+including the cut-tag case), so the shipped spec is proven to decode. Prove the
+file APPLIES with a Docker-up `npm run verify:db` before pushing.
+
 ## ⏳ PENDING: 00452_athleisure_brand_knowledge.sql (US-1733 athleisure brand KB, 2026-07-16)
 
 Data-only seed of the `brand_knowledge*` tables for the athleisure/activewear

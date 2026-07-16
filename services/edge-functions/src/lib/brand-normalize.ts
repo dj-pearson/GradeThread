@@ -59,6 +59,15 @@ const BRAND_ALIASES: Record<string, string> = {
   marmot: "Marmot",
   arcteryx: "Arc'teryx",
   pendleton: "Pendleton",
+  // US-1734 outdoor & technical group. Columbia/L.L.Bean/Marmot/Arc'teryx were
+  // already above; these two were passthrough-only, so the pack rendered the
+  // seller's casing ("rei co-op") into the prompt block and the eBay Brand
+  // aspect. NOTE: a bare "bean" is deliberately NOT aliased to L.L.Bean — it's an
+  // ordinary word, and mapping it would rebrand anything tagged "bean".
+  reicoop: "REI Co-op",
+  rei: "REI Co-op",
+  recreationalequipmentinc: "REI Co-op",
+  mountainhardwear: "Mountain Hardwear",
   // Athletic / sneakers
   nike: "Nike",
   adidas: "adidas",

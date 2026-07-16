@@ -685,9 +685,210 @@ export const SIZING_CHARTS: SizingChart[] = [
       { size: "32", measurements: { waist: "32.5-33.5", hip: "42.5-43.5" } },
     ],
   },
+  // US-1734: outdoor & technical group. Mirrors migration 00453. All BODY
+  // measurements (the wearer), never flat-garment — and in THIS category the
+  // error runs the opposite way to activewear: an outdoor shell is cut with
+  // deliberate layering room, so its flat chest measures well ABOVE the body
+  // chest it is sized to. These are the standard outdoor-alpha grade rather than
+  // each brand's own published figures (00453 seeds them at capped confidence and
+  // says so) — the value here is that the brand resolves a chart at all, plus the
+  // per-brand fit caveat in each note.
+  {
+    brand: "Columbia",
+    brandMatch: ["columbia", "columbia sportswear"],
+    department: "Men",
+    garment: "Tops",
+    categoryMatch: ["top", "tee", "shirt", "polo", "hoodie", "fleece", "jacket", "coat", "shell", "parka", "vest", "long sleeve"],
+    note:
+      "BODY measurements — NOT flat-garment. An outdoor shell carries layering " +
+      "room, so its flat chest measures well above the body chest listed here; " +
+      "never compare this chart to a flat-lay tape. Standard outdoor-alpha " +
+      "approximation, not Columbia-fetched figures.",
+    rows: [
+      { size: "XS", measurements: { chest: "33-35" } },
+      { size: "S", measurements: { chest: "35-38" } },
+      { size: "M", measurements: { chest: "38-41" } },
+      { size: "L", measurements: { chest: "42-45" } },
+      { size: "XL", measurements: { chest: "46-49" } },
+      { size: "XXL", measurements: { chest: "50-53" } },
+    ],
+  },
+  {
+    brand: "Columbia",
+    brandMatch: ["columbia", "columbia sportswear"],
+    department: "Women",
+    garment: "Tops",
+    categoryMatch: ["top", "tee", "shirt", "tank", "fleece", "hoodie", "jacket", "coat", "shell", "parka", "vest", "long sleeve"],
+    note:
+      "BODY measurements — NOT flat-garment; outdoor cuts carry layering room. " +
+      "Standard outdoor-alpha approximation, not Columbia-fetched figures.",
+    rows: [
+      { size: "XS", measurements: { bust: "32-33" } },
+      { size: "S", measurements: { bust: "34-35" } },
+      { size: "M", measurements: { bust: "36-37.5" } },
+      { size: "L", measurements: { bust: "38.5-40" } },
+      { size: "XL", measurements: { bust: "41-43" } },
+      { size: "XXL", measurements: { bust: "44-46" } },
+    ],
+  },
+  {
+    brand: "Columbia",
+    brandMatch: ["columbia", "columbia sportswear"],
+    department: "Men",
+    garment: "Bottoms",
+    categoryMatch: ["bottom", "pant", "short", "trouser", "hiking pant", "convertible"],
+    note:
+      "BODY measurements (natural waistline) — NOT flat-garment. Columbia men's " +
+      "hiking pants are labeled W (waist) x L (inseam) in inches, so the label IS " +
+      "the measurement. Inseam is a separate axis (30/32/34); the Silver Ridge " +
+      "convertible zips off to a short — capture that as an attribute, not a size.",
+    rows: [
+      { size: "W30", measurements: { waist: "30" } },
+      { size: "W32", measurements: { waist: "32" } },
+      { size: "W34", measurements: { waist: "34" } },
+      { size: "W36", measurements: { waist: "36" } },
+      { size: "W38", measurements: { waist: "38" } },
+      { size: "W40", measurements: { waist: "40" } },
+    ],
+  },
+  {
+    brand: "Arc'teryx",
+    brandMatch: ["arc'teryx", "arcteryx", "arc teryx"],
+    department: "Men",
+    garment: "Tops",
+    categoryMatch: ["top", "jacket", "coat", "shell", "hoodie", "fleece", "vest", "hardshell", "softshell", "long sleeve"],
+    note:
+      "BODY measurements — NOT flat-garment. The FIT varies by SUFFIX, not by " +
+      "size: an Alpha/Beta hardshell is cut for layering while an Atom LT is trim, " +
+      "so the same body chest can wear a different letter across the lines. State " +
+      "the flat measurements and the suffix. Standard outdoor-alpha approximation.",
+    rows: [
+      { size: "XS", measurements: { chest: "33-35" } },
+      { size: "S", measurements: { chest: "35-38" } },
+      { size: "M", measurements: { chest: "38-41" } },
+      { size: "L", measurements: { chest: "42-45" } },
+      { size: "XL", measurements: { chest: "46-49" } },
+      { size: "XXL", measurements: { chest: "50-53" } },
+    ],
+  },
+  {
+    brand: "Arc'teryx",
+    brandMatch: ["arc'teryx", "arcteryx", "arc teryx"],
+    department: "Women",
+    garment: "Tops",
+    categoryMatch: ["top", "jacket", "coat", "shell", "hoodie", "fleece", "vest", "hardshell", "softshell", "long sleeve"],
+    note:
+      "BODY measurements — NOT flat-garment. Same suffix-drives-fit caveat as the " +
+      "men's chart. Standard outdoor-alpha approximation.",
+    rows: [
+      { size: "XS", measurements: { bust: "32-33" } },
+      { size: "S", measurements: { bust: "34-35" } },
+      { size: "M", measurements: { bust: "36-37.5" } },
+      { size: "L", measurements: { bust: "38.5-40" } },
+      { size: "XL", measurements: { bust: "41-43" } },
+    ],
+  },
+  {
+    brand: "Marmot",
+    brandMatch: ["marmot"],
+    department: "Men",
+    garment: "Tops",
+    categoryMatch: ["top", "jacket", "coat", "shell", "hoodie", "fleece", "vest", "rain jacket", "long sleeve"],
+    note:
+      "BODY measurements — NOT flat-garment; a rain shell is cut with layering " +
+      "room over this. Standard outdoor-alpha approximation, not Marmot-fetched.",
+    rows: [
+      { size: "S", measurements: { chest: "35-38" } },
+      { size: "M", measurements: { chest: "38-41" } },
+      { size: "L", measurements: { chest: "42-45" } },
+      { size: "XL", measurements: { chest: "46-49" } },
+      { size: "XXL", measurements: { chest: "50-53" } },
+    ],
+  },
+  {
+    brand: "REI Co-op",
+    brandMatch: ["rei co-op", "rei coop", "reicoop", "rei"],
+    department: "Men",
+    garment: "Tops",
+    categoryMatch: ["top", "jacket", "coat", "shell", "hoodie", "fleece", "vest", "rain jacket", "shirt", "long sleeve"],
+    note:
+      "BODY measurements — NOT flat-garment; house-label shells carry layering " +
+      "room. Standard outdoor-alpha approximation, not REI-fetched figures.",
+    rows: [
+      { size: "S", measurements: { chest: "35-38" } },
+      { size: "M", measurements: { chest: "38-41" } },
+      { size: "L", measurements: { chest: "42-45" } },
+      { size: "XL", measurements: { chest: "46-49" } },
+      { size: "XXL", measurements: { chest: "50-53" } },
+    ],
+  },
+  {
+    brand: "L.L.Bean",
+    brandMatch: ["l.l.bean", "llbean", "l.l. bean", "ll bean"],
+    department: "Men",
+    garment: "Tops",
+    categoryMatch: ["top", "shirt", "flannel", "tee", "polo", "sweater", "hoodie", "fleece", "jacket", "coat", "vest", "long sleeve"],
+    note:
+      "BODY measurements — NOT flat-garment. CRITICAL BEAN CAVEAT: the classic " +
+      "Bean cut runs GENEROUS/relaxed, so the finished garment is roomier than " +
+      "this body chart implies and a Bean Medium wears larger than a Medium from " +
+      "a technical brand. This maps body-to-label; it does NOT predict the flat " +
+      "measurement. Always measure the garment and publish the flat figures.",
+    rows: [
+      { size: "S", measurements: { chest: "35-37" } },
+      { size: "M", measurements: { chest: "38-40" } },
+      { size: "L", measurements: { chest: "42-44" } },
+      { size: "XL", measurements: { chest: "46-48" } },
+      { size: "XXL", measurements: { chest: "50-52" } },
+    ],
+  },
+  {
+    brand: "L.L.Bean",
+    brandMatch: ["l.l.bean", "llbean", "l.l. bean", "ll bean"],
+    department: "Men",
+    garment: "Bottoms",
+    categoryMatch: ["bottom", "pant", "short", "trouser", "chino", "jean"],
+    note:
+      "BODY measurements (natural waistline) — NOT flat-garment. Bean men's pants " +
+      "are labeled W (waist) x L (inseam) in inches, so the label IS the " +
+      "measurement. Bean also grades LENGTH as a named axis (Regular/Tall) " +
+      "alongside the numeric inseam — capture it separately, not as part of the size.",
+    rows: [
+      { size: "W30", measurements: { waist: "30" } },
+      { size: "W32", measurements: { waist: "32" } },
+      { size: "W34", measurements: { waist: "34" } },
+      { size: "W36", measurements: { waist: "36" } },
+      { size: "W38", measurements: { waist: "38" } },
+      { size: "W40", measurements: { waist: "40" } },
+    ],
+  },
+  {
+    brand: "Mountain Hardwear",
+    brandMatch: ["mountain hardwear", "mountainhardwear", "mhw"],
+    department: "Men",
+    garment: "Tops",
+    categoryMatch: ["top", "jacket", "coat", "shell", "hoodie", "fleece", "vest", "down", "long sleeve"],
+    note:
+      "BODY measurements — NOT flat-garment. NOTE the intra-brand fit spread: the " +
+      "Ghost Whisperer is cut trim as an ultralight layer while the Kor shells " +
+      "allow layering room, so the same body chest can wear a different letter " +
+      "across the lines. Standard outdoor-alpha approximation.",
+    rows: [
+      { size: "S", measurements: { chest: "35-38" } },
+      { size: "M", measurements: { chest: "38-41" } },
+      { size: "L", measurements: { chest: "42-45" } },
+      { size: "XL", measurements: { chest: "46-49" } },
+      { size: "XXL", measurements: { chest: "50-53" } },
+    ],
+  },
   {
     brand: "The North Face / Patagonia (outerwear)",
-    brandMatch: ["north face", "patagonia", "columbia", "arc'teryx", "arcteryx"],
+    // US-1734 narrowed this: Columbia + Arc'teryx now have their OWN charts
+    // above, and leaving them here made the resolver return BOTH the shared row
+    // and the brand row for one brand — two charts with the same numbers,
+    // competing for the 3-chart prompt budget. Stays for the two brands that have
+    // no own-brand chart. Mirrors the same narrowing in migration 00453.
+    brandMatch: ["north face", "patagonia"],
     department: "Unisex",
     garment: "Outerwear / jackets (alpha)",
     categoryMatch: ["jacket", "coat", "fleece", "vest", "outerwear", "shell", "parka"],
