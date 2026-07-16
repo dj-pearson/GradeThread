@@ -4170,3 +4170,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jul 16, 2026  4:08:27 PM
 ---
+## US-1973: iOS: single-item quantity / out-of-stock control + 'End listing' button on item detail
+- Status: COMPLETE
+- Timestamp: Thu, Jul 16, 2026  4:39:48 PM
+---

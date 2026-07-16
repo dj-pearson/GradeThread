@@ -2038,7 +2038,7 @@
         "Confirmation + success/failure feedback consistent with existing revise UX"
       ],
       "priority": 2603,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][iOS/Maintenance] iOS listing-lifecycle audit 2026-07-14. EbayPublishService revise Body has no quantity (:126-132); end is bulk-only (BulkActionExecutor.swift:261). Consider OUT_OF_STOCK program opt-in (US-1979) for evergreen multi-qty.",
       "relevantPaths": [
         "ios/GradeThread/Marketplaces/EbayPublishService.swift",
