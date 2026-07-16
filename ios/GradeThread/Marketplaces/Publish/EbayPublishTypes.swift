@@ -13,6 +13,129 @@ struct ValidateResponse: Decodable, Equatable {
     /// front (the web has shown these since US-828; iOS silently dropped them).
     /// Optional — older edge responses may omit the field.
     let aspectDiagnostics: [AspectDiagnostic]?
+    /// US-1890/US-1896/US-1974: non-blocking title-quality (duplicate keyword,
+    /// ALL-CAPS, promotional filler) and picture-standards findings. Advisory —
+    /// unlike `blockers` these never stop a publish. Optional: an older edge
+    /// omits the field, which decodes as "nothing to flag".
+    let warnings: [String]?
+    /// US-1895/US-1974: how many of eBay's RECOMMENDED item specifics the draft
+    /// fills. Advisory (required specifics are a blocker); filling them lifts
+    /// findability. Optional for the same back-compat reason as `warnings`.
+    let recommendedCoverage: AspectCoverage?
+
+    /// Explicit memberwise init so the advisory fields (US-1974) default to nil —
+    /// tests/previews that build a bare validated response keep compiling, and a
+    /// future field here stays a one-line addition rather than a fan-out edit.
+    init(
+        ok: Bool,
+        blockers: [String],
+        summary: PublishSummary?,
+        aspectDiagnostics: [AspectDiagnostic]? = nil,
+        warnings: [String]? = nil,
+        recommendedCoverage: AspectCoverage? = nil
+    ) {
+        self.ok = ok
+        self.blockers = blockers
+        self.summary = summary
+        self.aspectDiagnostics = aspectDiagnostics
+        self.warnings = warnings
+        self.recommendedCoverage = recommendedCoverage
+    }
+}
+
+/// US-1895/US-1974: recommended-aspect coverage from the publish pre-flight —
+/// eBay's RECOMMENDED item specifics for the category, ranked by 30-day buyer
+/// search volume (`aspect-provenance.ts` `recommendedAspectCoverage`). Keys are
+/// verbatim (this service decodes with a plain JSONDecoder).
+struct AspectCoverage: Decodable, Equatable {
+    /// Recommended aspects carrying at least one non-empty value.
+    let filled: Int
+    /// Total recommended aspects for the resolved category. Zero when the
+    /// category (and so its spec) couldn't be resolved — the meter stays hidden.
+    let total: Int
+    /// Unfilled recommended aspect names, most-searched first.
+    let missing: [String]
+
+    init(filled: Int, total: Int, missing: [String] = []) {
+        self.filled = filled
+        self.total = total
+        self.missing = missing
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case filled, total, missing
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        // A partial payload degrades to "no coverage known" rather than failing
+        // the whole validate decode over an advisory field.
+        filled = try c.decodeIfPresent(Int.self, forKey: .filled) ?? 0
+        total = try c.decodeIfPresent(Int.self, forKey: .total) ?? 0
+        missing = try c.decodeIfPresent([String].self, forKey: .missing) ?? []
+    }
+
+    /// 0–100, clamped. Zero when the category spec is unknown (`total == 0`).
+    var pct: Int {
+        guard total > 0 else { return 0 }
+        return min(100, max(0, Int((Double(filled) / Double(total) * 100).rounded())))
+    }
+
+    /// Every recommended specific filled — the meter reads green.
+    var isComplete: Bool { total > 0 && filled >= total }
+
+    /// The meter renders only once the server actually resolved a category spec.
+    var isMeaningful: Bool { total > 0 }
+}
+
+/// US-1974: the composer's title-quality meter. eBay's 80-character title is the
+/// primary retrieval surface, so 70–80 is the green sweet spot and anything
+/// shorter wastes reach. Pure, and a LOCKSTEP mirror of the web composer's
+/// `titleUtilization` (src/lib/title-quality.ts) — the two projects can't import
+/// each other, so keep the bands identical.
+///
+/// The QUALITY findings themselves (duplicate keywords, ALL-CAPS, filler) come
+/// from the server (`ValidateResponse.warnings`, US-1890) rather than being
+/// re-implemented here — one lint, one source of truth.
+enum ComposerTitleQuality {
+    /// eBay's hard title cap.
+    static let limit = 80
+    /// Below this the title under-uses the search surface (web `TITLE_GREEN_MIN`).
+    static let greenMin = 70
+
+    enum Band: Equatable {
+        case empty
+        /// Under the green minimum — usable, but leaving retrieval reach unused.
+        case low
+        /// The 70–80 sweet spot.
+        case good
+        /// At the cap; further keystrokes are truncated.
+        case full
+    }
+
+    struct Utilization: Equatable {
+        let used: Int
+        let limit: Int
+        /// 0–100, capped at 100.
+        let pct: Int
+        let band: Band
+    }
+
+    static func utilization(_ title: String, limit: Int = ComposerTitleQuality.limit) -> Utilization {
+        let used = title.trimmingCharacters(in: .whitespacesAndNewlines).count
+        let pct = limit > 0 ? min(100, Int((Double(used) / Double(limit) * 100).rounded())) : 0
+        let band: Band
+        if used == 0 {
+            band = .empty
+        } else if used >= limit {
+            band = .full
+        } else if used >= greenMin {
+            band = .good
+        } else {
+            band = .low
+        }
+        return Utilization(used: used, limit: limit, pct: pct, band: band)
+    }
 }
 
 /// US-828: one omitted-aspect diagnostic from the publish pre-flight. Keys are

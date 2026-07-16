@@ -319,4 +319,89 @@ final class EbayPublishTests: XCTestCase {
         struct Boom: LocalizedError { var errorDescription: String? { "kaboom" } }
         XCTAssertEqual(EbayPublishService.networkFailureMessage(Boom()), "kaboom")
     }
+
+    // MARK: - Advisory warnings + recommended coverage (US-1974)
+
+    func test_validateResponse_decodesWarningsAndRecommendedCoverage() throws {
+        let json = #"""
+        {
+          "ok": true,
+          "blockers": [],
+          "warnings": [
+            "Duplicate keyword (vintage) adds no ranking benefit — replace with a new qualifier.",
+            "Avoid ALL-CAPS words (RARE) — use title case."
+          ],
+          "recommendedCoverage": {
+            "filled": 3,
+            "total": 8,
+            "missing": ["Material", "Pattern", "Sleeve Length"]
+          },
+          "summary": {
+            "title": "Vintage Levi's 501",
+            "description": "Classic indigo wash.",
+            "condition": "USED_EXCELLENT",
+            "priceValue": "42.00",
+            "currency": "USD"
+          }
+        }
+        """#
+        let parsed = try JSONDecoder().decode(ValidateResponse.self, from: Data(json.utf8))
+        XCTAssertEqual(parsed.warnings?.count, 2)
+        XCTAssertEqual(parsed.recommendedCoverage, AspectCoverage(
+            filled: 3, total: 8, missing: ["Material", "Pattern", "Sleeve Length"]
+        ))
+        // Advisory only — warnings never make the response non-ok or add blockers,
+        // so the composer still renders and Push stays available.
+        XCTAssertTrue(parsed.ok)
+        XCTAssertTrue(parsed.blockers.isEmpty)
+        XCTAssertNotNil(parsed.summary)
+    }
+
+    func test_validateResponse_absentAdvisoryFieldsDecodeAsNil() throws {
+        // Back-compat: an older edge omits both fields; the decode must still
+        // succeed rather than failing the whole validate over advisory data.
+        let json = #"""
+        { "ok": true, "blockers": [], "summary": null }
+        """#
+        let parsed = try JSONDecoder().decode(ValidateResponse.self, from: Data(json.utf8))
+        XCTAssertNil(parsed.warnings)
+        XCTAssertNil(parsed.recommendedCoverage)
+    }
+
+    func test_aspectCoverage_pctAndCompleteness() {
+        XCTAssertEqual(AspectCoverage(filled: 3, total: 8).pct, 38)
+        XCTAssertFalse(AspectCoverage(filled: 3, total: 8).isComplete)
+        XCTAssertTrue(AspectCoverage(filled: 8, total: 8).isComplete)
+        XCTAssertEqual(AspectCoverage(filled: 8, total: 8).pct, 100)
+        // An unresolved category spec reads as "nothing to show", not 0/0 at 0%.
+        XCTAssertFalse(AspectCoverage(filled: 0, total: 0).isMeaningful)
+        XCTAssertEqual(AspectCoverage(filled: 0, total: 0).pct, 0)
+    }
+
+    func test_aspectCoverage_partialPayloadDegradesToZero() throws {
+        let parsed = try JSONDecoder().decode(
+            AspectCoverage.self, from: Data(#"{"filled": 2}"#.utf8)
+        )
+        XCTAssertEqual(parsed, AspectCoverage(filled: 2, total: 0, missing: []))
+    }
+
+    func test_composerTitleQuality_bandsMirrorWebMeter() {
+        XCTAssertEqual(ComposerTitleQuality.utilization("").band, .empty)
+        XCTAssertEqual(ComposerTitleQuality.utilization("   ").band, .empty)
+        XCTAssertEqual(ComposerTitleQuality.utilization(String(repeating: "a", count: 40)).band, .low)
+        // 70 is the first "good" length; 79 is still good, 80 is the hard cap.
+        XCTAssertEqual(ComposerTitleQuality.utilization(String(repeating: "a", count: 69)).band, .low)
+        XCTAssertEqual(ComposerTitleQuality.utilization(String(repeating: "a", count: 70)).band, .good)
+        XCTAssertEqual(ComposerTitleQuality.utilization(String(repeating: "a", count: 79)).band, .good)
+        XCTAssertEqual(ComposerTitleQuality.utilization(String(repeating: "a", count: 80)).band, .full)
+    }
+
+    func test_composerTitleQuality_utilizationTrimsAndCapsPct() {
+        let padded = ComposerTitleQuality.utilization("  Levi's 501  ")
+        XCTAssertEqual(padded.used, 10)
+        XCTAssertEqual(padded.limit, 80)
+        XCTAssertEqual(padded.pct, 13)
+        // Past the cap the bar pins at 100 rather than overflowing.
+        XCTAssertEqual(ComposerTitleQuality.utilization(String(repeating: "a", count: 96)).pct, 100)
+    }
 }

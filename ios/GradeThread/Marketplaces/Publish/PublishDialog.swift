@@ -40,6 +40,12 @@ struct PublishDialog: View {
     /// US-828/US-1511: aspect values the server will omit from the eBay payload
     /// (value-validation), shown as composer warnings. Set by runValidate.
     @State private var aspectWarnings: [String] = []
+    /// US-1890/US-1896/US-1974: advisory title-quality + picture-standards
+    /// findings from the pre-flight. Non-blocking (unlike `.blocked`), but the
+    /// seller should see them while they can still act. Set by runValidate.
+    @State private var qualityWarnings: [String] = []
+    /// US-1895/US-1974: recommended-aspect coverage for the composer meter.
+    @State private var recommendedCoverage: AspectCoverage?
     /// US-1513: the composer reported edits that differ from the validated
     /// summary. Ratchets up only (a revert-to-original stays true) and resets on
     /// a fresh validate — conservative on purpose, so a resumed composer that
@@ -224,6 +230,8 @@ struct PublishDialog: View {
                 pushLabel: relist ? "Relist on eBay" : "Push to eBay",
                 showRelistWarning: listingActive,
                 aspectWarnings: aspectWarnings,
+                qualityWarnings: qualityWarnings,
+                recommendedCoverage: recommendedCoverage,
                 draftSettings: draftSettings,
                 isSaving: isSaving,
                 saveError: saveError,
@@ -473,6 +481,11 @@ struct PublishDialog: View {
             // US-828/US-1511: warnings ride alongside the summary — they don't
             // block, but the seller should see "X won't be sent" BEFORE pushing.
             aspectWarnings = (response.aspectDiagnostics ?? []).map(\.warningLine)
+            // US-1974: the server's advisory title-quality / picture findings and
+            // recommended-specifics coverage ride along the same way — the edge
+            // has always sent them; iOS dropped them in the decoder.
+            qualityWarnings = response.warnings ?? []
+            recommendedCoverage = response.recommendedCoverage
             if response.blockers.isEmpty, let summary = response.summary {
                 phase = .readyToPush(summary)
             } else {
@@ -703,6 +716,14 @@ private struct ComposerForm: View {
     /// US-828/US-1511: "X won't be sent" lines from the validate pre-flight —
     /// non-blocking, but the seller should see them before committing.
     var aspectWarnings: [String] = []
+    /// US-1890/US-1896/US-1974: advisory title-quality + picture-standards
+    /// findings from the pre-flight. Rendered as guidance beside the title, NOT
+    /// as blockers — publishing stays available with every one of them showing.
+    var qualityWarnings: [String] = []
+    /// US-1895/US-1974: recommended-specifics coverage for the meter. Nil (or
+    /// `total == 0`) when the server couldn't resolve the category spec, in
+    /// which case the meter stays hidden rather than reading a misleading 0/0.
+    var recommendedCoverage: AspectCoverage?
     /// US-1970/US-1971: the draft's saved Best Offer + schedule, used to seed
     /// those controls from the seller's own choices rather than the server's
     /// resolved suggestion (see ``ListingDraftSettings``).
@@ -864,7 +885,8 @@ private struct ComposerForm: View {
     /// pending confirmation before it's applied.
     @State private var pendingTemplate: ListingTemplate?
 
-    private static let titleLimit = 80
+    /// US-1974: one definition of eBay's cap, shared with the title-quality meter.
+    private static let titleLimit = ComposerTitleQuality.limit
 
     init(
         summary: PublishSummary,
@@ -873,6 +895,8 @@ private struct ComposerForm: View {
         pushLabel: String = "Push to eBay",
         showRelistWarning: Bool = false,
         aspectWarnings: [String] = [],
+        qualityWarnings: [String] = [],
+        recommendedCoverage: AspectCoverage? = nil,
         draftSettings: ListingDraftSettings = .none,
         isSaving: Bool = false,
         saveError: String? = nil,
@@ -887,6 +911,8 @@ private struct ComposerForm: View {
         self.pushLabel = pushLabel
         self.showRelistWarning = showRelistWarning
         self.aspectWarnings = aspectWarnings
+        self.qualityWarnings = qualityWarnings
+        self.recommendedCoverage = recommendedCoverage
         self.draftSettings = draftSettings
         self.isSaving = isSaving
         self.saveError = saveError
@@ -1128,7 +1154,10 @@ private struct ComposerForm: View {
                             .font(.caption2)
                             .foregroundStyle(.brandAmber)
                     }
+                    titleQualityMeter
                 }
+
+                recommendedCoverageMeter
 
                 fieldGroup("Condition") {
                     Picker("Condition", selection: $condition) {
@@ -1335,6 +1364,106 @@ private struct ComposerForm: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.brandAmber.opacity(0.12))
         .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
+    }
+
+    // MARK: - Quality guidance (US-1974)
+
+    /// US-1974: the title-quality meter the web composer has shown since
+    /// US-1892 — an 80-char utilization bar (green only in the 70–80 sweet spot)
+    /// plus the server's non-blocking title findings.
+    ///
+    /// Everything here is ADVISORY: it renders inside the composer with Push
+    /// still enabled, and reads as guidance (a meter, `.secondary` copy, an
+    /// explicit "won't stop you publishing" note) rather than the amber
+    /// `exclamationmark.triangle.fill` "Fix these before pushing" card that hard
+    /// blockers get — those replace the composer entirely.
+    @ViewBuilder
+    private var titleQualityMeter: some View {
+        let utilization = ComposerTitleQuality.utilization(title)
+        VStack(alignment: .leading, spacing: 6) {
+            ProgressView(value: Double(utilization.pct), total: 100)
+                .progressViewStyle(.linear)
+                .tint(Self.utilizationColor(utilization.band))
+                .accessibilityLabel("Title length")
+                .accessibilityValue(Self.utilizationHint(utilization))
+            Text(Self.utilizationHint(utilization))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            if !qualityWarnings.isEmpty {
+                ForEach(qualityWarnings, id: \.self) { warning in
+                    Label(warning, systemImage: "lightbulb")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .symbolRenderingMode(.hierarchical)
+                }
+                Text("These won\u{2019}t stop you publishing.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// US-1974: recommended-specifics coverage (US-1895's `recommendedCoverage`).
+    /// Also advisory — MISSING REQUIRED specifics are a publish blocker and never
+    /// reach this composer; these only lift findability, so the meter explains
+    /// where to fill them rather than gating the push.
+    @ViewBuilder
+    private var recommendedCoverageMeter: some View {
+        if let coverage = recommendedCoverage, coverage.isMeaningful {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("Recommended specifics")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text("\(coverage.filled)/\(coverage.total)")
+                        .font(.caption.weight(.semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(coverage.isComplete ? Color.brandEmerald : .secondary)
+                }
+                ProgressView(value: Double(coverage.pct), total: 100)
+                    .progressViewStyle(.linear)
+                    .tint(coverage.isComplete ? Color.brandEmerald : Color.brandNavy)
+                    .accessibilityLabel("Recommended specifics filled")
+                    .accessibilityValue("\(coverage.filled) of \(coverage.total)")
+                if !coverage.missing.isEmpty {
+                    // Ranked by eBay's 30-day buyer search volume, so the first
+                    // few are the ones actually worth the seller's time.
+                    Text("Most-searched still empty: \(coverage.missing.prefix(6).joined(separator: ", ")). Fill them in the item's specifics — buyers filter on these.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .combine)
+        }
+    }
+
+    /// US-1974: the utilization band's color — LOCKSTEP with the web meter
+    /// (emerald in the 70–80 sweet spot, red at the cap, amber otherwise).
+    private static func utilizationColor(_ band: ComposerTitleQuality.Band) -> Color {
+        switch band {
+        case .good: return .brandEmerald
+        case .full: return .brandRed
+        case .low, .empty: return .brandAmber
+        }
+    }
+
+    /// One line naming what the bar is telling the seller.
+    private static func utilizationHint(_ utilization: ComposerTitleQuality.Utilization) -> String {
+        switch utilization.band {
+        case .empty:
+            return "Add a title — it\u{2019}s what buyers search."
+        case .low:
+            let room = ComposerTitleQuality.greenMin - utilization.used
+            return "Using \(utilization.used) of \(utilization.limit) characters. Add about \(room) more — eBay ranks on the full title."
+        case .good:
+            return "Good length (\(utilization.used)/\(utilization.limit)) — you\u{2019}re using the search surface well."
+        case .full:
+            return "At eBay\u{2019}s \(utilization.limit)-character cap."
+        }
     }
 
     /// US-970: map the title-counter level to a brand color — plain until the
