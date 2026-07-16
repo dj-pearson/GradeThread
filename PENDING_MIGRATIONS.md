@@ -4,6 +4,41 @@
 > The sections below for those are historical; the only NEW held migration is
 > **00443** at the top.
 
+## ⏳ PENDING: 00452_athleisure_brand_knowledge.sql (US-1733 athleisure brand KB, 2026-07-16)
+
+Data-only seed of the `brand_knowledge*` tables for the athleisure/activewear
+tier below the flagships: **Under Armour, Vuori, Gymshark, Fabletics, Beyond
+Yoga, Sweaty Betty**. `brand_knowledge` ×6 (Under Armour + Gymshark enrich their
+bare 00389 rows; the other four are new); `brand_styles` ×29 (the fabric
+platforms that ARE identity in this group — UA GEAR trio, Vuori knit-vs-woven,
+Gymshark Vital-marl vs Adapt-print, the Fabletics compression ladder, Beyond Yoga
+Spacedye, Sweaty Betty Power/Zero Gravity); `brand_style_codes` ×1 (**Under
+Armour only** — the sole tag-printed, regular code in this group; the Beyond Yoga
+SD/HR/IT and Sweaty Betty SB web codes are recorded as informational tells, NOT
+decoders, because they are not tag-printed); `brand_colorways` ×8; and
+`brand_size_charts` ×18 (all BODY inches, each note saying so; the
+`sizing-charts.ts` in-code fallback carries the 15 highest-traffic of those).
+Every fact
+carries `source_url` + `confidence` and lands `verified=false` for the US-1715
+admin queue. Idempotent (`on conflict do nothing` / `do update`). Apply after
+00451 via `scripts/apply-prod-migrations.sh`, `NOTIFY pgrst, 'reload schema';`,
+redeploy the edge (boot guard now expects **00452**). Bumps
+`EXPECTED_SCHEMA_VERSION` → **00452**.
+
+**Risk: LOW** — data-only into deny-all global-reference tables; no schema
+change. **No CLIENT read** — edge resolver only (`brand-knowledge.ts` +
+the `sizing-charts.ts` in-code fallback this commit also extends), so the
+Cloudflare auto-deploy on push cannot break on it.
+
+**⚠️ verify:db NOT run locally (the Docker engine was hung at author time —
+`docker ps` timed out; a local psql was present but credentials were unknown).**
+The SQL was instead validated STATICALLY against 00389's table definitions: every
+column exists, all five `on conflict` targets match real unique indexes
+(`brand_knowledge.brand_key`, `brand_styles_key_idx`, `brand_style_codes_key_idx`,
+`brand_colorways_key_idx`, `brand_size_charts_key_idx`), and every `confidence`
+sits in the `numeric(3,2) CHECK (0..1)` range. Prove it applies with a Docker-up
+`npm run verify:db` (or on the prod apply, which is idempotent) before pushing.
+
 ## ⏳ PENDING: 00451_rls_initplan_perf.sql (US-1927 RLS initplan perf, 2026-07-15)
 
 Pure PLANNER optimization of the high-traffic per-user RLS policies — **no

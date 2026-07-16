@@ -987,6 +987,31 @@ memory — not a progress log (the harness records progress separately).
   gr.user_id does not exist`; JOIN submissions instead. (`listings`/`sales` DID
   gain `user_id` in 00146, so those are fine to scope directly.)
 
+## Brand KB group stories (US-1717…US-1733+)
+- A brand-group story ships FOUR things, not just the migration: the
+  `NNNNN_*_brand_knowledge.sql` seed, any missing `BRAND_ALIASES` in
+  `brand-normalize.ts` (a brand absent there PASSES THROUGH the seller's casing
+  into the prompt + the eBay Brand aspect), the `sizing-charts.ts` in-code
+  fallback charts, AND **two** test files — cases in
+  `brand-knowledge-golden_test.ts` (resolver: recovery/never-guess/no-false-
+  positive) plus a per-group `<group>-content_test.ts` (prompt block renders the
+  disambiguation + `findSizingCharts` reachability). The content test is easy to
+  miss; every prior group has one (`alo-yoga-`, `athleta-`, `free-people-`,
+  `madewell-jcrew-`, `athleisure-content_test.ts`).
+- `verified=false` is CORRECT and intentional on every seeded fact even though
+  the AC says "marked verified before the story passes" — verification is the
+  US-1715 human admin queue's job. Every prior group shipped verified=false; do
+  not flip it to true to satisfy the AC (that fabricates a human review).
+- Seed only what a source supports: `tag_eras` is populated for heritage brands
+  (Levi's/Carhartt/Lululemon) but left EMPTY for modern athleisure (Alo/Athleta/
+  Free People/US-1733's six) — no authoritative era documentation exists. Same
+  rule for decoders: seed `brand_style_codes` ONLY for a code that is both
+  tag-printed and regular (of US-1733's six, only Under Armour qualifies); a
+  web/catalog SKU is an informational tell, never a decoder.
+- `canonicalizeBrand` returns `string | null` (NOT an object) — assert
+  `canonicalizeBrand("x") === "Brand"`; `isKnownBrand` is what separates a
+  curated entry from a passthrough.
+
 ## prd.json / Ralph workflow
 - Never read or edit `prd.json` from inside an iteration — the harness selects
   the story (`current-story.json`) and flips `passes:true` for you.
