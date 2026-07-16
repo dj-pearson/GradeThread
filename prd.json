@@ -1770,7 +1770,7 @@
     {
       "id": "US-1910",
       "priority": 2608,
-      "passes": false,
+      "passes": true,
       "title": "AutoLister at scale v2 epic — 600 photos in, 45 trustworthy listings out, nothing lost",
       "description": "As a reseller, I can dump an entire multi-hundred-photo shoot into AutoLister and trust the whole pipeline: grouping that works even without EXIF (AI boundary proposals), AI verification that covers every group, a workbench that stays fast at 600 photos with triage for 45 groups, sessions and uploads that survive reloads, and generation that always sees the most informative role-diverse photos (defect + tag shots guaranteed). Umbrella for US-1903..US-1909; motivated by the founder's 2026-07-09 session report (600 photos → ~45 listings; grouping and reorganization were the pain).",
       "acceptanceCriteria": [
