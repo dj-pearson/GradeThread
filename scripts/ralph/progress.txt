@@ -4134,3 +4134,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jul 16, 2026  2:17:34 PM
 ---
+## US-1964: eBay Notification API subscription & destination management (create/list/verify per env)
+- Status: COMPLETE
+- Timestamp: Thu, Jul 16, 2026  2:18:27 PM
+---

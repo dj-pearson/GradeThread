@@ -1875,7 +1875,7 @@
         "Startup or scheduled reconcile logs a warning if any required topic is unsubscribed"
       ],
       "priority": 2609,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][Edge/Notification] iOS listing-lifecycle audit 2026-07-14. grep-confirmed: no commerce/notification subscription writer exists; only the verified receiver (flipdesk-webhooks.ts) + public_key verify (ebay-notification-verify.ts). Substring topic router already tolerant (ebay-webhook-topics.ts).",
       "relevantPaths": [
         "services/edge-functions/src/routes/flipdesk-webhooks.ts",
