@@ -54,13 +54,28 @@ import {
   closestCenter,
   DndContext,
   type DragEndEvent,
+  type DragStartEvent,
   KeyboardSensor,
+  MeasuringStrategy,
   PointerSensor,
   useDraggable,
   useDroppable,
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
+import {
+  useWindowVirtualizer,
+  type VirtualItem,
+  type Virtualizer,
+} from "@tanstack/react-virtual";
+import {
+  gridRowCount,
+  gridRowItems,
+  pinnedVirtualIndexes,
+  squareTileRowHeight,
+  ungroupedGridColumns,
+} from "@/lib/autolister-virtual-grid";
+import { useWindowVirtualAnchor } from "@/hooks/use-window-virtual-anchor";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -256,13 +271,25 @@ const UNGROUPED_SORT_LABELS: Record<UngroupedSortMode, string> = {
   upload: "Upload order",
 };
 
-// US-1541: windowed rendering for the two unbounded sections. A 600-photo
-// session used to mount every thumbnail tile (and every group card) at once —
-// the initial render froze the tab. Only the first chunk mounts; scrolling the
-// sentinel into view raises the window. 105 is divisible by the grid's 3/5/7
-// column counts, so every breakpoint windows on full rows.
-const GRID_CHUNK = 105;
-const GROUPS_CHUNK = 24;
+// US-1906: true virtualization for the two unbounded sections. US-1541 windowed
+// them behind IntersectionObserver "load more" chunks, which fixed first paint
+// but not the steady state: scroll far enough and every tile ever revealed
+// stayed mounted, so a fully-expanded 600-photo session dragged. Both sections
+// now render through @tanstack/react-virtual against the WINDOW scroller (the
+// page scrolls, not an inner box — keeping it that way is what preserves
+// dnd-kit's edge auto-scroll for free). Only the rows near the viewport mount,
+// however far the seller has scrolled.
+//
+// Overscan is deliberately generous: these are image tiles behind `loading=lazy`,
+// so a row that mounts a little early just starts its fetch a little early.
+const GRID_OVERSCAN_ROWS = 4;
+const GROUPS_OVERSCAN = 3;
+// gap-2 on both grids (0.5rem). Feeds the row-height math — keep in lockstep.
+const GRID_GAP_PX = 8;
+// Fallback row height before the container has been measured (first paint) and
+// the estimate for an unmeasured group card.
+const GRID_ROW_ESTIMATE_PX = 120;
+const GROUP_CARD_ESTIMATE_PX = 260;
 // US-1907: the needs-attention chips in the triage strip, in display order.
 const TRIAGE_CHIPS: { condition: TriageCondition; label: string }[] = [
   { condition: "singleton", label: "singletons" },
@@ -274,32 +301,29 @@ const TRIAGE_CHIPS: { condition: TriageCondition; label: string }[] = [
 // Errors always render (they need action); the aggregate header carries totals.
 const UPLOAD_ROWS_CAP = 80;
 
-function LoadMoreSentinel({
-  label,
-  onMore,
-}: {
-  label: string;
-  onMore: () => void;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((e) => e.isIntersecting)) onMore();
-      },
-      // Start mounting the next chunk well before the user reaches the end.
-      { rootMargin: "600px" },
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [onMore]);
-  return (
-    <div ref={ref} className="py-2 text-center text-xs text-muted-foreground">
-      {label}
-    </div>
-  );
+/**
+ * US-1906: the virtualizer's window for this frame, plus the pinned drag source
+ * if it has scrolled out of it.
+ *
+ * A pinned index is no longer in `getVirtualItems()`, so its position comes from
+ * `measurementsCache` — the virtualizer's record of where it laid that index out.
+ * It's rendered at that (off-screen) offset, which is the point: it keeps the
+ * dragged node mounted for dnd-kit without dragging it back into view.
+ */
+function virtualItemsWithPin(
+  virtualizer: Virtualizer<Window, Element>,
+  pinned: number | null,
+): VirtualItem[] {
+  const items = virtualizer.getVirtualItems();
+  if (pinned == null) return items;
+  const byIndex = new Map(items.map((vi) => [vi.index, vi]));
+  return pinnedVirtualIndexes(
+    items.map((vi) => vi.index),
+    pinned,
+  ).flatMap((index) => {
+    const item = byIndex.get(index) ?? virtualizer.measurementsCache[index];
+    return item ? [item] : [];
+  });
 }
 
 // ── US-1543: drag-and-drop grouping workbench pieces ─────────────────
@@ -605,9 +629,9 @@ export function FlipdeskAutolisterPage() {
     }
     return 4;
   });
-  // US-1541: windowed-rendering limits (raised by the LoadMoreSentinels).
-  const [ungroupedLimit, setUngroupedLimit] = useState(GRID_CHUNK);
-  const [groupsLimit, setGroupsLimit] = useState(GROUPS_CHUNK);
+  // US-1906: the id of the photo currently being dragged, so the virtualizers
+  // can pin its row/group mounted for the whole drag (see pinnedVirtualIndexes).
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
   // US-1907: triage strip — filter the group list to a needs-attention
   // condition, and collapse every group's photos to a header-only overview.
   const [triageFilter, setTriageFilter] = useState<TriageCondition | null>(null);
@@ -961,6 +985,60 @@ export function FlipdeskAutolisterPage() {
       setTriageFilter(null);
     }
   }, [triageFilter, triageSummary]);
+
+  // ── US-1906: virtualization of the two unbounded sections ───────────
+  // Both virtualize against the WINDOW, so the page keeps one scrollbar and
+  // dnd-kit's viewport-edge auto-scroll keeps working untouched. Each needs its
+  // list's distance from the top of the document (`scrollMargin`); the grid also
+  // needs its width, because a square tile's height IS its width.
+  const gridRef = useRef<HTMLDivElement>(null);
+  const groupsRef = useRef<HTMLDivElement>(null);
+  const gridAnchor = useWindowVirtualAnchor(gridRef);
+  const groupsAnchor = useWindowVirtualAnchor(groupsRef);
+
+  // Columns follow the grid's VIEWPORT breakpoints; the tile size follows the
+  // container's own width. Feeding the container width to the breakpoints would
+  // under-count columns whenever the sidebar makes the grid narrower than the
+  // window (a 7-column CSS layout rendered 3 tiles to a row).
+  const gridColumns = ungroupedGridColumns(gridAnchor.viewportWidth);
+  const gridRowHeight =
+    squareTileRowHeight(gridAnchor.width, gridColumns, GRID_GAP_PX) || GRID_ROW_ESTIMATE_PX;
+
+  const gridVirtualizer = useWindowVirtualizer({
+    count: gridRowCount(ungroupedSorted.length, gridColumns),
+    estimateSize: () => gridRowHeight,
+    overscan: GRID_OVERSCAN_ROWS,
+    scrollMargin: gridAnchor.offsetTop,
+    // Tiles are a fixed square, so the estimate is exact — skip re-measurement
+    // and its ResizeObserver-per-row cost.
+    getItemKey: (index) => `row-${index}`,
+  });
+  const groupsVirtualizer = useWindowVirtualizer({
+    count: shownGroups.length,
+    // Group cards vary (name/SKU wrap, suggestion chips, collapsed vs. expanded
+    // photo grid), so these ARE measured — measureElement's ResizeObserver also
+    // catches a card growing in place (e.g. collapse toggled) without a remount.
+    estimateSize: () => GROUP_CARD_ESTIMATE_PX,
+    overscan: GROUPS_OVERSCAN,
+    scrollMargin: groupsAnchor.offsetTop,
+    getItemKey: (index) => shownGroups[index]?.id ?? index,
+  });
+
+  // Which row / group the live drag started from — pinned mounted so scrolling
+  // the source away mid-drag can't cancel the drag.
+  const dragSourceRow = useMemo(() => {
+    if (!activeDragId) return null;
+    const idx = ungroupedSorted.findIndex((p) => p.id === activeDragId);
+    return idx < 0 ? null : Math.floor(idx / gridColumns);
+  }, [activeDragId, ungroupedSorted, gridColumns]);
+  const dragSourceGroup = useMemo(() => {
+    if (!activeDragId) return null;
+    const idx = shownGroups.findIndex((g) => g.photoIds.includes(activeDragId));
+    return idx < 0 ? null : idx;
+  }, [activeDragId, shownGroups]);
+
+  const gridRows = virtualItemsWithPin(gridVirtualizer, dragSourceRow);
+  const groupRows = virtualItemsWithPin(groupsVirtualizer, dragSourceGroup);
 
   // US-957: as photos get grouped, score each group's cover so a low-quality
   // cover can be reshot before the (much pricier) AI generation runs. Each pass
@@ -1980,21 +2058,20 @@ export function FlipdeskAutolisterPage() {
     return warnings;
   }, [groups, coverScores, groupSuggestions]);
 
-  /** Scroll to a group card, raising the render window when it's beyond it. */
+  /** Scroll to a group card, mounting it first when it's outside the window. */
   function scrollToGroup(groupId: string) {
     // US-1907: a jump target must render — clear any triage filter that would
-    // exclude it, and (indexing against the FULL list) raise the render window.
+    // exclude it. With the filter cleared, shownGroups IS groups, so the group's
+    // index in the full list is the virtualizer's index.
     setTriageFilter(null);
-    const idx = groups.findIndex((g) => g.id === groupId);
-    if (idx >= 0 && idx >= groupsLimit) {
-      setGroupsLimit(Math.ceil((idx + 1) / GROUPS_CHUNK) * GROUPS_CHUNK);
-    }
     setConfirmGenerateOpen(false);
-    // Let the window expansion commit before scrolling.
+    const idx = groups.findIndex((g) => g.id === groupId);
+    if (idx < 0) return;
+    // US-1906: a virtualized target may not be mounted, so scrollIntoView has
+    // nothing to find — the virtualizer scrolls by index instead and mounts it
+    // on arrival. Let the filter clear commit first (it changes the count).
     setTimeout(() => {
-      document
-        .getElementById(`group-card-${groupId}`)
-        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+      groupsVirtualizer.scrollToIndex(idx, { align: "center", behavior: "smooth" });
     }, 60);
   }
 
@@ -2045,7 +2122,13 @@ export function FlipdeskAutolisterPage() {
     useSensor(KeyboardSensor),
   );
 
+  /** US-1906: remember the drag source so its row/group stays mounted. */
+  function onGroupDragStart(e: DragStartEvent) {
+    setActiveDragId(String(e.active.id));
+  }
+
   function onGroupDragEnd(e: DragEndEvent) {
+    setActiveDragId(null);
     const activeId = String(e.active.id);
     const overId = e.over ? String(e.over.id) : null;
     if (!overId) return;
@@ -3003,7 +3086,17 @@ export function FlipdeskAutolisterPage() {
       <DndContext
         sensors={dndSensors}
         collisionDetection={closestCenter}
+        onDragStart={onGroupDragStart}
         onDragEnd={onGroupDragEnd}
+        onDragCancel={() => setActiveDragId(null)}
+        // US-1906: dnd-kit measures droppables ONCE at drag start by default.
+        // Under virtualization the group you're dragging toward usually isn't
+        // mounted yet at that moment — it mounts as auto-scroll brings it into
+        // view, and a droppable registered after the initial measurement would
+        // never resolve as a drop target. `Always` re-measures the live set each
+        // frame, so a group that was off-screen when the drag started still
+        // accepts the drop once you reach it.
+        measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
       >
       {/* Ungrouped staging area */}
       <div>
@@ -3183,8 +3276,25 @@ export function FlipdeskAutolisterPage() {
               : "All photos are grouped. Generate when ready — or drag one here to ungroup it."}
           </p>
         ) : (
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-5 md:grid-cols-7">
-            {ungroupedSorted.slice(0, ungroupedLimit).map((p) => {
+          // US-1906: one absolutely-positioned virtual ROW per `gridColumns`
+          // tiles. Only the rows near the viewport mount; the sized parent below
+          // carries the full scroll height, so the page scrollbar still reflects
+          // all 600 photos and nothing jumps as rows recycle.
+          <div
+            ref={gridRef}
+            style={{
+              height: gridVirtualizer.getTotalSize(),
+              position: "relative",
+              width: "100%",
+            }}
+          >
+            {gridRows.map((row) => (
+              <div
+                key={row.key}
+                className="absolute left-0 top-0 grid w-full grid-cols-3 gap-2 sm:grid-cols-5 md:grid-cols-7"
+                style={{ transform: `translateY(${row.start - gridAnchor.offsetTop}px)` }}
+              >
+                {gridRowItems(ungroupedSorted, row.index, gridColumns).map((p) => {
               const bgInFlight = bgProcessing.has(p.id);
               const enhancingInFlight = enhancing.has(p.id);
               const processing = bgInFlight || enhancingInFlight;
@@ -3289,14 +3399,10 @@ export function FlipdeskAutolisterPage() {
                   )}
                 </PhotoDragTile>
               );
-            })}
+                })}
+              </div>
+            ))}
           </div>
-        )}
-        {ungroupedLimit < ungroupedSorted.length && (
-          <LoadMoreSentinel
-            label={`Showing ${ungroupedLimit} of ${ungroupedSorted.length} photos — scroll for more`}
-            onMore={() => setUngroupedLimit((l) => l + GRID_CHUNK)}
-          />
         )}
         </UngroupedDropZone>
       </div>
@@ -3489,8 +3595,30 @@ export function FlipdeskAutolisterPage() {
               </nav>
             </div>
           )}
-          {shownGroups.slice(0, groupsLimit).map((g) => (
-            <GroupDropZone key={g.id} groupId={g.id}>
+          {/* US-1906: virtualized group list. Cards are measured (their height
+              varies), so `measureElement` re-measures each on mount and on any
+              in-place growth — collapsing the photo grids doesn't need a remount
+              for the offsets to settle. */}
+          <div
+            ref={groupsRef}
+            style={{
+              height: groupsVirtualizer.getTotalSize(),
+              position: "relative",
+              width: "100%",
+            }}
+          >
+          {groupRows.map((row) => {
+            const g = shownGroups[row.index];
+            if (!g) return null;
+            return (
+            <div
+              key={row.key}
+              data-index={row.index}
+              ref={groupsVirtualizer.measureElement}
+              className="absolute left-0 top-0 w-full pb-3"
+              style={{ transform: `translateY(${row.start - groupsAnchor.offsetTop}px)` }}
+            >
+            <GroupDropZone groupId={g.id}>
             <Card className="p-3">
               <div className="mb-2 flex items-center gap-2">
                 <input
@@ -3710,17 +3838,14 @@ export function FlipdeskAutolisterPage() {
               )}
             </Card>
             </GroupDropZone>
-          ))}
+            </div>
+            );
+          })}
+          </div>
           {shownGroups.length === 0 && triageFilter && (
             <p className="py-4 text-center text-sm text-muted-foreground">
               No groups match this filter.
             </p>
-          )}
-          {groupsLimit < shownGroups.length && (
-            <LoadMoreSentinel
-              label={`Showing ${groupsLimit} of ${shownGroups.length} groups — scroll for more (use a photo's Move menu to reach unrendered groups)`}
-              onMore={() => setGroupsLimit((l) => l + GROUPS_CHUNK)}
-            />
           )}
         </div>
       )}

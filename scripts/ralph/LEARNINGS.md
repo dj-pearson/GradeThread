@@ -752,6 +752,20 @@ memory — not a progress log (the harness records progress separately).
   they survive.
 
 ## Frontend conventions
+- Virtualizing a dnd-kit surface (US-1906 autolister workbench) has three traps:
+  (1) dnd-kit measures droppables ONCE at drag start, so a group that mounts
+  mid-drag never accepts a drop — pass `measuring={{droppable:{strategy:
+  MeasuringStrategy.Always}}}`; (2) unmounting the node a drag STARTED from
+  cancels the drag, so pin the source row/group mounted for the drag's duration
+  (`pinnedVirtualIndexes`, src/lib/autolister-virtual-grid.ts — a pinned index is
+  gone from `getVirtualItems()`, get its offset from `virtualizer
+  .measurementsCache[i]`); (3) virtualize against the WINDOW
+  (`useWindowVirtualizer` + `scrollMargin` = the list's document offsetTop), not
+  an inner scroll box — that's what keeps dnd-kit's viewport-edge auto-scroll
+  working for free. For a Tailwind responsive grid, columns come from the
+  VIEWPORT width (`sm:`/`md:` are viewport media queries) but tile/row height
+  from the CONTAINER width — conflating them under-counts columns whenever the
+  sidebar makes the grid narrower than the window.
 - Adding a non-optional field to `ItemFullRow` (src/types/database.ts) breaks two
   full-literal test factories that `tsc -b` enforces: `src/lib/__tests__/
   flipdesk-lifecycle.test.ts` and `src/lib/item-filter.test.ts` (grep
