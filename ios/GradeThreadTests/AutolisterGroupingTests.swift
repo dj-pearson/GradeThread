@@ -214,4 +214,147 @@ final class AutolisterGroupingTests: XCTestCase {
         XCTAssertEqual(DHash.hammingDistance(0, UInt64.max), 64)
         XCTAssertEqual(DHash.hammingDistance(0b1010, 0b0101), 4)
     }
+
+    // MARK: - US-1909: mega-group guards (mirrors web US-1550)
+
+    func test_sequenceRun_pastTheCap_seedsSingletons_notOneMegaGroup() {
+        // A no-EXIF dump is ONE contiguous filename run. Past the cap it must
+        // NOT become a single boundary-free group.
+        let count = PhotoGrouping.maxAutoGroupPhotos + 3
+        let input = (0..<count).map { i in
+            named("p\(i)", String(format: "IMG_%04d.jpg", i))
+        }
+        let groups = PhotoGrouping.autoGroup(input)
+        XCTAssertEqual(groups.count, count, "every photo seeds its own group past the cap")
+        XCTAssertTrue(groups.allSatisfy { $0.photoIds.count == 1 })
+    }
+
+    func test_sequenceRun_exactlyAtTheCap_isStillOneGroup() {
+        let input = (0..<PhotoGrouping.maxAutoGroupPhotos).map { i in
+            named("p\(i)", String(format: "IMG_%04d.jpg", i))
+        }
+        let groups = PhotoGrouping.autoGroup(input)
+        XCTAssertEqual(groups.count, 1)
+        XCTAssertEqual(groups[0].photoIds.count, PhotoGrouping.maxAutoGroupPhotos)
+    }
+
+    func test_visualMerge_refusesToGrowAGroupPastTheCap() {
+        // Every photo is near-identical (the same-background dump). Unbounded
+        // transitive union would chain all of them into ONE group.
+        let count = PhotoGrouping.maxAutoGroupPhotos + 6
+        let groups = (0..<count).map { AutoGroup(photoIds: ["p\($0)"], coverId: "p\($0)") }
+        let hashes = Dictionary(
+            uniqueKeysWithValues: (0..<count).map { ("p\($0)", UInt64(0)) }
+        )
+        let merged = PhotoGrouping.mergeSimilarGroups(groups, hashes: hashes)
+        XCTAssertTrue(
+            merged.allSatisfy { $0.photoIds.count <= PhotoGrouping.maxAutoGroupPhotos },
+            "no group may exceed the cap"
+        )
+        XCTAssertGreaterThan(merged.count, 1, "the dump is not chained into one group")
+        XCTAssertEqual(
+            merged.flatMap(\.photoIds).count, count, "no photo is dropped"
+        )
+    }
+
+    func test_visualMerge_refusesAPairBeyondTheOrdinalWindow() {
+        // Identical hashes, but the two groups sit far apart in shooting order —
+        // a same-background false positive, not a reshoot of one garment.
+        let far = PhotoGrouping.visualMergeOrdinalWindow + 2
+        var groups = (0...far).map { AutoGroup(photoIds: ["p\($0)"], coverId: "p\($0)") }
+        // Only the first and last hash, so the only candidate pair spans the gap.
+        let hashes: [String: UInt64] = ["p0": 0, "p\(far)": 0]
+        let merged = PhotoGrouping.mergeSimilarGroups(groups, hashes: hashes)
+        XCTAssertEqual(merged.count, groups.count, "the out-of-window pair is refused")
+
+        // Same hashes, now within the window → merged.
+        groups = (0...PhotoGrouping.visualMergeOrdinalWindow)
+            .map { AutoGroup(photoIds: ["p\($0)"], coverId: "p\($0)") }
+        let near: [String: UInt64] = ["p0": 0, "p\(PhotoGrouping.visualMergeOrdinalWindow)": 0]
+        XCTAssertEqual(
+            PhotoGrouping.mergeSimilarGroups(groups, hashes: near).count,
+            groups.count - 1
+        )
+    }
+
+    func test_visualMerge_timeGapClustersAreExemptFromTheCap() {
+        // A real EXIF burst may legitimately be long — the cap bounds what the
+        // heuristics GROW, it never splits a time-gap cluster.
+        let count = PhotoGrouping.maxAutoGroupPhotos + 5
+        let input = (0..<count).map { photo("p\($0)", TimeInterval($0)) } // 1s apart
+        let groups = PhotoGrouping.autoGroup(input)
+        XCTAssertEqual(groups.count, 1)
+        XCTAssertEqual(groups[0].photoIds.count, count)
+    }
+
+    // MARK: - US-1909: provenance ordering
+
+    func test_compareByProvenance_timeFirst_unknownLast() {
+        let early = base
+        let late = base.addingTimeInterval(100)
+        XCTAssertLessThan(
+            PhotoGrouping.compareByProvenance(
+                capturedAt: early, sourceName: nil,
+                otherCapturedAt: late, otherSourceName: nil
+            ), 0
+        )
+        // A known time sorts before an unknown one.
+        XCTAssertLessThan(
+            PhotoGrouping.compareByProvenance(
+                capturedAt: late, sourceName: nil,
+                otherCapturedAt: nil, otherSourceName: nil
+            ), 0
+        )
+    }
+
+    func test_compareByProvenance_fallsBackToFilenameSequence_thenTies() {
+        // Same (nil) time → filename sequence decides.
+        XCTAssertLessThan(
+            PhotoGrouping.compareByProvenance(
+                capturedAt: nil, sourceName: "IMG_0001.jpg",
+                otherCapturedAt: nil, otherSourceName: "IMG_0002.jpg"
+            ), 0
+        )
+        // Parseable sorts before unparseable.
+        XCTAssertLessThan(
+            PhotoGrouping.compareByProvenance(
+                capturedAt: nil, sourceName: "IMG_0001.jpg",
+                otherCapturedAt: nil, otherSourceName: "front.jpg"
+            ), 0
+        )
+        // Neither parseable → a tie, so a stable sort keeps input order.
+        XCTAssertEqual(
+            PhotoGrouping.compareByProvenance(
+                capturedAt: nil, sourceName: "front.jpg",
+                otherCapturedAt: nil, otherSourceName: "back.jpg"
+            ), 0
+        )
+    }
+
+    // MARK: - US-1909: sequenceRuns partitioning (direct)
+
+    func test_sequenceRuns_partitionsContiguousRuns_omitsUnparseable() {
+        let runs = PhotoGrouping.sequenceRuns([
+            named("a", "IMG_0001.jpg"),
+            named("b", "IMG_0002.jpg"),
+            named("c", "IMG_0009.jpg"), // gap → new run
+            named("x", "front.jpg"),    // unparseable → omitted entirely
+        ])
+        XCTAssertEqual(runs.map { $0.map(\.id) }, [["a", "b"], ["c"]])
+    }
+
+    func test_sequenceRuns_separatesPrefixes_andKeepsDuplicatesTogether() {
+        let runs = PhotoGrouping.sequenceRuns([
+            named("i1", "IMG_0005.jpg"),
+            named("d1", "DSC_0005.jpg"),
+            named("i1copy", "IMG_0005 (1).jpg"), // same seq → stays in the run
+            named("i2", "IMG_0006.jpg"),
+        ])
+        // Sorted by (prefix, seq): dsc_ before img_.
+        XCTAssertEqual(runs.map { $0.map(\.id) }, [["d1"], ["i1", "i1copy", "i2"]])
+    }
+
+    func test_sequenceRuns_emptyInput() {
+        XCTAssertTrue(PhotoGrouping.sequenceRuns([]).isEmpty)
+    }
 }

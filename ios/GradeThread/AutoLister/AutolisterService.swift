@@ -21,6 +21,10 @@ protocol AutolisterBatching {
     // mocks that predate US-1548 keep compiling.
     func stageVerificationPhoto(sessionId: String, jpegData: Data) async throws -> String
     func verifyGroups(_ groups: [VerifyGroupPayload]) async throws -> VerifyGroupsResponse
+    // US-1909: AI group-boundary proposal over ONE window of ordered ungrouped
+    // photos (the web's US-1904 "AI group remaining"). Same `_staging/` tenant
+    // rule as verify-groups.
+    func proposeGroups(_ photos: [ProposePhotoPayload]) async throws -> ProposeGroupsResponse
 }
 
 extension AutolisterBatching {
@@ -30,6 +34,10 @@ extension AutolisterBatching {
 
     func verifyGroups(_: [VerifyGroupPayload]) async throws -> VerifyGroupsResponse {
         VerifyGroupsResponse(suggestions: [])
+    }
+
+    func proposeGroups(_: [ProposePhotoPayload]) async throws -> ProposeGroupsResponse {
+        ProposeGroupsResponse(groups: [])
     }
 }
 
@@ -61,6 +69,28 @@ struct GroupVerifySuggestion: Decodable, Equatable, Identifiable {
 
 struct VerifyGroupsResponse: Decodable {
     let suggestions: [GroupVerifySuggestion]
+}
+
+// US-1909: propose-groups wire types. The endpoint writes NOTHING — the client
+// applies confident proposals and surfaces uncertain boundaries for review.
+struct ProposePhotoPayload: Encodable, Equatable {
+    let id: String
+    let storagePath: String
+}
+
+/// One proposed item boundary. `confidence` is the model's 0…1 certainty; the
+/// review model applies it outright above `proposeApplyFloor` and otherwise
+/// surfaces it as a chip the seller confirms.
+struct ClientProposedGroup: Decodable, Equatable, Identifiable {
+    var photoIds: [String]
+    var confidence: Double
+    var reason: String
+
+    var id: String { photoIds.joined(separator: ",") }
+}
+
+struct ProposeGroupsResponse: Decodable {
+    let groups: [ClientProposedGroup]
 }
 
 struct AutolisterService: AutolisterBatching {
@@ -131,6 +161,17 @@ struct AutolisterService: AutolisterBatching {
         try await api.postJSON(
             "/api/flipdesk/autolister/verify-groups",
             body: VerifyGroupsBody(groups: groups)
+        )
+    }
+
+    // MARK: - US-1909: propose-groups
+
+    private struct ProposeGroupsBody: Encodable { let photos: [ProposePhotoPayload] }
+
+    func proposeGroups(_ photos: [ProposePhotoPayload]) async throws -> ProposeGroupsResponse {
+        try await api.postJSON(
+            "/api/flipdesk/autolister/propose-groups",
+            body: ProposeGroupsBody(photos: photos)
         )
     }
 

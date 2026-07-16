@@ -13,7 +13,12 @@ import Foundation
 //     near-identical (Hamming ≤ 10 on a 64-bit dHash) merge, catching
 //     out-of-order shots of one garment. Hashes are supplied by the caller
 //     (computed off-main via ``DHash``); photos without one simply don't
-//     participate.
+//     participate, and
+//   • US-1909: the web's mega-group guards (ported from US-1550) — the WEAK
+//     signals (filename runs, dHash merges) are bounded by group size and
+//     shooting-order locality so a same-background dump can't chain into one
+//     giant group. Time-gap clusters are exempt: a real EXIF burst is a strong
+//     signal and may legitimately be long, so the cap never splits one.
 
 /// A photo eligible for grouping. `capturedAt` is the EXIF/library creation
 /// time; nil when unknown. `sourceName` is the original filename (US-1547),
@@ -52,6 +57,21 @@ enum PhotoGrouping {
     /// US-1548: dHash distance at/below which two photos are treated as the
     /// same shot. Mirrors the web `VISUAL_MERGE_MAX_DISTANCE`.
     static let visualMergeMaxDistance = 10
+
+    /// US-1909: ceiling on how many photos the WEAK signals (filename runs,
+    /// dHash merges) will pile into one item. Nobody shoots more than about a
+    /// dozen photos of one garment, so anything the heuristics grow past this
+    /// is far more likely a detection failure than a real item. Mirrors the web
+    /// `MAX_AUTO_GROUP_PHOTOS`. Time-gap clusters are exempt — the cap bounds
+    /// what the heuristics may GROW, it never splits an EXIF burst.
+    static let maxAutoGroupPhotos = 12
+
+    /// US-1909: how far apart (in shooting order, measured in group ordinals)
+    /// two groups may sit and still be joined by the visual pass. People shoot
+    /// items back-to-back: a same-garment reshoot lands a couple of groups
+    /// away, while a "similar" pair spanning half the dump is a same-background
+    /// false positive. Mirrors the web `VISUAL_MERGE_ORDINAL_WINDOW`.
+    static let visualMergeOrdinalWindow = 3
 
     /// Group photos by capture-time bursts, then seed groups for the TIMELESS
     /// photos from filename-sequence runs (US-1547), then merge visually
@@ -94,7 +114,19 @@ enum PhotoGrouping {
         let runs = sequenceRuns(timeless)
         let inRuns = Set(runs.flatMap { $0.map(\.id) })
         for run in runs {
-            groups.append(makeGroup(run))
+            // US-1909: a contiguous run only signals "one item" while it's
+            // plausibly one item's shoot. A no-EXIF dump has ONE contiguous run
+            // spanning the whole folder (600 photos ⇒ one giant group). Past
+            // the cap, seed each photo as its own group instead: the run still
+            // contributes shooting ORDER (the bounded visual pass below merges
+            // neighbours), just not a single boundary-free mega-group.
+            if run.count <= maxAutoGroupPhotos {
+                groups.append(makeGroup(run))
+            } else {
+                for photo in run {
+                    groups.append(AutoGroup(photoIds: [photo.id], coverId: photo.id))
+                }
+            }
         }
         for photo in timeless where !inRuns.contains(photo.id) {
             groups.append(AutoGroup(photoIds: [photo.id], coverId: photo.id))
@@ -178,13 +210,46 @@ enum PhotoGrouping {
         return runs
     }
 
+    /// US-1909: deterministic provenance ordering — capture time first (unknown
+    /// last), then filename sequence (prefix, then number; unparseable last).
+    /// Ties return 0 so a STABLE sort preserves the caller's (import) order as
+    /// the final key. Mirrors the web `compareByProvenance`.
+    static func compareByProvenance(
+        capturedAt: Date?,
+        sourceName: String?,
+        otherCapturedAt: Date?,
+        otherSourceName: String?
+    ) -> Int {
+        switch (capturedAt, otherCapturedAt) {
+        case let (a?, b?) where a != b: return a < b ? -1 : 1
+        case (_?, nil): return -1 // a known time sorts before an unknown one
+        case (nil, _?): return 1
+        default: break // both nil, or equal times → fall through to filename
+        }
+        switch (parseFilenameSequence(sourceName), parseFilenameSequence(otherSourceName)) {
+        case let (a?, b?):
+            if a.prefix != b.prefix { return a.prefix < b.prefix ? -1 : 1 }
+            if a.seq != b.seq { return a.seq < b.seq ? -1 : 1 }
+            return 0
+        case (_?, nil): return -1
+        case (nil, _?): return 1
+        case (nil, nil): return 0
+        }
+    }
+
     // MARK: - US-1548: dHash visual merge pass
 
-    /// Merge groups containing visually near-identical photos: any cross-group
-    /// pair within `maxDistance` unions the two groups (transitively, via
-    /// union-find — mirrors the web `applyVisualSecondPass`). Photos without a
-    /// hash never match. Merged groups keep the earlier group's position and
-    /// cover; the later group's photos append in their existing order.
+    /// Merge groups containing visually near-identical photos, BOUNDED (US-1909,
+    /// mirroring the web `applyBoundedVisualMerge`). dHash on clothing photos is
+    /// dominated by the shared background, so an unbounded transitive union
+    /// chains nearly every group of a big dump into one mega-group. This applies
+    /// the CLOSEST pairs first and refuses a merge that would either (a) grow a
+    /// group past `maxAutoGroupPhotos` or (b) join two groups more than
+    /// `visualMergeOrdinalWindow` apart in shooting order. `groups` is expected
+    /// in shooting order (as `autoGroup` emits it), so a group's index IS its
+    /// ordinal. Photos without a hash never match. Merged groups keep the
+    /// earlier group's position and cover; the later group's photos append in
+    /// their existing order.
     static func mergeSimilarGroups(
         _ groups: [AutoGroup],
         hashes: [String: UInt64],
@@ -192,8 +257,12 @@ enum PhotoGrouping {
     ) -> [AutoGroup] {
         guard groups.count > 1 else { return groups }
 
-        // Union-find over group indices.
+        // Union-find over group indices, tracking size + the ordinal range each
+        // component covers, so both bounds can be checked before a merge.
         var parent = Array(0..<groups.count)
+        var size = groups.map(\.photoIds.count)
+        var minOrd = Array(0..<groups.count)
+        var maxOrd = Array(0..<groups.count)
         func root(_ x: Int) -> Int {
             var r = x
             while parent[r] != r { r = parent[r] }
@@ -205,24 +274,42 @@ enum PhotoGrouping {
             }
             return r
         }
-        func union(_ a: Int, _ b: Int) {
-            let ra = root(a)
-            let rb = root(b)
-            if ra != rb { parent[max(ra, rb)] = min(ra, rb) }
-        }
 
         let groupHashes: [[UInt64]] = groups.map { g in
             g.photoIds.compactMap { hashes[$0] }
         }
+        // Closest pair per group pair, so when a bound bites it's the weakest
+        // (most-likely-false) merges that lose out.
+        var pairs: [(a: Int, b: Int, distance: Int)] = []
         for i in 0..<groups.count {
-            for j in (i + 1)..<groups.count where root(i) != root(j) {
-                outer: for ha in groupHashes[i] {
-                    for hb in groupHashes[j] where DHash.hammingDistance(ha, hb) <= maxDistance {
-                        union(i, j)
-                        break outer
+            for j in (i + 1)..<groups.count {
+                var best = Int.max
+                for ha in groupHashes[i] {
+                    for hb in groupHashes[j] {
+                        best = min(best, DHash.hammingDistance(ha, hb))
                     }
                 }
+                if best <= maxDistance { pairs.append((i, j, best)) }
             }
+        }
+        // Stable: equal distances keep (a, b) index order so output is
+        // deterministic regardless of the sort's internal ordering.
+        pairs.sort { $0.distance != $1.distance ? $0.distance < $1.distance
+            : ($0.a != $1.a ? $0.a < $1.a : $0.b < $1.b) }
+
+        for pair in pairs {
+            let ra = root(pair.a)
+            let rb = root(pair.b)
+            if ra == rb { continue }
+            if size[ra] + size[rb] > maxAutoGroupPhotos { continue }
+            // Gap between the two components' ordinal ranges (0 when they overlap).
+            let gap = max(minOrd[ra], minOrd[rb]) - min(maxOrd[ra], maxOrd[rb])
+            if gap > visualMergeOrdinalWindow { continue }
+            let (keep, drop) = (min(ra, rb), max(ra, rb))
+            parent[drop] = keep
+            size[keep] = size[ra] + size[rb]
+            minOrd[keep] = min(minOrd[ra], minOrd[rb])
+            maxOrd[keep] = max(maxOrd[ra], maxOrd[rb])
         }
 
         var merged: [Int: AutoGroup] = [:]

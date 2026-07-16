@@ -473,6 +473,15 @@ memory — not a progress log (the harness records progress separately).
   audit/test result — leave a note and stop without emitting STORY_DONE.
 
 ## iOS (Swift)
+- `PhotoCapture.capturedAt` is NON-optional and `AutoListerReviewModel.importPicks`
+  fabricates `result.creationDate() ?? .now`. That silently defeats every
+  timeless-dump signal: a no-EXIF batch looks like ONE instantaneous EXIF burst,
+  and time-gap clusters are deliberately EXEMPT from the mega-group guards
+  (`maxAutoGroupPhotos`/`visualMergeOrdinalWindow`), so it grows unbounded and the
+  filename-sequence + propose-groups paths never run. US-1909 tracks the
+  fabricated ones in `timelessIds` and passes `capturedAt: nil` to
+  `GroupablePhoto`. Any new iOS photo intake must preserve "the library gave no
+  date" — don't collapse it into `.now` and assume grouping still works.
 - The two intake draft stores are INDEPENDENT by design (US-1234): details-first
   `DetailsIntakeView` owns only `IntakeDraftStore`, photo-first `PhotoIntakeView`
   owns only `PhotoDraftStore`; the flows have separate entry points and never

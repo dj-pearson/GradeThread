@@ -64,6 +64,45 @@ struct AutoListerView: View {
             } message: { group in
                 Text("This removes this item and its \(group.photoIds.count) imported photo\(group.photoIds.count == 1 ? "" : "s") from the batch.")
             }
+            // US-1909: metered-action pre-count. A pass that needs more than one
+            // window costs one AI action PER window, so the seller sees the cost
+            // (and what's left this month) before any of it is spent.
+            .confirmationDialog(
+                "Check all groups?",
+                isPresented: Binding(
+                    get: { model.verifyConfirm != nil },
+                    set: { if !$0 { model.verifyConfirm = nil } }
+                ),
+                presenting: model.verifyConfirm
+            ) { confirm in
+                Button("Use \(confirm.windowCount) AI actions") {
+                    Task { await model.confirmVerifyPass() }
+                }
+                Button("Cancel", role: .cancel) { model.verifyConfirm = nil }
+            } message: { confirm in
+                Text(meteredMessage(
+                    lead: "Too many groups for one AI pass, so checking all \(confirm.totalGroups) runs in \(confirm.windowCount) batches",
+                    windowCount: confirm.windowCount
+                ))
+            }
+            .confirmationDialog(
+                "AI-group these photos?",
+                isPresented: Binding(
+                    get: { model.proposeConfirm != nil },
+                    set: { if !$0 { model.proposeConfirm = nil } }
+                ),
+                presenting: model.proposeConfirm
+            ) { confirm in
+                Button("Use \(confirm.windowCount) AI actions") {
+                    Task { await model.confirmProposePass() }
+                }
+                Button("Cancel", role: .cancel) { model.proposeConfirm = nil }
+            } message: { confirm in
+                Text(meteredMessage(
+                    lead: "Too many photos for one AI pass, so grouping all \(confirm.photoCount) runs in \(confirm.windowCount) batches",
+                    windowCount: confirm.windowCount
+                ))
+            }
             .navigationDestination(
                 isPresented: Binding(
                     get: { pendingGroups != nil },
@@ -127,6 +166,19 @@ struct AutoListerView: View {
 
     /// US-656: standardized on ContentUnavailableView (like the rest of the app)
     /// instead of an ad-hoc VStack.
+    /// US-1909: the metered confirm's body — the cost, plus what's left this
+    /// month when we know it (a failed lookup just omits the remainder rather
+    /// than blocking the pass or guessing).
+    private func meteredMessage(lead: String, windowCount: Int) -> String {
+        guard let remaining = model.aiActionsRemaining else {
+            return "\(lead) — \(windowCount) AI action\(windowCount == 1 ? "" : "s")."
+        }
+        let tail = windowCount > remaining
+            ? " That's more than the \(remaining) you have left this month, so some batches won't run."
+            : " You have \(remaining) left this month."
+        return "\(lead) — \(windowCount) AI action\(windowCount == 1 ? "" : "s").\(tail)"
+    }
+
     private var emptyState: some View {
         ContentUnavailableView {
             Label("Batch-list with AutoLister", systemImage: "square.stack.3d.up.fill")
@@ -152,8 +204,10 @@ struct AutoListerView: View {
             LazyVStack(spacing: 16) {
                 // US-1548: AI grouping suggestions — advisory, one-tap apply,
                 // never auto-applied. Silent when verification found nothing
-                // (or failed); a small inline hint while it runs.
-                if model.verifying {
+                // (or failed); a small inline hint while it runs. US-1909: a
+                // multi-window pass has its own progress row below, so this
+                // plain hint is only for the single-window (silent) run.
+                if model.verifying && model.verifyProgress == nil {
                     HStack(spacing: 6) {
                         ProgressView().controlSize(.small)
                         Text("Checking group boundaries…")
@@ -165,14 +219,209 @@ struct AutoListerView: View {
                 ForEach(model.suggestions) { suggestion in
                     suggestionRow(suggestion)
                 }
+                if model.verifyProgress != nil || model.proposeProgress != nil {
+                    passProgressRow
+                }
                 ForEach(model.groups) { group in
                     groupCard(group)
+                }
+                // US-1909: photos the seller pulled out of a group. Sorted by
+                // the same four modes as the web grid; "AI group remaining"
+                // proposes item boundaries over them.
+                if !model.ungrouped.isEmpty {
+                    ungroupedSection
+                }
+                // US-1909: propose boundaries the AI wasn't confident enough to
+                // apply — created only on the seller's say-so.
+                ForEach(model.proposalReviews) { review in
+                    proposalReviewRow(review)
                 }
             }
             .padding()
         }
         .scrollDismissesKeyboard(.interactively)
         .safeAreaInset(edge: .bottom) { generateBar }
+    }
+
+    /// US-1909: progress of a multi-window AI pass, with a way out. A pass stops
+    /// after the in-flight window, so the seller is never stuck watching a long
+    /// run they didn't mean to start.
+    private var passProgressRow: some View {
+        let progress = model.verifyProgress ?? model.proposeProgress
+        let isVerify = model.verifyProgress != nil
+        return HStack(spacing: 8) {
+            ProgressView().controlSize(.small)
+            if let progress {
+                Text(
+                    isVerify
+                        ? "Checked \(progress.done)/\(progress.total) groups…"
+                        : "Proposed over \(progress.done)/\(progress.total) photos…"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            Button("Stop") { model.cancelPass() }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: - US-1909: ungrouped pool
+
+    private var ungroupedSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Ungrouped")
+                    .font(.brandHeadline)
+                Spacer()
+                Text("\(model.ungrouped.count) photo\(model.ungrouped.count == 1 ? "" : "s")")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            HStack(spacing: 8) {
+                sortPicker
+                Spacer(minLength: 8)
+                // US-1909: mirrors the web's "AI group remaining" — a vision
+                // pass over the remaining photos in order, proposing where each
+                // item begins. Metered: a multi-window pass shows the AI-action
+                // count before spending it.
+                Button {
+                    Task { await model.proposeGroupsNow() }
+                } label: {
+                    Label("AI group", systemImage: "sparkles")
+                        .font(.caption.weight(.medium))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(model.ungrouped.count < 2 || model.proposing)
+                .accessibilityHint(
+                    "The AI looks at the remaining photos in order and proposes where each item begins. Uses AI actions — you'll see the count first."
+                )
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(model.ungroupedSorted) { photo in
+                        ungroupedThumbnail(photo)
+                    }
+                }
+            }
+        }
+        .padding()
+        .cardStyle(.flush)
+    }
+
+    private var sortPicker: some View {
+        Menu {
+            ForEach(UngroupedSortMode.allCases) { mode in
+                Button {
+                    model.ungroupedSort = mode
+                } label: {
+                    if model.ungroupedSort == mode {
+                        Label(mode.label, systemImage: "checkmark")
+                    } else {
+                        Text(mode.label)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.up.arrow.down")
+                Text(model.ungroupedSort.label)
+                    .font(.caption.weight(.medium))
+                    .lineLimit(1)
+            }
+        }
+        .accessibilityLabel("Sort ungrouped photos")
+    }
+
+    private func ungroupedThumbnail(_ photo: PhotoCapture) -> some View {
+        Image(uiImage: photo.thumbnail)
+            .resizable()
+            .scaledToFill()
+            .frame(width: 92, height: 92)
+            .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control))
+            .contextMenu { ungroupedPhotoMenu(photo) }
+            .accessibilityLabel("Ungrouped photo")
+            // US-1411: mirror the context menu as accessibility actions —
+            // VoiceOver and Switch Control can't open a `.contextMenu`. These
+            // must be a FLAT list of buttons (a nested Menu isn't actionable
+            // through the rotor), so the submenu is expanded here.
+            .accessibilityActions {
+                Button("New item") { model.groupUngroupedPhoto(photo.id, into: nil) }
+                ForEach(model.groups) { group in
+                    Button("Add to item \(model.displayIndex(of: group))") {
+                        model.groupUngroupedPhoto(photo.id, into: group.id)
+                    }
+                }
+                Button("Remove photo") { model.removePhoto(photo.id) }
+            }
+    }
+
+    @ViewBuilder
+    private func ungroupedPhotoMenu(_ photo: PhotoCapture) -> some View {
+        Button {
+            model.groupUngroupedPhoto(photo.id, into: nil)
+        } label: {
+            Label("New item", systemImage: "plus.rectangle")
+        }
+        if !model.groups.isEmpty {
+            Menu("Add to…") {
+                ForEach(model.groups) { group in
+                    Button("Item \(model.displayIndex(of: group))") {
+                        model.groupUngroupedPhoto(photo.id, into: group.id)
+                    }
+                }
+            }
+        }
+        Divider()
+        Button(role: .destructive) {
+            model.removePhoto(photo.id)
+        } label: {
+            Label("Remove photo", systemImage: "trash")
+        }
+    }
+
+    /// US-1909: an uncertain AI-proposed item — the seller confirms or discards.
+    private func proposalReviewRow(_ review: ClientProposedGroup) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "questionmark.circle")
+                .foregroundStyle(Color.brandNavy)
+                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Group \(review.photoIds.count) photos as one item?")
+                    .font(.subheadline.weight(.semibold))
+                Text(review.reason)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("AI confidence \(Int((review.confidence * 100).rounded()))%")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            Button("Group") {
+                withAnimation { model.acceptProposalReview(review) }
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .tint(Color.brandNavy)
+            Button {
+                withAnimation { model.dismissProposalReview(review) }
+            } label: {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .accessibilityLabel("Dismiss proposal")
+        }
+        .padding(12)
+        .background(Color.brandNavy.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(Color.brandNavy.opacity(0.3))
+        )
     }
 
     /// US-1548: one dismissible AI suggestion ("these two groups look like the
@@ -307,6 +556,7 @@ struct AutoListerView: View {
                         model.movePhoto(photo.id, from: group.id, to: other.id)
                     }
                 }
+                Button("Ungroup photo") { model.ungroupPhoto(photo.id, from: group.id) }
                 Button("Remove photo") { model.removePhoto(photo.id) }
             }
     }
@@ -344,6 +594,13 @@ struct AutoListerView: View {
                     }
                 }
             }
+        }
+        // US-1909: park the photo in the ungrouped pool instead of guessing at a
+        // home for it — the sort modes and "AI group" work over that pool.
+        Button {
+            model.ungroupPhoto(photo.id, from: group.id)
+        } label: {
+            Label("Ungroup photo", systemImage: "rectangle.badge.minus")
         }
         Divider()
         Button(role: .destructive) {
@@ -446,10 +703,11 @@ struct AutoListerView: View {
             }
             .disabled(model.isEmpty)
 
-            // US-1548: on-demand boundary verification (also auto-runs after
-            // import). Costs one AI action; disabled mid-run or under 2 groups.
+            // US-1909: on-demand boundary verification now covers EVERY group
+            // (the auto-run after import stays cheap at one window). A pass
+            // needing more than one window confirms its AI-action cost first.
             Button {
-                Task { await model.verifyGroupsNow() }
+                Task { await model.verifyAllGroups() }
             } label: {
                 Label("Verify groups", systemImage: "checkmark.seal")
             }

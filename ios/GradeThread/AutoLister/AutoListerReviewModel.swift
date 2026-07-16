@@ -18,6 +18,30 @@ struct PreparedGroup {
     let photos: [PhotoCapture]
 }
 
+/// US-1909: user-selectable ordering for the ungrouped grid, mirroring the web
+/// `UngroupedSortMode` (src/pages/flipdesk/autolister.tsx). "Shooting order" is
+/// the provenance sort (capture time → filename sequence → import order) and
+/// stays the default because it previews the boundaries auto-grouping uses — but
+/// exports often strip EXIF, and then the seller needs to see (and group across)
+/// their own order instead.
+enum UngroupedSortMode: String, CaseIterable, Identifiable {
+    case shooting
+    case name
+    case date
+    case upload
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .shooting: return "Shooting order"
+        case .name: return "File name"
+        case .date: return "Date taken"
+        case .upload: return "Import order"
+        }
+    }
+}
+
 /// View-model for the AutoLister capture + review screen. Holds the imported
 /// photos and their grouping, and the merge/split/cover/delete edits. The edit
 /// logic is pure (no UI, no network) so it's unit-tested directly; `importPicks`
@@ -43,6 +67,52 @@ final class AutoListerReviewModel: ObservableObject {
     /// failed/timed-out verify silently leaves this empty (no blocking UI).
     @Published private(set) var suggestions: [GroupVerifySuggestion] = []
     @Published private(set) var verifying = false
+    /// US-1909: progress of a multi-window pass (nil for a single window, which
+    /// needs no progress UI). `done`/`total` count the pass's units.
+    @Published private(set) var verifyProgress: PassProgress?
+    @Published private(set) var proposing = false
+    @Published private(set) var proposeProgress: PassProgress?
+    /// US-1909: proposed boundaries the model was NOT confident enough to apply
+    /// — the seller confirms each one.
+    @Published private(set) var proposalReviews: [ClientProposedGroup] = []
+    /// US-1909: a >1-window pass costs one AI action PER window, so the seller
+    /// confirms the count before it's spent. Non-nil drives the confirm dialog.
+    @Published var verifyConfirm: VerifyConfirm?
+    @Published var proposeConfirm: ProposeConfirm?
+    /// AI actions left this month, for the confirm dialog's pre-count. nil until
+    /// loaded (or when the lookup failed — the dialog then just omits it).
+    @Published private(set) var aiActionsRemaining: Int?
+
+    /// US-1909: photos that belong to no group. Auto-grouping never leaves any
+    /// here (it assigns everything), but the seller can ungroup a photo to
+    /// re-sort it, and "AI group remaining" proposes boundaries over this pool.
+    @Published private(set) var ungrouped: [UUID] = []
+    /// US-1909: persisted like the web's localStorage key so the choice sticks.
+    @Published var ungroupedSort: UngroupedSortMode = AutoListerReviewModel.loadSort() {
+        didSet { Self.saveSort(ungroupedSort) }
+    }
+
+    struct PassProgress: Equatable {
+        var done: Int
+        var total: Int
+    }
+
+    /// A planned multi-window verify pass, held until the seller confirms its
+    /// metered cost. One window == one AI action.
+    struct VerifyConfirm: Identifiable {
+        let id = UUID()
+        let windows: [[VerifyGroupPayload]]
+        let totalGroups: Int
+        var windowCount: Int { windows.count }
+    }
+
+    /// A planned multi-window propose pass, held until the seller confirms.
+    struct ProposeConfirm: Identifiable {
+        let id = UUID()
+        let windows: [[String]]
+        let photoCount: Int
+        var windowCount: Int { windows.count }
+    }
 
     // US-1548: verify-groups plumbing. Boundary samples upload once into the
     // caller's `_staging/` folder (the endpoint's tenant check requires that
@@ -52,6 +122,29 @@ final class AutoListerReviewModel: ObservableObject {
     private let verifySessionId = UUID().uuidString.lowercased()
     /// Hard bandwidth bound on verification uploads per session.
     private static let maxVerifyUploads = 36
+    /// US-1909: import order, the `.upload` sort and the provenance tiebreaker
+    /// (`photosById` is a dict and carries no order of its own).
+    private var importOrder: [UUID] = []
+    /// US-1909: photos the library gave NO creation date for. `PhotoCapture`
+    /// defaults `capturedAt` to `.now`, so without this the whole timeless dump
+    /// looks like one instantaneous burst — a time-gap cluster, which is exempt
+    /// from the mega-group guards. Tracking the fabricated times lets grouping
+    /// see them as genuinely timeless and use the filename/vision signals.
+    private var timelessIds: Set<UUID> = []
+    /// US-1909: cancellation flag for a multi-window pass (checked between
+    /// windows, so an in-flight request still completes).
+    private var passCancelled = false
+
+    private static let sortDefaultsKey = "flipdesk-autolister-ungrouped-sort"
+
+    private static func loadSort() -> UngroupedSortMode {
+        UserDefaults.standard.string(forKey: sortDefaultsKey)
+            .flatMap(UngroupedSortMode.init(rawValue:)) ?? .shooting
+    }
+
+    private static func saveSort(_ mode: UngroupedSortMode) {
+        UserDefaults.standard.set(mode.rawValue, forKey: sortDefaultsKey)
+    }
 
     init(service: AutolisterBatching = AutolisterService()) {
         self.service = service
@@ -61,7 +154,11 @@ final class AutoListerReviewModel: ObservableObject {
     var totalPhotos: Int { photosById.count }
 
     /// Photos imported but auto-grouping produced nothing to review (US-1116).
-    var hasPhotosButNoGroups: Bool { !photosById.isEmpty && groups.isEmpty }
+    /// US-1909: a pool of ungrouped photos IS reviewable (the seller can sort
+    /// and AI-group them), so it doesn't count as "couldn't group".
+    var hasPhotosButNoGroups: Bool {
+        !photosById.isEmpty && groups.isEmpty && ungrouped.isEmpty
+    }
 
     /// Ready to generate when there's at least one group and none is empty.
     var canGenerate: Bool { !groups.isEmpty && groups.allSatisfy { !$0.photoIds.isEmpty } }
@@ -87,15 +184,20 @@ final class AutoListerReviewModel: ObservableObject {
         for result in results {
             guard let image = await result.loadImage(),
                   let output = await PhotoCompressor.compressOffMain(image) else { continue }
+            let creationDate = result.creationDate()
             let capture = PhotoCapture(
                 imageData: output.imageData,
                 thumbnail: output.thumbnail,
-                capturedAt: result.creationDate() ?? .now,
+                capturedAt: creationDate ?? .now,
                 source: .library,
                 // US-1547: the original filename drives sequence grouping and
                 // is persisted as item_photos.original_filename at upload.
                 sourceName: result.itemProvider.suggestedName
             )
+            // US-1909: remember that this photo's time is FABRICATED. Grouping
+            // must treat it as timeless (filename/vision signals) rather than as
+            // an instantaneous burst, which the guards deliberately exempt.
+            if creationDate == nil { timelessIds.insert(capture.id) }
             captures.append(capture)
             // US-1548: hash for the visual merge pass — off-main, alongside the
             // compression this import already does per photo.
@@ -127,8 +229,20 @@ final class AutoListerReviewModel: ObservableObject {
     /// acceptable for v1's "import once, then review" flow; the user can also
     /// hit "Auto-group" to reset deliberately.
     func ingest(_ captures: [PhotoCapture]) {
-        for c in captures { photosById[c.id] = c }
+        for c in captures {
+            if photosById[c.id] == nil { importOrder.append(c.id) }
+            photosById[c.id] = c
+        }
         regroupAll()
+    }
+
+    /// Test seam (US-1909): ingest photos whose capture time is FABRICATED (the
+    /// library gave none), the state `importPicks` derives from a nil
+    /// `creationDate`. Exercises the filename-sequence + vision paths that a
+    /// real timeless dump takes.
+    func ingestTimeless(_ captures: [PhotoCapture]) {
+        for c in captures { timelessIds.insert(c.id) }
+        ingest(captures)
     }
 
     // MARK: - Grouping
@@ -137,11 +251,15 @@ final class AutoListerReviewModel: ObservableObject {
     /// US-1547 filename-sequence signal for timeless photos, and the US-1548
     /// dHash visual merge pass over whatever hashed during import.
     func regroupAll() {
-        let groupables = photosById.values.map {
-            GroupablePhoto(
-                id: $0.id.uuidString,
-                capturedAt: $0.capturedAt,
-                sourceName: $0.sourceName
+        // US-1909: iterate importOrder (not the dict's arbitrary order) so ties
+        // in the provenance sort resolve to import order, exactly like web.
+        let groupables = importOrder.compactMap { id -> GroupablePhoto? in
+            guard let photo = photosById[id] else { return nil }
+            return GroupablePhoto(
+                id: photo.id.uuidString,
+                // A fabricated `.now` is NOT a capture time — see `timelessIds`.
+                capturedAt: timelessIds.contains(photo.id) ? nil : photo.capturedAt,
+                sourceName: photo.sourceName
             )
         }
         // GroupablePhoto ids are lowercase-normalized? UUID.uuidString is
@@ -156,9 +274,13 @@ final class AutoListerReviewModel: ObservableObject {
             guard let cover = UUID(uuidString: auto.coverId) ?? ids.first else { return nil }
             return ReviewGroup(id: UUID(), photoIds: ids, coverId: cover)
         }
+        // US-1909: auto-grouping assigns every photo, so nothing is left over.
+        ungrouped = []
         // US-1548: regrouping mints fresh group ids — prior suggestions can no
         // longer be applied, so drop them (a new verify can re-derive).
         suggestions = []
+        // US-1909: proposals were made against the previous grouping.
+        proposalReviews = []
     }
 
     // MARK: - Edits
@@ -186,32 +308,176 @@ final class AutoListerReviewModel: ObservableObject {
     }
 
     func removePhoto(_ photoId: UUID) {
-        photosById[photoId] = nil
-        hashesById[photoId] = nil
+        forget(photoId)
         for i in groups.indices { groups[i].photoIds.removeAll { $0 == photoId } }
         normalize()
     }
 
     func deleteGroup(_ groupId: UUID) {
         guard let g = groups.first(where: { $0.id == groupId }) else { return }
-        for pid in g.photoIds {
-            photosById[pid] = nil
-            hashesById[pid] = nil
-        }
+        for pid in g.photoIds { forget(pid) }
         groups.removeAll { $0.id == groupId }
+    }
+
+    /// Drop every trace of a photo the seller discarded.
+    private func forget(_ photoId: UUID) {
+        photosById[photoId] = nil
+        hashesById[photoId] = nil
+        stagedPathByPhotoId[photoId] = nil
+        timelessIds.remove(photoId)
+        importOrder.removeAll { $0 == photoId }
+        ungrouped.removeAll { $0 == photoId }
+        proposalReviews = proposalReviews.compactMap { review in
+            var next = review
+            next.photoIds.removeAll { $0 == photoId.uuidString }
+            return next.photoIds.count >= 2 ? next : nil
+        }
+    }
+
+    // MARK: - US-1909: the ungrouped pool
+
+    /// Pull a photo OUT of its group without discarding it — it lands in the
+    /// ungrouped pool, where the seller can re-sort it or let "AI group
+    /// remaining" propose a home for it.
+    func ungroupPhoto(_ photoId: UUID, from groupId: UUID) {
+        guard let gi = groups.firstIndex(where: { $0.id == groupId }),
+              groups[gi].photoIds.contains(photoId) else { return }
+        groups[gi].photoIds.removeAll { $0 == photoId }
+        if !ungrouped.contains(photoId) { ungrouped.append(photoId) }
+        normalize()
+    }
+
+    /// Move an ungrouped photo into a group, or into a brand-new one when
+    /// `target` is nil.
+    func groupUngroupedPhoto(_ photoId: UUID, into targetId: UUID?) {
+        guard ungrouped.contains(photoId), photosById[photoId] != nil else { return }
+        ungrouped.removeAll { $0 == photoId }
+        if let targetId, let ti = groups.firstIndex(where: { $0.id == targetId }) {
+            groups[ti].photoIds.append(photoId)
+        } else {
+            groups.append(ReviewGroup(id: UUID(), photoIds: [photoId], coverId: photoId))
+        }
+    }
+
+    /// The ungrouped pool in the seller's chosen order. Every mode is a STABLE
+    /// sort over the import order, so ties always fall back to it (mirrors the
+    /// web grid, where `ungroupedSort === "upload"` recovers the original
+    /// sequence exactly). Swift's `sorted(by:)` is NOT stable, so each mode
+    /// decorates with the import index and breaks ties on it explicitly.
+    var ungroupedSorted: [PhotoCapture] {
+        // Anchor on importOrder, NOT the pool's own insertion order (which is
+        // whatever sequence the seller happened to ungroup in) — that's what
+        // makes `.upload` recover the original import sequence and every other
+        // mode break ties on it.
+        let pool = Set(ungrouped)
+        let photos = importOrder.filter(pool.contains).compactMap { photosById[$0] }
+        switch ungroupedSort {
+        case .upload:
+            return photos
+        case .shooting:
+            return stableSorted(photos) { a, b in
+                PhotoGrouping.compareByProvenance(
+                    capturedAt: self.effectiveCaptureDate(a),
+                    sourceName: a.sourceName,
+                    otherCapturedAt: self.effectiveCaptureDate(b),
+                    otherSourceName: b.sourceName
+                )
+            }
+        case .name:
+            return stableSorted(photos) { a, b in
+                // Natural compare so IMG_9 < IMG_10; unnamed photos sink to the end.
+                switch (a.sourceName, b.sourceName) {
+                case let (x?, y?):
+                    let result = x.compare(y, options: [.numeric, .caseInsensitive])
+                    return result == .orderedSame ? 0 : (result == .orderedAscending ? -1 : 1)
+                case (_?, nil): return -1
+                case (nil, _?): return 1
+                case (nil, nil): return 0
+                }
+            }
+        case .date:
+            return stableSorted(photos) { a, b in
+                // Photos with no real capture time sink to the end.
+                switch (self.effectiveCaptureDate(a), self.effectiveCaptureDate(b)) {
+                case let (x?, y?): return x == y ? 0 : (x < y ? -1 : 1)
+                case (_?, nil): return -1
+                case (nil, _?): return 1
+                case (nil, nil): return 0
+                }
+            }
+        }
+    }
+
+    /// The photo's REAL capture time — nil when `importPicks` had to fabricate
+    /// one (see `timelessIds`).
+    private func effectiveCaptureDate(_ photo: PhotoCapture) -> Date? {
+        timelessIds.contains(photo.id) ? nil : photo.capturedAt
+    }
+
+    /// Stable sort: ties (comparator == 0) keep `photos`' incoming order, which
+    /// is import order.
+    private func stableSorted(
+        _ photos: [PhotoCapture],
+        by compare: (PhotoCapture, PhotoCapture) -> Int
+    ) -> [PhotoCapture] {
+        photos.enumerated()
+            .sorted { a, b in
+                let result = compare(a.element, b.element)
+                return result == 0 ? a.offset < b.offset : result < 0
+            }
+            .map(\.element)
     }
 
     // MARK: - US-1548: AI group verification
 
-    /// One vision pass over boundary samples of every group, returning
-    /// merge/split/move suggestions. Silent by design: any upload/verify
-    /// failure just clears the suggestions (AC — no blocking spinner, grade
-    /// of degradation is "no suggestions"). Costs one AI action server-side.
+    /// The silent post-import pass: only the FIRST window runs, so an automatic
+    /// check stays cheap at one AI action. Any upload/verify failure just leaves
+    /// the suggestions empty (advisory by design — no blocking UI).
     func verifyGroupsNow() async {
-        guard groups.count >= 2, !verifying else { return }
-        verifying = true
-        defer { verifying = false }
+        await verifyGroups(silent: true)
+    }
 
+    /// US-1909: the EXPLICIT pass covers ALL groups. The /verify-groups endpoint
+    /// samples each group to its boundary shots and packs groups into one
+    /// request until a 40-photo budget is spent, so a big session used to get
+    /// only its first ~13 groups checked. Walking every window fixes coverage —
+    /// but each window is a metered AI action, so a >1-window pass asks first.
+    func verifyAllGroups() async {
+        await verifyGroups(silent: false)
+    }
+
+    private func verifyGroups(silent: Bool) async {
+        guard groups.count >= 2, !verifying else { return }
+        let payload = await buildVerifyPayload()
+        guard payload.count >= 2 else {
+            if silent { suggestions = [] }
+            return
+        }
+        let windows = AutolisterWindows.planVerifyWindows(payload) { $0.photos.count }
+        guard let first = windows.first else { return }
+        if silent {
+            await runVerifyWindows([first])
+            return
+        }
+        if windows.count > 1 {
+            // Show the metered count up front, before spending it.
+            await refreshAiActionsRemaining()
+            verifyConfirm = VerifyConfirm(windows: windows, totalGroups: payload.count)
+            return
+        }
+        await runVerifyWindows(windows)
+    }
+
+    /// Run the windows the seller just confirmed.
+    func confirmVerifyPass() async {
+        guard let pending = verifyConfirm else { return }
+        verifyConfirm = nil
+        await runVerifyWindows(pending.windows)
+    }
+
+    /// Stage each group's boundary samples (once per session) and build the
+    /// per-group payload. Groups whose samples couldn't upload are omitted.
+    private func buildVerifyPayload() async -> [VerifyGroupPayload] {
         var uploads = stagedPathByPhotoId.count
         var payload: [VerifyGroupPayload] = []
         for group in groups {
@@ -238,21 +504,185 @@ final class AutoListerReviewModel: ObservableObject {
                 payload.append(VerifyGroupPayload(id: group.id.uuidString, photos: photos))
             }
         }
-        guard payload.count >= 2 else {
-            suggestions = []
-            return
+        return payload
+    }
+
+    /// Walk the planned windows, aggregating + deduping suggestions across them.
+    /// Cancellable between windows; a multi-window pass reports progress.
+    private func runVerifyWindows(_ windows: [[VerifyGroupPayload]]) async {
+        guard !windows.isEmpty else { return }
+        let multi = windows.count > 1
+        let totalGroups = windows.reduce(0) { $0 + $1.count }
+        verifying = true
+        passCancelled = false
+        verifyProgress = multi ? PassProgress(done: 0, total: totalGroups) : nil
+        defer {
+            verifying = false
+            verifyProgress = nil
         }
 
-        do {
-            let response = try await service.verifyGroups(payload)
-            let validGroupIds = Set(groups.map { $0.id.uuidString })
-            suggestions = response.suggestions.filter { s in
-                s.groupIds.allSatisfy { validGroupIds.contains($0) }
+        var collected: [GroupVerifySuggestion] = []
+        var anyError = false
+        var done = 0
+        for window in windows {
+            if passCancelled { break }
+            do {
+                collected.append(contentsOf: try await service.verifyGroups(window).suggestions)
+            } catch {
+                anyError = true
             }
-        } catch {
-            // Degrade silently — verification is advisory (AC3).
-            suggestions = []
+            done += window.count
+            if multi { verifyProgress = PassProgress(done: done, total: totalGroups) }
         }
+
+        let validGroupIds = Set(groups.map { $0.id.uuidString })
+        let deduped = AutolisterWindows.dedupeSuggestions(collected).filter { s in
+            s.groupIds.allSatisfy { validGroupIds.contains($0) }
+        }
+        // Don't clobber existing chips when the whole pass errored with nothing
+        // to show; otherwise the fresh result (even empty) replaces them.
+        if !(anyError && deduped.isEmpty) { suggestions = deduped }
+    }
+
+    /// Stop a multi-window pass after the in-flight window finishes.
+    func cancelPass() {
+        passCancelled = true
+    }
+
+    // MARK: - US-1909: AI propose-groups ("AI group remaining")
+
+    /// Below this confidence a proposed boundary is surfaced for review rather
+    /// than applied — the seller confirms it. Mirrors the web
+    /// `PROPOSE_APPLY_FLOOR`.
+    static let proposeApplyFloor = 0.6
+
+    /// Window the ungrouped photos and ask the AI where each item begins — the
+    /// signal that rescues a timeless dump auto-grouping can't split. A
+    /// >1-window pass confirms the metered count first.
+    func proposeGroupsNow() async {
+        guard !proposing else { return }
+        let ids = ungroupedSorted.map(\.id)
+        guard ids.count >= 2 else { return }
+        let windows = AutolisterWindows.planProposeWindows(ids.map(\.uuidString))
+        guard !windows.isEmpty else { return }
+        if windows.count > 1 {
+            await refreshAiActionsRemaining()
+            proposeConfirm = ProposeConfirm(windows: windows, photoCount: ids.count)
+            return
+        }
+        await runProposeWindows(windows)
+    }
+
+    /// Run the propose windows the seller just confirmed.
+    func confirmProposePass() async {
+        guard let pending = proposeConfirm else { return }
+        proposeConfirm = nil
+        await runProposeWindows(pending.windows)
+    }
+
+    /// Walk the propose windows (which OVERLAP, so an item straddling a seam
+    /// isn't force-split), stitch the per-window proposals back together, then
+    /// apply the confident ones and surface the rest for review.
+    private func runProposeWindows(_ windows: [[String]]) async {
+        guard !windows.isEmpty else { return }
+        let multi = windows.count > 1
+        let totalPhotos = ungrouped.count
+        proposing = true
+        passCancelled = false
+        proposeProgress = multi ? PassProgress(done: 0, total: totalPhotos) : nil
+        defer {
+            proposing = false
+            proposeProgress = nil
+        }
+
+        var windowResults: [[ClientProposedGroup]] = []
+        var done = 0
+        for window in windows {
+            if passCancelled { break }
+            let photos = await stagedProposePayload(for: window)
+            // Under two staged photos there's nothing to compare — the endpoint
+            // would 400, so skip rather than burn the call.
+            if photos.count >= 2, let response = try? await service.proposeGroups(photos) {
+                windowResults.append(response.groups)
+            }
+            done += window.count
+            if multi { proposeProgress = PassProgress(done: min(done, totalPhotos), total: totalPhotos) }
+        }
+
+        // A singleton stays a singleton; only multi-photo items are worth applying.
+        let proposals = AutolisterWindows.mergeProposalWindows(windowResults)
+            .filter { $0.photoIds.count >= 2 }
+        guard !proposals.isEmpty else { return }
+        let confident = proposals.filter { $0.confidence >= Self.proposeApplyFloor }
+        applyProposedGroups(confident)
+        proposalReviews.append(contentsOf: proposals.filter { $0.confidence < Self.proposeApplyFloor })
+    }
+
+    /// Stage (once per session) the window's photos and build the payload.
+    private func stagedProposePayload(for window: [String]) async -> [ProposePhotoPayload] {
+        var uploads = stagedPathByPhotoId.count
+        var payload: [ProposePhotoPayload] = []
+        for idString in window {
+            guard let pid = UUID(uuidString: idString), let capture = photosById[pid] else { continue }
+            if stagedPathByPhotoId[pid] == nil {
+                guard uploads < Self.maxVerifyUploads else { continue }
+                if let path = try? await service.stageVerificationPhoto(
+                    sessionId: verifySessionId,
+                    jpegData: capture.imageData
+                ) {
+                    stagedPathByPhotoId[pid] = path
+                    uploads += 1
+                }
+            }
+            if let path = stagedPathByPhotoId[pid] {
+                payload.append(ProposePhotoPayload(id: idString, storagePath: path))
+            }
+        }
+        return payload
+    }
+
+    /// Turn proposed photo-id runs into groups, for photos that are STILL
+    /// ungrouped when applied (a proposal can race the seller's own edits).
+    func applyProposedGroups(_ runs: [ClientProposedGroup]) {
+        for run in runs {
+            let ids = run.photoIds
+                .compactMap(UUID.init(uuidString:))
+                .filter { ungrouped.contains($0) }
+            guard ids.count >= 2 else { continue }
+            ungrouped.removeAll { ids.contains($0) }
+            groups.append(ReviewGroup(id: UUID(), photoIds: ids, coverId: ids[0]))
+        }
+    }
+
+    /// The seller accepted an uncertain proposal.
+    func acceptProposalReview(_ review: ClientProposedGroup) {
+        applyProposedGroups([review])
+        dismissProposalReview(review)
+    }
+
+    func dismissProposalReview(_ review: ClientProposedGroup) {
+        proposalReviews.removeAll { $0.id == review.id }
+    }
+
+    /// Test seam (US-1909): seed proposal reviews without a network pass.
+    func applyTestProposalReviews(_ list: [ClientProposedGroup]) {
+        proposalReviews = list
+    }
+
+    /// Load the remaining monthly AI actions so a metered confirm can show the
+    /// real cost. Best-effort: a failed lookup leaves it nil and the dialog just
+    /// omits the remaining count rather than blocking the pass.
+    private func refreshAiActionsRemaining() async {
+        let store = AIAssistantStore()
+        await store.load()
+        guard case let .ready(info) = store.phase else {
+            aiActionsRemaining = nil
+            return
+        }
+        aiActionsRemaining = max(
+            0,
+            AIAssistantStore.effectiveLimit(info) - info.ai_actions_used_this_month
+        )
     }
 
     /// First / middle / last photo of a group — the frames most likely to

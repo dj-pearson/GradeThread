@@ -274,6 +274,169 @@ final class AutoListerReviewModelTests: XCTestCase {
         XCTAssertTrue(m.suggestions.isEmpty, "suggestions for unknown groups are dropped")
     }
 
+    // MARK: - US-1909: ungrouped pool + sort modes
+
+    private func named(_ name: String?, _ offset: TimeInterval) -> PhotoCapture {
+        PhotoCapture(imageData: Data(), thumbnail: UIImage(),
+                     capturedAt: base.addingTimeInterval(offset), source: .library,
+                     sourceName: name)
+    }
+
+    func test_ungroupPhoto_movesItToThePool_withoutDiscardingIt() {
+        let a = cap(0), b = cap(5)
+        let m = AutoListerReviewModel()
+        m.ingest([a, b])
+        m.ungroupPhoto(a.id, from: m.groups[0].id)
+        XCTAssertEqual(m.ungrouped, [a.id])
+        XCTAssertEqual(m.totalPhotos, 2, "the photo is kept, just unassigned")
+        XCTAssertEqual(m.groups[0].photoIds, [b.id])
+    }
+
+    func test_ungroupingAWholeGroup_dropsTheEmptyGroup_butKeepsThePhotos() {
+        let a = cap(0)
+        let m = AutoListerReviewModel()
+        m.ingest([a])
+        m.ungroupPhoto(a.id, from: m.groups[0].id)
+        XCTAssertTrue(m.groups.isEmpty)
+        XCTAssertEqual(m.ungrouped, [a.id])
+        XCTAssertFalse(m.hasPhotosButNoGroups, "an ungrouped pool is still reviewable")
+    }
+
+    func test_groupUngroupedPhoto_intoNewAndExistingGroups() {
+        let a = cap(0), b = cap(500)
+        let m = AutoListerReviewModel()
+        m.ingest([a, b])
+        m.ungroupPhoto(a.id, from: m.groups[0].id)
+        XCTAssertEqual(m.groups.count, 1)
+
+        m.groupUngroupedPhoto(a.id, into: m.groups[0].id)
+        XCTAssertTrue(m.ungrouped.isEmpty)
+        XCTAssertEqual(Set(m.groups[0].photoIds), [a.id, b.id])
+    }
+
+    func test_removePhoto_alsoClearsItFromThePool() {
+        let a = cap(0), b = cap(5)
+        let m = AutoListerReviewModel()
+        m.ingest([a, b])
+        m.ungroupPhoto(a.id, from: m.groups[0].id)
+        m.removePhoto(a.id)
+        XCTAssertTrue(m.ungrouped.isEmpty)
+        XCTAssertEqual(m.totalPhotos, 1)
+    }
+
+    func test_regroupAll_reclaimsTheUngroupedPool() {
+        let a = cap(0), b = cap(5)
+        let m = AutoListerReviewModel()
+        m.ingest([a, b])
+        m.ungroupPhoto(a.id, from: m.groups[0].id)
+        m.regroupAll()
+        XCTAssertTrue(m.ungrouped.isEmpty, "auto-grouping assigns every photo")
+        XCTAssertEqual(m.groups.count, 1)
+    }
+
+    /// Ungroup everything so the pool ordering is what's under test.
+    private func pooled(_ captures: [PhotoCapture], timeless: Bool = false) -> AutoListerReviewModel {
+        let m = AutoListerReviewModel()
+        if timeless { m.ingestTimeless(captures) } else { m.ingest(captures) }
+        for group in m.groups {
+            for pid in group.photoIds { m.ungroupPhoto(pid, from: group.id) }
+        }
+        return m
+    }
+
+    func test_ungroupedSort_uploadModeKeepsImportOrder() {
+        let a = named("IMG_0009.jpg", 100), b = named("IMG_0002.jpg", 0)
+        let m = pooled([a, b])
+        m.ungroupedSort = .upload
+        XCTAssertEqual(m.ungroupedSorted.map(\.id), [a.id, b.id])
+    }
+
+    func test_ungroupedSort_dateModeOrdersByCaptureTime() {
+        let a = named("IMG_0009.jpg", 100), b = named("IMG_0002.jpg", 0)
+        let m = pooled([a, b])
+        m.ungroupedSort = .date
+        XCTAssertEqual(m.ungroupedSorted.map(\.id), [b.id, a.id])
+    }
+
+    func test_ungroupedSort_nameModeIsNaturalAndSinksUnnamed() {
+        // Natural compare: IMG_9 before IMG_10 (a lexical sort would invert it).
+        let nine = named("IMG_9.jpg", 0)
+        let ten = named("IMG_10.jpg", 10)
+        let unnamed = named(nil, 20)
+        let m = pooled([unnamed, ten, nine])
+        m.ungroupedSort = .name
+        XCTAssertEqual(m.ungroupedSorted.map(\.id), [nine.id, ten.id, unnamed.id])
+    }
+
+    func test_ungroupedSort_shootingModeUsesTimeThenFilename() {
+        // Timeless photos: the filename sequence orders them, not import order.
+        let c = named("IMG_0003.jpg", 0)
+        let a = named("IMG_0001.jpg", 0)
+        let b = named("IMG_0002.jpg", 0)
+        let m = pooled([c, a, b], timeless: true)
+        m.ungroupedSort = .shooting
+        XCTAssertEqual(m.ungroupedSorted.map(\.id), [a.id, b.id, c.id])
+    }
+
+    func test_ungroupedSort_shootingModeTiesFallBackToImportOrder() {
+        // Neither name parses and both are timeless → a tie the stable sort
+        // resolves to import order.
+        let x = named("front.jpg", 0), y = named("back.jpg", 0)
+        let m = pooled([x, y], timeless: true)
+        m.ungroupedSort = .shooting
+        XCTAssertEqual(m.ungroupedSorted.map(\.id), [x.id, y.id])
+    }
+
+    // MARK: - US-1909: propose-groups
+
+    func test_applyProposedGroups_onlyGroupsPhotosStillUngrouped() {
+        let a = cap(0), b = cap(500), c = cap(1000)
+        let m = AutoListerReviewModel()
+        m.ingest([a, b, c])
+        for group in m.groups {
+            for pid in group.photoIds { m.ungroupPhoto(pid, from: group.id) }
+        }
+        // `c` is claimed by the seller before the proposal is applied.
+        m.groupUngroupedPhoto(c.id, into: nil)
+
+        m.applyProposedGroups([
+            ClientProposedGroup(
+                photoIds: [a.id, b.id, c.id].map(\.uuidString), confidence: 0.9, reason: "r"
+            ),
+        ])
+        // Only a+b are grouped by the proposal; c keeps its own group.
+        XCTAssertTrue(m.ungrouped.isEmpty)
+        XCTAssertEqual(m.groups.count, 2)
+        XCTAssertEqual(Set(m.groups[1].photoIds), [a.id, b.id])
+    }
+
+    func test_applyProposedGroups_ignoresASingletonProposal() {
+        let a = cap(0)
+        let m = pooled([a])
+        m.applyProposedGroups([
+            ClientProposedGroup(photoIds: [a.id.uuidString], confidence: 0.9, reason: "r"),
+        ])
+        XCTAssertTrue(m.groups.isEmpty, "a one-photo proposal is not an item boundary")
+        XCTAssertEqual(m.ungrouped, [a.id])
+    }
+
+    func test_proposalReview_acceptCreatesTheGroup_dismissDoesNot() {
+        let a = cap(0), b = cap(500)
+        let m = pooled([a, b])
+        let review = ClientProposedGroup(
+            photoIds: [a.id, b.id].map(\.uuidString), confidence: 0.4, reason: "unsure"
+        )
+        m.applyTestProposalReviews([review])
+        m.dismissProposalReview(review)
+        XCTAssertTrue(m.proposalReviews.isEmpty)
+        XCTAssertTrue(m.groups.isEmpty, "a dismissed proposal creates nothing")
+
+        m.applyTestProposalReviews([review])
+        m.acceptProposalReview(review)
+        XCTAssertTrue(m.proposalReviews.isEmpty)
+        XCTAssertEqual(Set(m.groups[0].photoIds), [a.id, b.id])
+    }
+
     func test_regroup_clearsStaleSuggestions() {
         let m = AutoListerReviewModel()
         m.ingest([cap(0), cap(500)])
