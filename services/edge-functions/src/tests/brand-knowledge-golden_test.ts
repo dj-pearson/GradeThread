@@ -99,6 +99,43 @@ const ARCTERYX_STYLE_NAME_DECODER: BrandDecoder = {
   examples: [],
 };
 
+// US-1735: the Wrangler style_number decoder EXACTLY as migration 00454 seeds it.
+// "13MWZ" = 13-ounce Men's With Zipper — the MW/MJ/DEN suffix family is a
+// Wrangler-only convention, which is what makes an anchored digits+suffix pattern
+// a safe cut-tag recovery. Fixturing the shipped spec means a bad pattern in the
+// migration fails here rather than in production.
+const WRANGLER_STYLE_NUMBER_DECODER: BrandDecoder = {
+  decoderKind: "style_number",
+  description:
+    "Wrangler tag-printed model number: the MW family (digits = denim weight, MW = Men's Western, Z = zip fly, J = jacket) — e.g. \"13MWZ\", \"47MWZ\", \"11MJ\" — or the DEN slim-fit form, e.g. \"936DEN\".",
+  pattern: "^(?:(?<style>\\d{2,3}(?:MWZPW|MWZ|MWJ|MJZ|MJ|MW))|(?<slim>\\d{3}DEN))$",
+  extractionRules: {
+    fieldMap: { style: "styleCode", slim: "styleCode" },
+    transforms: { style: "upper", slim: "upper" },
+    confidence: 0.7,
+  },
+  examples: [],
+};
+
+// US-1735: the True Religion style_name decoder EXACTLY as migration 00454 seeds
+// it. This is the denim group's CUT-TAG case and it mirrors the Arc'teryx
+// model+suffix precedent above: "Ricky" is an ordinary first name and "Super T"
+// could be a size, but the COMPOUND is True-Religion-unique — so requiring both
+// parts is what makes the recovery safe.
+const TRUE_RELIGION_STYLE_NAME_DECODER: BrandDecoder = {
+  decoderKind: "style_name",
+  description:
+    'True Religion MODEL + stitch-weight SUFFIX printed on the tag (Super T = the thickest contrast topstitch, Big T = the thick grade) — e.g. "Ricky Super T", "Joey Big T".',
+  pattern:
+    "^(?<style>(?:Ricky|Billy|Joey|Bobby|Becky|Geno|Johnny|Casey|Carrie|Disco|Jack|Cameron)\\s+(?:Super\\s*T|Big\\s*T))$",
+  extractionRules: {
+    fieldMap: { style: "styleCode" },
+    transforms: { style: "upper" },
+    confidence: 0.7,
+  },
+  examples: [],
+};
+
 function style(styleName: string): BrandStyleKnowledge {
   return {
     styleName,
@@ -652,6 +689,212 @@ const CASES: GoldenCase[] = [
       style("Stretchdown"),
     ]),
     input: decodedFrom({ styleCode: "OM1234" }),
+    expect: { noBrand: true },
+  },
+  // US-1735 premium & vintage denim group. Two brands carry the CUT-TAG cases:
+  // Wrangler (a tag-printed model number) and True Religion (a model + stitch-
+  // weight compound). The other four print a fit NAME, not a code, so their
+  // guarantee is that enrichment stays correct WITHOUT a decoder.
+  {
+    name: "Wrangler cut brand tag — the 13MWZ model number recovers the brand",
+    brand: "Wrangler",
+    pack: pack("Wrangler", "wrangler", [], [WRANGLER_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "13MWZ" }), // no AI brand
+    expect: { brand: "Wrangler", recovery: true },
+  },
+  {
+    name: "Wrangler 936DEN (the DEN slim-fit branch) also recovers the brand",
+    brand: "Wrangler",
+    pack: pack("Wrangler", "wrangler", [], [WRANGLER_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "936DEN" }),
+    expect: { brand: "Wrangler", recovery: true },
+  },
+  {
+    name: "Wrangler 11MJ (the jacket suffix) also recovers the brand",
+    brand: "Wrangler",
+    pack: pack("Wrangler", "wrangler", [], [WRANGLER_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "11MJ" }),
+    expect: { brand: "Wrangler", recovery: true },
+  },
+  {
+    name: "Wrangler model number overrides a wrong AI brand + surfaces conflict",
+    // Levi's is the plausible wrong answer on an unlabelled western jean, which
+    // is exactly why the tag-printed number has to win.
+    brand: "Wrangler",
+    pack: pack("Wrangler", "wrangler", [], [WRANGLER_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ brand: "Levi's", styleCode: "13MWZ" }),
+    expect: { brand: "Wrangler", conflictOn: "brand", recovery: true },
+  },
+  {
+    name: "Wrangler bare denim weight — no false-positive recovery",
+    // "13" alone is an ordinary number; 00454's pattern requires the MW suffix
+    // precisely so a tag that merely says 13 can't mint a brand.
+    brand: "Wrangler",
+    pack: pack("Wrangler", "wrangler", [], [WRANGLER_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "13" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Wrangler bare suffix — no false-positive recovery",
+    brand: "Wrangler",
+    pack: pack("Wrangler", "wrangler", [], [WRANGLER_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "MWZ" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Wrangler ambiguous Cowboy Cut fits (13MWZ vs 936DEN) — never guess",
+    brand: "Wrangler",
+    pack: pack("Wrangler", "wrangler", [
+      style("13MWZ Cowboy Cut"),
+      style("936DEN Slim Fit"),
+    ], [WRANGLER_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ brand: "Wrangler" }),
+    expect: { brand: "Wrangler", noStyle: true },
+  },
+  {
+    name: "True Religion cut brand tag — model+stitch-weight recovers the brand",
+    brand: "True Religion",
+    pack: pack("True Religion", "truereligion", [], [
+      TRUE_RELIGION_STYLE_NAME_DECODER,
+    ]),
+    input: decodedFrom({ styleCode: "Ricky Super T" }), // no AI brand
+    expect: { brand: "True Religion", recovery: true },
+  },
+  {
+    name: "True Religion Joey Big T also recovers the brand off a cut tag",
+    brand: "True Religion",
+    pack: pack("True Religion", "truereligion", [], [
+      TRUE_RELIGION_STYLE_NAME_DECODER,
+    ]),
+    input: decodedFrom({ styleCode: "Joey Big T" }),
+    expect: { brand: "True Religion", recovery: true },
+  },
+  {
+    name: "True Religion bare fit name — no false-positive recovery",
+    // "Ricky" is an ordinary first name. This is the case the compound pattern
+    // exists for: a bare fit name must never mint a brand.
+    brand: "True Religion",
+    pack: pack("True Religion", "truereligion", [], [
+      TRUE_RELIGION_STYLE_NAME_DECODER,
+    ]),
+    input: decodedFrom({ styleCode: "Ricky" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "True Religion bare stitch grade — no false-positive recovery",
+    brand: "True Religion",
+    pack: pack("True Religion", "truereligion", [], [
+      TRUE_RELIGION_STYLE_NAME_DECODER,
+    ]),
+    input: decodedFrom({ styleCode: "Super T" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "True Religion ambiguous fits (Ricky vs Billy) — never guess",
+    brand: "True Religion",
+    pack: pack("True Religion", "truereligion", [style("Ricky"), style("Billy")], [
+      TRUE_RELIGION_STYLE_NAME_DECODER,
+    ]),
+    input: decodedFrom({ brand: "True Religion" }),
+    expect: { brand: "True Religion", noStyle: true },
+  },
+  {
+    name: "Lee single known style fills the style the AI missed",
+    brand: "Lee",
+    pack: pack("Lee", "lee", [style("101 Riders")]),
+    input: decodedFrom({ brand: "Lee" }),
+    expect: { brand: "Lee", style: "101 Riders" },
+  },
+  {
+    name: "Lee ambiguous jackets (blanket-lined Storm Rider vs plain 101J) — never guess",
+    brand: "Lee",
+    pack: pack("Lee", "lee", [style("Storm Rider"), style("101J Denim Jacket")]),
+    input: decodedFrom({ brand: "Lee" }),
+    expect: { brand: "Lee", noStyle: true },
+  },
+  {
+    name: "Lee 101 — no false-positive brand recovery (the 101 is a model, not a code)",
+    // 00454 deliberately seeds NO Lee decoder: "101" is an ordinary number with
+    // no brand-unique format, so a pattern over it would recover Lee from any tag
+    // that happened to say 101. This case locks that decision in.
+    brand: "Lee",
+    pack: pack("Lee", "lee", [style("101 Riders"), style("Storm Rider")]),
+    input: decodedFrom({ styleCode: "101" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "7 For All Mankind single known fit fills the style the AI missed",
+    brand: "7 For All Mankind",
+    pack: pack("7 For All Mankind", "7forallmankind", [style("Slimmy")]),
+    input: decodedFrom({ brand: "7 For All Mankind" }),
+    expect: { brand: "7 For All Mankind", style: "Slimmy" },
+  },
+  {
+    name: "7 For All Mankind ambiguous men's fits (Slimmy vs Standard) — never guess",
+    brand: "7 For All Mankind",
+    pack: pack("7 For All Mankind", "7forallmankind", [
+      style("Slimmy"),
+      style("Standard"),
+    ]),
+    input: decodedFrom({ brand: "7 For All Mankind" }),
+    expect: { brand: "7 For All Mankind", noStyle: true },
+  },
+  {
+    name: "7 For All Mankind fit name — no false-positive brand recovery (no decoder)",
+    brand: "7 For All Mankind",
+    pack: pack("7 For All Mankind", "7forallmankind", [
+      style("Slimmy"),
+      style("Dojo"),
+    ]),
+    input: decodedFrom({ styleCode: "Slimmy" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "AG Jeans single known fit fills the style the AI missed",
+    brand: "AG Jeans",
+    pack: pack("AG Jeans", "agjeans", [style("Graduate")]),
+    input: decodedFrom({ brand: "AG Jeans" }),
+    expect: { brand: "AG Jeans", style: "Graduate" },
+  },
+  {
+    name: "AG Jeans ambiguous men's fits (Graduate vs Tellis) — never guess",
+    brand: "AG Jeans",
+    pack: pack("AG Jeans", "agjeans", [style("Graduate"), style("Tellis")]),
+    input: decodedFrom({ brand: "AG Jeans" }),
+    expect: { brand: "AG Jeans", noStyle: true },
+  },
+  {
+    name: "AG Jeans fit name — no false-positive brand recovery (no decoder)",
+    brand: "AG Jeans",
+    pack: pack("AG Jeans", "agjeans", [style("Graduate"), style("Farrah")]),
+    input: decodedFrom({ styleCode: "Graduate" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Citizens of Humanity single known fit fills the style the AI missed",
+    brand: "Citizens of Humanity",
+    pack: pack("Citizens of Humanity", "citizensofhumanity", [style("Rocket")]),
+    input: decodedFrom({ brand: "Citizens of Humanity" }),
+    expect: { brand: "Citizens of Humanity", style: "Rocket" },
+  },
+  {
+    name: "Citizens of Humanity ambiguous fits (Rocket vs Emannuelle) — never guess",
+    brand: "Citizens of Humanity",
+    pack: pack("Citizens of Humanity", "citizensofhumanity", [
+      style("Rocket"),
+      style("Emannuelle"),
+    ]),
+    input: decodedFrom({ brand: "Citizens of Humanity" }),
+    expect: { brand: "Citizens of Humanity", noStyle: true },
+  },
+  {
+    name: "Citizens of Humanity fit name — no false-positive brand recovery (no decoder)",
+    brand: "Citizens of Humanity",
+    pack: pack("Citizens of Humanity", "citizensofhumanity", [
+      style("Rocket"),
+      style("Charlotte"),
+    ]),
+    input: decodedFrom({ styleCode: "Rocket" }),
     expect: { noBrand: true },
   },
 ];

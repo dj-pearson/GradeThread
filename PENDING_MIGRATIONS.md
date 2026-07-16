@@ -4,6 +4,37 @@
 > The sections below for those are historical; the only NEW held migration is
 > **00443** at the top.
 
+## ⏳ PENDING: 00454_denim_brand_knowledge.sql (US-1735 denim brand KB, 2026-07-16)
+
+Data-only seed of the `brand_knowledge*` tables for the premium & vintage denim
+tier beside Levi's (00393, not re-touched): **Wrangler, Lee, 7 For All Mankind,
+True Religion, AG Jeans, Citizens of Humanity**. `brand_knowledge` ×6 (Wrangler +
+Lee enrich their bare 00389 alias-only rows; the four premium brands are new);
+`brand_styles` ×24 (the Cowboy Cut numbers, Lee's 101/Storm Rider, and the premium
+FIT names that are the actual product — Slimmy/Ricky/Graduate/Rocket);
+`brand_style_codes` ×2 (**Wrangler + True Religion only** — Wrangler's tag-printed
+MW family (13MWZ) and True Religion's MODEL + stitch-weight compound ("Ricky Super
+T") are the only regular, brand-unique garment-printed identifiers; Lee's 101 is a
+model not a code, and 7FAM/AG/Citizens print a fit NAME, so all four are
+deliberately decoder-less); `brand_colorways` ×4 (denim "color" is a seasonal WASH
+name, so only the stable rigid/indigo terms are seeded); `brand_size_charts` ×14,
+all mirrored into the `sizing-charts.ts` in-code fallback. Every fact carries
+`source_url` + `confidence` and lands `verified=false` for the US-1715 admin queue.
+Idempotent (`on conflict do nothing` / `do update`). Apply after 00453 via
+`scripts/apply-prod-migrations.sh`, `NOTIFY pgrst, 'reload schema';`, redeploy the
+edge (boot guard now expects **00454**). Bumps `EXPECTED_SCHEMA_VERSION` → **00454**.
+
+**All INSERTs — no UPDATE of an existing row** (contrast 00453, which had to narrow
+the shared outerwear chart). No shared-chart narrowing is needed: Levi's and
+Madewell already carry their own denim charts from 00389 and neither claims these
+six brands, and the generic men's-pants fallback has an empty `brand_match` so it
+is only selected when no brand chart matched. Asserted in `denim-content_test.ts`.
+
+**Risk: LOW** — data-only into deny-all global-reference tables; no schema change.
+**No CLIENT read** — edge resolver only (`brand-knowledge.ts` + the
+`sizing-charts.ts` in-code fallback this commit also extends), so the Cloudflare
+auto-deploy on push cannot break on it.
+
 ## ⏳ PENDING: 00453_outdoor_brand_knowledge.sql (US-1734 outdoor brand KB, 2026-07-16)
 
 Data-only seed of the `brand_knowledge*` tables for the outdoor/technical tier

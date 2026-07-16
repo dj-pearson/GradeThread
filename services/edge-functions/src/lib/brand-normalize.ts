@@ -47,6 +47,34 @@ const BRAND_ALIASES: Record<string, string> = {
   lee: "Lee",
   dickies: "Dickies",
   carhartt: "Carhartt",
+  // US-1735 premium & vintage denim group. Wrangler + Lee were already above;
+  // these four were passthrough-only, so the pack rendered the seller's own
+  // casing ("true religion") into the prompt block and the eBay Brand aspect.
+  bluebell: "Wrangler", // the pre-1986 parent's mark — a Blue Bell tag IS a Wrangler
+  bluebellwrangler: "Wrangler",
+  hdlee: "Lee",
+  leejeans: "Lee",
+  "7forallmankind": "7 For All Mankind",
+  sevenforallmankind: "7 For All Mankind",
+  "7fam": "7 For All Mankind",
+  truereligion: "True Religion",
+  truereligionbrandjeans: "True Religion",
+  truereligionapparel: "True Religion",
+  // CANONICAL IS "AG Jeans", NOT "AG" — deliberately. detectBrandInText scans
+  // CANONICAL_BRANDS against free text, and a two-letter "AG" would fire on any
+  // stray word-bounded "ag"; sizing-charts.ts matches brandMatch by SUBSTRING,
+  // where "ag" is contained in "patAGonia". Keeping the short form as an
+  // exact-key ALIAS only (this map is an exact lookup, so it is safe here) gives
+  // us the recovery without either hazard.
+  ag: "AG Jeans",
+  agjeans: "AG Jeans",
+  adrianogoldschmied: "AG Jeans",
+  agadrianogoldschmied: "AG Jeans",
+  citizensofhumanity: "Citizens of Humanity",
+  coh: "Citizens of Humanity",
+  // AGOLDE is a Citizens of Humanity label, NOT an AG Jeans one despite the
+  // name. Mapping it to its own canonical keeps the two from merging.
+  agolde: "AGOLDE",
   // Outdoor
   thenorthface: "The North Face",
   northface: "The North Face",

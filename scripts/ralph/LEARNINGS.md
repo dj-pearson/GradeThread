@@ -1018,6 +1018,15 @@ memory — not a progress log (the harness records progress separately).
 - `canonicalizeBrand` returns `string | null` (NOT an object) — assert
   `canonicalizeBrand("x") === "Brand"`; `isKnownBrand` is what separates a
   curated entry from a passthrough.
+- A SHORT brand token is a live hazard, and the two matchers differ:
+  `sizing-charts.ts` `findSizingCharts` matches `brandMatch` by SUBSTRING
+  (`brand.includes(m)`) and `detectBrandInText` regex-scans CANONICAL_BRANDS over
+  free text — so a 2-3 letter entry false-fires (`"patagonia".includes("ag")` is
+  TRUE, so a bare `"ag"` hands every Patagonia garment AG's denim charts).
+  `BRAND_ALIASES` is an EXACT-key lookup, so the short form is safe THERE. Fix
+  (US-1735): make the canonical the long form ("AG Jeans"), keep the short form as
+  an alias key only, and never put it in `brandMatch` — the chart is then reached
+  via the canonical, which is what brand-knowledge.ts passes anyway.
 
 ## prd.json / Ralph workflow
 - Never read or edit `prd.json` from inside an iteration — the harness selects

@@ -685,6 +685,331 @@ export const SIZING_CHARTS: SizingChart[] = [
       { size: "32", measurements: { waist: "32.5-33.5", hip: "42.5-43.5" } },
     ],
   },
+  // US-1735: premium & vintage denim group. Mirrors migration 00454.
+  //
+  // DENIM IS THE EXCEPTION among these charts. Every other group here is a BODY
+  // chart, because its garments are alpha-sized and a letter has to be mapped
+  // onto a wearer. Denim labels are MEASUREMENTS: a W32 claims a 32in waist, a
+  // numeric 27 claims a 27in waist. So these are NOMINAL WAIST charts — they map
+  // the label to the waist it CLAIMS, and the claim is often false in a direction
+  // that depends on the tier:
+  //   * VINTAGE (Wrangler/Lee) runs SMALL vs the tag (pre-shrunk sizing + decades
+  //     of laundering): a vintage W32 commonly measures 30-31.
+  //   * PREMIUM (7FAM/TR/AG/Citizens) runs LARGE vs the tag (vanity sizing +
+  //     stretch that relaxes permanently with wear): a 27 commonly measures 28+.
+  // The two brands' denim JACKET charts are the exception-to-the-exception: those
+  // are alpha-sized, so they are genuine BODY charts.
+  //
+  // NOTE: no bare "ag" in any brandMatch — matching is by SUBSTRING and
+  // "patagonia" contains "ag". The canonical brand is "AG Jeans" (see
+  // brand-normalize.ts), which is what reaches these rows.
+  {
+    brand: "Wrangler",
+    brandMatch: ["wrangler"],
+    department: "Men",
+    garment: "Jeans (waist x inseam)",
+    categoryMatch: ["jean", "pant", "denim", "bottom", "trouser", "short"],
+    note:
+      "NOMINAL WAIST — the label is a claimed measurement, not a body chart. " +
+      "Labeled W (waist) x L (inseam) in inches. VINTAGE CAVEAT: a vintage " +
+      "Wrangler runs SMALL against its tag (a vintage W32 commonly measures " +
+      "30-31), so never list a Blue Bell-era pair on its tag alone. Measure the " +
+      "flat waistband, double it, publish that. Vintage inseams are often hemmed.",
+    rows: [
+      { size: "W28", measurements: { waist: "28" } },
+      { size: "W30", measurements: { waist: "30" } },
+      { size: "W32", measurements: { waist: "32" } },
+      { size: "W34", measurements: { waist: "34" } },
+      { size: "W36", measurements: { waist: "36" } },
+      { size: "W38", measurements: { waist: "38" } },
+      { size: "W40", measurements: { waist: "40" } },
+      { size: "W42", measurements: { waist: "42" } },
+    ],
+  },
+  {
+    brand: "Wrangler",
+    brandMatch: ["wrangler"],
+    department: "Women",
+    garment: "Jeans (numeric waist)",
+    categoryMatch: ["jean", "pant", "denim", "bottom"],
+    note:
+      "NOMINAL WAIST — the numeric label claims the natural waist in inches; hip " +
+      "rises ~9-10in over the waist. Wrangler also sells women's western jeans on " +
+      "a misses/juniors SIZE x INSEAM label (e.g. 5/6 x 34), a different scale — " +
+      "do not map a juniors number onto this chart. Measure and double the flat " +
+      "waistband.",
+    rows: [
+      { size: "24", measurements: { waist: "24-24.5", hip: "33-34" } },
+      { size: "26", measurements: { waist: "26-26.5", hip: "35-36" } },
+      { size: "28", measurements: { waist: "28-28.5", hip: "37-38" } },
+      { size: "30", measurements: { waist: "30-31", hip: "39-40.5" } },
+      { size: "32", measurements: { waist: "32.5-33.5", hip: "42-43" } },
+      { size: "34", measurements: { waist: "34.5-35.5", hip: "44-45" } },
+    ],
+  },
+  {
+    brand: "Wrangler",
+    brandMatch: ["wrangler"],
+    department: "Unisex",
+    garment: "Denim jackets (alpha)",
+    categoryMatch: ["jacket", "coat", "denim jacket", "western jacket", "outerwear", "vest"],
+    note:
+      "BODY measurement (chest) — the jackets are alpha-sized rather than " +
+      "waist-labeled, so unlike the jeans charts this one IS a body chart. A " +
+      "western denim jacket is cut close, so its flat chest sits near the body " +
+      "chest rather than above it. Vintage jackets run SMALL against the tag — " +
+      "measure the flat chest (armpit to armpit, doubled) and publish it.",
+    rows: [
+      { size: "S", measurements: { chest: "35-37" } },
+      { size: "M", measurements: { chest: "38-40" } },
+      { size: "L", measurements: { chest: "42-44" } },
+      { size: "XL", measurements: { chest: "46-48" } },
+      { size: "XXL", measurements: { chest: "50-52" } },
+    ],
+  },
+  {
+    brand: "Lee",
+    brandMatch: ["lee"],
+    department: "Men",
+    garment: "Jeans (waist x inseam)",
+    categoryMatch: ["jean", "pant", "denim", "bottom", "trouser", "short"],
+    note:
+      "NOMINAL WAIST — the label is a claimed measurement, not a body chart. " +
+      "Labeled W (waist) x L (inseam) in inches. Same VINTAGE CAVEAT as Wrangler, " +
+      "hardest on the union-made era: an early Lee runs SMALL against its tag (a " +
+      "vintage W32 commonly measures 30-31). Never list a UNION MADE pair on its " +
+      "tag alone — measure the flat waistband, double it, publish that.",
+    rows: [
+      { size: "W28", measurements: { waist: "28" } },
+      { size: "W30", measurements: { waist: "30" } },
+      { size: "W32", measurements: { waist: "32" } },
+      { size: "W34", measurements: { waist: "34" } },
+      { size: "W36", measurements: { waist: "36" } },
+      { size: "W38", measurements: { waist: "38" } },
+      { size: "W40", measurements: { waist: "40" } },
+    ],
+  },
+  {
+    brand: "Lee",
+    brandMatch: ["lee"],
+    department: "Women",
+    garment: "Jeans (numeric waist)",
+    categoryMatch: ["jean", "pant", "denim", "bottom"],
+    note:
+      "NOMINAL WAIST — the numeric label claims the natural waist in inches; hip " +
+      "rises ~9-10in over the waist. Lee also sells women's jeans on a misses SIZE " +
+      "label (8/10/12), a DIFFERENT scale from this waist-inch one — read which " +
+      "scale the tag uses before mapping. Measure and double the flat waistband.",
+    rows: [
+      { size: "24", measurements: { waist: "24-24.5", hip: "33-34" } },
+      { size: "26", measurements: { waist: "26-26.5", hip: "35-36" } },
+      { size: "28", measurements: { waist: "28-28.5", hip: "37-38" } },
+      { size: "30", measurements: { waist: "30-31", hip: "39-40.5" } },
+      { size: "32", measurements: { waist: "32.5-33.5", hip: "42-43" } },
+      { size: "34", measurements: { waist: "34.5-35.5", hip: "44-45" } },
+    ],
+  },
+  {
+    brand: "Lee",
+    brandMatch: ["lee"],
+    department: "Unisex",
+    garment: "Denim jackets (alpha)",
+    categoryMatch: ["jacket", "coat", "denim jacket", "storm rider", "outerwear", "vest"],
+    note:
+      "BODY measurement (chest) — the jackets are alpha-sized, so unlike the jeans " +
+      "charts this one IS a body chart. NOTE the Storm Rider: it is BLANKET-LINED, " +
+      "so it is cut with room for the lining and wears smaller inside than its flat " +
+      "chest suggests. Measure the flat chest and say the jacket is lined.",
+    rows: [
+      { size: "S", measurements: { chest: "35-37" } },
+      { size: "M", measurements: { chest: "38-40" } },
+      { size: "L", measurements: { chest: "42-44" } },
+      { size: "XL", measurements: { chest: "46-48" } },
+      { size: "XXL", measurements: { chest: "50-52" } },
+    ],
+  },
+  {
+    brand: "7 For All Mankind",
+    brandMatch: ["7 for all mankind", "7forallmankind", "seven for all mankind", "7fam"],
+    department: "Women",
+    garment: "Jeans (numeric waist)",
+    categoryMatch: ["jean", "pant", "denim", "bottom", "short"],
+    note:
+      "NOMINAL WAIST — the numeric label claims the natural waist in inches. " +
+      "PREMIUM-DENIM CAVEAT, running OPPOSITE to the vintage brands in this same " +
+      "group: premium denim runs LARGE against its tag. Vanity sizing plus stretch " +
+      "that relaxes with wear means a 27 commonly measures 28+, and a used pair has " +
+      "permanently given at the waistband. Measure and double the flat waistband.",
+    rows: [
+      { size: "23", measurements: { waist: "23-23.5", hip: "32.5-33.5" } },
+      { size: "24", measurements: { waist: "24-24.5", hip: "33.5-34.5" } },
+      { size: "25", measurements: { waist: "25-25.5", hip: "34.5-35.5" } },
+      { size: "26", measurements: { waist: "26-26.5", hip: "35.5-36.5" } },
+      { size: "27", measurements: { waist: "27-27.5", hip: "36.5-37.5" } },
+      { size: "28", measurements: { waist: "28-28.5", hip: "37.5-38.5" } },
+      { size: "29", measurements: { waist: "29-29.5", hip: "38.5-39.5" } },
+      { size: "30", measurements: { waist: "30-31", hip: "39.5-41" } },
+      { size: "31", measurements: { waist: "31-32", hip: "41-42" } },
+      { size: "32", measurements: { waist: "32.5-33.5", hip: "42.5-43.5" } },
+    ],
+  },
+  {
+    brand: "7 For All Mankind",
+    brandMatch: ["7 for all mankind", "7forallmankind", "seven for all mankind", "7fam"],
+    department: "Men",
+    garment: "Jeans (waist x inseam)",
+    categoryMatch: ["jean", "pant", "denim", "bottom", "trouser", "short"],
+    note:
+      "NOMINAL WAIST — labeled W (waist) x L (inseam) in inches. Same PREMIUM " +
+      "caveat as the women's chart: stretch denim relaxes, so a worn Slimmy " +
+      "measures above its tag. Measure and double the flat waistband.",
+    rows: [
+      { size: "W28", measurements: { waist: "28" } },
+      { size: "W30", measurements: { waist: "30" } },
+      { size: "W32", measurements: { waist: "32" } },
+      { size: "W33", measurements: { waist: "33" } },
+      { size: "W34", measurements: { waist: "34" } },
+      { size: "W36", measurements: { waist: "36" } },
+      { size: "W38", measurements: { waist: "38" } },
+    ],
+  },
+  {
+    brand: "True Religion",
+    brandMatch: ["true religion", "truereligion"],
+    department: "Men",
+    garment: "Jeans (waist x inseam)",
+    categoryMatch: ["jean", "pant", "denim", "bottom", "trouser", "short"],
+    note:
+      "NOMINAL WAIST — labeled W (waist) x L (inseam) in inches. PREMIUM caveat " +
+      "applies (runs large against the tag). TRUE-RELIGION-SPECIFIC: the INSEAM is " +
+      "the number to watch — the flare and bootcut fits were sold long by design " +
+      "and are very frequently HEMMED by the owner, so the tag inseam is often " +
+      "wrong on a used pair. Measure and double the flat waistband, and measure " +
+      "the inside leg too; publish both real figures rather than the tag.",
+    rows: [
+      { size: "W28", measurements: { waist: "28" } },
+      { size: "W30", measurements: { waist: "30" } },
+      { size: "W32", measurements: { waist: "32" } },
+      { size: "W34", measurements: { waist: "34" } },
+      { size: "W36", measurements: { waist: "36" } },
+      { size: "W38", measurements: { waist: "38" } },
+      { size: "W40", measurements: { waist: "40" } },
+    ],
+  },
+  {
+    brand: "True Religion",
+    brandMatch: ["true religion", "truereligion"],
+    department: "Women",
+    garment: "Jeans (numeric waist)",
+    categoryMatch: ["jean", "pant", "denim", "bottom", "short"],
+    note:
+      "NOMINAL WAIST — the numeric label claims the natural waist in inches. " +
+      "PREMIUM caveat applies (runs large against the tag). Same hemming warning " +
+      "as the men's chart: the women's flares were sold long and are commonly " +
+      "shortened, so measure the inside leg rather than trusting the tag inseam. " +
+      "Measure and double the flat waistband too.",
+    rows: [
+      { size: "24", measurements: { waist: "24-24.5", hip: "33.5-34.5" } },
+      { size: "25", measurements: { waist: "25-25.5", hip: "34.5-35.5" } },
+      { size: "26", measurements: { waist: "26-26.5", hip: "35.5-36.5" } },
+      { size: "27", measurements: { waist: "27-27.5", hip: "36.5-37.5" } },
+      { size: "28", measurements: { waist: "28-28.5", hip: "37.5-38.5" } },
+      { size: "29", measurements: { waist: "29-29.5", hip: "38.5-39.5" } },
+      { size: "30", measurements: { waist: "30-31", hip: "39.5-41" } },
+      { size: "31", measurements: { waist: "31-32", hip: "41-42" } },
+      { size: "32", measurements: { waist: "32.5-33.5", hip: "42.5-43.5" } },
+    ],
+  },
+  {
+    brand: "AG Jeans",
+    // NEVER add a bare "ag" — "patagonia" contains it (substring match).
+    brandMatch: ["ag jeans", "agjeans", "adriano goldschmied"],
+    department: "Men",
+    garment: "Jeans (waist x inseam)",
+    categoryMatch: ["jean", "pant", "denim", "bottom", "trouser", "short"],
+    note:
+      "NOMINAL WAIST — labeled W (waist) x L (inseam) in inches. PREMIUM caveat " +
+      "applies: AG's men's fits are stretch denim and relax with wear, so a worn " +
+      "Graduate measures above its tag. Measure and double the flat waistband.",
+    rows: [
+      { size: "W28", measurements: { waist: "28" } },
+      { size: "W30", measurements: { waist: "30" } },
+      { size: "W32", measurements: { waist: "32" } },
+      { size: "W33", measurements: { waist: "33" } },
+      { size: "W34", measurements: { waist: "34" } },
+      { size: "W36", measurements: { waist: "36" } },
+      { size: "W38", measurements: { waist: "38" } },
+    ],
+  },
+  {
+    brand: "AG Jeans",
+    brandMatch: ["ag jeans", "agjeans", "adriano goldschmied"],
+    department: "Women",
+    garment: "Jeans (numeric waist)",
+    categoryMatch: ["jean", "pant", "denim", "bottom", "short"],
+    note:
+      "NOMINAL WAIST — the numeric label claims the natural waist in inches. " +
+      "PREMIUM caveat applies (runs large; stretch gives with wear). AG-SPECIFIC: " +
+      "heavy whiskering/fading is the AG-ed WASH, not wear — do not let a " +
+      "distressed finish drive a size or condition judgment. Measure and double " +
+      "the flat waistband.",
+    rows: [
+      { size: "23", measurements: { waist: "23-23.5", hip: "32.5-33.5" } },
+      { size: "24", measurements: { waist: "24-24.5", hip: "33.5-34.5" } },
+      { size: "25", measurements: { waist: "25-25.5", hip: "34.5-35.5" } },
+      { size: "26", measurements: { waist: "26-26.5", hip: "35.5-36.5" } },
+      { size: "27", measurements: { waist: "27-27.5", hip: "36.5-37.5" } },
+      { size: "28", measurements: { waist: "28-28.5", hip: "37.5-38.5" } },
+      { size: "29", measurements: { waist: "29-29.5", hip: "38.5-39.5" } },
+      { size: "30", measurements: { waist: "30-31", hip: "39.5-41" } },
+      { size: "31", measurements: { waist: "31-32", hip: "41-42" } },
+      { size: "32", measurements: { waist: "32.5-33.5", hip: "42.5-43.5" } },
+    ],
+  },
+  {
+    brand: "Citizens of Humanity",
+    brandMatch: ["citizens of humanity", "citizensofhumanity"],
+    department: "Women",
+    garment: "Jeans (numeric waist)",
+    categoryMatch: ["jean", "pant", "denim", "bottom", "short"],
+    note:
+      "NOMINAL WAIST — the numeric label claims the natural waist in inches. " +
+      "PREMIUM caveat applies (runs large against the tag). CITIZENS-SPECIFIC: the " +
+      "Rocket is a sculpting STRETCH fit while the Daphne is RIGID denim, and the " +
+      "two behave oppositely on a used pair — stretch gives permanently at the " +
+      "waistband, rigid does not. Read the fabric off the care tag before trusting " +
+      "any size claim, then measure and double the flat waistband.",
+    rows: [
+      { size: "23", measurements: { waist: "23-23.5", hip: "32.5-33.5" } },
+      { size: "24", measurements: { waist: "24-24.5", hip: "33.5-34.5" } },
+      { size: "25", measurements: { waist: "25-25.5", hip: "34.5-35.5" } },
+      { size: "26", measurements: { waist: "26-26.5", hip: "35.5-36.5" } },
+      { size: "27", measurements: { waist: "27-27.5", hip: "36.5-37.5" } },
+      { size: "28", measurements: { waist: "28-28.5", hip: "37.5-38.5" } },
+      { size: "29", measurements: { waist: "29-29.5", hip: "38.5-39.5" } },
+      { size: "30", measurements: { waist: "30-31", hip: "39.5-41" } },
+      { size: "31", measurements: { waist: "31-32", hip: "41-42" } },
+      { size: "32", measurements: { waist: "32.5-33.5", hip: "42.5-43.5" } },
+    ],
+  },
+  {
+    brand: "Citizens of Humanity",
+    brandMatch: ["citizens of humanity", "citizensofhumanity"],
+    department: "Men",
+    garment: "Jeans (waist x inseam)",
+    categoryMatch: ["jean", "pant", "denim", "bottom", "trouser", "short"],
+    note:
+      "NOMINAL WAIST — labeled W (waist) x L (inseam) in inches. PREMIUM caveat " +
+      "applies. Measure and double the flat waistband.",
+    rows: [
+      { size: "W28", measurements: { waist: "28" } },
+      { size: "W30", measurements: { waist: "30" } },
+      { size: "W32", measurements: { waist: "32" } },
+      { size: "W34", measurements: { waist: "34" } },
+      { size: "W36", measurements: { waist: "36" } },
+      { size: "W38", measurements: { waist: "38" } },
+    ],
+  },
   // US-1734: outdoor & technical group. Mirrors migration 00453. All BODY
   // measurements (the wearer), never flat-garment — and in THIS category the
   // error runs the opposite way to activewear: an outdoor shell is cut with
