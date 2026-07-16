@@ -514,16 +514,19 @@ memory — not a progress log (the harness records progress separately).
   clearing it from a details-first save discards the user's captures. Locked in
   by `IntakeDraftCleanSlateTests`; an audit may re-flag this as a "desync bug" —
   it isn't.
-- Changing ANY `@Model` in `Persistence/Models/` (even an additive, defaulted
-  optional like US-1249's `hasLocalChanges` on LocalListing/LocalSale) requires
-  the `GradeThreadSchema.swift` migration discipline: add `GradeThreadSchemaVN`,
-  append a `.lightweight` `MigrationStage` (additive ⇒ lightweight), repoint
-  `GradeThreadSchema.current`. The guard tests (`SchemaVersioningTests`) only
-  assert the model-NAME set + plan consistency (stages == schemas-1, last ==
-  current), NOT property fingerprints — so a property add won't fail them, but
-  the doc convention + reviewers expect the version bump. VersionedSchemas
-  reference LIVE types, so V1 and V2 list the same types; the hop is a no-op
-  lightweight (not exercised by the fresh-store round-trip test).
+- Adding a property to a `@Model` in `Persistence/Models/` does NOT need a
+  `GradeThreadSchemaVN` bump — and adding one the naive way CRASHES launch. A
+  `VersionedSchema.models` list resolves to the LIVE classes, so a V2 that
+  re-lists the same (edited-in-place) classes hashes identically to V1 and
+  SwiftData aborts on every device with "Duplicate version checksums" — exactly
+  what US-1249 did. Pre-production there's no deployed store, so an additive
+  change just rides `GradeThreadSchemaV1` (a fresh install creates it directly);
+  `SchemaVersioningTests` only asserts the model-NAME set + plan consistency, so
+  it stays green. A REAL new version requires first snapshotting the OLD shape as
+  distinct nested types inside V1 (see the trap comment atop
+  `Persistence/GradeThreadSchema.swift` — it's the authority, not this file).
+  Additive optionals (US-1973's `LocalListing.quantity`) get an implicit nil
+  default, so the existing `init` needs no change.
 - Adding a DEFAULT-valued associated value to an existing enum case is fully
   backward-compatible: `case rateLimited(retryAfter: TimeInterval? = nil)` lets
   every bare `.rateLimited` CONSTRUCTION keep compiling (default fills in) AND
