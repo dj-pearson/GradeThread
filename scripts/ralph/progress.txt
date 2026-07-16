@@ -4182,3 +4182,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jul 16, 2026  5:10:07 PM
 ---
+## US-1969: EPIC — iOS listing composer consolidation (Best Offer, schedule, save-draft, quantity/end, meters)
+- Status: COMPLETE
+- Timestamp: Thu, Jul 16, 2026  5:13:05 PM
+---

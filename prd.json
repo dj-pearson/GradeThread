@@ -1954,7 +1954,7 @@
         "No feature empty-state points to a control that doesn't exist on iOS"
       ],
       "priority": 2600,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][iOS/Composer][Epic] iOS listing-lifecycle audit 2026-07-14. Server + web already support these; gaps are missing iOS UI. Root cause = composer fragmentation across ItemCanvasView + EbayCategorySpecificsView + PublishDialog. See memory ios-listing-lifecycle-audit-2026-07-14 for the parity matrix.",
       "relevantPaths": [
         "ios/GradeThread/Marketplaces/Publish/PublishDialog.swift",
