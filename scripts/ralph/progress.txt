@@ -4142,3 +4142,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jul 16, 2026  2:19:46 PM
 ---
+## US-1967: Fix the dead 'Send offer to interested buyers' button (license sell.negotiation scope or hide)
+- Status: COMPLETE
+- Timestamp: Thu, Jul 16, 2026  2:32:36 PM
+---

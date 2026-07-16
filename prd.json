@@ -1913,7 +1913,7 @@
         "Incoming best-offer respond (accept/decline/counter) remains working"
       ],
       "priority": 2607,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][iOS+Edge/Negotiation] iOS listing-lifecycle audit 2026-07-14. Edge POST /negotiation/send-offer returns 501; scope gated off (ebay-client.ts:198-212, flipdesk-ebay.ts:7030-7048,7188). iOS NegotiationService.swift:47. A shipped always-failing feature is worse than an absent one.",
       "relevantPaths": [
         "services/edge-functions/src/routes/flipdesk-ebay.ts",
