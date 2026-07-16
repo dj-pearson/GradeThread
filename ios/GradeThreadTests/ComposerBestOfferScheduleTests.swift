@@ -282,6 +282,67 @@ final class ComposerBestOfferScheduleTests: XCTestCase {
         XCTAssertEqual(plain.schedule, .unchanged)
     }
 
+    // MARK: - US-1972: background autosave rules
+
+    /// The ordinary case the story exists for: text edits typed but never
+    /// pushed get banked when the app goes to the background.
+    func test_autosave_banksUnpushedEdits() {
+        XCTAssertTrue(
+            ComposerAutosave.shouldAutosave(
+                isDirty: true, canSave: true, busy: false, schedule: .unchanged
+            )
+        )
+    }
+
+    /// Nothing typed → nothing to write. An autosave here would be a pointless
+    /// round-trip on every app switch.
+    func test_autosave_skipsCleanComposer() {
+        XCTAssertFalse(
+            ComposerAutosave.shouldAutosave(
+                isDirty: false, canSave: true, busy: false, schedule: .unchanged
+            )
+        )
+    }
+
+    /// Incomplete edits (no title / no price / contradictory Best Offer) would
+    /// be rejected by saveDraft — don't fire a doomed write behind the seller.
+    func test_autosave_skipsUnsavableEdits() {
+        XCTAssertFalse(
+            ComposerAutosave.shouldAutosave(
+                isDirty: true, canSave: false, busy: false, schedule: .unchanged
+            )
+        )
+    }
+
+    /// A save/push already in flight owns the draft — a second concurrent write
+    /// could land out of order.
+    func test_autosave_skipsWhileBusy() {
+        XCTAssertFalse(
+            ComposerAutosave.shouldAutosave(
+                isDirty: true, canSave: true, busy: true, schedule: .unchanged
+            )
+        )
+    }
+
+    /// The important carve-out: an uncommitted schedule must NEVER be armed by
+    /// backgrounding. Persisting it would hand the item to the scheduled-publish
+    /// worker and put it live at a time the seller only previewed in the picker.
+    func test_autosave_neverArmsAnUnconfirmedSchedule() {
+        let when = Date(timeIntervalSince1970: 1_800_000_000)
+        XCTAssertFalse(
+            ComposerAutosave.shouldAutosave(
+                isDirty: true, canSave: true, busy: false, schedule: .at(when)
+            )
+        )
+        // Cancelling a saved drop is just as much a publish-behavior change —
+        // it also waits for an explicit tap.
+        XCTAssertFalse(
+            ComposerAutosave.shouldAutosave(
+                isDirty: true, canSave: true, busy: false, schedule: .clear
+            )
+        )
+    }
+
     /// `.none` is the "no listing row yet" seed a camera-created item starts
     /// from — nothing scheduled, no pinned thresholds.
     func test_draftSettings_noneIsEmpty() {

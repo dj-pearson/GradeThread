@@ -454,6 +454,45 @@ struct ComposerEdits: Equatable {
     var schedule: ComposerScheduleEdit = .unchanged
 }
 
+/// US-1972: what the composer currently holds, reported up to the parent on
+/// every edit so the close confirmation can offer to SAVE what's typed rather
+/// than only discard it. The parent can't rebuild this itself — the field state
+/// lives in the form — and it can't wait for a Push, which is exactly the work
+/// loss this story removes.
+struct ComposerSnapshot: Equatable {
+    var edits: ComposerEdits
+    /// The edits are complete enough to persist (a title, a positive price, no
+    /// contradictory Best Offer pair). Mirrors the commit row's gate MINUS the
+    /// network/in-flight conditions — those bear on whether a save can run right
+    /// now, not on whether the content is savable.
+    var canSave: Bool
+}
+
+/// US-1972: whether backgrounding the app should silently bank the composer's
+/// edits. Pure so the rule — especially the schedule carve-out — is unit-tested
+/// without a scene.
+enum ComposerAutosave {
+    /// A backgrounded composer autosaves only when the edits are worth writing,
+    /// writable, and safe to write WITHOUT the seller confirming.
+    ///
+    /// The schedule carve-out is the subtle one: persisting an uncommitted
+    /// `scheduled_publish_at` would arm the scheduled-publish worker and put the
+    /// item live at a time the seller only ever previewed in the picker. So a
+    /// pending schedule change is left for the explicit "Schedule publish"
+    /// button. That costs nothing in the ordinary case — the form's state
+    /// survives a background/foreground round-trip untouched; only an
+    /// out-of-memory termination loses it, and publishing behind the seller's
+    /// back is the worse of the two failures.
+    static func shouldAutosave(
+        isDirty: Bool,
+        canSave: Bool,
+        busy: Bool,
+        schedule: ComposerScheduleEdit
+    ) -> Bool {
+        isDirty && canSave && !busy && schedule == .unchanged
+    }
+}
+
 /// US-1264: pure, testable transform that computes the composer's field values
 /// after applying a listing template. Mirrors AutoLister's server-side overlay
 /// (`buildTemplateListingPatch`): description boilerplate is APPENDED (never

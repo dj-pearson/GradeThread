@@ -489,6 +489,13 @@ memory — not a progress log (the harness records progress separately).
   trap as US-1512's promo rate). Corollary: after saveDraft, advance the seed
   baseline from what you just wrote (a pure `applying(edits)`) — a re-seed from a
   stale baseline silently reverts typed values on a push-failure retry (US-1006).
+- An IMPLICIT save in the publish composer (US-1972 background autosave, or any
+  future one) must pass `schedule: .unchanged` / skip entirely — persisting
+  `scheduled_publish_at` ARMS the scheduled-publish worker, so a save the seller
+  never confirmed puts the item live. Best Offer/promo/text carry no such
+  autonomous side effect and are safe to bank. Corollary: an implicit save whose
+  edits differ from what a full save would write must not bump the composer's
+  `.id` (it re-seeds from the baseline and reverts the uncommitted control).
 - `PhotoCapture.capturedAt` is NON-optional and `AutoListerReviewModel.importPicks`
   fabricates `result.creationDate() ?? .now`. That silently defeats every
   timeless-dump signal: a no-EXIF batch looks like ONE instantaneous EXIF burst,

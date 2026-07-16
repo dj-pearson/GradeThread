@@ -48,6 +48,10 @@ struct PublishDialog: View {
     /// US-1513: Close tapped while the composer holds unsaved edits — confirm
     /// before discarding instead of silently dropping what the seller typed.
     @State private var showingCloseConfirmation = false
+    /// US-1972: what the composer currently holds, so the close confirmation can
+    /// offer to SAVE the edits instead of only discarding them. Kept up to date
+    /// by the form (see ``ComposerSnapshot``).
+    @State private var composerSnapshot: ComposerSnapshot?
     /// US-1970/US-1971: the draft's saved Best Offer + schedule choices, fetched
     /// alongside validate so the composer's controls seed synchronously in
     /// `ComposerForm.init` (an async post-init seed would trip the dirty ratchet).
@@ -120,15 +124,25 @@ struct PublishDialog: View {
         // back-stop onPublished here (one-shot) — otherwise a swiped-away success
         // leaves the item locally unpublished (US-1513 desync).
         .onDisappear { notifyPublishedIfNeeded() }
+        // US-1972: closing used to offer only Discard/Keep-editing, so a typed
+        // description, condition note, or promo choice was lost unless the seller
+        // saw a publish all the way through. Save is now the first (and default)
+        // option whenever the composer's edits are actually savable.
         .confirmationDialog(
-            "Discard your edits?",
+            "Save your edits?",
             isPresented: $showingCloseConfirmation,
             titleVisibility: .visible
         ) {
+            if let snapshot = composerSnapshot, snapshot.canSave,
+               case let .readyToPush(summary) = phase {
+                Button("Save & close") {
+                    Task { await saveAndClose(edits: snapshot.edits, summary: summary) }
+                }
+            }
             Button("Discard & close", role: .destructive) { dismiss() }
             Button("Keep editing", role: .cancel) {}
         } message: {
-            Text("You have unpublished edits in the composer.")
+            Text(closeConfirmationMessage)
         }
         .task { await runValidate() }
         // US-1972: transient save confirmation — the FlipDesk actionBanner
@@ -167,6 +181,17 @@ struct PublishDialog: View {
         return false
     }
 
+    /// US-1972: name what each close option costs. When the edits can't be saved
+    /// as they stand (no title, no price, contradictory Best Offer) there's no
+    /// Save button to explain — so say why it isn't on offer rather than leave
+    /// the seller looking for it.
+    private var closeConfirmationMessage: String {
+        if composerSnapshot?.canSave == true {
+            return "Saving keeps your edits on the draft so you can publish later. Discarding loses them."
+        }
+        return "Your edits can\u{2019}t be saved yet — keep editing to fix what\u{2019}s flagged, or discard them."
+    }
+
     @ViewBuilder
     private var saveBannerView: some View {
         if let saveBanner {
@@ -203,6 +228,7 @@ struct PublishDialog: View {
                 isSaving: isSaving,
                 saveError: saveError,
                 onDirty: { composerDirty = true },
+                onSnapshot: { composerSnapshot = $0 },
                 onSave: { edits in
                     Task { await runSaveDraft(edits: edits, summary: summary) }
                 },
@@ -477,15 +503,19 @@ struct PublishDialog: View {
     /// Unlike a failed push this never changes `phase`: the composer stays up
     /// with the seller's edits intact and the error inline, because a failed save
     /// is retryable in place and tearing the form down would lose the edits.
-    private func runSaveDraft(edits: ComposerEdits, summary: PublishSummary) async {
-        guard !isSaving else { return }
+    ///
+    /// Returns whether the draft actually persisted, so ``saveAndClose`` only
+    /// dismisses on a real save.
+    @discardableResult
+    private func runSaveDraft(edits: ComposerEdits, summary: PublishSummary) async -> Bool {
+        guard !isSaving else { return false }
 
         // The draft write goes straight to Supabase (no offline queue on this
         // path), so a doomed round-trip is worth pre-empting.
         if let networkMonitor, !networkMonitor.isConnected {
             saveError = "You're offline. Your edits are still here — reconnect and save again."
             HapticFeedback.warning()
-            return
+            return false
         }
 
         isSaving = true
@@ -507,7 +537,7 @@ struct PublishDialog: View {
                 fallback: "Couldn't save your draft. Please try again."
             )
             HapticFeedback.error()
-            return
+            return false
         }
 
         // Advance the baseline to what we just wrote, so the composer re-seeds
@@ -520,6 +550,16 @@ struct PublishDialog: View {
         saveBanner = Self.saveConfirmation(for: edits.schedule, settings: draftSettings)
         HapticFeedback.success()
         Telemetry.breadcrumb("Saved listing draft", category: "publish")
+        return true
+    }
+
+    /// US-1972: "Save & close" from the close confirmation. A FAILED save leaves
+    /// the composer up with its error inline rather than closing — closing on a
+    /// failure would lose exactly the edits the seller tapped Save to keep.
+    private func saveAndClose(edits: ComposerEdits, summary: PublishSummary) async {
+        if await runSaveDraft(edits: edits, summary: summary) {
+            dismiss()
+        }
     }
 
     /// The confirmation copy for a save — naming the scheduled instant when one
@@ -674,6 +714,9 @@ private struct ComposerForm: View {
     /// US-1513: fired (once or more) when the composer's fields first differ
     /// from the validated summary — the parent uses it to block swipe-dismiss.
     var onDirty: () -> Void = {}
+    /// US-1972: reports what the form holds after every edit, so the parent's
+    /// close confirmation can offer to save it.
+    var onSnapshot: (ComposerSnapshot) -> Void = { _ in }
     /// US-1971/US-1972: persist the edits without publishing.
     let onSave: (ComposerEdits) -> Void
     let onPush: (ComposerEdits) -> Void
@@ -682,6 +725,8 @@ private struct ComposerForm: View {
     /// offline state rather than firing a doomed round-trip (the parent's
     /// `runPush` keeps a tap-time backstop for the flap-mid-tap case).
     @Environment(NetworkMonitor.self) private var networkMonitor: NetworkMonitor?
+    /// US-1972: drives the background autosave (see ``autosaveOnBackground``).
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var title: String
     @State private var condition: EbayCondition
@@ -832,6 +877,7 @@ private struct ComposerForm: View {
         isSaving: Bool = false,
         saveError: String? = nil,
         onDirty: @escaping () -> Void = {},
+        onSnapshot: @escaping (ComposerSnapshot) -> Void = { _ in },
         onSave: @escaping (ComposerEdits) -> Void,
         onPush: @escaping (ComposerEdits) -> Void
     ) {
@@ -845,6 +891,7 @@ private struct ComposerForm: View {
         self.isSaving = isSaving
         self.saveError = saveError
         self.onDirty = onDirty
+        self.onSnapshot = onSnapshot
         self.onSave = onSave
         self.onPush = onPush
         _title = State(initialValue: String(summary.title.prefix(Self.titleLimit)))
@@ -983,6 +1030,33 @@ private struct ComposerForm: View {
 
     private var trimmedTitle: String {
         title.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// US-1972: the composer's edits are complete enough to persist. Gates both
+    /// commit buttons and the close confirmation's Save — a blank title or
+    /// non-positive price would be rejected by `saveDraft` anyway (US-789).
+    private var canSave: Bool {
+        !trimmedTitle.isEmpty && !priceInvalid && bestOfferError == nil
+    }
+
+    /// US-1972: what the parent needs to save this form on the seller's behalf
+    /// when they close mid-edit.
+    private var snapshot: ComposerSnapshot {
+        ComposerSnapshot(edits: currentEdits(schedule: scheduleEdit), canSave: canSave)
+    }
+
+    /// US-1972: bank the seller's edits when the app is backgrounded, so a
+    /// termination while suspended can't take them. Best-effort by nature — iOS
+    /// allows the write only a few seconds — and it deliberately writes nothing
+    /// the seller hasn't confirmed (see ``ComposerAutosave/shouldAutosave``).
+    private func autosaveOnBackground() {
+        guard ComposerAutosave.shouldAutosave(
+            isDirty: isDirty,
+            canSave: canSave,
+            busy: isSaving || isPushing,
+            schedule: scheduleEdit
+        ) else { return }
+        onSave(currentEdits(schedule: .unchanged))
     }
 
     var body: some View {
@@ -1126,6 +1200,15 @@ private struct ComposerForm: View {
         // parent can block swipe-dismiss (the parent ratchets — see composerDirty).
         .onChange(of: isDirty) { _, dirty in
             if dirty { onDirty() }
+        }
+        // US-1972: keep the parent's copy of the edits current, so Close can
+        // offer to save them.
+        .onChange(of: snapshot, initial: true) { _, next in
+            onSnapshot(next)
+        }
+        // US-1972: no work loss when the seller takes a call mid-edit.
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .background { autosaveOnBackground() }
         }
         .task { await templateStore.load() }
         // US-1237: load comps from the ALWAYS-present composer body, not the comp
@@ -1387,9 +1470,8 @@ private struct ComposerForm: View {
     @ViewBuilder
     private var actionButtons: some View {
         let offline = NetworkMonitor.isOffline(networkMonitor)
-        let incomplete = trimmedTitle.isEmpty || priceInvalid || bestOfferError != nil
         let busy = isPushing || isSaving
-        let commitDisabled = incomplete || offline || busy
+        let commitDisabled = !canSave || offline || busy
 
         VStack(spacing: 8) {
             if scheduleEnabled {
