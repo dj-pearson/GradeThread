@@ -32,6 +32,7 @@ import type {
   FieldSuggestion,
 } from "../lib/ai-extract.ts";
 import type {
+  BrandDecoder,
   BrandKnowledgePack,
   BrandStyleKnowledge,
 } from "../lib/brand-knowledge.ts";
@@ -41,6 +42,7 @@ function pack(
   brand: string,
   key: string,
   styles: BrandStyleKnowledge[] = [],
+  decoders: BrandDecoder[] = [], // empty → decodeTagCode uses the in-code DEFAULT specs
 ): BrandKnowledgePack {
   return {
     brand,
@@ -51,12 +53,32 @@ function pack(
     authenticationTells: [],
     tagEras: [],
     styles,
-    decoders: [], // empty → decodeTagCode uses the in-code DEFAULT specs
+    decoders,
     colorways: [],
     sizingCharts: [],
     source: "fallback",
   };
 }
+
+// US-1733: the Under Armour style_number decoder EXACTLY as migration 00452
+// seeds it into brand_style_codes. Fixturing the real seeded row (rather than a
+// hand-simplified one) is the point: this asserts the shipped DB spec actually
+// decodes, so a bad pattern/fieldMap in the migration fails here instead of in
+// production. UA is the only brand in the athleisure group with a tag-printed,
+// regular code — the others are deliberately decoder-less.
+const UA_STYLE_NUMBER_DECODER: BrandDecoder = {
+  decoderKind: "style_number",
+  description:
+    "Tag-printed 7-digit style number beneath the wash/care label, optionally prefixed STYLE and/or a season code (FW24 / SS25).",
+  pattern:
+    "^(?:STYLE\\s*)?(?:(?<season>FW|SS)(?<year>\\d{2})\\s*)?(?<style>\\d{7})$",
+  extractionRules: {
+    fieldMap: { season: "season", year: "year", style: "styleCode" },
+    transforms: { season: "upper", year: "year2to4" },
+    confidence: 0.75,
+  },
+  examples: [],
+};
 
 function style(styleName: string): BrandStyleKnowledge {
   return {
@@ -278,6 +300,176 @@ const CASES: GoldenCase[] = [
     brand: "Madewell",
     pack: pack("Madewell", "madewell", [style("The Perfect Vintage Jean"), style("Roadtripper Jean")]),
     input: decodedFrom({ styleCode: "NW282" }),
+    expect: { noBrand: true },
+  },
+  // US-1733 athleisure group. Under Armour is the ONLY brand here with a
+  // tag-printed decodable code, so it carries the group's CUT-TAG cases: the
+  // 00452 style_number spec must recover the brand from a bare style number with
+  // no AI brand at all.
+  {
+    name: "Under Armour cut brand tag — tag-printed style number recovers the brand",
+    brand: "Under Armour",
+    pack: pack("Under Armour", "underarmour", [], [UA_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "1361518" }), // no AI brand
+    expect: { brand: "Under Armour", recovery: true },
+  },
+  {
+    name: "Under Armour season-prefixed style number (FW24) still recovers the brand",
+    brand: "Under Armour",
+    pack: pack("Under Armour", "underarmour", [], [UA_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "FW24 1361518" }),
+    expect: { brand: "Under Armour", recovery: true },
+  },
+  {
+    name: "Under Armour style number overrides a wrong AI brand + surfaces conflict",
+    brand: "Under Armour",
+    pack: pack("Under Armour", "underarmour", [], [UA_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ brand: "Nike", styleCode: "STYLE 1361518" }),
+    expect: { brand: "Under Armour", conflictOn: "brand", recovery: true },
+  },
+  {
+    name: "Under Armour retailer color suffix (-001) is NOT decoded — no false recovery",
+    brand: "Under Armour",
+    // The 3-digit color suffix is retailer/catalog metadata, NOT verified as
+    // tag-printed, so 00452's anchored pattern deliberately refuses it rather
+    // than inventing a colorway decode.
+    pack: pack("Under Armour", "underarmour", [], [UA_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "1361518-001" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Under Armour malformed code — no false-positive recovery",
+    brand: "Under Armour",
+    pack: pack("Under Armour", "underarmour", [], [UA_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "NOT-A-CODE" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Under Armour single known gear platform fills the line the AI missed",
+    brand: "Under Armour",
+    pack: pack("Under Armour", "underarmour", [style("HeatGear")], [UA_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ brand: "Under Armour" }),
+    expect: { brand: "Under Armour", style: "HeatGear" },
+  },
+  {
+    name: "Under Armour ambiguous gear platforms (HeatGear vs ColdGear) — never guess",
+    brand: "Under Armour",
+    pack: pack("Under Armour", "underarmour", [style("HeatGear"), style("ColdGear")], [
+      UA_STYLE_NUMBER_DECODER,
+    ]),
+    input: decodedFrom({ brand: "Under Armour" }),
+    expect: { brand: "Under Armour", noStyle: true },
+  },
+  // The other five are decoder-less by design (identity = fabric platform read
+  // off the garment). Their guarantee is that enrichment stays correct WITHOUT a
+  // decoder: a lone known platform fills, the confusable pair is never guessed,
+  // and a non-code never false-recovers a brand.
+  {
+    name: "Vuori single known style fills the style the AI missed",
+    brand: "Vuori",
+    pack: pack("Vuori", "vuori", [style("Kore Short")]),
+    input: decodedFrom({ brand: "Vuori" }),
+    expect: { brand: "Vuori", style: "Kore Short" },
+  },
+  {
+    name: "Vuori ambiguous shorts (Kore vs Banks Session) — never guess a style",
+    brand: "Vuori",
+    pack: pack("Vuori", "vuori", [style("Kore Short"), style("Banks Session Short")]),
+    input: decodedFrom({ brand: "Vuori" }),
+    expect: { brand: "Vuori", noStyle: true },
+  },
+  {
+    name: "Vuori non-code tag — no false-positive brand recovery (no decoder)",
+    brand: "Vuori",
+    pack: pack("Vuori", "vuori", [style("Kore Short"), style("Ponto Performance Jogger")]),
+    input: decodedFrom({ styleCode: "V438HBK" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Gymshark single known seamless family fills the style the AI missed",
+    brand: "Gymshark",
+    pack: pack("Gymshark", "gymshark", [style("Vital Seamless")]),
+    input: decodedFrom({ brand: "Gymshark" }),
+    expect: { brand: "Gymshark", style: "Vital Seamless" },
+  },
+  {
+    name: "Gymshark ambiguous seamless families (Vital marl vs Adapt print) — never guess",
+    brand: "Gymshark",
+    pack: pack("Gymshark", "gymshark", [style("Vital Seamless"), style("Adapt Seamless")]),
+    input: decodedFrom({ brand: "Gymshark" }),
+    expect: { brand: "Gymshark", noStyle: true },
+  },
+  {
+    name: "Gymshark web SKU slug — no false-positive brand recovery (not a tag code)",
+    brand: "Gymshark",
+    pack: pack("Gymshark", "gymshark", [style("Vital Seamless"), style("Adapt Seamless")]),
+    input: decodedFrom({ styleCode: "SS25" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Fabletics single known fabric platform fills the style the AI missed",
+    brand: "Fabletics",
+    pack: pack("Fabletics", "fabletics", [style("PowerHold")]),
+    input: decodedFrom({ brand: "Fabletics" }),
+    expect: { brand: "Fabletics", style: "PowerHold" },
+  },
+  {
+    name: "Fabletics ambiguous compression ladder (PowerHold vs PureLuxe) — never guess",
+    brand: "Fabletics",
+    pack: pack("Fabletics", "fabletics", [style("PowerHold"), style("PureLuxe")]),
+    input: decodedFrom({ brand: "Fabletics" }),
+    expect: { brand: "Fabletics", noStyle: true },
+  },
+  {
+    name: "Fabletics web SKU — no false-positive brand recovery (not tag-printed)",
+    brand: "Fabletics",
+    pack: pack("Fabletics", "fabletics", [style("PowerHold"), style("PureLuxe")]),
+    input: decodedFrom({ styleCode: "PT1617843-0001" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Beyond Yoga single known fabric platform fills the style the AI missed",
+    brand: "Beyond Yoga",
+    pack: pack("Beyond Yoga", "beyondyoga", [style("Spacedye")]),
+    input: decodedFrom({ brand: "Beyond Yoga" }),
+    expect: { brand: "Beyond Yoga", style: "Spacedye" },
+  },
+  {
+    name: "Beyond Yoga ambiguous heathered platforms (Spacedye vs Heather Rib) — never guess",
+    brand: "Beyond Yoga",
+    pack: pack("Beyond Yoga", "beyondyoga", [style("Spacedye"), style("Heather Rib")]),
+    input: decodedFrom({ brand: "Beyond Yoga" }),
+    expect: { brand: "Beyond Yoga", noStyle: true },
+  },
+  {
+    name: "Beyond Yoga SD web code — no false-positive brand recovery (web-side only)",
+    brand: "Beyond Yoga",
+    // SD/HR/IT genuinely encode the fabric, but ONLY in product URLs — there's
+    // no evidence they're tag-printed, so 00452 records the prefix map as an
+    // informational tell and seeds NO decoder. This case locks that in.
+    pack: pack("Beyond Yoga", "beyondyoga", [style("Spacedye"), style("Heather Rib")]),
+    input: decodedFrom({ styleCode: "SD3243" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Sweaty Betty single known legging family fills the style the AI missed",
+    brand: "Sweaty Betty",
+    pack: pack("Sweaty Betty", "sweatybetty", [style("Power")]),
+    input: decodedFrom({ brand: "Sweaty Betty" }),
+    expect: { brand: "Sweaty Betty", style: "Power" },
+  },
+  {
+    name: "Sweaty Betty ambiguous legging families (Power vs Zero Gravity) — never guess",
+    brand: "Sweaty Betty",
+    pack: pack("Sweaty Betty", "sweatybetty", [style("Power"), style("Zero Gravity")]),
+    input: decodedFrom({ brand: "Sweaty Betty" }),
+    expect: { brand: "Sweaty Betty", noStyle: true },
+  },
+  {
+    name: "Sweaty Betty SB web code — no false-positive brand recovery (lookup only)",
+    brand: "Sweaty Betty",
+    pack: pack("Sweaty Betty", "sweatybetty", [style("Power"), style("Zero Gravity")]),
+    input: decodedFrom({ styleCode: "SB6438Z" }),
     expect: { noBrand: true },
   },
 ];

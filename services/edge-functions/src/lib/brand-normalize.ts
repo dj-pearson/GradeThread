@@ -76,6 +76,13 @@ const BRAND_ALIASES: Record<string, string> = {
   champion: "Champion",
   lululemon: "Lululemon",
   gymshark: "Gymshark",
+  // US-1733 athleisure group. Under Armour + Gymshark were already above; these
+  // four were passthrough-only, so the pack rendered the seller's casing
+  // ("beyond yoga") into the prompt block and the eBay Brand aspect.
+  vuori: "Vuori",
+  fabletics: "Fabletics",
+  beyondyoga: "Beyond Yoga",
+  sweatybetty: "Sweaty Betty",
   // Mall / mainstream
   tommyhilfiger: "Tommy Hilfiger",
   ralphlauren: "Ralph Lauren",
