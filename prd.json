@@ -1894,7 +1894,7 @@
         "Job is registered like other crons (has curl in image — see edge-cron-curl gotcha) and records a cron_runs row"
       ],
       "priority": 2608,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][Edge/Jobs] iOS listing-lifecycle audit 2026-07-14. Combined with US-1964 this closes the silent-revenue-sync failure mode. listRecentOrders (ebay-client.ts:3021) already incremental+paginated; just needs an all-connections scheduled driver. Heed edge-cron-curl-gotcha memory.",
       "relevantPaths": [
         "services/edge-functions/src/routes/flipdesk-ebay.ts",
