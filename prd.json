@@ -2019,7 +2019,7 @@
         "No work loss on backgrounding/dismiss mid-edit"
       ],
       "priority": 2604,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][iOS/Composer] iOS listing-lifecycle audit 2026-07-14. iOS persists only at runPush (PublishDialog.swift:452); close options :109-118 have no Save. Web independent Save composer.tsx:958-1015.",
       "relevantPaths": [
         "ios/GradeThread/Marketplaces/Publish/PublishDialog.swift",

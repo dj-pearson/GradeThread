@@ -4166,3 +4166,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jul 16, 2026  3:58:59 PM
 ---
+## US-1972: iOS: standalone 'Save draft' in the composer (persist edits without publishing)
+- Status: COMPLETE
+- Timestamp: Thu, Jul 16, 2026  4:08:27 PM
+---
