@@ -48,7 +48,21 @@ struct PublishDialog: View {
     /// US-1513: Close tapped while the composer holds unsaved edits — confirm
     /// before discarding instead of silently dropping what the seller typed.
     @State private var showingCloseConfirmation = false
+    /// US-1970/US-1971: the draft's saved Best Offer + schedule choices, fetched
+    /// alongside validate so the composer's controls seed synchronously in
+    /// `ComposerForm.init` (an async post-init seed would trip the dirty ratchet).
+    @State private var draftSettings: ListingDraftSettings = .none
+    /// US-1972: bumped after a successful save so the composer re-inits and
+    /// re-baselines its dirty check against what's now persisted.
+    @State private var composerGeneration = 0
+    /// US-1972: transient "Draft saved" / "Scheduled for …" confirmation.
+    @State private var saveBanner: String?
+    @State private var isSaving = false
+    /// US-1972: a save failure is shown inline — it must NOT tear down the
+    /// composer (the seller's edits are still in the form and still savable).
+    @State private var saveError: String?
     private let service = EbayPublishService()
+    private let draftService = ListingDraftService()
 
     private enum Phase: Equatable {
         case validating
@@ -117,6 +131,14 @@ struct PublishDialog: View {
             Text("You have unpublished edits in the composer.")
         }
         .task { await runValidate() }
+        // US-1972: transient save confirmation — the FlipDesk actionBanner
+        // convention (brandNavy capsule, 2.5s auto-dismiss via `.task(id:)`).
+        .overlay(alignment: .bottom) { saveBannerView }
+        .task(id: saveBanner) {
+            guard saveBanner != nil else { return }
+            try? await Task.sleep(for: .seconds(2.5))
+            saveBanner = nil
+        }
         .sheet(isPresented: $showingSafari) {
             if case let .succeeded(response) = phase,
                let url = validListingURL(response.listingURL) {
@@ -145,6 +167,21 @@ struct PublishDialog: View {
         return false
     }
 
+    @ViewBuilder
+    private var saveBannerView: some View {
+        if let saveBanner {
+            Text(saveBanner)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(Color.brandNavy, in: Capsule())
+                .padding(.bottom, 20)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .accessibilityAddTraits(.isStaticText)
+        }
+    }
+
     // MARK: - Phase bodies
 
     @ViewBuilder
@@ -162,10 +199,20 @@ struct PublishDialog: View {
                 pushLabel: relist ? "Relist on eBay" : "Push to eBay",
                 showRelistWarning: listingActive,
                 aspectWarnings: aspectWarnings,
-                onDirty: { composerDirty = true }
-            ) { edits in
-                Task { await runPush(edits: edits, summary: summary) }
-            }
+                draftSettings: draftSettings,
+                isSaving: isSaving,
+                saveError: saveError,
+                onDirty: { composerDirty = true },
+                onSave: { edits in
+                    Task { await runSaveDraft(edits: edits, summary: summary) }
+                },
+                onPush: { edits in
+                    Task { await runPush(edits: edits, summary: summary) }
+                }
+            )
+            // US-1972: re-init (and so re-seed + re-baseline) the composer after
+            // a save persists new Best Offer / schedule values.
+            .id(composerGeneration)
 
         case .blocked(let blockers):
             blockersCard(blockers)
@@ -387,7 +434,14 @@ struct PublishDialog: View {
         // US-1513: a fresh validate rebuilds the composer from the server truth,
         // so the dirty ratchet starts over.
         composerDirty = false
+        saveError = nil
+        // US-1970/US-1971: fetch the draft's saved Best Offer + schedule
+        // concurrently with validate — the composer seeds from both at once, so
+        // serializing them would just add a round-trip to the skeleton. A failed
+        // read degrades to `.none` (the summary's own defaults), never blocks.
+        async let settings = try? draftService.fetchSettings(inventoryItemId: inventoryItemId)
         let outcome = await service.validate(inventoryItemId: inventoryItemId)
+        draftSettings = await settings ?? .none
         switch outcome {
         case .validated(let response):
             // US-828/US-1511: warnings ride alongside the summary — they don't
@@ -413,6 +467,74 @@ struct PublishDialog: View {
             // Wrong outcome shape for validate — shouldn't happen.
             phase = .failed(message: "Unexpected response from server.", retry: .revalidate)
         }
+    }
+
+    /// US-1972: persist the composer's edits WITHOUT publishing — the standalone
+    /// "Save draft" action, and the commit step for a scheduled publish (US-1971:
+    /// scheduling saves `scheduled_publish_at` and lets the scheduled-publish
+    /// worker do the push when it's due, so there's deliberately no push here).
+    ///
+    /// Unlike a failed push this never changes `phase`: the composer stays up
+    /// with the seller's edits intact and the error inline, because a failed save
+    /// is retryable in place and tearing the form down would lose the edits.
+    private func runSaveDraft(edits: ComposerEdits, summary: PublishSummary) async {
+        guard !isSaving else { return }
+
+        // The draft write goes straight to Supabase (no offline queue on this
+        // path), so a doomed round-trip is worth pre-empting.
+        if let networkMonitor, !networkMonitor.isConnected {
+            saveError = "You're offline. Your edits are still here — reconnect and save again."
+            HapticFeedback.warning()
+            return
+        }
+
+        isSaving = true
+        saveError = nil
+        defer { isSaving = false }
+
+        let editedPrice = edits.price.trimmingCharacters(in: .whitespacesAndNewlines)
+        let priceValue = editedPrice.isEmpty ? summary.priceValue : editedPrice
+
+        do {
+            try await draftService.saveDraft(
+                inventoryItemId: inventoryItemId,
+                priceValue: priceValue,
+                edits: edits
+            )
+        } catch {
+            saveError = FriendlyErrorCopy.actionMessage(
+                for: error,
+                fallback: "Couldn't save your draft. Please try again."
+            )
+            HapticFeedback.error()
+            return
+        }
+
+        // Advance the baseline to what we just wrote, so the composer re-seeds
+        // from the truth and a subsequent save computes its schedule edit
+        // against the NEW value rather than re-writing (or re-clearing) it.
+        draftSettings = draftSettings.applying(edits)
+        phase = .readyToPush(PublishSummary.merging(edits, into: summary))
+        composerDirty = false
+        composerGeneration += 1
+        saveBanner = Self.saveConfirmation(for: edits.schedule, settings: draftSettings)
+        HapticFeedback.success()
+        Telemetry.breadcrumb("Saved listing draft", category: "publish")
+    }
+
+    /// The confirmation copy for a save — naming the scheduled instant when one
+    /// is set, so "Schedule publish" visibly did something.
+    private static func saveConfirmation(
+        for schedule: ComposerScheduleEdit,
+        settings: ListingDraftSettings
+    ) -> String {
+        if let scheduled = settings.scheduledPublishAt, schedule != .clear {
+            let when = ScheduledDropScheduling.formatInZone(
+                scheduled, timeZoneIdentifier: ScheduledDropScheduling.detectTimezone()
+            )
+            return "Scheduled to publish \(when)"
+        }
+        return "Draft saved"
     }
 
     private func runPush(edits: ComposerEdits, summary: PublishSummary) async {
@@ -469,6 +591,12 @@ struct PublishDialog: View {
             HapticFeedback.error()
             return
         }
+
+        // US-1970/US-1971: the edits are now persisted, so advance the baseline.
+        // If the push below fails, "Try again" rebuilds the composer — which
+        // re-seeds its Best Offer boxes from these settings. Leaving them stale
+        // would revert the seller's typed thresholds on retry (US-1006).
+        draftSettings = draftSettings.applying(edits)
 
         let outcome = await service.push(inventoryItemId: inventoryItemId, relist: relist)
         switch outcome {
@@ -535,9 +663,19 @@ private struct ComposerForm: View {
     /// US-828/US-1511: "X won't be sent" lines from the validate pre-flight —
     /// non-blocking, but the seller should see them before committing.
     var aspectWarnings: [String] = []
+    /// US-1970/US-1971: the draft's saved Best Offer + schedule, used to seed
+    /// those controls from the seller's own choices rather than the server's
+    /// resolved suggestion (see ``ListingDraftSettings``).
+    var draftSettings: ListingDraftSettings = .none
+    /// US-1972: a save is in flight — disables both commit buttons.
+    var isSaving: Bool = false
+    /// US-1972: inline save failure, shown without tearing the composer down.
+    var saveError: String?
     /// US-1513: fired (once or more) when the composer's fields first differ
     /// from the validated summary — the parent uses it to block swipe-dismiss.
     var onDirty: () -> Void = {}
+    /// US-1971/US-1972: persist the edits without publishing.
+    let onSave: (ComposerEdits) -> Void
     let onPush: (ComposerEdits) -> Void
 
     /// US-981: proactively gate the push button when offline so it shows an
@@ -560,6 +698,13 @@ private struct ComposerForm: View {
     /// Seeded from `summary.promotedAdRate` (nil = previously opted out).
     @State private var promoteEnabled: Bool
     @State private var promoRateText: String
+    /// US-1970: Best Offer toggle + the two auto-clear threshold boxes. Blank
+    /// boxes mean "use eBay's/the comp-derived suggestion" — the resolved value
+    /// rides along as the field's placeholder.
+    @State private var bestOffer: ComposerBestOffer
+    /// US-1971: scheduled publish. Off = publish immediately on Push.
+    @State private var scheduleEnabled: Bool
+    @State private var scheduleDate: Date
 
     // US-1497: synchronous in-flight guard (the CounterOfferSheet isSubmitting
     // pattern). Set true on tap BEFORE `onPush`, so the button disables in the
@@ -583,7 +728,12 @@ private struct ComposerForm: View {
     /// US-969: keyboard Next/Return traversal across the editable text fields
     /// (the condition Picker and read-only price are skipped).
     @FocusState private var focusedField: Field?
-    private enum Field: Hashable { case title, conditionNote, description, price }
+    private enum Field: Hashable {
+        case title, conditionNote, description, price
+        // US-1970: the two Best Offer threshold boxes (.decimalPad — no Return
+        // key, so they rely on the form's shared keyboard Done toolbar).
+        case bestOfferAccept, bestOfferDecline
+    }
 
     /// US-1242: the validated summary had no usable price (zero/blank/unparseable),
     /// so the composer offers inline price entry. Computed from the immutable
@@ -678,7 +828,11 @@ private struct ComposerForm: View {
         pushLabel: String = "Push to eBay",
         showRelistWarning: Bool = false,
         aspectWarnings: [String] = [],
+        draftSettings: ListingDraftSettings = .none,
+        isSaving: Bool = false,
+        saveError: String? = nil,
         onDirty: @escaping () -> Void = {},
+        onSave: @escaping (ComposerEdits) -> Void,
         onPush: @escaping (ComposerEdits) -> Void
     ) {
         self.summary = summary
@@ -687,7 +841,11 @@ private struct ComposerForm: View {
         self.pushLabel = pushLabel
         self.showRelistWarning = showRelistWarning
         self.aspectWarnings = aspectWarnings
+        self.draftSettings = draftSettings
+        self.isSaving = isSaving
+        self.saveError = saveError
         self.onDirty = onDirty
+        self.onSave = onSave
         self.onPush = onPush
         _title = State(initialValue: String(summary.title.prefix(Self.titleLimit)))
         _condition = State(initialValue: EbayCondition.resolve(summary.condition))
@@ -696,6 +854,38 @@ private struct ComposerForm: View {
         _priceInput = State(initialValue: summary.priceValue)
         _promoteEnabled = State(initialValue: summary.promotedAdRate != nil)
         _promoRateText = State(initialValue: Self.seedRateText(summary.promotedAdRate))
+        // US-1970: the toggle mirrors the resolved publish; the threshold boxes
+        // seed ONLY from the seller's saved overrides. Seeding them from the
+        // summary's resolved values would pin a comp-derived suggestion into the
+        // override column the moment the seller saved anything at all.
+        _bestOffer = State(initialValue: ComposerBestOffer(
+            enabled: summary.bestOfferEnabled,
+            autoAcceptText: Self.seedCentsText(draftSettings.autoAcceptCents),
+            autoDeclineText: Self.seedCentsText(draftSettings.autoDeclineCents)
+        ))
+        // US-1971: an already-scheduled draft reopens with its schedule showing.
+        _scheduleEnabled = State(initialValue: draftSettings.scheduledPublishAt != nil)
+        _scheduleDate = State(initialValue: draftSettings.scheduledPublishAt ?? Self.defaultScheduleDate())
+    }
+
+    /// US-1970: cents → an editable, LOCALE-formatted string that round-trips
+    /// back through `CurrencyFormatter().parse`. `String(format: "%.2f", …)`
+    /// would always emit a "." separator, which a comma-decimal locale then
+    /// misreads (US-1236).
+    private static func seedCentsText(_ cents: Int?) -> String {
+        guard let cents, cents > 0 else { return "" }
+        return DraftEditRow.priceString2dp(Double(cents) / 100)
+    }
+
+    /// US-1971: where the date picker starts for a not-yet-scheduled draft — the
+    /// soonest peak-buying evening slot, the same preset the Scheduled Drops
+    /// surface offers, rather than "right now" (which would mean nothing).
+    private static func defaultScheduleDate() -> Date {
+        let preset = ScheduledDropScheduling.presets.first { $0.id == "tonight-7pm" }
+            ?? ScheduledDropScheduling.presets[0]
+        return ScheduledDropScheduling.nextPresetDate(
+            preset, timeZoneIdentifier: ScheduledDropScheduling.detectTimezone()
+        )
     }
 
     /// US-1512: what the rate box starts as — the server-resolved rate, or empty
@@ -720,6 +910,75 @@ private struct ComposerForm: View {
             || templatePaymentPolicyId != nil
             || promoteEnabled != (summary.promotedAdRate != nil)
             || (promoteEnabled && promoRateText != Self.seedRateText(summary.promotedAdRate))
+            || bestOffer != Self.seededBestOffer(summary: summary, settings: draftSettings)
+            || scheduleEdit != .unchanged
+    }
+
+    /// US-1970: what the Best Offer controls were seeded with — the baseline the
+    /// dirty check compares against. Mirrors `init`.
+    private static func seededBestOffer(
+        summary: PublishSummary, settings: ListingDraftSettings
+    ) -> ComposerBestOffer {
+        ComposerBestOffer(
+            enabled: summary.bestOfferEnabled,
+            autoAcceptText: seedCentsText(settings.autoAcceptCents),
+            autoDeclineText: seedCentsText(settings.autoDeclineCents)
+        )
+    }
+
+    /// US-1971: the schedule change to persist. Only a real difference from the
+    /// saved value writes the column, so re-saving an unchanged schedule is a
+    /// no-op rather than a redundant (and drift-prone) rewrite.
+    private var scheduleEdit: ComposerScheduleEdit {
+        let saved = draftSettings.scheduledPublishAt
+        guard scheduleEnabled else {
+            // Turning the toggle OFF cancels a saved drop; there's nothing to
+            // cancel when none was saved.
+            return saved != nil ? .clear : .unchanged
+        }
+        // Sub-second equality: the picker works in minutes, and the value we
+        // seeded came back from the DB with its own sub-second precision, so an
+        // exact `==` would report a phantom edit on every reopen.
+        if let saved, abs(saved.timeIntervalSince(scheduleDate)) < 1 { return .unchanged }
+        return .at(scheduleDate)
+    }
+
+    /// The effective listing price in cents — what the Best Offer thresholds are
+    /// validated against.
+    private var effectivePriceCents: Int {
+        Int((Money.cents(CurrencyFormatter().parse(priceInput) ?? 0) * 100).rounded())
+    }
+
+    /// US-1970: the blocking Best Offer problem, if any.
+    private var bestOfferError: String? {
+        BestOfferValidation.error(bestOffer, priceCents: effectivePriceCents)
+    }
+
+    /// The edits both commit paths (Save and Push) send up. Built once here so
+    /// a scheduled save and an immediate push can never disagree about what the
+    /// composer holds.
+    private func currentEdits(schedule: ComposerScheduleEdit) -> ComposerEdits {
+        ComposerEdits(
+            title: trimmedTitle,
+            condition: condition,
+            conditionDescription: conditionDescription,
+            description: description,
+            price: priceInput,
+            itemSpecifics: templateItemSpecifics,
+            ebayCategoryId: templateCategoryId,
+            returnPolicyId: templateReturnPolicyId,
+            shippingPolicyId: templateShippingPolicyId,
+            paymentPolicyId: templatePaymentPolicyId,
+            // US-1512: only carry a promo choice when the control was actually
+            // shown; an unparseable rate falls back to the category suggestion
+            // server-side (persisted as null).
+            promoteEnabled: summary.promotedAdRateKnown ? promoteEnabled : nil,
+            promoRatePct: summary.promotedAdRateKnown && promoteEnabled
+                ? PromotedAdRate.parse(promoRateText)
+                : nil,
+            bestOffer: bestOffer,
+            schedule: schedule
+        )
     }
 
     private var trimmedTitle: String {
@@ -827,6 +1086,8 @@ private struct ComposerForm: View {
                 }
 
                 priceSection
+                bestOfferSection
+                scheduleSection
                 promoSection
                 profitEstimate
                 // US-1167: comp context (median + spread) from eBay so the seller
@@ -846,43 +1107,15 @@ private struct ComposerForm: View {
                     OfflineNotice(intent: .blocked, detail: "to publish to eBay")
                 }
 
-                let pushDisabled = trimmedTitle.isEmpty || priceInvalid
-                    || NetworkMonitor.isOffline(networkMonitor) || isPushing
-                Button {
-                    // US-1497: flip the guard synchronously before handing off, so
-                    // the button is disabled before the async push even starts.
-                    guard !isPushing else { return }
-                    isPushing = true
-                    onPush(ComposerEdits(
-                        title: trimmedTitle,
-                        condition: condition,
-                        conditionDescription: conditionDescription,
-                        description: description,
-                        price: priceInput,
-                        itemSpecifics: templateItemSpecifics,
-                        ebayCategoryId: templateCategoryId,
-                        returnPolicyId: templateReturnPolicyId,
-                        shippingPolicyId: templateShippingPolicyId,
-                        paymentPolicyId: templatePaymentPolicyId,
-                        // US-1512: only carry a promo choice when the control was
-                        // actually shown; an unparseable rate falls back to the
-                        // category suggestion server-side (persisted as null).
-                        promoteEnabled: summary.promotedAdRateKnown ? promoteEnabled : nil,
-                        promoRatePct: summary.promotedAdRateKnown && promoteEnabled
-                            ? PromotedAdRate.parse(promoRateText)
-                            : nil
-                    ))
-                } label: {
-                    Text(pushLabel)
-                        .font(.subheadline.weight(.semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(pushDisabled ? Color.secondary.opacity(0.3) : Color.brandNavy)
-                        .foregroundStyle(.white)
-                        .clipShape(Capsule())
+                if let saveError {
+                    Label(saveError, systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(Color.brandRed)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityElement(children: .combine)
                 }
-                .disabled(pushDisabled)
-                .padding(.top, 4)
+
+                actionButtons
             }
             .padding(16)
             .cardStyle(.flush)
@@ -1141,6 +1374,217 @@ private struct ComposerForm: View {
                 Text("Edit price on the item canvas.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    // MARK: - Actions (US-1972)
+
+    /// The composer's commit row. A scheduled listing's primary action SAVES
+    /// (the scheduled-publish worker does the push when it comes due), so "Push
+    /// to eBay" is deliberately replaced rather than shown alongside — offering
+    /// both would let one tap contradict the schedule the seller just set.
+    @ViewBuilder
+    private var actionButtons: some View {
+        let offline = NetworkMonitor.isOffline(networkMonitor)
+        let incomplete = trimmedTitle.isEmpty || priceInvalid || bestOfferError != nil
+        let busy = isPushing || isSaving
+        let commitDisabled = incomplete || offline || busy
+
+        VStack(spacing: 8) {
+            if scheduleEnabled {
+                Button {
+                    guard !busy else { return }
+                    onSave(currentEdits(schedule: scheduleEdit))
+                } label: {
+                    primaryLabel(
+                        scheduleEdit == .unchanged ? "Keep this schedule" : "Schedule publish",
+                        disabled: commitDisabled
+                    )
+                }
+                .disabled(commitDisabled)
+            } else {
+                Button {
+                    // US-1497: flip the guard synchronously before handing off, so
+                    // the button is disabled before the async push even starts.
+                    guard !isPushing else { return }
+                    isPushing = true
+                    onPush(currentEdits(schedule: scheduleEdit))
+                } label: {
+                    primaryLabel(pushLabel, disabled: commitDisabled)
+                }
+                .disabled(commitDisabled)
+            }
+
+            // US-1972: the standalone save — always available, so composer work
+            // can be banked without publishing. Hidden when scheduling, where
+            // the primary button already IS a save.
+            if !scheduleEnabled {
+                Button {
+                    guard !busy else { return }
+                    onSave(currentEdits(schedule: scheduleEdit))
+                } label: {
+                    HStack(spacing: 6) {
+                        if isSaving { ProgressView().controlSize(.small) }
+                        Text(isSaving ? "Saving…" : "Save draft")
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(Color.secondary.opacity(0.15))
+                    .foregroundStyle(commitDisabled ? Color.secondary : Color.brandNavy)
+                    .clipShape(Capsule())
+                }
+                .disabled(commitDisabled)
+                .accessibilityHint("Saves your edits without publishing to eBay")
+            }
+        }
+        .padding(.top, 4)
+    }
+
+    private func primaryLabel(_ text: String, disabled: Bool) -> some View {
+        HStack(spacing: 6) {
+            if isSaving { ProgressView().controlSize(.small).tint(.white) }
+            Text(text)
+        }
+        .font(.subheadline.weight(.semibold))
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+        .background(disabled ? Color.secondary.opacity(0.3) : Color.brandNavy)
+        .foregroundStyle(.white)
+        .clipShape(Capsule())
+    }
+
+    // MARK: - Best Offer (US-1970)
+
+    /// Best Offer toggle + optional auto-accept / auto-decline thresholds. The
+    /// server has always accepted these (and derives sensible defaults from the
+    /// comp range); until now the phone had no way to set them, so every offer
+    /// waited on the seller.
+    @ViewBuilder
+    private var bestOfferSection: some View {
+        fieldGroup("Best Offer") {
+            Toggle(isOn: $bestOffer.enabled) {
+                Text("Accept offers")
+                    .font(.subheadline)
+            }
+            .tint(Color.brandNavy)
+
+            if bestOffer.enabled {
+                Text("Buyers can send offers. Set thresholds to clear them automatically, or leave blank to use the suggested ones and review each offer yourself.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                thresholdField(
+                    label: "Auto-accept at or above",
+                    text: $bestOffer.autoAcceptText,
+                    placeholder: summary.bestOfferAutoAccept,
+                    field: .bestOfferAccept
+                )
+                thresholdField(
+                    label: "Auto-decline at or below",
+                    text: $bestOffer.autoDeclineText,
+                    placeholder: summary.bestOfferAutoDecline,
+                    field: .bestOfferDecline
+                )
+                if let bestOfferError {
+                    Label(bestOfferError, systemImage: "exclamationmark.triangle")
+                        .font(.caption2)
+                        .foregroundStyle(Color.brandRed)
+                        .accessibilityElement(children: .combine)
+                }
+            } else {
+                Text("Buyers can only buy at the listed price.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func thresholdField(
+        label: String,
+        text: Binding<String>,
+        placeholder: String?,
+        field: Field
+    ) -> some View {
+        HStack(spacing: 6) {
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Text(summary.currency ?? "USD")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            // The placeholder is the server's resolved suggestion, so a blank
+            // box reads as "we'll use this" rather than "nothing set".
+            TextField(placeholder.map(Self.suggestionPlaceholder) ?? "Optional", text: text)
+                .keyboardType(.decimalPad)
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 110)
+                .focused($focusedField, equals: field)
+                .accessibilityLabel(label)
+        }
+    }
+
+    /// Render the server's suggested threshold as a locale-formatted hint. It
+    /// arrives as an eBay money string (always "."-separated), so it's parsed
+    /// and re-formatted rather than shown verbatim.
+    private static func suggestionPlaceholder(_ raw: String) -> String {
+        guard let value = Double(raw) else { return raw }
+        return DraftEditRow.priceString2dp(value)
+    }
+
+    // MARK: - Scheduled publish (US-1971)
+
+    /// Schedule the publish for a peak-buying slot instead of pushing now. The
+    /// draft's `scheduled_publish_at` drives the existing scheduled-publish
+    /// worker, and the listing then shows up on the Scheduled Drops surface —
+    /// whose empty state has always told sellers to set this here.
+    @ViewBuilder
+    private var scheduleSection: some View {
+        fieldGroup("Schedule publish") {
+            Toggle(isOn: $scheduleEnabled) {
+                Text("Publish later")
+                    .font(.subheadline)
+            }
+            .tint(Color.brandNavy)
+
+            if scheduleEnabled {
+                DatePicker(
+                    "Publish at",
+                    selection: $scheduleDate,
+                    in: Date.now...,
+                    displayedComponents: [.date, .hourAndMinute]
+                )
+                .font(.subheadline)
+                .tint(Color.brandNavy)
+                Menu {
+                    ForEach(ScheduledDropScheduling.presets) { preset in
+                        Button {
+                            AppRouter.haptic()
+                            scheduleDate = ScheduledDropScheduling.nextPresetDate(
+                                preset, timeZoneIdentifier: ScheduledDropScheduling.detectTimezone()
+                            )
+                        } label: {
+                            Text("\(preset.label) — \(preset.hint)")
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "clock.badge.checkmark")
+                        Text("Use a peak-time slot")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .foregroundStyle(Color.brandNavy)
+                }
+                Text("Goes live \(ScheduledDropScheduling.formatInZone(scheduleDate, timeZoneIdentifier: ScheduledDropScheduling.detectTimezone())). It stays a draft until then and appears under Tools → Scheduled Drops.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            } else if draftSettings.scheduledPublishAt != nil {
+                // The toggle was switched off on an already-scheduled draft —
+                // say what saving will do, since "off" alone is ambiguous.
+                Text("Saving cancels the scheduled publish. The draft stays.")
+                    .font(.caption2)
+                    .foregroundStyle(Color.brandAmber)
             }
         }
     }

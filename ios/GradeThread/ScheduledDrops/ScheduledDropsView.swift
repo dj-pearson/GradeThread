@@ -84,7 +84,11 @@ struct ScheduledDropsView: View {
                 ContentUnavailableView {
                     Label("No scheduled drops yet", systemImage: "calendar.badge.clock")
                 } description: {
-                    Text("Open a draft in the composer, set a peak-time “Schedule publish”, and it will appear here to publish automatically.")
+                    // US-1971: this control now actually exists on iOS. It used
+                    // to point at a "Schedule publish" the composer never had —
+                    // reachable only from the web — so the instruction was a
+                    // dead end. Named the real path now that it isn't.
+                    Text("Open an item, tap Publish to eBay, then turn on “Publish later” in the composer to pick a peak-time slot. Scheduled drafts appear here and publish automatically.")
                 }
             } else {
                 list

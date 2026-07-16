@@ -478,6 +478,17 @@ memory — not a progress log (the harness records progress separately).
   audit/test result — leave a note and stop without emitting STORY_DONE.
 
 ## iOS (Swift)
+- The eBay publish `/listings/validate` summary already carries MORE than iOS
+  reads (quantity, bestOffer*, format/auction*, variations; plus sibling
+  `warnings`/`recommendedCoverage`) — the iOS↔web composer gaps are missing UI,
+  not missing server work. But its threshold/rate values are RESOLVED (often
+  comp-derived), not the seller's override columns: seed an editable box from the
+  `listings` override column (blank = "use the suggestion") and show the resolved
+  value only as a PLACEHOLDER. Seeding the box with the resolved value pins a
+  dynamic suggestion into the override column on the next save (US-1970; same
+  trap as US-1512's promo rate). Corollary: after saveDraft, advance the seed
+  baseline from what you just wrote (a pure `applying(edits)`) — a re-seed from a
+  stale baseline silently reverts typed values on a push-failure retry (US-1006).
 - `PhotoCapture.capturedAt` is NON-optional and `AutoListerReviewModel.importPicks`
   fabricates `result.creationDate() ?? .now`. That silently defeats every
   timeless-dump signal: a no-EXIF batch looks like ONE instantaneous EXIF burst,

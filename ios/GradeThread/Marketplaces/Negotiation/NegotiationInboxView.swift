@@ -187,7 +187,15 @@ struct NegotiationInboxView: View {
             ErrorStateView(title: "Couldn't load offers", message: message, retry: { await store.loadOffers() })
         case .ready:
             if visibleOffers.isEmpty {
-                ContentUnavailableView("No active offers", systemImage: "tag", description: Text("Incoming best offers from buyers will show up here."))
+                // US-1970: now that the composer can enable Best Offer on the
+                // phone, say how offers get here — before, a seller who only
+                // ever listed from iOS had no way to turn it on, so this state
+                // was permanent with nothing to act on.
+                ContentUnavailableView(
+                    "No active offers",
+                    systemImage: "tag",
+                    description: Text("Incoming best offers from buyers show up here. Turn on “Accept offers” in the composer when you publish a listing to invite them.")
+                )
             } else {
                 List(visibleOffers) { offer in
                     offerRow(offer)

@@ -1,4 +1,5 @@
 import Foundation
+import GradeThreadCore
 
 /// `POST /api/flipdesk/ebay/listings/validate` response. `ok` reflects
 /// the absence of `blockers`; an empty `blockers` array means the push
@@ -58,6 +59,16 @@ struct PublishSummary: Decodable, Equatable {
     /// render the promotion control — an older edge that never resolves a rate
     /// must not be misread as "opted out".
     let promotedAdRateKnown: Bool
+    /// US-1970: whether the resolved publish will offer Best Offer. The server
+    /// has always sent this on the validate summary; iOS simply never read it,
+    /// so the toggle was unreachable from the phone.
+    let bestOfferEnabled: Bool
+    /// US-1970: the server-resolved auto-accept / auto-decline thresholds as
+    /// eBay money strings, already clamped to `decline < accept < price`. `nil`
+    /// = no threshold applies (Best Offer stays enabled, just unbounded), which
+    /// the composer seeds as a blank box meaning "use the comp-derived default".
+    let bestOfferAutoAccept: String?
+    let bestOfferAutoDecline: String?
 
     private enum CodingKeys: String, CodingKey {
         case title, description, condition
@@ -66,6 +77,9 @@ struct PublishSummary: Decodable, Equatable {
         case currency
         case aspects
         case promotedAdRate
+        case bestOfferEnabled
+        case bestOfferAutoAccept
+        case bestOfferAutoDecline
     }
 
     init(from decoder: Decoder) throws {
@@ -81,6 +95,11 @@ struct PublishSummary: Decodable, Equatable {
         // null" from an older edge that omits the field entirely.
         promotedAdRateKnown = c.contains(.promotedAdRate)
         promotedAdRate = try c.decodeIfPresent(Double.self, forKey: .promotedAdRate)
+        // US-1970: an older edge that omits the key decodes as "off", matching
+        // the column default (`best_offer_enabled boolean NOT NULL DEFAULT false`).
+        bestOfferEnabled = try c.decodeIfPresent(Bool.self, forKey: .bestOfferEnabled) ?? false
+        bestOfferAutoAccept = try c.decodeIfPresent(String.self, forKey: .bestOfferAutoAccept)
+        bestOfferAutoDecline = try c.decodeIfPresent(String.self, forKey: .bestOfferAutoDecline)
     }
 
     /// Memberwise init for `merging`, tests, and previews (the custom Decodable
@@ -94,7 +113,10 @@ struct PublishSummary: Decodable, Equatable {
         currency: String?,
         aspects: [String: [String]]?,
         promotedAdRate: Double? = nil,
-        promotedAdRateKnown: Bool = false
+        promotedAdRateKnown: Bool = false,
+        bestOfferEnabled: Bool = false,
+        bestOfferAutoAccept: String? = nil,
+        bestOfferAutoDecline: String? = nil
     ) {
         self.title = title
         self.description = description
@@ -105,6 +127,9 @@ struct PublishSummary: Decodable, Equatable {
         self.aspects = aspects
         self.promotedAdRate = promotedAdRate
         self.promotedAdRateKnown = promotedAdRateKnown
+        self.bestOfferEnabled = bestOfferEnabled
+        self.bestOfferAutoAccept = bestOfferAutoAccept
+        self.bestOfferAutoDecline = bestOfferAutoDecline
     }
 
     /// US-1237: best-effort brand pulled from the eBay aspect map, used to
@@ -126,6 +151,13 @@ struct PublishSummary: Decodable, Equatable {
             }
         }
         return nil
+    }
+
+    /// US-1970: a blank (or whitespace-only) threshold box means "use the
+    /// comp-derived suggestion", which is `nil` on the wire — not "".
+    private static func blankToNil(_ text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     /// Rebuilds a summary that reflects the user's in-progress composer edits,
@@ -156,7 +188,18 @@ struct PublishSummary: Decodable, Equatable {
             currency: base.currency,
             aspects: base.aspects,
             promotedAdRate: promotedAdRate,
-            promotedAdRateKnown: base.promotedAdRateKnown
+            promotedAdRateKnown: base.promotedAdRateKnown,
+            // US-1970: carry the Best Offer choice through a resume, the same way
+            // the promotion choice is carried — a transient push failure must not
+            // silently revert the seller's toggle/thresholds back to the server's
+            // resolution. A blank threshold box stays blank (nil = "use the
+            // comp-derived default"), so it round-trips as nil rather than
+            // re-seeding the server's clamped number.
+            bestOfferEnabled: edits.bestOffer?.enabled ?? base.bestOfferEnabled,
+            bestOfferAutoAccept: edits.bestOffer.map { Self.blankToNil($0.autoAcceptText) }
+                ?? base.bestOfferAutoAccept,
+            bestOfferAutoDecline: edits.bestOffer.map { Self.blankToNil($0.autoDeclineText) }
+                ?? base.bestOfferAutoDecline
         )
     }
 }
@@ -355,4 +398,99 @@ enum ReviseOutcome: Equatable {
     /// HTTP 409 — listing has no platform_offer_id (republish to enable edits).
     case noOfferId
     case failed(message: String)
+}
+
+// MARK: - Composer Best Offer + schedule (US-1970 / US-1971)
+
+/// US-1970: the composer's Best Offer choice — the toggle plus the two optional
+/// auto-clear thresholds, held as the raw strings the seller typed. They're
+/// parsed at the boundary through the locale-tolerant ``CurrencyFormatter``,
+/// never `Double(_:)`, so a de_DE seller typing "19,99" is read correctly.
+///
+/// An EMPTY threshold box means "use the comp-derived default" (the server
+/// derives it from the p25/p75 comp columns and clamps it) — it is not zero.
+struct ComposerBestOffer: Equatable {
+    var enabled: Bool
+    var autoAcceptText: String
+    var autoDeclineText: String
+
+    init(enabled: Bool, autoAcceptText: String = "", autoDeclineText: String = "") {
+        self.enabled = enabled
+        self.autoAcceptText = autoAcceptText
+        self.autoDeclineText = autoDeclineText
+    }
+
+    /// Seed from a validated summary: the server's already-clamped resolution.
+    init(summary: PublishSummary) {
+        self.enabled = summary.bestOfferEnabled
+        self.autoAcceptText = summary.bestOfferAutoAccept ?? ""
+        self.autoDeclineText = summary.bestOfferAutoDecline ?? ""
+    }
+}
+
+/// US-1970: pure validation + cents conversion for the Best Offer thresholds.
+/// eBay requires `decline < accept < price`; the server clamps whatever it
+/// resolves, but the composer must not send a self-contradictory pair — and the
+/// seller deserves to see why before tapping Push. Pure + formatter-injectable,
+/// so the rules are unit-tested without the view or a locale dependency.
+enum BestOfferValidation {
+    /// Parse a threshold box into whole cents. `nil` for an empty box ("use the
+    /// comp-derived default") AND for an unparseable/non-positive one — callers
+    /// separate the two via ``error(_:priceCents:formatter:)``, which rejects
+    /// the latter rather than letting a typo fall back to the default.
+    static func cents(_ text: String, formatter: CurrencyFormatter = CurrencyFormatter()) -> Int? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let parsed = formatter.parse(trimmed) else { return nil }
+        let normalized = Money.cents(parsed)
+        guard normalized > 0 else { return nil }
+        return Int((normalized * 100).rounded())
+    }
+
+    /// The blocking problem with this Best Offer configuration, or nil when it's
+    /// publishable. `priceCents` is the effective listing price in cents; pass 0
+    /// when it isn't known yet (the price rules then don't apply — the composer
+    /// blocks Push on an invalid price separately).
+    static func error(
+        _ offer: ComposerBestOffer,
+        priceCents: Int,
+        formatter: CurrencyFormatter = CurrencyFormatter()
+    ) -> String? {
+        guard offer.enabled else { return nil }
+
+        let acceptFilled = !offer.autoAcceptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let declineFilled = !offer.autoDeclineText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let accept = cents(offer.autoAcceptText, formatter: formatter)
+        let decline = cents(offer.autoDeclineText, formatter: formatter)
+
+        if acceptFilled, accept == nil {
+            return "Enter an auto-accept price greater than 0, or leave it blank to use the suggested one."
+        }
+        if declineFilled, decline == nil {
+            return "Enter an auto-decline price greater than 0, or leave it blank to use the suggested one."
+        }
+        if priceCents > 0, let accept, accept >= priceCents {
+            return "Auto-accept must be below the listing price."
+        }
+        if priceCents > 0, let decline, decline >= priceCents {
+            return "Auto-decline must be below the listing price."
+        }
+        if let accept, let decline, decline >= accept {
+            return "Auto-decline must be below auto-accept."
+        }
+        return nil
+    }
+}
+
+/// US-1971: what the composer's schedule control does to the draft's
+/// `scheduled_publish_at` on save. An enum rather than a `Date??` so "leave the
+/// column alone" and "clear it" stay distinguishable — the difference between
+/// not touching an existing scheduled drop and cancelling one.
+enum ComposerScheduleEdit: Equatable {
+    /// The control wasn't touched — don't write the column.
+    case unchanged
+    /// Publish at this instant instead of now. The scheduled-publish worker
+    /// (`scheduled_publish_at` due + not yet synced) picks the row up.
+    case at(Date)
+    /// Cancel any scheduled publish; the draft stays a draft.
+    case clear
 }

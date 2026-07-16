@@ -2,6 +2,62 @@ import Foundation
 import GradeThreadCore
 import Supabase
 
+/// US-1970/US-1971: the draft columns the composer needs to seed its Best Offer
+/// + schedule controls from the seller's ACTUAL saved choices, rather than from
+/// the validate summary's *resolved* values.
+///
+/// The distinction matters: `summary.bestOfferAutoAccept` is what the server
+/// resolved for this publish — often derived from the comp p25/p75 columns.
+/// Seeding a threshold box with it and then saving would silently PIN that
+/// dynamic suggestion into the override column. So the boxes seed from these
+/// override columns (blank = "use the suggestion") and show the resolved value
+/// as a placeholder instead.
+///
+/// A plain value type at file scope (not nested in the `@MainActor`
+/// ``ListingDraftService``) so the composer can hold it as `@State` and pass it
+/// around without inheriting actor isolation.
+struct ListingDraftSettings: Equatable {
+    var bestOfferEnabled: Bool
+    var autoAcceptCents: Int?
+    var autoDeclineCents: Int?
+    var scheduledPublishAt: Date?
+
+    /// No listing row yet (a camera-created item that was never saved), or the
+    /// read failed — the composer falls back to the summary's own defaults.
+    static let none = ListingDraftSettings(
+        bestOfferEnabled: false, autoAcceptCents: nil,
+        autoDeclineCents: nil, scheduledPublishAt: nil
+    )
+
+    /// The settings the draft holds once ``ListingDraftService/saveDraft`` has
+    /// persisted `edits` — mirroring that method's write semantics exactly (a
+    /// nil `bestOffer` / `.unchanged` schedule leaves the column alone).
+    ///
+    /// Lets the composer advance its baseline from what it just saved instead of
+    /// re-reading the row. That's not just a saved round-trip: the composer
+    /// re-seeds its threshold boxes from these values whenever it's rebuilt, so
+    /// a stale baseline after a save (or after the save that precedes a FAILED
+    /// push) would silently revert the seller's typed thresholds on retry —
+    /// the US-1006 edit-preservation contract.
+    func applying(
+        _ edits: ComposerEdits,
+        formatter: CurrencyFormatter = CurrencyFormatter()
+    ) -> ListingDraftSettings {
+        var next = self
+        if let offer = edits.bestOffer {
+            next.bestOfferEnabled = offer.enabled
+            next.autoAcceptCents = BestOfferValidation.cents(offer.autoAcceptText, formatter: formatter)
+            next.autoDeclineCents = BestOfferValidation.cents(offer.autoDeclineText, formatter: formatter)
+        }
+        switch edits.schedule {
+        case .unchanged: break
+        case .at(let date): next.scheduledPublishAt = date
+        case .clear: next.scheduledPublishAt = nil
+        }
+        return next
+    }
+}
+
 /// Persists composer edits (title / condition / description) to the eBay
 /// `listings` draft for an item, so the next publish picks them up. The edge
 /// `assemblePublishContext` reads `listing.listing_title ?? item.title` etc.,
@@ -18,6 +74,42 @@ struct ListingDraftService {
     }
 
     private struct ListingIdRow: Decodable { let id: String }
+
+    private struct SettingsRow: Decodable {
+        let best_offer_enabled: Bool?
+        let best_offer_auto_accept_cents: Int?
+        let best_offer_auto_decline_cents: Int?
+        let scheduled_publish_at: String?
+    }
+
+    /// Read the composer-relevant settings off the item's most-recent eBay
+    /// listing draft. Returns `.none` when the item has no listing row yet (a
+    /// camera-created item that has never been saved) — the composer then starts
+    /// from the summary's defaults. RLS scopes the read to the caller.
+    func fetchSettings(inventoryItemId: String) async throws -> ListingDraftSettings {
+        let rows: [SettingsRow] = try await supabase
+            .from("listings")
+            .select(
+                "best_offer_enabled, best_offer_auto_accept_cents, "
+                    + "best_offer_auto_decline_cents, scheduled_publish_at"
+            )
+            .eq("inventory_item_id", value: inventoryItemId)
+            .eq("platform", value: "ebay")
+            .order("created_at", ascending: false)
+            .limit(1)
+            .execute()
+            .value
+        guard let row = rows.first else { return .none }
+        return ListingDraftSettings(
+            bestOfferEnabled: row.best_offer_enabled ?? false,
+            autoAcceptCents: row.best_offer_auto_accept_cents,
+            autoDeclineCents: row.best_offer_auto_decline_cents,
+            // The column is a timestamptz; PostgREST emits fractional seconds,
+            // which the default `.iso8601` strategy rejects — so parse through
+            // the fractional-tolerant helper (US-1127 pattern).
+            scheduledPublishAt: row.scheduled_publish_at.flatMap(ScheduledDropScheduling.parseTimestamp)
+        )
+    }
 
     /// Thrown when the composer hands us a price we can't turn into a positive
     /// amount — so we never seed a $0 (or garbage) listing draft (US-789).
@@ -50,6 +142,17 @@ struct ListingDraftService {
             throw ListingDraftError.invalidPrice(priceValue)
         }
         return price
+    }
+
+    /// US-1971: the `scheduled_publish_at` value for a freshly INSERTed draft.
+    /// `.unchanged` and `.clear` are both simply "not scheduled" on a new row
+    /// (there's no prior value to preserve or cancel), so both encode to nil and
+    /// the column takes its null default.
+    nonisolated static func scheduleInsertValue(_ schedule: ComposerScheduleEdit) -> String? {
+        switch schedule {
+        case .at(let date): return ScheduledDropScheduling.isoString(date)
+        case .unchanged, .clear: return nil
+        }
     }
 
     /// Upserts the most-recent eBay listing draft for `inventoryItemId`.
@@ -103,6 +206,15 @@ struct ListingDraftService {
         }
         let itemSpecificsOrNil = itemSpecificsArrayed.isEmpty ? nil : itemSpecificsArrayed
 
+        // US-1970: nil `bestOfferEnabled` = the control wasn't shown → leave all
+        // three columns alone. When it WAS shown, both thresholds are written
+        // explicitly (null-able), because a cleared box must be able to return
+        // to "use the comp-derived default" — nil-omission would leave a stale
+        // pinned threshold shadowing the suggestion (the US-1512 promo lesson).
+        let bestOfferEnabled = edits.bestOffer?.enabled
+        let acceptCents = edits.bestOffer.flatMap { BestOfferValidation.cents($0.autoAcceptText) }
+        let declineCents = edits.bestOffer.flatMap { BestOfferValidation.cents($0.autoDeclineText) }
+
         if let row = existing.first {
             struct Update: Encodable {
                 // US-1648: the composer's price must persist on a re-save too —
@@ -123,6 +235,13 @@ struct ListingDraftService {
                 // promo_opt_out = control not shown → leave both columns alone.
                 let promo_opt_out: Bool?
                 let promo_rate_pct: Double?
+                // US-1970: nil best_offer_enabled = control not shown → leave
+                // the three best-offer columns alone.
+                let best_offer_enabled: Bool?
+                let best_offer_auto_accept_cents: Int?
+                let best_offer_auto_decline_cents: Int?
+                // US-1971: .unchanged leaves an existing scheduled drop alone.
+                let schedule: ComposerScheduleEdit
 
                 enum CodingKeys: String, CodingKey {
                     case listing_price
@@ -131,6 +250,10 @@ struct ListingDraftService {
                     case platform_category_id, return_policy_id
                     case shipping_policy_id, payment_policy_id
                     case promo_opt_out, promo_rate_pct
+                    case best_offer_enabled
+                    case best_offer_auto_accept_cents
+                    case best_offer_auto_decline_cents
+                    case scheduled_publish_at
                 }
                 // US-1501: `ebay_condition_description` is encoded EXPLICITLY (null
                 // when nil) so CLEARING the composer condition note actually clears
@@ -158,6 +281,27 @@ struct ListingDraftService {
                         try c.encode(promoOptOut, forKey: .promo_opt_out)
                         try c.encode(promo_rate_pct, forKey: .promo_rate_pct)
                     }
+                    // US-1970: same reasoning as promo — when the control was
+                    // shown, write all three explicitly so clearing a threshold
+                    // actually returns it to the comp-derived default.
+                    if let bestOffer = best_offer_enabled {
+                        try c.encode(bestOffer, forKey: .best_offer_enabled)
+                        try c.encode(best_offer_auto_accept_cents, forKey: .best_offer_auto_accept_cents)
+                        try c.encode(best_offer_auto_decline_cents, forKey: .best_offer_auto_decline_cents)
+                    }
+                    // US-1971: an explicit null CANCELS a scheduled drop; an
+                    // omitted key leaves it untouched (ScheduledDropsService.cancel
+                    // pattern — supabase-swift would otherwise drop the nil).
+                    switch schedule {
+                    case .unchanged:
+                        break
+                    case .at(let date):
+                        try c.encode(
+                            ScheduledDropScheduling.isoString(date), forKey: .scheduled_publish_at
+                        )
+                    case .clear:
+                        try c.encodeNil(forKey: .scheduled_publish_at)
+                    }
                 }
             }
             try await supabase
@@ -174,7 +318,11 @@ struct ListingDraftService {
                     shipping_policy_id: edits.shippingPolicyId,
                     payment_policy_id: edits.paymentPolicyId,
                     promo_opt_out: edits.promoteEnabled.map { !$0 },
-                    promo_rate_pct: edits.promoteEnabled == true ? edits.promoRatePct : nil
+                    promo_rate_pct: edits.promoteEnabled == true ? edits.promoRatePct : nil,
+                    best_offer_enabled: bestOfferEnabled,
+                    best_offer_auto_accept_cents: acceptCents,
+                    best_offer_auto_decline_cents: declineCents,
+                    schedule: edits.schedule
                 ))
                 .eq("id", value: row.id)
                 .execute()
@@ -198,6 +346,13 @@ struct ListingDraftService {
                 // and an explicit true/false (or chosen rate) is always encoded.
                 let promo_opt_out: Bool?
                 let promo_rate_pct: Double?
+                // US-1970/US-1971: nil-omission is correct on a fresh row too —
+                // best_offer_enabled defaults to false and scheduled_publish_at
+                // to null, which is exactly "control not shown / not scheduled".
+                let best_offer_enabled: Bool?
+                let best_offer_auto_accept_cents: Int?
+                let best_offer_auto_decline_cents: Int?
+                let scheduled_publish_at: String?
             }
             try await supabase
                 .from("listings")
@@ -216,7 +371,11 @@ struct ListingDraftService {
                     shipping_policy_id: edits.shippingPolicyId,
                     payment_policy_id: edits.paymentPolicyId,
                     promo_opt_out: edits.promoteEnabled.map { !$0 },
-                    promo_rate_pct: edits.promoteEnabled == true ? edits.promoRatePct : nil
+                    promo_rate_pct: edits.promoteEnabled == true ? edits.promoRatePct : nil,
+                    best_offer_enabled: bestOfferEnabled,
+                    best_offer_auto_accept_cents: acceptCents,
+                    best_offer_auto_decline_cents: declineCents,
+                    scheduled_publish_at: Self.scheduleInsertValue(edits.schedule)
                 ))
                 .execute()
         }
@@ -286,6 +445,13 @@ struct ComposerEdits: Equatable {
     /// `promoteEnabled == true` = keep/return to the category suggestion at
     /// publish (`promo_rate_pct` becomes null — the web composer's blank box).
     var promoRatePct: Double? = nil
+    /// US-1970: the composer's Best Offer choice. nil = the control was never
+    /// shown, so `saveDraft` leaves `best_offer_enabled` and both threshold
+    /// columns untouched.
+    var bestOffer: ComposerBestOffer? = nil
+    /// US-1971: what to do with the draft's `scheduled_publish_at`.
+    /// `.unchanged` (the default) leaves an existing scheduled drop alone.
+    var schedule: ComposerScheduleEdit = .unchanged
 }
 
 /// US-1264: pure, testable transform that computes the composer's field values
