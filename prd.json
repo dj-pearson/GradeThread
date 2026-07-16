@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1981,
+  "nextId": 1994,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2123,6 +2123,253 @@
       "relevantPaths": [
         "services/edge-functions/src/lib/ebay-client.ts",
         "services/edge-functions/src/routes/flipdesk-ebay.ts"
+      ]
+    },
+    {
+      "id": "US-1981",
+      "title": "Brand KB group: Luxury outerwear & down",
+      "description": "As a reseller, I want high-value down/outerwear brands grounded by serial + baffle/construction tells so premium coats list right and are never auto-authenticated.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Moncler, Canada Goose, Mackage, Herno, Woolrich, Bogner): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells (informational only — NEVER auto-authenticate) — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2490,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Group] ~6 brands. Add size markers/decoders only where they exist. High-value luxury outerwear — authentication tells informational only, never auto-authenticate. Serial/QR/hologram tells vary by brand.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1982",
+      "title": "Brand KB group: Luxury RTW & leather (tier 2)",
+      "description": "As a reseller, I want additional luxury houses grounded by line + authentication tells so high-value RTW and leather goods list right and are never auto-authenticated.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Hermès, Dior, Saint Laurent (YSL), Balenciaga, Bottega Veneta, Fendi, Versace, Céline): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells (informational only — NEVER auto-authenticate) — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2489,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Group] ~8 brands. Add size markers/decoders only where they exist. Luxury houses — authentication tells informational only, never auto-authenticate. Versace has a shallow seed row (00389) — promote to full pack.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1983",
+      "title": "Brand KB group: New-gen streetwear & hype",
+      "description": "As a reseller, I want current-generation hype brands grounded by season/collab tells so drops list right and fakes are flagged.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Off-White, Chrome Hearts, Aimé Leon Dore, Gallery Dept, Denim Tears, Rhude, Sp5der, Hellstar, Anti Social Social Club): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells (informational only — NEVER auto-authenticate) — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2488,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Group] ~9 brands. Add size markers/decoders only where they exist. Heavily counterfeited — authentication tells informational only, never auto-authenticate. Collab/season tells are the key signal.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1984",
+      "title": "Brand KB group: Premium denim (tier 2)",
+      "description": "As a reseller, I want additional premium denim brands grounded by fit + tag era so denim value tiers are right.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Diesel, G-Star, Paige, FRAME, MOTHER, Rag & Bone, Hudson, Joe’s Jeans): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2487,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Group] ~8 brands. Add size markers/decoders only where they exist. Complements US-1735 (premium/vintage denim). Fit names + tag era are the key signal.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1985",
+      "title": "Brand KB group: Activewear (tier 2)",
+      "description": "As a reseller, I want high-volume activewear brands promoted to full packs so athleisure and athletic staples list reliably.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Champion, Fila, Puma, Reebok, ASICS, On Running, HOKA, Outdoor Voices, Girlfriend Collective): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2486,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Group] ~9 brands. Add size markers/decoders only where they exist. Champion, Fila, Puma, Reebok, ASICS have shallow seed rows (00389) — promote to full packs. Several are apparel + footwear.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1986",
+      "title": "Brand KB group: Fast-fashion & mall (tier 2)",
+      "description": "As a reseller, I want high-volume fast-fashion and mall brands grounded so staples list quickly and correctly.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Zara, H&M, Urban Outfitters, Express, LOFT, Ann Taylor, Talbots, Lucky Brand, Brandy Melville, PacSun): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2485,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Group] ~10 brands. Add size markers/decoders only where they exist. Complements US-1739 (basics/mall). High submission volume; size-system variance (EU vs US) matters for Zara/H&M.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1987",
+      "title": "Brand KB group: Preppy & contemporary men's",
+      "description": "As a reseller, I want preppy and contemporary men’s brands grounded by fit + line so shirts, chinos and knits list right.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Vineyard Vines, Brooks Brothers, Bonobos, Faherty, Peter Millar, Todd Snyder, Buck Mason, UNTUCKit, Johnnie-O): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2484,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Group] ~9 brands. Add size markers/decoders only where they exist. Fit names (Bonobos, UNTUCKit) and line tiers are the key signal.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1988",
+      "title": "Brand KB group: Handbags & accessories",
+      "description": "As a reseller, I want handbag and accessory brands grounded by line + code so bags, wallets and small leather goods list right.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Longchamp, Marc Jacobs, Rebecca Minkoff, Fossil, Vera Bradley, Dooney & Bourke, Brahmin, Tumi, Herschel): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2483,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Group] ~9 brands. Add size markers/decoders only where they exist. Accessory-first brands; authentication tells informational. Serial/date codes where they exist (Dooney & Bourke, Tumi).",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1989",
+      "title": "Brand KB group: Heritage & workwear",
+      "description": "As a reseller, I want heritage and workwear brands grounded by model + tag era so rugged staples and vintage list right.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Dickies, Filson, Red Wing, Timberland, Duluth Trading, Pendleton, Barbour, Orvis): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2482,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Group] ~8 brands. Add size markers/decoders only where they exist. Dickies and Pendleton have shallow seed rows (00389) — promote to full packs. Tag era drives vintage value.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1990",
+      "title": "Brand KB group: Footwear (tier 2)",
+      "description": "As a reseller, I want additional footwear brands grounded by style code + size system so shoes and boots list right.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Clarks, Merrell, Keen, Sorel, Brooks, Saucony, Steve Madden, Sam Edelman, Allen Edmonds, Crocs): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2481,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Group] ~10 brands. Add size markers/decoders only where they exist. Complements US-1740 (footwear). Style code + US/UK/EU size system are the key signal.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1991",
+      "title": "Brand KB group: Intimates, loungewear & shapewear",
+      "description": "As a reseller, I want intimates, loungewear and shapewear brands grounded by fit + size system so this high-volume category lists right.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Skims, Spanx, Victoria’s Secret, PINK, Aerie, Savage X Fenty, Calvin Klein, Tommy John): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2480,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Group] ~8 brands. Add size markers/decoders only where they exist. Calvin Klein has a shallow seed row (00389) — promote to full pack. Bra/shapewear sizing systems matter.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1992",
+      "title": "Brand KB group: Outdoor & technical (tier 2)",
+      "description": "As a reseller, I want additional outdoor/technical brands grounded by model + fabric tech so jackets, fleece and packs list precisely.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Fjällräven, Salomon, Cotopaxi, Kühl, Helly Hansen, Mammut, Rab, Outdoor Research): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2479,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Group] ~8 brands. Add size markers/decoders only where they exist. Complements US-1734 (outdoor/technical). Model + fabric tech (e.g. G-1000, GORE-TEX) are the key signal.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1993",
+      "title": "Brand KB group: Kids & baby",
+      "description": "As a reseller, I want kids and baby brands grounded by size system (age/months) so children’s apparel lists right.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Carter’s, Hanna Andersson, Mini Boden, Janie and Jack, The Children’s Place, Gymboree): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2478,
+      "passes": false,
+      "notes": "[BrandKB][Brand][Group] ~6 brands. Add size markers/decoders only where they exist. Age/month + height size systems are the key signal; measurements in inches where charts exist.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
       ]
     }
   ]
