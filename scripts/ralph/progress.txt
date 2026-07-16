@@ -4162,3 +4162,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jul 16, 2026  3:58:14 PM
 ---
+## US-1971: iOS: 'Schedule publish' control in the composer (fixes the dead Scheduled Drops empty state)
+- Status: COMPLETE
+- Timestamp: Thu, Jul 16, 2026  3:58:59 PM
+---

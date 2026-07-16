@@ -2000,7 +2000,7 @@
         "Publishing respects the schedule end-to-end (server consumes scheduled_publish_at)"
       ],
       "priority": 2605,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][iOS/Composer] iOS listing-lifecycle audit 2026-07-14. Dead empty state ScheduledDropsView.swift:87; ScheduledDropsService.swift:15,36 only reschedule/cancel non-null. Web control composer.tsx:2170 (state :266).",
       "relevantPaths": [
         "ios/GradeThread/Marketplaces/Publish/PublishDialog.swift",
