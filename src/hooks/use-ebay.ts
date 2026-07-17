@@ -2295,3 +2295,188 @@ export function useEbayLeaveFeedback() {
     },
   });
 }
+
+// ── US-1979 (AC2): item_promotion write hooks ─────────────────────────────
+//
+// NAMING: this file already has useEbayPromotion(listingId) for PROMOTED LISTINGS
+// (the per-listing ad rate) — a different eBay product entirely. These are
+// Promotions Manager item_promotions (order/volume/coupon discounts), hence the
+// ItemPromotion names and the SEPARATE ebay_item_promotion query key: sharing the
+// key would make ending a coupon blow away the ad-rate cache.
+//
+// updateItemPromotion/deleteItemPromotion had no routes until now, and
+// createItemPromotion only ran as an automation side-effect — so a seller could
+// never deliberately create, edit or end an order/volume/coupon promo. These back
+// the promotions card's create/edit/delete.
+
+export type ItemPromotionType = "ORDER_DISCOUNT" | "VOLUME_DISCOUNT" | "CODED_COUPON";
+
+export interface ItemPromotionDraft {
+  type: ItemPromotionType;
+  name: string;
+  listing_ids: string[];
+  percent_off: number;
+  min_spend?: { value: string; currency: string };
+  buy_quantity?: number;
+  promotion_image_url?: string;
+  coupon_code?: string;
+  start_date?: string;
+  end_date?: string;
+}
+
+/** The FULL promotion (GET /promotions/:id) — what an edit must prefill from.
+ *  The LIST shape omits listings/percent/minSpend/coupon, and the PUT replaces the
+ *  whole promotion, so editing off the list would wipe them. */
+export interface EbayItemPromotionDetail extends EbayItemPromotion {
+  listingIds: string[];
+  percentOff: number | null;
+  minSpend: { value: string; currency: string } | null;
+  buyQuantity: number | null;
+  couponCode: string | null;
+  promotionImageUrl: string | null;
+  priority: string | null;
+}
+
+export function useEbayItemPromotion(promotionId: string | null) {
+  const tenantKey = useEbayTenantKey();
+  return useQuery({
+    queryKey: ["ebay_item_promotion", tenantKey, promotionId],
+    enabled: !!promotionId,
+    // No staleTime: an edit form must never prefill from a stale copy, because
+    // whatever it prefills is what the PUT writes back.
+    staleTime: 0,
+    queryFn: async (): Promise<EbayItemPromotionDetail> => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/promotions/${encodeURIComponent(promotionId!)}`,
+        { headers: await ebayHeaders() },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Could not load that promotion.");
+      return json.promotion as EbayItemPromotionDetail;
+    },
+  });
+}
+
+/** Active eBay listings a promotion can target, with the item title + cover photo.
+ *  No existing hook exposes these — listings.tsx queries supabase inline. */
+export interface PromotableListing {
+  listingId: string;
+  itemId: string;
+  title: string;
+  coverPhotoUrl: string | null;
+}
+
+export function useEbayPromotableListings(enabled = true) {
+  const { user } = useAuthStore();
+  return useQuery({
+    queryKey: ["ebay_promotable_listings", user?.id],
+    enabled: enabled && !!user,
+    staleTime: 5 * 60_000,
+    queryFn: async (): Promise<PromotableListing[]> => {
+      // Only LIVE eBay listings can be promoted, and only those eBay knows about
+      // (platform_listing_id) — a draft has no id for eBay to target.
+      const { data, error } = await supabase
+        .from("listings")
+        .select("inventory_item_id, platform_listing_id, inventory_items(title)")
+        .eq("platform", "ebay")
+        .eq("listing_status", "active")
+        .not("platform_listing_id", "is", null);
+      if (error) throw error;
+      const rows = (data ?? []) as unknown as Array<{
+        inventory_item_id: string;
+        platform_listing_id: string;
+        inventory_items: { title: string | null } | null;
+      }>;
+      if (rows.length === 0) return [];
+
+      // Cover photos in one round trip rather than N.
+      const itemIds = rows.map((r) => r.inventory_item_id);
+      const { data: photos } = await supabase
+        .from("item_photos")
+        .select("inventory_item_id, photo_url, sort_order")
+        .in("inventory_item_id", itemIds)
+        .order("sort_order", { ascending: true });
+      const cover = new Map<string, string>();
+      for (const p of (photos ?? []) as Array<{
+        inventory_item_id: string;
+        photo_url: string | null;
+      }>) {
+        if (p.photo_url && !cover.has(p.inventory_item_id)) {
+          cover.set(p.inventory_item_id, p.photo_url);
+        }
+      }
+      return rows.map((r) => ({
+        listingId: r.platform_listing_id,
+        itemId: r.inventory_item_id,
+        title: r.inventory_items?.title ?? "Untitled",
+        coverPhotoUrl: cover.get(r.inventory_item_id) ?? null,
+      }));
+    },
+  });
+}
+
+function invalidatePromotions(qc: ReturnType<typeof useQueryClient>) {
+  void qc.invalidateQueries({ queryKey: ["ebay_promotions"] });
+  void qc.invalidateQueries({ queryKey: ["ebay_item_promotion"] });
+}
+
+export function useCreateItemPromotion() {
+  const qc = useQueryClient();
+  return useMutation<{ promotion_id: string | null }, Error, ItemPromotionDraft>({
+    mutationFn: async (draft) => {
+      const res = await fetch(`${edgeApiUrl()}/api/flipdesk/ebay/promotions`, {
+        method: "POST",
+        headers: await ebayHeaders(),
+        body: JSON.stringify(draft),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Could not create the promotion.");
+      return json;
+    },
+    onSuccess: () => {
+      toast.success("Promotion created on eBay.");
+      invalidatePromotions(qc);
+    },
+    onError: (e) => toast.error(e.message),
+  });
+}
+
+export function useUpdateItemPromotion() {
+  const qc = useQueryClient();
+  return useMutation<unknown, Error, { promotionId: string; draft: ItemPromotionDraft }>({
+    mutationFn: async ({ promotionId, draft }) => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/promotions/${encodeURIComponent(promotionId)}`,
+        { method: "PUT", headers: await ebayHeaders(), body: JSON.stringify(draft) },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Could not update the promotion.");
+      return json;
+    },
+    onSuccess: () => {
+      toast.success("Promotion updated.");
+      invalidatePromotions(qc);
+    },
+    onError: (e) => toast.error(e.message),
+  });
+}
+
+export function useDeleteItemPromotion() {
+  const qc = useQueryClient();
+  return useMutation<unknown, Error, string>({
+    mutationFn: async (promotionId) => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/promotions/${encodeURIComponent(promotionId)}`,
+        { method: "DELETE", headers: await ebayHeaders() },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Could not end the promotion.");
+      return json;
+    },
+    onSuccess: () => {
+      toast.success("Promotion ended on eBay.");
+      invalidatePromotions(qc);
+    },
+    onError: (e) => toast.error(e.message),
+  });
+}
