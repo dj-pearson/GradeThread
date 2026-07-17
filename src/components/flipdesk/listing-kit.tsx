@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -48,6 +48,7 @@ import {
   buildListerPayload,
   isListerAvailable,
   isListerPlatform,
+  onListerListed,
   sendToLister,
 } from "@/lib/lister-extension";
 import { edgeFetch } from "@/lib/edge-fetch";
@@ -206,6 +207,40 @@ function PlatformPanel({
   // promotes it once the seller has actually hit Submit on the marketplace.
   const [prefilled, setPrefilled] = useState(false);
   const [confirming, setConfirming] = useState(false);
+
+  // US-1877 (AC1): the AUTOMATIC path — the extension saw the tab navigate to the
+  // live listing, which means the seller submitted. Promote the draft and record
+  // the real URL without making them click anything.
+  //
+  // Scoped to THIS panel's item + platform: a seller can have several kits open,
+  // and promoting the wrong row would put a real URL on the wrong listing.
+  useEffect(() => {
+    return onListerListed((e) => {
+      if (e.platform !== platform) return;
+      if (e.itemId && e.itemId !== itemId) return;
+      void (async () => {
+        try {
+          const wb = await edgeFetch("/api/flipdesk/listings/extension-writeback", {
+            method: "POST",
+            json: {
+              item_id: itemId,
+              platform,
+              published: true,
+              listing_url: e.listingUrl,
+            },
+          });
+          if (!wb.ok) return; // "I published it" is still there as the fallback
+          setPrefilled(false);
+          toast.success(`${spec?.label ?? platform} listing is live — recorded in FlipDesk.`);
+          void qc.invalidateQueries({ queryKey: ["platform-fields", itemId] });
+          void qc.invalidateQueries({ queryKey: ["item_listing_platforms"] });
+        } catch {
+          // Silent: the seller never asked for this, and the manual path covers it.
+        }
+      })();
+    });
+  }, [platform, itemId, qc, spec?.label]);
+
   if (!spec) return null;
 
   const photoCount = photos.length;

@@ -14,6 +14,7 @@ interface ListerGuard {
   isOriginAllowed(sender: unknown): boolean;
   newListingUrlFor(selectors: unknown, platform: string): string | null;
   isAllowedDelistUrl(selectors: unknown, platform: string, url: unknown): boolean;
+  isLiveListingUrl(selectors: unknown, platform: string, url: unknown): boolean;
 }
 
 let guard: ListerGuard;
@@ -30,7 +31,7 @@ beforeAll(async () => {
   // imported only for its globalThis side effect; its runtime API is asserted via
   // the ListerGuard interface above, so the module itself needs no static types.
   // @ts-expect-error — untyped .js side-effect import
-  await import("../../extension/lister-guard.js");
+  await import("../../extension-unified/lister/lister-guard.js");
   guard = (globalThis as unknown as { GT_LISTER_GUARD: ListerGuard }).GT_LISTER_GUARD;
 });
 
@@ -92,5 +93,70 @@ describe("isAllowedDelistUrl (AC1 — delist URL host-matched)", () => {
     expect(guard.isAllowedDelistUrl(SELECTORS, "poshmark", "not a url")).toBe(false);
     expect(guard.isAllowedDelistUrl(SELECTORS, "poshmark", null)).toBe(false);
     expect(guard.isAllowedDelistUrl(SELECTORS, "ebay", "https://ebay.com/x")).toBe(false);
+  });
+});
+
+
+// ── US-1877 (AC1): live-listing URL capture ────────────────────────────────
+//
+// After a fill, the background watches the tab for the URL the marketplace
+// navigates to when the seller SUBMITS. That capture promotes the row from draft
+// to active and records the URL the delist queue later opens.
+//
+// So a false positive is not cosmetic — it is the phantom-listing bug US-1877
+// exists to remove, wearing a plausible URL. The guard is strict on BOTH axes.
+describe("isLiveListingUrl (US-1877 AC1)", () => {
+  const SEL = {
+    poshmark: {
+      hosts: ["poshmark.com"],
+      liveListingUrlPattern: "^https://[^/]*poshmark\.(com|ca)/listing/[^/]+",
+    },
+    mercari: {
+      hosts: ["mercari.com"],
+      liveListingUrlPattern: "^https://[^/]*mercari\.com/(us/)?item/[^/]+",
+    },
+    grailed: {
+      hosts: ["grailed.com"],
+      liveListingUrlPattern: "^https://[^/]*grailed\.com/listings/[^/]+",
+    },
+  };
+
+  it("captures a real live listing on each platform", () => {
+    expect(guard.isLiveListingUrl(SEL, "poshmark", "https://poshmark.com/listing/Nike-Tee-abc")).toBe(true);
+    expect(guard.isLiveListingUrl(SEL, "mercari", "https://www.mercari.com/us/item/m123/")).toBe(true);
+    expect(guard.isLiveListingUrl(SEL, "grailed", "https://www.grailed.com/listings/9-tee")).toBe(true);
+  });
+
+  it("NEVER captures the create-listing page it was opened on", () => {
+    // The tab starts on the form. If this matched, every fill would instantly
+    // "capture" the form URL and mark the listing live — the exact phantom.
+    expect(guard.isLiveListingUrl(SEL, "poshmark", "https://poshmark.com/create-listing")).toBe(false);
+    expect(guard.isLiveListingUrl(SEL, "mercari", "https://www.mercari.com/sell/")).toBe(false);
+    expect(guard.isLiveListingUrl(SEL, "grailed", "https://www.grailed.com/sell/")).toBe(false);
+  });
+
+  it("NEVER captures a foreign host, however listing-shaped its path", () => {
+    // The seller clicks an ad or an outbound link mid-flow.
+    expect(guard.isLiveListingUrl(SEL, "poshmark", "https://evil.com/listing/x")).toBe(false);
+    expect(guard.isLiveListingUrl(SEL, "grailed", "https://poshmark.com/listing/x")).toBe(false);
+  });
+
+  it("requires https and a real url", () => {
+    expect(guard.isLiveListingUrl(SEL, "poshmark", "http://poshmark.com/listing/x")).toBe(false);
+    expect(guard.isLiveListingUrl(SEL, "poshmark", "")).toBe(false);
+    expect(guard.isLiveListingUrl(SEL, "poshmark", null)).toBe(false);
+  });
+
+  it("fails closed on a platform with no pattern, or a malformed one", () => {
+    // A remote config could ship either. Failing closed means the seller falls back
+    // to "I published it" — never a wrong URL written onto their listing.
+    expect(guard.isLiveListingUrl(SEL, "depop", "https://depop.com/products/x")).toBe(false);
+    expect(
+      guard.isLiveListingUrl(
+        { x: { hosts: ["x.com"], liveListingUrlPattern: "([unclosed" } },
+        "x",
+        "https://x.com/anything",
+      ),
+    ).toBe(false);
   });
 });

@@ -403,6 +403,30 @@ async function reportJob(job, result) {
   await writeLastJob(job, result);
 }
 
+// US-1877 (AC1): post-fill watches, keyed by marketplace tab id. Same
+// storage.session posture as the job map — a watch must outlive the worker, since
+// the seller submits minutes after the fill.
+const WATCHES_KEY = "listerWatches";
+let watchQueue = Promise.resolve();
+function withWatches(fn) {
+  const run = watchQueue.then(async () => {
+    let watches = {};
+    try {
+      const out = await ext.storage.session.get(WATCHES_KEY);
+      watches = (out && out[WATCHES_KEY]) || {};
+    } catch (_e) { /* unavailable — treat as none */ }
+    const res = await fn(watches);
+    if (res && res.watches) {
+      try {
+        await ext.storage.session.set({ [WATCHES_KEY]: res.watches });
+      } catch (_e) { /* full/unavailable — the seller still has "I published it" */ }
+    }
+    return res && res.value;
+  });
+  watchQueue = run.then(() => undefined, () => undefined);
+  return run;
+}
+
 const LAST_JOB_KEY = "listerLastJob";
 async function writeLastJob(job, result) {
   try {
@@ -589,6 +613,9 @@ if (ext.alarms && ext.alarms.onAlarm) {
 
     if (name === SWEEP_ALARM) {
       withJobs(async (jobs) => ({ jobs: self.GT_LISTER_JOBS.sweep(jobs, Date.now()).jobs }));
+      // US-1877: expired watches go with them — an abandoned tab must not capture
+      // whatever the seller browses to an hour later.
+      withWatches(async (w) => ({ watches: self.GT_LISTER_JOBS.sweepWatches(w, Date.now()) }));
       return;
     }
 
@@ -805,6 +832,11 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
         }));
         await clearJobAlarm(job.jobId);
         await reportJob(job, out);
+        // US-1877 (AC1): a FILL is not a publish — the seller still has to submit.
+        // Start watching this tab for the live listing URL that submitting produces.
+        // Only for a fill: a delist has no listing to capture, and a failed fill has
+        // no form for the seller to submit.
+        if (job.kind === "list" && out.ok && out.filled) await startListedWatch(job);
       } else {
         // AC4: the job already went terminal (we timed out, or the tab closed) and
         // the fill finished anyway. Report it as a LATE result rather than dropping
@@ -858,6 +890,65 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
     }
   })();
   return true; // async sendResponse
+});
+
+// US-1877 (AC1) ── capture the live listing URL after the seller submits ──────
+//
+// WHY tabs.onUpdated AND NOT THE CONTENT SCRIPT. Submitting the form usually does a
+// FULL PAGE LOAD: the content script is torn down and re-injected with no memory of
+// having filled anything, so an in-page watch dies exactly when it is needed. The
+// background sees the navigation regardless, and the watch record in
+// storage.session survives the worker being suspended in between.
+async function startListedWatch(job) {
+  if (typeof job.tabId !== "number") return;
+  const watch = self.GT_LISTER_JOBS.makeWatch({
+    tabId: job.tabId,
+    saasTabId: job.saasTabId,
+    clientRef: job.clientRef,
+    platform: job.platform,
+    itemId: job.payload && job.payload.itemId,
+    now: Date.now(),
+  });
+  await withWatches(async (w) => ({ watches: self.GT_LISTER_JOBS.putWatch(w, watch) }));
+}
+
+if (ext.tabs.onUpdated && ext.tabs.onUpdated.addListener) {
+  ext.tabs.onUpdated.addListener(function (tabId, changeInfo) {
+    const url = changeInfo && changeInfo.url;
+    if (!url) return; // only navigations carry a url
+    (async () => {
+      const watch = await withWatches(async (w) => ({
+        value: self.GT_LISTER_JOBS.findWatch(w, tabId, Date.now()),
+      }));
+      if (!watch) return;
+      // The guard is strict on host AND path shape: a false capture would record
+      // the wrong URL and flip the row to ACTIVE — the phantom-listing bug this
+      // story exists to remove, just with a plausible-looking URL attached.
+      if (!self.GT_LISTER_GUARD.isLiveListingUrl(self.GT_LISTER_SELECTORS, watch.platform, url)) {
+        return;
+      }
+      // One capture per fill: drop the watch BEFORE pushing, so a redirect chain
+      // through two listing-shaped URLs can't report twice.
+      await withWatches(async (w) => ({ watches: self.GT_LISTER_JOBS.removeWatch(w, tabId) }));
+      try {
+        await ext.tabs.sendMessage(watch.saasTabId, {
+          type: "GT_LISTER_LISTED",
+          clientRef: watch.clientRef,
+          platform: watch.platform,
+          itemId: watch.itemId,
+          listingUrl: url,
+        });
+      } catch (_e) {
+        // The GradeThread tab is closed or navigated away. Not an error: this is
+        // exactly what "I published it" (US-1877 AC2) is for.
+      }
+    })();
+  });
+}
+
+// Tab closed → its watch is dead with it.
+ext.tabs.onRemoved.addListener(function (tabId) {
+  withWatches(async (w) => ({ watches: self.GT_LISTER_JOBS.removeWatch(w, tabId) }));
 });
 
 // AC4: a closed marketplace tab fails its job IMMEDIATELY. This used to delete the

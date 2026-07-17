@@ -218,7 +218,75 @@
     };
   }
 
+  // US-1877 (AC1): the post-fill WATCH.
+  //
+  // A fill ends when the form is prefilled — but the seller submits minutes later,
+  // and that is when the marketplace navigates the tab to the new live listing.
+  // Capturing that URL is what promotes the row from draft to active.
+  //
+  // WHY THE WATCH LIVES HERE AND NOT IN THE CONTENT SCRIPT. Submitting often does a
+  // FULL PAGE LOAD, which tears the content script down and re-injects it with no
+  // memory of having filled anything — an in-page watch would simply die at the
+  // moment it was needed. The background watches via tabs.onUpdated instead, keyed
+  // on the tab id, and this record is what survives the worker being suspended in
+  // between (the whole point of US-1874's storage.session).
+  //
+  // Deliberately NOT a job: the job is over (its result was reported). Reviving it
+  // would re-open a settled promise. This is a separate, later observation.
+  var WATCH_TTL_MS = 30 * 60 * 1000;
+
+  function makeWatch(o) {
+    var now = typeof o.now === "number" ? o.now : 0;
+    return {
+      tabId: typeof o.tabId === "number" ? o.tabId : null,
+      saasTabId: typeof o.saasTabId === "number" ? o.saasTabId : null,
+      clientRef: typeof o.clientRef === "string" ? o.clientRef.slice(0, 64) : null,
+      platform: String(o.platform || ""),
+      itemId: typeof o.itemId === "string" ? o.itemId : null,
+      createdAt: now,
+      // 30 minutes: long enough for a seller to write a description and pick a
+      // category, short enough that a tab reused for something else hours later
+      // can't have an unrelated listing captured against this item.
+      expiresAt: now + WATCH_TTL_MS,
+    };
+  }
+
+  function putWatch(watches, watch) {
+    var next = Object.assign({}, watches);
+    next[String(watch.tabId)] = watch;
+    return next;
+  }
+
+  function findWatch(watches, tabId, now) {
+    var w = watches && watches[String(tabId)];
+    if (!w) return null;
+    // An expired watch is not a match — returning it would capture whatever the
+    // seller happened to browse to later.
+    if (typeof now === "number" && w.expiresAt <= now) return null;
+    return w;
+  }
+
+  function removeWatch(watches, tabId) {
+    var next = Object.assign({}, watches);
+    delete next[String(tabId)];
+    return next;
+  }
+
+  function sweepWatches(watches, now) {
+    var next = {};
+    Object.keys(watches || {}).forEach(function (k) {
+      if (watches[k] && watches[k].expiresAt > now) next[k] = watches[k];
+    });
+    return next;
+  }
+
   root.GT_LISTER_JOBS = {
+    WATCH_TTL_MS: WATCH_TTL_MS,
+    makeWatch: makeWatch,
+    putWatch: putWatch,
+    findWatch: findWatch,
+    removeWatch: removeWatch,
+    sweepWatches: sweepWatches,
     lastJobRecord: lastJobRecord,
     JOB_TIMEOUT_MS: JOB_TIMEOUT_MS,
     LOGIN_WALL_GRACE_MS: LOGIN_WALL_GRACE_MS,

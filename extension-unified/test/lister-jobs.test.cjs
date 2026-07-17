@@ -207,3 +207,56 @@ function job(over) {
 }
 
 console.log("lister-jobs: all assertions passed");
+
+// ── US-1877 (AC1): the post-fill watch ─────────────────────────────────────
+//
+// A fill ends when the form is prefilled; the seller submits MINUTES later, and
+// only then does the marketplace navigate to the live listing. That capture is what
+// promotes the row from draft to active — so the watch has to outlive both the fill
+// AND the worker, which is why it is a persisted record rather than a timer.
+{
+  const W0 = 5_000_000;
+  const watch = J.makeWatch({
+    tabId: 7,
+    saasTabId: 99,
+    clientRef: "ref-1",
+    platform: "poshmark",
+    itemId: "item-1",
+    now: W0,
+  });
+
+  assert.strictEqual(watch.expiresAt, W0 + J.WATCH_TTL_MS, "the watch is bounded");
+  assert.strictEqual(watch.saasTabId, 99, "it remembers where to report");
+
+  let ws = J.putWatch({}, watch);
+  assert.strictEqual(J.findWatch(ws, 7, W0 + 1000).itemId, "item-1", "found while live");
+  assert.strictEqual(J.findWatch(ws, 8, W0 + 1000), null, "another tab has no watch");
+
+  // THE POINT of the expiry: a tab the seller abandoned and reused hours later must
+  // not have an unrelated listing captured against this item.
+  assert.strictEqual(
+    J.findWatch(ws, 7, W0 + J.WATCH_TTL_MS),
+    null,
+    "an expired watch must never match — it would capture whatever they browsed to next",
+  );
+
+  // Survives the worker dying mid-wait (the whole reason it is in storage.session).
+  const roundTripped = JSON.parse(JSON.stringify(ws));
+  assert.strictEqual(
+    J.findWatch(roundTripped, 7, W0 + 1000).itemId,
+    "item-1",
+    "a watch survives a storage round-trip (worker death) and still captures",
+  );
+
+  ws = J.removeWatch(ws, 7);
+  assert.strictEqual(J.findWatch(ws, 7, W0 + 1000), null, "removed after capture");
+
+  // The sweep drops expired watches so storage.session can't grow unbounded.
+  const mixed = J.putWatch(
+    J.putWatch({}, watch),
+    J.makeWatch({ tabId: 9, saasTabId: 99, platform: "grailed", now: W0 + J.WATCH_TTL_MS }),
+  );
+  const swept = J.sweepWatches(mixed, W0 + J.WATCH_TTL_MS + 1);
+  assert.strictEqual(swept["7"], undefined, "the expired watch is swept");
+  assert.ok(swept["9"], "the live one is kept");
+}

@@ -415,3 +415,50 @@ export function sendExtensionMessage<T = ExtensionResponse>(
   else p = Promise.resolve({ ok: false, error: "GradeThread extension not detected." });
   return p as unknown as Promise<T>;
 }
+
+
+// ── US-1877 (AC1): the live-listing capture ───────────────────────────────
+//
+// A fill ends when the form is prefilled. The seller submits MINUTES later, and
+// only then does the marketplace navigate to the new listing — so this cannot ride
+// the job promise, which settled long ago. It is a separate, later event: the
+// background (watching via tabs.onUpdated, which survives the full page load that
+// submitting usually triggers) pushes GT_LISTER_LISTED to the originating tab.
+//
+// Missing it is expected and fine — the seller may have closed this tab. That is
+// what the "I published it" affordance is for; this just saves them the click when
+// the tab is still open.
+
+export interface ListerListedEvent {
+  platform: string;
+  itemId: string | null;
+  listingUrl: string;
+}
+
+interface ListedPushEnvelope {
+  __gtExtPush?: boolean;
+  type?: string;
+  platform?: string;
+  itemId?: string | null;
+  listingUrl?: string;
+}
+
+/**
+ * Subscribe to live-listing captures. Returns an unsubscribe function.
+ */
+export function onListerListed(cb: (e: ListerListedEvent) => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  const handler = (event: MessageEvent) => {
+    if (event.source !== window) return;
+    const d = event.data as ListedPushEnvelope | null;
+    if (!d || d.__gtExtPush !== true || d.type !== "GT_LISTER_LISTED") return;
+    if (typeof d.listingUrl !== "string" || !d.listingUrl) return;
+    cb({
+      platform: String(d.platform ?? ""),
+      itemId: typeof d.itemId === "string" ? d.itemId : null,
+      listingUrl: d.listingUrl,
+    });
+  };
+  window.addEventListener("message", handler);
+  return () => window.removeEventListener("message", handler);
+}

@@ -44,14 +44,25 @@
   // the known push type — never arbitrary background traffic.
   if (api.runtime.onMessage && api.runtime.onMessage.addListener) {
     api.runtime.onMessage.addListener(function (msg) {
-      if (!msg || msg.type !== "GT_LISTER_JOB_UPDATE") return;
+      // US-1877 (AC1): GT_LISTER_LISTED arrives LATER than the job result — the
+      // seller submitted the form minutes after the fill and the marketplace
+      // navigated to the live listing. Relayed the same way; the page routes it by
+      // type rather than resolving the (long-settled) job promise.
+      if (!msg || (msg.type !== "GT_LISTER_JOB_UPDATE" && msg.type !== "GT_LISTER_LISTED")) {
+        return;
+      }
       try {
         window.postMessage(
           {
             __gtExtPush: true,
+            type: msg.type,
             jobId: msg.jobId,
             clientRef: msg.clientRef,
             result: msg.result,
+            // US-1877: the LISTED payload.
+            platform: msg.platform,
+            itemId: msg.itemId,
+            listingUrl: msg.listingUrl,
           },
           window.location.origin,
         );

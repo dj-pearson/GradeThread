@@ -111,3 +111,21 @@ console.log(
   `background-deps.test.cjs: manifest ⇄ importScripts in lockstep (${deps.length} deps), ` +
     `gecko id + min ${gecko.strict_min_version}, load-time guards present`,
 );
+
+// US-1877 (AC1): the live-listing capture watches from the BACKGROUND, via
+// tabs.onUpdated — NOT from the content script. Submitting the form usually does a
+// full page load, which tears the content script down and re-injects it with no
+// memory of having filled anything, so an in-page watch would die exactly when it
+// is needed. Pinned here because "move it into the content script, it's simpler"
+// looks reasonable and silently breaks the common case.
+assert.ok(
+  /ext\.tabs\.onUpdated/.test(bg),
+  "background.js must watch tabs.onUpdated for the live listing URL (US-1877 AC1) — " +
+    "an in-page watch does not survive the page load that submitting triggers",
+);
+assert.ok(
+  /isLiveListingUrl/.test(bg),
+  "the capture must go through the GT_LISTER_GUARD.isLiveListingUrl host+path check — " +
+    "a false capture records a wrong URL and flips the row to ACTIVE, which is the " +
+    "phantom-listing bug US-1877 exists to remove",
+);

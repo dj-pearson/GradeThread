@@ -30,6 +30,10 @@ const GT_LISTER_SELECTORS = {
     // password input is the universal tell (checked in isLoginWall); these narrow
     // it for the SPA case where the URL changes but the form renders in place.
     login: { urlPattern: "poshmark\.com/(login|signup)" },
+    // US-1877 (AC1): what a LIVE listing's URL looks like once the seller submits.
+    // Anchored on the path so the create-listing page we opened can never match
+    // itself — a false capture would record the form URL as the live listing.
+    liveListingUrlPattern: "^https://[^/]*poshmark\.(com|ca)/listing/[^/]+",
     // The form is considered "present" only if every required selector resolves.
     required: ["title", "description", "submit"],
     fields: {
@@ -82,6 +86,7 @@ const GT_LISTER_SELECTORS = {
     newListingUrl: "https://www.mercari.com/sell/",
     hosts: ["mercari.com"],
     login: { urlPattern: "mercari\.com/(signin|login|signup)" },
+    liveListingUrlPattern: "^https://[^/]*mercari\.com/(us/)?item/[^/]+",
     required: ["title", "description", "price", "submit"],
     fields: {
       title: 'input[name="name"], input[data-testid="Name"]',
@@ -115,6 +120,7 @@ const GT_LISTER_SELECTORS = {
     newListingUrl: "https://www.grailed.com/sell/",
     hosts: ["grailed.com"],
     login: { urlPattern: "grailed\.com/(users/sign_in|login|signup)" },
+    liveListingUrlPattern: "^https://[^/]*grailed\.com/listings/[^/]+",
     required: ["title", "description", "price", "submit"],
     fields: {
       title: 'input[name="title"], input#title',

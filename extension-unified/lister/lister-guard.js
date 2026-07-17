@@ -73,6 +73,36 @@
     });
   }
 
+  // US-1877 (AC1): is this URL a LIVE listing on `platform`?
+  //
+  // Used to detect that the seller actually submitted the form we prefilled — the
+  // marketplace navigates the tab to the new listing. Getting this wrong is not
+  // cosmetic: a false positive records a URL as a live cross-listing and flips the
+  // row to ACTIVE, which is the phantom-listing bug US-1877 exists to remove.
+  //
+  // So it is deliberately strict on BOTH axes:
+  //   • the HOST must match the platform's known hosts (same rule as delist), so
+  //     an outbound link to another site can never be captured; and
+  //   • the PATH must match the platform's live-listing shape, anchored, so the
+  //     create-listing page we opened cannot match itself.
+  function isLiveListingUrl(selectors, platform, url) {
+    if (typeof url !== "string" || !/^https:\/\//.test(url)) return false;
+    const cfg = selectors && selectors[platform];
+    const pattern = cfg && cfg.liveListingUrlPattern;
+    if (!pattern) return false;
+    const host = hostOf(url);
+    if (!host) return false;
+    const hosts = (cfg && cfg.hosts) || [];
+    if (!hosts.some(function (h) { return hostMatches(host, h); })) return false;
+    try {
+      return new RegExp(pattern, "i").test(url);
+    } catch (_e) {
+      // A malformed remote pattern must never capture — failing closed here means
+      // the seller falls back to "I published it", not a wrong URL on their row.
+      return false;
+    }
+  }
+
   root.GT_LISTER_GUARD = {
     hostOf: hostOf,
     hostMatches: hostMatches,
@@ -80,5 +110,6 @@
     isOriginAllowed: isOriginAllowed,
     newListingUrlFor: newListingUrlFor,
     isAllowedDelistUrl: isAllowedDelistUrl,
+    isLiveListingUrl: isLiveListingUrl,
   };
 })(typeof self !== "undefined" ? self : globalThis);
