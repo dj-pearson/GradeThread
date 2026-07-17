@@ -322,9 +322,13 @@ function PlatformPanel({
         );
         return;
       }
+      // US-1877 (AC4): say what actually happened to the photos. This used to be a
+      // binary, and photosAttached was true when ANY photo landed — so a 6-of-8
+      // attach read as a clean success and the seller published a listing missing
+      // two photos without ever being told.
       toast.success(
         `${spec.label} prefilled in a new tab — review and submit.` +
-          (res.photosAttached ? "" : " Drag your downloaded photos in."),
+          photoNote(res),
       );
       void qc.invalidateQueries({ queryKey: ["platform-fields", itemId] });
     } catch (err) {
@@ -469,6 +473,28 @@ function PlatformPanel({
       </div>
     </div>
   );
+}
+
+// US-1877 (AC4): what to tell the seller about the photos.
+//
+// The extension now reports { attached, failed, total } instead of a boolean that
+// was true if ANY photo landed. A partial attach is the case that matters: the
+// seller is about to publish, and "6 of 8" is the difference between them fixing it
+// now and a buyer finding out later.
+export function photoNote(res: {
+  photosAttached?: boolean;
+  photosTotal?: number;
+  photosFailed?: number;
+}): string {
+  const total = res.photosTotal ?? 0;
+  const failed = res.photosFailed ?? 0;
+  // Nothing to attach (no file input, or no photos on the item) — not a problem to
+  // report. Falls back to the old boolean for an extension that predates the counts.
+  if (total === 0) return res.photosAttached ? "" : " Drag your downloaded photos in.";
+  if (failed === 0) return "";
+  const attached = total - failed;
+  if (attached === 0) return " Photos didn't attach — drag your downloaded photos in.";
+  return ` Attached ${attached} of ${total} photos — drag the rest in.`;
 }
 
 export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: string }) {

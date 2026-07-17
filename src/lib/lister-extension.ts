@@ -57,7 +57,12 @@ export interface ListerPayload {
 export interface ListerResult {
   ok: boolean;
   filled?: boolean;
+  /** True only when EVERY photo landed — see photosTotal/photosFailed (US-1877). */
   photosAttached?: boolean;
+  /** US-1877 (AC4): how many photos the fill tried to attach, and how many failed.
+   *  A partial attach must read as "6 of 8", never as success. */
+  photosTotal?: number;
+  photosFailed?: number;
   listingUrl?: string | null;
   manual?: boolean;
   needsConsent?: boolean;

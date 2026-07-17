@@ -112,30 +112,73 @@
     return GT.setValue(el, String(value));
   };
 
-  // Best-effort: download the (public, EXIF-stripped) item photos and inject
-  // them into the form's file input via a DataTransfer. Marketplaces often
-  // reject programmatic file drops; on any failure we resolve false so the flow
-  // tells the user to drag the exported zip in manually.
+  // Best-effort: download the (public, EXIF-stripped) item photos and inject them
+  // into the form's file input via a DataTransfer. Marketplaces often reject
+  // programmatic file drops, so the flow tells the user to drag the exported zip
+  // in when photos don't land.
+  //
+  // US-1877 (AC4): report what ACTUALLY attached — { attached, failed, total }.
+  //
+  // This used to return a bare boolean, true if ANY photo made it. So 6 of 8 was
+  // reported as success: the seller was told the photos were attached, published a
+  // listing missing two of them, and only found out from a buyer. The two failures
+  // were also invisible — a non-ok fetch was `continue`d silently.
+  //
+  // The per-fetch timeout is the other half. There was none, so one hung photo
+  // request stalled the whole fill indefinitely — and since US-1874 the job's alarm
+  // eventually kills it, turning "one slow photo" into "the cross-post timed out"
+  // with no clue why.
+  var PHOTO_FETCH_TIMEOUT_MS = 15000;
+
+  function fetchWithTimeout(url, timeoutMs) {
+    // AbortController rather than Promise.race: race leaves the real request
+    // running, so a stalled photo would keep its connection (and the marketplace's
+    // rate limit) busy for the rest of the fill.
+    var ctrl = new AbortController();
+    var timer = setTimeout(function () { ctrl.abort(); }, timeoutMs);
+    return fetch(url, { credentials: "omit", signal: ctrl.signal })
+      .finally(function () { clearTimeout(timer); });
+  }
+
   GT.attachPhotos = async function (fileInputSelector, photoUrls, max) {
+    const urls = Array.isArray(photoUrls)
+      ? photoUrls.slice(0, max || photoUrls.length)
+      : [];
+    const result = { attached: 0, failed: 0, total: urls.length };
     try {
       const input = document.querySelector(fileInputSelector);
-      if (!input || !Array.isArray(photoUrls) || photoUrls.length === 0) return false;
-      const dt = new DataTransfer();
-      const urls = photoUrls.slice(0, max || photoUrls.length);
-      for (let i = 0; i < urls.length; i++) {
-        const res = await fetch(urls[i], { credentials: "omit" });
-        if (!res.ok) continue;
-        const blob = await res.blob();
-        const ext = (blob.type.split("/")[1] || "jpg").replace("jpeg", "jpg");
-        const name = String(i + 1).padStart(2, "0") + "." + ext;
-        dt.items.add(new File([blob], name, { type: blob.type || "image/jpeg" }));
+      if (!input || urls.length === 0) {
+        // No input (or nothing to attach) is not a partial failure — there was
+        // nothing to do. Reporting failed:N here would nag about a non-problem.
+        result.total = 0;
+        return result;
       }
-      if (dt.files.length === 0) return false;
+      const dt = new DataTransfer();
+      for (let i = 0; i < urls.length; i++) {
+        try {
+          const res = await fetchWithTimeout(urls[i], PHOTO_FETCH_TIMEOUT_MS);
+          if (!res.ok) {
+            result.failed += 1;
+            continue;
+          }
+          const blob = await res.blob();
+          const ext = (blob.type.split("/")[1] || "jpg").replace("jpeg", "jpg");
+          const name = String(i + 1).padStart(2, "0") + "." + ext;
+          dt.items.add(new File([blob], name, { type: blob.type || "image/jpeg" }));
+          result.attached += 1;
+        } catch (_e) {
+          // Timeout or network error on THIS photo only — keep going. One bad
+          // photo must not cost the seller the other seven.
+          result.failed += 1;
+        }
+      }
+      if (dt.files.length === 0) return result;
       Object.defineProperty(input, "files", { value: dt.files, configurable: true });
       input.dispatchEvent(new Event("change", { bubbles: true }));
-      return true;
+      return result;
     } catch (_e) {
-      return false;
+      // The marketplace rejected the programmatic drop outright — nothing landed.
+      return { attached: 0, failed: urls.length, total: urls.length };
     }
   };
 
@@ -222,12 +265,16 @@
       GT.fill(f.originalPrice, payload.originalPrice);
     }
 
-    const photosAttached = f.photoInput
+    // US-1877 (AC4): carry the real counts, not a boolean. photosAttached stays for
+    // the existing consumers, but it is now only true when EVERY photo landed —
+    // "some of them" must never read as "attached".
+    const photos = f.photoInput
       ? await GT.attachPhotos(f.photoInput, payload.photoUrls, payload.maxPhotos)
-      : false;
+      : { attached: 0, failed: 0, total: 0 };
+    const photosAttached = photos.total > 0 && photos.failed === 0;
 
     GT.log("filled " + payload.platform + " form (photos " +
-      (photosAttached ? "attached" : "manual") + ")");
+      photos.attached + "/" + photos.total + " attached)");
 
     // We deliberately do NOT auto-submit by default: category/size/condition
     // pickers vary too much to set safely, and the seller is responsible for a
@@ -237,6 +284,9 @@
       ok: true,
       filled: true,
       photosAttached: photosAttached,
+      // AC4: the counts the SaaS renders as "attached 6 of 8 — drag the rest in".
+      photosTotal: photos.total,
+      photosFailed: photos.failed,
       // The listing URL only exists after the seller submits; the SaaS records
       // the cross-listing from the "filled" signal and the seller can paste the
       // final URL later. If the platform navigates to the live listing in this
