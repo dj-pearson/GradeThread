@@ -4,6 +4,48 @@
 > The sections below for those are historical; the only NEW held migration is
 > **00443** at the top.
 
+## ⏳ PENDING: 00455_luxury_brand_knowledge.sql (US-1736 luxury brand KB, 2026-07-16)
+
+Data-only seed of the `brand_knowledge*` tables for the luxury & designer tier
+beside the three flagships already seeded (Coach 00398, Louis Vuitton 00399, Gucci
+00400, none re-touched): **Chanel, Burberry, Prada, Michael Kors, Kate Spade, Tory
+Burch**. `brand_knowledge` ×6 (Burberry/Michael Kors/Kate Spade enrich their bare
+00389 alias-only rows; Chanel, Prada and Tory Burch are new); `brand_styles` ×27
+(the Chanel chain/lock separators, Burberry's three same-fabric trenches + the
+pre-2016 tier label, Prada's Re-Nylon/Saffiano/Linea Rossa, and the American
+brands' LINE labels — which are the price on those three); `brand_style_codes` ×1
+(**Kate Spade only** — its 4-letter-prefix PXRU/WKRU style number is the group's
+only regular, brand-unique, garment-printed code); `brand_colorways` ×9 (only
+STABLE proprietary names — Burberry's checks, Prada's Italian color words, Tory
+Red; Chanel/Kate Spade colors are seasonal and deliberately absent);
+`brand_size_charts` ×12, all mirrored into the `sizing-charts.ts` in-code
+fallback. Every fact carries `source_url` + `confidence` and lands `verified=false`
+for the US-1715 admin queue. Idempotent (`on conflict do nothing` / `do update`).
+Apply after 00454 via `scripts/apply-prod-migrations.sh`, `NOTIFY pgrst, 'reload
+schema';`, redeploy the edge (boot guard now expects **00455**). Bumps
+`EXPECTED_SCHEMA_VERSION` → **00455**.
+
+**All INSERTs — no UPDATE of an existing row** (contrast 00453, which had to narrow
+the shared outerwear chart). No shared-chart narrowing is needed: no existing
+chart's `brand_match` claims any of these six brands, and the three luxury
+flagships carry no charts at all, so they still fall through to the generics.
+Asserted in `luxury-content_test.ts`.
+
+**CHANEL IS DELIBERATELY DECODER-LESS** and this is the one judgement call worth
+re-reading before verifying: the interior serial sticker is tag-printed and
+regular, and LV's informational date code (00399) is the obvious precedent — but
+LV's is `2 letters + 4 digits` while Chanel's is a BARE 7-8 DIGIT RUN. A decoder
+over an ordinary digit run would mint a Chanel (the KB's most expensive false
+positive) from any tag carrying 8 digits — the Lee "101" mistake with a far wider
+blast radius. The serial's real content (digit count → era) is seeded as
+`tag_eras` + an authentication tell instead. Locked in by a no-false-recovery
+golden case.
+
+**Risk: LOW** — data-only into deny-all global-reference tables; no schema change.
+**No CLIENT read** — edge resolver only (`brand-knowledge.ts` + the
+`sizing-charts.ts` in-code fallback this commit also extends), so the Cloudflare
+auto-deploy on push cannot break on it.
+
 ## ⏳ PENDING: 00454_denim_brand_knowledge.sql (US-1735 denim brand KB, 2026-07-16)
 
 Data-only seed of the `brand_knowledge*` tables for the premium & vintage denim

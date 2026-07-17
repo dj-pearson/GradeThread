@@ -136,6 +136,24 @@ const TRUE_RELIGION_STYLE_NAME_DECODER: BrandDecoder = {
   examples: [],
 };
 
+// US-1736: the Kate Spade style_number decoder EXACTLY as migration 00455 seeds
+// it. It is the LUXURY group's ONLY decoder, and the 4-letter family prefix is
+// precisely what makes it safe: the digits alone would be an ordinary number.
+// Fixturing the shipped spec means a bad pattern in the migration fails here
+// rather than in production.
+const KATE_SPADE_STYLE_NUMBER_DECODER: BrandDecoder = {
+  decoderKind: "style_number",
+  description:
+    "Kate Spade tag-printed style number: a 4-letter family prefix + 4 digits (e.g. PXRU5228, WKRU2673). Identifies the STYLE FAMILY only — it does not encode size, colorway or tier, and it does not authenticate.",
+  pattern: "^(?<style>(?:PXRU|WKRU|PXRC|WKRC)[0-9]{4})$",
+  extractionRules: {
+    fieldMap: { style: "styleCode" },
+    transforms: { style: "upper" },
+    confidence: 0.55,
+  },
+  examples: [],
+};
+
 function style(styleName: string): BrandStyleKnowledge {
   return {
     styleName,
@@ -895,6 +913,172 @@ const CASES: GoldenCase[] = [
       style("Charlotte"),
     ]),
     input: decodedFrom({ styleCode: "Rocket" }),
+    expect: { noBrand: true },
+  },
+
+  // ── US-1736: luxury & designer group ──────────────────────────────────────
+  {
+    name: "Kate Spade cut brand tag — the PXRU style number recovers the brand",
+    // The luxury group's cut-tag case. The 4-letter family prefix is what makes
+    // this safe to anchor on, and it is the group's only decoder.
+    brand: "Kate Spade",
+    pack: pack("Kate Spade", "katespade", [], [KATE_SPADE_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "PXRU5228" }), // no AI brand
+    expect: { brand: "Kate Spade", recovery: true },
+  },
+  {
+    name: "Kate Spade WKRU family also recovers the brand off a cut tag",
+    brand: "Kate Spade",
+    pack: pack("Kate Spade", "katespade", [], [KATE_SPADE_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "WKRU2673" }),
+    expect: { brand: "Kate Spade", recovery: true },
+  },
+  {
+    name: "Kate Spade bare digits — no false-positive recovery",
+    // The prefix is the whole safety margin: "5228" is an ordinary number and
+    // must never mint a brand.
+    brand: "Kate Spade",
+    pack: pack("Kate Spade", "katespade", [], [KATE_SPADE_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "5228" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Chanel 8-digit serial — no false-positive brand recovery (no decoder)",
+    // 00455 deliberately seeds NO Chanel decoder even though the interior serial
+    // sticker IS tag-printed and regular — a bare 7-8 digit run is an ordinary
+    // number, so a pattern over it would recover CHANEL, the most expensive false
+    // positive in the KB, from any tag that happened to carry 8 digits. This is
+    // the Lee "101" rule (00454) applied to the group's closest call, and this
+    // case is what locks the decision in.
+    brand: "Chanel",
+    pack: pack("Chanel", "chanel", [style("Classic Flap"), style("2.55 Reissue")]),
+    input: decodedFrom({ styleCode: "12345678" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Chanel ambiguous flaps (Classic Flap vs 2.55 Reissue) — never guess",
+    // The two are constantly conflated and priced differently; with only the
+    // brand and no chain/lock evidence the resolver must not pick one.
+    brand: "Chanel",
+    pack: pack("Chanel", "chanel", [style("Classic Flap"), style("2.55 Reissue")]),
+    input: decodedFrom({ brand: "Chanel" }),
+    expect: { brand: "Chanel", noStyle: true },
+  },
+  {
+    name: "Burberry single known style fills the style the AI missed",
+    brand: "Burberry",
+    pack: pack("Burberry", "burberry", [style("Kensington Trench")]),
+    input: decodedFrom({ brand: "Burberry" }),
+    expect: { brand: "Burberry", style: "Kensington Trench" },
+  },
+  {
+    name: "Burberry ambiguous trenches (Kensington vs Chelsea vs Westminster) — never guess",
+    // All three are the same gabardine coat in three cuts. The fit name is on the
+    // tag; with the tag gone there is nothing to pick between them.
+    brand: "Burberry",
+    pack: pack("Burberry", "burberry", [
+      style("Kensington Trench"),
+      style("Chelsea Trench"),
+      style("Westminster Trench"),
+    ]),
+    input: decodedFrom({ brand: "Burberry" }),
+    expect: { brand: "Burberry", noStyle: true },
+  },
+  {
+    name: "Burberry trench fit name — no false-positive brand recovery (no decoder)",
+    brand: "Burberry",
+    pack: pack("Burberry", "burberry", [
+      style("Kensington Trench"),
+      style("Chelsea Trench"),
+    ]),
+    input: decodedFrom({ styleCode: "Kensington" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Prada single known line fills the style the AI missed",
+    brand: "Prada",
+    pack: pack("Prada", "prada", [style("Re-Nylon")]),
+    input: decodedFrom({ brand: "Prada" }),
+    expect: { brand: "Prada", style: "Re-Nylon" },
+  },
+  {
+    name: "Prada ambiguous lines (Saffiano vs Galleria) — never guess",
+    brand: "Prada",
+    pack: pack("Prada", "prada", [style("Saffiano"), style("Galleria")]),
+    input: decodedFrom({ brand: "Prada" }),
+    expect: { brand: "Prada", noStyle: true },
+  },
+  {
+    name: "Prada 'Saffiano' — no false-positive brand recovery (it is a FINISH, not a brand)",
+    // The group's cross-brand trap, locked in: Saffiano is an industry-wide
+    // finish that Michael Kors also uses, so a Saffiano token must never mint
+    // Prada. 00455 seeds no Prada decoder for exactly this reason.
+    brand: "Prada",
+    pack: pack("Prada", "prada", [style("Saffiano"), style("Re-Nylon")]),
+    input: decodedFrom({ styleCode: "Saffiano" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Michael Kors single known line fills the style the AI missed",
+    brand: "Michael Kors",
+    pack: pack("Michael Kors", "michaelkors", [style("Jet Set")]),
+    input: decodedFrom({ brand: "Michael Kors" }),
+    expect: { brand: "Michael Kors", style: "Jet Set" },
+  },
+  {
+    name: "Michael Kors ambiguous tiers (Collection vs MICHAEL) — never guess",
+    // The tier is the price on this brand, so guessing it is the expensive error.
+    // Both labels print their own name; with no tag there is nothing to read.
+    brand: "Michael Kors",
+    pack: pack("Michael Kors", "michaelkors", [
+      style("Michael Kors Collection"),
+      style("MICHAEL Michael Kors"),
+    ]),
+    input: decodedFrom({ brand: "Michael Kors" }),
+    expect: { brand: "Michael Kors", noStyle: true },
+  },
+  {
+    name: "Michael Kors line name — no false-positive brand recovery (no decoder)",
+    brand: "Michael Kors",
+    pack: pack("Michael Kors", "michaelkors", [
+      style("Jet Set"),
+      style("MK Signature"),
+    ]),
+    input: decodedFrom({ styleCode: "Jet Set" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Kate Spade ambiguous tiers (mainline vs outlet) — never guess",
+    brand: "Kate Spade",
+    pack: pack("Kate Spade", "katespade", [
+      style("kate spade new york"),
+      style("Kate Spade Outlet"),
+    ], [KATE_SPADE_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ brand: "Kate Spade" }),
+    expect: { brand: "Kate Spade", noStyle: true },
+  },
+  {
+    name: "Tory Burch single known style fills the style the AI missed",
+    brand: "Tory Burch",
+    pack: pack("Tory Burch", "toryburch", [style("Reva Ballet Flat")]),
+    input: decodedFrom({ brand: "Tory Burch" }),
+    expect: { brand: "Tory Burch", style: "Reva Ballet Flat" },
+  },
+  {
+    name: "Tory Burch ambiguous medallion shoes (Reva vs Miller) — never guess",
+    brand: "Tory Burch",
+    pack: pack("Tory Burch", "toryburch", [
+      style("Reva Ballet Flat"),
+      style("Miller Sandal"),
+    ]),
+    input: decodedFrom({ brand: "Tory Burch" }),
+    expect: { brand: "Tory Burch", noStyle: true },
+  },
+  {
+    name: "Tory Burch style name — no false-positive brand recovery (no decoder)",
+    brand: "Tory Burch",
+    pack: pack("Tory Burch", "toryburch", [style("Reva Ballet Flat"), style("Robinson")]),
+    input: decodedFrom({ styleCode: "Reva" }),
     expect: { noBrand: true },
   },
 ];

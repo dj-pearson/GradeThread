@@ -1015,6 +1015,14 @@ memory — not a progress log (the harness records progress separately).
   rule for decoders: seed `brand_style_codes` ONLY for a code that is both
   tag-printed and regular (of US-1733's six, only Under Armour qualifies); a
   web/catalog SKU is an informational tell, never a decoder.
+- Tag-printed + regular is NOT sufficient for a decoder — the FORMAT must also be
+  brand-unique, and the older luxury rows mislead on this. 00399 seeds an
+  informational LV `date_code`, which reads as a licence to decode any serial;
+  it survives only because `SD1160` (2 letters + 4 digits) is distinctive. A bare
+  digit run is an ordinary number, so Chanel's 7-8 digit serial is deliberately
+  decoder-less (US-1736) — a pattern over it mints the KB's costliest false
+  positive from any tag with 8 digits. Same rule as Lee's "101"; put the era fact
+  in `tag_eras`/`authentication_tells` instead, which is where it belongs anyway.
 - `canonicalizeBrand` returns `string | null` (NOT an object) — assert
   `canonicalizeBrand("x") === "Brand"`; `isKnownBrand` is what separates a
   curated entry from a passthrough.

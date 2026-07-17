@@ -1229,6 +1229,273 @@ export const SIZING_CHARTS: SizingChart[] = [
       { size: "XXL", measurements: { chest: "50-53" } },
     ],
   },
+  // US-1736: luxury & designer group. Mirrors migration 00455's brand_size_charts
+  // seed. The group's whole point is that THREE national sizing systems are in
+  // play and the same number means different sizes in each — a "42" is US 10 on a
+  // Chanel FR tag but US 6 on a Prada IT tag. So every European chart carries its
+  // US equivalent INSIDE the size label, where the model actually reads it, and
+  // the three American brands say "US sizing" for the contrast.
+  //
+  // NOTE the short-token hazard (the US-1735 lesson): brandMatch is a SUBSTRING
+  // test, so "mk" and "tory" are deliberately NOT here — they are exact-key
+  // BRAND_ALIASES entries only, and these charts are reached via the canonical.
+  {
+    brand: "Chanel",
+    brandMatch: ["chanel"],
+    department: "Women",
+    garment: "Jackets & tweed (FR sizing)",
+    categoryMatch: ["jacket", "blazer", "coat", "tweed", "outerwear"],
+    note:
+      "Chanel is FRENCH sizing: the tag number is FR, and FR = US + 32 (FR 42 = " +
+      "US 10). DO NOT read it as Italian — a 42 on a PRADA tag is IT 42 = US 6, " +
+      "two sizes away. These are BODY measurements for the nominal FR grade, not " +
+      "Chanel-published garment specs. Chanel RTW runs SMALL against this map: it " +
+      "does not use US vanity sizing, so a US 6 body frequently needs FR 40. " +
+      "Measure the garment flat and treat the tag as a claim to check.",
+    rows: [
+      { size: "FR 34 (US 2)", measurements: { bust: "33-34", waist: "25-26" } },
+      { size: "FR 36 (US 4)", measurements: { bust: "34-35", waist: "26-27" } },
+      { size: "FR 38 (US 6)", measurements: { bust: "35.5-36.5", waist: "27.5-28.5" } },
+      { size: "FR 40 (US 8)", measurements: { bust: "37-38", waist: "29-30" } },
+      { size: "FR 42 (US 10)", measurements: { bust: "38.5-39.5", waist: "30.5-31.5" } },
+      { size: "FR 44 (US 12)", measurements: { bust: "40-41", waist: "32-33" } },
+    ],
+  },
+  {
+    brand: "Chanel",
+    brandMatch: ["chanel"],
+    department: "Women",
+    garment: "Dresses & tops (FR sizing)",
+    categoryMatch: ["dress", "top", "blouse", "skirt", "shirt", "knit", "sweater"],
+    note:
+      "Chanel is FRENCH sizing (FR = US + 32; FR 42 = US 10). These are BODY " +
+      "measurements for the nominal FR grade, not Chanel-published garment specs. " +
+      "Chanel RTW runs SMALL against this map — no US vanity sizing. Measure the " +
+      "garment flat and treat the tag as a claim to check.",
+    rows: [
+      { size: "FR 34 (US 2)", measurements: { bust: "33-34", waist: "25-26", hip: "35.5-36.5" } },
+      { size: "FR 36 (US 4)", measurements: { bust: "34-35", waist: "26-27", hip: "36.5-37.5" } },
+      { size: "FR 38 (US 6)", measurements: { bust: "35.5-36.5", waist: "27.5-28.5", hip: "38-39" } },
+      { size: "FR 40 (US 8)", measurements: { bust: "37-38", waist: "29-30", hip: "39.5-40.5" } },
+      { size: "FR 42 (US 10)", measurements: { bust: "38.5-39.5", waist: "30.5-31.5", hip: "41-42" } },
+      { size: "FR 44 (US 12)", measurements: { bust: "40-41", waist: "32-33", hip: "42.5-43.5" } },
+    ],
+  },
+  {
+    brand: "Burberry",
+    // "burberrys" (the pre-1999 label) CONTAINS "burberry", so the substring
+    // match covers both spellings without a second token.
+    brandMatch: ["burberry"],
+    department: "Women",
+    garment: "Trench & outerwear (UK sizing)",
+    categoryMatch: ["trench", "coat", "jacket", "outerwear", "blazer"],
+    note:
+      "Burberry womenswear is UK sizing: UK = US + 4 (UK 12 = US 8). A UK 12 " +
+      "trench is NOT a US 12 — mislabeling it costs two sizes. These are BODY " +
+      "measurements for the nominal UK grade, not Burberry-published garment " +
+      "specs, and Burberry runs SMALL against the cross-map. Measure the coat " +
+      "flat (chest across the underarm seam, doubled).",
+    rows: [
+      { size: "UK 6 (US 2)", measurements: { bust: "33-34", waist: "25-26", hip: "35.5-36.5" } },
+      { size: "UK 8 (US 4)", measurements: { bust: "34-35", waist: "26-27", hip: "36.5-37.5" } },
+      { size: "UK 10 (US 6)", measurements: { bust: "35.5-36.5", waist: "27.5-28.5", hip: "38-39" } },
+      { size: "UK 12 (US 8)", measurements: { bust: "37-38", waist: "29-30", hip: "39.5-40.5" } },
+      { size: "UK 14 (US 10)", measurements: { bust: "38.5-39.5", waist: "30.5-31.5", hip: "41-42" } },
+      { size: "UK 16 (US 12)", measurements: { bust: "40-41", waist: "32-33", hip: "42.5-43.5" } },
+    ],
+  },
+  {
+    brand: "Burberry",
+    brandMatch: ["burberry"],
+    department: "Men",
+    garment: "Tailoring & outerwear (IT sizing)",
+    categoryMatch: ["trench", "coat", "jacket", "blazer", "suit", "outerwear", "shirt"],
+    note:
+      "Burberry menswear tailoring is ITALIAN numeric: IT = US + 10 on the chest " +
+      "(IT 50 = US 40). Note this is a DIFFERENT system from the same brand's " +
+      "womenswear, which is UK. These are BODY chest measurements for the nominal " +
+      "IT grade, not Burberry-published garment specs, and it runs SMALL against " +
+      "the cross-map. Measure the chest across the underarm seam and double it.",
+    rows: [
+      { size: "IT 46 (US 36)", measurements: { chest: "36-37" } },
+      { size: "IT 48 (US 38)", measurements: { chest: "38-39" } },
+      { size: "IT 50 (US 40)", measurements: { chest: "40-41" } },
+      { size: "IT 52 (US 42)", measurements: { chest: "42-43" } },
+      { size: "IT 54 (US 44)", measurements: { chest: "44-45" } },
+      { size: "IT 56 (US 46)", measurements: { chest: "46-47" } },
+    ],
+  },
+  {
+    brand: "Prada",
+    brandMatch: ["prada"],
+    department: "Women",
+    garment: "Ready-to-wear (IT sizing)",
+    categoryMatch: ["dress", "top", "blouse", "skirt", "jacket", "coat", "knit", "shirt", "sweater"],
+    note:
+      "Prada is ITALIAN sizing: IT = US + 36 on womenswear (IT 42 = US 6). DO NOT " +
+      "read it as French — a 42 on a CHANEL tag is FR 42 = US 10, two sizes " +
+      "larger. This collision is the most expensive mistake in this brand group. " +
+      "These are BODY measurements for the nominal IT grade, not Prada-published " +
+      "garment specs. Prada RTW runs SMALL against this map — no US vanity " +
+      "sizing. Measure the garment flat and treat the tag as a claim to check.",
+    rows: [
+      { size: "IT 38 (US 2)", measurements: { bust: "33-34", waist: "25-26", hip: "35.5-36.5" } },
+      { size: "IT 40 (US 4)", measurements: { bust: "34-35", waist: "26-27", hip: "36.5-37.5" } },
+      { size: "IT 42 (US 6)", measurements: { bust: "35.5-36.5", waist: "27.5-28.5", hip: "38-39" } },
+      { size: "IT 44 (US 8)", measurements: { bust: "37-38", waist: "29-30", hip: "39.5-40.5" } },
+      { size: "IT 46 (US 10)", measurements: { bust: "38.5-39.5", waist: "30.5-31.5", hip: "41-42" } },
+      { size: "IT 48 (US 12)", measurements: { bust: "40-41", waist: "32-33", hip: "42.5-43.5" } },
+    ],
+  },
+  {
+    brand: "Prada",
+    brandMatch: ["prada"],
+    department: "Men",
+    garment: "Ready-to-wear (IT sizing)",
+    categoryMatch: ["jacket", "coat", "blazer", "suit", "shirt", "knit", "sweater", "top"],
+    note:
+      "Prada menswear is ITALIAN numeric: IT = US + 10 on the chest (IT 50 = US " +
+      "40). Note the menswear offset (+10) is NOT the womenswear offset (+36) — " +
+      "they are different grades of the same national system. These are BODY " +
+      "chest measurements for the nominal IT grade, not Prada-published garment " +
+      "specs, and it runs SMALL against the cross-map. Measure the chest across " +
+      "the underarm seam and double it.",
+    rows: [
+      { size: "IT 46 (US 36)", measurements: { chest: "36-37" } },
+      { size: "IT 48 (US 38)", measurements: { chest: "38-39" } },
+      { size: "IT 50 (US 40)", measurements: { chest: "40-41" } },
+      { size: "IT 52 (US 42)", measurements: { chest: "42-43" } },
+      { size: "IT 54 (US 44)", measurements: { chest: "44-45" } },
+      { size: "IT 56 (US 46)", measurements: { chest: "46-47" } },
+    ],
+  },
+  {
+    brand: "Michael Kors",
+    brandMatch: ["michael kors", "michaelkors"],
+    department: "Women",
+    garment: "Tops & dresses (US sizing)",
+    categoryMatch: ["top", "dress", "blouse", "shirt", "knit", "sweater", "jacket", "blazer"],
+    note:
+      "Michael Kors is US sizing — NOT the FR/IT/UK systems the European half of " +
+      "this brand group uses, so no cross-map applies. It runs true-to-large, the " +
+      "opposite of Chanel/Prada/Burberry. These are BODY measurements for the " +
+      "nominal US alpha grade, not MK-published garment specs. Sizing does NOT " +
+      "differ between the Collection and MICHAEL lines — the line changes the " +
+      "price, not the fit.",
+    rows: [
+      { size: "XS (US 0-2)", measurements: { bust: "32-34", waist: "24-26" } },
+      { size: "S (US 4-6)", measurements: { bust: "34-36.5", waist: "26-28.5" } },
+      { size: "M (US 8-10)", measurements: { bust: "37-39.5", waist: "29-31.5" } },
+      { size: "L (US 12-14)", measurements: { bust: "40-42.5", waist: "32-34.5" } },
+      { size: "XL (US 16)", measurements: { bust: "43-45", waist: "35-37" } },
+    ],
+  },
+  {
+    brand: "Michael Kors",
+    brandMatch: ["michael kors", "michaelkors"],
+    department: "Women",
+    garment: "Bottoms (US numeric)",
+    categoryMatch: ["bottom", "pant", "jean", "skirt", "short", "trouser", "legging"],
+    note:
+      "Michael Kors is US sizing — no national cross-map applies, unlike the " +
+      "European half of this brand group — and it runs true-to-large. These are " +
+      "BODY measurements for the nominal US numeric grade, not MK-published " +
+      "garment specs. Measure the flat waistband and double it.",
+    rows: [
+      { size: "US 0", measurements: { waist: "24-25", hip: "34.5-35.5" } },
+      { size: "US 2", measurements: { waist: "25-26", hip: "35.5-36.5" } },
+      { size: "US 4", measurements: { waist: "26-27", hip: "36.5-37.5" } },
+      { size: "US 6", measurements: { waist: "27.5-28.5", hip: "38-39" } },
+      { size: "US 8", measurements: { waist: "29-30", hip: "39.5-40.5" } },
+      { size: "US 10", measurements: { waist: "30.5-31.5", hip: "41-42" } },
+      { size: "US 12", measurements: { waist: "32-33", hip: "42.5-43.5" } },
+    ],
+  },
+  {
+    brand: "Kate Spade",
+    brandMatch: ["kate spade", "katespade"],
+    department: "Women",
+    garment: "Dresses (US numeric)",
+    categoryMatch: ["dress", "gown", "jumpsuit"],
+    note:
+      "Kate Spade is US sizing — no national cross-map applies, unlike the " +
+      "European half of this brand group — and it runs true-to-large. These are " +
+      "BODY measurements for the nominal US numeric grade, not Kate " +
+      "Spade-published garment specs. Mainline, outlet and the discontinued " +
+      "Saturday label share the same size grade — the LINE changes the price, not " +
+      "the fit.",
+    rows: [
+      { size: "US 0", measurements: { bust: "32-33", waist: "24-25", hip: "34.5-35.5" } },
+      { size: "US 2", measurements: { bust: "33-34", waist: "25-26", hip: "35.5-36.5" } },
+      { size: "US 4", measurements: { bust: "34-35", waist: "26-27", hip: "36.5-37.5" } },
+      { size: "US 6", measurements: { bust: "35.5-36.5", waist: "27.5-28.5", hip: "38-39" } },
+      { size: "US 8", measurements: { bust: "37-38", waist: "29-30", hip: "39.5-40.5" } },
+      { size: "US 10", measurements: { bust: "38.5-39.5", waist: "30.5-31.5", hip: "41-42" } },
+      { size: "US 12", measurements: { bust: "40-41", waist: "32-33", hip: "42.5-43.5" } },
+    ],
+  },
+  {
+    brand: "Kate Spade",
+    brandMatch: ["kate spade", "katespade"],
+    department: "Women",
+    garment: "Tops & knits (US alpha)",
+    categoryMatch: ["top", "blouse", "shirt", "knit", "sweater", "cardigan", "jacket"],
+    note:
+      "Kate Spade is US sizing — no national cross-map applies — and it runs " +
+      "true-to-large. These are BODY measurements for the nominal US alpha grade, " +
+      "not Kate Spade-published garment specs. Measure the garment flat (bust " +
+      "across the underarm seam, doubled).",
+    rows: [
+      { size: "XS (US 0-2)", measurements: { bust: "32-34", waist: "24-26" } },
+      { size: "S (US 4-6)", measurements: { bust: "34-36.5", waist: "26-28.5" } },
+      { size: "M (US 8-10)", measurements: { bust: "37-39.5", waist: "29-31.5" } },
+      { size: "L (US 12-14)", measurements: { bust: "40-42.5", waist: "32-34.5" } },
+      { size: "XL (US 16)", measurements: { bust: "43-45", waist: "35-37" } },
+    ],
+  },
+  {
+    brand: "Tory Burch",
+    brandMatch: ["tory burch", "toryburch"],
+    department: "Women",
+    garment: "Tops & dresses (US numeric)",
+    categoryMatch: ["top", "dress", "blouse", "shirt", "knit", "sweater", "jacket", "blazer", "tunic"],
+    note:
+      "Tory Burch is US sizing — no national cross-map applies, unlike the " +
+      "European half of this brand group — and it runs true-to-large. These are " +
+      "BODY measurements for the nominal US numeric grade, not Tory " +
+      "Burch-published garment specs. Measure the garment flat (bust across the " +
+      "underarm seam, doubled).",
+    rows: [
+      { size: "US 0", measurements: { bust: "32-33", waist: "24-25", hip: "34.5-35.5" } },
+      { size: "US 2", measurements: { bust: "33-34", waist: "25-26", hip: "35.5-36.5" } },
+      { size: "US 4", measurements: { bust: "34-35", waist: "26-27", hip: "36.5-37.5" } },
+      { size: "US 6", measurements: { bust: "35.5-36.5", waist: "27.5-28.5", hip: "38-39" } },
+      { size: "US 8", measurements: { bust: "37-38", waist: "29-30", hip: "39.5-40.5" } },
+      { size: "US 10", measurements: { bust: "38.5-39.5", waist: "30.5-31.5", hip: "41-42" } },
+      { size: "US 12", measurements: { bust: "40-41", waist: "32-33", hip: "42.5-43.5" } },
+    ],
+  },
+  {
+    brand: "Tory Burch",
+    brandMatch: ["tory burch", "toryburch"],
+    department: "Women",
+    garment: "Bottoms (US numeric)",
+    categoryMatch: ["bottom", "pant", "jean", "skirt", "short", "trouser", "legging"],
+    note:
+      "Tory Burch is US sizing — no national cross-map applies — and it runs " +
+      "true-to-large. These are BODY measurements for the nominal US numeric " +
+      "grade, not Tory Burch-published garment specs. Measure the flat waistband " +
+      "and double it.",
+    rows: [
+      { size: "US 0", measurements: { waist: "24-25", hip: "34.5-35.5" } },
+      { size: "US 2", measurements: { waist: "25-26", hip: "35.5-36.5" } },
+      { size: "US 4", measurements: { waist: "26-27", hip: "36.5-37.5" } },
+      { size: "US 6", measurements: { waist: "27.5-28.5", hip: "38-39" } },
+      { size: "US 8", measurements: { waist: "29-30", hip: "39.5-40.5" } },
+      { size: "US 10", measurements: { waist: "30.5-31.5", hip: "41-42" } },
+      { size: "US 12", measurements: { waist: "32-33", hip: "42.5-43.5" } },
+    ],
+  },
   {
     brand: "Generic women's alpha",
     brandMatch: [], // fallback only (selected when no brand chart matches)

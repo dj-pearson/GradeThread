@@ -150,6 +150,32 @@ const BRAND_ALIASES: Record<string, string> = {
   gucci: "Gucci",
   versace: "Versace",
   burberry: "Burberry",
+  // US-1736 (luxury & designer group). Without these, canonicalizeBrand passed
+  // the seller's own casing straight through into the prompt block and the eBay
+  // Brand aspect.
+  chanel: "Chanel",
+  cocochanel: "Chanel",
+  chanelparis: "Chanel",
+  prada: "Prada",
+  pradamilano: "Prada",
+  toryburch: "Tory Burch",
+  // "Burberrys" (with the S) is the pre-1999 label — it IS a Burberry tag, so it
+  // canonicalizes to Burberry. The spelling is a dating tell, carried as a
+  // tag_era in migration 00455, not a separate brand.
+  burberrys: "Burberry",
+  burberryslondon: "Burberry",
+  burberrysoflondon: "Burberry",
+  burberrylondon: "Burberry",
+  // The MK line hierarchy (Collection >> KORS >> MICHAEL) is a STYLE, not a
+  // brand — all three labels are the eBay brand "Michael Kors". Keeping the line
+  // out of `brand` is what lets brand_styles rank it (00455).
+  mk: "Michael Kors",
+  kors: "Michael Kors",
+  michaelmichaelkors: "Michael Kors",
+  korsmichaelkors: "Michael Kors",
+  michaelkorscollection: "Michael Kors",
+  katespadenewyork: "Kate Spade",
+  ksny: "Kate Spade",
 };
 
 /**
