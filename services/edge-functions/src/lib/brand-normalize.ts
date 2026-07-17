@@ -96,6 +96,43 @@ const BRAND_ALIASES: Record<string, string> = {
   rei: "REI Co-op",
   recreationalequipmentinc: "REI Co-op",
   mountainhardwear: "Mountain Hardwear",
+  // US-1981 luxury outerwear & down group. ALL SIX were passthrough-only — none
+  // had even a bare alias-only row from 00389 — so "moncler" rendered the seller's
+  // own casing into the prompt block and the eBay Brand aspect on the most
+  // expensive garments the KB touches.
+  //
+  // A BARE "goose" IS DELIBERATELY NOT AN ALIAS. It is an ordinary word that this
+  // product's own material text emits constantly ("goose down"), so mapping it
+  // would rebrand every down garment in the catalog to Canada Goose. Same rule as
+  // L.L.Bean's "bean" (00453) and the Anthropologie "moth" trap — an alias key is
+  // an exact WHOLE-FIELD lookup, which is safe, but the VALUES build
+  // CANONICAL_BRANDS, which detectBrandInText regex-scans over free text.
+  moncler: "Moncler",
+  monclergrenoble: "Moncler",
+  monclergenius: "Moncler",
+  monclerenfant: "Moncler",
+  canadagoose: "Canada Goose",
+  snowgoose: "Canada Goose",
+  metrosportswear: "Canada Goose",
+  mackage: "Mackage",
+  herno: "Herno",
+  hernolaminar: "Herno",
+  woolrich: "Woolrich",
+  woolrichjohnrichbros: "Woolrich",
+  woolrichjohnrichandbros: "Woolrich",
+  johnrichbros: "Woolrich",
+  woolrichwoolenmills: "Woolrich",
+  woolrichinternational: "Woolrich",
+  bogner: "Bogner",
+  willybogner: "Bogner",
+  // Fire + Ice is Bogner's diffusion LINE and it prints its own name, never the
+  // parent's — so a seller types the sub-label and nothing resolves. Folded onto
+  // the parent (the MK/house-label precedent): same price band, not an order of
+  // magnitude apart. brandKey strips the "+", so all three spellings land here.
+  fireice: "Bogner",
+  fireandice: "Bogner",
+  bognerfireice: "Bogner",
+  bognerfireandice: "Bogner",
   // Athletic / sneakers
   nike: "Nike",
   adidas: "adidas",
