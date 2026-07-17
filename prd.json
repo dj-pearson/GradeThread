@@ -2300,7 +2300,7 @@
         "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
       ],
       "priority": 2482,
-      "passes": false,
+      "passes": true,
       "notes": "[BrandKB][Brand][Group] ~8 brands. Add size markers/decoders only where they exist. Dickies and Pendleton have shallow seed rows (00389) — promote to full packs. Tag era drives vintage value.",
       "dependsOn": [
         "US-1715",
