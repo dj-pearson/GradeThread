@@ -148,3 +148,65 @@ em { font-style: italic; }
   line-height: 1.4;
   opacity: 0.85;
 }
+
+/* ── dark theme (US-1884 AC4) ──────────────────────────────────────────────
+ *
+ * The popup shipped light-only, so on a dark OS it was a 340px white flash next
+ * to the (already dark-themed) overlay.
+ *
+ * Worth being explicit about why this is NOT the browser-gated half of AC4: the
+ * risk that defers the overlay's hardening is SITE CSS BLEEDING IN, which can
+ * only be judged against real marketplace pages. The popup has no site. It is the
+ * extension's own document in its own context — nothing can bleed into it, so the
+ * only question is whether the palette is complete, which is answerable here.
+ *
+ * Every element in this file is covered below. The ones that need care are the
+ * SEMANTIC pills (status/badges/score), where the light palette is a pale tint +
+ * dark ink — inverting that naively gives unreadable low-contrast text. They get
+ * a dark tint + light ink instead, keeping the meaning (green = enabled, amber =
+ * needs attention, red = failed) rather than the literal colours.
+ */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --gray: #232338;
+    --muted: #9a9ab0;
+    --line: #2c2c44;
+  }
+  body { color: #f5f5f5; background: #16162a; }
+
+  /* Head keeps the navy brand block — it reads correctly on dark already. */
+  /* .pop-h2 uses a literal, not var(--muted), so it needs its own override;
+     everything else that reads muted picks the new value up from :root. */
+  .pop-h2 { color: #9a9ab0; }
+  .pop-lead { color: #d7d7e2; }
+
+  .pop-account { background: #1e1e32; }
+  .pop-badge.buyer { background: #1d2b4a; color: #cfe0ff; }
+  .pop-badge.seller { background: #17301f; color: #7fd39b; }
+
+  .pop-read { border-color: #2c2c44; background: #1c1c30; }
+
+  /* Pale-tint + dark-ink pills inverted to dark-tint + light-ink: a naive invert
+     would leave #137333 text on a near-black chip. */
+  .pop-status.on { background: #17301f; color: #7fd39b; }
+  .pop-status.off { background: #3a1a22; color: #ff8fa3; }
+  .pop-status.warn { background: #3a2f14; color: #f0c674; }
+
+  .pop-tos-row a { color: #9ec1ff; }
+  .pop-accepted { color: #7fd39b; }
+
+  .pop-foot a { color: #9ec1ff; }
+
+  /* US-1885's last-job block. These two already read through vars with light
+     fallbacks, so dark only has to supply the values. */
+  .pop-lastjob {
+    --pop-border: #2c2c44;
+    --pop-subtle: #1c1c30;
+  }
+
+  /* The score circles carry white text on a saturated fill in both themes, so
+     they need no override — but the fair/poor ambers are tuned for a white page
+     and go muddy on dark. */
+  .s-fair { background: #c9921c; }
+  .s-poor { background: #cf7328; }
+}
