@@ -61,7 +61,20 @@ export interface ListerResult {
   listingUrl?: string | null;
   manual?: boolean;
   needsConsent?: boolean;
+  /**
+   * US-1873 seller gate: the account isn't on a paid FlipDesk plan. The background
+   * has always returned this; the type just never admitted it.
+   */
+  needsUpgrade?: boolean;
   timedOut?: boolean;
+  /** US-1874: the marketplace tab was closed before the job could finish. */
+  tabClosed?: boolean;
+  /**
+   * US-1874: the job finished AFTER we had already reported it as timed out. The
+   * listing may well exist on the marketplace — the kit surfaces this so the seller
+   * doesn't post a duplicate.
+   */
+  late?: boolean;
   error?: string;
   version?: string;
 }
@@ -159,15 +172,106 @@ export interface ListerDelistPayload {
 export function sendDelistToLister(
   payload: ListerDelistPayload,
 ): Promise<ListerResult> {
-  return sendExtensionMessage<ListerResult>({ type: "GT_LISTER_DELIST", payload });
+  return sendListerJob<ListerResult>({ type: "GT_LISTER_DELIST", payload });
 }
 
 /** Send a payload to the extension; resolves with its result. */
 export function sendToLister(payload: ListerPayload): Promise<ListerResult> {
-  return sendExtensionMessage<ListerResult>({ type: "GT_LISTER_LIST", payload });
+  return sendListerJob<ListerResult>({ type: "GT_LISTER_LIST", payload });
 }
 
 const EXTENSION_TIMEOUT_MS = 130000;
+
+// ── US-1874: durable job-result delivery ──────────────────────────────────
+//
+// A Lister job outlives the message that started it. Chrome kills an idle MV3
+// service worker ~30s after its last event — routinely while a cold marketplace
+// tab is still loading — which closes the response port the old code relied on for
+// the ONLY copy of the result. The job kept running; its answer had nowhere to go,
+// so the promise here hung until the 130s client timeout and the cross-post looked
+// like it had silently vanished.
+//
+// So the background now ALSO pushes every job outcome to the originating
+// gradethread.com tab, which the bridge content script relays to this page as a
+// `__gtExtPush` window message tagged with the clientRef we minted. We listen for
+// that in ADDITION to the callback and take whichever arrives first.
+
+interface JobPushEnvelope {
+  __gtExtPush?: boolean;
+  clientRef?: string;
+  result?: ExtensionResponse;
+}
+
+const pushWaiters = new Map<string, (r: ExtensionResponse) => void>();
+let pushListenerBound = false;
+
+function bindPushListener(): void {
+  if (pushListenerBound || typeof window === "undefined") return;
+  pushListenerBound = true;
+  window.addEventListener("message", (event: MessageEvent) => {
+    if (event.source !== window) return;
+    const d = event.data as JobPushEnvelope | null;
+    if (!d || d.__gtExtPush !== true || typeof d.clientRef !== "string") return;
+    const waiter = pushWaiters.get(d.clientRef);
+    if (!waiter) return; // not ours, or already settled
+    waiter(d.result ?? { ok: false, error: "The extension sent an empty result." });
+  });
+}
+
+let clientRefSeq = 0;
+function makeClientRef(): string {
+  return `gtjob-${Date.now()}-${(clientRefSeq += 1)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * Send a job-bearing message (list/delist) and resolve with its outcome from
+ * whichever delivery path reports first — the response callback (fast, only works
+ * while the worker happens to be alive) or the background's push (durable, survives
+ * worker death).
+ *
+ * The critical rule: a `transportError` reply does NOT settle. That reply means the
+ * port died, which is precisely the situation the push exists to cover — settling on
+ * it would report a failure for a job that is still running and about to succeed.
+ */
+function sendListerJob<T = ExtensionResponse>(message: {
+  type: string;
+  [key: string]: unknown;
+}): Promise<T> {
+  bindPushListener();
+  const clientRef = makeClientRef();
+  return new Promise<ExtensionResponse>((resolve) => {
+    let settled = false;
+    const done = (r: ExtensionResponse) => {
+      if (settled) return;
+      settled = true;
+      pushWaiters.delete(clientRef);
+      window.clearTimeout(timer);
+      resolve(r);
+    };
+    // Backstop: if BOTH paths are silent (no extension, no bridge, worker gone and
+    // the push never lands) the promise still settles rather than hanging forever.
+    const timer = window.setTimeout(
+      () =>
+        done({
+          ok: false,
+          timedOut: true,
+          error: "The extension didn't report back. Check the marketplace tab.",
+        }),
+      EXTENSION_TIMEOUT_MS,
+    );
+
+    pushWaiters.set(clientRef, done);
+
+    sendExtensionMessage<ExtensionResponse>({ ...message, clientRef }).then(
+      (r) => {
+        // Keep waiting for the push when the transport (not the extension) failed.
+        if (r && r.transportError) return;
+        done(r);
+      },
+      (err) => done({ ok: false, error: err instanceof Error ? err.message : String(err) }),
+    );
+  }) as Promise<T>;
+}
 
 // Response envelope from either transport — a superset of ListerResult so the
 // typed lister helpers (and the connect page's GT_SET_TOKEN) share one sender.
@@ -178,6 +282,15 @@ export interface ExtensionResponse {
   needsConsent?: boolean;
   needsUpgrade?: boolean;
   capabilities?: Record<string, unknown>;
+  /**
+   * US-1874: this reply is the TRANSPORT failing, not the extension answering.
+   * The overwhelmingly common cause is Chrome killing the MV3 service worker while
+   * a Lister job is still running, which closes the response port and invokes our
+   * callback with a lastError. The job itself is usually still alive — the
+   * background will report it via the durable push — so a job-bearing send must
+   * NOT settle on this. See sendListerJob.
+   */
+  transportError?: boolean;
   [key: string]: unknown;
 }
 
@@ -202,16 +315,28 @@ function sendViaRuntime(
     try {
       runtime.sendMessage!(id, message, (response) => {
         if (runtime.lastError) {
+          // US-1874: the classic case here is "The message port closed before a
+          // response was received" — the worker was suspended mid-job. Flagged as a
+          // transport error so a job send keeps waiting for the push instead of
+          // reporting a failure for a job that is still running.
           done({
             ok: false,
+            transportError: true,
             error: runtime.lastError.message || "Couldn't reach the GradeThread extension.",
           });
           return;
         }
-        done((response as ExtensionResponse) ?? { ok: false, error: "Empty response." });
+        done(
+          (response as ExtensionResponse) ??
+            { ok: false, transportError: true, error: "Empty response." },
+        );
       });
     } catch (err) {
-      done({ ok: false, error: err instanceof Error ? err.message : String(err) });
+      done({
+        ok: false,
+        transportError: true,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   });
 }

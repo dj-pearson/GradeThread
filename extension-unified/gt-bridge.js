@@ -30,6 +30,35 @@
     document.documentElement.setAttribute("data-gt-ext-bridge", "1");
   } catch (_e) { /* no documentElement yet — extremely early; ignore */ }
 
+  // US-1874: background → page PUSH relay.
+  //
+  // A Lister job outlives the request that started it: Chrome can kill the MV3
+  // worker while the marketplace tab is still loading, which takes the sendResponse
+  // port with it. The background therefore reports a finished/failed/late job by
+  // messaging the ORIGINATING gradethread.com tab instead of replying on the
+  // (possibly dead) port. This relays that push to the page, where the Lister
+  // client resolves the pending promise by jobId.
+  //
+  // SECURITY: only OUR extension's background can deliver an internal runtime
+  // message here, and we post to the page with an explicit origin. We forward only
+  // the known push type — never arbitrary background traffic.
+  if (api.runtime.onMessage && api.runtime.onMessage.addListener) {
+    api.runtime.onMessage.addListener(function (msg) {
+      if (!msg || msg.type !== "GT_LISTER_JOB_UPDATE") return;
+      try {
+        window.postMessage(
+          {
+            __gtExtPush: true,
+            jobId: msg.jobId,
+            clientRef: msg.clientRef,
+            result: msg.result,
+          },
+          window.location.origin,
+        );
+      } catch (_e) { /* page gone */ }
+    });
+  }
+
   window.addEventListener("message", function (event) {
     // Only same-window page messages carrying our request envelope.
     if (event.source !== window) return;
@@ -51,21 +80,35 @@
       // path safe either way.
       var maybePromise = api.runtime.sendMessage(data.message, function (response) {
         if (api.runtime.lastError) {
-          reply({ ok: false, error: api.runtime.lastError.message || "Extension error." });
+          reply({
+            ok: false,
+            transportError: true,
+            error: api.runtime.lastError.message || "Extension error.",
+          });
           return;
         }
-        reply(response == null ? { ok: false, error: "No response from the extension." } : response);
+        reply(
+          response == null
+            ? { ok: false, transportError: true, error: "No response from the extension." }
+            : response,
+        );
       });
       if (maybePromise && typeof maybePromise.then === "function") {
         maybePromise.then(
           function (response) {
-            reply(response == null ? { ok: false, error: "No response from the extension." } : response);
+            reply(
+              response == null
+                ? { ok: false, transportError: true, error: "No response from the extension." }
+                : response,
+            );
           },
-          function (err) { reply({ ok: false, error: (err && err.message) || String(err) }); },
+          function (err) {
+            reply({ ok: false, transportError: true, error: (err && err.message) || String(err) });
+          },
         );
       }
     } catch (err) {
-      reply({ ok: false, error: (err && err.message) || String(err) });
+      reply({ ok: false, transportError: true, error: (err && err.message) || String(err) });
     }
   });
 })();

@@ -47,6 +47,7 @@ Give shoppers an independent AI condition read on second-hand clothing listings,
 **Permission justifications** (Privacy practices tab):
 - `storage` — Store the user's settings (auto-run, per-site toggles), local "recent reads" history, and the signed sign-in token, on the device.
 - `activeTab` — Read the active tab's host so the popup can show a per-site enable/disable toggle for the marketplace the user is on.
+- `alarms` — Time out a cross-listing job that never completes (e.g. the marketplace page fails to load), so the user gets a clear "timed out — list manually" message instead of a spinner that never resolves. Chrome suspends the extension's background worker after ~30s of inactivity, which cancels ordinary in-page timers; an alarm is the only mechanism that survives to report the failure. Not used for scheduling, polling, or any background network activity.
 - Host `*://*.gradethread.com/*` — Call GradeThread's grading API and receive the signed sign-in token / account entitlements.
 - Host `*://*.poshmark.com/*`, `*://*.mercari.com/*`, `*://*.grailed.com/*` — Prefill the seller's own new-listing form during cross-listing.
 - **Remote code:** No — all executable code ships inside the package.

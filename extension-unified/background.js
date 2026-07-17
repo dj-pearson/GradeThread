@@ -33,7 +33,12 @@
 // via background.scripts in the manifest — and exposes the APIs (promise-based) as
 // `browser`. So: only importScripts when it exists, and alias the API namespace.
 if (typeof importScripts === "function") {
-  importScripts("lister/selectors.js", "lister/lister-guard.js", "registry.js");
+  importScripts(
+    "lister/selectors.js",
+    "lister/lister-guard.js",
+    "lister/job-store.js",
+    "registry.js",
+  );
 }
 const ext = globalThis.browser || globalThis.chrome;
 
@@ -299,17 +304,126 @@ async function saveRead(read) {
   await ext.storage.local.set({ recentReads: list.slice(0, MAX_RECENT) });
 }
 
-// ── Lister job lifecycle ──────────────────────────────────────────────────
-// jobsByTab maps a freshly-opened marketplace tab to its queued job;
-// pendingExternal maps a jobId to the SaaS sendResponse so the content script's
-// result is relayed back to the GradeThread tab that started the job.
-const jobsByTab = {};
+// ── Lister job lifecycle (US-1874) ────────────────────────────────────────
+// Job state lives in chrome.storage.session, NOT in module memory. Chrome kills an
+// idle MV3 service worker ~30s after the last event and an open sendResponse port
+// does not keep it alive, so module-scope job maps + setTimeout safety nets died
+// with the worker while a slow marketplace tab was still loading — the job then
+// silently vanished. storage.session survives worker death, is cleared on browser
+// restart (jobs must not outlive the session), and never touches disk.
+//
+// The decision logic is the pure GT_LISTER_JOBS state machine (lister/job-store.js);
+// everything here is the async shell around it.
+const JOBS_KEY = "listerJobs";
+const JOB_ALARM_PREFIX = "gt-lister-job:";
+const SWEEP_ALARM = "gt-lister-sweep";
+
+// pendingExternal is now only a best-effort FAST PATH: when the worker happens to
+// still be alive, replying on the original port resolves the SaaS promise with no
+// round trip. It is NOT the delivery guarantee — pushToSaasTab is (AC3). Anything
+// in here is expected to be gone after a worker restart, and that is fine.
 const pendingExternal = {};
 let jobSeq = 0;
 
 function makeJobId() {
   jobSeq += 1;
-  return "job-" + jobSeq + "-" + Date.now();
+  // jobSeq restarts at 0 on every worker wake, so it alone is NOT unique across
+  // suspensions — the timestamp + random suffix are what keep ids from colliding
+  // with a job persisted by a previous instance of this worker.
+  return (
+    "job-" + Date.now() + "-" + jobSeq + "-" +
+    Math.random().toString(36).slice(2, 8)
+  );
+}
+
+// storage.session read-modify-write is async, so two concurrent jobs could clobber
+// each other's entry. Every mutation goes through this promise chain, which costs
+// nothing at this volume and removes the race entirely.
+let jobsQueue = Promise.resolve();
+function withJobs(fn) {
+  const run = jobsQueue.then(async () => {
+    // storage.session failures must not reject outward: every caller is inside a
+    // message listener that still owes a sendResponse, and an unhandled rejection
+    // there means the port is never answered — reintroducing the exact hang this
+    // story removes. Degrade to an empty map instead.
+    let jobs = {};
+    try {
+      const out = await ext.storage.session.get(JOBS_KEY);
+      jobs = (out && out[JOBS_KEY]) || {};
+    } catch (_e) { /* unavailable — treat as no jobs */ }
+    const res = await fn(jobs);
+    if (res && res.jobs) {
+      try {
+        await ext.storage.session.set({ [JOBS_KEY]: res.jobs });
+      } catch (_e) { /* full/unavailable — the alarm still backstops the job */ }
+    }
+    return res && res.value;
+  });
+  // Keep the chain alive even if one mutation throws, or every later job blocks.
+  jobsQueue = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+// AC3: deliver a job result to the gradethread.com tab that started it, so
+// delivery no longer depends on the original sendResponse port (or the worker that
+// held it) still existing. The SaaS bridge content script relays this to the page.
+// Fire-and-forget: the tab may be gone, which is not an error worth surfacing.
+async function pushToSaasTab(job, result) {
+  if (!job || typeof job.saasTabId !== "number") return;
+  try {
+    await ext.tabs.sendMessage(job.saasTabId, {
+      type: "GT_LISTER_JOB_UPDATE",
+      jobId: job.jobId,
+      clientRef: job.clientRef,
+      result: result,
+    });
+  } catch (_e) {
+    // Tab closed, navigated away, or has no bridge (never had our content script).
+    // The SaaS-side client timeout is the backstop.
+  }
+}
+
+// Settle a job outward on BOTH paths: the live port if we still have it, and the
+// durable push. The page de-duplicates by jobId, so a double delivery is safe and
+// whichever arrives first wins.
+async function reportJob(job, result) {
+  const cb = pendingExternal[job.jobId];
+  if (cb) {
+    try { cb(result); } catch (_e) { /* port closed — the push is the real path */ }
+    delete pendingExternal[job.jobId];
+  }
+  await pushToSaasTab(job, result);
+}
+
+// AC2: timeouts are chrome.alarms, not setTimeout — an alarm is owned by the
+// browser and fires (waking the worker) even though the worker that scheduled it
+// is long dead. setTimeout could never do this; it died with its worker, which is
+// why a timed-out job used to hang the SaaS promise for its full client timeout.
+async function scheduleJobAlarm(job) {
+  try {
+    await ext.alarms.create(JOB_ALARM_PREFIX + job.jobId, { when: job.deadlineAt });
+  } catch (_e) { /* alarms unavailable — the SaaS client timeout still backstops */ }
+}
+
+async function clearJobAlarm(jobId) {
+  try { await ext.alarms.clear(JOB_ALARM_PREFIX + jobId); } catch (_e) { /* ignore */ }
+}
+
+// End a pending job and report it. Shared by the timeout alarm and tab-close, and
+// safe to call twice: markTerminal no-ops on an already-terminal job, so only the
+// first caller reports (no double-settle of the SaaS promise).
+async function endJob(jobId, state, makeResult) {
+  const ended = await withJobs(async (jobs) => {
+    const res = self.GT_LISTER_JOBS.markTerminal(jobs, jobId, state, Date.now());
+    return { jobs: res.jobs, value: res.job };
+  });
+  if (!ended) return null;
+  await clearJobAlarm(jobId);
+  await reportJob(ended, makeResult(ended));
+  return ended;
 }
 
 function isValidPayload(p) {
@@ -350,69 +464,39 @@ async function sellerAllowed() {
   return caps.lister === true;
 }
 
-async function handleListRequest(payload, sendResponse) {
-  if (!(await sellerAllowed())) {
-    sendResponse({
-      ok: false,
-      needsUpgrade: true,
-      error: "Cross-listing is a FlipDesk seller feature — upgrade your GradeThread plan to enable the Lister.",
-    });
-    return;
-  }
-  if (!(await tosAccepted())) {
-    sendResponse({
-      ok: false,
-      needsConsent: true,
-      error: "Open the GradeThread extension and accept the Lister terms before cross-listing.",
-    });
-    return;
-  }
-
-  // AC1: the new-listing URL is ALWAYS the bundled selectors config value, never
-  // payload.newListingUrl — an XSS on gradethread.com can't steer navigation.
-  const newListingUrl = self.GT_LISTER_GUARD.newListingUrlFor(
-    self.GT_LISTER_SELECTORS,
-    payload.platform,
-  );
-  if (!newListingUrl) {
-    sendResponse({ ok: false, error: "Unsupported marketplace." });
-    return;
-  }
-
-  const jobId = makeJobId();
-  let tab;
+// AC5: the request handlers are async and their bodies await storage, the network
+// (entitlements) and tabs.create — any of which can throw. They are invoked from a
+// listener that has already returned `true` to hold the response port open, so an
+// unhandled rejection used to mean the port was simply never answered and the SaaS
+// promise hung to its client timeout with no diagnosis. startJob wraps every body
+// so a throw ALWAYS becomes an error response.
+async function startJob(kind, payload, sender, sendResponse, clientRef) {
   try {
-    tab = await ext.tabs.create({ url: newListingUrl, active: true });
-  } catch (_e) {
-    sendResponse({ ok: false, error: "Couldn't open the marketplace tab." });
-    return;
+    await beginJob(kind, payload, sender, sendResponse, clientRef);
+  } catch (err) {
+    try {
+      sendResponse({
+        ok: false,
+        error:
+          "The GradeThread extension hit an unexpected error starting this " +
+          (kind === "delist" ? "delist" : "cross-post") + ". Try again.",
+      });
+    } catch (_e) { /* port already gone */ }
+    // eslint-disable-next-line no-console
+    console.error("[GradeThread Lister] job start failed", err);
   }
-
-  jobsByTab[tab.id] = { jobId: jobId, platform: payload.platform, payload: payload };
-  pendingExternal[jobId] = sendResponse;
-
-  setTimeout(function () {
-    if (pendingExternal[jobId]) {
-      try {
-        pendingExternal[jobId]({
-          ok: false,
-          timedOut: true,
-          error:
-            "Timed out waiting for the " + SUPPORTED_LISTER[payload.platform] +
-            " form. List manually if the tab didn't prefill.",
-        });
-      } catch (_e) { /* port may be gone */ }
-      delete pendingExternal[jobId];
-    }
-  }, 120000);
 }
 
-async function handleDelistRequest(payload, sendResponse) {
+async function beginJob(kind, payload, sender, sendResponse, clientRef) {
+  const isDelist = kind === "delist";
+
   if (!(await sellerAllowed())) {
     sendResponse({
       ok: false,
       needsUpgrade: true,
-      error: "Auto-delist is a FlipDesk seller feature — upgrade your GradeThread plan to enable it.",
+      error: isDelist
+        ? "Auto-delist is a FlipDesk seller feature — upgrade your GradeThread plan to enable it."
+        : "Cross-listing is a FlipDesk seller feature — upgrade your GradeThread plan to enable the Lister.",
     });
     return;
   }
@@ -420,42 +504,92 @@ async function handleDelistRequest(payload, sendResponse) {
     sendResponse({
       ok: false,
       needsConsent: true,
-      error: "Open the GradeThread extension and accept the Lister terms before delisting.",
+      error: isDelist
+        ? "Open the GradeThread extension and accept the Lister terms before delisting."
+        : "Open the GradeThread extension and accept the Lister terms before cross-listing.",
     });
     return;
   }
 
-  const jobId = makeJobId();
+  // AC1 (US-1876, preserved): the list target is ALWAYS the bundled selectors config
+  // value, never payload.newListingUrl — an XSS on gradethread.com can't steer
+  // navigation. The delist target is the payload URL, already host-pinned to the
+  // platform by isValidDelistPayload before we got here.
+  let url;
+  if (isDelist) {
+    url = payload.listingUrl;
+  } else {
+    url = self.GT_LISTER_GUARD.newListingUrlFor(self.GT_LISTER_SELECTORS, payload.platform);
+    if (!url) {
+      sendResponse({ ok: false, error: "Unsupported marketplace." });
+      return;
+    }
+  }
+
   let tab;
   try {
-    tab = await ext.tabs.create({ url: payload.listingUrl, active: true });
+    tab = await ext.tabs.create({ url: url, active: true });
   } catch (_e) {
     sendResponse({ ok: false, error: "Couldn't open the marketplace tab." });
     return;
   }
 
-  jobsByTab[tab.id] = {
-    jobId: jobId,
+  const job = self.GT_LISTER_JOBS.makeJob({
+    jobId: makeJobId(),
+    clientRef: clientRef,
+    tabId: tab.id,
+    // AC3: remember which gradethread.com tab asked, so the result can be pushed
+    // home later even if this worker (and its response port) is gone by then.
+    saasTabId: (sender && sender.tab && sender.tab.id) ?? null,
     platform: payload.platform,
-    kind: "delist",
+    kind: kind,
     payload: payload,
-  };
-  pendingExternal[jobId] = sendResponse;
+    now: Date.now(),
+  });
 
-  setTimeout(function () {
-    if (pendingExternal[jobId]) {
-      try {
-        pendingExternal[jobId]({
-          ok: false,
-          timedOut: true,
-          error:
-            "Timed out ending the " + SUPPORTED_LISTER[payload.platform] +
-            " listing. End it manually if the tab didn't.",
-        });
-      } catch (_e) { /* port may be gone */ }
-      delete pendingExternal[jobId];
+  await withJobs(async (jobs) => ({ jobs: self.GT_LISTER_JOBS.put(jobs, job) }));
+  await scheduleJobAlarm(job);
+  // Registered only AFTER the job is durably stored: if we die between the two, the
+  // alarm still fails the job cleanly rather than leaving an orphan.
+  pendingExternal[job.jobId] = sendResponse;
+}
+
+function handleListRequest(payload, sender, sendResponse, clientRef) {
+  return startJob("list", payload, sender, sendResponse, clientRef);
+}
+
+function handleDelistRequest(payload, sender, sendResponse, clientRef) {
+  return startJob("delist", payload, sender, sendResponse, clientRef);
+}
+
+// ── alarms: timeouts + the terminal-job sweep ─────────────────────────────
+// Registration is GUARDED for the same reason onMessageExternal is below: reading
+// .addListener off an undefined namespace throws at load and takes the ENTIRE
+// worker with it — including buyer research, which has nothing to do with the
+// Lister. `alarms` is declared in the manifest, but a Firefox/Edge build or an
+// older host that didn't grant it must degrade to "no server-side timeout" rather
+// than bricking the extension.
+if (ext.alarms && ext.alarms.onAlarm) {
+  ext.alarms.onAlarm.addListener(function (alarm) {
+    const name = (alarm && alarm.name) || "";
+
+    if (name === SWEEP_ALARM) {
+      withJobs(async (jobs) => ({ jobs: self.GT_LISTER_JOBS.sweep(jobs, Date.now()).jobs }));
+      return;
     }
-  }, 120000);
+
+    if (name.indexOf(JOB_ALARM_PREFIX) !== 0) return;
+    const jobId = name.slice(JOB_ALARM_PREFIX.length);
+    endJob(jobId, "timedOut", (job) =>
+      self.GT_LISTER_JOBS.timeoutResultFor(job, SUPPORTED_LISTER[job.platform]),
+    );
+  });
+
+  // Drops terminal jobs once their late-result grace window has passed. Periodic
+  // (not per-job) so it costs one alarm total rather than one per job.
+  try {
+    ext.alarms.create(SWEEP_ALARM, { periodInMinutes: 5 });
+  } catch (_e) { /* jobs just linger until the session ends */ }
 }
 
 // ── Messages from the GradeThread SaaS ────────────────────────────────────
@@ -538,7 +672,7 @@ function handleExternalMessage(msg, sender, sendResponse) {
       sendResponse({ ok: false, error: "Invalid or unsupported delist payload." });
       return false;
     }
-    handleDelistRequest(dp, sendResponse);
+    handleDelistRequest(dp, sender, sendResponse, msg.clientRef);
     return true;
   }
 
@@ -548,7 +682,7 @@ function handleExternalMessage(msg, sender, sendResponse) {
       sendResponse({ ok: false, error: "Invalid or unsupported listing payload." });
       return false;
     }
-    handleListRequest(payload, sendResponse);
+    handleListRequest(payload, sender, sendResponse, msg.clientRef);
     return true;
   }
 
@@ -578,29 +712,61 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
     return handleExternalMessage(msg, sender, sendResponse);
   }
 
-  // Lister: synchronous per-tab handlers (no async needed).
-  if (msg.type === "GT_LISTER_GET_JOB") {
-    const tabId = sender.tab && sender.tab.id;
-    sendResponse((tabId != null && jobsByTab[tabId]) || null);
-    return false;
-  }
   if (msg.type === "GT_LISTER_LOG") {
     // eslint-disable-next-line no-console
     console.debug("[GradeThread Lister][content]", msg.message);
     return false;
   }
+
+  // AC1: served from storage.session, so a content script that asks AFTER the
+  // worker was suspended and respawned still gets its job and the fill still runs.
+  // This is the read that used to return null (job map lost with the worker) and
+  // silently abandon the cross-post. Now async — hence the `true` return.
+  if (msg.type === "GT_LISTER_GET_JOB") {
+    (async () => {
+      const tabId = sender.tab && sender.tab.id;
+      const job = await withJobs(async (jobs) => ({
+        value: self.GT_LISTER_JOBS.findByTab(jobs, typeof tabId === "number" ? tabId : -1),
+      }));
+      sendResponse(job || null);
+    })();
+    return true;
+  }
+
   if (msg.type === "GT_LISTER_RESULT") {
-    const cb = pendingExternal[msg.jobId];
-    if (cb) {
+    (async () => {
       const out = Object.assign({}, msg);
       delete out.type;
       delete out.jobId;
-      try { cb(out); } catch (_e) { /* port closed */ }
-      delete pendingExternal[msg.jobId];
-    }
-    const tabId = sender.tab && sender.tab.id;
-    if (tabId != null) delete jobsByTab[tabId];
-    return false;
+
+      const job = await withJobs(async (jobs) => ({
+        value: self.GT_LISTER_JOBS.findById(jobs, msg.jobId),
+      }));
+      if (!job) {
+        sendResponse({ ok: true });
+        return;
+      }
+
+      if (self.GT_LISTER_JOBS.isPending(job)) {
+        await withJobs(async (jobs) => ({
+          jobs: self.GT_LISTER_JOBS.markTerminal(jobs, job.jobId, "done", Date.now()).jobs,
+        }));
+        await clearJobAlarm(job.jobId);
+        await reportJob(job, out);
+      } else {
+        // AC4: the job already went terminal (we timed out, or the tab closed) and
+        // the fill finished anyway. Report it as a LATE result rather than dropping
+        // it — the seller needs to know the listing actually got created, or they
+        // will post it a second time. This is why terminal jobs are kept for a
+        // grace window instead of deleted.
+        await pushToSaasTab(job, Object.assign({}, out, { late: true }));
+        await withJobs(async (jobs) => ({
+          jobs: self.GT_LISTER_JOBS.remove(jobs, job.jobId),
+        }));
+      }
+      sendResponse({ ok: true });
+    })();
+    return true;
   }
 
   // Research + popup: async handlers.
@@ -642,9 +808,19 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
   return true; // async sendResponse
 });
 
-// Clean up if the marketplace tab is closed before reporting.
+// AC4: a closed marketplace tab fails its job IMMEDIATELY. This used to delete the
+// per-tab entry but leave the pending callback untouched, so closing the tab bought
+// the seller a silent 120s wait for a job that could no longer complete.
 ext.tabs.onRemoved.addListener(function (tabId) {
-  delete jobsByTab[tabId];
+  (async () => {
+    const job = await withJobs(async (jobs) => ({
+      value: self.GT_LISTER_JOBS.findByTab(jobs, tabId),
+    }));
+    if (!job) return;
+    await endJob(job.jobId, "tabClosed", (j) =>
+      self.GT_LISTER_JOBS.tabClosedResultFor(j, SUPPORTED_LISTER[j.platform]),
+    );
+  })();
 });
 
 // Exposed for popup/deep links (kept in one place).

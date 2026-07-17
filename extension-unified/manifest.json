@@ -3,7 +3,7 @@
   "name": "GradeThread: Grade & List",
   "version": "0.3.5",
   "description": "AI condition reads while you shop eBay, Poshmark, Grailed, Mercari, Depop & Vinted — plus cross-listing for FlipDesk sellers.",
-  "permissions": ["storage", "activeTab"],
+  "permissions": ["storage", "activeTab", "alarms"],
   "host_permissions": [
     "https://gradethread.com/*",
     "https://*.gradethread.com/*",
