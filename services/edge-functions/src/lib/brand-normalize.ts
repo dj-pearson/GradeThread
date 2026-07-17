@@ -75,6 +75,48 @@ const BRAND_ALIASES: Record<string, string> = {
   // AGOLDE is a Citizens of Humanity label, NOT an AG Jeans one despite the
   // name. Mapping it to its own canonical keeps the two from merging.
   agolde: "AGOLDE",
+  // Premium denim tier 2 (US-1984, migration 00464). All eight were passthrough.
+  diesel: "Diesel",
+  dieseljeans: "Diesel",
+  dieselindustry: "Diesel",
+  dieselblackgold: "Diesel",
+  "55dsl": "Diesel",
+  gstar: "G-Star RAW",
+  gstarraw: "G-Star RAW",
+  // "Gap Star" was G-Star's 1989-1994 name and is NOT Gap — the collision is
+  // exactly why the company renamed. Mapping it here stops an early tag from
+  // resolving to the wrong (and far cheaper) brand.
+  gapstar: "G-Star RAW",
+  paige: "PAIGE",
+  paigedenim: "PAIGE",
+  paigejeans: "PAIGE",
+  paigeadamsgeller: "PAIGE",
+  // FRAME and MOTHER are ORDINARY ENGLISH WORDS. They are safe as alias KEYS
+  // (this map is an exact whole-field lookup, so it only fires when the seller's
+  // entire brand field is the word), but NOT as canonical VALUES scanned over
+  // prose — see DETECT_EXCLUDED_FROM_TEXT below, which is what protects them.
+  frame: "FRAME",
+  framedenim: "FRAME",
+  framejeans: "FRAME",
+  mother: "MOTHER",
+  motherdenim: "MOTHER",
+  motherjeans: "MOTHER",
+  // brandKey() STRIPS the ampersand, so "rag & bone" -> ragbone but "rag and
+  // bone" -> ragandbone. These are DIFFERENT keys and sellers type both, so both
+  // must be listed — it looks like a duplicate line and is not.
+  ragbone: "Rag & Bone",
+  ragandbone: "Rag & Bone",
+  // CANONICAL IS "Hudson Jeans", NOT "Hudson" — the AG Jeans play above. A bare
+  // "Hudson" is an ordinary place name and surname, and a canonical is scanned
+  // over free text by detectBrandInText; the short form stays an exact-key alias.
+  hudson: "Hudson Jeans",
+  hudsonjeans: "Hudson Jeans",
+  hudsondenim: "Hudson Jeans",
+  joesjeans: "Joe's Jeans",
+  // A bare "joes" is safe as a KEY (exact whole-field lookup) though it would be
+  // unsafe as a canonical. A bare "joe" is deliberately absent — too ordinary
+  // even for an exact match (the same rule that keeps "bean" off L.L.Bean).
+  joes: "Joe's Jeans",
   // Outdoor
   thenorthface: "The North Face",
   northface: "The North Face",
@@ -572,8 +614,29 @@ const BRAND_ALIASES: Record<string, string> = {
  * "Gucci GG Supreme" → Supreme mis-detection, which is NOT this problem: we do
  * want Supreme detected, so it needs a positional rule in the shared matcher,
  * not an exclusion.
+ *
+ * US-1984 (00464) is why this is a SET and not a special case: premium denim
+ * brought two more ordinary-word brands, and one is worse than Off-White.
+ *
+ *   • MOTHER (the LA denim house) — "mother of pearl" buttons is one of the most
+ *     common phrases in vintage listing copy, so the false positive is not a
+ *     corner case, it is routine. Longest-first ordering makes it actively
+ *     harmful rather than merely noisy: in "Gap blouse with mother of pearl
+ *     buttons", "MOTHER" (6 chars) BEATS the real "Gap" (3) and the garment is
+ *     mis-branded onto a premium-denim ladder it has nothing to do with.
+ *   • FRAME (the LA/London denim house) — "frame" is a common noun in clothing
+ *     copy (a sunglasses frame, the frame of a bag).
+ *
+ * Both stay reachable by TAG, exactly as Off-White does. Note the asymmetry that
+ * makes this work: an ordinary-word alias KEY is safe (BRAND_ALIASES is an exact
+ * whole-field lookup — a seller whose brand field is literally "mother" means the
+ * brand), so only the VALUE side scanned over prose needs excluding.
  */
-const DETECT_EXCLUDED_FROM_TEXT: ReadonlySet<string> = new Set(["Off-White"]);
+const DETECT_EXCLUDED_FROM_TEXT: ReadonlySet<string> = new Set([
+  "Off-White", // a colour word (US-1983)
+  "MOTHER", // "mother of pearl" (US-1984)
+  "FRAME", // "sunglasses frame" (US-1984)
+]);
 
 /**
  * Canonicalize a free-text brand against the known-brand table. Returns the

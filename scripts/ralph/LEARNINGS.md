@@ -988,6 +988,16 @@ memory — not a progress log (the harness records progress separately).
   gain `user_id` in 00146, so those are fine to scope directly.)
 
 ## Brand KB group stories (US-1717…US-1733+)
+- The next migration number is NOT "last brand-KB seed + 1", and the drift is
+  SILENT: a merged/co-running non-KB branch can take the slot AND bump
+  `EXPECTED_SCHEMA_VERSION` ahead of the KB run, so schema-version.ts already
+  reads the number you were about to claim and looks "already done" — US-1984
+  found 00463 held by `00463_social_video.sql` (renumbered by its own merge) and
+  had to ship as 00464. ALWAYS `ls supabase/migrations` + read
+  EXPECTED_SCHEMA_VERSION before naming the file; the comment above that constant
+  names the migration it belongs to, which is the tell. Same merge also CLOBBERED
+  the previous story's `PENDING_MIGRATIONS.md` section — check the held-migration
+  list still documents every unapplied migration, not just yours.
 - A brand-group story ships FOUR things, not just the migration: the
   `NNNNN_*_brand_knowledge.sql` seed, any missing `BRAND_ALIASES` in
   `brand-normalize.ts` (a brand absent there PASSES THROUGH the seller's casing

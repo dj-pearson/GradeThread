@@ -198,6 +198,45 @@ const OFF_WHITE_STYLE_NUMBER_DECODER: BrandDecoder = {
   examples: [],
 };
 
+// US-1984: the Diesel style_name decoder EXACTLY as migration 00464 seeds it into
+// brand_style_codes. It is the ONLY decoder in the premium-denim tier-2 group and
+// it carries the group's CUT-TAG case.
+//
+// THE VOCABULARY IS COINED, AND THAT IS THE WHOLE ARGUMENT. "Thommer",
+// "Sleenker", "Zatiny" and "Larkee" mean nothing in English or Italian, so — like
+// Uniqlo's HEATTECH below, and UNLIKE True Religion's "Ricky" (00454), an
+// ordinary first name that needed the "Super T" compound to be safe — the token
+// identifies the brand STANDING ALONE. No suffix is required to make it safe,
+// because no ordinary text produces the word.
+//
+// The optional "-X" suffix (Thommer-X = the stretch cut of the same block) is
+// tolerated but NOT captured: it marks the fabric, not the style, and there is no
+// DecodeResult field for it. A non-capturing group is the US-1739 rule — a bogus
+// fieldMap target would silently write a phantom property nothing reads.
+//
+// THE OTHER SEVEN BRANDS GET NO DECODER, and the two pointed refusals are worth
+// fixturing as negatives (below): G-Star's 3301 is a bare digit run (the Lee 101
+// rule), and Rag & Bone's "Fit 2" is regular AND tag-printed but is an ordinary
+// English phrase — it fails brand-uniqueness, the third test and the easiest to
+// skip.
+//
+// NOT an authenticity check: Diesel is widely counterfeited and a fake prints the
+// same model name. It recovers the BRAND off a cut tag and the ERA via the naming
+// generation — the pre-2019 names vs the Glenn Martens D- family.
+const DIESEL_STYLE_NAME_DECODER: BrandDecoder = {
+  decoderKind: "style_name",
+  description:
+    "Diesel tag-printed model name. The vocabulary is COINED (Thommer, Sleenker, Larkee, Zatiny mean nothing in English or Italian), so a single token identifies the brand even when the brand tag itself is cut. The name also dates the jean: the pre-2019 names versus the Glenn Martens D- family (D-Strukt, D-Fining) are two distinct eras. An optional trailing \"-X\" stretch marker is tolerated but not captured.",
+  pattern:
+    "^(?<style>THOMMER|SLEENKER|LARKEE(?:-BEEX)?|ZATINY|ZATHAN|SAFADO|TEPPHAR|KROOLEY|BUSTER|WAYKEE|BELTHER|SLANDY|SKINZEE|D-STRUKT|D-FINING|D-AKEMI|D-VIKER)(?:-X)?$",
+  extractionRules: {
+    fieldMap: { style: "styleCode" },
+    transforms: { style: "upper" },
+    confidence: 0.6,
+  },
+  examples: [],
+};
+
 // US-1739: the Uniqlo style_name decoder EXACTLY as migration 00458 seeds it into
 // brand_style_codes. Uniqlo is the ONLY brand in the basics/mall group with a
 // decoder, and it is the first in three groups — 00456 refused (the identifier is
@@ -2645,6 +2684,160 @@ const CASES: GoldenCase[] = [
     pack: pack("Gallery Dept.", "gallerydept", [style("Logo Tee")]),
     input: decodedFrom({ brand: "Gallery Dept." }),
     expect: { brand: "Gallery Dept.", style: "Logo Tee" },
+  },
+
+  // ── US-1984 premium denim group (tier 2) ───────────────────────────────────
+  // Diesel carries the group's CUT-TAG cases on a kind of token 00454's denim
+  // pack could not use: a COINED model name, which needs no compound suffix to be
+  // safe. The other seven are decoder-less by design and their guarantee is that
+  // enrichment stays CORRECT without one — which matters here because six of the
+  // eight print a fit name and NOTHING else.
+  {
+    name: "Diesel cut brand tag — the coined model name alone recovers the brand",
+    brand: "Diesel",
+    pack: pack("Diesel", "diesel", [], [DIESEL_STYLE_NAME_DECODER]),
+    input: decodedFrom({ styleCode: "THOMMER" }), // no AI brand
+    expect: { brand: "Diesel", recovery: true },
+  },
+  {
+    name: "Diesel -X stretch marker is tolerated and still recovers the brand",
+    // The suffix marks the FABRIC, not the style, so it is matched but not
+    // captured — the styleCode must come back as the bare model.
+    brand: "Diesel",
+    pack: pack("Diesel", "diesel", [], [DIESEL_STYLE_NAME_DECODER]),
+    input: decodedFrom({ styleCode: "Thommer-X" }),
+    expect: { brand: "Diesel", recovery: true },
+  },
+  {
+    name: "Diesel D- era name recovers the brand off a cut tag",
+    // The current Glenn Martens generation, decoded by the same rule. Worth its
+    // own case because the model name is this brand's ERA evidence: a D-Strukt
+    // and a Thommer are the same slot in the line a decade apart.
+    brand: "Diesel",
+    pack: pack("Diesel", "diesel", [], [DIESEL_STYLE_NAME_DECODER]),
+    input: decodedFrom({ styleCode: "D-STRUKT" }),
+    expect: { brand: "Diesel", recovery: true },
+  },
+  {
+    name: "Diesel model name overrides a wrong AI brand + surfaces conflict",
+    brand: "Diesel",
+    pack: pack("Diesel", "diesel", [], [DIESEL_STYLE_NAME_DECODER]),
+    input: decodedFrom({ brand: "G-Star RAW", styleCode: "SLEENKER" }),
+    expect: { brand: "Diesel", conflictOn: "brand", recovery: true },
+  },
+  {
+    name: "Diesel wash code — no false-positive recovery",
+    // Diesel prints a wash/lot code (0688H) beside the model. It identifies the
+    // FINISH, is a bare alphanumeric with no brand-unique shape, and must not
+    // mint a brand.
+    brand: "Diesel",
+    pack: pack("Diesel", "diesel", [], [DIESEL_STYLE_NAME_DECODER]),
+    input: decodedFrom({ styleCode: "0688H" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Diesel ordinary fit word — no false-positive recovery",
+    // The coined-vocabulary argument in negative form: an English word is exactly
+    // what the decoder must NOT accept, or the whole rationale collapses.
+    brand: "Diesel",
+    pack: pack("Diesel", "diesel", [], [DIESEL_STYLE_NAME_DECODER]),
+    input: decodedFrom({ styleCode: "Slim" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Diesel ambiguous adjacent fits (Larkee vs Thommer) — never guess",
+    // The pack's core problem: no Diesel fit has a pocket tell, and the fits sit
+    // on one narrowing scale. With no code, the style must stay unset.
+    brand: "Diesel",
+    pack: pack("Diesel", "diesel", [
+      style("Larkee"),
+      style("Thommer"),
+    ], [DIESEL_STYLE_NAME_DECODER]),
+    input: decodedFrom({ brand: "Diesel" }),
+    expect: { brand: "Diesel", noStyle: true },
+  },
+  // The seven decoder-less brands. The two pointed refusals first — these are the
+  // codes that LOOK decodable and deliberately are not.
+  {
+    name: "G-Star 3301 — a bare digit run recovers nothing (the Lee 101 rule)",
+    // 3301 is G-Star's core denim family and is genuinely printed on the tag, but
+    // it is an ordinary 4-digit number: a pattern over it would false-recover
+    // G-Star from any tag carrying one.
+    brand: "G-Star RAW",
+    pack: pack("G-Star RAW", "gstarraw", [style("3301"), style("Elwood 5620 3D")]),
+    input: decodedFrom({ styleCode: "3301" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "G-Star 5620 (the Elwood's number) recovers nothing either",
+    brand: "G-Star RAW",
+    pack: pack("G-Star RAW", "gstarraw", [style("Elwood 5620 3D")]),
+    input: decodedFrom({ styleCode: "5620" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Rag & Bone 'Fit 2' — regular and tag-printed, but an ordinary phrase",
+    // The refusal worth fixturing: this one passes two of the three tests
+    // (tag-printed, regular) and fails only brand-uniqueness, which is the test
+    // that is easiest to skip.
+    brand: "Rag & Bone",
+    pack: pack("Rag & Bone", "ragbone", [style("Fit 2"), style("Fit 1")]),
+    input: decodedFrom({ styleCode: "Fit 2" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Hudson fit name is an ordinary given name — recovers nothing",
+    // The True Religion "Ricky" hazard with no Super T available to compound
+    // with, which is exactly why Hudson gets no decoder.
+    brand: "Hudson Jeans",
+    pack: pack("Hudson Jeans", "hudsonjeans", [style("Barbara"), style("Blake")]),
+    input: decodedFrom({ styleCode: "Blake" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "MOTHER fit name is an ordinary English word — recovers nothing",
+    brand: "MOTHER",
+    pack: pack("MOTHER", "mother", [style("The Looker")]),
+    input: decodedFrom({ styleCode: "The Looker" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "FRAME prints no code — a stray number recovers nothing",
+    brand: "FRAME",
+    pack: pack("FRAME", "frame", [style("Le Skinny de Jeanne")]),
+    input: decodedFrom({ styleCode: "2012" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "PAIGE prints no code — a stray number recovers nothing",
+    brand: "PAIGE",
+    pack: pack("PAIGE", "paige", [style("Verdugo")]),
+    input: decodedFrom({ styleCode: "0042" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Joe's Jeans prints no code — a stray number recovers nothing",
+    brand: "Joe's Jeans",
+    pack: pack("Joe's Jeans", "joesjeans", [style("The Brixton")]),
+    input: decodedFrom({ styleCode: "2001" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "MOTHER ambiguous adjacent fits (Looker vs Tomcat) — never guess",
+    brand: "MOTHER",
+    pack: pack("MOTHER", "mother", [
+      style("The Looker"),
+      style("The Tomcat"),
+    ]),
+    input: decodedFrom({ brand: "MOTHER" }),
+    expect: { brand: "MOTHER", noStyle: true },
+  },
+  {
+    name: "PAIGE single known style fills the style the AI missed",
+    brand: "PAIGE",
+    pack: pack("PAIGE", "paige", [style("Verdugo")]),
+    input: decodedFrom({ brand: "PAIGE" }),
+    expect: { brand: "PAIGE", style: "Verdugo" },
   },
 ];
 

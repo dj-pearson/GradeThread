@@ -4,6 +4,53 @@
 > The sections below for those are historical; the only NEW held migration is
 > **00443** at the top.
 
+## ⏳ PENDING: 00464_premium_denim_brand_knowledge.sql (US-1984 premium denim brand KB tier 2, 2026-07-17)
+
+Data-only seed of the `brand_knowledge*` tables for the premium-denim tier beside
+00454 (Wrangler/Lee/7FAM/True Religion/AG/Citizens, which is NOT re-touched):
+**Diesel, G-Star RAW, PAIGE, FRAME, MOTHER, Rag & Bone, Hudson Jeans, Joe's
+Jeans**. **All eight were passthrough-only** — no row, no alias, no chart — so a
+"mother" tag rendered the seller's own casing into the prompt block and the eBay
+Brand aspect. `brand_knowledge` ×8; `brand_styles` ×39; `brand_style_codes` ×**1**
+(Diesel); `brand_colorways` ×3; `brand_size_charts` ×17, all mirrored 1:1 into the
+`sizing-charts.ts` in-code fallback. Every fact carries `source_url` +
+`confidence` and lands `verified=false` for the US-1715 admin queue. Idempotent
+(`on conflict do update` / `do nothing`).
+
+**NOTE THE NUMBERING:** this seed is **00464**, not 00463 — `00463` is taken by
+`00463_social_video.sql` (the video-distribution merge renumbered its own
+migration into that slot and bumped the boot guard to 00463). Apply **after
+00462 and 00463** via `scripts/apply-prod-migrations.sh`, then
+`NOTIFY pgrst, 'reload schema';`, then redeploy the edge (boot guard now expects
+**00464**). Bumps `EXPECTED_SCHEMA_VERSION` → **00464**. Risk: LOW — data-only, no
+schema change, no frontend reads the new rows (the edge resolver falls back to
+the in-code seeds until the SQL lands, so an unapplied migration degrades rather
+than breaks).
+
+One code change ships with it and it is NOT data: **`DETECT_EXCLUDED_FROM_TEXT`
+(brand-normalize.ts) gains `MOTHER` and `FRAME`.** Both are real denim houses AND
+ordinary English words. `CANONICAL_BRANDS` is built from alias VALUES and
+`detectBrandInText` regex-scans those over prose, so an ordinary-word alias KEY is
+safe but an ordinary-word VALUE is not — and longest-first ordering makes the
+false positive BEAT the real brand in the same string ("Gap blouse with mother of
+pearl buttons" → **MOTHER**, not Gap). Verified empirically: removing the
+exclusion turns that assertion red. Both stay reachable by TAG, which is what the
+eBay aspect and the comp filter read.
+
+> ⚠ **`verify:db` did NOT run for this migration — Docker was unresponsive on the
+> authoring host** (`docker info` hung until killed), so the throwaway-stack lane
+> was skipped. As with 00461/00462, the SQL was validated statically against
+> **libpg_query (the real PostgreSQL parser, via `pglast`)**: it parses (6
+> statements); every VALUES tuple matches its column list (8×12, 39×15, 1×10,
+> 3×9, 17×12); all column names and `ON CONFLICT` targets resolve against the
+> 00389 DDL; and no `VALUES` list repeats a conflict key (which would abort an
+> `ON CONFLICT DO UPDATE` apply). The seeded **Diesel decoder was additionally
+> exercised end-to-end**: its pattern/fieldMap/8 examples were parsed back out of
+> the SQL and run through the real `decoderSpecsFromPack` → `decodeTagCode` path
+> — all 8 pass, including the three negatives (wash code `0688H`, the ordinary
+> word `Slim`, and the bare digit run `3301`). Still run `npm run verify:db`
+> before the prod apply if Docker is available.
+
 ## ⏳ PENDING: 00463_social_video.sql (video distribution for social posts, 2026-07-17)
 
 Adds video posting to the content module so clips fan out to TikTok / Instagram
@@ -30,6 +77,104 @@ Cloudflare Pages auto-deploys the frontend immediately — so the SQL + edge
 deploy MUST land first, or the editor's video panel and the new endpoint 500.
 On this feature branch there's no prod deploy, so the branch push is safe; hold
 the prod apply-then-merge order per this file's rule.
+
+## ⏳ PENDING: 00462_hype_streetwear_brand_knowledge.sql (US-1983 new-gen streetwear & hype brand KB, 2026-07-16)
+
+Data-only seed of the `brand_knowledge*` tables for the current-generation hype
+tier (after 00456 took the established canon — Supreme/Stüssy/BAPE/Palace/Kith/
+Fear of God): **Off-White, Chrome Hearts, Aimé Leon Dore, Gallery Dept., Denim
+Tears, Rhude, Sp5der, Hellstar, Anti Social Social Club**. **All nine were
+passthrough-only** — no row, no alias, no chart — so a "sp5der" tag rendered the
+seller's own casing into the prompt block and the eBay Brand aspect on some of the
+fastest-moving garments in resale. `brand_knowledge` ×9; `brand_styles` ×33;
+`brand_style_codes` ×**1** (Off-White); `brand_colorways` ×**0** (deliberate — see
+below); `brand_size_charts` ×10, all mirrored 1:1 into the `sizing-charts.ts`
+in-code fallback. Every fact carries `source_url` + `confidence` and lands
+`verified=false` for the US-1715 admin queue. Idempotent (`on conflict do
+update`). Apply after 00461 via `scripts/apply-prod-migrations.sh`,
+`NOTIFY pgrst, 'reload schema';`, redeploy the edge (boot guard now expects
+**00462**). Bumps `EXPECTED_SCHEMA_VERSION` → **00462**. Risk: LOW — data-only, no
+schema change, no frontend reads the new rows (the edge resolver falls back to the
+in-code seeds until the SQL lands, so an unapplied migration degrades rather than
+breaks).
+
+> ⚠ **`verify:db` did NOT run for this migration — Docker was unresponsive on the
+> authoring host** (`docker info` and `docker version` both hung until killed), so
+> the throwaway-stack lane was skipped. As with 00461, the SQL was validated
+> statically against **libpg_query (the real PostgreSQL parser, via `pglast`
+> v8.2)**: it parses (5 statements); every INSERT's column count matches every one
+> of its value tuples (9×12, 33×15, 1×10, 10×12); every column name and every `on
+> conflict` target resolves against the actual 00389 DDL; no VALUES list contains a
+> duplicate conflict key (the "cannot affect row a second time" error); all 39
+> dollar-quoted JSON blocks parse; and no `''` appears inside one (the 00460 trap —
+> `''` is not an escape there). The seeded Off-White decoder spec was exercised
+> against the real `decodeTagCode` engine: both examples decode (`OMAA038R21FAB001`
+> → styleCode + gender "Men" + season "R21"; `OWAA049S23FAB002` → "Women") and
+> every negative is rejected. That is strong but is **not** a substitute for a real
+> apply — **run `npm run verify:db` once Docker is up, before applying to prod.**
+
+**THE GRAPHIC IS THE GARMENT AND THE DROP IS THE PRICE.** The through-line, and it
+makes this tier different in KIND from every group before it. A Birkin has a
+leather grade to read (00461); a Moncler has a down fill (00460). Most of this tier
+is a blank hoodie with a print — strip the graphic and a Hellstar, a Sp5der and a
+bootleg of either are the same cotton hoodie. So the price lives in WHICH DROP a
+piece is from, which is frequently not on the tag at all, and the pack's job is
+mostly NEGATIVE: never guess the drop (a drop attribution is a scarcity claim),
+never authenticate, never read the design as damage.
+
+**Authentication tells are informational only**, and this tier is bootlegged
+hardest for a structural reason the pack names: when the graphic is the whole
+product, the bootleg reproduces the whole product — there is no saddle-stitch to
+fall short of. None of these brands authenticates for third parties and several
+(Sp5der, Hellstar, Gallery Dept.) publish nothing at all. The
+"never auto-authenticate" tell is ordered FIRST on all nine.
+
+**THE DESIGN IS NOT DAMAGE** — the most consequential grading rule in the pack, and
+it is carried in style FINGERPRINTS (not tells, which the grading block truncates —
+the US-1740/US-1981 lesson). Gallery Dept. is hand-distressed per garment and
+Hellstar's prints are cracked from new: a grader who reads either as wear marks a
+mint piece down to Poor, inverting the price of a garment worth more precisely
+because it looks destroyed.
+
+**One decoder — Off-White, and only it qualifies.** Its care-label season code
+(`OMAA038R21FAB001`) is tag-printed, regular and brand-unique in FORMAT; the
+gendered OM/OW prefix is the argument, as the hyphenated triplet was for Dior
+(00461). The gender group captures the SECOND character so the EXISTING `genderCode`
+transform maps M/W → Men/Women with no code change. It matters because the
+Off-White **logo did not change when Abloh died in 2021**, so only the code places a
+piece either side of the ladder. Seven of the other eight print no regular
+garment-side code AT ALL; Aimé Leon Dore's SKU fails the regular-and-brand-unique
+bar.
+
+**No `brand_colorways`, deliberately.** AC3 seeds colorways "where the brand uses
+proprietary named colors" — a conditional this tier does not meet. These brands ship
+ordinary colour words that rotate per drop and form no stable dictionary the way
+Hermès's Etoupe/Rouge H do. What this tier names is the DROP, and a drop name is a
+scarcity claim that belongs in the never-guess rule, not in a colour table that
+would license the model to mint it.
+
+**⚠ CODE CHANGE (not data): the Off-White colour-word guard.** `brand-normalize.ts`
+gains `DETECT_EXCLUDED_FROM_TEXT`, filtered out of `CANONICAL_BRANDS`. "Off-White"
+is a real hype brand AND the most common neutral colour word in clothing, and the
+hazard is structural: `CANONICAL_BRANDS` is built from BRAND_ALIASES' VALUES, which
+`detectBrandInText` regex-scans over prose. An ordinary-word alias KEY is safe (exact
+whole-field lookup — the "ag"/"spider" play), but an ordinary-word VALUE is not, and
+the word-boundary guard cannot help because an off-white garment's title contains the
+brand name EXACTLY. Worse, CANONICAL_BRANDS is sorted longest-first, so "Off-White"
+would beat the real "Nike" in the same string. The brand stays fully reachable by TAG
+(`canonicalizeBrand`/`isKnownBrand` — what the eBay Brand aspect and comp filter
+need) but is never guessed from prose. Opt-in and additive: no other brand's behavior
+changes. (The KB already treats the phrase as a colour — 00455 seeds "off-white" as
+an alias of Prada's Talco colorway.)
+
+**Two size traps.** DENIM TEARS is the only WAIST chart in the pack: the Cotton
+Wreath signature is printed on an ACTUAL LEVI'S 501 under an official
+collaboration, so the piece legitimately carries LEVI'S tags and a LEVI'S waist
+size — both brands are true at once, and resolving it to "Levi's 501" throws away
+an order of magnitude of value. OFF-WHITE runs TWO systems (Milan house: alpha tees,
+ITALIAN-numbered tailoring). And the FIT INTENT SPLITS across the tier — Hellstar/
+Gallery Dept. are oversized by design while Sp5der/Chrome Hearts/ASSC run small — so
+the two poles name each other, as the FR/IT charts do in 00461.
 
 ## ⏳ PENDING: 00461_luxury_rtw_leather_brand_knowledge.sql (US-1982 luxury RTW & leather brand KB, 2026-07-16)
 
