@@ -66,6 +66,21 @@
         </p>
         <ul class="pop-platforms" id="platforms"></ul>
 
+        <!-- US-1885 AC1: the last cross-post/delist outcome. The popup used to show
+             ZERO job state, so a cross-post that timed out or couldn't be verified
+             left the seller with nowhere to find out what happened. -->
+        <div class="pop-lastjob" id="lastJobBlock" hidden>
+          <div class="pop-lastjob-head">
+            <span class="pop-lastjob-label">Last job</span>
+            <span class="pop-lastjob-when" id="lastJobWhen"></span>
+          </div>
+          <div class="pop-lastjob-body">
+            <span class="pop-status" id="lastJobStatus"></span>
+            <span class="pop-lastjob-what" id="lastJobWhat"></span>
+          </div>
+          <p class="pop-lastjob-error" id="lastJobError" hidden></p>
+        </div>
+
         <div class="pop-tos" id="tosBlock">
           <label class="pop-tos-row">
             <input type="checkbox" id="tosCheck" />

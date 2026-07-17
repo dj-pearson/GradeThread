@@ -76,6 +76,11 @@ body {
 .pop-status { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap; }
 .pop-status.on { background: #e6f4ea; color: #137333; }
 .pop-status.off { background: #fdecef; color: var(--red); }
+/* US-1885 AC1: the middle ground — "waiting for you to sign in" and "we couldn't
+   confirm the delist" are neither success nor failure, and flattening either into
+   on/off loses the action. An unconfirmed delist in particular must not read as
+   green: the listing may still be live after selling elsewhere. */
+.pop-status.warn { background: #fef7e0; color: #8a5a00; }
 
 /* consent */
 .pop-tos { display: flex; flex-direction: column; gap: 8px; }
@@ -103,3 +108,43 @@ body {
 .pop-foot a:hover { text-decoration: underline; }
 
 em { font-style: italic; }
+
+/* US-1885 AC1: last Lister job outcome. The popup previously showed no job state
+   at all, so a cross-post that timed out — or a delist we could not confirm — left
+   the seller with nowhere to find out what happened. */
+.pop-lastjob {
+  margin: 10px 0 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--pop-border, #e5e7eb);
+  border-radius: 8px;
+  background: var(--pop-subtle, #fafafa);
+}
+.pop-lastjob-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.pop-lastjob-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+.pop-lastjob-when { font-size: 11px; opacity: 0.6; }
+.pop-lastjob-body {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.pop-lastjob-what { font-size: 12px; font-weight: 600; }
+/* The error is the actionable part — an unconfirmed delist means "go and check
+   the marketplace", so it must not read as decorative fine print. */
+.pop-lastjob-error {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+  opacity: 0.85;
+}

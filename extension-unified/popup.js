@@ -22,6 +22,10 @@ const TOS_VERSION = "2026-07-13";
 const MARKETPLACE_HOST_RE =
   /(^|\.)(ebay\.|poshmark\.|grailed\.com|mercari\.com|depop\.com|vinted\.)/i;
 
+// One list, shared by the platform rows and the last-job line. The header of this
+// file warns about hand-maintained duplicates that drift — this is that list.
+const PLATFORM_LABELS = { poshmark: "Poshmark", mercari: "Mercari", grailed: "Grailed" };
+
 const PLAN_LABELS = {
   free: "Free",
   guard: "Guard",
@@ -195,7 +199,7 @@ function renderPlatforms() {
   ul.textContent = "";
   const cfg = self.GT_LISTER_SELECTORS || {};
   const order = ["poshmark", "mercari", "grailed"];
-  const labels = { poshmark: "Poshmark", mercari: "Mercari", grailed: "Grailed" };
+  const labels = PLATFORM_LABELS;
   for (const key of order) {
     const p = cfg[key];
     if (!p) continue;
@@ -217,6 +221,73 @@ function renderPlatforms() {
     li.appendChild(left);
     li.appendChild(badge);
     ul.appendChild(li);
+  }
+}
+
+// US-1885 AC1: the last Lister job outcome.
+//
+// The popup showed no job state at all, which is worst exactly when it matters: a
+// cross-post that timed out, or a delist we couldn't verify, left the seller with
+// nowhere to find out what happened. The background records each outcome to
+// storage.local (see writeLastJob), so this is a read — no message round trip, and
+// it still works while the worker is asleep.
+const LAST_JOB_KEY = "listerLastJob";
+
+// Each outcome gets its own copy because they call for different actions: a
+// timeout means retry, an unverified delist means go and CHECK the marketplace,
+// and a login wall means finish signing in. Collapsing them into "failed" is how
+// the seller ends up double-posting.
+const JOB_OUTCOME = {
+  done: { cls: "on", label: "Done" },
+  pending: { cls: "warn", label: "Waiting" },
+  timedOut: { cls: "off", label: "Timed out" },
+  tabClosed: { cls: "off", label: "Tab closed" },
+  unverified: { cls: "warn", label: "Unconfirmed" },
+  failed: { cls: "off", label: "Failed" },
+};
+
+function jobWhat(rec) {
+  const platform = PLATFORM_LABELS[rec.platform] || rec.platform || "marketplace";
+  const verb = rec.kind === "delist" ? "delist" : "cross-post";
+  return platform + " " + verb;
+}
+
+async function renderLastJob() {
+  const block = document.getElementById("lastJobBlock");
+  if (!block) return;
+  let rec = null;
+  try {
+    const out = await ext.storage.local.get(LAST_JOB_KEY);
+    rec = out && out[LAST_JOB_KEY];
+  } catch (_e) { /* unreadable — show nothing rather than a wrong state */ }
+
+  if (!rec || !rec.platform) {
+    block.hidden = true;
+    return;
+  }
+  block.hidden = false;
+
+  const meta = JOB_OUTCOME[rec.outcome] || JOB_OUTCOME.failed;
+  const status = document.getElementById("lastJobStatus");
+  status.className = "pop-status " + meta.cls;
+  // A late success is still a success, but the seller needs to know we'd already
+  // told them it timed out — otherwise they post it a second time.
+  status.textContent = rec.late && rec.ok ? "Done (late)" : meta.label;
+
+  document.getElementById("lastJobWhat").textContent = jobWhat(rec);
+  document.getElementById("lastJobWhen").textContent = rec.at ? timeAgo(rec.at) : "";
+
+  const err = document.getElementById("lastJobError");
+  if (rec.error && !rec.ok) {
+    err.hidden = false;
+    err.textContent = rec.error;
+  } else if (rec.late && rec.ok) {
+    err.hidden = false;
+    err.textContent =
+      "This finished after we reported a timeout — check the marketplace before posting it again.";
+  } else {
+    err.hidden = true;
+    err.textContent = "";
   }
 }
 
@@ -276,6 +347,7 @@ function renderSellerSections(caps) {
     seller.hidden = false;
     locked.hidden = true;
     renderPlatforms();
+    renderLastJob();
     renderConsent();
   } else if (caps && caps.authenticated) {
     // Signed in but no active FlipDesk plan → honest upsell, not a dead section.

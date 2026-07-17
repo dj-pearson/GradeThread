@@ -162,4 +162,48 @@ function job(over) {
   assert.ok(J.findById(removed, "job-2"), "removing one job leaves the other");
 }
 
+// ── lastJobRecord: what the popup shows (US-1885 AC1) ──────────────────────
+{
+  const j = job({ platform: "poshmark", kind: "list" });
+
+  // The distinct outcomes stay distinct. Collapsing them into "failed" is how a
+  // seller ends up double-posting: a timeout means retry, an unconfirmed delist
+  // means go and CHECK the marketplace, a login wall means finish signing in.
+  const cases = [
+    [{ ok: true, filled: true }, "done"],
+    [{ ok: false, pending: true, loginWall: true }, "pending"],
+    [{ ok: false, timedOut: true }, "timedOut"],
+    [{ ok: false, tabClosed: true }, "tabClosed"],
+    [{ ok: false, unverified: true }, "unverified"],
+    [{ ok: false, error: "something else" }, "failed"],
+  ];
+  for (const [result, expected] of cases) {
+    assert.strictEqual(
+      J.lastJobRecord(j, result, T0).outcome,
+      expected,
+      `result ${JSON.stringify(result)} → outcome "${expected}"`,
+    );
+  }
+
+  // A late success is a success, but the popup has to say so — we already told the
+  // seller it timed out, and they will re-post if we now just say "Done".
+  const late = J.lastJobRecord(j, { ok: true, late: true }, T0);
+  assert.strictEqual(late.ok, true);
+  assert.strictEqual(late.late, true);
+
+  // It is a PROJECTION, not the job: this goes to storage.local and would
+  // otherwise park the whole listing payload (title, description, price, photo
+  // URLs) on disk indefinitely for a line of UI text.
+  const rec = J.lastJobRecord(job({ payload: { title: "secret", photoUrls: ["u"] } }), { ok: true }, T0);
+  assert.strictEqual(rec.payload, undefined, "the record must not carry the listing payload");
+  assert.strictEqual(rec.saasTabId, undefined, "nor internal routing state");
+  assert.deepStrictEqual(Object.keys(rec).sort(), ["at", "error", "kind", "late", "ok", "outcome", "platform"]);
+
+  // User-facing copy, not a log.
+  assert.strictEqual(J.lastJobRecord(j, { error: "x".repeat(500) }, T0).error.length, 240, "error is capped");
+  assert.strictEqual(J.lastJobRecord(j, { ok: true }, T0).error, null, "a success carries no error");
+  assert.strictEqual(J.lastJobRecord(j, { error: 42 }, T0).error, null, "a non-string error is dropped");
+  assert.strictEqual(J.lastJobRecord(j, {}, T0).at, T0, "the record is stamped");
+}
+
 console.log("lister-jobs: all assertions passed");

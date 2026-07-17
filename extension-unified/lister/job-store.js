@@ -187,7 +187,39 @@
     };
   }
 
+  // US-1885 AC1: the compact record the popup renders as "last job".
+  //
+  // Deliberately NOT the job itself. A job carries the full listing payload —
+  // title, description, price, photo URLs — and this is written to storage.LOCAL
+  // (it must survive the session, unlike the job map) where it would sit on disk
+  // indefinitely for no reason. So this projects only what the popup shows.
+  //
+  // The outcome is derived from the same result the seller was shown, so the popup
+  // can never disagree with the page: ok -> done, and the specific failure modes
+  // stay distinguishable because "timed out" and "you closed the tab" and "we
+  // couldn't confirm it" call for completely different responses.
+  function lastJobRecord(job, result, now) {
+    var r = result || {};
+    var outcome = "failed";
+    if (r.ok) outcome = "done";
+    else if (r.pending) outcome = "pending";
+    else if (r.timedOut) outcome = "timedOut";
+    else if (r.tabClosed) outcome = "tabClosed";
+    else if (r.unverified) outcome = "unverified";
+    return {
+      platform: job.platform,
+      kind: job.kind,
+      outcome: outcome,
+      ok: Boolean(r.ok),
+      late: Boolean(r.late),
+      // Bounded: this is user-facing copy, not a log.
+      error: typeof r.error === "string" ? r.error.slice(0, 240) : null,
+      at: typeof now === "number" ? now : 0,
+    };
+  }
+
   root.GT_LISTER_JOBS = {
+    lastJobRecord: lastJobRecord,
     JOB_TIMEOUT_MS: JOB_TIMEOUT_MS,
     LOGIN_WALL_GRACE_MS: LOGIN_WALL_GRACE_MS,
     TERMINAL_GRACE_MS: TERMINAL_GRACE_MS,

@@ -396,6 +396,20 @@ async function reportJob(job, result) {
     delete pendingExternal[job.jobId];
   }
   await pushToSaasTab(job, result);
+  // US-1885 AC1: remember the outcome for the popup. storage.LOCAL, not session:
+  // the seller's most likely move after a cross-post that went wrong is to open the
+  // popup later — possibly after a browser restart — and ask what happened. A
+  // session-scoped record would be gone exactly when they came looking.
+  await writeLastJob(job, result);
+}
+
+const LAST_JOB_KEY = "listerLastJob";
+async function writeLastJob(job, result) {
+  try {
+    await ext.storage.local.set({
+      [LAST_JOB_KEY]: self.GT_LISTER_JOBS.lastJobRecord(job, result, Date.now()),
+    });
+  } catch (_e) { /* storage full/unavailable — the popup just shows no last job */ }
 }
 
 // AC2: timeouts are chrome.alarms, not setTimeout — an alarm is owned by the
@@ -759,7 +773,13 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
       // Non-terminal by construction: pushed to the SaaS tab so the seller sees
       // "log in and retry", but pendingExternal is left untouched so the promise
       // stays open for the real outcome.
-      await pushToSaasTab(job, Object.assign({ ok: false, pending: true }, msg.notice));
+      const notice = Object.assign({ ok: false, pending: true }, msg.notice);
+      await pushToSaasTab(job, notice);
+      // US-1885 AC1: a login wall is real, actionable job state ("waiting for you
+      // to sign in") — the seller opening the popup to ask why nothing happened is
+      // exactly the case this exists for. Recorded as pending, so the terminal
+      // outcome overwrites it once the job actually finishes.
+      await writeLastJob(job, notice);
       sendResponse({ ok: true });
     })();
     return true;
