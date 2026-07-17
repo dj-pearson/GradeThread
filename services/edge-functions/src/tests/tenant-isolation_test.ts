@@ -23,6 +23,8 @@
 //   TEST_USER_A_BATCH_ID        a listing_generation_batches.id (AutoLister)
 //   TEST_USER_A_GARMENT_ID      a garments.id (Garment Passport, US-1090/1092)
 //   TEST_USER_A_EBAY_ORDER_ID   a sales.platform_order_id (eBay refund, US-1978)
+//   TEST_USER_A_EBAY_OFFER_ID   a listings.platform_offer_id (eBay cleanup, US-1978)
+//   TEST_USER_A_EBAY_SKU        an inventory_items.sku (eBay cleanup, US-1978)
 // For the AutoLister batch-enqueue test, user B should ideally be on a plan
 // that includes AutoLister so the OWNERSHIP path is exercised; if B is on a
 // free/starter plan the request is denied earlier with 402 (still a pass —
@@ -133,6 +135,40 @@ Deno.test({
     });
     await res.body?.cancel();
     assertDenied(res.status, "POST per-grade checkout");
+  },
+});
+
+Deno.test({
+  // US-1978 (AC2): DELETE offer is DESTRUCTIVE and irreversible — on a published
+  // offer eBay ends the live listing as a side effect. B must not be able to
+  // delete A's offer artifacts (or, via the liveness read, learn whether one
+  // exists). Same 404 as a nonexistent offer.
+  name: "B cannot delete A's eBay offer",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_EBAY_OFFER_ID"),
+  fn: async () => {
+    const offerId = Deno.env.get("TEST_USER_A_EBAY_OFFER_ID")!;
+    const res = await fetch(
+      `${BASE}/api/flipdesk/ebay/offers/${encodeURIComponent(offerId)}`,
+      { method: "DELETE", headers: authHeaders(B_JWT!) },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "DELETE eBay offer");
+  },
+});
+
+Deno.test({
+  // US-1978 (AC2): same hazard one level up — deleting a SKU cascades through its
+  // offers. B must not reach A's SKUs.
+  name: "B cannot delete A's eBay inventory item (SKU)",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_EBAY_SKU"),
+  fn: async () => {
+    const sku = Deno.env.get("TEST_USER_A_EBAY_SKU")!;
+    const res = await fetch(
+      `${BASE}/api/flipdesk/ebay/inventory-items/${encodeURIComponent(sku)}`,
+      { method: "DELETE", headers: authHeaders(B_JWT!) },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "DELETE eBay inventory item");
   },
 });
 

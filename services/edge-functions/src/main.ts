@@ -424,6 +424,12 @@ app.use("/api/flipdesk/ebay/messages/*", authMiddleware);
 // userId was unset → handlers queried user_id="undefined" → 22P02 / 500.
 app.use("/api/flipdesk/ebay/sync-runs", authMiddleware);
 app.use("/api/flipdesk/ebay/orders/*", authMiddleware);
+// US-1978: eBay artifact cleanup (DELETE a stale unpublished offer / SKU). Same
+// US-1623 trap as the paths above — without a whitelist entry authMiddleware never
+// runs, the handler reads workspaceOwnerId ?? userId, and it fails closed to 401
+// for signed-in sellers. Caught by flipdesk-auth-coverage_test.ts.
+app.use("/api/flipdesk/ebay/offers/*", authMiddleware);
+app.use("/api/flipdesk/ebay/inventory-items/*", authMiddleware);
 // US-1043: returns + cancellations management (Post-Order API).
 app.use("/api/flipdesk/ebay/returns", authMiddleware);
 app.use("/api/flipdesk/ebay/returns/*", authMiddleware);

@@ -2650,6 +2650,73 @@ export async function syncExistingOffer(
   );
 }
 
+// US-1978 (AC2): DELETE the offer record itself.
+//
+// NOT the same thing as withdrawOffer, and the difference is the whole point.
+// withdraw ENDS a live listing and KEEPS the offer so a re-publish reuses the same
+// offerId. This DESTROYS the offer record — there is no undo, and on a published
+// offer eBay would end the live listing as a side effect.
+//
+// So this is for STALE UNPUBLISHED artifacts only: drafts that were created,
+// never published, and now block SKU reuse. Callers MUST establish the offer is
+// unpublished first (see the route's guard) — this function deliberately does not
+// check, because a read here would be a TOCTOU comfort blanket rather than a real
+// guarantee, and hiding the check inside would make callers assume it is safe.
+export async function deleteOffer(
+  userId: string,
+  offerId: string,
+  connectionId?: string,
+): Promise<void> {
+  await fetchAuthed<unknown>(
+    userId,
+    `/sell/inventory/v1/offer/${encodeURIComponent(offerId)}`,
+    { method: "DELETE" },
+    connectionId,
+  );
+}
+
+// US-1978 (AC2): DELETE the inventory item (SKU) record.
+//
+// Same contract as deleteOffer: destructive, no undo, and eBay refuses (or
+// cascades) when the SKU still has offers. Intended for stale unpublished SKUs
+// that accumulate from abandoned drafts and then collide when the seller reuses a
+// SKU. The caller establishes there are no live offers first.
+export async function deleteInventoryItem(
+  userId: string,
+  sku: string,
+  connectionId?: string,
+): Promise<void> {
+  await fetchAuthed<unknown>(
+    userId,
+    `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`,
+    { method: "DELETE" },
+    connectionId,
+  );
+}
+
+// A DELETE can legitimately fail because the artifact is already gone — a prior
+// cleanup removed it, or eBay expired it. That is the DESIRED end state, so the
+// caller reconciles instead of erroring (mirrors isOfferAlreadyEndedError).
+export function isAlreadyDeletedError(err: unknown): boolean {
+  // A non-Error tells us nothing. "Unknown shape" is not evidence the artifact is
+  // gone, and the false-POSITIVE direction is the dangerous one here.
+  if (!(err instanceof Error)) return false;
+  const msg = err.message.toLowerCase();
+
+  // Necessary but NOT sufficient — eBay returns 404/400 for plenty of things.
+  if (!/\b(404|400)\b/.test(msg)) return false;
+
+  // The message must name the ARTIFACT, not merely say "not found". Without this,
+  // "404: route not found" (an API path change, a proxy misroute) reads as "the
+  // offer is already gone": the route reports ok and the stale artifact survives
+  // forever while the seller believes it was cleaned up. Caught by
+  // ebay-cleanup_test.ts, which is exactly why that test exists.
+  if (!/\b(offer|inventory[_\s]item|sku)\b/.test(msg)) return false;
+
+  return /not found|does not exist|no longer exists|cannot be found|invalid sku|\bno\s+(offer|inventory[_\s]item)\b/
+    .test(msg);
+}
+
 // Withdraws a published offer — ends the live eBay listing. The offer
 // record itself stays, so a future re-publish reuses the same offerId.
 export async function withdrawOffer(

@@ -67,6 +67,7 @@ import {
   isOfferAlreadyExistsError,
   listAllOffers,
   listOffersForSku,
+  getOffer,
   listRecentOrders,
   listRecentTransactions,
   publishOrAdoptOffer,
@@ -84,6 +85,9 @@ import {
   EBAY_BULK_MAX,
   upsertConnection,
   withdrawOffer,
+  deleteOffer,
+  deleteInventoryItem,
+  isAlreadyDeletedError,
   issueOrderRefund,
   type IssueRefundInput,
   type IssueRefundResult,
@@ -3684,6 +3688,167 @@ function parseRefundLineItems(
   }
   return out;
 }
+
+// US-1978 (AC2): DELETE /offers/:offerId — remove a STALE UNPUBLISHED offer.
+//
+// Abandoned drafts leave offer records behind on eBay. They are invisible to the
+// seller, they block SKU reuse, and there was no way to clear them.
+//
+// THE GUARD IS THE STORY. deleteOffer is not withdrawOffer: withdraw ends a live
+// listing and keeps the offer; DELETE destroys the record, and on a PUBLISHED
+// offer eBay ends the live listing as a side effect. So a careless delete silently
+// takes down a listing the seller is actively selling — with no undo and no
+// "ended" reconciliation locally, which is strictly worse than the US-1506 oversell
+// case (there the row was wrong; here the listing is gone).
+//
+// Hence: we ask eBay for the offer's CURRENT state and refuse if it is live. We do
+// not trust our own listings row for this — it can be stale (that is the entire
+// premise of the sync path), and "our DB thinks it's unpublished" is not evidence
+// about what is live on eBay right now.
+flipdeskEbayRoutes.delete("/offers/:offerId", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const offerId = c.req.param("offerId");
+
+  // US-268: offerId is attacker-controlled. Prove this tenant owns the listing
+  // carrying it before touching eBay; a foreign offer gets the same 404 as one
+  // that doesn't exist.
+  const { data: listing, error: lErr } = await supabaseAdmin
+    .from("listings")
+    .select("id, marketplace_connection_id, status")
+    .eq("user_id", ownerId)
+    .eq("platform_offer_id", offerId)
+    .maybeSingle();
+  if (lErr) {
+    console.error("[ebay.offers.delete] listing lookup failed:", lErr.message);
+    return c.json({ error: "Couldn't look up that offer." }, 500);
+  }
+  if (!listing) return c.json({ error: "Offer not found." }, 404);
+
+  const connectionId = listing.marketplace_connection_id ?? undefined;
+
+  // Liveness check against eBay itself, not our row.
+  let live = false;
+  try {
+    const remote = await getOffer(ownerId, offerId, connectionId);
+    live = Boolean(remote?.listingId);
+  } catch (err) {
+    if (isAlreadyDeletedError(err)) {
+      // Already gone on eBay — the desired end state. Reconcile, don't error.
+      return c.json({ ok: true, already_gone: true });
+    }
+    return failSafe(c, 502, "Couldn't read that offer from eBay.", err, "ebay.offers.delete.read");
+  }
+  if (live) {
+    return c.json(
+      {
+        error:
+          "That offer is a LIVE listing. Deleting it would take the listing down " +
+          "with no way back. End the listing first, then delete the offer.",
+      },
+      409,
+    );
+  }
+
+  try {
+    await deleteOffer(ownerId, offerId, connectionId);
+  } catch (err) {
+    if (!isAlreadyDeletedError(err)) {
+      return failSafe(c, 502, "eBay rejected the offer delete.", err, "ebay.offers.delete");
+    }
+  }
+
+  await writeAuditLog(c, {
+    action: "ebay.offer.delete",
+    targetType: "ebay_offer",
+    targetId: offerId,
+    details: { listing_id: listing.id, listing_status: listing.status },
+  });
+  return c.json({ ok: true });
+});
+
+// US-1978 (AC2): DELETE /inventory-items/:sku — remove a STALE UNPUBLISHED SKU.
+//
+// Same hazard, one level up: an inventory item with a live offer must never be
+// deleted. eBay's own behaviour here is not something to rely on (it may refuse,
+// it may cascade), so we check for ANY live offer on the SKU and refuse first.
+flipdeskEbayRoutes.delete("/inventory-items/:sku", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const sku = c.req.param("sku");
+
+  // US-268: the SKU is attacker-controlled. It must belong to one of THIS tenant's
+  // inventory items.
+  const { data: item, error: iErr } = await supabaseAdmin
+    .from("inventory_items")
+    .select("id")
+    .eq("user_id", ownerId)
+    .eq("sku", sku)
+    .maybeSingle();
+  if (iErr) {
+    console.error("[ebay.items.delete] item lookup failed:", iErr.message);
+    return c.json({ error: "Couldn't look up that SKU." }, 500);
+  }
+  if (!item) return c.json({ error: "SKU not found." }, 404);
+
+  let offers: Awaited<ReturnType<typeof listOffersForSku>>;
+  try {
+    offers = await listOffersForSku(ownerId, sku);
+  } catch (err) {
+    if (isAlreadyDeletedError(err)) {
+      return c.json({ ok: true, already_gone: true });
+    }
+    return failSafe(c, 502, "Couldn't read that SKU's offers from eBay.", err, "ebay.items.delete.read");
+  }
+
+  const liveOffers = offers.filter((o) => o.listingId);
+  if (liveOffers.length > 0) {
+    return c.json(
+      {
+        error:
+          `That SKU still has ${liveOffers.length} live listing(s) on eBay. ` +
+          "End them first — deleting the SKU now would take them down with no way back.",
+        live_listing_ids: liveOffers.map((o) => o.listingId),
+      },
+      409,
+    );
+  }
+
+  // Unpublished offers must go before the SKU can — eBay rejects a delete on a SKU
+  // that still has offers attached. Every one of these is proven non-live above.
+  for (const offer of offers) {
+    try {
+      await deleteOffer(ownerId, offer.offerId);
+    } catch (err) {
+      if (!isAlreadyDeletedError(err)) {
+        return failSafe(
+          c, 502,
+          "Couldn't clear that SKU's stale offers.", err, "ebay.items.delete.offers",
+        );
+      }
+    }
+  }
+
+  try {
+    await deleteInventoryItem(ownerId, sku);
+  } catch (err) {
+    if (!isAlreadyDeletedError(err)) {
+      return failSafe(c, 502, "eBay rejected the SKU delete.", err, "ebay.items.delete");
+    }
+  }
+
+  await writeAuditLog(c, {
+    action: "ebay.inventory_item.delete",
+    targetType: "ebay_sku",
+    targetId: sku,
+    details: { item_id: item.id, stale_offers_removed: offers.length },
+  });
+  return c.json({ ok: true, stale_offers_removed: offers.length });
+});
 
 // GET /cancellations — open cancellation requests for the seller.
 flipdeskEbayRoutes.get("/cancellations", async (c) => {
