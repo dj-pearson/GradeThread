@@ -406,7 +406,12 @@ function isExtensionPlatform(p: string): p is ExtensionPlatform {
 flipdeskListingsRoutes.post("/extension-writeback", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
 
-  let body: { item_id?: unknown; platform?: unknown; listing_url?: unknown };
+  let body: {
+    item_id?: unknown;
+    platform?: unknown;
+    listing_url?: unknown;
+    published?: unknown;
+  };
   try {
     body = await c.req.json();
   } catch {
@@ -419,6 +424,21 @@ flipdeskListingsRoutes.post("/extension-writeback", async (c) => {
     typeof body.listing_url === "string" && body.listing_url.length > 0
       ? body.listing_url
       : null;
+
+  // US-1877 (AC2): PREFILLING IS NOT PUBLISHING.
+  //
+  // This route recorded listing_status:'active' + is_active + listed_at:now on
+  // every call — at the moment the extension merely PREFILLED a form the seller
+  // had not yet submitted, and might never submit. Combined with listing_url being
+  // permanently null (GT.captureListingUrl was referenced in a comment but never
+  // existed), every "Send to extension" minted a phantom active listing: the
+  // seller's inventory claimed a live cross-listing that did not exist anywhere.
+  //
+  // Now the default is a DRAFT, and only an explicit confirmation — the captured
+  // live URL, or the seller saying "I published it" — promotes it to active.
+  // Defaulting to false matters: an older client that doesn't send the flag gets
+  // the safe state (a draft it can promote) rather than the phantom.
+  const published = body.published === true;
 
   if (!itemId) return c.json({ error: "item_id is required." }, 400);
   if (!isExtensionPlatform(platform)) {
@@ -465,29 +485,53 @@ flipdeskListingsRoutes.post("/extension-writeback", async (c) => {
   // One row per (item, platform): refresh it if it already exists, else create.
   const { data: existingRow } = await supabaseAdmin
     .from("listings")
-    .select("id")
+    .select("id, listing_status, listing_url, listed_at")
     .eq("inventory_item_id", itemId)
     .eq("platform", platform)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
-  const existingId = (existingRow as { id: string } | null)?.id ?? null;
+  const existing = existingRow as
+    | {
+      id: string;
+      listing_status: string | null;
+      listing_url: string | null;
+      listed_at: string | null;
+    }
+    | null;
 
-  if (existingId) {
+  if (existing) {
+    const patch: Record<string, unknown> = { draft_id: groupId ?? undefined };
+    if (published) {
+      patch.listing_status = "active";
+      patch.is_active = true;
+      patch.listed_at = existing.listed_at ?? now;
+      // Never blank a URL we already have: a manual "I published it" carries no
+      // URL, and it must not erase one the capture already found.
+      if (listingUrl) patch.listing_url = listingUrl;
+    } else if (existing.listing_status !== "active") {
+      // A re-prefill of a row that is still a draft stays a draft.
+      patch.listing_status = "draft";
+      patch.is_active = false;
+    }
+    // NOTE the else: a prefill of an ALREADY-ACTIVE listing leaves it active. A
+    // seller re-sending a live listing to the extension (to fix a typo) must not
+    // have it demoted to draft — that would make a real live listing invisible to
+    // the delist queue, which is the same oversell hazard from the other side.
     const { error: upErr } = await supabaseAdmin
       .from("listings")
-      .update({
-        listing_status: "active",
-        is_active: true,
-        listing_url: listingUrl,
-        listed_at: now,
-        draft_id: groupId ?? undefined,
-      })
-      .eq("id", existingId);
+      .update(patch)
+      .eq("id", existing.id);
     if (upErr) {
       return c.json({ error: "Could not update the cross-listing." }, 500);
     }
-    return c.json({ ok: true, listing_id: existingId, platform, created: false });
+    return c.json({
+      ok: true,
+      listing_id: existing.id,
+      platform,
+      created: false,
+      published: published || existing.listing_status === "active",
+    });
   }
 
   const { data: created, error: insErr } = await supabaseAdmin
@@ -497,11 +541,17 @@ flipdeskListingsRoutes.post("/extension-writeback", async (c) => {
       platform,
       // US-1077: recording a FlipDesk cross-listing → GradeThread-originated.
       listing_origin: "gradethread",
-      listing_status: "active",
-      is_active: true,
+      // US-1877 (AC2): 'draft' unless the seller has actually published. Reuses the
+      // existing listing_status enum value ('draft','active','ended','sold',
+      // 'relisted' — 00008) rather than minting a 'prefilled' one, so no migration
+      // and no new state for every consumer of listing_status to learn.
+      listing_status: published ? "active" : "draft",
+      is_active: published,
       listing_price: price,
       listing_url: listingUrl,
-      listed_at: now,
+      // A draft was never listed — a listed_at here is what made phantom rows look
+      // like real, dateable cross-listings in the pipeline.
+      listed_at: published ? now : null,
       draft_id: groupId,
     })
     .select("id")
@@ -514,6 +564,7 @@ flipdeskListingsRoutes.post("/extension-writeback", async (c) => {
     listing_id: (created as { id: string }).id,
     platform,
     created: true,
+    published,
   });
 });
 
@@ -530,6 +581,7 @@ interface PendingDelistRow {
   id: string;
   platform: string;
   listing_url: string | null;
+  listing_status: string | null;
   inventory_item_id: string;
   delist_requested_at: string;
   inventory_items: { user_id: string; item_title: string | null };
@@ -542,7 +594,10 @@ flipdeskListingsRoutes.get("/pending-delists", async (c) => {
   const { data, error } = await supabaseAdmin
     .from("listings")
     .select(
-      "id, platform, listing_url, inventory_item_id, delist_requested_at, " +
+      // US-1877 (AC3): listing_status rides along so the client can tell a
+      // CONFIRMED-live sibling (auto-delistable) from a prefill we never saw go
+      // live (nothing to end automatically — and we must not pretend otherwise).
+      "id, platform, listing_url, listing_status, inventory_item_id, delist_requested_at, " +
         // item_title is an items_full VIEW alias; the base inventory_items table
         // has `title`. Alias it back so PendingDelistRow.item_title resolves.
         "inventory_items!inner(user_id, item_title:title)",
@@ -561,6 +616,11 @@ flipdeskListingsRoutes.get("/pending-delists", async (c) => {
       listing_id: r.id,
       platform: r.platform,
       listing_url: r.listing_url,
+      listing_status: r.listing_status,
+      // AC3: auto-delist eligibility is CONFIRMED-ACTIVE *and* has a URL. A draft
+      // was never confirmed live; a URL-less active was confirmed by hand. Neither
+      // can be ended by the extension, which needs a live URL to open.
+      auto_delistable: r.listing_status === "active" && !!r.listing_url,
       item_id: r.inventory_item_id,
       item_title: r.inventory_items.item_title,
       requested_at: r.delist_requested_at,

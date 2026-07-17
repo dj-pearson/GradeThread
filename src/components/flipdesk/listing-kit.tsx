@@ -202,6 +202,10 @@ function PlatformPanel({
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [downloading, setDownloading] = useState(false);
   const [sending, setSending] = useState(false);
+  // US-1877 (AC2): a prefill records a DRAFT. This surfaces the control that
+  // promotes it once the seller has actually hit Submit on the marketplace.
+  const [prefilled, setPrefilled] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   if (!spec) return null;
 
   const photoCount = photos.length;
@@ -224,6 +228,37 @@ function PlatformPanel({
       toast.error(err instanceof Error ? err.message : "Couldn't export photos.");
     } finally {
       setDownloading(false);
+    }
+  };
+
+
+  // US-1877 (AC2): the explicit "I published it" path.
+  //
+  // The automatic path is the extension capturing the live URL after the seller
+  // submits (AC1). This is the fallback for when that window is missed — the seller
+  // took ten minutes over the form, or closed and reopened the tab. Without it a
+  // real live listing would be stuck as a draft forever, which is the mirror of the
+  // phantom-active bug and just as wrong.
+  const confirmPublished = async () => {
+    setConfirming(true);
+    try {
+      const wb = await edgeFetch("/api/flipdesk/listings/extension-writeback", {
+        method: "POST",
+        json: { item_id: itemId, platform, published: true },
+      });
+      if (!wb.ok) {
+        const j = await wb.json().catch(() => ({}));
+        toast.error(j.error ?? `Couldn't record the ${spec.label} listing.`);
+        return;
+      }
+      toast.success(`${spec.label} listing recorded as live.`);
+      setPrefilled(false);
+      void qc.invalidateQueries({ queryKey: ["platform-fields", itemId] });
+      void qc.invalidateQueries({ queryKey: ["item_listing_platforms"] });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't record the listing.");
+    } finally {
+      setConfirming(false);
     }
   };
 
@@ -304,13 +339,18 @@ function PlatformPanel({
         toast.error(res.error ?? `Couldn't send to ${spec.label}.`);
         return;
       }
-      // The marketplace tab was prefilled — record the cross-listing.
+      // US-1877 (AC2): the tab was PREFILLED, not published — the seller still has
+      // to review and hit Submit, and may never do it. Recording this as `active`
+      // (which is what happened before) minted a phantom live cross-listing in
+      // their inventory. published:false records a draft; it is promoted only when
+      // the listing is confirmed live.
       const wb = await edgeFetch("/api/flipdesk/listings/extension-writeback", {
         method: "POST",
         json: {
           item_id: itemId,
           platform,
           listing_url: res.listingUrl ?? null,
+          published: false,
         },
       });
       if (!wb.ok) {
@@ -330,7 +370,11 @@ function PlatformPanel({
         `${spec.label} prefilled in a new tab — review and submit.` +
           photoNote(res),
       );
+      // The seller now has a draft row they can promote once they've published —
+      // see the "I published it" control below.
+      setPrefilled(true);
       void qc.invalidateQueries({ queryKey: ["platform-fields", itemId] });
+      void qc.invalidateQueries({ queryKey: ["item_listing_platforms"] });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Send to extension failed.");
     } finally {
@@ -456,6 +500,28 @@ function PlatformPanel({
               <Puzzle className="mr-1.5 h-3.5 w-3.5" />
             )}
             Send to extension
+          </Button>
+        )}
+        {/* US-1877 (AC2): promote the draft once the seller has actually
+            published. Shown only after a prefill in this session — the automatic
+            URL capture (AC1) handles the common case; this is the escape hatch for
+            when that window is missed, so a real listing isn't stranded as a
+            draft. */}
+        {showSend && prefilled && (
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            disabled={confirming}
+            onClick={confirmPublished}
+            title={`Mark the ${spec.label} listing as live in FlipDesk`}
+          >
+            {confirming ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Check className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            I published it
           </Button>
         )}
       </div>

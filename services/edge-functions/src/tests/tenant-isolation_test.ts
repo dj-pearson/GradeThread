@@ -139,6 +139,34 @@ Deno.test({
 });
 
 Deno.test({
+  // US-1877 (AC2/AC5): the extension writeback's CONFIRM transition promotes a
+  // draft cross-listing to ACTIVE. B must not be able to mark A's item as live on
+  // a marketplace — that would put a phantom active listing in A's inventory and
+  // (via the delist queue) make A believe something is live that isn't. The route
+  // verifies the item's owner before touching any listing row.
+  name: "B cannot confirm A's item as published via extension-writeback",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const itemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const res = await fetch(
+      `${BASE}/api/flipdesk/listings/extension-writeback`,
+      {
+        method: "POST",
+        headers: authHeaders(B_JWT!),
+        body: JSON.stringify({
+          item_id: itemId,
+          platform: "poshmark",
+          published: true,
+          listing_url: "https://poshmark.com/listing/attacker",
+        }),
+      },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "POST extension-writeback (confirm published)");
+  },
+});
+
+Deno.test({
   // US-1978 (AC2): DELETE offer is DESTRUCTIVE and irreversible — on a published
   // offer eBay ends the live listing as a side effect. B must not be able to
   // delete A's offer artifacts (or, via the liveness read, learn whether one

@@ -19,6 +19,11 @@ export interface PendingDelist {
   listing_id: string;
   platform: string;
   listing_url: string | null;
+  /** US-1877 (AC3): 'draft' = we never confirmed this prefill went live. */
+  listing_status?: string | null;
+  /** US-1877 (AC3): confirmed-active AND has a live URL — the only rows the
+   *  extension can actually end. Everything else degrades to the manual path. */
+  auto_delistable?: boolean;
   item_id: string;
   item_title: string | null;
   requested_at: string;
@@ -55,6 +60,19 @@ export function useRunDelist() {
     mutationFn: async (item) => {
       if (!isListerPlatform(item.platform)) {
         return { ok: false, error: `${item.platform} isn't an extension platform.` };
+      }
+      // US-1877 (AC3): auto-delist requires a CONFIRMED-live listing with a URL.
+      // Two distinct reasons to degrade, and they need different copy — telling a
+      // seller "no saved URL" for a listing that was never published sends them
+      // hunting for something that may not exist.
+      if (item.listing_status === "draft") {
+        return {
+          ok: false,
+          manual: true,
+          error:
+            "GradeThread only prefilled this listing and never confirmed it went live. " +
+            "Check the marketplace — if you did publish it, end it there.",
+        };
       }
       if (!item.listing_url) {
         return {
