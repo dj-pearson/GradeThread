@@ -1,7 +1,7 @@
-# Store submission kit — GradeThread unified extension v0.3.0
+# Store submission kit — GradeThread unified extension v0.3.5
 
 Copy-paste source for the Chrome Web Store + Firefox AMO listings. Artifacts:
-`dist-ext/gradethread-v0.3.0-chrome.zip` · `dist-ext/gradethread-v0.3.0-firefox.zip`.
+`dist-ext/gradethread-v0.3.5-chrome.zip` · `dist-ext/gradethread-v0.3.5-firefox.zip`.
 
 ## Shared fields
 
@@ -48,8 +48,10 @@ Give shoppers an independent AI condition read on second-hand clothing listings,
 - `storage` — Store the user's settings (auto-run, per-site toggles), local "recent reads" history, and the signed sign-in token, on the device.
 - `activeTab` — Read the active tab's host so the popup can show a per-site enable/disable toggle for the marketplace the user is on.
 - `alarms` — Time out a cross-listing job that never completes (e.g. the marketplace page fails to load), so the user gets a clear "timed out — list manually" message instead of a spinner that never resolves. Chrome suspends the extension's background worker after ~30s of inactivity, which cancels ordinary in-page timers; an alarm is the only mechanism that survives to report the failure. Not used for scheduling, polling, or any background network activity.
-- Host `*://*.gradethread.com/*` — Call GradeThread's grading API and receive the signed sign-in token / account entitlements.
-- Host `*://*.poshmark.com/*`, `*://*.mercari.com/*`, `*://*.grailed.com/*` — Prefill the seller's own new-listing form during cross-listing.
+- Host `https://gradethread.com/*` and `https://*.gradethread.com/*` — Two uses, and the second is the one that needs stating plainly:
+  1. Call GradeThread's own API (`functions.gradethread.com`) to grade a listing the user asked us to read, and to fetch that account's entitlements.
+  2. **Inject a content script into gradethread.com pages** (`gt-bridge.js`). It is a message relay: the GradeThread web app posts a cross-listing request, the script forwards it to the extension's background, and posts the reply back. It exists because Firefox has no `externally_connectable`, so this is the only cross-browser way for our own site to talk to our own extension. It reads nothing from the page — no page content, no credentials, no cookies — and forwards only our own message envelope.
+- Host `https://*.poshmark.com/*`, `https://*.mercari.com/*`, `https://*.grailed.com/*` — Prefill the seller's own new-listing form during cross-listing, in the tab they are already signed into.
 - **Remote code:** No — all executable code ships inside the package.
 
 **Data usage disclosures** (certify):
@@ -71,7 +73,7 @@ Give shoppers an independent AI condition read on second-hand clothing listings,
 
 **Privacy policy summary (if AMO wants text):**
 ```
-GradeThread Condition Check & Lister does not read your marketplace accounts and has no "cookies" permission. When you request a condition read, the extension sends the public listing's image URLs and basic details (title, brand, price) to GradeThread's grading service to produce a score; results are not stored on our servers. Your recent reads and settings are stored only on your device. If you sign in, a short-lived access token is stored locally to apply your account's quota and unlock seller tools. Cross-listing runs entirely in your browser; your marketplace passwords and cookies are never sent to GradeThread. Full policy: https://gradethread.com/privacy
+GradeThread Condition Check & Lister does not read your marketplace accounts and has no "cookies" permission. When you request a condition read, the extension sends the public listing's image URLs and basic details (title, brand, price) to GradeThread's grading service to produce a score; results are not stored on our servers. Your recent reads and settings are stored only on your device. If you sign in, a short-lived access token is stored locally to apply your account's quota and unlock seller tools. Cross-listing runs entirely in your browser; your marketplace passwords and cookies are never sent to GradeThread. On gradethread.com itself the extension runs a small message relay so our website can hand cross-listing requests to the extension (Firefox provides no other way for a site to reach its own extension); it reads no page content and forwards only our own messages. Full policy: https://gradethread.com/privacy
 ```
 
 ## Notes to Reviewer (AMO) / Testing instructions
@@ -97,7 +99,7 @@ event page (background.scripts); page↔extension messaging uses the gradethread
 content script gt-bridge.js (postMessage) in place of externally_connectable.
 ```
 
-## Version / release notes (v0.3.0)
+## Version / release notes (v0.3.5)
 
 ```
 First unified release. One add-on now does both jobs:
