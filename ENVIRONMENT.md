@@ -161,6 +161,9 @@ when that feature lands.
 | `CLOUDFLARE_API_TOKEN` | When using blog/cert SSR | Purges the Cloudflare edge cache after publish so readers don't see stale HTML | Cloudflare dashboard → My Profile → API Tokens (Zone → Cache Purge) |
 | `CLOUDFLARE_ZONE_ID` | With `CLOUDFLARE_API_TOKEN` | The zone whose cache to purge | Cloudflare dashboard → your domain → Overview (Zone ID) |
 | `INDEXNOW_KEY` | ⬜ Optional (recommended) | Instant-indexing key for Bing/Yandex/Naver/Seznam (US-296). Submissions cleanly no-op when unset. The matching key file **must** be hosted at `https://gradethread.com/<INDEXNOW_KEY>.txt` — commit it as `public/<key>.txt` (already done for the current key). | Generate with `openssl rand -hex 16` |
+| `VAPID_PUBLIC_KEY` | ⬜ Optional (Web push, US-1901) | VAPID application-server **public** key (base64url uncompressed P-256 point). Served to the browser via `GET /api/push/vapid-public-key` and must equal the frontend `VITE_VAPID_PUBLIC_KEY`. Unset ⇒ web push no-ops silently (email + in-app remain the delivery channels). | Generate a P-256 keypair with `npx web-push generate-vapid-keys` (or openssl) |
+| `VAPID_PRIVATE_KEY` | With `VAPID_PUBLIC_KEY` | VAPID application-server **private** key (base64url raw `d` scalar of the same P-256 keypair). **Secret** — signs the RFC 8292 VAPID JWT. | Same `web-push generate-vapid-keys` output (the private key) |
+| `VAPID_SUBJECT` | ⬜ Optional | VAPID contact (`mailto:`/`https:`) sent in the JWT `sub`. Defaults to `mailto:support@gradethread.com`. | Your support contact |
 
 ### 2j. Google Ads — keyword research (US-1072) + Ads Command Center (US-1696+)
 

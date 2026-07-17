@@ -50,6 +50,7 @@ import { signOut, signOutEverywhere, signOutOtherSessions } from "@/lib/auth";
 import { checkPassword, PASSWORD_HINT } from "@/lib/password-policy";
 import { FieldError } from "@/components/ui/form-feedback";
 import { MfaCard } from "@/components/settings/mfa-card";
+import { PushNotificationsCard } from "@/components/settings/push-notifications-card";
 
 const DELETE_CONFIRM_PHRASE = "DELETE MY ACCOUNT";
 
@@ -848,6 +849,9 @@ export function SettingsPage() {
           </Button>
         </CardContent>
       </Card>
+
+      {/* Push notifications opt-in (US-1901) */}
+      <PushNotificationsCard />
 
       {/* Usage Alerts Section (US-209) */}
       <Card>

@@ -510,6 +510,73 @@ Deno.test({
   },
 });
 
+// ── Web push subscriptions (US-1901) ────────────────────────────────────
+//
+// push_subscriptions is a per-tenant table written/read through the service-role
+// client, so isolation rests on /api/push/unsubscribe scoping its DELETE by
+// user_id. B pointing /unsubscribe at A's endpoint must delete NOTHING — the
+// route returns ok (idempotent, 0 rows) but A's row survives. Extra env:
+//   TEST_USER_A_PUSH_ENDPOINT   a push_subscriptions.endpoint owned by A
+Deno.test({
+  name: "push subscribe/unsubscribe require authentication",
+  ignore: !BASE,
+  fn: async () => {
+    const sub = await fetch(`${BASE}/api/push/subscribe`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ endpoint: "https://x", keys: { p256dh: "a", auth: "b" } }),
+    });
+    await sub.body?.cancel();
+    assert(sub.status === 401, `unauthenticated push subscribe should 401, got ${sub.status}`);
+
+    const unsub = await fetch(`${BASE}/api/push/unsubscribe`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ endpoint: "https://x" }),
+    });
+    await unsub.body?.cancel();
+    assert(unsub.status === 401, `unauthenticated push unsubscribe should 401, got ${unsub.status}`);
+  },
+});
+
+Deno.test({
+  name: "B cannot unsubscribe A's push subscription (delete scoped by user_id)",
+  ignore:
+    !CONFIGURED ||
+    !Deno.env.get("TEST_USER_A_PUSH_ENDPOINT") ||
+    !Deno.env.get("SUPABASE_URL"),
+  fn: async () => {
+    const endpoint = Deno.env.get("TEST_USER_A_PUSH_ENDPOINT")!;
+    // B attempts to unsubscribe A's endpoint. The DELETE is scoped by user_id,
+    // so it affects 0 rows and returns ok (idempotent) — it must never touch A's
+    // subscription.
+    const res = await fetch(`${BASE}/api/push/unsubscribe`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ endpoint }),
+    });
+    await res.body?.cancel();
+    assert(
+      res.status !== 401 && res.status !== 403,
+      `B's unsubscribe should be accepted+scoped (idempotent), got ${res.status}`,
+    );
+
+    // Confirm A's subscription survived by reading it back with A's own JWT —
+    // RLS on push_subscriptions returns only A's rows.
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const anon = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+    const check = await fetch(
+      `${supabaseUrl}/rest/v1/push_subscriptions?endpoint=eq.${encodeURIComponent(endpoint)}&select=id`,
+      { headers: { Authorization: `Bearer ${A_JWT!}`, apikey: anon } },
+    );
+    const rows = (await check.json().catch(() => [])) as unknown[];
+    assert(
+      Array.isArray(rows) && rows.length === 1,
+      "A's push subscription was removed by B's unsubscribe — tenant isolation breached",
+    );
+  },
+});
+
 // US-294: the anonymous public-certificate endpoint must serve ONLY certified
 // (public) reports. A private/uncertified report's id (whether the internal
 // grade_reports.id or any non-certificate uuid) must 404 — never return data.

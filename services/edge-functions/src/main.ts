@@ -16,6 +16,7 @@ import { apiKeyRoutes } from "./routes/api-keys.ts";
 import { apiV1Routes } from "./routes/api-v1.ts";
 import { OPENAPI_SPEC } from "./lib/openapi-spec.ts";
 import { notificationRoutes } from "./routes/notifications.ts";
+import { pushRoutes } from "./routes/push.ts";
 import { flipdeskEbayRoutes } from "./routes/flipdesk-ebay.ts";
 import { flipdeskShopifyRoutes } from "./routes/flipdesk-shopify.ts";
 import { flipdeskDepopRoutes } from "./routes/flipdesk-depop.ts";
@@ -353,6 +354,11 @@ app.use("/api/notifications/feedback", authMiddleware);
 // US-1638: /welcome now derives its target from the verified token (was an
 // unauthenticated body-userId → account-existence oracle).
 app.use("/api/notifications/welcome", authMiddleware);
+// US-1901: web push subscription management — authed + workspace-scoped so
+// subscriptions are stored/read under the resolved owner (workspaceOwnerId ??
+// userId), matching how notify.ts fans pushes out to the recipient owner.
+app.use("/api/push/*", authMiddleware);
+app.use("/api/push/*", workspaceMiddleware);
 // Account data export / deletion — caller acts only on their own data. (US-275)
 app.use("/api/account/*", authMiddleware);
 // US-900: user-facing support ticket inbox — caller acts only on their own tickets.
@@ -1037,6 +1043,7 @@ app.route("/api/passport", passportRoutes);
 app.route("/api/passport-identity", passportIdentityRoutes);
 app.route("/api/v1", apiV1Routes);
 app.route("/api/notifications", notificationRoutes);
+app.route("/api/push", pushRoutes);
 app.route("/api/flipdesk/ebay", flipdeskEbayRoutes);
 app.route("/api/flipdesk/shopify", flipdeskShopifyRoutes);
 app.route("/api/flipdesk/depop", flipdeskDepopRoutes);

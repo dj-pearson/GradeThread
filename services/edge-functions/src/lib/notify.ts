@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "./supabase.ts";
+import { getVapidConfig, sendWebPush } from "./web-push.ts";
 
 // In-app notification types. Mirrors the public.notification_type enum
 // (migrations 00007 + 00114) and the frontend NotificationType union.
@@ -96,26 +97,40 @@ export interface NotifyInput {
 //
 // Fire-and-forget friendly — never throws; logs and swallows failures so a
 // notification problem can't break the lifecycle action that triggered it.
+// Per-category channel prefs as stored on users.notification_preferences.
+type ChannelPrefs = Record<string, { in_app?: boolean; push?: boolean } | undefined>;
+
 export async function notifyUser(
   userId: string,
   input: NotifyInput,
 ): Promise<void> {
   try {
     const prefKey = PREF_KEY[input.type];
+    let prefs: ChannelPrefs | undefined;
     if (prefKey) {
       const { data: user } = await supabaseAdmin
         .from("users")
         .select("notification_preferences")
         .eq("id", userId)
         .maybeSingle();
-      const prefs = (
-        user as
-          | { notification_preferences?: Record<string, { in_app?: boolean }> }
-          | null
+      prefs = (
+        user as { notification_preferences?: ChannelPrefs } | null
       )?.notification_preferences;
-      // Default on — only suppress when explicitly disabled.
-      if (prefs?.[prefKey]?.in_app === false) return;
     }
+
+    // US-1901: deliver a browser push in parallel to the in-app row, gated on
+    // the same category's `push` channel. Fire-and-forget — a push failure must
+    // never affect the in-app insert or throw into the lifecycle action.
+    if (pushChannelEnabled(prefs, prefKey)) {
+      void deliverPush(userId, {
+        title: input.title,
+        body: input.message,
+        url: input.link ?? "/dashboard",
+      });
+    }
+
+    // In-app: default on — only suppress when explicitly disabled.
+    if (prefKey && prefs?.[prefKey]?.in_app === false) return;
 
     const { error } = await supabaseAdmin.from("notifications").insert({
       user_id: userId,
@@ -134,5 +149,112 @@ export async function notifyUser(
       `[notify] unexpected error for ${userId} (${input.type}):`,
       err instanceof Error ? err.message : String(err),
     );
+  }
+}
+
+// Pure gate (unit-tested): is the push channel enabled for this category? A null
+// prefKey (always-on types) always allows; otherwise default ON — only an
+// explicit `push: false` suppresses.
+export function pushChannelEnabled(
+  prefs: ChannelPrefs | null | undefined,
+  prefKey: string | null,
+): boolean {
+  if (!prefKey) return true;
+  return prefs?.[prefKey]?.push !== false;
+}
+
+export interface PushPayload {
+  title: string;
+  body: string;
+  url: string;
+}
+
+// Fan a single notification out to every browser subscription for `userId`.
+// Tenant-safe: the caller passes the already-resolved recipient/owner id, and
+// the query is scoped `.eq("user_id", userId)`. Best-effort throughout: no-ops
+// silently when VAPID isn't provisioned, prunes dead (gone) subscriptions, and
+// counts other failures without ever throwing.
+export async function deliverPush(
+  userId: string,
+  payload: PushPayload,
+): Promise<void> {
+  try {
+    if (!userId) return;
+    const vapid = getVapidConfig();
+    if (!vapid) {
+      // Push not provisioned on this deploy — email/in-app remain the fallback.
+      console.debug("[push] VAPID not configured — skipping web push delivery");
+      return;
+    }
+
+    const { data: subs, error } = await supabaseAdmin
+      .from("push_subscriptions")
+      .select("id, endpoint, p256dh, auth")
+      .eq("user_id", userId);
+    if (error) {
+      console.error(`[push] could not load subscriptions for ${userId}: ${error.message}`);
+      return;
+    }
+    if (!subs || subs.length === 0) return;
+
+    await Promise.all(
+      (subs as Array<{ id: string; endpoint: string; p256dh: string; auth: string }>).map(
+        async (sub) => {
+          try {
+            const { gone, status } = await sendWebPush(
+              { endpoint: sub.endpoint, p256dh: sub.p256dh, auth: sub.auth },
+              payload,
+              vapid,
+            );
+            if (gone) {
+              // 404/410 — the browser dropped the subscription; prune it.
+              await supabaseAdmin
+                .from("push_subscriptions")
+                .delete()
+                .eq("id", sub.id)
+                .eq("user_id", userId);
+            } else if (status >= 400) {
+              await bumpFailure(sub.id, userId);
+            } else {
+              await supabaseAdmin
+                .from("push_subscriptions")
+                .update({ last_used_at: new Date().toISOString(), failure_count: 0 })
+                .eq("id", sub.id)
+                .eq("user_id", userId);
+            }
+          } catch (err) {
+            console.error(
+              `[push] send failed for ${userId}:`,
+              err instanceof Error ? err.message : String(err),
+            );
+            await bumpFailure(sub.id, userId);
+          }
+        },
+      ),
+    );
+  } catch (err) {
+    console.error(
+      `[push] unexpected delivery error for ${userId}:`,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+}
+
+async function bumpFailure(subId: string, userId: string): Promise<void> {
+  try {
+    const { data } = await supabaseAdmin
+      .from("push_subscriptions")
+      .select("failure_count")
+      .eq("id", subId)
+      .eq("user_id", userId)
+      .maybeSingle();
+    const next = ((data as { failure_count?: number } | null)?.failure_count ?? 0) + 1;
+    await supabaseAdmin
+      .from("push_subscriptions")
+      .update({ failure_count: next })
+      .eq("id", subId)
+      .eq("user_id", userId);
+  } catch {
+    // best-effort — never throw from the failure path.
   }
 }

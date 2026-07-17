@@ -115,6 +115,11 @@ export default defineConfig({
       // The web app manifest is the static file at public/manifest.webmanifest.
       manifest: false,
       workbox: {
+        // US-1901: register the web-push handlers (push + notificationclick) by
+        // importing the static public/push-sw.js into the generated SW, rather
+        // than hand-editing the generated offline worker. Ships to dist root via
+        // public/, so "/push-sw.js" resolves at the SW scope.
+        importScripts: ["/push-sw.js"],
         // US-421: precache assets + ONLY the root shell (dist/index.html), NOT
         // the per-route prerendered shells (dist/<route>/index.html). The bare
         // "index.html" glob matches only the top-level file; "**/*.html" would

@@ -4,6 +4,24 @@
 > The sections below for those are historical; the only NEW held migration is
 > **00443** at the top.
 
+## ⏳ PENDING: 00474_push_subscriptions.sql (US-1901 web push notifications, 2026-07-17)
+
+Creates `public.push_subscriptions` — one row per browser PushManager subscription
+(`user_id`, `endpoint` UNIQUE, `p256dh`, `auth`, `user_agent`, `failure_count`, …)
+with per-user RLS + a `user_id` index. The edge service (service-role) fans web
+pushes out to these rows; the frontend never reads the table directly (it POSTs to
+`/api/push/*`).
+
+**Risk: LOW-MED.** New table, no backfill, no changes to existing tables. Nothing
+reads it until the edge push routes ship. Web push simply does not deliver until the
+table exists AND the `VAPID_*` env vars are set on the edge — email/in-app remain the
+fallback channels, so there is no user-facing regression if this lags.
+
+**Apply after 00473**, then `NOTIFY pgrst, 'reload schema';` and confirm the edge
+`EXPECTED_SCHEMA_VERSION` is bumped to **00474** (done in this change). Generate + set
+the VAPID keypair (`VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT`, and the
+frontend `VITE_VAPID_PUBLIC_KEY`) before enabling push — see ENVIRONMENT.md.
+
 ## ⏳ PENDING: 00473_kids_baby_brand_knowledge.sql (US-1993 kids & baby brand KB, 2026-07-17)
 
 Data-only seed of the `brand_knowledge*` tables for the kids/baby tier: **Carter's,
