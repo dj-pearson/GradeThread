@@ -4,6 +4,80 @@
 > The sections below for those are historical; the only NEW held migration is
 > **00443** at the top.
 
+## ⏳ PENDING: 00468_handbags_accessories_brand_knowledge.sql (US-1988 handbags & accessories brand KB, 2026-07-17)
+
+Data-only seed of the `brand_knowledge*` tables for the handbags / accessories
+tier: **Longchamp, Marc Jacobs, Rebecca Minkoff, Fossil, Vera Bradley, Dooney &
+Bourke, Brahmin, Tumi, Herschel Supply Co.** **ALL NINE WERE PASSTHROUGH-ONLY.**
+
+**This is the KB's first ACCESSORY-FIRST group** — 00443..00467 all graded
+GARMENTS; this one grades BAGS, and that shift is the whole pack rather than a
+cosmetic detail, because **a bag carries less recoverable information on its body
+than a garment does.** Both of the story's stated premises died in research:
+
+- **RN is a CATEGORY ERROR here, not a research failure.** Prior packs recorded
+  "no RN — the FTC database is a JS shell". That is an ACCESS excuse; the real
+  reason is STATUTORY. Textiles in handbags/luggage are EXCLUDED from textile
+  labeling absent a fiber claim, so a leather handbag has no RN to find. Absence
+  is CORRECT and must never read as a red flag. The exemption is proven by its own
+  exception: **Marc Jacobs is the only brand here with a sourced RN, precisely
+  because it sells ready-to-wear.** The RN lives where the TEXTILE lives.
+- **The style code left with the hangtag.** In apparel the code is printed on the
+  sewn care label, which is why 00460/00467 could ship cut-tag decoders. A bag has
+  no care label — its code is on a REMOVABLE PAPER HANGTAG. Checkable against our
+  own KB rather than asserted: Coach (00398) SEWS a creed patch carrying the style
+  number *into* the bag and got a decoder. A bag CAN carry a code; these nine do not.
+
+**The headline refusal: RN 17257 IS NOT LONGCHAMP.** The exact failure the sourcing
+policy exists to prevent — a REAL federal record, the RIGHT brand string, the WRONG
+company. The register's only "longchamp" hit is *LONGCHAMP FABRICS CORP*, a NYC
+garment-district fabric wholesaler at 1412 Broadway. The maison's registrant would
+be S.A.S. Jean Cassegrain, which has no RN. Seeded as an explicit refusal.
+
+`brand_knowledge` ×9; `brand_styles` ×40; `brand_size_charts` ×**11**, all mirrored
+1:1 into the `sizing-charts.ts` in-code fallback; `brand_style_codes` ×**1**
+(Fossil); `brand_colorways` ×**38** (Longchamp 8, Tumi 10, Vera Bradley 20). Every
+fact carries `source_url` + `confidence` and lands `verified=false` for the US-1715
+admin queue. Idempotent (`on conflict do update`).
+
+**The one decoder is a watch, not a bag:** Fossil's `ES|FS|FTW` + 4-5 digits, on the
+metal CASE BACK (Fossil's own support). It is the pack's cut-tag case — a case back
+cannot come off the way a hangtag can. **The prefixes are anchored as a SAFETY
+MECHANISM:** ~47% of Fossil Group's net sales are LICENSED brands (Michael Kors
+alone 19.2%), so a permissive two-letter pattern would decode an `MK8017` under the
+Fossil pack and spell the brand "Fossil". Anchoring makes that impossible by
+construction. It captures **only `styleCode`** and asserts nothing about what the
+letters mean — the popular "ES = Fossil Steel" gloss is refuted by Fossil's own
+catalogue (ES4343 is leather-strap).
+
+**Two brands carry TWO charts on one `brand_key`** (Fossil watches-in-MM vs
+bags-in-INCHES; Rebecca Minkoff bags vs apparel), where `category_match` is the only
+discriminator — the US-1985 trap. The unit system is named in `garment` so the model
+sees which chart it got.
+
+**⚠ Vera Bradley's 20 patterns are seeded as CURRENT-SEASON, NOT RETIRED, and NO
+retirement date is seeded for any pattern.** The retired-patterns-archive URL serves
+the *current* patterns landing page; seeding them as retired would invert the truth
+on the single field that drives this brand's price.
+
+Apply **after 00467** via `scripts/apply-prod-migrations.sh`, then
+`NOTIFY pgrst, 'reload schema';`, then redeploy the edge (boot guard now expects
+**00468**). Bumps `EXPECTED_SCHEMA_VERSION` → **00468**. Risk: LOW — data-only, no
+schema change, no DDL, no frontend reads the new rows (the edge resolver falls
+back to the in-code tables when a pack is absent).
+
+⚠ `verify:db` could NOT run for this migration (Docker unresponsive on the
+authoring host — same as 00465, 00466 and 00467). The SQL was instead validated
+against the real PostgreSQL parser via **pglast**: parses (6 statements), every
+tuple matches its column list (9×13, 40×14, 1×10, 38×9, 11×12, 1×1), no duplicate
+`on conflict` key in any INSERT, and all 40 dollar-quoted `$j$` bodies scanned for
+the `''`-inside-`$j$` trap and JSON validity — clean. The scanner was self-tested
+against three planted bugs (a planted `''`, planted malformed JSON, and a planted
+dropped column) and caught all three. **Still run `npm run verify:db` before
+applying to prod.**
+
+---
+
 ## ⏳ PENDING: 00467_preppy_contemporary_mens_brand_knowledge.sql (US-1987 preppy & contemporary men's brand KB, 2026-07-17)
 
 Data-only seed of the `brand_knowledge*` tables for the preppy / contemporary

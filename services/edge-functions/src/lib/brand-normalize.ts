@@ -892,6 +892,101 @@ const BRAND_ALIASES: Record<string, string> = {
   johnnieogolf: "Johnnie-O",
   tweenerbutton: "Johnnie-O",
   prepformance: "Johnnie-O",
+
+  // ── US-1988: handbags & accessories (migration 00468) ──────────────────────
+  // The KB's first ACCESSORY-FIRST group: every pack before this graded GARMENTS.
+  // The refusals here are unusually load-bearing, and there are FOUR of them:
+  //   1. A bare "minkoff" is NOT mapped — URI MINKOFF IS A DISTINCT LABEL (his
+  //      own collection page, his own Poshmark brand node), so folding the surname
+  //      would mis-brand his menswear. The AYR rule from 00467.
+  //   2. A bare "rm" is NOT mapped — real collector shorthand for Rebecca Minkoff,
+  //      but not brand-unique, and a 2-letter key is the worst possible false
+  //      positive. Only accept it alongside a style token.
+  //   3. "d&b"/"db" are NOT mapped — a FOUR-way collision: Dun & Bradstreet,
+  //      Dolce & Gabbana in some seller usage, Dooney's OWN reversed-D monogram,
+  //      and Dooney's own SKU prefix. Unresolvable from the token alone.
+  //   4. Skagen / Michele / Relic / Zodiac are NOT mapped onto Fossil. They are
+  //      Fossil GROUP-owned (its 10-K lists them as owned brands, and Skagen is
+  //      OWNED not licensed — a common error), but a shared corporate parent is
+  //      not a shared brand. Folding them is the Todd Snyder / American Eagle
+  //      mistake from 00467. Likewise MICHAEL KORS / ARMANI / DIESEL are LICENSED
+  //      to Fossil and are emphatically not Fossil — Michael Kors is already its
+  //      own canonical here, and ~47% of Fossil Group's output is not Fossil.
+  longchamp: "Longchamp",
+  // Named for the Paris Longchamp RACECOURSE (singular) — so the trailing-s is
+  // the misspelling this brand actually attracts, and it is high-volume.
+  longchamps: "Longchamp",
+  longchamppars: "Longchamp",
+  // Le Pliage is the line a seller can read when nothing else is legible; Roseau
+  // is a DISTINCT line and folds to the house, not to Le Pliage.
+  lepliage: "Longchamp",
+  lepliageoriginal: "Longchamp",
+  roseau: "Longchamp",
+  // The trademark registrant. NOT MAPPED: a bare "cassegrain" (a surname, and an
+  // optical-telescope design).
+  jeancassegrain: "Longchamp",
+  marcjacobs: "Marc Jacobs",
+  markjacobs: "Marc Jacobs",
+  marcjacob: "Marc Jacobs",
+  themarcjacobs: "Marc Jacobs",
+  marcjacobsinternational: "Marc Jacobs",
+  littlemarcjacobs: "Marc Jacobs",
+  // ⚠ "Marc by Marc Jacobs" is DELIBERATELY **NOT** an alias of Marc Jacobs — it
+  // is a SEPARATE node. Different line, different era, and a different price
+  // band; folding it would erase the distinction resale actually pays for. And
+  // the rule has a live expiry: the mark was RE-FILED at USPTO on 15 June 2026
+  // (serial 99885050), so a revived line may ship new goods under it.
+  marcbymarcjacobs: "Marc by Marc Jacobs",
+  mbmj: "Marc by Marc Jacobs",
+  rebeccaminkoff: "Rebecca Minkoff",
+  rminkoff: "Rebecca Minkoff",
+  rebeccaminkoffhandbags: "Rebecca Minkoff",
+  fossil: "Fossil",
+  fossilgroup: "Fossil",
+  fossilwatches: "Fossil",
+  fossilinc: "Fossil",
+  verabradley: "Vera Bradley",
+  verabradly: "Vera Bradley",
+  verabradely: "Vera Bradley",
+  verabradleydesigns: "Vera Bradley",
+  verabradleysales: "Vera Bradley",
+  // ⚠ brandKey() STRIPS THE AMPERSAND but KEEPS the spelled-out word, so
+  // "Dooney & Bourke" -> dooneybourke while "Dooney and Bourke" -> dooneyandbourke.
+  // These are DIFFERENT KEYS and sellers type both — it looks like a duplicate
+  // line and is not (the Rag & Bone case, one pack over).
+  dooneybourke: "Dooney & Bourke",
+  dooneyandbourke: "Dooney & Bourke",
+  // The brand's OWN shorthand ("Register My Dooney", "Dooney HQ", ilovedooney.com),
+  // so it is safe as an exact whole-field key in a way a bare "d&b" is not.
+  dooney: "Dooney & Bourke",
+  dooneyburke: "Dooney & Bourke",
+  dooneybourk: "Dooney & Bourke",
+  downeybourke: "Dooney & Bourke",
+  allweatherleather: "Dooney & Bourke",
+  ilovedooney: "Dooney & Bourke",
+  brahmin: "Brahmin",
+  brahminleatherworks: "Brahmin",
+  brahminhandbags: "Brahmin",
+  bramin: "Brahmin",
+  brhamin: "Brahmin",
+  // NOT MAPPED: "brahman" — a cattle breed AND a leather term, so it is a genuine
+  // ambiguity rather than a mere misspelling.
+  tumi: "Tumi",
+  tumiinc: "Tumi",
+  tumiholdings: "Tumi",
+  alphabravo: "Tumi",
+  tumitracer: "Tumi",
+  // CANONICAL IS THE FULL "Herschel Supply Co." — the brand's own name and the
+  // form the eBay Brand aspect carries. brandKey() drops the period, so every
+  // spelling collapses onto `herschelsupplyco`.
+  herschelsupplyco: "Herschel Supply Co.",
+  herschel: "Herschel Supply Co.",
+  // The single-s misspelling this brand actually attracts.
+  hershel: "Herschel Supply Co.",
+  herschell: "Herschel Supply Co.",
+  herschelsupply: "Herschel Supply Co.",
+  herschelsupplycompany: "Herschel Supply Co.",
+  littleamerica: "Herschel Supply Co.",
 };
 
 /**
@@ -955,6 +1050,15 @@ const DETECT_EXCLUDED_FROM_TEXT: ReadonlySet<string> = new Set([
   // stays fully reachable by TAG, which is what the eBay aspect and the comp
   // filter read.
   "On Running",
+  // US-1988. "fossil" is an ordinary English noun, and unlike MOTHER/FRAME the
+  // false positives are not even clothing copy — they are a different DOMAIN
+  // entirely ("fossil fuel", a paleontology or mineral listing, and Arc'teryx's
+  // own logo, which 00453 describes as "a fossil skeleton"). That last one is the
+  // sharpest: the KB's OWN seeded prose for another brand contains the word, so a
+  // prose scan can mint "Fossil" off an Arc'teryx description. The brand stays
+  // reachable by TAG, which is what the eBay Brand aspect and the comp filter
+  // read — a seller whose brand field is literally "fossil" means the watch house.
+  "Fossil",
   // US-1986. This group is the DENSEST instance of the trap so far — two of its
   // ten brands are ordinary words, and both are words that THIS PRODUCT'S OWN
   // TEXT emits, which is what makes them routine rather than corner cases:

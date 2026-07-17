@@ -103,6 +103,47 @@ const UA_STYLE_NUMBER_DECODER: BrandDecoder = {
 //     corroborate it — but ME0S24 is an EVERGREEN sweater whose body merely
 //     CONTAINS "S24", so a naive parse is silently wrong, and PM publishes no
 //     decoder for the field at all.
+// US-1988: the Fossil style_number decoder EXACTLY as migration 00468 seeds it
+// into brand_style_codes. It is the ONLY decoder in the handbags & accessories
+// group — and the reason is the category, not the brand: A WATCH IS NOT A BAG.
+//
+// A bag carries less recoverable information on its body than a garment does. In
+// apparel the code is PRINTED ON THE SEWN TAG (Canada Goose 00460, Peter Millar
+// 00467 — the care label survives the collar tag being cut). A bag has no care
+// label: its code left with the REMOVABLE PAPER HANGTAG. Fossil's code is on a
+// METAL CASE BACK, which cannot be removed the way a hangtag can — so it outlives
+// the bracelet, the box and the papers, and it is this pack's cut-tag case.
+//
+// Fossil's own support states the style number "is located on the back of the
+// watch" (examples ES1234 / FTW1234), and fossil.com's structured product data
+// emits "sku":"ES5331" — the catalogue key and the physical mark are THE SAME
+// STRING, which is exactly what the eight refusals below could not establish.
+//
+// ⚠ THE PREFIX ANCHOR IS A SAFETY MECHANISM, NOT A STYLE CHOICE — see the
+// MK8017 negative. decodeTagCode runs specs inside an ALREADY-RESOLVED pack, so a
+// generic [A-Z]{2}\d{4} here would decode a licensed Michael Kors code and spell
+// the brand "Fossil". Licensed product is 47.3% of Fossil Group's net sales.
+//
+// TWO DELIBERATE OMISSIONS:
+//   • NO PREFIX MEANING. Fossil publishes no decoder for ES/FS/AM anywhere — its
+//     "Fossil Brand Codes" page ranks first for the query and decodes NOTHING
+//     (it is about the Crest, the Knurling and the D-Link). The popular gloss
+//     "ES = Fossil Steel" is refuted by Fossil's own catalogue: ES4343 is a
+//     LEATHER-strap Carlie. The split tracks GENDER, and even that is observed.
+//   • NO ZB/ML. Those cover bags/wallets and are sourced only to URLs.
+const FOSSIL_STYLE_DECODER: BrandDecoder = {
+  decoderKind: "style_number",
+  description:
+    'Fossil style number, on the METAL CASE BACK of the watch — Fossil\'s own support states it "is located on the back of the watch" (ES1234, FTW1234). Not merely a web SKU: fossil.com emits "sku":"ES5331", so the catalogue key and the physical mark are the same string. ES5331 = Carlie Three-Hand, FS4736 = Grant Chronograph. The prefixes are ANCHORED so a LICENSED Michael Kors / Armani / Diesel code can never mint "Fossil".',
+  pattern: "^(?<style>(?:ES|FS|FTW)\\d{4,5})$",
+  extractionRules: {
+    fieldMap: { style: "styleCode" },
+    transforms: { style: "upper" },
+    confidence: 0.6,
+  },
+  examples: [],
+};
+
 const PETER_MILLAR_STYLE_DECODER: BrandDecoder = {
   decoderKind: "style_number",
   description:
@@ -3497,6 +3538,323 @@ const CASES: GoldenCase[] = [
     pack: pack("Buck Mason", "buckmason"),
     input: decodedFrom({ brand: "Buck Mason" }),
     expect: { brand: "Buck Mason" },
+  },
+
+  // ── US-1988: handbags & accessories (migration 00468) ──────────────────────
+  // THE KB'S FIRST ACCESSORY-FIRST GROUP, and the whole block follows from one
+  // category fact: A BAG CARRIES LESS RECOVERABLE INFORMATION ON ITS BODY THAN A
+  // GARMENT DOES. In apparel the code is PRINTED ON THE SEWN TAG, which is why
+  // 00460 (Canada Goose) and 00467 (Peter Millar) could ship cut-tag decoders —
+  // the care label survives the collar tag being cut. A bag has no care label:
+  // its code lives on a REMOVABLE PAPER HANGTAG or only in the web catalogue.
+  //
+  // So this pack has ONE decoder and it belongs to the ONLY BRAND HERE THAT ISN'T
+  // A BAG — Fossil, whose code is on a METAL CASE BACK. Everything else is
+  // fixtured as a NEGATIVE, because a refusal that isn't tested is just a comment.
+  {
+    name: "Fossil case back — the style number recovers the brand (the pack's cut-tag case)",
+    // THE GROUP'S CUT-TAG CASE, and note WHY it is the lone survivor: A WATCH IS
+    // NOT A BAG. Fossil's own support states the style number "is located on the
+    // back of the watch" (its examples: ES1234, FTW1234), and fossil.com's
+    // structured data emits "sku":"ES5331" — so the catalogue key and the
+    // physical mark are THE SAME STRING. A case back cannot be removed the way a
+    // paper hangtag can, so the code outlives the bracelet, the box and the
+    // papers. No AI brand is supplied.
+    brand: "Fossil",
+    pack: pack("Fossil", "fossil", [], [FOSSIL_STYLE_DECODER]),
+    input: decodedFrom({ styleCode: "ES5331" }),
+    expect: { brand: "Fossil", recovery: true },
+  },
+  {
+    name: "Fossil men's code (FS4736) also recovers the brand",
+    brand: "Fossil",
+    pack: pack("Fossil", "fossil", [], [FOSSIL_STYLE_DECODER]),
+    input: decodedFrom({ styleCode: "FS4736" }),
+    expect: { brand: "Fossil", recovery: true },
+  },
+  {
+    name: "Fossil smartwatch code (FTW1234 — Fossil's own example) recovers the brand",
+    brand: "Fossil",
+    pack: pack("Fossil", "fossil", [], [FOSSIL_STYLE_DECODER]),
+    input: decodedFrom({ styleCode: "FTW1234" }),
+    expect: { brand: "Fossil", recovery: true },
+  },
+  {
+    name: "Fossil decoder WINS over a wrong AI brand",
+    // The US-1712 contract: a style-code match outranks the model. A Fossil watch
+    // the AI called Tumi must come back Fossil, with the disagreement surfaced as
+    // a conflict rather than silently overwritten.
+    brand: "Fossil",
+    pack: pack("Fossil", "fossil", [], [FOSSIL_STYLE_DECODER]),
+    input: {
+      ...decodedFrom({ brand: "Tumi" }),
+      attributes: {
+        style_code: {
+          values: ["ES5331"],
+          confidence: 0.3,
+          source: "photo:tag",
+        },
+      },
+    },
+    expect: { brand: "Fossil", conflictOn: "brand", recovery: true },
+  },
+  {
+    name:
+      "REFUSAL: a LICENSED Michael Kors code (MK8017) must NOT mint Fossil",
+    // ⚠ THE MOST IMPORTANT NEGATIVE IN THIS PACK, AND IT IS WHY THE PATTERN IS
+    // PREFIX-ANCHORED RATHER THAN A GENERIC [A-Z]{2}\d{4}.
+    //
+    // decodeTagCode runs specs INSIDE AN ALREADY-RESOLVED PACK, so a permissive
+    // two-letter pattern under the Fossil pack would decode MK8017 and then spell
+    // the brand "Fossil" from pack.brand — silently retitling a MICHAEL KORS
+    // watch, which is ALREADY ITS OWN CANONICAL IN THIS KB, onto the wrong brand
+    // and the wrong price ladder.
+    //
+    // This is not hypothetical: Fossil Group's own 10-K puts LICENSED product at
+    // 47.3% of net sales, with MICHAEL KORS ALONE AT 19.2%, and sellers routinely
+    // title these "MICHAEL KORS by FOSSIL". Anchoring ES|FS|FTW makes the whole
+    // class impossible BY CONSTRUCTION. Contrast Coach (00398), whose
+    // ^F?[0-9]{4,6}$ is exactly the bare digit run the later bar forbids.
+    //
+    // The AI's brand must survive untouched — the decoder simply must not fire.
+    brand: "Fossil",
+    pack: pack("Fossil", "fossil", [], [FOSSIL_STYLE_DECODER]),
+    input: {
+      ...decodedFrom({ brand: "Michael Kors" }),
+      attributes: {
+        style_code: {
+          values: ["MK8017"],
+          confidence: 0.6,
+          source: "photo:tag",
+        },
+      },
+    },
+    expect: { brand: "Michael Kors" },
+  },
+  {
+    name: "REFUSAL: an Armani/Diesel licensed code must NOT mint Fossil either",
+    // The same guard, one prefix over. AR = Emporio Armani, AX = Armani Exchange,
+    // DZ = Diesel — all made BY Fossil Group, none of them Fossil.
+    brand: "Fossil",
+    pack: pack("Fossil", "fossil", [], [FOSSIL_STYLE_DECODER]),
+    input: {
+      ...decodedFrom({ brand: "Diesel" }),
+      attributes: {
+        style_code: {
+          values: ["DZ4318"],
+          confidence: 0.6,
+          source: "photo:tag",
+        },
+      },
+    },
+    expect: { brand: "Diesel" },
+  },
+  {
+    name:
+      "REFUSAL: Fossil's ZB bag code is NOT decoded (only the watch code is on a physical mark)",
+    // The decoder deliberately covers ES|FS|FTW only. ZB (bags) and ML (wallets)
+    // are observed on fossil.com URLs but are NOT sourced to any physical mark —
+    // and a ZB code is not even a stable style key: the same Rachel Tote carries
+    // ZB7507263 (US), ZB1829015 (AU) and ZB7991080 elsewhere, i.e. per-colourway
+    // and per-region. Scope the decoder to what is sourced.
+    brand: "Fossil",
+    pack: pack("Fossil", "fossil", [], [FOSSIL_STYLE_DECODER]),
+    input: {
+      ...decodedFrom({ brand: "Fossil" }),
+      attributes: {
+        style_code: {
+          values: ["ZB7507263"],
+          confidence: 0.5,
+          source: "photo:tag",
+        },
+      },
+    },
+    expect: { brand: "Fossil" },
+  },
+  {
+    name: "REFUSAL: Tumi's 20-digit TRACER is a bare digit run — no decoder",
+    // The story notes named this one as a code to seed. It is REFUSED on the
+    // 00460 rule: it is a BARE DIGIT RUN, so a pattern over it mints a false
+    // positive from any long number on any tag. Same call as Moncler's serial and
+    // Canada Goose's hologram (the Chanel rule, US-1736).
+    //
+    // Tumi documents it precisely — a metal plate, "not all products have tracer
+    // numbers" — so it is genuinely tag-borne, which is exactly what makes the
+    // refusal interesting: PHYSICAL PRESENCE IS NECESSARY BUT NOT SUFFICIENT.
+    // It is also the pack's cleanest authentication inversion: Tumi says the code
+    // "cannot be duplicated", but a plate is stampable and the number is readable
+    // off a photo — only a DATABASE LOOKUP authenticates.
+    brand: "Tumi",
+    pack: pack("Tumi", "tumi"),
+    input: {
+      ...decodedFrom({ brand: "Tumi" }),
+      attributes: {
+        style_code: {
+          values: ["12345678901234567890"],
+          confidence: 0.5,
+          source: "photo:tag",
+        },
+      },
+    },
+    expect: { brand: "Tumi" },
+  },
+  {
+    name:
+      "REFUSAL: Dooney's registration number is ON THE TAG and still not decoded",
+    // THE PACK'S MOST INTERESTING REFUSAL — the ONLY code here CONFIRMED
+    // PHYSICALLY PRESENT on a sewn tag (the reverse of the red/white/blue tag),
+    // and refused anyway on TWO independent grounds:
+    //   (a) it is a REGISTRATION number identifying a UNIT, not a style/size code
+    //       identifying a MODEL — capturing it into styleCode would write a serial
+    //       into a field that names a model;
+    //   (b) ⚠ ITS SEMANTICS ARE FLATLY CONTRADICTED: one collector source says
+    //       the six digits encode the YEAR, another says they are a plain unique
+    //       number with NO date. Neither cites Dooney, neither decodes a worked
+    //       example, and one author explicitly disclaims expertise. A year that is
+    //       right most of the time and silently wrong the rest is worse than none.
+    // The country-letter prefix survives as an informational tell only.
+    brand: "Dooney & Bourke",
+    pack: pack("Dooney & Bourke", "dooneybourke"),
+    input: {
+      ...decodedFrom({ brand: "Dooney & Bourke" }),
+      attributes: {
+        style_code: {
+          values: ["A5 179535"],
+          confidence: 0.5,
+          source: "photo:tag",
+        },
+      },
+    },
+    expect: { brand: "Dooney & Bourke" },
+  },
+  {
+    name: "REFUSAL: Brahmin's SKU decodes cleanly and is still not a decoder",
+    // THE CLEANEST DEMONSTRATION IN THE KB THAT **SHAPE IS NOT PROVENANCE**.
+    // S10 151 00001 = [style 3][material 3-4][colour 5], TRIPLE cross-validated
+    // in both directions (00001 = Black across 3 styles AND 3 materials; 01316 =
+    // Tri-Color across 3 styles). It is the best-evidenced code in this pack —
+    // and every instance came from a URL. It is an excellent LISTING parser and
+    // not a thing to read off a bag.
+    brand: "Brahmin",
+    pack: pack("Brahmin", "brahmin"),
+    input: {
+      ...decodedFrom({ brand: "Brahmin" }),
+      attributes: {
+        style_code: {
+          values: ["S1015100001"],
+          confidence: 0.5,
+          source: "photo:tag",
+        },
+      },
+    },
+    expect: { brand: "Brahmin" },
+  },
+  {
+    name: "REFUSAL: Longchamp's reference is a catalogue code, not a tag code",
+    // L2605 089 001 = [L][model 4][material 3][colour 3]. The 4-digit model is
+    // provably brand-internal — LONGCHAMP PLEADS "Style 1623" IN ITS OWN FEDERAL
+    // COMPLAINT — and it is STILL refused as a TAG code: nothing puts it on the
+    // bag, and Longchamp's FAQ mentions interior labels ONLY for country of
+    // assembly. Match listings on the model number; do not ask a photo for it.
+    brand: "Longchamp",
+    pack: pack("Longchamp", "longchamp"),
+    input: {
+      ...decodedFrom({ brand: "Longchamp" }),
+      attributes: {
+        style_code: {
+          values: ["L2605089001"],
+          confidence: 0.5,
+          source: "photo:tag",
+        },
+      },
+    },
+    expect: { brand: "Longchamp" },
+  },
+  {
+    name: "REFUSAL: Rebecca Minkoff's style code left with the HANGTAG",
+    // The evidence here is unusually sharp: across owner threads where interior
+    // tags are photographed and TRANSCRIBED constantly, NOBODY quotes a style
+    // code off a sewn tag — the sewn seam tag carries country of origin +
+    // "genuine leather" and nothing more, and the only sellers quoting codes are
+    // NWT listings. It is also not a stable per-style key (one named style
+    // carries 5+ codes across seasons).
+    brand: "Rebecca Minkoff",
+    pack: pack("Rebecca Minkoff", "rebeccaminkoff"),
+    input: {
+      ...decodedFrom({ brand: "Rebecca Minkoff" }),
+      attributes: {
+        style_code: {
+          values: ["HS23MMBXBO"],
+          confidence: 0.5,
+          source: "photo:tag",
+        },
+      },
+    },
+    expect: { brand: "Rebecca Minkoff" },
+  },
+  {
+    name: "REFUSAL: Marc Jacobs has FOUR incompatible code shapes — nothing to anchor",
+    // MJ's own FAQ DOES confirm a style number is "marked on the interior tag",
+    // which makes this the closest call among the refusals. It fails on a
+    // different clause: there is no ONE format. The site exposes M0016161,
+    // H020L01FA21, 2S3HCR500H03 — and EAN-13 BARCODES like 191267866253, which
+    // are not style numbers at all. Tag-string == web-SKU is unproven, so there
+    // is nothing stable to anchor a pattern to. The barcode is fixtured because
+    // it is the shape most likely to be mistaken for a code.
+    brand: "Marc Jacobs",
+    pack: pack("Marc Jacobs", "marcjacobs"),
+    input: {
+      ...decodedFrom({ brand: "Marc Jacobs" }),
+      attributes: {
+        style_code: {
+          values: ["191267866253"],
+          confidence: 0.5,
+          source: "photo:tag",
+        },
+      },
+    },
+    expect: { brand: "Marc Jacobs" },
+  },
+  {
+    name: "REFUSAL: Herschel's 10014-00001-OS is a web SKU — and the absence is evidence",
+    // Herschel's refusal has a POSITIVE tell behind it rather than a mere gap:
+    // its warranty flow is the one place a code would naturally be requested, and
+    // it asks only for a PHOTO of the liner/satin tag plus proof of purchase — it
+    // NEVER asks the owner to read a number off the bag, and no Herschel page says
+    // where one would be. That absence is evidence.
+    brand: "Herschel Supply Co.",
+    pack: pack("Herschel Supply Co.", "herschelsupplyco"),
+    input: {
+      ...decodedFrom({ brand: "Herschel Supply Co." }),
+      attributes: {
+        style_code: {
+          values: ["10014-00001-OS"],
+          confidence: 0.5,
+          source: "photo:tag",
+        },
+      },
+    },
+    expect: { brand: "Herschel Supply Co." },
+  },
+  {
+    name: "REFUSAL: Vera Bradley's numeric Shopify ID is not a code",
+    // 26468t77 is a web SKU with no evidence of tag printing. VB is also the
+    // brand that INVERTS the pack's weighting: it has no code at all, but the
+    // PATTERN is the identity and the price driver (~1,000 copyrights on
+    // patterns; the trademark covers only the NAME).
+    brand: "Vera Bradley",
+    pack: pack("Vera Bradley", "verabradley"),
+    input: {
+      ...decodedFrom({ brand: "Vera Bradley" }),
+      attributes: {
+        style_code: {
+          values: ["26468t77"],
+          confidence: 0.5,
+          source: "photo:tag",
+        },
+      },
+    },
+    expect: { brand: "Vera Bradley" },
   },
 ];
 

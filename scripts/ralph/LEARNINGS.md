@@ -1086,6 +1086,19 @@ memory — not a progress log (the harness records progress separately).
   the AC says "marked verified before the story passes" — verification is the
   US-1715 human admin queue's job. Every prior group shipped verified=false; do
   not flip it to true to satisfy the AC (that fabricates a human review).
+- ACCESSORY/BAG brands are NOT garment brands with different nouns, and two
+  "missing" facts are STATUTORY/STRUCTURAL absences that must be seeded as
+  REFUSALS, not logged as research gaps (US-1988, the first accessory group):
+  (a) **an RN legitimately does not exist** — the Textile Act excludes handbags &
+  luggage unless a fiber claim is made, so only a brand that ALSO sells RTW has one
+  (Marc Jacobs did; the other eight don't). Absence must never read as a red flag,
+  and the prior packs' "the FTC site is a JS shell" note is an ACCESS excuse that
+  hides this. (b) **the style code left with the hangtag** — apparel prints it on
+  the sewn care label (hence 00460/00467's cut-tag decoders), but a bag has no care
+  label, so seed a decoder only where the mark is ON THE BODY (Coach's sewn creed
+  patch, 00398; Fossil's metal case back, 00468). Beware the sourced-but-wrong RN:
+  the FTC register's only "longchamp" hit is LONGCHAMP FABRICS CORP, an unrelated
+  NYC fabric wholesaler — right string, real record, wrong company.
 - Seed only what a source supports: `tag_eras` is populated for heritage brands
   (Levi's/Carhartt/Lululemon) but left EMPTY for modern athleisure (Alo/Athleta/
   Free People/US-1733's six) — no authoritative era documentation exists. Same
@@ -1139,6 +1152,16 @@ memory — not a progress log (the harness records progress separately).
   throwaway validator must be SELF-TESTED against a planted bug (`--selftest` that
   breaks one block and asserts the scanner goes red) before you trust a green run
   — US-1985 shipped two vacuous scans in a row before catching it.
+  **STOP REBUILDING IT (US-1988): the validator is now COMMITTED** as
+  `scripts/ralph/validate-seed-sql.py` (pglast parse + tuple-arity vs column list
+  + duplicate on-conflict key + `''`-inside-`$j$` + JSON validity; prints what it
+  scanned). Run `python scripts/ralph/validate-seed-sql.py --selftest <seed.sql>`
+  (plants all 3 bug classes, asserts each is caught) then the bare form. A FOURTH
+  way to fake a green: the Bash tool rewrites `/tmp/x` in ARGV but NOT inside a
+  heredoc's string literals, so a `python - <<EOF` that writes `/tmp/bug.sql`
+  dies FileNotFound while the validator invoked on `/tmp/bug.sql` happily reads
+  the CLEAN copy — three "planted" bugs all printed OK. Plant via the Write tool
+  or a repo-relative path, and never accept a self-test that prints no PLANT step.
 - A brand that sells BOTH shoes and clothes under one name (US-1985's Fila/PUMA/
   Reebok — the first in the epic) owns TWO charts on one `brand_key`, and
   `category_match` is the ONLY thing choosing between them: a stamped US/UK/EU

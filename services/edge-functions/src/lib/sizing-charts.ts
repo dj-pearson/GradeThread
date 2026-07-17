@@ -6792,6 +6792,868 @@ export const SIZING_CHARTS: SizingChart[] = [
       },
     ],
   },
+
+  // ── US-1988: handbags & accessories group ──────────────────────────────────
+  // Mirrors migration 00468's brand_size_charts seed (the DB rows win when the
+  // pack loads; these are the offline fallback).
+  //
+  // ⚠ A "SIZE CHART" HERE IS A **DIMENSION TABLE, NOT A BODY-MEASUREMENT GRID** —
+  // the first such block in this file, and the reason is the group: every pack
+  // from 00443..00467 graded GARMENTS, and this one grades BAGS. A bag has no
+  // chest and no inseam; it has a length, a depth, a height and a strap drop.
+  // (The ONE exception is Rebecca Minkoff's apparel chart below — she is the only
+  // brand here selling real RTW, and it is the only body-measurement table.)
+  //
+  // THE HAZARD THIS BLOCK EXISTS TO CONTAIN IS **AXIS ORDER**, and it is silent:
+  //   • Dooney publishes H x D x L        (normalised to L x D x H below)
+  //   • Tumi publishes H x D x W, NOT H x W x D (transcribing it the usual way
+  //     silently SWAPS DEPTH AND WIDTH)
+  //   • Brahmin is internally inconsistent AND self-evidently mislabelled on the
+  //     Lorelei — preserved as published rather than silently "fixed"
+  //   • Fossil splits UNITS INSIDE ONE BRAND: watches in MM, bags/wallets in
+  //     inches. A parser that does not branch on category reads a 44MM case as 44
+  //     inches.
+  // So every chart names its axis order AND its unit in `garment`, the US-1739
+  // convention applied to an axis.
+  //
+  // A NOTE ON CONFIDENCE, DELIBERATELY UNEVEN. Longchamp, Rebecca Minkoff,
+  // Herschel and Fossil's watches are brand-published and fetched (0.85). Vera
+  // Bradley and Marc Jacobs render specs client-side or block fetching outright,
+  // so those are search-read (0.70). Brahmin's own axis labels contradict each
+  // other and its Duxbury pages 404 (0.55); Fossil's bag dims could not be
+  // isolated from retailer copy (0.60). An honest 0.55 beats a fabricated 0.9 —
+  // the Brandy Melville rule from 00466.
+
+  // Longchamp — the size NAME is the trap; the 4-digit model is the truth.
+  {
+    brand: "Longchamp",
+    brandMatch: ["longchamp", "longchamps"],
+    department: "Unisex",
+    garment: "Le Pliage bag dimensions (INCHES, L x H x W)",
+    categoryMatch: [
+      "bag",
+      "tote",
+      "handbag",
+      "travel bag",
+      "purse",
+      "shoulder bag",
+      "backpack",
+    ],
+    note:
+      "⚠ MATCH ON THE 4-DIGIT MODEL NUMBER, NEVER THE SIZE LETTER — the highest-" +
+      "operational-impact fact about Longchamp. The brand renamed the range to " +
+      "XS/S/M/L/XL while retailers and sellers still use legacy short-handle/" +
+      "long-handle naming, so THE SAME REFERENCE L2605 089 is sold as 'Le Pliage " +
+      "Original M Tote' (longchamp.com), 'Le Pliage Shoulder Bag S' AND 'Le Pliage " +
+      "Original Shoulder Bag M' by different sellers. A seller's 'Small' and " +
+      "Longchamp's 'S' are frequently DIFFERENT BAGS. The 4-digit model is stable " +
+      "enough that LONGCHAMP PLEADS IT IN ITS OWN FEDERAL COMPLAINT ('Style 1623'). " +
+      "⚠ HANDLE DROP IS THE SEPARATOR for the classic ambiguity: the M Tote (8.3in " +
+      "drop) and the S Handbag (3.5in drop) are DIFFERENT MODELS, not a handle " +
+      "option on one model. ⚠ THERE IS NO OFFICIAL LE PLIAGE SIZE CHART — the " +
+      "brand's 'by Size' hub lists NAMES ONLY with no dimensions; these rows were " +
+      "assembled from individual product pages. L is measured AT THE BASE. " +
+      "Reference format [L][model 4][material 3][colour 3] — L2605 089 001 = M " +
+      "Tote / recycled canvas / Black. IT IS A CATALOGUE REFERENCE, NOT A TAG CODE.",
+    rows: [
+      {
+        size: "S Handbag (L1621)",
+        measurements: {
+          dimensions_in: "9.1 x 8.7 x 5.5",
+          dimensions_cm: "23.1 x 22.1 x 14",
+          handle_drop_in: "3.5",
+          weight: "178 g",
+        },
+      },
+      {
+        size: "M Tote (L2605)",
+        measurements: {
+          dimensions_in: "11 x 10.4 x 6.1",
+          dimensions_cm: "28 x 26.4 x 15.5",
+          handle_drop_in: "8.3",
+          weight: "220 g",
+        },
+      },
+      {
+        size: "L Tote (L1899)",
+        measurements: {
+          dimensions_in: "12.2 x 11.8 x 7.5",
+          dimensions_cm: "31 x 30 x 19",
+          handle_drop_in: "9.8",
+        },
+      },
+      {
+        size: "L Travel (L1624)",
+        measurements: {
+          dimensions_in: "17.7 x 13.8 x 9.1",
+          dimensions_cm: "45 x 35 x 23",
+        },
+      },
+      {
+        size: "XL Travel (L1625)",
+        measurements: {
+          dimensions_in: "21.7 x 15.7 x 9.1",
+          dimensions_cm: "55 x 40 x 23",
+          handle_drop_in: "3.5",
+          capacity: "42 L",
+          weight: "445 g",
+        },
+      },
+    ],
+  },
+
+  // Marc Jacobs — snippet-sourced; marcjacobs.com blocks fetching entirely.
+  {
+    brand: "Marc Jacobs",
+    brandMatch: ["marc jacobs", "marcjacobs", "the marc jacobs"],
+    department: "Women",
+    garment: "Bag dimensions (INCHES, L x D x H)",
+    categoryMatch: [
+      "bag",
+      "tote",
+      "handbag",
+      "crossbody",
+      "purse",
+      "camera bag",
+      "shoulder bag",
+    ],
+    note:
+      "⚠ THESE NUMBERS ARE SNIPPET-SOURCED, NOT FETCHED — marcjacobs.com BLOCKS " +
+      "AUTOMATED FETCHING ON EVERY LOCALE, so the official Tote Bag size guide " +
+      "could not be read directly. The S/M/L rows reproduced identically across " +
+      "two independent passes, which is why they clear 0.7 rather than being " +
+      "refused. ⚠ ONE UNRESOLVED CONTRADICTION FROM THE SAME PAGE: a further " +
+      "snippet returned '7in L x 6in D x 13in H', which fits none of the three " +
+      "rows — possibly a Mini or vertical variant. FLAGGED, NOT DISCARDED, and not " +
+      "silently reconciled. ⚠ HANDLE DROP IS NOT PUBLISHED and is not invented. " +
+      "⚠ THE STYLE NUMBER IS NOT DECODED: MJ's own FAQ confirms one is 'marked on " +
+      "the interior tag', but the site exposes at least FOUR incompatible shapes — " +
+      "M0016161, H020L01FA21 (an H-form carrying what LOOKS like a season code " +
+      "SP/FA/PF/RE + year), 2S3HCR500H03, and EAN-13 BARCODES like 191267866253 " +
+      "which are not style numbers at all. The season reading is an INFERENCE from " +
+      "URL patterns; MJ publishes no decoder and tag-string == web-SKU is unproven.",
+    rows: [
+      {
+        size: "The Tote Bag — Small",
+        measurements: { dimensions_in: "10 x 5 x 8", dimensions_cm: "26 x 13 x 21" },
+      },
+      {
+        size: "The Tote Bag — Medium",
+        measurements: { dimensions_in: "13 x 6 x 11", dimensions_cm: "34 x 15 x 27" },
+      },
+      {
+        size: "The Tote Bag — Large",
+        measurements: { dimensions_in: "17 x 6 x 13", dimensions_cm: "42 x 16 x 34" },
+      },
+      {
+        size: "The Snapshot (M0012007)",
+        measurements: {
+          dimensions_in: "7 x 2 x 4",
+          dimensions_cm: "18 x 6 x 11",
+          strap_adjustable_in: "8-57",
+          strap_drop_in: "27",
+        },
+      },
+    ],
+  },
+
+  // Rebecca Minkoff — bags.
+  {
+    brand: "Rebecca Minkoff",
+    brandMatch: ["rebecca minkoff", "rebeccaminkoff"],
+    department: "Women",
+    garment: "Bag dimensions (INCHES, W x H x D)",
+    categoryMatch: [
+      "bag",
+      "tote",
+      "handbag",
+      "crossbody",
+      "purse",
+      "backpack",
+      "shoulder bag",
+    ],
+    note:
+      "Brand-published, fetched from live product pages. ⚠ THE STYLE CODE IS A " +
+      "HANGTAG/WEB CODE, NOT A TAG CODE, AND THE EVIDENCE IS UNUSUALLY SHARP: " +
+      "across owner threads where interior tags are photographed and TRANSCRIBED " +
+      "constantly, NOBODY quotes a style code off a sewn tag — the sewn seam tag " +
+      "carries COUNTRY OF ORIGIN + 'genuine leather' and nothing more. The only " +
+      "sellers quoting codes are NWT listings. DO NOT BUILD A FLOW THAT ASSUMES A " +
+      "SELLER CAN READ A STYLE CODE OFF A USED REBECCA MINKOFF BAG. ⚠ The code is " +
+      "also NOT a stable per-style key: 'Darren Small Crescent Crossbody' alone " +
+      "appears as RVHS26TDDXBY, HF25TDNXBD, HS26TDDXBY, HS26EDDXBY and RVFB0104 — " +
+      "it identifies a SEASON/MATERIAL/COLOUR RUN, not a style. ⚠ THE DURABLE " +
+      "NAMED AXIS IS HARDWARE FINISH, NOT COLOUR — 'Antique Brass' and 'Black " +
+      "Shellac' recur across styles, seasons and years and are photo-verifiable.",
+    rows: [
+      {
+        size: "M.A.B. Crossbody (HS23MMBXBO)",
+        measurements: {
+          dimensions_in: "11.5 x 8 x 4",
+          strap_in: "15",
+          hardware: "Black Shellac",
+        },
+      },
+      {
+        size: "M.A.B. Hobo (HU22MMBH74)",
+        measurements: { dimensions_in: "12.5 x 11 x 4", strap_in: "19" },
+      },
+      {
+        size: "M.A.B. Mini Shoulder (HH25TMBXMI)",
+        measurements: {
+          dimensions_in: "9.25 x 5.5 x 2.625",
+          strap_drop_in: "21.5",
+          handle_drop_in: "4.625",
+          hardware: "Antique Brass",
+        },
+      },
+      {
+        size: "M.A.B. Medium Crossbody (HH25TMBXMD)",
+        measurements: {
+          dimensions_in: "13.125 x 7.25 x 3.375",
+          strap_drop_in: "19.5",
+          handle_drop_in: "7.5",
+        },
+      },
+      {
+        size: "Julian Backpack (HF21MPBB01)",
+        measurements: { dimensions_in: "11.25 x 12 x 6", strap: "not published" },
+      },
+      {
+        size: "Darren Shoulder Bag (HF25TDDD28)",
+        measurements: {
+          dimensions_in: "9.625 x 10.75 x 4.5",
+          strap_drop_in: "13",
+          hardware: "Antique Brass turn lock",
+        },
+      },
+      {
+        size: "Edie Medium Crossbody (HU23TWSXMD)",
+        measurements: {
+          dimensions_in: "10.75 x 6 x 3",
+          strap_in: "11.5",
+          material: "90% paper / 10% faux leather (woven straw)",
+        },
+      },
+    ],
+  },
+
+  // Rebecca Minkoff — the ONLY body-measurement chart in this pack.
+  {
+    brand: "Rebecca Minkoff",
+    brandMatch: ["rebecca minkoff", "rebeccaminkoff"],
+    department: "Women",
+    garment: "Apparel (US 0-12 — BODY measurements, INCHES)",
+    categoryMatch: [
+      "top",
+      "dress",
+      "jacket",
+      "pant",
+      "bottom",
+      "skirt",
+      "rtw",
+      "apparel",
+      "denim",
+      "blouse",
+    ],
+    note:
+      "THE ONLY BODY-MEASUREMENT CHART IN THIS PACK, and it exists because Rebecca " +
+      "Minkoff is the one brand here that sells real RTW (added 2009). " +
+      "Brand-published, verbatim from its own size guide. ⚠ PRESERVED AS-PUBLISHED " +
+      "WITH A KNOWN BRAND TYPO: US 6 AND US 8 BOTH LIST A 39in HIP. US 6 should " +
+      "almost certainly read ~38in given the otherwise regular 1in grade. IT IS " +
+      "NOT SILENTLY CORRECTED — the brand's own chart is the source of record, and " +
+      "quietly 'fixing' a published number is how a fabrication enters a KB. Flag " +
+      "on ingest; the US-1715 queue owns the correction. (The shoe chart carries " +
+      "the same shape of error: JP 9.5 = '26.6', almost certainly 26.5.) These are " +
+      "BODY measurements, not flat-garment. Shoes run US 6-10 / FR 37-41 / IT " +
+      "36-40 / UK 3-7.",
+    rows: [
+      {
+        size: "0 (XXS)",
+        measurements: {
+          bust: "32",
+          waist: "25",
+          hip: "35",
+          denim: "23",
+          uk_fr_it: "4/34/36",
+        },
+      },
+      {
+        size: "2 (XS)",
+        measurements: {
+          bust: "33",
+          waist: "26",
+          hip: "36",
+          denim: "24-25",
+          uk_fr_it: "6/36/38",
+        },
+      },
+      {
+        size: "4 (S)",
+        measurements: {
+          bust: "34",
+          waist: "27",
+          hip: "37",
+          denim: "25-27",
+          uk_fr_it: "8/38/40",
+        },
+      },
+      {
+        size: "6 (M)",
+        measurements: {
+          bust: "35",
+          waist: "28",
+          hip: "39",
+          denim: "27-28",
+          uk_fr_it: "10/40/42",
+        },
+      },
+      {
+        size: "8 (L)",
+        measurements: {
+          bust: "36",
+          waist: "29",
+          hip: "39",
+          denim: "29-30",
+          uk_fr_it: "12/42/44",
+        },
+      },
+      {
+        size: "10 (XL)",
+        measurements: {
+          bust: "37",
+          waist: "30",
+          hip: "40",
+          denim: "31-32",
+          uk_fr_it: "14/44/46",
+        },
+      },
+      {
+        size: "12 (XXL)",
+        measurements: {
+          bust: "38.5",
+          waist: "31.5",
+          hip: "41.5",
+          denim: "32-33",
+          uk_fr_it: "16/46/48",
+        },
+      },
+    ],
+  },
+
+  // Fossil — watches. ⚠ MILLIMETRES, and the code beats the collection name.
+  {
+    brand: "Fossil",
+    brandMatch: ["fossil"],
+    department: "Unisex",
+    garment: "Watches (case diameter in MILLIMETRES — ⚠ NOT inches)",
+    categoryMatch: ["watch", "smartwatch", "chronograph", "wearable"],
+    note:
+      "⚠ THE UNIT SPLIT IS WITHIN ONE BRAND AND IT IS A REAL PARSER TRAP: FOSSIL " +
+      "WATCHES ARE SPEC'D IN MILLIMETRES AND FOSSIL BAGS/WALLETS IN INCHES. A " +
+      "parser that does not branch on category will read a 44MM case as 44 inches. " +
+      "⚠ A FOSSIL COLLECTION NAME DOES NOT DETERMINE CASE SIZE — READ THE " +
+      "CASE-BACK CODE. ES5331 is 28MM/5ATM and ES4341P is 35mm/3ATM, and BOTH are " +
+      "titled 'Carlie Three-Hand Stainless Steel Watch': same collection name, " +
+      "different diameter AND different water resistance. Worse, fossil.com indexes " +
+      "ES5331 under BOTH 'Carlie' and 'Carlie Mini'. THE CODE IS RELIABLE; THE NAME " +
+      "ATTACHED TO IT IS NOT — which is exactly why this brand has the pack's only " +
+      "decoder. ⚠ CARLIE vs CARLIE MINI IS NOT PHOTO-SEPARABLE. The ATM rating is " +
+      "marked on the caseback or dial, so a caseback marking that contradicts the " +
+      "model's published spec is a genuine inconsistency — flag in condition notes " +
+      "only, never as an authenticity verdict.",
+    rows: [
+      {
+        size: "ES5331 — Carlie Three-Hand SS",
+        measurements: {
+          case_mm: "28",
+          strap_width_mm: "12",
+          water_resistance: "5 ATM",
+          strap_inner_circumference_mm: "185 +/-5",
+          crystal: "mineral",
+          battery: "SR621SW",
+        },
+      },
+      {
+        size: "ES4341P — Carlie Three-Hand SS",
+        measurements: {
+          case_mm: "35",
+          water_resistance: "3 ATM",
+          note: "marked discontinued",
+        },
+      },
+      {
+        size: "ES4343P — Carlie Three-Hand Sand Leather",
+        measurements: {
+          case_mm: "35",
+          thickness_mm: "9",
+          water_resistance: "3 ATM",
+        },
+      },
+      {
+        size: "FS4736 / FS4812 / FS4832 / FS5061 / FS6131 — Grant Chronograph",
+        measurements: { case_mm: "44", water_resistance: "5 ATM" },
+      },
+    ],
+  },
+
+  // Fossil — bags/wallets. ⚠ INCHES. Same brand, different unit.
+  {
+    brand: "Fossil",
+    brandMatch: ["fossil"],
+    department: "Men",
+    garment: "Bags & wallets (INCHES — ⚠ note the unit differs from Fossil watches)",
+    categoryMatch: [
+      "bag",
+      "tote",
+      "wallet",
+      "card holder",
+      "small leather goods",
+      "handbag",
+    ],
+    note:
+      "⚠ INCHES HERE, MILLIMETRES ON THE WATCH CHART — same brand. ⚠ CONFIDENCE IS " +
+      "DELIBERATELY LOW: these numbers are a search-read of fossil.com mixed with " +
+      "retailer listings and could NOT be cleanly isolated to fossil.com for every " +
+      "figure. MEASURE THE ITEM. ⚠ THERE IS NO FOSSIL 'DEFENDER' WALLET — the line " +
+      "is DERRICK. The name is plausible enough to be confabulated on demand, and " +
+      "is recorded here so it is not. ⚠ A ZB CODE IS NOT A STYLE KEY: the same " +
+      "Rachel Tote carries ZB7507263 (US), ZB1829015 (AU) and ZB7991080 elsewhere " +
+      "— ZB codes are per-colourway and per-region. The seeded decoder deliberately " +
+      "covers ES|FS|FTW only (watches), NOT ZB or ML, because only the watch code " +
+      "is sourced to a physical mark.",
+    rows: [
+      { size: "Rachel Tote (ZB)", measurements: { dimensions_in: "14 x 4 x 13" } },
+      {
+        size: "Derrick RFID Passcase",
+        measurements: {
+          dimensions_in: "3.75 x 0.25 x 2.75",
+          note: "removable bifold",
+        },
+      },
+      {
+        size: "Derrick Bifold",
+        measurements: { dimensions_in: "4.5 x 0.75 x 3.7" },
+      },
+      {
+        size: "Derrick Executive Checkbook",
+        measurements: {
+          dimensions_in: "3.5 x 0.5 x 6.75",
+          note: "the outlier — clearly taller",
+        },
+      },
+      {
+        size: "Derrick Card Holder",
+        measurements: { dimensions_in: "2.75 x 0.4 x 3.81" },
+      },
+    ],
+  },
+
+  // Vera Bradley — the pattern is the identity; do not spend confidence on style.
+  {
+    brand: "Vera Bradley",
+    brandMatch: ["vera bradley", "verabradley"],
+    department: "Women",
+    garment: "Bag dimensions (INCHES, W x H x D)",
+    categoryMatch: [
+      "bag",
+      "tote",
+      "backpack",
+      "travel bag",
+      "duffel",
+      "crossbody",
+      "handbag",
+      "purse",
+    ],
+    note:
+      "⚠ CURRENT-VERSION-ONLY: VB's product pages render specs client-side, so " +
+      "these were read through a search engine rather than fetched, and they " +
+      "describe the CURRENT version of each style — VB has re-specced silhouettes " +
+      "over time (the Campus Backpack also circulates as 11 x 17 x 8). ⚠ THE STRAP " +
+      "DROP IS THE ONLY RELIABLE SEPARATOR IN THIS TABLE: Weekender 6.5in vs " +
+      "Iconic Compact Weekender 4.50in vs Miller 13in. Campus vs XL CAMPUS is the " +
+      "same silhouette scaled up and is NOT photo-separable without a scale " +
+      "reference. ⚠ REMEMBER THIS BRAND INVERTS THE USUAL WEIGHTING — THE PATTERN " +
+      "IS THE IDENTITY, NOT THE STYLE: VB silhouettes are near-duplicates across a " +
+      "dozen variants and every fabric line, so do NOT spend confidence on style " +
+      "resolution here. ⚠ NO DIMENSIONS ARE SEEDED FOR THE ORIGINAL ZIP HIPSTER — " +
+      "VB's page did not yield specs and none is invented. ⚠ NO STYLE CODE EXISTS: " +
+      "VB's URLs carry numeric Shopify IDs (26468t77) with no evidence of tag print.",
+    rows: [
+      {
+        size: "Campus Backpack",
+        measurements: {
+          dimensions_in: "12.0 x 16.5 x 7.5",
+          strap_adjustable_in: "32.0",
+          handle_drop_in: "2.75",
+        },
+      },
+      {
+        size: "Weekender Travel Bag",
+        measurements: {
+          dimensions_in: "18.5 x 12.5 x 7.5",
+          strap_drop_in: "6.5",
+          removable_strap_in: "52.5",
+        },
+      },
+      {
+        size: "Iconic Compact Weekender",
+        measurements: {
+          dimensions_in: "16.25 x 10.00 x 7.25",
+          handle_drop_in: "4.50",
+          removable_strap_in: "52.50",
+        },
+      },
+      {
+        size: "Miller Travel Bag",
+        measurements: { dimensions_in: "16 x 14 x 8", strap_drop_in: "13" },
+      },
+    ],
+  },
+
+  // Dooney & Bourke — ⚠ the brand publishes H x D x L; normalised below.
+  {
+    brand: "Dooney & Bourke",
+    brandMatch: ["dooney & bourke", "dooney and bourke", "dooneybourke", "dooney"],
+    department: "Women",
+    garment:
+      "Bag dimensions (INCHES — ⚠ NORMALISED to L x D x H; Dooney publishes H x D x L)",
+    categoryMatch: [
+      "bag",
+      "tote",
+      "handbag",
+      "satchel",
+      "crossbody",
+      "purse",
+      "shoulder bag",
+    ],
+    note:
+      "⚠ AXIS ORDER IS A LIVE DATA-QUALITY RISK HERE: DOONEY PUBLISHES ITS FIELDS " +
+      "AS H x D x L AND THE ROWS ABOVE ARE NORMALISED TO L x D x H. Mis-ordering " +
+      "these silently produces a wrong bag. ⚠ THE VINTAGE ROWS ARE " +
+      "COLLECTOR-SOURCED AND THEIR AXIS ORDER IS NOT STATED BY THE SOURCE AT ALL — " +
+      "seeded for rough orientation only; measure the bag. ⚠ THE VINTAGE STYLE " +
+      "NUMBER'S LETTER PREFIX REPORTEDLY ENCODES TRIM COLOUR (R = British Tan, B = " +
+      "Burnt Cedar, P = matching trim) — internally consistent across the model " +
+      "list, but collector-sourced and NOT verified. ⚠ MODERN STYLE NUMBERS carry a " +
+      "2-letter COLOUR SUFFIX (8L980NA = Natural, Q150CWH = White). ⚠ NONE OF THESE " +
+      "STYLE NUMBERS IS CONFIRMED ON THE BAG — no source shows 8L980 or R730 " +
+      "printed on a Dooney, and Dooney's own registration form reportedly asks for " +
+      "the SKU from the paper GUARANTEE CARD. Do NOT instruct a seller to look for " +
+      "a style number on the bag. The ONE code that IS on the bag is the " +
+      "REGISTRATION NUMBER on the reverse of the sewn tag — deliberately not " +
+      "decoded, because its date semantics are flatly contradicted.",
+    rows: [
+      {
+        size: "Florentine Satchel (8L980)",
+        measurements: {
+          dimensions_in: "12 x 4.75 x 7",
+          handle_drop_in: "4.5",
+          strap_drop_in: "19",
+        },
+      },
+      {
+        size: "AWL 2 Duck Bag (Q150C)",
+        measurements: { dimensions_in: "6 x 3 x 6", strap_drop_in: "25" },
+      },
+      {
+        size: "Vintage R03 Doctor Bag",
+        measurements: {
+          dimensions_in: "11 x 7 x 5.5",
+          note: "axis order NOT stated by the source — do not assume",
+        },
+      },
+      {
+        size: "Vintage R710 Small Satchel",
+        measurements: {
+          dimensions_in: "10 x 7 x 4.5",
+          note: "axis order NOT stated",
+        },
+      },
+      {
+        size: "Vintage R28 Medium Satchel",
+        measurements: {
+          dimensions_in: "10.5 x 8.5 x 5.5",
+          note: "axis order NOT stated",
+        },
+      },
+      {
+        size: "Vintage R730 Large Satchel",
+        measurements: {
+          dimensions_in: "12 x 10 x 6",
+          note: "axis order NOT stated",
+        },
+      },
+    ],
+  },
+
+  // Brahmin — ⚠ the brand's own axis labels contradict each other.
+  {
+    brand: "Brahmin",
+    brandMatch: ["brahmin"],
+    department: "Women",
+    garment:
+      "Bag dimensions (INCHES — ⚠ AXIS ORDER IS INTERNALLY INCONSISTENT, see note)",
+    categoryMatch: [
+      "bag",
+      "tote",
+      "handbag",
+      "satchel",
+      "crossbody",
+      "purse",
+      "shoulder bag",
+    ],
+    note:
+      "⚠ CONFIDENCE IS DELIBERATELY LOW: BRAHMIN'S OWN AXIS ORDERING IS INTERNALLY " +
+      "INCONSISTENT — the Lorelei is published L x D x H while the Duxbury family " +
+      "is W x H x D, and the Lorelei's numbers are self-evidently mislabelled " +
+      "(6.0L x 9.0D x 2.25H describes a bag deeper than it is long). THE PUBLISHED " +
+      "LABELS ARE PRESERVED RATHER THAN SILENTLY CORRECTED, with the discrepancy " +
+      "flagged for the US-1715 queue. ⚠ THE DUXBURY ROWS ARE SNIPPET-DERIVED (the " +
+      "product pages 404'd) — VERIFY BEFORE RELYING. ⚠ DUXBURY vs LARGE DUXBURY IS " +
+      "NOT PHOTO-SEPARABLE: same silhouette, same finish, 1.5in apart — without a " +
+      "scale reference the model must ABSTAIN. ⚠ BRAHMIN MEASURES 'at the widest " +
+      "and tallest points, excluding handles' — a METHODOLOGY note worth keeping, " +
+      "because it makes these numbers NON-COMPARABLE to brands that measure the " +
+      "base. ⚠ THE SKU DECODES CLEANLY BUT IS A LISTING PARSER, NOT A TAG CODE: " +
+      "[style 3][material 3-4][colour 5], parsed RIGHT-TO-LEFT (last 5 = colour, " +
+      "first 3 = style, remainder = material) because the material field is 3 OR 4 " +
+      "digits — a fixed-offset parser WILL corrupt data. ⚠ MELBOURNE IS A " +
+      "MATERIAL, NOT A COLOUR OR A STYLE.",
+    rows: [
+      {
+        size: "Lorelei Shoulder (S10)",
+        measurements: {
+          dimensions_in_as_published: "6.0 L x 9.0 D x 2.25 H",
+          strap_in: "10.5",
+          warning:
+            "⚠ THE AXIS LABELS LOOK WRONG — this implies a bag deeper than it is long; almost certainly 9in L x 6in H x 2.25in D",
+        },
+      },
+      {
+        size: "Duxbury Satchel (K43 / V48)",
+        measurements: {
+          dimensions_in: "12.75 W x 9.75 H x 5.0 D",
+          handle_drop_in: "4",
+          strap_in: "25",
+          confidence: "snippet-derived, product page 404'd",
+        },
+      },
+      {
+        size: "Large Duxbury (V49)",
+        measurements: {
+          dimensions_in: "14.2 W x 12 H x 5.0 D",
+          handle_drop_in: "4",
+          strap_in: "13",
+          confidence: "snippet-derived",
+        },
+      },
+      {
+        size: "Priscilla Satchel (N79)",
+        measurements: { dimensions_in: "15.0 W x 10.25 H x 5.5 D" },
+      },
+    ],
+  },
+
+  // Tumi — ⚠ publishes H x D x W (not H x W x D); inches are DERIVED.
+  {
+    brand: "Tumi",
+    brandMatch: ["tumi"],
+    department: "Unisex",
+    garment:
+      "Luggage & bags (⚠ Tumi publishes CENTIMETRES as H x D x W — inches below are DERIVED)",
+    categoryMatch: [
+      "bag",
+      "luggage",
+      "carry-on",
+      "suitcase",
+      "backpack",
+      "briefcase",
+      "duffel",
+      "travel bag",
+    ],
+    note:
+      "⚠ TUMI PUBLISHES H x D x W, NOT H x W x D — transcribing as H x W x D " +
+      "silently SWAPS DEPTH AND WIDTH. ⚠ THE INCH FIGURES ARE DERIVED FROM TUMI'S " +
+      "PUBLISHED CENTIMETRES, not sourced — Tumi's EU pages do not publish inches " +
+      "at all. ⚠ DO NOT ASSERT 'AIRLINE COMPLIANT': TUMI PUBLISHES NO COMPLIANCE " +
+      "GUARANTEE. It markets by regional cabin CONVENTION ('International' ~56cm / " +
+      "~22in) and confirms only a TSA-approved lock — and EXPANSION PUSHES THE BAG " +
+      "OUT OF SPEC (up to 2in / 5cm additional). ⚠ SPEC DRIFT IS REAL AND " +
+      "UNRESOLVED: the flagship 117154 is published as BOTH 35 L / 4.604 kg AND " +
+      "35/45 L / 4.946 kg on BRAND-OWNED sites. Neither is picked. ERA-SCOPE SPEC " +
+      "EQUALITY; never grade a listing 'misdescribed' on capacity or weight alone. " +
+      "⚠ THE STYLE NUMBER IS A CATALOGUE CODE, NOT A TAG CODE — and Tumi runs THREE " +
+      "INCOMPATIBLE FORMATS on its own regional sites: NNNNNN-CCCC (uk/be/es), " +
+      "0NNNNNNCCCC concatenated (US), 464.NNNNNNNND (gr). The 4-char SUFFIX IS A " +
+      "DURABLE COLOUR CODE (1041 = Black across 13+ styles) — ⚠ IT IS ALPHANUMERIC " +
+      "(A639, T522, B186): parse as string, never as int. ⚠ Style-number blocks " +
+      "appear to cluster by collection (Alpha 3 = 1171xx) but the pattern BREAKS " +
+      "(139685 is a Short Trip, not 19 Degree) — NOT seeded as a rule.",
+    rows: [
+      {
+        size: "Alpha 3 International Expandable Carry-On (117154)",
+        measurements: {
+          dimensions_cm_hdw: "56 x 23 x 35.5 (expanded 56 x 28 x 35.5)",
+          dimensions_in_derived: "~22 x 9 x 14",
+          capacity: "⚠ CONTRADICTED: 35 L or 35/45 L",
+          weight: "⚠ CONTRADICTED: 4.604 kg or 4.946 kg",
+        },
+      },
+      {
+        size: "19 Degree Aluminium International Carry-On (124851)",
+        measurements: {
+          dimensions_cm_hdw: "56 x 23 x 35.5",
+          dimensions_in_derived: "~22 x 9 x 14",
+          capacity: "31 L",
+          weight: "5.076 kg",
+        },
+      },
+      {
+        size: "Alpha 3 Short Trip Expandable Packing Case (117165)",
+        measurements: {
+          dimensions_cm_hdw: "66 x 33 x 48.5",
+          dimensions_in_derived: "~26 x 13 x 19",
+          capacity: "83 L",
+          weight: "7.365 kg",
+        },
+      },
+      {
+        size: "Alpha 3 Extended Trip Expandable (117167)",
+        measurements: { height_cm: "78.5", capacity: "126 L" },
+      },
+      {
+        size: "Alpha 3 Worldwide Trip Expandable (117168)",
+        measurements: { height_cm: "86.5", capacity: "138 L" },
+      },
+      {
+        size: "Voyageur Celina Backpack (146566)",
+        measurements: {
+          dimensions_cm_hdw: "40.5 x 16.5 x 27",
+          dimensions_in_derived: "~16 x 6.5 x 10.6",
+          capacity: "32.12 L",
+          weight: "0.91 kg",
+        },
+      },
+      {
+        size: "Alpha Bravo Navigation Backpack (142497)",
+        measurements: {
+          dimensions_cm_hdw: "40.5 x 18.5 x 35.5 (expanded 40.5 x 25.5 x 35.5)",
+          dimensions_in_derived: "~16 x 7.3 x 14",
+          weight: "1.273 kg",
+        },
+      },
+    ],
+  },
+
+  // Herschel — native inches. ⚠ capacity is NOT a model identifier.
+  {
+    brand: "Herschel Supply Co.",
+    brandMatch: [
+      "herschel",
+      "herschel supply",
+      "herschel supply co",
+      "herschelsupplyco",
+    ],
+    department: "Unisex",
+    garment: "Backpacks & duffles (INCHES, H x W x D — Herschel publishes native inches)",
+    categoryMatch: [
+      "bag",
+      "backpack",
+      "duffel",
+      "luggage",
+      "tote",
+      "travel bag",
+      "hip pack",
+    ],
+    note:
+      "⚠ CAPACITY IS NOT A MODEL IDENTIFIER AND THIS IS THE BRAND'S HEADLINE " +
+      "RESALE TRAP: THE SAME MODEL NAME SHIPS AT DIFFERENT SPECS ACROSS ERAS. " +
+      "Little America 30L (current) vs 25L (older stock and its own Amazon " +
+      "listing); Mid 21L vs 17L; and 'Classic XL' names BOTH a 30L and a 26L bag. " +
+      "A 2015 and a 2025 Little America are BOTH GENUINE AND DIFFERENTLY SIZED — " +
+      "never grade a listing 'misdescribed' on capacity alone, and era-scope any " +
+      "spec equality check. ⚠ THE OBVIOUS DISCRIMINATOR IS WRONG: LITTLE AMERICA " +
+      "AND RETREAT ARE NOT SEPARABLE BY CLOSURE OR STRAP HARDWARE — both are " +
+      "verbatim 'Easy U-pull drawcord closure' + 'Magnet fastened straps with metal " +
+      "pin buckles'. Separate them on the SIDE PROFILE (7.09in vs 5.91in depth), " +
+      "the TOP-LID ZIP (LA only) or the SIDE-ENTRY ZIP (Retreat only). ⚠ HERITAGE " +
+      "vs SETTLEMENT is the hardest pair — both zippered, same capacity class, " +
+      "separable only on proportion; ROUTE TO HUMAN REVIEW. ⚠ Herschel publishes " +
+      "NATIVE INCHES, so unlike Tumi no conversion is involved. ⚠ NO STYLE CODE IS " +
+      "SEEDED: 10014-00001-OS traces only to URLs, and Herschel's warranty flow " +
+      "never asks the owner to read a number off the bag.",
+    rows: [
+      {
+        size: "Little America",
+        measurements: {
+          dimensions_in: "19.09 x 11.22 x 7.09",
+          capacity: "⚠ 30 L current / 25 L on older stock",
+          weight: "2.43 lb",
+          laptop_sleeve_in: "12.5 x 11.25",
+        },
+      },
+      {
+        size: "Little America Mid",
+        measurements: {
+          dimensions_in: "16.93 x 11.02 x 5.32",
+          capacity: "⚠ 21 L current / 17 L cached",
+          weight: "2.09 lb",
+          laptop_sleeve_in: "12.5 x 11",
+        },
+      },
+      {
+        size: "Retreat",
+        measurements: {
+          dimensions_in: "18.11 x 11.02 x 5.91",
+          capacity: "23 L",
+          weight: "1.63 lb",
+        },
+      },
+      {
+        size: "Settlement",
+        measurements: {
+          dimensions_in: "17.13 x 11.42 x 5.91",
+          capacity: "23 L",
+          weight: "1.37 lb",
+          laptop_sleeve_in: "11.25 x 11",
+        },
+      },
+      {
+        size: "Heritage",
+        measurements: {
+          dimensions_in: "18.11 x 12.21 x 6.5",
+          capacity: "24 L",
+          weight: "1.43 lb",
+          laptop_sleeve_in: "9.5 x 10.5",
+        },
+      },
+      {
+        size: "Classic",
+        measurements: {
+          dimensions_in: "16.73 x 12.21 x 6.3",
+          capacity: "26 L",
+          weight: "1.1 lb",
+        },
+      },
+      {
+        size: "Classic XL",
+        measurements: {
+          dimensions_in: "17.72 x 12.8 x 6.5",
+          capacity: '⚠ 30 L — but a "Classic Backpack XL 26L" page also exists',
+        },
+      },
+      {
+        size: "Novel Duffle",
+        measurements: {
+          dimensions_in: "11.73 x 20.51 x 10.98",
+          capacity: "43 L",
+          weight: "2.21 lb",
+        },
+      },
+    ],
+  },
 ];
 
 function norm(s: string | null | undefined): string {
