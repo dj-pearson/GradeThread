@@ -36,6 +36,25 @@
   let grading = false;
   let escHandler = null; // US-1884 (AC3): active Esc-to-dismiss listener, if any.
 
+  // US-1878 (AC3): the GENERATION token.
+  //
+  // A grade is a multi-second round trip, and on an SPA the shopper can click
+  // through to a different listing while it is in flight. Nothing used to stop the
+  // late response from rendering: listing A's score got painted onto listing B's
+  // page, and — because the save read location.href AFTER the await — it was then
+  // RECORDED against listing B's URL. A wrong grade, attributed to the wrong item,
+  // persisted into the buyer's history.
+  //
+  // So every grade captures the epoch it started in. Anything that invalidates the
+  // context (navigation, closing the overlay) bumps it, and a response whose epoch
+  // is stale is dropped: not rendered, not saved. Monotonic and never reset — a
+  // reused value could resurrect a dropped read.
+  let epoch = 0;
+  function invalidate() {
+    epoch += 1;
+    grading = false;
+  }
+
   async function send(msg) {
     try {
       return await chrome.runtime.sendMessage(msg);
@@ -179,7 +198,12 @@
     // US-1884 (AC3): Escape closes the overlay. Capture phase so a site's own key
     // handlers can't swallow it; one listener per mounted overlay.
     escHandler = function (e) {
-      if (e.key === "Escape" || e.key === "Esc") removeOverlay();
+      // US-1878 (AC3): same as the close button — an explicit dismissal invalidates
+      // the in-flight read so it can't reappear seconds later.
+      if (e.key === "Escape" || e.key === "Esc") {
+        invalidate();
+        removeOverlay();
+      }
     };
     document.addEventListener("keydown", escHandler, true);
     return root;
@@ -193,7 +217,13 @@
     close.setAttribute("type", "button");
     close.setAttribute("aria-label", "Close GradeThread condition check");
     close.textContent = "×"; // ×
-    close.addEventListener("click", removeOverlay);
+    // US-1878 (AC3): dismissing mid-grade must invalidate the in-flight read, or
+    // the response lands a few seconds later and RESURRECTS an overlay the shopper
+    // deliberately closed.
+    close.addEventListener("click", function () {
+      invalidate();
+      removeOverlay();
+    });
     bar.appendChild(close);
     return bar;
   }
@@ -472,6 +502,16 @@
     }
     grading = true;
     renderLoading();
+
+    // US-1878 (AC3/AC5): snapshot the identity of what we are ACTUALLY grading,
+    // before the await. location.href read after the round trip is a different
+    // listing whenever the shopper navigated — which is exactly how a score ended
+    // up filed against the wrong item.
+    const myEpoch = epoch;
+    const gradedUrl = location.href;
+    const gradedTitle = title || document.title;
+    const gradedMarketplace = (adapter && adapter.key) || "";
+
     const res = await send({
       type: "GT_CC_GRADE",
       imageUrls,
@@ -479,9 +519,17 @@
       brand,
       condition,
       price: extractPrice(),
-      marketplace: (adapter && adapter.key) || "",
+      marketplace: gradedMarketplace,
       listingKey: listingKey(), // background caches the result under this key
     });
+
+    // The shopper moved on (or closed the overlay) while this was in flight. Drop
+    // it on the floor: rendering would show the previous listing's grade on the new
+    // one, and saving would attribute it to the wrong URL. The background has
+    // already cached it under the ORIGINAL listingKey, so nothing is wasted —
+    // returning to that listing recalls this very grade.
+    if (myEpoch !== epoch) return;
+
     grading = false;
     if (!res) {
       renderError("Something interrupted the read. Try again in a moment.", true);
@@ -492,9 +540,11 @@
       send({
         type: "GT_CC_SAVE_READ",
         read: {
-          url: location.href,
-          title: title || document.title,
-          marketplace: (adapter && adapter.key) || "",
+          // AC5: the URL that was graded, captured pre-flight — never whatever the
+          // address bar happens to say now.
+          url: gradedUrl,
+          title: gradedTitle,
+          marketplace: gradedMarketplace,
           overallScore: res.data.overallScore,
           gradeTier: res.data.gradeTier,
           confidence: res.data.confidence,
@@ -516,12 +566,20 @@
   }
 
   // ── boot ─────────────────────────────────────────────────────────────────
+  // US-1878 (AC3): boot() awaits the config, the settings and the recall cache, so
+  // it is just as navigable-away-from as a grade is. Without the same epoch guard,
+  // a boot started on listing A can finish after the shopper is on listing B and
+  // render A's CACHED grade onto B — the identical wrong-score-on-the-wrong-page
+  // bug, reached through the recall path instead of the grading path.
   async function boot() {
+    const myEpoch = epoch;
+    const stale = () => myEpoch !== epoch;
     // US-1879: prefer the remotely-updatable config, but ONLY when it is a valid
     // upgrade — a stale/rolled-back hosted file must never downgrade the bundled
     // adapters (which could drop a newly-shipped marketplace). chooseConfig
     // enforces the version floor; a blocked downgrade is logged, not silent.
     const remote = await send({ type: "GT_CC_GET_CONFIG" });
+    if (stale()) return;
     const chosen = IMG.chooseConfig(DEFAULT_CFG, remote);
     CFG = chosen.config;
     if (chosen.reason === "downgrade-blocked") {
@@ -538,6 +596,7 @@
 
     // Permanent per-site opt-out from the popup.
     const settings = await send({ type: "GT_CC_GET_SETTINGS" });
+    if (stale()) return;
     const host = location.host;
     if (settings && Array.isArray(settings.disabledHosts) && settings.disabledHosts.includes(host)) {
       return;
@@ -547,6 +606,7 @@
     // instead of the launcher (a return visit to a graded item is stable, and it
     // spends no quota). "Re-read" in the result forces a fresh grade.
     const cached = await send({ type: "GT_CC_GET_CACHED", listingKey: listingKey() });
+    if (stale()) return;
     if (cached && cached.data) {
       renderResult(cached.data, cached.at);
       return;
@@ -556,25 +616,62 @@
     if (settings && settings.autoRun) runGrade(); // opt-in auto-run
   }
 
-  // Marketplaces are SPA-ish; re-boot on client-side navigation between listings.
-  let lastPath = location.pathname;
-  const reboot = () => {
-    if (location.pathname !== lastPath) {
-      lastPath = location.pathname;
-      removeOverlay();
-      grading = false;
-      boot();
-    }
-  };
-  window.addEventListener("popstate", reboot);
-  for (const m of ["pushState", "replaceState"]) {
-    const orig = history[m];
-    history[m] = function () {
-      const r = orig.apply(this, arguments);
-      setTimeout(reboot, 300);
-      return r;
-    };
+  // ── SPA navigation detection (US-1878 AC2/AC4) ───────────────────────────
+  //
+  // Five of our six marketplaces are SPA-first: clicking a listing from the feed is
+  // a client-side navigation, not a page load, so nothing re-runs boot() by itself.
+  //
+  // The old hook monkey-patched history.pushState/replaceState — from the CONTENT
+  // SCRIPT'S ISOLATED WORLD. That never fires. The isolated world has its own JS
+  // globals, so patching its `history` wrapper leaves the PAGE's pushState (a
+  // different wrapper over the same underlying object) completely untouched; the
+  // page navigates and our override is never invoked. popstate did work, but SPA
+  // routers push — they don't pop. So in-page navigation went undetected and the
+  // pill simply never appeared. That, plus the detail-only manifest matches, is why
+  // the research surface effectively only worked on eBay (an MPA).
+  //
+  // What DOES work from an isolated world:
+  //   1. The Navigation API — window.navigation's `navigate` event fires for
+  //      same-document navigations and is observable here. Chromium-only, hence (2).
+  //   2. A location poll — crude but universal, and the only thing guaranteed to
+  //      catch a router that bypasses both of the above.
+  // Both are wired: (1) reacts immediately where available, (2) backstops it. Both
+  // funnel through onUrlMaybeChanged, which is idempotent on an unchanged URL, so
+  // double-firing costs nothing.
+  let lastUrl = location.href;
+
+  function onUrlMaybeChanged() {
+    if (location.href === lastUrl) return;
+    lastUrl = location.href;
+    // Any navigation invalidates an in-flight grade for the PREVIOUS listing
+    // (AC3) — without this the old listing's score renders over the new one.
+    invalidate();
+    removeOverlay();
+    boot();
   }
+
+  // (1) Navigation API — commitment-based, so no arbitrary delay is needed. AC4:
+  // the old code did `setTimeout(reboot, 300)`, a guess that was simultaneously too
+  // long (visible lag) and too short (a slow router hadn't committed yet). The
+  // `navigate` event's committed promise tells us exactly when the URL is settled,
+  // and the poll covers routers we can't observe this way.
+  if (typeof navigation !== "undefined" && navigation && typeof navigation.addEventListener === "function") {
+    try {
+      navigation.addEventListener("navigate", function (e) {
+        const done = e && e.committed && typeof e.committed.then === "function"
+          ? e.committed
+          : Promise.resolve();
+        done.then(onUrlMaybeChanged, function () { /* navigation aborted — ignore */ });
+      });
+    } catch (_e) { /* fall through to the poll */ }
+  }
+
+  // (2) popstate still covers back/forward.
+  window.addEventListener("popstate", onUrlMaybeChanged);
+
+  // (3) The universal backstop. 400ms is imperceptible against a multi-second grade
+  // and costs a string compare; it is deliberately NOT the primary mechanism.
+  setInterval(onUrlMaybeChanged, 400);
 
   boot();
 })();

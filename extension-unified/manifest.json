@@ -2,8 +2,12 @@
   "manifest_version": 3,
   "name": "GradeThread: Grade & List",
   "version": "0.3.5",
-  "description": "AI condition reads while you shop eBay, Poshmark, Grailed, Mercari, Depop & Vinted — plus cross-listing for FlipDesk sellers.",
-  "permissions": ["storage", "activeTab", "alarms"],
+  "description": "AI condition reads while you shop eBay, Poshmark, Grailed, Mercari, Depop & Vinted \u2014 plus cross-listing for FlipDesk sellers.",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "alarms"
+  ],
   "host_permissions": [
     "https://gradethread.com/*",
     "https://*.gradethread.com/*",
@@ -12,9 +16,14 @@
     "https://*.grailed.com/*"
   ],
   "externally_connectable": {
-    "matches": ["https://gradethread.com/*", "https://*.gradethread.com/*"]
+    "matches": [
+      "https://gradethread.com/*",
+      "https://*.gradethread.com/*"
+    ]
   },
-  "background": { "service_worker": "background.js" },
+  "background": {
+    "service_worker": "background.js"
+  },
   "action": {
     "default_popup": "popup.html",
     "default_title": "GradeThread",
@@ -35,72 +44,104 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://gradethread.com/*", "https://*.gradethread.com/*"],
-      "js": ["gt-bridge.js"],
+      "matches": [
+        "https://gradethread.com/*",
+        "https://*.gradethread.com/*"
+      ],
+      "js": [
+        "gt-bridge.js"
+      ],
       "run_at": "document_start"
     },
     {
       "matches": [
-        "https://*.ebay.com/itm/*",
-        "https://*.ebay.co.uk/itm/*",
-        "https://*.ebay.de/itm/*",
-        "https://*.ebay.ca/itm/*",
-        "https://*.ebay.com.au/itm/*",
-        "https://*.ebay.fr/itm/*",
-        "https://*.ebay.it/itm/*",
-        "https://*.ebay.es/itm/*",
-        "https://*.ebay.ie/itm/*",
-        "https://*.ebay.nl/itm/*",
-        "https://*.ebay.at/itm/*",
-        "https://*.ebay.ch/itm/*",
-        "https://*.ebay.pl/itm/*",
-        "https://*.ebay.be/itm/*",
-        "https://*.poshmark.com/listing/*",
-        "https://*.poshmark.ca/listing/*",
-        "https://*.grailed.com/listings/*",
-        "https://*.mercari.com/item/*",
-        "https://*.mercari.com/us/item/*",
-        "https://*.depop.com/products/*",
-        "https://*.vinted.com/items/*",
-        "https://*.vinted.co.uk/items/*",
-        "https://*.vinted.fr/items/*",
-        "https://*.vinted.de/items/*",
-        "https://*.vinted.es/items/*",
-        "https://*.vinted.it/items/*",
-        "https://*.vinted.nl/items/*",
-        "https://*.vinted.pl/items/*",
-        "https://*.vinted.lt/items/*",
-        "https://*.vinted.cz/items/*",
-        "https://*.vinted.be/items/*",
-        "https://*.vinted.at/items/*",
-        "https://*.vinted.ro/items/*",
-        "https://*.vinted.hu/items/*",
-        "https://*.vinted.sk/items/*",
-        "https://*.vinted.pt/items/*",
-        "https://*.vinted.se/items/*",
-        "https://*.vinted.lu/items/*",
-        "https://*.vinted.hr/items/*",
-        "https://*.vinted.gr/items/*",
-        "https://*.vinted.dk/items/*",
-        "https://*.vinted.fi/items/*"
+        "https://*.ebay.com/*",
+        "https://*.ebay.co.uk/*",
+        "https://*.ebay.de/*",
+        "https://*.ebay.ca/*",
+        "https://*.ebay.com.au/*",
+        "https://*.ebay.fr/*",
+        "https://*.ebay.it/*",
+        "https://*.ebay.es/*",
+        "https://*.ebay.ie/*",
+        "https://*.ebay.nl/*",
+        "https://*.ebay.at/*",
+        "https://*.ebay.ch/*",
+        "https://*.ebay.pl/*",
+        "https://*.ebay.be/*",
+        "https://*.poshmark.com/*",
+        "https://*.poshmark.ca/*",
+        "https://*.grailed.com/*",
+        "https://*.mercari.com/*",
+        "https://*.depop.com/*",
+        "https://*.vinted.com/*",
+        "https://*.vinted.co.uk/*",
+        "https://*.vinted.fr/*",
+        "https://*.vinted.de/*",
+        "https://*.vinted.es/*",
+        "https://*.vinted.it/*",
+        "https://*.vinted.nl/*",
+        "https://*.vinted.pl/*",
+        "https://*.vinted.lt/*",
+        "https://*.vinted.cz/*",
+        "https://*.vinted.be/*",
+        "https://*.vinted.at/*",
+        "https://*.vinted.ro/*",
+        "https://*.vinted.hu/*",
+        "https://*.vinted.sk/*",
+        "https://*.vinted.pt/*",
+        "https://*.vinted.se/*",
+        "https://*.vinted.lu/*",
+        "https://*.vinted.hr/*",
+        "https://*.vinted.gr/*",
+        "https://*.vinted.dk/*",
+        "https://*.vinted.fi/*"
       ],
-      "js": ["research/selectors.js", "research/image-utils.js", "research/condition-format.js", "research/marketplace.js"],
-      "css": ["research/overlay.css"],
+      "js": [
+        "research/selectors.js",
+        "research/image-utils.js",
+        "research/condition-format.js",
+        "research/marketplace.js"
+      ],
+      "css": [
+        "research/overlay.css"
+      ],
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://poshmark.com/*", "https://*.poshmark.com/*"],
-      "js": ["lister/selectors.js", "lister/common.js", "lister/poshmark.js"],
+      "matches": [
+        "https://poshmark.com/*",
+        "https://*.poshmark.com/*"
+      ],
+      "js": [
+        "lister/selectors.js",
+        "lister/common.js",
+        "lister/poshmark.js"
+      ],
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://www.mercari.com/*", "https://*.mercari.com/*"],
-      "js": ["lister/selectors.js", "lister/common.js", "lister/mercari.js"],
+      "matches": [
+        "https://www.mercari.com/*",
+        "https://*.mercari.com/*"
+      ],
+      "js": [
+        "lister/selectors.js",
+        "lister/common.js",
+        "lister/mercari.js"
+      ],
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://www.grailed.com/*", "https://*.grailed.com/*"],
-      "js": ["lister/selectors.js", "lister/common.js", "lister/grailed.js"],
+      "matches": [
+        "https://www.grailed.com/*",
+        "https://*.grailed.com/*"
+      ],
+      "js": [
+        "lister/selectors.js",
+        "lister/common.js",
+        "lister/grailed.js"
+      ],
       "run_at": "document_idle"
     }
   ]
