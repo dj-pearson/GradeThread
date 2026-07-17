@@ -810,7 +810,7 @@
         "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
       ],
       "priority": 2495,
-      "passes": false,
+      "passes": true,
       "notes": "[BrandKB][Brand][Group] ~6 brands. Authentication tells only, NEVER auto-authenticate (same stance as US-1727/1728). IT/EU->US size cross-maps.",
       "dependsOn": [
         "US-1715",
