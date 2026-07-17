@@ -23,7 +23,9 @@ Deno.env.set(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
 );
 
-const { isAlreadyDeletedError } = await import("../lib/ebay-client.ts");
+const { isAlreadyDeletedError, isAlreadyInProgramStateError } = await import(
+  "../lib/ebay-client.ts"
+);
 
 Deno.test("US-1978: an already-gone artifact reconciles rather than erroring", () => {
   for (const msg of [
@@ -68,4 +70,45 @@ Deno.test("US-1978: non-Error inputs don't throw (catch sites pass `unknown`)", 
   assert(!isAlreadyDeletedError("something odd"), "a bare string is not already-deleted");
   assert(!isAlreadyDeletedError(null), "null is not already-deleted");
   assert(!isAlreadyDeletedError(undefined), "undefined is not already-deleted");
+});
+
+// ── US-1979 (AC3): the seller-program toggle's already-in-state predicate ───
+//
+// Same shape, same two-directional risk. eBay 409s an opt_in when the seller is
+// already opted in — that is SUCCESS (they are in the state they asked for), and
+// erroring would make the toggle look broken for doing nothing wrong. But swallow
+// too much and a genuine rejection reads as "you're opted in" when you are not,
+// which for OUT_OF_STOCK means the seller believes their evergreen listings
+// survive qty 0 when eBay is still ending them.
+
+Deno.test("US-1979: already-in-the-requested-state is success, not an error", () => {
+  for (const msg of [
+    "eBay 409: seller already opted in to OUT_OF_STOCK_CONTROL",
+    "eBay 409: already enrolled",
+    "eBay 400: not opted in to that program",
+  ]) {
+    assert(
+      isAlreadyInProgramStateError(new Error(msg)),
+      `should treat as already-in-state: ${msg}`,
+    );
+  }
+});
+
+Deno.test("US-1979: a real program failure is never swallowed", () => {
+  // The dangerous direction: reporting opted_in when eBay refused means the seller
+  // trusts their evergreen listings survive qty 0 while eBay keeps ending them.
+  for (const msg of [
+    "eBay 403: account not eligible for this program",
+    "eBay 500: Internal Server Error",
+    "eBay 429: rate limit exceeded",
+    "network timeout",
+    "eBay 409: conflicting request in flight",
+  ]) {
+    assert(
+      !isAlreadyInProgramStateError(new Error(msg)),
+      `must NOT be swallowed as already-in-state: ${msg}`,
+    );
+  }
+  assert(!isAlreadyInProgramStateError("nope"), "a bare string is not evidence");
+  assert(!isAlreadyInProgramStateError(null), "null is not evidence");
 });

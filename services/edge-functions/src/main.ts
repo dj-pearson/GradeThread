@@ -429,6 +429,9 @@ app.use("/api/flipdesk/ebay/orders/*", authMiddleware);
 // runs, the handler reads workspaceOwnerId ?? userId, and it fails closed to 401
 // for signed-in sellers. Caught by flipdesk-auth-coverage_test.ts.
 app.use("/api/flipdesk/ebay/offers/*", authMiddleware);
+// US-1979: seller program opt-in (OUT_OF_STOCK). Same US-1623 whitelist trap.
+app.use("/api/flipdesk/ebay/programs", authMiddleware);
+app.use("/api/flipdesk/ebay/programs/*", authMiddleware);
 app.use("/api/flipdesk/ebay/inventory-items/*", authMiddleware);
 // US-1043: returns + cancellations management (Post-Order API).
 app.use("/api/flipdesk/ebay/returns", authMiddleware);

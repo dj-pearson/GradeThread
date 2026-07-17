@@ -85,6 +85,11 @@ import {
   EBAY_BULK_MAX,
   upsertConnection,
   withdrawOffer,
+  getOptedInPrograms,
+  optInToProgram,
+  optOutOfProgram,
+  isAlreadyInProgramStateError,
+  type EbaySellerProgram,
   deleteOffer,
   deleteInventoryItem,
   isAlreadyDeletedError,
@@ -3688,6 +3693,92 @@ function parseRefundLineItems(
   }
   return out;
 }
+
+// US-1979 (AC3): seller program opt-in — GET /programs, POST /programs/:program,
+// DELETE /programs/:program.
+//
+// The one that matters is OUT_OF_STOCK_CONTROL. eBay ENDS a multi-quantity listing
+// the instant quantity hits 0; for evergreen clothing (the same tee in eight sizes,
+// restocked continuously) that costs the item id, the watchers, the search standing
+// and the sales history, and the seller relists from scratch. Opted in, the listing
+// stays live at qty 0 and keeps all of it.
+//
+// It stays an explicit OPT-IN and this route never decides for the seller: for a
+// single-quantity thrift item — most of FlipDesk — eBay's default is CORRECT, and
+// a blanket opt-in would leave sold-out one-offs sitting live.
+//
+// These act on the seller's OWN eBay account via their own token, so there is no
+// multi-tenant table to scope; the tenant IS the token (ownerId resolves the
+// connection inside fetchAuthed). The access control that matters here is the
+// authMiddleware whitelist entry in main.ts (US-1623) — without it the route 401s
+// every signed-in seller.
+const SELLER_PROGRAMS: Record<string, EbaySellerProgram> = {
+  "out-of-stock": "OUT_OF_STOCK_CONTROL",
+  "selling-policy-management": "SELLING_POLICY_MANAGEMENT",
+};
+
+flipdeskEbayRoutes.get("/programs", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  try {
+    const programs = await getOptedInPrograms(ownerId);
+    return c.json({
+      programs,
+      out_of_stock: programs.includes("OUT_OF_STOCK_CONTROL"),
+    });
+  } catch (err) {
+    return failSafe(c, 502, "Couldn't read your eBay programs.", err, "ebay.programs.get");
+  }
+});
+
+flipdeskEbayRoutes.post("/programs/:program", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const program = SELLER_PROGRAMS[c.req.param("program")];
+  if (!program) return c.json({ error: "Unknown eBay program." }, 400);
+  try {
+    await optInToProgram(ownerId, program);
+  } catch (err) {
+    // Already opted in = already in the state they asked for = success.
+    if (!isAlreadyInProgramStateError(err)) {
+      return failSafe(c, 502, "eBay rejected the opt-in.", err, "ebay.programs.opt_in");
+    }
+  }
+  await writeAuditLog(c, {
+    action: "ebay.program.opt_in",
+    targetType: "ebay_program",
+    targetId: program,
+    details: {},
+  });
+  return c.json({ ok: true, program, opted_in: true });
+});
+
+flipdeskEbayRoutes.delete("/programs/:program", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const program = SELLER_PROGRAMS[c.req.param("program")];
+  if (!program) return c.json({ error: "Unknown eBay program." }, 400);
+  try {
+    await optOutOfProgram(ownerId, program);
+  } catch (err) {
+    if (!isAlreadyInProgramStateError(err)) {
+      return failSafe(c, 502, "eBay rejected the opt-out.", err, "ebay.programs.opt_out");
+    }
+  }
+  await writeAuditLog(c, {
+    action: "ebay.program.opt_out",
+    targetType: "ebay_program",
+    targetId: program,
+    details: {},
+  });
+  return c.json({ ok: true, program, opted_in: false });
+});
 
 // US-1978 (AC2): DELETE /offers/:offerId — remove a STALE UNPUBLISHED offer.
 //

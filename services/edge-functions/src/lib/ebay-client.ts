@@ -2650,6 +2650,80 @@ export async function syncExistingOffer(
   );
 }
 
+// ── Sell Account API: seller programs (US-1979 AC3) ────────────────
+//
+// The one that matters for us is OUT_OF_STOCK. By default eBay ENDS a
+// multi-quantity listing the moment quantity hits 0. For evergreen clothing —
+// the same blank tee in eight sizes, restocked continuously — that is the wrong
+// behaviour: the listing loses its item id, its watchers, its search standing and
+// its sales history, and the seller has to relist from scratch. Opted in, the
+// listing stays live at qty 0 (hidden from search until restocked) and keeps all
+// of it.
+//
+// It is deliberately an OPT-IN and stays one: for a single-quantity thrift item —
+// most of FlipDesk — the default is CORRECT, and silently opting everyone in would
+// leave sold-out one-offs sitting live. So this exposes the control; it never
+// decides for the seller.
+export type EbaySellerProgram =
+  | "OUT_OF_STOCK_CONTROL"
+  | "SELLING_POLICY_MANAGEMENT"
+  | "PARTNER_MOTORS_DEALER";
+
+export interface EbayProgramStatus {
+  programType: string;
+}
+
+export async function getOptedInPrograms(
+  userId: string,
+  connectionId?: string,
+): Promise<string[]> {
+  const payload = await fetchAuthed<{ programs?: EbayProgramStatus[] }>(
+    userId,
+    `/sell/account/v1/program/get_opted_in_programs`,
+    undefined,
+    connectionId,
+  );
+  return (payload.programs ?? [])
+    .map((p) => p.programType)
+    .filter((t): t is string => typeof t === "string" && t.length > 0);
+}
+
+export async function optInToProgram(
+  userId: string,
+  programType: EbaySellerProgram,
+  connectionId?: string,
+): Promise<void> {
+  await fetchAuthed<unknown>(
+    userId,
+    `/sell/account/v1/program/opt_in`,
+    { method: "POST", body: JSON.stringify({ programType }) },
+    connectionId,
+  );
+}
+
+export async function optOutOfProgram(
+  userId: string,
+  programType: EbaySellerProgram,
+  connectionId?: string,
+): Promise<void> {
+  await fetchAuthed<unknown>(
+    userId,
+    `/sell/account/v1/program/opt_out`,
+    { method: "POST", body: JSON.stringify({ programType }) },
+    connectionId,
+  );
+}
+
+// eBay 409s an opt_in when already opted in (and an opt_out when already out).
+// Both mean the seller is ALREADY in the state they asked for, which is success —
+// erroring would make the toggle look broken for doing nothing wrong.
+export function isAlreadyInProgramStateError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message.toLowerCase();
+  if (!/\b(409|400)\b/.test(msg)) return false;
+  return /already opted|already enrolled|not opted in|already a member/.test(msg);
+}
+
 // US-1978 (AC2): DELETE the offer record itself.
 //
 // NOT the same thing as withdrawOffer, and the difference is the whole point.
