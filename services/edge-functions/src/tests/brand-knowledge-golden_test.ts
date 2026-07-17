@@ -158,6 +158,46 @@ const DIOR_DATE_CODE_DECODER: BrandDecoder = {
   examples: [],
 };
 
+// US-1983: the Off-White style_number decoder EXACTLY as migration 00462 seeds it
+// into brand_style_codes. It is the ONLY decoder in the new-generation streetwear
+// & hype group — the only code there that is tag-printed AND regular AND
+// brand-unique in FORMAT. It carries the group's CUT-TAG case: the code is on the
+// interior CARE LABEL, which survives the brand tab being cut out.
+//
+// THE OM/OW PREFIX IS THE WHOLE ARGUMENT. It is a gendered BRAND marker, and the
+// whole is a 16-character compound — the LV SD1160 precedent (00399) and the Dior
+// hyphenated triplet (00461), not the bare digit run the Chanel rule (US-1736)
+// refuses. Strip the prefix and the remainder is an ordinary number.
+//
+// THE GENDER GROUP IS THE SECOND CHARACTER, NOT THE FIRST TWO — deliberately.
+// Capturing "M" out of "OM" lets the EXISTING genderCode transform map it to
+// Men/Women with no code change; a two-letter "OM" would fall through that
+// transform's W/M table and emit the raw "OM" as a gender.
+//
+// THE OTHER EIGHT BRANDS IN THE GROUP GET NO DECODER, and seven of them print no
+// regular garment-side code AT ALL — there is nothing to decode, so a pattern
+// would be invented rather than read. Aimé Leon Dore's internal SKU fails the
+// regular-AND-brand-unique bar.
+//
+// NOT an authenticity check, and on this brand that matters more than most: a
+// bootleg copies the care label along with everything else. It recovers the BRAND
+// off a cut tab and the ERA via the season token — which is the point, because
+// the Off-White LOGO DID NOT CHANGE when Abloh died in 2021, so the logo cannot
+// date a piece and the code can.
+const OFF_WHITE_STYLE_NUMBER_DECODER: BrandDecoder = {
+  decoderKind: "style_number",
+  description:
+    "Off-White season/style code printed on the interior care label: OM (men) or OW (women) + a 2-letter category + 3 digits + a season token + 3 letters + 3-4 digits (OMAA038R21FAB001). Recovers the BRAND off a cut tab and the ERA via the season token. NOT an authenticity check.",
+  pattern:
+    "^(?<code>O(?<gender>[MW])[A-Z]{2}\\d{3}(?<season>[A-Z]\\d{2})[A-Z]{3}\\d{3,4})$",
+  extractionRules: {
+    fieldMap: { code: "styleCode", gender: "gender", season: "season" },
+    transforms: { gender: "genderCode" },
+    confidence: 0.5,
+  },
+  examples: [],
+};
+
 // US-1739: the Uniqlo style_name decoder EXACTLY as migration 00458 seeds it into
 // brand_style_codes. Uniqlo is the ONLY brand in the basics/mall group with a
 // decoder, and it is the first in three groups — 00456 refused (the identifier is
@@ -2444,6 +2484,167 @@ const CASES: GoldenCase[] = [
     pack: pack("Celine", "celine", [style("Box Bag")]),
     input: decodedFrom({ brand: "Celine" }),
     expect: { brand: "Celine", style: "Box Bag" },
+  },
+  // ── US-1983 new-generation streetwear & hype group ─────────────────────────
+  // Off-White carries the group's CUT-TAG cases: the season/style code is printed
+  // on the interior CARE LABEL, which survives the brand tab being cut out. The
+  // other eight are decoder-less by design — seven print no regular garment-side
+  // code AT ALL — and their guarantee is that enrichment stays CORRECT without
+  // one. That guarantee carries more weight in this tier than anywhere: these are
+  // the most bootlegged garments in the KB, and most of them are a blank hoodie
+  // with a print, so a false-positive brand recovery has nothing to contradict it.
+  {
+    name: "Off-White cut brand tab — the care-label season code recovers the brand",
+    brand: "Off-White",
+    pack: pack("Off-White", "offwhite", [], [OFF_WHITE_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "OMAA038R21FAB001" }), // no AI brand
+    expect: { brand: "Off-White", recovery: true },
+  },
+  {
+    name: "Off-White women's code also recovers the brand off a cut tab",
+    brand: "Off-White",
+    pack: pack("Off-White", "offwhite", [], [OFF_WHITE_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "OWAA049S23FAB002" }),
+    expect: { brand: "Off-White", recovery: true },
+  },
+  {
+    name: "Off-White code overrides a wrong AI brand + surfaces conflict",
+    // The realistic confusion in this tier: another hype label whose printed
+    // hoodies photograph identically. The code is the only thing that separates
+    // them, which is exactly why this group has one decoder and not zero.
+    brand: "Off-White",
+    pack: pack("Off-White", "offwhite", [], [OFF_WHITE_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ brand: "Hellstar", styleCode: "OMAA038R21FAB001" }),
+    expect: { brand: "Off-White", conflictOn: "brand", recovery: true },
+  },
+  {
+    name: "Off-White bare digit run — no false-positive recovery",
+    // The Chanel rule (US-1736). Strip the OM/OW prefix and the season token and
+    // what is left is an ordinary number, which must recover nothing.
+    brand: "Off-White",
+    pack: pack("Off-White", "offwhite", [], [OFF_WHITE_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "038211" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Off-White wrong-prefix code — no false-positive recovery",
+    // OM/OW is the gendered brand marker and it is load-bearing: a code that does
+    // not carry it is not an Off-White code, however similar its shape.
+    brand: "Off-White",
+    pack: pack("Off-White", "offwhite", [], [OFF_WHITE_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "OXAA038R21FAB001" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Off-White wrong-shape code — no false-positive recovery",
+    brand: "Off-White",
+    pack: pack("Off-White", "offwhite", [], [OFF_WHITE_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "OMAA38R21FAB001" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Off-White ambiguous graphic pieces (Diagonals vs Arrows) — never guess",
+    brand: "Off-White",
+    pack: pack("Off-White", "offwhite", [
+      style("Diagonals"),
+      style("Arrows Logo"),
+    ], [OFF_WHITE_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ brand: "Off-White" }),
+    expect: { brand: "Off-White", noStyle: true },
+  },
+  {
+    name: "Off-White single known style fills the style the AI missed",
+    brand: "Off-White",
+    pack: pack("Off-White", "offwhite", [style("Industrial Belt")], [
+      OFF_WHITE_STYLE_NUMBER_DECODER,
+    ]),
+    input: decodedFrom({ brand: "Off-White" }),
+    expect: { brand: "Off-White", style: "Industrial Belt" },
+  },
+  // The eight decoder-less brands. NOTHING they print may recover a brand — and
+  // the codes below are the realistic near-misses: a Denim Tears piece's interior
+  // Levi's tag, a Gallery Dept. donor tag, and the plain numbers that turn up on
+  // any blank's care label.
+  {
+    name: "Chrome Hearts prints no code — a stray number recovers nothing",
+    brand: "Chrome Hearts",
+    pack: pack("Chrome Hearts", "chromehearts", [style("Cross Patch Hoodie")]),
+    input: decodedFrom({ styleCode: "925" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Sp5der prints no code — a stray number recovers nothing",
+    brand: "Sp5der",
+    pack: pack("Sp5der", "sp5der", [style("Web Hoodie")]),
+    input: decodedFrom({ styleCode: "555555" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Hellstar prints no code — a stray number recovers nothing",
+    brand: "Hellstar",
+    pack: pack("Hellstar", "hellstar", [style("Flame Hoodie")]),
+    input: decodedFrom({ styleCode: "0001" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Denim Tears — the donor Levi's tag code recovers nothing",
+    // The group's dual-branding trap in decoder form. A Cotton Wreath 501 has a
+    // real Levi's code inside it, and the KB must NOT let that mint a brand off
+    // the Denim Tears pack — the tag is the base garment's, and the piece is
+    // still a Denim Tears.
+    brand: "Denim Tears",
+    pack: pack("Denim Tears", "denimtears", [style("Cotton Wreath 501")]),
+    input: decodedFrom({ styleCode: "00501-0000" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Gallery Dept. — an upcycled donor tag's code recovers nothing",
+    brand: "Gallery Dept.",
+    pack: pack("Gallery Dept.", "gallerydept", [style("Painted Flare Jeans")]),
+    input: decodedFrom({ styleCode: "00505-1234" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Aimé Leon Dore internal SKU — no false-positive recovery (no decoder)",
+    // Tag-printed but neither regular across categories nor brand-unique in
+    // shape, so it fails the US-1740 bar and gets no decoder.
+    brand: "Aimé Leon Dore",
+    pack: pack("Aimé Leon Dore", "aimleondore", [style("Knit Polo")]),
+    input: decodedFrom({ styleCode: "ALD-SS21-0042" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Rhude prints no code — a stray number recovers nothing",
+    brand: "Rhude",
+    pack: pack("Rhude", "rhude", [style("Silk Shirt")]),
+    input: decodedFrom({ styleCode: "1985" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "ASSC prints no code — a stray number recovers nothing",
+    brand: "Anti Social Social Club",
+    pack: pack("Anti Social Social Club", "antisocialsocialclub", [
+      style("Logo Hoodie"),
+    ]),
+    input: decodedFrom({ styleCode: "2015" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Sp5der ambiguous graphic pieces (Web Hoodie vs Web Sweatpant) — never guess",
+    brand: "Sp5der",
+    pack: pack("Sp5der", "sp5der", [
+      style("Web Hoodie"),
+      style("Web Sweatpant"),
+    ]),
+    input: decodedFrom({ brand: "Sp5der" }),
+    expect: { brand: "Sp5der", noStyle: true },
+  },
+  {
+    name: "Gallery Dept. single known style fills the style the AI missed",
+    brand: "Gallery Dept.",
+    pack: pack("Gallery Dept.", "gallerydept", [style("Logo Tee")]),
+    input: decodedFrom({ brand: "Gallery Dept." }),
+    expect: { brand: "Gallery Dept.", style: "Logo Tee" },
   },
 ];
 

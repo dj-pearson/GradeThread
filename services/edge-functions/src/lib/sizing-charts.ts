@@ -3684,6 +3684,349 @@ export const SIZING_CHARTS: SizingChart[] = [
       { size: "56 (= IT 56 / US 46 / XXXL)", measurements: { chest: "46-47" } },
     ],
   },
+  // ── US-1983: new-generation streetwear & hype group ────────────────────────
+  // Mirrors migration 00462's brand_size_charts seed.
+  //
+  // THIS TIER PUBLISHES NO SIZE CHARTS. That is the honest situation, and it is
+  // why every chart here is the standard streetwear-alpha approximation and says
+  // so in its own note. What the notes actually carry is the FIT INTENT, because
+  // that is the fact a body chart cannot express — and on this tier it SPLITS:
+  //   * OVERSIZED BY DESIGN: Hellstar, Gallery Dept. (flat measurements run well
+  //     above the body chart ON PURPOSE — that is the design, not a mis-tag).
+  //   * RUNS SMALL:          Sp5der, Chrome Hearts, ASSC (buyers size up).
+  //   * BOXY (short + wide): Aimé Leon Dore.
+  // A grader who carries one brand's fit intent across the tier reports the
+  // design as an error in one direction or the other.
+  //
+  // TWO BRANDS BREAK THE ALPHA SYSTEM ENTIRELY:
+  //   * DENIM TEARS — the Cotton Wreath signature is printed on an ACTUAL LEVI'S
+  //     501, so the size is a LEVI'S WAIST NUMBER. The only waist chart here.
+  //   * OFF-WHITE — a Milan house, so its TAILORING carries Italian numbers
+  //     (US = IT - 36, the 00461 rule) while its tees are alpha. One brand, two
+  //     systems: read the OBJECT before the number.
+  {
+    brand: "Off-White",
+    brandMatch: ["off-white", "off white", "offwhite"],
+    department: "Unisex",
+    garment: "Tops (alpha)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "hoodie",
+      "sweatshirt",
+      "knit",
+      "sweater",
+      "jacket",
+      "outerwear",
+    ],
+    note:
+      "Off-White's graphic tees and hoodies are ALPHA-sized and the brand publishes " +
+      "no chart — this is the standard streetwear-alpha approximation, NOT " +
+      "brand-fetched. ONE BRAND, TWO SYSTEMS: Off-White is a MILAN house, so its " +
+      "tailoring and RTW carry ITALIAN NUMBERS (44/46/48 — subtract 36 for the US " +
+      "size) while the tees are alpha. READ THE OBJECT BEFORE THE NUMBER; this " +
+      "chart covers the alpha-sized pieces only. The cut is Italian and runs " +
+      "SMALL/SLIM relative to US streetwear, so many buyers size UP. BODY " +
+      "measurement — NOT flat-garment. Capped confidence.",
+    rows: [
+      { size: "XS", measurements: { chest: "34-36" } },
+      { size: "S", measurements: { chest: "36-38" } },
+      { size: "M", measurements: { chest: "38-40" } },
+      { size: "L", measurements: { chest: "40-42" } },
+      { size: "XL", measurements: { chest: "42-45" } },
+      { size: "XXL", measurements: { chest: "45-48" } },
+    ],
+  },
+  {
+    brand: "Off-White",
+    brandMatch: ["off-white", "off white", "offwhite"],
+    department: "Men",
+    garment: "RTW (ITALIAN-SIZED)",
+    categoryMatch: ["blazer", "suit", "tailoring", "coat", "trouser", "pant"],
+    note:
+      "The number on an Off-White TAILORED piece is an ITALIAN size and the garment " +
+      "does not say so: SUBTRACT 10 to reach the US number (IT 50 - 10 = US 40 / L). " +
+      "Off-White is a MILAN house — the same Italian system the luxury RTW pack " +
+      "(00461: Bottega Veneta/Fendi/Versace) runs on, and Off-White is the ONLY " +
+      "brand in the hype tier that touches it. THE SAME BRAND'S TEES AND HOODIES " +
+      "ARE ALPHA-SIZED — read the OBJECT before the number; a number on an " +
+      "Off-White is tailoring, a letter is a graphic piece. The cut runs SLIM. " +
+      "BODY measurement — NOT flat-garment. Standard IT-to-US approximation, not " +
+      "brand-fetched specs.",
+    rows: [
+      { size: "46 (= IT 46 / US 36 / S)", measurements: { chest: "36-37" } },
+      { size: "48 (= IT 48 / US 38 / M)", measurements: { chest: "38-39" } },
+      { size: "50 (= IT 50 / US 40 / L)", measurements: { chest: "40-41" } },
+      { size: "52 (= IT 52 / US 42 / XL)", measurements: { chest: "42-43" } },
+      { size: "54 (= IT 54 / US 44 / XXL)", measurements: { chest: "44-45" } },
+      { size: "56 (= IT 56 / US 46 / XXXL)", measurements: { chest: "46-47" } },
+    ],
+  },
+  {
+    brand: "Chrome Hearts",
+    brandMatch: ["chrome hearts", "chromehearts"],
+    department: "Unisex",
+    garment: "Tops (alpha)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "hoodie",
+      "sweatshirt",
+      "knit",
+      "sweater",
+      "jacket",
+      "outerwear",
+    ],
+    note:
+      "Chrome Hearts is ALPHA-sized and the brand publishes no size chart at all " +
+      "(it runs no e-commerce) — this is the standard streetwear-alpha " +
+      "approximation, NOT brand-fetched. THE CUT RUNS SMALL: Chrome Hearts apparel " +
+      "is cut close and buyers commonly size UP, which is the opposite of the " +
+      "oversized brands in this same pack (Hellstar, Gallery Dept.). Do not carry " +
+      "one brand's fit intent across this tier — it splits. BODY measurement — NOT " +
+      "flat-garment. Capped confidence.",
+    rows: [
+      { size: "XS", measurements: { chest: "34-36" } },
+      { size: "S", measurements: { chest: "36-38" } },
+      { size: "M", measurements: { chest: "38-40" } },
+      { size: "L", measurements: { chest: "40-42" } },
+      { size: "XL", measurements: { chest: "42-45" } },
+      { size: "XXL", measurements: { chest: "45-48" } },
+    ],
+  },
+  {
+    brand: "Aimé Leon Dore",
+    // norm() only LOWERCASES — it does NOT strip accents (unlike brandKey), and
+    // brand-knowledge.ts passes the ACCENTED canonical in. So the accented
+    // spelling is the one that actually matches; the plain one is for raw seller
+    // text. Same shape as the Stüssy/'stssy' split (00389).
+    brandMatch: ["aimé leon dore", "aime leon dore", "aimeleondore"],
+    department: "Unisex",
+    garment: "Tops (alpha)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "hoodie",
+      "sweatshirt",
+      "knit",
+      "sweater",
+      "polo",
+      "jacket",
+      "outerwear",
+    ],
+    note:
+      "Aimé Leon Dore is ALPHA-sized — the standard streetwear-alpha " +
+      "approximation, NOT brand-fetched. THE CUT IS BOXY AND WIDE BY DESIGN, " +
+      "especially the knit polos and crewnecks: the garment measures SHORT and " +
+      "WIDE relative to its nominal size, and that is the design rather than a " +
+      "mis-tag. So a flat chest measurement will read large while the LENGTH reads " +
+      "small — report both and do not 'correct' either. BODY measurement — NOT " +
+      "flat-garment. Capped confidence.",
+    rows: [
+      { size: "XS", measurements: { chest: "34-36" } },
+      { size: "S", measurements: { chest: "36-38" } },
+      { size: "M", measurements: { chest: "38-40" } },
+      { size: "L", measurements: { chest: "40-42" } },
+      { size: "XL", measurements: { chest: "42-45" } },
+      { size: "XXL", measurements: { chest: "45-48" } },
+    ],
+  },
+  {
+    brand: "Gallery Dept.",
+    brandMatch: ["gallery dept", "gallerydept"],
+    department: "Unisex",
+    garment: "Tops (alpha)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "hoodie",
+      "sweatshirt",
+      "knit",
+      "jacket",
+      "outerwear",
+    ],
+    note:
+      "Gallery Dept. is ALPHA-sized and publishes no chart — the standard " +
+      "streetwear-alpha approximation, NOT brand-fetched. TWO WARNINGS THAT MATTER " +
+      "MORE THAN THE NUMBERS. (1) The cut is OVERSIZED/boxy by design, so flat " +
+      "measurements run well above this body chart on purpose. (2) MUCH OF THE LINE " +
+      "IS UPCYCLED FROM VINTAGE GARMENTS, so THE INTERIOR TAG MAY BE THE DONOR " +
+      "GARMENT'S — it can read another brand's name and another brand's size system " +
+      "entirely (frequently a Levi's). On an upcycled piece the tag is NOT the size: " +
+      "measure the garment and say the tag is the donor's. BODY measurement — NOT " +
+      "flat-garment. Capped confidence.",
+    rows: [
+      { size: "XS", measurements: { chest: "34-36" } },
+      { size: "S", measurements: { chest: "36-38" } },
+      { size: "M", measurements: { chest: "38-40" } },
+      { size: "L", measurements: { chest: "40-42" } },
+      { size: "XL", measurements: { chest: "42-45" } },
+      { size: "XXL", measurements: { chest: "45-48" } },
+    ],
+  },
+  {
+    // THE ONLY WAIST CHART IN THIS PACK — and the collaboration is the reason.
+    brand: "Denim Tears",
+    brandMatch: ["denim tears", "denimtears"],
+    department: "Unisex",
+    garment: "Bottoms (LEVI'S WAIST-SIZED)",
+    categoryMatch: ["bottom", "jean", "jeans", "denim", "pant", "trouser"],
+    note:
+      "THE ODD ONE OUT IN THIS PACK, AND IT IS THE COLLABORATION THAT DOES IT: the " +
+      "signature Cotton Wreath jeans and trucker jackets are printed on ACTUAL " +
+      "LEVI'S GARMENTS under an official collaboration, so the size is a LEVI'S " +
+      "WAIST NUMBER (W x L) — NOT the alpha sizing every other brand in this tier " +
+      "uses. Read the waist and inseam off the Levi's tag inside the garment. THAT " +
+      "SAME TAG SAYS LEVI'S, AND THE PIECE IS STILL A DENIM TEARS: both brands are " +
+      "true at once. Do not conclude 'this is a Levi's 501' from the interior tag — " +
+      "that throws away an order of magnitude of value — and do not discard the tag " +
+      "either, because it is the only place the size lives. The Cotton Wreath " +
+      "SWEATSHIRTS are alpha-sized on a collaborator's blank; this chart is for the " +
+      "denim. BODY measurement (natural waist) — NOT the flat-garment waist, which " +
+      "measures roughly half. Capped confidence.",
+    rows: [
+      { size: "W28 (= Levi's 28 / US 28in waist)", measurements: { waist: "28-29" } },
+      { size: "W30 (= Levi's 30 / US 30in waist)", measurements: { waist: "30-31" } },
+      { size: "W32 (= Levi's 32 / US 32in waist)", measurements: { waist: "32-33" } },
+      { size: "W34 (= Levi's 34 / US 34in waist)", measurements: { waist: "34-35" } },
+      { size: "W36 (= Levi's 36 / US 36in waist)", measurements: { waist: "36-37" } },
+      { size: "W38 (= Levi's 38 / US 38in waist)", measurements: { waist: "38-39" } },
+    ],
+  },
+  {
+    brand: "Rhude",
+    brandMatch: ["rhude"],
+    department: "Unisex",
+    garment: "Tops (alpha)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "hoodie",
+      "sweatshirt",
+      "knit",
+      "jacket",
+      "outerwear",
+    ],
+    note:
+      "Rhude is ALPHA-sized — the standard streetwear-alpha approximation, NOT " +
+      "brand-fetched. The cut sits between the two poles of this pack: closer to " +
+      "true-to-size than the oversized brands (Hellstar, Gallery Dept.) and not as " +
+      "tight as the small-running ones (Sp5der, Chrome Hearts, ASSC), with some " +
+      "Italian-made pieces running slim. Report the measurement rather than applying " +
+      "a fit adjustment. BODY measurement — NOT flat-garment. Capped confidence.",
+    rows: [
+      { size: "XS", measurements: { chest: "34-36" } },
+      { size: "S", measurements: { chest: "36-38" } },
+      { size: "M", measurements: { chest: "38-40" } },
+      { size: "L", measurements: { chest: "40-42" } },
+      { size: "XL", measurements: { chest: "42-45" } },
+      { size: "XXL", measurements: { chest: "45-48" } },
+    ],
+  },
+  {
+    brand: "Sp5der",
+    // A bare "spider" is DELIBERATELY not here — it is an ordinary word and a
+    // common graphic SUBJECT, so it would fire on any garment whose own print is
+    // described as a spider. The chart is reached via the canonical, which is
+    // what brand-knowledge.ts passes in.
+    brandMatch: ["sp5der", "spider worldwide"],
+    department: "Unisex",
+    garment: "Tops (alpha)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "hoodie",
+      "sweatshirt",
+      "jacket",
+      "outerwear",
+    ],
+    note:
+      "Sp5der is ALPHA-sized and the brand publishes essentially nothing, including " +
+      "no size chart — this is the standard streetwear-alpha approximation, NOT " +
+      "brand-fetched, and it is the least-sourced chart in this pack. THE CUT RUNS " +
+      "SMALL and buyers commonly size UP — the opposite of the oversized brands " +
+      "beside it (Hellstar, Gallery Dept.). The fit intent SPLITS across this tier: " +
+      "do not carry one brand's to another. BODY measurement — NOT flat-garment. " +
+      "Capped confidence.",
+    rows: [
+      { size: "XS", measurements: { chest: "34-36" } },
+      { size: "S", measurements: { chest: "36-38" } },
+      { size: "M", measurements: { chest: "38-40" } },
+      { size: "L", measurements: { chest: "40-42" } },
+      { size: "XL", measurements: { chest: "42-45" } },
+      { size: "XXL", measurements: { chest: "45-48" } },
+    ],
+  },
+  {
+    brand: "Hellstar",
+    brandMatch: ["hellstar"],
+    department: "Unisex",
+    garment: "Tops (alpha)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "hoodie",
+      "sweatshirt",
+      "jacket",
+      "outerwear",
+    ],
+    note:
+      "Hellstar is ALPHA-sized and the brand publishes essentially nothing, " +
+      "including no size chart — the standard streetwear-alpha approximation, NOT " +
+      "brand-fetched. THE CUT IS OVERSIZED BY DESIGN: flat measurements run well " +
+      "above this body chart ON PURPOSE, and a grader who reads that as a mis-tag is " +
+      "reporting the design as an error. That is the opposite of the small-running " +
+      "brands in this same pack (Sp5der, Chrome Hearts, ASSC) — the fit intent " +
+      "SPLITS across this tier, so read the HOUSE before adjusting anything. BODY " +
+      "measurement — NOT flat-garment. Capped confidence.",
+    rows: [
+      { size: "XS", measurements: { chest: "34-36" } },
+      { size: "S", measurements: { chest: "36-38" } },
+      { size: "M", measurements: { chest: "38-40" } },
+      { size: "L", measurements: { chest: "40-42" } },
+      { size: "XL", measurements: { chest: "42-45" } },
+      { size: "XXL", measurements: { chest: "45-48" } },
+    ],
+  },
+  {
+    brand: "Anti Social Social Club",
+    // A bare "assc" is DELIBERATELY not here — four letters are too short to
+    // match safely as a substring. The chart is reached via the canonical.
+    brandMatch: ["anti social social club", "antisocialsocialclub"],
+    department: "Unisex",
+    garment: "Tops (alpha)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "hoodie",
+      "sweatshirt",
+      "jacket",
+      "outerwear",
+    ],
+    note:
+      "Anti Social Social Club is ALPHA-sized and publishes no chart — the standard " +
+      "streetwear-alpha approximation, NOT brand-fetched. The pieces are printed on " +
+      "ordinary blanks from various suppliers, so the fit is NOT consistent drop to " +
+      "drop: ASSC generally runs SMALL, but the blank changes, which is a real " +
+      "reason to trust a measurement over the tag here more than anywhere else in " +
+      "this pack. BODY measurement — NOT flat-garment. Capped confidence.",
+    rows: [
+      { size: "XS", measurements: { chest: "34-36" } },
+      { size: "S", measurements: { chest: "36-38" } },
+      { size: "M", measurements: { chest: "38-40" } },
+      { size: "L", measurements: { chest: "40-42" } },
+      { size: "XL", measurements: { chest: "42-45" } },
+      { size: "XXL", measurements: { chest: "45-48" } },
+    ],
+  },
   {
     brand: "Generic women's alpha",
     brandMatch: [], // fallback only (selected when no brand chart matches)
