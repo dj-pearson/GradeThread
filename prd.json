@@ -2338,7 +2338,7 @@
         "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
       ],
       "priority": 2480,
-      "passes": false,
+      "passes": true,
       "notes": "[BrandKB][Brand][Group] ~8 brands. Add size markers/decoders only where they exist. Calvin Klein has a shallow seed row (00389) — promote to full pack. Bra/shapewear sizing systems matter.",
       "dependsOn": [
         "US-1715",
