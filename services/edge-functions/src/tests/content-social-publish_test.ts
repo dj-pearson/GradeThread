@@ -191,10 +191,14 @@ Deno.test("a video post fans out video_url + media_type=video to every platform"
     timestamp: TS,
     siteUrl: "https://gradethread.com",
   });
+  // Canonical order from `enabled` — the contract asserted by "fires one webhook
+  // per ENABLED platform that has a variant, in order" above. This expectation was
+  // alphabetized, which contradicts it: planSocialFanout maps over `enabled` and
+  // never sorts, so it returns tiktok/instagram/facebook here.
   assertEquals(payloads.map((p) => p.platform), [
-    "facebook",
-    "instagram",
     "tiktok",
+    "instagram",
+    "facebook",
   ]);
   for (const p of payloads) {
     assertEquals(p.data.media_type, "video");
