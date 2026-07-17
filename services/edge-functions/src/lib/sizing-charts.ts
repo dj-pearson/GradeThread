@@ -7654,6 +7654,178 @@ export const SIZING_CHARTS: SizingChart[] = [
       },
     ],
   },
+  // US-1989: heritage & workwear (mirrors migration 00469's brand_size_charts).
+  // A mix of APPAREL (waist x inseam / chest) and FOOTWEAR (US shoe) charts. For
+  // this group the tag ERA drives value, so the notes carry the fit caveats.
+  {
+    brand: "Dickies",
+    brandMatch: ["dickies"],
+    department: "Men",
+    garment: "Work pants (WAIST x INSEAM, inches)",
+    categoryMatch: ["pant", "bottom", "trouser", "work pant", "874", "jean", "short"],
+    note:
+      "Dickies men's work pants use a numeric WAIST x INSEAM grid (the tag prints " +
+      "both). ⚠ THE 874 FIT FAMILY IS THE TRAP, NOT THE SIZE: 874 (Original), " +
+      "WP314 (Slim Straight) and 872 (Slim) share the size grid but differ in cut " +
+      "— read the STYLE NUMBER for fit. Waist runs ~28-44, inseam ~28-34.",
+    rows: [
+      { size: "30x32", measurements: { waist: "30", inseam: "32" } },
+      { size: "32x32", measurements: { waist: "32", inseam: "32" } },
+      { size: "34x32", measurements: { waist: "34", inseam: "32" } },
+      { size: "36x32", measurements: { waist: "36", inseam: "32" } },
+      { size: "38x32", measurements: { waist: "38", inseam: "32" } },
+      { size: "40x30", measurements: { waist: "40", inseam: "30" } },
+    ],
+  },
+  {
+    brand: "Filson",
+    brandMatch: ["filson"],
+    department: "Men",
+    garment: "Tops & outerwear (alpha, CHEST inches)",
+    categoryMatch: [
+      "top",
+      "shirt",
+      "jacket",
+      "coat",
+      "vest",
+      "outerwear",
+      "mackinaw",
+      "cruiser",
+      "tin cloth",
+    ],
+    note:
+      "Filson men's tops/outerwear run alpha S-XXL against a chest grid " +
+      "(approximate — verify against the garment). ⚠ WOOL MACKINAW and heavy Tin " +
+      "Cloth are cut for LAYERING, so a Filson garment often measures generously " +
+      "vs a fashion top of the same alpha size; measure the chest flat and double.",
+    rows: [
+      { size: "S", measurements: { chest: "36-38" } },
+      { size: "M", measurements: { chest: "39-41" } },
+      { size: "L", measurements: { chest: "42-44" } },
+      { size: "XL", measurements: { chest: "45-47" } },
+      { size: "XXL", measurements: { chest: "48-50" } },
+    ],
+  },
+  {
+    brand: "Red Wing",
+    brandMatch: ["red wing", "redwing"],
+    department: "Men",
+    garment: "Boots (US men's shoe size)",
+    categoryMatch: ["boot", "shoe", "footwear", "moc", "iron ranger"],
+    note:
+      "⚠ RED WING HERITAGE BOOTS RUN LARGE: the common fit guidance is to go ~0.5 " +
+      "size DOWN from your Brannock/US sneaker size (some models a full size). The " +
+      "US↔UK↔EU conversions are approximate and vary by last (the 875's last " +
+      "differs from the Iron Ranger's). Read the size off the boot/box, and note " +
+      "the fit caveat rather than 'correcting' a listing.",
+    rows: [
+      { size: "US 8", measurements: { uk: "7", eu: "41" } },
+      { size: "US 9", measurements: { uk: "8", eu: "42" } },
+      { size: "US 10", measurements: { uk: "9", eu: "43" } },
+      { size: "US 11", measurements: { uk: "10", eu: "44.5" } },
+      { size: "US 12", measurements: { uk: "11", eu: "45" } },
+    ],
+  },
+  {
+    brand: "Timberland",
+    brandMatch: ["timberland"],
+    department: "Men",
+    garment: "Boots (US men's shoe size)",
+    categoryMatch: ["boot", "shoe", "footwear", "yellow boot", "pro"],
+    note:
+      "⚠ THE ORIGINAL 6-INCH (YELLOW BOOT) RUNS LARGE — common guidance is to go " +
+      "~0.5 size DOWN from a sneaker size. The US↔UK↔EU conversions are " +
+      "approximate. Timberland also makes women's and kids' versions of the boot " +
+      "at different numbering — read the department off the box. PRO safety boots " +
+      "use the same US grid.",
+    rows: [
+      { size: "US 8", measurements: { uk: "7.5", eu: "41.5" } },
+      { size: "US 9", measurements: { uk: "8.5", eu: "43" } },
+      { size: "US 10", measurements: { uk: "9.5", eu: "44.5" } },
+      { size: "US 11", measurements: { uk: "10.5", eu: "45.5" } },
+      { size: "US 12", measurements: { uk: "11.5", eu: "46.5" } },
+    ],
+  },
+  {
+    brand: "Duluth Trading Co.",
+    // ⚠ brandMatch is "duluth trading", NEVER a bare "duluth" — Duluth Pack (est.
+    // 1882) is a different company and a bare "duluth" must not reach this chart.
+    brandMatch: ["duluth trading", "duluthtrading"],
+    department: "Men",
+    garment: "Work pants (WAIST x INSEAM, inches)",
+    categoryMatch: ["pant", "bottom", "trouser", "work pant", "fire hose", "jean", "ballroom"],
+    note:
+      "⚠ THE BRAND-MATCH IS 'duluth trading', NEVER A BARE 'duluth' — Duluth Pack " +
+      "(est. 1882) is a DIFFERENT company. Duluth Trading men's pants use a " +
+      "numeric WAIST x INSEAM grid; Fire Hose canvas is cut relaxed/gusseted. " +
+      "Approximate — verify against the labelled size.",
+    rows: [
+      { size: "32x32", measurements: { waist: "32", inseam: "32" } },
+      { size: "34x32", measurements: { waist: "34", inseam: "32" } },
+      { size: "36x34", measurements: { waist: "36", inseam: "34" } },
+      { size: "38x34", measurements: { waist: "38", inseam: "34" } },
+      { size: "40x32", measurements: { waist: "40", inseam: "32" } },
+    ],
+  },
+  {
+    brand: "Pendleton",
+    brandMatch: ["pendleton"],
+    department: "Men",
+    garment: "Wool shirts & tops (alpha, CHEST inches)",
+    categoryMatch: ["shirt", "top", "board shirt", "wool shirt", "overshirt", "jacket"],
+    note:
+      "⚠ VINTAGE PENDLETON WOOL SHIRTS OFTEN RUN SMALLER / BOXIER than the modern " +
+      "alpha grid above (mid-century sizing + wool shrinkage) — measure the chest " +
+      "flat rather than trusting the tag's alpha letter. ⚠ BLANKETS ARE NOT SIZED " +
+      "BY THIS CHART (fixed bed dimensions). Remember the tag ERA, not the size, " +
+      "drives vintage value.",
+    rows: [
+      { size: "S", measurements: { chest: "35-37", neck: "14.5-15" } },
+      { size: "M", measurements: { chest: "38-40", neck: "15.5-16" } },
+      { size: "L", measurements: { chest: "41-43", neck: "16.5-17" } },
+      { size: "XL", measurements: { chest: "44-46", neck: "17.5-18" } },
+      { size: "XXL", measurements: { chest: "47-50", neck: "18.5-19" } },
+    ],
+  },
+  {
+    brand: "Barbour",
+    brandMatch: ["barbour"],
+    department: "Men",
+    garment: "Waxed & quilted jackets (UK alpha / CHEST inches)",
+    categoryMatch: ["jacket", "coat", "waxed jacket", "quilted jacket", "outerwear", "gilet"],
+    note:
+      "⚠ BARBOUR IS UK-SIZED and its WAXED jackets are cut CLOSE / for country " +
+      "layering — many buyers size UP one to layer knitwear underneath, so a " +
+      "Barbour 'L' is not a US 'L'. Barbour also labels some jackets by NUMERIC " +
+      "chest (C38/C40 = 38in/40in chest). The interior style code (MWX/LWX) also " +
+      "carries the size. Approximate — verify.",
+    rows: [
+      { size: "S", measurements: { chest: "36-38", uk: "S" } },
+      { size: "M", measurements: { chest: "38-40", uk: "M" } },
+      { size: "L", measurements: { chest: "40-42", uk: "L" } },
+      { size: "XL", measurements: { chest: "42-44", uk: "XL" } },
+      { size: "XXL", measurements: { chest: "44-46", uk: "XXL" } },
+    ],
+  },
+  {
+    brand: "Orvis",
+    brandMatch: ["orvis"],
+    department: "Men",
+    garment: "Tops & outerwear (alpha, CHEST inches)",
+    categoryMatch: ["top", "shirt", "jacket", "coat", "vest", "barn coat", "field coat"],
+    note:
+      "Orvis men's tops/outerwear run alpha S-XXL against a chest grid " +
+      "(approximate — verify against the garment). Field/barn coats are cut for " +
+      "layering and measure generously; measure the chest flat. Orvis publishes " +
+      "garment-specific charts per item.",
+    rows: [
+      { size: "S", measurements: { chest: "35-37" } },
+      { size: "M", measurements: { chest: "38-40" } },
+      { size: "L", measurements: { chest: "41-43" } },
+      { size: "XL", measurements: { chest: "44-46" } },
+      { size: "XXL", measurements: { chest: "47-49" } },
+    ],
+  },
 ];
 
 function norm(s: string | null | undefined): string {

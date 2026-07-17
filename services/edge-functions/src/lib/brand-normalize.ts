@@ -987,6 +987,54 @@ const BRAND_ALIASES: Record<string, string> = {
   herschelsupply: "Herschel Supply Co.",
   herschelsupplycompany: "Herschel Supply Co.",
   littleamerica: "Herschel Supply Co.",
+  // ── US-1989: heritage & workwear (migration 00469) ──────────────────────────
+  // Dickies + Pendleton already carried alias-only rows above (00389); the other
+  // six were passthrough-only. For this group the TAG ERA is the price driver, so
+  // canonicalizing the brand correctly is what routes a piece to the pack that
+  // knows how to date it. Two load-bearing refusals:
+  //   1. A bare "duluth" is NOT Duluth Trading — "Duluth" is a Minnesota city AND
+  //      DULUTH PACK (est. 1882), an unrelated waxed-canvas pack maker. Folding
+  //      the bare token would retitle a Duluth Pack canoe pack as the Fire Hose
+  //      work-pant company (the Longchamp-Fabrics trap, 00468). Only the two-word
+  //      forms are aliased.
+  //   2. "Red Wing" is aliased for a TAG but is excluded from FREE-TEXT detection
+  //      (DETECT_EXCLUDED_FROM_TEXT below) — "Detroit Red Wings" and the red-wing
+  //      blackbird would otherwise mint the boot house out of prose.
+  filson: "Filson",
+  ccfilson: "Filson",
+  ccfilsonco: "Filson",
+  filsonco: "Filson",
+  // brandKey() strips the space, so "red wing" -> redwing. The Heritage sub-line
+  // and the Irish Setter line both fold to the house here.
+  redwing: "Red Wing",
+  redwingshoes: "Red Wing",
+  redwingheritage: "Red Wing",
+  redwingshoecompany: "Red Wing",
+  irishsetter: "Red Wing",
+  timberland: "Timberland",
+  timberlands: "Timberland",
+  timbs: "Timberland",
+  timberlandpro: "Timberland",
+  abingtonshoe: "Timberland",
+  // ⚠ CANONICAL IS THE FULL "Duluth Trading Co." — a bare "duluth" is DELIBERATELY
+  // NOT a key (Duluth Pack collision, see above).
+  duluthtrading: "Duluth Trading Co.",
+  duluthtradingco: "Duluth Trading Co.",
+  duluthtradingcompany: "Duluth Trading Co.",
+  barbour: "Barbour",
+  jbarbour: "Barbour",
+  jbarboursons: "Barbour",
+  barbourinternational: "Barbour",
+  barbourbeacon: "Barbour",
+  orvis: "Orvis",
+  theorvis: "Orvis",
+  orviscompany: "Orvis",
+  // Promote the two shallow 00389 rows' extra spellings (Dickies/Pendleton are
+  // already mapped above; these add the fuller-name variants the packs seed).
+  williamsondickie: "Dickies",
+  williamsondickies: "Dickies",
+  pendletonwoolenmills: "Pendleton",
+  sirpendleton: "Pendleton",
 };
 
 /**
@@ -1085,6 +1133,15 @@ const DETECT_EXCLUDED_FROM_TEXT: ReadonlySet<string> = new Set([
   // cheaper miss than that. Declining beats false-firing (the never-guess rule).
   "Express",
   "LOFT",
+  // US-1989. "Red Wing" is the boot house's canonical, but the two-word phrase is
+  // a live free-text collision: "Detroit Red Wings" (the NHL team) and the
+  // red-wing blackbird both contain it at a word boundary, and longest-first
+  // ordering would let "Red Wing" (8) beat a real "Nike" (4) in a "Red Wings
+  // jersey" title. The brand stays fully reachable BY TAG (canonicalizeBrand/
+  // isKnownBrand still resolve it, which is what the eBay Brand aspect and the
+  // comp filter read) and is simply never GUESSED from prose. Verified by
+  // mutation in heritage-workwear-content_test.ts.
+  "Red Wing",
 ]);
 
 /**

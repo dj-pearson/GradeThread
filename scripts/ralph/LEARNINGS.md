@@ -1268,6 +1268,19 @@ memory — not a progress log (the harness records progress separately).
   apart. Folding also keeps short tokens ("tna") out of CANONICAL_BRANDS. Watch
   for ordinary-word labels: "moth" is a garment-DAMAGE term the product's own
   condition text emits constantly, so it must never be an alias.
+- HERITAGE/WORKWEAR (US-1989, 00469): for this tier the TAG IS THE ASSET — the
+  interior label ERA is the price driver, so the pack's weight goes to `tag_eras`,
+  and empty `tag_eras` is CORRECT for a modern catalogue brand (Duluth Trading
+  1989 / Orvis) — the athleisure call, do not invent a chronology. The ONE decoder
+  is Barbour's interior-label `[ML](WX|QU|CA|KN|TN|…)\d{4}` (MWX0018 = Bedale) —
+  the Canada Goose department-letter case: a bare "0018" is refused, the M/L
+  prefix makes it brand-unique; capture styleCode, don't map M/L to gender. The
+  boot brands' household-name model numbers (Dickies 874, Red Wing 875, Timberland
+  10061) are REFUSED as bare digit runs. NEW COLLISION seeded as a refusal: a bare
+  "duluth" is DULUTH PACK (est. 1882), NOT Duluth Trading — alias only the
+  two-word forms (the Longchamp-Fabrics trap). And "Red Wing" went into
+  DETECT_EXCLUDED_FROM_TEXT ("Detroit Red Wings"/the blackbird). RN refused (not
+  faked) even though these ARE textiles — no registrant sourced.
 
 ## prd.json / Ralph workflow
 - Never read or edit `prd.json` from inside an iteration — the harness selects

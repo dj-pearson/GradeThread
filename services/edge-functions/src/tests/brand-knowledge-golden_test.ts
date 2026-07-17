@@ -202,6 +202,41 @@ const CANADA_GOOSE_STYLE_NUMBER_DECODER: BrandDecoder = {
   examples: [],
 };
 
+// US-1989: the Barbour style_number decoder EXACTLY as migration 00469 seeds it
+// into brand_style_codes. It is the ONLY decoder in the heritage & workwear group
+// — the only one of the eight brands' codes that clears the bar (00460):
+// tag-printed AND regular AND brand-unique in FORMAT.
+//
+// THE DEPARTMENT LETTER IS THE WHOLE ARGUMENT, and it is the EXACT Canada Goose
+// case (00460): a bare "0018" is four digits and is nothing (the Chanel rule,
+// US-1736 — a pattern over a bare digit run mints the KB's costliest false
+// positive), but "MWX0018" can only be a Barbour interior-label code. Barbour
+// prints [M|L] + a 2-letter LINE code (WX = wax, QU = quilt, CA = casual, KN =
+// knit, TN = tailored) + 4 digits on the interior label alongside the colour and
+// size: MWX0018 = Bedale, LWX0667 = Beadnell, MQU0281 = Powell.
+//
+// The M/L letter is captured INSIDE styleCode and NOT mapped to a gender field:
+// the shared genderCode transform maps only W/M, so capturing "L" for LADIES'
+// would emit a raw "L" as a gender — the same omission Canada Goose (00460) and
+// Peter Millar (00467) made. The line prefixes are ANCHORED so a bare "M" +
+// arbitrary letters cannot over-match a non-Barbour code.
+//
+// The rest of the group is REFUSED and fixtured below: Dickies 874, Red Wing 875
+// and Timberland 10061 are the household-name model numbers, and each fails the
+// SAME clause — a bare digit run.
+const BARBOUR_STYLE_DECODER: BrandDecoder = {
+  decoderKind: "style_number",
+  description:
+    "Barbour interior-label style code: [M|L] + a 2-letter LINE code + 4 digits. MWX0018 = Bedale, LWX0667 = Beadnell, MQU0281 = Powell. The department letter is what makes a bare 4-digit run brand-unique (the Canada Goose case). M/L is captured inside styleCode, not mapped to gender.",
+  pattern: "^(?<style>[ML](?:WX|QU|CA|KN|TN|LI|GI|FL|OL|SG)\\d{4})$",
+  extractionRules: {
+    fieldMap: { style: "styleCode" },
+    transforms: { style: "upper" },
+    confidence: 0.6,
+  },
+  examples: [],
+};
+
 // US-1982: the Dior date_code decoder EXACTLY as migration 00461 seeds it into
 // brand_style_codes. It is the ONLY decoder in the luxury RTW & leather group —
 // the only code there that is tag-printed AND regular AND brand-unique in FORMAT.
@@ -3855,6 +3890,147 @@ const CASES: GoldenCase[] = [
       },
     },
     expect: { brand: "Vera Bradley" },
+  },
+
+  // ── US-1989: heritage & workwear (migration 00469) ──────────────────────────
+  {
+    name: "Barbour interior-label code (MWX0018 = Bedale) recovers the brand",
+    // THE GROUP'S ONE DECODER, and the department letter is the whole argument:
+    // "0018" is nothing, "MWX0018" can only be Barbour. No AI brand supplied — the
+    // code recovers it off a partial/cut label.
+    brand: "Barbour",
+    pack: pack("Barbour", "barbour", [], [BARBOUR_STYLE_DECODER]),
+    input: decodedFrom({ styleCode: "MWX0018" }),
+    expect: { brand: "Barbour", recovery: true },
+  },
+  {
+    name: "Barbour ladies' code (LWX0667 = Beadnell) also recovers the brand",
+    // The L-prefix marks LADIES'; it is captured inside styleCode and NOT mapped
+    // to a gender field (the Canada Goose / Peter Millar omission).
+    brand: "Barbour",
+    pack: pack("Barbour", "barbour", [], [BARBOUR_STYLE_DECODER]),
+    input: decodedFrom({ styleCode: "LWX0667" }),
+    expect: { brand: "Barbour", recovery: true },
+  },
+  {
+    name: "Barbour quilted code (MQU0281 = Powell) recovers the brand",
+    brand: "Barbour",
+    pack: pack("Barbour", "barbour", [], [BARBOUR_STYLE_DECODER]),
+    input: decodedFrom({ styleCode: "MQU0281" }),
+    expect: { brand: "Barbour", recovery: true },
+  },
+  {
+    name: "Barbour decoder WINS over a wrong AI brand",
+    // The US-1712 contract: a style-code match outranks the model. A Barbour
+    // jacket the AI called Filson must come back Barbour, with the disagreement
+    // surfaced as a conflict rather than silently overwritten.
+    brand: "Barbour",
+    pack: pack("Barbour", "barbour", [], [BARBOUR_STYLE_DECODER]),
+    input: {
+      ...decodedFrom({ brand: "Filson" }),
+      attributes: {
+        style_code: {
+          values: ["MWX0017"],
+          confidence: 0.3,
+          source: "photo:tag",
+        },
+      },
+    },
+    expect: { brand: "Barbour", conflictOn: "brand", recovery: true },
+  },
+  {
+    name: "REFUSAL: a bare 4-digit run under the Barbour pack does NOT mint Barbour",
+    // The anchor is the safety mechanism: "0018" alone (no M/L + line prefix) is
+    // the bare digit run the pattern deliberately excludes. The AI's brand must
+    // survive untouched — the decoder simply must not fire.
+    brand: "Barbour",
+    pack: pack("Barbour", "barbour", [], [BARBOUR_STYLE_DECODER]),
+    input: {
+      ...decodedFrom({ brand: "Belstaff" }),
+      attributes: {
+        style_code: {
+          values: ["0018"],
+          confidence: 0.6,
+          source: "photo:tag",
+        },
+      },
+    },
+    expect: { brand: "Belstaff" },
+  },
+  {
+    name: "REFUSAL: Dickies '874' is a bare digit run — no decoder",
+    // THE ICONIC 874 WORK PANT, printed on the tag — and still refused: three
+    // digits is nothing on its own (the Chanel rule, US-1736; the Lee '101' rule,
+    // 00393). It is an excellent LISTING token, seeded as a style; not a decoder.
+    brand: "Dickies",
+    pack: pack("Dickies", "dickies"),
+    input: {
+      ...decodedFrom({ brand: "Dickies" }),
+      attributes: {
+        style_code: { values: ["874"], confidence: 0.5, source: "photo:tag" },
+      },
+    },
+    expect: { brand: "Dickies" },
+  },
+  {
+    name: "REFUSAL: Red Wing '875' is a bare 4-digit run — no decoder",
+    // The Heritage line's 4-digit style numbers ARE its canonical identifiers and
+    // appear on the box + a paper tag, but a bare 3-4 digit run mints false
+    // positives from any number on any tag. Seeded as styles; refused as a code.
+    brand: "Red Wing",
+    pack: pack("Red Wing", "redwing"),
+    input: {
+      ...decodedFrom({ brand: "Red Wing" }),
+      attributes: {
+        style_code: { values: ["875"], confidence: 0.5, source: "photo:tag" },
+      },
+    },
+    expect: { brand: "Red Wing" },
+  },
+  {
+    name: "REFUSAL: Timberland '10061' is a bare digit run — no decoder",
+    // THE Original Yellow Boot, and the number is genuinely the model's identity,
+    // but five bare digits is nothing. (Modern TB0… SKUs are brand-unique but are
+    // web/box SKUs, not established on a regular physical tag — the 00468
+    // physical-presence rule.)
+    brand: "Timberland",
+    pack: pack("Timberland", "timberland"),
+    input: {
+      ...decodedFrom({ brand: "Timberland" }),
+      attributes: {
+        style_code: { values: ["10061"], confidence: 0.5, source: "photo:tag" },
+      },
+    },
+    expect: { brand: "Timberland" },
+  },
+  {
+    name: "REFUSAL: Filson's web SKU is not a tag code",
+    // Filson / Duluth / Orvis / Pendleton have no regular tag-printed brand-unique
+    // style format — their codes are web/catalogue SKUs. For this group the TAG
+    // ERA is the identifier, not a code.
+    brand: "Filson",
+    pack: pack("Filson", "filson"),
+    input: {
+      ...decodedFrom({ brand: "Filson" }),
+      attributes: {
+        style_code: { values: ["20223753"], confidence: 0.5, source: "photo:tag" },
+      },
+    },
+    expect: { brand: "Filson" },
+  },
+  {
+    name: "REFUSAL: Pendleton's numeric SKU is not a code — the TAG ERA is the identity",
+    // Pendleton inverts to the tag: a 1950s-60s board-shirt label is the price
+    // driver, and there is no regular tag-printed style code to decode.
+    brand: "Pendleton",
+    pack: pack("Pendleton", "pendleton"),
+    input: {
+      ...decodedFrom({ brand: "Pendleton" }),
+      attributes: {
+        style_code: { values: ["AA032"], confidence: 0.5, source: "photo:tag" },
+      },
+    },
+    expect: { brand: "Pendleton" },
   },
 ];
 

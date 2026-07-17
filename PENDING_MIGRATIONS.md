@@ -4,6 +4,47 @@
 > The sections below for those are historical; the only NEW held migration is
 > **00443** at the top.
 
+## ⏳ PENDING: 00469_heritage_workwear_brand_knowledge.sql (US-1989 heritage & workwear brand KB, 2026-07-17)
+
+Data-only seed of the `brand_knowledge*` tables for the heritage / workwear tier:
+**Dickies, Filson, Red Wing, Timberland, Duluth Trading Co., Pendleton, Barbour,
+Orvis.** Six were passthrough-only; **Dickies and Pendleton are PROMOTED** from
+their shallow alias-only 00389 rows to full packs.
+
+**For this group the TAG IS THE ASSET** — the interior label ERA is the single
+largest price driver (a 1950s-60s Pendleton board shirt or a Made-in-USA vintage
+Filson Cruiser is worth a multiple of its modern twin), so the pack's centre of
+gravity is `tag_eras`. A documented, value-driving chronology exists for
+Pendleton/Barbour/Filson/Red Wing/Timberland/Dickies and DOES NOT for Duluth
+Trading (1989, modern) or Orvis — empty `tag_eras` on those two is correct, not a
+gap (the athleisure precedent, 00452).
+
+- **ONE DECODER — BARBOUR.** The interior-label style code `[M|L]` + a 2-letter
+  line code + 4 digits (`MWX0018` = Bedale, `LWX0667` = Beadnell) is tag-printed,
+  regular and brand-unique — the exact Canada Goose department-letter case
+  (00460). The boot brands' household-name style numbers (Dickies 874, Red Wing
+  875, Timberland 10061) are REFUSED as bare digit runs (the Chanel rule).
+- **HEADLINE REFUSAL: a bare "duluth" is NOT Duluth Trading.** "Duluth" is a
+  Minnesota city AND DULUTH PACK (est. 1882), an unrelated waxed-canvas pack
+  maker. Only "duluth trading" / "duluthtrading" are aliased (the Longchamp
+  Fabrics trap, 00468).
+- **NO RN IS SEEDED.** These ARE textiles so RNs genuinely exist, but none could
+  be sourced to a primary FTC record and fabricating one is the KB's costliest
+  error (the RN 17257 lesson) — refused with the reason recorded, owed to the
+  US-1715 queue.
+- **"Red Wing" added to `DETECT_EXCLUDED_FROM_TEXT`** — reachable BY TAG, never
+  guessed from prose ("Detroit Red Wings" / the red-wing blackbird).
+
+Ships with: the migration; `brand-normalize.ts` aliases (+ the Red Wing exclusion
++ the Duluth-Pack refusal); `sizing-charts.ts` in-code mirrors (8 charts, apparel
++ footwear); `schema-version.ts` bump to `00469`; and two edge tests
+(`brand-knowledge-golden_test.ts` Barbour decoder + refusals,
+`heritage-workwear-content_test.ts`). All seed facts land `verified=false` for the
+US-1715 admin verify queue. **Docker was unavailable on the authoring host, so
+`verify:db` could not run; the seed is validated by
+`scripts/ralph/validate-seed-sql.py` (pglast parse + tuple arity + `''`-in-`$j$`
++ JSON validity). Still run `verify:db` before applying to prod.**
+
 ## ⏳ PENDING: 00468_handbags_accessories_brand_knowledge.sql (US-1988 handbags & accessories brand KB, 2026-07-17)
 
 Data-only seed of the `brand_knowledge*` tables for the handbags / accessories
