@@ -1634,7 +1634,7 @@
       ],
       "priority": 1881,
       "passes": false,
-      "notes": "Audit findings 18 + Lister §3 (four independent Firefox breakages). Safari deliberately out of scope (Xcode wrapper + no externally_connectable — revisit post-launch)."
+      "notes": "Audit findings 18 + Lister §3 (four independent Firefox breakages). Safari deliberately out of scope (Xcode wrapper + no externally_connectable — revisit post-launch). | PARTIAL 2026-07-17: AC1 DONE — manifest declared only background.service_worker, so Firefox (which runs the background as a non-persistent EVENT PAGE and reads background.scripts) loaded NO background at all and the extension was inert there. background.js already documented+implemented its half of the contract; the manifest never did. Now declares BOTH service_worker and scripts (= importScripts deps + background.js, in order — background.js reads GT_LISTER_SELECTORS/GUARD/JOBS/REGISTRY at load) + browser_specific_settings.gecko {id: extension@gradethread.com, strict_min_version: 109.0}. AC2 load-time guards verified present (onMessageExternal + alarms). New test/background-deps.test.cjs derives the dep list from background.js's own importScripts and asserts the manifest matches exactly — the two copies only diverge on Firefox, which everyday Chrome work never exercises (US-1874 added job-store.js and nothing would have caught the omission). Guard verified against both the missing-dep drift and the pre-fix no-scripts state. 11/11 extension test files. BLOCKS passes: AC3 (research surface end-to-end on Firefox) + AC5 (Edge smoke) need a real browser. AC4 (gate seller tools off on Firefox) may be moot now US-1882's gt-bridge.js has landed — needs a decision, not a blind gate."
     },
     {
       "id": "US-1882",
