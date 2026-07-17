@@ -1176,6 +1176,84 @@ export async function getItemPromotions(
     }));
 }
 
+// US-1979 (AC2): read ONE promotion in full.
+//
+// WHY THIS HAS TO EXIST BEFORE ANY EDIT UI. getItemPromotions above is a LIST call
+// and returns summaries — id, name, type, status, dates. It does NOT return the
+// listings the promotion targets, its discount percent, its minSpend, its buy
+// quantity or its coupon code. And updateItemPromotion is a PUT, which REPLACES the
+// whole promotion.
+//
+// So an edit form prefilled from the list shape would send back a body missing
+// everything the list omits: the seller opens "edit", changes the name, saves — and
+// silently wipes the promotion's targeting and its discount. There is no undo, and
+// the promotion keeps its id, so it looks like it worked.
+//
+// This is the round-trip that makes editing safe: read the full promotion, let the
+// seller change one field, PUT the whole thing back intact.
+export interface EbayItemPromotionDetail extends EbayItemPromotion {
+  listingIds: string[];
+  percentOff: number | null;
+  minSpend: { value: string; currency: string } | null;
+  buyQuantity: number | null;
+  couponCode: string | null;
+  promotionImageUrl: string | null;
+  priority: string | null;
+}
+
+interface ItemPromotionDetailResponse {
+  promotionId?: string;
+  name?: string;
+  promotionType?: string;
+  promotionStatus?: string;
+  startDate?: string;
+  endDate?: string;
+  promotionImageUrl?: string;
+  priority?: string;
+  couponConfiguration?: { couponCode?: string };
+  inventoryCriterion?: { listingIds?: string[] };
+  discountRules?: Array<{
+    discountBenefit?: { percentageOffOrder?: string; percentageOffItem?: string };
+    discountSpecification?: {
+      minAmount?: { value?: string; currency?: string };
+      numberOfItems?: number;
+    };
+  }>;
+}
+
+export async function getItemPromotion(
+  userId: string,
+  promotionId: string,
+): Promise<EbayItemPromotionDetail> {
+  const { body } = await marketingFetch<ItemPromotionDetailResponse>(
+    userId,
+    `/sell/marketing/v1/item_promotion/${encodeURIComponent(promotionId)}`,
+  );
+  // Mirror-image of buildItemPromotionBody, so a read→write round-trip is lossless.
+  const rule = body.discountRules?.[0];
+  const pctRaw = rule?.discountBenefit?.percentageOffOrder ??
+    rule?.discountBenefit?.percentageOffItem ?? null;
+  const pct = pctRaw !== null && pctRaw !== undefined ? Number(pctRaw) : null;
+  const min = rule?.discountSpecification?.minAmount;
+  return {
+    promotionId: body.promotionId ?? promotionId,
+    name: body.name ?? null,
+    promotionType: body.promotionType ?? null,
+    promotionStatus: body.promotionStatus ?? null,
+    startDate: body.startDate ?? null,
+    endDate: body.endDate ?? null,
+    listingIds: body.inventoryCriterion?.listingIds ?? [],
+    percentOff: pct !== null && Number.isFinite(pct) ? pct : null,
+    minSpend: min?.value && min?.currency
+      ? { value: min.value, currency: min.currency }
+      : null,
+    buyQuantity: rule?.discountSpecification?.numberOfItems ?? null,
+    couponCode: body.couponConfiguration?.couponCode ?? null,
+    promotionImageUrl: body.promotionImageUrl ?? null,
+    priority: body.priority ?? null,
+  };
+}
+
 // Read a markdown Sale's current status (for reconciliation).
 export async function getMarkdownSale(
   userId: string,
