@@ -1007,6 +1007,22 @@ memory — not a progress log (the harness records progress separately).
   a bogus target silently writes a phantom property nothing reads instead of
   failing. Put un-modellable extras (e.g. a HEATTECH warmth level) in a
   NON-capturing group. US-1739.
+- The three pack RENDERERS carry DIFFERENT content, and seeding a fact into the
+  wrong one makes it invisible: `brandPackPromptBlock` (extract) renders styles'
+  `visualFingerprint` VERBATIM + decoders + colorways, but collapses every
+  authentication tell to ONE GENERIC LINE — tell PROSE never reaches the extract
+  prompt. Tells render only via `buildTrustedBrandFactsBlock` (garment-baselines,
+  grading), which takes the FIRST FOUR only and hard-caps the block at 900 chars
+  (so lead each row's tells with the important ones). `formatSizingChartsForPrompt`
+  renders size LABELS + the note IN FULL, uncapped — it is the only uncapped
+  channel. So a fact that must reach identification belongs in a fingerprint or a
+  chart note, NOT a tell. US-1740.
+- `brandFromStyleFormat`'s formats are NOT brand-exclusive (Converse's classic
+  codes are M+4 digits, same shape as New Balance model numbers) and
+  `ai-listing.ts` takes `styleResolution?.brand ?? canonicalBrand` — so a format
+  GUESS overrides the tag's own brand. US-1740 fixed the precedence (curated table
+  > explicit sneaker brandHint > format inference). Adding a format here without
+  checking which other brands share the shape re-opens a silent mis-branding.
 - The US-1738 leading-boundary `brandTextMatches` has a standing bill: a CONCATENATED
   sub-label does NOT match its parent's short token ("babygap".indexOf("gap") is
   preceded by "y", a word char), so babyGap/GapKids/GapFit must be listed in

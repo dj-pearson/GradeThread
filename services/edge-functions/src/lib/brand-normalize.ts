@@ -108,6 +108,56 @@ const BRAND_ALIASES: Record<string, string> = {
   ua: "Under Armour",
   vans: "Vans",
   converse: "Converse",
+  // US-1740 footwear group. New Balance, Vans and Converse were already above; the
+  // other four were passthrough-only, so the pack rendered the seller's own casing
+  // ("doc martens", "birkenstocks") into the prompt block and the eBay Brand aspect.
+  //
+  // PLURALIZATION IS THE FOOTWEAR NORM and it is why this group adds more plural
+  // keys than any prior one: shoes are worn and named in PAIRS ("UGGs", "Birks",
+  // "Docs", "Chucks"), where garments are not. The plural belongs HERE, as an alias
+  // KEY, because keys are an exact WHOLE-FIELD lookup — they can never fire on a
+  // word inside surrounding text. Contrast the two matchers this group is the first
+  // to see diverge: findSizingCharts' brandTextMatches is LEADING-boundary only, so
+  // "uggs" reaches UGG's charts; detectBrandInText is bounded on BOTH sides, so
+  // "UGGs" does NOT resolve there. That asymmetry is CORRECT and must not be
+  // "fixed" — the trailing boundary is what stops "Gap" firing on "gaps", and
+  // rebranding every "gaps" is a worse bug than missing a plural in a barcode title.
+  newbalances: "New Balance",
+  nb: "New Balance",
+  drmartens: "Dr. Martens",
+  drmarten: "Dr. Martens",
+  doctormartens: "Dr. Martens",
+  docmartens: "Dr. Martens",
+  docmarten: "Dr. Martens",
+  docmartins: "Dr. Martens",
+  // AirWair is Dr. Martens' OWN registered mark for the air-cushioned sole and is
+  // printed on the yellow heel loop ("AirWair with Bouncing Soles"). It is a COINED
+  // term, so — unlike the far more famous article numbers (1460/1461/2976), which
+  // are four digits and could be anything — it genuinely identifies the brand.
+  airwair: "Dr. Martens",
+  // DELIBERATELY ABSENT, on the rule that keeps a bare "bean" off L.L.Bean:
+  //   * "docs"   — an ordinary English word this product's own text emits ("the
+  //                docs", "documents"), and the brand's nickname. Never mapped.
+  //   * "birks"  — Birks is a Canadian jeweller; the nickname is not worth the
+  //                collision.
+  //   * "chucks" — a person's name and an ordinary verb.
+  //   * "1460"   — four digits is not a brand. See the drmartens row in 00459.
+  ugg: "UGG",
+  uggs: "UGG",
+  uggaustralia: "UGG",
+  uggboots: "UGG",
+  birkenstock: "Birkenstock",
+  birkenstocks: "Birkenstock",
+  colehaan: "Cole Haan",
+  colehaans: "Cole Haan",
+  vansoffthewall: "Vans",
+  // Vault by Vans is the premium OG-spec LINE, not a second brand: same catalogue
+  // brand on eBay, so it FOLDS with the line carried in `style` (the Gap Factory
+  // play). Contrast Fear of God Essentials, which is 10x apart and earns its own
+  // canonical.
+  vaultbyvans: "Vans",
+  chucktaylor: "Converse",
+  chuck70: "Converse",
   asics: "ASICS",
   fila: "Fila",
   champion: "Champion",
@@ -447,6 +497,9 @@ function brandFromStyleFormat(code: string): string | null {
   if (/^[A-Z]{2}\d{4}$/.test(c)) return "adidas";
   if (/^[A-Z]\d{5}$/.test(c)) return "adidas";
   // New Balance: M/W/U + 3-4 digits + optional trailing letters/digit (M990GL6).
+  // NOTE this format is NOT exclusive to New Balance — Converse's classic style
+  // codes are also M + 4 digits (US-1740). That collision is why resolveStyleCode
+  // lets an explicit brand outrank this inference; see the note there.
   if (/^[MWU]\d{3,4}[A-Z]{0,3}\d?$/.test(c)) return "New Balance";
   return null;
 }
@@ -457,9 +510,15 @@ function brandFromStyleFormat(code: string): string | null {
  * inference (exact: false). Returns null when the value isn't a recognizable
  * style code, so non-sneaker "style" fields (e.g. "Slim Fit") are left alone.
  *
- * `brandHint` (an already-canonical brand) disambiguates only when the format
- * is itself unrecognized — a known sneaker brand + a short alphanumeric code is
- * still treated as a code so its brand keys the comp search.
+ * `brandHint` (an already-canonical brand) does two things, both gated on it
+ * being a known sneaker brand:
+ *   - it OUTRANKS a format inference that disagrees with it (US-1740 — several
+ *     brands share a code shape, so a brand read off the tag beats a guess made
+ *     from the code's shape alone);
+ *   - it rescues an unrecognized format — a known sneaker brand + a short
+ *     alphanumeric code is still treated as a code so its brand keys the comp
+ *     search.
+ * The curated table outranks both.
  */
 export function resolveStyleCode(
   raw: string | null | undefined,
@@ -476,10 +535,32 @@ export function resolveStyleCode(
     return buildResolution(dashForm, product, true);
   }
 
-  // Format inference.
+  // Format inference — but an EXPLICIT brand outranks it (US-1740).
+  //
+  // This ordering is load-bearing and it fixes a real, live mis-branding bug found
+  // while wiring the New Balance decoder. brandFromStyleFormat reads "New Balance"
+  // out of any M+4-digit code — and CONVERSE's classic style codes are ALSO
+  // M + 4 digits (M9160 is a Chuck Taylor). Because ai-listing.ts takes
+  // `styleResolution?.brand ?? canonicalBrand`, a format GUESS was overriding the
+  // brand read off the actual tag: a Converse Chuck with a legible M-code was
+  // silently relisted as a New Balance, taking the eBay Brand aspect and the comp
+  // filter with it.
+  //
+  // The fix is not a bigger code table (we cannot enumerate Converse's codes with a
+  // citation, and a half-remembered list is worse than none). It is precedence: a
+  // canonical brand from the tag is DIRECT evidence, while a format match is an
+  // inference from shape alone — so when both speak and disagree, the tag wins.
+  // The curated STYLE_CODE_PRODUCTS table still outranks both, because an exact
+  // code→product match is stronger evidence than either.
+  //
+  // Note this only engages when the hint is a known sneaker brand: an apparel
+  // brandHint must not suppress a sneaker code's inference (a Nike code on an item
+  // mis-tagged "Hanes" should still resolve to Nike).
   const inferredBrand = brandFromStyleFormat(code);
   if (inferredBrand) {
-    return buildResolution(code, { brand: inferredBrand }, false);
+    const hintOverrides = brandHint && brandHint !== inferredBrand &&
+      SNEAKER_BRANDS.has(brandHint);
+    return buildResolution(code, { brand: hintOverrides ? brandHint : inferredBrand }, false);
   }
 
   // Last resort: a known sneaker brand + a plausible alphanumeric code (letters

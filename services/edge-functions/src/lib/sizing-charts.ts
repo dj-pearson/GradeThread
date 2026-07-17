@@ -2495,6 +2495,474 @@ export const SIZING_CHARTS: SizingChart[] = [
       { size: "XXL (18)", measurements: { bust: "47.5-49", waist: "40-41.5" } },
     ],
   },
+
+  // ── US-1740: footwear group ────────────────────────────────────────────────
+  // Mirrors migration 00459's brand_size_charts seed.
+  //
+  // THESE CHARTS ARE A DIFFERENT KIND OF OBJECT FROM EVERY OTHER CHART IN THIS
+  // FILE, and the difference is not cosmetic. Every chart above is an ESTIMATOR:
+  // measure the bust, double it, read off the size. A shoe's size CANNOT be
+  // measured from a photo — it is STAMPED on the tongue label, the insole or the
+  // footbed and must be READ. So these are TRANSLATORS: they turn the brand's own
+  // number into every other system's number. The foot-length inches are a sanity
+  // check for a shoe in hand, not the primary path.
+  //
+  // Which makes the SIZE LABEL the deliverable here. The US-1731 lesson — write the
+  // cross-map INSIDE the label where the model actually reads it, not in the note
+  // alone — is the whole product in this group, so every row carries the full
+  // US/UK/EU triple.
+  //
+  // THE TWO BRANDS WHOSE TAG DOES NOT NAME ITS OWN SYSTEM are the reason the pack
+  // exists: a Dr. Martens stamped "7" is a UK 7 (= US M8), and a Birkenstock
+  // stamped "38" is an EU 38 (= US W7-7.5). Neither says "UK" or "EU" anywhere.
+  // That is not a pricing refinement like the era/line traps of US-1737..1739 — it
+  // is a WRONG LISTING that no photo reasoning can catch, because the photo is not
+  // wrong: the shoe really does say 7.
+  {
+    brand: "Dr. Martens",
+    brandMatch: [
+      "dr. martens",
+      "dr martens",
+      "drmartens",
+      "doc martens",
+      "docmartens",
+      "airwair",
+    ],
+    department: "Unisex",
+    garment: "Footwear (UK-SIZED — the stamped number is a UK size)",
+    categoryMatch: [
+      "footwear",
+      "shoe",
+      "shoes",
+      "boot",
+      "boots",
+      "chelsea",
+      "sneaker",
+      "1460",
+      "1461",
+      "2976",
+      "sandal",
+    ],
+    note:
+      "THE NUMBER STAMPED ON A DR. MARTENS IS A UK SIZE AND THE BOOT DOES NOT SAY " +
+      "SO — the highest-value fact in this brand group. A boot stamped \"7\" is a " +
+      "UK 7 = US MEN'S 8 = US WOMEN'S 9 = EU 41, so a seller who reads \"7\" and " +
+      "lists a US 7 is a FULL SIZE wrong and the photo will not contradict them. " +
+      "ALWAYS convert from UK and state the UK number in the listing. THE BRAND IS " +
+      "UNISEX-SIZED: one UK run maps to BOTH a US men's and a US women's size and " +
+      "both belong in the listing — which is why every row carries both. NO HALF " +
+      "SIZES in the standard run, so a \"US 8.5 Dr. Martens\" is a size the brand " +
+      "does not make. THE SIZE IS STAMPED, NOT MEASURED — read it off the boot, " +
+      "never infer it from a photo. Body-equivalent approximations, not published " +
+      "specs.",
+    rows: [
+      { size: "UK 3 = US M4 / US W5 = EU 36", measurements: { footLength: "8.7" } },
+      { size: "UK 4 = US M5 / US W6 = EU 37", measurements: { footLength: "9.05" } },
+      { size: "UK 5 = US M6 / US W7 = EU 38", measurements: { footLength: "9.4" } },
+      { size: "UK 6 = US M7 / US W8 = EU 39", measurements: { footLength: "9.75" } },
+      { size: "UK 7 = US M8 / US W9 = EU 41", measurements: { footLength: "10.1" } },
+      { size: "UK 8 = US M9 / US W10 = EU 42", measurements: { footLength: "10.4" } },
+      { size: "UK 9 = US M10 / US W11 = EU 43", measurements: { footLength: "10.75" } },
+      { size: "UK 10 = US M11 / US W12 = EU 45", measurements: { footLength: "11.1" } },
+      { size: "UK 11 = US M12 = EU 46", measurements: { footLength: "11.4" } },
+      { size: "UK 12 = US M13 = EU 47", measurements: { footLength: "11.75" } },
+    ],
+  },
+  {
+    brand: "Birkenstock",
+    brandMatch: ["birkenstock", "birkenstocks"],
+    department: "Unisex",
+    garment: "Footwear (EU-SIZED ONLY — no US run exists)",
+    categoryMatch: [
+      "footwear",
+      "shoe",
+      "shoes",
+      "sandal",
+      "sandals",
+      "clog",
+      "clogs",
+      "slide",
+      "arizona",
+      "boston",
+      "gizeh",
+      "madrid",
+    ],
+    note:
+      "BIRKENSTOCK IS EU-SIZED ONLY — there is NO US-numbered run at all, and the " +
+      "number stamped in the footbed carries no system marking. A sandal stamped " +
+      "\"38\" is an EU 38 = US WOMEN'S 7-7.5, NOT a US 8. NO HALF SIZES (whole EU " +
+      "sizes only), which is exactly why every US equivalent here is a RANGE: the " +
+      "brand's grade is coarser than the US one, so one EU size covers two US " +
+      "halves. State the EU number in the listing. THE WIDTH IS A FOOT ICON, NOT A " +
+      "LETTER: regular vs narrow is marked by a small foot-shaped icon on the " +
+      "footbed beside the size (wide icon = REGULAR, narrow icon = NARROW) — there " +
+      "is no D/B letter to read, and if the footbed is not photographed say the " +
+      "width is UNCONFIRMED rather than assuming regular. THE FOOTBED IS THE " +
+      "PRODUCT AND ITS WEAR IS THE GRADE: the cork-latex footbed MOULDS to its " +
+      "wearer by design, so a visible FOOT IMPRESSION is NORMAL and expected, not " +
+      "damage — but cork CRUMBLING at the edge, a SEPARATED sole and a darkened/" +
+      "compressed liner ARE defects. THE SIZE IS STAMPED, NOT MEASURED. " +
+      "Body-equivalent approximations, not published specs.",
+    rows: [
+      { size: "EU 36 = US W5-5.5 = UK 3.5", measurements: { footLength: "8.85" } },
+      { size: "EU 37 = US W6-6.5 = UK 4.5", measurements: { footLength: "9.2" } },
+      { size: "EU 38 = US W7-7.5 = UK 5.5", measurements: { footLength: "9.5" } },
+      {
+        size: "EU 39 = US W8-8.5 / US M6-6.5 = UK 6",
+        measurements: { footLength: "9.85" },
+      },
+      {
+        size: "EU 40 = US W9-9.5 / US M7-7.5 = UK 7",
+        measurements: { footLength: "10.2" },
+      },
+      {
+        size: "EU 41 = US W10-10.5 / US M8-8.5 = UK 7.5",
+        measurements: { footLength: "10.5" },
+      },
+      { size: "EU 42 = US M9-9.5 = UK 8", measurements: { footLength: "10.85" } },
+      { size: "EU 43 = US M10-10.5 = UK 9", measurements: { footLength: "11.2" } },
+      { size: "EU 44 = US M11-11.5 = UK 9.5", measurements: { footLength: "11.5" } },
+      { size: "EU 45 = US M12-12.5 = UK 10.5", measurements: { footLength: "11.85" } },
+      { size: "EU 46 = US M13-13.5 = UK 11.5", measurements: { footLength: "12.2" } },
+    ],
+  },
+  {
+    brand: "New Balance",
+    brandMatch: ["new balance", "newbalance"],
+    department: "Men",
+    garment: "Footwear (US/UK/EU + WIDTH — D is STANDARD here)",
+    categoryMatch: [
+      "footwear",
+      "shoe",
+      "shoes",
+      "sneaker",
+      "sneakers",
+      "trainer",
+      "running",
+      "990",
+      "574",
+      "550",
+      "2002r",
+    ],
+    note:
+      "US sizing PLUS a WIDTH LETTER that is part of the product. ON MEN'S NEW " +
+      "BALANCE, \"D\" IS THE STANDARD WIDTH (B narrow, D standard, 2E wide, 4E " +
+      "extra wide). THAT IS THE OPPOSITE OF THE WOMEN'S READING IN THIS SAME " +
+      "BRAND, where B is standard and D is WIDE — the same character is correct in " +
+      "both and ONLY the department decides which. Never carry one department's " +
+      "width reading onto the other. The width is stamped on the tongue label " +
+      "beside the size and it is what a buyer with a wide foot searches. THE SIZE " +
+      "IS STAMPED, NOT MEASURED — read the size, width and department off the " +
+      "tongue label. The MODEL NUMBER'S PREFIX cross-checks it (M990 = men's, " +
+      "W990 = women's, U327 = unisex). MADE IN USA (990/993/992) and MADE IN " +
+      "ENGLAND (1500/577) are higher-spec LINES at a higher band — comparable " +
+      "sizing, different value. Body-equivalent approximations, not published specs.",
+    rows: [
+      { size: "US M7 = UK 6.5 = EU 40", measurements: { footLength: "9.6" } },
+      { size: "US M8 = UK 7.5 = EU 41.5", measurements: { footLength: "9.95" } },
+      { size: "US M9 = UK 8.5 = EU 42.5", measurements: { footLength: "10.3" } },
+      { size: "US M10 = UK 9.5 = EU 43.5", measurements: { footLength: "10.6" } },
+      { size: "US M11 = UK 10.5 = EU 45", measurements: { footLength: "10.95" } },
+      { size: "US M12 = UK 11.5 = EU 46", measurements: { footLength: "11.25" } },
+      { size: "US M13 = UK 12.5 = EU 47.5", measurements: { footLength: "11.6" } },
+    ],
+  },
+  {
+    brand: "New Balance",
+    brandMatch: ["new balance", "newbalance"],
+    department: "Women",
+    garment: "Footwear (US/UK/EU + WIDTH — D is WIDE here)",
+    categoryMatch: [
+      "footwear",
+      "shoe",
+      "shoes",
+      "sneaker",
+      "sneakers",
+      "trainer",
+      "running",
+      "990",
+      "574",
+      "550",
+      "2002r",
+    ],
+    note:
+      "US sizing PLUS a WIDTH LETTER that is part of the product. ON WOMEN'S NEW " +
+      "BALANCE, \"B\" IS THE STANDARD WIDTH AND \"D\" IS WIDE (2A narrow, B " +
+      "standard, D wide, 2E extra wide). THAT IS THE OPPOSITE OF THE MEN'S READING " +
+      "IN THIS SAME BRAND, where D is STANDARD — the same character is correct in " +
+      "both and ONLY the department decides which. A women's D-width listed as a " +
+      "plain 990 is a WIDE shoe sold as a regular one, which is a return — and it " +
+      "is a valuable listing token to the buyer who needs it. Never carry one " +
+      "department's width reading onto the other. THE SIZE IS STAMPED, NOT " +
+      "MEASURED — read the size, width and department off the tongue label. The " +
+      "MODEL NUMBER'S PREFIX cross-checks the department (W574 = women's, M990 = " +
+      "men's, U327 = unisex). MADE IN USA / MADE IN ENGLAND are higher-spec LINES " +
+      "at a higher band. Body-equivalent approximations, not published specs.",
+    rows: [
+      { size: "US W6 = UK 4 = EU 36.5", measurements: { footLength: "8.9" } },
+      { size: "US W7 = UK 5 = EU 37.5", measurements: { footLength: "9.25" } },
+      { size: "US W8 = UK 6 = EU 39", measurements: { footLength: "9.5" } },
+      { size: "US W9 = UK 7 = EU 40", measurements: { footLength: "9.9" } },
+      { size: "US W10 = UK 8 = EU 41.5", measurements: { footLength: "10.2" } },
+      { size: "US W11 = UK 9 = EU 42.5", measurements: { footLength: "10.5" } },
+      { size: "US W12 = UK 10 = EU 44", measurements: { footLength: "10.85" } },
+    ],
+  },
+  {
+    brand: "Converse",
+    brandMatch: ["converse", "chuck taylor", "chuck 70", "all star"],
+    department: "Unisex",
+    garment: "Footwear (dual-tagged US M/W — offset TWO, RUNS LARGE)",
+    categoryMatch: [
+      "footwear",
+      "shoe",
+      "shoes",
+      "sneaker",
+      "sneakers",
+      "canvas",
+      "chuck",
+      "all star",
+      "high top",
+      "low top",
+    ],
+    note:
+      "CONVERSE DUAL-TAGS men's AND women's on ONE label, and THE OFFSET IS TWO: a " +
+      "Converse M8 is a W10. VANS IS NOT THE SAME — the same kind of black canvas " +
+      "lace-up, the same price band, the same shelf, and an offset of ONE AND A " +
+      "HALF (a Vans M8 is a W9.5). The brands are adjacent enough that an offset " +
+      "learned on one gets silently applied to the other, and NO PHOTO CAN CATCH " +
+      "IT — which is why both numbers are written into every size label here. Read " +
+      "BOTH off the actual tag; never compute one brand's offset with the other's. " +
+      "CONVERSE RUNS LARGE — the brand's own guidance is to size DOWN a half size; " +
+      "report the STAMPED numbers plus that guidance, never silently adjust the " +
+      "size you list. THE SIZE IS STAMPED, NOT MEASURED. CHUCK 70 IS NOT A " +
+      "STANDARD CHUCK and both are in production NOW: comparable sizing, different " +
+      "value — check the midsole (glossy egret) and heel (black license plate) " +
+      "before pricing. Body-equivalent approximations, not published specs.",
+    rows: [
+      { size: "US M5 = US W7 = UK 5 = EU 37.5", measurements: { footLength: "9.25" } },
+      { size: "US M6 = US W8 = UK 6 = EU 39", measurements: { footLength: "9.6" } },
+      { size: "US M7 = US W9 = UK 7 = EU 40", measurements: { footLength: "9.9" } },
+      { size: "US M8 = US W10 = UK 8 = EU 41.5", measurements: { footLength: "10.2" } },
+      { size: "US M9 = US W11 = UK 9 = EU 42.5", measurements: { footLength: "10.6" } },
+      { size: "US M10 = US W12 = UK 10 = EU 44", measurements: { footLength: "10.9" } },
+      { size: "US M11 = US W13 = UK 11 = EU 45", measurements: { footLength: "11.25" } },
+      { size: "US M12 = UK 12 = EU 46.5", measurements: { footLength: "11.6" } },
+    ],
+  },
+  {
+    brand: "Vans",
+    brandMatch: ["vans", "old skool", "sk8-hi", "vault by vans"],
+    department: "Unisex",
+    garment: "Footwear (dual-tagged US M/W — offset ONE AND A HALF)",
+    categoryMatch: [
+      "footwear",
+      "shoe",
+      "shoes",
+      "sneaker",
+      "sneakers",
+      "skate",
+      "canvas",
+      "old skool",
+      "sk8-hi",
+      "slip-on",
+      "authentic",
+      "era",
+    ],
+    note:
+      "VANS DUAL-TAGS men's AND women's on ONE label, and THE OFFSET IS ONE AND A " +
+      "HALF: a Vans M8 is a W9.5. CONVERSE IS NOT THE SAME — the same kind of " +
+      "black canvas lace-up, the same price band, the same shelf, and an offset of " +
+      "TWO (a Converse M8 is a W10). The brands are adjacent enough that an offset " +
+      "learned on one gets silently applied to the other, and NO PHOTO CAN CATCH " +
+      "IT — which is why both numbers are written into every size label here. Read " +
+      "BOTH off the actual tag; never compute one brand's offset with the other's. " +
+      "THE SIZE IS STAMPED, NOT MEASURED. VAULT BY VANS / OG is the premium LINE " +
+      "at a materially higher band and is near-identical in silhouette: comparable " +
+      "sizing, different value — check the label for \"OG\"/\"LX\"/\"Vault\". The " +
+      "MODEL is genuinely legible here (Old Skool = side stripe; Authentic = no " +
+      "stripe, no padding; Era = no stripe, PADDED collar — needs a side-on " +
+      "photo). Body-equivalent approximations, not published specs.",
+    rows: [
+      { size: "US M5 = US W6.5 = UK 4.5 = EU 37", measurements: { footLength: "9.25" } },
+      { size: "US M6 = US W7.5 = UK 5.5 = EU 38.5", measurements: { footLength: "9.6" } },
+      { size: "US M7 = US W8.5 = UK 6.5 = EU 39.5", measurements: { footLength: "9.9" } },
+      { size: "US M8 = US W9.5 = UK 7.5 = EU 41", measurements: { footLength: "10.2" } },
+      { size: "US M9 = US W10.5 = UK 8.5 = EU 42.5", measurements: { footLength: "10.6" } },
+      { size: "US M10 = US W11.5 = UK 9.5 = EU 43.5", measurements: { footLength: "10.9" } },
+      { size: "US M11 = US W12.5 = UK 10.5 = EU 45", measurements: { footLength: "11.25" } },
+      { size: "US M12 = UK 11.5 = EU 46.5", measurements: { footLength: "11.6" } },
+    ],
+  },
+  {
+    brand: "UGG",
+    brandMatch: ["ugg", "uggs", "ugg australia"],
+    department: "Women",
+    garment: "Footwear (US/UK/EU — RUNS LARGE, whole sizes)",
+    categoryMatch: [
+      "footwear",
+      "shoe",
+      "shoes",
+      "boot",
+      "boots",
+      "slipper",
+      "slippers",
+      "sheepskin",
+      "classic",
+      "mini",
+      "tasman",
+    ],
+    note:
+      "UGG RUNS LARGE — the brand's own guidance is to size DOWN, and the classic " +
+      "sheepskin boots are WHOLE SIZES ONLY. AND THE SHEEPSKIN PACKS DOWN: the " +
+      "lining COMPRESSES and moulds to its wearer's foot with use, so a worn pair " +
+      "fits LARGER than a new pair of the same stamped size. The two effects " +
+      "compound, and BOTH are the material behaving as designed. That flattening " +
+      "is NORMAL WEAR — worth DISCLOSING, but it is NOT a defect of manufacture, " +
+      "the boot is not \"stretched out\", and it must not be graded as damage. THE " +
+      "SIZE IS STAMPED, NOT MEASURED — never infer a shoe size from a photo, and " +
+      "never silently adjust the stamped number for the size-down guidance (report " +
+      "the stamp AND the guidance). \"UGG AUSTRALIA\" on the label DATES a pair " +
+      "(the branding until ~2016) and does NOT mean made in Australia — never turn " +
+      "it into a provenance claim. The SLIPPERS (Tasman, Mini/Ultra Mini) often " +
+      "out-resell the tall Classic. Body-equivalent approximations, not published " +
+      "specs.",
+    rows: [
+      { size: "US W5 = UK 3.5 = EU 36", measurements: { footLength: "8.55" } },
+      { size: "US W6 = UK 4.5 = EU 37", measurements: { footLength: "8.9" } },
+      { size: "US W7 = UK 5.5 = EU 38", measurements: { footLength: "9.25" } },
+      { size: "US W8 = UK 6.5 = EU 39", measurements: { footLength: "9.5" } },
+      { size: "US W9 = UK 7.5 = EU 40", measurements: { footLength: "9.9" } },
+      { size: "US W10 = UK 8.5 = EU 41", measurements: { footLength: "10.2" } },
+      { size: "US W11 = UK 9.5 = EU 42", measurements: { footLength: "10.5" } },
+    ],
+  },
+  {
+    brand: "UGG",
+    brandMatch: ["ugg", "uggs", "ugg australia"],
+    department: "Men",
+    garment: "Footwear (US/UK/EU — RUNS LARGE, whole sizes)",
+    categoryMatch: [
+      "footwear",
+      "shoe",
+      "shoes",
+      "boot",
+      "boots",
+      "slipper",
+      "slippers",
+      "sheepskin",
+      "classic",
+      "tasman",
+      "neumel",
+    ],
+    note:
+      "UGG menswear RUNS LARGE on the same guidance as the women's line — size " +
+      "DOWN, and the classics are WHOLE SIZES ONLY. THE SHEEPSKIN PACKS DOWN with " +
+      "wear (it moulds to the foot), so a worn pair fits larger than a new pair of " +
+      "the same stamped size: that is NORMAL WEAR and the material behaving as " +
+      "designed — disclose it, never grade it as a defect or call the boot " +
+      "\"stretched out\". THE SIZE IS STAMPED, NOT MEASURED — report the stamped " +
+      "number plus the brand's size-down guidance rather than silently adjusting " +
+      "the size you list. Body-equivalent approximations, not published specs.",
+    rows: [
+      { size: "US M7 = UK 6 = EU 39.5", measurements: { footLength: "9.6" } },
+      { size: "US M8 = UK 7 = EU 40.5", measurements: { footLength: "9.95" } },
+      { size: "US M9 = UK 8 = EU 42", measurements: { footLength: "10.3" } },
+      { size: "US M10 = UK 9 = EU 43", measurements: { footLength: "10.6" } },
+      { size: "US M11 = UK 10 = EU 44.5", measurements: { footLength: "10.95" } },
+      { size: "US M12 = UK 11 = EU 45.5", measurements: { footLength: "11.25" } },
+      { size: "US M13 = UK 12 = EU 47", measurements: { footLength: "11.6" } },
+    ],
+  },
+  {
+    brand: "Cole Haan",
+    brandMatch: ["cole haan", "colehaan"],
+    department: "Men",
+    garment: "Footwear (US/UK/EU + width)",
+    categoryMatch: [
+      "footwear",
+      "shoe",
+      "shoes",
+      "dress shoe",
+      "loafer",
+      "oxford",
+      "wingtip",
+      "sneaker",
+      "zerogrand",
+      "grandpro",
+    ],
+    note:
+      "US dress sizing with WIDTHS (B narrow, C, D standard, E, EEE extra wide) — " +
+      "the width is stamped beside the size and belongs in the listing. NOTE these " +
+      "letters read as they do on MEN'S New Balance (D = standard), but do NOT " +
+      "carry that onto a WOMEN'S shoe of any brand: on women's New Balance, D " +
+      "means WIDE. THE SIZE IS STAMPED, NOT MEASURED — read it off the insole. THE " +
+      "CONSTRUCTION SETS THE VALUE AND THE UPPER DOES NOT SHOW IT: a GOODYEAR-" +
+      "WELTED shoe is resoleable and holds value worn, a CEMENTED (glued) shoe is " +
+      "not economically resoleable and is worth far less once the sole is gone — " +
+      "the tell is the WELT STITCH at the sole EDGE and it needs a SOLE-EDGE " +
+      "photo; if unphotographed, say the construction is UNCONFIRMED rather than " +
+      "assuming welted. THE SOLE AND HEEL ARE THE GRADE on a dress shoe (heel-cap " +
+      "wear, sole thinning at the ball, a broken-down heel counter, vamp creasing) " +
+      "and none of it appears in the three-quarter product shot every seller takes " +
+      "— require a sole photo and a heel-on photo, and say the sole is UNSEEN " +
+      "rather than grading the upper and calling it the shoe. A NIKE AIR / " +
+      "LUNARLON mark inside a pre-2012 pair is GENUINE and period-correct, not a " +
+      "fake. Body-equivalent approximations, not published specs.",
+    rows: [
+      { size: "US M7 = UK 6.5 = EU 40", measurements: { footLength: "9.6" } },
+      { size: "US M8 = UK 7.5 = EU 41", measurements: { footLength: "9.95" } },
+      { size: "US M9 = UK 8.5 = EU 42", measurements: { footLength: "10.3" } },
+      { size: "US M10 = UK 9.5 = EU 43", measurements: { footLength: "10.6" } },
+      { size: "US M10.5 = UK 10 = EU 44", measurements: { footLength: "10.8" } },
+      { size: "US M11 = UK 10.5 = EU 44.5", measurements: { footLength: "10.95" } },
+      { size: "US M12 = UK 11.5 = EU 45.5", measurements: { footLength: "11.25" } },
+      { size: "US M13 = UK 12.5 = EU 47", measurements: { footLength: "11.6" } },
+    ],
+  },
+  {
+    brand: "Cole Haan",
+    brandMatch: ["cole haan", "colehaan"],
+    department: "Women",
+    garment: "Footwear (US/UK/EU)",
+    categoryMatch: [
+      "footwear",
+      "shoe",
+      "shoes",
+      "dress shoe",
+      "loafer",
+      "flat",
+      "pump",
+      "heel",
+      "sneaker",
+      "zerogrand",
+      "grandpro",
+    ],
+    note:
+      "US women's dress sizing; widths (A narrow, B standard, C/D wide) are " +
+      "stamped beside the size where the shoe carries them. NOTE the width letters " +
+      "mean what they mean HERE and must not be carried across brands or " +
+      "departments: on women's New Balance, D means WIDE while on men's New " +
+      "Balance D means STANDARD. THE SIZE IS STAMPED, NOT MEASURED. THE " +
+      "CONSTRUCTION SETS THE VALUE: a GOODYEAR-WELTED shoe is resoleable and holds " +
+      "value worn, a CEMENTED (glued) shoe is not — the tell is the WELT STITCH at " +
+      "the SOLE EDGE and it needs a sole-edge photo; if unphotographed, say the " +
+      "construction is UNCONFIRMED. THE SOLE AND HEEL ARE THE GRADE (heel-cap " +
+      "wear, sole thinning at the ball, a broken-down heel counter) and none of it " +
+      "shows in the standard three-quarter photo — require a sole photo and say " +
+      "the sole is UNSEEN rather than grading the upper and calling it the shoe. A " +
+      "NIKE AIR / LUNARLON mark inside a pre-2012 pair is GENUINE and " +
+      "period-correct. Body-equivalent approximations, not published specs.",
+    rows: [
+      { size: "US W5 = UK 2.5 = EU 35", measurements: { footLength: "8.55" } },
+      { size: "US W6 = UK 3.5 = EU 36.5", measurements: { footLength: "8.9" } },
+      { size: "US W7 = UK 4.5 = EU 37.5", measurements: { footLength: "9.25" } },
+      { size: "US W8 = UK 5.5 = EU 38.5", measurements: { footLength: "9.5" } },
+      { size: "US W9 = UK 6.5 = EU 40", measurements: { footLength: "9.9" } },
+      { size: "US W10 = UK 7.5 = EU 41", measurements: { footLength: "10.2" } },
+      { size: "US W11 = UK 8.5 = EU 42", measurements: { footLength: "10.5" } },
+    ],
+  },
   {
     brand: "Generic women's alpha",
     brandMatch: [], // fallback only (selected when no brand chart matches)

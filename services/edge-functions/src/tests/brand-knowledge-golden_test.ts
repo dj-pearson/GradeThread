@@ -127,6 +127,33 @@ const UNIQLO_FABRIC_TECH_DECODER: BrandDecoder = {
   examples: [],
 };
 
+// US-1740: the New Balance style_number decoder EXACTLY as migration 00459 seeds
+// it into brand_style_codes. New Balance is the ONLY brand in the footwear group
+// with a decoder, and it is the first in this epic to capture a SECOND field
+// beyond the brand — the prefix letter encodes the DEPARTMENT as well as
+// identifying the brand, so one match yields gender AND styleCode.
+//
+// THE PREFIX IS THE WHOLE ARGUMENT. A bare "990" is three digits and is nothing;
+// "M990" can only be a New Balance model number. That is also exactly why Dr.
+// Martens gets no decoder in this same pack despite owning the most famous numbers
+// in footwear: 1460/1461/2976 are printed and regular and have NO PREFIX, and four
+// digits is not a brand. The "990 is not a code" case below pins that line.
+//
+// Fixturing the SHIPPED spec (rather than a hand-simplified one) is the point — a
+// bad pattern or fieldMap in the migration fails here instead of in production.
+const NEW_BALANCE_STYLE_NUMBER_DECODER: BrandDecoder = {
+  decoderKind: "style_number",
+  description:
+    'Tongue-label / box model number. New Balance model numbers are [M|W|U] + 3-4 digits + an optional colour/version suffix. The PREFIX LETTER is what makes the token brand-unique (a bare "990" is nothing; "M990" can only be New Balance) and it also encodes the department, so one match recovers both the brand and the gender. The unisex "U" prefix matches but deliberately does NOT capture a gender — unisex is not a gender.',
+  pattern: "^(?<style>(?:(?<gender>[MW])|U)\\d{3,4}[A-Z]{0,3}\\d?)$",
+  extractionRules: {
+    fieldMap: { style: "styleCode", gender: "gender" },
+    transforms: { style: "upper", gender: "genderCode" },
+    confidence: 0.7,
+  },
+  examples: [],
+};
+
 // US-1735: the Wrangler style_number decoder EXACTLY as migration 00454 seeds it.
 // "13MWZ" = 13-ounce Men's With Zipper — the MW/MJ/DEN suffix family is a
 // Wrangler-only convention, which is what makes an anchored digits+suffix pattern
@@ -1684,6 +1711,267 @@ const CASES: GoldenCase[] = [
     pack: pack("Tommy Hilfiger", "tommyhilfiger", [style("Tommy Jeans")]),
     input: decodedFrom({ brand: "Tommy Hilfiger" }),
     expect: { brand: "Tommy Hilfiger", style: "Tommy Jeans" },
+  },
+
+  // ── US-1740: footwear group ───────────────────────────────────────────────
+  // The first non-garment pack in the epic, and the identification problem is a
+  // different shape. The last three groups fought over what a garment IS (a
+  // WILFRED tag is an Aritzia coat) or what ERA it is from. Here the brand is
+  // usually obvious and the MODEL is genuinely legible from a photo — what is not
+  // legible is the SIZE SYSTEM the stamped number belongs to, and the LINE (Chuck
+  // 70 vs Chuck, Made in USA vs imported) which is near-identical BY DESIGN and in
+  // production alongside the mainline shoe.
+  //
+  // The decoder cases pin the prefix argument from both ends: "M990" recovers the
+  // brand AND the gender, while "990" and "1460" recover nothing at all.
+  {
+    name: "New Balance cut tag — the model number's PREFIX recovers the brand",
+    // THE case for this group. The box is gone and the tongue label survives.
+    // "M990GL6" can only be a New Balance model number — because of the M.
+    brand: "New Balance",
+    pack: pack("New Balance", "newbalance", [], [
+      NEW_BALANCE_STYLE_NUMBER_DECODER,
+    ]),
+    input: decodedFrom({ styleCode: "M990GL6" }), // no AI brand
+    expect: { brand: "New Balance", recovery: true },
+  },
+  {
+    name: "New Balance 'W574' recovers the brand from a women's prefix",
+    brand: "New Balance",
+    pack: pack("New Balance", "newbalance", [], [
+      NEW_BALANCE_STYLE_NUMBER_DECODER,
+    ]),
+    input: decodedFrom({ styleCode: "W574" }),
+    expect: { brand: "New Balance", recovery: true },
+  },
+  {
+    name: "New Balance 'U327' (unisex prefix) still recovers the brand",
+    // U matches via a NON-CAPTURING alternative — unisex is not a gender, so the
+    // gender field stays unset — but the brand must still recover. That the
+    // alternation is safe at all rests on runDecoderSpec skipping undefined
+    // groups (`value == null`), which this case exercises.
+    brand: "New Balance",
+    pack: pack("New Balance", "newbalance", [], [
+      NEW_BALANCE_STYLE_NUMBER_DECODER,
+    ]),
+    input: decodedFrom({ styleCode: "U327" }),
+    expect: { brand: "New Balance", recovery: true },
+  },
+  {
+    name: "New Balance lowercase 'm990gl6' recovers the brand (OCR does not preserve case)",
+    // The tongue label prints uppercase; an OCR read may not. runDecoderSpec
+    // compiles with the "i" flag and this asserts the shipped pattern relies on it.
+    brand: "New Balance",
+    pack: pack("New Balance", "newbalance", [], [
+      NEW_BALANCE_STYLE_NUMBER_DECODER,
+    ]),
+    input: decodedFrom({ styleCode: "m990gl6" }),
+    expect: { brand: "New Balance", recovery: true },
+  },
+  {
+    name: "New Balance '990' — no false-positive brand recovery (three digits is not a brand)",
+    // THE line that makes the decoder defensible, and the exact reason the prefix
+    // is in the pattern. "990" is the model number every buyer says out loud, and
+    // it is still just three digits — it could be a price, a year, a lot number.
+    // Only "M990" is a New Balance token.
+    brand: "New Balance",
+    pack: pack("New Balance", "newbalance", [style("990 series")], [
+      NEW_BALANCE_STYLE_NUMBER_DECODER,
+    ]),
+    input: decodedFrom({ styleCode: "990" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "New Balance decoder overrides a wrong AI brand + surfaces conflict",
+    brand: "New Balance",
+    pack: pack("New Balance", "newbalance", [], [
+      NEW_BALANCE_STYLE_NUMBER_DECODER,
+    ]),
+    input: decodedFrom({ brand: "Converse", styleCode: "M990GL6" }),
+    expect: { brand: "New Balance", conflictOn: "brand", recovery: true },
+  },
+  {
+    name: "New Balance ambiguous models (990 vs 574 vs 550) — never guess the style",
+    brand: "New Balance",
+    pack: pack("New Balance", "newbalance", [
+      style("990 series"),
+      style("574"),
+      style("550"),
+    ], [NEW_BALANCE_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "M990GL6" }),
+    expect: { brand: "New Balance", noStyle: true, recovery: true },
+  },
+  {
+    name: "New Balance 'Made in USA' line fills the style the AI missed (the fold must stay disclosed)",
+    // The origin is on the tongue label and INVISIBLE in the silhouette, and the
+    // band difference is real. The line folds onto the brand (eBay has no separate
+    // catalogue brand), so `style` is the only place it survives into a listing.
+    brand: "New Balance",
+    pack: pack("New Balance", "newbalance", [
+      style("Made in USA / Made in England"),
+    ]),
+    input: decodedFrom({ brand: "New Balance" }),
+    expect: { brand: "New Balance", style: "Made in USA / Made in England" },
+  },
+  {
+    name: "Dr. Martens '1460' — no false-positive brand recovery (four digits is not a brand)",
+    // THE refusal of this group, and the hardest one in the epic: 1460 is the most
+    // famous number in footwear, it IS printed on the tag, and it IS a regular
+    // closed set. It fails brand-unique anyway, and for the mirror image of the
+    // reason New Balance passes — it has NO PREFIX. Four digits is a year, a lot
+    // number, a price, another brand's cut code. Deliberately no decoder in the
+    // pack: the seeded article numbers name the PIECE, never the brand.
+    brand: "Dr. Martens",
+    pack: pack("Dr. Martens", "drmartens", [style("1460 (8-eye boot)")]),
+    input: decodedFrom({ styleCode: "1460" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Dr. Martens single known style fills the style the AI missed",
+    brand: "Dr. Martens",
+    pack: pack("Dr. Martens", "drmartens", [style("1460 (8-eye boot)")]),
+    input: decodedFrom({ brand: "Dr. Martens" }),
+    expect: { brand: "Dr. Martens", style: "1460 (8-eye boot)" },
+  },
+  {
+    name: "Dr. Martens ambiguous articles (1460 vs 1461 vs 2976) — never guess",
+    // Three different boots at three different prices. The article number is on
+    // the tag; with only the brand there is nothing to pick from.
+    brand: "Dr. Martens",
+    pack: pack("Dr. Martens", "drmartens", [
+      style("1460 (8-eye boot)"),
+      style("1461 (3-eye shoe)"),
+      style("2976 (Chelsea boot)"),
+    ]),
+    input: decodedFrom({ brand: "Dr. Martens" }),
+    expect: { brand: "Dr. Martens", noStyle: true },
+  },
+  {
+    name: "Dr. Martens 'Made in England' line fills the style the AI missed",
+    // The origin is on the HEEL LOOP and invisible in the silhouette — an MIE 1460
+    // and an imported 1460 look identical — and the band difference is real.
+    brand: "Dr. Martens",
+    pack: pack("Dr. Martens", "drmartens", [
+      style("Made in England (Vintage line)"),
+    ]),
+    input: decodedFrom({ brand: "Dr. Martens" }),
+    expect: { brand: "Dr. Martens", style: "Made in England (Vintage line)" },
+  },
+  {
+    name: "Converse ambiguous lines (Chuck 70 vs standard Chuck) — never guess",
+    // THE Converse trap: both are in production RIGHT NOW, side by side, at
+    // materially different bands, and they are near-identical. This is NOT an era
+    // (nothing to date) and NOT a fold (they are one brand) — it is two products
+    // separated only by the midsole and the heel patch. Guessing picks a price.
+    brand: "Converse",
+    pack: pack("Converse", "converse", [
+      style("Chuck Taylor All Star"),
+      style("Chuck 70"),
+    ]),
+    input: decodedFrom({ brand: "Converse" }),
+    expect: { brand: "Converse", noStyle: true },
+  },
+  {
+    name: "Converse 'All Star' — no false-positive brand recovery (an ordinary phrase is not a code)",
+    brand: "Converse",
+    pack: pack("Converse", "converse", [style("Chuck Taylor All Star")]),
+    input: decodedFrom({ styleCode: "All Star" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Vans 'Vans' — no false-positive brand recovery (it is an English plural)",
+    // The group's ordinary-word token and 00458's "Gap" shape: a real canonical
+    // brand that MUST resolve, spelled identically to the plural of "van". It can
+    // be contained but never refused — and no decoder may mint it from a token.
+    brand: "Vans",
+    pack: pack("Vans", "vans", [style("Old Skool")]),
+    input: decodedFrom({ styleCode: "vans" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Vans 'Vault by Vans' line fills the style the AI missed (the fold must stay disclosed)",
+    brand: "Vans",
+    pack: pack("Vans", "vans", [style("Vault by Vans (OG / LX line)")]),
+    input: decodedFrom({ brand: "Vans" }),
+    expect: { brand: "Vans", style: "Vault by Vans (OG / LX line)" },
+  },
+  {
+    name: "Vans ambiguous models (Authentic vs Era) — never guess",
+    // These two differ ONLY by the Era's padded collar, which needs a side-on
+    // photo. With just the brand there is nothing to separate them.
+    brand: "Vans",
+    pack: pack("Vans", "vans", [style("Authentic"), style("Era")]),
+    input: decodedFrom({ brand: "Vans" }),
+    expect: { brand: "Vans", noStyle: true },
+  },
+  {
+    name: "UGG 'Chestnut' — no false-positive brand recovery (a colourway is not a code)",
+    // Chestnut is THE UGG colour and the first proprietary colourway seeded in four
+    // groups — and it is still an ordinary English noun. A colourway names the
+    // COLOUR; it can never mint the brand.
+    brand: "UGG",
+    pack: pack("UGG", "ugg", [style("Classic Tall")]),
+    input: decodedFrom({ styleCode: "Chestnut" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "UGG single known style fills the style the AI missed",
+    brand: "UGG",
+    pack: pack("UGG", "ugg", [style("Tasman")]),
+    input: decodedFrom({ brand: "UGG" }),
+    expect: { brand: "UGG", style: "Tasman" },
+  },
+  {
+    name: "UGG ambiguous silhouettes (Classic Tall vs Mini vs Tasman) — never guess",
+    // These ARE legible from a photo and are real price differences — which is
+    // exactly why the resolver must not pick one from the brand alone. Let the
+    // vision pass see the shaft height.
+    brand: "UGG",
+    pack: pack("UGG", "ugg", [
+      style("Classic Tall"),
+      style("Classic Mini / Ultra Mini"),
+      style("Tasman"),
+    ]),
+    input: decodedFrom({ brand: "UGG" }),
+    expect: { brand: "UGG", noStyle: true },
+  },
+  {
+    name: "Birkenstock 'Arizona' — no false-positive brand recovery (a place name is not a code)",
+    // Birkenstock's models are PLACE NAMES on a GERMAN shoe. "Arizona" names the
+    // piece on an actual Birkenstock and is otherwise a US state.
+    brand: "Birkenstock",
+    pack: pack("Birkenstock", "birkenstock", [style("Arizona")]),
+    input: decodedFrom({ styleCode: "Arizona" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Birkenstock ambiguous silhouettes (Arizona vs Boston vs Gizeh) — never guess",
+    brand: "Birkenstock",
+    pack: pack("Birkenstock", "birkenstock", [
+      style("Arizona"),
+      style("Boston"),
+      style("Gizeh"),
+    ]),
+    input: decodedFrom({ brand: "Birkenstock" }),
+    expect: { brand: "Birkenstock", noStyle: true },
+  },
+  {
+    name: "Cole Haan single known style fills the style the AI missed",
+    brand: "Cole Haan",
+    pack: pack("Cole Haan", "colehaan", [style("ZeroGrand")]),
+    input: decodedFrom({ brand: "Cole Haan" }),
+    expect: { brand: "Cole Haan", style: "ZeroGrand" },
+  },
+  {
+    name: "Cole Haan 'ZeroGrand' — no false-positive brand recovery (a coined style name is still not a code)",
+    // Tempting: ZeroGrand IS coined, which is the test HEATTECH passed in 00458.
+    // It stays refused because it is a STYLE NAME the pack reaches by fingerprint,
+    // not a tag CODE — and no Cole Haan decoder is seeded, so there is nothing to
+    // recover from. Coined is necessary for a decoder, not sufficient to invent one.
+    brand: "Cole Haan",
+    pack: pack("Cole Haan", "colehaan", [style("ZeroGrand")]),
+    input: decodedFrom({ styleCode: "ZeroGrand" }),
+    expect: { noBrand: true },
   },
 ];
 

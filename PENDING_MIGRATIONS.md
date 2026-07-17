@@ -4,6 +4,99 @@
 > The sections below for those are historical; the only NEW held migration is
 > **00443** at the top.
 
+## ⏳ PENDING: 00459_footwear_brand_knowledge.sql (US-1740 footwear brand KB, 2026-07-16)
+
+Data-only seed of the `brand_knowledge*` tables for the footwear (apparel-adjacent)
+tier: **New Balance, Dr. Martens, UGG, Birkenstock, Converse, Vans, Cole Haan**.
+New Balance, Vans and Converse had a bare alias-only row from 00389; Dr. Martens,
+UGG, Birkenstock and Cole Haan are NEW rows (passthrough-only before this, so a
+"doc martens" tag rendered the seller's own casing into the prompt block and the
+eBay Brand aspect). `brand_knowledge` ×7; `brand_styles` ×29; `brand_style_codes`
+×**1** (New Balance); `brand_colorways` ×**8** — the FIRST colorways in four
+groups; `brand_size_charts` ×10, all mirrored into the `sizing-charts.ts` in-code
+fallback. Every fact carries `source_url` + `confidence` and lands `verified=false`
+for the US-1715 admin queue. Idempotent (`on conflict do nothing` / `do update`).
+Apply after 00458 via `scripts/apply-prod-migrations.sh`, `NOTIFY pgrst, 'reload
+schema';`, redeploy the edge (boot guard now expects **00459**). Bumps
+`EXPECTED_SCHEMA_VERSION` → **00459**.
+
+**THE SIZE IS NOT MEASURABLE — IT IS STAMPED.** The first non-garment pack in the
+epic, and it INVERTS what a size chart is for. Every prior group's chart is an
+ESTIMATOR (measure the bust, double it, read the row). A shoe's size cannot be
+measured off a photo — it is stamped on the tongue label/insole/footbed and must be
+READ. So these charts are **TRANSLATORS**: the brand's own number → every other
+system's number. Which is exactly why the story note puts "US/UK/EU cross-maps are
+the priority" ahead of decoders.
+
+**AND THE NUMBER IS IN A SYSTEM THE TAG DOES NOT NAME** — the highest-value fact in
+the pack. A Dr. Martens stamped "7" is a **UK 7** (= US M8 = US W9 = EU 41); a
+Birkenstock stamped "38" is an **EU 38** (= US W7-7.5). Neither says "UK" or "EU"
+anywhere. A seller reads "7", lists a US 7, and is a FULL SIZE wrong — and the photo
+will not contradict them, because the photo is not wrong: the shoe really does say
+7. That is not a pricing refinement like 00457/00458's era/line traps. It is a WRONG
+LISTING and a guaranteed return.
+
+**CONVERSE AND VANS ARE THE SAME SHOE AND DO NOT SIZE THE SAME** — the quiet trap.
+Same black canvas lace-up, same band, same shelf, both dual-tagged M/W on one label,
+and the offsets DIFFER: Converse M8 = W10 (offset 2); Vans M8 = W9.5 (offset 1.5).
+No photo catches it, and a model that learns one applies it to the other. Both are
+written into the size LABELS, and each brand's note names the OTHER by number.
+
+**THE WIDTH LETTER FLIPS MEANING BY DEPARTMENT.** "D" is STANDARD on men's New
+Balance and WIDE on women's — the same character is correct in both readings and
+only the department decides. A women's D listed as plain is a wide shoe sold as a
+regular one.
+
+**ONE DECODER — New Balance, and the PREFIX is the whole argument.** `[MWU]` + 3-4
+digits + optional suffix. A bare "990" is three digits and is nothing; "M990" can
+only be New Balance. It is the first decoder in the epic to capture a SECOND field:
+the prefix encodes the department (M→Men, W→Women), which is a required eBay aspect
+on footwear. "U" (unisex) matches but deliberately does NOT capture — unisex is not
+a gender, and `genderCode` only maps M/W, so a captured "U" would pass through raw.
+
+**DR. MARTENS GETS NO DECODER — the hardest refusal in the epic**, and it is the
+prefix argument read backwards. 1460/1461/2976 are the most famous numbers in
+footwear, genuinely printed, genuinely a regular closed set — and they are FOUR
+DIGITS WITH NO PREFIX. Four digits is not a brand; it is a year, a lot number, a
+price, another brand's cut code. They ship as `brand_styles`, naming the PIECE.
+
+**FOUND AND FIXED — a real, live, pre-existing bug**, surfaced by wiring the decoder
+rather than reasoned about. `brandFromStyleFormat` infers "New Balance" from ANY
+M+4-digit code — and **Converse's classic style codes are also M + 4 digits**
+(M9160 is a Chuck Taylor). Since `ai-listing.ts` takes `styleResolution?.brand ??
+canonicalBrand`, the format GUESS was overriding the brand read off the actual tag:
+a Converse Chuck with a legible M-code was silently relisted as a New Balance,
+taking the eBay Brand aspect and the comp filter with it. Fixed by precedence, not
+by a bigger table (Converse's codes cannot be enumerated here with a citation): an
+explicit canonical sneaker brand now outranks a mere format inference, while the
+curated `STYLE_CODE_PRODUCTS` table still outranks both. The DB decoder path was
+never exposed — decoders are PACK-SCOPED, so NB's is only ever run against a shoe
+already resolved to New Balance.
+
+**FOUR COLORWAYS BRANDS, the first in four groups.** 00456/00457/00458 seeded none:
+their colours are seasonal English words ("Ivory", "Sage", "Heather Grey"). Footwear
+is the structural opposite — a small, STABLE, named palette reissued for decades and
+searched BY NAME: UGG **Chestnut**, Dr. Martens **Cherry Red** (an oxblood, not a
+red), Birkenstock **Habana** (a dark brown). These ship where Uniqlo's colour NUMBER
+could not (00458) for a stated reason: a mis-decoded NUMBER is silent and
+uncheckable, while a NAMED colourway is checkable BY EYE against the photo — so it
+can go to the US-1715 queue at modest confidence. Converse/Vans/New Balance/Cole
+Haan are omitted entirely (ordinary descriptive words).
+
+**Verified:** deno test 3906 green (0 failed), deno lint + `deno check src/main.ts`;
+web tsc + build:locked + vitest 2091 green. **`verify:db` could NOT run — the Docker
+engine is hung** (`docker ps` timed out at 60s, as at 00452–00458). Validated
+statically instead: `$j$`/`$json$` tags balance (16 + 10 pairs), all 26 JSON blocks
+parse, all 80 size-chart rows carry a size label + footLength, all 55 confidences sit
+in the numeric(3,2) 0..1 range, no row seeded `verified=true`, all 11 on-conflict
+targets match real 00389 unique indexes, no conflict-key collisions (29 styles / 8
+colorways / 10 charts), and all 7 brand_keys equal `brandKey(canonical_brand)`. The
+shipped decoder pattern was compiled and exercised against its match/no-match sets,
+and all 80 DB size labels were diffed against the `sizing-charts.ts` mirror (0
+missing). **Still needs `verify:db` before push.**
+
+Facts stay `verified=false` for the US-1715 admin queue, per the group convention.
+
 ## ⏳ PENDING: 00458_basics_mall_brand_knowledge.sql (US-1739 basics/mall brand KB, 2026-07-16)
 
 Data-only seed of the `brand_knowledge*` tables for the basics, mall &
