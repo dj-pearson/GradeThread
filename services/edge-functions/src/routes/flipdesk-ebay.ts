@@ -84,6 +84,10 @@ import {
   EBAY_BULK_MAX,
   upsertConnection,
   withdrawOffer,
+  issueOrderRefund,
+  type IssueRefundInput,
+  type IssueRefundResult,
+  type RefundAmount,
   isOfferAlreadyEndedError,
   isNoEbayConnectionError,
   findEligibleNegotiationItems,
@@ -3530,6 +3534,156 @@ flipdeskEbayRoutes.post("/returns/:returnId/refund", async (c) => {
   });
   return c.json({ ok: true });
 });
+
+// US-1978 (AC3): POST /orders/:orderId/refund — a PROACTIVE or PARTIAL refund,
+// outside any return case.
+//
+// body { reason, comment?, amount?: { currency, value }, line_items?: [{ line_item_id, currency, value }] }
+//
+// Distinct from /returns/:returnId/refund, which only exists once a buyer has
+// opened a return and the seller approved it. Until now a seller who just wanted
+// to make it right ("there's a mark I missed — keep it, here's $10 back") had to
+// push the buyer into opening a return first: worse for both sides, and it drags
+// the seller's return metrics.
+//
+// TENANT ISOLATION (US-268). orderId is attacker-controlled input, and this route
+// MOVES MONEY, so eBay's own token scoping is not leaned on as the only check. We
+// prove locally that a sales row for this order belongs to THIS tenant before
+// calling eBay. Without that, the failure mode is a workspace member (or anyone
+// who can reach the route) issuing refunds against an order id they guessed, and
+// the only thing standing in the way would be eBay's 404 — i.e. an external
+// system's behaviour, not our access control.
+flipdeskEbayRoutes.post("/orders/:orderId/refund", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const orderId = c.req.param("orderId");
+
+  let body: {
+    reason?: unknown;
+    comment?: unknown;
+    amount?: unknown;
+    line_items?: unknown;
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    body = {};
+  }
+
+  // Ownership FIRST — before any eBay call, and before any parsing that could
+  // leak the order's existence through a differently-shaped error.
+  const { data: sale, error: saleErr } = await supabaseAdmin
+    .from("sales")
+    .select("id, marketplace_connection_id")
+    .eq("user_id", ownerId)
+    .eq("platform_order_id", orderId)
+    .maybeSingle();
+  if (saleErr) {
+    console.error("[ebay.orders.refund] sale lookup failed:", saleErr.message);
+    return c.json({ error: "Couldn't look up that order." }, 500);
+  }
+  if (!sale) {
+    // Deliberately the same 404 a nonexistent order gets: a foreign order must not
+    // be distinguishable from one that isn't there.
+    return c.json({ error: "Order not found." }, 404);
+  }
+
+  const reason = typeof body.reason === "string" && body.reason ? body.reason : "";
+  if (!reason) {
+    return c.json(
+      { error: "A refund reason is required (e.g. SELLER_CANCEL, ITEM_NOT_AS_DESCRIBED, OTHER_CAUSE)." },
+      400,
+    );
+  }
+
+  const input: IssueRefundInput = { reasonForRefund: reason };
+  if (typeof body.comment === "string" && body.comment) input.comment = body.comment;
+
+  const amount = parseRefundAmount(body.amount);
+  const lineItems = parseRefundLineItems(body.line_items);
+  // eBay treats order-level and line-item refunds as different requests and
+  // rejects both together. Refuse explicitly rather than silently dropping one —
+  // guessing which the seller meant is not a call code should make about money.
+  if (amount && lineItems) {
+    return c.json(
+      { error: "Refund either the whole order (amount) or specific line items — not both." },
+      400,
+    );
+  }
+  if (!amount && !lineItems) {
+    return c.json(
+      { error: "Provide a refund amount, or the line items to refund." },
+      400,
+    );
+  }
+  if (amount) input.orderLevelRefundAmount = amount;
+  if (lineItems) input.refundItems = lineItems;
+
+  let result: IssueRefundResult;
+  try {
+    result = await issueOrderRefund(
+      ownerId,
+      orderId,
+      input,
+      sale.marketplace_connection_id ?? undefined,
+    );
+  } catch (err) {
+    return failSafe(c, 502, "eBay rejected the refund.", err, "ebay.orders.refund");
+  }
+
+  await writeAuditLog(c, {
+    action: "ebay.order.refund",
+    targetType: "ebay_order",
+    targetId: orderId,
+    details: {
+      reason,
+      // Log WHAT moved — a refund is the kind of action someone reconstructs later.
+      order_level_amount: amount ? `${amount.value} ${amount.currency}` : null,
+      line_item_count: lineItems ? lineItems.length : 0,
+      refund_id: result.refundId ?? null,
+    },
+  });
+
+  return c.json({
+    ok: true,
+    refund_id: result.refundId ?? null,
+    refund_status: result.refundStatus ?? null,
+  });
+});
+
+// Parse an order-level refund amount. Returns null when absent; a malformed
+// amount is null too, which the caller turns into a 400 rather than guessing.
+function parseRefundAmount(raw: unknown): RefundAmount | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as { currency?: unknown; value?: unknown };
+  const currency = typeof o.currency === "string" ? o.currency.trim().toUpperCase() : "";
+  const value = typeof o.value === "string" ? o.value.trim() : "";
+  if (!/^[A-Z]{3}$/.test(currency)) return null;
+  // eBay wants a plain decimal string. Reject anything else outright — a refund is
+  // not the place to be permissive about what a number looks like.
+  if (!/^\d+(\.\d{1,2})?$/.test(value)) return null;
+  if (Number(value) <= 0) return null;
+  return { currency, value };
+}
+
+function parseRefundLineItems(
+  raw: unknown,
+): Array<{ lineItemId: string; refundAmount: RefundAmount }> | null {
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const out: Array<{ lineItemId: string; refundAmount: RefundAmount }> = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") return null;
+    const e = entry as { line_item_id?: unknown };
+    const lineItemId = typeof e.line_item_id === "string" ? e.line_item_id.trim() : "";
+    if (!lineItemId) return null;
+    const refundAmount = parseRefundAmount(entry);
+    if (!refundAmount) return null;
+    out.push({ lineItemId, refundAmount });
+  }
+  return out;
+}
 
 // GET /cancellations — open cancellation requests for the seller.
 flipdeskEbayRoutes.get("/cancellations", async (c) => {

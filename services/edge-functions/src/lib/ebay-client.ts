@@ -3057,6 +3057,79 @@ export async function createShippingFulfillment(
   );
 }
 
+// US-1978 (AC3): order-level refund — a PROACTIVE or PARTIAL refund issued
+// OUTSIDE a return case.
+//
+// This is a different verb from the Post-Order issueReturnRefund we already have.
+// That one only exists once a buyer has opened a return and the seller has
+// approved it; it refunds the return. There was no way to make a goodwill gesture
+// ("the jacket has a mark I missed — here's $10 back, keep it") without forcing
+// the buyer to open a return first, which is worse for both sides and drags the
+// seller's metrics.
+//
+// MONEY MOVES HERE, so the shape is deliberately strict:
+//   • The caller passes explicit amounts; nothing is inferred or defaulted. A
+//     wrong default on a refund is not a bug you can quietly patch later.
+//   • refundItems is optional: omit it for an ORDER-level refund, supply it to
+//     refund specific line items. eBay treats these differently and we do not
+//     paper over that.
+//   • fetchAuthed (retrying) is correct here and matters: eBay requires a
+//     idempotency-ish reasonForRefund + the call is safe to retry because eBay
+//     rejects a duplicate refund on an already-fully-refunded order rather than
+//     double-paying. Contrast publishOfferByInventoryItemGroup, which uses
+//     fetchAuthedOnce precisely because IT is not idempotent.
+export interface RefundAmount {
+  /** ISO currency, e.g. "USD". */
+  currency: string;
+  /** Decimal string as eBay expects, e.g. "10.00". */
+  value: string;
+}
+
+export interface IssueRefundInput {
+  /**
+   * eBay's enum. BUYER_CANCEL / SELLER_CANCEL / ITEM_NOT_RECEIVED /
+   * ITEM_NOT_AS_DESCRIBED / OTHER_CAUSE. Required by the API — there is no
+   * default, and picking one for the caller would misreport why money moved.
+   */
+  reasonForRefund: string;
+  comment?: string;
+  /** Omit for an order-level refund; supply to refund specific line items. */
+  refundItems?: Array<{
+    lineItemId: string;
+    refundAmount: RefundAmount;
+  }>;
+  /** Order-level refund total. Omit when refunding by line item. */
+  orderLevelRefundAmount?: RefundAmount;
+}
+
+export interface IssueRefundResult {
+  refundId?: string;
+  refundStatus?: string;
+}
+
+export async function issueOrderRefund(
+  userId: string,
+  orderId: string,
+  input: IssueRefundInput,
+  // US-1507: refund via the account that owns the order (null → primary).
+  connectionId?: string,
+): Promise<IssueRefundResult> {
+  const body: Record<string, unknown> = { reasonForRefund: input.reasonForRefund };
+  if (input.comment) body.comment = input.comment;
+  if (input.refundItems && input.refundItems.length > 0) {
+    body.refundItems = input.refundItems;
+  }
+  if (input.orderLevelRefundAmount) {
+    body.orderLevelRefundAmount = input.orderLevelRefundAmount;
+  }
+  return await fetchAuthed<IssueRefundResult>(
+    userId,
+    `/sell/fulfillment/v1/order/${encodeURIComponent(orderId)}/issue_refund`,
+    { method: "POST", body: JSON.stringify(body) },
+    connectionId,
+  );
+}
+
 // ── Sell Fulfillment API: orders (Week 5) ──────────────────────────
 //
 // Used by /listings/pull to detect sales that happened on eBay while

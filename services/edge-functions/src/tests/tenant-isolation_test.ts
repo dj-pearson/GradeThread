@@ -22,6 +22,7 @@
 //   TEST_USER_A_ITEM_ID         an inventory_items.id (AutoLister, US-324)
 //   TEST_USER_A_BATCH_ID        a listing_generation_batches.id (AutoLister)
 //   TEST_USER_A_GARMENT_ID      a garments.id (Garment Passport, US-1090/1092)
+//   TEST_USER_A_EBAY_ORDER_ID   a sales.platform_order_id (eBay refund, US-1978)
 // For the AutoLister batch-enqueue test, user B should ideally be on a plan
 // that includes AutoLister so the OWNERSHIP path is exercised; if B is on a
 // free/starter plan the request is denied earlier with 402 (still a pass —
@@ -132,6 +133,34 @@ Deno.test({
     });
     await res.body?.cancel();
     assertDenied(res.status, "POST per-grade checkout");
+  },
+});
+
+Deno.test({
+  // US-1978 (AC3): the order-level refund MOVES MONEY, so it is the sharpest
+  // ownership edge in the eBay surface. The handler proves the order belongs to
+  // this tenant against the local `sales` table BEFORE calling eBay — it does not
+  // lean on eBay's token scoping as the access control, because that would make
+  // an external system's 404 the only thing standing between a guessed order id
+  // and a refund. B must get the same "not found" a nonexistent order gets: a
+  // foreign order must not be distinguishable from one that isn't there.
+  name: "B cannot issue a refund against A's eBay order",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_EBAY_ORDER_ID"),
+  fn: async () => {
+    const orderId = Deno.env.get("TEST_USER_A_EBAY_ORDER_ID")!;
+    const res = await fetch(
+      `${BASE}/api/flipdesk/ebay/orders/${encodeURIComponent(orderId)}/refund`,
+      {
+        method: "POST",
+        headers: authHeaders(B_JWT!),
+        body: JSON.stringify({
+          reason: "OTHER_CAUSE",
+          amount: { currency: "USD", value: "1.00" },
+        }),
+      },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "POST eBay order refund");
   },
 });
 
