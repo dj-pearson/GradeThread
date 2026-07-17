@@ -3276,6 +3276,757 @@ export const SIZING_CHARTS: SizingChart[] = [
       { size: "44 (= DE 44 / US 14 / XXL)", measurements: { bust: "41-42.5" } },
     ],
   },
+  // ── US-1982: luxury RTW & leather group (tier 2) ───────────────────────────
+  // Mirrors migration 00461's brand_size_charts seed.
+  //
+  // FRENCH OR ITALIAN — THE SAME NUMBER IS TWO DIFFERENT SIZES. Every house here
+  // sizes its women's RTW in a European system its tag never names, and the group
+  // SPLITS across two of them:
+  //   * FRENCH (Hermès, Dior, Saint Laurent, Balenciaga, Celine): US = FR - 32.
+  //   * ITALIAN (Bottega Veneta, Fendi, Versace):                 US = IT - 36.
+  // So "42" IS A US 10 ON A DIOR AND A US 6 ON A FENDI — two dark designer dresses
+  // that photograph identically, two sizes apart. This is worse than 00460's
+  // unnamed-system trap, which at least broke the same way on every brand in its
+  // pack: here the seller who correctly learns "42 = US 6" from a Fendi and carries
+  // it to a Dior is WRONG BECAUSE THEY LEARNED THE RULE. So the cross-map goes
+  // INSIDE the size LABEL (the US-1731/1740 lesson), not in the note alone.
+  //
+  // MENSWEAR IS UNAFFECTED and every men's note says so: French and Italian
+  // tailoring both run the same EU numbers (drop 10). Stating that is the point — a
+  // reader who over-generalizes starts "correcting" menswear sizes already right.
+  //
+  // NOTE the Saint Laurent / Balenciaga / Celine trap: all three are FRENCH houses
+  // that manufacture in ITALY, so the origin tag actively points at the wrong size
+  // system. The manufacturing country never sets the sizing.
+  {
+    brand: "Hermès",
+    brandMatch: ["hermès", "hermes"],
+    department: "Women",
+    garment: "RTW (FRENCH-SIZED)",
+    categoryMatch: ["dress", "top", "blouse", "skirt", "jacket", "coat", "knit", "shirt", "outerwear", "pant"],
+    note:
+      "THE NUMBER ON AN HERMÈS IS A FRENCH SIZE AND THE GARMENT DOES NOT SAY SO. " +
+      "SUBTRACT 32 to reach the US number (FR 38 - 32 = US 6). ALWAYS state both. " +
+      "AND MIND THE OTHER HALF OF THIS PACK: the same number means something " +
+      "DIFFERENT on the Italian houses beside it — a \"42\" is a US 10 here and a " +
+      "US 6 on a Fendi/Versace/Bottega Veneta. A seller who learns one rule and " +
+      "applies it to the whole luxury tier is wrong half the time. BODY " +
+      "measurement — NOT flat-garment. Standard FR-to-US approximation, not " +
+      "brand-fetched specs.",
+    rows: [
+      { size: "34 (= FR 34 / US 2 / XS)", measurements: { bust: "32-33" } },
+      { size: "36 (= FR 36 / US 4 / S)", measurements: { bust: "33-34.5" } },
+      { size: "38 (= FR 38 / US 6 / M)", measurements: { bust: "34.5-36" } },
+      { size: "40 (= FR 40 / US 8 / M-L)", measurements: { bust: "36-37.5" } },
+      { size: "42 (= FR 42 / US 10 / L)", measurements: { bust: "38-39.5" } },
+      { size: "44 (= FR 44 / US 12 / XL)", measurements: { bust: "40-41.5" } },
+    ],
+  },
+  {
+    brand: "Hermès",
+    brandMatch: ["hermès", "hermes"],
+    department: "Men",
+    garment: "RTW (EU-SIZED)",
+    categoryMatch: ["jacket", "coat", "shirt", "blazer", "knit", "top", "outerwear", "pant", "suit"],
+    note:
+      "The number on an Hermès men's piece is a EUROPEAN size and the garment does " +
+      "not say so: SUBTRACT 10 to reach the US number (50 - 10 = US 40 / L). " +
+      "MENSWEAR IS THE EASY HALF OF THIS PACK: French and Italian tailoring run the " +
+      "SAME numbers, so unlike the women's charts there is no FR-vs-IT collision " +
+      "here — a men's 50 is a US 40 on every brand in this group. Do NOT apply the " +
+      "women's FR/IT distinction to menswear. BODY measurement — NOT flat-garment; " +
+      "the cut is TRIM. Standard EU-to-US approximation, not brand-fetched specs.",
+    rows: [
+      { size: "46 (= FR 46 / US 36 / S)", measurements: { chest: "36-37" } },
+      { size: "48 (= FR 48 / US 38 / M)", measurements: { chest: "38-39" } },
+      { size: "50 (= FR 50 / US 40 / L)", measurements: { chest: "40-41" } },
+      { size: "52 (= FR 52 / US 42 / XL)", measurements: { chest: "42-43" } },
+      { size: "54 (= FR 54 / US 44 / XXL)", measurements: { chest: "44-45" } },
+      { size: "56 (= FR 56 / US 46 / XXXL)", measurements: { chest: "46-47" } },
+    ],
+  },
+  {
+    brand: "Dior",
+    brandMatch: ["dior"],
+    department: "Women",
+    garment: "RTW (FRENCH-SIZED)",
+    categoryMatch: ["dress", "top", "blouse", "skirt", "jacket", "coat", "knit", "shirt", "outerwear", "pant"],
+    note:
+      "THE NUMBER ON A DIOR IS A FRENCH SIZE AND THE GARMENT DOES NOT SAY SO — and " +
+      "this is the chart that names the pack's headline collision. A DIOR TAGGED " +
+      "\"42\" IS A US 10. A FENDI TAGGED \"42\" IS A US 6. Same two digits, two " +
+      "sizes apart, on two dark designer dresses that photograph identically — and " +
+      "the seller who correctly learned \"42 = US 6\" from an Italian house is wrong " +
+      "here BECAUSE they learned the rule. SUBTRACT 32 for French (FR 42 - 32 = US " +
+      "10); it is 36 for the Italian houses. ALWAYS state both. BODY measurement — " +
+      "NOT flat-garment. Standard FR-to-US approximation, not brand-fetched specs.",
+    rows: [
+      { size: "34 (= FR 34 / US 2 / XS)", measurements: { bust: "32-33" } },
+      { size: "36 (= FR 36 / US 4 / S)", measurements: { bust: "33-34.5" } },
+      { size: "38 (= FR 38 / US 6 / M)", measurements: { bust: "34.5-36" } },
+      { size: "40 (= FR 40 / US 8 / M-L)", measurements: { bust: "36-37.5" } },
+      { size: "42 (= FR 42 / US 10 / L)", measurements: { bust: "38-39.5" } },
+      { size: "44 (= FR 44 / US 12 / XL)", measurements: { bust: "40-41.5" } },
+    ],
+  },
+  {
+    brand: "Dior",
+    brandMatch: ["dior"],
+    department: "Men",
+    garment: "RTW (EU-SIZED)",
+    categoryMatch: ["jacket", "coat", "shirt", "blazer", "knit", "top", "outerwear", "pant", "suit"],
+    note:
+      "The number on a Dior men's piece is a EUROPEAN size and the garment does not " +
+      "say so: SUBTRACT 10 to reach the US number (50 - 10 = US 40 / L). MENSWEAR IS " +
+      "THE EASY HALF OF THIS PACK: French and Italian tailoring run the SAME " +
+      "numbers, so the women's FR-vs-IT collision does NOT apply here — do not " +
+      "\"correct\" a men's size for it. BODY measurement — NOT flat-garment; Dior " +
+      "Homme in particular is cut EXTREMELY SLIM (the Slimane lineage), so it wears " +
+      "well below its nominal size — the most common Dior menswear fit complaint. " +
+      "Standard EU-to-US approximation, not brand-fetched specs.",
+    rows: [
+      { size: "46 (= EU 46 / US 36 / S)", measurements: { chest: "36-37" } },
+      { size: "48 (= EU 48 / US 38 / M)", measurements: { chest: "38-39" } },
+      { size: "50 (= EU 50 / US 40 / L)", measurements: { chest: "40-41" } },
+      { size: "52 (= EU 52 / US 42 / XL)", measurements: { chest: "42-43" } },
+      { size: "54 (= EU 54 / US 44 / XXL)", measurements: { chest: "44-45" } },
+      { size: "56 (= EU 56 / US 46 / XXXL)", measurements: { chest: "46-47" } },
+    ],
+  },
+  {
+    brand: "Saint Laurent",
+    brandMatch: ["saint laurent", "yves saint laurent"],
+    department: "Women",
+    garment: "RTW (FRENCH-SIZED)",
+    categoryMatch: ["dress", "top", "blouse", "skirt", "jacket", "coat", "knit", "shirt", "outerwear", "pant"],
+    note:
+      "THE NUMBER ON A SAINT LAURENT IS A FRENCH SIZE AND THE GARMENT DOES NOT SAY " +
+      "SO — and the MADE IN ITALY tag does NOT change that. This is the brand where " +
+      "the trap bites hardest: Saint Laurent is a FRENCH house that manufactures in " +
+      "ITALY, so the origin tag actively points at the wrong size system. The " +
+      "manufacturing country never sets the sizing. SUBTRACT 32 (FR 38 - 32 = US 6); " +
+      "an Italian HOUSE would be 36, but this is not one. ALWAYS state both. BODY " +
+      "measurement — NOT flat-garment; the cut is famously SLIM (the Slimane " +
+      "lineage), so it wears below its nominal size. Standard FR-to-US " +
+      "approximation, not brand-fetched specs.",
+    rows: [
+      { size: "34 (= FR 34 / US 2 / XS)", measurements: { bust: "32-33" } },
+      { size: "36 (= FR 36 / US 4 / S)", measurements: { bust: "33-34.5" } },
+      { size: "38 (= FR 38 / US 6 / M)", measurements: { bust: "34.5-36" } },
+      { size: "40 (= FR 40 / US 8 / M-L)", measurements: { bust: "36-37.5" } },
+      { size: "42 (= FR 42 / US 10 / L)", measurements: { bust: "38-39.5" } },
+      { size: "44 (= FR 44 / US 12 / XL)", measurements: { bust: "40-41.5" } },
+    ],
+  },
+  {
+    brand: "Saint Laurent",
+    brandMatch: ["saint laurent", "yves saint laurent"],
+    department: "Men",
+    garment: "RTW (EU-SIZED)",
+    categoryMatch: ["jacket", "coat", "shirt", "blazer", "knit", "top", "outerwear", "pant", "suit"],
+    note:
+      "The number on a Saint Laurent men's piece is a EUROPEAN size and the garment " +
+      "does not say so: SUBTRACT 10 to reach the US number (50 - 10 = US 40 / L). " +
+      "MENSWEAR IS THE EASY HALF OF THIS PACK — French and Italian tailoring run the " +
+      "SAME numbers, so the women's FR-vs-IT collision does not apply. BODY " +
+      "measurement — NOT flat-garment; the Slimane-lineage cut is EXTREMELY SLIM and " +
+      "wears well below its nominal size, which is this brand's most common " +
+      "menswear fit complaint. Standard EU-to-US approximation, not brand-fetched " +
+      "specs.",
+    rows: [
+      { size: "46 (= EU 46 / US 36 / S)", measurements: { chest: "36-37" } },
+      { size: "48 (= EU 48 / US 38 / M)", measurements: { chest: "38-39" } },
+      { size: "50 (= EU 50 / US 40 / L)", measurements: { chest: "40-41" } },
+      { size: "52 (= EU 52 / US 42 / XL)", measurements: { chest: "42-43" } },
+      { size: "54 (= EU 54 / US 44 / XXL)", measurements: { chest: "44-45" } },
+      { size: "56 (= EU 56 / US 46 / XXXL)", measurements: { chest: "46-47" } },
+    ],
+  },
+  {
+    brand: "Balenciaga",
+    brandMatch: ["balenciaga"],
+    department: "Women",
+    garment: "RTW (FRENCH-SIZED)",
+    categoryMatch: ["dress", "top", "blouse", "skirt", "jacket", "coat", "knit", "shirt", "outerwear", "pant"],
+    note:
+      "THE NUMBER ON A BALENCIAGA IS A FRENCH SIZE AND THE GARMENT DOES NOT SAY SO — " +
+      "and as with Saint Laurent, the MADE IN ITALY tag does not change it: a French " +
+      "house that manufactures in Italy still sizes French. SUBTRACT 32 (FR 40 - 32 " +
+      "= US 8). ALWAYS state both. THIS BRAND RUNS TWO SIZE SYSTEMS: the RTW is " +
+      "French, but the SNEAKERS (Triple S, Speed Trainer) are EU shoe sizes — read " +
+      "the OBJECT before the number, since this chart does not apply to footwear. " +
+      "Demna-era RTW is also deliberately OVERSIZED, so its flat measurements run " +
+      "far above the body chart. BODY measurement — NOT flat-garment. Standard " +
+      "FR-to-US approximation, not brand-fetched specs.",
+    rows: [
+      { size: "34 (= FR 34 / US 2 / XS)", measurements: { bust: "32-33" } },
+      { size: "36 (= FR 36 / US 4 / S)", measurements: { bust: "33-34.5" } },
+      { size: "38 (= FR 38 / US 6 / M)", measurements: { bust: "34.5-36" } },
+      { size: "40 (= FR 40 / US 8 / M-L)", measurements: { bust: "36-37.5" } },
+      { size: "42 (= FR 42 / US 10 / L)", measurements: { bust: "38-39.5" } },
+      { size: "44 (= FR 44 / US 12 / XL)", measurements: { bust: "40-41.5" } },
+    ],
+  },
+  {
+    brand: "Balenciaga",
+    brandMatch: ["balenciaga"],
+    department: "Men",
+    garment: "RTW (EU-SIZED)",
+    categoryMatch: ["jacket", "coat", "shirt", "blazer", "knit", "top", "outerwear", "pant", "suit"],
+    note:
+      "The number on a Balenciaga men's piece is a EUROPEAN size and the garment " +
+      "does not say so: SUBTRACT 10 to reach the US number (50 - 10 = US 40 / L). " +
+      "MENSWEAR IS THE EASY HALF OF THIS PACK — French and Italian tailoring run the " +
+      "SAME numbers, so the women's FR-vs-IT collision does not apply. This chart " +
+      "does NOT cover the brand's sneakers, which are EU shoe-sized. Demna-era " +
+      "pieces are deliberately OVERSIZED — their flat measurements run far above " +
+      "this body chart, and that is the design, not a mis-tag. BODY measurement — " +
+      "NOT flat-garment. Standard EU-to-US approximation, not brand-fetched specs.",
+    rows: [
+      { size: "46 (= EU 46 / US 36 / S)", measurements: { chest: "36-37" } },
+      { size: "48 (= EU 48 / US 38 / M)", measurements: { chest: "38-39" } },
+      { size: "50 (= EU 50 / US 40 / L)", measurements: { chest: "40-41" } },
+      { size: "52 (= EU 52 / US 42 / XL)", measurements: { chest: "42-43" } },
+      { size: "54 (= EU 54 / US 44 / XXL)", measurements: { chest: "44-45" } },
+      { size: "56 (= EU 56 / US 46 / XXXL)", measurements: { chest: "46-47" } },
+    ],
+  },
+  {
+    brand: "Celine",
+    brandMatch: ["celine", "céline"],
+    department: "Women",
+    garment: "RTW (FRENCH-SIZED)",
+    categoryMatch: ["dress", "top", "blouse", "skirt", "jacket", "coat", "knit", "shirt", "outerwear", "pant"],
+    note:
+      "THE NUMBER ON A CELINE IS A FRENCH SIZE AND THE GARMENT DOES NOT SAY SO — and " +
+      "the Made in Italy tag does not change it (French house, Italian manufacture). " +
+      "SUBTRACT 32 (FR 38 - 32 = US 6); the Italian houses in this same pack subtract " +
+      "36, which is the collision this group exists to prevent. ALWAYS state both. " +
+      "ALSO READ THE ACCENT while you are at the label: CÉLINE (accented) is the " +
+      "Phoebe Philo era and comps ABOVE modern CELINE — the size and the era are on " +
+      "the same tag, so read both in one pass. BODY measurement — NOT flat-garment. " +
+      "Standard FR-to-US approximation, not brand-fetched specs.",
+    rows: [
+      { size: "34 (= FR 34 / US 2 / XS)", measurements: { bust: "32-33" } },
+      { size: "36 (= FR 36 / US 4 / S)", measurements: { bust: "33-34.5" } },
+      { size: "38 (= FR 38 / US 6 / M)", measurements: { bust: "34.5-36" } },
+      { size: "40 (= FR 40 / US 8 / M-L)", measurements: { bust: "36-37.5" } },
+      { size: "42 (= FR 42 / US 10 / L)", measurements: { bust: "38-39.5" } },
+      { size: "44 (= FR 44 / US 12 / XL)", measurements: { bust: "40-41.5" } },
+    ],
+  },
+  {
+    brand: "Celine",
+    brandMatch: ["celine", "céline"],
+    department: "Men",
+    garment: "RTW (EU-SIZED)",
+    categoryMatch: ["jacket", "coat", "shirt", "blazer", "knit", "top", "outerwear", "pant", "suit"],
+    note:
+      "The number on a Celine men's piece is a EUROPEAN size and the garment does " +
+      "not say so: SUBTRACT 10 to reach the US number (50 - 10 = US 40 / L). " +
+      "MENSWEAR IS THE EASY HALF OF THIS PACK — French and Italian tailoring run the " +
+      "SAME numbers, so the women's FR-vs-IT collision does not apply. BODY " +
+      "measurement — NOT flat-garment; the Slimane-era menswear is cut EXTREMELY " +
+      "SLIM and wears below its nominal size. Standard EU-to-US approximation, not " +
+      "brand-fetched specs.",
+    rows: [
+      { size: "46 (= EU 46 / US 36 / S)", measurements: { chest: "36-37" } },
+      { size: "48 (= EU 48 / US 38 / M)", measurements: { chest: "38-39" } },
+      { size: "50 (= EU 50 / US 40 / L)", measurements: { chest: "40-41" } },
+      { size: "52 (= EU 52 / US 42 / XL)", measurements: { chest: "42-43" } },
+      { size: "54 (= EU 54 / US 44 / XXL)", measurements: { chest: "44-45" } },
+      { size: "56 (= EU 56 / US 46 / XXXL)", measurements: { chest: "46-47" } },
+    ],
+  },
+  {
+    brand: "Bottega Veneta",
+    brandMatch: ["bottega veneta"],
+    department: "Women",
+    garment: "RTW (ITALIAN-SIZED)",
+    categoryMatch: ["dress", "top", "blouse", "skirt", "jacket", "coat", "knit", "shirt", "outerwear", "pant"],
+    note:
+      "THE NUMBER ON A BOTTEGA VENETA IS AN ITALIAN SIZE AND THE GARMENT DOES NOT " +
+      "SAY SO. SUBTRACT 36 to reach the US number (IT 42 - 36 = US 6). ALWAYS state " +
+      "both. AND MIND THE OTHER HALF OF THIS PACK: the FRENCH houses beside it " +
+      "(Hermès, Dior, Saint Laurent, Balenciaga, Celine) subtract 32, so a \"42\" is " +
+      "a US 6 HERE and a US 10 THERE. Same two digits, two sizes apart. Do not carry " +
+      "one rule across the luxury tier — read the HOUSE first, then the number. BODY " +
+      "measurement — NOT flat-garment; the cut is TRIM. Standard IT-to-US " +
+      "approximation, not brand-fetched specs.",
+    rows: [
+      { size: "38 (= IT 38 / US 2 / XS)", measurements: { bust: "32-33" } },
+      { size: "40 (= IT 40 / US 4 / S)", measurements: { bust: "33-34.5" } },
+      { size: "42 (= IT 42 / US 6 / M)", measurements: { bust: "34.5-36" } },
+      { size: "44 (= IT 44 / US 8 / M-L)", measurements: { bust: "36-37.5" } },
+      { size: "46 (= IT 46 / US 10 / L)", measurements: { bust: "38-39.5" } },
+      { size: "48 (= IT 48 / US 12 / XL)", measurements: { bust: "40-41.5" } },
+    ],
+  },
+  {
+    brand: "Bottega Veneta",
+    brandMatch: ["bottega veneta"],
+    department: "Men",
+    garment: "RTW (EU-SIZED)",
+    categoryMatch: ["jacket", "coat", "shirt", "blazer", "knit", "top", "outerwear", "pant", "suit"],
+    note:
+      "The number on a Bottega Veneta men's piece is an ITALIAN size and the garment " +
+      "does not say so: SUBTRACT 10 to reach the US number (IT 50 - 10 = US 40 / L). " +
+      "MENSWEAR IS THE EASY HALF OF THIS PACK: Italian and French tailoring run the " +
+      "SAME numbers, so unlike the women's charts there is no IT-vs-FR collision " +
+      "here — a men's 50 is a US 40 on every brand in this group. Do NOT apply the " +
+      "women's distinction to menswear. BODY measurement — NOT flat-garment; Italian " +
+      "tailoring is cut TRIM. Standard EU-to-US approximation, not brand-fetched " +
+      "specs.",
+    rows: [
+      { size: "46 (= IT 46 / US 36 / S)", measurements: { chest: "36-37" } },
+      { size: "48 (= IT 48 / US 38 / M)", measurements: { chest: "38-39" } },
+      { size: "50 (= IT 50 / US 40 / L)", measurements: { chest: "40-41" } },
+      { size: "52 (= IT 52 / US 42 / XL)", measurements: { chest: "42-43" } },
+      { size: "54 (= IT 54 / US 44 / XXL)", measurements: { chest: "44-45" } },
+      { size: "56 (= IT 56 / US 46 / XXXL)", measurements: { chest: "46-47" } },
+    ],
+  },
+  {
+    brand: "Fendi",
+    brandMatch: ["fendi"],
+    department: "Women",
+    garment: "RTW (ITALIAN-SIZED)",
+    categoryMatch: ["dress", "top", "blouse", "skirt", "jacket", "coat", "knit", "shirt", "outerwear", "pant"],
+    note:
+      "THE NUMBER ON A FENDI IS AN ITALIAN SIZE AND THE GARMENT DOES NOT SAY SO — " +
+      "and this is the other half of the pack's headline collision. A FENDI TAGGED " +
+      "\"42\" IS A US 6. A DIOR TAGGED \"42\" IS A US 10. Same two digits, two sizes " +
+      "apart, and the seller who learns the rule from one house and carries it to " +
+      "the other is wrong BECAUSE they learned it. SUBTRACT 36 for Italian (IT 42 - " +
+      "36 = US 6); it is 32 for the French houses. ALWAYS state both. BODY " +
+      "measurement — NOT flat-garment; the cut is TRIM. Standard IT-to-US " +
+      "approximation, not brand-fetched specs.",
+    rows: [
+      { size: "38 (= IT 38 / US 2 / XS)", measurements: { bust: "32-33" } },
+      { size: "40 (= IT 40 / US 4 / S)", measurements: { bust: "33-34.5" } },
+      { size: "42 (= IT 42 / US 6 / M)", measurements: { bust: "34.5-36" } },
+      { size: "44 (= IT 44 / US 8 / M-L)", measurements: { bust: "36-37.5" } },
+      { size: "46 (= IT 46 / US 10 / L)", measurements: { bust: "38-39.5" } },
+      { size: "48 (= IT 48 / US 12 / XL)", measurements: { bust: "40-41.5" } },
+    ],
+  },
+  {
+    brand: "Fendi",
+    brandMatch: ["fendi"],
+    department: "Men",
+    garment: "RTW (EU-SIZED)",
+    categoryMatch: ["jacket", "coat", "shirt", "blazer", "knit", "top", "outerwear", "pant", "suit"],
+    note:
+      "The number on a Fendi men's piece is an ITALIAN size and the garment does not " +
+      "say so: SUBTRACT 10 to reach the US number (IT 50 - 10 = US 40 / L). MENSWEAR " +
+      "IS THE EASY HALF OF THIS PACK — Italian and French tailoring run the SAME " +
+      "numbers, so the women's IT-vs-FR collision does not apply here. BODY " +
+      "measurement — NOT flat-garment; Italian tailoring is cut TRIM. Standard " +
+      "EU-to-US approximation, not brand-fetched specs.",
+    rows: [
+      { size: "46 (= IT 46 / US 36 / S)", measurements: { chest: "36-37" } },
+      { size: "48 (= IT 48 / US 38 / M)", measurements: { chest: "38-39" } },
+      { size: "50 (= IT 50 / US 40 / L)", measurements: { chest: "40-41" } },
+      { size: "52 (= IT 52 / US 42 / XL)", measurements: { chest: "42-43" } },
+      { size: "54 (= IT 54 / US 44 / XXL)", measurements: { chest: "44-45" } },
+      { size: "56 (= IT 56 / US 46 / XXXL)", measurements: { chest: "46-47" } },
+    ],
+  },
+  {
+    brand: "Versace",
+    brandMatch: ["versace"],
+    department: "Women",
+    garment: "RTW (ITALIAN-SIZED)",
+    categoryMatch: ["dress", "top", "blouse", "skirt", "jacket", "coat", "knit", "shirt", "outerwear", "pant"],
+    note:
+      "THE NUMBER ON A VERSACE IS AN ITALIAN SIZE AND THE GARMENT DOES NOT SAY SO. " +
+      "SUBTRACT 36 to reach the US number (IT 42 - 36 = US 6). MIND THE OTHER HALF " +
+      "OF THIS PACK: the FRENCH houses beside it (Hermès, Dior, Saint Laurent, " +
+      "Balenciaga, Celine) subtract 32, so a \"42\" is a US 6 here and a US 10 " +
+      "there. ALWAYS state both. AND READ THE FULL LABEL WHILE YOU ARE THERE: this " +
+      "chart covers mainline Versace AND the Versus/Collection/Jeans Couture " +
+      "diffusion labels — they share the Italian size system but sell an ORDER OF " +
+      "MAGNITUDE apart, so the size does NOT tell you the ladder. Versace RTW also " +
+      "runs SMALL/tight by design (body-conscious cut), which compounds the number " +
+      "misread. BODY measurement — NOT flat-garment. Standard IT-to-US " +
+      "approximation, not brand-fetched specs.",
+    rows: [
+      { size: "38 (= IT 38 / US 2 / XS)", measurements: { bust: "32-33" } },
+      { size: "40 (= IT 40 / US 4 / S)", measurements: { bust: "33-34.5" } },
+      { size: "42 (= IT 42 / US 6 / M)", measurements: { bust: "34.5-36" } },
+      { size: "44 (= IT 44 / US 8 / M-L)", measurements: { bust: "36-37.5" } },
+      { size: "46 (= IT 46 / US 10 / L)", measurements: { bust: "38-39.5" } },
+      { size: "48 (= IT 48 / US 12 / XL)", measurements: { bust: "40-41.5" } },
+    ],
+  },
+  {
+    brand: "Versace",
+    brandMatch: ["versace"],
+    department: "Men",
+    garment: "RTW (EU-SIZED)",
+    categoryMatch: ["jacket", "coat", "shirt", "blazer", "knit", "top", "outerwear", "pant", "suit"],
+    note:
+      "The number on a Versace men's piece is an ITALIAN size and the garment does " +
+      "not say so: SUBTRACT 10 to reach the US number (IT 50 - 10 = US 40 / L). " +
+      "MENSWEAR IS THE EASY HALF OF THIS PACK — Italian and French tailoring run the " +
+      "SAME numbers, so the women's IT-vs-FR collision does not apply. This chart " +
+      "serves mainline Versace AND the Versus/Collection/Jeans Couture diffusion " +
+      "labels: same size system, ORDER-OF-MAGNITUDE different price, so read the " +
+      "LINE off the tag separately — the size never tells you the ladder. The cut is " +
+      "body-conscious and runs SMALL. BODY measurement — NOT flat-garment. Standard " +
+      "EU-to-US approximation, not brand-fetched specs.",
+    rows: [
+      { size: "46 (= IT 46 / US 36 / S)", measurements: { chest: "36-37" } },
+      { size: "48 (= IT 48 / US 38 / M)", measurements: { chest: "38-39" } },
+      { size: "50 (= IT 50 / US 40 / L)", measurements: { chest: "40-41" } },
+      { size: "52 (= IT 52 / US 42 / XL)", measurements: { chest: "42-43" } },
+      { size: "54 (= IT 54 / US 44 / XXL)", measurements: { chest: "44-45" } },
+      { size: "56 (= IT 56 / US 46 / XXXL)", measurements: { chest: "46-47" } },
+    ],
+  },
+  // ── US-1983: new-generation streetwear & hype group ────────────────────────
+  // Mirrors migration 00462's brand_size_charts seed.
+  //
+  // THIS TIER PUBLISHES NO SIZE CHARTS. That is the honest situation, and it is
+  // why every chart here is the standard streetwear-alpha approximation and says
+  // so in its own note. What the notes actually carry is the FIT INTENT, because
+  // that is the fact a body chart cannot express — and on this tier it SPLITS:
+  //   * OVERSIZED BY DESIGN: Hellstar, Gallery Dept. (flat measurements run well
+  //     above the body chart ON PURPOSE — that is the design, not a mis-tag).
+  //   * RUNS SMALL:          Sp5der, Chrome Hearts, ASSC (buyers size up).
+  //   * BOXY (short + wide): Aimé Leon Dore.
+  // A grader who carries one brand's fit intent across the tier reports the
+  // design as an error in one direction or the other.
+  //
+  // TWO BRANDS BREAK THE ALPHA SYSTEM ENTIRELY:
+  //   * DENIM TEARS — the Cotton Wreath signature is printed on an ACTUAL LEVI'S
+  //     501, so the size is a LEVI'S WAIST NUMBER. The only waist chart here.
+  //   * OFF-WHITE — a Milan house, so its TAILORING carries Italian numbers
+  //     (US = IT - 36, the 00461 rule) while its tees are alpha. One brand, two
+  //     systems: read the OBJECT before the number.
+  {
+    brand: "Off-White",
+    brandMatch: ["off-white", "off white", "offwhite"],
+    department: "Unisex",
+    garment: "Tops (alpha)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "hoodie",
+      "sweatshirt",
+      "knit",
+      "sweater",
+      "jacket",
+      "outerwear",
+    ],
+    note:
+      "Off-White's graphic tees and hoodies are ALPHA-sized and the brand publishes " +
+      "no chart — this is the standard streetwear-alpha approximation, NOT " +
+      "brand-fetched. ONE BRAND, TWO SYSTEMS: Off-White is a MILAN house, so its " +
+      "tailoring and RTW carry ITALIAN NUMBERS (44/46/48 — subtract 36 for the US " +
+      "size) while the tees are alpha. READ THE OBJECT BEFORE THE NUMBER; this " +
+      "chart covers the alpha-sized pieces only. The cut is Italian and runs " +
+      "SMALL/SLIM relative to US streetwear, so many buyers size UP. BODY " +
+      "measurement — NOT flat-garment. Capped confidence.",
+    rows: [
+      { size: "XS", measurements: { chest: "34-36" } },
+      { size: "S", measurements: { chest: "36-38" } },
+      { size: "M", measurements: { chest: "38-40" } },
+      { size: "L", measurements: { chest: "40-42" } },
+      { size: "XL", measurements: { chest: "42-45" } },
+      { size: "XXL", measurements: { chest: "45-48" } },
+    ],
+  },
+  {
+    brand: "Off-White",
+    brandMatch: ["off-white", "off white", "offwhite"],
+    department: "Men",
+    garment: "RTW (ITALIAN-SIZED)",
+    categoryMatch: ["blazer", "suit", "tailoring", "coat", "trouser", "pant"],
+    note:
+      "The number on an Off-White TAILORED piece is an ITALIAN size and the garment " +
+      "does not say so: SUBTRACT 10 to reach the US number (IT 50 - 10 = US 40 / L). " +
+      "Off-White is a MILAN house — the same Italian system the luxury RTW pack " +
+      "(00461: Bottega Veneta/Fendi/Versace) runs on, and Off-White is the ONLY " +
+      "brand in the hype tier that touches it. THE SAME BRAND'S TEES AND HOODIES " +
+      "ARE ALPHA-SIZED — read the OBJECT before the number; a number on an " +
+      "Off-White is tailoring, a letter is a graphic piece. The cut runs SLIM. " +
+      "BODY measurement — NOT flat-garment. Standard IT-to-US approximation, not " +
+      "brand-fetched specs.",
+    rows: [
+      { size: "46 (= IT 46 / US 36 / S)", measurements: { chest: "36-37" } },
+      { size: "48 (= IT 48 / US 38 / M)", measurements: { chest: "38-39" } },
+      { size: "50 (= IT 50 / US 40 / L)", measurements: { chest: "40-41" } },
+      { size: "52 (= IT 52 / US 42 / XL)", measurements: { chest: "42-43" } },
+      { size: "54 (= IT 54 / US 44 / XXL)", measurements: { chest: "44-45" } },
+      { size: "56 (= IT 56 / US 46 / XXXL)", measurements: { chest: "46-47" } },
+    ],
+  },
+  {
+    brand: "Chrome Hearts",
+    brandMatch: ["chrome hearts", "chromehearts"],
+    department: "Unisex",
+    garment: "Tops (alpha)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "hoodie",
+      "sweatshirt",
+      "knit",
+      "sweater",
+      "jacket",
+      "outerwear",
+    ],
+    note:
+      "Chrome Hearts is ALPHA-sized and the brand publishes no size chart at all " +
+      "(it runs no e-commerce) — this is the standard streetwear-alpha " +
+      "approximation, NOT brand-fetched. THE CUT RUNS SMALL: Chrome Hearts apparel " +
+      "is cut close and buyers commonly size UP, which is the opposite of the " +
+      "oversized brands in this same pack (Hellstar, Gallery Dept.). Do not carry " +
+      "one brand's fit intent across this tier — it splits. BODY measurement — NOT " +
+      "flat-garment. Capped confidence.",
+    rows: [
+      { size: "XS", measurements: { chest: "34-36" } },
+      { size: "S", measurements: { chest: "36-38" } },
+      { size: "M", measurements: { chest: "38-40" } },
+      { size: "L", measurements: { chest: "40-42" } },
+      { size: "XL", measurements: { chest: "42-45" } },
+      { size: "XXL", measurements: { chest: "45-48" } },
+    ],
+  },
+  {
+    brand: "Aimé Leon Dore",
+    // norm() only LOWERCASES — it does NOT strip accents (unlike brandKey), and
+    // brand-knowledge.ts passes the ACCENTED canonical in. So the accented
+    // spelling is the one that actually matches; the plain one is for raw seller
+    // text. Same shape as the Stüssy/'stssy' split (00389).
+    brandMatch: ["aimé leon dore", "aime leon dore", "aimeleondore"],
+    department: "Unisex",
+    garment: "Tops (alpha)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "hoodie",
+      "sweatshirt",
+      "knit",
+      "sweater",
+      "polo",
+      "jacket",
+      "outerwear",
+    ],
+    note:
+      "Aimé Leon Dore is ALPHA-sized — the standard streetwear-alpha " +
+      "approximation, NOT brand-fetched. THE CUT IS BOXY AND WIDE BY DESIGN, " +
+      "especially the knit polos and crewnecks: the garment measures SHORT and " +
+      "WIDE relative to its nominal size, and that is the design rather than a " +
+      "mis-tag. So a flat chest measurement will read large while the LENGTH reads " +
+      "small — report both and do not 'correct' either. BODY measurement — NOT " +
+      "flat-garment. Capped confidence.",
+    rows: [
+      { size: "XS", measurements: { chest: "34-36" } },
+      { size: "S", measurements: { chest: "36-38" } },
+      { size: "M", measurements: { chest: "38-40" } },
+      { size: "L", measurements: { chest: "40-42" } },
+      { size: "XL", measurements: { chest: "42-45" } },
+      { size: "XXL", measurements: { chest: "45-48" } },
+    ],
+  },
+  {
+    brand: "Gallery Dept.",
+    brandMatch: ["gallery dept", "gallerydept"],
+    department: "Unisex",
+    garment: "Tops (alpha)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "hoodie",
+      "sweatshirt",
+      "knit",
+      "jacket",
+      "outerwear",
+    ],
+    note:
+      "Gallery Dept. is ALPHA-sized and publishes no chart — the standard " +
+      "streetwear-alpha approximation, NOT brand-fetched. TWO WARNINGS THAT MATTER " +
+      "MORE THAN THE NUMBERS. (1) The cut is OVERSIZED/boxy by design, so flat " +
+      "measurements run well above this body chart on purpose. (2) MUCH OF THE LINE " +
+      "IS UPCYCLED FROM VINTAGE GARMENTS, so THE INTERIOR TAG MAY BE THE DONOR " +
+      "GARMENT'S — it can read another brand's name and another brand's size system " +
+      "entirely (frequently a Levi's). On an upcycled piece the tag is NOT the size: " +
+      "measure the garment and say the tag is the donor's. BODY measurement — NOT " +
+      "flat-garment. Capped confidence.",
+    rows: [
+      { size: "XS", measurements: { chest: "34-36" } },
+      { size: "S", measurements: { chest: "36-38" } },
+      { size: "M", measurements: { chest: "38-40" } },
+      { size: "L", measurements: { chest: "40-42" } },
+      { size: "XL", measurements: { chest: "42-45" } },
+      { size: "XXL", measurements: { chest: "45-48" } },
+    ],
+  },
+  {
+    // THE ONLY WAIST CHART IN THIS PACK — and the collaboration is the reason.
+    brand: "Denim Tears",
+    brandMatch: ["denim tears", "denimtears"],
+    department: "Unisex",
+    garment: "Bottoms (LEVI'S WAIST-SIZED)",
+    categoryMatch: ["bottom", "jean", "jeans", "denim", "pant", "trouser"],
+    note:
+      "THE ODD ONE OUT IN THIS PACK, AND IT IS THE COLLABORATION THAT DOES IT: the " +
+      "signature Cotton Wreath jeans and trucker jackets are printed on ACTUAL " +
+      "LEVI'S GARMENTS under an official collaboration, so the size is a LEVI'S " +
+      "WAIST NUMBER (W x L) — NOT the alpha sizing every other brand in this tier " +
+      "uses. Read the waist and inseam off the Levi's tag inside the garment. THAT " +
+      "SAME TAG SAYS LEVI'S, AND THE PIECE IS STILL A DENIM TEARS: both brands are " +
+      "true at once. Do not conclude 'this is a Levi's 501' from the interior tag — " +
+      "that throws away an order of magnitude of value — and do not discard the tag " +
+      "either, because it is the only place the size lives. The Cotton Wreath " +
+      "SWEATSHIRTS are alpha-sized on a collaborator's blank; this chart is for the " +
+      "denim. BODY measurement (natural waist) — NOT the flat-garment waist, which " +
+      "measures roughly half. Capped confidence.",
+    rows: [
+      { size: "W28 (= Levi's 28 / US 28in waist)", measurements: { waist: "28-29" } },
+      { size: "W30 (= Levi's 30 / US 30in waist)", measurements: { waist: "30-31" } },
+      { size: "W32 (= Levi's 32 / US 32in waist)", measurements: { waist: "32-33" } },
+      { size: "W34 (= Levi's 34 / US 34in waist)", measurements: { waist: "34-35" } },
+      { size: "W36 (= Levi's 36 / US 36in waist)", measurements: { waist: "36-37" } },
+      { size: "W38 (= Levi's 38 / US 38in waist)", measurements: { waist: "38-39" } },
+    ],
+  },
+  {
+    brand: "Rhude",
+    brandMatch: ["rhude"],
+    department: "Unisex",
+    garment: "Tops (alpha)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "hoodie",
+      "sweatshirt",
+      "knit",
+      "jacket",
+      "outerwear",
+    ],
+    note:
+      "Rhude is ALPHA-sized — the standard streetwear-alpha approximation, NOT " +
+      "brand-fetched. The cut sits between the two poles of this pack: closer to " +
+      "true-to-size than the oversized brands (Hellstar, Gallery Dept.) and not as " +
+      "tight as the small-running ones (Sp5der, Chrome Hearts, ASSC), with some " +
+      "Italian-made pieces running slim. Report the measurement rather than applying " +
+      "a fit adjustment. BODY measurement — NOT flat-garment. Capped confidence.",
+    rows: [
+      { size: "XS", measurements: { chest: "34-36" } },
+      { size: "S", measurements: { chest: "36-38" } },
+      { size: "M", measurements: { chest: "38-40" } },
+      { size: "L", measurements: { chest: "40-42" } },
+      { size: "XL", measurements: { chest: "42-45" } },
+      { size: "XXL", measurements: { chest: "45-48" } },
+    ],
+  },
+  {
+    brand: "Sp5der",
+    // A bare "spider" is DELIBERATELY not here — it is an ordinary word and a
+    // common graphic SUBJECT, so it would fire on any garment whose own print is
+    // described as a spider. The chart is reached via the canonical, which is
+    // what brand-knowledge.ts passes in.
+    brandMatch: ["sp5der", "spider worldwide"],
+    department: "Unisex",
+    garment: "Tops (alpha)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "hoodie",
+      "sweatshirt",
+      "jacket",
+      "outerwear",
+    ],
+    note:
+      "Sp5der is ALPHA-sized and the brand publishes essentially nothing, including " +
+      "no size chart — this is the standard streetwear-alpha approximation, NOT " +
+      "brand-fetched, and it is the least-sourced chart in this pack. THE CUT RUNS " +
+      "SMALL and buyers commonly size UP — the opposite of the oversized brands " +
+      "beside it (Hellstar, Gallery Dept.). The fit intent SPLITS across this tier: " +
+      "do not carry one brand's to another. BODY measurement — NOT flat-garment. " +
+      "Capped confidence.",
+    rows: [
+      { size: "XS", measurements: { chest: "34-36" } },
+      { size: "S", measurements: { chest: "36-38" } },
+      { size: "M", measurements: { chest: "38-40" } },
+      { size: "L", measurements: { chest: "40-42" } },
+      { size: "XL", measurements: { chest: "42-45" } },
+      { size: "XXL", measurements: { chest: "45-48" } },
+    ],
+  },
+  {
+    brand: "Hellstar",
+    brandMatch: ["hellstar"],
+    department: "Unisex",
+    garment: "Tops (alpha)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "hoodie",
+      "sweatshirt",
+      "jacket",
+      "outerwear",
+    ],
+    note:
+      "Hellstar is ALPHA-sized and the brand publishes essentially nothing, " +
+      "including no size chart — the standard streetwear-alpha approximation, NOT " +
+      "brand-fetched. THE CUT IS OVERSIZED BY DESIGN: flat measurements run well " +
+      "above this body chart ON PURPOSE, and a grader who reads that as a mis-tag is " +
+      "reporting the design as an error. That is the opposite of the small-running " +
+      "brands in this same pack (Sp5der, Chrome Hearts, ASSC) — the fit intent " +
+      "SPLITS across this tier, so read the HOUSE before adjusting anything. BODY " +
+      "measurement — NOT flat-garment. Capped confidence.",
+    rows: [
+      { size: "XS", measurements: { chest: "34-36" } },
+      { size: "S", measurements: { chest: "36-38" } },
+      { size: "M", measurements: { chest: "38-40" } },
+      { size: "L", measurements: { chest: "40-42" } },
+      { size: "XL", measurements: { chest: "42-45" } },
+      { size: "XXL", measurements: { chest: "45-48" } },
+    ],
+  },
+  {
+    brand: "Anti Social Social Club",
+    // A bare "assc" is DELIBERATELY not here — four letters are too short to
+    // match safely as a substring. The chart is reached via the canonical.
+    brandMatch: ["anti social social club", "antisocialsocialclub"],
+    department: "Unisex",
+    garment: "Tops (alpha)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "hoodie",
+      "sweatshirt",
+      "jacket",
+      "outerwear",
+    ],
+    note:
+      "Anti Social Social Club is ALPHA-sized and publishes no chart — the standard " +
+      "streetwear-alpha approximation, NOT brand-fetched. The pieces are printed on " +
+      "ordinary blanks from various suppliers, so the fit is NOT consistent drop to " +
+      "drop: ASSC generally runs SMALL, but the blank changes, which is a real " +
+      "reason to trust a measurement over the tag here more than anywhere else in " +
+      "this pack. BODY measurement — NOT flat-garment. Capped confidence.",
+    rows: [
+      { size: "XS", measurements: { chest: "34-36" } },
+      { size: "S", measurements: { chest: "36-38" } },
+      { size: "M", measurements: { chest: "38-40" } },
+      { size: "L", measurements: { chest: "40-42" } },
+      { size: "XL", measurements: { chest: "42-45" } },
+      { size: "XXL", measurements: { chest: "45-48" } },
+    ],
+  },
   {
     brand: "Generic women's alpha",
     brandMatch: [], // fallback only (selected when no brand chart matches)

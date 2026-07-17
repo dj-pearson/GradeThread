@@ -1017,6 +1017,26 @@ memory — not a progress log (the harness records progress separately).
   renders size LABELS + the note IN FULL, uncapped — it is the only uncapped
   channel. So a fact that must reach identification belongs in a fingerprint or a
   chart note, NOT a tell. US-1740.
+- Tell PROSE has a FOURTH renderer, and it — not the grading block — is where
+  authentication tells actually land: `normalizeTells`/`getEffectiveTells`
+  (brand-authenticity.ts, US-1768) feeding the confidence-capped, human-review-gated
+  ai-authenticity add-on. `coerceTell` maps the group-convention `{tell, detail}`
+  shape onto the structured `{category, claim, check, redFlag}` one on READ, so keep
+  seeding `{tell, detail}` (every migration 00443..00460 does). Corollary: do NOT
+  "fix" `buildTrustedBrandFactsBlock` to hoist tells above fingerprints to make a
+  never-auto-authenticate tell survive its 900-char cap — that block is for GRADING,
+  it spends its budget on construction fingerprints ON PURPOSE, and tell truncation
+  there is not the liability it looks like. Assert the guard via normalizeTells
+  instead. US-1981.
+- Inside the seed migrations' DOLLAR-quoted JSON (`$j$…$j$`, `$json$…$json$`),
+  `''` is NOT an escape — it stays two literal apostrophes, so `men''s` ships as
+  "men''s" in the seeded prose. Postgres applies no escaping in a dollar-quoted
+  body; only the surrounding ordinary `'…'` SQL strings (the chart `note`, the
+  identity blob) need `''`. Both conventions sit inches apart in the same row, so
+  it's easy to over-escape by reflex — and NOTHING catches it: the SQL is valid,
+  the JSON is valid, `verify:db` applies it clean, and the content tests match on
+  substrings that miss it. Grep new seed migrations for `''` inside `$j$` blocks
+  before committing. US-1981 (fixed 12 in 00460; 00455/00457/00459 were clean).
 - `brandFromStyleFormat`'s formats are NOT brand-exclusive (Converse's classic
   codes are M+4 digits, same shape as New Balance model numbers) and
   `ai-listing.ts` takes `styleResolution?.brand ?? canonicalBrand` — so a format
@@ -1045,6 +1065,21 @@ memory — not a progress log (the harness records progress separately).
   rule for decoders: seed `brand_style_codes` ONLY for a code that is both
   tag-printed and regular (of US-1733's six, only Under Armour qualifies); a
   web/catalog SKU is an informational tell, never a decoder.
+- `brandKey()` STRIPS ACCENTS (it keeps `[a-z0-9]` only), and `brand_key` =
+  `brandKey(canonical_brand)` — so an accented canonical keys WEIRDLY and a row
+  seeded under the spelling you'd expect is NEVER FOUND: "Hermès"→`herms`,
+  "Céline"→`cline`, "Stüssy"→`stssy` (the 00389 precedent). Seed the row under the
+  stripped key and alias BOTH spellings, or pick an unaccented canonical when the
+  brand itself is unaccented (US-1982 made Celine unaccented — the house dropped
+  the accent in 2018 — and kept `Hermès`/`herms`). Check with
+  `deno eval` on `brandKey(canonicalizeBrand(x))` before writing the seed.
+- A sub-label an ORDER OF MAGNITUDE below its parent gets its OWN canonical and
+  must NOT fold onto the parent (the AGOLDE/Miu Miu rule) — folding it silently
+  retitles the cheap piece as the parent and prices it against mainline via the
+  eBay Brand aspect. Fold only same-price-band labels (Fire+Ice→Bogner, the MK
+  play). US-1982: Versace Jeans Couture / Versus / Collection each got their own
+  canonical. Safe even though they contain the parent's name — CANONICAL_BRANDS is
+  sorted LONGEST-FIRST, so `detectBrandInText` tests the sub-label first.
 - Tag-printed + regular is NOT sufficient for a decoder — the FORMAT must also be
   brand-unique, and the older luxury rows mislead on this. 00399 seeds an
   informational LV `date_code`, which reads as a licence to decode any serial;

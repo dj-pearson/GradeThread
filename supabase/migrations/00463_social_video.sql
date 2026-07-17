@@ -71,5 +71,5 @@ ALTER TABLE public.social_posts
 
 -- US-1108 self-record: keep the edge boot guard truthful regardless of how the
 -- SQL was applied.
-INSERT INTO public.applied_migrations (version) VALUES ('00461')
+INSERT INTO public.applied_migrations (version) VALUES ('00463')
 ON CONFLICT (version) DO NOTHING;

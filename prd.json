@@ -2148,7 +2148,7 @@
         "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
       ],
       "priority": 2490,
-      "passes": false,
+      "passes": true,
       "notes": "[BrandKB][Brand][Group] ~6 brands. Add size markers/decoders only where they exist. High-value luxury outerwear — authentication tells informational only, never auto-authenticate. Serial/QR/hologram tells vary by brand.",
       "dependsOn": [
         "US-1715",
@@ -2167,7 +2167,7 @@
         "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
       ],
       "priority": 2489,
-      "passes": false,
+      "passes": true,
       "notes": "[BrandKB][Brand][Group] ~8 brands. Add size markers/decoders only where they exist. Luxury houses — authentication tells informational only, never auto-authenticate. Versace has a shallow seed row (00389) — promote to full pack.",
       "dependsOn": [
         "US-1715",

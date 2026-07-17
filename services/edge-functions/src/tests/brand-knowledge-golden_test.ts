@@ -99,6 +99,105 @@ const ARCTERYX_STYLE_NAME_DECODER: BrandDecoder = {
   examples: [],
 };
 
+// US-1981: the Canada Goose style_number decoder EXACTLY as migration 00460 seeds
+// it into brand_style_codes. It is the ONLY decoder in the luxury outerwear group
+// — the only code there that is tag-printed AND regular AND brand-unique in
+// FORMAT. It also carries the group's CUT-TAG case: the style number lives on the
+// CARE label, which survives the brand tag being cut out of the collar.
+//
+// THE DEPARTMENT LETTER IS THE WHOLE ARGUMENT. A bare "4660" is four digits and is
+// nothing (the Chanel rule, US-1736 — a pattern over a bare digit run mints the
+// KB's costliest false positive); "4660MA" can only be a Canada Goose style number.
+//
+// And that letter is deliberately NON-CAPTURING even though it genuinely encodes
+// the department: the genderCode transform maps only M/W, so a captured "L" for
+// LADIES' would pass through RAW as "L" and write garbage into a field the listing
+// surfaces. Same call as US-1740's New Balance "U" — match on it, don't capture it.
+const CANADA_GOOSE_STYLE_NUMBER_DECODER: BrandDecoder = {
+  decoderKind: "style_number",
+  description:
+    "Canada Goose style number printed on the interior care label: 4 digits + a department letter (M = men's, L = ladies') + an optional 1-2 letter model suffix. 4660MA = Expedition Parka, 7950M = Chilliwack Bomber, 2506L = Kensington Parka.",
+  pattern: "^(?<style>\\d{4}[ML][A-Z]{0,2})$",
+  extractionRules: {
+    fieldMap: { style: "styleCode" },
+    confidence: 0.75,
+  },
+  examples: [],
+};
+
+// US-1982: the Dior date_code decoder EXACTLY as migration 00461 seeds it into
+// brand_style_codes. It is the ONLY decoder in the luxury RTW & leather group —
+// the only code there that is tag-printed AND regular AND brand-unique in FORMAT.
+// It also carries the group's CUT-TAG case: the code is heat-stamped on an
+// interior LEATHER TAB, which survives the brand tab being cut out.
+//
+// THE HYPHENATED TRIPLET IS THE WHOLE ARGUMENT. This is the LV SD1160 precedent
+// (00399, `[A-Z]{2}\d{4}`) with separators on top, which makes it strictly MORE
+// distinctive than the precedent that justifies it — a bare "050151" is nothing
+// (the Chanel rule, US-1736), but "05-BO-0151" can only be a Dior date code.
+//
+// HERMÈS IS THE INSTRUCTIVE REFUSAL and the reason this group has exactly one
+// decoder: its blind stamp is a BARE LETTER, and Hermès ships no serial number at
+// all. A pattern over one letter would recover the most valuable label in the pack
+// from essentially any tag — the Chanel rule at its limit.
+//
+// NOTE the code is a DATE code, not a style code: it identifies where/when a piece
+// was made, not which model it is. That is fine for the job it does here (brand
+// recovery off a cut tab, which is what enrichExtractionWithBrandKnowledge keys
+// off styleCode for) and the seeded description says so plainly. It is emphatically
+// NOT an authenticity check.
+const DIOR_DATE_CODE_DECODER: BrandDecoder = {
+  decoderKind: "date_code",
+  description:
+    "Dior date code heat-stamped on an interior leather tab: 2 digits + 2 letters + 4 digits, hyphenated (05-BO-0151, 17-BO-0129). Encodes the manufacturing origin/date, NOT the model and NOT authenticity.",
+  pattern: "^(?<code>\\d{2}-[A-Z]{2}-\\d{4})$",
+  extractionRules: {
+    fieldMap: { code: "styleCode" },
+    confidence: 0.6,
+  },
+  examples: [],
+};
+
+// US-1983: the Off-White style_number decoder EXACTLY as migration 00462 seeds it
+// into brand_style_codes. It is the ONLY decoder in the new-generation streetwear
+// & hype group — the only code there that is tag-printed AND regular AND
+// brand-unique in FORMAT. It carries the group's CUT-TAG case: the code is on the
+// interior CARE LABEL, which survives the brand tab being cut out.
+//
+// THE OM/OW PREFIX IS THE WHOLE ARGUMENT. It is a gendered BRAND marker, and the
+// whole is a 16-character compound — the LV SD1160 precedent (00399) and the Dior
+// hyphenated triplet (00461), not the bare digit run the Chanel rule (US-1736)
+// refuses. Strip the prefix and the remainder is an ordinary number.
+//
+// THE GENDER GROUP IS THE SECOND CHARACTER, NOT THE FIRST TWO — deliberately.
+// Capturing "M" out of "OM" lets the EXISTING genderCode transform map it to
+// Men/Women with no code change; a two-letter "OM" would fall through that
+// transform's W/M table and emit the raw "OM" as a gender.
+//
+// THE OTHER EIGHT BRANDS IN THE GROUP GET NO DECODER, and seven of them print no
+// regular garment-side code AT ALL — there is nothing to decode, so a pattern
+// would be invented rather than read. Aimé Leon Dore's internal SKU fails the
+// regular-AND-brand-unique bar.
+//
+// NOT an authenticity check, and on this brand that matters more than most: a
+// bootleg copies the care label along with everything else. It recovers the BRAND
+// off a cut tab and the ERA via the season token — which is the point, because
+// the Off-White LOGO DID NOT CHANGE when Abloh died in 2021, so the logo cannot
+// date a piece and the code can.
+const OFF_WHITE_STYLE_NUMBER_DECODER: BrandDecoder = {
+  decoderKind: "style_number",
+  description:
+    "Off-White season/style code printed on the interior care label: OM (men) or OW (women) + a 2-letter category + 3 digits + a season token + 3 letters + 3-4 digits (OMAA038R21FAB001). Recovers the BRAND off a cut tab and the ERA via the season token. NOT an authenticity check.",
+  pattern:
+    "^(?<code>O(?<gender>[MW])[A-Z]{2}\\d{3}(?<season>[A-Z]\\d{2})[A-Z]{3}\\d{3,4})$",
+  extractionRules: {
+    fieldMap: { code: "styleCode", gender: "gender", season: "season" },
+    transforms: { gender: "genderCode" },
+    confidence: 0.5,
+  },
+  examples: [],
+};
+
 // US-1739: the Uniqlo style_name decoder EXACTLY as migration 00458 seeds it into
 // brand_style_codes. Uniqlo is the ONLY brand in the basics/mall group with a
 // decoder, and it is the first in three groups — 00456 refused (the identifier is
@@ -1972,6 +2071,580 @@ const CASES: GoldenCase[] = [
     pack: pack("Cole Haan", "colehaan", [style("ZeroGrand")]),
     input: decodedFrom({ styleCode: "ZeroGrand" }),
     expect: { noBrand: true },
+  },
+  // US-1981 luxury outerwear & down group. Canada Goose carries the group's
+  // CUT-TAG cases: the style number lives on the CARE label, which survives when
+  // the brand tag is cut out of the collar — so a parka with no brand left on it
+  // is still recoverable. The other five are decoder-less by design.
+  {
+    name: "Canada Goose cut brand tag — the care-label style number recovers the brand",
+    brand: "Canada Goose",
+    pack: pack("Canada Goose", "canadagoose", [], [CANADA_GOOSE_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "4660MA" }), // no AI brand
+    expect: { brand: "Canada Goose", recovery: true },
+  },
+  {
+    name: "Canada Goose ladies' style number also recovers the brand off a cut tag",
+    brand: "Canada Goose",
+    pack: pack("Canada Goose", "canadagoose", [], [CANADA_GOOSE_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "2506L" }),
+    expect: { brand: "Canada Goose", recovery: true },
+  },
+  {
+    name: "Canada Goose style number overrides a wrong AI brand + surfaces conflict",
+    // The realistic confusion in this group: another dark fur-hooded parka brand.
+    brand: "Canada Goose",
+    pack: pack("Canada Goose", "canadagoose", [], [CANADA_GOOSE_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ brand: "Moncler", styleCode: "7950M" }),
+    expect: { brand: "Canada Goose", conflictOn: "brand", recovery: true },
+  },
+  {
+    name: "Canada Goose bare 4-digit run — no false-positive recovery",
+    // THE WHOLE ARGUMENT FOR THIS DECODER'S SHAPE. A bare digit run is an
+    // ordinary number (the Chanel rule, US-1736) — the DEPARTMENT LETTER is what
+    // makes "4660MA" brand-unique rather than "any tag with four digits".
+    brand: "Canada Goose",
+    pack: pack("Canada Goose", "canadagoose", [], [CANADA_GOOSE_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "4660" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Canada Goose wrong-length digit run — no false-positive recovery",
+    brand: "Canada Goose",
+    pack: pack("Canada Goose", "canadagoose", [], [CANADA_GOOSE_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "46601M" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Canada Goose hologram-style long serial — no false-positive recovery",
+    // Why the hologram number is deliberately NOT decoded: it is a bare digit run
+    // and a pattern over it would mint a brand from any tag with a long number.
+    brand: "Canada Goose",
+    pack: pack("Canada Goose", "canadagoose", [], [CANADA_GOOSE_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "84726193" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Canada Goose ambiguous fur-hooded parkas (Expedition vs Chilliwack) — never guess",
+    brand: "Canada Goose",
+    pack: pack("Canada Goose", "canadagoose", [
+      style("Expedition Parka"),
+      style("Chilliwack Bomber"),
+    ], [CANADA_GOOSE_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ brand: "Canada Goose" }),
+    expect: { brand: "Canada Goose", noStyle: true },
+  },
+  {
+    name: "Canada Goose single known style fills the style the AI missed",
+    brand: "Canada Goose",
+    pack: pack("Canada Goose", "canadagoose", [style("Expedition Parka")], [
+      CANADA_GOOSE_STYLE_NUMBER_DECODER,
+    ]),
+    input: decodedFrom({ brand: "Canada Goose" }),
+    expect: { brand: "Canada Goose", style: "Expedition Parka" },
+  },
+  // The other five are decoder-less by design — every code they print is either a
+  // bare digit run (Moncler's serial) or a catalog SKU. Their guarantee is that
+  // enrichment stays correct WITHOUT a decoder.
+  {
+    name: "Moncler single known style fills the style the AI missed",
+    brand: "Moncler",
+    pack: pack("Moncler", "moncler", [style("Maya")]),
+    input: decodedFrom({ brand: "Moncler" }),
+    expect: { brand: "Moncler", style: "Maya" },
+  },
+  {
+    name: "Moncler ambiguous lacquered down jackets (Maya vs Bady) — never guess",
+    // Same nylon laqué shell, same baffles — only the department/cut separates
+    // them, and the pack must not pick one from the fabric alone.
+    brand: "Moncler",
+    pack: pack("Moncler", "moncler", [style("Maya"), style("Bady")]),
+    input: decodedFrom({ brand: "Moncler" }),
+    expect: { brand: "Moncler", noStyle: true },
+  },
+  {
+    name: "Moncler serial — no false-positive brand recovery (a bare digit run is not a code)",
+    // THE COSTLIEST FALSE POSITIVE THE KB COULD MINT. Moncler's serial is a bare
+    // digit run; a pattern over it would brand any tag carrying a long number as
+    // the most counterfeited outerwear label on earth. Deliberately decoder-less.
+    brand: "Moncler",
+    pack: pack("Moncler", "moncler", [style("Maya"), style("Bady")]),
+    input: decodedFrom({ styleCode: "1A00107" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Mackage single known style fills the style the AI missed",
+    brand: "Mackage",
+    pack: pack("Mackage", "mackage", [style("Adali")]),
+    input: decodedFrom({ brand: "Mackage" }),
+    expect: { brand: "Mackage", style: "Adali" },
+  },
+  {
+    name: "Mackage ambiguous belted down coats (Adali vs Kay) — never guess",
+    brand: "Mackage",
+    pack: pack("Mackage", "mackage", [style("Adali"), style("Kay")]),
+    input: decodedFrom({ brand: "Mackage" }),
+    expect: { brand: "Mackage", noStyle: true },
+  },
+  {
+    name: "Mackage catalog SKU — no false-positive brand recovery (no decoder)",
+    brand: "Mackage",
+    pack: pack("Mackage", "mackage", [style("Adali"), style("Kay")]),
+    input: decodedFrom({ styleCode: "ADALI-F4-BLACK" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Herno single known line fills the style the AI missed",
+    brand: "Herno",
+    pack: pack("Herno", "herno", [style("Laminar")]),
+    input: decodedFrom({ brand: "Herno" }),
+    expect: { brand: "Herno", style: "Laminar" },
+  },
+  {
+    name: "Herno ambiguous slim dark nylon jackets (Laminar vs Ultralight) — never guess",
+    brand: "Herno",
+    pack: pack("Herno", "herno", [style("Laminar"), style("Ultralight Down Jacket")]),
+    input: decodedFrom({ brand: "Herno" }),
+    expect: { brand: "Herno", noStyle: true },
+  },
+  {
+    name: "Herno article number — no false-positive brand recovery (catalog SKU)",
+    brand: "Herno",
+    pack: pack("Herno", "herno", [style("Laminar"), style("Ultralight Down Jacket")]),
+    input: decodedFrom({ styleCode: "PI0001DIC-12017" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Woolrich single known style fills the style the AI missed",
+    brand: "Woolrich",
+    pack: pack("Woolrich", "woolrich", [style("Arctic Parka")]),
+    input: decodedFrom({ brand: "Woolrich" }),
+    expect: { brand: "Woolrich", style: "Arctic Parka" },
+  },
+  {
+    name: "Woolrich ambiguous eras (Italian Arctic Parka vs US heritage wool) — never guess",
+    // The group's era trap in resolver form: one label, two brands, two ladders.
+    // The pack must not pick a ladder without the origin tag saying which.
+    brand: "Woolrich",
+    pack: pack("Woolrich", "woolrich", [
+      style("Arctic Parka"),
+      style("Buffalo Check Wool Shirt"),
+    ]),
+    input: decodedFrom({ brand: "Woolrich" }),
+    expect: { brand: "Woolrich", noStyle: true },
+  },
+  {
+    name: "Woolrich catalog SKU — no false-positive brand recovery (no decoder)",
+    brand: "Woolrich",
+    pack: pack("Woolrich", "woolrich", [style("Arctic Parka")]),
+    input: decodedFrom({ styleCode: "WOCPS2880-UT0001" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Bogner single known style fills the style the AI missed",
+    brand: "Bogner",
+    pack: pack("Bogner", "bogner", [style("Ski Pant")]),
+    input: decodedFrom({ brand: "Bogner" }),
+    expect: { brand: "Bogner", style: "Ski Pant" },
+  },
+  {
+    name: "Bogner ambiguous ladders (mainline Ski Jacket vs Fire + Ice) — never guess",
+    brand: "Bogner",
+    pack: pack("Bogner", "bogner", [style("Ski Jacket"), style("Fire + Ice")]),
+    input: decodedFrom({ brand: "Bogner" }),
+    expect: { brand: "Bogner", noStyle: true },
+  },
+  {
+    name: "Bogner article number — no false-positive brand recovery (catalog SKU)",
+    brand: "Bogner",
+    pack: pack("Bogner", "bogner", [style("Ski Jacket"), style("Fire + Ice")]),
+    input: decodedFrom({ styleCode: "3841-4247-042" }),
+    expect: { noBrand: true },
+  },
+  // ── US-1982 luxury RTW & leather group (tier 2) ────────────────────────────
+  // Dior carries the group's CUT-TAG cases: the date code is heat-stamped on an
+  // interior LEATHER TAB, which survives the brand tab being cut out — so a bag
+  // with no brand left on it is still recoverable. The other seven are
+  // decoder-less by design, and their guarantee is that enrichment stays CORRECT
+  // without one. That matters more in this tier than in any other: these are the
+  // most valuable and most counterfeited labels in the KB, so a false-positive
+  // brand recovery here is the costliest mistake the resolver could make.
+  {
+    name: "Dior cut brand tab — the leather-tab date code recovers the brand",
+    brand: "Dior",
+    pack: pack("Dior", "dior", [], [DIOR_DATE_CODE_DECODER]),
+    input: decodedFrom({ styleCode: "05-BO-0151" }), // no AI brand
+    expect: { brand: "Dior", recovery: true },
+  },
+  {
+    name: "Dior later-era date code also recovers the brand off a cut tab",
+    brand: "Dior",
+    pack: pack("Dior", "dior", [], [DIOR_DATE_CODE_DECODER]),
+    input: decodedFrom({ styleCode: "17-BO-0129" }),
+    expect: { brand: "Dior", recovery: true },
+  },
+  {
+    name: "Dior date code overrides a wrong AI brand + surfaces conflict",
+    // The realistic confusion in this group: another French luxury house whose
+    // quilted flap bags photograph similarly.
+    brand: "Dior",
+    pack: pack("Dior", "dior", [], [DIOR_DATE_CODE_DECODER]),
+    input: decodedFrom({ brand: "Chanel", styleCode: "05-BO-0151" }),
+    expect: { brand: "Dior", conflictOn: "brand", recovery: true },
+  },
+  {
+    name: "Dior unhyphenated digit run — no false-positive recovery",
+    // THE WHOLE ARGUMENT FOR THIS DECODER'S SHAPE. Strip the separators and the
+    // code is an ordinary number (the Chanel rule, US-1736) — the HYPHENATED
+    // TRIPLET is what makes it brand-unique rather than "any tag with 8 digits".
+    brand: "Dior",
+    pack: pack("Dior", "dior", [], [DIOR_DATE_CODE_DECODER]),
+    input: decodedFrom({ styleCode: "050151" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Dior wrong-shape code — no false-positive recovery",
+    brand: "Dior",
+    pack: pack("Dior", "dior", [], [DIOR_DATE_CODE_DECODER]),
+    input: decodedFrom({ styleCode: "5-BO-151" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Dior ambiguous Cannage-quilted bags (Lady Dior vs Saddle) — never guess",
+    brand: "Dior",
+    pack: pack("Dior", "dior", [
+      style("Lady Dior"),
+      style("Saddle Bag"),
+    ], [DIOR_DATE_CODE_DECODER]),
+    input: decodedFrom({ brand: "Dior" }),
+    expect: { brand: "Dior", noStyle: true },
+  },
+  {
+    name: "Dior single known style fills the style the AI missed",
+    brand: "Dior",
+    pack: pack("Dior", "dior", [style("Lady Dior")], [DIOR_DATE_CODE_DECODER]),
+    input: decodedFrom({ brand: "Dior" }),
+    expect: { brand: "Dior", style: "Lady Dior" },
+  },
+  // HERMÈS — the instructive refusal. The blind stamp is a bare LETTER and the
+  // house ships NO serial number at all, so there is nothing to decode. These
+  // cases pin that a stamp-like input recovers NOTHING.
+  {
+    name: "Hermès blind stamp letter — no false-positive brand recovery",
+    // THE COSTLIEST FALSE POSITIVE THE KB COULD MINT. A pattern over a single
+    // letter would brand any tag bearing one as the most valuable label in the
+    // pack. Deliberately decoder-less — the Chanel rule at its limit.
+    brand: "Hermès",
+    pack: pack("Hermès", "herms", [style("Birkin"), style("Kelly")]),
+    input: decodedFrom({ styleCode: "D" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Hermès single known style fills the style the AI missed",
+    brand: "Hermès",
+    pack: pack("Hermès", "herms", [style("Birkin")]),
+    input: decodedFrom({ brand: "Hermès" }),
+    expect: { brand: "Hermès", style: "Birkin" },
+  },
+  {
+    name: "Hermès ambiguous trapezoidal flap bags (Birkin vs Kelly) — never guess",
+    // Same leathers, same touret, same clochette — only the HANDLE COUNT
+    // separates them, and the pack must not pick one from the shared parts.
+    brand: "Hermès",
+    pack: pack("Hermès", "herms", [style("Birkin"), style("Kelly")]),
+    input: decodedFrom({ brand: "Hermès" }),
+    expect: { brand: "Hermès", noStyle: true },
+  },
+  {
+    name: "Saint Laurent tab serial — no false-positive brand recovery (bare digit run)",
+    brand: "Saint Laurent",
+    pack: pack("Saint Laurent", "saintlaurent", [style("Sac de Jour"), style("LouLou")]),
+    input: decodedFrom({ styleCode: "469390021" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Saint Laurent ambiguous chain-strap flap bags (LouLou vs Kate) — never guess",
+    brand: "Saint Laurent",
+    pack: pack("Saint Laurent", "saintlaurent", [style("LouLou"), style("Kate")]),
+    input: decodedFrom({ brand: "Saint Laurent" }),
+    expect: { brand: "Saint Laurent", noStyle: true },
+  },
+  {
+    name: "Saint Laurent single known style fills the style the AI missed",
+    brand: "Saint Laurent",
+    pack: pack("Saint Laurent", "saintlaurent", [style("Sac de Jour")]),
+    input: decodedFrom({ brand: "Saint Laurent" }),
+    expect: { brand: "Saint Laurent", style: "Sac de Jour" },
+  },
+  {
+    name: "Balenciaga ambiguous eras (Ghesquière City vs Demna Hourglass) — never guess",
+    // The group's era trap in resolver form: two markets under one label. The
+    // pack must not pick a ladder the input never named.
+    brand: "Balenciaga",
+    pack: pack("Balenciaga", "balenciaga", [style("City Bag"), style("Hourglass")]),
+    input: decodedFrom({ brand: "Balenciaga" }),
+    expect: { brand: "Balenciaga", noStyle: true },
+  },
+  {
+    name: "Balenciaga tab serial — no false-positive brand recovery (bare digit run)",
+    brand: "Balenciaga",
+    pack: pack("Balenciaga", "balenciaga", [style("City Bag"), style("Hourglass")]),
+    input: decodedFrom({ styleCode: "115748213048" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Balenciaga single known style fills the style the AI missed",
+    brand: "Balenciaga",
+    pack: pack("Balenciaga", "balenciaga", [style("Triple S")]),
+    input: decodedFrom({ brand: "Balenciaga" }),
+    expect: { brand: "Balenciaga", style: "Triple S" },
+  },
+  {
+    name: "Bottega Veneta ambiguous Intrecciato bags (Cassette vs Jodie) — never guess",
+    brand: "Bottega Veneta",
+    pack: pack("Bottega Veneta", "bottegaveneta", [style("Cassette"), style("Jodie")]),
+    input: decodedFrom({ brand: "Bottega Veneta" }),
+    expect: { brand: "Bottega Veneta", noStyle: true },
+  },
+  {
+    name: "Bottega Veneta catalog SKU — no false-positive brand recovery (no decoder)",
+    brand: "Bottega Veneta",
+    pack: pack("Bottega Veneta", "bottegaveneta", [style("Cassette"), style("Jodie")]),
+    input: decodedFrom({ styleCode: "115653-VQ131" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Bottega Veneta single known style fills the style the AI missed",
+    brand: "Bottega Veneta",
+    pack: pack("Bottega Veneta", "bottegaveneta", [style("Cassette")]),
+    input: decodedFrom({ brand: "Bottega Veneta" }),
+    expect: { brand: "Bottega Veneta", style: "Cassette" },
+  },
+  {
+    name: "Fendi ambiguous FF-marked bags (Baguette vs Peekaboo) — never guess",
+    brand: "Fendi",
+    pack: pack("Fendi", "fendi", [style("Baguette"), style("Peekaboo")]),
+    input: decodedFrom({ brand: "Fendi" }),
+    expect: { brand: "Fendi", noStyle: true },
+  },
+  {
+    name: "Fendi catalog SKU — no false-positive brand recovery (no decoder)",
+    brand: "Fendi",
+    pack: pack("Fendi", "fendi", [style("Baguette"), style("Peekaboo")]),
+    input: decodedFrom({ styleCode: "8BR600-A5DY-F0KUR" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Fendi single known style fills the style the AI missed",
+    brand: "Fendi",
+    pack: pack("Fendi", "fendi", [style("Baguette")]),
+    input: decodedFrom({ brand: "Fendi" }),
+    expect: { brand: "Fendi", style: "Baguette" },
+  },
+  {
+    name: "Versace ambiguous house marks (Barocco vs Greca) — never guess",
+    brand: "Versace",
+    pack: pack("Versace", "versace", [style("Barocco Print"), style("Greca")]),
+    input: decodedFrom({ brand: "Versace" }),
+    expect: { brand: "Versace", noStyle: true },
+  },
+  {
+    name: "Versace prints no regular code — no false-positive brand recovery",
+    brand: "Versace",
+    pack: pack("Versace", "versace", [style("Barocco Print"), style("Greca")]),
+    input: decodedFrom({ styleCode: "A87404-A234593" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Versace single known style fills the style the AI missed",
+    brand: "Versace",
+    pack: pack("Versace", "versace", [style("Medusa")]),
+    input: decodedFrom({ brand: "Versace" }),
+    expect: { brand: "Versace", style: "Medusa" },
+  },
+  {
+    name: "Celine ambiguous winged Philo totes (Luggage vs Trapeze) — never guess",
+    // Both are winged Philo-era totes and the photo does not reliably separate
+    // them — exactly the case where a guess costs a wrong listing.
+    brand: "Celine",
+    pack: pack("Celine", "celine", [style("Luggage Tote"), style("Trapeze")]),
+    input: decodedFrom({ brand: "Celine" }),
+    expect: { brand: "Celine", noStyle: true },
+  },
+  {
+    name: "Celine catalog SKU — no false-positive brand recovery (no decoder)",
+    brand: "Celine",
+    pack: pack("Celine", "celine", [style("Luggage Tote"), style("Box Bag")]),
+    input: decodedFrom({ styleCode: "189173DRU-38NO" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Celine single known style fills the style the AI missed",
+    brand: "Celine",
+    pack: pack("Celine", "celine", [style("Box Bag")]),
+    input: decodedFrom({ brand: "Celine" }),
+    expect: { brand: "Celine", style: "Box Bag" },
+  },
+  // ── US-1983 new-generation streetwear & hype group ─────────────────────────
+  // Off-White carries the group's CUT-TAG cases: the season/style code is printed
+  // on the interior CARE LABEL, which survives the brand tab being cut out. The
+  // other eight are decoder-less by design — seven print no regular garment-side
+  // code AT ALL — and their guarantee is that enrichment stays CORRECT without
+  // one. That guarantee carries more weight in this tier than anywhere: these are
+  // the most bootlegged garments in the KB, and most of them are a blank hoodie
+  // with a print, so a false-positive brand recovery has nothing to contradict it.
+  {
+    name: "Off-White cut brand tab — the care-label season code recovers the brand",
+    brand: "Off-White",
+    pack: pack("Off-White", "offwhite", [], [OFF_WHITE_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "OMAA038R21FAB001" }), // no AI brand
+    expect: { brand: "Off-White", recovery: true },
+  },
+  {
+    name: "Off-White women's code also recovers the brand off a cut tab",
+    brand: "Off-White",
+    pack: pack("Off-White", "offwhite", [], [OFF_WHITE_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "OWAA049S23FAB002" }),
+    expect: { brand: "Off-White", recovery: true },
+  },
+  {
+    name: "Off-White code overrides a wrong AI brand + surfaces conflict",
+    // The realistic confusion in this tier: another hype label whose printed
+    // hoodies photograph identically. The code is the only thing that separates
+    // them, which is exactly why this group has one decoder and not zero.
+    brand: "Off-White",
+    pack: pack("Off-White", "offwhite", [], [OFF_WHITE_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ brand: "Hellstar", styleCode: "OMAA038R21FAB001" }),
+    expect: { brand: "Off-White", conflictOn: "brand", recovery: true },
+  },
+  {
+    name: "Off-White bare digit run — no false-positive recovery",
+    // The Chanel rule (US-1736). Strip the OM/OW prefix and the season token and
+    // what is left is an ordinary number, which must recover nothing.
+    brand: "Off-White",
+    pack: pack("Off-White", "offwhite", [], [OFF_WHITE_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "038211" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Off-White wrong-prefix code — no false-positive recovery",
+    // OM/OW is the gendered brand marker and it is load-bearing: a code that does
+    // not carry it is not an Off-White code, however similar its shape.
+    brand: "Off-White",
+    pack: pack("Off-White", "offwhite", [], [OFF_WHITE_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "OXAA038R21FAB001" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Off-White wrong-shape code — no false-positive recovery",
+    brand: "Off-White",
+    pack: pack("Off-White", "offwhite", [], [OFF_WHITE_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "OMAA38R21FAB001" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Off-White ambiguous graphic pieces (Diagonals vs Arrows) — never guess",
+    brand: "Off-White",
+    pack: pack("Off-White", "offwhite", [
+      style("Diagonals"),
+      style("Arrows Logo"),
+    ], [OFF_WHITE_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ brand: "Off-White" }),
+    expect: { brand: "Off-White", noStyle: true },
+  },
+  {
+    name: "Off-White single known style fills the style the AI missed",
+    brand: "Off-White",
+    pack: pack("Off-White", "offwhite", [style("Industrial Belt")], [
+      OFF_WHITE_STYLE_NUMBER_DECODER,
+    ]),
+    input: decodedFrom({ brand: "Off-White" }),
+    expect: { brand: "Off-White", style: "Industrial Belt" },
+  },
+  // The eight decoder-less brands. NOTHING they print may recover a brand — and
+  // the codes below are the realistic near-misses: a Denim Tears piece's interior
+  // Levi's tag, a Gallery Dept. donor tag, and the plain numbers that turn up on
+  // any blank's care label.
+  {
+    name: "Chrome Hearts prints no code — a stray number recovers nothing",
+    brand: "Chrome Hearts",
+    pack: pack("Chrome Hearts", "chromehearts", [style("Cross Patch Hoodie")]),
+    input: decodedFrom({ styleCode: "925" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Sp5der prints no code — a stray number recovers nothing",
+    brand: "Sp5der",
+    pack: pack("Sp5der", "sp5der", [style("Web Hoodie")]),
+    input: decodedFrom({ styleCode: "555555" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Hellstar prints no code — a stray number recovers nothing",
+    brand: "Hellstar",
+    pack: pack("Hellstar", "hellstar", [style("Flame Hoodie")]),
+    input: decodedFrom({ styleCode: "0001" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Denim Tears — the donor Levi's tag code recovers nothing",
+    // The group's dual-branding trap in decoder form. A Cotton Wreath 501 has a
+    // real Levi's code inside it, and the KB must NOT let that mint a brand off
+    // the Denim Tears pack — the tag is the base garment's, and the piece is
+    // still a Denim Tears.
+    brand: "Denim Tears",
+    pack: pack("Denim Tears", "denimtears", [style("Cotton Wreath 501")]),
+    input: decodedFrom({ styleCode: "00501-0000" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Gallery Dept. — an upcycled donor tag's code recovers nothing",
+    brand: "Gallery Dept.",
+    pack: pack("Gallery Dept.", "gallerydept", [style("Painted Flare Jeans")]),
+    input: decodedFrom({ styleCode: "00505-1234" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Aimé Leon Dore internal SKU — no false-positive recovery (no decoder)",
+    // Tag-printed but neither regular across categories nor brand-unique in
+    // shape, so it fails the US-1740 bar and gets no decoder.
+    brand: "Aimé Leon Dore",
+    pack: pack("Aimé Leon Dore", "aimleondore", [style("Knit Polo")]),
+    input: decodedFrom({ styleCode: "ALD-SS21-0042" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Rhude prints no code — a stray number recovers nothing",
+    brand: "Rhude",
+    pack: pack("Rhude", "rhude", [style("Silk Shirt")]),
+    input: decodedFrom({ styleCode: "1985" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "ASSC prints no code — a stray number recovers nothing",
+    brand: "Anti Social Social Club",
+    pack: pack("Anti Social Social Club", "antisocialsocialclub", [
+      style("Logo Hoodie"),
+    ]),
+    input: decodedFrom({ styleCode: "2015" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Sp5der ambiguous graphic pieces (Web Hoodie vs Web Sweatpant) — never guess",
+    brand: "Sp5der",
+    pack: pack("Sp5der", "sp5der", [
+      style("Web Hoodie"),
+      style("Web Sweatpant"),
+    ]),
+    input: decodedFrom({ brand: "Sp5der" }),
+    expect: { brand: "Sp5der", noStyle: true },
+  },
+  {
+    name: "Gallery Dept. single known style fills the style the AI missed",
+    brand: "Gallery Dept.",
+    pack: pack("Gallery Dept.", "gallerydept", [style("Logo Tee")]),
+    input: decodedFrom({ brand: "Gallery Dept." }),
+    expect: { brand: "Gallery Dept.", style: "Logo Tee" },
   },
 ];
 

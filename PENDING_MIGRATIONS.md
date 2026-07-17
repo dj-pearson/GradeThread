@@ -4,7 +4,7 @@
 > The sections below for those are historical; the only NEW held migration is
 > **00443** at the top.
 
-## ⏳ PENDING: 00461_social_video.sql (video distribution for social posts, 2026-07-17)
+## ⏳ PENDING: 00463_social_video.sql (video distribution for social posts, 2026-07-17)
 
 Adds video posting to the content module so clips fan out to TikTok / Instagram
 Reels / Facebook video through the existing Make.com social webhook.
@@ -18,10 +18,10 @@ Reels / Facebook video through the existing Make.com social webhook.
 
 Idempotent (`IF NOT EXISTS` / `ON CONFLICT` / `DROP POLICY IF EXISTS` /
 drop-then-add the CHECK). **Risk: low** — additive columns + a new bucket; no
-backfill, no data migration. Apply after 00460 via
+backfill, no data migration. Apply after 00462 via
 `scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload schema';`,
-then redeploy the edge (boot guard now expects **00461**). Bumps
-`EXPECTED_SCHEMA_VERSION` → **00461**.
+then redeploy the edge (boot guard now expects **00463**). Bumps
+`EXPECTED_SCHEMA_VERSION` → **00463**.
 
 ⚠️ **Client-side read in the same change:** the frontend (`social-editor.tsx`,
 `use-content.ts`, `database.ts`) reads `media_type` / `video_url` off
@@ -30,6 +30,153 @@ Cloudflare Pages auto-deploys the frontend immediately — so the SQL + edge
 deploy MUST land first, or the editor's video panel and the new endpoint 500.
 On this feature branch there's no prod deploy, so the branch push is safe; hold
 the prod apply-then-merge order per this file's rule.
+
+## ⏳ PENDING: 00461_luxury_rtw_leather_brand_knowledge.sql (US-1982 luxury RTW & leather brand KB, 2026-07-16)
+
+Data-only seed of the `brand_knowledge*` tables for the luxury RTW & leather tier
+(tier 2, after 00455 took Chanel/Prada/Burberry/MK/Kate Spade/Tory Burch):
+**Hermès, Dior, Saint Laurent, Balenciaga, Bottega Veneta, Fendi, Versace,
+Celine**. Seven of the eight were passthrough-only, and Versace had only the bare
+alias-only row from 00389 (**promoted** to a full pack here) — so a "balenciaga"
+tag rendered the seller's own casing into the prompt block and the eBay Brand
+aspect on the most expensive garments the KB touches. `brand_knowledge` ×8;
+`brand_styles` ×33; `brand_style_codes` ×**1** (Dior); `brand_colorways` ×9
+(Hermès ×7, Bottega Veneta ×2); `brand_size_charts` ×16, all mirrored into the
+`sizing-charts.ts` in-code fallback. Every fact carries `source_url` + `confidence`
+and lands `verified=false` for the US-1715 admin queue. Idempotent (`on conflict do
+update`). Apply after 00460 via `scripts/apply-prod-migrations.sh`,
+`NOTIFY pgrst, 'reload schema';`, redeploy the edge (boot guard now expects
+**00461**). Bumps `EXPECTED_SCHEMA_VERSION` → **00461**. Risk: LOW — data-only, no
+schema change, no frontend reads the new rows (the edge resolver falls back to the
+in-code seeds until the SQL lands, so an unapplied migration degrades rather than
+breaks).
+
+> ⚠ **`verify:db` did NOT run for this migration — Docker was down on the authoring
+> host, so the throwaway-stack lane was skipped.** In its place the SQL was
+> validated statically against **libpg_query (the real PostgreSQL parser, via
+> `pglast`)**: it parses (6 statements); every INSERT's column count matches its
+> value tuples; every column name and every `on conflict` target resolves against
+> the actual DDL; no VALUES list contains a duplicate conflict key (the "cannot
+> affect row a second time" error); all 42 dollar-quoted JSON blocks parse; and no
+> `''` appears inside one (the 00460 trap — `''` is not an escape there). The
+> seeded Dior decoder spec was extracted from the SQL itself and exercised against
+> `decodeTagCode`: both examples decode and every negative is rejected. That is
+> strong but is **not** a substitute for a real apply — **run `npm run verify:db`
+> once Docker is up, before applying to prod.**
+
+**FRENCH OR ITALIAN — THE SAME NUMBER IS TWO DIFFERENT SIZES.** The through-line,
+and worth more than every style fingerprint in the pack combined. Every house here
+sizes its women's RTW in a European system its tag never names, and the group
+SPLITS: the **French** houses (Hermès, Dior, Saint Laurent, Balenciaga, Celine)
+subtract 32; the **Italian** ones (Bottega Veneta, Fendi, Versace) subtract 36. So
+a **"42" is a US 10 on a Dior and a US 6 on a Fendi** — two dark designer dresses
+that photograph identically, two sizes apart. That is strictly worse than 00460's
+unnamed-system trap, which at least broke the same way on every brand in its pack:
+here the seller who correctly learns "42 = US 6" from a Fendi and carries it to a
+Dior is wrong *because* they learned the rule. The cross-map is therefore written
+into the size **LABEL** of every chart (the only uncapped channel that reaches the
+model — the US-1731/1740 lesson), and the Dior and Fendi notes name each other
+explicitly. **Menswear is exempt and every men's note says so** (French and Italian
+tailoring run the same EU numbers — drop 10), because a reader who over-generalizes
+starts "correcting" menswear sizes that were already right.
+
+Three of the French houses (**Saint Laurent, Balenciaga, Celine**) manufacture in
+**Italy**, so their origin tag actively points at the *wrong* size system — the one
+place in the pack where a real, printed, correct fact on the garment leads the
+seller astray. Each note defuses it explicitly.
+
+**Authentication tells are informational only.** This is the most counterfeited
+tier that exists; every house here is seeded with the never-auto-authenticate guard
+ordered FIRST, and none of them authenticates for third parties. A test asserts no
+seeded tell claims a garment can be verified authentic.
+
+**One decoder — Dior**, the only code in the group that is tag-printed AND regular
+AND brand-unique in format (`\d{2}-[A-Z]{2}-\d{4}`, heat-stamped on an interior
+leather tab; the LV SD1160 precedent with hyphens on top). It carries the group's
+cut-tag golden fixtures. **Hermès is the instructive refusal**: its blind stamp is a
+bare LETTER and the house ships no serial number at all, so a pattern over it would
+recover the pack's most valuable label from any tag (the Chanel rule at its limit).
+
+⚠ **Two brand_key traps worth knowing before editing this seed.** `brandKey()`
+strips accents, so canonical **"Hermès" keys as `herms`** — not `hermes`. The row is
+seeded under `herms` on purpose (the 00389 `stssy`/Stüssy precedent); a row seeded
+under `hermes` would never be found. **Celine is the opposite call**: the house
+itself dropped the accent in Hedi Slimane's 2018 rebrand, so the canonical is
+unaccented and keys cleanly as `celine`, with the accented "Céline" spelling carried
+as a *tag_era dating tell* (the Burberrys-with-an-S play). Both spellings are
+aliased either way.
+
+⚠ **The Versace diffusion labels get their own canonicals and do NOT fold onto
+Versace** (`brand-normalize.ts`). Versace Jeans Couture / Versus Versace / Versace
+Collection sell an **order of magnitude** below mainline and are the most common
+Versace-marked items in resale — this is the AGOLDE/Miu Miu rule, not the
+Fire+Ice/MK one. Folding them would silently retitle a $150 VJC tee as "Versace": a
+misrepresentation, and a comp catastrophe once the eBay Brand aspect prices it
+against mainline. They *do* deliberately share the Versace size chart (same Italian
+system, different price), and the chart note says the size never tells you the
+ladder.
+
+## ⏳ PENDING: 00460_luxury_outerwear_brand_knowledge.sql (US-1981 luxury outerwear brand KB, 2026-07-16)
+
+Data-only seed of the `brand_knowledge*` tables for the luxury outerwear & down
+tier: **Moncler, Canada Goose, Mackage, Herno, Woolrich, Bogner**. ALL SIX were
+passthrough-only — none had even a bare alias-only row from 00389 — so a "moncler"
+tag rendered the seller's own casing into the prompt block and the eBay Brand
+aspect on the most expensive garments the KB touches. `brand_knowledge` ×6;
+`brand_styles` ×22; `brand_style_codes` ×**1** (Canada Goose); `brand_colorways`
+×4; `brand_size_charts` ×12, all mirrored into the `sizing-charts.ts` in-code
+fallback. Every fact carries `source_url` + `confidence` and lands `verified=false`
+for the US-1715 admin queue. Idempotent (`on conflict do update`). Apply after
+00459 via `scripts/apply-prod-migrations.sh`, `NOTIFY pgrst, 'reload schema';`,
+redeploy the edge (boot guard now expects **00460**). Bumps
+`EXPECTED_SCHEMA_VERSION` → **00460**. Risk: LOW — data-only, no schema change, no
+frontend reads the new rows (the edge resolver falls back to the in-code seeds
+until the SQL lands, so an unapplied migration degrades rather than breaks).
+
+**THE SIZE IS A NUMBER IN A SYSTEM THE TAG DOES NOT NAME.** The through-line, and
+worth more than every style fingerprint in the pack combined. FOUR of the six size
+in a system the garment never identifies: **Moncler is 0-5** — its OWN proprietary
+scale, not US/EU/alpha; **Herno** is Italian (a men's "50" is IT 50 = US 40 / L);
+**Bogner** is German (a women's "38" is DE 38 = US 8); **Woolrich** depends on the
+ERA (US alpha on the Pennsylvania-mill heritage wool, EU on the Italian-era
+outerwear — one label, two systems). This is 00459's footwear trap on a garment:
+the number is real, the photo does not contradict it, and the result is a WRONG
+LISTING rather than a pricing refinement. So the cross-map is written INTO the size
+LABEL of every row — the only uncapped channel that reaches the model.
+
+**MONCLER WOMEN'S IS THE WORST CASE IN THE WHOLE CHART FILE**, because the numbers
+COLLIDE with US women's numeric sizing. A women's Moncler tagged "2" is a **US 6-8 /
+MEDIUM** — and "2" is a real US size too, so nothing looks wrong to anyone. That is
+a THREE-SIZE error on a $1,500 coat that no photo reasoning can catch. Contrast
+Dr. Martens' "7" (00459), where the wrong read at least produces an implausible
+listing; here it produces a perfectly plausible one.
+
+**AUTHENTICATION TELLS ARE INFORMATIONAL — NEVER AUTO-AUTHENTICATE**, per the story
+note, and this is the tier where that matters most. Moncler ships a QR ("Moncler
+Code") and Canada Goose a holographic disc; both are MANUFACTURER-side verification
+services and neither is evidence we can act on — a scannable QR and a rainbow
+hologram are exactly what a competent counterfeit reproduces. Every tell is seeded
+as a description/consistency aid that routes to human review, and each brand's tell
+list LEADS with the never-auto-authenticate guard.
+
+**ONE DECODER — CANADA GOOSE, AND THE DEPARTMENT LETTER IS THE WHOLE ARGUMENT.**
+The care-label style number is 4 digits + M/L (+ optional suffix): `4660MA`
+Expedition, `7950M` Chilliwack, `2506L` Kensington. A bare "4660" is four digits and
+is nothing — the letter is what makes the format brand-unique (the LV `SD1160`
+precedent). It carries the group's CUT-TAG case: the style number lives on the CARE
+label, which survives the brand tag being cut out of the collar. The M/L group is
+deliberately NON-CAPTURING — `genderCode` maps only M/W, so a captured "L" for
+LADIES' would pass through raw as "L" (the US-1740 New Balance "U" precedent).
+Everything else is decoder-less by design: Moncler's serial and the CG hologram
+number are BARE DIGIT RUNS (the Chanel rule, US-1736 — a pattern over one mints the
+KB's costliest false positive from any tag with 8 digits), and the
+Herno/Mackage/Woolrich/Bogner article numbers are catalog SKUs.
+
+Verified: `deno test` 3918 passed (incl. 12 new `luxury-outerwear-content_test.ts`
+cases + 8 new golden cases — Canada Goose recovers 3/3), `deno lint`, `deno check
+src/main.ts`, `tsc --noEmit`, `build:locked`, web vitest 2091 passed, and
+`verify:db` (all migrations apply on a fresh schema). Facts stay `verified=false`
+for the US-1715 admin queue, per the group convention.
 
 ## ⏳ PENDING: 00459_footwear_brand_knowledge.sql (US-1740 footwear brand KB, 2026-07-16)
 

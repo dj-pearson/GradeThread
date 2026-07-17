@@ -349,6 +349,74 @@ const BRAND_ALIASES: Record<string, string> = {
   michaelkorscollection: "Michael Kors",
   katespadenewyork: "Kate Spade",
   ksny: "Kate Spade",
+  // US-1982 luxury RTW & leather group (tier 2). Seven of the eight were
+  // passthrough-only and Versace had only the bare alias above, so a "balenciaga"
+  // tag rendered the seller's own casing into the prompt block and the eBay Brand
+  // aspect on the most expensive garments the KB touches.
+  //
+  // ⚠ brandKey() STRIPS ACCENTS (it keeps [a-z0-9] only), so "Hermès" keys as
+  // "herms" and "Céline" as "cline" — BOTH the accented and unaccented spellings
+  // need a key or a seller who types the accent gets nothing. The canonical
+  // "Hermès" keeps its accent (the eBay-indexed mark, and the Stüssy precedent),
+  // which is why migration 00461 seeds it under brand_key 'herms'.
+  hermes: "Hermès",
+  herms: "Hermès", // brandKey("Hermès") — the accented spelling lands here
+  hermesparis: "Hermès",
+  hermsparis: "Hermès",
+  hermessellier: "Hermès",
+  dior: "Dior",
+  christiandior: "Dior",
+  diorhomme: "Dior",
+  diormen: "Dior",
+  babydior: "Dior",
+  // The 2012 rename is a DATE, not a different house: Hedi Slimane dropped YVES
+  // from the RTW label, but the YSL monogram survived on hardware. All the
+  // spellings are the same brand and fold onto one canonical; the era lives in
+  // tag_eras (00461), the same way "Burberrys" with the S does.
+  saintlaurent: "Saint Laurent",
+  saintlaurentparis: "Saint Laurent",
+  yvessaintlaurent: "Saint Laurent",
+  ysl: "Saint Laurent",
+  yslrivegauche: "Saint Laurent",
+  balenciaga: "Balenciaga",
+  cristobalbalenciaga: "Balenciaga",
+  balenciagaparis: "Balenciaga",
+  bottegaveneta: "Bottega Veneta",
+  bottega: "Bottega Veneta",
+  fendi: "Fendi",
+  fendiroma: "Fendi",
+  // CELINE, not Céline — the house itself DROPPED the accent in Hedi Slimane's
+  // 2018 rebrand, so the current mark is unaccented (and keys cleanly as
+  // "celine"). The accented spelling is a genuine Phoebe-Philo-era DATING tell,
+  // carried as a tag_era in 00461 rather than as a second brand — the Burberrys
+  // play again. brandKey("Céline") = "cline", hence that key.
+  celine: "Celine",
+  cline: "Celine",
+  celineparis: "Celine",
+  // Gianni Versace is the founder's own pre-1997 label — it IS a Versace tag, so
+  // it canonicalizes to Versace. The era is a price ladder and lives in tag_eras.
+  gianniversace: "Versace",
+  versaceatelier: "Versace",
+  atelierversace: "Versace",
+  // ⚠ THE DIFFUSION LABELS GET THEIR OWN CANONICALS AND DO **NOT** FOLD ONTO
+  // VERSACE. This is the AGOLDE/Miu Miu rule, not the Fire+Ice/Michael Kors one:
+  // Versace Jeans Couture, Versus Versace and Versace Collection sell an ORDER OF
+  // MAGNITUDE below mainline Versace, and they are the most common Versace-marked
+  // items in resale by a wide margin. Folding them would silently retitle a $150
+  // VJC tee as "Versace" — a misrepresentation and a comp catastrophe, since the
+  // eBay Brand aspect would then price it against mainline.
+  //
+  // Safe despite containing the parent's name: CANONICAL_BRANDS is sorted
+  // LONGEST-FIRST, so detectBrandInText tests "Versace Jeans Couture" before
+  // "Versace" and never mis-attributes the sub-label (the Vince Camuto precedent).
+  // A bare "versus" is deliberately NOT a key — it is an ordinary English word,
+  // and the alias map is what a seller's whole brand field is looked up in. Same
+  // rule as the bare "goose" (00460) and "bean" (00453).
+  versacejeanscouture: "Versace Jeans Couture",
+  vjc: "Versace Jeans Couture",
+  versacejeans: "Versace Jeans Couture",
+  versusversace: "Versus Versace",
+  versacecollection: "Versace Collection",
   // US-1738 contemporary women's group. All seven were passthrough-only, so the
   // pack rendered the seller's own casing ("aritzia", "eileen fisher") into the
   // prompt block and the eBay Brand aspect.
@@ -426,7 +494,86 @@ const BRAND_ALIASES: Record<string, string> = {
   //   * "vince" IS mapped (the brand is exactly that string), but see the Vince
   //     Camuto note above for why the containing name had to be listed too.
   // Guarded by tests in contemporary-womens-content_test.ts.
+
+  // US-1983 new-generation streetwear & hype group. 00456 took the established
+  // canon (Supreme/Stüssy/BAPE/Palace/Kith/Fear of God); these nine are the
+  // generation after it and ALL NINE were passthrough-only, so a "sp5der" tag
+  // rendered the seller's own casing into the prompt block and the eBay Brand
+  // aspect on some of the fastest-moving garments in resale.
+  offwhite: "Off-White",
+  offwhitecovirgilabloh: "Off-White",
+  owca: "Off-White",
+  chromehearts: "Chrome Hearts",
+  chromeheartshollywood: "Chrome Hearts",
+  // "ch" is a two-letter alias, safe ONLY because this map is an exact
+  // WHOLE-FIELD lookup (the "ag"/AG Jeans precedent). It never reaches
+  // detectBrandInText, which scans the VALUES.
+  ch: "Chrome Hearts",
+  // TWO KEYS, AND IT IS NOT A DUPLICATE. brandKey() keeps [a-z0-9] only, so it
+  // DELETES the accented character rather than folding it to its ASCII base:
+  //   "Aimé Leon Dore" -> `aimleondore`   (no "e" — the é is GONE)
+  //   "Aime Leon Dore" -> `aimeleondore`  (an ordinary "e" survives)
+  // Both spellings are typed by sellers constantly, so both must resolve or the
+  // one who bothers with the accent gets a passthrough. `aimleondore` is also the
+  // brand_key 00462 seeds the row under (the Hermès/'herms' precedent, 00461) —
+  // it looks like a typo and is not.
+  aimleondore: "Aimé Leon Dore",
+  aimeleondore: "Aimé Leon Dore",
+  ald: "Aimé Leon Dore",
+  aimeleondorenewyork: "Aimé Leon Dore",
+  gallerydept: "Gallery Dept.",
+  gallerydepartment: "Gallery Dept.",
+  denimtears: "Denim Tears",
+  rhude: "Rhude",
+  sp5der: "Sp5der",
+  sp5derworldwide: "Sp5der",
+  spiderworldwide: "Sp5der",
+  // A bare "spider" IS mapped, and it is safe for the same reason "ch" is: an
+  // exact whole-field tag lookup. It is NOT in CANONICAL_BRANDS (the value is
+  // "Sp5der"), so detectBrandInText can never mint this brand from the ordinary
+  // word "spider" in free text — which matters, because a spider is also a
+  // common graphic SUBJECT this product's own description text emits.
+  spider: "Sp5der",
+  hellstar: "Hellstar",
+  hellstarstudios: "Hellstar",
+  antisocialsocialclub: "Anti Social Social Club",
+  assc: "Anti Social Social Club",
+  antisocialclub: "Anti Social Social Club",
+  // DELIBERATELY ABSENT: a bare "gallery", "tears", "hell" or "star" — all
+  // ordinary words. Same rule as "bean"/"moth"/"goose".
 };
+
+/**
+ * Canonical brands that must NEVER be minted out of FREE TEXT, even though they
+ * are correct canonical values for a tag (US-1983).
+ *
+ * The hazard is structural: CANONICAL_BRANDS is built from BRAND_ALIASES'
+ * VALUES, and detectBrandInText regex-scans those over arbitrary prose. An alias
+ * KEY that is an ordinary word is safe (the map is an exact whole-field lookup —
+ * the "ag"/"spider"/"ch" play), but a canonical VALUE that is an ordinary word
+ * has no such protection.
+ *
+ * "Off-White" is exactly that, and it is the worst case the KB has: it is a real
+ * hype brand AND the single most common neutral COLOUR word in clothing. The
+ * word-boundary guard cannot help — an off-white garment's title contains the
+ * brand name EXACTLY. Without this exclusion, "Nike tee, off-white, medium" from
+ * a barcode/UPC title match resolves to brand "Off-White", and longest-first
+ * ordering makes it BEAT the real "Nike" sitting in the same string. That
+ * mis-brands an ordinary tee as a hype label and prices it off the wrong ladder.
+ * The KB already treats the phrase as a colour elsewhere — 00455 seeds
+ * "off-white" as an alias of Prada's Talco COLORWAY.
+ *
+ * So this brand is reachable by TAG (canonicalizeBrand/isKnownBrand still
+ * resolve it, which is what the eBay Brand aspect and the comp filter need) but
+ * is never GUESSED from prose. That is the KB's never-guess principle applied to
+ * detection: decline rather than false-fire.
+ *
+ * This is opt-in and additive — no other brand's behavior changes. Contrast the
+ * "Gucci GG Supreme" → Supreme mis-detection, which is NOT this problem: we do
+ * want Supreme detected, so it needs a positional rule in the shared matcher,
+ * not an exclusion.
+ */
+const DETECT_EXCLUDED_FROM_TEXT: ReadonlySet<string> = new Set(["Off-White"]);
 
 /**
  * Canonicalize a free-text brand against the known-brand table. Returns the
@@ -451,10 +598,13 @@ export function isKnownBrand(raw: string | null | undefined): boolean {
 }
 
 /** Unique canonical brand names, longest-first so multi-word brands ("Polo
- *  Ralph Lauren") win over a contained shorter one ("Ralph Lauren"). */
+ *  Ralph Lauren") win over a contained shorter one ("Ralph Lauren"). Brands in
+ *  DETECT_EXCLUDED_FROM_TEXT are omitted — they are valid canonicals for a TAG
+ *  but must never be minted out of prose (US-1983; see that set's comment). */
 const CANONICAL_BRANDS: readonly string[] = Array.from(
   new Set(Object.values(BRAND_ALIASES)),
-).sort((a, b) => b.length - a.length);
+).filter((b) => !DETECT_EXCLUDED_FROM_TEXT.has(b))
+  .sort((a, b) => b.length - a.length);
 
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
