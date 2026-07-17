@@ -4,6 +4,58 @@
 > The sections below for those are historical; the only NEW held migration is
 > **00443** at the top.
 
+## ⏳ PENDING: 00465_activewear_brand_knowledge.sql (US-1985 activewear brand KB tier 2, 2026-07-17)
+
+Data-only seed of the `brand_knowledge*` tables for the high-volume athletic /
+athleisure tier: **Champion, Fila, PUMA, Reebok, ASICS, On Running, HOKA, Outdoor
+Voices, Girlfriend Collective**. Sits beside the athleisure packs (00452 et al.)
+and the footwear pack (00459), none of which are re-touched.
+
+**FIVE OF THE NINE ALREADY HAD A ROW AND IT WAS A STUB.** 00389 seeded
+`champion`/`fila`/`puma`/`reebok`/`asics` as bare shells — canonical + one alias,
+no styles, no charts, no tells, no eras — so they canonicalized and then
+contributed **nothing** to the prompt. This promotes all five to full packs. The
+other four were passthrough-only (a "hoka one one" tag rendered the seller's own
+casing into the prompt block and the eBay Brand aspect).
+
+`brand_knowledge` ×9; `brand_styles` ×36; `brand_style_codes` ×**1** (ASICS);
+`brand_colorways` ×7; `brand_size_charts` ×19, all mirrored 1:1 into the
+`sizing-charts.ts` in-code fallback. Every fact carries `source_url` +
+`confidence` and lands `verified=false` for the US-1715 admin queue. Idempotent
+(`on conflict do update` / `do nothing`).
+
+Apply **after 00464** via `scripts/apply-prod-migrations.sh`, then
+`NOTIFY pgrst, 'reload schema';`, then redeploy the edge (boot guard now expects
+**00465**). Bumps `EXPECTED_SCHEMA_VERSION` → **00465**. Risk: LOW — data-only, no
+schema change, no frontend reads the new rows (the edge resolver falls back to
+the in-code seeds until the SQL lands, so an unapplied migration degrades rather
+than breaks).
+
+**One code change ships with it and it is NOT data:** `DETECT_EXCLUDED_FROM_TEXT`
+(brand-normalize.ts) gains **`On Running`** — the worst ordinary-word case in the
+epic and the only brand needing **two** defences. The canonical is already the
+long form (a bare `On` would be regex-scanned over every listing in the
+catalogue), and the long form is *still* ordinary prose: "great grip **on
+running** trails". Longest-first ordering makes that actively harmful rather than
+noisy — `On Running` (10 chars) BEATS a real `Nike` (4) in the same string.
+Verified empirically: removing the entry turns the assertion red (mutation-tested,
+not argued). The brand stays reachable by TAG, which is what the eBay aspect and
+the comp filter read.
+
+> ⚠ **`verify:db` did NOT run for this migration — Docker was unresponsive on the
+> authoring host** (`docker info` hung past its timeout), so the throwaway-stack
+> lane was skipped. As with 00461/00462/00464, the SQL was validated statically
+> against **libpg_query (the real PostgreSQL parser, via `pglast`)**: it parses (6
+> statements); every VALUES tuple matches its column list (9×12, 36×15, 1×10,
+> 7×9, 19×12); all column names and `ON CONFLICT` targets resolve against the
+> 00389 DDL; and no `VALUES` list repeats a conflict key (which would abort an
+> `ON CONFLICT DO UPDATE` apply). The dollar-quoted bodies were separately scanned
+> for the US-1981 `''`-inside-`$j$` trap and for JSON validity (48 blocks, clean),
+> with the scanner **self-tested against planted bugs** — the first two attempts
+> at that scan were silently vacuous (the Bash tool ate a backslash level, exactly
+> the documented `new RegExp("\\$j\\$")` trap). Still run `npm run verify:db`
+> before the prod apply if Docker is available.
+
 ## ⏳ PENDING: 00464_premium_denim_brand_knowledge.sql (US-1984 premium denim brand KB tier 2, 2026-07-17)
 
 Data-only seed of the `brand_knowledge*` tables for the premium-denim tier beside

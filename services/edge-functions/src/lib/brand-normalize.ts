@@ -249,6 +249,64 @@ const BRAND_ALIASES: Record<string, string> = {
   fabletics: "Fabletics",
   beyondyoga: "Beyond Yoga",
   sweatybetty: "Sweaty Betty",
+  // US-1985 activewear group (tier 2). Champion, Fila, PUMA, Reebok and ASICS
+  // are already above — they canonicalized from the 00389 stub rows and 00465
+  // promotes those stubs to full packs, so the only NEW work here is aliases the
+  // stubs never had plus the four brands that were passthrough-only.
+  championusa: "Champion",
+  championproducts: "Champion",
+  // "Reverse Weave" is Champion's own trademarked construction and no other
+  // brand uses the term — safe as an exact-key alias and genuinely typed by
+  // sellers, who often list the construction as the brand.
+  reverseweave: "Champion",
+  championreverseweave: "Champion",
+  filaitalia: "Fila",
+  filasport: "Fila",
+  filavintage: "Fila",
+  pumasports: "PUMA",
+  reeboks: "Reebok",
+  reebokclassic: "Reebok",
+  reebokclassics: "Reebok",
+  // ASICS Tiger (no Onitsuka) IS the ASICS sportstyle sub-line and folds here.
+  // ONITSUKA TIGER DELIBERATELY DOES NOT: ASICS owns it, but it is a separate
+  // CURRENT label with its own tag, its own buyer and its own comps — folding it
+  // would retitle a fashion sneaker as ASICS and comp it against a Gel-Kayano.
+  // The AGOLDE/Miu Miu rule: a parent company never decides a fold. Left as a
+  // passthrough, which preserves the seller's own text (the correct outcome).
+  asicstiger: "ASICS",
+  // CANONICAL IS "On Running", NOT "On" — the AG Jeans / Hudson Jeans play, and
+  // the most extreme case of it in the epic: a bare "On" as a canonical would be
+  // regex-scanned by detectBrandInText over EVERY listing in the catalogue, and
+  // "on" is among the most common words in English. The short form survives as an
+  // exact-key alias only, which is safe because keys are a whole-field lookup.
+  //
+  // The long form is NOT sufficient on its own either — "great grip on running
+  // trails" contains it verbatim — so On Running is ALSO in
+  // DETECT_EXCLUDED_FROM_TEXT below. It is the only brand needing BOTH defences.
+  on: "On Running",
+  onrunning: "On Running",
+  oncloud: "On Running",
+  oncloudshoes: "On Running",
+  onag: "On Running",
+  onholding: "On Running",
+  cloudtec: "On Running",
+  onshoes: "On Running",
+  // HOKA ONE ONE renamed to HOKA in 2021. Both spellings are the SAME brand and
+  // must reach the same row — never two canonicals. (Maori-derived, pronounced
+  // OH-nay OH-nay; it is not the number one twice.) A bare "one one" is
+  // deliberately NOT a key: ordinary words, and no seller types it alone.
+  hoka: "HOKA",
+  hokaoneone: "HOKA",
+  hokaone: "HOKA",
+  hokas: "HOKA",
+  outdoorvoices: "Outdoor Voices",
+  // "ov" is safe as a KEY (an exact whole-field lookup, so it only fires when the
+  // seller's ENTIRE brand field is "OV") and would be catastrophic as a canonical
+  // or a brandMatch token — the "ag"-hands-Patagonia-AG's-charts bug (US-1735).
+  ov: "Outdoor Voices",
+  girlfriendcollective: "Girlfriend Collective",
+  // Same rule as "ov": an ordinary word, safe ONLY as an exact-match key.
+  girlfriend: "Girlfriend Collective",
   // Mall / mainstream
   tommyhilfiger: "Tommy Hilfiger",
   ralphlauren: "Ralph Lauren",
@@ -636,6 +694,16 @@ const DETECT_EXCLUDED_FROM_TEXT: ReadonlySet<string> = new Set([
   "Off-White", // a colour word (US-1983)
   "MOTHER", // "mother of pearl" (US-1984)
   "FRAME", // "sunglasses frame" (US-1984)
+  // US-1985. The worst instance of this trap so far, and the only brand needing
+  // TWO defences: the canonical is already the long form (a bare "On" would be
+  // scanned over every listing in the catalogue), and the long form is STILL
+  // ordinary prose — "great grip on running trails" contains "on running"
+  // verbatim. Longest-first ordering makes that actively harmful rather than
+  // merely noisy: "On Running" (10 chars) BEATS a real "Nike" (4) sitting in the
+  // same string. Verified empirically in activewear-content_test.ts; the brand
+  // stays fully reachable by TAG, which is what the eBay aspect and the comp
+  // filter read.
+  "On Running",
 ]);
 
 /**

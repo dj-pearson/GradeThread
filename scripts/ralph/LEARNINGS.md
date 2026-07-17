@@ -1115,7 +1115,21 @@ memory — not a progress log (the harness records progress separately).
   IS available; just don't invoke it as `python3`. Related: the Bash tool eats one
   level of backslashes, so a `new RegExp("\\$j\\$")` built in a `node -e '…'`
   one-liner silently becomes `/$j$/` and matches NOTHING — write the script to a
-  file instead of debugging a phantom zero-match.
+  file instead of debugging a phantom zero-match. CORRECTION (US-1985): a quoted
+  `<<'EOF'` HEREDOC eats them too — "write it to a file" only works via the Write
+  TOOL. And the failure is SILENT-SUCCESS, not an error: a vacuous scan finds 0
+  blocks and prints "no problems", so it reads as a clean bill of health. Any
+  throwaway validator must be SELF-TESTED against a planted bug (`--selftest` that
+  breaks one block and asserts the scanner goes red) before you trust a green run
+  — US-1985 shipped two vacuous scans in a row before catching it.
+- A brand that sells BOTH shoes and clothes under one name (US-1985's Fila/PUMA/
+  Reebok — the first in the epic) owns TWO charts on one `brand_key`, and
+  `category_match` is the ONLY thing choosing between them: a stamped US/UK/EU
+  shoe number vs an alpha chest letter, read in OPPOSITE directions (a shoe chart
+  TRANSLATES, a garment chart ESTIMATES). A miss silently hands a hoodie a shoe
+  chart. Keep the two brands' category lists tight + non-overlapping, name the
+  system in `garment` so the model sees which it got, and remember `category_match`
+  is a plain SUBSTRING test (deliberately) — so a `boot` token fires on `bootcut`.
 - A sub-label an ORDER OF MAGNITUDE below its parent gets its OWN canonical and
   must NOT fold onto the parent (the AGOLDE/Miu Miu rule) — folding it silently
   retitles the cheap piece as the parent and prices it against mainline via the

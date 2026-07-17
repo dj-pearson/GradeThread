@@ -4498,6 +4498,815 @@ export const SIZING_CHARTS: SizingChart[] = [
       { size: "W38", measurements: { waist: "38" } },
     ],
   },
+
+  // ── US-1985: activewear group (tier 2) ─────────────────────────────────────
+  // Mirrors migration 00465's brand_size_charts seed (the DB rows win when the
+  // pack loads; these are the offline fallback).
+  //
+  // THIS PACK IS THE FIRST WITH TWO SIZING SYSTEMS UNDER ONE BRAND, and it is why
+  // these rows are shaped as they are. Before 00465 no brand in this table owned
+  // both a Footwear chart and a garment chart: 00459 was footwear-only, 00464 was
+  // apparel-only, the athleisure packs are apparel-only. Here FILA, PUMA and
+  // REEBOK own BOTH — one brand, one tag, and the size on it is a STAMPED shoe
+  // number or an alpha chest letter depending only on what the item is.
+  //
+  // `categoryMatch` is the ONLY thing choosing between them, and a miss silently
+  // hands a hoodie a shoe chart. So the category lists below are drawn TIGHT and
+  // do not overlap between a brand's two systems, and every `garment` string
+  // NAMES ITS SYSTEM so the model can see which chart it was given.
+  //
+  // THE TWO SYSTEMS READ IN OPPOSITE DIRECTIONS:
+  //   * a GARMENT chart is an ESTIMATOR — measure the chest, double it, read off;
+  //   * a SHOE chart is a TRANSLATOR (the 00459 rule) — a shoe size cannot be
+  //     measured from a photo, it is STAMPED and must be READ, then converted.
+  //     The US/UK/EU triple lives INSIDE the size label, where the model reads it.
+  //
+  // AND THE FIT DIRECTION SPLITS THE SIX SHOE BRANDS IN TWO — there is no single
+  // "athletic shoes run X" rule:
+  //     ASICS / On       run SMALL and NARROW   (a Japanese last; a narrow Swiss one)
+  //     PUMA             runs SMALL
+  //     Reebok classics  run LARGE
+  //     HOKA / Fila      ≈ true to size (the Disruptor a touch large)
+  //
+  // brandMatch tokens deliberately ABSENT: "on" (brandTextMatches is
+  // leading-word-boundary only and "on" STARTS "Onitsuka" — a bare token would
+  // hand an Onitsuka Tiger On Running's charts; the canonical "On Running" is
+  // what the resolver passes anyway), and "ov"/"girlfriend" (alias KEYS only —
+  // a 2-letter or ordinary-word token here is the "ag"-hands-Patagonia-AG's-
+  // charts bug, US-1735).
+  //
+  // Cross-maps are the standard US/UK/EU grade and the run-small/run-large calls
+  // are the reported resale consensus — not brand-published specs.
+  {
+    brand: "Champion",
+    brandMatch: ["champion"],
+    department: "Men",
+    garment: "Tops (alpha — vintage runs BOXY)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "sweatshirt",
+      "hoodie",
+      "crewneck",
+      "sweater",
+      "jersey",
+      "long sleeve",
+    ],
+    note:
+      "BODY measurement (chest) — an ESTIMATOR: measure the flat chest (armpit " +
+      "to armpit) and DOUBLE IT. CHAMPION IS APPAREL ONLY — it makes no " +
+      "footwear, so unlike PUMA/Reebok/Fila in this same pack there is no shoe " +
+      "chart to confuse this with. CHAMPION-SPECIFIC AND IT IS THE POINT OF THIS " +
+      "ROW: THE VINTAGE CUT IS BOXY AND THE MODERN CUT IS NOT. A 1980s-90s " +
+      "Champion sweatshirt is cut SHORT AND WIDE — the chest may hit this chart " +
+      "while the body length runs several inches shorter than a modern " +
+      "equivalent letter, so the same L is a materially different garment across " +
+      "eras and the tag will never say so. Measure the LENGTH as well as the " +
+      "chest on any vintage piece and publish both; the era comes off the NECK " +
+      "TAG. Reverse Weave resists vertical shrinkage by design (that is what the " +
+      "construction is for), so a vintage piece has usually NOT shrunk in length " +
+      "— it was cut that way. Standard US alpha approximation — capped confidence.",
+    rows: [
+      { size: "S", measurements: { chest: "34-37" } },
+      { size: "M", measurements: { chest: "38-41" } },
+      { size: "L", measurements: { chest: "42-45" } },
+      { size: "XL", measurements: { chest: "46-49" } },
+      { size: "XXL", measurements: { chest: "50-53" } },
+      { size: "XXXL", measurements: { chest: "54-57" } },
+    ],
+  },
+  {
+    brand: "Champion",
+    brandMatch: ["champion"],
+    department: "Women",
+    garment: "Tops (alpha)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "sweatshirt",
+      "hoodie",
+      "crewneck",
+      "sweater",
+      "blouse",
+      "long sleeve",
+    ],
+    note:
+      "BODY measurement (bust) — measure the flat chest and DOUBLE IT. Champion " +
+      "is apparel-only (no footwear), so there is no shoe chart to confuse this " +
+      "with. NOTE THE UNISEX TRAP ON THIS BRAND SPECIFICALLY: much of Champion's " +
+      "sweatshirt volume — including most vintage Reverse Weave — is cut on a " +
+      "MEN'S/unisex block and merely sold to women, so a sweatshirt found in a " +
+      "women's wardrobe is frequently a men's-graded garment and belongs on the " +
+      "men's chart. If the tag does not state a department, measure and use the " +
+      "men's row rather than assuming. Standard US alpha approximation — capped " +
+      "confidence.",
+    rows: [
+      { size: "XS", measurements: { bust: "31-32.5" } },
+      { size: "S", measurements: { bust: "33-34.5" } },
+      { size: "M", measurements: { bust: "35-36.5" } },
+      { size: "L", measurements: { bust: "37.5-39" } },
+      { size: "XL", measurements: { bust: "40.5-42.5" } },
+      { size: "XXL", measurements: { bust: "44-46" } },
+    ],
+  },
+
+  // Fila — the first of the pack's dual-system brands. NOTE no "boot" category
+  // token: categoryMatch is a plain substring test, so "boot" would fire on
+  // "bootcut" and hand a bootcut garment a shoe chart. Fila sells no boots.
+  {
+    brand: "Fila",
+    brandMatch: ["fila"],
+    department: "Men",
+    garment: "Footwear (US/UK/EU — the size is STAMPED, not measured)",
+    categoryMatch: [
+      "footwear",
+      "shoe",
+      "shoes",
+      "sneaker",
+      "sneakers",
+      "trainer",
+      "disruptor",
+    ],
+    note:
+      "A SHOE CHART IS A TRANSLATOR, NOT AN ESTIMATOR — the size CANNOT be " +
+      "measured from a photo. It is STAMPED on the tongue label or the insole " +
+      "and must be READ, then converted; the foot-length inches are a sanity " +
+      "check for a shoe in hand. FILA SELLS SHOES AND CLOTHES UNDER ONE NAME, so " +
+      "settle the GARMENT TYPE before reading the size: a stamped 9 is this " +
+      "chart, an M is the Fila tops chart. Never carry one onto the other. " +
+      "FILA-SPECIFIC: roughly true to size, though the DISRUPTOR runs a touch " +
+      "LARGE and is often sized down a half — state the stamped number so the " +
+      "buyer can judge. Condition for the Disruptor: the white midsole YELLOWS " +
+      "progressively and irreversibly (a real value lever); its oversized sole " +
+      "is DESIGNED and is not deformity. Standard US/UK/EU grade and the " +
+      "reported resale consensus, not Fila-published specs — capped confidence.",
+    rows: [
+      { size: "US M7 = UK 6 = EU 40", measurements: { footLength: "9.6" } },
+      { size: "US M8 = UK 7 = EU 41", measurements: { footLength: "9.95" } },
+      { size: "US M9 = UK 8 = EU 42.5", measurements: { footLength: "10.3" } },
+      { size: "US M10 = UK 9 = EU 44", measurements: { footLength: "10.6" } },
+      { size: "US M11 = UK 10 = EU 45", measurements: { footLength: "10.95" } },
+      { size: "US M12 = UK 11 = EU 46", measurements: { footLength: "11.25" } },
+      { size: "US M13 = UK 12 = EU 47.5", measurements: { footLength: "11.6" } },
+    ],
+  },
+  {
+    brand: "Fila",
+    brandMatch: ["fila"],
+    department: "Women",
+    garment: "Footwear (US/UK/EU — the size is STAMPED, not measured)",
+    categoryMatch: [
+      "footwear",
+      "shoe",
+      "shoes",
+      "sneaker",
+      "sneakers",
+      "trainer",
+      "disruptor",
+    ],
+    note:
+      "A SHOE CHART IS A TRANSLATOR — the size is STAMPED on the tongue label " +
+      "and must be READ, not measured from a photo. Fila sells shoes AND clothes " +
+      "under one name, so settle the garment type before reading the size. " +
+      "FILA-SPECIFIC: roughly true to size; the DISRUPTOR — overwhelmingly a " +
+      "women's seller — runs a touch LARGE. Its oversized sawtooth sole is " +
+      "DESIGNED and is not deformity; the white midsole's YELLOWING is the real, " +
+      "irreversible condition axis. Standard US/UK/EU grade and the reported " +
+      "resale consensus, not Fila-published specs — capped confidence.",
+    rows: [
+      { size: "US W6 = UK 3.5 = EU 36.5", measurements: { footLength: "8.9" } },
+      { size: "US W7 = UK 4.5 = EU 37.5", measurements: { footLength: "9.25" } },
+      { size: "US W8 = UK 5.5 = EU 39", measurements: { footLength: "9.5" } },
+      { size: "US W9 = UK 6.5 = EU 40", measurements: { footLength: "9.9" } },
+      { size: "US W10 = UK 7.5 = EU 41.5", measurements: { footLength: "10.2" } },
+      { size: "US W11 = UK 8.5 = EU 42.5", measurements: { footLength: "10.5" } },
+    ],
+  },
+  {
+    brand: "Fila",
+    brandMatch: ["fila"],
+    department: "Unisex",
+    garment: "Tops (alpha)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "jacket",
+      "track jacket",
+      "sweatshirt",
+      "hoodie",
+      "jersey",
+      "long sleeve",
+    ],
+    note:
+      "BODY measurement (chest) — an ESTIMATOR, unlike the Fila FOOTWEAR charts " +
+      "on this same brand: measure the flat chest (armpit to armpit) and DOUBLE " +
+      "IT. THIS IS THE GARMENT CHART. A size on a Fila tag is a shoe number OR a " +
+      "chest letter depending on what the item is, and the item type is the only " +
+      "thing that decides — never read an alpha letter off a shoe or a stamped " +
+      "number off a track jacket. FILA-SPECIFIC: the vintage ITALIAN-MADE track " +
+      "jackets (Settanta/Terrinda) are cut to a 1970s-80s European grade and run " +
+      "SMALLER and shorter than the modern line at the same letter — measure a " +
+      "vintage piece rather than trusting its letter. Standard US alpha " +
+      "approximation — capped confidence.",
+    rows: [
+      { size: "S", measurements: { chest: "35-37" } },
+      { size: "M", measurements: { chest: "38-40" } },
+      { size: "L", measurements: { chest: "42-44" } },
+      { size: "XL", measurements: { chest: "46-48" } },
+      { size: "XXL", measurements: { chest: "50-52" } },
+    ],
+  },
+
+  // PUMA — shoe + garment under one brand. Runs SMALL.
+  {
+    brand: "PUMA",
+    brandMatch: ["puma"],
+    department: "Men",
+    garment: "Footwear (US/UK/EU — RUNS SMALL, size is STAMPED)",
+    categoryMatch: [
+      "footwear",
+      "shoe",
+      "shoes",
+      "sneaker",
+      "sneakers",
+      "trainer",
+      "suede",
+      "clyde",
+      "speedcat",
+    ],
+    note:
+      "A SHOE CHART IS A TRANSLATOR, NOT AN ESTIMATOR — the size CANNOT be " +
+      "measured from a photo. It is STAMPED on the tongue label and must be " +
+      "READ, then converted; the foot-length inches are a sanity check for a " +
+      "shoe in hand. PUMA SELLS SHOES AND CLOTHES UNDER ONE NAME, so settle the " +
+      "GARMENT TYPE before reading the size: a stamped 9 is this chart, an M is " +
+      "the PUMA tops chart. PUMA-SPECIFIC: the brand is widely reported to RUN " +
+      "SMALL (roughly a half size) — the same direction as ASICS and On in this " +
+      "pack and the OPPOSITE of the Reebok classics, so there is no single " +
+      "athletic-shoe rule and the brand decides. State the stamped number so the " +
+      "buyer can judge. Condition on the Suede/Clyde: the suede NAP is the grade " +
+      "— scuffing, matting and water staining are progressive and irreversible, " +
+      "and a straight-on photo hides all three. Standard US/UK/EU grade and the " +
+      "reported resale consensus, not PUMA-published specs — capped confidence.",
+    rows: [
+      { size: "US M7 = UK 6 = EU 39", measurements: { footLength: "9.6" } },
+      { size: "US M8 = UK 7 = EU 40.5", measurements: { footLength: "9.95" } },
+      { size: "US M9 = UK 8 = EU 42", measurements: { footLength: "10.3" } },
+      { size: "US M10 = UK 9 = EU 43", measurements: { footLength: "10.6" } },
+      { size: "US M11 = UK 10 = EU 44.5", measurements: { footLength: "10.95" } },
+      { size: "US M12 = UK 11 = EU 46", measurements: { footLength: "11.25" } },
+      { size: "US M13 = UK 12 = EU 47", measurements: { footLength: "11.6" } },
+    ],
+  },
+  {
+    brand: "PUMA",
+    brandMatch: ["puma"],
+    department: "Women",
+    garment: "Footwear (US/UK/EU — RUNS SMALL, size is STAMPED)",
+    categoryMatch: [
+      "footwear",
+      "shoe",
+      "shoes",
+      "sneaker",
+      "sneakers",
+      "trainer",
+      "suede",
+      "clyde",
+      "speedcat",
+    ],
+    note:
+      "A SHOE CHART IS A TRANSLATOR — the size is STAMPED on the tongue label " +
+      "and must be READ, not measured from a photo. PUMA sells shoes AND clothes " +
+      "under one name, so settle the garment type before reading the size. " +
+      "PUMA-SPECIFIC: the brand RUNS SMALL (roughly a half size) — the opposite " +
+      "of the Reebok classics in this same pack. State the stamped number in the " +
+      "listing. Standard US/UK/EU grade and the reported resale consensus, not " +
+      "PUMA-published specs — capped confidence.",
+    rows: [
+      { size: "US W6 = UK 3.5 = EU 36", measurements: { footLength: "8.9" } },
+      { size: "US W7 = UK 4.5 = EU 37.5", measurements: { footLength: "9.25" } },
+      { size: "US W8 = UK 5.5 = EU 38.5", measurements: { footLength: "9.5" } },
+      { size: "US W9 = UK 6.5 = EU 40", measurements: { footLength: "9.9" } },
+      { size: "US W10 = UK 7.5 = EU 41", measurements: { footLength: "10.2" } },
+      { size: "US W11 = UK 8.5 = EU 42.5", measurements: { footLength: "10.5" } },
+    ],
+  },
+  {
+    brand: "PUMA",
+    brandMatch: ["puma"],
+    department: "Unisex",
+    garment: "Tops (alpha)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "jacket",
+      "track jacket",
+      "sweatshirt",
+      "hoodie",
+      "jersey",
+      "long sleeve",
+    ],
+    note:
+      "BODY measurement (chest) — an ESTIMATOR, unlike the PUMA FOOTWEAR charts " +
+      "on this same brand: measure the flat chest (armpit to armpit) and DOUBLE " +
+      "IT. THIS IS THE GARMENT CHART. A size on a PUMA tag is a stamped shoe " +
+      "number OR an alpha chest letter depending on what the item is, and only " +
+      "the item type decides — a T7 track jacket reads here, a Suede reads on " +
+      "the footwear chart. Never carry one onto the other. Standard US alpha " +
+      "approximation — capped confidence.",
+    rows: [
+      { size: "S", measurements: { chest: "35-37" } },
+      { size: "M", measurements: { chest: "38-40" } },
+      { size: "L", measurements: { chest: "42-44" } },
+      { size: "XL", measurements: { chest: "46-48" } },
+      { size: "XXL", measurements: { chest: "50-52" } },
+    ],
+  },
+
+  // Reebok — the pack's ONLY runs-LARGE shoe brand. Shoe + garment.
+  {
+    brand: "Reebok",
+    brandMatch: ["reebok"],
+    department: "Men",
+    garment: "Footwear (US/UK/EU — classics RUN LARGE, size is STAMPED)",
+    categoryMatch: [
+      "footwear",
+      "shoe",
+      "shoes",
+      "sneaker",
+      "sneakers",
+      "trainer",
+      "classic leather",
+      "club c",
+      "nano",
+      "pump",
+    ],
+    note:
+      "A SHOE CHART IS A TRANSLATOR, NOT AN ESTIMATOR — the size CANNOT be " +
+      "measured from a photo. It is STAMPED on the tongue label and must be " +
+      "READ, then converted; the foot-length inches are a sanity check for a " +
+      "shoe in hand. REEBOK SELLS SHOES AND CLOTHES UNDER ONE NAME, so settle " +
+      "the GARMENT TYPE before reading the size. REEBOK-SPECIFIC AND IT RUNS " +
+      "OPPOSITE TO MOST OF THIS PACK: the CLASSICS (Classic Leather, Club C, " +
+      "Freestyle) are widely reported to RUN LARGE and are commonly sized DOWN a " +
+      "half — where ASICS, On and PUMA in this same pack all run SMALL. So one " +
+      "blanket athletic-shoe rule is wrong in both directions here, and the " +
+      "brand decides. The performance line (Nano) is closer to true to size. " +
+      "State the stamped number so the buyer can judge. Condition: the white " +
+      "midsole on the classics YELLOWS progressively and irreversibly — a real " +
+      "value lever. On any PUMP model the inflation bladder is a FUNCTIONAL " +
+      "component that no photo reveals: test it in hand and say whether it " +
+      "holds. Standard US/UK/EU grade and the reported resale consensus, not " +
+      "Reebok-published specs — capped confidence.",
+    rows: [
+      { size: "US M7 = UK 6 = EU 39", measurements: { footLength: "9.6" } },
+      { size: "US M8 = UK 7 = EU 40.5", measurements: { footLength: "9.95" } },
+      { size: "US M9 = UK 8 = EU 42", measurements: { footLength: "10.3" } },
+      { size: "US M10 = UK 9 = EU 43", measurements: { footLength: "10.6" } },
+      { size: "US M11 = UK 10 = EU 44.5", measurements: { footLength: "10.95" } },
+      { size: "US M12 = UK 11 = EU 45.5", measurements: { footLength: "11.25" } },
+      { size: "US M13 = UK 12 = EU 47", measurements: { footLength: "11.6" } },
+    ],
+  },
+  {
+    brand: "Reebok",
+    brandMatch: ["reebok"],
+    department: "Women",
+    garment: "Footwear (US/UK/EU — classics RUN LARGE, size is STAMPED)",
+    categoryMatch: [
+      "footwear",
+      "shoe",
+      "shoes",
+      "sneaker",
+      "sneakers",
+      "trainer",
+      "classic leather",
+      "club c",
+      "freestyle",
+      "nano",
+    ],
+    note:
+      "A SHOE CHART IS A TRANSLATOR — the size is STAMPED on the tongue label " +
+      "and must be READ, not measured from a photo. Reebok sells shoes AND " +
+      "clothes under one name, so settle the garment type before reading the " +
+      "size. REEBOK-SPECIFIC: the CLASSICS (Club C, Classic Leather, Freestyle) " +
+      "RUN LARGE and are commonly sized DOWN a half — the OPPOSITE direction to " +
+      "ASICS, On and PUMA in this same pack. State the stamped number in the " +
+      "listing. The white midsole YELLOWS progressively and irreversibly, which " +
+      "is a real value lever on the classics. Standard US/UK/EU grade and the " +
+      "reported resale consensus, not Reebok-published specs — capped confidence.",
+    rows: [
+      { size: "US W6 = UK 3.5 = EU 36", measurements: { footLength: "8.9" } },
+      { size: "US W7 = UK 4.5 = EU 37.5", measurements: { footLength: "9.25" } },
+      { size: "US W8 = UK 5.5 = EU 38.5", measurements: { footLength: "9.5" } },
+      { size: "US W9 = UK 6.5 = EU 40", measurements: { footLength: "9.9" } },
+      { size: "US W10 = UK 7.5 = EU 41", measurements: { footLength: "10.2" } },
+      { size: "US W11 = UK 8.5 = EU 42", measurements: { footLength: "10.5" } },
+    ],
+  },
+  {
+    brand: "Reebok",
+    brandMatch: ["reebok"],
+    department: "Unisex",
+    garment: "Tops (alpha)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "jacket",
+      "track jacket",
+      "sweatshirt",
+      "hoodie",
+      "jersey",
+      "long sleeve",
+    ],
+    note:
+      "BODY measurement (chest) — an ESTIMATOR, unlike the Reebok FOOTWEAR " +
+      "charts on this same brand: measure the flat chest (armpit to armpit) and " +
+      "DOUBLE IT. THIS IS THE GARMENT CHART. A size on a Reebok tag is a stamped " +
+      "shoe number OR an alpha chest letter depending on the item, and only the " +
+      "item type decides. NOTE the runs-large caveat on the Reebok footwear " +
+      "charts is a FOOTWEAR fact and does NOT transfer here — the apparel is " +
+      "roughly true to size. Standard US alpha approximation — capped confidence.",
+    rows: [
+      { size: "S", measurements: { chest: "35-37" } },
+      { size: "M", measurements: { chest: "38-40" } },
+      { size: "L", measurements: { chest: "42-44" } },
+      { size: "XL", measurements: { chest: "46-48" } },
+      { size: "XXL", measurements: { chest: "50-52" } },
+    ],
+  },
+
+  // ASICS — footwear only in practice. RUNS SMALL AND NARROW.
+  {
+    brand: "ASICS",
+    brandMatch: ["asics"],
+    department: "Men",
+    garment: "Footwear (US/UK/EU + width — RUNS SMALL AND NARROW)",
+    categoryMatch: [
+      "footwear",
+      "shoe",
+      "shoes",
+      "sneaker",
+      "sneakers",
+      "trainer",
+      "running",
+      "gel",
+      "kayano",
+      "nimbus",
+      "gel-lyte",
+    ],
+    note:
+      "A SHOE CHART IS A TRANSLATOR, NOT AN ESTIMATOR — the size CANNOT be " +
+      "measured from a photo. It is STAMPED on the tongue label and must be " +
+      "READ, then converted; the foot-length inches are a sanity check for a " +
+      "shoe in hand. ASICS-SPECIFIC AND IT IS THE MOST USEFUL FACT THIS BRAND " +
+      "HAS: THE LAST IS CUT TO A JAPANESE GRADE AND RUNS SMALL AND NARROW — " +
+      "roughly a half size small, and snug through the midfoot. So a buyer's " +
+      "usual size is frequently wrong on this brand specifically, and it is the " +
+      "opposite of the Reebok classics in this same pack. WIDTH IS PART OF THE " +
+      "PRODUCT: D is the standard men's width and a 2E/4E is a genuinely " +
+      "different shoe that a wide-footed buyer searches for — it is stamped " +
+      "beside the size and belongs in the listing. THE TONGUE LABEL ALSO CARRIES " +
+      "THE 8-CHARACTER ARTICLE NUMBER (1011B491), which identifies the model " +
+      "when the name is not legible — transcribe it. Condition: the foam midsole " +
+      "COMPRESSES and the shoe is functionally dead before the upper looks it — " +
+      "check the midsole sidewall for deep creasing, not just the mesh. Standard " +
+      "US/UK/EU grade and the reported resale consensus, not ASICS-published " +
+      "specs — capped confidence.",
+    rows: [
+      { size: "US M7 = UK 6 = EU 40", measurements: { footLength: "9.6" } },
+      { size: "US M8 = UK 7 = EU 41.5", measurements: { footLength: "9.95" } },
+      { size: "US M9 = UK 8 = EU 42.5", measurements: { footLength: "10.3" } },
+      { size: "US M10 = UK 9 = EU 44", measurements: { footLength: "10.6" } },
+      { size: "US M11 = UK 10 = EU 45", measurements: { footLength: "10.95" } },
+      { size: "US M12 = UK 11 = EU 46.5", measurements: { footLength: "11.25" } },
+      { size: "US M13 = UK 12 = EU 48", measurements: { footLength: "11.6" } },
+    ],
+  },
+  {
+    brand: "ASICS",
+    brandMatch: ["asics"],
+    department: "Women",
+    garment: "Footwear (US/UK/EU + width — RUNS SMALL AND NARROW)",
+    categoryMatch: [
+      "footwear",
+      "shoe",
+      "shoes",
+      "sneaker",
+      "sneakers",
+      "trainer",
+      "running",
+      "gel",
+      "kayano",
+      "nimbus",
+      "gel-lyte",
+    ],
+    note:
+      "A SHOE CHART IS A TRANSLATOR — the size is STAMPED on the tongue label " +
+      "and must be READ, not measured from a photo. ASICS-SPECIFIC: the last is " +
+      "cut to a JAPANESE GRADE and RUNS SMALL AND NARROW (roughly a half size " +
+      "small, snug through the midfoot) — the opposite of the Reebok classics in " +
+      "this same pack. WIDTH IS PART OF THE PRODUCT and it is stamped beside the " +
+      "size: B is the standard women's width and a D is WIDE here — note that " +
+      "the SAME letter D means the STANDARD width on ASICS MEN'S, so never carry " +
+      "one department's width reading onto the other (the same trap New Balance " +
+      "carries in 00459). The tongue label also carries the 8-character article " +
+      "number, which identifies the model when the name is not legible. Standard " +
+      "US/UK/EU grade and the reported resale consensus, not ASICS-published " +
+      "specs — capped confidence.",
+    rows: [
+      { size: "US W6 = UK 4.5 = EU 37", measurements: { footLength: "8.9" } },
+      { size: "US W7 = UK 5.5 = EU 38", measurements: { footLength: "9.25" } },
+      { size: "US W8 = UK 6.5 = EU 39.5", measurements: { footLength: "9.5" } },
+      { size: "US W9 = UK 7.5 = EU 40.5", measurements: { footLength: "9.9" } },
+      { size: "US W10 = UK 8.5 = EU 42", measurements: { footLength: "10.2" } },
+      { size: "US W11 = UK 9.5 = EU 43", measurements: { footLength: "10.5" } },
+    ],
+  },
+
+  // On Running — footwear only. RUNS SMALL AND NARROW. The voids are designed.
+  // NOTE brandMatch carries NO bare "on": brandTextMatches is leading-word-
+  // boundary only and "on" STARTS "Onitsuka", so the token would hand an
+  // Onitsuka Tiger these charts. The canonical "On Running" is what the resolver
+  // passes anyway, so the chart is reached without it.
+  {
+    brand: "On Running",
+    brandMatch: ["on running", "onrunning"],
+    department: "Men",
+    garment: "Footwear (US/UK/EU — RUNS SMALL AND NARROW)",
+    categoryMatch: [
+      "footwear",
+      "shoe",
+      "shoes",
+      "sneaker",
+      "sneakers",
+      "trainer",
+      "running",
+      "cloud",
+      "cloudmonster",
+      "cloudnova",
+    ],
+    note:
+      "A SHOE CHART IS A TRANSLATOR, NOT AN ESTIMATOR — the size CANNOT be " +
+      "measured from a photo. It is STAMPED on the tongue label and must be " +
+      "READ, then converted; the foot-length inches are a sanity check for a " +
+      "shoe in hand. ON-SPECIFIC: the brand RUNS SMALL (roughly a half size) " +
+      "with a NARROW midfoot and a snug toe box — the same direction as ASICS in " +
+      "this pack and the opposite of the Reebok classics. AND THE CONDITION RULE " +
+      "THAT MATTERS MORE THAN THE SIZE: THE HOLES THROUGH THE SOLE ARE THE " +
+      "PRODUCT. CloudTec is an outsole of hollow pods, so a brand-new shoe has " +
+      "large open voids right through it and looks worn through to daylight — " +
+      "grading them as damage marks a mint shoe to Poor. Designed voids are " +
+      "uniform, clean-edged and identical on both shoes. The real defects: a " +
+      "COLLAPSED or TORN pod, debris wedged in the pods (cleanable — note it, do " +
+      "not grade it as structural), and a midfoot that flexes limply (a broken " +
+      "Speedboard plate). Standard US/UK/EU grade and the reported resale " +
+      "consensus, not On-published specs — capped confidence.",
+    rows: [
+      { size: "US M7 = UK 6.5 = EU 40", measurements: { footLength: "9.6" } },
+      { size: "US M8 = UK 7.5 = EU 41.5", measurements: { footLength: "9.95" } },
+      { size: "US M9 = UK 8.5 = EU 42.5", measurements: { footLength: "10.3" } },
+      { size: "US M10 = UK 9.5 = EU 44", measurements: { footLength: "10.6" } },
+      { size: "US M11 = UK 10.5 = EU 45", measurements: { footLength: "10.95" } },
+      { size: "US M12 = UK 11.5 = EU 46.5", measurements: { footLength: "11.25" } },
+      { size: "US M13 = UK 12.5 = EU 47.5", measurements: { footLength: "11.6" } },
+    ],
+  },
+  {
+    brand: "On Running",
+    brandMatch: ["on running", "onrunning"],
+    department: "Women",
+    garment: "Footwear (US/UK/EU — RUNS SMALL AND NARROW)",
+    categoryMatch: [
+      "footwear",
+      "shoe",
+      "shoes",
+      "sneaker",
+      "sneakers",
+      "trainer",
+      "running",
+      "cloud",
+      "cloudmonster",
+      "cloudnova",
+    ],
+    note:
+      "A SHOE CHART IS A TRANSLATOR — the size is STAMPED on the tongue label " +
+      "and must be READ, not measured from a photo. ON-SPECIFIC: RUNS SMALL " +
+      "(roughly a half size) and NARROW — the same direction as ASICS in this " +
+      "pack, the opposite of the Reebok classics. THE HOLES THROUGH THE SOLE ARE " +
+      "THE PRODUCT: the CloudTec pods are hollow by design, so a new shoe has " +
+      "open voids right through it and a grader reading them as damage marks a " +
+      "mint shoe to Poor. The real defects are a COLLAPSED or TORN pod and " +
+      "debris wedged inside the pods (cleanable — note it rather than grading it " +
+      "as structural damage). Standard US/UK/EU grade and the reported resale " +
+      "consensus, not On-published specs — capped confidence.",
+    rows: [
+      { size: "US W6 = UK 4 = EU 36.5", measurements: { footLength: "8.9" } },
+      { size: "US W7 = UK 5 = EU 38", measurements: { footLength: "9.25" } },
+      { size: "US W8 = UK 6 = EU 39", measurements: { footLength: "9.5" } },
+      { size: "US W9 = UK 7 = EU 40.5", measurements: { footLength: "9.9" } },
+      { size: "US W10 = UK 8 = EU 41.5", measurements: { footLength: "10.2" } },
+      { size: "US W11 = UK 9 = EU 43", measurements: { footLength: "10.5" } },
+    ],
+  },
+
+  // HOKA — footwear only. The midsole is the grade.
+  {
+    brand: "HOKA",
+    brandMatch: ["hoka"],
+    department: "Men",
+    garment: "Footwear (US/UK/EU — the size is STAMPED, not measured)",
+    categoryMatch: [
+      "footwear",
+      "shoe",
+      "shoes",
+      "sneaker",
+      "sneakers",
+      "trainer",
+      "running",
+      "bondi",
+      "clifton",
+      "speedgoat",
+    ],
+    note:
+      "A SHOE CHART IS A TRANSLATOR, NOT AN ESTIMATOR — the size CANNOT be " +
+      "measured from a photo. It is STAMPED on the tongue label and must be " +
+      "READ, then converted; the foot-length inches are a sanity check for a " +
+      "shoe in hand. HOKA-SPECIFIC: roughly true to size, unlike ASICS/On " +
+      "(small) and the Reebok classics (large) in this same pack — WIDTH is the " +
+      "axis that matters here instead, and a 2E/4E wide is stamped beside the " +
+      "size and is a genuinely different product a wide-footed buyer searches " +
+      "for. AND THE RULE THAT MATTERS MOST ON THIS BRAND: THE MIDSOLE IS THE " +
+      "PRODUCT AND ALSO THE GRADE. Its deliberately enormous volume is the " +
+      "DESIGN, not swelling or delamination — but because the foam is what the " +
+      "buyer is buying, a COMPRESSED midsole is a TOTAL LOSS even under a " +
+      "spotless upper, and it is nearly invisible in a normal photo. Look at the " +
+      "midsole SIDEWALL side-on: deep horizontal creasing, a flattened section, " +
+      "or foam that does not spring back means the shoe is functionally dead. " +
+      "Photograph the midsole from the side. Also: the META-ROCKER curve means " +
+      "the shoe DOES NOT SIT FLAT on a table by design — that is not a warped " +
+      "sole. Standard US/UK/EU grade and the reported resale consensus, not " +
+      "HOKA-published specs — capped confidence.",
+    rows: [
+      { size: "US M7 = UK 6.5 = EU 40", measurements: { footLength: "9.6" } },
+      { size: "US M8 = UK 7.5 = EU 41.5", measurements: { footLength: "9.95" } },
+      { size: "US M9 = UK 8.5 = EU 42.5", measurements: { footLength: "10.3" } },
+      { size: "US M10 = UK 9.5 = EU 44", measurements: { footLength: "10.6" } },
+      { size: "US M11 = UK 10.5 = EU 45.5", measurements: { footLength: "10.95" } },
+      { size: "US M12 = UK 11.5 = EU 46.5", measurements: { footLength: "11.25" } },
+      { size: "US M13 = UK 12.5 = EU 48", measurements: { footLength: "11.6" } },
+    ],
+  },
+  {
+    brand: "HOKA",
+    brandMatch: ["hoka"],
+    department: "Women",
+    garment: "Footwear (US/UK/EU — the size is STAMPED, not measured)",
+    categoryMatch: [
+      "footwear",
+      "shoe",
+      "shoes",
+      "sneaker",
+      "sneakers",
+      "trainer",
+      "running",
+      "bondi",
+      "clifton",
+      "speedgoat",
+    ],
+    note:
+      "A SHOE CHART IS A TRANSLATOR — the size is STAMPED on the tongue label " +
+      "and must be READ, not measured from a photo. HOKA-SPECIFIC: roughly true " +
+      "to size (unlike ASICS/On, which run small, and the Reebok classics, which " +
+      "run large); a D width is WIDE on women's here and is stamped beside the " +
+      "size. THE MIDSOLE IS THE PRODUCT AND ALSO THE GRADE: the enormous volume " +
+      "is the design and not a deformity, but a COMPRESSED midsole is a total " +
+      "loss even under a spotless upper and is nearly invisible in a photo — " +
+      "check the midsole SIDEWALL side-on for deep creasing or a collapsed " +
+      "section and photograph it. The META-ROCKER curve means the shoe does not " +
+      "sit flat by design; that is not a warped sole. Standard US/UK/EU grade " +
+      "and the reported resale consensus, not HOKA-published specs — capped " +
+      "confidence.",
+    rows: [
+      { size: "US W6 = UK 4 = EU 36.5", measurements: { footLength: "8.9" } },
+      { size: "US W7 = UK 5 = EU 38", measurements: { footLength: "9.25" } },
+      { size: "US W8 = UK 6 = EU 39", measurements: { footLength: "9.5" } },
+      { size: "US W9 = UK 7 = EU 40.5", measurements: { footLength: "9.9" } },
+      { size: "US W10 = UK 8 = EU 42", measurements: { footLength: "10.2" } },
+      { size: "US W11 = UK 9 = EU 43", measurements: { footLength: "10.5" } },
+    ],
+  },
+
+  // Outdoor Voices — apparel only. NOTE brandMatch carries no bare "ov" (a
+  // 2-letter token here is the "ag"-hands-Patagonia-AG's-charts bug) and no bare
+  // "outdoor" (an ordinary category word).
+  {
+    brand: "Outdoor Voices",
+    brandMatch: ["outdoor voices", "outdoorvoices"],
+    department: "Women",
+    garment: "Tops, dresses & bottoms (alpha)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "dress",
+      "legging",
+      "pant",
+      "bottom",
+      "short",
+      "sweatshirt",
+      "hoodie",
+      "bra",
+      "exercise dress",
+      "long sleeve",
+    ],
+    note:
+      "BODY measurement — an ESTIMATOR: measure the flat garment and DOUBLE IT. " +
+      "The US numeric cross-map is written INSIDE the size label, where the " +
+      "model actually reads it. OUTDOOR VOICES IS APPAREL ONLY — it makes no " +
+      "footwear, so unlike Fila/PUMA/Reebok/ASICS/On/HOKA in this same pack " +
+      "there is no shoe chart to confuse this with and an alpha letter is always " +
+      "a garment size. OV-SPECIFIC AND IT DEFEATS A FLAT PHOTO: the performance " +
+      "pieces are TECHSWEAT, a compressive knit, and compressive knits fail by " +
+      "PILLING (inner thigh, under the seat) and by losing elastane recovery — " +
+      "which shows as a waistband that will not spring back and a fabric that " +
+      "goes SHEER WHEN STRETCHED. NONE of that appears in a flat, unstretched " +
+      "flat-lay, so a clean photo is not evidence of good condition: check the " +
+      "high-abrasion zones and the stretch-sheerness and report what you found. " +
+      "THE EXERCISE DRESS has a built-in bra AND built-in shorts — those " +
+      "interior layers are the CONSTRUCTION, not a defect and not a second " +
+      "garment. Standard US alpha/numeric approximation — capped confidence.",
+    rows: [
+      { size: "XS (≈US 0-2)", measurements: { bust: "31.5-33", waist: "24-25.5", hip: "34-35.5" } },
+      { size: "S (≈US 4-6)", measurements: { bust: "33.5-35", waist: "26-27.5", hip: "36-37.5" } },
+      { size: "M (≈US 8-10)", measurements: { bust: "35.5-37.5", waist: "28-30", hip: "38-40" } },
+      { size: "L (≈US 12-14)", measurements: { bust: "38.5-40.5", waist: "31-33", hip: "41-43" } },
+      { size: "XL (≈US 16-18)", measurements: { bust: "41.5-44", waist: "34-36.5", hip: "44-46.5" } },
+      { size: "XXL (≈US 20)", measurements: { bust: "45-47", waist: "37.5-39.5", hip: "47.5-49.5" } },
+    ],
+  },
+
+  // Girlfriend Collective — women's only, and the WIDEST run in the KB. NOTE
+  // brandMatch carries no bare "girlfriend" (an ordinary word; it is an alias
+  // KEY only, where an exact whole-field lookup makes it safe).
+  {
+    brand: "Girlfriend Collective",
+    brandMatch: ["girlfriend collective", "girlfriendcollective"],
+    department: "Women",
+    garment: "Tops & bottoms (alpha XXS-6XL — the widest run in the KB)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "legging",
+      "pant",
+      "bottom",
+      "short",
+      "bra",
+      "sweatshirt",
+      "hoodie",
+      "dress",
+      "long sleeve",
+    ],
+    note:
+      "BODY measurement — an ESTIMATOR: measure the flat garment and DOUBLE IT. " +
+      "The US numeric cross-map is written INSIDE the size label, where the " +
+      "model actually reads it. Girlfriend Collective is APPAREL ONLY (no " +
+      "footwear) and WOMEN'S ONLY, so no men's chart is seeded rather than " +
+      "inventing one. THIS IS THE WIDEST SIZE RUN IN THE KNOWLEDGE BASE — XXS " +
+      "THROUGH 6XL — AND THAT IS THE POINT OF THE BRAND, not a footnote: a plus " +
+      "size here is a MAINLINE product, and the larger sizes are genuinely " +
+      "sought and are frequently the harder ones to find secondhand. TWO " +
+      "CONSEQUENCES. First, the letter spans a far wider range than a " +
+      "conventional brand's, so an XL on this tag is NOT an XL on a brand whose " +
+      "run stops at XL — NEVER cross-map the letter between brands; read this " +
+      "chart or measure. Second, read the size off the tag exactly and state it. " +
+      "FIT: the Compressive fabric is a firm HIGH-COMPRESSION knit, so it fits " +
+      "tighter than an ordinary legging at the same letter by design — that is " +
+      "the product, not a mis-size. CONDITION, AND A FLAT PHOTO HIDES ALL OF IT: " +
+      "compressive knits fail by PILLING (inner thigh, under the seat) and by " +
+      "losing elastane recovery, which shows as a waistband that will not spring " +
+      "back and a fabric that goes SHEER WHEN STRETCHED. Check the " +
+      "high-abrasion zones and the stretch-sheerness explicitly and say what you " +
+      "found. Standard US alpha/numeric approximation — capped confidence.",
+    rows: [
+      { size: "XXS (≈US 0-2)", measurements: { bust: "30-32", waist: "23-25", hip: "33-35" } },
+      { size: "XS (≈US 2-4)", measurements: { bust: "32-34", waist: "25-27", hip: "35-37" } },
+      { size: "S (≈US 4-6)", measurements: { bust: "34-36", waist: "27-29", hip: "37-39" } },
+      { size: "M (≈US 8-10)", measurements: { bust: "36-38", waist: "29-31", hip: "39-41" } },
+      { size: "L (≈US 12-14)", measurements: { bust: "38-41", waist: "31-34", hip: "41-44" } },
+      { size: "XL (≈US 16-18)", measurements: { bust: "41-44", waist: "34-37", hip: "44-47" } },
+      { size: "2XL (≈US 18-20)", measurements: { bust: "44-47", waist: "37-40", hip: "47-50" } },
+      { size: "3XL (≈US 22-24)", measurements: { bust: "47-50", waist: "40-43", hip: "50-53" } },
+      { size: "4XL (≈US 26)", measurements: { bust: "50-53", waist: "43-46", hip: "53-56" } },
+      { size: "5XL (≈US 28)", measurements: { bust: "53-56", waist: "46-49", hip: "56-59" } },
+      { size: "6XL (≈US 30-32)", measurements: { bust: "56-59", waist: "49-52", hip: "59-62" } },
+    ],
+  },
 ];
 
 function norm(s: string | null | undefined): string {

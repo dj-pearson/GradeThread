@@ -347,6 +347,44 @@ const KATE_SPADE_STYLE_NUMBER_DECODER: BrandDecoder = {
   examples: [],
 };
 
+// US-1985: the ASICS style_number decoder EXACTLY as migration 00465 seeds it
+// into brand_style_codes. It is the ONLY decoder in the activewear tier-2 group
+// and it carries the group's CUT-TAG case.
+//
+// THE ARGUMENT IS THE FORMAT'S SHAPE, not its regularity. ASICS's article number
+// is DIGITS-THEN-LETTER-THEN-DIGITS (1011B491) and no brand it would be confused
+// with uses that shape: Nike leads with letters (CW2288-111), adidas and Reebok
+// are two-letters-plus-four-digits (GY7434), New Balance leads with a department
+// letter (M990GL5). It is printed on the tongue label beside the size, so it
+// recovers the brand off a cut tag.
+//
+// AND THAT THIRD TEST — brand-uniqueness — IS WHY REEBOK GETS NOTHING, which is
+// the most instructive refusal in this pack. Reebok's modern code is tag-printed
+// AND regular and STILL fails, because the format is ADIDAS'S: the two ran a
+// shared corporate coding system from 2006 to 2021. A pattern over it would let a
+// format GUESS override the tag's own brand (the brandFromStyleFormat hazard).
+// The GY7434 negative below is that refusal, fixtured.
+//
+// The optional trailing colour suffix (-001) is tolerated but NOT captured: it is
+// a colour CODE, not a colour name, and `colorway` expects a name. A
+// non-capturing group is the US-1739 rule — a bogus fieldMap target would
+// silently write a phantom property nothing reads.
+//
+// NOT an authenticity check: the article number identifies the MODEL, not the
+// individual shoe, and it is printed on every box. It recovers the BRAND.
+const ASICS_ARTICLE_NUMBER_DECODER: BrandDecoder = {
+  decoderKind: "style_number",
+  description:
+    "ASICS tag-printed article number, on the tongue label beside the size and on the box. Eight characters: four digits, one letter, three digits (1011B491, 1201A019, 1012B420). The DIGITS-THEN-LETTER shape is what makes it brand-unique — Nike leads with letters (CW2288-111), adidas and Reebok use two letters plus four digits (GY7434), New Balance leads with a department letter (M990GL5) — so it identifies ASICS even when the brand tag itself is cut. An optional trailing colour-code suffix (-001) is tolerated but not captured, because it is a code rather than a colour name.",
+  pattern: "^(?<style>\\d{4}[A-Z]\\d{3})(?:-\\d{3})?$",
+  extractionRules: {
+    fieldMap: { style: "styleCode" },
+    transforms: { style: "upper" },
+    confidence: 0.6,
+  },
+  examples: [],
+};
+
 function style(styleName: string): BrandStyleKnowledge {
   return {
     styleName,
@@ -2838,6 +2876,190 @@ const CASES: GoldenCase[] = [
     pack: pack("PAIGE", "paige", [style("Verdugo")]),
     input: decodedFrom({ brand: "PAIGE" }),
     expect: { brand: "PAIGE", style: "Verdugo" },
+  },
+
+  // ── US-1985 activewear group (tier 2) ──────────────────────────────────────
+  // ASICS carries the group's CUT-TAG cases, and it earns the decoder on the
+  // third test rather than the first two: its article number's DIGITS-THEN-LETTER
+  // shape is brand-unique. The other eight are decoder-less by design, and their
+  // guarantee is that enrichment stays CORRECT without one.
+  //
+  // The refusals matter more here than in any prior pack, because this group is
+  // full of codes that LOOK decodable: PUMA's six-digit style number, Reebok's
+  // adidas-shaped code, and ASICS's OWN bare model numbers. Each is fixtured as a
+  // negative below.
+  {
+    name: "ASICS cut brand tag — the tongue article number alone recovers the brand",
+    brand: "ASICS",
+    pack: pack("ASICS", "asics", [], [ASICS_ARTICLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "1011B491" }), // no AI brand
+    expect: { brand: "ASICS", recovery: true },
+  },
+  {
+    name: "ASICS lowercase article number still recovers the brand",
+    // A tongue label is read off a photo, so case is unreliable — the transform
+    // normalizes it up.
+    brand: "ASICS",
+    pack: pack("ASICS", "asics", [], [ASICS_ARTICLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "1012b420" }),
+    expect: { brand: "ASICS", recovery: true },
+  },
+  {
+    name: "ASICS article number with a colour suffix is tolerated",
+    // The -001 marks the COLOURWAY, not the style, so it is matched but not
+    // captured — a colour CODE is not a colour name.
+    brand: "ASICS",
+    pack: pack("ASICS", "asics", [], [ASICS_ARTICLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "1011B491-001" }),
+    expect: { brand: "ASICS", recovery: true },
+  },
+  {
+    name: "ASICS article number overrides a wrong AI brand + surfaces conflict",
+    brand: "ASICS",
+    pack: pack("ASICS", "asics", [], [ASICS_ARTICLE_NUMBER_DECODER]),
+    input: decodedFrom({ brand: "Reebok", styleCode: "1201A019" }),
+    expect: { brand: "ASICS", conflictOn: "brand", recovery: true },
+  },
+  {
+    name: "ASICS ambiguous adjacent trainers (Kayano vs Nimbus) — never guess",
+    // The pack's core problem in footwear: the Kayano (stability) and the Nimbus
+    // (neutral) differ by SUPPORT, not shape, which a photo cannot show. With no
+    // code, the style must stay unset.
+    brand: "ASICS",
+    pack: pack("ASICS", "asics", [
+      style("GEL-Kayano"),
+      style("GEL-Nimbus"),
+    ], [ASICS_ARTICLE_NUMBER_DECODER]),
+    input: decodedFrom({ brand: "ASICS" }),
+    expect: { brand: "ASICS", noStyle: true },
+  },
+  // THE REFUSALS. The adidas-shaped code is the one worth staring at: it is why
+  // Reebok — a brand in this very pack, with a tag-printed, perfectly regular
+  // code — deliberately gets no decoder at all.
+  {
+    name: "Reebok/adidas-shaped code must NOT recover ASICS (format is not brand-unique)",
+    brand: "ASICS",
+    pack: pack("ASICS", "asics", [], [ASICS_ARTICLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "GY7434" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Nike-shaped style code must NOT recover ASICS",
+    brand: "ASICS",
+    pack: pack("ASICS", "asics", [], [ASICS_ARTICLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "CW2288-111" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "New Balance-shaped model number must NOT recover ASICS",
+    brand: "ASICS",
+    pack: pack("ASICS", "asics", [], [ASICS_ARTICLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "M990GL5" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "PUMA 6-digit style number recovers nothing (the Lee 101 rule)",
+    // PUMA's style number is tag-printed and regular and is deliberately NOT a
+    // decoder: a bare digit run is an ordinary number, so a pattern over it would
+    // mint PUMA from any tag carrying six digits.
+    brand: "PUMA",
+    pack: pack("PUMA", "puma", [style("Suede Classic")]),
+    input: decodedFrom({ styleCode: "380190" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "ASICS's OWN bare model number (1130) recovers nothing",
+    // The same rule turned on the brand that HAS the decoder: GEL-1130 is a model
+    // name, not a code. The decoder is deliberately narrow enough to refuse it.
+    brand: "ASICS",
+    pack: pack("ASICS", "asics", [style("GEL-1130")], [ASICS_ARTICLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "1130" }),
+    expect: { noBrand: true },
+  },
+  // The decoder-less brands: enrichment must stay correct without a code.
+  {
+    name: "PUMA ambiguous twins (Suede vs Clyde) — never guess",
+    // The Clyde IS the Suede with Frazier's endorsement: same last, same
+    // silhouette, different value. Nothing in a photo separates them.
+    brand: "PUMA",
+    pack: pack("PUMA", "puma", [style("Suede Classic"), style("Clyde")]),
+    input: decodedFrom({ brand: "PUMA" }),
+    expect: { brand: "PUMA", noStyle: true },
+  },
+  {
+    name: "Reebok ambiguous twins (Classic Leather vs Club C) — never guess",
+    brand: "Reebok",
+    pack: pack("Reebok", "reebok", [style("Classic Leather"), style("Club C 85")]),
+    input: decodedFrom({ brand: "Reebok" }),
+    expect: { brand: "Reebok", noStyle: true },
+  },
+  {
+    name: "HOKA ambiguous twins (Bondi vs Clifton) — never guess",
+    brand: "HOKA",
+    pack: pack("HOKA", "hoka", [style("Bondi"), style("Clifton")]),
+    input: decodedFrom({ brand: "HOKA" }),
+    expect: { brand: "HOKA", noStyle: true },
+  },
+  // NOTE the HOKA ONE ONE -> HOKA rename is asserted in activewear-content_test.ts
+  // and NOT here, deliberately: enrichment does not re-canonicalize the AI's brand
+  // string on its own — only a DECODER hit overrides it, and HOKA has no decoder.
+  // The rename is an ALIAS-TABLE fact (canonicalizeBrand), so that is where it is
+  // tested. Asserting it here would assert something the resolver never promised.
+  {
+    name: "Champion single known style fills the style the AI missed",
+    brand: "Champion",
+    pack: pack("Champion", "champion", [style("Reverse Weave Hoodie")]),
+    input: decodedFrom({ brand: "Champion" }),
+    expect: { brand: "Champion", style: "Reverse Weave Hoodie" },
+  },
+  {
+    name: "Champion Reverse Weave vs Powerblend — never guess the construction",
+    // The pack's money pair: same silhouette, same sleeve C, multiples apart in
+    // price, separated only by the side gusset and the tag. A model that guesses
+    // here overprices a Powerblend by a multiple.
+    brand: "Champion",
+    pack: pack("Champion", "champion", [
+      style("Reverse Weave Hoodie"),
+      style("Powerblend Hoodie"),
+    ]),
+    input: decodedFrom({ brand: "Champion" }),
+    expect: { brand: "Champion", noStyle: true },
+  },
+  {
+    name: "Girlfriend Collective ambiguous fabrics (Compressive vs FLOAT) — never guess",
+    // This brand's taxonomy is FABRIC NAMES on one silhouette, so a legging with
+    // no legible tag has no identifiable style at all.
+    brand: "Girlfriend Collective",
+    pack: pack("Girlfriend Collective", "girlfriendcollective", [
+      style("Compressive Legging"),
+      style("FLOAT Legging"),
+    ]),
+    input: decodedFrom({ brand: "Girlfriend Collective" }),
+    expect: { brand: "Girlfriend Collective", noStyle: true },
+  },
+  {
+    name: "On Running single known style fills the style the AI missed",
+    brand: "On Running",
+    pack: pack("On Running", "onrunning", [style("Cloud 5")]),
+    input: decodedFrom({ brand: "On Running" }),
+    expect: { brand: "On Running", style: "Cloud 5" },
+  },
+  {
+    name: "Fila ambiguous shoe vs garment line — never guess",
+    // Fila is half footwear and half apparel under one name, so with only a brand
+    // and no tag the style is genuinely unknowable — the pack's dual-system
+    // problem showing up in the resolver rather than the charts.
+    brand: "Fila",
+    pack: pack("Fila", "fila", [style("Disruptor II"), style("F-Box Logo Tee")]),
+    input: decodedFrom({ brand: "Fila" }),
+    expect: { brand: "Fila", noStyle: true },
+  },
+  {
+    name: "Outdoor Voices single known style fills the style the AI missed",
+    brand: "Outdoor Voices",
+    pack: pack("Outdoor Voices", "outdoorvoices", [style("Exercise Dress")]),
+    input: decodedFrom({ brand: "Outdoor Voices" }),
+    expect: { brand: "Outdoor Voices", style: "Exercise Dress" },
   },
 ];
 
