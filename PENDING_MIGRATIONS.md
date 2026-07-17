@@ -4,6 +4,68 @@
 > The sections below for those are historical; the only NEW held migration is
 > **00443** at the top.
 
+## ⏳ PENDING: 00460_luxury_outerwear_brand_knowledge.sql (US-1981 luxury outerwear brand KB, 2026-07-16)
+
+Data-only seed of the `brand_knowledge*` tables for the luxury outerwear & down
+tier: **Moncler, Canada Goose, Mackage, Herno, Woolrich, Bogner**. ALL SIX were
+passthrough-only — none had even a bare alias-only row from 00389 — so a "moncler"
+tag rendered the seller's own casing into the prompt block and the eBay Brand
+aspect on the most expensive garments the KB touches. `brand_knowledge` ×6;
+`brand_styles` ×22; `brand_style_codes` ×**1** (Canada Goose); `brand_colorways`
+×4; `brand_size_charts` ×12, all mirrored into the `sizing-charts.ts` in-code
+fallback. Every fact carries `source_url` + `confidence` and lands `verified=false`
+for the US-1715 admin queue. Idempotent (`on conflict do update`). Apply after
+00459 via `scripts/apply-prod-migrations.sh`, `NOTIFY pgrst, 'reload schema';`,
+redeploy the edge (boot guard now expects **00460**). Bumps
+`EXPECTED_SCHEMA_VERSION` → **00460**. Risk: LOW — data-only, no schema change, no
+frontend reads the new rows (the edge resolver falls back to the in-code seeds
+until the SQL lands, so an unapplied migration degrades rather than breaks).
+
+**THE SIZE IS A NUMBER IN A SYSTEM THE TAG DOES NOT NAME.** The through-line, and
+worth more than every style fingerprint in the pack combined. FOUR of the six size
+in a system the garment never identifies: **Moncler is 0-5** — its OWN proprietary
+scale, not US/EU/alpha; **Herno** is Italian (a men's "50" is IT 50 = US 40 / L);
+**Bogner** is German (a women's "38" is DE 38 = US 8); **Woolrich** depends on the
+ERA (US alpha on the Pennsylvania-mill heritage wool, EU on the Italian-era
+outerwear — one label, two systems). This is 00459's footwear trap on a garment:
+the number is real, the photo does not contradict it, and the result is a WRONG
+LISTING rather than a pricing refinement. So the cross-map is written INTO the size
+LABEL of every row — the only uncapped channel that reaches the model.
+
+**MONCLER WOMEN'S IS THE WORST CASE IN THE WHOLE CHART FILE**, because the numbers
+COLLIDE with US women's numeric sizing. A women's Moncler tagged "2" is a **US 6-8 /
+MEDIUM** — and "2" is a real US size too, so nothing looks wrong to anyone. That is
+a THREE-SIZE error on a $1,500 coat that no photo reasoning can catch. Contrast
+Dr. Martens' "7" (00459), where the wrong read at least produces an implausible
+listing; here it produces a perfectly plausible one.
+
+**AUTHENTICATION TELLS ARE INFORMATIONAL — NEVER AUTO-AUTHENTICATE**, per the story
+note, and this is the tier where that matters most. Moncler ships a QR ("Moncler
+Code") and Canada Goose a holographic disc; both are MANUFACTURER-side verification
+services and neither is evidence we can act on — a scannable QR and a rainbow
+hologram are exactly what a competent counterfeit reproduces. Every tell is seeded
+as a description/consistency aid that routes to human review, and each brand's tell
+list LEADS with the never-auto-authenticate guard.
+
+**ONE DECODER — CANADA GOOSE, AND THE DEPARTMENT LETTER IS THE WHOLE ARGUMENT.**
+The care-label style number is 4 digits + M/L (+ optional suffix): `4660MA`
+Expedition, `7950M` Chilliwack, `2506L` Kensington. A bare "4660" is four digits and
+is nothing — the letter is what makes the format brand-unique (the LV `SD1160`
+precedent). It carries the group's CUT-TAG case: the style number lives on the CARE
+label, which survives the brand tag being cut out of the collar. The M/L group is
+deliberately NON-CAPTURING — `genderCode` maps only M/W, so a captured "L" for
+LADIES' would pass through raw as "L" (the US-1740 New Balance "U" precedent).
+Everything else is decoder-less by design: Moncler's serial and the CG hologram
+number are BARE DIGIT RUNS (the Chanel rule, US-1736 — a pattern over one mints the
+KB's costliest false positive from any tag with 8 digits), and the
+Herno/Mackage/Woolrich/Bogner article numbers are catalog SKUs.
+
+Verified: `deno test` 3918 passed (incl. 12 new `luxury-outerwear-content_test.ts`
+cases + 8 new golden cases — Canada Goose recovers 3/3), `deno lint`, `deno check
+src/main.ts`, `tsc --noEmit`, `build:locked`, web vitest 2091 passed, and
+`verify:db` (all migrations apply on a fresh schema). Facts stay `verified=false`
+for the US-1715 admin queue, per the group convention.
+
 ## ⏳ PENDING: 00459_footwear_brand_knowledge.sql (US-1740 footwear brand KB, 2026-07-16)
 
 Data-only seed of the `brand_knowledge*` tables for the footwear (apparel-adjacent)

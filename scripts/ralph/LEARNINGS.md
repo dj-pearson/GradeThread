@@ -1017,6 +1017,17 @@ memory — not a progress log (the harness records progress separately).
   renders size LABELS + the note IN FULL, uncapped — it is the only uncapped
   channel. So a fact that must reach identification belongs in a fingerprint or a
   chart note, NOT a tell. US-1740.
+- Tell PROSE has a FOURTH renderer, and it — not the grading block — is where
+  authentication tells actually land: `normalizeTells`/`getEffectiveTells`
+  (brand-authenticity.ts, US-1768) feeding the confidence-capped, human-review-gated
+  ai-authenticity add-on. `coerceTell` maps the group-convention `{tell, detail}`
+  shape onto the structured `{category, claim, check, redFlag}` one on READ, so keep
+  seeding `{tell, detail}` (every migration 00443..00460 does). Corollary: do NOT
+  "fix" `buildTrustedBrandFactsBlock` to hoist tells above fingerprints to make a
+  never-auto-authenticate tell survive its 900-char cap — that block is for GRADING,
+  it spends its budget on construction fingerprints ON PURPOSE, and tell truncation
+  there is not the liability it looks like. Assert the guard via normalizeTells
+  instead. US-1981.
 - `brandFromStyleFormat`'s formats are NOT brand-exclusive (Converse's classic
   codes are M+4 digits, same shape as New Balance model numbers) and
   `ai-listing.ts` takes `styleResolution?.brand ?? canonicalBrand` — so a format

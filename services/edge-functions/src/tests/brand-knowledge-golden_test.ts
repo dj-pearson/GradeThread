@@ -99,6 +99,32 @@ const ARCTERYX_STYLE_NAME_DECODER: BrandDecoder = {
   examples: [],
 };
 
+// US-1981: the Canada Goose style_number decoder EXACTLY as migration 00460 seeds
+// it into brand_style_codes. It is the ONLY decoder in the luxury outerwear group
+// — the only code there that is tag-printed AND regular AND brand-unique in
+// FORMAT. It also carries the group's CUT-TAG case: the style number lives on the
+// CARE label, which survives the brand tag being cut out of the collar.
+//
+// THE DEPARTMENT LETTER IS THE WHOLE ARGUMENT. A bare "4660" is four digits and is
+// nothing (the Chanel rule, US-1736 — a pattern over a bare digit run mints the
+// KB's costliest false positive); "4660MA" can only be a Canada Goose style number.
+//
+// And that letter is deliberately NON-CAPTURING even though it genuinely encodes
+// the department: the genderCode transform maps only M/W, so a captured "L" for
+// LADIES' would pass through RAW as "L" and write garbage into a field the listing
+// surfaces. Same call as US-1740's New Balance "U" — match on it, don't capture it.
+const CANADA_GOOSE_STYLE_NUMBER_DECODER: BrandDecoder = {
+  decoderKind: "style_number",
+  description:
+    "Canada Goose style number printed on the interior care label: 4 digits + a department letter (M = men's, L = ladies') + an optional 1-2 letter model suffix. 4660MA = Expedition Parka, 7950M = Chilliwack Bomber, 2506L = Kensington Parka.",
+  pattern: "^(?<style>\\d{4}[ML][A-Z]{0,2})$",
+  extractionRules: {
+    fieldMap: { style: "styleCode" },
+    confidence: 0.75,
+  },
+  examples: [],
+};
+
 // US-1739: the Uniqlo style_name decoder EXACTLY as migration 00458 seeds it into
 // brand_style_codes. Uniqlo is the ONLY brand in the basics/mall group with a
 // decoder, and it is the first in three groups — 00456 refused (the identifier is
@@ -1971,6 +1997,195 @@ const CASES: GoldenCase[] = [
     brand: "Cole Haan",
     pack: pack("Cole Haan", "colehaan", [style("ZeroGrand")]),
     input: decodedFrom({ styleCode: "ZeroGrand" }),
+    expect: { noBrand: true },
+  },
+  // US-1981 luxury outerwear & down group. Canada Goose carries the group's
+  // CUT-TAG cases: the style number lives on the CARE label, which survives when
+  // the brand tag is cut out of the collar — so a parka with no brand left on it
+  // is still recoverable. The other five are decoder-less by design.
+  {
+    name: "Canada Goose cut brand tag — the care-label style number recovers the brand",
+    brand: "Canada Goose",
+    pack: pack("Canada Goose", "canadagoose", [], [CANADA_GOOSE_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "4660MA" }), // no AI brand
+    expect: { brand: "Canada Goose", recovery: true },
+  },
+  {
+    name: "Canada Goose ladies' style number also recovers the brand off a cut tag",
+    brand: "Canada Goose",
+    pack: pack("Canada Goose", "canadagoose", [], [CANADA_GOOSE_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "2506L" }),
+    expect: { brand: "Canada Goose", recovery: true },
+  },
+  {
+    name: "Canada Goose style number overrides a wrong AI brand + surfaces conflict",
+    // The realistic confusion in this group: another dark fur-hooded parka brand.
+    brand: "Canada Goose",
+    pack: pack("Canada Goose", "canadagoose", [], [CANADA_GOOSE_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ brand: "Moncler", styleCode: "7950M" }),
+    expect: { brand: "Canada Goose", conflictOn: "brand", recovery: true },
+  },
+  {
+    name: "Canada Goose bare 4-digit run — no false-positive recovery",
+    // THE WHOLE ARGUMENT FOR THIS DECODER'S SHAPE. A bare digit run is an
+    // ordinary number (the Chanel rule, US-1736) — the DEPARTMENT LETTER is what
+    // makes "4660MA" brand-unique rather than "any tag with four digits".
+    brand: "Canada Goose",
+    pack: pack("Canada Goose", "canadagoose", [], [CANADA_GOOSE_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "4660" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Canada Goose wrong-length digit run — no false-positive recovery",
+    brand: "Canada Goose",
+    pack: pack("Canada Goose", "canadagoose", [], [CANADA_GOOSE_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "46601M" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Canada Goose hologram-style long serial — no false-positive recovery",
+    // Why the hologram number is deliberately NOT decoded: it is a bare digit run
+    // and a pattern over it would mint a brand from any tag with a long number.
+    brand: "Canada Goose",
+    pack: pack("Canada Goose", "canadagoose", [], [CANADA_GOOSE_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ styleCode: "84726193" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Canada Goose ambiguous fur-hooded parkas (Expedition vs Chilliwack) — never guess",
+    brand: "Canada Goose",
+    pack: pack("Canada Goose", "canadagoose", [
+      style("Expedition Parka"),
+      style("Chilliwack Bomber"),
+    ], [CANADA_GOOSE_STYLE_NUMBER_DECODER]),
+    input: decodedFrom({ brand: "Canada Goose" }),
+    expect: { brand: "Canada Goose", noStyle: true },
+  },
+  {
+    name: "Canada Goose single known style fills the style the AI missed",
+    brand: "Canada Goose",
+    pack: pack("Canada Goose", "canadagoose", [style("Expedition Parka")], [
+      CANADA_GOOSE_STYLE_NUMBER_DECODER,
+    ]),
+    input: decodedFrom({ brand: "Canada Goose" }),
+    expect: { brand: "Canada Goose", style: "Expedition Parka" },
+  },
+  // The other five are decoder-less by design — every code they print is either a
+  // bare digit run (Moncler's serial) or a catalog SKU. Their guarantee is that
+  // enrichment stays correct WITHOUT a decoder.
+  {
+    name: "Moncler single known style fills the style the AI missed",
+    brand: "Moncler",
+    pack: pack("Moncler", "moncler", [style("Maya")]),
+    input: decodedFrom({ brand: "Moncler" }),
+    expect: { brand: "Moncler", style: "Maya" },
+  },
+  {
+    name: "Moncler ambiguous lacquered down jackets (Maya vs Bady) — never guess",
+    // Same nylon laqué shell, same baffles — only the department/cut separates
+    // them, and the pack must not pick one from the fabric alone.
+    brand: "Moncler",
+    pack: pack("Moncler", "moncler", [style("Maya"), style("Bady")]),
+    input: decodedFrom({ brand: "Moncler" }),
+    expect: { brand: "Moncler", noStyle: true },
+  },
+  {
+    name: "Moncler serial — no false-positive brand recovery (a bare digit run is not a code)",
+    // THE COSTLIEST FALSE POSITIVE THE KB COULD MINT. Moncler's serial is a bare
+    // digit run; a pattern over it would brand any tag carrying a long number as
+    // the most counterfeited outerwear label on earth. Deliberately decoder-less.
+    brand: "Moncler",
+    pack: pack("Moncler", "moncler", [style("Maya"), style("Bady")]),
+    input: decodedFrom({ styleCode: "1A00107" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Mackage single known style fills the style the AI missed",
+    brand: "Mackage",
+    pack: pack("Mackage", "mackage", [style("Adali")]),
+    input: decodedFrom({ brand: "Mackage" }),
+    expect: { brand: "Mackage", style: "Adali" },
+  },
+  {
+    name: "Mackage ambiguous belted down coats (Adali vs Kay) — never guess",
+    brand: "Mackage",
+    pack: pack("Mackage", "mackage", [style("Adali"), style("Kay")]),
+    input: decodedFrom({ brand: "Mackage" }),
+    expect: { brand: "Mackage", noStyle: true },
+  },
+  {
+    name: "Mackage catalog SKU — no false-positive brand recovery (no decoder)",
+    brand: "Mackage",
+    pack: pack("Mackage", "mackage", [style("Adali"), style("Kay")]),
+    input: decodedFrom({ styleCode: "ADALI-F4-BLACK" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Herno single known line fills the style the AI missed",
+    brand: "Herno",
+    pack: pack("Herno", "herno", [style("Laminar")]),
+    input: decodedFrom({ brand: "Herno" }),
+    expect: { brand: "Herno", style: "Laminar" },
+  },
+  {
+    name: "Herno ambiguous slim dark nylon jackets (Laminar vs Ultralight) — never guess",
+    brand: "Herno",
+    pack: pack("Herno", "herno", [style("Laminar"), style("Ultralight Down Jacket")]),
+    input: decodedFrom({ brand: "Herno" }),
+    expect: { brand: "Herno", noStyle: true },
+  },
+  {
+    name: "Herno article number — no false-positive brand recovery (catalog SKU)",
+    brand: "Herno",
+    pack: pack("Herno", "herno", [style("Laminar"), style("Ultralight Down Jacket")]),
+    input: decodedFrom({ styleCode: "PI0001DIC-12017" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Woolrich single known style fills the style the AI missed",
+    brand: "Woolrich",
+    pack: pack("Woolrich", "woolrich", [style("Arctic Parka")]),
+    input: decodedFrom({ brand: "Woolrich" }),
+    expect: { brand: "Woolrich", style: "Arctic Parka" },
+  },
+  {
+    name: "Woolrich ambiguous eras (Italian Arctic Parka vs US heritage wool) — never guess",
+    // The group's era trap in resolver form: one label, two brands, two ladders.
+    // The pack must not pick a ladder without the origin tag saying which.
+    brand: "Woolrich",
+    pack: pack("Woolrich", "woolrich", [
+      style("Arctic Parka"),
+      style("Buffalo Check Wool Shirt"),
+    ]),
+    input: decodedFrom({ brand: "Woolrich" }),
+    expect: { brand: "Woolrich", noStyle: true },
+  },
+  {
+    name: "Woolrich catalog SKU — no false-positive brand recovery (no decoder)",
+    brand: "Woolrich",
+    pack: pack("Woolrich", "woolrich", [style("Arctic Parka")]),
+    input: decodedFrom({ styleCode: "WOCPS2880-UT0001" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Bogner single known style fills the style the AI missed",
+    brand: "Bogner",
+    pack: pack("Bogner", "bogner", [style("Ski Pant")]),
+    input: decodedFrom({ brand: "Bogner" }),
+    expect: { brand: "Bogner", style: "Ski Pant" },
+  },
+  {
+    name: "Bogner ambiguous ladders (mainline Ski Jacket vs Fire + Ice) — never guess",
+    brand: "Bogner",
+    pack: pack("Bogner", "bogner", [style("Ski Jacket"), style("Fire + Ice")]),
+    input: decodedFrom({ brand: "Bogner" }),
+    expect: { brand: "Bogner", noStyle: true },
+  },
+  {
+    name: "Bogner article number — no false-positive brand recovery (catalog SKU)",
+    brand: "Bogner",
+    pack: pack("Bogner", "bogner", [style("Ski Jacket"), style("Fire + Ice")]),
+    input: decodedFrom({ styleCode: "3841-4247-042" }),
     expect: { noBrand: true },
   },
 ];
