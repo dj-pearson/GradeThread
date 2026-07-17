@@ -2357,7 +2357,7 @@
         "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
       ],
       "priority": 2479,
-      "passes": false,
+      "passes": true,
       "notes": "[BrandKB][Brand][Group] ~8 brands. Add size markers/decoders only where they exist. Complements US-1734 (outdoor/technical). Model + fabric tech (e.g. G-1000, GORE-TEX) are the key signal.",
       "dependsOn": [
         "US-1715",
