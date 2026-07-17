@@ -1558,7 +1558,7 @@
         "handleListRequest/handleDelistRequest wrap their async bodies so a storage throw still calls sendResponse with an error (no unhandled-rejection hangs)"
       ],
       "priority": 1874,
-      "passes": false,
+      "passes": true,
       "notes": "Audit findings F1/F2/F3/F10/F11/F12 (critical cluster). This is the top correctness fix for the seller surface."
     },
     {
