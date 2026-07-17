@@ -2281,7 +2281,7 @@
         "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
       ],
       "priority": 2483,
-      "passes": false,
+      "passes": true,
       "notes": "[BrandKB][Brand][Group] ~9 brands. Add size markers/decoders only where they exist. Accessory-first brands; authentication tells informational. Serial/date codes where they exist (Dooney & Bourke, Tumi).",
       "dependsOn": [
         "US-1715",
