@@ -65,6 +65,17 @@ memory — not a progress log (the harness records progress separately).
   yourself (the test compares VERBATIM). Both need SUPABASE_URL/
   SUPABASE_SERVICE_ROLE_KEY set or they die on the supabase.ts import.
 
+## Agent cohabitation (co-running loops)
+- A CO-RUNNING loop that commits with `git add -A` / `git commit -a` will SWEEP
+  YOUR STAGED FILES INTO ITS OWN COMMIT — staging early does not reserve them.
+  US-1987's 7 files landed inside a US-1979 commit, leaving the US-1987 commit
+  holding only the file staged afterwards. Nothing is lost and the tree stays
+  green, so it is silent: `git status` just goes clean and `git show --stat HEAD`
+  is missing your work. Stage and commit in ONE step, as late as possible, and
+  check `git log -1 -- <your file>` after committing. Do NOT try to rebase/reset
+  it apart afterwards — the other loop is still writing to `main` and history
+  surgery races it. Report the mis-attribution instead.
+
 ## Architecture / routing
 - Two hosts, easy to confuse: Supabase/Kong = `api.gradethread.com` (Supabase
   routes only); Hono edge = `functions.gradethread.com` (ALL `/api/*` routes).
