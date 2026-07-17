@@ -2224,7 +2224,7 @@
         "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
       ],
       "priority": 2486,
-      "passes": false,
+      "passes": true,
       "notes": "[BrandKB][Brand][Group] ~9 brands. Add size markers/decoders only where they exist. Champion, Fila, Puma, Reebok, ASICS have shallow seed rows (00389) — promote to full packs. Several are apparel + footwear.",
       "dependsOn": [
         "US-1715",
