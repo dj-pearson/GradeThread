@@ -8718,6 +8718,238 @@ export const SIZING_CHARTS: SizingChart[] = [
       { size: "XL", measurements: { bust: "41-43", waist: "33-35", hip: "43-45" } },
     ],
   },
+  // US-1993: kids & baby. Mirrors migration 00473's brand_size_charts 1:1. THE
+  // SYSTEM is the signal and it is NOT one system — BABY = MONTHS ↔ weight ↔
+  // height; TODDLER = T-sizes; KIDS = numeric / alpha; and HANNA ANDERSSON =
+  // HEIGHT IN CM (a genuinely different axis); Mini Boden = British AGE-YEARS +
+  // height cm. These are TRANSLATORS. ⚠ A KIDS SIZE IS THE SIZE, NOT A CODE.
+  {
+    brand: "Carter's",
+    brandMatch: ["carter's", "carters"],
+    department: "Baby",
+    garment: "Baby (MONTHS ↔ weight ↔ height)",
+    categoryMatch: ["bodysuit", "onesie", "sleeper", "footie", "footed", "romper", "pajama", "coverall", "layette", "one-piece", "bib", "baby"],
+    note:
+      "BABY IS SIZED IN MONTHS — but a baby is fitted by WEIGHT + HEIGHT, and the " +
+      "month label is only a proxy, so THE SYSTEM is months ↔ weight ↔ height (read " +
+      "all three off the tag). ⚠ A KIDS SIZE (24M / 2T) IS THE SIZE, NOT A CODE. " +
+      "Carter's baby is high-volume basics; grade snaps/zips, pilling and stains, and " +
+      "value the size-matched SET. Body-equivalent approximations, not brand-published specs.",
+    rows: [
+      { size: "Preemie (months system)", measurements: { weight: "up to 6 lb", height: "up to 17 in" } },
+      { size: "Newborn / NB", measurements: { weight: "6-9 lb", height: "17-21.5 in" } },
+      { size: "3M (0-3M)", measurements: { weight: "9-12.5 lb", height: "21.5-24 in" } },
+      { size: "6M (3-6M)", measurements: { weight: "12.5-16.5 lb", height: "24-26.5 in" } },
+      { size: "9M (6-9M)", measurements: { weight: "16.5-20.5 lb", height: "26.5-28.5 in" } },
+      { size: "12M (9-12M)", measurements: { weight: "20.5-24 lb", height: "28.5-30.5 in" } },
+      { size: "18M (12-18M)", measurements: { weight: "24-27 lb", height: "30.5-32.5 in" } },
+      { size: "24M / 2T (18-24M)", measurements: { weight: "27-30 lb", height: "32.5-34 in" } },
+    ],
+  },
+  {
+    brand: "Carter's",
+    brandMatch: ["carter's", "carters"],
+    department: "Kids",
+    garment: "Toddler & Kids (2T-5T ↔ numeric 4-16 / XS-XL)",
+    categoryMatch: ["tee", "shirt", "top", "pant", "pants", "legging", "short", "hoodie", "jacket", "sweater", "pajama", "dress", "skirt", "jeans", "uniform", "polo", "toddler", "kid"],
+    note:
+      "TODDLER is T-SIZES (2T-5T); KIDS is NUMERIC (4-16) or ALPHA (XS-XL) — a " +
+      "DIFFERENT system from baby months, and the SAME numeric label means different " +
+      "garments across brands, so read the SYSTEM off the label. ⚠ A KIDS SIZE (4T / " +
+      "10-12) IS THE SIZE, NOT A CODE. Body-equivalent approximations, not " +
+      "brand-published specs.",
+    rows: [
+      { size: "2T", measurements: { height: "33-35 in", weight: "29-31 lb", chest: "21" } },
+      { size: "3T", measurements: { height: "36-38.5 in", weight: "32-34 lb", chest: "22" } },
+      { size: "4T / 4 (XS)", measurements: { height: "39-41 in", weight: "35-39 lb", chest: "23" } },
+      { size: "5T / 5 (S)", measurements: { height: "42-44 in", weight: "40-45 lb", chest: "24" } },
+      { size: "6 / 6X", measurements: { height: "45-47.5 in", weight: "46-53 lb", chest: "25.5" } },
+      { size: "7-8 (M)", measurements: { height: "48-52 in", weight: "54-65 lb", chest: "27" } },
+      { size: "10-12 (L)", measurements: { height: "53-58 in", weight: "66-90 lb", chest: "29-30" } },
+      { size: "14-16 (XL)", measurements: { height: "59-63 in", weight: "91-115 lb", chest: "32-33" } },
+    ],
+  },
+  {
+    brand: "Janie and Jack",
+    brandMatch: ["janie and jack", "janieandjack", "janie & jack"],
+    department: "Baby",
+    garment: "Baby / Layette (MONTHS ↔ weight ↔ height)",
+    categoryMatch: ["bodysuit", "onesie", "sleeper", "footie", "romper", "layette", "gown", "set", "coverall", "baby", "pajama"],
+    note:
+      "BABY / LAYETTE IS SIZED IN MONTHS, fitted by WEIGHT + HEIGHT — THE SYSTEM is " +
+      "months ↔ weight ↔ height. ⚠ A KIDS SIZE (18-24M / 2T) IS THE SIZE, NOT A CODE. " +
+      "Janie and Jack layette comps as coordinated SETS; grade the snaps, fabric and " +
+      "any stain. Body-equivalent approximations, not brand-published specs.",
+    rows: [
+      { size: "Newborn / NB", measurements: { weight: "6-9 lb", height: "17-21.5 in" } },
+      { size: "3M (0-3M)", measurements: { weight: "9-12.5 lb", height: "21.5-24 in" } },
+      { size: "6M (3-6M)", measurements: { weight: "12.5-16.5 lb", height: "24-26.5 in" } },
+      { size: "12M (6-12M)", measurements: { weight: "16.5-22 lb", height: "26.5-29 in" } },
+      { size: "18M (12-18M)", measurements: { weight: "22-27 lb", height: "29-32 in" } },
+      { size: "24M / 2T (18-24M)", measurements: { weight: "27-30 lb", height: "32-34 in" } },
+    ],
+  },
+  {
+    brand: "Janie and Jack",
+    brandMatch: ["janie and jack", "janieandjack", "janie & jack"],
+    department: "Kids",
+    garment: "Toddler & Kids (2T-5T ↔ numeric 4-16)",
+    categoryMatch: ["dress", "top", "shirt", "pant", "pants", "sweater", "cardigan", "skirt", "short", "suit", "set", "knit", "toddler", "kid"],
+    note:
+      "TODDLER is T-SIZES (2T-5T); KIDS is NUMERIC (4-12) — a DIFFERENT system from " +
+      "baby months. Read the SYSTEM off the label. ⚠ A KIDS SIZE IS THE SIZE, NOT A " +
+      "CODE. J&J special-occasion pieces comp as coordinated SETS. Body-equivalent " +
+      "approximations, not brand-published specs.",
+    rows: [
+      { size: "2T", measurements: { height: "33-35 in", weight: "29-31 lb", chest: "21" } },
+      { size: "3T", measurements: { height: "36-38.5 in", weight: "32-34 lb", chest: "22" } },
+      { size: "4T / 4", measurements: { height: "39-41 in", weight: "35-39 lb", chest: "23" } },
+      { size: "5 / 5T", measurements: { height: "42-44 in", weight: "40-45 lb", chest: "24" } },
+      { size: "6-7", measurements: { height: "45-49 in", weight: "46-58 lb", chest: "25.5-26.5" } },
+      { size: "8-10", measurements: { height: "50-56 in", weight: "59-80 lb", chest: "27-29" } },
+      { size: "12", measurements: { height: "57-59 in", weight: "81-95 lb", chest: "30-31" } },
+    ],
+  },
+  {
+    brand: "The Children's Place",
+    brandMatch: ["the children's place", "children's place", "childrens place", "thechildrensplace"],
+    department: "Baby",
+    garment: "Baby (MONTHS ↔ weight ↔ height)",
+    categoryMatch: ["bodysuit", "onesie", "sleeper", "footie", "romper", "pajama", "coverall", "layette", "one-piece", "baby"],
+    note:
+      "BABY IS SIZED IN MONTHS, fitted by WEIGHT + HEIGHT — THE SYSTEM is months ↔ " +
+      "weight ↔ height. ⚠ A KIDS SIZE (24M / 2T) IS THE SIZE, NOT A CODE. TCP is " +
+      "high-volume VALUE basics; grade snaps, fade and pilling, and value the " +
+      "size-matched lot. Body-equivalent approximations, not brand-published specs.",
+    rows: [
+      { size: "Newborn / NB", measurements: { weight: "6-9 lb", height: "17-21.5 in" } },
+      { size: "3M (0-3M)", measurements: { weight: "9-12.5 lb", height: "21.5-24 in" } },
+      { size: "6M (3-6M)", measurements: { weight: "12.5-16.5 lb", height: "24-26.5 in" } },
+      { size: "9M (6-9M)", measurements: { weight: "16.5-20.5 lb", height: "26.5-28.5 in" } },
+      { size: "12M (9-12M)", measurements: { weight: "20.5-24 lb", height: "28.5-30.5 in" } },
+      { size: "18M (12-18M)", measurements: { weight: "24-27 lb", height: "30.5-32.5 in" } },
+      { size: "24M / 2T (18-24M)", measurements: { weight: "27-30 lb", height: "32.5-34 in" } },
+    ],
+  },
+  {
+    brand: "The Children's Place",
+    brandMatch: ["the children's place", "children's place", "childrens place", "thechildrensplace"],
+    department: "Kids",
+    garment: "Toddler & Kids (2T-5T ↔ numeric 4-16 / XS-XL)",
+    categoryMatch: ["tee", "shirt", "top", "pant", "pants", "legging", "short", "hoodie", "jacket", "jeans", "polo", "chino", "uniform", "activewear", "jogger", "dress", "skirt", "toddler", "kid"],
+    note:
+      "TODDLER is T-SIZES (2T-5T); KIDS is NUMERIC (4-16) or ALPHA (XS-XL) — a " +
+      "DIFFERENT system from baby months, and the SAME numeric label differs across " +
+      "brands, so read the SYSTEM off the label. ⚠ A KIDS SIZE (4T / 10-12) IS THE " +
+      "SIZE, NOT A CODE. Uniform basics comp as size-matched bundles. Body-equivalent " +
+      "approximations, not brand-published specs.",
+    rows: [
+      { size: "2T", measurements: { height: "33-35 in", weight: "29-31 lb", chest: "21" } },
+      { size: "3T", measurements: { height: "36-38.5 in", weight: "32-34 lb", chest: "22" } },
+      { size: "4T / 4 (XS)", measurements: { height: "39-41 in", weight: "35-39 lb", chest: "23" } },
+      { size: "5 / 5T (S)", measurements: { height: "42-44 in", weight: "40-45 lb", chest: "24" } },
+      { size: "6-7 (S)", measurements: { height: "45-49 in", weight: "46-58 lb", chest: "25.5-26.5" } },
+      { size: "8 (M)", measurements: { height: "50-52 in", weight: "59-65 lb", chest: "27" } },
+      { size: "10-12 (L)", measurements: { height: "53-58 in", weight: "66-90 lb", chest: "28-30" } },
+      { size: "14-16 (XL)", measurements: { height: "59-63 in", weight: "91-115 lb", chest: "31-33" } },
+    ],
+  },
+  {
+    brand: "Gymboree",
+    brandMatch: ["gymboree"],
+    department: "Baby",
+    garment: "Baby (MONTHS ↔ weight ↔ height)",
+    categoryMatch: ["bodysuit", "onesie", "sleeper", "footie", "romper", "pajama", "coverall", "set", "one-piece", "baby"],
+    note:
+      "BABY IS SIZED IN MONTHS, fitted by WEIGHT + HEIGHT — THE SYSTEM is months ↔ " +
+      "weight ↔ height. ⚠ A KIDS SIZE (24M / 2T) IS THE SIZE, NOT A CODE. ⚠ For " +
+      "VINTAGE Gymboree the value is the COLLECTION/LINE NAME, not the size. " +
+      "Body-equivalent approximations, not brand-published specs.",
+    rows: [
+      { size: "Newborn / NB", measurements: { weight: "6-9 lb", height: "17-21.5 in" } },
+      { size: "3M (0-3M)", measurements: { weight: "9-12.5 lb", height: "21.5-24 in" } },
+      { size: "6M (3-6M)", measurements: { weight: "12.5-16.5 lb", height: "24-26.5 in" } },
+      { size: "12M (6-12M)", measurements: { weight: "16.5-22 lb", height: "26.5-29 in" } },
+      { size: "18M (12-18M)", measurements: { weight: "22-27 lb", height: "29-32 in" } },
+      { size: "24M / 2T (18-24M)", measurements: { weight: "27-30 lb", height: "32-34 in" } },
+    ],
+  },
+  {
+    brand: "Gymboree",
+    brandMatch: ["gymboree"],
+    department: "Kids",
+    garment: "Toddler & Kids (2T-5T ↔ numeric 4-14)",
+    categoryMatch: ["tee", "shirt", "top", "pant", "pants", "legging", "short", "hoodie", "dress", "skirt", "jeans", "activewear", "gymgo", "jogger", "set", "toddler", "kid"],
+    note:
+      "TODDLER is T-SIZES (2T-5T); KIDS is NUMERIC (4-14) — a DIFFERENT system from " +
+      "baby months. Read the SYSTEM off the label. ⚠ A KIDS SIZE IS THE SIZE, NOT A " +
+      "CODE — and for a VINTAGE Gymboree COLLECTION the value is the LINE NAME, never " +
+      "a number. Body-equivalent approximations, not brand-published specs.",
+    rows: [
+      { size: "2T", measurements: { height: "33-35 in", weight: "29-31 lb", chest: "21" } },
+      { size: "3T", measurements: { height: "36-38.5 in", weight: "32-34 lb", chest: "22" } },
+      { size: "4T / 4", measurements: { height: "39-41 in", weight: "35-39 lb", chest: "23" } },
+      { size: "5 / 5T", measurements: { height: "42-44 in", weight: "40-45 lb", chest: "24" } },
+      { size: "6-7", measurements: { height: "45-49 in", weight: "46-58 lb", chest: "25.5-26.5" } },
+      { size: "8-10", measurements: { height: "50-56 in", weight: "59-80 lb", chest: "27-29" } },
+      { size: "12-14", measurements: { height: "57-61 in", weight: "81-105 lb", chest: "30-32" } },
+    ],
+  },
+  {
+    brand: "Hanna Andersson",
+    brandMatch: ["hanna andersson", "hannaandersson"],
+    department: "Kids",
+    garment: "Baby & Kids (HEIGHT IN CM ↔ US age)",
+    categoryMatch: ["pajama", "sleeper", "bodysuit", "dress", "top", "tee", "pant", "legging", "romper", "onesie", "footie", "long johns", "playwear", "baby", "kid"],
+    note:
+      "HANNA ANDERSSON SIZES BY HEIGHT IN CM, not US age — 50 / 60 / 70 / 80 / 90 / " +
+      "100 / 110 / 120 / 130 / 140 / 150 = the child's HEIGHT in centimetres, a " +
+      "genuinely DIFFERENT AXIS from the US months/T/numeric systems. THE SYSTEM is " +
+      "the signal: read the cm number off the neck label and translate to US age via " +
+      "this chart (90 cm ≈ US 2T, 110 cm ≈ US 4-5, 130 cm ≈ US 8). A mis-read cm size " +
+      "is the most common listing error on this brand. Body-equivalent approximations, " +
+      "not brand-published specs.",
+    rows: [
+      { size: "50 cm (US Newborn / 0-3M)", measurements: { height: "up to 21.5 in", usAge: "NB / 0-3M" } },
+      { size: "60 cm (US 3-6M)", measurements: { height: "21.5-24 in", usAge: "3-6M" } },
+      { size: "70 cm (US 6-12M)", measurements: { height: "24-28 in", usAge: "6-12M" } },
+      { size: "80 cm (US 12-18M)", measurements: { height: "28-31 in", usAge: "12-18M" } },
+      { size: "90 cm (US 18-24M / 2T)", measurements: { height: "31-35 in", usAge: "18-24M / 2T" } },
+      { size: "100 cm (US 3T)", measurements: { height: "35-39 in", usAge: "3T" } },
+      { size: "110 cm (US 4-5)", measurements: { height: "39-43 in", usAge: "4-5" } },
+      { size: "120 cm (US 6-7)", measurements: { height: "43-47 in", usAge: "6-7" } },
+      { size: "130 cm (US 8)", measurements: { height: "47-51 in", usAge: "8" } },
+      { size: "140 cm (US 10)", measurements: { height: "51-55 in", usAge: "10" } },
+      { size: "150 cm (US 12)", measurements: { height: "55-59 in", usAge: "12" } },
+    ],
+  },
+  {
+    brand: "Mini Boden",
+    brandMatch: ["mini boden", "miniboden", "baby boden"],
+    department: "Kids",
+    garment: "Baby & Kids (AGE-YEARS ↔ height cm, British)",
+    categoryMatch: ["dress", "top", "tee", "pant", "legging", "romper", "bodysuit", "onesie", "sleeper", "sleepsuit", "applique", "playsuit", "short", "jumper", "baby", "kid"],
+    note:
+      "MINI BODEN IS BRITISH — SIZED BY AGE-YEARS (0-3M, 3-6M ... then 2-3Y, 3-4Y, " +
+      "4-5Y ...) + HEIGHT in cm, a DIFFERENT system from the US months/T/numeric axis. " +
+      "THE SYSTEM is the signal: read the age-band off the tag (a \"2-3Y\" label is an " +
+      "AGE, not a US size) and use the height cm to translate. ⚠ A KIDS SIZE (2-3Y / " +
+      "24M) IS THE SIZE, NOT A CODE. Body-equivalent approximations, not " +
+      "brand-published specs.",
+    rows: [
+      { size: "0-3M (up to 62 cm)", measurements: { height: "up to 24 in", age: "0-3 months" } },
+      { size: "3-6M (62-68 cm)", measurements: { height: "24-27 in", age: "3-6 months" } },
+      { size: "6-12M (68-80 cm)", measurements: { height: "27-31 in", age: "6-12 months" } },
+      { size: "12-18M (80-86 cm)", measurements: { height: "31-34 in", age: "12-18 months" } },
+      { size: "18-24M (86-92 cm)", measurements: { height: "34-36 in", age: "18-24 months" } },
+      { size: "2-3Y (92-98 cm)", measurements: { height: "36-39 in", age: "2-3 years" } },
+      { size: "3-4Y (98-104 cm)", measurements: { height: "39-41 in", age: "3-4 years" } },
+      { size: "4-5Y (104-110 cm)", measurements: { height: "41-43 in", age: "4-5 years" } },
+      { size: "5-6Y (110-116 cm)", measurements: { height: "43-46 in", age: "5-6 years" } },
+      { size: "7-8Y (122-128 cm)", measurements: { height: "48-50 in", age: "7-8 years" } },
+      { size: "9-10Y (134-140 cm)", measurements: { height: "53-55 in", age: "9-10 years" } },
+    ],
+  },
 ];
 
 function norm(s: string | null | undefined): string {

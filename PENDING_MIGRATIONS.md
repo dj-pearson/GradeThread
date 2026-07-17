@@ -4,6 +4,57 @@
 > The sections below for those are historical; the only NEW held migration is
 > **00443** at the top.
 
+## ⏳ PENDING: 00473_kids_baby_brand_knowledge.sql (US-1993 kids & baby brand KB, 2026-07-17)
+
+Data-only seed of the `brand_knowledge*` tables for the kids/baby tier: **Carter's,
+Hanna Andersson, Mini Boden, Janie and Jack, The Children's Place, Gymboree.** The
+first childrenswear-focused group in the KB; **all six were passthrough-only.**
+
+**The through-line: THE SIZE SYSTEM IS AN AGE/MONTHS SYSTEM — and it is NOT one
+system.** This is the defining problem of kids/baby resale (the analog of intimates'
+three bra-systems and footwear's US/UK/EU translator). A children's listing is priced
+by SIZE, but "size" is up to four incompatible axes: **BABY = MONTHS (NB, 0-3M …
+18-24M/2T) cross-referenced by WEIGHT + HEIGHT; TODDLER = T-sizes (2T-5T); KIDS =
+numeric (4-16) / alpha (XS-XL)** — and the SAME numeric label means different garments
+across brands. The charts are TRANSLATORS (months ↔ weight ↔ height ↔ T-size), with the
+SYSTEM named in the label.
+
+- **⚠ HANNA ANDERSSON is the standout** — a EUROPEAN CM/HEIGHT system (50/60/70 … 150 =
+  the child's HEIGHT in cm), a genuinely different axis from US age. Its dedicated chart
+  carries the cm labels and the note states **"HANNA ANDERSSON SIZES BY HEIGHT IN CM"**
+  with the cm↔US mapping (90 cm ≈ 2T). **Mini Boden** is the British AGE-YEARS system.
+- **ZERO DECODERS, deliberately** (the 00470/00472 call) — NO decoder clears the bar;
+  every candidate is fixtured as a REFUSAL in `brand-knowledge-golden_test.ts`. Gymboree /
+  The Children's Place "style numbers" are web/catalogue SKUs (bare digit runs, the Chanel
+  rule). **⚠ A KIDS SIZE ("24M"/"4T") IS NOT A STYLE CODE** — it is the size, captured by
+  the charts (the direct analog of the intimates "a bra size is not a style code" call).
+- **NO RN IS SEEDED** — childrenswear IS textile (so an RN would be in scope, unlike
+  footwear), but none is sourced to a PRIMARY FTC record (RN 17257, 00468). Owed to US-1715.
+- **TAG ERAS documented for two makers with a real chronology** — **Gymboree** (⚠ the
+  pack's value nuance: discontinued 1990s-2000s VINTAGE COLLECTIONS are collected and comp
+  on the COLLECTION/LINE NAME, above modern basics) and **Carter's** (heritage since 1865) —
+  **empty for the four modern brands** (Hanna Andersson, Mini Boden, Janie and Jack, The
+  Children's Place), the athleisure precedent 00452.
+- **COLORWAYS: ZERO for the whole group, by design** — kids brands ship ordinary seasonal
+  colours / licensed prints, no stable proprietary NAMED palette (00456/00462). No insert.
+- **SHORT-FORM SAFETY in `brand-normalize.ts` (not data):** the bare tokens **carter**
+  (surname), **hanna** (first name), **place** (ordinary word) and **boden** (the ADULT
+  parent brand) are kept OUT of the alias map — only the full forms / the exact `tcp` key
+  resolve. No canonical is an ordinary word, so **no DETECT_EXCLUDED_FROM_TEXT additions**.
+
+`brand_knowledge` ×**6**; `brand_styles` ×**20**; `brand_colorways` ×**0**;
+`brand_style_codes` ×**0**; `brand_size_charts` ×**10** (a BABY months↔weight↔height chart
++ a TODDLER/KIDS chart for each of the four US brands, a dedicated HANNA cm/height chart, a
+MINI BODEN age-years/height chart), all mirrored 1:1 into the `sizing-charts.ts` in-code
+fallback. Every fact carries `source_url` + `confidence` and lands `verified=false` for the
+US-1715 admin queue. Idempotent (`on conflict do update`).
+
+Apply **after 00472** via `scripts/apply-prod-migrations.sh`, then
+`NOTIFY pgrst, 'reload schema';`, then redeploy the edge (boot guard now expects **00473**).
+Bumps `EXPECTED_SCHEMA_VERSION` → **00473**. Risk: LOW — data-only, no schema change, no
+DDL, no frontend reads the new rows (the edge resolver falls back to the in-code tables when
+a pack is absent).
+
 ## ⏳ PENDING: 00472_outdoor_technical_tier2_brand_knowledge.sql (US-1992 outdoor & technical tier 2 brand KB, 2026-07-17)
 
 Data-only seed of the `brand_knowledge*` tables for the tier-2 outdoor/technical

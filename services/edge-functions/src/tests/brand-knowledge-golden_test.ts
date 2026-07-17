@@ -4525,6 +4525,173 @@ const CASES: GoldenCase[] = [
     input: decodedFrom({ brand: "Outdoor Research" }),
     expect: { brand: "Outdoor Research", noStyle: true },
   },
+  // ── US-1993: kids & baby (migration 00473) ───────────────────────────────────
+  // ZERO decoders in this pack (the 00470/00472 call — no code clears the bar; the
+  // identifier is a NAME / garment TYPE / vintage COLLECTION). So every case proves
+  // enrichment stays correct WITHOUT a decoder: a single known model fills the
+  // style the AI missed, a confusable pair is never guessed, and — the pack's whole
+  // point — ⚠ A KIDS SIZE ("24M" / "4T") IS THE SIZE, NOT A CODE, and never
+  // false-recovers a brand. The Gymboree / Children's Place "style numbers" are web
+  // SKUs (bare digit runs, the Chanel rule) and are REFUSALS.
+  {
+    name: "Carter's single known model fills the style the AI missed",
+    brand: "Carter's",
+    pack: pack("Carter's", "carters", [style("Footed Sleeper")]),
+    input: decodedFrom({ brand: "Carter's" }),
+    expect: { brand: "Carter's", style: "Footed Sleeper" },
+  },
+  {
+    name: "Carter's ambiguous (footed sleeper vs bodysuit multipack) — never guess a style",
+    brand: "Carter's",
+    pack: pack("Carter's", "carters", [style("Footed Sleeper"), style("Bodysuit Multipack")]),
+    input: decodedFrom({ brand: "Carter's" }),
+    expect: { brand: "Carter's", noStyle: true },
+  },
+  {
+    name: "REFUSAL: a Carter's KIDS SIZE (24M) is a size, not a code — no false recovery",
+    // "24M" is a MONTHS size, captured by the size charts — it must NEVER decode a
+    // brand. With no AI brand it must not mint one.
+    brand: "Carter's",
+    pack: pack("Carter's", "carters", [style("Footed Sleeper"), style("Bodysuit Multipack")]),
+    input: decodedFrom({ styleCode: "24M" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Hanna Andersson single known model fills the style the AI missed",
+    brand: "Hanna Andersson",
+    pack: pack("Hanna Andersson", "hannaandersson", [style("Organic Cotton Zip Pajamas")]),
+    input: decodedFrom({ brand: "Hanna Andersson" }),
+    expect: { brand: "Hanna Andersson", style: "Organic Cotton Zip Pajamas" },
+  },
+  {
+    name: "Hanna Andersson ambiguous (pajamas vs playwear) — never guess a style",
+    brand: "Hanna Andersson",
+    pack: pack("Hanna Andersson", "hannaandersson", [
+      style("Organic Cotton Zip Pajamas"),
+      style("Swedish Playwear"),
+    ]),
+    input: decodedFrom({ brand: "Hanna Andersson" }),
+    expect: { brand: "Hanna Andersson", noStyle: true },
+  },
+  {
+    name: "REFUSAL: a Hanna Andersson cm SIZE (90) is a size, not a code — no false recovery",
+    // A "90" cm-height size must never mint a brand — there is no decoder.
+    brand: "Hanna Andersson",
+    pack: pack("Hanna Andersson", "hannaandersson", [style("Organic Cotton Zip Pajamas")]),
+    input: decodedFrom({ styleCode: "90" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Mini Boden single known model fills the style the AI missed",
+    brand: "Mini Boden",
+    pack: pack("Mini Boden", "miniboden", [style("Appliqué Dress")]),
+    input: decodedFrom({ brand: "Mini Boden" }),
+    expect: { brand: "Mini Boden", style: "Appliqué Dress" },
+  },
+  {
+    name: "Mini Boden ambiguous (appliqué dress vs logo playwear) — never guess a style",
+    brand: "Mini Boden",
+    pack: pack("Mini Boden", "miniboden", [style("Appliqué Dress"), style("Logo Playwear")]),
+    input: decodedFrom({ brand: "Mini Boden" }),
+    expect: { brand: "Mini Boden", noStyle: true },
+  },
+  {
+    name: "REFUSAL: a Mini Boden AGE size (2-3Y) is a size, not a code — no false recovery",
+    brand: "Mini Boden",
+    pack: pack("Mini Boden", "miniboden", [style("Appliqué Dress"), style("Logo Playwear")]),
+    input: decodedFrom({ styleCode: "2-3Y" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Janie and Jack single known model fills the style the AI missed",
+    brand: "Janie and Jack",
+    pack: pack("Janie and Jack", "janieandjack", [style("Special-Occasion Set")]),
+    input: decodedFrom({ brand: "Janie and Jack" }),
+    expect: { brand: "Janie and Jack", style: "Special-Occasion Set" },
+  },
+  {
+    name: "Janie and Jack ambiguous (special-occasion set vs knitwear) — never guess a style",
+    brand: "Janie and Jack",
+    pack: pack("Janie and Jack", "janieandjack", [
+      style("Special-Occasion Set"),
+      style("Fine Knitwear"),
+    ]),
+    input: decodedFrom({ brand: "Janie and Jack" }),
+    expect: { brand: "Janie and Jack", noStyle: true },
+  },
+  {
+    name: "The Children's Place single known model fills the style the AI missed",
+    brand: "The Children's Place",
+    pack: pack("The Children's Place", "thechildrensplace", [style("Uniform Polo")]),
+    input: decodedFrom({ brand: "The Children's Place" }),
+    expect: { brand: "The Children's Place", style: "Uniform Polo" },
+  },
+  {
+    name: "The Children's Place ambiguous (uniform polo vs graphic tee) — never guess a style",
+    brand: "The Children's Place",
+    pack: pack("The Children's Place", "thechildrensplace", [
+      style("Uniform Polo"),
+      style("Graphic Tee"),
+    ]),
+    input: decodedFrom({ brand: "The Children's Place" }),
+    expect: { brand: "The Children's Place", noStyle: true },
+  },
+  {
+    name: "REFUSAL: a Children's Place style number is a web SKU — no decode, AI brand survives",
+    // A bare digit run printed on the hangtag / in the URL is a web/catalogue SKU,
+    // not a tag-printed brand-unique code. The AI brand must survive unchanged.
+    brand: "The Children's Place",
+    pack: pack("The Children's Place", "thechildrensplace"),
+    input: {
+      ...decodedFrom({ brand: "The Children's Place" }),
+      attributes: {
+        style_code: { values: ["3012345"], confidence: 0.5, source: "photo:tag" },
+      },
+    },
+    expect: { brand: "The Children's Place" },
+  },
+  {
+    name: "REFUSAL: a bare Children's Place style number never false-recovers a brand",
+    brand: "The Children's Place",
+    pack: pack("The Children's Place", "thechildrensplace", [style("Uniform Polo"), style("Graphic Tee")]),
+    input: decodedFrom({ styleCode: "3012345" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Gymboree single known model fills the style the AI missed",
+    brand: "Gymboree",
+    pack: pack("Gymboree", "gymboree", [style("Vintage Collection")]),
+    input: decodedFrom({ brand: "Gymboree" }),
+    expect: { brand: "Gymboree", style: "Vintage Collection" },
+  },
+  {
+    name: "Gymboree ambiguous (vintage collection vs modern basics) — never guess a style",
+    brand: "Gymboree",
+    pack: pack("Gymboree", "gymboree", [style("Vintage Collection"), style("Modern Basics")]),
+    input: decodedFrom({ brand: "Gymboree" }),
+    expect: { brand: "Gymboree", noStyle: true },
+  },
+  {
+    name: "REFUSAL: a Gymboree style number does not decode — the vintage VALUE is the line NAME",
+    // Gymboree's catalogue number is a web SKU (a bare digit run); it must not
+    // decode. The AI brand survives, and the collector value is the COLLECTION name.
+    brand: "Gymboree",
+    pack: pack("Gymboree", "gymboree"),
+    input: {
+      ...decodedFrom({ brand: "Gymboree" }),
+      attributes: {
+        style_code: { values: ["140123"], confidence: 0.5, source: "photo:tag" },
+      },
+    },
+    expect: { brand: "Gymboree" },
+  },
+  {
+    name: "REFUSAL: a Gymboree KIDS SIZE (4T) is a size, not a code — no false recovery",
+    brand: "Gymboree",
+    pack: pack("Gymboree", "gymboree", [style("Vintage Collection"), style("Modern Basics")]),
+    input: decodedFrom({ styleCode: "4T" }),
+    expect: { noBrand: true },
+  },
 ];
 
 // ── the gate ────────────────────────────────────────────────────────────────

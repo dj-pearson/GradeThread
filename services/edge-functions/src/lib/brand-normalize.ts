@@ -1180,6 +1180,49 @@ const BRAND_ALIASES: Record<string, string> = {
   // ⚠ A bare "or" is DELIBERATELY ABSENT — it is the English word / the state
   // Oregon, catastrophic even as an exact whole-field key; only the full form
   // resolves.
+
+  // US-1993 kids & baby group. All six were passthrough-only. The identifier is a
+  // NAME (a garment type, a print, a vintage collection), never a tag-printed
+  // brand-unique code (see migration 00473), and ⚠ a KIDS SIZE (24M / 4T) is the
+  // SIZE, not a code. NONE of the six CANONICALS is an ordinary word, so NONE is
+  // added to DETECT_EXCLUDED_FROM_TEXT — the hazards are all in the SHORT forms,
+  // handled by keeping the bare tokens OUT of this map (the "ck"/"tcp" play).
+  //
+  // brandKey() KEEPS [a-z0-9] ONLY, so it STRIPS apostrophes and spaces:
+  // "Carter's" keys as "carters" and "The Children's Place" as "thechildrensplace"
+  // (the leading "the" is kept, exactly like "thenorthface").
+  carters: "Carter's", // brandKey("Carter's") strips the apostrophe → "carters"
+  // ⚠ a bare "carter" is DELIBERATELY ABSENT — a common surname; only "carters" /
+  // "Carter's" resolve. Carter's stays reachable by detectBrandInText because its
+  // canonical is the possessive "Carter's" (a bare "carter" never matches it), and
+  // "Carter's" dominates the childrenswear title corpus, so it is NOT excluded.
+  justoneyou: "Carter's", // Target's Carter's-made sub-label
+  justoneyoubycarters: "Carter's",
+  childofmine: "Carter's", // Walmart's Carter's-made sub-label
+  simplejoys: "Carter's", // Amazon's Carter's-made sub-label
+  // ⚠ OshKosh (Carter's-owned) is DELIBERATELY NOT folded — a shared parent is not
+  // a signal; OshKosh keeps its own identity / passthrough.
+  hannaandersson: "Hanna Andersson", // brandKey strips the space
+  hannaanderson: "Hanna Andersson", // the common single-s misspelling
+  // ⚠ a bare "hanna" is DELIBERATELY ABSENT — a first name; only the full
+  // "Hanna Andersson" resolves.
+  miniboden: "Mini Boden",
+  minibodenkids: "Mini Boden",
+  babyboden: "Mini Boden", // the youngest Mini Boden line
+  // ⚠ a bare "boden" is DELIBERATELY ABSENT — it is the ADULT parent brand; folding
+  // it onto the kids line would mis-key adult Boden. Only the "Mini Boden" forms
+  // resolve (a shared name is not a fold — the Hollister/Aerie rule).
+  janieandjack: "Janie and Jack", // brandKey("Janie and Jack") = "janieandjack"
+  janiejack: "Janie and Jack", // brandKey("Janie & Jack") strips the "&" → "janiejack"
+  thechildrensplace: "The Children's Place", // brandKey keeps "the" (the "thenorthface" play)
+  childrensplace: "The Children's Place", // the form without a leading "the"
+  // "tcp" is safe as an exact whole-field KEY (this map is an exact lookup — the
+  // "ck"/"hh" play); it fires only when the seller's ENTIRE brand field is "tcp".
+  tcp: "The Children's Place",
+  // ⚠ a bare "place" is DELIBERATELY ABSENT — an ordinary word; only the full forms
+  // and the exact "tcp" key resolve.
+  gymboree: "Gymboree",
+  gymbo: "Gymboree", // a common nickname, safe as an exact whole-field key
 };
 
 /**
