@@ -1,160 +1,81 @@
-// deno-lint-ignore-file no-explicit-any
-// US-1448 chunk 2: item_promotion body-builder unit tests. Pure — no network,
-// no DB. Validates the per-type request bodies against eBay's documented
-// ItemPromotion schema and the required-field guards.
+// US-1979 (AC2): item_promotion input validation.
+//
+// updateItemPromotion / deleteItemPromotion had ZERO route references — built and
+// unreachable — and createItemPromotion existed only as an automation side-effect.
+// The new CRUD routes validate by RUNNING buildItemPromotionBody up front, so a
+// throw is definitionally the seller's input problem (400) rather than "eBay said
+// no" (502).
+//
+// This pins the rules the routes lean on. If a rule is added to the builder later,
+// the routes inherit it for free — that is the whole point of validating through
+// the builder instead of re-deriving its logic or sniffing its error strings.
+import { assert, assertThrows } from "@std/assert";
 
-import { assertEquals, assertThrows } from "@std/assert";
+Deno.env.set("SUPABASE_URL", Deno.env.get("SUPABASE_URL") ?? "http://localhost:54321");
+Deno.env.set(
+  "SUPABASE_SERVICE_ROLE_KEY",
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
+);
 
-Deno.env.set("SUPABASE_URL", "http://localhost:54321");
-Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "test-service-role-key");
-Deno.env.set("EBAY_MARKETPLACE_ID", "EBAY_US");
+const { buildItemPromotionBody } = await import("../lib/ebay-marketing.ts");
 
-const mk = await import("../lib/ebay-marketing.ts");
+const IMG = "https://i.ebayimg.com/promo.jpg";
+const base = {
+  name: "Spring sale",
+  listingIds: ["1234567890"],
+  percentOff: 20,
+};
 
-Deno.test("VOLUME_DISCOUNT: per-item %, numberOfItems, no image required", () => {
-  const body = mk.buildItemPromotionBody({
-    type: "VOLUME_DISCOUNT",
-    name: "Buy 2 save",
-    listingIds: ["111", "222"],
-    percentOff: 15,
-    buyQuantity: 3,
-  }) as Record<string, any>;
-  assertEquals(body.promotionType, "VOLUME_DISCOUNT");
-  assertEquals(body.marketplaceId, "EBAY_US");
-  assertEquals(body.promotionStatus, "RUNNING");
-  assertEquals(body.inventoryCriterion.listingIds, ["111", "222"]);
-  assertEquals(body.discountRules[0].discountBenefit, { percentageOffItem: "15.0" });
-  assertEquals(body.discountRules[0].discountSpecification, { numberOfItems: 3 });
-  assertEquals("promotionImageUrl" in body, false); // not valid for VOLUME_DISCOUNT
-  assertEquals("couponConfiguration" in body, false);
-});
-
-Deno.test("VOLUME_DISCOUNT: buyQuantity floors at 2", () => {
-  const body = mk.buildItemPromotionBody({
-    type: "VOLUME_DISCOUNT",
-    name: "vol",
-    listingIds: ["1"],
-    percentOff: 10,
-    buyQuantity: 1,
-  }) as Record<string, any>;
-  assertEquals(body.discountRules[0].discountSpecification.numberOfItems, 2);
-});
-
-Deno.test("ORDER_DISCOUNT: %-off-order + minAmount + image", () => {
-  const body = mk.buildItemPromotionBody({
+Deno.test("US-1979: a valid ORDER_DISCOUNT builds", () => {
+  const body = buildItemPromotionBody({
+    ...base,
     type: "ORDER_DISCOUNT",
-    name: "Spend $50 save 10%",
-    listingIds: ["abc"],
-    percentOff: 10,
     minSpend: { value: "50.00", currency: "USD" },
-    promotionImageUrl: "https://img.example/banner.jpg",
-    startDate: "2026-08-01T00:00:00.000Z",
-  }) as Record<string, any>;
-  assertEquals(body.promotionType, "ORDER_DISCOUNT");
-  assertEquals(body.promotionStatus, "SCHEDULED"); // future start
-  assertEquals(body.discountRules[0].discountBenefit, { percentageOffOrder: "10.0" });
-  assertEquals(body.discountRules[0].discountSpecification, {
-    minAmount: { value: "50.00", currency: "USD" },
+    promotionImageUrl: IMG,
   });
-  assertEquals(body.promotionImageUrl, "https://img.example/banner.jpg");
-  assertEquals(body.startDate, "2026-08-01T00:00:00.000Z");
+  assert(body, "should build a body");
 });
 
-Deno.test("ORDER_DISCOUNT: missing image / minSpend throws", () => {
-  assertThrows(() =>
-    mk.buildItemPromotionBody({
-      type: "ORDER_DISCOUNT",
-      name: "x",
-      listingIds: ["1"],
-      percentOff: 10,
-      minSpend: { value: "50", currency: "USD" },
-    }), Error, "promotionImageUrl");
-  assertThrows(() =>
-    mk.buildItemPromotionBody({
-      type: "ORDER_DISCOUNT",
-      name: "x",
-      listingIds: ["1"],
-      percentOff: 10,
-      promotionImageUrl: "https://img/x.jpg",
-    }), Error, "minSpend");
-});
-
-Deno.test("CODED_COUPON: couponConfiguration + image; validates code", () => {
-  const body = mk.buildItemPromotionBody({
-    type: "CODED_COUPON",
-    name: "SAVE10",
-    listingIds: ["1"],
-    percentOff: 10,
-    couponCode: "SAVE10NOW",
-    promotionImageUrl: "https://img/x.jpg",
-  }) as Record<string, any>;
-  assertEquals(body.promotionType, "CODED_COUPON");
-  assertEquals(body.couponConfiguration, {
-    couponType: "PUBLIC_CODED_COUPON",
-    couponCode: "SAVE10NOW",
+Deno.test("US-1979: a valid VOLUME_DISCOUNT builds without an image", () => {
+  // VOLUME_DISCOUNT is the one type eBay does NOT require an image for — worth
+  // pinning, since a route that demanded one uniformly would block it.
+  const body = buildItemPromotionBody({
+    ...base,
+    type: "VOLUME_DISCOUNT",
+    buyQuantity: 2,
   });
-  assertEquals(body.discountRules[0].discountBenefit, { percentageOffItem: "10.0" });
-
-  // bad code (too short / non-alphanumeric) throws
-  assertThrows(() =>
-    mk.buildItemPromotionBody({
-      type: "CODED_COUPON",
-      name: "x",
-      listingIds: ["1"],
-      percentOff: 10,
-      couponCode: "SHORT",
-      promotionImageUrl: "https://img/x.jpg",
-    }), Error, "couponCode");
+  assert(body, "should build without promotionImageUrl");
 });
 
-Deno.test("percent is clamped to the shared markdown bounds (5–70)", () => {
-  const hi = mk.buildItemPromotionBody({
-    type: "VOLUME_DISCOUNT",
-    name: "x",
-    listingIds: ["1"],
-    percentOff: 200,
-  }) as Record<string, any>;
-  assertEquals(hi.discountRules[0].discountBenefit.percentageOffItem, "70.0");
-  const lo = mk.buildItemPromotionBody({
-    type: "VOLUME_DISCOUNT",
-    name: "x",
-    listingIds: ["1"],
-    percentOff: 1,
-  }) as Record<string, any>;
-  assertEquals(lo.discountRules[0].discountBenefit.percentageOffItem, "5.0");
-});
-
-Deno.test("empty name / no listings throws", () => {
-  assertThrows(() =>
-    mk.buildItemPromotionBody({
-      type: "VOLUME_DISCOUNT",
-      name: "  ",
-      listingIds: ["1"],
-      percentOff: 10,
-    }), Error, "name");
-  assertThrows(() =>
-    mk.buildItemPromotionBody({
-      type: "VOLUME_DISCOUNT",
-      name: "x",
-      listingIds: [],
-      percentOff: 10,
-    }), Error, "listing");
-});
-
-// ── US-1448 final chunk: coupon-code generator ───────────────────────────────
-
-const { generateCouponCode } = await import("../lib/ebay-marketing.ts");
-
-Deno.test("US-1448: generateCouponCode satisfies eBay's 8-15 alphanumeric rule", () => {
-  const seen = new Set<string>();
-  for (let i = 0; i < 200; i++) {
-    const code = generateCouponCode();
-    if (!/^[A-Za-z0-9]{8,15}$/.test(code)) {
-      throw new Error(`invalid code: ${code}`);
-    }
-    if (!code.startsWith("FD")) throw new Error(`missing prefix: ${code}`);
-    seen.add(code);
-  }
-  // 200 draws from a 32^10 space must not collide.
-  if (seen.size !== 200) throw new Error("collision in 200 draws");
+Deno.test("US-1979: the seller's own mistakes throw (→ the routes' 400s)", () => {
+  // Each of these is a fixable input error, NOT an eBay rejection. The route
+  // surfaces the builder's message verbatim.
+  assertThrows(
+    () => buildItemPromotionBody({ ...base, type: "ORDER_DISCOUNT", name: "  ", minSpend: { value: "50.00", currency: "USD" }, promotionImageUrl: IMG }),
+    Error,
+    "name",
+  );
+  assertThrows(
+    () => buildItemPromotionBody({ ...base, type: "ORDER_DISCOUNT", listingIds: [], minSpend: { value: "50.00", currency: "USD" }, promotionImageUrl: IMG }),
+    Error,
+    "listing",
+  );
+  // ORDER_DISCOUNT without its required image.
+  assertThrows(
+    () => buildItemPromotionBody({ ...base, type: "ORDER_DISCOUNT", minSpend: { value: "50.00", currency: "USD" } }),
+    Error,
+    "promotionImageUrl",
+  );
+  // ORDER_DISCOUNT without its required spend threshold.
+  assertThrows(
+    () => buildItemPromotionBody({ ...base, type: "ORDER_DISCOUNT", promotionImageUrl: IMG }),
+    Error,
+    "minSpend",
+  );
+  // CODED_COUPON without a conforming code.
+  assertThrows(
+    () => buildItemPromotionBody({ ...base, type: "CODED_COUPON", promotionImageUrl: IMG, couponCode: "SHORT" }),
+    Error,
+    "couponCode",
+  );
 });

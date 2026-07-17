@@ -271,6 +271,11 @@ import {
   ensureAdCampaign,
   getAdForListing,
   getItemPromotions,
+  buildItemPromotionBody,
+  createItemPromotion,
+  updateItemPromotion,
+  deleteItemPromotion,
+  type ItemPromotionInput,
   type PromotedListingRow,
   removeAdForListing,
   resolvePublishAdRate,
@@ -1281,6 +1286,166 @@ flipdeskEbayRoutes.get("/promotions", async (c) => {
     return c.json({ error: "Could not load eBay promotions." }, 502);
   }
 });
+
+// US-1979 (AC2): item_promotion CRUD.
+//
+// updateItemPromotion and deleteItemPromotion had ZERO route references — built,
+// tested, and unreachable. createItemPromotion existed but only as an automation
+// side-effect (flipdesk-automations.ts), never as something a seller could drive.
+// So a seller could not create an order/volume/coupon promo on purpose, and could
+// never edit or end one they had.
+//
+// TENANT MODEL — worth stating, because it differs from the refund route next door
+// and the difference is not laziness. A refund has a LOCAL mirror (sales), so that
+// route proves ownership against our own DB before calling eBay. An item promotion
+// has NO local mirror: it exists only on eBay, under the seller's own account,
+// reachable only through that seller's own token. There is nothing to check it
+// against, and the token-scoping is a real boundary (eBay will not let this
+// seller's token touch another seller's promotion), not an assumption about an
+// external system's error codes. That is the same posture as the GET above.
+//
+// Validation is delegated to buildItemPromotionBody, which already enforces eBay's
+// per-type rules (ORDER_DISCOUNT needs minSpend + an image, VOLUME_DISCOUNT needs
+// buyQuantity, CODED_COUPON needs an 8-15 alphanumeric code) and throws. Those
+// throws are the seller's mistake, so they surface as 400, not 502 — re-deriving
+// the same rules here would be a second copy to drift.
+const ITEM_PROMOTION_TYPES = new Set(["ORDER_DISCOUNT", "VOLUME_DISCOUNT", "CODED_COUPON"]);
+
+function parseItemPromotionInput(raw: unknown): ItemPromotionInput | { error: string } {
+  if (!raw || typeof raw !== "object") return { error: "A promotion body is required." };
+  const b = raw as Record<string, unknown>;
+  const type = typeof b.type === "string" ? b.type.toUpperCase() : "";
+  if (!ITEM_PROMOTION_TYPES.has(type)) {
+    return { error: "type must be ORDER_DISCOUNT, VOLUME_DISCOUNT or CODED_COUPON." };
+  }
+  const listingIds = Array.isArray(b.listing_ids)
+    ? b.listing_ids.filter((x): x is string => typeof x === "string" && x.length > 0)
+    : [];
+  const percentOff = Number(b.percent_off);
+  if (!Number.isFinite(percentOff)) return { error: "percent_off must be a number." };
+
+  const input: ItemPromotionInput = {
+    type: type as ItemPromotionInput["type"],
+    name: typeof b.name === "string" ? b.name : "",
+    listingIds,
+    percentOff,
+  };
+  if (b.min_spend && typeof b.min_spend === "object") {
+    const m = b.min_spend as { value?: unknown; currency?: unknown };
+    if (typeof m.value === "string" && typeof m.currency === "string") {
+      input.minSpend = { value: m.value, currency: m.currency };
+    }
+  }
+  if (Number.isFinite(Number(b.buy_quantity))) input.buyQuantity = Number(b.buy_quantity);
+  if (typeof b.promotion_image_url === "string") input.promotionImageUrl = b.promotion_image_url;
+  if (typeof b.coupon_code === "string") input.couponCode = b.coupon_code;
+  if (typeof b.start_date === "string") input.startDate = b.start_date;
+  if (typeof b.end_date === "string") input.endDate = b.end_date;
+  if (typeof b.priority === "string") input.priority = b.priority;
+  return input;
+}
+
+flipdeskEbayRoutes.post("/promotions", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  let raw: unknown;
+  try { raw = await c.req.json(); } catch { raw = null; }
+  const parsed = parseItemPromotionInput(raw);
+  if ("error" in parsed) return c.json({ error: parsed.error }, 400);
+
+  const invalid = validateItemPromotion(parsed);
+  if (invalid) return c.json({ error: invalid }, 400);
+
+  let promotionId: string | null;
+  try {
+    promotionId = await createItemPromotion(ownerId, parsed);
+  } catch (err) {
+    return failSafe(c, 502, "eBay rejected the promotion.", err, "ebay.promotions.create");
+  }
+  await writeAuditLog(c, {
+    action: "ebay.promotion.create",
+    targetType: "ebay_promotion",
+    targetId: promotionId ?? "unknown",
+    details: { type: parsed.type, listings: parsed.listingIds.length, percent_off: parsed.percentOff },
+  });
+  return c.json({ ok: true, promotion_id: promotionId });
+});
+
+flipdeskEbayRoutes.put("/promotions/:promotionId", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const promotionId = c.req.param("promotionId");
+  let raw: unknown;
+  try { raw = await c.req.json(); } catch { raw = null; }
+  const parsed = parseItemPromotionInput(raw);
+  if ("error" in parsed) return c.json({ error: parsed.error }, 400);
+
+  const invalid = validateItemPromotion(parsed);
+  if (invalid) return c.json({ error: invalid }, 400);
+
+  try {
+    // eBay's PUT replaces the whole promotion but keeps the id, so watchers stay
+    // attached — hence a full body here rather than a patch.
+    await updateItemPromotion(ownerId, promotionId, parsed);
+  } catch (err) {
+    return failSafe(c, 502, "eBay rejected the promotion update.", err, "ebay.promotions.update");
+  }
+  await writeAuditLog(c, {
+    action: "ebay.promotion.update",
+    targetType: "ebay_promotion",
+    targetId: promotionId,
+    details: { type: parsed.type, listings: parsed.listingIds.length, percent_off: parsed.percentOff },
+  });
+  return c.json({ ok: true, promotion_id: promotionId });
+});
+
+flipdeskEbayRoutes.delete("/promotions/:promotionId", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const promotionId = c.req.param("promotionId");
+  try {
+    await deleteItemPromotion(ownerId, promotionId);
+  } catch (err) {
+    // Already gone is the desired end state — reconcile rather than error.
+    if (!isAlreadyDeletedError(err) && !/\b404\b/.test(String(err))) {
+      return failSafe(c, 502, "eBay rejected the promotion delete.", err, "ebay.promotions.delete");
+    }
+  }
+  await writeAuditLog(c, {
+    action: "ebay.promotion.delete",
+    targetType: "ebay_promotion",
+    targetId: promotionId,
+    details: {},
+  });
+  return c.json({ ok: true });
+});
+
+// Validate by RUNNING the real builder rather than by re-deriving its rules or
+// pattern-matching its error text.
+//
+// buildItemPromotionBody already encodes eBay's per-type requirements
+// (ORDER_DISCOUNT needs minSpend + an image, CODED_COUPON needs an 8-15
+// alphanumeric code, ...) and throws on violation. Calling it up front means a
+// throw is DEFINITIONALLY the seller's input problem → 400, with the builder's own
+// message. The alternative — letting it throw inside createItemPromotion and
+// sniffing the message to tell "bad input" from "eBay said no" — was the first cut
+// here and is wrong twice over: it couples the route to error-string wording, and
+// a rule added to the builder later silently starts 502-ing instead of 400-ing.
+// The builder is pure, so running it twice costs nothing.
+function validateItemPromotion(input: ItemPromotionInput): string | null {
+  try {
+    buildItemPromotionBody(input);
+    return null;
+  } catch (err) {
+    return err instanceof Error ? err.message : "Invalid promotion.";
+  }
+}
 
 flipdeskEbayRoutes.get("/policies", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
