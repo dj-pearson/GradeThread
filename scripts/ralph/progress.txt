@@ -4214,3 +4214,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jul 16, 2026  8:38:41 PM
 ---
+## US-1740: Brand KB group: Footwear brands (apparel-adjacent)
+- Status: COMPLETE
+- Timestamp: Thu, Jul 16, 2026  9:06:59 PM
+---

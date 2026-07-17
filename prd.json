@@ -886,7 +886,7 @@
         "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
       ],
       "priority": 2491,
-      "passes": false,
+      "passes": true,
       "notes": "[BrandKB][Brand][Group] ~7 brands. Style-code decoders where regular (New Balance model numbers); US/UK/EU size cross-maps are the priority. Coordinate with resolveStyleCode() in brand-normalize.ts.",
       "dependsOn": [
         "US-1712",
