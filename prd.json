@@ -2319,7 +2319,7 @@
         "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
       ],
       "priority": 2481,
-      "passes": false,
+      "passes": true,
       "notes": "[BrandKB][Brand][Group] ~10 brands. Add size markers/decoders only where they exist. Complements US-1740 (footwear). Style code + US/UK/EU size system are the key signal.",
       "dependsOn": [
         "US-1715",
