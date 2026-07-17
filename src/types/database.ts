@@ -3109,6 +3109,11 @@ export interface SocialPostRow {
   topic_id: string | null;
   asset_image_url: string | null;
   asset_image_path: string | null;
+  // Video distribution: a video post carries a public clip URL that fans out to
+  // TikTok / Reels / FB video; media_type defaults to 'image' for still posts.
+  media_type: "image" | "video";
+  video_url: string | null;
+  video_path: string | null;
   generated_by: ContentGeneratedBy;
   model_used: string | null;
   prompt_tokens: number | null;
@@ -3141,7 +3146,8 @@ export type SocialPlatform =
   | "facebook"
   | "threads"
   | "pinterest"
-  | "instagram";
+  | "instagram"
+  | "tiktok";
 
 export interface SocialPlatformVariantRow {
   id: string;

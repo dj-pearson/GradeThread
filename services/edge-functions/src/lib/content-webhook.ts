@@ -59,8 +59,17 @@ export interface WebhookPayloadSocial {
     image_field?: string | null;
     // US-871: resolved image URL — the post's uploaded asset_image_url, or an
     // auto-filled branded /og/social/card URL when no asset exists. Always
-    // present so the receiving automation never posts image-less.
+    // present so the receiving automation never posts image-less. For a video
+    // post it doubles as the cover/poster (TikTok cover, FB/IG thumbnail).
     image_url?: string | null;
+    // Video-distribution: what kind of post this is. "image" fans out the
+    // still card; "video" carries a public video_url the downstream Make.com
+    // scenario feeds to TikTok / IG Reels / FB video. Always set so the
+    // receiver can branch without guessing.
+    media_type?: "image" | "video";
+    // Publicly fetchable video URL (content-videos bucket). Present only on
+    // video posts; the platform APIs pull the media from this URL.
+    video_url?: string | null;
   };
 }
 

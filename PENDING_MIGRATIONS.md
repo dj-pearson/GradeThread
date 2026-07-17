@@ -4,6 +4,33 @@
 > The sections below for those are historical; the only NEW held migration is
 > **00443** at the top.
 
+## ⏳ PENDING: 00461_social_video.sql (video distribution for social posts, 2026-07-17)
+
+Adds video posting to the content module so clips fan out to TikTok / Instagram
+Reels / Facebook video through the existing Make.com social webhook.
+
+- **New PUBLIC bucket `content-videos`** (public read; admin write mirrors
+  content-images; real writes go via a service-role signed upload URL).
+  mp4/mov/webm/m4v, 500 MB cap.
+- **`social_posts` gains `media_type text NOT NULL DEFAULT 'image'`** (CHECK in
+  `('image','video')`), **`video_url text`**, **`video_path text`**. Default
+  keeps every existing row an unchanged still-card post.
+
+Idempotent (`IF NOT EXISTS` / `ON CONFLICT` / `DROP POLICY IF EXISTS` /
+drop-then-add the CHECK). **Risk: low** — additive columns + a new bucket; no
+backfill, no data migration. Apply after 00460 via
+`scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload schema';`,
+then redeploy the edge (boot guard now expects **00461**). Bumps
+`EXPECTED_SCHEMA_VERSION` → **00461**.
+
+⚠️ **Client-side read in the same change:** the frontend (`social-editor.tsx`,
+`use-content.ts`, `database.ts`) reads `media_type` / `video_url` off
+`social_posts` and calls `/api/content/images/video`. On a push to `main`
+Cloudflare Pages auto-deploys the frontend immediately — so the SQL + edge
+deploy MUST land first, or the editor's video panel and the new endpoint 500.
+On this feature branch there's no prod deploy, so the branch push is safe; hold
+the prod apply-then-merge order per this file's rule.
+
 ## ⏳ PENDING: 00459_footwear_brand_knowledge.sql (US-1740 footwear brand KB, 2026-07-16)
 
 Data-only seed of the `brand_knowledge*` tables for the footwear (apparel-adjacent)

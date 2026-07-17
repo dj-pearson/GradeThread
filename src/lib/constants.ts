@@ -1445,6 +1445,7 @@ export const SOCIAL_PLATFORMS = [
   "threads",
   "pinterest",
   "instagram",
+  "tiktok",
 ] as const;
 
 export type SocialPlatformKey = (typeof SOCIAL_PLATFORMS)[number];
@@ -1456,6 +1457,7 @@ export const SOCIAL_PLATFORM_LABELS: Record<SocialPlatformKey, string> = {
   threads: "Threads",
   pinterest: "Pinterest",
   instagram: "Instagram",
+  tiktok: "TikTok",
 };
 
 // Hard character ceilings per platform (matches PLATFORM_CHAR_LIMIT edge-side).
@@ -1466,6 +1468,7 @@ export const SOCIAL_PLATFORM_CHAR_LIMITS: Record<SocialPlatformKey, number> = {
   threads: 500,
   pinterest: 500,
   instagram: 2200,
+  tiktok: 2200,
 };
 
 // Seed knowledge doc keys (cannot be deleted via the dashboard).
