@@ -1028,6 +1028,15 @@ memory — not a progress log (the harness records progress separately).
   it spends its budget on construction fingerprints ON PURPOSE, and tell truncation
   there is not the liability it looks like. Assert the guard via normalizeTells
   instead. US-1981.
+- Inside the seed migrations' DOLLAR-quoted JSON (`$j$…$j$`, `$json$…$json$`),
+  `''` is NOT an escape — it stays two literal apostrophes, so `men''s` ships as
+  "men''s" in the seeded prose. Postgres applies no escaping in a dollar-quoted
+  body; only the surrounding ordinary `'…'` SQL strings (the chart `note`, the
+  identity blob) need `''`. Both conventions sit inches apart in the same row, so
+  it's easy to over-escape by reflex — and NOTHING catches it: the SQL is valid,
+  the JSON is valid, `verify:db` applies it clean, and the content tests match on
+  substrings that miss it. Grep new seed migrations for `''` inside `$j$` blocks
+  before committing. US-1981 (fixed 12 in 00460; 00455/00457/00459 were clean).
 - `brandFromStyleFormat`'s formats are NOT brand-exclusive (Converse's classic
   codes are M+4 digits, same shape as New Balance model numbers) and
   `ai-listing.ts` takes `styleResolution?.brand ?? canonicalBrand` — so a format
