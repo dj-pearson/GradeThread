@@ -4,6 +4,56 @@
 > The sections below for those are historical; the only NEW held migration is
 > **00443** at the top.
 
+## ⏳ PENDING: 00472_outdoor_technical_tier2_brand_knowledge.sql (US-1992 outdoor & technical tier 2 brand KB, 2026-07-17)
+
+Data-only seed of the `brand_knowledge*` tables for the tier-2 outdoor/technical
+tier: **Fjällräven, Salomon, Cotopaxi, Kühl, Helly Hansen, Mammut, Rab, Outdoor
+Research.** **All eight were passthrough-only.** Sits beside 00453 (Arc'teryx,
+Patagonia, The North Face, Columbia, Marmot) and 00460's luxury outerwear (Canada
+Goose, Moncler), neither re-touched.
+
+**The through-line: THE VALUE IS THE MODEL NAME + THE FABRIC TECHNOLOGY — never a
+tag-printed brand-unique code.** A jacket, fleece or pack lists precisely when it
+is grounded by the MODEL (Kånken, XT-6, Allpa, Renegade, Alpha, Eiger Extreme,
+Microlight, Foray) and the FABRIC TECH on the hangtag/membrane (GORE-TEX, G-1000,
+LIFA, Pertex, Primaloft, Contagrip, down FILL-POWER) — both halves are NAMES, so
+the fabric tech leads every style fingerprint.
+
+- **ZERO DECODERS, deliberately** (the 00470 call) — NO decoder clears the bar;
+  every candidate is fixtured as a REFUSAL in `brand-knowledge-golden_test.ts`.
+  Salomon's article number (`L41252600`) is a bare alphanumeric web SKU (the Chanel
+  rule); Fjällräven/Helly Hansen product numbers are web/catalogue SKUs.
+- **TWO NAME/WORD COLLISIONS in `brand-normalize.ts` (not data):**
+  - **"Rab" is added to `DETECT_EXCLUDED_FROM_TEXT`** — an ordinary short token / a
+    given name (the KEEN/Brooks precedent). Reachable by tag, never minted from prose.
+  - **"Kühl" is added to `DETECT_EXCLUDED_FROM_TEXT`** — the German word for "cool".
+    Both the accented (`khl`) and unaccented (`kuhl`) alias keys resolve a tag; both
+    verified by mutation in `outdoor-technical-content_test.ts`. (⚠ `brandKey()`
+    strips diacritics, so Fjällräven keys as `fjllrven` / `fjallraven`.)
+- **NO RN IS SEEDED** — largely imported technical outerwear; no registrant sourced
+  to a PRIMARY FTC record (RN 17257, 00468). Owed to the US-1715 queue.
+- **TAG ERAS documented for the two heritage makers** — Helly Hansen (1877) and
+  Fjällräven (1960) — **empty for the six modern brands** (Salomon, Cotopaxi 2014,
+  Kühl 1993, Mammut, Rab, Outdoor Research) — the athleisure precedent, 00452.
+- **COLORWAYS: Fjällräven-only.** The Kånken ships a stable NAMED palette (UN Blue,
+  Ox Red, Frost Green, Graphite, Royal Blue, Ochre). ⚠ **Cotopaxi is the INVERSION**:
+  Del Día is intentionally one-of-a-kind (remnant fabric, no stable palette) → **ZERO
+  Cotopaxi colorways, by design.**
+
+`brand_knowledge` ×**8**; `brand_styles` ×**30**; `brand_colorways` ×**6**
+(Fjällräven Kånken only); `brand_style_codes` ×**0**; `brand_size_charts` ×**16**
+(EU-numeric apparel for the European brands, US-alpha for the US brands, a STAMPED
+US/UK/EU footwear translator for Salomon), all mirrored 1:1 into the
+`sizing-charts.ts` in-code fallback. Every fact carries `source_url` + `confidence`
+and lands `verified=false` for the US-1715 admin queue. Idempotent
+(`on conflict do update`).
+
+Apply **after 00471** via `scripts/apply-prod-migrations.sh`, then
+`NOTIFY pgrst, 'reload schema';`, then redeploy the edge (boot guard now expects
+**00472**). Bumps `EXPECTED_SCHEMA_VERSION` → **00472**. Risk: LOW — data-only, no
+schema change, no DDL, no frontend reads the new rows (the edge resolver falls back
+to the in-code tables when a pack is absent).
+
 ## ⏳ PENDING: 00471_intimates_loungewear_shapewear_brand_knowledge.sql (US-1991 intimates/loungewear/shapewear brand KB, 2026-07-17)
 
 Data-only seed of the `brand_knowledge*` tables for the intimates / loungewear /

@@ -4360,6 +4360,171 @@ const CASES: GoldenCase[] = [
     input: decodedFrom({ brand: "Tommy John" }),
     expect: { brand: "Tommy John", noStyle: true },
   },
+
+  // ── US-1992: outdoor & technical (tier 2) (migration 00472) ──────────────────
+  // ZERO decoders in this pack (the 00470 call — no code clears the tag-printed/
+  // regular/brand-unique bar; the value is the MODEL NAME + the FABRIC TECH). So
+  // every case proves enrichment stays correct WITHOUT a decoder: a single known
+  // model fills the style the AI missed, a confusable pair is never guessed, and a
+  // non-code never false-recovers a brand. The coded candidates are REFUSALS.
+  {
+    name: "Fjällräven single known model fills the style the AI missed",
+    brand: "Fjällräven",
+    pack: pack("Fjällräven", "fjallraven", [style("Kånken")]),
+    input: decodedFrom({ brand: "Fjällräven" }),
+    expect: { brand: "Fjällräven", style: "Kånken" },
+  },
+  {
+    name: "Fjällräven ambiguous (Kånken vs Greenland Jacket) — never guess a style",
+    brand: "Fjällräven",
+    pack: pack("Fjällräven", "fjallraven", [style("Kånken"), style("Greenland Jacket")]),
+    input: decodedFrom({ brand: "Fjällräven" }),
+    expect: { brand: "Fjällräven", noStyle: true },
+  },
+  {
+    name: "REFUSAL: Fjällräven product number is a web SKU — no decoder",
+    // A Fjällräven hangtag/packaging product number (e.g. F23511) is a web SKU,
+    // not a regular tag-printed brand-unique code. The AI brand must survive.
+    brand: "Fjällräven",
+    pack: pack("Fjällräven", "fjallraven"),
+    input: {
+      ...decodedFrom({ brand: "Fjällräven" }),
+      attributes: {
+        style_code: { values: ["F23511"], confidence: 0.5, source: "photo:tag" },
+      },
+    },
+    expect: { brand: "Fjällräven" },
+  },
+  {
+    name: "Salomon single known model fills the style the AI missed",
+    brand: "Salomon",
+    pack: pack("Salomon", "salomon", [style("XT-6")]),
+    input: decodedFrom({ brand: "Salomon" }),
+    expect: { brand: "Salomon", style: "XT-6" },
+  },
+  {
+    name: "Salomon ambiguous trail shoes (XT-6 vs Speedcross) — never guess a style",
+    brand: "Salomon",
+    pack: pack("Salomon", "salomon", [style("XT-6"), style("Speedcross")]),
+    input: decodedFrom({ brand: "Salomon" }),
+    expect: { brand: "Salomon", noStyle: true },
+  },
+  {
+    name: "REFUSAL: Salomon article number does not decode — no decoder",
+    // "L41252600" is a genuine Salomon catalogue/web article number, but it is a
+    // BARE ALPHANUMERIC RUN with no closed brand-unique prefix (the Chanel rule,
+    // US-1736) and is not established as a regular sewn-tag code. The model NAME
+    // (XT-6, Speedcross) is the identifier; the AI brand must survive.
+    brand: "Salomon",
+    pack: pack("Salomon", "salomon"),
+    input: {
+      ...decodedFrom({ brand: "Salomon" }),
+      attributes: {
+        style_code: { values: ["L41252600"], confidence: 0.5, source: "photo:tag" },
+      },
+    },
+    expect: { brand: "Salomon" },
+  },
+  {
+    name: "REFUSAL: a bare Salomon article number never false-recovers a brand",
+    // With no AI brand, the same article number must NOT mint a brand — there is
+    // no decoder for it.
+    brand: "Salomon",
+    pack: pack("Salomon", "salomon", [style("XT-6"), style("Speedcross")]),
+    input: decodedFrom({ styleCode: "L41252600" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Cotopaxi single known model fills the style the AI missed",
+    brand: "Cotopaxi",
+    pack: pack("Cotopaxi", "cotopaxi", [style("Allpa")]),
+    input: decodedFrom({ brand: "Cotopaxi" }),
+    expect: { brand: "Cotopaxi", style: "Allpa" },
+  },
+  {
+    name: "Cotopaxi ambiguous (Allpa pack vs Fuego down) — never guess a style",
+    brand: "Cotopaxi",
+    pack: pack("Cotopaxi", "cotopaxi", [style("Allpa"), style("Fuego")]),
+    input: decodedFrom({ brand: "Cotopaxi" }),
+    expect: { brand: "Cotopaxi", noStyle: true },
+  },
+  {
+    name: "Cotopaxi non-code tag — no false-positive brand recovery (no decoder)",
+    brand: "Cotopaxi",
+    pack: pack("Cotopaxi", "cotopaxi", [style("Allpa"), style("Fuego")]),
+    input: decodedFrom({ styleCode: "NOT-A-CODE" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Kühl single known model fills the style the AI missed",
+    brand: "Kühl",
+    pack: pack("Kühl", "kuhl", [style("Renegade Pant")]),
+    input: decodedFrom({ brand: "Kühl" }),
+    expect: { brand: "Kühl", style: "Renegade Pant" },
+  },
+  {
+    name: "Kühl ambiguous pants (Renegade softshell vs Law work pant) — never guess",
+    brand: "Kühl",
+    pack: pack("Kühl", "kuhl", [style("Renegade Pant"), style("Law Pant")]),
+    input: decodedFrom({ brand: "Kühl" }),
+    expect: { brand: "Kühl", noStyle: true },
+  },
+  {
+    name: "Helly Hansen single known model fills the style the AI missed",
+    brand: "Helly Hansen",
+    pack: pack("Helly Hansen", "hellyhansen", [style("Alpha")]),
+    input: decodedFrom({ brand: "Helly Hansen" }),
+    expect: { brand: "Helly Hansen", style: "Alpha" },
+  },
+  {
+    name: "Helly Hansen ambiguous (insulated Alpha vs shell Odin) — never guess a style",
+    brand: "Helly Hansen",
+    pack: pack("Helly Hansen", "hellyhansen", [style("Alpha"), style("Odin")]),
+    input: decodedFrom({ brand: "Helly Hansen" }),
+    expect: { brand: "Helly Hansen", noStyle: true },
+  },
+  {
+    name: "Mammut single known model fills the style the AI missed",
+    brand: "Mammut",
+    pack: pack("Mammut", "mammut", [style("Eiger Extreme")]),
+    input: decodedFrom({ brand: "Mammut" }),
+    expect: { brand: "Mammut", style: "Eiger Extreme" },
+  },
+  {
+    name: "Mammut ambiguous (premium Eiger Extreme vs Ultimate Hoody) — never guess",
+    brand: "Mammut",
+    pack: pack("Mammut", "mammut", [style("Eiger Extreme"), style("Ultimate Hoody")]),
+    input: decodedFrom({ brand: "Mammut" }),
+    expect: { brand: "Mammut", noStyle: true },
+  },
+  {
+    name: "Rab single known model fills the style the AI missed",
+    brand: "Rab",
+    pack: pack("Rab", "rab", [style("Microlight")]),
+    input: decodedFrom({ brand: "Rab" }),
+    expect: { brand: "Rab", style: "Microlight" },
+  },
+  {
+    name: "Rab ambiguous down (stitch-through Microlight vs box-wall Neutrino) — never guess",
+    brand: "Rab",
+    pack: pack("Rab", "rab", [style("Microlight"), style("Neutrino")]),
+    input: decodedFrom({ brand: "Rab" }),
+    expect: { brand: "Rab", noStyle: true },
+  },
+  {
+    name: "Outdoor Research single known model fills the style the AI missed",
+    brand: "Outdoor Research",
+    pack: pack("Outdoor Research", "outdoorresearch", [style("Foray")]),
+    input: decodedFrom({ brand: "Outdoor Research" }),
+    expect: { brand: "Outdoor Research", style: "Foray" },
+  },
+  {
+    name: "Outdoor Research ambiguous (GORE-TEX Foray vs softshell Ferrosi) — never guess",
+    brand: "Outdoor Research",
+    pack: pack("Outdoor Research", "outdoorresearch", [style("Foray"), style("Ferrosi")]),
+    input: decodedFrom({ brand: "Outdoor Research" }),
+    expect: { brand: "Outdoor Research", noStyle: true },
+  },
 ];
 
 // ── the gate ────────────────────────────────────────────────────────────────

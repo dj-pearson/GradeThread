@@ -1150,6 +1150,36 @@ const BRAND_ALIASES: Record<string, string> = {
   // CLOTHING titles detectBrandInText scans, so no exclusion is needed.
   tommyjohn: "Tommy John",
   tommyjohnunderwear: "Tommy John",
+  // US-1992 outdoor & technical (tier 2) group. All eight were passthrough-only.
+  // The value read is the MODEL NAME + the FABRIC TECHNOLOGY, never a tag-printed
+  // brand-unique code (see migration 00472). Two of the eight are ordinary words
+  // and live in DETECT_EXCLUDED_FROM_TEXT below (Rab, Kühl).
+  //
+  // ⚠ brandKey() KEEPS [a-z0-9] ONLY, so it STRIPS the å/ä/ü diacritics: the
+  // accented tag "Fjällräven" keys as "fjllrven" and "Kühl" as "khl", while the
+  // common unaccented spellings key as "fjallraven" / "kuhl". Both spellings are
+  // separate keys so either resolves.
+  fjllrven: "Fjällräven", // brandKey("Fjällräven") — accented spelling lands here
+  fjallraven: "Fjällräven", // the common unaccented spelling
+  knken: "Fjällräven", // brandKey("Kånken") — the flagship pack, searched by name
+  kanken: "Fjällräven",
+  salomon: "Salomon",
+  cotopaxi: "Cotopaxi",
+  khl: "Kühl", // brandKey("Kühl") — accented spelling lands here
+  kuhl: "Kühl", // the common unaccented spelling
+  hellyhansen: "Helly Hansen",
+  // "hh" is safe as an exact whole-field KEY (this map is an exact lookup — the
+  // "ck"/"ov" play); it fires only when the seller's ENTIRE brand field is "hh".
+  hh: "Helly Hansen",
+  mammut: "Mammut",
+  // "rab" is safe as an exact whole-field KEY (a brand field of literally "rab"
+  // means the down house); the FREE-TEXT hazard is handled in
+  // DETECT_EXCLUDED_FROM_TEXT below (the KEEN precedent).
+  rab: "Rab",
+  outdoorresearch: "Outdoor Research",
+  // ⚠ A bare "or" is DELIBERATELY ABSENT — it is the English word / the state
+  // Oregon, catastrophic even as an exact whole-field key; only the full form
+  // resolves.
 };
 
 /**
@@ -1285,6 +1315,20 @@ const DETECT_EXCLUDED_FROM_TEXT: ReadonlySet<string> = new Set([
   //     intimates-loungewear-content_test.ts.
   "PINK",
   "Aerie",
+  // US-1992. Two outdoor/technical canonicals that are ordinary words:
+  //   • Rab (the British down house) — "Rab" is an ordinary short token AND a
+  //     given name (Rab). The match is case-insensitive, so the all-caps/any-case
+  //     canonical is no defence; a bare "rab" in prose must not mint the brand,
+  //     and at 3 chars it could beat a real short brand in the same title
+  //     (longest-first). Reachable BY TAG (a brand field of literally "Rab"
+  //     resolves), never GUESSED from prose (the KEEN / Brooks precedent, 00470).
+  //   • Kühl — the German word for "cool". "kühl" appears in prose as the
+  //     adjective (and in translated/technical copy), so the canonical must not be
+  //     minted from free text. Reachable by TAG (the `khl`/`kuhl` keys resolve a
+  //     tag), never guessed from prose. Both verified by mutation in
+  //     outdoor-technical-content_test.ts.
+  "Rab",
+  "Kühl",
 ]);
 
 /**

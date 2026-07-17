@@ -8399,6 +8399,325 @@ export const SIZING_CHARTS: SizingChart[] = [
       { size: "XXL (waist ~41-44in)", measurements: { waist: "41-44" } },
     ],
   },
+  // US-1992: outdoor & technical (tier 2). Mirrors migration 00472's
+  // brand_size_charts 1:1. THE SYSTEM is the signal — EU numeric (Fjällräven,
+  // Helly Hansen, Mammut) / UK-EU (Rab) vs US alpha (Cotopaxi, Kühl, Outdoor
+  // Research), and a STAMPED US/UK/EU footwear number for Salomon.
+  {
+    brand: "Fjällräven",
+    brandMatch: ["fjällräven", "fjallraven"],
+    department: "Men",
+    garment: "Apparel (EU numeric ↔ US alpha, body inches)",
+    categoryMatch: ["jacket", "pants", "trouser", "shirt", "fleece", "top", "vest", "shell", "greenland", "keb", "vidda"],
+    note:
+      "FJÄLLRÄVEN IS A EUROPEAN BRAND — much stock is EU-numbered (a EU 50 ≈ US M), " +
+      "so the SYSTEM (EU numeric vs US alpha) is the signal; read the label and " +
+      "state the EU number for the buyer to check. Trousers are often sold by WAIST " +
+      "inch (and a numeric leg length). G-1000 is a WAXABLE fabric — a re-waxed face " +
+      "is maintenance, not damage; abrasion holes and a broken zip are the defects. " +
+      "Body-equivalent approximations, not brand-published specs.",
+    rows: [
+      { size: "S = EU 46-48", measurements: { chest: "35-37", waist: "29-31" } },
+      { size: "M = EU 50", measurements: { chest: "38-40", waist: "32-34" } },
+      { size: "L = EU 52", measurements: { chest: "41-43", waist: "35-37" } },
+      { size: "XL = EU 54", measurements: { chest: "44-46", waist: "38-40" } },
+      { size: "XXL = EU 56", measurements: { chest: "47-49", waist: "41-43" } },
+    ],
+  },
+  {
+    brand: "Fjällräven",
+    brandMatch: ["fjällräven", "fjallraven"],
+    department: "Women",
+    garment: "Apparel (EU numeric ↔ US alpha, body inches)",
+    categoryMatch: ["jacket", "pants", "trouser", "shirt", "fleece", "top", "vest", "shell", "greenland", "keb", "vidda"],
+    note:
+      "FJÄLLRÄVEN IS A EUROPEAN BRAND — women's stock is often EU-numbered (a EU 38 ≈ " +
+      "US M/S), so the SYSTEM (EU numeric vs US alpha) is the signal; read the label " +
+      "and state the EU number. Trousers are often sold by WAIST inch. Body-equivalent " +
+      "approximations, not brand-published specs.",
+    rows: [
+      { size: "XS = EU 34", measurements: { bust: "32-33", waist: "24-25", hip: "34-35" } },
+      { size: "S = EU 36", measurements: { bust: "34-35", waist: "26-27", hip: "36-37" } },
+      { size: "M = EU 38", measurements: { bust: "36-37.5", waist: "28-29.5", hip: "38-39.5" } },
+      { size: "L = EU 40", measurements: { bust: "38.5-40", waist: "30.5-32", hip: "40.5-42" } },
+      { size: "XL = EU 42", measurements: { bust: "41-43", waist: "33-35", hip: "43-45" } },
+    ],
+  },
+  {
+    brand: "Salomon",
+    brandMatch: ["salomon"],
+    department: "Men",
+    garment: "Footwear (US/UK/EU — trail/hiking, the size is STAMPED)",
+    categoryMatch: ["shoe", "shoes", "footwear", "boot", "trail", "hiking", "running", "xt-6", "speedcross", "x ultra", "quest", "sneaker"],
+    note:
+      "SALOMON IS A FRENCH/EU BRAND and its shoes are primarily EU-stamped; the " +
+      "US<->UK<->EU conversions are approximate. THE SIZE IS STAMPED, NOT MEASURED — " +
+      "read it off the tongue/insole. A trail runner is graded on MILEAGE: Contagrip " +
+      "OUTSOLE lug loss, a packed-out midsole and a frayed Quicklace/Sensifit cage are " +
+      "the real defects and need a SOLE photo. Foot-length inches are a sanity check " +
+      "for a shoe in hand. Body-equivalent approximations, not brand-published specs.",
+    rows: [
+      { size: "US M8 = UK 7.5 = EU 41.5", measurements: { footLength: "9.95" } },
+      { size: "US M9 = UK 8.5 = EU 43", measurements: { footLength: "10.3" } },
+      { size: "US M10 = UK 9.5 = EU 44.5", measurements: { footLength: "10.6" } },
+      { size: "US M11 = UK 10.5 = EU 45.5", measurements: { footLength: "10.95" } },
+      { size: "US M12 = UK 11.5 = EU 46.5", measurements: { footLength: "11.25" } },
+      { size: "US M13 = UK 12.5 = EU 48", measurements: { footLength: "11.6" } },
+    ],
+  },
+  {
+    brand: "Salomon",
+    brandMatch: ["salomon"],
+    department: "Women",
+    garment: "Footwear (US/UK/EU — trail/hiking, the size is STAMPED)",
+    categoryMatch: ["shoe", "shoes", "footwear", "boot", "trail", "hiking", "running", "xt-6", "speedcross", "x ultra", "sneaker"],
+    note:
+      "SALOMON IS A FRENCH/EU BRAND and its shoes are primarily EU-stamped; the " +
+      "US<->UK<->EU conversions are approximate. THE SIZE IS STAMPED, NOT MEASURED. A " +
+      "trail runner is graded on MILEAGE — Contagrip OUTSOLE lug loss + a packed-out " +
+      "midsole need a SOLE photo. Foot-length inches are a sanity check for a shoe in " +
+      "hand. Body-equivalent approximations, not brand-published specs.",
+    rows: [
+      { size: "US W6 = UK 4 = EU 37", measurements: { footLength: "8.9" } },
+      { size: "US W7 = UK 5 = EU 38", measurements: { footLength: "9.25" } },
+      { size: "US W8 = UK 6 = EU 39", measurements: { footLength: "9.5" } },
+      { size: "US W9 = UK 7 = EU 40.5", measurements: { footLength: "9.9" } },
+      { size: "US W10 = UK 8 = EU 41.5", measurements: { footLength: "10.2" } },
+      { size: "US W11 = UK 9 = EU 43", measurements: { footLength: "10.5" } },
+    ],
+  },
+  {
+    brand: "Cotopaxi",
+    brandMatch: ["cotopaxi"],
+    department: "Men",
+    garment: "Apparel (US alpha, body inches)",
+    categoryMatch: ["jacket", "fleece", "vest", "top", "shirt", "windbreaker", "fuego", "teca", "down", "shell"],
+    note:
+      "Cotopaxi men's apparel sizes US alpha (S-XXL); the SYSTEM is US alpha. ⚠ THE " +
+      "DEL DÍA colour blocking is ONE-OF-A-KIND (remnant fabric, the sewer picks the " +
+      "colours) — a wild colour block is the PRODUCT, not a flaw. On the Fuego down " +
+      "jacket the FILL LOFT is the grade (a flat/leaking baffle is a defect). " +
+      "Body-equivalent approximations, not brand-published specs.",
+    rows: [
+      { size: "S", measurements: { chest: "35-37", waist: "29-31" } },
+      { size: "M", measurements: { chest: "38-40", waist: "32-34" } },
+      { size: "L", measurements: { chest: "41-43", waist: "35-37" } },
+      { size: "XL", measurements: { chest: "44-46", waist: "38-40" } },
+      { size: "XXL", measurements: { chest: "47-49", waist: "41-43" } },
+    ],
+  },
+  {
+    brand: "Cotopaxi",
+    brandMatch: ["cotopaxi"],
+    department: "Women",
+    garment: "Apparel (US alpha, body inches)",
+    categoryMatch: ["jacket", "fleece", "vest", "top", "shirt", "windbreaker", "fuego", "teca", "down", "shell"],
+    note:
+      "Cotopaxi women's apparel sizes US alpha (XS-XL); the SYSTEM is US alpha. ⚠ THE " +
+      "DEL DÍA colour blocking is ONE-OF-A-KIND (remnant fabric) — a wild colour block " +
+      "is the PRODUCT. On the Fuego the FILL LOFT is the grade. Body-equivalent " +
+      "approximations, not brand-published specs.",
+    rows: [
+      { size: "XS", measurements: { bust: "32-33", waist: "24-25", hip: "34-35" } },
+      { size: "S", measurements: { bust: "34-35", waist: "26-27", hip: "36-37" } },
+      { size: "M", measurements: { bust: "36-37.5", waist: "28-29.5", hip: "38-39.5" } },
+      { size: "L", measurements: { bust: "38.5-40", waist: "30.5-32", hip: "40.5-42" } },
+      { size: "XL", measurements: { bust: "41-43", waist: "33-35", hip: "43-45" } },
+    ],
+  },
+  {
+    brand: "Kühl",
+    brandMatch: ["kühl", "kuhl"],
+    department: "Men",
+    garment: "Apparel (US alpha tops; pants by WAIST inch)",
+    categoryMatch: ["jacket", "fleece", "pant", "pants", "softshell", "trouser", "top", "shirt", "hoodie", "renegade", "law", "rydr"],
+    note:
+      "Kühl men's tops size US alpha; ⚠ PANTS (Renegade / Law / Rydr) ARE SOLD BY " +
+      "WAIST x INSEAM INCH — read the waist number off the tag, the alpha here is an " +
+      "approximate cross-map. The FIT is articulated and the FABRIC (abrasion, knee " +
+      "wear, a broken gusset) is the grade. Body-equivalent approximations, not " +
+      "brand-published specs.",
+    rows: [
+      { size: "S (pant waist ~30-31)", measurements: { chest: "35-37", waist: "30-31" } },
+      { size: "M (pant waist ~32-33)", measurements: { chest: "38-40", waist: "32-33" } },
+      { size: "L (pant waist ~34-36)", measurements: { chest: "41-43", waist: "34-36" } },
+      { size: "XL (pant waist ~38-40)", measurements: { chest: "44-46", waist: "38-40" } },
+      { size: "XXL (pant waist ~42-44)", measurements: { chest: "47-49", waist: "42-44" } },
+    ],
+  },
+  {
+    brand: "Kühl",
+    brandMatch: ["kühl", "kuhl"],
+    department: "Women",
+    garment: "Apparel (US alpha, body inches)",
+    categoryMatch: ["jacket", "fleece", "pant", "pants", "softshell", "top", "shirt", "hoodie", "legging"],
+    note:
+      "Kühl women's apparel sizes US alpha (XS-XL); pants may also carry a numeric " +
+      "waist. The articulated FIT + the FABRIC are the grade. Body-equivalent " +
+      "approximations, not brand-published specs.",
+    rows: [
+      { size: "XS", measurements: { bust: "32-33", waist: "24-25", hip: "34-35" } },
+      { size: "S", measurements: { bust: "34-35", waist: "26-27", hip: "36-37" } },
+      { size: "M", measurements: { bust: "36-37.5", waist: "28-29.5", hip: "38-39.5" } },
+      { size: "L", measurements: { bust: "38.5-40", waist: "30.5-32", hip: "40.5-42" } },
+      { size: "XL", measurements: { bust: "41-43", waist: "33-35", hip: "43-45" } },
+    ],
+  },
+  {
+    brand: "Helly Hansen",
+    brandMatch: ["helly hansen", "hellyhansen"],
+    department: "Men",
+    garment: "Apparel (EU numeric ↔ US alpha, body inches)",
+    categoryMatch: ["jacket", "shell", "ski", "base layer", "fleece", "top", "shirt", "pant", "alpha", "odin", "verglas", "crew", "lifa"],
+    note:
+      "HELLY HANSEN IS A EUROPEAN (Norwegian) BRAND — stock is often EU-numbered (a " +
+      "EU 50 ≈ US M), so the SYSTEM (EU numeric vs US alpha) is the signal; read the " +
+      "label and state the EU number. On a shell the MEMBRANE (delamination, " +
+      "wetting-out) and the seam tape are the grade — require a lining photo. " +
+      "Body-equivalent approximations, not brand-published specs.",
+    rows: [
+      { size: "S = EU 46-48", measurements: { chest: "35-37", waist: "29-31" } },
+      { size: "M = EU 50", measurements: { chest: "38-40", waist: "32-34" } },
+      { size: "L = EU 52", measurements: { chest: "41-43", waist: "35-37" } },
+      { size: "XL = EU 54", measurements: { chest: "44-46", waist: "38-40" } },
+      { size: "XXL = EU 56", measurements: { chest: "47-49", waist: "41-43" } },
+    ],
+  },
+  {
+    brand: "Helly Hansen",
+    brandMatch: ["helly hansen", "hellyhansen"],
+    department: "Women",
+    garment: "Apparel (EU numeric ↔ US alpha, body inches)",
+    categoryMatch: ["jacket", "shell", "ski", "base layer", "fleece", "top", "shirt", "pant", "alpha", "crew", "lifa"],
+    note:
+      "HELLY HANSEN IS A EUROPEAN (Norwegian) BRAND — women's stock is often " +
+      "EU-numbered (a EU 38 ≈ US M/S), so the SYSTEM (EU numeric vs US alpha) is the " +
+      "signal; read the label. On a shell the membrane + seam tape are the grade. " +
+      "Body-equivalent approximations, not brand-published specs.",
+    rows: [
+      { size: "XS = EU 34", measurements: { bust: "32-33", waist: "24-25", hip: "34-35" } },
+      { size: "S = EU 36", measurements: { bust: "34-35", waist: "26-27", hip: "36-37" } },
+      { size: "M = EU 38", measurements: { bust: "36-37.5", waist: "28-29.5", hip: "38-39.5" } },
+      { size: "L = EU 40", measurements: { bust: "38.5-40", waist: "30.5-32", hip: "40.5-42" } },
+      { size: "XL = EU 42", measurements: { bust: "41-43", waist: "33-35", hip: "43-45" } },
+    ],
+  },
+  {
+    brand: "Mammut",
+    brandMatch: ["mammut"],
+    department: "Men",
+    garment: "Apparel (EU numeric ↔ US alpha, body inches)",
+    categoryMatch: ["jacket", "shell", "softshell", "fleece", "top", "shirt", "pant", "eiger extreme", "ultimate"],
+    note:
+      "MAMMUT IS A EUROPEAN (Swiss) BRAND — stock is often EU-numbered (a EU 50 ≈ US " +
+      "M), so the SYSTEM (EU numeric vs US alpha) is the signal; read the label and " +
+      "state the EU number. The EIGER EXTREME line comps ABOVE the mainline — read the " +
+      "exact collection. On a shell the membrane + seam tape are the grade. " +
+      "Body-equivalent approximations, not brand-published specs.",
+    rows: [
+      { size: "S = EU 46-48", measurements: { chest: "35-37", waist: "29-31" } },
+      { size: "M = EU 50", measurements: { chest: "38-40", waist: "32-34" } },
+      { size: "L = EU 52", measurements: { chest: "41-43", waist: "35-37" } },
+      { size: "XL = EU 54", measurements: { chest: "44-46", waist: "38-40" } },
+      { size: "XXL = EU 56", measurements: { chest: "47-49", waist: "41-43" } },
+    ],
+  },
+  {
+    brand: "Mammut",
+    brandMatch: ["mammut"],
+    department: "Women",
+    garment: "Apparel (EU numeric ↔ US alpha, body inches)",
+    categoryMatch: ["jacket", "shell", "softshell", "fleece", "top", "shirt", "pant", "eiger extreme", "ultimate"],
+    note:
+      "MAMMUT IS A EUROPEAN (Swiss) BRAND — women's stock is often EU-numbered (a EU " +
+      "38 ≈ US M/S), so the SYSTEM (EU numeric vs US alpha) is the signal; read the " +
+      "label. On a shell the membrane + seam tape are the grade. Body-equivalent " +
+      "approximations, not brand-published specs.",
+    rows: [
+      { size: "XS = EU 34", measurements: { bust: "32-33", waist: "24-25", hip: "34-35" } },
+      { size: "S = EU 36", measurements: { bust: "34-35", waist: "26-27", hip: "36-37" } },
+      { size: "M = EU 38", measurements: { bust: "36-37.5", waist: "28-29.5", hip: "38-39.5" } },
+      { size: "L = EU 40", measurements: { bust: "38.5-40", waist: "30.5-32", hip: "40.5-42" } },
+      { size: "XL = EU 42", measurements: { bust: "41-43", waist: "33-35", hip: "43-45" } },
+    ],
+  },
+  {
+    brand: "Rab",
+    brandMatch: ["rab"],
+    department: "Men",
+    garment: "Apparel (UK/EU ↔ US alpha, body inches)",
+    categoryMatch: ["jacket", "down", "softshell", "shell", "fleece", "top", "pant", "microlight", "neutrino", "kinetic", "xenon"],
+    note:
+      "RAB IS A BRITISH BRAND — sizing is UK/EU referenced (a EU 50 ≈ US M), so the " +
+      "SYSTEM (UK/EU vs US alpha) is the signal; read the label. On a DOWN jacket " +
+      "(Microlight / Neutrino) the FILL LOFT and any leaking baffle are the grade — " +
+      "stitch-through (Microlight) vs box-wall (Neutrino) comp differently. " +
+      "Body-equivalent approximations, not brand-published specs.",
+    rows: [
+      { size: "S = EU 46-48", measurements: { chest: "35-37", waist: "29-31" } },
+      { size: "M = EU 50", measurements: { chest: "38-40", waist: "32-34" } },
+      { size: "L = EU 52", measurements: { chest: "41-43", waist: "35-37" } },
+      { size: "XL = EU 54", measurements: { chest: "44-46", waist: "38-40" } },
+      { size: "XXL = EU 56", measurements: { chest: "47-49", waist: "41-43" } },
+    ],
+  },
+  {
+    brand: "Rab",
+    brandMatch: ["rab"],
+    department: "Women",
+    garment: "Apparel (UK/EU ↔ US alpha, body inches)",
+    categoryMatch: ["jacket", "down", "softshell", "shell", "fleece", "top", "pant", "microlight", "neutrino", "kinetic", "xenon"],
+    note:
+      "RAB IS A BRITISH BRAND — women's sizing is UK/EU referenced (a UK 12 ≈ US M), " +
+      "so the SYSTEM (UK/EU vs US alpha) is the signal; read the label. On a down " +
+      "jacket the FILL LOFT + baffles are the grade. Body-equivalent approximations, " +
+      "not brand-published specs.",
+    rows: [
+      { size: "XS = EU 34 (UK 8)", measurements: { bust: "32-33", waist: "24-25", hip: "34-35" } },
+      { size: "S = EU 36 (UK 10)", measurements: { bust: "34-35", waist: "26-27", hip: "36-37" } },
+      { size: "M = EU 38 (UK 12)", measurements: { bust: "36-37.5", waist: "28-29.5", hip: "38-39.5" } },
+      { size: "L = EU 40 (UK 14)", measurements: { bust: "38.5-40", waist: "30.5-32", hip: "40.5-42" } },
+      { size: "XL = EU 42 (UK 16)", measurements: { bust: "41-43", waist: "33-35", hip: "43-45" } },
+    ],
+  },
+  {
+    brand: "Outdoor Research",
+    brandMatch: ["outdoor research", "outdoorresearch"],
+    department: "Men",
+    garment: "Apparel (US alpha, body inches)",
+    categoryMatch: ["jacket", "shell", "softshell", "fleece", "top", "shirt", "pant", "foray", "ferrosi", "helium", "gaiter", "glove"],
+    note:
+      "Outdoor Research men's apparel sizes US alpha (S-XXL); the SYSTEM is US alpha. " +
+      "On a GORE-TEX shell (Foray) the membrane, the TorsoFlo zips and the seam tape " +
+      "are the grade — require a lining photo. OR is unusually strong in accessories " +
+      "(gaiters, gloves) — grade those on the accessory market. Body-equivalent " +
+      "approximations, not brand-published specs.",
+    rows: [
+      { size: "S", measurements: { chest: "35-37", waist: "29-31" } },
+      { size: "M", measurements: { chest: "38-40", waist: "32-34" } },
+      { size: "L", measurements: { chest: "41-43", waist: "35-37" } },
+      { size: "XL", measurements: { chest: "44-46", waist: "38-40" } },
+      { size: "XXL", measurements: { chest: "47-49", waist: "41-43" } },
+    ],
+  },
+  {
+    brand: "Outdoor Research",
+    brandMatch: ["outdoor research", "outdoorresearch"],
+    department: "Women",
+    garment: "Apparel (US alpha, body inches)",
+    categoryMatch: ["jacket", "shell", "softshell", "fleece", "top", "shirt", "pant", "aspire", "ferrosi", "helium", "gaiter", "glove"],
+    note:
+      "Outdoor Research women's apparel sizes US alpha (XS-XL); the SYSTEM is US " +
+      "alpha. On a GORE-TEX shell (Aspire) the membrane + TorsoFlo zips + seam tape " +
+      "are the grade. Body-equivalent approximations, not brand-published specs.",
+    rows: [
+      { size: "XS", measurements: { bust: "32-33", waist: "24-25", hip: "34-35" } },
+      { size: "S", measurements: { bust: "34-35", waist: "26-27", hip: "36-37" } },
+      { size: "M", measurements: { bust: "36-37.5", waist: "28-29.5", hip: "38-39.5" } },
+      { size: "L", measurements: { bust: "38.5-40", waist: "30.5-32", hip: "40.5-42" } },
+      { size: "XL", measurements: { bust: "41-43", waist: "33-35", hip: "43-45" } },
+    ],
+  },
 ];
 
 function norm(s: string | null | undefined): string {
