@@ -1073,6 +1073,39 @@ memory — not a progress log (the harness records progress separately).
   brand itself is unaccented (US-1982 made Celine unaccented — the house dropped
   the accent in 2018 — and kept `Hermès`/`herms`). Check with
   `deno eval` on `brandKey(canonicalizeBrand(x))` before writing the seed.
+- The accent trap has a SECOND half that bites in BRAND_ALIASES, not just the
+  seed: `brandKey()` DELETES the accented char rather than folding it to ASCII, so
+  the accented and unaccented spellings are DIFFERENT keys — "Aimé Leon Dore" →
+  `aimleondore` (no e!) but "Aime Leon Dore" → `aimeleondore`. Sellers type both,
+  so BOTH keys must be in the alias map or the one who bothers with the accent gets
+  a passthrough. It looks like a duplicate line and is not. (Hermès dodged this:
+  `herms` vs `hermes` are visibly different, so 00461 noticed. US-1983.)
+- A canonical VALUE that is an ordinary word has NO protection, even though an
+  ordinary-word alias KEY is safe: `CANONICAL_BRANDS` is built from BRAND_ALIASES'
+  VALUES and `detectBrandInText` regex-scans those over prose, while the KEY side is
+  an exact whole-field lookup (the "ag"/"spider"/"ch" play). The word-boundary guard
+  can't save a value like "Off-White" — an off-white garment's title contains the
+  brand name EXACTLY — and longest-first ordering makes the false positive BEAT the
+  real brand in the same string. Fix (US-1983): `DETECT_EXCLUDED_FROM_TEXT` in
+  brand-normalize.ts, filtered out of CANONICAL_BRANDS — the brand stays reachable
+  by TAG (canonicalizeBrand, which is what the eBay aspect/comp filter read) but is
+  never guessed from prose. Opt-in and additive; it does NOT fix the Gucci GG
+  Supreme→Supreme case (we WANT Supreme detected — that needs a positional rule).
+- Reuse an EXISTING decoder transform by choosing the capture BOUNDARY, not by
+  adding code: `genderCode` only maps `W`/`M`, so Off-White's `OM`/`OW` prefix
+  captures the SECOND character (`^(?<code>O(?<gender>[MW])…`) and maps to Men/Women
+  for free. Capturing "OM" whole would fall through the transform's table and emit
+  the raw "OM" as a gender. Check TRANSFORMS' actual lookup tables before assuming a
+  new one is needed. Also note `decodeTagCode(brandKey, raw, specs)` takes THREE args
+  (brandKey first) — calling it (raw, specs) silently returns null for everything.
+- `python3` does not exist on this host but `python` does (3.13 + pglast v8.2) — so
+  when Docker is down and `verify:db` can't run, the 00461-style static validation
+  (real PostgreSQL parser: parses / column-count vs every tuple / names + conflict
+  targets resolve against the DDL / no duplicate conflict key in one VALUES list)
+  IS available; just don't invoke it as `python3`. Related: the Bash tool eats one
+  level of backslashes, so a `new RegExp("\\$j\\$")` built in a `node -e '…'`
+  one-liner silently becomes `/$j$/` and matches NOTHING — write the script to a
+  file instead of debugging a phantom zero-match.
 - A sub-label an ORDER OF MAGNITUDE below its parent gets its OWN canonical and
   must NOT fold onto the parent (the AGOLDE/Miu Miu rule) — folding it silently
   retitles the cheap piece as the parent and prices it against mainline via the
