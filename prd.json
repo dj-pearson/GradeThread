@@ -1573,7 +1573,7 @@
         "A tenant-isolation-style test isn't applicable (no server code), but the flows get deterministic DOM fixture tests for probe ordering and delist verification"
       ],
       "priority": 1875,
-      "passes": false,
+      "passes": true,
       "notes": "Audit findings F5/F6/F7/F18. F6 is the nastiest failure mode in the product: false 'delisted' = item stays live after selling elsewhere."
     },
     {
