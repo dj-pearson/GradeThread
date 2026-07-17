@@ -209,6 +209,83 @@ const BRAND_ALIASES: Record<string, string> = {
   michaelkorscollection: "Michael Kors",
   katespadenewyork: "Kate Spade",
   ksny: "Kate Spade",
+  // US-1738 contemporary women's group. All seven were passthrough-only, so the
+  // pack rendered the seller's own casing ("aritzia", "eileen fisher") into the
+  // prompt block and the eBay Brand aspect.
+  //
+  // THE HOUSE LABELS FOLD ONTO THE PARENT. Anthropologie and Aritzia are
+  // RETAILERS whose garments are labeled with in-house brand names and never say
+  // the parent's name — the tag reads MAEVE or WILFRED. Unlike Fear of God vs
+  // Essentials (an ORDER OF MAGNITUDE apart, so they earned two canonicals),
+  // these sub-labels share a price band with each other, so folding them costs no
+  // comp accuracy — this is the Michael Kors play, and the line lives in `style`.
+  // It also KEEPS THE SHORT TOKENS OUT of CANONICAL_BRANDS: "tna" would be an
+  // AG-grade hazard as a canonical; as an alias resolving to "Aritzia" it never
+  // reaches detectBrandInText at all.
+  anthropologie: "Anthropologie",
+  anthro: "Anthropologie",
+  maeve: "Anthropologie",
+  pilcro: "Anthropologie",
+  dailypractice: "Anthropologie",
+  heihei: "Anthropologie",
+  aritzia: "Aritzia",
+  wilfred: "Aritzia",
+  wilfredfree: "Aritzia",
+  babaton: "Aritzia",
+  tna: "Aritzia",
+  sundaybest: "Aritzia",
+  talula: "Aritzia",
+  talulababaton: "Aritzia",
+  goldenbytna: "Aritzia",
+  // Sézane needs BOTH keys: brandKey() strips the accented "é" with every other
+  // non-[a-z0-9] char, so brandKey("Sézane") is "szane" while brandKey("Sezane")
+  // is "sezane". Seeding only the plain spelling would leave the ACCENTED form a
+  // passthrough — the trap Stüssy fell into above, where only `stussy` is mapped
+  // and "Stüssy" survives solely because the passthrough happens to be right.
+  // Migration 00457 keys the brand_knowledge row 'szane' to match.
+  sezane: "Sézane",
+  szane: "Sézane",
+  maisonsezane: "Sézane",
+  sezaneparis: "Sézane",
+  reformation: "Reformation",
+  thereformation: "Reformation",
+  vince: "Vince",
+  // VINCE CAMUTO EARNS ITS OWN CANONICAL and this entry is PROTECTIVE, not
+  // cosmetic. Vince Camuto (Camuto Group) is a DIFFERENT COMPANY from Vince
+  // (Vince Holding Corp) — not a diffusion line, just a shared first name — so it
+  // must never fold into Vince. It is listed rather than left a passthrough
+  // because CANONICAL_BRANDS is sorted longest-first: with "Vince Camuto" in the
+  // set, detectBrandInText tests it BEFORE the "Vince" it contains, so a "Vince
+  // Camuto Dress" title stops resolving to Vince. That is the mechanism that
+  // makes the Fear of God / Essentials pair safe, used here deliberately — and it
+  // is the fix the pre-existing "Gucci GG Supreme" hazard has no equivalent of.
+  // (The in-code SIZING chart collision is separate and is solved differently:
+  // Vince is deliberately absent from SIZING_CHARTS. See sizing-charts.ts.)
+  vincecamuto: "Vince Camuto",
+  theory: "Theory",
+  theorynyc: "Theory",
+  // Theyskens' Theory IS a Theory line (Olivier Theyskens, ~2011-2014, retired),
+  // so it folds — the exact opposite call from Vince Camuto above, on an
+  // identical-looking containing-name shape. The corporate fact decides, not the
+  // string. Theory Luxe is the Japan line: also genuinely Theory, but its SIZING
+  // is the Japanese grade (flagged in 00457's brand_styles + chart note).
+  theyskenstheory: "Theory",
+  theoryluxe: "Theory",
+  eileenfisher: "Eileen Fisher",
+  eileenfisherrenew: "Eileen Fisher",
+  // DELIBERATELY ABSENT, on the rule that keeps a bare "bean" off L.L.Bean, a
+  // bare "tory" off Tory Burch and a bare "essentials" off Fear of God — this
+  // group has the worst ordinary-word density in the epic because the words ARE
+  // the brand names:
+  //   * "moth"  — Anthropologie's knit label, but "moth" is a garment-DAMAGE term
+  //     ("moth holes", "moth damage") that appears constantly in the condition
+  //     text this product itself generates. An alias would mint Anthropologie off
+  //     a description of the damage. It is reachable only as a brand_style.
+  //   * "ref"   — an ordinary abbreviation; must not mint Reformation.
+  //   * "fisher" / "eileen" — ordinary surname and given name.
+  //   * "vince" IS mapped (the brand is exactly that string), but see the Vince
+  //     Camuto note above for why the containing name had to be listed too.
+  // Guarded by tests in contemporary-womens-content_test.ts.
 };
 
 /**

@@ -1054,7 +1054,35 @@ memory — not a progress log (the harness records progress separately).
   Supreme" (Gucci's canvas, 00400) mis-detects as **Supreme**, because "Supreme"
   is longer than "Gucci". Pre-existing, barcode-title path only, NOT fixed by
   US-1737 — a positional (earliest-match) rule would fix it but changes a shared
-  matcher for every brand.
+  matcher for every brand. Corollary you CAN use: listing a containing brand in
+  BRAND_ALIASES is PROTECTIVE — US-1738 added `vincecamuto: "Vince Camuto"` so
+  detectBrandInText tests it before the "Vince" it contains.
+- `findSizingCharts` no longer matches `brandMatch` by bare substring (US-1738):
+  it requires the token to START a word (`brandTextMatches`, `\p{L}`-based). The
+  bug that forced it: `"eileen fisher".includes("lee")` is TRUE ("ei-LEE-n"), so
+  Lee's DENIM charts fired on every Eileen Fisher garment. UNFIXABLE in data — any
+  brandMatch still matching its own canonical "lee" is also a substring of
+  "eileen". The boundary is LEADING-ONLY on purpose: a trailing letter is
+  load-bearing ("Burberrys" = "Burberry"+s must still reach Burberry's charts;
+  a both-sides boundary broke `luxury-content_test.ts`). This does NOT rescue a
+  genuine leading-word collision — "vince camuto" still matches "vince" — so the
+  omit-the-shorter-brand's-chart remedy below still applies. Category matching
+  stays a plain substring test on purpose.
+- The DB and in-code chart lookups DIFFER, and US-1738 is the first story to
+  exploit it: `brand_size_charts` is fetched by EXACT `brand_key` (safe), while
+  `findSizingCharts` matches `brand_match` as a leading-word substring (leaks onto
+  a longer brand name). So a brand whose name PREFIXES an unrelated brand's can be
+  given a DB chart and deliberately NO in-code mirror — Vince gets its chart while
+  "Vince Camuto" (a DIFFERENT COMPANY, not a diffusion line) correctly falls to
+  the generics. Prefer this over dropping the chart entirely.
+- A retailer's HOUSE LABELS (Aritzia's Wilfred/Babaton/TNA, Anthropologie's
+  Maeve/Pilcro/Moth) print their OWN name and never the parent's — the tag does
+  not say the brand. Fold them onto the parent canonical with the label in `style`
+  (the MK precedent) when they share a PRICE BAND; split into separate canonicals
+  (the Fear of God/AGOLDE precedent) only when they are an order of magnitude
+  apart. Folding also keeps short tokens ("tna") out of CANONICAL_BRANDS. Watch
+  for ordinary-word labels: "moth" is a garment-DAMAGE term the product's own
+  condition text emits constantly, so it must never be an alias.
 
 ## prd.json / Ralph workflow
 - Never read or edit `prd.json` from inside an iteration — the harness selects

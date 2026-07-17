@@ -4,6 +4,97 @@
 > The sections below for those are historical; the only NEW held migration is
 > **00443** at the top.
 
+## ⏳ PENDING: 00457_contemporary_womens_brand_knowledge.sql (US-1738 contemporary women's brand KB, 2026-07-16)
+
+Data-only seed of the `brand_knowledge*` tables for the contemporary women's tier:
+**Anthropologie, Sézane, Aritzia, Reformation, Vince, Theory, Eileen Fisher**. All
+seven are NEW rows — none had even a bare alias-only row in 00389, so every one of
+them previously rendered the seller's own casing into the prompt block and the eBay
+Brand aspect. `brand_knowledge` ×7; `brand_styles` ×28; `brand_style_codes` ×**0**;
+`brand_colorways` ×**0**; `brand_size_charts` ×11, of which **10** are mirrored into
+the `sizing-charts.ts` in-code fallback (Vince is deliberately DB-only — see below).
+Every fact carries `source_url` + `confidence` and lands `verified=false` for the
+US-1715 admin queue. Idempotent (`on conflict do nothing` / `do update`). Apply
+after 00456 via `scripts/apply-prod-migrations.sh`, `NOTIFY pgrst, 'reload schema';`,
+redeploy the edge (boot guard now expects **00457**). Bumps
+`EXPECTED_SCHEMA_VERSION` → **00457**.
+
+**THE TAG DOES NOT SAY THE BRAND — the group's defining fact and the inverse of the
+usual one.** Anthropologie and Aritzia are RETAILERS whose house labels print their
+OWN names: the tag reads MAEVE / PILCRO / MOTH or WILFRED / BABATON / TNA and the
+parent is frequently nowhere on the garment. The piece is easy; the BRAND is the
+puzzle. They fold onto ONE canonical with the label in `style` — the **Michael Kors
+precedent (00455)**, NOT the Fear of God one (00456), because these labels share a
+price band with each other, so folding costs no comp accuracy. Folding also keeps
+the short tokens out of CANONICAL_BRANDS ("TNA" would be an AG-grade hazard as a
+canonical). **Anthropologie is ALSO a multi-brand RETAILER** — a third-party garment
+bought there keeps its own brand; only the house labels are Anthropologie.
+
+**VINCE IS SEEDED WITH A DB CHART AND NO IN-CODE FALLBACK CHART** — the first brand
+in the epic given one and not the other, and the judgement call worth re-reading.
+**Vince Camuto (Camuto Group) is a DIFFERENT COMPANY** from Vince (Vince Holding
+Corp) — not a diffusion line, just a shared first name — and "Vince Camuto" CONTAINS
+"Vince". The two lookups do not match the same way: `brand_size_charts` is fetched by
+EXACT `brand_key` (`brandKey("Vince Camuto")` = `vincecamuto`, so the 'vince' row can
+never reach it — SAFE), but `findSizingCharts` matches `brand_match` by SUBSTRING
+(`"vince camuto".includes("vince")` is TRUE — LEAKS). No narrowing fixes the in-code
+side (no token is unique to the shorter name — the 00456 finding). So Vince falls
+through to the generics in-code and gets its real chart from the DB, and Vince Camuto
+correctly falls to the generics in both states. Asserted in
+`contemporary-womens-content_test.ts`.
+
+**ZERO DECODERS, for a NEW reason** (not a repeat of 00456's). There the identifier
+was a GRAPHIC — not on the tag, not parseable. Here the identifier IS printed and IS
+regular: these brands NAME their pieces and the name is what the market searches. It
+fails the epic's THIRD test — brand-unique — because every name is an ordinary GIVEN
+NAME (Juliette, Maeve, Wilfred, Gaspard). 00454 seeded True Religion only because
+"Ricky Super T" is a COMPOUND; a bare first name has no second part. **ZERO
+COLORWAYS**: this group's colors are seasonal descriptive English words ("Ivory",
+"Sage"), so there is nothing proprietary to seed (the rule that kept Chanel's colors
+out of 00455).
+
+**Sézane's brand_key is `szane`**, not `sezane` — `brandKey()` strips the accented
+"é" with every other non-`[a-z0-9]` char, exactly as it strips Stüssy's umlaut to
+`stssy` (00456). Do not "correct" it; the resolver re-derives the same key at read
+time. Both spellings are seeded as aliases, and the in-code chart's `brand_match`
+carries the ACCENTED form (sizing-charts' `norm()` only lowercases — it does NOT
+strip accents — and the canonical is what the resolver passes in).
+
+**All INSERTs — no UPDATE of an existing row.** No shared-chart narrowing is needed:
+no existing chart's `brand_match` claims any of these seven brands.
+
+**⚠️ ALSO IN THIS COMMIT — a real, pre-existing SIZING-CHART BUG, found by this
+story's own test and fixed in `sizing-charts.ts` (NOT a data change):**
+`findSizingCharts` matched `brandMatch` with a bare `b.includes(m)`, so
+`"eileen fisher".includes("lee")` was TRUE — **"ei·LEE·n"** — and every Eileen Fisher
+garment resolved **Lee's DENIM charts** (waist-and-inseam numbers for a silk tunic)
+alongside its own. It is not fixable in the data: any `brandMatch` that still matches
+its own canonical "lee" is necessarily also a substring of "eileen". The matcher now
+requires the token to START a word (`brandTextMatches`, `\p{L}`-based so the accented
+canonicals are unaffected). The boundary is **LEADING-ONLY** on purpose: a trailing
+letter is legitimate and load-bearing — the pre-1999 **"Burberrys"** spelling is
+"Burberry" + s and must still reach Burberry's charts (US-1736 depends on exactly
+that, which a both-sides boundary silently broke — caught by `luxury-content_test.ts`).
+Proven safe by the FULL edge suite: 3847 tests green, including every prior brand
+group's content test.
+
+**Risk: LOW** — data-only into deny-all global-reference tables; no schema change.
+**No CLIENT read** — edge resolver only (`brand-knowledge.ts` + the
+`sizing-charts.ts` in-code fallback this commit also extends), so the Cloudflare
+auto-deploy on push cannot break on it.
+
+**⚠️ verify:db NOT run locally — the Docker engine is still hung** (`docker version`
+timed out at 60s, same as at 00452–00456). The SQL was instead validated
+STATICALLY: all 25 embedded JSON blocks parse, both dollar-quote tags balance
+(28 `$j$` / 22 `$json$`), single-quote parity holds outside the dollar-quoted
+regions, all 46 confidences sit in the `numeric(3,2) CHECK (0..1)` range, no row is
+seeded `verified=true`, every seeded column exists in the 00389 DDL (11/14/12), all
+9 `on conflict` targets match real unique indexes, no two rows collide on a conflict
+key (which `do nothing` would silently drop), and **all 7 `brand_key`s equal
+`brandKey(canonical_brand)`** — the check that proves the Sézane `szane` row is
+actually reachable. **Prove it APPLIES with a Docker-up `npm run verify:db` before
+pushing.**
+
 ## ⏳ PENDING: 00456_streetwear_brand_knowledge.sql (US-1737 streetwear brand KB, 2026-07-16)
 
 Data-only seed of the `brand_knowledge*` tables for the streetwear & hype tier:

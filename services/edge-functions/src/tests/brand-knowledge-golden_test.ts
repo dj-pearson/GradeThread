@@ -1247,6 +1247,195 @@ const CASES: GoldenCase[] = [
     input: decodedFrom({ styleCode: "1977" }),
     expect: { noBrand: true },
   },
+
+  // ── US-1738: contemporary women's group ───────────────────────────────────
+  // The second group in the epic with NO decoder, so — like the streetwear pack
+  // — it has no cut-tag recovery case, and the absence is again the thing under
+  // test. But the REASON is different and that is what these cases pin. 00456
+  // refused because a GRAPHIC is not on the tag and is not parseable. This group
+  // DOES print its identifier and the identifier IS regular: these brands name
+  // their pieces, and the name is what the market searches. It fails the third
+  // test — brand-unique — because every one of those names is an ordinary GIVEN
+  // NAME. 00454 seeded True Religion only because "Ricky Super T" is a COMPOUND;
+  // "Juliette" has no second part. The cases below are what stop a future
+  // decoder from being written over a first name.
+  {
+    name: "Anthropologie house label (Maeve) fills the style the AI missed",
+    // The group's defining shape: the TAG says MAEVE and the brand is
+    // Anthropologie. The house label is the STYLE, so this is a style fill.
+    brand: "Anthropologie",
+    pack: pack("Anthropologie", "anthropologie", [style("Maeve")]),
+    input: decodedFrom({ brand: "Anthropologie" }),
+    expect: { brand: "Anthropologie", style: "Maeve" },
+  },
+  {
+    name: "Anthropologie ambiguous house labels (Maeve vs Pilcro vs Moth) — never guess",
+    // Each label is a different DEPARTMENT (dresses / denim / knits) and only the
+    // neck tag separates them. With the brand alone there is nothing to pick.
+    brand: "Anthropologie",
+    pack: pack("Anthropologie", "anthropologie", [
+      style("Maeve"),
+      style("Pilcro"),
+      style("Moth"),
+    ]),
+    input: decodedFrom({ brand: "Anthropologie" }),
+    expect: { brand: "Anthropologie", noStyle: true },
+  },
+  {
+    name: "Anthropologie 'Maeve' — no false-positive brand recovery (a given name is not a code)",
+    // THE case for this group, and the exact mirror of the Lee "101" mistake.
+    // "Maeve" is a real house label AND an ordinary given name. A decoder over it
+    // would mint Anthropologie from any tag or title carrying a first name.
+    brand: "Anthropologie",
+    pack: pack("Anthropologie", "anthropologie", [style("Maeve")]),
+    input: decodedFrom({ styleCode: "Maeve" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Anthropologie 'Moth' — no false-positive recovery (it is a DAMAGE word first)",
+    // The nastiest token in the pack: Moth is a real Anthropologie knit label, and
+    // "moth holes" / "moth damage" appear constantly in the condition text this
+    // very product generates. Recovering the brand from it would brand a garment
+    // off a description of its own damage.
+    brand: "Anthropologie",
+    pack: pack("Anthropologie", "anthropologie", [style("Moth")]),
+    input: decodedFrom({ styleCode: "Moth" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Aritzia sub-label (Wilfred) fills the style the AI missed",
+    // A Wilfred coat IS an Aritzia coat. The sub-labels share a price band, so
+    // they fold onto one brand (the Michael Kors play) with the line in `style`.
+    brand: "Aritzia",
+    pack: pack("Aritzia", "aritzia", [style("Wilfred")]),
+    input: decodedFrom({ brand: "Aritzia" }),
+    expect: { brand: "Aritzia", style: "Wilfred" },
+  },
+  {
+    name: "Aritzia ambiguous sub-labels (Wilfred vs Babaton vs TNA) — never guess",
+    brand: "Aritzia",
+    pack: pack("Aritzia", "aritzia", [
+      style("Wilfred"),
+      style("Babaton"),
+      style("TNA"),
+    ]),
+    input: decodedFrom({ brand: "Aritzia" }),
+    expect: { brand: "Aritzia", noStyle: true },
+  },
+  {
+    name: "Aritzia 'TNA' — no false-positive brand recovery (three letters are not a code)",
+    // TNA is a real Aritzia line and also a three-letter string that means other
+    // things. This is the AG hazard (00454) in decoder form.
+    brand: "Aritzia",
+    pack: pack("Aritzia", "aritzia", [style("TNA")]),
+    input: decodedFrom({ styleCode: "TNA" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Reformation 'Juliette' — no false-positive brand recovery (no decoder)",
+    // The purest statement of the group's rule. The style name IS the identity and
+    // IS printed and IS regular — and it is still an ordinary woman's first name,
+    // so it can never recover the brand.
+    brand: "Reformation",
+    pack: pack("Reformation", "reformation", [style("Juliette Dress")]),
+    input: decodedFrom({ styleCode: "Juliette" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Reformation ambiguous named dresses — never guess",
+    // Many Reformation dresses share the bias-slip silhouette, so the photos
+    // cannot separate the names. Only the seller or the tag can.
+    brand: "Reformation",
+    pack: pack("Reformation", "reformation", [
+      style("Juliette Dress"),
+      style("Named Dress"),
+    ]),
+    input: decodedFrom({ brand: "Reformation" }),
+    expect: { brand: "Reformation", noStyle: true },
+  },
+  {
+    name: "Sézane resolves under its accent-stripped key, never as a passthrough",
+    // brandKey() strips the "é" with every other non-[a-z0-9] char, so the KB key
+    // is 'szane' (the Stüssy 'stssy' lesson, 00456). The pack must still resolve.
+    brand: "Sézane",
+    pack: pack("Sézane", "szane", [style("Gaspard Jumper")]),
+    input: decodedFrom({ brand: "Sézane" }),
+    expect: { brand: "Sézane", style: "Gaspard Jumper" },
+  },
+  {
+    name: "Sézane 'Gaspard' — no false-positive brand recovery (a given name is not a code)",
+    brand: "Sézane",
+    pack: pack("Sézane", "szane", [style("Gaspard Jumper")]),
+    input: decodedFrom({ styleCode: "Gaspard" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Sézane 'FR 38' — no false-positive brand recovery (a size is not a code)",
+    // French sizing is this brand's biggest fact and is genuinely regular, which
+    // is exactly what makes it tempting. It is a SIZE SYSTEM shared by every
+    // French brand — decoding it would mint Sézane from any FR tag.
+    brand: "Sézane",
+    pack: pack("Sézane", "szane", [style("Gaspard Jumper")]),
+    input: decodedFrom({ styleCode: "FR 38" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Vince resolves as its own brand, never as Vince Camuto",
+    // THE pair for this group. Two DIFFERENT COMPANIES sharing a first name — not
+    // a mainline and a diffusion line. Each must stay put.
+    brand: "Vince",
+    pack: pack("Vince", "vince", [style("Vince Cashmere Knit")]),
+    input: decodedFrom({ brand: "Vince" }),
+    expect: { brand: "Vince", style: "Vince Cashmere Knit" },
+  },
+  {
+    name: "Vince Camuto stays its own brand, never folded into Vince",
+    // The other half. Folding these would comp an unrelated company's garment
+    // against Vince's catalogue — structurally the Fear of God trap (00456), but
+    // across two businesses rather than one designer's two lines.
+    brand: "Vince Camuto",
+    pack: pack("Vince Camuto", "vincecamuto"),
+    input: decodedFrom({ brand: "Vince Camuto" }),
+    expect: { brand: "Vince Camuto" },
+  },
+  {
+    name: "Vince 'Vince Camuto' — no false-positive recovery of Vince",
+    brand: "Vince",
+    pack: pack("Vince", "vince", [style("Vince Cashmere Knit")]),
+    input: decodedFrom({ styleCode: "Vince Camuto" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Theory ambiguous fabric platforms (Good Wool vs Good Linen) — never guess",
+    // The fabric platform is Theory's identity and a photo cannot show fibre, so
+    // with the brand alone there is nothing to choose between them.
+    brand: "Theory",
+    pack: pack("Theory", "theory", [style("Good Wool"), style("Good Linen")]),
+    input: decodedFrom({ brand: "Theory" }),
+    expect: { brand: "Theory", noStyle: true },
+  },
+  {
+    name: "Theory 'Good Wool' — no false-positive brand recovery (a fabric is not a code)",
+    brand: "Theory",
+    pack: pack("Theory", "theory", [style("Good Wool")]),
+    input: decodedFrom({ styleCode: "Good Wool" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Eileen Fisher single known style fills the style the AI missed",
+    brand: "Eileen Fisher",
+    pack: pack("Eileen Fisher", "eileenfisher", [style("Eileen Fisher Renew")]),
+    input: decodedFrom({ brand: "Eileen Fisher" }),
+    expect: { brand: "Eileen Fisher", style: "Eileen Fisher Renew" },
+  },
+  {
+    name: "Eileen Fisher 'Renew' — no false-positive brand recovery (no decoder)",
+    // "Renew" is a real Eileen Fisher program and an ordinary English verb.
+    brand: "Eileen Fisher",
+    pack: pack("Eileen Fisher", "eileenfisher", [style("Eileen Fisher Renew")]),
+    input: decodedFrom({ styleCode: "Renew" }),
+    expect: { noBrand: true },
+  },
 ];
 
 // ── the gate ────────────────────────────────────────────────────────────────

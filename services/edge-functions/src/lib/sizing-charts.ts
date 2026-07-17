@@ -1692,6 +1692,303 @@ export const SIZING_CHARTS: SizingChart[] = [
       { size: "XL (drapes ≈US XXL)", measurements: { waist: "37-40" } },
     ],
   },
+  // US-1738: contemporary women's group. Mirrors migration 00457's
+  // brand_size_charts seed — WITH ONE DELIBERATE OMISSION, see below.
+  //
+  // THE GROUP'S SIGNATURE TRAP LIVES HERE, and this pack lies in THREE directions
+  // rather than 00456's two, none of which announces itself on the tag:
+  //
+  //     Sézane         FR 38 = US 6   — French national sizing; the number lies.
+  //     Aritzia        runs SMALL     — starts at 00/XXS; an Aritzia S ≈ US 2-4.
+  //     Eileen Fisher  runs LARGE     — an EF M drapes like a US L.
+  //
+  // So an "M" means different bodies on Aritzia and Eileen Fisher, and a "38" on
+  // Sézane is a US 6. Every cross-map is written INSIDE THE SIZE LABEL, where the
+  // model actually reads it (the 00455 lesson — a note alone does not survive
+  // into the rendered table).
+  //
+  // NO CHART FOR "Vince", on purpose — the first time this epic has given a brand
+  // a DB chart and deliberately withheld the in-code mirror. The two lookups do
+  // not match the same way: brand_size_charts is fetched by EXACT brand_key, so
+  // 00457's 'vince' row can never reach brandKey("Vince Camuto") = "vincecamuto";
+  // but findSizingCharts is a SUBSTRING test, and "vince camuto".includes("vince")
+  // is TRUE. VINCE CAMUTO IS A DIFFERENT COMPANY (Camuto Group), not a diffusion
+  // line — so an in-code ["vince"] chart would hand an unrelated brand's garments
+  // Vince's numbers. No narrowing fixes it: there is no token unique to the
+  // shorter name (the 00456 Fear of God finding). Vince therefore falls through to
+  // the generics here, as Coach/LV/Gucci do, and gets its real chart from the DB.
+  // Guarded by contemporary-womens-content_test.ts.
+  //
+  // Also note the ANTHROPOLOGIE and ARITZIA charts are reached via the CANONICAL
+  // brand, which is what brand-knowledge.ts passes: the house labels (Maeve,
+  // Wilfred, Babaton, TNA…) canonicalize to the parent in brand-normalize.ts and
+  // must never appear in brandMatch — "tna" is a three-letter substring hazard of
+  // exactly the AG kind, and "moth" is a garment-DAMAGE word.
+  {
+    brand: "Anthropologie",
+    brandMatch: ["anthropologie"],
+    department: "Women",
+    garment: "Tops & dresses (US alpha)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "dress", "knit", "sweater", "cardigan",
+      "jacket", "long sleeve",
+    ],
+    note:
+      "Anthropologie is US women's sizing and grades close to a general US " +
+      "contemporary body — no national cross-map applies (contrast Sézane in this " +
+      "same group, whose FR 38 is a US 6). The US numeric equivalent is carried in " +
+      "the size label because Anthropologie labels BOTH ways depending on the house " +
+      "line. REMEMBER THE TAG USUALLY SAYS A HOUSE LABEL — Maeve, Pilcro, Moth, " +
+      "Daily Practice — and not \"Anthropologie\"; the house label is the STYLE and " +
+      "this chart applies to all of them. It does NOT apply to a THIRD-PARTY brand " +
+      "bought at Anthropologie, which keeps its own brand and its own sizing. These " +
+      "are body-equivalent figures for the nominal grade, not Anthropologie-published " +
+      "specs. Measure the garment flat (bust across the underarm seam, doubled).",
+    rows: [
+      { size: "XS (US 0-2)", measurements: { bust: "32-33.5", waist: "25-26.5" } },
+      { size: "S (US 4-6)", measurements: { bust: "34.5-35.5", waist: "27-28.5" } },
+      { size: "M (US 8-10)", measurements: { bust: "36.5-38", waist: "29.5-31" } },
+      { size: "L (US 12-14)", measurements: { bust: "39.5-41", waist: "32.5-34" } },
+      { size: "XL (US 16)", measurements: { bust: "42.5-44", waist: "35.5-37" } },
+    ],
+  },
+  {
+    brand: "Anthropologie",
+    brandMatch: ["anthropologie"],
+    department: "Women",
+    garment: "Bottoms (US numeric waist)",
+    categoryMatch: ["bottom", "pant", "jean", "denim", "short", "trouser", "skirt", "legging"],
+    note:
+      "Anthropologie bottoms (largely the PILCRO house denim line — the tag says " +
+      "PILCRO, not \"Anthropologie\") are US NOMINAL WAIST: the label is a " +
+      "measurement, not a letter mapped onto a body. No national cross-map applies. " +
+      "These are nominal figures, not published specs. Measure the flat waistband " +
+      "and double it.",
+    rows: [
+      { size: "US 24", measurements: { waist: "24-25", hip: "34-35" } },
+      { size: "US 26", measurements: { waist: "26-27", hip: "36-37" } },
+      { size: "US 28", measurements: { waist: "28-29", hip: "38-39" } },
+      { size: "US 30", measurements: { waist: "30-31", hip: "40-41" } },
+      { size: "US 32", measurements: { waist: "32-33", hip: "42-43" } },
+    ],
+  },
+  {
+    brand: "Sézane",
+    // norm() only LOWERCASES — it does NOT strip accents, while brandKey() strips
+    // the "é" entirely (which is why 00457 keys the row 'szane'). The canonical
+    // brand-knowledge.ts passes in is the ACCENTED "Sézane", so that spelling MUST
+    // be here or the chart is never found; the plain spelling covers raw seller
+    // text. Same trap as Stüssy (00456).
+    brandMatch: ["sézane", "sezane"],
+    department: "Women",
+    garment: "Tops & dresses (FRENCH sizing)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "dress", "knit", "sweater", "cardigan",
+      "jacket", "long sleeve",
+    ],
+    note:
+      "Sézane is a Paris brand on FRENCH national sizing and it runs SMALL against " +
+      "a US body: FR 38 is a US 6 — the tag carries a BARE NUMBER that is not a US " +
+      "size and not an alpha, and nothing on it says \"FR\". This is the same " +
+      "national-system trap as Chanel's FR and Prada's IT tags, which is why the US " +
+      "equivalent is written into the size label rather than left in a note. Within " +
+      "this same pack Aritzia and Eileen Fisher are alpha-labeled and lie in two " +
+      "further directions, so no single \"contemporary womens runs X\" rule holds. " +
+      "These are body-equivalent figures for the nominal FR grade, not " +
+      "Sézane-published specs. Measure the garment flat (bust across the underarm " +
+      "seam, doubled).",
+    rows: [
+      { size: "FR 34 (US 2)", measurements: { bust: "32-33", waist: "25-26" } },
+      { size: "FR 36 (US 4)", measurements: { bust: "33.5-34.5", waist: "26.5-27.5" } },
+      { size: "FR 38 (US 6)", measurements: { bust: "35-36", waist: "28-29" } },
+      { size: "FR 40 (US 8)", measurements: { bust: "36.5-38", waist: "29.5-31" } },
+      { size: "FR 42 (US 10)", measurements: { bust: "38.5-40", waist: "31.5-33" } },
+      { size: "FR 44 (US 12)", measurements: { bust: "40.5-42", waist: "33.5-35" } },
+    ],
+  },
+  {
+    brand: "Aritzia",
+    brandMatch: ["aritzia"],
+    department: "Women",
+    garment: "Tops & dresses (alpha, RUNS SMALL)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "dress", "knit", "sweater", "cardigan",
+      "jacket", "long sleeve", "puffer",
+    ],
+    note:
+      "Aritzia RUNS SMALL against a general US contemporary body and its range " +
+      "starts at 00/XXS — an Aritzia S sits near a US 2-4, roughly one size down. " +
+      "The US numeric equivalent is written into the size label because the tag says " +
+      "only a letter and gives no warning. THIS IS ONE OF THE GROUP'S TWO ALPHA " +
+      "DIRECTIONS: within this same pack an Eileen Fisher M drapes like a US L, the " +
+      "OPPOSITE way, and both tags just say \"M\". No national cross-map applies " +
+      "(contrast Sézane, whose FR 38 is a US 6). REMEMBER THE TAG SAYS THE SUB-LABEL " +
+      "— Wilfred, Wilfred Free, Babaton, TNA, Sunday Best — and not \"Aritzia\"; the " +
+      "sub-label is the STYLE and this chart applies to all of them. These are " +
+      "body-equivalent figures for the nominal grade, not Aritzia-published specs. " +
+      "Measure the garment flat (bust across the underarm seam, doubled).",
+    rows: [
+      { size: "XXS (US 00)", measurements: { bust: "30.5-31.5", waist: "23.5-24.5" } },
+      { size: "XS (US 0-2)", measurements: { bust: "32-33", waist: "25-26" } },
+      { size: "S (US 2-4)", measurements: { bust: "33.5-35", waist: "26.5-28" } },
+      { size: "M (US 6-8)", measurements: { bust: "35.5-37", waist: "28.5-30" } },
+      { size: "L (US 10-12)", measurements: { bust: "38-39.5", waist: "31-32.5" } },
+      { size: "XL (US 14)", measurements: { bust: "40.5-42", waist: "33.5-35" } },
+    ],
+  },
+  {
+    brand: "Aritzia",
+    brandMatch: ["aritzia"],
+    department: "Women",
+    garment: "Bottoms (US numeric waist)",
+    categoryMatch: [
+      "bottom", "pant", "jean", "denim", "short", "trouser", "skirt", "legging",
+      "sweatpant", "jogger",
+    ],
+    note:
+      "Aritzia bottoms (largely the SUNDAY BEST denim line — the tag says SUNDAY " +
+      "BEST, not \"Aritzia\") are US NOMINAL WAIST: the label is a measurement " +
+      "rather than a letter mapped onto a body, so the runs-small alpha caveat does " +
+      "NOT apply to them. The range starts at 23. No national cross-map applies. " +
+      "These are nominal figures, not published specs. Measure the flat waistband " +
+      "and double it.",
+    rows: [
+      { size: "US 23", measurements: { waist: "23-24", hip: "33-34" } },
+      { size: "US 24", measurements: { waist: "24-25", hip: "34-35" } },
+      { size: "US 26", measurements: { waist: "26-27", hip: "36-37" } },
+      { size: "US 28", measurements: { waist: "28-29", hip: "38-39" } },
+      { size: "US 30", measurements: { waist: "30-31", hip: "40-41" } },
+      { size: "US 32", measurements: { waist: "32-33", hip: "42-43" } },
+    ],
+  },
+  {
+    brand: "Reformation",
+    brandMatch: ["reformation"],
+    department: "Women",
+    garment: "Dresses & tops (US numeric)",
+    categoryMatch: [
+      "dress", "top", "tee", "shirt", "blouse", "knit", "sweater", "cardigan",
+      "jacket", "long sleeve",
+    ],
+    note:
+      "Reformation is US women's NUMERIC sizing (0-12) on a fitted, dress-led cut — " +
+      "no national cross-map applies (contrast Sézane in this same group, whose bare " +
+      "\"38\" is a US 6, not a US 38: the two look alike on a tag and are not). The " +
+      "house cut is close-fitting rather than relaxed, so a snug flat measurement is " +
+      "the intended silhouette and NOT a mislabel. These are body-equivalent figures " +
+      "for the nominal grade, not Reformation-published specs. Measure the garment " +
+      "flat (bust across the underarm seam, doubled). The STYLE NAME changes the " +
+      "price, not the fit — a Juliette and any other named dress in the same size " +
+      "are the same grade.",
+    rows: [
+      { size: "US 0", measurements: { bust: "32-33", waist: "25-26" } },
+      { size: "US 2", measurements: { bust: "33.5-34.5", waist: "26.5-27.5" } },
+      { size: "US 4", measurements: { bust: "35-36", waist: "28-29" } },
+      { size: "US 6", measurements: { bust: "36.5-37.5", waist: "29.5-30.5" } },
+      { size: "US 8", measurements: { bust: "38-39.5", waist: "31-32.5" } },
+      { size: "US 10", measurements: { bust: "40-41.5", waist: "33-34.5" } },
+      { size: "US 12", measurements: { bust: "42-43.5", waist: "35-36.5" } },
+    ],
+  },
+  {
+    brand: "Theory",
+    brandMatch: ["theory"],
+    department: "Women",
+    garment: "Tops & tailoring (US alpha)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "knit", "sweater", "cardigan", "blazer",
+      "jacket", "suit", "long sleeve",
+    ],
+    note:
+      "Theory is US women's sizing on a TAILORED cut — no national cross-map applies " +
+      "(contrast Sézane in this same group, whose FR 38 is a US 6). BUT: a THEORY " +
+      "LUXE tag is the JAPANESE-market line and is sized on the Japanese grade, so " +
+      "this chart does NOT apply to it — read the full label. THEYSKENS' THEORY does " +
+      "fold here (it is a Theory line). THE FABRIC PLATFORM changes the price, not " +
+      "the fit: a Good Wool blazer and a Precision Ponte blazer in the same size are " +
+      "the same grade. These are body-equivalent figures for the nominal grade, not " +
+      "Theory-published specs. Measure the garment flat (bust across the underarm " +
+      "seam, doubled).",
+    rows: [
+      { size: "XS (US 0-2)", measurements: { bust: "32-33.5", waist: "25-26.5" } },
+      { size: "S (US 4-6)", measurements: { bust: "34.5-35.5", waist: "27-28.5" } },
+      { size: "M (US 8-10)", measurements: { bust: "36.5-38", waist: "29.5-31" } },
+      { size: "L (US 12-14)", measurements: { bust: "39.5-41", waist: "32.5-34" } },
+    ],
+  },
+  {
+    brand: "Theory",
+    brandMatch: ["theory"],
+    department: "Women",
+    garment: "Bottoms (US numeric)",
+    categoryMatch: ["bottom", "pant", "trouser", "short", "skirt", "jean", "denim"],
+    note:
+      "Theory bottoms are US women's NUMERIC sizing (0-12) — a size number mapped " +
+      "onto a body, NOT a nominal waist measurement like the denim brands, so do not " +
+      "read a \"4\" as a 4-inch anything. No national cross-map applies. These are " +
+      "body-equivalent figures, not published specs. Measure the flat waistband and " +
+      "double it.",
+    rows: [
+      { size: "US 0", measurements: { waist: "25-26", hip: "34-35" } },
+      { size: "US 2", measurements: { waist: "26-27", hip: "35-36" } },
+      { size: "US 4", measurements: { waist: "27.5-28.5", hip: "36.5-37.5" } },
+      { size: "US 6", measurements: { waist: "29-30", hip: "38-39" } },
+      { size: "US 8", measurements: { waist: "30.5-31.5", hip: "39.5-40.5" } },
+      { size: "US 10", measurements: { waist: "32-33", hip: "41-42" } },
+      { size: "US 12", measurements: { waist: "33.5-34.5", hip: "42.5-43.5" } },
+    ],
+  },
+  {
+    brand: "Eileen Fisher",
+    brandMatch: ["eileen fisher", "eileenfisher"],
+    department: "Women",
+    garment: "Tops & knits (alpha, RUNS LARGE)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "knit", "sweater", "cardigan", "dress",
+      "jacket", "tunic", "long sleeve",
+    ],
+    note:
+      "Eileen Fisher RUNS LARGE: the cut is DELIBERATELY RELAXED and boxy across the " +
+      "whole line — dropped shoulders, straight bodies, generous ease — so an Eileen " +
+      "Fisher M drapes like a US L, roughly one size up. THAT DRAPE IS THE DESIGN: " +
+      "it is not stretching, not wear, not a mislabel, and it must NOT be graded as " +
+      "a defect — a garment hanging away from the body is INTACT and correctly " +
+      "labeled. The drape is written into the size label because nothing on the tag " +
+      "announces it: the tag says only \"M\", and an Aritzia M in this same group is " +
+      "a US 6-8, the OTHER direction. No national cross-map applies (contrast " +
+      "Sézane, whose FR 38 is a US 6). These are body-equivalent figures for the " +
+      "nominal grade, not Eileen Fisher-published specs. Measure the garment flat " +
+      "(bust across the underarm seam, doubled).",
+    rows: [
+      { size: "XXS (drapes ≈US 0)", measurements: { bust: "33-34", waist: "26-27" } },
+      { size: "XS (drapes ≈US 2-4)", measurements: { bust: "35-36.5", waist: "28-29.5" } },
+      { size: "S (drapes ≈US 6-8)", measurements: { bust: "37.5-39", waist: "30.5-32" } },
+      { size: "M (drapes ≈US 10-12)", measurements: { bust: "40-41.5", waist: "33-34.5" } },
+      { size: "L (drapes ≈US 14-16)", measurements: { bust: "42.5-44", waist: "35.5-37" } },
+      { size: "XL (drapes ≈US 18)", measurements: { bust: "45-46.5", waist: "38-39.5" } },
+    ],
+  },
+  {
+    brand: "Eileen Fisher",
+    brandMatch: ["eileen fisher", "eileenfisher"],
+    department: "Women",
+    garment: "Bottoms (alpha, RUNS LARGE)",
+    categoryMatch: ["bottom", "pant", "trouser", "short", "skirt", "legging", "ankle pant"],
+    note:
+      "Eileen Fisher bottoms are cut DELIBERATELY RELAXED and the volume is the " +
+      "design, not a fit error — do not grade it as wear. Most are pull-on with an " +
+      "elasticated waist, so the figures are a relaxed range rather than a nominal " +
+      "waist. No national cross-map applies. These are body-equivalent figures, not " +
+      "published specs. Measure the flat waistband relaxed and double it.",
+    rows: [
+      { size: "XXS (drapes ≈US 0)", measurements: { waist: "25-27" } },
+      { size: "XS (drapes ≈US 2-4)", measurements: { waist: "27-29.5" } },
+      { size: "S (drapes ≈US 6-8)", measurements: { waist: "29.5-32" } },
+      { size: "M (drapes ≈US 10-12)", measurements: { waist: "32-34.5" } },
+      { size: "L (drapes ≈US 14-16)", measurements: { waist: "34.5-37" } },
+      { size: "XL (drapes ≈US 18)", measurements: { waist: "37-39.5" } },
+    ],
+  },
   {
     brand: "Generic women's alpha",
     brandMatch: [], // fallback only (selected when no brand chart matches)
@@ -1745,6 +2042,58 @@ function norm(s: string | null | undefined): string {
   return (s ?? "").toLowerCase();
 }
 
+/** True when `ch` is a letter or digit in ANY script — `\p{L}` rather than an
+ *  ASCII class, so the accented canonicals in this table (Stüssy, Sézane) are
+ *  treated as ordinary word characters and not as boundaries. */
+function isWordChar(ch: string): boolean {
+  return ch !== "" && /[\p{L}\p{N}]/u.test(ch);
+}
+
+/**
+ * US-1738: does brand text `b` contain the brandMatch token `m` at the START of
+ * a word?
+ *
+ * This used to be a bare `b.includes(m)`, which made every SHORT brandMatch a
+ * live hazard — a token fires inside any longer word that happens to contain its
+ * letters, and this table is full of 2-4 letter brands. The motivating case, found
+ * while seeding US-1738:
+ *
+ *     "eileen fisher".includes("lee")  -> TRUE   ("ei-LEE-n")
+ *
+ * which handed every Eileen Fisher garment Lee's DENIM charts — waist-and-inseam
+ * numbers for a silk tunic. It is NOT fixable in the data: any brandMatch that
+ * still matches its own canonical "lee" is necessarily also a substring of the
+ * "eileen" containing it, so there is no narrowing to write. The matcher is the
+ * only place it can be fixed.
+ *
+ * WHY THE BOUNDARY IS LEADING-ONLY, and not on both sides. A trailing letter is
+ * legitimate and load-bearing: English suffixes attach at the END, so the
+ * pre-1999 "Burberrys" spelling is "Burberry" + s and MUST still reach Burberry's
+ * charts (US-1736 relies on exactly this — it is why Burberry carries no second
+ * brandMatch token). A LEADING letter never is: a brand token does not begin in
+ * the middle of a word. So `m` must start a word, and may continue into one.
+ *
+ * The boundary is LETTER-based (\p{L}, any script) rather than whitespace-based,
+ * so accented canonicals and both token shapes keep working: "alo" matches "alo
+ * yoga", "aloyoga" matches "aloyoga", "north face" matches "the north face",
+ * "stüssy" matches "stüssy".
+ *
+ * NOTE this does NOT (and must not) rescue a token that is a genuine leading WORD
+ * of a longer brand NAME: "vince camuto" still matches "vince", and "fear of god
+ * essentials" still matches "fear of god". Those are real prefix collisions
+ * between real brands, and no matcher rule can separate them — they are handled
+ * by omitting the shorter brand's chart (see the Vince and Fear of God notes
+ * above). Category matching deliberately stays a plain substring test
+ * ("long sleeve tee".includes("tee") is intended).
+ */
+function brandTextMatches(b: string, m: string): boolean {
+  if (m === "") return false;
+  for (let i = b.indexOf(m); i !== -1; i = b.indexOf(m, i + 1)) {
+    if (!isWordChar(i === 0 ? "" : b[i - 1])) return true;
+  }
+  return false;
+}
+
 /**
  * Select the most relevant charts for a brand + category. Prefers brand-specific
  * charts; falls back to generic charts (brandMatch empty) when no brand chart
@@ -1760,7 +2109,7 @@ export function findSizingCharts(
 
   const brandCharts = b
     ? SIZING_CHARTS.filter(
-        (c) => c.brandMatch.length > 0 && c.brandMatch.some((m) => b.includes(m)),
+        (c) => c.brandMatch.length > 0 && c.brandMatch.some((m) => brandTextMatches(b, m)),
       )
     : [];
 
