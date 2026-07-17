@@ -4,6 +4,62 @@
 > The sections below for those are historical; the only NEW held migration is
 > **00443** at the top.
 
+## ⏳ PENDING: 00471_intimates_loungewear_shapewear_brand_knowledge.sql (US-1991 intimates/loungewear/shapewear brand KB, 2026-07-17)
+
+Data-only seed of the `brand_knowledge*` tables for the intimates / loungewear /
+shapewear tier: **SKIMS, Spanx, Victoria's Secret, PINK, Aerie, Savage X Fenty,
+Calvin Klein, Tommy John.** Six were passthrough-only; **Calvin Klein is PROMOTED**
+from its shallow 00389 alias-only shell to a full pack.
+
+**The through-line: THE FIT + THE SIZE SYSTEM IS THE PRODUCT, and the size system
+is NOT one system.** Unlike footwear's single stamped number, an intimates listing
+spans THREE incompatible size systems — **BRA (band 30-44 + cup A-DDD/G, a two-axis
+system where the cup letter is RELATIVE to the band), SHAPEWEAR (alpha XS-4X, graded
+on compression), and APPAREL/underwear (alpha XS-XXL / a waist run)** — with the
+system named IN the label and the cup-difference math written into the chart note.
+The style is a NAMED FABRIC LINE for all eight (Fits Everybody, Faux Leather
+Leggings, Bombshell, Modern Cotton, Second Skin), never a tag-printed code.
+
+- **ZERO DECODERS, deliberately** (the 00470 call) — every candidate is fixtured as
+  a REFUSAL in `brand-knowledge-golden_test.ts`. Calvin Klein's underwear U-number
+  (U2664G) is a web/packaging SKU across licensed product (the Fossil hazard,
+  00468); Spanx's style number (10005R) is a bare digit run (the Chanel rule). **A
+  BRA SIZE IS NOT A STYLE CODE** — "34DDD" is captured by the size charts, never a
+  decoder.
+- **TWO SUB-BRAND CODE CHANGES in `brand-normalize.ts` (not data):**
+  - **AERIE is PROMOTED to its own canonical, reversing the US-1739 fold** onto
+    American Eagle. The mall "same band → fold" call is wrong for intimates: eBay
+    has a first-class Aerie brand and Aerie bralettes/OFFLINE leggings comp on their
+    own ladder. **"Aerie" is added to `DETECT_EXCLUDED_FROM_TEXT`** (an ordinary
+    noun — an eagle's nest; now on the prose-scan path for the first time).
+  - **PINK is its OWN canonical, NOT folded onto Victoria's Secret** — a lower-band,
+    separately-searched collegiate line (the Hollister rule, 00458). **"PINK" is
+    added to `DETECT_EXCLUDED_FROM_TEXT`** (an ordinary colour word). Both verified
+    by mutation in `intimates-loungewear-content_test.ts`.
+- **NO RN IS SEEDED** — these ARE textile products so an RN would be in-scope, but
+  no registrant was sourced to a PRIMARY FTC record; fabricating one is the KB's
+  costliest error (RN 17257, 00468). Owed to the US-1715 queue.
+- **TAG ERAS documented for the two brands with a genuine vintage chronology**
+  (Victoria's Secret "Gold Label" gold-script Made-in-USA lingerie; vintage 90s
+  Calvin Klein / one-logo), **empty for the six modern brands** (Skims 2019, Savage
+  X 2018, Aerie 2006, PINK 2004, Spanx 2000, Tommy John 2008) — the athleisure
+  precedent, 00452.
+
+`brand_knowledge` ×8 (Calvin Klein promoted via on-conflict); `brand_styles` ×23;
+`brand_colorways` ×**8** (SKIMS' proprietary nude/skin-tone palette — Sand/Sienna/
+Clay/Cocoa/Umber/Onyx/Oxide/Ochre, the only NAMED palette in the pack);
+`brand_style_codes` ×**0**; `brand_size_charts` ×**11** (bra band+cup translators +
+shapewear/apparel alpha + underwear waist runs), all mirrored 1:1 into the
+`sizing-charts.ts` in-code fallback. Every fact carries `source_url` + `confidence`
+and lands `verified=false` for the US-1715 admin queue. Idempotent
+(`on conflict do update`).
+
+Apply **after 00470** via `scripts/apply-prod-migrations.sh`, then
+`NOTIFY pgrst, 'reload schema';`, then redeploy the edge (boot guard now expects
+**00471**). Bumps `EXPECTED_SCHEMA_VERSION` → **00471**. Risk: LOW — data-only, no
+schema change, no DDL, no frontend reads the new rows (the edge resolver falls back
+to the in-code tables when a pack is absent).
+
 ## ⏳ PENDING: 00470_footwear_tier2_brand_knowledge.sql (US-1990 footwear tier 2 brand KB, 2026-07-17)
 
 Data-only seed of the `brand_knowledge*` tables for the tier-2 footwear tier:

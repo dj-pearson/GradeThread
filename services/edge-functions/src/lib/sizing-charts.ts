@@ -8154,6 +8154,251 @@ export const SIZING_CHARTS: SizingChart[] = [
       { size: "M12 = UK 11 = EU 46-47", measurements: { footLength: "11.55" } },
     ],
   },
+
+  // US-1991: intimates, loungewear & shapewear. Mirrors migration 00471's
+  // brand_size_charts 1:1. THE STORY'S KEY SIGNAL — three incompatible size
+  // systems (BRA band+cup, SHAPEWEAR alpha, APPAREL/underwear alpha/waist), with
+  // the system named IN THE LABEL and the cup-difference math in the note.
+  {
+    brand: "SKIMS",
+    brandMatch: ["skims"],
+    department: "Women",
+    garment: "Intimates apparel / shapewear (alpha XXS-4X, body inches)",
+    categoryMatch: ["shapewear", "bodysuit", "loungewear", "underwear", "dress", "top", "legging", "brief", "thong", "tank"],
+    note:
+      "SKIMS is SIZE-INCLUSIVE (XXS-4X) and its fabric is COMPRESSIVE: the Fits " +
+      "Everybody/Sculpting lines fit snug, so size to the BODY measurement, not the " +
+      "flat garment (a Fits Everybody piece measures much smaller than the body it " +
+      "fits). Bust/waist/hip are the signals. THE FABRIC IS THE GRADE — a " +
+      "stretched-out, non-recovering piece is a defect. Body-equivalent " +
+      "approximations, not brand-published specs.",
+    rows: [
+      { size: "XXS", measurements: { bust: "30-31", waist: "23-24", hip: "33-34" } },
+      { size: "XS", measurements: { bust: "32-33", waist: "25-26", hip: "35-36" } },
+      { size: "S", measurements: { bust: "34-35", waist: "27-28", hip: "37-38" } },
+      { size: "M", measurements: { bust: "36-37.5", waist: "29-30.5", hip: "39-40.5" } },
+      { size: "L", measurements: { bust: "38.5-40", waist: "32-33.5", hip: "42-43.5" } },
+      { size: "XL", measurements: { bust: "41-43", waist: "35-37", hip: "45-47" } },
+      { size: "2X", measurements: { bust: "44-46.5", waist: "38-40.5", hip: "48-50.5" } },
+      { size: "3X", measurements: { bust: "47.5-50", waist: "42-44.5", hip: "52-54.5" } },
+      { size: "4X", measurements: { bust: "51-53.5", waist: "46-48.5", hip: "56-58.5" } },
+    ],
+  },
+  {
+    brand: "Spanx",
+    brandMatch: ["spanx"],
+    department: "Women",
+    garment: "Shapewear / leggings (alpha XS-3X, body inches)",
+    categoryMatch: ["shapewear", "legging", "bodysuit", "short", "loungewear", "faux leather", "oncore", "bra"],
+    note:
+      "Spanx sizes alpha XS-3X. ⚠ FIRM SHAPEWEAR (OnCore/Higher Power) is graded on " +
+      "COMPRESSION and runs true-to-snug — size to the body, not the flat garment. " +
+      "The FAUX LEATHER LEGGINGS are a fashion legging (comp separately) and their " +
+      "COATED FINISH is part of the grade (cracking at the knee). Waist is the " +
+      "primary signal, hip secondary. Body-equivalent approximations, not " +
+      "brand-published specs.",
+    rows: [
+      { size: "XS", measurements: { waist: "25-26", hip: "35-36" } },
+      { size: "S", measurements: { waist: "27-28.5", hip: "37-38.5" } },
+      { size: "M", measurements: { waist: "29.5-31", hip: "39.5-41" } },
+      { size: "L", measurements: { waist: "32-34", hip: "42-44" } },
+      { size: "XL", measurements: { waist: "35-37", hip: "45-47" } },
+      { size: "1X", measurements: { waist: "38-40.5", hip: "48-50.5" } },
+      { size: "2X", measurements: { waist: "41.5-44", hip: "52-54.5" } },
+      { size: "3X", measurements: { waist: "45-47.5", hip: "56-58.5" } },
+    ],
+  },
+  {
+    brand: "Victoria's Secret",
+    brandMatch: ["victoria's secret", "victorias secret", "victoriassecret"],
+    department: "Women",
+    garment: "Bras (BAND + CUP two-axis system, underbust inches)",
+    categoryMatch: ["bra", "bralette", "bombshell", "push-up", "t-shirt bra", "lingerie", "demi"],
+    note:
+      "⚠ A BRA SIZE IS TWO AXES: the BAND number (30-44) is the UNDERBUST, and the " +
+      "CUP letter is RELATIVE — it is (bust minus band): A=+1in, B=+2in, C=+3in, " +
+      "D=+4in, DD/E=+5in, DDD/F=+6in, G=+7in. So a 34B and a 36A share a cup VOLUME " +
+      "but a different band (sister sizes). READ THE STAMPED BAND+CUP off the tag " +
+      "and state both. ⚠ THE BOMBSHELL ADDS TWO CUP SIZES of padding, so a labelled " +
+      "Bombshell 34B fits a smaller bust than a plain 34B. Elastic recovery + " +
+      "underwire condition are the grade. Body-equivalent approximations, not " +
+      "brand-published specs.",
+    rows: [
+      { size: "Band 30 (underbust ~26-27in)", measurements: { underbust: "26-27" } },
+      { size: "Band 32 (underbust ~28-29in)", measurements: { underbust: "28-29" } },
+      { size: "Band 34 (underbust ~30-31in)", measurements: { underbust: "30-31" } },
+      { size: "Band 36 (underbust ~32-33in)", measurements: { underbust: "32-33" } },
+      { size: "Band 38 (underbust ~34-35in)", measurements: { underbust: "34-35" } },
+      { size: "Band 40 (underbust ~36-37in)", measurements: { underbust: "36-37" } },
+      { size: "Band 42 (underbust ~38-39in)", measurements: { underbust: "38-39" } },
+    ],
+  },
+  {
+    brand: "Victoria's Secret",
+    brandMatch: ["victoria's secret", "victorias secret", "victoriassecret"],
+    department: "Women",
+    garment: "Panties / apparel (alpha XS-XL, body inches)",
+    categoryMatch: ["panty", "panties", "underwear", "thong", "sleepwear", "loungewear", "top", "swim"],
+    note:
+      "VS panties/apparel size alpha XS-XL; waist + hip are the primary signals. " +
+      "Panties are a hygiene-sensitive category — grade condition and note " +
+      "new-with-tags vs worn explicitly. Body-equivalent approximations, not " +
+      "brand-published specs.",
+    rows: [
+      { size: "XS", measurements: { waist: "24-25", hip: "34-35" } },
+      { size: "S", measurements: { waist: "26-27", hip: "36-37" } },
+      { size: "M", measurements: { waist: "28-29.5", hip: "38-39.5" } },
+      { size: "L", measurements: { waist: "30.5-32", hip: "40.5-42" } },
+      { size: "XL", measurements: { waist: "33-35", hip: "43-45" } },
+    ],
+  },
+  {
+    brand: "PINK",
+    brandMatch: ["pink"],
+    department: "Women",
+    garment: "Loungewear / apparel (alpha XS-XL, body inches)",
+    categoryMatch: ["loungewear", "hoodie", "sweatpants", "legging", "top", "tee", "panty", "bralette", "sleepwear"],
+    note:
+      "⚠ PINK IS NOT VICTORIA'S SECRET — a younger, LOWER-band line; comp a PINK " +
+      "hoodie/legging on the PINK ladder, not the VS lingerie one. Apparel sizes " +
+      "alpha XS-XL; bust/waist/hip are the signals. On graphic loungewear the " +
+      "PRINT/logo condition (cracking, fading) is part of the grade. Body-equivalent " +
+      "approximations, not brand-published specs.",
+    rows: [
+      { size: "XS", measurements: { bust: "31-32", waist: "24-25", hip: "34-35" } },
+      { size: "S", measurements: { bust: "33-34", waist: "26-27", hip: "36-37" } },
+      { size: "M", measurements: { bust: "35-36.5", waist: "28-29.5", hip: "38-39.5" } },
+      { size: "L", measurements: { bust: "37.5-39", waist: "30.5-32", hip: "40.5-42" } },
+      { size: "XL", measurements: { bust: "40-42", waist: "33-35", hip: "43-45" } },
+    ],
+  },
+  {
+    brand: "Aerie",
+    brandMatch: ["aerie"],
+    department: "Women",
+    garment: "Apparel / leggings / bralettes (alpha XXS-XXL, body inches)",
+    categoryMatch: ["legging", "offline", "bralette", "loungewear", "top", "tee", "swim", "underwear", "activewear"],
+    note:
+      "Aerie sizes alpha XXS-XXL. ⚠ THE OFFLINE LEGGINGS ARE COMPRESSIVE ACTIVEWEAR " +
+      "— size to the body, not the flat garment. Bust/waist/hip are the signals; " +
+      "the bralettes (Real Me/Real Sunnie) size S-XL. The elastane RECOVERY is the " +
+      "grade on leggings/bralettes. Body-equivalent approximations, not " +
+      "brand-published specs.",
+    rows: [
+      { size: "XXS", measurements: { bust: "30-31", waist: "23-24", hip: "33-34" } },
+      { size: "XS", measurements: { bust: "32-33", waist: "25-26", hip: "35-36" } },
+      { size: "S", measurements: { bust: "34-35", waist: "27-28", hip: "37-38" } },
+      { size: "M", measurements: { bust: "36-37.5", waist: "29-30.5", hip: "39-40.5" } },
+      { size: "L", measurements: { bust: "38.5-40", waist: "32-33.5", hip: "42-43.5" } },
+      { size: "XL", measurements: { bust: "41-43", waist: "35-37", hip: "45-47" } },
+      { size: "XXL", measurements: { bust: "44-46", waist: "38-40", hip: "48-50" } },
+    ],
+  },
+  {
+    brand: "Savage X Fenty",
+    brandMatch: ["savage x fenty", "savagexfenty", "savage x"],
+    department: "Women",
+    garment: "Bras (INCLUSIVE BAND + CUP, underbust inches)",
+    categoryMatch: ["bra", "bralette", "lingerie", "push-up", "unlined", "corset"],
+    note:
+      "⚠ SAVAGE X FENTY IS SIZE-INCLUSIVE (bras 30A-46DDD). A BRA SIZE IS TWO AXES: " +
+      "the BAND (30-46) is the UNDERBUST, and the CUP letter is RELATIVE — (bust " +
+      "minus band): A=+1in, B=+2in, C=+3in, D=+4in, DD/E=+5in, DDD/F=+6in. Sister " +
+      "sizes share a cup VOLUME across bands (34B ≈ 36A). READ THE STAMPED BAND+CUP " +
+      "and state both. Elastic + underwire + lace snags are the grade. " +
+      "Body-equivalent approximations, not brand-published specs.",
+    rows: [
+      { size: "Band 30 (underbust ~26-27in)", measurements: { underbust: "26-27" } },
+      { size: "Band 32 (underbust ~28-29in)", measurements: { underbust: "28-29" } },
+      { size: "Band 34 (underbust ~30-31in)", measurements: { underbust: "30-31" } },
+      { size: "Band 36 (underbust ~32-33in)", measurements: { underbust: "32-33" } },
+      { size: "Band 38 (underbust ~34-35in)", measurements: { underbust: "34-35" } },
+      { size: "Band 40 (underbust ~36-37in)", measurements: { underbust: "36-37" } },
+      { size: "Band 42 (underbust ~38-39in)", measurements: { underbust: "38-39" } },
+      { size: "Band 44 (underbust ~40-41in)", measurements: { underbust: "40-41" } },
+      { size: "Band 46 (underbust ~42-43in)", measurements: { underbust: "42-43" } },
+    ],
+  },
+  {
+    brand: "Savage X Fenty",
+    brandMatch: ["savage x fenty", "savagexfenty", "savage x"],
+    department: "Women",
+    garment: "Undies / loungewear (alpha XS-4X, body inches)",
+    categoryMatch: ["undies", "underwear", "thong", "brief", "loungewear", "set"],
+    note:
+      "Savage X undies/loungewear are SIZE-INCLUSIVE (XS-4X); waist + hip are the " +
+      "signals. Undies are hygiene-sensitive — grade condition and note " +
+      "new-with-tags vs worn explicitly. Body-equivalent approximations, not " +
+      "brand-published specs.",
+    rows: [
+      { size: "XS", measurements: { waist: "24-25", hip: "34-35" } },
+      { size: "S", measurements: { waist: "26-27", hip: "36-37" } },
+      { size: "M", measurements: { waist: "28-29.5", hip: "38-39.5" } },
+      { size: "L", measurements: { waist: "30.5-32", hip: "40.5-42" } },
+      { size: "XL", measurements: { waist: "33-35", hip: "43-45" } },
+      { size: "1X", measurements: { waist: "36-38.5", hip: "46-48.5" } },
+      { size: "2X", measurements: { waist: "39.5-42", hip: "49.5-52" } },
+      { size: "3X", measurements: { waist: "43-45.5", hip: "53-55.5" } },
+      { size: "4X", measurements: { waist: "46.5-49", hip: "57-59.5" } },
+    ],
+  },
+  {
+    brand: "Calvin Klein",
+    brandMatch: ["calvin klein", "calvinklein"],
+    department: "Men",
+    garment: "Underwear (alpha S-XL, waist inches)",
+    categoryMatch: ["underwear", "boxer brief", "trunk", "brief", "boxer", "undershirt"],
+    note:
+      "Calvin Klein men's underwear sizes alpha S-XL to a WAIST inch run (read it " +
+      "off the tag / packaging). ⚠ THE LOGO WAISTBAND IS THE PRODUCT and the grade: " +
+      "a stretched, greyed or cracked-logo band is a defect (grade it explicitly). " +
+      "Body-equivalent approximations, not brand-published specs.",
+    rows: [
+      { size: "S (waist ~28-30in)", measurements: { waist: "28-30" } },
+      { size: "M (waist ~32-34in)", measurements: { waist: "32-34" } },
+      { size: "L (waist ~36-38in)", measurements: { waist: "36-38" } },
+      { size: "XL (waist ~40-42in)", measurements: { waist: "40-42" } },
+    ],
+  },
+  {
+    brand: "Calvin Klein",
+    brandMatch: ["calvin klein", "calvinklein"],
+    department: "Women",
+    garment: "Bras / bralettes / undies (alpha XS-XL, body inches)",
+    categoryMatch: ["bra", "bralette", "modern cotton", "underwear", "panty", "loungewear"],
+    note:
+      "CK women's Modern Cotton bralettes/bras/undies size alpha XS-XL (band+cup on " +
+      "the structured bras — see the VS/Savage X note for the two-axis system); " +
+      "bust/waist/hip are the signals. The exposed logo band + elastic recovery are " +
+      "the grade. Body-equivalent approximations, not brand-published specs.",
+    rows: [
+      { size: "XS", measurements: { bust: "31-32", waist: "24-25", hip: "34-35" } },
+      { size: "S", measurements: { bust: "33-34", waist: "26-27", hip: "36-37" } },
+      { size: "M", measurements: { bust: "35-36.5", waist: "28-29.5", hip: "38-39.5" } },
+      { size: "L", measurements: { bust: "37.5-39", waist: "30.5-32", hip: "40.5-42" } },
+      { size: "XL", measurements: { bust: "40-42", waist: "33-35", hip: "43-45" } },
+    ],
+  },
+  {
+    brand: "Tommy John",
+    brandMatch: ["tommy john", "tommyjohn"],
+    department: "Men",
+    garment: "Underwear / undershirts (alpha S-XXL, waist inches)",
+    categoryMatch: ["underwear", "boxer brief", "trunk", "brief", "undershirt", "loungewear"],
+    note:
+      "Tommy John men's underwear/undershirts size alpha S-XXL to a WAIST inch run " +
+      "(read it off the tag). The SECOND SKIN (micromodal) vs COOL COTTON fabric " +
+      "line is the identifier — read it off the tag. The no-roll WAISTBAND recovery " +
+      "+ fabric pilling are the grade. Body-equivalent approximations, not " +
+      "brand-published specs.",
+    rows: [
+      { size: "S (waist ~28-30in)", measurements: { waist: "28-30" } },
+      { size: "M (waist ~31-33in)", measurements: { waist: "31-33" } },
+      { size: "L (waist ~34-36in)", measurements: { waist: "34-36" } },
+      { size: "XL (waist ~37-40in)", measurements: { waist: "37-40" } },
+      { size: "XXL (waist ~41-44in)", measurements: { waist: "41-44" } },
+    ],
+  },
 ];
 
 function norm(s: string | null | undefined): string {

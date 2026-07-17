@@ -4221,6 +4221,145 @@ const CASES: GoldenCase[] = [
     input: decodedFrom({ styleCode: "NOT-A-CODE" }),
     expect: { noBrand: true },
   },
+
+  // ── US-1991: intimates, loungewear & shapewear (migration 00471) ─────────────
+  // ZERO decoders in this pack (the 00470 call — a bra size is not a style code,
+  // and the underwear numbers are web/packaging SKUs). So every case proves
+  // enrichment stays correct WITHOUT a decoder: a single known LINE fills the
+  // style the AI missed, a confusable pair is never guessed, and a non-code never
+  // false-recovers a brand. The coded candidates are fixtured as REFUSALS.
+  {
+    name: "SKIMS single known line fills the style the AI missed",
+    brand: "SKIMS",
+    pack: pack("SKIMS", "skims", [style("Fits Everybody")]),
+    input: decodedFrom({ brand: "SKIMS" }),
+    expect: { brand: "SKIMS", style: "Fits Everybody" },
+  },
+  {
+    name: "SKIMS ambiguous lines (Fits Everybody vs Soft Lounge) — never guess a style",
+    brand: "SKIMS",
+    pack: pack("SKIMS", "skims", [style("Fits Everybody"), style("Soft Lounge")]),
+    input: decodedFrom({ brand: "SKIMS" }),
+    expect: { brand: "SKIMS", noStyle: true },
+  },
+  {
+    name: "Spanx single known line fills the style the AI missed",
+    brand: "Spanx",
+    pack: pack("Spanx", "spanx", [style("Faux Leather Leggings")]),
+    input: decodedFrom({ brand: "Spanx" }),
+    expect: { brand: "Spanx", style: "Faux Leather Leggings" },
+  },
+  {
+    name: "REFUSAL: Spanx style number is a bare digit run — no decoder",
+    // "10005R" is a Spanx web/packaging SKU, a bare digit run (the Chanel rule,
+    // US-1736); the LINE is the identifier. The AI brand must survive.
+    brand: "Spanx",
+    pack: pack("Spanx", "spanx"),
+    input: {
+      ...decodedFrom({ brand: "Spanx" }),
+      attributes: {
+        style_code: { values: ["10005R"], confidence: 0.5, source: "photo:tag" },
+      },
+    },
+    expect: { brand: "Spanx" },
+  },
+  {
+    name: "Victoria's Secret single known bra line fills the style the AI missed",
+    brand: "Victoria's Secret",
+    pack: pack("Victoria's Secret", "victoriassecret", [style("Bombshell")]),
+    input: decodedFrom({ brand: "Victoria's Secret" }),
+    expect: { brand: "Victoria's Secret", style: "Bombshell" },
+  },
+  {
+    name: "Victoria's Secret ambiguous bras (Bombshell vs Body by Victoria) — never guess",
+    brand: "Victoria's Secret",
+    pack: pack("Victoria's Secret", "victoriassecret", [
+      style("Bombshell"),
+      style("Body by Victoria"),
+    ]),
+    input: decodedFrom({ brand: "Victoria's Secret" }),
+    expect: { brand: "Victoria's Secret", noStyle: true },
+  },
+  {
+    name: "REFUSAL: a bra size (34DDD) never recovers a brand — it is not a style code",
+    // The single most tempting token on an intimates tag decodes to NOTHING about
+    // the model; it is captured by the size charts, never a style decoder.
+    brand: "Victoria's Secret",
+    pack: pack("Victoria's Secret", "victoriassecret", [style("Bombshell")]),
+    input: decodedFrom({ styleCode: "34DDD" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "PINK single known line fills the style the AI missed",
+    brand: "PINK",
+    pack: pack("PINK", "pink", [style("Wear Everywhere")]),
+    input: decodedFrom({ brand: "PINK" }),
+    expect: { brand: "PINK", style: "Wear Everywhere" },
+  },
+  {
+    name: "PINK non-code tag — no false-positive brand recovery (no decoder)",
+    brand: "PINK",
+    pack: pack("PINK", "pink", [style("Wear Everywhere"), style("Campus / Logo Loungewear")]),
+    input: decodedFrom({ styleCode: "NOT-A-CODE" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Aerie single known line fills the style the AI missed",
+    brand: "Aerie",
+    pack: pack("Aerie", "aerie", [style("OFFLINE")]),
+    input: decodedFrom({ brand: "Aerie" }),
+    expect: { brand: "Aerie", style: "OFFLINE" },
+  },
+  {
+    name: "Aerie ambiguous lines (OFFLINE vs Chill Loungewear) — never guess a style",
+    brand: "Aerie",
+    pack: pack("Aerie", "aerie", [style("OFFLINE"), style("Chill Loungewear")]),
+    input: decodedFrom({ brand: "Aerie" }),
+    expect: { brand: "Aerie", noStyle: true },
+  },
+  {
+    name: "Savage X Fenty single known line fills the style the AI missed",
+    brand: "Savage X Fenty",
+    pack: pack("Savage X Fenty", "savagexfenty", [style("Xtra VIP Bra / Lingerie")]),
+    input: decodedFrom({ brand: "Savage X Fenty" }),
+    expect: { brand: "Savage X Fenty", style: "Xtra VIP Bra / Lingerie" },
+  },
+  {
+    name: "Calvin Klein single known line fills the style the AI missed",
+    brand: "Calvin Klein",
+    pack: pack("Calvin Klein", "calvinklein", [style("Logo-Waistband Boxer Brief")]),
+    input: decodedFrom({ brand: "Calvin Klein" }),
+    expect: { brand: "Calvin Klein", style: "Logo-Waistband Boxer Brief" },
+  },
+  {
+    name: "REFUSAL: Calvin Klein underwear U-number is not a decoder",
+    // "U2664G" looks regular, but the number is a web/packaging SKU, and CK spans
+    // licensed product (the Fossil hazard, 00468) — not established as a regular
+    // sewn-tag brand-unique code. The AI brand must survive.
+    brand: "Calvin Klein",
+    pack: pack("Calvin Klein", "calvinklein"),
+    input: {
+      ...decodedFrom({ brand: "Calvin Klein" }),
+      attributes: {
+        style_code: { values: ["U2664G"], confidence: 0.5, source: "photo:tag" },
+      },
+    },
+    expect: { brand: "Calvin Klein" },
+  },
+  {
+    name: "Tommy John single known fabric line fills the style the AI missed",
+    brand: "Tommy John",
+    pack: pack("Tommy John", "tommyjohn", [style("Second Skin")]),
+    input: decodedFrom({ brand: "Tommy John" }),
+    expect: { brand: "Tommy John", style: "Second Skin" },
+  },
+  {
+    name: "Tommy John ambiguous fabric lines (Second Skin vs Cool Cotton) — never guess",
+    brand: "Tommy John",
+    pack: pack("Tommy John", "tommyjohn", [style("Second Skin"), style("Cool Cotton")]),
+    input: decodedFrom({ brand: "Tommy John" }),
+    expect: { brand: "Tommy John", noStyle: true },
+  },
 ];
 
 // ── the gate ────────────────────────────────────────────────────────────────

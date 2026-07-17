@@ -378,14 +378,19 @@ Deno.test("US-1739: the SUB-LABELS and OUTLET LINES fold onto their parent brand
       `${label} folds onto Banana Republic`,
     );
   }
-  // Aerie is this pack's one "the tag does not say the parent" case.
-  for (const label of ["aerie", "Aerie", "American Eagle Outfitters", "AEO"]) {
+  // ⚠ "aerie"/"Aerie" USED to fold onto American Eagle here — US-1991 PROMOTED
+  // Aerie to its own canonical for the intimates category (it comps on its own
+  // eBay ladder), so it is no longer in this loop. American Eagle's own store
+  // forms still fold.
+  for (const label of ["American Eagle Outfitters", "AEO"]) {
     assertEquals(
       canonicalizeBrand(label),
       "American Eagle",
       `${label} folds onto American Eagle`,
     );
   }
+  // Aerie now stands on its own (see intimates-loungewear-content_test.ts).
+  assertEquals(canonicalizeBrand("aerie"), "Aerie", "Aerie is its own brand (US-1991)");
   for (const label of ["Tommy Jeans", "Tommy Hilfiger Denim", "Hilfiger"]) {
     assertEquals(
       canonicalizeBrand(label),

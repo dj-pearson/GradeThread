@@ -352,12 +352,10 @@ const BRAND_ALIASES: Record<string, string> = {
   gapfactory: "Gap",
   bananarepublicfactory: "Banana Republic",
   bananarepublicfactorystore: "Banana Republic",
-  // Aerie is American Eagle's intimates/loungewear sub-brand and its tag often
-  // says only "aerie". Same band as the parent -> folds. NOTE "aerie" is an
-  // ordinary English noun (an eagle's nest); it is safe as an alias KEY because
-  // keys match the WHOLE brand field, and it never enters CANONICAL_BRANDS (that
-  // is built from the VALUES), so detectBrandInText can't fire on the word.
-  aerie: "American Eagle",
+  // ⚠ "aerie" USED TO FOLD HERE onto American Eagle (US-1739). US-1991 PROMOTED
+  // Aerie to its own canonical for the intimates category (eBay has a first-class
+  // Aerie brand; it comps on its own ladder), so the `aerie` key now lives in the
+  // US-1991 block below. American Eagle's OWN store forms still fold here.
   americaneagleoutfitters: "American Eagle",
   aeo: "American Eagle",
   abercrombieandfitch: "Abercrombie & Fitch",
@@ -1089,6 +1087,69 @@ const BRAND_ALIASES: Record<string, string> = {
   allenedmond: "Allen Edmonds",
   crocs: "Crocs",
   crocsinc: "Crocs",
+  // US-1991 intimates, loungewear & shapewear group. Six were passthrough-only;
+  // Calvin Klein is PROMOTED from its shallow 00389 shell (its `calvinklein` key
+  // is above, in the mall block); the two sub-brand calls (Aerie, PINK) are the
+  // interesting part — see below and DETECT_EXCLUDED_FROM_TEXT.
+  skims: "SKIMS",
+  skimsbody: "SKIMS",
+  skimssolutionwear: "SKIMS",
+  spanx: "Spanx",
+  spanxinc: "Spanx",
+  spanxshapewear: "Spanx",
+  // Victoria's Secret — brandKey("Victoria's Secret") STRIPS the apostrophe, so
+  // "victoriassecret" is the key. "victoriasecret" catches the common single-s
+  // misspelling. A bare "vs" is DELIBERATELY ABSENT — it is an ordinary
+  // abbreviation ("versus") and far too generic even for an exact whole-field key.
+  victoriassecret: "Victoria's Secret",
+  victoriasecret: "Victoria's Secret",
+  victoriassecrets: "Victoria's Secret",
+  vslingerie: "Victoria's Secret",
+  // PINK (Victoria's Secret PINK) — ITS OWN CANONICAL, deliberately NOT folded
+  // onto Victoria's Secret: a lower-band, separately-searched collegiate line (the
+  // Hollister rule, 00458 — the parent never decides a fold). "pink" is an
+  // ordinary COLOUR word, safe here ONLY as an exact whole-field KEY (this map is
+  // an exact lookup); the free-text hazard is handled by DETECT_EXCLUDED_FROM_TEXT
+  // below (the MOTHER/FRAME/Express play). The compound forms fold onto the same
+  // canonical so a "Victoria's Secret PINK" tag lands on the PINK pack, not VS.
+  pink: "PINK",
+  vspink: "PINK",
+  victoriassecretpink: "PINK",
+  pinknation: "PINK",
+  // AERIE — PROMOTED to its own canonical, REVERSING the US-1739 fold onto
+  // American Eagle (which lived here as `aerie: "American Eagle"`). That fold was
+  // a mall/basics call ("same band → fold"); it is WRONG for intimates, where
+  // eBay has a first-class "Aerie" brand and Aerie bralettes / OFFLINE leggings
+  // comp on their own ladder, nothing like American Eagle denim. "aerie" is an
+  // ordinary noun (an eagle's nest), safe as an exact KEY; the free-text hazard is
+  // handled by DETECT_EXCLUDED_FROM_TEXT below (the KEEN precedent). OFFLINE is
+  // Aerie's activewear line and folds onto it.
+  aerie: "Aerie",
+  aeriereal: "Aerie",
+  aerieoffline: "Aerie",
+  offlinebyaerie: "Aerie",
+  // ⚠ A bare "offline" is DELIBERATELY ABSENT — it is an ordinary word ("offline
+  // mode") and would be catastrophic; only the compound Aerie forms resolve.
+  savagexfenty: "Savage X Fenty",
+  savagex: "Savage X Fenty",
+  savagefenty: "Savage X Fenty",
+  // Calvin Klein — `calvinklein` is already keyed above (mall block). Its
+  // intimates/underwear LINES and the "CK" short forms fold onto the same
+  // canonical. "ck" is safe as an exact whole-field KEY (the "ov"/"ag" play — it
+  // only fires when the seller's ENTIRE brand field is "ck"); it would be
+  // catastrophic as a canonical/brandMatch token, so it is a KEY only.
+  ck: "Calvin Klein",
+  ckjeans: "Calvin Klein",
+  calvinkleinjeans: "Calvin Klein",
+  ckunderwear: "Calvin Klein",
+  calvinkleinunderwear: "Calvin Klein",
+  ckone: "Calvin Klein",
+  // Tommy John — a bare "tommy" is already NOT mapped (Tommy Bahama/Tommy
+  // Hilfiger, US-1739), so only the full two-word form resolves. "Tommy John
+  // surgery" (baseball) is a free-text collision, but it does not appear in the
+  // CLOTHING titles detectBrandInText scans, so no exclusion is needed.
+  tommyjohn: "Tommy John",
+  tommyjohnunderwear: "Tommy John",
 };
 
 /**
@@ -1209,6 +1270,21 @@ const DETECT_EXCLUDED_FROM_TEXT: ReadonlySet<string> = new Set([
   // Both verified by mutation in footwear-tier2-content_test.ts.
   "Brooks",
   "KEEN",
+  // US-1991. Two intimates canonicals that are ordinary words:
+  //   • PINK (Victoria's Secret PINK) — "pink" is one of the most common COLOUR
+  //     words in clothing copy ("pink floral blouse", "dusty pink"). The match is
+  //     case-insensitive, so the all-caps canonical is no defence; without this it
+  //     would fire on "pink" in nearly every listing and, longest-first, could
+  //     beat a real short brand in the same title. Reachable BY TAG (a brand field
+  //     of literally "PINK" resolves), never GUESSED from prose.
+  //   • Aerie — an ordinary noun (an eagle's nest). US-1991 promoted it to its own
+  //     canonical (out of the American Eagle fold), which is exactly what puts it
+  //     on the prose-scan path for the first time, so it must be excluded here (it
+  //     never was before, when its canonical was "American Eagle"). Reachable by
+  //     tag, never minted from "an aerie of birds". Both verified by mutation in
+  //     intimates-loungewear-content_test.ts.
+  "PINK",
+  "Aerie",
 ]);
 
 /**
