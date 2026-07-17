@@ -143,6 +143,39 @@ const BRAND_ALIASES: Record<string, string> = {
   supreme: "Supreme",
   stussy: "Stüssy",
   harleydavidson: "Harley-Davidson",
+  // US-1737 streetwear & hype group. Supreme + Stüssy were already above; the
+  // rest were passthrough-only, so the pack rendered the seller's own casing
+  // ("bape", "fear of god") into the prompt block and the eBay Brand aspect.
+  supremenewyork: "Supreme",
+  supremenyc: "Supreme",
+  bape: "BAPE",
+  abathingape: "BAPE",
+  bathingape: "BAPE",
+  kith: "Kith",
+  kithnyc: "Kith",
+  kithnewyork: "Kith",
+  palace: "Palace",
+  palaceskateboards: "Palace",
+  fearofgod: "Fear of God",
+  // ESSENTIALS IS ITS OWN CANONICAL, not a Fear of God alias — deliberately.
+  // Mainline and Essentials are one designer's two lines an ORDER OF MAGNITUDE
+  // apart in price, so folding them (the Michael Kors play, where every tier is
+  // the one eBay brand) would comp a $90 hoodie against a $900 one. This follows
+  // the AGOLDE precedent instead: a sibling label earns its own canonical.
+  // detectBrandInText is safe here because CANONICAL_BRANDS is sorted
+  // longest-first, so "Fear of God Essentials" is tested before "Fear of God".
+  fearofgodessentials: "Fear of God Essentials",
+  essentialsfearofgod: "Fear of God Essentials",
+  essentialsbyfearofgod: "Fear of God Essentials",
+  fogessentials: "Fear of God Essentials",
+  // DELIBERATELY ABSENT, on the same rule that keeps a bare "bean" off L.L.Bean
+  // and a bare "tory" off Tory Burch — an ordinary word must not mint a brand:
+  //   * "essentials" — adidas, Nike and H&M all ship an "Essentials" line.
+  //   * "fog"        — an ordinary English word.
+  //   * "ape"        — likewise, and AAPE ("AAPE BY *A BATHING APE*") is BAPE's
+  //     own diffusion SIBLING at a fraction of the price, so it must stay a
+  //     passthrough rather than fold into BAPE (the Miu Miu / AGOLDE rule).
+  // Guarded by tests in streetwear-content_test.ts.
   // Luxury / accessories
   michaelkors: "Michael Kors",
   coach: "Coach",

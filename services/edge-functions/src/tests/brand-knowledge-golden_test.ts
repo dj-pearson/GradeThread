@@ -1081,6 +1081,172 @@ const CASES: GoldenCase[] = [
     input: decodedFrom({ styleCode: "Reva" }),
     expect: { noBrand: true },
   },
+
+  // ── US-1737: streetwear & hype group ──────────────────────────────────────
+  // This is the FIRST group in the epic that seeds NO decoder, so it has no
+  // cut-tag recovery case — and that absence is the thing under test. Streetwear
+  // identity is a GRAPHIC, which is not on the tag and is not parseable, and the
+  // season notation that actually drives the price is not tag-printed either. So
+  // the whole group is no-false-recovery + never-guess, and the cases below are
+  // what stop a future decoder from being added over an ordinary token.
+  {
+    name: "Supreme single known style fills the style the AI missed",
+    brand: "Supreme",
+    pack: pack("Supreme", "supreme", [style("Box Logo Tee")]),
+    input: decodedFrom({ brand: "Supreme" }),
+    expect: { brand: "Supreme", style: "Box Logo Tee" },
+  },
+  {
+    name: "Supreme ambiguous box logo family (Tee vs Hoodie vs Small Box) — never guess",
+    // All three carry the SAME graphic and differ only by garment and by the
+    // logo's size/placement. With only the brand there is nothing to pick between
+    // them, and they are different bands.
+    brand: "Supreme",
+    pack: pack("Supreme", "supreme", [
+      style("Box Logo Tee"),
+      style("Box Logo Hoodie"),
+      style("Small Box Logo Tee"),
+    ]),
+    input: decodedFrom({ brand: "Supreme" }),
+    expect: { brand: "Supreme", noStyle: true },
+  },
+  {
+    name: "Supreme season code 'FW17' — no false-positive brand recovery (no decoder)",
+    // THE case for this group. The season notation is genuinely regular and IS
+    // the price, which is exactly what makes it tempting — but it is NOT
+    // tag-printed (it is resolved against a release archive), so it is an
+    // informational tell like the 00452 web codes, never a decoder. A pattern
+    // over it would mint a Supreme, the most-counterfeited brand in the KB, from
+    // any tag reading "FW17". This is the Lee "101" rule (00454) at its widest
+    // blast radius, and this case is what locks the decision in.
+    brand: "Supreme",
+    pack: pack("Supreme", "supreme", [style("Box Logo Tee"), style("Box Logo Hoodie")]),
+    input: decodedFrom({ styleCode: "FW17" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Supreme 'Box Logo' — no false-positive brand recovery (a graphic is not a code)",
+    brand: "Supreme",
+    pack: pack("Supreme", "supreme", [style("Box Logo Tee")]),
+    input: decodedFrom({ styleCode: "Box Logo" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Supreme 'GG Supreme' — no false-positive recovery (it is GUCCI's canvas)",
+    // The group's cross-brand trap, and the only one in the epic that collides
+    // with a row ALREADY in the KB: GG Supreme is Gucci's coated monogram canvas
+    // (00400). "Supreme" is an ordinary English adjective and Gucci uses it as
+    // one, so a Supreme token must never mint this brand off a Gucci bag.
+    brand: "Supreme",
+    pack: pack("Supreme", "supreme", [style("Box Logo Tee")]),
+    input: decodedFrom({ styleCode: "GG Supreme" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Stüssy single known style fills the style the AI missed",
+    brand: "Stüssy",
+    pack: pack("Stüssy", "stssy", [style("Stock Logo Tee")]),
+    input: decodedFrom({ brand: "Stüssy" }),
+    expect: { brand: "Stüssy", style: "Stock Logo Tee" },
+  },
+  {
+    name: "Stüssy ambiguous graphics (Stock vs World Tour) — never guess",
+    // The World Tour's separator is a BACK print, so a front-only photo cannot
+    // tell these apart at all.
+    brand: "Stüssy",
+    pack: pack("Stüssy", "stssy", [style("Stock Logo Tee"), style("World Tour Tee")]),
+    input: decodedFrom({ brand: "Stüssy" }),
+    expect: { brand: "Stüssy", noStyle: true },
+  },
+  {
+    name: "BAPE single known style fills the style the AI missed",
+    brand: "BAPE",
+    pack: pack("BAPE", "bape", [style("Shark Full Zip Hoodie")]),
+    input: decodedFrom({ brand: "BAPE" }),
+    expect: { brand: "BAPE", style: "Shark Full Zip Hoodie" },
+  },
+  {
+    name: "BAPE ambiguous graphics (Shark vs Ape Head) — never guess",
+    brand: "BAPE",
+    pack: pack("BAPE", "bape", [
+      style("Shark Full Zip Hoodie"),
+      style("Ape Head Logo Tee"),
+    ]),
+    input: decodedFrom({ brand: "BAPE" }),
+    expect: { brand: "BAPE", noStyle: true },
+  },
+  {
+    name: "BAPE 'Shark' — no false-positive brand recovery (no decoder)",
+    brand: "BAPE",
+    pack: pack("BAPE", "bape", [style("Shark Full Zip Hoodie")]),
+    input: decodedFrom({ styleCode: "Shark" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Kith single known style fills the style the AI missed",
+    brand: "Kith",
+    pack: pack("Kith", "kith", [style("Williams Hoodie")]),
+    input: decodedFrom({ brand: "Kith" }),
+    expect: { brand: "Kith", style: "Williams Hoodie" },
+  },
+  {
+    name: "Palace ambiguous Tri-Ferg garments (Tee vs Hoodie) — never guess",
+    brand: "Palace",
+    pack: pack("Palace", "palace", [style("Tri-Ferg Tee"), style("Tri-Ferg Hoodie")]),
+    input: decodedFrom({ brand: "Palace" }),
+    expect: { brand: "Palace", noStyle: true },
+  },
+  {
+    name: "Palace 'Tri-Ferg' — no false-positive brand recovery (no decoder)",
+    brand: "Palace",
+    pack: pack("Palace", "palace", [style("Tri-Ferg Tee")]),
+    input: decodedFrom({ styleCode: "Tri-Ferg" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Fear of God mainline resolves as its own brand, never as Essentials",
+    // The pair is seeded as TWO brands because they are an order of magnitude
+    // apart in price — comping one against the other is the group's most
+    // expensive error, so each must stay put.
+    brand: "Fear of God",
+    pack: pack("Fear of God", "fearofgod", [style("Fear of God Mainline")]),
+    input: decodedFrom({ brand: "Fear of God" }),
+    expect: { brand: "Fear of God", style: "Fear of God Mainline" },
+  },
+  {
+    name: "Fear of God Essentials resolves as its own brand, never as mainline",
+    brand: "Fear of God Essentials",
+    pack: pack("Fear of God Essentials", "fearofgodessentials", [
+      style("Essentials Pullover Hoodie"),
+    ]),
+    input: decodedFrom({ brand: "Fear of God Essentials" }),
+    expect: {
+      brand: "Fear of God Essentials",
+      style: "Essentials Pullover Hoodie",
+    },
+  },
+  {
+    name: "Fear of God ambiguous collection labels — never guess",
+    brand: "Fear of God",
+    pack: pack("Fear of God", "fearofgod", [
+      style("Fear of God Mainline"),
+      style("Numbered Collection"),
+    ]),
+    input: decodedFrom({ brand: "Fear of God" }),
+    expect: { brand: "Fear of God", noStyle: true },
+  },
+  {
+    name: "Essentials '1977' — no false-positive brand recovery (no decoder)",
+    // "1977" is a bare year. It is a real Essentials print and a real dating hint,
+    // and it is still just a number — decoding it would mint the brand from any
+    // tag carrying a year.
+    brand: "Fear of God Essentials",
+    pack: pack("Fear of God Essentials", "fearofgodessentials", [
+      style("Essentials Pullover Hoodie"),
+    ]),
+    input: decodedFrom({ styleCode: "1977" }),
+    expect: { noBrand: true },
+  },
 ];
 
 // ── the gate ────────────────────────────────────────────────────────────────

@@ -4,6 +4,68 @@
 > The sections below for those are historical; the only NEW held migration is
 > **00443** at the top.
 
+## ⏳ PENDING: 00456_streetwear_brand_knowledge.sql (US-1737 streetwear brand KB, 2026-07-16)
+
+Data-only seed of the `brand_knowledge*` tables for the streetwear & hype tier:
+**Supreme, Stüssy, BAPE, Kith, Palace, Fear of God / Essentials**. `brand_knowledge`
+×7 (Supreme + Stüssy enrich their bare 00389 alias-only rows; the rest are new —
+seven rows for six brands because Fear of God mainline and Essentials each get
+their own, see below); `brand_styles` ×27; `brand_style_codes` ×**0**;
+`brand_colorways` ×9 (BAPE's named camos + the Essentials seasonal colors — the
+only stable proprietary names in the pack); `brand_size_charts` ×8, all mirrored
+into the `sizing-charts.ts` in-code fallback. Every fact carries `source_url` +
+`confidence` and lands `verified=false` for the US-1715 admin queue. Idempotent
+(`on conflict do nothing` / `do update`). Apply after 00455 via
+`scripts/apply-prod-migrations.sh`, `NOTIFY pgrst, 'reload schema';`, redeploy the
+edge (boot guard now expects **00456**). Bumps `EXPECTED_SCHEMA_VERSION` → **00456**.
+
+**ZERO DECODERS — the first group in the epic with none, and it is a finding
+rather than a gap.** The epic's rule is tag-printed AND regular AND brand-unique.
+Streetwear identity is carried by a GRAPHIC (box logo, shark mouth, Tri-Ferg),
+which is not on the tag and is not parseable. The season notation (SS20 / FW17) is
+genuinely regular and IS the price, but it is not tag-printed — it is resolved
+against a release archive — so it is an informational tell exactly like the
+Beyond Yoga / Sweaty Betty web codes (00452), never a decoder. A pattern over it
+would mint a Supreme from any tag reading "FW17": the Lee "101" mistake (00454) on
+the most-counterfeited brand in the KB. Locked in by no-false-recovery golden cases.
+
+**FEAR OF GOD IS SEEDED AS TWO BRAND KEYS** (`fearofgod` + `fearofgodessentials`),
+which is the judgement call worth re-reading before verifying. Mainline and
+Essentials are one designer's two lines an ORDER OF MAGNITUDE apart in price. The
+Michael Kors precedent (00455) folds every tier onto one eBay brand and puts the
+tier in `style`; that would comp a $90 Essentials hoodie against a $900 mainline
+piece. This follows the AGOLDE precedent instead — a sibling label earns its own
+canonical. `detectBrandInText` is safe because CANONICAL_BRANDS sorts longest-first,
+so "Fear of God Essentials" is tested before the "Fear of God" it contains
+(asserted directly, not assumed).
+
+**MAINLINE `fearofgod` IS DELIBERATELY CHARTLESS**, for two independent reasons:
+its sizing is collection-specific and unpublished (a chart would be invention),
+AND `findSizingCharts` matches `brand_match` by SUBSTRING — "fear of god
+essentials" CONTAINS "fear of god", so a mainline chart would ALSO fire on every
+Essentials garment and hand the oversized line the wrong numbers. Mainline falls
+through to the generics, as Coach/LV/Gucci do. Asserted in `streetwear-content_test.ts`.
+
+**All INSERTs — no UPDATE of an existing row.** No shared-chart narrowing is
+needed: no existing chart's `brand_match` claims any of these brands.
+
+**Risk: LOW** — data-only into deny-all global-reference tables; no schema change.
+**No CLIENT read** — edge resolver only (`brand-knowledge.ts` + the
+`sizing-charts.ts` in-code fallback this commit also extends), so the Cloudflare
+auto-deploy on push cannot break on it.
+
+**⚠️ verify:db NOT run locally — the Docker engine is still hung** (`docker
+version` timed out at 30s, same as at 00452–00455's authoring; the local
+PostgreSQL 18 service IS running but its credentials are unknown, so it is not a
+substitute). The SQL was instead validated STATICALLY: all 22 embedded JSON blocks
+parse as JSON, both dollar-quote tags balance, single-quote parity holds, all 51
+confidences sit in the `numeric(3,2) CHECK (0..1)` range, no row is seeded
+`verified=true`, every column exists in the 00389 DDL, all four `on conflict`
+targets match real unique indexes (`brand_knowledge.brand_key`,
+`brand_styles_key_idx`, `brand_colorways_key_idx`, `brand_size_charts_key_idx`),
+and no two rows collide on a conflict key (which `do nothing` would silently
+drop). **Prove it APPLIES with a Docker-up `npm run verify:db` before pushing.**
+
 ## ⏳ PENDING: 00455_luxury_brand_knowledge.sql (US-1736 luxury brand KB, 2026-07-16)
 
 Data-only seed of the `brand_knowledge*` tables for the luxury & designer tier

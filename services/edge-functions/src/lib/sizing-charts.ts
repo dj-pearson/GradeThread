@@ -1496,6 +1496,202 @@ export const SIZING_CHARTS: SizingChart[] = [
       { size: "US 12", measurements: { waist: "32-33", hip: "42.5-43.5" } },
     ],
   },
+  // US-1737: streetwear & hype group. Mirrors migration 00456's brand_size_charts
+  // seed. THE GROUP'S SIGNATURE TRAP LIVES HERE: every chart in this pack is
+  // labeled with an ordinary alpha letter, and the letter lies in OPPOSITE
+  // directions — a BAPE L is roughly a US M (Japanese sizing, runs small) while an
+  // Essentials L drapes like a US XL (deliberately oversized). Unlike 00455's
+  // "IT 42", nothing on the tag announces which system it is, so the BAPE and
+  // Essentials charts carry their US equivalent INSIDE THE SIZE LABEL, where the
+  // model actually reads it.
+  //
+  // NO CHART FOR MAINLINE "Fear of God", on purpose and for two independent
+  // reasons: its sizing is collection-specific and unpublished (a chart would be
+  // invention), AND brandMatch is a SUBSTRING test — "fear of god essentials"
+  // CONTAINS "fear of god", so a mainline chart would also fire on every
+  // Essentials garment and hand it the wrong numbers. Mainline falls through to
+  // the generics, as Coach/LV/Gucci do. Guarded by streetwear-content_test.ts.
+  {
+    brand: "Supreme",
+    brandMatch: ["supreme"],
+    department: "Men",
+    garment: "Tops (tees & hoodies, US alpha)",
+    categoryMatch: ["tee", "t-shirt", "shirt", "top", "hoodie", "sweatshirt", "crewneck", "hooded"],
+    note:
+      "Supreme is US alpha sizing — no national cross-map applies, unlike BAPE in " +
+      "this same group, whose L is roughly a US M. The cut is BOXY BY DESIGN: a " +
+      "Supreme tee is meant to be short and wide, so a wide flat measurement is the " +
+      "intended silhouette and NOT a mislabel, NOT stretching and NOT a defect. " +
+      "These are body-equivalent figures for the nominal streetwear grade, not " +
+      "Supreme-published specs. Measure the garment flat (chest across the underarm " +
+      "seam, doubled). Sizing does not change by season — the SEASON changes the " +
+      "price, not the fit.",
+    rows: [
+      { size: "S", measurements: { chest: "36-38", length: "27-28" } },
+      { size: "M", measurements: { chest: "38-40", length: "28-29" } },
+      { size: "L", measurements: { chest: "42-44", length: "29-30" } },
+      { size: "XL", measurements: { chest: "46-48", length: "30-31" } },
+      { size: "XXL", measurements: { chest: "50-52", length: "31-32" } },
+    ],
+  },
+  {
+    brand: "Supreme",
+    brandMatch: ["supreme"],
+    department: "Men",
+    garment: "Bottoms (US numeric waist)",
+    categoryMatch: ["bottom", "pant", "jean", "short", "trouser", "sweatpant", "cargo"],
+    note:
+      "Supreme bottoms are US NOMINAL WAIST — the label is a measurement, not a " +
+      "letter mapped onto a body (the denim exception applies here too). Cut " +
+      "relaxed by design. Measure the flat waistband and double it.",
+    rows: [
+      { size: "US 28", measurements: { waist: "28-29" } },
+      { size: "US 30", measurements: { waist: "30-31" } },
+      { size: "US 32", measurements: { waist: "32-33" } },
+      { size: "US 34", measurements: { waist: "34-35" } },
+      { size: "US 36", measurements: { waist: "36-37" } },
+    ],
+  },
+  {
+    brand: "Stüssy",
+    // BOTH spellings are required. brandKey() strips the umlaut (the KB key is
+    // 'stssy'), but norm() here only LOWERCASES — so the canonical "Stüssy" that
+    // brand-knowledge.ts passes in arrives as "stüssy" and would never match a
+    // plain "stussy" token. Raw seller text ("stussy") needs the other one.
+    brandMatch: ["stussy", "stüssy"],
+    department: "Men",
+    garment: "Tops (tees & fleece, US alpha)",
+    categoryMatch: ["tee", "t-shirt", "shirt", "top", "hoodie", "sweatshirt", "crewneck", "fleece", "hooded"],
+    note:
+      "Stüssy is US alpha sizing — no national cross-map applies, unlike BAPE in " +
+      "this same group. Cut relaxed/boxy by design, which is the intended " +
+      "silhouette and not a mislabel. These are body-equivalent figures for the " +
+      "nominal streetwear grade, not Stüssy-published specs. Measure the garment " +
+      "flat (chest across the underarm seam, doubled). NOTE vintage pieces were " +
+      "graded differently from current production, so on this brand especially the " +
+      "tag is a claim to check against the actual measurement.",
+    rows: [
+      { size: "S", measurements: { chest: "36-38", length: "27-28" } },
+      { size: "M", measurements: { chest: "38-40", length: "28-29" } },
+      { size: "L", measurements: { chest: "42-44", length: "29-30" } },
+      { size: "XL", measurements: { chest: "46-48", length: "30-31" } },
+      { size: "XXL", measurements: { chest: "50-52", length: "31-32" } },
+    ],
+  },
+  {
+    brand: "BAPE",
+    brandMatch: ["bape", "a bathing ape", "bathing ape"],
+    department: "Men",
+    garment: "Tops (JAPANESE sizing)",
+    categoryMatch: ["tee", "t-shirt", "shirt", "top", "hoodie", "sweatshirt", "crewneck", "fleece", "hooded", "jacket"],
+    note:
+      "BAPE is JAPANESE sizing and it runs SMALL against a US body: a BAPE L is " +
+      "roughly a US M — one full size down. THIS IS THE GROUP'S COSTLIEST SIZING " +
+      "ERROR because nothing on the tag announces it. The tag says only \"L\", " +
+      "exactly like the Supreme and Essentials tags in this same pack, and those " +
+      "mean completely different bodies — an Essentials L drapes like a US XL, two " +
+      "sizes the OTHER way. That is why the US equivalent is written into the size " +
+      "label here. These are body-equivalent figures for the nominal JP grade, not " +
+      "BAPE-published specs. Measure the garment flat (chest across the underarm " +
+      "seam, doubled) and treat the tag as a claim to check. Does not apply to the " +
+      "Bapesta, which is a shoe.",
+    rows: [
+      { size: "JP S (≈US XS)", measurements: { chest: "34-36", length: "25-26" } },
+      { size: "JP M (≈US S)", measurements: { chest: "36-38", length: "26-27" } },
+      { size: "JP L (≈US M)", measurements: { chest: "38-40", length: "27-28" } },
+      { size: "JP XL (≈US L)", measurements: { chest: "42-44", length: "28-29" } },
+      { size: "JP XXL (≈US XL)", measurements: { chest: "46-48", length: "29-30" } },
+    ],
+  },
+  {
+    brand: "Kith",
+    brandMatch: ["kith"],
+    department: "Men",
+    garment: "Tops (tees & fleece, US alpha)",
+    categoryMatch: ["tee", "t-shirt", "shirt", "top", "hoodie", "sweatshirt", "crewneck", "fleece", "hooded"],
+    note:
+      "Kith is US alpha sizing — no national cross-map applies, unlike BAPE in this " +
+      "same group. The house line is cut fuller than a standard tee but nothing " +
+      "like the Essentials drape, which is a different brand in this same pack. " +
+      "These are body-equivalent figures for the nominal grade, not Kith-published " +
+      "specs. Measure the garment flat (chest across the underarm seam, doubled). A " +
+      "COLLABORATION does not change the fit — it changes the price.",
+    rows: [
+      { size: "S", measurements: { chest: "37-39", length: "27-28" } },
+      { size: "M", measurements: { chest: "39-41", length: "28-29" } },
+      { size: "L", measurements: { chest: "43-45", length: "29-30" } },
+      { size: "XL", measurements: { chest: "47-49", length: "30-31" } },
+      { size: "XXL", measurements: { chest: "51-53", length: "31-32" } },
+    ],
+  },
+  {
+    brand: "Palace",
+    brandMatch: ["palace", "palace skateboards"],
+    department: "Men",
+    garment: "Tops (tees & fleece, US alpha)",
+    categoryMatch: ["tee", "t-shirt", "shirt", "top", "hoodie", "sweatshirt", "crewneck", "fleece", "hooded"],
+    note:
+      "Palace is a UK brand on US alpha sizing — despite the origin, no national " +
+      "cross-map applies here (contrast BAPE in this same group, whose L is " +
+      "roughly a US M). Cut boxy by design, which is the intended skate " +
+      "silhouette and not a mislabel. These are body-equivalent figures for the " +
+      "nominal streetwear grade, not Palace-published specs. Measure the garment " +
+      "flat (chest across the underarm seam, doubled).",
+    rows: [
+      { size: "S", measurements: { chest: "36-38", length: "27-28" } },
+      { size: "M", measurements: { chest: "38-40", length: "28-29" } },
+      { size: "L", measurements: { chest: "42-44", length: "29-30" } },
+      { size: "XL", measurements: { chest: "46-48", length: "30-31" } },
+      { size: "XXL", measurements: { chest: "50-52", length: "31-32" } },
+    ],
+  },
+  {
+    brand: "Fear of God Essentials",
+    // NOT ["essentials"] — that is an ordinary retail word (adidas/Nike/H&M all
+    // ship an "Essentials" line) and brandMatch is a SUBSTRING test, so it would
+    // hand this brand's charts to every one of them.
+    brandMatch: ["fear of god essentials", "fearofgodessentials", "essentials by fear of god"],
+    department: "Unisex",
+    garment: "Tops (OVERSIZED, alpha)",
+    categoryMatch: ["tee", "t-shirt", "shirt", "top", "hoodie", "sweatshirt", "crewneck", "fleece", "hooded"],
+    note:
+      "Fear of God Essentials is cut DELIBERATELY OVERSIZED — dropped shoulders, " +
+      "boxy body — so an Essentials L drapes like a US XL, roughly one size up. " +
+      "THAT DRAPE IS THE DESIGN: it is not stretching, not a mislabel, not 'runs " +
+      "large' as an error, and it must NOT be graded as wear. The drape is written " +
+      "into the size label because nothing on the tag announces it — the tag says " +
+      "only \"L\", and a BAPE L in this same group is a US M, two sizes the OTHER " +
+      "way. No national cross-map applies. These are body-equivalent figures for " +
+      "the nominal grade, not brand-published specs. Measure the garment flat " +
+      "(chest across the underarm seam, doubled). Sizing does not differ by season " +
+      "— the season changes the price, not the fit.",
+    rows: [
+      { size: "XS (drapes ≈US S)", measurements: { chest: "38-40", length: "26-27" } },
+      { size: "S (drapes ≈US M)", measurements: { chest: "42-44", length: "27-28" } },
+      { size: "M (drapes ≈US L)", measurements: { chest: "46-48", length: "28-29" } },
+      { size: "L (drapes ≈US XL)", measurements: { chest: "50-52", length: "29-30" } },
+      { size: "XL (drapes ≈US XXL)", measurements: { chest: "54-56", length: "30-31" } },
+    ],
+  },
+  {
+    brand: "Fear of God Essentials",
+    brandMatch: ["fear of god essentials", "fearofgodessentials", "essentials by fear of god"],
+    department: "Unisex",
+    garment: "Bottoms (OVERSIZED, alpha)",
+    categoryMatch: ["bottom", "pant", "sweatpant", "jogger", "short", "trouser"],
+    note:
+      "Fear of God Essentials bottoms are cut DELIBERATELY OVERSIZED and the volume " +
+      "is the design, not a fit error — do not grade it as wear. Elasticated waists " +
+      "measure relaxed, so the figures are a range rather than a nominal waist. No " +
+      "national cross-map applies. Measure the flat waistband relaxed and double it.",
+    rows: [
+      { size: "XS (drapes ≈US S)", measurements: { waist: "26-28" } },
+      { size: "S (drapes ≈US M)", measurements: { waist: "28-31" } },
+      { size: "M (drapes ≈US L)", measurements: { waist: "31-34" } },
+      { size: "L (drapes ≈US XL)", measurements: { waist: "34-37" } },
+      { size: "XL (drapes ≈US XXL)", measurements: { waist: "37-40" } },
+    ],
+  },
   {
     brand: "Generic women's alpha",
     brandMatch: [], // fallback only (selected when no brand chart matches)

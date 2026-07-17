@@ -1035,6 +1035,26 @@ memory — not a progress log (the harness records progress separately).
   (US-1735): make the canonical the long form ("AG Jeans"), keep the short form as
   an alias key only, and never put it in `brandMatch` — the chart is then reached
   via the canonical, which is what brand-knowledge.ts passes anyway.
+- The substring rule bites a SECOND way (US-1737): a diffusion label whose name
+  CONTAINS its mainline's ("Fear of God Essentials" ⊃ "Fear of God") inherits the
+  mainline's charts, and no narrowing can fix it — there is no token unique to the
+  shorter name. DB charts are safe (fetched by exact `brand_key`); only the
+  in-code fallback collides. Give the chart to the brand that actually has sourced
+  sizing and leave the other chartless (it falls through to the generics, as
+  Coach/LV/Gucci do) — and assert it, so a later chart addition fails loudly.
+- `sizing-charts.ts` `norm()` only LOWERCASES — it does NOT strip accents, while
+  `brandKey()` strips everything non-`[a-z0-9]`. So Stüssy's KB key is `stssy`
+  (00389 seeded it that way — do not "correct" it, the resolver re-derives the
+  same key at read time) but its `brandMatch` needs the ACCENTED `"stüssy"` to
+  match the canonical brand-knowledge.ts passes in; include the plain spelling too
+  for raw seller text. Only non-ASCII canonical in the KB.
+- `detectBrandInText` sorts CANONICAL_BRANDS LONGEST-FIRST, which is what makes a
+  contained-name pair safe (it tests "Fear of God Essentials" before "Fear of
+  God"). But length is a proxy for specificity, not specificity: "Gucci GG
+  Supreme" (Gucci's canvas, 00400) mis-detects as **Supreme**, because "Supreme"
+  is longer than "Gucci". Pre-existing, barcode-title path only, NOT fixed by
+  US-1737 — a positional (earliest-match) rule would fix it but changes a shared
+  matcher for every brand.
 
 ## prd.json / Ralph workflow
 - Never read or edit `prd.json` from inside an iteration — the harness selects
