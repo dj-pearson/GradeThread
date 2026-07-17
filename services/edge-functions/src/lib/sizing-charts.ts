@@ -1989,6 +1989,512 @@ export const SIZING_CHARTS: SizingChart[] = [
       { size: "XL (drapes ≈US 18)", measurements: { waist: "37-39.5" } },
     ],
   },
+  // ── US-1739: basics, mall & fast-fashion group ─────────────────────────────
+  // Mirrors migration 00458's brand_size_charts seed (the DB rows win when the
+  // pack loads; these are the offline fallback).
+  //
+  // THE PACK'S SIZING STORY IS THE SPREAD, and it is why these belong together:
+  // every one of these tags says the same letters and they mean different bodies.
+  //
+  //     Uniqlo          runs SMALL  — Japanese grade, slim through the shoulders.
+  //     Old Navy        runs LARGE  — value-tier vanity sizing.
+  //     American Eagle  runs LARGE  — same pattern.
+  //     Gap / BR / A&F / Tommy      — true to size (A&F slim in menswear).
+  //
+  // So a Uniqlo M and an Old Navy M are meaningfully different garments and
+  // NOTHING ON EITHER TAG SAYS SO. Each cross-map is written INSIDE the size
+  // label, where the model actually reads it, rather than in the note alone.
+  {
+    brand: "Uniqlo",
+    brandMatch: ["uniqlo"],
+    department: "Women",
+    garment: "Tops (alpha, RUNS SMALL)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "blouse",
+      "knit",
+      "sweater",
+      "cardigan",
+      "base layer",
+      "heattech",
+      "airism",
+      "long sleeve",
+    ],
+    note:
+      "Uniqlo RUNS SMALL: the grade is cut to a Japanese fit and sits roughly " +
+      "one size below a general US body — a Uniqlo M is nearer a US 4-6. Old " +
+      "Navy and American Eagle in this SAME group run the OPPOSITE way, and " +
+      "every one of those tags says only a letter, which is why the cross-map " +
+      "is in the size label. HEATTECH and AIRism base layers are cut CLOSE TO " +
+      "THE BODY BY DESIGN — that is the function of a base layer, not a small " +
+      "size and not shrinkage; do not grade the fit as a defect. Body-" +
+      "equivalent figures in inches, not Uniqlo-published specs. Measure flat " +
+      "across the underarm seam and double it.",
+    rows: [
+      { size: "XS (fits ≈US 0-2)", measurements: { bust: "31-32.5", waist: "24-25.5" } },
+      { size: "S (fits ≈US 2-4)", measurements: { bust: "33-34.5", waist: "26-27.5" } },
+      { size: "M (fits ≈US 4-6)", measurements: { bust: "35-36.5", waist: "28-29.5" } },
+      { size: "L (fits ≈US 8-10)", measurements: { bust: "37.5-39", waist: "30.5-32" } },
+      { size: "XL (fits ≈US 12)", measurements: { bust: "40-41.5", waist: "33-34.5" } },
+      { size: "XXL (fits ≈US 14)", measurements: { bust: "42.5-44", waist: "35.5-37" } },
+    ],
+  },
+  {
+    brand: "Uniqlo",
+    brandMatch: ["uniqlo"],
+    department: "Men",
+    garment: "Tops (alpha, RUNS SMALL)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "polo",
+      "knit",
+      "sweater",
+      "sweatshirt",
+      "base layer",
+      "heattech",
+      "airism",
+      "long sleeve",
+    ],
+    note:
+      "Uniqlo menswear RUNS SMALL and SLIM against a US body — roughly one size " +
+      "down, most pronounced across the SHOULDERS and chest rather than the " +
+      "length. A Uniqlo L fits nearer a US M. Base layers (HEATTECH/AIRism) are " +
+      "cut close to the body BY DESIGN — not a small size and not shrinkage. " +
+      "Body-equivalent figures in inches, not published specs. Measure the " +
+      "chest flat across the underarm seam and double it.",
+    rows: [
+      { size: "XS (fits ≈US XS)", measurements: { chest: "33-35", waist: "27-29" } },
+      { size: "S (fits ≈US XS-S)", measurements: { chest: "35-37", waist: "29-31" } },
+      { size: "M (fits ≈US S-M)", measurements: { chest: "37-39.5", waist: "31-33.5" } },
+      { size: "L (fits ≈US M-L)", measurements: { chest: "39.5-42", waist: "33.5-36" } },
+      { size: "XL (fits ≈US L-XL)", measurements: { chest: "42-44.5", waist: "36-38.5" } },
+      { size: "XXL (fits ≈US XL)", measurements: { chest: "44.5-47", waist: "38.5-41" } },
+    ],
+  },
+  {
+    brand: "Gap",
+    // THE CONCATENATED SUB-LABEL SPELLINGS ARE LISTED ON PURPOSE and are not
+    // redundant: brandTextMatches requires a token to START a word, so a bare
+    // "gap" does NOT fire inside "babygap" (the preceding "y" is a word char).
+    // Spaced "Baby Gap" matches "gap" fine; the concatenated tags — which is how
+    // the labels actually print — would silently miss these charts without this.
+    // First bill come due from the US-1738 boundary fix.
+    brandMatch: ["gap", "babygap", "gapkids", "gapfit", "gapbody"],
+    department: "Women",
+    garment: "Tops (alpha/numeric)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "blouse",
+      "knit",
+      "sweater",
+      "sweatshirt",
+      "hoodie",
+      "cardigan",
+      "long sleeve",
+    ],
+    note:
+      "Gap is broadly TRUE TO SIZE with a relaxed house cut — it does not carry " +
+      "the vanity-sizing lean Old Navy and American Eagle do in this same group, " +
+      "despite Old Navy sharing its parent (Gap Inc). Body-equivalent figures in " +
+      "inches, not Gap-published specs. Measure flat and treat the tag as a " +
+      "claim to check.",
+    rows: [
+      { size: "XS (0-2)", measurements: { bust: "32.5-34", waist: "25-26.5" } },
+      { size: "S (4-6)", measurements: { bust: "35-36.5", waist: "27.5-29" } },
+      { size: "M (8-10)", measurements: { bust: "37.5-39.5", waist: "30-32" } },
+      { size: "L (12-14)", measurements: { bust: "41-43", waist: "33.5-35.5" } },
+      { size: "XL (16-18)", measurements: { bust: "44.5-46.5", waist: "37-39" } },
+      { size: "XXL (20)", measurements: { bust: "48-50", waist: "40.5-42.5" } },
+    ],
+  },
+  {
+    brand: "Gap",
+    brandMatch: ["gap", "babygap", "gapkids", "gapfit", "gapbody"],
+    department: "Women",
+    garment: "Bottoms / denim (true waist inches)",
+    categoryMatch: [
+      "bottom",
+      "pant",
+      "jean",
+      "denim",
+      "trouser",
+      "short",
+      "skirt",
+      "legging",
+      "1969",
+    ],
+    note:
+      "Gap denim is graded in TRUE WAIST INCHES, which makes it the most " +
+      "reliable number in this whole brand group — an alpha tag is a claim, a " +
+      "waist number is close to a measurement. The parenthesised US numeric is " +
+      "the rough equivalent; Gap 1969 is the denim line marking. Stretch denim " +
+      "measures smaller relaxed than it wears — note the fibre content. " +
+      "Body-equivalent figures in inches, not published specs. Measure the flat " +
+      "waistband and DOUBLE it.",
+    rows: [
+      { size: "24 (00)", measurements: { waist: "24-24.5", hip: "34-34.5" } },
+      { size: "25 (0)", measurements: { waist: "25-25.5", hip: "35-35.5" } },
+      { size: "26 (2)", measurements: { waist: "26-26.5", hip: "36-36.5" } },
+      { size: "27 (4)", measurements: { waist: "27-27.5", hip: "37-37.5" } },
+      { size: "28 (6)", measurements: { waist: "28-28.5", hip: "38-38.5" } },
+      { size: "29 (8)", measurements: { waist: "29-29.5", hip: "39-39.5" } },
+      { size: "30 (10)", measurements: { waist: "30-31", hip: "40-41" } },
+      { size: "31 (12)", measurements: { waist: "31-32", hip: "41-42" } },
+      { size: "32 (14)", measurements: { waist: "32-33.5", hip: "42-43.5" } },
+    ],
+  },
+  {
+    brand: "Banana Republic",
+    brandMatch: ["banana republic", "bananarepublic"],
+    department: "Women",
+    garment: "Tops (alpha/numeric)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "blouse",
+      "knit",
+      "sweater",
+      "cardigan",
+      "merino",
+      "long sleeve",
+    ],
+    note:
+      "Banana Republic is TRUE TO SIZE with a tailored workwear cut — alongside " +
+      "Tommy Hilfiger the most conservative grade in this group, and a full step " +
+      "from Old Navy's vanity sizing despite the shared Gap Inc parent. TWO ERAS " +
+      "ARE NOT THE SAME PRODUCT: safari-era BR (1978-~1988) is a vintage " +
+      "collectible on its own grade — check the label before applying this " +
+      "chart. The 'Factory Store' line is a lower-spec outlet product; the " +
+      "sizing is comparable but the value is not. On merino the FIBRE is the " +
+      "value and cannot be read off a photo. Body-equivalent inches, not " +
+      "published specs. Measure flat and double.",
+    rows: [
+      { size: "XXS (00)", measurements: { bust: "31-32", waist: "23.5-24.5" } },
+      { size: "XS (0-2)", measurements: { bust: "32.5-34", waist: "25-26.5" } },
+      { size: "S (4-6)", measurements: { bust: "35-36.5", waist: "27.5-29" } },
+      { size: "M (8-10)", measurements: { bust: "37.5-39.5", waist: "30-32" } },
+      { size: "L (12-14)", measurements: { bust: "41-43", waist: "33.5-35.5" } },
+      { size: "XL (16)", measurements: { bust: "44.5-46", waist: "37-38.5" } },
+    ],
+  },
+  {
+    brand: "Banana Republic",
+    brandMatch: ["banana republic", "bananarepublic"],
+    department: "Men",
+    garment: "Tops (alpha)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "polo",
+      "knit",
+      "sweater",
+      "merino",
+      "oxford",
+      "long sleeve",
+    ],
+    note:
+      "Banana Republic menswear is TRUE TO SIZE and tailored. Dress shirts are " +
+      "frequently graded by NECK and SLEEVE rather than an alpha, and where both " +
+      "appear the neck/sleeve numbers are the reliable ones. BR also cuts the " +
+      "same shirt in named fits (slim/standard), which change the body but not " +
+      "the neck: read the fit off the tag, never from the drape in a photo. " +
+      "Body-equivalent inches, not published specs. Measure the chest flat " +
+      "across the underarm seam and double it.",
+    rows: [
+      { size: "XS", measurements: { chest: "34-36", neck: "14-14.5" } },
+      { size: "S", measurements: { chest: "36-38", neck: "14.5-15" } },
+      { size: "M", measurements: { chest: "38-40", neck: "15-15.5" } },
+      { size: "L", measurements: { chest: "41-43", neck: "15.5-16" } },
+      { size: "XL", measurements: { chest: "44-46", neck: "16.5-17" } },
+      { size: "XXL", measurements: { chest: "47-49", neck: "17.5-18" } },
+    ],
+  },
+  {
+    brand: "Old Navy",
+    brandMatch: ["old navy", "oldnavy"],
+    department: "Women",
+    garment: "Tops (alpha, RUNS LARGE)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "blouse",
+      "knit",
+      "sweater",
+      "sweatshirt",
+      "hoodie",
+      "tank",
+      "long sleeve",
+    ],
+    note:
+      "Old Navy RUNS LARGE — it is VANITY-SIZED (the value-tier pattern): an Old " +
+      "Navy M sits nearer a US L than the nominal grade suggests. Uniqlo in this " +
+      "SAME group runs the OPPOSITE way (a Uniqlo M is nearer a US 4-6) and both " +
+      "tags say only 'M', which is exactly why the cross-map is in the size " +
+      "label. A garment that measures LARGER than its tag is NORMAL for this " +
+      "brand — it is the grade, not stretching, not a mislabel, and not a defect " +
+      "to grade down. Body-equivalent inches, not published specs. Measure flat " +
+      "and double.",
+    rows: [
+      { size: "XS (fits ≈US 0-2)", measurements: { bust: "33-34.5", waist: "25.5-27" } },
+      { size: "S (fits ≈US 4-6)", measurements: { bust: "35.5-37", waist: "28-29.5" } },
+      { size: "M (fits ≈US 8-10)", measurements: { bust: "38-40", waist: "30.5-32.5" } },
+      { size: "L (fits ≈US 12-14)", measurements: { bust: "41.5-43.5", waist: "34-36" } },
+      { size: "XL (fits ≈US 16-18)", measurements: { bust: "45-47", waist: "37.5-39.5" } },
+      { size: "XXL (fits ≈US 20)", measurements: { bust: "48.5-50.5", waist: "41-43" } },
+    ],
+  },
+  {
+    brand: "Old Navy",
+    brandMatch: ["old navy", "oldnavy"],
+    department: "Women",
+    garment: "Bottoms / denim (RUNS LARGE)",
+    categoryMatch: [
+      "bottom",
+      "pant",
+      "jean",
+      "denim",
+      "trouser",
+      "short",
+      "skirt",
+      "legging",
+      "rockstar",
+      "pixie",
+    ],
+    note:
+      "Old Navy bottoms are VANITY-SIZED and run LARGE — the numeric size sits " +
+      "generous against a true waist measurement, so the waist inches here are " +
+      "the reliable number and the tag number is a claim. Rockstar (skinny/" +
+      "jegging) and Pixie (ankle) are the named fits buyers search; both are " +
+      "ordinary English words and are fit names ONLY on an actual Old Navy " +
+      "garment. Rockstar denim is heavily STRETCH — note the fibre content. " +
+      "Body-equivalent inches, not published specs. Measure the flat waistband " +
+      "relaxed rather than pulling it taut, and double it.",
+    rows: [
+      { size: "0 (waist ≈25)", measurements: { waist: "25-25.5", hip: "35-35.5" } },
+      { size: "2 (waist ≈26)", measurements: { waist: "26-26.5", hip: "36-36.5" } },
+      { size: "4 (waist ≈27)", measurements: { waist: "27-27.5", hip: "37-37.5" } },
+      { size: "6 (waist ≈28)", measurements: { waist: "28-28.5", hip: "38-38.5" } },
+      { size: "8 (waist ≈29)", measurements: { waist: "29-30", hip: "39-40" } },
+      { size: "10 (waist ≈31)", measurements: { waist: "31-32", hip: "41-42" } },
+      { size: "12 (waist ≈32.5)", measurements: { waist: "32.5-33.5", hip: "42.5-43.5" } },
+      { size: "14 (waist ≈34)", measurements: { waist: "34-35.5", hip: "44-45.5" } },
+    ],
+  },
+  {
+    brand: "American Eagle",
+    brandMatch: ["american eagle", "americaneagle", "aerie"],
+    department: "Women",
+    garment: "Jeans / bottoms (true waist inches)",
+    categoryMatch: [
+      "bottom",
+      "pant",
+      "jean",
+      "denim",
+      "jegging",
+      "short",
+      "skirt",
+      "legging",
+      "curvy",
+    ],
+    note:
+      "DENIM IS THIS BRAND — jeans are AE's volume product and the piece most " +
+      "likely to be resold. AE denim is graded in TRUE WAIST INCHES, far more " +
+      "reliable than the brand's alpha tops, which RUN LARGE (vanity-sized, the " +
+      "same direction as Old Navy and the opposite of Uniqlo in this group). The " +
+      "NAMED FIT printed on the tag is the listing token buyers search — read it " +
+      "off the tag, never guess it from the photo. CURVY is a distinct AE fit " +
+      "for a smaller waist-to-hip ratio: it measures a LARGER HIP at the same " +
+      "tagged waist, which is the DESIGN — not a mislabel and not a stretched " +
+      "garment. Most AE denim is heavy STRETCH and measures smaller relaxed " +
+      "than it wears. Aerie folds onto this brand and shares the grade. " +
+      "Body-equivalent inches, not published specs. Measure the flat waistband " +
+      "relaxed and double it.",
+    rows: [
+      { size: "00 (waist ≈23)", measurements: { waist: "23-23.5", hip: "33-33.5" } },
+      { size: "0 (waist ≈24)", measurements: { waist: "24-24.5", hip: "34-34.5" } },
+      { size: "2 (waist ≈25)", measurements: { waist: "25-25.5", hip: "35-35.5" } },
+      { size: "4 (waist ≈26)", measurements: { waist: "26-26.5", hip: "36-36.5" } },
+      { size: "6 (waist ≈27)", measurements: { waist: "27-27.5", hip: "37-37.5" } },
+      { size: "8 (waist ≈28)", measurements: { waist: "28-29", hip: "38-39" } },
+      { size: "10 (waist ≈30)", measurements: { waist: "30-31", hip: "40-41" } },
+      { size: "12 (waist ≈31.5)", measurements: { waist: "31.5-32.5", hip: "41.5-42.5" } },
+      { size: "14 (waist ≈33)", measurements: { waist: "33-34.5", hip: "43-44.5" } },
+    ],
+  },
+  {
+    brand: "American Eagle",
+    brandMatch: ["american eagle", "americaneagle", "aerie"],
+    department: "Men",
+    garment: "Jeans / bottoms (W x L inches)",
+    categoryMatch: ["bottom", "pant", "jean", "denim", "trouser", "short", "chino"],
+    note:
+      "AE menswear denim is tagged W x L in TRUE INCHES — the most reliable " +
+      "sizing in this brand group, since both numbers are measurements rather " +
+      "than a graded claim. ALWAYS capture the INSEAM (L) as well as the waist: " +
+      "a W32 L30 and a W32 L34 are different products to a buyer, and the length " +
+      "is the half most often omitted from a listing. AE stretch denim measures " +
+      "smaller relaxed than it wears. Body-equivalent figures in inches, not " +
+      "published specs. Measure the flat waistband relaxed, double it, and " +
+      "measure the inseam from the crotch seam to the hem.",
+    rows: [
+      { size: "W28", measurements: { waist: "28-28.5", hip: "35-36" } },
+      { size: "W29", measurements: { waist: "29-29.5", hip: "36-37" } },
+      { size: "W30", measurements: { waist: "30-30.5", hip: "37-38" } },
+      { size: "W31", measurements: { waist: "31-31.5", hip: "38-39" } },
+      { size: "W32", measurements: { waist: "32-32.5", hip: "39-40" } },
+      { size: "W33", measurements: { waist: "33-33.5", hip: "40-41" } },
+      { size: "W34", measurements: { waist: "34-34.5", hip: "41-42" } },
+      { size: "W36", measurements: { waist: "36-36.5", hip: "43-44" } },
+      { size: "W38", measurements: { waist: "38-38.5", hip: "45-46" } },
+      { size: "W40", measurements: { waist: "40-40.5", hip: "47-48" } },
+    ],
+  },
+  {
+    brand: "Abercrombie & Fitch",
+    brandMatch: ["abercrombie", "abercrombie & fitch", "abercrombiefitch"],
+    department: "Women",
+    garment: "Jeans / bottoms (true waist inches)",
+    categoryMatch: ["bottom", "pant", "jean", "denim", "short", "skirt", "curve love"],
+    note:
+      "A&F denim is graded in TRUE WAIST INCHES and the modern denim program is " +
+      "well regarded — a genuine exception to this group's low-value pattern, " +
+      "and the brand's strongest current resale category. CURVE LOVE is A&F's " +
+      "named fit for a smaller waist-to-hip ratio: it measures a LARGER HIP " +
+      "(roughly an extra inch or more) at the same tagged waist. That is the " +
+      "DESIGN — not a mislabel, not a stretched garment, and it must not be " +
+      "graded as either. The fit name is printed on the tag and is a searched " +
+      "token; read it off the tag rather than inferring it from the hip " +
+      "measurement. Body-equivalent inches, not published specs. Measure the " +
+      "flat waistband relaxed and double it.",
+    rows: [
+      { size: "23 (00)", measurements: { waist: "23-23.5", hip: "33.5-34" } },
+      { size: "24 (0)", measurements: { waist: "24-24.5", hip: "34.5-35" } },
+      { size: "25 (1)", measurements: { waist: "25-25.5", hip: "35.5-36" } },
+      { size: "26 (2)", measurements: { waist: "26-26.5", hip: "36.5-37" } },
+      { size: "27 (4)", measurements: { waist: "27-27.5", hip: "37.5-38" } },
+      { size: "28 (6)", measurements: { waist: "28-28.5", hip: "38.5-39.5" } },
+      { size: "29 (8)", measurements: { waist: "29-29.5", hip: "39.5-40.5" } },
+      { size: "30 (10)", measurements: { waist: "30-31", hip: "40.5-41.5" } },
+      { size: "31 (12)", measurements: { waist: "31-32", hip: "41.5-42.5" } },
+      { size: "32 (14)", measurements: { waist: "32-33.5", hip: "42.5-44" } },
+    ],
+  },
+  {
+    brand: "Abercrombie & Fitch",
+    brandMatch: ["abercrombie", "abercrombie & fitch", "abercrombiefitch"],
+    department: "Men",
+    garment: "Tops (alpha, cut SLIM)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "polo",
+      "knit",
+      "sweater",
+      "sweatshirt",
+      "hoodie",
+      "long sleeve",
+    ],
+    note:
+      "A&F menswear is cut SLIM — the mall-era grade is trim through the chest " +
+      "and body, closer to Uniqlo's direction than Old Navy's in this group, " +
+      "though not as small. THE ERA MATTERS MORE THAN THE GRADE HERE: ~1997-2010 " +
+      "logo/moose-era A&F is a distinct Y2K collectible priced above the modern " +
+      "rebranded product, and the modern brand deliberately dropped heavy logo " +
+      "branding — an absent logo on a modern piece is NORMAL, not a removed " +
+      "graphic and not a fake. Pre-1977 sporting-goods A&F is a different " +
+      "company entirely and this chart does not apply to it. Body-equivalent " +
+      "inches, not published specs. Measure the chest flat across the underarm " +
+      "seam and double it.",
+    rows: [
+      { size: "XS", measurements: { chest: "33-35", waist: "27-29" } },
+      { size: "S", measurements: { chest: "35-37", waist: "29-31" } },
+      { size: "M", measurements: { chest: "37.5-39.5", waist: "31-33" } },
+      { size: "L", measurements: { chest: "40-42", waist: "33.5-35.5" } },
+      { size: "XL", measurements: { chest: "42.5-45", waist: "36-38" } },
+      { size: "XXL", measurements: { chest: "45.5-48", waist: "38.5-41" } },
+    ],
+  },
+  {
+    brand: "Tommy Hilfiger",
+    brandMatch: ["tommy hilfiger", "tommyhilfiger", "tommy jeans"],
+    department: "Men",
+    garment: "Tops (alpha)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "polo",
+      "knit",
+      "sweater",
+      "sweatshirt",
+      "hoodie",
+      "rugby",
+      "long sleeve",
+    ],
+    note:
+      "Tommy Hilfiger is TRUE TO SIZE with a classic/preppy cut — alongside " +
+      "Banana Republic the most conservative grade in this group. THE ERA IS THE " +
+      "PRICE ON THIS BRAND, AND THE CHART CANNOT SEE IT: 1990s flag-era Tommy " +
+      "was cut deliberately OVERSIZED and resells for MULTIPLES of the modern " +
+      "piece, so a vintage garment measuring far larger than this table is " +
+      "NORMAL for its era and is not a mislabel or a stretched garment. This " +
+      "chart describes the MODERN grade. The modern Tommy Jeans revival reissues " +
+      "the 90s look ON PURPOSE, so the graphic cannot date the garment — only " +
+      "the label can. Dress shirts are graded by neck/sleeve, the reliable " +
+      "numbers. Body-equivalent inches, not published specs. Measure the chest " +
+      "flat across the underarm seam and double it.",
+    rows: [
+      { size: "XS", measurements: { chest: "34-36", neck: "14-14.5" } },
+      { size: "S", measurements: { chest: "36-38", neck: "14.5-15" } },
+      { size: "M", measurements: { chest: "38-40.5", neck: "15-15.5" } },
+      { size: "L", measurements: { chest: "41-43.5", neck: "15.5-16" } },
+      { size: "XL", measurements: { chest: "44-46.5", neck: "16.5-17" } },
+      { size: "XXL", measurements: { chest: "47-49.5", neck: "17.5-18" } },
+    ],
+  },
+  {
+    brand: "Tommy Hilfiger",
+    brandMatch: ["tommy hilfiger", "tommyhilfiger", "tommy jeans"],
+    department: "Women",
+    garment: "Tops (alpha/numeric)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "blouse",
+      "knit",
+      "sweater",
+      "polo",
+      "cardigan",
+      "long sleeve",
+    ],
+    note:
+      "Tommy Hilfiger womenswear is TRUE TO SIZE with a classic cut. As on the " +
+      "menswear side, THE ERA IS THE PRICE and this chart describes the MODERN " +
+      "grade only: 1990s flag-era pieces were cut oversized and are a different " +
+      "market — a vintage garment measuring far larger than this table is normal " +
+      "for its era, not a mislabel. The modern revival reissues the 90s look " +
+      "deliberately, so the graphic cannot date the garment; only the label can. " +
+      "Body-equivalent inches, not published specs. Measure flat and double.",
+    rows: [
+      { size: "XS (0-2)", measurements: { bust: "32.5-34", waist: "25-26.5" } },
+      { size: "S (4-6)", measurements: { bust: "35-36.5", waist: "27.5-29" } },
+      { size: "M (8-10)", measurements: { bust: "37.5-39.5", waist: "30-32" } },
+      { size: "L (12-14)", measurements: { bust: "41-43", waist: "33.5-35.5" } },
+      { size: "XL (16)", measurements: { bust: "44.5-46", waist: "37-38.5" } },
+      { size: "XXL (18)", measurements: { bust: "47.5-49", waist: "40-41.5" } },
+    ],
+  },
   {
     brand: "Generic women's alpha",
     brandMatch: [], // fallback only (selected when no brand chart matches)

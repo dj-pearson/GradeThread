@@ -99,6 +99,34 @@ const ARCTERYX_STYLE_NAME_DECODER: BrandDecoder = {
   examples: [],
 };
 
+// US-1739: the Uniqlo style_name decoder EXACTLY as migration 00458 seeds it into
+// brand_style_codes. Uniqlo is the ONLY brand in the basics/mall group with a
+// decoder, and it is the first in three groups — 00456 refused (the identifier is
+// a GRAPHIC: not on the tag, not parseable) and 00457 refused (the identifier is
+// an ordinary GIVEN NAME: not brand-unique). Uniqlo's fabric trademarks pass all
+// three tests, on a kind of token no prior group had: HEATTECH and its siblings
+// are COINED words that mean nothing in English, so — unlike "Juliette" or "TNA"
+// — the token alone can identify the brand.
+//
+// That is what gives this group the CUT-TAG recovery case the last two could not
+// have, and it is the exact scenario the whole epic exists for: brand tag gone,
+// care label reads HEATTECH, brand recovers to Uniqlo. Fixturing the SHIPPED spec
+// (rather than a hand-simplified one) is the point — a bad pattern or fieldMap in
+// the migration fails here instead of in production.
+const UNIQLO_FABRIC_TECH_DECODER: BrandDecoder = {
+  decoderKind: "style_name",
+  description:
+    "Care/neck-label fabric-technology trademark. Uniqlo prints its coined fabric platform name on the label as the selling point; the token is brand-unique (it means nothing in English), so it identifies the brand even when the brand tag itself is cut. An optional trailing HEATTECH warmth level (Extra Warm / Ultra Warm) is tolerated but not captured.",
+  pattern:
+    "^(?<style>HEATTECH|AIRISM|BLOCKTECH|DRY-?EX)(?:\\s+(?:EXTRA\\s+WARM|ULTRA\\s+WARM))?$",
+  extractionRules: {
+    fieldMap: { style: "styleCode" },
+    transforms: { style: "upper" },
+    confidence: 0.72,
+  },
+  examples: [],
+};
+
 // US-1735: the Wrangler style_number decoder EXACTLY as migration 00454 seeds it.
 // "13MWZ" = 13-ounce Men's With Zipper — the MW/MJ/DEN suffix family is a
 // Wrangler-only convention, which is what makes an anchored digits+suffix pattern
@@ -1435,6 +1463,227 @@ const CASES: GoldenCase[] = [
     pack: pack("Eileen Fisher", "eileenfisher", [style("Eileen Fisher Renew")]),
     input: decodedFrom({ styleCode: "Renew" }),
     expect: { noBrand: true },
+  },
+
+  // ── US-1739: basics, mall & fast-fashion group ────────────────────────────
+  // The INVERSE of the group above, and the pair is worth reading together. There
+  // the piece was easy and the BRAND was the puzzle (a WILFRED tag is an Aritzia
+  // coat). Here the tag says GAP in a blue box on a crewneck tee — both facts are
+  // free, and neither is worth money. What these cases pin is what actually
+  // decides the price of a staple: the LINE (mainline vs made-for-outlet), the
+  // ERA (a 90s flag Tommy is not a 2024 Tommy), and — for the one brand that
+  // earns it — a real cut-tag recovery.
+  {
+    name: "Uniqlo cut brand tag — HEATTECH on the care label recovers the brand",
+    // THE case for this group, and the one the last two groups could not have.
+    // The brand tag is gone; the care label survives; HEATTECH is a coined word
+    // that means nothing in English, so it can only be Uniqlo.
+    brand: "Uniqlo",
+    pack: pack("Uniqlo", "uniqlo", [], [UNIQLO_FABRIC_TECH_DECODER]),
+    input: decodedFrom({ styleCode: "HEATTECH" }), // no AI brand
+    expect: { brand: "Uniqlo", recovery: true },
+  },
+  {
+    name: "Uniqlo AIRism recovers the brand case-insensitively (the tag prints mixed case)",
+    // The tag prints "AIRism", not "AIRISM". runDecoderSpec compiles with the "i"
+    // flag, and this asserts the shipped pattern actually relies on that.
+    brand: "Uniqlo",
+    pack: pack("Uniqlo", "uniqlo", [], [UNIQLO_FABRIC_TECH_DECODER]),
+    input: decodedFrom({ styleCode: "AIRism" }),
+    expect: { brand: "Uniqlo", recovery: true },
+  },
+  {
+    name: "Uniqlo HEATTECH with a warmth level still recovers the brand",
+    // The level is matched but deliberately NOT captured — DecodeResult has no
+    // field for it, and a fieldMap pointing at a non-existent field would write a
+    // phantom property nothing reads. Recovery must still work with it present.
+    brand: "Uniqlo",
+    pack: pack("Uniqlo", "uniqlo", [], [UNIQLO_FABRIC_TECH_DECODER]),
+    input: decodedFrom({ styleCode: "HEATTECH EXTRA WARM" }),
+    expect: { brand: "Uniqlo", recovery: true },
+  },
+  {
+    name: "Uniqlo fabric tech overrides a wrong AI brand + surfaces conflict",
+    brand: "Uniqlo",
+    pack: pack("Uniqlo", "uniqlo", [], [UNIQLO_FABRIC_TECH_DECODER]),
+    input: decodedFrom({ brand: "Gap", styleCode: "HEATTECH" }),
+    expect: { brand: "Uniqlo", conflictOn: "brand", recovery: true },
+  },
+  {
+    name: "Uniqlo 'Ultra Light Down' does NOT recover the brand (a descriptive phrase is not a code)",
+    // THE line that makes the decoder above defensible, and the reason the token
+    // is excluded from its pattern. Ultra Light Down is a real, signature Uniqlo
+    // style — and "ultra light down" is a DESCRIPTIVE ENGLISH PHRASE any brand may
+    // truthfully use for an ultra light down jacket. It names the PIECE, never the
+    // brand. It fails brand-unique for exactly the reason HEATTECH passes it.
+    brand: "Uniqlo",
+    pack: pack("Uniqlo", "uniqlo", [style("Ultra Light Down")], [
+      UNIQLO_FABRIC_TECH_DECODER,
+    ]),
+    input: decodedFrom({ styleCode: "Ultra Light Down" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Uniqlo ambiguous fabric platforms (HEATTECH vs AIRism vs BLOCKTECH) — never guess the style",
+    // The decoder recovers the BRAND from the tech token, but with several styles
+    // in the pack and nothing to separate them there is no style to fill.
+    brand: "Uniqlo",
+    pack: pack("Uniqlo", "uniqlo", [
+      style("HEATTECH"),
+      style("AIRism"),
+      style("BLOCKTECH"),
+    ], [UNIQLO_FABRIC_TECH_DECODER]),
+    input: decodedFrom({ styleCode: "HEATTECH" }),
+    expect: { brand: "Uniqlo", noStyle: true, recovery: true },
+  },
+  {
+    name: "Gap 'gap' — no false-positive brand recovery (it is a CONDITION word)",
+    // THE case for this group and the nastiest token in the whole epic — worse
+    // than 00457's "moth", because "moth" is only a house label that could be
+    // refused outright while "Gap" is a REAL canonical brand that MUST resolve.
+    // "a gap in the waistband" is text this very product generates constantly.
+    // No decoder may ever mint the brand from the bare word.
+    brand: "Gap",
+    pack: pack("Gap", "gap", [style("Gap Arch Logo Sweatshirt")]),
+    input: decodedFrom({ styleCode: "gap" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Gap Factory line fills the style the AI missed (the fold must stay disclosed)",
+    // The outlet line FOLDS onto the brand (eBay has no separate catalogue brand
+    // for it), so the only place the distinction can survive into the listing is
+    // the style. This asserts it actually gets there.
+    brand: "Gap",
+    pack: pack("Gap", "gap", [style("Gap Factory (outlet line)")]),
+    input: decodedFrom({ brand: "Gap" }),
+    expect: { brand: "Gap", style: "Gap Factory (outlet line)" },
+  },
+  {
+    name: "Gap ambiguous lines (mainline vs Factory vs GapKids) — never guess",
+    // Only the tag separates a mainline piece from a made-for-outlet one, and the
+    // difference is a real price band. Guessing here invents provenance.
+    brand: "Gap",
+    pack: pack("Gap", "gap", [
+      style("Gap Arch Logo Sweatshirt"),
+      style("Gap Factory (outlet line)"),
+      style("babyGap / GapKids"),
+    ]),
+    input: decodedFrom({ brand: "Gap" }),
+    expect: { brand: "Gap", noStyle: true },
+  },
+  {
+    name: "Aerie sub-label fills the style the AI missed (Aerie IS American Eagle)",
+    // This pack's one instance of 00457's defining shape: an Aerie tag frequently
+    // carries no "American Eagle" anywhere. Same price band -> folds, with the
+    // line kept in `style` because buyers search "Aerie".
+    brand: "American Eagle",
+    pack: pack("American Eagle", "americaneagle", [style("Aerie")]),
+    input: decodedFrom({ brand: "American Eagle" }),
+    expect: { brand: "American Eagle", style: "Aerie" },
+  },
+  {
+    name: "American Eagle 'aerie' — no false-positive brand recovery (an aerie is an eagle's nest)",
+    // "Aerie" is a real sub-brand AND an ordinary English noun. It resolves only
+    // as a whole-brand field on an actual garment, never from a stray token.
+    brand: "American Eagle",
+    pack: pack("American Eagle", "americaneagle", [style("Aerie")]),
+    input: decodedFrom({ styleCode: "aerie" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Old Navy 'Rockstar' — no false-positive brand recovery (an ordinary word is not a code)",
+    // Rockstar is Old Navy's real denim fit and an ordinary English word. The
+    // named FIT is this group's most valuable listing token (the story's own
+    // priority) — and it still can never recover the brand. Same rule as
+    // 00457's "Juliette" and 00454's Lee "101".
+    brand: "Old Navy",
+    pack: pack("Old Navy", "oldnavy", [style("Rockstar Jeans")]),
+    input: decodedFrom({ styleCode: "Rockstar" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Old Navy named fit fills the style the AI missed",
+    brand: "Old Navy",
+    pack: pack("Old Navy", "oldnavy", [style("Rockstar Jeans")]),
+    input: decodedFrom({ brand: "Old Navy" }),
+    expect: { brand: "Old Navy", style: "Rockstar Jeans" },
+  },
+  {
+    name: "Banana Republic ambiguous eras (safari-era vs modern Sloan) — never guess",
+    // The safari era (1978-~1988) is effectively a different product wearing the
+    // same name, at a completely different price. Only the LABEL separates them,
+    // so with the brand alone there is nothing to pick — and guessing invents a
+    // vintage attribution worth real money.
+    brand: "Banana Republic",
+    pack: pack("Banana Republic", "bananarepublic", [
+      style("Safari-era Banana Republic"),
+      style("Sloan Fit Pant"),
+    ]),
+    input: decodedFrom({ brand: "Banana Republic" }),
+    expect: { brand: "Banana Republic", noStyle: true },
+  },
+  {
+    name: "Banana Republic 'Sloan' — no false-positive brand recovery (a given name is not a code)",
+    brand: "Banana Republic",
+    pack: pack("Banana Republic", "bananarepublic", [style("Sloan Fit Pant")]),
+    input: decodedFrom({ styleCode: "Sloan" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Abercrombie 'Curve Love' — no false-positive brand recovery",
+    // A&F's strongest modern resale token, printed on the tag, and still two
+    // ordinary English words. Printed + regular is not enough — brand-unique is
+    // the test it fails, and the test HEATTECH passes.
+    brand: "Abercrombie & Fitch",
+    pack: pack("Abercrombie & Fitch", "abercrombiefitch", [
+      style("Curve Love Denim"),
+    ]),
+    input: decodedFrom({ styleCode: "Curve Love" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Abercrombie ambiguous eras (pre-1977 sporting goods vs logo era) — never guess",
+    // The sharpest era break in the epic: pre-1977 A&F was a DIFFERENT COMPANY
+    // (an elite expedition outfitter that went bankrupt) sharing only the name.
+    // Guessing between them is guessing between two unrelated markets.
+    brand: "Abercrombie & Fitch",
+    pack: pack("Abercrombie & Fitch", "abercrombiefitch", [
+      style("Vintage sporting-goods A&F (pre-1977)"),
+      style("Logo / Moose-era A&F"),
+    ]),
+    input: decodedFrom({ brand: "Abercrombie & Fitch" }),
+    expect: { brand: "Abercrombie & Fitch", noStyle: true },
+  },
+  {
+    name: "Tommy Hilfiger 'Tommy' — no false-positive brand recovery (Tommy Bahama is a different company)",
+    // The group's cross-brand trap, and 00457's Vince / Vince Camuto shape. A bare
+    // first name is shared by an unrelated business (Oxford Industries), so it can
+    // never be decisive on its own.
+    brand: "Tommy Hilfiger",
+    pack: pack("Tommy Hilfiger", "tommyhilfiger", [style("Tommy Jeans")]),
+    input: decodedFrom({ styleCode: "Tommy" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Tommy Hilfiger ambiguous eras (vintage flag vs modern revival) — never guess",
+    // The trap that makes this brand's era unguessable: the modern Tommy Jeans
+    // revival DELIBERATELY reissues the 1990s flag look, so the graphic cannot
+    // date the garment — a modern piece is SUPPOSED to look old. Only the label
+    // separates them, and the price difference is multiples.
+    brand: "Tommy Hilfiger",
+    pack: pack("Tommy Hilfiger", "tommyhilfiger", [
+      style("Vintage flag-logo Tommy"),
+      style("Tommy Jeans"),
+    ]),
+    input: decodedFrom({ brand: "Tommy Hilfiger" }),
+    expect: { brand: "Tommy Hilfiger", noStyle: true },
+  },
+  {
+    name: "Tommy Jeans line fills the style the AI missed (a LINE of this brand, so it folds)",
+    brand: "Tommy Hilfiger",
+    pack: pack("Tommy Hilfiger", "tommyhilfiger", [style("Tommy Jeans")]),
+    input: decodedFrom({ brand: "Tommy Hilfiger" }),
+    expect: { brand: "Tommy Hilfiger", style: "Tommy Jeans" },
   },
 ];
 

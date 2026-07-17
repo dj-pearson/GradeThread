@@ -128,6 +128,12 @@ const BRAND_ALIASES: Record<string, string> = {
   guess: "GUESS",
   abercrombiefitch: "Abercrombie & Fitch",
   abercrombie: "Abercrombie & Fitch",
+  // HOLLISTER DOES NOT FOLD INTO ABERCROMBIE — deliberately, and it is the
+  // counter-example to the folds added below (US-1739). A&F Co OWNS Hollister,
+  // but Hollister is not a house LABEL: it is separately branded, separately
+  // searched, and sits at a LOWER price band, so it keeps its own canonical.
+  // The parent COMPANY is never what decides a fold — the price band and the
+  // eBay catalogue are.
   hollister: "Hollister",
   americaneagle: "American Eagle",
   aeropostale: "Aeropostale",
@@ -136,6 +142,53 @@ const BRAND_ALIASES: Record<string, string> = {
   bananarepublic: "Banana Republic",
   jcrew: "J.Crew",
   uniqlo: "Uniqlo",
+  // US-1739 basics/mall group. Every brand in the pack ALREADY canonicalized (they
+  // are all above); what was missing is the SUB-LABELS and OUTLET LINES, which
+  // were passthrough-only — so an "aerie" tag rendered "aerie" into the prompt
+  // block and the eBay Brand aspect instead of "American Eagle".
+  //
+  // These all FOLD onto the parent, the Michael Kors / Aritzia play: each shares
+  // its parent's price band, so folding costs no comp accuracy, and the line is
+  // preserved in `style` rather than dropped. Contrast Hollister above (lower
+  // band, own canonical) and Fear of God Essentials (10x apart, own canonical).
+  thegap: "Gap",
+  gapinc: "Gap",
+  // babyGap / GapKids / GapFit / GapBody are DEPARTMENTS, not price tiers.
+  babygap: "Gap",
+  gapkids: "Gap",
+  gapfit: "Gap",
+  gapbody: "Gap",
+  // The OUTLET lines fold for a reason the sub-labels don't need: eBay has no
+  // separate catalogue brand for "Gap Factory", so a split would invent one and
+  // mis-map the Brand aspect on every listing. The line is a lower-spec product at
+  // a lower band, so it is DISCLOSED via brand_styles + a tell, never dropped.
+  gapfactory: "Gap",
+  bananarepublicfactory: "Banana Republic",
+  bananarepublicfactorystore: "Banana Republic",
+  // Aerie is American Eagle's intimates/loungewear sub-brand and its tag often
+  // says only "aerie". Same band as the parent -> folds. NOTE "aerie" is an
+  // ordinary English noun (an eagle's nest); it is safe as an alias KEY because
+  // keys match the WHOLE brand field, and it never enters CANONICAL_BRANDS (that
+  // is built from the VALUES), so detectBrandInText can't fire on the word.
+  aerie: "American Eagle",
+  americaneagleoutfitters: "American Eagle",
+  aeo: "American Eagle",
+  abercrombieandfitch: "Abercrombie & Fitch",
+  anf: "Abercrombie & Fitch",
+  abercrombiekids: "Abercrombie & Fitch",
+  // Tommy Jeans IS a Tommy Hilfiger line and folds. A bare "tommy" is DELIBERATELY
+  // NOT aliased: TOMMY BAHAMA (Oxford Industries) is a different company sharing
+  // the first name — 00457's Vince / Vince Camuto shape. The structural difference
+  // is that neither FULL name contains the other ("Tommy Hilfiger" does not
+  // contain "Tommy Bahama"), so unlike Vince Camuto no protective canonical entry
+  // is needed: full-name matching already separates them. The danger is only in
+  // the bare first name, so the bare first name is simply never mapped.
+  tommyjeans: "Tommy Hilfiger",
+  tommyhilfigerdenim: "Tommy Hilfiger",
+  hilfiger: "Tommy Hilfiger",
+  // Uniqlo U is a LINE (Lemaire), not a season -> folds with the line in `style`.
+  uniqlou: "Uniqlo",
+  uniqlojapan: "Uniqlo",
   hanes: "Hanes",
   gildan: "Gildan",
   nautica: "Nautica",

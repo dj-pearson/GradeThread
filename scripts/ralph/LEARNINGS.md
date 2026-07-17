@@ -998,6 +998,20 @@ memory — not a progress log (the harness records progress separately).
   disambiguation + `findSizingCharts` reachability). The content test is easy to
   miss; every prior group has one (`alo-yoga-`, `athleta-`, `free-people-`,
   `madewell-jcrew-`, `athleisure-content_test.ts`).
+- A seeded `brand_style_codes` decoder must capture into **`styleCode`** or it
+  recovers NOTHING: `enrichExtractionWithBrandKnowledge` keys brand recovery off
+  `decoderHits.find((h) => h.styleCode)`, then spells the brand from `pack.brand`
+  (so no `KEY_TO_CANONICAL` entry in brand-decoders.ts is needed). And every
+  `fieldMap` target must be a REAL `DecodeResult` field (gender/styleCode/size/
+  colorInitial/colorway/season/year) — `decoderSpecsFromPack` CASTS the jsonb, so
+  a bogus target silently writes a phantom property nothing reads instead of
+  failing. Put un-modellable extras (e.g. a HEATTECH warmth level) in a
+  NON-capturing group. US-1739.
+- The US-1738 leading-boundary `brandTextMatches` has a standing bill: a CONCATENATED
+  sub-label does NOT match its parent's short token ("babygap".indexOf("gap") is
+  preceded by "y", a word char), so babyGap/GapKids/GapFit must be listed in
+  `brandMatch` explicitly or they silently miss the parent's charts. Spaced forms
+  ("Baby Gap") are fine. Check this for every short-token brand you seed. US-1739.
 - Some brands are ALREADY covered by a SHARED multi-brand chart — the 00389
   `thenorthfacepatagoniaouterwear` row / its `sizing-charts.ts` twin matched
   north face+patagonia+columbia+arcteryx. Giving such a brand its OWN chart makes

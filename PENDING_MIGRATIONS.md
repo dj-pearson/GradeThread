@@ -4,6 +4,104 @@
 > The sections below for those are historical; the only NEW held migration is
 > **00443** at the top.
 
+## ⏳ PENDING: 00458_basics_mall_brand_knowledge.sql (US-1739 basics/mall brand KB, 2026-07-16)
+
+Data-only seed of the `brand_knowledge*` tables for the basics, mall &
+fast-fashion tier: **Uniqlo, Gap, Banana Republic, Old Navy, American Eagle,
+Abercrombie & Fitch, Tommy Hilfiger**. Unlike every prior group in this epic, all
+seven ALREADY have a bare alias-only row from 00389 — so this migration is mostly
+an **UPDATE** that fills the empty `category_focus` / `tag_eras` /
+`authentication_tells` / `notes`, and the `on conflict do update` clauses are
+load-bearing rather than defensive. `brand_knowledge` ×7 (all updates);
+`brand_styles` ×25; `brand_style_codes` ×**1** (Uniqlo — the first decoder in
+three groups); `brand_colorways` ×**0**; `brand_size_charts` ×14, all mirrored
+into the `sizing-charts.ts` in-code fallback. Every fact carries `source_url` +
+`confidence` and lands `verified=false` for the US-1715 admin queue. Idempotent
+(`on conflict do nothing` / `do update`). Apply after 00457 via
+`scripts/apply-prod-migrations.sh`, `NOTIFY pgrst, 'reload schema';`, redeploy the
+edge (boot guard now expects **00458**). Bumps `EXPECTED_SCHEMA_VERSION` →
+**00458**.
+
+**THE TAG SAYS THE BRAND, AND THE BRAND IS NOT THE QUESTION — the exact inverse of
+00457.** There the piece was easy and the BRAND was the puzzle (a WILFRED tag is an
+Aritzia coat). Here the tag says GAP on a crewneck tee: both facts are free and
+neither is worth money. What actually decides the price of a staple is **the LINE**
+(mainline vs made-for-outlet) and **the ERA** — both printed on the tag, both
+invisible in the silhouette.
+
+**THE OUTLET LINES FOLD, AND THE FOLD IS DISCLOSED.** Gap Factory / BR Factory are
+made FOR the outlet at a lower spec and a lower band — NOT overstock. That lower
+band is the 00456 argument for splitting; they fold anyway for a reason 00456 did
+not have: **eBay's Brand aspect for a BR Factory shirt IS "Banana Republic"** —
+there is no separate catalogue brand, so a split would invent one and mis-map the
+aspect on every listing. The band gap is ~2x, not 10x, so folding costs less than
+the invention. The line is seeded as a `brand_style` + a tell so it is DISCLOSED,
+never silently comped as mainline.
+
+**THE ERA SPREAD IS ~10x AND STILL EARNS NO SPLIT — LINE vs ERA is the rule.** 90s
+flag Tommy, pre-1977 A&F (a *different company*: Roosevelt's expedition outfitter,
+bankrupt 1977, name later bought), safari-era Banana Republic. 00456 split Fear of
+God at exactly this magnitude — but an ERA has no second brand to key. Vintage
+Tommy IS Tommy. So the spread rides in `tag_eras` + styles.
+
+**ONE DECODER — Uniqlo, and it gives the group the CUT-TAG case the last two could
+not have.** 00456 refused (identifier is a GRAPHIC: not on the tag, not parseable);
+00457 refused (identifier IS printed and regular, but is an ordinary GIVEN NAME:
+not brand-unique). Uniqlo's `HEATTECH / AIRism / BLOCKTECH / DRY-EX` pass all three
+— they are **COINED** words that mean nothing in English. Brand tag cut, care label
+reads HEATTECH ⇒ brand recovers to Uniqlo. **"ULTRA LIGHT DOWN" is deliberately
+excluded** from the pattern: it is a DESCRIPTIVE ENGLISH PHRASE (any brand may call
+a jacket that), so it fails brand-unique for exactly the reason the other four pass
+it. Old Navy's "Powersoft" / AE's "AirFlex" are the same coined shape and are
+omitted because their trademark SETS cannot be cited here — a decoder firing on a
+half-remembered token list is worse than no decoder.
+
+**ZERO COLORWAYS, third group running, third distinct reason.** Six of the seven use
+ordinary descriptive words ("Heather Grey") — nothing to seed. **Uniqlo is the
+exception and is omitted anyway:** it prints a genuine proprietary 2-digit COLOR
+NUMBER, exactly the system this table is for, but the MAPPING cannot be cited here
+and a colour decoder built from recall would mislabel silently and confidently. The
+honest half — *that the number exists and must not be guessed* — is seeded as a
+tell. Same rule that kept Chanel's colours out of 00455.
+
+**"gap" is the worst ordinary-word token in the epic** — worse than 00457's "moth",
+because "moth" is only a house label that could be refused outright while **"Gap" is
+a real canonical brand that MUST resolve**. It is a condition word this product's own
+text emits constantly ("a gap in the waistband", "gaping at the bust"). It can only
+be CONTAINED, and the containment already exists in two places this migration must
+not break: `detectBrandInText` is regex-bounded on BOTH sides (so "gaps"/"gaping"
+never fire) and is only ever fed an eBay TITLE; `findSizingCharts` is leading-bounded
+and is only ever fed the BRAND field. Never widen "gap" past a whole-brand-field
+match; never feed condition text to a brand detector.
+
+**babyGap / GapKids / GapFit are listed explicitly in `brand_match`** — the first bill
+come due from 00457's leading-boundary fix. `"babygap".indexOf("gap")` is preceded by
+"y", a word char, so a bare "gap" does NOT fire on it and babyGap would silently miss
+Gap's charts. The concatenated forms are how the tags print.
+
+**Hollister does NOT fold into A&F** (separately branded, separately searched, lower
+band ⇒ its own canonical) and **a bare "Tommy" is never aliased** (Tommy Bahama is a
+different company — 00457's Vince/Vince Camuto shape, but since neither FULL name
+contains the other, full-name matching separates them and no protective canonical
+entry is needed). The corporate parent never decides a fold; the price band and the
+eBay catalogue do.
+
+`registered_numbers` omitted throughout as UNSOURCED (the 00448/00449/00457 call) —
+several of these brands have well-known RNs, but "well-known" is not a citation and a
+near-miss RN is a false authentication signal.
+
+**Verification:** `deno test` 3869 green (0 failed), `deno lint`, `deno check
+src/main.ts`; web `tsc -b` + `build:locked` + vitest 2091 green. **The `verify:db`
+lane could NOT run — the Docker engine is hung (`docker version` timed out at 60s,
+as at 00452–00457).** Validated statically instead: all 30 dollar-quoted JSON blocks
+parse, both dollar-quote tags balance, all 47 confidences sit in the `numeric(3,2)`
+0..1 range, no row is seeded `verified=true`, the self-record footer is present, all
+4 on-conflict targets match real unique indexes from the 00389 DDL, no two rows
+collide on a conflict key (25 styles / 14 charts, zero dupes), and all 7 `brand_key`s
+equal `brandKey(canonical_brand)`. The shipped decoder pattern was compiled and
+exercised against its match/no-match sets (incl. the "Ultra Light Down" exclusion).
+**Still needs `verify:db` before push.**
+
 ## ⏳ PENDING: 00457_contemporary_womens_brand_knowledge.sql (US-1738 contemporary women's brand KB, 2026-07-16)
 
 Data-only seed of the `brand_knowledge*` tables for the contemporary women's tier:
