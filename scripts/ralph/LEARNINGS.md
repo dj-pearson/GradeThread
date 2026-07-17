@@ -998,6 +998,12 @@ memory — not a progress log (the harness records progress separately).
   names the migration it belongs to, which is the tell. Same merge also CLOBBERED
   the previous story's `PENDING_MIGRATIONS.md` section — check the held-migration
   list still documents every unapplied migration, not just yours.
+- `PENDING_MIGRATIONS.md` DOES exist at the repo root and every brand-KB commit
+  updates it — but the Bash tool's cwd PERSISTS across calls, so an `ls`/`find`
+  for it run after a `cd services/edge-functions` reports "No such file" and reads
+  as "the doc was removed / that bullet is stale". US-1987 nearly skipped the
+  held-migration section on exactly that. Re-check from the repo root before
+  concluding a root-level file is gone.
 - A brand-group story ships FOUR things, not just the migration: the
   `NNNNN_*_brand_knowledge.sql` seed, any missing `BRAND_ALIASES` in
   `brand-normalize.ts` (a brand absent there PASSES THROUGH the seller's casing
