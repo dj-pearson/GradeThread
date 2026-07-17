@@ -37,6 +37,10 @@
   // enough that storage.session can't grow without bound.
   var TERMINAL_GRACE_MS = 10 * 60 * 1000;
 
+  // US-1875 AC3: how far a login-wall notice pushes the deadline out. Generous —
+  // it covers finding the password, a 2FA code, and the redirect back.
+  var LOGIN_WALL_GRACE_MS = 5 * 60 * 1000;
+
   var PENDING = "pending";
 
   function isPending(job) {
@@ -98,6 +102,21 @@
       if (job && job.tabId === tabId && isPending(job)) return job;
     }
     return null;
+  }
+
+  // US-1875 AC3: push a pending job's deadline out. A login wall means the seller
+  // has to go and sign in, which routinely takes longer than the 120s job timeout —
+  // so without this the job we deliberately kept alive would be failed by its own
+  // alarm before they finished typing their password. Terminal jobs are never
+  // revived: once we have told the seller an outcome, it stands.
+  function extendDeadline(jobs, jobId, deadlineAt) {
+    var job = findById(jobs, jobId);
+    if (!isPending(job)) return { jobs: jobs, job: null };
+    // Never pull a deadline IN — an extension is the only legal move, or a
+    // misbehaving page could shorten its own job.
+    if (deadlineAt <= job.deadlineAt) return { jobs: jobs, job: job };
+    var next = Object.assign({}, job, { deadlineAt: deadlineAt });
+    return { jobs: put(jobs, next), job: next };
   }
 
   // Move a job to a terminal state, keeping it for the grace window (AC4).
@@ -170,6 +189,7 @@
 
   root.GT_LISTER_JOBS = {
     JOB_TIMEOUT_MS: JOB_TIMEOUT_MS,
+    LOGIN_WALL_GRACE_MS: LOGIN_WALL_GRACE_MS,
     TERMINAL_GRACE_MS: TERMINAL_GRACE_MS,
     makeJob: makeJob,
     put: put,
@@ -177,6 +197,7 @@
     findById: findById,
     findByTab: findByTab,
     markTerminal: markTerminal,
+    extendDeadline: extendDeadline,
     sweep: sweep,
     isPending: isPending,
     timeoutResultFor: timeoutResultFor,

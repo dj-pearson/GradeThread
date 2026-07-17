@@ -11,25 +11,11 @@
   const SEL = self.GT_LISTER_SELECTORS;
   if (!GT || !SEL) return;
 
+  // US-1875: the job runner (incl. the login-wall rule that must not consume
+  // the job) is shared in common.js — these three scripts were identical copies.
   Promise.resolve(chrome.runtime.sendMessage({ type: "GT_LISTER_GET_JOB" }))
-    .then(async function (job) {
-      if (!job || job.platform !== "mercari") return;
-      const payload = Object.assign({ platform: "mercari", platformLabel: "Mercari" }, job.payload);
-      let partial;
-      try {
-        partial = job.kind === "delist"
-          ? await GT.runDelistFlow(SEL.mercari.delist, payload)
-          : await GT.runFlow(SEL.mercari, payload, { autoSubmit: false });
-      } catch (err) {
-        partial = {
-          ok: false,
-          manual: true,
-          error: "Mercari " + (job.kind === "delist" ? "delist" : "listing") +
-            " failed: " + (err && err.message ? err.message : String(err)),
-          version: SEL.mercari.version,
-        };
-      }
-      chrome.runtime.sendMessage(GT.result(job.jobId, partial));
+    .then(function (job) {
+      return GT.runJobForPlatform(SEL, "mercari", "Mercari", job);
     })
     .catch(function () { /* no queued job / worker asleep */ });
 })();

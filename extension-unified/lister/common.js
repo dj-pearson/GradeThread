@@ -40,18 +40,52 @@
 
   // Probe the flow's required selectors. Returns the list of required keys that
   // are currently MISSING from the DOM — empty means the form looks healthy.
-  GT.probe = async function (flow) {
-    const missing = [];
-    for (const key of flow.required) {
-      const selector = key === "submit" ? flow.submit : flow.fields[key];
-      if (!selector) {
-        missing.push(key);
-        continue;
-      }
-      const el = await GT.waitFor(selector, 6000);
-      if (!el) missing.push(key);
+  //
+  // US-1875 AC4: the waits run CONCURRENTLY. They used to be awaited in a `for`
+  // loop, which is a serial 6s-per-selector penalty paid in the worst case — the
+  // one where the form is broken and every selector runs its timeout out. Three
+  // required selectors meant 18s (and the fill flow's larger sets 24s+) to reach a
+  // diagnosis, most of a 30s worker lifetime spent waiting on independent timers.
+  // The selectors do not depend on each other, so there was never a reason to
+  // serialize them: Promise.all bounds the whole probe at ONE timeout (~6s).
+  GT.probe = async function (flow, timeoutMs) {
+    const results = await Promise.all(
+      flow.required.map(async function (key) {
+        const selector = key === "submit" ? flow.submit : flow.fields[key];
+        if (!selector) return key;
+        const el = await GT.waitFor(selector, timeoutMs || 6000);
+        return el ? null : key;
+      }),
+    );
+    return results.filter(function (k) { return k !== null; });
+  };
+
+  // US-1875 AC3: is this a marketplace login/interstitial page rather than the
+  // page we were sent to?
+  //
+  // WHY IT MATTERS. A logged-out seller gets redirected to a sign-in page, where
+  // none of the listing selectors exist. The old code read that as "every required
+  // selector is missing" and reported the brand's page had CHANGED — telling the
+  // seller the extension needs an update, when they simply needed to log in. Worse,
+  // it consumed the job doing so, so logging in and retrying required starting over
+  // from the SaaS.
+  //
+  // Two independent signals, either of which is enough — a redirect usually changes
+  // the URL, but SPA marketplaces sometimes render the login form in place:
+  //   • URL: the login config's urlPattern matches location.href.
+  //   • FORM: a password input is present. That is the definitive tell — a listing
+  //     form never has one, and every login page does.
+  GT.isLoginWall = function (loginConfig) {
+    try {
+      if (document.querySelector('input[type="password"]')) return true;
+      const pattern = loginConfig && loginConfig.urlPattern;
+      if (pattern && new RegExp(pattern, "i").test(location.href)) return true;
+      const sel = loginConfig && loginConfig.selector;
+      if (sel && document.querySelector(sel)) return true;
+      return false;
+    } catch (_e) {
+      return false;
     }
-    return missing;
   };
 
   // Set a value on a React/Vue-controlled input so the framework's onChange
@@ -230,6 +264,16 @@
       };
     }
 
+    // US-1875 AC1: probe in INTERACTION ORDER.
+    //
+    // The old probe required `remove` to be in the DOM before anything was clicked
+    // — but `remove` lives INSIDE the overflow menu and only exists once the menu is
+    // open. So the required set could essentially never be satisfied, and the
+    // shipped-enabled Poshmark flow bailed out at the probe on every run, reporting
+    // a selector break on a page that was working fine.
+    //
+    // Only `menu` can exist pre-interaction, so only `menu` is probed up front;
+    // everything downstream is validated at the point it is supposed to appear.
     const missing = await GT.probe({
       required: delistFlow.required,
       fields: { menu: delistFlow.menu, remove: delistFlow.remove },
@@ -246,9 +290,34 @@
       };
     }
 
+    // Per-platform wait tuning, defaulted. Config-driven like everything else in
+    // the selectors file — a marketplace that renders its confirm dialog slowly can
+    // be given more room without touching this code (and the DOM fixture tests can
+    // exercise the real timeout branches without sleeping for 8 seconds).
+    const t = delistFlow.timeouts || {};
+    const controlMs = typeof t.control === "number" ? t.control : 6000;
+    const verifyMs = typeof t.verify === "number" ? t.verify : 8000;
+
+    const startUrl = location.href;
+    // Snapshot the "gone" witness BEFORE we touch anything. Its disappearance is
+    // only evidence if it was actually there to begin with — see verifyDelist.
+    const goneWasPresent = Boolean(
+      delistFlow.verify && delistFlow.verify.gone &&
+      document.querySelector(delistFlow.verify.gone),
+    );
+
     const menu = document.querySelector(delistFlow.menu);
-    if (menu) menu.click();
-    const remove = await GT.waitFor(delistFlow.remove, 6000);
+    if (!menu) {
+      return {
+        ok: false,
+        manual: true,
+        error: label + "'s listing menu didn't open — end the listing manually.",
+        version: delistFlow.version,
+      };
+    }
+    menu.click();
+
+    const remove = await GT.waitFor(delistFlow.remove, controlMs);
     if (!remove) {
       return {
         ok: false,
@@ -258,12 +327,150 @@
       };
     }
     remove.click();
+
     if (delistFlow.confirm) {
-      const confirm = await GT.waitFor(delistFlow.confirm, 6000);
-      if (confirm) confirm.click();
+      const confirm = await GT.waitFor(delistFlow.confirm, controlMs);
+      if (!confirm) {
+        // We clicked delete and the confirmation never rendered, so we genuinely do
+        // not know whether it took. Report unverified — see the note below on why
+        // guessing here is the expensive mistake.
+        return {
+          ok: false,
+          manual: true,
+          unverified: true,
+          error: label + " didn't show the delete confirmation, so GradeThread " +
+            "couldn't confirm the listing ended. Check " + label + " and end it manually.",
+          version: delistFlow.version,
+        };
+      }
+      confirm.click();
     }
-    GT.log("requested delist on " + payload.platform);
-    return { ok: true, delisted: true, version: delistFlow.version };
+
+    // US-1875 AC2: VERIFY, don't assume.
+    //
+    // This is the most expensive bug in the product. The old code returned
+    // ok:true/delisted:true the instant it had clicked confirm — it never checked
+    // that anything happened. A click that silently no-ops (stale selector matching
+    // the wrong button, an error toast, a slow request that fails) reported SUCCESS,
+    // GradeThread cleared the pending-delist stamp, and the item stayed live on a
+    // marketplace after it had already sold elsewhere. That is a double sale: the
+    // seller owes an item they no longer have, and eats the defect.
+    //
+    // So success now requires positive evidence, and the absence of evidence is
+    // reported as ok:false + unverified:true — which deliberately does NOT clear the
+    // US-1629 pending-delist stamp, leaving the double-sale protection armed. A
+    // false "please double-check" costs the seller ten seconds; a false "delisted"
+    // costs them the sale.
+    const evidence = await GT.verifyDelist(
+      delistFlow,
+      { startUrl: startUrl, goneWasPresent: goneWasPresent },
+      verifyMs,
+    );
+    if (!evidence) {
+      return {
+        ok: false,
+        manual: true,
+        unverified: true,
+        error: "GradeThread clicked delete on " + label + " but couldn't confirm the " +
+          "listing actually ended. Check " + label + " and end it manually if it's still live.",
+        version: delistFlow.version,
+      };
+    }
+
+    GT.log("delist verified on " + payload.platform + " via " + evidence);
+    return { ok: true, delisted: true, verifiedBy: evidence, version: delistFlow.version };
+  };
+
+  // US-1875 AC2: watch for positive proof that the delete took effect. Returns the
+  // NAME of the evidence found (for diagnostics), or null if none arrived in time.
+  //
+  // Three independent signals, because the marketplaces differ and any one of them
+  // is sufficient proof:
+  //   • navigated  — the page left the listing URL (Poshmark bounces to the closet).
+  //   • gone       — a control that only exists on a LIVE listing disappeared.
+  //   • toast      — the marketplace rendered its own success confirmation.
+  GT.verifyDelist = function (delistFlow, ctx, timeoutMs) {
+    const v = delistFlow.verify || {};
+    const startUrl = ctx && ctx.startUrl;
+    // CRITICAL: the `gone` signal is only admissible if the witness was present
+    // BEFORE we started. Otherwise a selector that never matched anything — a stale
+    // one, say, which is exactly the case we are trying to catch — would be "absent"
+    // on the first tick and rubber-stamp every single delete as verified. That would
+    // rebuild the false-success bug inside the very check meant to prevent it.
+    const goneAdmissible = Boolean(v.gone) && Boolean(ctx && ctx.goneWasPresent);
+    const deadline = Date.now() + (timeoutMs || 8000);
+    return new Promise(function (resolve) {
+      const tick = function () {
+        try {
+          if (v.urlChanged !== false && startUrl && location.href !== startUrl) {
+            return resolve("navigated");
+          }
+          if (v.toast && document.querySelector(v.toast)) return resolve("toast");
+          if (goneAdmissible && !document.querySelector(v.gone)) return resolve("gone");
+        } catch (_e) { /* keep polling */ }
+        if (Date.now() > deadline) return resolve(null);
+        setTimeout(tick, 200);
+      };
+      tick();
+    });
+  };
+
+  // US-1875 AC3: run a queued job for one platform. Shared by poshmark.js /
+  // mercari.js / grailed.js, which were three byte-identical copies of this — the
+  // login-wall rule is exactly the kind of thing that rots when it has to be fixed
+  // in triplicate.
+  //
+  // THE JOB-CONSUMPTION RULE. Sending GT_LISTER_RESULT is what ENDS a job. So a
+  // login wall must NOT send one: the seller has done nothing wrong, the page just
+  // isn't the page we were sent to, and the work is still pending. We push a
+  // non-terminal NOTICE instead (which also extends the job's deadline, since
+  // logging in takes longer than the 120s job timeout), leave the job open, and let
+  // the content script re-injected on the post-login page pick it straight back up.
+  GT.runJobForPlatform = async function (sel, platformKey, label, job) {
+    if (!job || job.platform !== platformKey) return;
+    const cfg = sel[platformKey];
+    if (!cfg) return;
+    const payload = Object.assign(
+      { platform: platformKey, platformLabel: label },
+      job.payload,
+    );
+
+    if (GT.isLoginWall(cfg.login)) {
+      GT.log(platformKey + ": login wall — leaving the job queued");
+      GT.showBanner(
+        "Log in to " + label + " — GradeThread will finish this automatically once you're in.",
+      );
+      try {
+        chrome.runtime.sendMessage({
+          type: "GT_LISTER_NOTICE",
+          jobId: job.jobId,
+          notice: {
+            loginWall: true,
+            platform: platformKey,
+            error: "Log in to " + label + " and this will retry automatically.",
+          },
+        });
+      } catch (_e) { /* worker asleep — the job is still queued either way */ }
+      return; // deliberately NO GT_LISTER_RESULT: the job stays pending.
+    }
+
+    let partial;
+    try {
+      partial = job.kind === "delist"
+        ? await GT.runDelistFlow(cfg.delist, payload)
+        : await GT.runFlow(cfg, payload, { autoSubmit: false });
+    } catch (err) {
+      partial = {
+        ok: false,
+        manual: true,
+        error: label + " " + (job.kind === "delist" ? "delist" : "listing") +
+          " failed: " + (err && err.message ? err.message : String(err)),
+        version: cfg.version,
+      };
+    }
+    try {
+      chrome.runtime.sendMessage(GT.result(job.jobId, partial));
+    } catch (_e) { /* the background's push/alarm still reports the job */ }
   };
 
   self.GTLister = GT;

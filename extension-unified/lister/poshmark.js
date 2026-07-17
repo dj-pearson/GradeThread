@@ -13,25 +13,11 @@
 
   // Promise form so the query resolves on Firefox too (its `chrome.*` is
   // callback-only); a rejected send (worker asleep / no job) is a quiet no-op.
+  // US-1875: the job runner (incl. the login-wall rule that must not consume
+  // the job) is shared in common.js — these three scripts were identical copies.
   Promise.resolve(chrome.runtime.sendMessage({ type: "GT_LISTER_GET_JOB" }))
-    .then(async function (job) {
-      if (!job || job.platform !== "poshmark") return;
-      const payload = Object.assign({ platform: "poshmark", platformLabel: "Poshmark" }, job.payload);
-      let partial;
-      try {
-        partial = job.kind === "delist"
-          ? await GT.runDelistFlow(SEL.poshmark.delist, payload)
-          : await GT.runFlow(SEL.poshmark, payload, { autoSubmit: false });
-      } catch (err) {
-        partial = {
-          ok: false,
-          manual: true,
-          error: "Poshmark " + (job.kind === "delist" ? "delist" : "listing") +
-            " failed: " + (err && err.message ? err.message : String(err)),
-          version: SEL.poshmark.version,
-        };
-      }
-      chrome.runtime.sendMessage(GT.result(job.jobId, partial));
+    .then(function (job) {
+      return GT.runJobForPlatform(SEL, "poshmark", "Poshmark", job);
     })
     .catch(function () { /* no queued job / worker asleep */ });
 })();

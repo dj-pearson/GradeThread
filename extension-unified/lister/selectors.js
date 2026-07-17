@@ -25,6 +25,11 @@ const GT_LISTER_SELECTORS = {
     // US-1876: known domains a delist URL must host-match (subdomains included).
     // The background rejects any delist listingUrl outside these.
     hosts: ["poshmark.com"],
+    // US-1875 AC3: how to recognise a login/interstitial page, so a logged-out
+    // seller is told "log in and retry" instead of "the selectors broke". A
+    // password input is the universal tell (checked in isLoginWall); these narrow
+    // it for the SPA case where the URL changes but the form renders in place.
+    login: { urlPattern: "poshmark\.com/(login|signup)" },
     // The form is considered "present" only if every required selector resolves.
     required: ["title", "description", "submit"],
     fields: {
@@ -42,15 +47,27 @@ const GT_LISTER_SELECTORS = {
     // modal. Probed + fail-loud like the fill flow.
     delist: {
       enabled: true,
-      version: "2026.06.1",
+      version: "2026.07.1",
       lastVerified: "2026-06-13",
-      required: ["menu", "remove"],
+      // US-1875 AC1: ONLY what can exist before any interaction. `remove` lives
+      // inside the overflow menu and does not exist until `menu` is clicked, so
+      // requiring it up front (as this did) made the probe unsatisfiable and the
+      // whole enabled flow bailed out every run. It is validated after the click.
+      required: ["menu"],
       menu:
         'button[data-test="listing-menu"], button.listing__menu, [data-et-name="listing_options"]',
       remove:
         '[data-test="delete-listing"], [data-et-name="delete_listing"], a[href*="delete"]',
       confirm:
         'button[data-test="confirm-delete"], button.btn--primary[data-et-name="yes"], button[data-et-name="confirm"]',
+      // US-1875 AC2: proof the delete took. Poshmark bounces to the closet, so the
+      // URL change is the primary signal; the listing menu vanishing and the
+      // success toast are corroboration for any in-place variant.
+      verify: {
+        urlChanged: true,
+        gone: 'button[data-test="listing-menu"], button.listing__menu',
+        toast: '[data-test="toast-success"], .toast--success, [role="alert"].success',
+      },
     },
   },
 
@@ -64,6 +81,7 @@ const GT_LISTER_SELECTORS = {
     lastVerified: null,
     newListingUrl: "https://www.mercari.com/sell/",
     hosts: ["mercari.com"],
+    login: { urlPattern: "mercari\.com/(signin|login|signup)" },
     required: ["title", "description", "price", "submit"],
     fields: {
       title: 'input[name="name"], input[data-testid="Name"]',
@@ -74,12 +92,18 @@ const GT_LISTER_SELECTORS = {
     submit: 'button[data-testid="ListButton"], button[type="submit"]',
     delist: {
       enabled: false,
-      version: "2026.06.0-draft",
+      version: "2026.07.0-draft",
       lastVerified: null,
-      required: ["menu", "remove"],
+      // US-1875 AC1: pre-interaction selectors only (see the Poshmark note).
+      required: ["menu"],
       menu: 'button[data-testid="ListingMenu"], button[aria-label*="menu"]',
       remove: '[data-testid="Delete"], [data-testid="DeleteListing"]',
       confirm: 'button[data-testid="ConfirmDelete"], button[type="submit"]',
+      verify: {
+        urlChanged: true,
+        gone: 'button[data-testid="ListingMenu"]',
+        toast: '[data-testid="Toast"], [role="alert"]',
+      },
     },
   },
 
@@ -90,6 +114,7 @@ const GT_LISTER_SELECTORS = {
     lastVerified: null,
     newListingUrl: "https://www.grailed.com/sell/",
     hosts: ["grailed.com"],
+    login: { urlPattern: "grailed\.com/(users/sign_in|login|signup)" },
     required: ["title", "description", "price", "submit"],
     fields: {
       title: 'input[name="title"], input#title',
@@ -100,12 +125,18 @@ const GT_LISTER_SELECTORS = {
     submit: 'button[type="submit"].listItem, button[type="submit"]',
     delist: {
       enabled: false,
-      version: "2026.06.0-draft",
+      version: "2026.07.0-draft",
       lastVerified: null,
-      required: ["menu", "remove"],
+      // US-1875 AC1: pre-interaction selectors only (see the Poshmark note).
+      required: ["menu"],
       menu: 'button[aria-label*="actions"], button.listing-actions',
       remove: 'button[data-action="delete"], a[href*="delete"]',
       confirm: 'button[data-action="confirm-delete"], button[type="submit"]',
+      verify: {
+        urlChanged: true,
+        gone: 'button[aria-label*="actions"], button.listing-actions',
+        toast: '[data-role="toast"], [role="alert"]',
+      },
     },
   },
 };

@@ -69,6 +69,23 @@ export interface ListerResult {
   timedOut?: boolean;
   /** US-1874: the marketplace tab was closed before the job could finish. */
   tabClosed?: boolean;
+  /** US-717/US-1875: the listing was ended AND the deletion was verified. */
+  delisted?: boolean;
+  /** US-1875: which signal proved the delete took (navigated | gone | toast). */
+  verifiedBy?: string;
+  /**
+   * US-1875: we clicked delete but could NOT confirm it took effect. Always paired
+   * with ok:false, which is what keeps the US-1629 pending-delist stamp armed —
+   * never report an unverified delist as success, or a sold item stays live.
+   */
+  unverified?: boolean;
+  /**
+   * US-1875: a NON-TERMINAL notice (currently a login wall). The job is still
+   * queued and will run once the seller signs in — this is not a final outcome.
+   */
+  pending?: boolean;
+  /** US-1875: the marketplace showed a login page; the job was left queued. */
+  loginWall?: boolean;
   /**
    * US-1874: the job finished AFTER we had already reported it as timed out. The
    * listing may well exist on the marketplace — the kit surfaces this so the seller

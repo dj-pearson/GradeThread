@@ -733,6 +733,38 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
     return true;
   }
 
+  // US-1875 AC3: a NON-TERMINAL job notice (currently: a login wall). It reports
+  // to the seller WITHOUT ending the job — the content script deliberately sends
+  // no GT_LISTER_RESULT, because the work is still pending and will run once they
+  // log in and the target page re-injects. It also pushes the deadline out, since
+  // signing in takes longer than the job timeout that would otherwise kill it.
+  if (msg.type === "GT_LISTER_NOTICE") {
+    (async () => {
+      const job = await withJobs(async (jobs) => ({
+        value: self.GT_LISTER_JOBS.findById(jobs, msg.jobId),
+      }));
+      if (!job || !self.GT_LISTER_JOBS.isPending(job)) {
+        sendResponse({ ok: true });
+        return;
+      }
+      const extended = await withJobs(async (jobs) => {
+        const r = self.GT_LISTER_JOBS.extendDeadline(
+          jobs,
+          msg.jobId,
+          Date.now() + self.GT_LISTER_JOBS.LOGIN_WALL_GRACE_MS,
+        );
+        return { jobs: r.jobs, value: r.job };
+      });
+      if (extended) await scheduleJobAlarm(extended);
+      // Non-terminal by construction: pushed to the SaaS tab so the seller sees
+      // "log in and retry", but pendingExternal is left untouched so the promise
+      // stays open for the real outcome.
+      await pushToSaasTab(job, Object.assign({ ok: false, pending: true }, msg.notice));
+      sendResponse({ ok: true });
+    })();
+    return true;
+  }
+
   if (msg.type === "GT_LISTER_RESULT") {
     (async () => {
       const out = Object.assign({}, msg);
