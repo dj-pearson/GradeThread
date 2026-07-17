@@ -1603,7 +1603,7 @@
         "recentReads entries always pair the score with the URL that was actually graded"
       ],
       "priority": 1878,
-      "passes": false,
+      "passes": true,
       "notes": "Audit findings 1/2/3/10 (two criticals). Highest-impact buyer-surface fix: five of six marketplaces are SPA-first."
     },
     {
