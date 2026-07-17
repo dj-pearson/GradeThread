@@ -1693,7 +1693,7 @@
       ],
       "priority": 1885,
       "passes": false,
-      "notes": "Audit findings 19/20 + Lister F17/F24/F25/F26. Depends on US-1873 (registry) and US-1838 (token). This is the 'look good / ease of use' story."
+      "notes": "Audit findings 19/20 + Lister F17/F24/F25/F26. Depends on US-1873 (registry) and US-1838 (token). This is the 'look good / ease of use' story. | PARTIAL 2026-07-17: AC1's last-job-state gap CLOSED — background records each Lister outcome (lastJobRecord -> storage.local, a projection not the job payload) and the popup renders it with per-outcome copy/colour (done / waiting / timed out / tab closed / unconfirmed / failed), incl. a late-success callout so a seller doesn't double-post. New .pop-status.warn for the middle ground. Platform labels hoisted to one list. Re-verified the REST of the story is ALREADY implemented: AC1 role-aware sections + platform status from the real selectors config w/ version+lastVerified; AC2 sign-in/token flow + plan badges; AC3 versioned+revocable consent; AC4 onInstalled onboarding; AC5 fill banner. Tests: lister-jobs.test.cjs covers the outcome mapping + the no-payload projection; 10/10 extension test files green. BLOCKS passes: AC1's 'pending delists' in the popup — FlipDesk seller data the extension cannot reach (the SaaS reads it from Supabase directly), so it needs a new owner-verified edge endpoint (US-268 tenant isolation) + a popup fetch."
     },
     {
       "id": "US-1897",
