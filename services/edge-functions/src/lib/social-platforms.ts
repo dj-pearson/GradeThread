@@ -13,6 +13,9 @@ export const SOCIAL_PLATFORMS = [
   "threads",
   "pinterest",
   "instagram",
+  // Video-native network (US-video-distribution). Text variants carry the
+  // caption; the media is a video_url on the post (see content-social-publish).
+  "tiktok",
 ] as const;
 
 export type SocialPlatform = (typeof SOCIAL_PLATFORMS)[number];
@@ -31,6 +34,7 @@ export const PLATFORM_CHAR_LIMIT: Record<SocialPlatform, number> = {
   threads: 500,
   pinterest: 500,
   instagram: 2200,
+  tiktok: 2200, // Content Posting API caption ceiling.
 };
 
 // Which branded card aspect each platform should ship with. Labels only —
@@ -43,6 +47,7 @@ export const PLATFORM_IMAGE_FIELD: Record<SocialPlatform, string> = {
   threads: "card_square", // 1:1
   pinterest: "pin_vertical", // 2:3
   instagram: "card_square",
+  tiktok: "pin_vertical", // vertical cover/poster fallback for video posts
 };
 
 // US-871: which branded-card aspect ratio each image_field maps to. The
@@ -105,6 +110,7 @@ export const PLATFORM_LABEL: Record<SocialPlatform, string> = {
   threads: "Threads",
   pinterest: "Pinterest",
   instagram: "Instagram",
+  tiktok: "TikTok",
 };
 
 // Per-platform generation guidance injected into the AI prompt. Each line is a
@@ -122,6 +128,8 @@ export const PLATFORM_GENERATION_RULES: Record<SocialPlatform, string> = {
     "Keyword-rich description <=500 chars that reads like a useful caption (front-load the searchable value). Describe the destination and include the CTA URL. 2-4 keyword hashtags.",
   instagram:
     "Caption with deliberate line breaks: hook on line 1, value in the middle, a clear CTA (note 'link in bio'). Put 5-10 grouped hashtags in a block at the very end.",
+  tiktok:
+    "Short, punchy video caption <=150 chars ideally. Lead with a scroll-stopping hook, casual and native to TikTok. 3-5 trend-friendly hashtags. CTA points to 'link in bio' (TikTok captions aren't clickable).",
 };
 
 // Default enabled set when content_settings.social_platforms is missing/empty.

@@ -13,9 +13,10 @@ import {
   SOCIAL_PLATFORMS,
 } from "../lib/social-platforms.ts";
 
-Deno.test("isSocialPlatform guards the six known networks", () => {
+Deno.test("isSocialPlatform guards the known networks", () => {
   for (const p of SOCIAL_PLATFORMS) assert(isSocialPlatform(p));
-  assert(!isSocialPlatform("tiktok"));
+  assert(isSocialPlatform("tiktok")); // video-distribution addition
+  assert(!isSocialPlatform("snapchat"));
   assert(!isSocialPlatform(42));
   assert(!isSocialPlatform(null));
 });
