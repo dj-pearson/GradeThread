@@ -5307,6 +5307,550 @@ export const SIZING_CHARTS: SizingChart[] = [
       { size: "6XL (≈US 30-32)", measurements: { bust: "56-59", waist: "49-52", hip: "59-62" } },
     ],
   },
+
+  // ── US-1986: fast-fashion & mall group, tier 2 ──────────────────────────────
+  // Mirrors migration 00466's brand_size_charts seed (the DB rows win when the
+  // pack loads; these are the offline fallback).
+  //
+  // 00458's pack was about the SPREAD — every tag says the same letters and they
+  // mean different bodies (a Uniqlo M vs an Old Navy M). THIS pack is a harder
+  // problem one level up, and it is why these brands belong together:
+  //
+  //     THE SAME NUMBER IS TWO DIFFERENT SIZE SYSTEMS, AND ONLY THE BRAND SAYS
+  //     WHICH. A Zara or H&M "38" is an EU size (≈ US 6-8). A Levi's, Lucky Brand
+  //     or Express "38" is a WAIST IN INCHES. That is not a fit nuance — it is a
+  //     ~10-inch error, and it is silent: both tags print two digits and nothing
+  //     else. The European brands here (Zara, H&M) label in the EU grade; the
+  //     American ones (Express, Lucky, Ann Taylor, LOFT, Talbots) label US.
+  //
+  // So every chart below names its SYSTEM in the `garment` string and carries the
+  // cross-map INSIDE the size label, where the model actually reads it — the
+  // US-1739 convention, applied to a system rather than to a fit.
+  //
+  // A NOTE ON CONFIDENCE, WHICH IS DELIBERATELY UNEVEN HERE. Zara, Express and
+  // PacSun serve 403 to automated fetches of their own size guides, so those
+  // charts come from third-party aggregators and are scored DOWN (0.55-0.6)
+  // against the brand-published ones (BDG 0.85, from URBN's own guide). The
+  // confidence column exists for exactly this, and an honest 0.55 is worth more
+  // than a fabricated 0.9 — a chart is a suggestion to a model, not a promise.
+
+  // Urban Outfitters / BDG. The ONLY brand-published chart in this group: URBN's
+  // own size guide (mirrored by Nordstrom as a PDF), so it earns 0.85.
+  //
+  // TWO TRAPS, BOTH FROM THE PUBLISHED GUIDE ITSELF:
+  //   1. THE TAG NUMBER IS NOT THE BODY WAIST. A BDG "25" is a 24.5in waist — the
+  //      label runs ~0.5in ABOVE the body it fits. Small, but it is the difference
+  //      between a right and a wrong size call at the bottom of the range.
+  //   2. THESE ARE **BODY** MEASUREMENTS, NOT FLAT-GARMENT ONES — the guide says
+  //      so explicitly. A tape laid across a flat waistband and doubled is NOT
+  //      comparable to this column without accounting for the garment's own ease.
+  //      Every other chart in this file is read flat, so this one says it aloud.
+  {
+    brand: "Urban Outfitters",
+    brandMatch: ["urban outfitters", "urbanoutfitters", "bdg"],
+    department: "Women",
+    garment: "BDG denim (US numeric waist label — NOT inches, see note)",
+    categoryMatch: ["jean", "denim", "pant", "bottom", "short", "trouser"],
+    note:
+      "BDG is Urban Outfitters' house denim label and its tag says BDG, never " +
+      "'Urban Outfitters'. Sized by a US numeric waist label 25-31 (= apparel " +
+      "0-12). THE LABEL IS NOT THE BODY WAIST: a tagged 25 fits a 24.5in waist, " +
+      "so the number runs ~0.5in HIGH. These are BODY measurements per URBN's own " +
+      "guide, NOT flat-garment measurements — do not compare a doubled flat " +
+      "waistband to them without allowing for ease. A non-US chart (General Pants " +
+      "AU) maps these sizes differently (tag ≈ literal waist); the US mapping " +
+      "below is the one that applies to US resale.",
+    rows: [
+      { size: "25 (= US 0)", measurements: { waist: "24.5", hip: "34" } },
+      { size: "26 (= US 2)", measurements: { waist: "25.5", hip: "35" } },
+      { size: "27 (= US 4)", measurements: { waist: "26.5", hip: "36" } },
+      { size: "28 (= US 6)", measurements: { waist: "27.5", hip: "37" } },
+      { size: "29 (= US 8)", measurements: { waist: "28.5", hip: "38" } },
+      { size: "30 (= US 10)", measurements: { waist: "29.5", hip: "39" } },
+      { size: "31 (= US 12)", measurements: { waist: "30.5", hip: "40" } },
+    ],
+  },
+  {
+    brand: "Urban Outfitters",
+    brandMatch: ["urban outfitters", "urbanoutfitters", "bdg"],
+    department: "Women",
+    garment: "Tops & dresses (US numeric)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "blouse",
+      "dress",
+      "sweater",
+      "hoodie",
+      "jacket",
+      "tank",
+    ],
+    note:
+      "Urban Outfitters / BDG apparel runs US numeric 0-16; bust is the primary " +
+      "signal. UO also sells its house labels in ALPHA (XS-XL) — if the tag shows " +
+      "a letter, read it as standard US alpha, not against this table. BODY " +
+      "measurements per URBN's published guide, not flat-garment.",
+    rows: [
+      { size: "0", measurements: { bust: "31", waist: "23.5", hip: "33" } },
+      { size: "2", measurements: { bust: "32", waist: "24.5", hip: "34" } },
+      { size: "4", measurements: { bust: "33", waist: "25.5", hip: "35" } },
+      { size: "6", measurements: { bust: "34", waist: "26.5", hip: "36" } },
+      { size: "8", measurements: { bust: "35", waist: "27.5", hip: "37" } },
+      { size: "10", measurements: { bust: "36", waist: "28.5", hip: "38" } },
+      { size: "12", measurements: { bust: "37", waist: "29.5", hip: "39" } },
+      { size: "14", measurements: { bust: "38.5", waist: "31", hip: "40.5" } },
+      { size: "16", measurements: { bust: "40", waist: "32.5", hip: "42" } },
+    ],
+  },
+
+  // Express. US numeric 00-18 — the SYSTEM is certain, the MEASUREMENTS are not:
+  // express.com serves 403 to automated fetches of its own size chart, so the
+  // numbers below come from a third-party aggregator and are capped at 0.6.
+  {
+    brand: "Express",
+    brandMatch: ["express"],
+    department: "Women",
+    garment: "Bottoms (US numeric 00-18 — the number is a US SIZE, not inches)",
+    categoryMatch: ["pant", "jean", "denim", "bottom", "short", "trouser", "legging", "skirt"],
+    note:
+      "Express women's bottoms run US numeric 00-18. CONTRAST ZARA AND H&M IN " +
+      "THIS SAME PACK: their two-digit numbers are EU sizes. Express's are US " +
+      "sizes — an Express 4 is a US 4 (≈26in waist), not an EU 4. Inseams: " +
+      "Regular 33in, Short 30in, Tall 34-35in, all sharing one waist/hip grade, so " +
+      "a length suffix says nothing about the size. Aggregator-sourced (Express's " +
+      "own guide is not machine-readable) — capped confidence.",
+    rows: [
+      { size: "00", measurements: { waist: "23", hip: "34", bust: "30.5" } },
+      { size: "0", measurements: { waist: "24", hip: "35", bust: "31.5" } },
+      { size: "2", measurements: { waist: "25", hip: "36", bust: "32.5" } },
+      { size: "4", measurements: { waist: "26", hip: "37", bust: "33.5" } },
+      { size: "6", measurements: { waist: "27", hip: "38", bust: "34.5" } },
+      { size: "8", measurements: { waist: "28", hip: "39", bust: "35.5" } },
+      { size: "10", measurements: { waist: "29.5", hip: "40.5", bust: "37" } },
+      { size: "12", measurements: { waist: "31", hip: "42", bust: "38.5" } },
+      { size: "14", measurements: { waist: "32.5", hip: "43.5", bust: "40" } },
+      { size: "16", measurements: { waist: "34", hip: "45", bust: "41.5" } },
+      { size: "18", measurements: { waist: "35.5", hip: "46.5", bust: "43" } },
+    ],
+  },
+  {
+    brand: "Express",
+    brandMatch: ["express"],
+    department: "Women",
+    garment: "Tops (US numeric 00-18 / alpha)",
+    categoryMatch: ["top", "tee", "shirt", "blouse", "dress", "sweater", "tank", "bodysuit"],
+    note:
+      "Express women's tops run US numeric 00-18 and ALSO alpha (XS-XL) " +
+      "depending on the line — the Portofino shirt is typically alpha, the " +
+      "wear-to-work tops numeric. Bust is the primary signal. Aggregator-sourced " +
+      "— capped confidence.",
+    rows: [
+      { size: "00 (≈XXS)", measurements: { bust: "30.5", waist: "23" } },
+      { size: "0-2 (≈XS)", measurements: { bust: "31.5-32.5", waist: "24-25" } },
+      { size: "4-6 (≈S)", measurements: { bust: "33.5-34.5", waist: "26-27" } },
+      { size: "8-10 (≈M)", measurements: { bust: "35.5-37", waist: "28-29.5" } },
+      { size: "12-14 (≈L)", measurements: { bust: "38.5-40", waist: "31-32.5" } },
+      { size: "16-18 (≈XL)", measurements: { bust: "41.5-43", waist: "34-35.5" } },
+    ],
+  },
+
+  // PacSun / Bullhead. The LOWEST-confidence chart in the pack (0.55) and the one
+  // most likely to be the wrong table entirely — see the retailer trap in 00466:
+  // ~70% of PacSun's sales were third-party brands, so a garment "from PacSun" is
+  // more often NOT a PacSun garment. This chart applies ONLY when the tag itself
+  // says Bullhead / PacSun / Kirra / LA Hearts / Nollie / On the Byas.
+  {
+    brand: "PacSun",
+    brandMatch: ["pacsun", "pacific sunwear", "bullhead"],
+    department: "Women",
+    garment: "Bullhead / PacSun denim (US numeric waist label — NOT inches)",
+    categoryMatch: ["jean", "denim", "pant", "bottom", "short", "trouser"],
+    note:
+      "Bullhead is PacSun's house denim label (renamed PacSun Denim ~2016) and " +
+      "its tag says Bullhead, never 'PacSun'. US numeric waist label 23-32. LIKE " +
+      "BDG, THE LABEL IS NOT THE LITERAL WAIST — a tagged 23 fits a 24in waist, " +
+      "so the number runs ~1in LOW at the bottom of the range and the offset " +
+      "grows. ONLY use this chart when the tag names a PacSun house label: PacSun " +
+      "is primarily a MULTI-BRAND RETAILER and most garments bought there carry " +
+      "another brand's tag and another brand's grade. Aggregator-sourced " +
+      "(pacsun.com's own guide is not machine-readable) — capped confidence.",
+    rows: [
+      { size: "23", measurements: { waist: "24", hip: "34.5" } },
+      { size: "24", measurements: { waist: "25", hip: "35.5" } },
+      { size: "25", measurements: { waist: "26", hip: "36.5" } },
+      { size: "26", measurements: { waist: "27", hip: "37.5" } },
+      { size: "27", measurements: { waist: "28", hip: "38.5" } },
+      { size: "28", measurements: { waist: "29", hip: "39.5" } },
+      { size: "29", measurements: { waist: "30", hip: "40.5" } },
+      { size: "30", measurements: { waist: "31.5", hip: "42" } },
+      { size: "31", measurements: { waist: "33", hip: "43.5" } },
+      { size: "32", measurements: { waist: "34.5", hip: "45" } },
+    ],
+  },
+
+  // ── The two EU brands — the pack's headline problem ────────────────────────
+  // AND THE CONVERSION ITSELF IS DISPUTED. This is the part that surprised the
+  // research and it is seeded honestly rather than smoothed over: the sources do
+  // not agree on the EU->US map by a FULL SIZE. Zara's grade goes through UK
+  // (EU 38 = UK 10 = US 6); H&M's aggregators use EU = US + 30 (EU 38 = US 8).
+  // Both conventions are in live circulation and neither brand's own chart is
+  // machine-reachable (zara.com and hm.com both serve 403).
+  //
+  // So every EU label below carries a RANGE, not a point ("≈US 6-8"). A model
+  // told "EU 38 = US 6" would state a false precision that the evidence does not
+  // support; a model told "≈US 6-8, and the tag's EU number is what is certain"
+  // can hedge correctly and defer to the measurements. Capped confidence, and the
+  // note says WHY the confidence is capped — which is the useful part.
+  {
+    brand: "Zara",
+    brandMatch: ["zara"],
+    department: "Women",
+    garment: "Bottoms (EU numeric 34-42 — an EU SIZE, never inches)",
+    categoryMatch: ["bottom", "pant", "jean", "denim", "short", "trouser", "skirt", "legging"],
+    note:
+      "⚠ THE NUMBER ON A ZARA TAG IS AN EU SIZE, NOT A WAIST IN INCHES. A Zara " +
+      "38 is a ~27.5in waist (≈US 6-8), NOT a 38in waist — reading it as inches " +
+      "is a ~10in error and the tag gives no hint, because a Levi's or Express 38 " +
+      "in the same photo IS inches. THE EU->US MAP IS DISPUTED BY ONE FULL SIZE " +
+      "across sources (EU 38 = US 6 via the UK grade, or US 8 via EU = US+30), so " +
+      "the US equivalents below are RANGES and the EU number is the only certain " +
+      "part — prefer the measurements over the conversion. Zara is widely SAID to " +
+      "run small, but that is folk knowledge, not a sourced fact (measurement " +
+      "tests cut both ways), so do not assert it. Some US-market Zara denim is " +
+      "reported to carry US/inch sizing instead — if a tag shows 'U.S. 31' with a " +
+      "31in waist, believe the tag, not this table. Aggregator-sourced (zara.com " +
+      "is not machine-readable) — capped confidence.",
+    rows: [
+      { size: "EU 34 / XS (≈US 2-4, UK 6)", measurements: { bust: "32.25", waist: "24.5" } },
+      { size: "EU 36 / S (≈US 4-6, UK 8)", measurements: { bust: "34", waist: "26" } },
+      { size: "EU 38 / M (≈US 6-8, UK 10)", measurements: { bust: "35.5", waist: "27.5" } },
+      { size: "EU 40 / L (≈US 8-10, UK 12)", measurements: { bust: "37.75", waist: "30" } },
+      { size: "EU 42 / XL (≈US 10-12, UK 14)", measurements: { bust: "40.25", waist: "32.25" } },
+    ],
+  },
+  {
+    brand: "Zara",
+    brandMatch: ["zara"],
+    department: "Women",
+    garment: "Tops & dresses (EU numeric 34-42 / alpha)",
+    categoryMatch: ["top", "tee", "shirt", "blouse", "dress", "sweater", "jacket", "coat", "tank"],
+    note:
+      "Zara tops run the EU grade 34-42 and ALSO alpha (XS-XL); bust is the " +
+      "primary signal. Zara Basic / Zara Woman / TRF (Trafaluc) / Zara Man are " +
+      "LINES of Zara, not separate brands or size systems — the line does not " +
+      "change the grade. Same EU->US caveat as the bottoms chart: the US column " +
+      "is a disputed range, the EU number is the certain part. Aggregator-sourced " +
+      "— capped confidence.",
+    rows: [
+      { size: "EU 34 / XS (≈US 2-4)", measurements: { bust: "32.25", waist: "24.5" } },
+      { size: "EU 36 / S (≈US 4-6)", measurements: { bust: "34", waist: "26" } },
+      { size: "EU 38 / M (≈US 6-8)", measurements: { bust: "35.5", waist: "27.5" } },
+      { size: "EU 40 / L (≈US 8-10)", measurements: { bust: "37.75", waist: "30" } },
+      { size: "EU 42 / XL (≈US 10-12)", measurements: { bust: "40.25", waist: "32.25" } },
+    ],
+  },
+
+  // H&M. THE LOWEST-CONFIDENCE CHART IN THE FILE (0.5) AND IT SAYS SO. H&M's own
+  // size guide is not machine-reachable and NO trustworthy published inch chart
+  // for H&M could be sourced at all. What IS sourced is the SCHEME — H&M labels
+  // in the EU grade 32-44 — so that is what this chart is for: the SYSTEM, not
+  // the inches. The measurements are the standard EU grade's approximation, NOT
+  // H&M-published numbers, and the note says so outright rather than passing them
+  // off. This is the alternative to fabricating a chart, and the alternative to
+  // shipping nothing at all for one of the highest-volume brands in resale.
+  {
+    brand: "H&M",
+    brandMatch: ["h&m", "h & m", "handm", "hennes", "divided"],
+    department: "Women",
+    garment: "Bottoms (EU numeric 32-44 — an EU SIZE, never inches)",
+    categoryMatch: ["bottom", "pant", "jean", "denim", "short", "trouser", "skirt", "legging"],
+    note:
+      "⚠ THE NUMBER ON AN H&M TAG IS AN EU SIZE, NOT A WAIST IN INCHES — the " +
+      "Zara rule, same trap. EU 32-44. THE MEASUREMENTS BELOW ARE THE STANDARD EU " +
+      "GRADE'S APPROXIMATION, NOT H&M'S OWN PUBLISHED NUMBERS: no trustworthy H&M " +
+      "inch chart could be sourced (hm.com is not machine-readable), so treat them " +
+      "as a rough frame and PREFER the garment's actual measurements. The EU->US " +
+      "map is disputed by a full size (this brand's aggregators use EU = US+30, " +
+      "giving EU 38 = US 8; Zara's UK-derived grade gives US 6), hence the ranges. " +
+      "H&M is widely said to run small; the evidence is thin, so hedge rather than " +
+      "assert. Divided / L.O.G.G. / H&M Studio / MAMA are H&M's own in-store " +
+      "LINES and share this grade. LOW confidence, deliberately.",
+    rows: [
+      { size: "EU 32 / XS (≈US 0-2)", measurements: { waist: "24-25", hip: "33.5-34.5" } },
+      { size: "EU 34 / XS-S (≈US 2-4)", measurements: { waist: "25-26.5", hip: "34.5-36" } },
+      { size: "EU 36 / S (≈US 4-6)", measurements: { waist: "26.5-28", hip: "36-37.5" } },
+      { size: "EU 38 / M (≈US 6-8)", measurements: { waist: "28-29.5", hip: "37.5-39" } },
+      { size: "EU 40 / L (≈US 8-10)", measurements: { waist: "29.5-31", hip: "39-40.5" } },
+      { size: "EU 42 / L-XL (≈US 10-12)", measurements: { waist: "31-33", hip: "40.5-42.5" } },
+      { size: "EU 44 / XL (≈US 12-14)", measurements: { waist: "33-35", hip: "42.5-44.5" } },
+    ],
+  },
+  {
+    brand: "H&M",
+    brandMatch: ["h&m", "h & m", "handm", "hennes", "divided"],
+    department: "Women",
+    garment: "Tops & dresses (EU numeric 32-44 / alpha)",
+    categoryMatch: ["top", "tee", "shirt", "blouse", "dress", "sweater", "hoodie", "jacket", "tank"],
+    note:
+      "H&M tops run the EU grade 32-44 and ALSO alpha (XS-XL). AS WITH THE " +
+      "BOTTOMS CHART, THESE ARE STANDARD-EU-GRADE APPROXIMATIONS, NOT H&M'S OWN " +
+      "PUBLISHED NUMBERS — no sourceable H&M inch chart exists. Prefer the " +
+      "garment's measurements; the EU label is the certain part. LOW confidence.",
+    rows: [
+      { size: "EU 32 / XS (≈US 0-2)", measurements: { bust: "31-32" } },
+      { size: "EU 34 / XS-S (≈US 2-4)", measurements: { bust: "32-33.5" } },
+      { size: "EU 36 / S (≈US 4-6)", measurements: { bust: "33.5-35" } },
+      { size: "EU 38 / M (≈US 6-8)", measurements: { bust: "35-36.5" } },
+      { size: "EU 40 / L (≈US 8-10)", measurements: { bust: "36.5-38.5" } },
+      { size: "EU 42 / L-XL (≈US 10-12)", measurements: { bust: "38.5-40.5" } },
+      { size: "EU 44 / XL (≈US 12-14)", measurements: { bust: "40.5-43" } },
+    ],
+  },
+
+  // Brandy Melville — ONE ROW, AND THAT IS THE WHOLE POINT.
+  //
+  // THE NUMBERS THAT ARE NOT HERE ARE THE DELIVERABLE. Every "Brandy Melville
+  // size chart" on the open web (bust 30-34, waist 24-26) traces back to
+  // scraper/SEO spam domains — they are FABRICATED, and they are exactly what a
+  // model asked to recall this brand's chart will reproduce. Brandy publishes NO
+  // global size chart at all; it publishes PER-GARMENT measurements on each
+  // product page. So this chart's job is to say what the size MEANS and to send
+  // the reader to the garment, not to invent a grade.
+  {
+    brand: "Brandy Melville",
+    brandMatch: ["brandy melville", "brandymelville"],
+    department: "Women",
+    garment: "One Size / XS-S (a SINGLE small size — the brand has no grade)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "blouse",
+      "dress",
+      "sweater",
+      "hoodie",
+      "tank",
+      "bottom",
+      "pant",
+      "jean",
+      "short",
+      "skirt",
+    ],
+    note:
+      "⚠ 'ONE SIZE' HERE MEANS SMALL, NOT UNIVERSAL. Brandy Melville sells " +
+      "essentially one size, roughly US 00-4 / XS-S — it is not a generous " +
+      "one-size-fits-all and it does not fit most people. A model that reads 'One " +
+      "Size' as universal will mis-set buyer expectation on every listing. " +
+      "CURRENT TAGS SAY 'XS/S'; the older ones say 'One Size' / 'One Size Fits " +
+      "Most', so the tag text is a rough DATING tell (no reliable switch date " +
+      "exists — do not state a year). BRANDY PUBLISHES NO SIZE CHART: it lists " +
+      "per-garment measurements on each product page, so MEASURE THE GARMENT — " +
+      "every circulating 'Brandy size chart' on the web is SEO fabrication. When " +
+      "reading Brandy's own product-page numbers, note a listed 'bust' of ~15in " +
+      "is a FLAT PIT-TO-PIT half-measurement (≈30in circumference), not a " +
+      "circumference — do not ingest it as one. The single row below is the US " +
+      "00-4 equivalent for orientation ONLY, not Brandy's published grade. " +
+      "Bottoms are XS/S too, NOT an EU numeric grade despite the brand's Italian " +
+      "origin. LOW confidence, deliberately.",
+    rows: [
+      {
+        size: "One Size / XS-S (≈US 00-4)",
+        measurements: { bust: "30-33", waist: "23-26", hip: "33-36" },
+      },
+    ],
+  },
+
+  // ── The KnitWell three + Lucky Brand — the US-sized half of the pack ───────
+  // Ann Taylor, LOFT and Talbots share ONE parent (KnitWell Group) and are the
+  // pack's counter-example to itself: they must NOT be merged (different bands,
+  // separately searched, separate eBay brand nodes) even though — see below —
+  // two of them publish the SAME body chart. Parentage decides nothing; the
+  // published grade is a fact about the garment.
+  //
+  // ANN TAYLOR AND LOFT PUBLISH THE SAME CHART. Verified against both live
+  // charts, and it is the useful finding: the two grades are IDENTICAL through
+  // size 14 and diverge only at 16/18. So a LOFT 8 and an Ann Taylor 8 are the
+  // same body even though LOFT sells 30-40% cheaper — the price band differs, the
+  // fit does not. One chart, both brandMatch sets, rather than a duplicated table
+  // that could silently drift apart.
+  //
+  // ⚠ ROWS ARE A SOURCED SUBSET, NOT THE WHOLE PUBLISHED CHART: the sizes below
+  // are the ones actually transcribed from the brands' own charts. The gaps (6,
+  // 10, 14) are real published sizes whose numbers were not captured — they grade
+  // evenly between their neighbours. Omitting them is deliberate; inventing them
+  // was the alternative.
+  {
+    brand: "Ann Taylor",
+    brandMatch: ["ann taylor", "anntaylor", "loft"],
+    department: "Women",
+    garment: "Tops & dresses (US numeric 00-18 — shared Ann Taylor / LOFT grade)",
+    categoryMatch: ["top", "tee", "shirt", "blouse", "dress", "sweater", "jacket", "blazer", "tank"],
+    note:
+      "ANN TAYLOR AND LOFT PUBLISH THE SAME BODY CHART — identical through size " +
+      "14, diverging only at 16/18 (Ann Taylor bust 42.5/44.5; LOFT 42/44). So " +
+      "the two brands' sizes are interchangeable even though LOFT sits ~30-40% " +
+      "cheaper: the band differs, the grade does not. US numeric 00-18 (also " +
+      "XXS-XXL). A 'P' suffix is PETITE and a 'T' suffix is TALL — both are " +
+      "LENGTH variants that share this waist/bust grade, so a suffix says nothing " +
+      "about the size. A 'Curvy' fit axis also exists. THESE ARE US SIZES, NOT EU " +
+      "— contrast Zara/H&M in this same pack, where the number is an EU size. " +
+      "Rows are a sourced SUBSET of the published chart; 6/10/14 exist and grade " +
+      "evenly between their neighbours.",
+    rows: [
+      { size: "00", measurements: { bust: "31.5", waist: "24.5" } },
+      { size: "2", measurements: { bust: "33.5", waist: "26.5" } },
+      { size: "4", measurements: { bust: "34.5", waist: "27.5" } },
+      { size: "8", measurements: { bust: "36.5", waist: "29.5" } },
+      { size: "12", measurements: { bust: "39", waist: "32" } },
+      { size: "16", measurements: { bust: "42.5 (LOFT 42)", waist: "35.5" } },
+      { size: "18", measurements: { bust: "44.5 (LOFT 44)", waist: "37.5" } },
+    ],
+  },
+  {
+    brand: "Ann Taylor",
+    brandMatch: ["ann taylor", "anntaylor", "loft"],
+    department: "Women",
+    garment: "Pants & skirts (US numeric 00-18 — shared Ann Taylor / LOFT grade)",
+    categoryMatch: ["pant", "bottom", "skirt", "trouser", "short", "legging"],
+    note:
+      "The shared Ann Taylor / LOFT bottoms grade: US numeric 00-18, NOT inches " +
+      "and NOT EU. 'P' = petite and 'T' = tall are LENGTH variants sharing this " +
+      "waist/hip grade. ⚠ LOFT'S **DENIM** IS A DIFFERENT SYSTEM — it is labelled " +
+      "in WAIST INCHES (24-34); see LOFT's denim chart. So a LOFT '8' is a US 8 " +
+      "and a LOFT '28' is a 28in waist, on the same brand. Only the ENDPOINTS " +
+      "below are sourced from the published chart; the sizes between them grade " +
+      "evenly and are NOT published values — prefer the garment's measurements. " +
+      "Capped confidence.",
+    rows: [
+      { size: "00", measurements: { waist: "24.5", hip: "34.5" } },
+      { size: "18", measurements: { waist: "37.5", hip: "47.5" } },
+    ],
+  },
+  {
+    brand: "LOFT",
+    brandMatch: ["loft"],
+    department: "Women",
+    garment: "Denim (waist in INCHES 24-34 — NOT a US size)",
+    categoryMatch: ["jean", "denim"],
+    note:
+      "⚠ LOFT USES TWO SYSTEMS AT ONCE AND ONLY THE GARMENT SAYS WHICH: its DENIM " +
+      "is sized by WAIST IN INCHES (24-34) while its pants run US numeric 00-18. " +
+      "So a LOFT '28' is a 28in waist and a LOFT '8' is a US 8 — one brand, one " +
+      "tag family, two systems. Ann Taylor's chart has NO inch-denim column, so " +
+      "this is LOFT-only. DATING TELL: a LOFT garment in size 20-26 is from Feb " +
+      "2018 - fall 2021 — LOFT Plus launched Feb 2018 (sizes 16-26) and was " +
+      "discontinued in 2021, after which the range returned to 00-18. The US " +
+      "equivalents below are approximate.",
+    rows: [
+      { size: "24 (≈US 00)", measurements: { waist: "24" } },
+      { size: "26 (≈US 2)", measurements: { waist: "26" } },
+      { size: "28 (≈US 6)", measurements: { waist: "28" } },
+      { size: "30 (≈US 10)", measurements: { waist: "30" } },
+      { size: "32 (≈US 14)", measurements: { waist: "32" } },
+      { size: "34 (≈US 18)", measurements: { waist: "34" } },
+    ],
+  },
+
+  // Talbots — THREE separate size systems under one brand, and the ranges below
+  // are the correction: the widely-repeated "2-20 / 14W-24W / petites start at
+  // 2P" is WRONG on all three counts per Talbots' own live charts.
+  {
+    brand: "Talbots",
+    brandMatch: ["talbots"],
+    department: "Women",
+    garment: "Misses (US numeric 2-18) / Petite (0P-16P) / Plus (14W-26W)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "blouse",
+      "dress",
+      "sweater",
+      "jacket",
+      "blazer",
+      "pant",
+      "bottom",
+      "skirt",
+      "trouser",
+    ],
+    note:
+      "THREE SYSTEMS UNDER ONE BRAND, and the published ranges are NOT the ones " +
+      "commonly repeated: MISSES IS 2-18 (not 2-20), PETITE STARTS AT 0P (not " +
+      "2P) and runs 0P-16P, and PLUS IS 14W-26W (not 14W-24W). The 'W' is a " +
+      "vestigial 'Woman' marker; the range is labelled 'Plus' today. Tall is a " +
+      "LENGTH option on select styles, not a size category. A 'Curvy' fit axis " +
+      "also exists. Talbots' published chart MEASURES LARGER THAN YOUTH-TARGETED " +
+      "BRANDS at the same nominal size (a peer-reviewed study of 54 retailers' " +
+      "published charts finds brands targeting younger customers measure " +
+      "significantly smaller) — but do NOT call this vanity sizing: the study " +
+      "compared CHARTS, not garments, and Talbots' customer skews older, so a " +
+      "larger measurement may simply be accurate fitting for the target body. " +
+      "Endpoints are sourced; intermediate sizes are an EVEN INTERPOLATION, not " +
+      "published values — capped confidence, prefer the garment.",
+    rows: [
+      { size: "0P (petite)", measurements: { waist: "24.5", hip: "34.5" } },
+      { size: "16P (petite)", measurements: { waist: "34", hip: "44" } },
+      { size: "2 (misses)", measurements: { waist: "26", hip: "36" } },
+      { size: "6 (misses)", measurements: { waist: "28.5", hip: "38.5" } },
+      { size: "10 (misses)", measurements: { waist: "31", hip: "41" } },
+      { size: "14 (misses)", measurements: { waist: "34", hip: "44" } },
+      { size: "18 (misses)", measurements: { waist: "36.5", hip: "46.5" } },
+      { size: "14W (plus)", measurements: { waist: "37", hip: "45" } },
+      { size: "26W (plus)", measurements: { waist: "49", hip: "57" } },
+    ],
+  },
+
+  // Lucky Brand — the pack's cleanest "the number IS inches" case, and the direct
+  // foil to Zara/H&M sitting a few rows above.
+  {
+    brand: "Lucky Brand",
+    brandMatch: ["lucky brand", "luckybrand"],
+    department: "Men",
+    garment: "Jeans (waist x inseam, INCHES — the number IS the waist)",
+    categoryMatch: ["jean", "denim", "pant", "bottom", "short", "trouser", "chino"],
+    note:
+      "Lucky Brand men's jeans are sold as WAIST x INSEAM IN INCHES: waist 28-42, " +
+      "inseams 30/32/34/36/38. THIS IS THE FOIL TO ZARA AND H&M IN THE SAME PACK " +
+      "— a Lucky '38' IS a 38in waist, while a Zara '38' is an EU size on a " +
+      "~27.5in waist. Same two digits, ~10in apart, and only the brand says " +
+      "which. Read the flat waistband and double it. Named men's fits (121 " +
+      "Heritage Slim, 181 Relaxed Straight, 410 Athletic, 221 Original Straight, " +
+      "363 Vintage Straight) are FITS, not sizes — and the numbering logic is " +
+      "opaque, so do not infer a fit from a number.",
+    rows: [
+      { size: "W28", measurements: { waist: "28" } },
+      { size: "W30", measurements: { waist: "30" } },
+      { size: "W32", measurements: { waist: "32" } },
+      { size: "W34", measurements: { waist: "34" } },
+      { size: "W36", measurements: { waist: "36" } },
+      { size: "W38", measurements: { waist: "38" } },
+      { size: "W40", measurements: { waist: "40" } },
+      { size: "W42", measurements: { waist: "42" } },
+    ],
+  },
+  {
+    brand: "Lucky Brand",
+    brandMatch: ["lucky brand", "luckybrand"],
+    department: "Women",
+    garment: "Jeans (waist in INCHES 24-35) — NOT a dress size",
+    categoryMatch: ["jean", "denim", "pant", "bottom", "short", "trouser"],
+    note:
+      "⚠ Lucky Brand women's jeans are sold by WAIST IN INCHES (24-35), NOT by a " +
+      "dress size — the alpha/numeric 0-16 grade is not the jean selector. " +
+      "Inseams 27/29/31. The published BODY chart (a separate thing from the jean " +
+      "label) stops at size 10, so the numeric-to-body map below is only the " +
+      "sourced part: 0 = 24-25in waist / 36in hip, 10 = 30in waist / 41in hip. " +
+      "Named women's fits (Ava, Sweet, Sienna) are FITS, not sizes.",
+    rows: [
+      { size: "24 (≈US 0)", measurements: { waist: "24-25", hip: "36" } },
+      { size: "26 (≈US 2-4)", measurements: { waist: "26" } },
+      { size: "28 (≈US 6)", measurements: { waist: "28" } },
+      { size: "30 (≈US 10)", measurements: { waist: "30", hip: "41" } },
+      { size: "32", measurements: { waist: "32" } },
+      { size: "35", measurements: { waist: "35" } },
+    ],
+  },
 ];
 
 function norm(s: string | null | undefined): string {

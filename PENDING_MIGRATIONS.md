@@ -4,6 +4,59 @@
 > The sections below for those are historical; the only NEW held migration is
 > **00443** at the top.
 
+## ⏳ PENDING: 00466_fast_fashion_mall_brand_knowledge.sql (US-1986 fast-fashion & mall brand KB tier 2, 2026-07-17)
+
+Data-only seed of the `brand_knowledge*` tables for the high-VOLUME staples tier:
+**Zara, H&M, Urban Outfitters, Express, LOFT, Ann Taylor, Talbots, Lucky Brand,
+Brandy Melville, PacSun**. Sits beside 00458 (basics/mall) and 00457
+(contemporary women's), neither re-touched.
+
+**ALL TEN WERE PASSTHROUGH-ONLY** — not even the bare alias-only shells 00389
+left for the activewear group — so a "brandy melville" tag rendered the seller's
+own casing into the prompt block and the eBay Brand aspect.
+
+`brand_knowledge` ×10; `brand_styles` ×30; `brand_size_charts` ×16, all mirrored
+1:1 into the `sizing-charts.ts` in-code fallback; `brand_style_codes` ×**0** and
+`brand_colorways` ×**0** (both deliberate — see below). Every fact carries
+`source_url` + `confidence` and lands `verified=false` for the US-1715 admin
+queue. Idempotent (`on conflict do update`).
+
+**The pack's headline fact:** the same NUMBER is two different size systems and
+only the brand says which — a Zara/H&M "38" is an EU size (~27.5in waist) while
+an Express/Lucky "38" is a waist in inches. ~10 inches apart, and nothing on
+either tag distinguishes them. **And the EU→US conversion is itself disputed by a
+full size** across sources (EU 38 = US 6 via the UK grade, or US 8 via EU = US+30),
+so every EU label is seeded as a RANGE rather than a false point.
+
+**Zero decoders, deliberately** — all four candidates are fixtured as REFUSAL
+negatives in `brand-knowledge-golden_test.ts`. The notable one: Urban Outfitters'
+`OB######` is real and primary-sourced (URBN's own vendor manual) and still
+refused, because the code is **URBN-wide** — it cannot tell Urban Outfitters from
+Anthropologie (00457) or Free People (00449), so a decoder would spell the wrong
+sibling's name with decoder authority. This is US-1985's Reebok refusal exactly.
+
+**Confidence is deliberately uneven and honest** (0.85 brand-published BDG → 0.5
+for H&M and Brandy Melville, where no trustworthy published chart exists at all).
+Notably **no RN is recorded for 8 of the 10** — the FTC database is auth-gated, so
+only URBN's 66170 (its own vendor manual) and Lucky's 80318 (FTC record) are
+seeded, and Zara's 77302 carries an explicit hedge.
+
+Apply **after 00465** via `scripts/apply-prod-migrations.sh`, then
+`NOTIFY pgrst, 'reload schema';`, then redeploy the edge (boot guard now expects
+**00466**). Bumps `EXPECTED_SCHEMA_VERSION` → **00466**. Risk: LOW — data-only, no
+schema change, no DDL, no frontend reads the new rows (the edge resolver falls
+back to the in-code tables when a pack is absent).
+
+⚠ `verify:db` could NOT run for this migration (Docker unresponsive on the
+authoring host — same as 00465). The SQL was instead validated against the real
+PostgreSQL parser via **pglast**: parses (4 statements), every tuple matches its
+column list (10×13, 30×14, 16×12, 1×1), no duplicate `on conflict` key in any
+INSERT (which would fail at apply time with "cannot affect row a second time"),
+and all 46 dollar-quoted `$j$` bodies scanned for the `''`-inside-`$j$` trap and
+JSON validity — clean. The scanner was self-tested against three planted bugs
+(a planted `''`, planted malformed JSON, and a planted dropped column) and caught
+all three. **Still run `npm run verify:db` before applying to prod.**
+
 ## ⏳ PENDING: 00465_activewear_brand_knowledge.sql (US-1985 activewear brand KB tier 2, 2026-07-17)
 
 Data-only seed of the `brand_knowledge*` tables for the high-volume athletic /

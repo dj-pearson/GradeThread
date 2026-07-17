@@ -379,6 +379,160 @@ const BRAND_ALIASES: Record<string, string> = {
   hanes: "Hanes",
   gildan: "Gildan",
   nautica: "Nautica",
+  // US-1986 fast-fashion & mall group (tier 2). ALL TEN were passthrough-only, so
+  // a "brandy melville" tag rendered the seller's own casing into the prompt block
+  // and the eBay Brand aspect on some of the highest-VOLUME garments in resale.
+  // Complements 00458 (basics/mall), which is not re-touched.
+  //
+  // THIS GROUP IS MOSTLY RETAILERS, NOT MAKERS, and that is its defining problem —
+  // see the two "Third-Party Brand at ..." rows in migration 00466. The alias work
+  // here is therefore dominated by HOUSE LABELS: the tag says BDG or Bullhead, and
+  // never says the store's name, so without these keys the house label is what
+  // reaches the eBay Brand aspect.
+  zara: "Zara",
+  // Zara Basic / Woman / TRF / Man / Kids are LINES (and Basic is a dating tell —
+  // see 00466's tag_eras), not price tiers: one eBay catalogue brand, so they FOLD
+  // and the line rides in `style`. The Gap/babyGap play.
+  zarabasic: "Zara",
+  zarawoman: "Zara",
+  zaratrf: "Zara",
+  // TRF = TRAFALUC, Zara's youth line. Sellers type both the initials and the
+  // full word, and neither means anything on its own without this.
+  trf: "Zara",
+  trafaluc: "Zara",
+  zaratrafaluc: "Zara",
+  zaraman: "Zara",
+  zarakids: "Zara",
+  // ⚠ ZARA HOME IS **NOT** ALIASED. It looks exactly like the lines above and is
+  // not one: it is a SEPARATE retail chain with its own stores selling homewares,
+  // not a Zara clothing line. Folding it would attribute a bath towel to a
+  // garment brand. The pattern-match ("it starts with Zara") is precisely the
+  // reasoning that has to be resisted — see also Modern Amusement under PacSun.
+  //
+  // ⚠ NOR IS "INDITEX", and it is the tempting one: Inditex is Zara's PARENT, and
+  // it also owns Bershka, Pull&Bear, Massimo Dutti, Stradivarius and Oysho. So an
+  // Inditex mark identifies the GROUP, not the brand — mapping it to Zara would
+  // retitle a Bershka garment. Exactly the URBN rule (RN 66170 names URBN, not
+  // Urban Outfitters) and the H&M Group rule below: the parent never decides.
+  // brandKey("H&M") STRIPS the ampersand -> "hm", so THAT is the key (and the
+  // brand_key 00466 seeds the row under). A seller typing "H and M" keys as
+  // "handm" — a different string, so it needs its own line. The Rag & Bone rule.
+  hm: "H&M",
+  handm: "H&M",
+  hennesmauritz: "H&M",
+  hennesandmauritz: "H&M",
+  // H&M's OWN in-store labels fold onto it. "Divided" and "L.O.G.G." are the two a
+  // seller actually finds on a tag with no "H&M" beside it. NOTE "divided" is an
+  // ordinary English word: safe here because BRAND_ALIASES is an exact WHOLE-FIELD
+  // lookup, and it never enters CANONICAL_BRANDS (that is built from the VALUES),
+  // so detectBrandInText can never mint H&M from the word. The `aerie` precedent.
+  divided: "H&M",
+  hmdivided: "H&M",
+  logg: "H&M",
+  hmlogg: "H&M",
+  hmstudio: "H&M",
+  hmman: "H&M",
+  // ⚠ COS, Monki, Arket, & Other Stories and Weekday are H&M GROUP brands and
+  // DELIBERATELY DO NOT FOLD ONTO H&M. This is the Hollister rule (00458) and the
+  // AGOLDE/Miu Miu rule: the parent COMPANY never decides a fold. They are
+  // separately branded, separately searched, and COS in particular sells ABOVE
+  // H&M — folding it would price a COS coat off an H&M ladder. Left as
+  // passthroughs, which preserves the seller's own text (the correct outcome)
+  // until they earn their own packs.
+  urbanoutfitters: "Urban Outfitters",
+  urbanoutfitterinc: "Urban Outfitters",
+  // "uo" and "urban" are safe ONLY as exact whole-field keys — the "ag"/"ch"/"ov"
+  // precedent. Neither could ever be a canonical or a brandMatch token.
+  uo: "Urban Outfitters",
+  urban: "Urban Outfitters",
+  // The UO HOUSE LABELS. Their tags carry the house name and NOT "Urban
+  // Outfitters", so a seller reading the tag types "BDG" and gets nothing. Same
+  // band as the parent -> they fold, and the label rides in `style` (the
+  // Maeve/Wilfred play from 00457).
+  bdg: "Urban Outfitters",
+  outfromunder: "Urban Outfitters",
+  silencenoise: "Urban Outfitters",
+  silenceandnoise: "Urban Outfitters",
+  ecote: "Urban Outfitters",
+  kimchiblue: "Urban Outfitters",
+  urbanrenewal: "Urban Outfitters",
+  ietsfrans: "Urban Outfitters",
+  lightbeforedark: "Urban Outfitters",
+  // ⚠ ANTHROPOLOGIE AND FREE PEOPLE ARE **NOT** ALIASED HERE despite sharing the
+  // URBN parent — they are sibling brands with their OWN packs (00457 and 00449)
+  // and their own target customers (URBN's 10-K: UO 18-28, Free People 25-30,
+  // Anthropologie 28-45). Folding them would be the worst kind of merge: it would
+  // silently retitle an Anthropologie dress as Urban Outfitters. URBN is the
+  // parent; Urban Outfitters is a SIBLING, not the parent (a common web error).
+  // This is also why 00466 seeds NO OB###### decoder — see that migration.
+  express: "Express",
+  expressinc: "Express",
+  expressmen: "Express",
+  expresswomen: "Express",
+  limitedexpress: "Express",
+  // DELIBERATELY ABSENT: "structure". Structure was genuinely Express's menswear
+  // label (1989-2001, reabsorbed as "Express Men"), BUT Express SOLD the name to
+  // Sears in 2003 — so a "Structure" tag is Express only in one era and Sears'
+  // after it, and the word itself is ordinary. An alias cannot express "only when
+  // pre-2003", so the fact is carried as a tag_era on the Express row in 00466
+  // instead: reachable as KNOWLEDGE, never used to mint a brand. The "bean"/"docs"
+  // rule, applied to a date rather than to a word.
+  loft: "LOFT",
+  anntaylorloft: "LOFT",
+  loftoutlet: "LOFT",
+  anntaylor: "Ann Taylor",
+  anntaylorfactory: "Ann Taylor",
+  // ⚠ LOFT DOES NOT FOLD INTO ANN TAYLOR even though they are sister brands under
+  // one owner and LOFT was literally TAGGED "Ann Taylor LOFT" until the ~2010
+  // rebrand. This is Hollister again: LOFT sits at a LOWER price band and is
+  // separately searched on eBay, so it keeps its own canonical. Note the direction
+  // of `anntaylorloft` above — an "Ann Taylor LOFT" tag is a LOFT garment, so it
+  // resolves to LOFT, not to the parent whose name it carries. The era is a
+  // tag_era in 00466, the Burberrys-with-an-S play.
+  // DELIBERATELY ABSENT: a bare "ann" (an ordinary given name) and a bare "taylor"
+  // (an ordinary surname — and Taylor is other brands' name outright).
+  talbots: "Talbots",
+  thetalbots: "Talbots",
+  // CANONICAL IS "Lucky Brand", NOT "Lucky" — the AG Jeans / Hudson Jeans / On
+  // Running play. "Lucky" is an ordinary adjective and a canonical is regex-scanned
+  // over free text by detectBrandInText, so the short form survives as an exact-key
+  // alias only. The long form is NOT ordinary prose, so unlike "On Running" it
+  // needs no second defence in DETECT_EXCLUDED_FROM_TEXT.
+  lucky: "Lucky Brand",
+  luckybrand: "Lucky Brand",
+  luckybrandjeans: "Lucky Brand",
+  luckyjeans: "Lucky Brand",
+  luckybranddungarees: "Lucky Brand",
+  brandymelville: "Brandy Melville",
+  brandymelvilleusa: "Brandy Melville",
+  // A bare "brandy" is safe ONLY as an exact whole-field key (it is a given name
+  // and a drink) — the "spider"/"girlfriend" precedent. It never reaches
+  // detectBrandInText, which scans the VALUES.
+  brandy: "Brandy Melville",
+  pacsun: "PacSun",
+  pacificsunwear: "PacSun",
+  pacificsunwearofcalifornia: "PacSun",
+  // The PacSun HOUSE labels (named as proprietary brands in PacSun's own 10-K:
+  // Bullhead, Kirra, LA Hearts, On the Byas, Black Poppy, Nollie). Their tags never
+  // say "PacSun", so each is the only string a seller can read off the garment.
+  // "Bullhead Denim Co." is also a DATING tell (renamed PacSun Denim ~2016) and is
+  // carried as a tag_era in 00466.
+  bullhead: "PacSun",
+  bullheaddenim: "PacSun",
+  bullheaddenimco: "PacSun",
+  bullheadblack: "PacSun",
+  pacsundenim: "PacSun",
+  kirra: "PacSun",
+  lahearts: "PacSun",
+  onthebyas: "PacSun",
+  blackpoppy: "PacSun",
+  nollie: "PacSun",
+  // ⚠ MODERN AMUSEMENT AND KENDALL + KYLIE ARE **NOT** ALIASED. Both look like
+  // PacSun house labels and neither is: PacSun LICENSED Modern Amusement from a
+  // third party (Dirty Bird Productions) from fiscal 2010, and Kendall + Kylie was
+  // a PacSun-EXCLUSIVE collab that later sold well beyond PacSun. Folding either
+  // would attribute another company's garment to PacSun. The exclusivity of a line
+  // is not the same fact as the ownership of a mark.
   // Streetwear / heritage
   supreme: "Supreme",
   stussy: "Stüssy",
@@ -704,6 +858,32 @@ const DETECT_EXCLUDED_FROM_TEXT: ReadonlySet<string> = new Set([
   // stays fully reachable by TAG, which is what the eBay aspect and the comp
   // filter read.
   "On Running",
+  // US-1986. This group is the DENSEST instance of the trap so far — two of its
+  // ten brands are ordinary words, and both are words that THIS PRODUCT'S OWN
+  // TEXT emits, which is what makes them routine rather than corner cases:
+  //
+  //   • Express — "express shipping" / "free express delivery" is boilerplate in
+  //     the eBay titles detectBrandInText is pointed at (the barcode/UPC intake,
+  //     US-598). Longest-first ordering makes it actively harmful: in "Nike tee,
+  //     free express shipping", "Express" (7) BEATS the real "Nike" (4).
+  //   • LOFT — "loft" is the standard term for the fill/insulation of a down
+  //     garment ("800-fill loft", "the loft has flattened"), so the KB's OWN
+  //     outdoor and luxury-outerwear packs (00453, 00460) emit it constantly in
+  //     exactly the copy this scans. It also beats a real "Gap" (3) on length.
+  //     The match is case-insensitive, so the all-caps canonical is no defence.
+  //
+  // Both stay fully reachable by TAG (canonicalizeBrand/isKnownBrand still resolve
+  // them, which is what the eBay Brand aspect and the comp filter read) and are
+  // simply never GUESSED from prose. Verified empirically in
+  // fast-fashion-mall-content_test.ts by mutation, not argued.
+  //
+  // KNOWN, ACCEPTED LIMIT: excluding LOFT means "Ann Taylor LOFT blouse" in prose
+  // resolves to Ann Taylor — the parent whose name it carries, at an adjacent
+  // band — rather than to LOFT. There is no rule that recovers LOFT from prose
+  // without also minting it off every down jacket, and a sister brand is a far
+  // cheaper miss than that. Declining beats false-firing (the never-guess rule).
+  "Express",
+  "LOFT",
 ]);
 
 /**

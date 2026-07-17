@@ -3061,6 +3061,184 @@ const CASES: GoldenCase[] = [
     input: decodedFrom({ brand: "Outdoor Voices" }),
     expect: { brand: "Outdoor Voices", style: "Exercise Dress" },
   },
+
+  // ── US-1986: fast-fashion & mall, tier 2 (migration 00466) ─────────────────
+  // THIS GROUP SEEDS **ZERO** DECODERS, so — like Alo Yoga (US-1731) — its cases
+  // prove the enrichment stays correct WITHOUT one. The refusals are the
+  // instructive half and they are fixtured as NEGATIVES below, because a refusal
+  // that isn't tested is just a comment: the codes exist and are real, and each
+  // one fails a DIFFERENT clause of the "tag-printed AND regular AND brand-unique
+  // in FORMAT" bar.
+  {
+    name: "UO/BDG single known style fills the style the AI missed",
+    brand: "Urban Outfitters",
+    pack: pack("Urban Outfitters", "urbanoutfitters", [style("BDG Denim")]),
+    input: decodedFrom({ brand: "Urban Outfitters" }),
+    expect: { brand: "Urban Outfitters", style: "BDG Denim" },
+  },
+  {
+    name: "UO ambiguous house labels (BDG vs Out From Under) — never guess a style",
+    // The house-label pack's version of the ambiguity: both are UO labels, and a
+    // brand alone cannot say which.
+    brand: "Urban Outfitters",
+    pack: pack("Urban Outfitters", "urbanoutfitters", [
+      style("BDG Denim"),
+      style("Out From Under"),
+    ]),
+    input: decodedFrom({ brand: "Urban Outfitters" }),
+    expect: { brand: "Urban Outfitters", noStyle: true },
+  },
+  {
+    name: "REFUSAL: an OB###### code does NOT recover Urban Outfitters",
+    // THE GROUP'S HEADLINE REFUSAL, and the exact shape of US-1985's Reebok call.
+    // OB416788 is a REAL identifier — URBN's own vendor manual specifies
+    // "All Ownbrand style numbers start with OB, followed by 6 digits" — and it is
+    // tag-printed AND regular, so it clears two of the three bars. It fails the
+    // third, which is the one that matters: the code is **URBN-WIDE**, and URBN is
+    // Urban Outfitters AND Anthropologie AND Free People. The latter two already
+    // own their own packs (00457, 00449) and their own target customers, so a
+    // decoder here would spell "Urban Outfitters" onto a sibling's garment with
+    // DECODER authority — which outranks the AI on conflict. Reebok's code was
+    // refused for the identical reason (the format is adidas's).
+    //
+    // Seeding no decoder means the pack simply has none to run, and the code is
+    // inert. Asserted rather than assumed: no in-code DEFAULT spec may start
+    // matching it either.
+    brand: "Urban Outfitters",
+    pack: pack("Urban Outfitters", "urbanoutfitters"),
+    input: decodedFrom({ styleCode: "OB416788" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "REFUSAL: a Zara slash-separated reference does NOT recover Zara",
+    // The most TEMPTING refusal in the group, because this code clears the bar
+    // that killed the others: it IS on the sewn-in care label (not just the price
+    // sticker), so it survives the tags being cut. It fails on FORMAT CERTAINTY
+    // instead — the available sources do not agree on what the format even is
+    // (4-digit/3-digit vs a third group), and a slash-separated digit run is not
+    // brand-unique in any case. A pattern we cannot state confidently would let a
+    // format GUESS override the tag's own brand, which is the exact failure the
+    // New Balance/Converse precedence rule exists to stop.
+    //
+    // The second, independent reason: Zara's own lookup only resolves CURRENTLY
+    // SOLD items, so on a years-old resale garment the code identifies nothing.
+    // A decoder that cannot decode is not worth a false-positive budget.
+    brand: "Zara",
+    pack: pack("Zara", "zara"),
+    input: decodedFrom({ styleCode: "5644/128/800" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "REFUSAL: a bare 8-digit Express style number does NOT recover Express",
+    // The Lee-101 / PUMA-six-digit rule: a bare digit run is not a brand. An
+    // 8-digit number is shared with countless brands, so a pattern over it would
+    // let a FORMAT guess override the tag's own brand.
+    brand: "Express",
+    pack: pack("Express", "express"),
+    input: decodedFrom({ styleCode: "07922317" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Express single known style fills the style the AI missed",
+    brand: "Express",
+    pack: pack("Express", "express", [style("Portofino Shirt")]),
+    input: decodedFrom({ brand: "Express" }),
+    expect: { brand: "Express", style: "Portofino Shirt" },
+  },
+  {
+    name: "Express ambiguous Editor vs Columnist pant — never guess a style",
+    // A REAL ambiguity, not a contrived one: Editor and Columnist differ only by
+    // rise and leg width, which a flat photo cannot resolve. Express's own copy is
+    // the source ("the Editor sits just below the waist... the Columnist sits
+    // lower"), and several blogs state it backwards — so guessing here is exactly
+    // the failure the never-guess rule exists for.
+    brand: "Express",
+    pack: pack("Express", "express", [style("Editor Pant"), style("Columnist Pant")]),
+    input: decodedFrom({ brand: "Express" }),
+    expect: { brand: "Express", noStyle: true },
+  },
+  {
+    name: "PacSun/Bullhead single known style fills the style the AI missed",
+    brand: "PacSun",
+    pack: pack("PacSun", "pacsun", [style("Bullhead Denim")]),
+    input: decodedFrom({ brand: "PacSun" }),
+    expect: { brand: "PacSun", style: "Bullhead Denim" },
+  },
+  {
+    name: "PacSun house label vs the retailer row — never guess a style",
+    // The pack's defining fact reaching the RESOLVER. ~70% of PacSun's sales were
+    // other brands (its own 10-K), so 00466 seeds the retailer trap as a
+    // first-class style row (the 00457 Anthropologie precedent). That row is what
+    // makes a bare "PacSun" ambiguous — which is CORRECT and is the point: the
+    // store is not the brand, so a store name must not fill a house label's style.
+    // The prompt-side half of this fact is asserted in the content test.
+    brand: "PacSun",
+    pack: pack("PacSun", "pacsun", [
+      style("Bullhead Denim"),
+      style("Third-Party Brand at PacSun"),
+    ]),
+    input: decodedFrom({ brand: "PacSun" }),
+    expect: { brand: "PacSun", noStyle: true },
+  },
+  {
+    name: "REFUSAL: a Lucky Brand 7M##### product code does NOT recover the brand",
+    // The group's LAST refusal and the one with the most real signal behind it:
+    // Lucky's product codes genuinely follow a regular shape (7M##### men's,
+    // 7W##### women's, 7MD#### outlet), visible in its own product URLs. Refused
+    // because a WEBSITE SKU is not evidence of a CARE-TAG print — nothing sourced
+    // says this code is on the garment at all — and no authoritative decoding
+    // table exists. At best it would recover gender/channel, never the brand.
+    brand: "Lucky Brand",
+    pack: pack("Lucky Brand", "luckybrand"),
+    input: decodedFrom({ styleCode: "7M12119" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Lucky Brand single known fit fills the style the AI missed",
+    brand: "Lucky Brand",
+    pack: pack("Lucky Brand", "luckybrand", [style("121 Heritage Slim")]),
+    input: decodedFrom({ brand: "Lucky Brand" }),
+    expect: { brand: "Lucky Brand", style: "121 Heritage Slim" },
+  },
+  {
+    name: "Lucky Brand ambiguous named fits — never guess a fit from a number",
+    // A REAL ambiguity: Lucky's fit numbering has no decodable logic (the
+    // tempting "4xx = athletic" rule has counterexamples), so with only a brand
+    // the fit is unknowable and must not be guessed.
+    brand: "Lucky Brand",
+    pack: pack("Lucky Brand", "luckybrand", [
+      style("121 Heritage Slim"),
+      style("181 Relaxed Straight"),
+      style("410 Athletic"),
+    ]),
+    input: decodedFrom({ brand: "Lucky Brand" }),
+    expect: { brand: "Lucky Brand", noStyle: true },
+  },
+  {
+    name: "Talbots single known style fills the style the AI missed",
+    brand: "Talbots",
+    pack: pack("Talbots", "talbots", [style("Misses / Petite / Plus size systems")]),
+    input: decodedFrom({ brand: "Talbots" }),
+    expect: { brand: "Talbots", style: "Misses / Petite / Plus size systems" },
+  },
+  {
+    name: "LOFT keeps its own brand — the sister brand never folds to the parent",
+    // The KnitWell three share a parent and must stay three canonicals. The
+    // enrichment must not let Ann Taylor's pack claim a LOFT garment (or vice
+    // versa) — the resolver half of the fold rule; the canonicalization half is
+    // asserted in the content test.
+    brand: "LOFT",
+    pack: pack("LOFT", "loft", [style("LOFT Outlet")]),
+    input: decodedFrom({ brand: "LOFT" }),
+    expect: { brand: "LOFT", style: "LOFT Outlet" },
+  },
+  {
+    name: "Ann Taylor with no decoder + no code — clean no-op",
+    brand: "Ann Taylor",
+    pack: pack("Ann Taylor", "anntaylor"),
+    input: decodedFrom({ brand: "Ann Taylor" }),
+    expect: { brand: "Ann Taylor" },
+  },
 ];
 
 // ── the gate ────────────────────────────────────────────────────────────────

@@ -1145,6 +1145,29 @@ memory — not a progress log (the harness records progress separately).
   decoder-less (US-1736) — a pattern over it mints the KB's costliest false
   positive from any tag with 8 digits. Same rule as Lee's "101"; put the era fact
   in `tag_eras`/`authentication_tells` instead, which is where it belongs anyway.
+- A PARENT-WIDE identifier can never attribute a SIBLING, and this kills decoders
+  that clear every other bar. URBN's `OB######` style number is primary-sourced
+  (its own vendor manual) AND tag-printed AND regular — and US-1986 still seeded no
+  decoder for it, because the code is URBN-wide and Anthropologie (00457) + Free
+  People (00449) already own packs, so a hit would spell "Urban Outfitters" onto a
+  sibling with DECODER authority (which outranks the AI on conflict). Same for the
+  shared RN 66170. It is US-1985's Reebok refusal (the format was adidas's) in a new
+  costume: before seeding a decoder/RN, ask WHICH ENTITY the identifier names, not
+  just whether it's regular. Record it in `registered_numbers`/`tag_eras` with the
+  can't-disambiguate caveat instead.
+- For fast-fashion/mall brands the brand's OWN size guide is usually 403 to
+  automated fetches (zara.com, hm.com, express.com, pacsun.com all were in
+  US-1986) — and the SEO/aggregator pages that fill the gap are where FABRICATED
+  charts live. Every "Brandy Melville size chart" on the open web traces to
+  scraper spam; the brand publishes none. This is the KB's worst failure mode
+  because a model RECALLS exactly those numbers, so a seeded fabrication reads as
+  confirmation. Use the `confidence` column honestly (US-1986 ships 0.85 for a
+  brand-published chart down to 0.5 where none exists) and say IN THE NOTE that the
+  numbers are not the brand's own. Corollary: widely-repeated brand "facts" are
+  often UNCITED-Wikipedia laundered into prose — US-1986 found Talbots' real ranges
+  (2-18 / 0P-16P / 14W-26W) contradict the universally-repeated ones, and Lucky's
+  "two four-leaf clovers on the fly shield" has no source at all. Fetch the primary
+  document or seed the refusal; never seed recall.
 - `canonicalizeBrand` returns `string | null` (NOT an object) — assert
   `canonicalizeBrand("x") === "Brand"`; `isKnownBrand` is what separates a
   curated entry from a passthrough.
