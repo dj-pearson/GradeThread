@@ -5851,6 +5851,947 @@ export const SIZING_CHARTS: SizingChart[] = [
       { size: "35", measurements: { waist: "35" } },
     ],
   },
+
+  // ── US-1987: preppy & contemporary men's group ─────────────────────────────
+  // Mirrors migration 00467's brand_size_charts seed (the DB rows win when the
+  // pack loads; these are the offline fallback).
+  //
+  // 00466's pack was about the SIZE SYSTEM: a Zara "38" is an EU size and a Lucky
+  // "38" is a waist in inches — same two digits, ~10in apart. THIS pack is one
+  // axis over, and it is why these brands belong together:
+  //
+  //     THE SIZE GRADE IS NOT IN DISPUTE — THE **FIT NAME** IS THE GARMENT-
+  //     DEFINING FACT, AND IT IS TAG-ONLY. A Bonobos 32x32 is a 32x32 in every
+  //     fit; a Slim UNTUCKit L and a Relaxed L are both "L"; a Brooks Brothers
+  //     16-34 Milano and a 16-34 Madison are both 16-34. What changes is the CUT,
+  //     by up to 5 INCHES of chest and waist, and the only thing that says which
+  //     is a WORD PRINTED ON THE TAG. It is not in the photo and not in the
+  //     number.
+  //
+  // And the ladder's ORDER is counterintuitive in TWO of these brands, with the
+  // open web backwards on both and the brand's OWN chart refuting it:
+  //   • BONOBOS: Tailored is TRIMMER than Slim.
+  //   • BROOKS BROTHERS: Madison is the ROOMIEST suit fit (+3" chest, +5" waist).
+  // The fit ladders live in the pack's brand_styles rows (brandPackPromptBlock
+  // renders fingerprints VERBATIM, which is the only channel that reaches the
+  // extract prompt); the notes below carry the size-side half of the same fact.
+  //
+  // MENSWEAR ALSO RUNS FOUR SYSTEMS AT ONCE, often on ONE brand — Brooks Brothers
+  // sells dress shirts by NECK x SLEEVE, sport shirts by ALPHA, suits by CHEST +
+  // a LENGTH LETTER, and trousers by WAIST IN INCHES. So every chart names its
+  // SYSTEM in `garment`, the US-1739 convention applied to a system.
+  //
+  // A NOTE ON CONFIDENCE, WHICH IS DELIBERATELY UNEVEN. Peter Millar, UNTUCKit,
+  // Johnnie-O, Vineyard Vines and Brooks Brothers publish their own charts (0.85).
+  // Faherty's are its own but the assets are dated 2019 (0.70). Bonobos' grid is
+  // not published anywhere reachable, so its chart carries the SYSTEM only (0.55).
+  // Todd Snyder (403s everywhere) and Buck Mason (JS-rendered modals; its own fit
+  // guides are prose with no tables) yield NO numbers at all, so those rows carry
+  // the size SYSTEM and say outright the numbers are not the brand's (0.40).
+  // An honest 0.4 beats a fabricated 0.9 — the Brandy Melville rule from 00466.
+
+  // Peter Millar — brand-published, and the one chart with an ERA hazard.
+  {
+    brand: "Peter Millar",
+    brandMatch: ["peter millar", "petermillar"],
+    department: "Men",
+    garment: "Tops (ALPHA S-3XL + numeric — body measurements)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "polo",
+      "sweater",
+      "quarter zip",
+      "pullover",
+      "hoodie",
+      "jacket",
+      "outerwear",
+      "blazer",
+    ],
+    note:
+      "⚠ PETER MILLAR RE-CUT THIS CHART BETWEEN 2023 AND 2025 — 'Peter Millar M' " +
+      "MEANS A DIFFERENT BODY DEPENDING ON THE ERA. These rows are the CURRENT " +
+      "(2025) grade; the prior generation ran ~1in smaller (S chest 36-38, M 39-41, " +
+      "L 42-44, XL 45-47) and carried a waist column since dropped. THIS IS WHY " +
+      "AGGREGATORS DISAGREE and neither is wrong — some mirror the current chart, " +
+      "some the 2023 one. Prefer the garment on anything of unknown age. BODY " +
+      "measurements, not flat-garment. SPORT AND DRESS SHIRTS HAVE NO SEPARATE " +
+      "CHART — Peter Millar sizes them ALPHA against this table, NOT neck x sleeve, " +
+      "so there is no 16/34 system for this brand; outerwear falls back here too. " +
+      "CLASSIC vs TAILORED ('Tour') FIT DOES NOT CHANGE THIS GRADE — PM publishes " +
+      "ONE chart for both, and THE COLLECTION NAME IS THE FIT TELL (Crown / Crown " +
+      "Sport = Classic; Crown Crafted / Peter Millar Collection = Tailored). Big & " +
+      "tall is not offered in-house: PM stops at 3XL.",
+    rows: [
+      {
+        size: "S (38)",
+        measurements: { chest: "37-39", neck: "14.5-15", sleeve: "33-33.5" },
+      },
+      {
+        size: "M (40)",
+        measurements: { chest: "40-42", neck: "15.5-16", sleeve: "34-35" },
+      },
+      {
+        size: "L (42-44)",
+        measurements: { chest: "43-45", neck: "16.5-17", sleeve: "35.5-36" },
+      },
+      {
+        size: "XL (46)",
+        measurements: { chest: "46-48", neck: "17.5-18", sleeve: "36.5-37" },
+      },
+      {
+        size: "XXL (48)",
+        measurements: { chest: "49-51", neck: "18.5-19", sleeve: "37.5" },
+      },
+      {
+        size: "3XL (50)",
+        measurements: { chest: "52-54", neck: "19.5-20", sleeve: "37.5" },
+      },
+    ],
+  },
+  {
+    brand: "Peter Millar",
+    brandMatch: ["peter millar", "petermillar"],
+    department: "Men",
+    garment: "Bottoms (numeric WAIST IN INCHES 28-46)",
+    categoryMatch: [
+      "pant",
+      "bottom",
+      "short",
+      "trouser",
+      "chino",
+      "jean",
+      "denim",
+      "swim",
+    ],
+    note:
+      "THE TAG NUMBER IS A WAIST IN INCHES — contrast Zara/H&M (00466), where the " +
+      "same two digits are an EU size. VANITY SIZING, AND IT IS EXACTLY REGULAR: " +
+      "the body waist is the TAG SIZE + 1.5in across the whole run, which is usable " +
+      "as a validation rule. Alpha map: S = 28-30, M = 31-34, L = 35-38, XL = 40-42, " +
+      "XXL = 44-46. ⚠ THERE IS NO INSEAM GRID — PM sells men's pants at a SINGLE " +
+      "34in inseam and HEMS TO ORDER (shorts/swim 8-10in), SO A USED PM PANT'S " +
+      "INSEAM MAY BE A CUSTOM HEM, NOT A CATALOGUE LENGTH. Measure it. SUITING is a " +
+      "different system again: bare jacket numerics (38-48) with an optional LONG " +
+      "for 42-48 and NO Short; PM's older chart carried a drop rule it has since " +
+      "dropped from the page ('all pants will be six sizes below selected jacket " +
+      "size').",
+    rows: [
+      { size: "28 (S)", measurements: { waist: "29.5", hips: "35.5" } },
+      { size: "30 (S)", measurements: { waist: "31.5", hips: "37.5" } },
+      { size: "32 (M)", measurements: { waist: "33.5", hips: "39.5" } },
+      { size: "34 (M)", measurements: { waist: "35.5", hips: "41.5" } },
+      { size: "36 (L)", measurements: { waist: "37.5", hips: "43.5" } },
+      { size: "38 (L)", measurements: { waist: "39.5", hips: "45.5" } },
+      { size: "40 (XL)", measurements: { waist: "41.5", hips: "47.5" } },
+      { size: "42 (XL)", measurements: { waist: "43.5", hips: "49.5" } },
+      { size: "44 (XXL)", measurements: { waist: "45.5", hips: "51.5" } },
+      { size: "46 (XXL)", measurements: { waist: "47.5", hips: "53.5" } },
+    ],
+  },
+  {
+    brand: "Peter Millar",
+    brandMatch: ["peter millar", "petermillar"],
+    department: "Women",
+    garment: "Tops & dresses (numeric 0-18 + alpha XS-XXL)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "blouse",
+      "dress",
+      "sweater",
+      "polo",
+      "skort",
+      "jacket",
+    ],
+    note:
+      "Peter Millar women's runs a DUAL system — US numeric 0-18 AND alpha XS-XXL " +
+      "— and runs to 18/XXL, past where many peers stop. Brand-published. ⚠ THE " +
+      "SAME 2023→2025 RE-CUT APPLIES (the 2023 chart gave XXL a 38-40in waist vs " +
+      "the current 39-40), so prefer the garment on anything of unknown age. " +
+      "Women's pants are a single 27.5in inseam and skorts 18in, hemmed to order — " +
+      "a used inseam may be a custom hem.",
+    rows: [
+      {
+        size: "XS (0-2)",
+        measurements: { bust: "32.5-33.5", waist: "26-27", hip: "35-36" },
+      },
+      {
+        size: "S (4-6)",
+        measurements: { bust: "34.5-35.5", waist: "28-29", hip: "37-38" },
+      },
+      {
+        size: "M (8-10)",
+        measurements: { bust: "36.5-37.5", waist: "30-31", hip: "39-40" },
+      },
+      {
+        size: "L (12-14)",
+        measurements: { bust: "39-40.5", waist: "32-35", hip: "42-43" },
+      },
+      {
+        size: "XL (16)",
+        measurements: { bust: "42-43.5", waist: "36-37", hip: "45-46" },
+      },
+      {
+        size: "XXL (18)",
+        measurements: { bust: "45-46.5", waist: "39-40", hip: "48-50" },
+      },
+    ],
+  },
+
+  // Brooks Brothers — the brand that sells all four menswear systems at once.
+  {
+    brand: "Brooks Brothers",
+    // ⚠ NEVER add a bare "brooks" here: findSizingCharts matches brandMatch as a
+    // LEADING-word substring, so it would hand every Brooks RUNNING garment (a
+    // different company) Brooks Brothers' dress-shirt charts. The US-1735 rule.
+    brandMatch: ["brooks brothers", "brooksbrothers"],
+    department: "Men",
+    garment: "Dress shirts (NECK x SLEEVE in inches — two independent measurements)",
+    categoryMatch: ["dress shirt", "shirt", "ocbd", "oxford", "button down"],
+    note:
+      "BROOKS BROTHERS SELLS FOUR SIZE SYSTEMS AT ONCE AND THIS IS THE FIRST: " +
+      "DRESS SHIRTS ARE NECK x SLEEVE IN INCHES, selected independently and written " +
+      "'16-34/35' — neck 14.5-18.5, sleeve 32/33/34/35/36. ⚠ BUT ALPHA RUNS IN " +
+      "PARALLEL: BB's sport/casual oxfords sell XS-XXL, so accept BOTH — 'BB dress " +
+      "shirts are neck x sleeve' is only ~true. The alpha-to-inch map below is BB's " +
+      "own. ⚠ THE PUBLISHED CHART IS INCOMPLETE ON ITS OWN TERMS: L ends at neck " +
+      "16.5 and XL starts at 17 (neck 16.75 is unrepresented), and it publishes NO " +
+      "sleeve lengths at all. Reproduced faithfully — do not interpolate. ⚠ THE FIT " +
+      "DOES NOT CHANGE THIS GRADE: a 16-34 Milano and a 16-34 Madison are both " +
+      "16-34. The SHIRT ladder is Soho (-5in chest) / Milano (-2.75) / REGENT " +
+      "(baseline) / Madison (+2.5) / Traditional (+5) — note MADISON IS RELAXED, " +
+      "NOT TRIM, and the SUIT ladder is a different one. Big & tall: neck 16-24.",
+    rows: [
+      {
+        size: "XS (neck 14.5-15)",
+        measurements: { neck: "14.5-15", chest: "34.5-36", waist: "28.5-30.5" },
+      },
+      {
+        size: "S (neck 15-15.5)",
+        measurements: { neck: "15-15.5", chest: "37-38.5", waist: "31.5-32.5" },
+      },
+      {
+        size: "M (neck 15.5-16)",
+        measurements: { neck: "15.5-16", chest: "39-41.5", waist: "33.5-35.5" },
+      },
+      {
+        size: "L (neck 16-16.5)",
+        measurements: { neck: "16-16.5", chest: "42-44.5", waist: "36.5-38.5" },
+      },
+      {
+        size: "XL (neck 17-17.5)",
+        measurements: { neck: "17-17.5", chest: "45-47.5", waist: "39.5-41.5" },
+      },
+      {
+        size: "XXL (neck 18)",
+        measurements: { neck: "18", chest: "48-50", waist: "42.5-44.5" },
+      },
+    ],
+  },
+  {
+    brand: "Brooks Brothers",
+    brandMatch: ["brooks brothers", "brooksbrothers"],
+    department: "Men",
+    garment: "Suits & sport coats (CHEST in inches + a LENGTH LETTER: 42R / 42L / 42S)",
+    categoryMatch: ["suit", "sport coat", "blazer", "jacket", "tailoring"],
+    note:
+      "BB'S SECOND AND THIRD SYSTEMS. TAILORING = CHEST IN INCHES (34-56, half-inch " +
+      "increments) + A LENGTH LETTER — 42R is a 42in chest in a Regular length; " +
+      "S/R/L adjust the body and sleeve (i.e. HEIGHT), never the chest. TROUSERS = " +
+      "WAIST IN INCHES (28-50, seat 36-58), listed SEPARATELY. ⚠ NO DROP IS SEEDED " +
+      "— BB publishes none, and listing trousers separately suggests independent " +
+      "trouser sizing; the conventional 6in drop is NOT stated by BB, so do not " +
+      "assume it. ⚠ NO S/R/L HEIGHT RANGES ARE SEEDED — BB publishes none across " +
+      "four of its own pages; the familiar figures come from third-party retailer " +
+      "blogs and must not be attributed to BB. ⚠ THE SUIT FIT LADDER IS ONLY THREE " +
+      "RUNGS AND IS NOT THE SHIRT LADDER: Milano (-1.5in chest) / REGENT (baseline) " +
+      "/ MADISON (+3in chest, +5in waist — THE ROOMIEST). SEO fit-guides say Madison " +
+      "is trim; BB's own chart refutes them. The fit does not change the number.",
+    rows: [
+      {
+        size: "Chest 34-56 in half-inch increments",
+        measurements: {
+          chest: "34-56",
+          note: "the NUMBER is the chest in inches",
+        },
+      },
+      {
+        size: "Suffix S / R / L",
+        measurements: {
+          note:
+            "Short / Regular / Long — a BODY AND SLEEVE LENGTH adjustment, not a girth change",
+        },
+      },
+      {
+        size: "Suit trousers (sold separately)",
+        measurements: { waist: "28-50", seat: "36-58" },
+      },
+    ],
+  },
+
+  // UNTUCKit — the category-conditional system.
+  {
+    brand: "UNTUCKit",
+    brandMatch: ["untuckit"],
+    department: "Men",
+    garment:
+      "Button-down shirts (ALPHA S-XXXL) — but dress shirts are NECK x SLEEVE, see note",
+    categoryMatch: [
+      "shirt",
+      "button down",
+      "casual shirt",
+      "top",
+      "polo",
+      "tee",
+      "henley",
+    ],
+    note:
+      "⚠ 'UNTUCKit IS ALPHA-SIZED' IS ONLY HALF TRUE — THE SYSTEM IS CATEGORY-" +
+      "CONDITIONAL. Its BUTTON-DOWNS run ALPHA S-XXXL (below); its DRESS SHIRTS run " +
+      "NECK x SLEEVE (neck 15-17.5 against sleeve 32-33 / 34-35 / 36-37), and eBay " +
+      "keeps 'UNTUCKit Dress Shirts' as a separate category from 'Casual " +
+      "Button-Down Shirts', so the split is real. Do not encode a flat alpha rule. " +
+      "⚠ THE XXXL CHEST CELL IS DELIBERATELY OMITTED: the brand's chart shows XXL " +
+      "and XXXL BOTH at chest 48-50, almost certainly an upstream error. ⚠ THE " +
+      "BRAND'S OWN GUIDANCE IS THAT IT RUNS SMALL ('order one size up' if between " +
+      "sizes), so an UNTUCKit L flat-measures SMALLER than a mainstream L. ⚠ NO " +
+      "BODY LENGTH APPEARS IN ANY UNTUCKit CHART — which matters more here than " +
+      "anywhere, because the shorter untucked hem IS the brand and there is nothing " +
+      "published to measure it against (the brand's rule is qualitative: 'around " +
+      "mid-zipper'). ⚠ THE FIT DOES NOT CHANGE THIS GRADE — Regular / Slim / " +
+      "Relaxed / Regular Tall / Slim Tall all share this run, and there is NO " +
+      "'Athletic' fit. The shorts chart is not mirrored: the brand's own is " +
+      "internally incoherent (labels itself alpha, lists numerics).",
+    rows: [
+      {
+        size: "S",
+        measurements: { chest: "36-38", waist: "29-31", sleeve: "33-34" },
+      },
+      {
+        size: "M",
+        measurements: { chest: "39-41", waist: "32-34", sleeve: "33.5-34.5" },
+      },
+      {
+        size: "L",
+        measurements: { chest: "42-44", waist: "35-37", sleeve: "34.5-35.5" },
+      },
+      {
+        size: "XL",
+        measurements: { chest: "45-47", waist: "38-40", sleeve: "35-36" },
+      },
+      {
+        size: "XXL",
+        measurements: { chest: "48-50", waist: "41-43", sleeve: "35.5-36.5" },
+      },
+      { size: "XXXL", measurements: { waist: "44-46", sleeve: "36.5-37.5" } },
+    ],
+  },
+  {
+    brand: "UNTUCKit",
+    brandMatch: ["untuckit"],
+    department: "Women",
+    garment: "Tops & dresses (ALPHA XS-XL)",
+    categoryMatch: [
+      "top",
+      "shirt",
+      "blouse",
+      "dress",
+      "shirtdress",
+      "tee",
+      "sweater",
+    ],
+    note:
+      "UNTUCKit's women's line (launched 2017, driven by the fact that ~45% of the " +
+      "brand's customers were women buying for men) runs ALPHA XS-XL; the waist " +
+      "column is the brand's NATURAL waist. Brand-published. As with the men's " +
+      "chart, NO BODY LENGTH is published, so the untucked-hem premise has no " +
+      "number to check against here either.",
+    rows: [
+      {
+        size: "XS",
+        measurements: { bust: "32.5-34.5", waist: "25.5-26.5", hip: "36-39" },
+      },
+      {
+        size: "S",
+        measurements: { bust: "34.5-36.5", waist: "27.5-29.5", hip: "38-41" },
+      },
+      {
+        size: "M",
+        measurements: { bust: "36.5-38.5", waist: "29.5-31.5", hip: "40-43" },
+      },
+      {
+        size: "L",
+        measurements: { bust: "38.5-40.5", waist: "31.5-33.5", hip: "42-45" },
+      },
+      {
+        size: "XL",
+        measurements: { bust: "40.5-42.5", waist: "34.5-36.5", hip: "44-47" },
+      },
+    ],
+  },
+
+  // Johnnie-O — brand-published, faithfully including its own discontinuity.
+  {
+    brand: "Johnnie-O",
+    brandMatch: ["johnnie-o", "johnnieo", "johnnie o"],
+    department: "Men",
+    garment: "Tops (ALPHA S-XXXL — body measurements)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "polo",
+      "sweater",
+      "hoodie",
+      "quarter zip",
+      "pullover",
+      "jacket",
+      "outerwear",
+    ],
+    note:
+      "Johnnie-O's own published chart — BODY measurements, not flat-garment. ⚠ " +
+      "NOTE THE DISCONTINUITY, REPRODUCED FAITHFULLY: XXL chest ends at 48 and XXXL " +
+      "starts at 50 (and the waist jumps 48→49), so there is a gap in the brand's " +
+      "own grade. It may be a brand-side typo — do NOT silently 'fix' it; prefer " +
+      "the garment. Brand guidance is 'true to size', sizing up if between sizes. " +
+      "THE STANDARD (non-big-&-tall) BOTTOMS CHART COULD NOT BE SOURCED and is " +
+      "deliberately absent; big & tall bottoms run 42R-56R (42R = 41-42in waist).",
+    rows: [
+      {
+        size: "S",
+        measurements: {
+          neck: "14-14.5",
+          chest: "38-40",
+          waist: "28-32",
+          sleeve: "32-33",
+        },
+      },
+      {
+        size: "M",
+        measurements: {
+          neck: "15-15.5",
+          chest: "40-42",
+          waist: "32-36",
+          sleeve: "33-34",
+        },
+      },
+      {
+        size: "L",
+        measurements: {
+          neck: "16-16.5",
+          chest: "42-44",
+          waist: "36-40",
+          sleeve: "34-35",
+        },
+      },
+      {
+        size: "XL",
+        measurements: {
+          neck: "17-17.5",
+          chest: "44-46",
+          waist: "40-44",
+          sleeve: "35-36",
+        },
+      },
+      {
+        size: "XXL",
+        measurements: {
+          neck: "18-18.5",
+          chest: "46-48",
+          waist: "44-48",
+          sleeve: "36-37",
+        },
+      },
+      {
+        size: "XXXL",
+        measurements: {
+          neck: "18.5-19",
+          chest: "50-52",
+          waist: "49-52",
+          sleeve: "37-38",
+        },
+      },
+    ],
+  },
+
+  // Vineyard Vines — brand-published, with its own chart's oddity flagged.
+  {
+    brand: "Vineyard Vines",
+    brandMatch: ["vineyard vines", "vineyardvines"],
+    department: "Men",
+    garment: "Tops (ALPHA XS-XXL — body measurements)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "polo",
+      "sweater",
+      "quarter zip",
+      "pullover",
+      "shep shirt",
+      "jacket",
+      "tie",
+      "necktie",
+    ],
+    note:
+      "Vineyard Vines' own published men's chart. ⚠ FLAGGED FOR HUMAN VERIFICATION, " +
+      "REPRODUCED AS PUBLISHED: the WAIST progression is DISCONTINUOUS — S is 30-32 " +
+      "and M is 32-34, but L jumps to 36-38, leaving 34-36 unassigned, while chest " +
+      "and neck grade evenly. Either a genuine quirk or a transcription artifact; " +
+      "do not interpolate it away, prefer the garment. BIG & TALL is a separate " +
+      "grade: 'Big' 1X-6X and 'Tall' XL-5X at the SAME GIRTH as Big but +2in of " +
+      "sleeve — so Big vs Tall is a SLEEVE-LENGTH fact, a real discriminator. " +
+      "MEN'S BOTTOMS are sold as WAIST x INSEAM IN INCHES, but no brand-published " +
+      "numeric men's-pant chart exists — the waist column here is per alpha size.",
+    rows: [
+      {
+        size: "XS",
+        measurements: {
+          neck: "13.5-14",
+          chest: "36-38",
+          sleeve: "32.5",
+          waist: "28-30",
+        },
+      },
+      {
+        size: "S",
+        measurements: {
+          neck: "14-14.5",
+          chest: "38-40",
+          sleeve: "33.5",
+          waist: "30-32",
+        },
+      },
+      {
+        size: "M",
+        measurements: {
+          neck: "15-15.5",
+          chest: "40-42",
+          sleeve: "34.5",
+          waist: "32-34",
+        },
+      },
+      {
+        size: "L",
+        measurements: {
+          neck: "16-16.5",
+          chest: "42-44",
+          sleeve: "35.5",
+          waist: "36-38",
+        },
+      },
+      {
+        size: "XL",
+        measurements: {
+          neck: "17-17.5",
+          chest: "44-46",
+          sleeve: "36.5",
+          waist: "40-42",
+        },
+      },
+      {
+        size: "XXL",
+        measurements: {
+          neck: "18-18.5",
+          chest: "46-48",
+          sleeve: "37.5",
+          waist: "42-44",
+        },
+      },
+    ],
+  },
+  {
+    brand: "Vineyard Vines",
+    brandMatch: ["vineyard vines", "vineyardvines"],
+    department: "Women",
+    garment: "Tops & dresses (US numeric 00-24 + alpha XXS-3X)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "blouse",
+      "dress",
+      "sweater",
+      "shep shirt",
+      "jacket",
+      "skirt",
+    ],
+    note:
+      "Vineyard Vines publishes ONE unified women's chart (no separate tops/bottoms/" +
+      "dresses), running US numeric 00-24 mapped to alpha XXS-3X. ⚠ THE ALPHA " +
+      "MAPPING IS NOT SETTLED AND THE NUMERIC IS THE RELIABLE PART. Two problems, " +
+      "both flagged rather than smoothed: (a) the published mapping is " +
+      "NON-MONOTONIC — 18→XXL, 20→2X, then 22 back to XXL — almost certainly an " +
+      "upstream error, so size 22 is deliberately OMITTED rather than guessed; (b) " +
+      "a second rendering of the same brand chart returns RANGE-based values " +
+      "(S = chest 35-36) instead of the single-value table below, so the brand may " +
+      "serve two variants. PREFER THE NUMERIC SIZE AND THE GARMENT. Women's DENIM: " +
+      "the brand publishes only a numeric-to-alpha conversion (24-37 → 00-24) with " +
+      "NO measurements at all.",
+    rows: [
+      {
+        size: "00 / XXS",
+        measurements: { chest: "32", waist: "24", hip: "34" },
+      },
+      { size: "0 / XS", measurements: { chest: "33", waist: "25", hip: "35" } },
+      { size: "2 / S", measurements: { chest: "34", waist: "26", hip: "36" } },
+      { size: "4 / S", measurements: { chest: "35", waist: "27", hip: "37" } },
+      { size: "6 / M", measurements: { chest: "36", waist: "28", hip: "38" } },
+      { size: "8 / M", measurements: { chest: "37", waist: "29", hip: "39" } },
+      {
+        size: "10 / L",
+        measurements: { chest: "38.5", waist: "30.5", hip: "40.5" },
+      },
+      { size: "12 / L", measurements: { chest: "40", waist: "32", hip: "42" } },
+      {
+        size: "14 / XL",
+        measurements: { chest: "41.5", waist: "33.5", hip: "43.5" },
+      },
+      {
+        size: "16 / XL",
+        measurements: { chest: "43.5", waist: "35", hip: "45" },
+      },
+      {
+        size: "18 / XXL",
+        measurements: { chest: "45.5", waist: "39", hip: "48.5" },
+      },
+      {
+        size: "20 / 2X",
+        measurements: { chest: "47", waist: "40.5", hip: "50" },
+      },
+      {
+        size: "24 / 3X",
+        measurements: { chest: "51.5", waist: "45", hip: "54.5" },
+      },
+    ],
+  },
+
+  // Faherty — the brand's own numbers, but the assets are 2019.
+  {
+    brand: "Faherty",
+    brandMatch: ["faherty"],
+    department: "Men",
+    garment: "Tops (ALPHA XS-XXXL — body measurements)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "polo",
+      "sweater",
+      "sweatshirt",
+      "flannel",
+      "overshirt",
+      "blazer",
+      "jacket",
+    ],
+    note:
+      "Faherty's OWN published chart — but ⚠ THE PUBLISHED ASSETS ARE DATED 2019, " +
+      "so the live fit may have drifted; the chart's own header says 'ALL SIZES ARE " +
+      "APPROXIMATE'. Brand-published-but-stale: capped confidence, prefer the " +
+      "garment. Faherty's fabric names are ™ and NOT ®, and the ® marks on its tags " +
+      "(REPREVE®, Supima®) belong to OTHER companies — see the pack's fabric row.",
+    rows: [
+      {
+        size: "XS",
+        measurements: {
+          neck: "14",
+          chest: "34-36",
+          waist: "26-28",
+          sleeve: "32.5-33",
+        },
+      },
+      {
+        size: "S",
+        measurements: {
+          neck: "14-14.5",
+          chest: "37-39",
+          waist: "28-30",
+          sleeve: "32.5-34",
+        },
+      },
+      {
+        size: "M",
+        measurements: {
+          neck: "15-15.5",
+          chest: "40-41",
+          waist: "31-33",
+          sleeve: "34-35",
+        },
+      },
+      {
+        size: "L",
+        measurements: {
+          neck: "16-16.5",
+          chest: "42-44",
+          waist: "34-36",
+          sleeve: "35-36",
+        },
+      },
+      {
+        size: "XL",
+        measurements: {
+          neck: "17-17.5",
+          chest: "45-47",
+          waist: "37-39",
+          sleeve: "36-36.5",
+        },
+      },
+      {
+        size: "XXL",
+        measurements: {
+          neck: "18-18.5",
+          chest: "48-51",
+          waist: "40-43",
+          sleeve: "36.5-37",
+        },
+      },
+      {
+        size: "XXXL",
+        measurements: {
+          neck: "19-19.5",
+          chest: "52-54",
+          waist: "44-47",
+          sleeve: "37.5-38",
+        },
+      },
+    ],
+  },
+  {
+    brand: "Faherty",
+    brandMatch: ["faherty"],
+    department: "Men",
+    garment:
+      "Bottoms (WAIST IN INCHES 28-42 + alpha — the tag runs ~2in SMALL, see note)",
+    categoryMatch: [
+      "pant",
+      "bottom",
+      "short",
+      "trouser",
+      "chino",
+      "jean",
+      "denim",
+      "boardshort",
+      "swim",
+    ],
+    note:
+      "⚠ VANITY SIZING, QUANTIFIED: THE TAGGED WAIST RUNS ~2-2.5in SMALLER THAN THE " +
+      "BODY IT FITS — a Faherty '32' fits a ~34.5in waist. AND THE OFFSET COMPRESSES " +
+      "AT THE TOP: a tagged 42 is only 43.5in, so the error is ~2.5in at 28-34 and " +
+      "~1.5in by 42. Same shape as BDG's and Bullhead's label-is-not-the-waist rule " +
+      "(00466), one axis larger. Faherty runs a DUAL system — alpha AND " +
+      "waist-in-inches. ⚠ THERE IS A GAP IN FAHERTY'S OWN ALPHA MAP: L ends at 37.5 " +
+      "and XL starts at 40, leaving 37.5-40in unassigned. That is the brand's error, " +
+      "reproduced rather than papered over. 2019 assets — prefer the garment.",
+    rows: [
+      { size: "28 (XS)", measurements: { waist: "30.5" } },
+      { size: "30 (XS-S)", measurements: { waist: "32.5" } },
+      { size: "32 (S-M)", measurements: { waist: "34.5" } },
+      { size: "34 (M)", measurements: { waist: "36.5" } },
+      { size: "36 (L)", measurements: { waist: "39.5" } },
+      { size: "38 (L-XL)", measurements: { waist: "41.5" } },
+      { size: "40 (XL)", measurements: { waist: "42.5" } },
+      { size: "42 (XXL)", measurements: { waist: "43.5" } },
+    ],
+  },
+  {
+    brand: "Faherty",
+    brandMatch: ["faherty"],
+    department: "Women",
+    garment: "Tops & dresses (ALPHA XS-XL + US numeric 0-16)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "blouse",
+      "dress",
+      "sweater",
+      "legend",
+      "jacket",
+      "skirt",
+    ],
+    note:
+      "Faherty women's runs a DUAL system: alpha XS-XL mapped to US numeric 0-16. " +
+      "⚠ THIS CHART STOPS AT XL/16 AND IS A 2019 ASSET — if Faherty now sells " +
+      "extended sizes, this chart does not cover them; do NOT extrapolate past XL. " +
+      "Women's dresses launched spring 2020 and are ~40% of women's sales, so a " +
+      "Faherty dress is a common resale garment sized against this table.",
+    rows: [
+      {
+        size: "XS (0-2)",
+        measurements: { bust: "31.5-33", waist: "24-25", hips: "33.5-35" },
+      },
+      {
+        size: "S (4-6)",
+        measurements: { bust: "33.5-34.5", waist: "26-27", hips: "36-37" },
+      },
+      {
+        size: "M (8-10)",
+        measurements: { bust: "35-37.5", waist: "28-29", hips: "38-39" },
+      },
+      {
+        size: "L (12-14)",
+        measurements: { bust: "38-39.5", waist: "30-31", hips: "40-42" },
+      },
+      {
+        size: "XL (16)",
+        measurements: { bust: "40-42", waist: "32-34", hips: "42.5-44.5" },
+      },
+    ],
+  },
+
+  // Bonobos — the SYSTEM is confirmed three ways; the grid is not published.
+  {
+    brand: "Bonobos",
+    brandMatch: ["bonobos"],
+    department: "Men",
+    garment: "Bottoms (WAIST x INSEAM in INCHES — the number IS the waist)",
+    categoryMatch: [
+      "pant",
+      "bottom",
+      "chino",
+      "trouser",
+      "short",
+      "jean",
+      "denim",
+      "dress pant",
+    ],
+    note:
+      "BONOBOS BOTTOMS ARE SOLD AS WAIST x INSEAM IN INCHES ('32x32') — the SYSTEM " +
+      "is confirmed three independent ways (the brand's own model copy, its variant " +
+      "SKUs, and retailer listings), and a Bonobos '32' IS a 32in waist, not an EU " +
+      "size (contrast Zara/H&M in 00466). ⚠ THE SYSTEM IS ALL THAT IS SEEDED: " +
+      "BONOBOS PUBLISHES NO REACHABLE NUMERIC GRID — its charts live on " +
+      "help.bonobos.com, which is unreadable to every automated fetcher INCLUDING " +
+      "the Wayback Machine, so no body-measurement table could be obtained and NONE " +
+      "IS INVENTED. The rows below simply restate that the label is the waist. " +
+      "PREFER THE GARMENT. ⚠ BONOBOS HEMS PANTS TO THE ORDERED INSEAM BEFORE " +
+      "SHIPPING, SO A USED BONOBOS PANT'S INSEAM MAY BE A CUSTOM HEM, NOT A " +
+      "CATALOGUE LENGTH — measure it. ⚠ THE FIT NAME DOES NOT CHANGE THIS GRADE — a " +
+      "32x32 is a 32x32 in Tailored, Slim, Straight, Athletic and Classic alike, and " +
+      "TAILORED IS TRIMMER THAN SLIM (see the pack's fit-vocabulary row). SHIRTS are " +
+      "a different system: ALPHA x FIT x LENGTH, not neck x sleeve. Blazers are " +
+      "numeric chest + fit; NO R/L/S length grade could be found and none is " +
+      "asserted.",
+    rows: [
+      { size: "W28", measurements: { waist: "28" } },
+      { size: "W30", measurements: { waist: "30" } },
+      { size: "W32", measurements: { waist: "32" } },
+      { size: "W34", measurements: { waist: "34" } },
+      { size: "W36", measurements: { waist: "36" } },
+      { size: "W38", measurements: { waist: "38" } },
+      { size: "W40", measurements: { waist: "40" } },
+    ],
+  },
+
+  // Todd Snyder / Buck Mason — system-only rows. The numbers do not exist.
+  {
+    brand: "Todd Snyder",
+    brandMatch: ["todd snyder", "toddsnyder"],
+    department: "Men",
+    garment: "Size SYSTEMS only (alpha tops / waist-inches bottoms / chest+R-L-S tailoring)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "sweater",
+      "sweatshirt",
+      "hoodie",
+      "pant",
+      "bottom",
+      "chino",
+      "jean",
+      "denim",
+      "suit",
+      "blazer",
+      "sport coat",
+      "tailoring",
+      "chore coat",
+      "outerwear",
+    ],
+    note:
+      "⚠ NO BRAND-PUBLISHED MEASUREMENTS ARE SEEDED FOR TODD SNYDER, AND THAT IS " +
+      "DELIBERATE: toddsnyder.com RETURNS HTTP 403 TO AUTOMATED FETCHING ON EVERY " +
+      "SIZE-GUIDE PATH, so no chart could be obtained and NONE IS INVENTED. This row " +
+      "carries THE SIZE SYSTEM ONLY, which is the honestly sourceable part. THE " +
+      "NUMBERS HERE ARE NOT THE BRAND'S OWN — MEASURE THE GARMENT. Todd Snyder runs " +
+      "the standard menswear systems: alpha tops, waist-in-inches bottoms, chest + " +
+      "R/L/S tailoring. ⚠ ONE GENUINE COMPLICATION: the brand ALSO runs a " +
+      "LETTER-SIZED bottoms line alongside the numeric one, so do not assume " +
+      "waist-only. Named tailoring fits (Sutton / Madison / Wythe / Hollywood) are a " +
+      "signal IN TEXT, not in photos — and note 'Madison' here is a TODD SNYDER fit " +
+      "name with NOTHING to do with Brooks Brothers' Madison in this same pack.",
+    rows: [
+      {
+        size: "Tops: ALPHA S/M/L/XL",
+        measurements: {
+          note: "alpha; the brand measures chest 1in below the armhole, pit to pit",
+        },
+      },
+      {
+        size: "Bottoms: numeric WAIST IN INCHES (selvedge denim 28-38)",
+        measurements: { note: "the number is the waist in inches" },
+      },
+      {
+        size: "Tailoring: CHEST + R/L/S (e.g. 40R)",
+        measurements: {
+          note:
+            "US standard: the number is the chest in inches, the letter is a length",
+        },
+      },
+    ],
+  },
+  {
+    brand: "Buck Mason",
+    brandMatch: ["buck mason", "buckmason"],
+    department: "Men",
+    garment: "Size SYSTEMS only (alpha tops XS-XXL / denim waist-inches 28-38)",
+    categoryMatch: [
+      "top",
+      "tee",
+      "shirt",
+      "flannel",
+      "sweatshirt",
+      "hoodie",
+      "pant",
+      "bottom",
+      "jean",
+      "denim",
+      "field pant",
+      "chino",
+    ],
+    note:
+      "⚠ NO BRAND-PUBLISHED MEASUREMENTS ARE SEEDED FOR BUCK MASON, AND THE REASON " +
+      "IS NOT AN ACCESS PROBLEM: buckmason.com fetches cleanly, but its numeric " +
+      "charts live in JS-RENDERED PRODUCT MODALS and its two official fit guides " +
+      "(tee and denim) are PROSE WITH NO MEASUREMENT TABLES AT ALL. So no inch-level " +
+      "table could be obtained and NONE IS INVENTED — this row carries THE SIZE " +
+      "SYSTEM ONLY. THE NUMBERS HERE ARE NOT THE BRAND'S OWN — MEASURE THE GARMENT. " +
+      "The one aggregator chart found is an undated, uncited flat JPEG on a " +
+      "retailer's page: the worst possible source for numbers a grader would treat " +
+      "as authoritative, and deliberately not ingested. ⚠ BUCK MASON OFFERS FREE " +
+      "HEMMING ON ALL JEANS AND SHIPS NO INSEAM AXIS, which implies jeans ship at a " +
+      "single long inseam and are hemmed to order — SO A LARGE SHARE OF SECONDHAND " +
+      "BUCK MASON JEANS WILL HAVE A CUSTOM, NON-FACTORY INSEAM AND HEM. Measure, " +
+      "never assume. Tops add SHORT and TALL as separate SKUs.",
+    rows: [
+      {
+        size: "Tops: ALPHA XS/S/M/L/XL/XXL",
+        measurements: {
+          note: "alpha; SHORT and TALL variants ship as separate SKUs",
+        },
+      },
+      {
+        size: "Denim: numeric WAIST IN INCHES 28-38",
+        measurements: {
+          note:
+            "28,29,30,31,32,33,34,36,38 — the run is NOT continuous above 34 (no 35, no 37)",
+        },
+      },
+    ],
+  },
 ];
 
 function norm(s: string | null | undefined): string {

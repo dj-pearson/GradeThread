@@ -2027,6 +2027,14 @@ export interface EbayPromotion {
   ad_id: string | null;
   status: string | null;
   suggested_rate_pct: number;
+  /**
+   * US-1979 (AC1): where suggested_rate_pct came from. "ebay_trending" is eBay's
+   * own data — the average ad rate of listings that recently SOLD in this
+   * category. "category_heuristic" is our fallback map, used when eBay has no
+   * suggestion for the listing (it is CPS-only and US/GB/DE/AU-only) or the
+   * listing isn't live yet. The UI must not present our guess as eBay's number.
+   */
+  suggested_rate_basis?: "ebay_trending" | "category_heuristic";
 }
 
 export function useEbayPromotion(listingId: string | null, enabled = true) {

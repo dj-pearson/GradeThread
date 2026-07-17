@@ -80,6 +80,42 @@ const UA_STYLE_NUMBER_DECODER: BrandDecoder = {
   examples: [],
 };
 
+// US-1987: the Peter Millar style_number decoder EXACTLY as migration 00467 seeds
+// it into brand_style_codes. It is the ONLY decoder in the preppy/contemporary
+// men's group, and the only one of those nine brands' codes that clears the bar —
+// tag-printed AND regular AND brand-unique in FORMAT. Fixturing the shipped spec
+// is the point: a bad pattern in the migration fails here, not in production.
+//
+// WHAT MAKES IT DIFFERENT FROM THE EIGHT REFUSALS IS PROVENANCE, NOT SHAPE.
+// Faherty's and Johnnie-O's codes are just as decoder-shaped; every one of them is
+// a web SKU inferred from a URL. Peter Millar's own help centre states the number
+// "can be found, together with care instructions, on the inside of the garment" —
+// the brand saying, itself, that the code is on the physical garment. That also
+// makes it the group's CUT-TAG case: the care label survives the collar tag.
+//
+// TWO DELIBERATE OMISSIONS, both fixtured as cases below:
+//   • NO GENDER. Peter Millar's department letters are M/L (ladies), and the
+//     shared `genderCode` transform maps only W/M — so capturing L would emit a
+//     raw "L" as a gender, and teaching the shared table that L=Women would break
+//     every brand where L means Large. Canada Goose (00460) uses the SAME M/L
+//     letters and made the same call: capture styleCode, document M/L in prose.
+//   • NO SEASON. MS24…/MF24… look like Spring/Fall + year and retailer titles
+//     corroborate it — but ME0S24 is an EVERGREEN sweater whose body merely
+//     CONTAINS "S24", so a naive parse is silently wrong, and PM publishes no
+//     decoder for the field at all.
+const PETER_MILLAR_STYLE_DECODER: BrandDecoder = {
+  decoderKind: "style_number",
+  description:
+    'Peter Millar style number printed WITH THE CARE INSTRUCTIONS on the inside of the garment: [ML] + a line letter (E = evergreen/carryover, S/F = seasonal) + digits + alphanumerics. ME0EK01 = Solid Performance Jersey Polo; LE0B46 = a ladies\' style. Recovers the BRAND off a cut brand tag.',
+  pattern: "^(?<style>[ML][EFS]\\d{1,2}[A-Z0-9]{2,6})$",
+  extractionRules: {
+    fieldMap: { style: "styleCode" },
+    transforms: { style: "upper" },
+    confidence: 0.7,
+  },
+  examples: [],
+};
+
 // US-1734: the Arc'teryx style_name decoder EXACTLY as migration 00453 seeds it
 // into brand_style_codes. Arc'teryx is the only brand in the outdoor group whose
 // garment-printed identifier is REGULAR — and it is a NAME system, not a number:
@@ -3238,6 +3274,229 @@ const CASES: GoldenCase[] = [
     pack: pack("Ann Taylor", "anntaylor"),
     input: decodedFrom({ brand: "Ann Taylor" }),
     expect: { brand: "Ann Taylor" },
+  },
+
+  // ── US-1987: preppy & contemporary men's (migration 00467) ─────────────────
+  // Unlike the last several groups, THIS ONE HAS A DECODER — and it is the only
+  // one of the nine brands' codes that is sourced to the PHYSICAL GARMENT rather
+  // than inferred from a URL. So this block has both halves: the Peter Millar
+  // decoder actually decoding (including the cut-tag case the epic exists for),
+  // and the eight refusals fixtured as NEGATIVES, because a refusal that isn't
+  // tested is just a comment.
+  {
+    name: "Peter Millar cut brand tag — the style number recovers the brand",
+    // THE GROUP'S CUT-TAG CASE. Peter Millar's OWN help centre says the style
+    // number "can be found, together with care instructions, on the inside of the
+    // garment" — so it survives the collar tag being cut out, which is exactly
+    // what this whole epic exists for. No AI brand is supplied.
+    brand: "Peter Millar",
+    pack: pack("Peter Millar", "petermillar", [], [PETER_MILLAR_STYLE_DECODER]),
+    input: decodedFrom({ styleCode: "ME0EK01" }),
+    expect: { brand: "Peter Millar", recovery: true },
+  },
+  {
+    name: "Peter Millar ladies' code (LE0B46) also recovers the brand",
+    // The L prefix is the ladies' line. It must recover the brand exactly as the
+    // men's M does — and note what it must NOT do: emit a gender. See the spec's
+    // comment; the shared genderCode transform maps W/M only, so an L would be
+    // passed through raw as a phantom "L" gender if it were captured.
+    brand: "Peter Millar",
+    pack: pack("Peter Millar", "petermillar", [], [PETER_MILLAR_STYLE_DECODER]),
+    input: decodedFrom({ styleCode: "LE0B46" }),
+    expect: { brand: "Peter Millar", recovery: true },
+  },
+  {
+    name: "Peter Millar seasonal code (MF24Z02) recovers the brand",
+    brand: "Peter Millar",
+    pack: pack("Peter Millar", "petermillar", [], [PETER_MILLAR_STYLE_DECODER]),
+    input: decodedFrom({ styleCode: "MF24Z02" }),
+    expect: { brand: "Peter Millar", recovery: true },
+  },
+  {
+    name: "Peter Millar decoder WINS over a wrong AI brand",
+    // The US-1712 contract: a style-code match outranks the model. A Peter Millar
+    // garment the AI called Bonobos must come back Peter Millar, with the
+    // disagreement surfaced as a conflict rather than silently overwritten.
+    brand: "Peter Millar",
+    pack: pack("Peter Millar", "petermillar", [], [PETER_MILLAR_STYLE_DECODER]),
+    input: {
+      ...decodedFrom({ brand: "Bonobos" }),
+      attributes: {
+        style_code: {
+          values: ["ME0EK01"],
+          confidence: 0.3,
+          source: "photo:tag",
+        },
+      },
+    },
+    expect: { brand: "Peter Millar", conflictOn: "brand", recovery: true },
+  },
+  {
+    name: "REFUSAL: Peter Millar's ME0S24 does NOT decode a season",
+    // THE AMBIGUITY THAT KILLED THE SEASON FIELD, fixtured so nobody "improves"
+    // the decoder by adding it back. MS24…/MF24… really do look like Spring/Fall
+    // + year and retailer titles corroborate it ("Suffolk Coat FW24" = MF24Z02).
+    // But ME0S24 is an EVERGREEN Crown Soft sweater whose body merely CONTAINS
+    // "S24" — a naive parse calls it Spring 2024 and is silently wrong. Peter
+    // Millar publishes no decoder for the field at all, so the pack seeds the
+    // style code and nothing else. The code still recovers the BRAND (that part
+    // is sourced); it must simply never assert a season or a year.
+    brand: "Peter Millar",
+    pack: pack("Peter Millar", "petermillar", [], [PETER_MILLAR_STYLE_DECODER]),
+    input: decodedFrom({ styleCode: "ME0S24" }),
+    expect: { brand: "Peter Millar", recovery: true },
+  },
+  {
+    name: "REFUSAL: a Buck Mason B007 does NOT recover Buck Mason",
+    // THE PACK'S MOST INSTRUCTIVE REFUSAL, because it was DISPROVEN BY EVIDENCE
+    // rather than argued away. B007 looks exactly like a style code — until you
+    // notice it appears on BOTH a Ford Standard Jean AND a Maverick Slim Jean
+    // (and D018 on both a Full Saddle and a Cowboy Cut). A code that is CONSTANT
+    // ACROSS DIFFERENT FITS is not identifying the style: it identifies the DENIM
+    // FABRIC LOT. The separate BM11001.102 string is an IMAGE FILENAME.
+    brand: "Buck Mason",
+    pack: pack("Buck Mason", "buckmason"),
+    input: decodedFrom({ styleCode: "B007" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "REFUSAL: a Brooks Brothers ME04455 does NOT recover Brooks Brothers",
+    // Tempting, because the format (M + category letter + 5 digits) looks as
+    // decodable as Peter Millar's — and that is the point of fixturing it. It is
+    // a current-site Demandware SKU, sourced to no tag, and its era coverage is
+    // near-zero where it matters: BB resale is decades of pre-2020 garments across
+    // six ownership regimes. A decoder that works on 2025 stock and fails silently
+    // on 1985 stock fails CONFIDENTLY, which is worse than not existing.
+    brand: "Brooks Brothers",
+    pack: pack("Brooks Brothers", "brooksbrothers"),
+    input: decodedFrom({ styleCode: "ME04455" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "REFUSAL: a Vineyard Vines 1P1291 does NOT recover Vineyard Vines",
+    // The closest call among the refusals: the format is arguably brand-unique and
+    // the 1/2/3 gender prefix is inferable. It fails anyway — every sighting is a
+    // web/catalog SKU echoed by wholesalers, and the brand's OWN catalogue
+    // addresses many products by a bare 12-digit UPC instead, so a parser cannot
+    // know which it is looking at (and a bare UPC is a bare digit run).
+    brand: "Vineyard Vines",
+    pack: pack("Vineyard Vines", "vineyardvines"),
+    input: decodedFrom({ styleCode: "1P1291" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "REFUSAL: a Bonobos 19112-GYK52-28X30 does NOT recover Bonobos",
+    // A web variant SKU. Note the second, independent reason it is worthless: its
+    // only decodable fragment (-28X30) merely RESTATES the size already printed on
+    // the size tag. A decoder that recovers what you can already read is not one.
+    brand: "Bonobos",
+    pack: pack("Bonobos", "bonobos"),
+    input: decodedFrom({ styleCode: "19112-GYK52-28X30" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "REFUSAL: a Johnnie-O JMPO3000 does NOT recover Johnnie-O",
+    // One of the two most decoder-SHAPED refusals (J+M+category letters+digits,
+    // stable across seasons for core styles). Refused because shape is not
+    // provenance: every sighting is a web URL or a retailer SKU, and the
+    // category-letter mapping is an inference from a handful of examples.
+    brand: "Johnnie-O",
+    pack: pack("Johnnie-O", "johnnieo"),
+    input: decodedFrom({ styleCode: "JMPO3000" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "REFUSAL: a Faherty MKH2406-NUR-L does NOT recover Faherty",
+    // The other decoder-shaped one — gender letter, 4-digit block that looks like
+    // YY/MM, 3-letter colourway. Refused: a Shopify product-JSON SKU, no tag
+    // evidence, and the season reading collapses on MXC0001 (0001 cannot be one).
+    brand: "Faherty",
+    pack: pack("Faherty", "faherty"),
+    input: decodedFrom({ styleCode: "MKH2406-NUR-L" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "REFUSAL: an UNTUCKit 03046GRY does NOT recover UNTUCKit",
+    // [5 digits][3-letter colour] is the single most common Shopify SKU shape in
+    // existence, and its only decodable part (GRY = grey) is already visible in
+    // the photo. A web SKU, not a tag print.
+    brand: "UNTUCKit",
+    pack: pack("UNTUCKit", "untuckit"),
+    input: decodedFrom({ styleCode: "03046GRY" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "REFUSAL: a Todd Snyder web slug does NOT recover Todd Snyder",
+    // Todd Snyder's Shopify handles are free-text marketing slugs, not a format at
+    // all. The structural risk is worse than "no decoder": as an AEO brand, any
+    // real tag code would likely be the PARENT's ERP numbering — a bare digit run
+    // shared with American Eagle and Aerie — so a decoder here would actively
+    // mis-route a $1,498 chore coat to the mall sibling.
+    brand: "Todd Snyder",
+    pack: pack("Todd Snyder", "toddsnyder"),
+    input: decodedFrom({ styleCode: "TS00159" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Bonobos single known style fills the style the AI missed",
+    brand: "Bonobos",
+    pack: pack("Bonobos", "bonobos", [style("Stretch Weekday Warrior Dress Pant")]),
+    input: decodedFrom({ brand: "Bonobos" }),
+    expect: { brand: "Bonobos", style: "Stretch Weekday Warrior Dress Pant" },
+  },
+  {
+    name: "Bonobos ambiguous Washed Chino vs 2.0 — never guess a style",
+    // A REAL ambiguity worth fixturing: the two ARE separable in a photo (slide
+    // snap vs hip zip pocket), but the BRAND ALONE cannot say which — and the
+    // conservative fill only fires on a single-style pack. This asserts the
+    // resolver declines rather than picking the more famous one.
+    brand: "Bonobos",
+    pack: pack("Bonobos", "bonobos", [
+      style("Washed Chino"),
+      style("Stretch Washed Chino 2.0"),
+    ]),
+    input: decodedFrom({ brand: "Bonobos" }),
+    expect: { brand: "Bonobos", noStyle: true },
+  },
+  {
+    name: "UNTUCKit ambiguous wine-named shirts — never guess a style",
+    // THE PACK'S SHARPEST NEVER-GUESS CASE. UNTUCKit has run ~500 wine-named
+    // styles through a tiny design space, so dozens are pairwise indistinguishable
+    // in a photo and the name is recoverable ONLY from the tag. A model WILL
+    // produce "Gibson" on demand because the names are in its weights — that is
+    // guessing, not vision.
+    brand: "UNTUCKit",
+    pack: pack("UNTUCKit", "untuckit", [style("Sangiovese"), style("Gibson")]),
+    input: decodedFrom({ brand: "UNTUCKit" }),
+    expect: { brand: "UNTUCKit", noStyle: true },
+  },
+  {
+    name: "Brooks Brothers ambiguous OCBD vs Sack Suit — never guess a style",
+    brand: "Brooks Brothers",
+    pack: pack("Brooks Brothers", "brooksbrothers", [
+      style("Original Polo® Button-Down Oxford (the OCBD)"),
+      style("No. 1 Sack Suit"),
+    ]),
+    input: decodedFrom({ brand: "Brooks Brothers" }),
+    expect: { brand: "Brooks Brothers", noStyle: true },
+  },
+  {
+    name: "Todd Snyder keeps its own brand — never folds to the AEO parent",
+    // The AGOLDE/Miu Miu rule, resolver half: American Eagle owns Todd Snyder, and
+    // folding the premium label onto the mall parent would retitle a $1,498 chore
+    // coat and price it against $50 jeans. The canonicalization half is asserted
+    // in the content test.
+    brand: "Todd Snyder",
+    pack: pack("Todd Snyder", "toddsnyder", [style("Todd Snyder + Champion")]),
+    input: decodedFrom({ brand: "Todd Snyder" }),
+    expect: { brand: "Todd Snyder", style: "Todd Snyder + Champion" },
+  },
+  {
+    name: "Buck Mason with no decoder + no code — clean no-op",
+    brand: "Buck Mason",
+    pack: pack("Buck Mason", "buckmason"),
+    input: decodedFrom({ brand: "Buck Mason" }),
+    expect: { brand: "Buck Mason" },
   },
 ];
 

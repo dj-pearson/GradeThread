@@ -17,6 +17,7 @@ Deno.env.delete("EBAY_DEFAULT_AD_RATE");
 
 const {
   suggestedAdRateForCategory,
+  recommendationApiSupported,
   resolvePublishAdRate,
   MIN_AD_RATE_PCT,
   MAX_AD_RATE_PCT,
@@ -173,4 +174,36 @@ Deno.test("US-1447: smart-targeting surface is exported", () => {
   assertEquals(typeof marketing.ensureSmartCampaign, "function");
   assertEquals(typeof marketing.createSmartAdForListing, "function");
   assertEquals(typeof marketing.attachPromotionAtPublish, "function");
+});
+
+// ── US-1979 (AC1): eBay's trending ad rate vs our heuristic ────────────────
+//
+// suggestedAdRateForCategory was the PRIMARY suggestion, justified by a comment
+// claiming "eBay exposes no synchronous suggested bid per leaf endpoint". That was
+// wrong: eBay's suggestion is per-LISTING, not per-leaf-category, via the
+// Recommendation API's findListingRecommendations (marketing.ad.bidPercentages,
+// basis TRENDING = the average ad rate of listings that recently SOLD in the same
+// category). The map is now the FALLBACK.
+//
+// The marketplace gate is eBay's, not ours, and it is why the fallback has to stay:
+// the Recommendation API is CPS-only and covers only these four marketplaces.
+
+Deno.test("US-1979: the Recommendation API gate matches eBay's supported marketplaces", () => {
+  for (const m of ["EBAY_US", "EBAY_GB", "EBAY_DE", "EBAY_AU"]) {
+    assertEquals(recommendationApiSupported(m), true, `${m} is supported by eBay`);
+  }
+  // Everywhere else must fall back rather than call an endpoint eBay does not
+  // serve there — a 4xx per listing would be noise, and the seller would lose the
+  // suggestion entirely.
+  for (const m of ["EBAY_CA", "EBAY_FR", "EBAY_IT", "EBAY_ES", "EBAY_NL", "EBAY_IE"]) {
+    assertEquals(recommendationApiSupported(m), false, `${m} is NOT supported`);
+  }
+});
+
+Deno.test("US-1979: the category heuristic still stands as the fallback", () => {
+  // It is no longer the primary, but it must keep working — it is what a seller on
+  // EBAY_CA, or with a draft listing, or during a Recommendation API outage, gets.
+  const sneakers = suggestedAdRateForCategory("15709");
+  const unknown = suggestedAdRateForCategory("999999");
+  assertEquals(sneakers > unknown, true, "high-demand categories still bid above baseline");
 });

@@ -281,6 +281,7 @@ import {
   removeAdForListing,
   resolvePublishAdRate,
   suggestedAdRateForCategory,
+  fetchTrendingAdRates,
   summarizePromotedListings,
   syncPromotedListingsForOwner,
   updateMarkdownSale,
@@ -5184,6 +5185,23 @@ flipdeskEbayRoutes.get("/listings/:id/promotion", async (c) => {
     default_promo_rate_pct: number | null;
     default_promo_mode: string | null;
   } | null;
+
+  // US-1979 (AC1): prefer eBay's trending rate for this listing over our
+  // category heuristic. Only live listings have an id eBay can recommend against;
+  // a draft keeps the heuristic. fetchTrendingAdRates swallows its own failures
+  // and returns an empty map, so a suggestion outage degrades to the heuristic
+  // rather than failing the whole promotion panel.
+  let suggestedRate = suggestedAdRateForCategory(row.platform_category_id);
+  let suggestedBasis: "ebay_trending" | "category_heuristic" = "category_heuristic";
+  if (row.platform_listing_id) {
+    const trending = await fetchTrendingAdRates(userId, [row.platform_listing_id]);
+    const pct = trending.get(row.platform_listing_id);
+    if (pct !== undefined) {
+      suggestedRate = pct;
+      suggestedBasis = "ebay_trending";
+    }
+  }
+
   const promoteByDefault = owner?.promote_listings_by_default ?? false;
   const effectivePromote = row.promote_override ?? promoteByDefault;
   return c.json({
@@ -5197,7 +5215,13 @@ flipdeskEbayRoutes.get("/listings/:id/promotion", async (c) => {
     rate_pct: row.promo_rate_pct,
     ad_id: row.promo_ad_id,
     status: row.promo_status,
-    suggested_rate_pct: suggestedAdRateForCategory(row.platform_category_id),
+    // US-1979 (AC1): eBay's OWN trending rate for THIS listing when it has one —
+    // the average ad rate of listings that recently SOLD in the same category —
+    // falling back to our category heuristic. suggested_rate_basis tells the UI
+    // which it got, so it can say "eBay's trending rate" rather than implying our
+    // guess came from eBay.
+    suggested_rate_pct: suggestedRate,
+    suggested_rate_basis: suggestedBasis,
     sale_active: saleActive,
     sale_pct: typeof row.platform_fields?.markdown_pct === "number"
       ? row.platform_fields.markdown_pct

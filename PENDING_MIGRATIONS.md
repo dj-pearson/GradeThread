@@ -4,6 +4,76 @@
 > The sections below for those are historical; the only NEW held migration is
 > **00443** at the top.
 
+## ⏳ PENDING: 00467_preppy_contemporary_mens_brand_knowledge.sql (US-1987 preppy & contemporary men's brand KB, 2026-07-17)
+
+Data-only seed of the `brand_knowledge*` tables for the preppy / contemporary
+menswear tier: **Vineyard Vines, Brooks Brothers, Bonobos, Faherty, Peter Millar,
+Todd Snyder, Buck Mason, UNTUCKit, Johnnie-O**. The menswear counterpart to
+00466's fast-fashion/mall tier and 00458's basics tier, neither re-touched.
+
+**ALL NINE WERE PASSTHROUGH-ONLY** — a "peter millar" tag rendered the seller's
+own casing into the prompt block and the eBay Brand aspect on some of the
+highest sell-through menswear in resale.
+
+`brand_knowledge` ×9; `brand_styles` ×34; `brand_size_charts` ×16, all mirrored
+1:1 into the `sizing-charts.ts` in-code fallback; `brand_style_codes` ×**1**
+(Peter Millar); `brand_colorways` ×**5** (Bonobos only). Every fact carries
+`source_url` + `confidence` and lands `verified=false` for the US-1715 admin
+queue. Idempotent (`on conflict do update`).
+
+**The pack's headline fact:** the FIT NAME is the garment-defining attribute and
+it is **TAG-ONLY**. Unlike 00466 (where the dispute was the size SYSTEM), the size
+grade here is not in dispute — a Bonobos 32x32 is a 32x32 in every fit. What
+changes is the CUT, by up to **5 inches** of chest/waist, and the only thing that
+says which is a word printed on the tag: not in the photo, not in the number, not
+recoverable by measuring the label.
+
+**And two brands' fit ladders run BACKWARDS from what the open web says**, each
+refuted by the brand's own published chart: Bonobos' **Tailored is TRIMMER than
+Slim**, and Brooks Brothers' **Madison is the ROOMIEST suit fit** (+3" chest, +5"
+waist over Regent). Aggregators split or state the inverse outright, so retrieval
+does not save a model here — seeding the popular version would have inverted both
+ladders. BB also runs five shirt rungs vs three suit rungs, so "Madison" is 4th of
+5 in one category and roomiest of 3 in the other.
+
+**One decoder, brand-sourced:** Peter Millar's `ME0EK01`/`LE0B46` style number,
+which PM's own help centre places "together with care instructions, on the inside
+of the garment" — the pack's **cut-tag case** (the care label survives the collar
+tag being cut). It captures **only `styleCode`** and deliberately does not map
+gender (the shared `genderCode` transform maps W/M; PM's ladies' letter is L, so
+capturing it would emit a raw "L" as a gender). The **season is deliberately not
+decoded**: `ME0S24` is an evergreen sweater whose body merely contains "S24", so a
+naive Spring-2024 parse is silently wrong.
+
+**Eight decoder refusals, all fixtured as negatives** in
+`brand-knowledge-golden_test.ts`. The instructive one is Buck Mason's `B007`/`D018`
+— refused **on evidence, not principle**: `B007` appears on both a Ford Standard
+and a Maverick Slim, so the code identifies the DENIM FABRIC LOT, not the style.
+The rest are web/Shopify SKUs harvested from URLs (shape is not provenance).
+
+**RN for eight of the nine is deliberately absent** — the FTC database is a JS
+shell that returns nothing to automation. Only Peter Millar's 100308 is seeded
+(from PM's own help centre, not the registry). The widely-circulated Vineyard
+Vines "RN 134578" and Brooks Brothers "RN 93986" trace only to eBay sellers'
+free-text and are refused — BB especially, whose registrant almost certainly
+changed across six ownership regimes.
+
+Apply **after 00466** via `scripts/apply-prod-migrations.sh`, then
+`NOTIFY pgrst, 'reload schema';`, then redeploy the edge (boot guard now expects
+**00467**). Bumps `EXPECTED_SCHEMA_VERSION` → **00467**. Risk: LOW — data-only, no
+schema change, no DDL, no frontend reads the new rows (the edge resolver falls
+back to the in-code tables when a pack is absent).
+
+⚠ `verify:db` could NOT run for this migration (Docker unresponsive on the
+authoring host — same as 00465 and 00466). The SQL was instead validated against
+the real PostgreSQL parser via **pglast**: parses (6 statements), every tuple
+matches its column list (9×13, 34×14, 1×10, 5×9, 16×12, 1×1), no duplicate
+`on conflict` key in any INSERT, and all 45 dollar-quoted `$j$` bodies scanned for
+the `''`-inside-`$j$` trap and JSON validity — clean. The scanner was self-tested
+against three planted bugs (a planted `''`, planted malformed JSON, and a planted
+dropped column) and caught all three. **Still run `npm run verify:db` before
+applying to prod.**
+
 ## ⏳ PENDING: 00466_fast_fashion_mall_brand_knowledge.sql (US-1986 fast-fashion & mall brand KB tier 2, 2026-07-17)
 
 Data-only seed of the `brand_knowledge*` tables for the high-VOLUME staples tier:

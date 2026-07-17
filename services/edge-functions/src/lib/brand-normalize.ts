@@ -795,6 +795,103 @@ const BRAND_ALIASES: Record<string, string> = {
   antisocialclub: "Anti Social Social Club",
   // DELIBERATELY ABSENT: a bare "gallery", "tears", "hell" or "star" — all
   // ordinary words. Same rule as "bean"/"moth"/"goose".
+
+  // US-1987 preppy & contemporary men's group (migration 00467). All nine were
+  // passthrough-only. This group's signature fact is that THE FIT NAME is the
+  // garment-defining attribute and it is TAG-ONLY — none of that lives here, but
+  // two things about the ALIAS side are worth spelling out:
+  //
+  //   1. A BARE "brooks" IS DELIBERATELY NOT MAPPED. Brooks Running (Ghost,
+  //      Adrenaline — a Berkshire Hathaway company) is a DIFFERENT COMPANY and is
+  //      not in this KB, so `brooks: "Brooks Brothers"` would silently retitle
+  //      every Brooks Running shoe whose brand field is literally "Brooks". The
+  //      two companies actually litigated the name (Brooks Sports sued Brooks
+  //      Brothers in 2020 over their 1980 coexistence agreement), which is about
+  //      as clear as a signal gets. This is the AG Jeans / Hudson Jeans / Lucky
+  //      Brand play: the canonical stays the LONG form and the short token is not
+  //      an alias at all — not even an exact-key one, because a bare "Brooks" in a
+  //      brand field is genuinely ambiguous rather than merely ordinary.
+  //   2. A BARE "buck" IS NOT MAPPED EITHER — Buck Knives collides hard enough
+  //      that it swamps every search for the apparel brand.
+  vineyardvines: "Vineyard Vines",
+  vineyardvine: "Vineyard Vines",
+  // A very common misspelling — the brand is "vineyard", not "vinyard".
+  vinyardvines: "Vineyard Vines",
+  // The 2019 Target collaboration is a DISTINCT (and much cheaper) quality tier,
+  // but its tag still says vineyard vines — so it folds, with the tier disclosed
+  // in the pack rather than split into a canonical (the Gap Factory play, 00458).
+  vineyardvinesfortarget: "Vineyard Vines",
+  shepshirt: "Vineyard Vines",
+  brooksbrothers: "Brooks Brothers",
+  brooksbros: "Brooks Brothers",
+  // The singular appears inside BB's own trademark text, so sellers type it.
+  brooksbrother: "Brooks Brothers",
+  brookbrothers: "Brooks Brothers",
+  // BB's SUB-LABELS, which are the only string on some tags. All fold onto Brooks
+  // Brothers: they are tiers of one brand, not separate marks with their own eBay
+  // nodes. ⚠ "Golden Fleece" / "Black Fleece" / "Red Fleece" LOOK like colourways
+  // and are not — Red Fleece does not mean the garment is red. They are safe as
+  // alias KEYS (an exact whole-field lookup) though "goldenfleece" would be unsafe
+  // as a canonical VALUE. NOT MAPPED: "346" and "1818" — bare digit runs.
+  goldenfleece: "Brooks Brothers",
+  blackfleece: "Brooks Brothers",
+  redfleece: "Brooks Brothers",
+  brooksgate: "Brooks Brothers",
+  brooksease: "Brooks Brothers",
+  southwick: "Brooks Brothers",
+  bonobos: "Bonobos",
+  bonobo: "Bonobos",
+  bonobosguideshop: "Bonobos",
+  // Bonobos' golf line, ~2014 — a real tag string that never says "Bonobos".
+  maide: "Bonobos",
+  maidebybonobos: "Bonobos",
+  // ⚠ "ayr" IS DELIBERATELY ABSENT. AYR launched UNDER Bonobos in 2014 and later
+  // became an INDEPENDENT brand, so folding it would mis-brand every later AYR
+  // garment — the Modern Amusement rule (00466): a line's origin is not ownership
+  // forever, and exclusivity of a line is not ownership of a mark.
+  faherty: "Faherty",
+  fahertybrand: "Faherty",
+  sunsessions: "Faherty",
+  cloudcashmere: "Faherty",
+  petermillar: "Peter Millar",
+  // "Peter Miller" is the misspelling this brand actually attracts.
+  petermiller: "Peter Millar",
+  petermillarcollection: "Peter Millar",
+  // PM's tier labels. Crown Crafted prints its OWN dark navy label, so the tier
+  // name can be the only string a seller can read (the BDG play, 00466). NOT
+  // MAPPED: a bare "crown" (ordinary word) or "gfore" — G/FORE is a DIFFERENT
+  // BRAND (a Peter Millar subsidiary 2018-2025, then moved OUT to become its own
+  // Richemont Maison in Feb 2025) and must never fold onto Peter Millar.
+  crowncrafted: "Peter Millar",
+  crownsport: "Peter Millar",
+  toddsnyder: "Todd Snyder",
+  toddsnydernewyork: "Todd Snyder",
+  // The collab attribution rule, implemented as an alias: a "Todd Snyder +
+  // Champion" tag names BOTH brands, and it resolves to TODD SNYDER — TS owns the
+  // design, sells it through its own channels and prices it at ~3x a standard
+  // Reverse Weave, so Champion is the manufacturing input and TS is the commercial
+  // identity. Resolving it the other way drags a $168 garment onto a mass-market
+  // canonical. Both spellings are separate keys because brandKey() keeps the "x".
+  toddsnyderchampion: "Todd Snyder",
+  toddsnyderxchampion: "Todd Snyder",
+  toddsnyderwhitelabel: "Todd Snyder",
+  buckmason: "Buck Mason",
+  buckmasonknittingmills: "Buck Mason",
+  untuckit: "UNTUCKit",
+  untuckedit: "UNTUCKit",
+  untuckitllc: "UNTUCKit",
+  // brandKey() STRIPS THE HYPHEN, so "Johnnie-O", "Johnnie O" and "JohnnieO" ALL
+  // collapse to `johnnieo` and one key covers every spelling a seller types —
+  // unlike the Rag & Bone / Aimé Leon Dore cases, where the punctuation produced
+  // genuinely different keys. The brand's own casing is time-dependent (its older
+  // press uses a lowercase "johnnie-O", its current site a capital J) and the
+  // lookup is case-insensitive anyway, so the canonical is the current form.
+  johnnieo: "Johnnie-O",
+  // The phonetic misspelling this brand actually attracts.
+  johnnyo: "Johnnie-O",
+  johnnieogolf: "Johnnie-O",
+  tweenerbutton: "Johnnie-O",
+  prepformance: "Johnnie-O",
 };
 
 /**

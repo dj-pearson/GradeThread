@@ -36,10 +36,20 @@ export const MAX_AD_RATE_PCT = 20;
 // One shared campaign per seller holds all of their FlipDesk-created ads.
 const CAMPAIGN_NAME = "FlipDesk Promoted Listings";
 
-// eBay top-level / well-known leaf category ids (tree 0, EBAY_US) where resale
-// competition runs hot enough that a higher-than-baseline ad rate is worth it.
-// Intentionally a small, documented heuristic — eBay exposes no synchronous
-// "suggested bid per leaf" endpoint, so this is our recommendation, not eBay's.
+// US-1979 (AC1): the FALLBACK, no longer the primary.
+//
+// The comment here used to read "eBay exposes no synchronous suggested bid per
+// leaf endpoint, so this is our recommendation, not eBay's". That was wrong, and
+// instructively so: eBay's suggestion is per-LISTING, not per-LEAF-CATEGORY, so
+// looking for a category endpoint found nothing. The Recommendation API's
+// findListingRecommendations returns marketing.ad.bidPercentages with
+// basis: TRENDING — the average ad rate of listings that recently SOLD in the same
+// category — which is exactly the number this map was guessing at.
+//
+// The map stays as the fallback, because the real rate is not always available:
+// the Recommendation API covers only the CPS funding model and only EBAY_US /
+// EBAY_GB / EBAY_DE / EBAY_AU, and a listing can come back with no bidPercentages
+// at all. A stale guess beats failing to suggest anything.
 const HIGHER_DEMAND_CATEGORIES: Record<string, number> = {
   "15709": 11, // Athletic Shoes / Sneakers — very high competition
   "169291": 11, // Women's Bags & Handbags
@@ -52,10 +62,82 @@ function clampRate(pct: number): number {
   return Math.min(MAX_AD_RATE_PCT, Math.max(MIN_AD_RATE_PCT, pct));
 }
 
+// US-1979 (AC1): eBay's OWN suggested ad rate for a listing.
+//
+// findListingRecommendations returns, per listing, the TRENDING bid percentage —
+// the average ad rate of listings that recently SOLD in the same category. That is
+// real marketplace data, and it is what suggestedAdRateForCategory's hardcoded map
+// was approximating.
+//
+// Marketplace/model limits are eBay's, not ours: the Recommendation API applies
+// only to CPS general-strategy campaigns and only on EBAY_US / EBAY_GB / EBAY_DE /
+// EBAY_AU. Outside those, and for any listing eBay returns no bidPercentages for,
+// the caller falls back to the category heuristic — hence `null` rather than a
+// throw. A suggestion is an assist; failing to suggest must never block the ad.
+const RECO_MARKETPLACES = new Set(["EBAY_US", "EBAY_GB", "EBAY_DE", "EBAY_AU"]);
+
+export function recommendationApiSupported(marketplaceId: string): boolean {
+  return RECO_MARKETPLACES.has(marketplaceId);
+}
+
+interface ListingRecommendationResponse {
+  listingRecommendations?: Array<{
+    listingId?: string;
+    marketing?: {
+      ad?: {
+        promoteWithAd?: string;
+        bidPercentages?: Array<{ basis?: string; value?: string }>;
+      };
+    };
+  }>;
+}
+
 /**
- * Suggested ad rate (bid percentage) for a category. Pure + unit-testable.
- * Falls back to the EBAY_DEFAULT_AD_RATE env baseline (or 8%) for any category
- * not in the higher-demand set, then clamps to [MIN, MAX].
+ * eBay's trending ad rate for each listing, as a percentage. Missing entries mean
+ * eBay had no suggestion for that listing — the caller keeps its fallback.
+ */
+export async function fetchTrendingAdRates(
+  userId: string,
+  listingIds: string[],
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (listingIds.length === 0) return out;
+  if (!recommendationApiSupported(getMarketplaceId())) return out;
+  try {
+    const { body } = await marketingFetch<ListingRecommendationResponse>(
+      userId,
+      // Same host + the hardened fetch (US-1966) as the Marketing calls; only the
+      // path differs. Scope is sell.inventory, which the connection already grants.
+      `/sell/recommendation/v1/find?filter=recommendationTypes:%7BAD%7D`,
+      {
+        method: "POST",
+        // eBay caps this at 500 listing ids per call.
+        body: JSON.stringify({ listingIds: listingIds.slice(0, 500) }),
+      },
+    );
+    for (const rec of body.listingRecommendations ?? []) {
+      if (!rec.listingId) continue;
+      // Only the TRENDING basis is a real observation (what recently-sold
+      // comparable listings actually bid). Take it explicitly rather than [0], so
+      // a future basis eBay adds can't silently become "the suggestion".
+      const trending = (rec.marketing?.ad?.bidPercentages ?? []).find(
+        (b) => b.basis === "TRENDING",
+      );
+      const pct = Number(trending?.value);
+      if (Number.isFinite(pct) && pct > 0) out.set(rec.listingId, clampRate(pct));
+    }
+  } catch (_err) {
+    // Unsupported marketplace, no ad scope, eBay hiccup — the caller's category
+    // fallback stands. Never let a suggestion failure break the ad path.
+  }
+  return out;
+}
+
+/**
+ * Suggested ad rate (bid percentage) for a category — the FALLBACK for when eBay
+ * has no trending rate for the listing (see fetchTrendingAdRates). Pure +
+ * unit-testable. Falls back to the EBAY_DEFAULT_AD_RATE env baseline (or 8%) for
+ * any category not in the higher-demand set, then clamps to [MIN, MAX].
  */
 export function suggestedAdRateForCategory(categoryId?: string | null): number {
   const envBase = Number(Deno.env.get("EBAY_DEFAULT_AD_RATE") ?? "");
