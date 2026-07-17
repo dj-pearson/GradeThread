@@ -829,7 +829,7 @@
         "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
       ],
       "priority": 2494,
-      "passes": false,
+      "passes": true,
       "notes": "[BrandKB][Brand][Group] ~6 brands. Season/collab identification + counterfeit tells (Supreme box-logo era, Essentials tag generations). Never auto-authenticate.",
       "dependsOn": [
         "US-1715",
