@@ -2963,6 +2963,319 @@ export const SIZING_CHARTS: SizingChart[] = [
       { size: "US W11 = UK 8.5 = EU 42", measurements: { footLength: "10.5" } },
     ],
   },
+  // ── US-1981: luxury outerwear & down group ─────────────────────────────────
+  // Mirrors migration 00460's brand_size_charts seed.
+  //
+  // FOUR OF THESE SIX BRANDS SIZE IN A SYSTEM THEIR OWN TAG NEVER NAMES, and that
+  // is the whole reason this pack is worth more than its style fingerprints:
+  //   * MONCLER is 0-5 — its OWN proprietary scale. Not US, not EU, not alpha.
+  //   * HERNO is ITALIAN (a men's "50" is IT 50 = US 40 / L).
+  //   * BOGNER is GERMAN (a women's "38" is DE 38 = US 8).
+  //   * WOOLRICH depends on the ERA — US alpha on the Pennsylvania-mill heritage
+  //     wool, EU numbers on the Italian-era outerwear. One label, two systems.
+  // So these charts are TRANSLATORS as much as estimators, and the US-1740 lesson
+  // applies verbatim: the cross-map goes INSIDE the size LABEL, where the model
+  // actually reads it, not in the note alone.
+  //
+  // MONCLER WOMEN'S IS THE WORST CASE IN THE FILE. Its numbers COLLIDE with US
+  // women's numeric sizing — a Moncler tagged "2" is a US 6-8, and "2" is a real
+  // US size too. Nothing looks wrong, the photo cannot contradict it, and the
+  // seller ships a medium to someone who bought an extra-small.
+  //
+  // Mackage is the deliberate CONTROL: plain US alpha, no translation needed.
+  {
+    brand: "Moncler",
+    brandMatch: ["moncler"],
+    department: "Men",
+    garment: "Outerwear (MONCLER 0-5 SCALE)",
+    categoryMatch: ["jacket", "coat", "outerwear", "down", "puffer", "parka", "vest", "top"],
+    note:
+      "THE NUMBER ON A MONCLER IS MONCLER'S OWN 0-5 SIZE AND THE GARMENT DOES NOT " +
+      "SAY SO — the highest-value fact in this brand group. It is not US, not EU, " +
+      "not alpha. A jacket tagged \"2\" is a MEDIUM (US 38-40 chest), so a seller " +
+      "who reads \"2\" and lists a US 2 has listed a medium as an extra-small. " +
+      "ALWAYS state the Moncler number AND its alpha equivalent in the listing. " +
+      "BODY measurement — NOT flat-garment; a down jacket is cut with loft and " +
+      "layering room, so its FLAT chest measures above the body chest it is sized " +
+      "to. Approximation from the published 0-5 mapping, not brand-fetched specs.",
+    rows: [
+      { size: "0 (= XS / US 34-36)", measurements: { chest: "34-36" } },
+      { size: "1 (= S / US 36-38)", measurements: { chest: "36-38" } },
+      { size: "2 (= M / US 38-40)", measurements: { chest: "38-40" } },
+      { size: "3 (= L / US 40-42)", measurements: { chest: "40-42" } },
+      { size: "4 (= XL / US 42-44)", measurements: { chest: "42-44" } },
+      { size: "5 (= XXL / US 44-46)", measurements: { chest: "44-46" } },
+    ],
+  },
+  {
+    brand: "Moncler",
+    brandMatch: ["moncler"],
+    department: "Women",
+    garment: "Outerwear (MONCLER 0-5 SCALE)",
+    categoryMatch: ["jacket", "coat", "outerwear", "down", "puffer", "parka", "vest", "top"],
+    note:
+      "THE NUMBER ON A MONCLER IS MONCLER'S OWN 0-5 SIZE AND THE GARMENT DOES NOT " +
+      "SAY SO — and on WOMEN'S it is at its most dangerous, because the numbers " +
+      "COLLIDE with US women's numeric sizing. A women's Moncler tagged \"2\" is a " +
+      "US 6-8 / MEDIUM, not a US 2 — the same digit is a real size in both " +
+      "systems, so nothing looks wrong. That is a THREE-SIZE error the photo " +
+      "cannot contradict. ALWAYS state the Moncler number AND its US/alpha " +
+      "equivalent. BODY measurement — NOT flat-garment. Approximation from the " +
+      "published 0-5 mapping, not brand-fetched specs.",
+    rows: [
+      { size: "0 (= XS / US 0-2)", measurements: { bust: "32-33" } },
+      { size: "1 (= S / US 4)", measurements: { bust: "33-34.5" } },
+      { size: "2 (= M / US 6-8)", measurements: { bust: "34.5-36" } },
+      { size: "3 (= L / US 10)", measurements: { bust: "36-38" } },
+      { size: "4 (= XL / US 12)", measurements: { bust: "38-40" } },
+      { size: "5 (= XXL / US 14)", measurements: { bust: "40-42" } },
+    ],
+  },
+  {
+    brand: "Canada Goose",
+    brandMatch: ["canada goose", "canadagoose"],
+    department: "Men",
+    garment: "Outerwear",
+    categoryMatch: ["jacket", "coat", "outerwear", "down", "parka", "bomber", "vest", "top"],
+    note:
+      "BODY measurement — NOT flat-garment, and on this brand the gap is EXTREME: " +
+      "an arctic parka is built around heavy down loft, so its flat chest measures " +
+      "far above the body chest it is sized to. CANADA GOOSE RUNS LARGE and the " +
+      "brand's own guidance is to size DOWN — a buyer who takes their usual size " +
+      "in an Expedition gets a coat that swims. Say the flat measurements; do not " +
+      "let the tag letter stand alone. NOTE the intra-brand spread: the slim " +
+      "Kensington/Langford city cuts and the roomy Expedition do NOT wear the same " +
+      "at one letter. Standard outerwear-alpha approximation, not brand-fetched specs.",
+    rows: [
+      { size: "XS", measurements: { chest: "34-36" } },
+      { size: "S", measurements: { chest: "36-38" } },
+      { size: "M", measurements: { chest: "38-40" } },
+      { size: "L", measurements: { chest: "41-43" } },
+      { size: "XL", measurements: { chest: "44-46" } },
+      { size: "XXL", measurements: { chest: "47-49" } },
+    ],
+  },
+  {
+    brand: "Canada Goose",
+    brandMatch: ["canada goose", "canadagoose"],
+    department: "Women",
+    garment: "Outerwear",
+    categoryMatch: ["jacket", "coat", "outerwear", "down", "parka", "bomber", "vest", "top"],
+    note:
+      "BODY measurement — NOT flat-garment; down loft puts the flat chest well " +
+      "above the body bust the coat is sized to. CANADA GOOSE RUNS LARGE — size " +
+      "DOWN is the brand's own guidance. The women's line spans a slim cut " +
+      "(Kensington) and a relaxed one (Trillium), so one letter does not wear the " +
+      "same across the range; state the flat measurements. Standard outerwear-alpha " +
+      "approximation, not brand-fetched specs.",
+    rows: [
+      { size: "XS", measurements: { bust: "32-33" } },
+      { size: "S", measurements: { bust: "34-35" } },
+      { size: "M", measurements: { bust: "36-37.5" } },
+      { size: "L", measurements: { bust: "38.5-40" } },
+      { size: "XL", measurements: { bust: "41-43" } },
+    ],
+  },
+  {
+    brand: "Mackage",
+    brandMatch: ["mackage"],
+    department: "Men",
+    garment: "Outerwear",
+    categoryMatch: ["jacket", "coat", "outerwear", "down", "parka", "leather", "top"],
+    note:
+      "BODY measurement — NOT flat-garment. MACKAGE IS THE PLAIN-READING CONTROL IN " +
+      "THIS GROUP: it sizes in ordinary US alpha (XS-XXL), so unlike Moncler/Herno/" +
+      "Bogner the tag means what it appears to mean and needs no translation. The " +
+      "cut is TRIM/tailored rather than roomy, so it does not wear like the " +
+      "deliberately oversized parkas beside it in this pack. Standard " +
+      "outerwear-alpha approximation, not brand-fetched specs.",
+    rows: [
+      { size: "XS", measurements: { chest: "34-36" } },
+      { size: "S", measurements: { chest: "36-38" } },
+      { size: "M", measurements: { chest: "38-40" } },
+      { size: "L", measurements: { chest: "41-43" } },
+      { size: "XL", measurements: { chest: "44-46" } },
+      { size: "XXL", measurements: { chest: "47-49" } },
+    ],
+  },
+  {
+    brand: "Mackage",
+    brandMatch: ["mackage"],
+    department: "Women",
+    garment: "Outerwear",
+    categoryMatch: ["jacket", "coat", "outerwear", "down", "parka", "leather", "top"],
+    note:
+      "BODY measurement — NOT flat-garment. Ordinary US alpha sizing (the " +
+      "plain-reading control in this group — no translation needed, unlike " +
+      "Moncler/Herno/Bogner). The women's range extends to XXS. Cut TRIM/tailored, " +
+      "and the belted coats (Adali/Kay) are meant to cinch — a belt-less listing " +
+      "misrepresents the fit as well as the completeness. Standard outerwear-alpha " +
+      "approximation, not brand-fetched specs.",
+    rows: [
+      { size: "XXS", measurements: { bust: "31-32" } },
+      { size: "XS", measurements: { bust: "32-33" } },
+      { size: "S", measurements: { bust: "34-35" } },
+      { size: "M", measurements: { bust: "36-37.5" } },
+      { size: "L", measurements: { bust: "38.5-40" } },
+      { size: "XL", measurements: { bust: "41-43" } },
+    ],
+  },
+  {
+    brand: "Herno",
+    brandMatch: ["herno"],
+    department: "Men",
+    garment: "Outerwear (ITALIAN-SIZED)",
+    categoryMatch: ["jacket", "coat", "outerwear", "down", "rain", "top", "blazer"],
+    note:
+      "THE NUMBER ON A HERNO IS AN ITALIAN SIZE AND THE GARMENT DOES NOT SAY SO — " +
+      "the highest-value Herno fact. A jacket tagged \"50\" is an IT 50 = US 40 = L. " +
+      "SUBTRACT 10 to reach the US number. ALWAYS state both. BODY measurement — " +
+      "NOT flat-garment; Italian outerwear is cut TRIM, so a Herno IT 50 wears " +
+      "smaller than a US L from an American outdoor brand. Standard IT-to-US " +
+      "menswear approximation, not brand-fetched specs.",
+    rows: [
+      { size: "46 (= IT 46 / US 36 / S)", measurements: { chest: "36-37" } },
+      { size: "48 (= IT 48 / US 38 / M)", measurements: { chest: "38-39" } },
+      { size: "50 (= IT 50 / US 40 / L)", measurements: { chest: "40-41" } },
+      { size: "52 (= IT 52 / US 42 / XL)", measurements: { chest: "42-43" } },
+      { size: "54 (= IT 54 / US 44 / XXL)", measurements: { chest: "44-45" } },
+      { size: "56 (= IT 56 / US 46 / XXXL)", measurements: { chest: "46-47" } },
+    ],
+  },
+  {
+    brand: "Herno",
+    brandMatch: ["herno"],
+    department: "Women",
+    garment: "Outerwear (ITALIAN-SIZED)",
+    categoryMatch: ["jacket", "coat", "outerwear", "down", "rain", "top"],
+    note:
+      "THE NUMBER ON A HERNO IS AN ITALIAN SIZE AND THE GARMENT DOES NOT SAY SO — " +
+      "and the WOMEN'S chart is the dangerous one, because an IT 42 reads as a " +
+      "plausible US 42 while actually being a US 6. SUBTRACT 36 to reach the US " +
+      "number (IT 42 - 36 = US 6). ALWAYS state both. BODY measurement — NOT " +
+      "flat-garment; Italian outerwear is cut TRIM. Standard IT-to-US womenswear " +
+      "approximation, not brand-fetched specs.",
+    rows: [
+      { size: "38 (= IT 38 / US 2 / XS)", measurements: { bust: "32-33" } },
+      { size: "40 (= IT 40 / US 4 / S)", measurements: { bust: "33-34.5" } },
+      { size: "42 (= IT 42 / US 6 / M)", measurements: { bust: "34.5-36" } },
+      { size: "44 (= IT 44 / US 8 / M-L)", measurements: { bust: "36-37.5" } },
+      { size: "46 (= IT 46 / US 10 / L)", measurements: { bust: "38-39.5" } },
+      { size: "48 (= IT 48 / US 12 / XL)", measurements: { bust: "40-41.5" } },
+    ],
+  },
+  {
+    brand: "Woolrich",
+    brandMatch: ["woolrich", "john rich"],
+    department: "Men",
+    garment: "Outerwear & wool",
+    categoryMatch: [
+      "jacket",
+      "coat",
+      "outerwear",
+      "down",
+      "parka",
+      "shirt",
+      "wool",
+      "flannel",
+      "top",
+    ],
+    note:
+      "BODY measurement — NOT flat-garment. WATCH THE SIZE SYSTEM, IT FOLLOWS THE " +
+      "ERA: this US alpha chart covers the American heritage wool (the Made-in-USA " +
+      "Buffalo Check era, mill closed 2018), but the ITALIAN-era outerwear sold " +
+      "under the same label may carry EU sizing instead — one brand, two systems, " +
+      "decided by which Woolrich the garment is. Confirm from the origin tag before " +
+      "trusting the label. The heritage wool is also cut GENEROUS/boxy as an " +
+      "overshirt layer, so the body chart does NOT predict the flat measurement. " +
+      "Standard US-alpha approximation, not brand-fetched specs.",
+    rows: [
+      { size: "S", measurements: { chest: "35-37" } },
+      { size: "M", measurements: { chest: "38-40" } },
+      { size: "L", measurements: { chest: "41-43" } },
+      { size: "XL", measurements: { chest: "44-46" } },
+      { size: "XXL", measurements: { chest: "47-49" } },
+    ],
+  },
+  {
+    brand: "Woolrich",
+    brandMatch: ["woolrich", "john rich"],
+    department: "Women",
+    garment: "Outerwear & wool",
+    categoryMatch: [
+      "jacket",
+      "coat",
+      "outerwear",
+      "down",
+      "parka",
+      "shirt",
+      "wool",
+      "flannel",
+      "top",
+    ],
+    note:
+      "BODY measurement — NOT flat-garment. WATCH THE SIZE SYSTEM, IT FOLLOWS THE " +
+      "ERA: US alpha on the American heritage wool, possibly EU numbers on the " +
+      "Italian-era outerwear (the Arctic Parka) under the SAME label. Confirm which " +
+      "Woolrich the garment is from the origin tag before trusting the size. " +
+      "Standard US-alpha approximation, not brand-fetched specs.",
+    rows: [
+      { size: "XS", measurements: { bust: "32-33" } },
+      { size: "S", measurements: { bust: "34-35" } },
+      { size: "M", measurements: { bust: "36-37.5" } },
+      { size: "L", measurements: { bust: "38.5-40" } },
+      { size: "XL", measurements: { bust: "41-43" } },
+    ],
+  },
+  {
+    brand: "Bogner",
+    brandMatch: ["bogner", "fire + ice", "fire and ice"],
+    department: "Men",
+    garment: "Ski & outerwear (GERMAN-SIZED)",
+    categoryMatch: ["jacket", "coat", "outerwear", "down", "ski", "pant", "top"],
+    note:
+      "THE NUMBER ON A BOGNER IS A GERMAN SIZE AND THE GARMENT DOES NOT SAY SO — " +
+      "the highest-value Bogner fact. A men's piece tagged \"50\" is a DE 50 = US " +
+      "40 = L. SUBTRACT 10 to reach the US number. ALWAYS state both. BODY " +
+      "measurement — NOT flat-garment; ski wear is cut with layering room over a " +
+      "base layer, so its flat chest measures above the body chest it is sized to. " +
+      "This chart serves BOTH ladders (mainline Bogner and the Fire + Ice diffusion " +
+      "line) — they share the size system but NOT the price, so read the LINE off " +
+      "the tag separately. Standard DE-to-US menswear approximation, not " +
+      "brand-fetched specs.",
+    rows: [
+      { size: "46 (= DE 46 / US 36 / S)", measurements: { chest: "36-37" } },
+      { size: "48 (= DE 48 / US 38 / M)", measurements: { chest: "38-39" } },
+      { size: "50 (= DE 50 / US 40 / L)", measurements: { chest: "40-41" } },
+      { size: "52 (= DE 52 / US 42 / XL)", measurements: { chest: "42-43" } },
+      { size: "54 (= DE 54 / US 44 / XXL)", measurements: { chest: "44-45" } },
+      { size: "56 (= DE 56 / US 46 / XXXL)", measurements: { chest: "46-47" } },
+    ],
+  },
+  {
+    brand: "Bogner",
+    brandMatch: ["bogner", "fire + ice", "fire and ice"],
+    department: "Women",
+    garment: "Ski & outerwear (GERMAN-SIZED)",
+    categoryMatch: ["jacket", "coat", "outerwear", "down", "ski", "pant", "top"],
+    note:
+      "THE NUMBER ON A BOGNER IS A GERMAN SIZE AND THE GARMENT DOES NOT SAY SO — " +
+      "and the WOMEN'S chart is the dangerous one, because a DE 38 reads as a " +
+      "plausible-looking number while actually being a US 8, and a DE 34 is a US 4. " +
+      "SUBTRACT 30 to reach the US number (DE 38 - 30 = US 8). ALWAYS state both. " +
+      "BODY measurement — NOT flat-garment; ski wear is cut with layering room. " +
+      "Serves BOTH ladders (mainline and Fire + Ice) — same size system, different " +
+      "price, so read the LINE off the tag. Standard DE-to-US womenswear " +
+      "approximation, not brand-fetched specs.",
+    rows: [
+      { size: "34 (= DE 34 / US 4 / XS)", measurements: { bust: "32-33" } },
+      { size: "36 (= DE 36 / US 6 / S)", measurements: { bust: "33.5-34.5" } },
+      { size: "38 (= DE 38 / US 8 / M)", measurements: { bust: "35-36" } },
+      { size: "40 (= DE 40 / US 10 / L)", measurements: { bust: "36.5-38" } },
+      { size: "42 (= DE 42 / US 12 / XL)", measurements: { bust: "38.5-40" } },
+      { size: "44 (= DE 44 / US 14 / XXL)", measurements: { bust: "41-42.5" } },
+    ],
+  },
   {
     brand: "Generic women's alpha",
     brandMatch: [], // fallback only (selected when no brand chart matches)
