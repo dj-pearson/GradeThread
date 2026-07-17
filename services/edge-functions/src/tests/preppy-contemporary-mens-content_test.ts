@@ -643,14 +643,20 @@ Deno.test("US-1987: the group's charts are reachable per brand + category", () =
 Deno.test("US-1987: a short/ordinary brandMatch token is never in the chart table", () => {
   // The US-1735 bug, guarded directly. findSizingCharts matches brandMatch as a
   // LEADING-word substring, so any of these would leak onto an unrelated brand:
-  //   • "brooks" → every Brooks RUNNING garment gets BB's dress-shirt charts.
   //   • "buck"   → Buck Knives.
   //   • "todd" / "peter" / "millar" → ordinary given names/surnames.
   //   • "crown"  → an ordinary word this product's own copy emits.
   // All are reachable via their canonical, which is what brand-knowledge.ts
   // passes in anyway.
+  //
+  // ⚠ "brooks" IS DELIBERATELY NOT BANNED (US-1990). Brooks RUNNING (a Berkshire
+  // Hathaway company) is now a sized brand in its own right and its charts must
+  // carry "brooks" so a "Brooks" brand field reaches them. The invariant the ban
+  // used to protect — a BROOKS BROTHERS garment must not get the running charts,
+  // and vice versa — now holds structurally: BB charts carry the LONGER
+  // "brooks brothers" (which "brooks" does not match), and category narrowing
+  // keeps a shirt off a footwear chart. That specific invariant is asserted below.
   const banned = new Set([
-    "brooks",
     "buck",
     "mason",
     "todd",
@@ -670,6 +676,24 @@ Deno.test("US-1987: a short/ordinary brandMatch token is never in the chart tabl
       );
     }
   }
+
+  // The precise Brooks invariant (US-1990): a Brooks BROTHERS chart must never
+  // carry the bare "brooks" token (that would hand a Brooks Running shoe the BB
+  // dress charts — the US-1735 hazard), while the Brooks RUNNING charts must.
+  for (const c of SIZING_CHARTS) {
+    if (c.brand === "Brooks Brothers") {
+      assert(
+        !c.brandMatch.includes("brooks"),
+        `Brooks Brothers chart must not carry the bare "brooks" token`,
+      );
+    }
+  }
+  assert(
+    SIZING_CHARTS.some(
+      (c) => c.brand === "Brooks" && c.brandMatch.includes("brooks"),
+    ),
+    "the Brooks RUNNING charts must carry the bare 'brooks' token to be reachable",
+  );
 
   // The prior groups' exclusions must still hold (the sets are shared).
   assertEquals(

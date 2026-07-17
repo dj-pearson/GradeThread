@@ -1035,6 +1035,60 @@ const BRAND_ALIASES: Record<string, string> = {
   williamsondickies: "Dickies",
   pendletonwoolenmills: "Pendleton",
   sirpendleton: "Pendleton",
+
+  // ── US-1990: footwear tier 2 (migration 00470) ──────────────────────────────
+  // ALL TEN were passthrough-only. For footwear the SIZE SYSTEM is the key signal
+  // (the charts are US/UK/EU translators), and canonicalizing the brand correctly
+  // is what routes a shoe to the pack that knows its sizing. Two collision refusals
+  // live below in DETECT_EXCLUDED_FROM_TEXT (Brooks, KEEN):
+  //   ⚠ A BARE "brooks" IS DELIBERATELY NOT MAPPED — Brooks Running (this pack, a
+  //     Berkshire Hathaway company) and Brooks Brothers (00467) are DIFFERENT
+  //     companies that litigated the name, so a bare "Brooks" brand field is
+  //     genuinely ambiguous (the 00467 call). Only the unambiguous forms are
+  //     aliased; a bare "Brooks" passes through unchanged — which happens to equal
+  //     the running brand's eBay canonical, so the pack (brand_key 'brooks') stays
+  //     reachable via brandKey() of the passthrough. "Brooks" is ALSO excluded from
+  //     FREE-TEXT detection (an ordinary word — "babbling brooks").
+  clarks: "Clarks",
+  clark: "Clarks",
+  clarksoriginals: "Clarks",
+  clarksengland: "Clarks",
+  cjclark: "Clarks",
+  candjclark: "Clarks",
+  merrell: "Merrell",
+  merrells: "Merrell",
+  merrellfootwear: "Merrell",
+  // "keen" is an ordinary English adjective, safe here as an exact whole-field KEY
+  // (the "aerie"/"divided" precedent); the free-text hazard is handled by
+  // DETECT_EXCLUDED_FROM_TEXT below.
+  keen: "KEEN",
+  keenfootwear: "KEEN",
+  keenshoes: "KEEN",
+  sorel: "Sorel",
+  sorels: "Sorel",
+  sorelfootwear: "Sorel",
+  // Brooks Running — bare "brooks" NOT mapped (see the header note). Only the
+  // unambiguous compound forms resolve.
+  brooksrunning: "Brooks",
+  brooksshoes: "Brooks",
+  brookssports: "Brooks",
+  brooksrunninginc: "Brooks",
+  saucony: "Saucony",
+  sauconys: "Saucony",
+  sauconyoriginals: "Saucony",
+  stevemadden: "Steve Madden",
+  stevemaddens: "Steve Madden",
+  // DELIBERATELY ABSENT: a bare "madden" (John Madden / Madden NFL) and "madden
+  // girl" (a lower-priced diffusion line kept as its own passthrough for comp
+  // accuracy — the AGOLDE/Circus rule).
+  samedelman: "Sam Edelman",
+  samedelmans: "Sam Edelman",
+  // DELIBERATELY ABSENT: a bare "edelman" (Julian Edelman / Richard Edelman) and
+  // "circus by sam edelman" (a lower-priced diffusion line, its own passthrough).
+  allenedmonds: "Allen Edmonds",
+  allenedmond: "Allen Edmonds",
+  crocs: "Crocs",
+  crocsinc: "Crocs",
 };
 
 /**
@@ -1142,6 +1196,19 @@ const DETECT_EXCLUDED_FROM_TEXT: ReadonlySet<string> = new Set([
   // comp filter read) and is simply never GUESSED from prose. Verified by
   // mutation in heritage-workwear-content_test.ts.
   "Red Wing",
+  // US-1990. Two footwear brands whose canonical is an ordinary word:
+  //   • Brooks (running) — "Brooks" is an ordinary English word ("babbling
+  //     brooks") AND a live brand collision: Brooks Brothers (00467) contains it,
+  //     though longest-first ordering already tests "Brooks Brothers" first. A
+  //     bare "brooks" in prose must not mint the running brand. It stays reachable
+  //     BY TAG (canonicalizeBrand of a "Brooks" passthrough resolves to the same
+  //     string, and brandKey('Brooks')='brooks' finds the pack).
+  //   • KEEN — an ordinary English ADJECTIVE ("a keen interest"). The match is
+  //     case-insensitive, so the all-caps canonical is no defence; it would fire
+  //     on "keen" in any listing prose. Reachable by tag, never guessed from text.
+  // Both verified by mutation in footwear-tier2-content_test.ts.
+  "Brooks",
+  "KEEN",
 ]);
 
 /**

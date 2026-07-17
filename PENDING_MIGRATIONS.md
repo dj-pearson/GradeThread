@@ -4,6 +4,69 @@
 > The sections below for those are historical; the only NEW held migration is
 > **00443** at the top.
 
+## ⏳ PENDING: 00470_footwear_tier2_brand_knowledge.sql (US-1990 footwear tier 2 brand KB, 2026-07-17)
+
+Data-only seed of the `brand_knowledge*` tables for the tier-2 footwear tier:
+**Clarks, Merrell, KEEN, Sorel, Brooks, Saucony, Steve Madden, Sam Edelman,
+Allen Edmonds, Crocs.** **ALL TEN were passthrough-only.** Sits beside 00459 (New
+Balance, Dr. Martens, UGG, Birkenstock, Converse, Vans, Cole Haan) and 00465's
+ASICS/HOKA/On Running, none re-touched.
+
+**The through-line: THE SIZE IS STAMPED, NOT MEASURED — and the STYLE IS A NAME,
+NOT A CODE.** The story note's "Style code + US/UK/EU size system are the key
+signal" resolves, on the evidence, to the SIZE SYSTEM: the charts are US/UK/EU
+TRANSLATORS with the cross-map written INTO the size label (the 00459 shape), and
+every model is identified by a coined/trademarked NAME (Desert Boot, Moab,
+Newport, Caribou, Ghost, Kinvara, Park Avenue, Classic Clog), never a regular
+tag-printed brand-unique code.
+
+- **ZERO DECODERS, deliberately** (the 00466 call) — every candidate is fixtured
+  as a REFUSAL negative in `brand-knowledge-golden_test.ts`. Brooks' 6-digit style
+  number (110411) is a BARE DIGIT RUN (the Chanel rule). Saucony's `S2xxxx`/`S1xxxx`
+  is refused on the SHARPEST ground: `S` + 5 digits is EXACTLY adidas's style-code
+  shape (`S79166`, the `brandFromStyleFormat` adidas branch), so a pattern would let
+  a format guess override the tag's own brand (the 00465 adidas/Reebok hazard).
+  Merrell's `J`-prefixed article number is a single-letter prefix (not a closed set
+  like New Balance's M/W/U) and not established as tag-printed vs a box/web SKU.
+- **TWO NAME-COLLISION CODE CHANGES in `brand-normalize.ts` (not data):**
+  - **A bare "brooks" is NOT aliased** — Brooks Running (this pack, Berkshire
+    Hathaway) and Brooks Brothers (00467) are DIFFERENT companies that litigated the
+    name, so a bare "Brooks" is genuinely ambiguous (the 00467 rule). It passes
+    through unchanged, which equals the running brand's eBay canonical, so the pack
+    (brand_key `brooks`) stays reachable. **"Brooks" is added to
+    `DETECT_EXCLUDED_FROM_TEXT`** (an ordinary word — "babbling brooks").
+  - **"KEEN" is added to `DETECT_EXCLUDED_FROM_TEXT`** — an ordinary English
+    adjective ("keen interest"); reachable BY TAG, never GUESSED from prose. Both
+    verified by mutation in `footwear-tier2-content_test.ts`.
+- **NO RN IS SEEDED** — footwear uppers sit largely outside textile RN labeling
+  (the 00468 category-error lesson) and no registrant was sourced; fabricating one
+  is the KB's costliest error (RN 17257). Owed to the US-1715 queue.
+- **TAG ERAS documented for the two HERITAGE makers** (Clarks Originals
+  Made-in-England, Allen Edmonds Made-in-USA), **empty for the eight modern brands**
+  with no vintage tag corpus (the athleisure precedent, 00452).
+
+`brand_knowledge` ×10; `brand_styles` ×26; `brand_colorways` ×**4** (Clarks
+Originals leathers — Beeswax/Sand/Cola/Oakwood, the only proprietary NAMED palette
+in the pack); `brand_style_codes` ×**0**; `brand_size_charts` ×**15** (US/UK/EU
+footwear translators), all mirrored 1:1 into the `sizing-charts.ts` in-code
+fallback. Every fact carries `source_url` + `confidence` and lands `verified=false`
+for the US-1715 admin queue. Idempotent (`on conflict do update`).
+
+Apply **after 00469** via `scripts/apply-prod-migrations.sh`, then
+`NOTIFY pgrst, 'reload schema';`, then redeploy the edge (boot guard now expects
+**00470**). Bumps `EXPECTED_SCHEMA_VERSION` → **00470**. Risk: LOW — data-only, no
+schema change, no DDL, no frontend reads the new rows (the edge resolver falls back
+to the in-code tables when a pack is absent).
+
+⚠ **Docker was unavailable on the authoring host, so `verify:db` could not run**
+(same as 00465..00469). The seed was instead validated by
+`scripts/ralph/validate-seed-sql.py` (pglast — the real PostgreSQL parser): parses
+(5 statements), every tuple matches its column list (10×13, 26×14, 4×9, 15×12,
+1×1), no duplicate `on conflict` key in any INSERT, and all 45 dollar-quoted `$j$`
+bodies scanned for the `''`-inside-`$j$` trap and JSON validity — clean, with the
+scanner self-tested against three planted bugs (all caught). **Still run
+`npm run verify:db` before applying to prod.**
+
 ## ⏳ PENDING: 00469_heritage_workwear_brand_knowledge.sql (US-1989 heritage & workwear brand KB, 2026-07-17)
 
 Data-only seed of the `brand_knowledge*` tables for the heritage / workwear tier:

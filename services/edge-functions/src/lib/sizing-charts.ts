@@ -7826,6 +7826,334 @@ export const SIZING_CHARTS: SizingChart[] = [
       { size: "XXL", measurements: { chest: "47-49" } },
     ],
   },
+
+  // US-1990: footwear tier 2 (mirrors migration 00470's brand_size_charts). The
+  // charts are US/UK/EU TRANSLATORS (a shoe's size is stamped, not measured) with
+  // the cross-map written INTO the size label; foot-length inches are a sanity
+  // check for a shoe in hand.
+  {
+    brand: "Clarks",
+    brandMatch: ["clarks"],
+    department: "Unisex",
+    garment: "Footwear (US/UK/EU + letter width fittings)",
+    categoryMatch: ["shoe", "shoes", "footwear", "boot", "desert boot", "wallabee", "loafer", "sandal"],
+    note:
+      "CLARKS IS A UK BRAND and much of its stock is UK-stamped; the US market " +
+      "uses US medium numbering, so read the label and state the UK number for the " +
+      "buyer. THE WIDTH IS A LETTER FITTING (G = standard, H = wide), not a US " +
+      "letter. THE SIZE IS STAMPED, NOT MEASURED. Conversions approximate; the " +
+      "men's/women's split is in each label (Clarks is often unisex-referenced).",
+    rows: [
+      { size: "UK 6 = US M7 / US W8.5 = EU 39.5", measurements: { footLength: "9.6" } },
+      { size: "UK 7 = US M8 / US W9.5 = EU 41", measurements: { footLength: "9.95" } },
+      { size: "UK 8 = US M9 / US W10.5 = EU 42", measurements: { footLength: "10.3" } },
+      { size: "UK 9 = US M10 / US W11.5 = EU 43", measurements: { footLength: "10.6" } },
+      { size: "UK 10 = US M11 = EU 44.5", measurements: { footLength: "10.95" } },
+      { size: "UK 11 = US M12 = EU 46", measurements: { footLength: "11.25" } },
+      { size: "UK 12 = US M13 = EU 47", measurements: { footLength: "11.6" } },
+    ],
+  },
+  {
+    brand: "Merrell",
+    brandMatch: ["merrell"],
+    department: "Men",
+    garment: "Footwear (US/UK/EU — hiking, the size is STAMPED)",
+    categoryMatch: ["shoe", "shoes", "footwear", "boot", "hiking", "moab", "trail", "sneaker"],
+    note:
+      "Merrell men's hikers use US numbering; conversions approximate. WIDTHS: a " +
+      "WIDE (W) width is offered on many hikers — read it off the tongue label. " +
+      "THE SIZE IS STAMPED, NOT MEASURED. The OUTSOLE is the grade on a hiking " +
+      "shoe (worn lugs, packed-out midsole) and needs a sole photo.",
+    rows: [
+      { size: "US M8 = UK 7.5 = EU 41.5", measurements: { footLength: "9.95" } },
+      { size: "US M9 = UK 8.5 = EU 43", measurements: { footLength: "10.3" } },
+      { size: "US M10 = UK 9.5 = EU 44.5", measurements: { footLength: "10.6" } },
+      { size: "US M11 = UK 10.5 = EU 45.5", measurements: { footLength: "10.95" } },
+      { size: "US M12 = UK 11.5 = EU 46.5", measurements: { footLength: "11.25" } },
+      { size: "US M13 = UK 12.5 = EU 48", measurements: { footLength: "11.6" } },
+    ],
+  },
+  {
+    brand: "Merrell",
+    brandMatch: ["merrell"],
+    department: "Women",
+    garment: "Footwear (US/UK/EU — hiking, the size is STAMPED)",
+    categoryMatch: ["shoe", "shoes", "footwear", "boot", "hiking", "moab", "trail", "sneaker"],
+    note:
+      "Merrell women's hikers use US numbering; conversions approximate. WIDTHS: a " +
+      "WIDE (W) width is offered on many models. THE SIZE IS STAMPED, NOT " +
+      "MEASURED. The OUTSOLE + midsole are the grade and need a sole photo.",
+    rows: [
+      { size: "US W6 = UK 4 = EU 37", measurements: { footLength: "8.9" } },
+      { size: "US W7 = UK 5 = EU 38", measurements: { footLength: "9.25" } },
+      { size: "US W8 = UK 6 = EU 39", measurements: { footLength: "9.5" } },
+      { size: "US W9 = UK 7 = EU 40.5", measurements: { footLength: "9.9" } },
+      { size: "US W10 = UK 8 = EU 41.5", measurements: { footLength: "10.2" } },
+      { size: "US W11 = UK 9 = EU 43", measurements: { footLength: "10.5" } },
+    ],
+  },
+  {
+    brand: "KEEN",
+    brandMatch: ["keen"],
+    department: "Men",
+    garment: "Footwear (US/UK/EU — RUNS ROOMY, the size is STAMPED)",
+    categoryMatch: ["shoe", "shoes", "footwear", "sandal", "boot", "newport", "targhee", "hiking"],
+    note:
+      "⚠ KEEN RUNS ROOMY / WIDE in the toe box by design — report the STAMPED size " +
+      "plus the runs-roomy note rather than adjusting the number. US numbering; " +
+      "conversions approximate. THE SIZE IS STAMPED, NOT MEASURED.",
+    rows: [
+      { size: "US M8 = UK 7 = EU 41", measurements: { footLength: "9.95" } },
+      { size: "US M9 = UK 8 = EU 42", measurements: { footLength: "10.3" } },
+      { size: "US M10 = UK 9 = EU 43", measurements: { footLength: "10.6" } },
+      { size: "US M11 = UK 10 = EU 44", measurements: { footLength: "10.95" } },
+      { size: "US M12 = UK 11 = EU 45", measurements: { footLength: "11.25" } },
+      { size: "US M13 = UK 12 = EU 46", measurements: { footLength: "11.6" } },
+    ],
+  },
+  {
+    brand: "KEEN",
+    brandMatch: ["keen"],
+    department: "Women",
+    garment: "Footwear (US/UK/EU — RUNS ROOMY, the size is STAMPED)",
+    categoryMatch: ["shoe", "shoes", "footwear", "sandal", "boot", "newport", "targhee", "hiking"],
+    note:
+      "⚠ KEEN RUNS ROOMY / WIDE in the toe box by design — report the STAMPED size " +
+      "plus the runs-roomy note. US numbering; conversions approximate. THE SIZE " +
+      "IS STAMPED, NOT MEASURED.",
+    rows: [
+      { size: "US W6 = UK 3.5 = EU 36.5", measurements: { footLength: "8.9" } },
+      { size: "US W7 = UK 4.5 = EU 37.5", measurements: { footLength: "9.25" } },
+      { size: "US W8 = UK 5.5 = EU 38.5", measurements: { footLength: "9.5" } },
+      { size: "US W9 = UK 6.5 = EU 40", measurements: { footLength: "9.9" } },
+      { size: "US W10 = UK 7.5 = EU 41", measurements: { footLength: "10.2" } },
+      { size: "US W11 = UK 8.5 = EU 42", measurements: { footLength: "10.5" } },
+    ],
+  },
+  {
+    brand: "Sorel",
+    brandMatch: ["sorel"],
+    department: "Women",
+    garment: "Footwear (US/UK/EU — winter boots, the size is STAMPED)",
+    categoryMatch: ["boot", "boots", "shoe", "shoes", "footwear", "wedge", "caribou", "joan of arctic", "kinetic"],
+    note:
+      "Sorel women's boots use US numbering; conversions approximate. ⚠ TWO " +
+      "DIFFERENT PRODUCTS SHARE THIS BRAND: the technical CARIBOU pac boot (with a " +
+      "removable felt liner — a missing/matted liner is a defect) and the FASHION " +
+      "line (Joan of Arctic wedge, Kinetic) — they comp SEPARATELY, so read the " +
+      "model. THE SIZE IS STAMPED, NOT MEASURED.",
+    rows: [
+      { size: "US W6 = UK 4 = EU 37", measurements: { footLength: "8.9" } },
+      { size: "US W7 = UK 5 = EU 38", measurements: { footLength: "9.25" } },
+      { size: "US W8 = UK 6 = EU 39", measurements: { footLength: "9.5" } },
+      { size: "US W9 = UK 7 = EU 40", measurements: { footLength: "9.9" } },
+      { size: "US W10 = UK 8 = EU 41", measurements: { footLength: "10.2" } },
+      { size: "US W11 = UK 9 = EU 42", measurements: { footLength: "10.5" } },
+    ],
+  },
+  {
+    brand: "Sorel",
+    brandMatch: ["sorel"],
+    department: "Men",
+    garment: "Footwear (US/UK/EU — winter boots, the size is STAMPED)",
+    categoryMatch: ["boot", "boots", "shoe", "shoes", "footwear", "caribou", "1964 pac", "pac"],
+    note:
+      "Sorel men's pac boots use US numbering; conversions approximate. ⚠ THE " +
+      "REMOVABLE FELT LINER on the Caribou/1964 pac boots is part of the product — " +
+      "a missing/matted liner is a real defect; check for cracking at the rubber " +
+      "shell flex point. THE SIZE IS STAMPED, NOT MEASURED.",
+    rows: [
+      { size: "US M8 = UK 7 = EU 41", measurements: { footLength: "9.95" } },
+      { size: "US M9 = UK 8 = EU 42.5", measurements: { footLength: "10.3" } },
+      { size: "US M10 = UK 9 = EU 44", measurements: { footLength: "10.6" } },
+      { size: "US M11 = UK 10 = EU 45", measurements: { footLength: "10.95" } },
+      { size: "US M12 = UK 11 = EU 46.5", measurements: { footLength: "11.25" } },
+      { size: "US M13 = UK 12 = EU 48", measurements: { footLength: "11.6" } },
+    ],
+  },
+  {
+    brand: "Brooks",
+    // ⚠ brandMatch "brooks" is a LEADING-word match, so a "Brooks Brothers" garment
+    // (00467, a DIFFERENT company) also pulls these into the pool — but Brooks
+    // Brothers charts match the longer "brooks brothers", and category narrowing
+    // separates the two (a shirt category never reaches a footwear chart). Never
+    // add a bare "brooks" to a Brooks BROTHERS chart's brandMatch (the note at that
+    // chart). This is Brooks RUNNING, a Berkshire Hathaway company.
+    brandMatch: ["brooks"],
+    department: "Men",
+    garment: "Footwear (US/UK/EU — running, the size is STAMPED)",
+    categoryMatch: ["shoe", "shoes", "footwear", "running", "ghost", "adrenaline", "glycerin", "trainer", "sneaker"],
+    note:
+      "⚠ THIS IS BROOKS RUNNING, NOT BROOKS BROTHERS — a different company. Brooks " +
+      "running shoes use US numbering; conversions approximate. WIDTHS: Narrow " +
+      "(B/2A), Medium (D), Wide (2E), Extra-Wide (4E) on many models — read the " +
+      "width off the tongue label. THE SIZE IS STAMPED, NOT MEASURED, and a " +
+      "running shoe is graded on MILEAGE (outsole + midsole) — require a sole photo.",
+    rows: [
+      { size: "US M8 = UK 7 = EU 41.5", measurements: { footLength: "9.95" } },
+      { size: "US M9 = UK 8 = EU 42.5", measurements: { footLength: "10.3" } },
+      { size: "US M10 = UK 9 = EU 44", measurements: { footLength: "10.6" } },
+      { size: "US M11 = UK 10 = EU 45", measurements: { footLength: "10.95" } },
+      { size: "US M12 = UK 11 = EU 46.5", measurements: { footLength: "11.25" } },
+      { size: "US M13 = UK 12 = EU 47.5", measurements: { footLength: "11.6" } },
+    ],
+  },
+  {
+    brand: "Brooks",
+    brandMatch: ["brooks"],
+    department: "Women",
+    garment: "Footwear (US/UK/EU — running, the size is STAMPED)",
+    categoryMatch: ["shoe", "shoes", "footwear", "running", "ghost", "adrenaline", "glycerin", "trainer", "sneaker"],
+    note:
+      "⚠ THIS IS BROOKS RUNNING, NOT BROOKS BROTHERS. Brooks women's running shoes " +
+      "use US numbering; conversions approximate. WIDTHS: Narrow (2A), Medium (B), " +
+      "Wide (D), Extra-Wide (2E) on many models. THE SIZE IS STAMPED, NOT " +
+      "MEASURED, and the shoe is graded on MILEAGE — require a sole photo.",
+    rows: [
+      { size: "US W6 = UK 3.5 = EU 36.5", measurements: { footLength: "8.9" } },
+      { size: "US W7 = UK 4.5 = EU 38", measurements: { footLength: "9.25" } },
+      { size: "US W8 = UK 5.5 = EU 39", measurements: { footLength: "9.5" } },
+      { size: "US W9 = UK 6.5 = EU 40.5", measurements: { footLength: "9.9" } },
+      { size: "US W10 = UK 7.5 = EU 42", measurements: { footLength: "10.2" } },
+      { size: "US W11 = UK 8.5 = EU 43", measurements: { footLength: "10.5" } },
+    ],
+  },
+  {
+    brand: "Saucony",
+    brandMatch: ["saucony"],
+    department: "Men",
+    garment: "Footwear (US/UK/EU — running, the size is STAMPED)",
+    categoryMatch: ["shoe", "shoes", "footwear", "running", "kinvara", "triumph", "peregrine", "jazz", "shadow", "sneaker"],
+    note:
+      "Saucony men's running shoes use US numbering; conversions approximate. " +
+      "WIDTHS: a WIDE (2E) width is offered on many models. ⚠ THE STYLE NUMBER " +
+      "(S2xxxx) IS NOT A DECODER — it collides with adidas's style-code format; " +
+      "identify by the model NAME. THE SIZE IS STAMPED, NOT MEASURED, and a " +
+      "running shoe is graded on MILEAGE — require a sole photo.",
+    rows: [
+      { size: "US M8 = UK 7 = EU 41", measurements: { footLength: "9.95" } },
+      { size: "US M9 = UK 8 = EU 42.5", measurements: { footLength: "10.3" } },
+      { size: "US M10 = UK 9 = EU 44", measurements: { footLength: "10.6" } },
+      { size: "US M11 = UK 10 = EU 45", measurements: { footLength: "10.95" } },
+      { size: "US M12 = UK 11 = EU 46.5", measurements: { footLength: "11.25" } },
+      { size: "US M13 = UK 12 = EU 47.5", measurements: { footLength: "11.6" } },
+    ],
+  },
+  {
+    brand: "Saucony",
+    brandMatch: ["saucony"],
+    department: "Women",
+    garment: "Footwear (US/UK/EU — running, the size is STAMPED)",
+    categoryMatch: ["shoe", "shoes", "footwear", "running", "kinvara", "triumph", "peregrine", "jazz", "shadow", "sneaker"],
+    note:
+      "Saucony women's running shoes use US numbering; conversions approximate. " +
+      "WIDTHS: a WIDE width is offered on many models. ⚠ THE STYLE NUMBER (S1xxxx) " +
+      "IS NOT A DECODER — identify by the model NAME. THE SIZE IS STAMPED, NOT " +
+      "MEASURED, and the shoe is graded on MILEAGE — require a sole photo.",
+    rows: [
+      { size: "US W6 = UK 4 = EU 37", measurements: { footLength: "8.9" } },
+      { size: "US W7 = UK 5 = EU 38", measurements: { footLength: "9.25" } },
+      { size: "US W8 = UK 6 = EU 39", measurements: { footLength: "9.5" } },
+      { size: "US W9 = UK 7 = EU 40.5", measurements: { footLength: "9.9" } },
+      { size: "US W10 = UK 8 = EU 42", measurements: { footLength: "10.2" } },
+      { size: "US W11 = UK 9 = EU 43", measurements: { footLength: "10.5" } },
+    ],
+  },
+  {
+    brand: "Steve Madden",
+    brandMatch: ["steve madden", "stevemadden"],
+    department: "Women",
+    garment: "Footwear (US/UK/EU — women's fashion, the size is STAMPED)",
+    categoryMatch: ["shoe", "shoes", "footwear", "sneaker", "sandal", "heel", "boot", "bootie", "platform", "loafer", "flat"],
+    note:
+      "Steve Madden women's fashion footwear uses US numbering; conversions " +
+      "approximate. THE SIZE IS STAMPED, NOT MEASURED — read it off the insole; " +
+      "read the MODEL name off the insole/box. On a heel/sandal the HEEL and SOLE " +
+      "are the grade (heel-tip wear, scuffing) and need a sole/heel photo.",
+    rows: [
+      { size: "US W6 = UK 3.5 = EU 36", measurements: { footLength: "8.9" } },
+      { size: "US W7 = UK 4.5 = EU 37.5", measurements: { footLength: "9.25" } },
+      { size: "US W8 = UK 5.5 = EU 38.5", measurements: { footLength: "9.5" } },
+      { size: "US W8.5 = UK 6 = EU 39", measurements: { footLength: "9.7" } },
+      { size: "US W9 = UK 6.5 = EU 40", measurements: { footLength: "9.9" } },
+      { size: "US W10 = UK 7.5 = EU 41", measurements: { footLength: "10.2" } },
+      { size: "US W11 = UK 8.5 = EU 42", measurements: { footLength: "10.5" } },
+    ],
+  },
+  {
+    brand: "Sam Edelman",
+    brandMatch: ["sam edelman", "samedelman"],
+    department: "Women",
+    garment: "Footwear (US/UK/EU — women's fashion, the size is STAMPED)",
+    categoryMatch: ["shoe", "shoes", "footwear", "flat", "loafer", "heel", "pump", "sandal", "boot", "bootie"],
+    note:
+      "Sam Edelman women's fashion footwear uses US numbering; conversions " +
+      "approximate. THE SIZE IS STAMPED, NOT MEASURED — read it off the insole; " +
+      "read the MODEL name (Loraine, Felicia, Hazel, Yaro). On a flat/loafer/heel " +
+      "the LEATHER, HEEL and SOLE are the grade and need a sole/heel photo.",
+    rows: [
+      { size: "US W6 = UK 3.5 = EU 36", measurements: { footLength: "8.9" } },
+      { size: "US W7 = UK 4.5 = EU 37.5", measurements: { footLength: "9.25" } },
+      { size: "US W8 = UK 5.5 = EU 38.5", measurements: { footLength: "9.5" } },
+      { size: "US W8.5 = UK 6 = EU 39", measurements: { footLength: "9.7" } },
+      { size: "US W9 = UK 6.5 = EU 40", measurements: { footLength: "9.9" } },
+      { size: "US W10 = UK 7.5 = EU 41", measurements: { footLength: "10.2" } },
+      { size: "US W11 = UK 8.5 = EU 42", measurements: { footLength: "10.5" } },
+    ],
+  },
+  {
+    brand: "Allen Edmonds",
+    brandMatch: ["allen edmonds", "allenedmonds"],
+    department: "Men",
+    garment: "Footwear (US/UK/EU + width — dress, the size is STAMPED)",
+    categoryMatch: ["shoe", "shoes", "footwear", "dress shoe", "oxford", "loafer", "wingtip", "brogue", "boot", "park avenue", "strand"],
+    note:
+      "US men's dress sizing PLUS WIDTHS (A/AA narrow -> B -> D standard -> E -> " +
+      "EEE extra wide) — the width is stamped beside the size. THE SIZE IS STAMPED, " +
+      "NOT MEASURED. ⚠ THE CONSTRUCTION SETS THE VALUE: the core line is " +
+      "GOODYEAR-WELTED and RESOLEABLE (AE runs a RECRAFTING program), so a welted " +
+      "pair with a worn sole is still valuable — the tell is the WELT STITCH at the " +
+      "sole EDGE and needs a sole-edge photo (say UNCONFIRMED if unphotographed). " +
+      "THE SOLE AND HEEL ARE THE GRADE — require a sole and heel-on photo and say " +
+      "the sole is UNSEEN rather than grading the upper. A recrafted pair (newer " +
+      "sole, older upper) is a serviced shoe, not a fake.",
+    rows: [
+      { size: "US M8 = UK 7.5 = EU 41", measurements: { footLength: "9.95" } },
+      { size: "US M8.5 = UK 8 = EU 41.5", measurements: { footLength: "10.1" } },
+      { size: "US M9 = UK 8.5 = EU 42", measurements: { footLength: "10.3" } },
+      { size: "US M9.5 = UK 9 = EU 42.5", measurements: { footLength: "10.45" } },
+      { size: "US M10 = UK 9.5 = EU 43", measurements: { footLength: "10.6" } },
+      { size: "US M10.5 = UK 10 = EU 44", measurements: { footLength: "10.8" } },
+      { size: "US M11 = UK 10.5 = EU 44.5", measurements: { footLength: "10.95" } },
+      { size: "US M12 = UK 11.5 = EU 45.5", measurements: { footLength: "11.25" } },
+      { size: "US M13 = UK 12.5 = EU 47", measurements: { footLength: "11.6" } },
+    ],
+  },
+  {
+    brand: "Crocs",
+    brandMatch: ["crocs"],
+    department: "Unisex",
+    garment: "Footwear (dual US M/W — RUNS LARGE / roomy, whole sizes)",
+    categoryMatch: ["clog", "shoe", "shoes", "footwear", "sandal", "slide", "classic clog", "literide", "bistro"],
+    note:
+      "CROCS DUAL-TAGS men's AND women's on ONE label (a Crocs 'M8 / W10' is one " +
+      "size), in WHOLE SIZES ONLY — no half-size run, which is why the EU column is " +
+      "a range. ⚠ CROCS RUN LARGE / ROOMY (a 'relaxed' fit) — report the stamped " +
+      "size plus the runs-roomy note. THE SIZE IS STAMPED, NOT MEASURED. The FOAM " +
+      "is the grade (heat-shrink/warping, compressed footbed); missing Jibbitz " +
+      "charms are NOT a defect.",
+    rows: [
+      { size: "M4 / W6 = UK 3 = EU 36-37", measurements: { footLength: "8.75" } },
+      { size: "M5 / W7 = UK 4 = EU 37-38", measurements: { footLength: "9.1" } },
+      { size: "M6 / W8 = UK 5 = EU 38-39", measurements: { footLength: "9.45" } },
+      { size: "M7 / W9 = UK 6 = EU 39-40", measurements: { footLength: "9.8" } },
+      { size: "M8 / W10 = UK 7 = EU 41-42", measurements: { footLength: "10.15" } },
+      { size: "M9 / W11 = UK 8 = EU 42-43", measurements: { footLength: "10.5" } },
+      { size: "M10 / W12 = UK 9 = EU 43-44", measurements: { footLength: "10.85" } },
+      { size: "M11 = UK 10 = EU 45", measurements: { footLength: "11.2" } },
+      { size: "M12 = UK 11 = EU 46-47", measurements: { footLength: "11.55" } },
+    ],
+  },
 ];
 
 function norm(s: string | null | undefined): string {

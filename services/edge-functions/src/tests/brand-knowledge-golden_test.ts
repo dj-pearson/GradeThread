@@ -4032,6 +4032,195 @@ const CASES: GoldenCase[] = [
     },
     expect: { brand: "Pendleton" },
   },
+
+  // ── US-1990: footwear tier 2 (migration 00470) ──────────────────────────────
+  // ZERO decoders in this pack (the 00466 call — not one of the ten prints a code
+  // that clears the tag-printed/regular/brand-unique bar). So every case here
+  // proves enrichment stays correct WITHOUT a decoder: a single known style fills
+  // the style the AI missed, a confusable pair is never guessed, and a non-code
+  // never false-recovers a brand. The coded candidates are fixtured as REFUSALS.
+  {
+    name: "Clarks single known Originals style fills the style the AI missed",
+    brand: "Clarks",
+    pack: pack("Clarks", "clarks", [style("Desert Boot")]),
+    input: decodedFrom({ brand: "Clarks" }),
+    expect: { brand: "Clarks", style: "Desert Boot" },
+  },
+  {
+    name: "Clarks ambiguous Originals (Desert Boot vs Wallabee) — never guess a style",
+    brand: "Clarks",
+    pack: pack("Clarks", "clarks", [style("Desert Boot"), style("Wallabee")]),
+    input: decodedFrom({ brand: "Clarks" }),
+    expect: { brand: "Clarks", noStyle: true },
+  },
+  {
+    name: "Clarks web SKU — no false-positive brand recovery (no decoder)",
+    brand: "Clarks",
+    pack: pack("Clarks", "clarks", [style("Desert Boot"), style("Wallabee")]),
+    input: decodedFrom({ styleCode: "26155480" }),
+    expect: { noBrand: true },
+  },
+  {
+    name: "Merrell single known style fills the style the AI missed",
+    brand: "Merrell",
+    pack: pack("Merrell", "merrell", [style("Moab")]),
+    input: decodedFrom({ brand: "Merrell" }),
+    expect: { brand: "Merrell", style: "Moab" },
+  },
+  {
+    name: "Merrell ambiguous hikers (Moab vs Jungle Moc) — never guess a style",
+    brand: "Merrell",
+    pack: pack("Merrell", "merrell", [style("Moab"), style("Jungle Moc")]),
+    input: decodedFrom({ brand: "Merrell" }),
+    expect: { brand: "Merrell", noStyle: true },
+  },
+  {
+    name: "REFUSAL: Merrell's J-prefixed article number is not a decoder",
+    // A single leading letter is not a brand-unique prefix the way New Balance's
+    // M/W/U closed set is (00459), and J036755 is not established as a regular
+    // tag-printed code rather than a box/web SKU. The AI brand must survive.
+    brand: "Merrell",
+    pack: pack("Merrell", "merrell"),
+    input: {
+      ...decodedFrom({ brand: "Merrell" }),
+      attributes: {
+        style_code: { values: ["J036755"], confidence: 0.5, source: "photo:tag" },
+      },
+    },
+    expect: { brand: "Merrell" },
+  },
+  {
+    name: "KEEN single known style fills the style the AI missed",
+    brand: "KEEN",
+    pack: pack("KEEN", "keen", [style("Newport")]),
+    input: decodedFrom({ brand: "KEEN" }),
+    expect: { brand: "KEEN", style: "Newport" },
+  },
+  {
+    name: "KEEN ambiguous models (Newport sandal vs Targhee hiker) — never guess",
+    brand: "KEEN",
+    pack: pack("KEEN", "keen", [style("Newport"), style("Targhee")]),
+    input: decodedFrom({ brand: "KEEN" }),
+    expect: { brand: "KEEN", noStyle: true },
+  },
+  {
+    name: "Sorel single known style fills the style the AI missed",
+    brand: "Sorel",
+    pack: pack("Sorel", "sorel", [style("Caribou")]),
+    input: decodedFrom({ brand: "Sorel" }),
+    expect: { brand: "Sorel", style: "Caribou" },
+  },
+  {
+    name: "Sorel ambiguous (technical Caribou vs fashion Joan of Arctic) — never guess",
+    brand: "Sorel",
+    pack: pack("Sorel", "sorel", [style("Caribou"), style("Joan of Arctic")]),
+    input: decodedFrom({ brand: "Sorel" }),
+    expect: { brand: "Sorel", noStyle: true },
+  },
+  {
+    name: "Brooks single known model fills the style the AI missed",
+    brand: "Brooks",
+    pack: pack("Brooks", "brooks", [style("Ghost")]),
+    input: decodedFrom({ brand: "Brooks" }),
+    expect: { brand: "Brooks", style: "Ghost" },
+  },
+  {
+    name: "Brooks ambiguous (neutral Ghost vs support Adrenaline GTS) — never guess",
+    brand: "Brooks",
+    pack: pack("Brooks", "brooks", [style("Ghost"), style("Adrenaline GTS")]),
+    input: decodedFrom({ brand: "Brooks" }),
+    expect: { brand: "Brooks", noStyle: true },
+  },
+  {
+    name: "REFUSAL: Brooks 6-digit style number is a bare digit run — no decoder",
+    // The running line's 6-digit style number (110411) is genuine and box-printed
+    // but a BARE DIGIT RUN, so a pattern over it mints a false positive from any
+    // number on any tag (the Chanel rule, US-1736). The AI brand must survive.
+    brand: "Brooks",
+    pack: pack("Brooks", "brooks"),
+    input: {
+      ...decodedFrom({ brand: "Brooks" }),
+      attributes: {
+        style_code: { values: ["110411"], confidence: 0.5, source: "photo:tag" },
+      },
+    },
+    expect: { brand: "Brooks" },
+  },
+  {
+    name: "Saucony single known model fills the style the AI missed",
+    brand: "Saucony",
+    pack: pack("Saucony", "saucony", [style("Kinvara")]),
+    input: decodedFrom({ brand: "Saucony" }),
+    expect: { brand: "Saucony", style: "Kinvara" },
+  },
+  {
+    name: "Saucony ambiguous (lightweight Kinvara vs max-cushion Triumph) — never guess",
+    brand: "Saucony",
+    pack: pack("Saucony", "saucony", [style("Kinvara"), style("Triumph")]),
+    input: decodedFrom({ brand: "Saucony" }),
+    expect: { brand: "Saucony", noStyle: true },
+  },
+  {
+    name: "REFUSAL: Saucony S-number collides with adidas format — no decoder",
+    // S20600 is a real Saucony convention (S2xxxx men / S1xxxx women) that even
+    // encodes the department, but S + 5 digits is EXACTLY adidas's style-code shape
+    // (S79166, the brandFromStyleFormat adidas branch), so a pattern over it would
+    // let a format guess override the tag's own brand. The AI brand must survive.
+    brand: "Saucony",
+    pack: pack("Saucony", "saucony"),
+    input: {
+      ...decodedFrom({ brand: "Saucony" }),
+      attributes: {
+        style_code: { values: ["S20600"], confidence: 0.5, source: "photo:tag" },
+      },
+    },
+    expect: { brand: "Saucony" },
+  },
+  {
+    name: "Steve Madden ambiguous fashion silhouettes — never guess a style",
+    brand: "Steve Madden",
+    pack: pack("Steve Madden", "stevemadden", [
+      style("Platform Sneaker"),
+      style("Heeled Sandal"),
+    ]),
+    input: decodedFrom({ brand: "Steve Madden" }),
+    expect: { brand: "Steve Madden", noStyle: true },
+  },
+  {
+    name: "Sam Edelman single known model fills the style the AI missed",
+    brand: "Sam Edelman",
+    pack: pack("Sam Edelman", "samedelman", [style("Loraine Loafer")]),
+    input: decodedFrom({ brand: "Sam Edelman" }),
+    expect: { brand: "Sam Edelman", style: "Loraine Loafer" },
+  },
+  {
+    name: "Allen Edmonds single known model fills the style the AI missed",
+    brand: "Allen Edmonds",
+    pack: pack("Allen Edmonds", "allenedmonds", [style("Park Avenue")]),
+    input: decodedFrom({ brand: "Allen Edmonds" }),
+    expect: { brand: "Allen Edmonds", style: "Park Avenue" },
+  },
+  {
+    name: "Allen Edmonds ambiguous oxfords (Park Avenue vs Strand) — never guess",
+    brand: "Allen Edmonds",
+    pack: pack("Allen Edmonds", "allenedmonds", [style("Park Avenue"), style("Strand")]),
+    input: decodedFrom({ brand: "Allen Edmonds" }),
+    expect: { brand: "Allen Edmonds", noStyle: true },
+  },
+  {
+    name: "Crocs single known model fills the style the AI missed",
+    brand: "Crocs",
+    pack: pack("Crocs", "crocs", [style("Classic Clog")]),
+    input: decodedFrom({ brand: "Crocs" }),
+    expect: { brand: "Crocs", style: "Classic Clog" },
+  },
+  {
+    name: "Crocs non-code tag — no false-positive brand recovery (no decoder)",
+    brand: "Crocs",
+    pack: pack("Crocs", "crocs", [style("Classic Clog"), style("LiteRide")]),
+    input: decodedFrom({ styleCode: "NOT-A-CODE" }),
+    expect: { noBrand: true },
+  },
 ];
 
 // ── the gate ────────────────────────────────────────────────────────────────
