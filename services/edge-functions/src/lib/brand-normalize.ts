@@ -349,6 +349,74 @@ const BRAND_ALIASES: Record<string, string> = {
   michaelkorscollection: "Michael Kors",
   katespadenewyork: "Kate Spade",
   ksny: "Kate Spade",
+  // US-1982 luxury RTW & leather group (tier 2). Seven of the eight were
+  // passthrough-only and Versace had only the bare alias above, so a "balenciaga"
+  // tag rendered the seller's own casing into the prompt block and the eBay Brand
+  // aspect on the most expensive garments the KB touches.
+  //
+  // ⚠ brandKey() STRIPS ACCENTS (it keeps [a-z0-9] only), so "Hermès" keys as
+  // "herms" and "Céline" as "cline" — BOTH the accented and unaccented spellings
+  // need a key or a seller who types the accent gets nothing. The canonical
+  // "Hermès" keeps its accent (the eBay-indexed mark, and the Stüssy precedent),
+  // which is why migration 00461 seeds it under brand_key 'herms'.
+  hermes: "Hermès",
+  herms: "Hermès", // brandKey("Hermès") — the accented spelling lands here
+  hermesparis: "Hermès",
+  hermsparis: "Hermès",
+  hermessellier: "Hermès",
+  dior: "Dior",
+  christiandior: "Dior",
+  diorhomme: "Dior",
+  diormen: "Dior",
+  babydior: "Dior",
+  // The 2012 rename is a DATE, not a different house: Hedi Slimane dropped YVES
+  // from the RTW label, but the YSL monogram survived on hardware. All the
+  // spellings are the same brand and fold onto one canonical; the era lives in
+  // tag_eras (00461), the same way "Burberrys" with the S does.
+  saintlaurent: "Saint Laurent",
+  saintlaurentparis: "Saint Laurent",
+  yvessaintlaurent: "Saint Laurent",
+  ysl: "Saint Laurent",
+  yslrivegauche: "Saint Laurent",
+  balenciaga: "Balenciaga",
+  cristobalbalenciaga: "Balenciaga",
+  balenciagaparis: "Balenciaga",
+  bottegaveneta: "Bottega Veneta",
+  bottega: "Bottega Veneta",
+  fendi: "Fendi",
+  fendiroma: "Fendi",
+  // CELINE, not Céline — the house itself DROPPED the accent in Hedi Slimane's
+  // 2018 rebrand, so the current mark is unaccented (and keys cleanly as
+  // "celine"). The accented spelling is a genuine Phoebe-Philo-era DATING tell,
+  // carried as a tag_era in 00461 rather than as a second brand — the Burberrys
+  // play again. brandKey("Céline") = "cline", hence that key.
+  celine: "Celine",
+  cline: "Celine",
+  celineparis: "Celine",
+  // Gianni Versace is the founder's own pre-1997 label — it IS a Versace tag, so
+  // it canonicalizes to Versace. The era is a price ladder and lives in tag_eras.
+  gianniversace: "Versace",
+  versaceatelier: "Versace",
+  atelierversace: "Versace",
+  // ⚠ THE DIFFUSION LABELS GET THEIR OWN CANONICALS AND DO **NOT** FOLD ONTO
+  // VERSACE. This is the AGOLDE/Miu Miu rule, not the Fire+Ice/Michael Kors one:
+  // Versace Jeans Couture, Versus Versace and Versace Collection sell an ORDER OF
+  // MAGNITUDE below mainline Versace, and they are the most common Versace-marked
+  // items in resale by a wide margin. Folding them would silently retitle a $150
+  // VJC tee as "Versace" — a misrepresentation and a comp catastrophe, since the
+  // eBay Brand aspect would then price it against mainline.
+  //
+  // Safe despite containing the parent's name: CANONICAL_BRANDS is sorted
+  // LONGEST-FIRST, so detectBrandInText tests "Versace Jeans Couture" before
+  // "Versace" and never mis-attributes the sub-label (the Vince Camuto precedent).
+  // A bare "versus" is deliberately NOT a key — it is an ordinary English word,
+  // and the alias map is what a seller's whole brand field is looked up in. Same
+  // rule as the bare "goose" (00460) and "bean" (00453).
+  versacejeanscouture: "Versace Jeans Couture",
+  vjc: "Versace Jeans Couture",
+  versacejeans: "Versace Jeans Couture",
+  versusversace: "Versus Versace",
+  versacecollection: "Versace Collection",
   // US-1738 contemporary women's group. All seven were passthrough-only, so the
   // pack rendered the seller's own casing ("aritzia", "eileen fisher") into the
   // prompt block and the eBay Brand aspect.

@@ -4,6 +4,91 @@
 > The sections below for those are historical; the only NEW held migration is
 > **00443** at the top.
 
+## ⏳ PENDING: 00461_luxury_rtw_leather_brand_knowledge.sql (US-1982 luxury RTW & leather brand KB, 2026-07-16)
+
+Data-only seed of the `brand_knowledge*` tables for the luxury RTW & leather tier
+(tier 2, after 00455 took Chanel/Prada/Burberry/MK/Kate Spade/Tory Burch):
+**Hermès, Dior, Saint Laurent, Balenciaga, Bottega Veneta, Fendi, Versace,
+Celine**. Seven of the eight were passthrough-only, and Versace had only the bare
+alias-only row from 00389 (**promoted** to a full pack here) — so a "balenciaga"
+tag rendered the seller's own casing into the prompt block and the eBay Brand
+aspect on the most expensive garments the KB touches. `brand_knowledge` ×8;
+`brand_styles` ×33; `brand_style_codes` ×**1** (Dior); `brand_colorways` ×9
+(Hermès ×7, Bottega Veneta ×2); `brand_size_charts` ×16, all mirrored into the
+`sizing-charts.ts` in-code fallback. Every fact carries `source_url` + `confidence`
+and lands `verified=false` for the US-1715 admin queue. Idempotent (`on conflict do
+update`). Apply after 00460 via `scripts/apply-prod-migrations.sh`,
+`NOTIFY pgrst, 'reload schema';`, redeploy the edge (boot guard now expects
+**00461**). Bumps `EXPECTED_SCHEMA_VERSION` → **00461**. Risk: LOW — data-only, no
+schema change, no frontend reads the new rows (the edge resolver falls back to the
+in-code seeds until the SQL lands, so an unapplied migration degrades rather than
+breaks).
+
+> ⚠ **`verify:db` did NOT run for this migration — Docker was down on the authoring
+> host, so the throwaway-stack lane was skipped.** In its place the SQL was
+> validated statically against **libpg_query (the real PostgreSQL parser, via
+> `pglast`)**: it parses (6 statements); every INSERT's column count matches its
+> value tuples; every column name and every `on conflict` target resolves against
+> the actual DDL; no VALUES list contains a duplicate conflict key (the "cannot
+> affect row a second time" error); all 42 dollar-quoted JSON blocks parse; and no
+> `''` appears inside one (the 00460 trap — `''` is not an escape there). The
+> seeded Dior decoder spec was extracted from the SQL itself and exercised against
+> `decodeTagCode`: both examples decode and every negative is rejected. That is
+> strong but is **not** a substitute for a real apply — **run `npm run verify:db`
+> once Docker is up, before applying to prod.**
+
+**FRENCH OR ITALIAN — THE SAME NUMBER IS TWO DIFFERENT SIZES.** The through-line,
+and worth more than every style fingerprint in the pack combined. Every house here
+sizes its women's RTW in a European system its tag never names, and the group
+SPLITS: the **French** houses (Hermès, Dior, Saint Laurent, Balenciaga, Celine)
+subtract 32; the **Italian** ones (Bottega Veneta, Fendi, Versace) subtract 36. So
+a **"42" is a US 10 on a Dior and a US 6 on a Fendi** — two dark designer dresses
+that photograph identically, two sizes apart. That is strictly worse than 00460's
+unnamed-system trap, which at least broke the same way on every brand in its pack:
+here the seller who correctly learns "42 = US 6" from a Fendi and carries it to a
+Dior is wrong *because* they learned the rule. The cross-map is therefore written
+into the size **LABEL** of every chart (the only uncapped channel that reaches the
+model — the US-1731/1740 lesson), and the Dior and Fendi notes name each other
+explicitly. **Menswear is exempt and every men's note says so** (French and Italian
+tailoring run the same EU numbers — drop 10), because a reader who over-generalizes
+starts "correcting" menswear sizes that were already right.
+
+Three of the French houses (**Saint Laurent, Balenciaga, Celine**) manufacture in
+**Italy**, so their origin tag actively points at the *wrong* size system — the one
+place in the pack where a real, printed, correct fact on the garment leads the
+seller astray. Each note defuses it explicitly.
+
+**Authentication tells are informational only.** This is the most counterfeited
+tier that exists; every house here is seeded with the never-auto-authenticate guard
+ordered FIRST, and none of them authenticates for third parties. A test asserts no
+seeded tell claims a garment can be verified authentic.
+
+**One decoder — Dior**, the only code in the group that is tag-printed AND regular
+AND brand-unique in format (`\d{2}-[A-Z]{2}-\d{4}`, heat-stamped on an interior
+leather tab; the LV SD1160 precedent with hyphens on top). It carries the group's
+cut-tag golden fixtures. **Hermès is the instructive refusal**: its blind stamp is a
+bare LETTER and the house ships no serial number at all, so a pattern over it would
+recover the pack's most valuable label from any tag (the Chanel rule at its limit).
+
+⚠ **Two brand_key traps worth knowing before editing this seed.** `brandKey()`
+strips accents, so canonical **"Hermès" keys as `herms`** — not `hermes`. The row is
+seeded under `herms` on purpose (the 00389 `stssy`/Stüssy precedent); a row seeded
+under `hermes` would never be found. **Celine is the opposite call**: the house
+itself dropped the accent in Hedi Slimane's 2018 rebrand, so the canonical is
+unaccented and keys cleanly as `celine`, with the accented "Céline" spelling carried
+as a *tag_era dating tell* (the Burberrys-with-an-S play). Both spellings are
+aliased either way.
+
+⚠ **The Versace diffusion labels get their own canonicals and do NOT fold onto
+Versace** (`brand-normalize.ts`). Versace Jeans Couture / Versus Versace / Versace
+Collection sell an **order of magnitude** below mainline and are the most common
+Versace-marked items in resale — this is the AGOLDE/Miu Miu rule, not the
+Fire+Ice/MK one. Folding them would silently retitle a $150 VJC tee as "Versace": a
+misrepresentation, and a comp catastrophe once the eBay Brand aspect prices it
+against mainline. They *do* deliberately share the Versace size chart (same Italian
+system, different price), and the chart note says the size never tells you the
+ladder.
+
 ## ⏳ PENDING: 00460_luxury_outerwear_brand_knowledge.sql (US-1981 luxury outerwear brand KB, 2026-07-16)
 
 Data-only seed of the `brand_knowledge*` tables for the luxury outerwear & down

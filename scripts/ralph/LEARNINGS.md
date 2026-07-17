@@ -1065,6 +1065,21 @@ memory — not a progress log (the harness records progress separately).
   rule for decoders: seed `brand_style_codes` ONLY for a code that is both
   tag-printed and regular (of US-1733's six, only Under Armour qualifies); a
   web/catalog SKU is an informational tell, never a decoder.
+- `brandKey()` STRIPS ACCENTS (it keeps `[a-z0-9]` only), and `brand_key` =
+  `brandKey(canonical_brand)` — so an accented canonical keys WEIRDLY and a row
+  seeded under the spelling you'd expect is NEVER FOUND: "Hermès"→`herms`,
+  "Céline"→`cline`, "Stüssy"→`stssy` (the 00389 precedent). Seed the row under the
+  stripped key and alias BOTH spellings, or pick an unaccented canonical when the
+  brand itself is unaccented (US-1982 made Celine unaccented — the house dropped
+  the accent in 2018 — and kept `Hermès`/`herms`). Check with
+  `deno eval` on `brandKey(canonicalizeBrand(x))` before writing the seed.
+- A sub-label an ORDER OF MAGNITUDE below its parent gets its OWN canonical and
+  must NOT fold onto the parent (the AGOLDE/Miu Miu rule) — folding it silently
+  retitles the cheap piece as the parent and prices it against mainline via the
+  eBay Brand aspect. Fold only same-price-band labels (Fire+Ice→Bogner, the MK
+  play). US-1982: Versace Jeans Couture / Versus / Collection each got their own
+  canonical. Safe even though they contain the parent's name — CANONICAL_BRANDS is
+  sorted LONGEST-FIRST, so `detectBrandInText` tests the sub-label first.
 - Tag-printed + regular is NOT sufficient for a decoder — the FORMAT must also be
   brand-unique, and the older luxury rows mislead on this. 00399 seeds an
   informational LV `date_code`, which reads as a licence to decode any serial;
