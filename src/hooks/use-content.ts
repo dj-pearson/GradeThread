@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { supabase } from "@/lib/supabase";
 import { track } from "@/lib/analytics";
 import type {
   BlogPostListRow,
@@ -428,6 +429,56 @@ export function useSetSocialCard(id: string) {
       qc.invalidateQueries({ queryKey: ["social_post", id] });
       qc.invalidateQueries({ queryKey: ["social_posts"] });
       toast.success("Social card updated.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+// Video distribution: attach a video clip to a social post. The edge hands back
+// a short-lived signed upload URL for the public content-videos bucket; we
+// complete the PUT client-side (raw bytes never route through the edge fn) and
+// the post flips to a video post pointing at the deterministic public URL.
+export function useAttachSocialVideo(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (file: File) => {
+      const { upload, url } = await jfetch<{
+        upload: { path: string; token: string; signedUrl: string };
+        url: string;
+        path: string;
+      }>(`/api/content/images/video`, {
+        method: "POST",
+        json: { post_id: id, filename: file.name },
+      });
+      const { error } = await supabase.storage
+        .from("content-videos")
+        .uploadToSignedUrl(upload.path, upload.token, file);
+      if (error) throw new Error(error.message);
+      return { url };
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["social_post", id] });
+      qc.invalidateQueries({ queryKey: ["social_posts"] });
+      toast.success("Video attached — this post will publish as a video.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+// Video distribution: drop the attached clip and revert to a still-image post.
+export function useClearSocialVideo(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      await jfetch<{ ok: boolean }>(`/api/content/images/video/clear`, {
+        method: "POST",
+        json: { post_id: id },
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["social_post", id] });
+      qc.invalidateQueries({ queryKey: ["social_posts"] });
+      toast.success("Video removed.");
     },
     onError: (e: Error) => toast.error(e.message),
   });

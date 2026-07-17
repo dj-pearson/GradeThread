@@ -250,3 +250,72 @@ async function upsertInlineImageMeta(
     );
   }
 }
+
+// ── VIDEO (video-distribution) ─────────────────────────────
+// A social post can carry a video instead of a still card. The clip lives in
+// the PUBLIC content-videos bucket so Make.com + the platform APIs (TikTok /
+// IG Reels / FB video) can fetch it by URL. We hand the editor a short-lived
+// signed upload URL — the raw bytes never route through this function — and
+// flip the post to media_type='video' pointing at the deterministic public URL
+// (which goes live the moment the client completes the signed PUT).
+interface VideoUploadInput {
+  post_id: string;
+  filename?: string;
+}
+
+const VIDEO_EXT = new Set(["mp4", "mov", "m4v", "webm"]);
+
+contentImagesRoutes.post("/video", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as VideoUploadInput;
+  if (!body.post_id || !body.filename) {
+    return c.json({ error: "post_id and filename are required" }, 400);
+  }
+  const ext = body.filename.split(".").pop()?.toLowerCase() ?? "";
+  if (!VIDEO_EXT.has(ext)) {
+    return c.json(
+      { error: "Unsupported video type. Use mp4, mov, m4v, or webm." },
+      400,
+    );
+  }
+  const safeName = body.filename.replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80);
+  const path = `social/${body.post_id}/video_${Date.now()}_${safeName}`;
+
+  const { data, error } = await supabaseAdmin.storage
+    .from("content-videos")
+    .createSignedUploadUrl(path);
+  if (error) {
+    return failSafe(c, 500, "Couldn't start the video upload.", error, "content.images.video");
+  }
+
+  const { data: pub } = supabaseAdmin.storage
+    .from("content-videos")
+    .getPublicUrl(path);
+
+  const { error: updErr } = await supabaseAdmin
+    .from("social_posts")
+    .update({ media_type: "video", video_url: pub.publicUrl, video_path: path })
+    .eq("id", body.post_id);
+  if (updErr) {
+    return failSafe(c, 500, "Couldn't attach the video.", updErr, "content.images.video.update");
+  }
+
+  return c.json({
+    upload: { path: data.path, token: data.token, signedUrl: data.signedUrl },
+    url: pub.publicUrl,
+    path,
+  });
+});
+
+// Revert a post back to a still-image post and forget the attached clip.
+contentImagesRoutes.post("/video/clear", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { post_id?: string };
+  if (!body.post_id) return c.json({ error: "post_id is required" }, 400);
+  const { error } = await supabaseAdmin
+    .from("social_posts")
+    .update({ media_type: "image", video_url: null, video_path: null })
+    .eq("id", body.post_id);
+  if (error) {
+    return failSafe(c, 500, "Couldn't remove the video.", error, "content.images.video.clear");
+  }
+  return c.json({ ok: true });
+});

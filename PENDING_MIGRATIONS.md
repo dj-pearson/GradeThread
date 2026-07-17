@@ -4,103 +4,32 @@
 > The sections below for those are historical; the only NEW held migration is
 > **00443** at the top.
 
-## ⏳ PENDING: 00462_hype_streetwear_brand_knowledge.sql (US-1983 new-gen streetwear & hype brand KB, 2026-07-16)
+## ⏳ PENDING: 00463_social_video.sql (video distribution for social posts, 2026-07-17)
 
-Data-only seed of the `brand_knowledge*` tables for the current-generation hype
-tier (after 00456 took the established canon — Supreme/Stüssy/BAPE/Palace/Kith/
-Fear of God): **Off-White, Chrome Hearts, Aimé Leon Dore, Gallery Dept., Denim
-Tears, Rhude, Sp5der, Hellstar, Anti Social Social Club**. **All nine were
-passthrough-only** — no row, no alias, no chart — so a "sp5der" tag rendered the
-seller's own casing into the prompt block and the eBay Brand aspect on some of the
-fastest-moving garments in resale. `brand_knowledge` ×9; `brand_styles` ×33;
-`brand_style_codes` ×**1** (Off-White); `brand_colorways` ×**0** (deliberate — see
-below); `brand_size_charts` ×10, all mirrored 1:1 into the `sizing-charts.ts`
-in-code fallback. Every fact carries `source_url` + `confidence` and lands
-`verified=false` for the US-1715 admin queue. Idempotent (`on conflict do
-update`). Apply after 00461 via `scripts/apply-prod-migrations.sh`,
-`NOTIFY pgrst, 'reload schema';`, redeploy the edge (boot guard now expects
-**00462**). Bumps `EXPECTED_SCHEMA_VERSION` → **00462**. Risk: LOW — data-only, no
-schema change, no frontend reads the new rows (the edge resolver falls back to the
-in-code seeds until the SQL lands, so an unapplied migration degrades rather than
-breaks).
+Adds video posting to the content module so clips fan out to TikTok / Instagram
+Reels / Facebook video through the existing Make.com social webhook.
 
-> ⚠ **`verify:db` did NOT run for this migration — Docker was unresponsive on the
-> authoring host** (`docker info` and `docker version` both hung until killed), so
-> the throwaway-stack lane was skipped. As with 00461, the SQL was validated
-> statically against **libpg_query (the real PostgreSQL parser, via `pglast`
-> v8.2)**: it parses (5 statements); every INSERT's column count matches every one
-> of its value tuples (9×12, 33×15, 1×10, 10×12); every column name and every `on
-> conflict` target resolves against the actual 00389 DDL; no VALUES list contains a
-> duplicate conflict key (the "cannot affect row a second time" error); all 39
-> dollar-quoted JSON blocks parse; and no `''` appears inside one (the 00460 trap —
-> `''` is not an escape there). The seeded Off-White decoder spec was exercised
-> against the real `decodeTagCode` engine: both examples decode (`OMAA038R21FAB001`
-> → styleCode + gender "Men" + season "R21"; `OWAA049S23FAB002` → "Women") and
-> every negative is rejected. That is strong but is **not** a substitute for a real
-> apply — **run `npm run verify:db` once Docker is up, before applying to prod.**
+- **New PUBLIC bucket `content-videos`** (public read; admin write mirrors
+  content-images; real writes go via a service-role signed upload URL).
+  mp4/mov/webm/m4v, 500 MB cap.
+- **`social_posts` gains `media_type text NOT NULL DEFAULT 'image'`** (CHECK in
+  `('image','video')`), **`video_url text`**, **`video_path text`**. Default
+  keeps every existing row an unchanged still-card post.
 
-**THE GRAPHIC IS THE GARMENT AND THE DROP IS THE PRICE.** The through-line, and it
-makes this tier different in KIND from every group before it. A Birkin has a
-leather grade to read (00461); a Moncler has a down fill (00460). Most of this tier
-is a blank hoodie with a print — strip the graphic and a Hellstar, a Sp5der and a
-bootleg of either are the same cotton hoodie. So the price lives in WHICH DROP a
-piece is from, which is frequently not on the tag at all, and the pack's job is
-mostly NEGATIVE: never guess the drop (a drop attribution is a scarcity claim),
-never authenticate, never read the design as damage.
+Idempotent (`IF NOT EXISTS` / `ON CONFLICT` / `DROP POLICY IF EXISTS` /
+drop-then-add the CHECK). **Risk: low** — additive columns + a new bucket; no
+backfill, no data migration. Apply after 00462 via
+`scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload schema';`,
+then redeploy the edge (boot guard now expects **00463**). Bumps
+`EXPECTED_SCHEMA_VERSION` → **00463**.
 
-**Authentication tells are informational only**, and this tier is bootlegged
-hardest for a structural reason the pack names: when the graphic is the whole
-product, the bootleg reproduces the whole product — there is no saddle-stitch to
-fall short of. None of these brands authenticates for third parties and several
-(Sp5der, Hellstar, Gallery Dept.) publish nothing at all. The
-"never auto-authenticate" tell is ordered FIRST on all nine.
-
-**THE DESIGN IS NOT DAMAGE** — the most consequential grading rule in the pack, and
-it is carried in style FINGERPRINTS (not tells, which the grading block truncates —
-the US-1740/US-1981 lesson). Gallery Dept. is hand-distressed per garment and
-Hellstar's prints are cracked from new: a grader who reads either as wear marks a
-mint piece down to Poor, inverting the price of a garment worth more precisely
-because it looks destroyed.
-
-**One decoder — Off-White, and only it qualifies.** Its care-label season code
-(`OMAA038R21FAB001`) is tag-printed, regular and brand-unique in FORMAT; the
-gendered OM/OW prefix is the argument, as the hyphenated triplet was for Dior
-(00461). The gender group captures the SECOND character so the EXISTING `genderCode`
-transform maps M/W → Men/Women with no code change. It matters because the
-Off-White **logo did not change when Abloh died in 2021**, so only the code places a
-piece either side of the ladder. Seven of the other eight print no regular
-garment-side code AT ALL; Aimé Leon Dore's SKU fails the regular-and-brand-unique
-bar.
-
-**No `brand_colorways`, deliberately.** AC3 seeds colorways "where the brand uses
-proprietary named colors" — a conditional this tier does not meet. These brands ship
-ordinary colour words that rotate per drop and form no stable dictionary the way
-Hermès's Etoupe/Rouge H do. What this tier names is the DROP, and a drop name is a
-scarcity claim that belongs in the never-guess rule, not in a colour table that
-would license the model to mint it.
-
-**⚠ CODE CHANGE (not data): the Off-White colour-word guard.** `brand-normalize.ts`
-gains `DETECT_EXCLUDED_FROM_TEXT`, filtered out of `CANONICAL_BRANDS`. "Off-White"
-is a real hype brand AND the most common neutral colour word in clothing, and the
-hazard is structural: `CANONICAL_BRANDS` is built from BRAND_ALIASES' VALUES, which
-`detectBrandInText` regex-scans over prose. An ordinary-word alias KEY is safe (exact
-whole-field lookup — the "ag"/"spider" play), but an ordinary-word VALUE is not, and
-the word-boundary guard cannot help because an off-white garment's title contains the
-brand name EXACTLY. Worse, CANONICAL_BRANDS is sorted longest-first, so "Off-White"
-would beat the real "Nike" in the same string. The brand stays fully reachable by TAG
-(`canonicalizeBrand`/`isKnownBrand` — what the eBay Brand aspect and comp filter
-need) but is never guessed from prose. Opt-in and additive: no other brand's behavior
-changes. (The KB already treats the phrase as a colour — 00455 seeds "off-white" as
-an alias of Prada's Talco colorway.)
-
-**Two size traps.** DENIM TEARS is the only WAIST chart in the pack: the Cotton
-Wreath signature is printed on an ACTUAL LEVI'S 501 under an official
-collaboration, so the piece legitimately carries LEVI'S tags and a LEVI'S waist
-size — both brands are true at once, and resolving it to "Levi's 501" throws away
-an order of magnitude of value. OFF-WHITE runs TWO systems (Milan house: alpha tees,
-ITALIAN-numbered tailoring). And the FIT INTENT SPLITS across the tier — Hellstar/
-Gallery Dept. are oversized by design while Sp5der/Chrome Hearts/ASSC run small — so
-the two poles name each other, as the FR/IT charts do in 00461.
+⚠️ **Client-side read in the same change:** the frontend (`social-editor.tsx`,
+`use-content.ts`, `database.ts`) reads `media_type` / `video_url` off
+`social_posts` and calls `/api/content/images/video`. On a push to `main`
+Cloudflare Pages auto-deploys the frontend immediately — so the SQL + edge
+deploy MUST land first, or the editor's video panel and the new endpoint 500.
+On this feature branch there's no prod deploy, so the branch push is safe; hold
+the prod apply-then-merge order per this file's rule.
 
 ## ⏳ PENDING: 00461_luxury_rtw_leather_brand_knowledge.sql (US-1982 luxury RTW & leather brand KB, 2026-07-16)
 
@@ -144,7 +73,7 @@ a **"42" is a US 10 on a Dior and a US 6 on a Fendi** — two dark designer dres
 that photograph identically, two sizes apart. That is strictly worse than 00460's
 unnamed-system trap, which at least broke the same way on every brand in its pack:
 here the seller who correctly learns "42 = US 6" from a Fendi and carries it to a
-Dior is wrong *because* they learned the rule. The cross-map is therefore written
+Dior is wrong _because_ they learned the rule. The cross-map is therefore written
 into the size **LABEL** of every chart (the only uncapped channel that reaches the
 model — the US-1731/1740 lesson), and the Dior and Fendi notes name each other
 explicitly. **Menswear is exempt and every men's note says so** (French and Italian
@@ -152,7 +81,7 @@ tailoring run the same EU numbers — drop 10), because a reader who over-genera
 starts "correcting" menswear sizes that were already right.
 
 Three of the French houses (**Saint Laurent, Balenciaga, Celine**) manufacture in
-**Italy**, so their origin tag actively points at the *wrong* size system — the one
+**Italy**, so their origin tag actively points at the _wrong_ size system — the one
 place in the pack where a real, printed, correct fact on the garment leads the
 seller astray. Each note defuses it explicitly.
 
@@ -174,7 +103,7 @@ seeded under `herms` on purpose (the 00389 `stssy`/Stüssy precedent); a row see
 under `hermes` would never be found. **Celine is the opposite call**: the house
 itself dropped the accent in Hedi Slimane's 2018 rebrand, so the canonical is
 unaccented and keys cleanly as `celine`, with the accented "Céline" spelling carried
-as a *tag_era dating tell* (the Burberrys-with-an-S play). Both spellings are
+as a _tag_era dating tell_ (the Burberrys-with-an-S play). Both spellings are
 aliased either way.
 
 ⚠ **The Versace diffusion labels get their own canonicals and do NOT fold onto
@@ -183,7 +112,7 @@ Collection sell an **order of magnitude** below mainline and are the most common
 Versace-marked items in resale — this is the AGOLDE/Miu Miu rule, not the
 Fire+Ice/MK one. Folding them would silently retitle a $150 VJC tee as "Versace": a
 misrepresentation, and a comp catastrophe once the eBay Brand aspect prices it
-against mainline. They *do* deliberately share the Versace size chart (same Italian
+against mainline. They _do_ deliberately share the Versace size chart (same Italian
 system, different price), and the chart note says the size never tells you the
 ladder.
 
@@ -277,8 +206,7 @@ the priority" ahead of decoders.
 the pack. A Dr. Martens stamped "7" is a **UK 7** (= US M8 = US W9 = EU 41); a
 Birkenstock stamped "38" is an **EU 38** (= US W7-7.5). Neither says "UK" or "EU"
 anywhere. A seller reads "7", lists a US 7, and is a FULL SIZE wrong — and the photo
-will not contradict them, because the photo is not wrong: the shoe really does say
-7. That is not a pricing refinement like 00457/00458's era/line traps. It is a WRONG
+will not contradict them, because the photo is not wrong: the shoe really does say 7. That is not a pricing refinement like 00457/00458's era/line traps. It is a WRONG
 LISTING and a guaranteed return.
 
 **CONVERSE AND VANS ARE THE SAME SHOE AND DO NOT SIZE THE SAME** — the quiet trap.
@@ -360,8 +288,7 @@ into the `sizing-charts.ts` in-code fallback. Every fact carries `source_url` +
 edge (boot guard now expects **00458**). Bumps `EXPECTED_SCHEMA_VERSION` →
 **00458**.
 
-**THE TAG SAYS THE BRAND, AND THE BRAND IS NOT THE QUESTION — the exact inverse of
-00457.** There the piece was easy and the BRAND was the puzzle (a WILFRED tag is an
+**THE TAG SAYS THE BRAND, AND THE BRAND IS NOT THE QUESTION — the exact inverse of 00457.** There the piece was easy and the BRAND was the puzzle (a WILFRED tag is an
 Aritzia coat). Here the tag says GAP on a crewneck tee: both facts are free and
 neither is worth money. What actually decides the price of a staple is **the LINE**
 (mainline vs made-for-outlet) and **the ERA** — both printed on the tag, both
@@ -377,7 +304,7 @@ the invention. The line is seeded as a `brand_style` + a tell so it is DISCLOSED
 never silently comped as mainline.
 
 **THE ERA SPREAD IS ~10x AND STILL EARNS NO SPLIT — LINE vs ERA is the rule.** 90s
-flag Tommy, pre-1977 A&F (a *different company*: Roosevelt's expedition outfitter,
+flag Tommy, pre-1977 A&F (a _different company_: Roosevelt's expedition outfitter,
 bankrupt 1977, name later bought), safari-era Banana Republic. 00456 split Fear of
 God at exactly this magnitude — but an ERA has no second brand to key. Vintage
 Tommy IS Tommy. So the spread rides in `tag_eras` + styles.
@@ -399,7 +326,7 @@ ordinary descriptive words ("Heather Grey") — nothing to seed. **Uniqlo is the
 exception and is omitted anyway:** it prints a genuine proprietary 2-digit COLOR
 NUMBER, exactly the system this table is for, but the MAPPING cannot be cited here
 and a colour decoder built from recall would mislabel silently and confidently. The
-honest half — *that the number exists and must not be guessed* — is seeded as a
+honest half — _that the number exists and must not be guessed_ — is seeded as a
 tell. Same rule that kept Chanel's colours out of 00455.
 
 **"gap" is the worst ordinary-word token in the epic** — worse than 00457's "moth",
@@ -826,10 +753,11 @@ markers — RN omitted as unsourced), 5 `brand_styles` (Salutation BRUSHED vs
 Elation SMOOTH Powervita vs Ultimate firm SuperSonic; woven Brooklyn ankle pant;
 Rainier low-confidence), 3 `brand_colorways`, and an UPSERT (`do update`) of the
 two existing 00389 Athleta `brand_size_charts` to the sourced XXS-XL measurements
-+ the numeric map (XXS≈00 … XL≈16-18) in the note. Every fact `source_url` +
-`confidence`, `verified=false`. Idempotent. Apply after 00447 via
-`scripts/apply-prod-migrations.sh`, `NOTIFY pgrst, 'reload schema';`, redeploy the
-edge (boot guard now expects **00448**). Bumps `EXPECTED_SCHEMA_VERSION` → **00448**.
+
+- the numeric map (XXS≈00 … XL≈16-18) in the note. Every fact `source_url` +
+  `confidence`, `verified=false`. Idempotent. Apply after 00447 via
+  `scripts/apply-prod-migrations.sh`, `NOTIFY pgrst, 'reload schema';`, redeploy the
+  edge (boot guard now expects **00448**). Bumps `EXPECTED_SCHEMA_VERSION` → **00448**.
 
 **Risk: LOW** — data-only into deny-all global-reference tables; the size-chart
 upsert only REFINES existing rows (adds hip + numeric note). **No CLIENT read** —
@@ -970,12 +898,12 @@ NNNNN order via `scripts/apply-prod-migrations.sh` (all idempotent), then
 auto-deploy is unaffected. Bumps `EXPECTED_SCHEMA_VERSION` → **00440**.
 
 - **00436_job_locks_lockdown.sql** (US-1918) — `REVOKE ALL ON public.job_locks
-  FROM anon, authenticated` + `ENABLE ROW LEVEL SECURITY` (deny-all, zero
+FROM anon, authenticated` + `ENABLE ROW LEVEL SECURITY` (deny-all, zero
   policies). Closes the only table lacking both RLS and REVOKE; blocked a
   logged-in client from clearing/wedging cron leases. **Risk: LOW** — service-role
   (edge crons) bypasses RLS, so acquire/release RPCs are unchanged.
 - **00437_notifications_insert_policy.sql** (US-1926) — `DROP POLICY IF EXISTS
-  "Service role can insert notifications" ON public.notifications`. That policy
+"Service role can insert notifications" ON public.notifications`. That policy
   was `WITH CHECK (true)` and (since service-role bypasses RLS) let any
   authenticated user inject notifications into any feed via PostgREST. **Risk:
   LOW** — service-role edge writes still succeed (bypass RLS); SELECT/UPDATE
@@ -1042,14 +970,14 @@ query so R2-archived photos (Supabase object intentionally deleted) stop 404ing
 too. Bumps `EXPECTED_SCHEMA_VERSION` → **00434**. Self-records '00434'.
 
 **Risk: LOW** — one nullable timestamp column, no backfill, no behavior change for
-healthy rows; only changes how *failures* are handled. **No CLIENT read** — the
+healthy rows; only changes how _failures_ are handled. **No CLIENT read** — the
 column is edge-only (the cron writes it; nothing on the frontend reads it), so the
 frontend auto-deploy on push is unaffected. Reversible: `UPDATE item_photos SET
 thumbnail_backfill_failed_at = NULL WHERE ...` to retry after a storage repair.
 **⚠️ Apply order:** after 00433; `scripts/apply-prod-migrations.sh`, then
 `NOTIFY pgrst, 'reload schema';`, redeploy the edge (boot guard now expects 00434).
 
-**Note (not part of this migration):** 3 live *drafted* items lost photo objects
+**Note (not part of this migration):** 3 live _drafted_ items lost photo objects
 out-of-band (Peter Millar Quarter-Zip, Acegolfs Golf Pants, Magashoni Cardigan);
 the first two are below the front+back required set and need re-shooting. This
 migration only stops the retry loop — it does not delete those broken rows.
@@ -1072,7 +1000,6 @@ it yet, so this can apply ahead of the code safely, but it still boot-guards the
 edge to 00433 — apply BEFORE the push. **⚠️ Apply order:** after 00432;
 `scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload schema';`,
 redeploy the edge (boot guard now expects 00433).
-
 
 ## ⏳ PENDING: 00432_promote_listings_default.sql (FlipDesk promoted-listings default → off/opt-in, 2026-07-11)
 
@@ -1340,7 +1267,7 @@ buyer links a purchase to a PUBLIC grade: grade_report_id FK + certificate_id +
 price/marketplace/purchased_at + brand/title snapshot, UNIQUE(user_id,
 grade_report_id)) + `public.purchase_arrival_captures` (front/back/label/detail
 image_type + storage_path in the existing PRIVATE `submission-images` bucket,
-UNIQUE(purchase_id,image_type)). RLS owner-SELECT only; the edge (/api/buyer/*)
+UNIQUE(purchase_id,image_type)). RLS owner-SELECT only; the edge (/api/buyer/\*)
 does all writes after verifying the cert / hardening the upload. Bumps
 `EXPECTED_SCHEMA_VERSION` → **00418**. Self-records '00418'. NO new storage
 bucket (reuses submission-images + its per-user-folder RLS).
@@ -1356,8 +1283,7 @@ the new edge `/api/buyer/*` route boot-expects 00418 — so apply BEFORE the pus
 
 **What:** Two new OWNER-READ / SERVICE-WRITE tables (RLS `FOR SELECT USING
 (auth.uid() = user_id)` only — a buyer sees their reputation but can never
-fabricate it; only the service-role client writes, like `buyer_notification_log`
-00412) seeding the Trust Score epic (US-1815): `public.reputation_events` (the
+fabricate it; only the service-role client writes, like `buyer_notification_log` 00412) seeding the Trust Score epic (US-1815): `public.reputation_events` (the
 append-only event log — event_type CHECK IN verified_purchase/grade_confirmed/
 dispute_upheld/dispute_overturned/chargeback_penalty/tenure, `verified` gate,
 magnitude, source, reference_id, metadata; UNIQUE(user_id,event_type,reference_id)
@@ -1406,7 +1332,7 @@ table (no users guard churn, like buyer_meter_usage). Bumps
 `EXPECTED_SCHEMA_VERSION` → **00415**. Self-records '00415'.
 
 **Risk: LOW** — two new isolated tables + two functions, no writes to existing
-tables. Inert until the STRIPE_PRICE_API_OVERAGE_* prices exist (run
+tables. Inert until the STRIPE*PRICE_API_OVERAGE*\* prices exist (run
 setup-stripe-pricing.mjs) + a key carries a monthly_quota. **⚠️ Apply order:**
 after 00414; `scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload
 schema';`, redeploy the edge (boot guard now expects 00415).
@@ -1814,8 +1740,9 @@ Jordan Jumpman), the Nike `style_number` decoder (6-char + "-" + 3-digit
 colorway, `CW1234-001`) seeded as PURE DATA (regex + fieldMap, **no new
 transform**) under both `nike` and `jordan`, and enriched `brand_knowledge`
 (style-number tag era + line-vs-brand tells). Every fact source_url + confidence
-+ verified=true. Bumps `EXPECTED_SCHEMA_VERSION` → **00391**. Self-records
-'00391'.
+
+- verified=true. Bumps `EXPECTED_SCHEMA_VERSION` → **00391**. Self-records
+  '00391'.
 
 **Risk: LOW — additive INSERTs only** (no DDL). Idempotent: brand_knowledge
 `ON CONFLICT (brand_key) DO UPDATE`, children `DO NOTHING`.
@@ -2321,9 +2248,9 @@ writes (service-role only, 00223).
 
 **00371_seed_support_triage_agent.sql — What:** seeds ONE `agents` row — the
 Support Triage agent (module S), `status='paused'`, `autonomy='{}'` (L0), config =
-every-2h / sonnet model / read-only allowlist (get_support_triage) / $3 cap.
+every-2h / sonnet model / read-only allowlist (get*support_triage) / $3 cap.
 Classifies + prioritizes new tickets, drafts approval-gated replies (draft_reply →
-send_support_reply), persists classifications (triage_tickets → persist_ticket_
+send_support_reply), persists classifications (triage_tickets → persist_ticket*
 triage, onto the 00370 columns), and files cluster escalations for Sentinel
 (file_task). NEVER sends a reply or changes a ticket itself. `ON CONFLICT (key) DO
 NOTHING`. Self-records '00371'.
@@ -2653,6 +2580,7 @@ boot guard matches 00353.
 ## ⏳ HELD: 00349_draft_review_lifecycle.sql (US-1568/US-1569, 2026-07-03)
 
 **What:** two changes in one transaction:
+
 1. `listings.reviewed_at timestamptz` — the "a human reviewed this draft"
    marker (composer Save + bulk-edit save set it; regeneration clears it; the
    AutoLister drafts cockpit filters `reviewed_at IS NULL`).
@@ -2664,6 +2592,7 @@ Idempotent (ADD COLUMN IF NOT EXISTS + CREATE OR REPLACE VIEW); self-records
 '00349'.
 
 **Risk: MEDIUM — ⚠️ CLIENT-SIDE READS.** This commit's frontend:
+
 - selects the three NEW view columns in the inventory table projection
   (`LISTINGS_COLUMNS` in listings.tsx) → the whole Inventory table (all tabs)
   **400s** the moment Cloudflare Pages auto-deploys, until 00349 is applied;
@@ -2674,7 +2603,6 @@ Idempotent (ADD COLUMN IF NOT EXISTS + CREATE OR REPLACE VIEW); self-records
 **Apply 00349 (after 00346–00348) BEFORE OKing the push.** Then
 `NOTIFY pgrst, 'reload schema';` (REQUIRED here — new column + view) and
 redeploy the edge (boot guard expects 00349).
-
 
 ## ⏳ HELD: 00348_autolister_carryover_backfill.sql (US-1567, 2026-07-03)
 
@@ -2702,7 +2630,6 @@ safe even before this is applied; the backfill just makes OLD drafts whole.
 **Apply order:** after 00346–00347. Then `NOTIFY pgrst, 'reload schema';`
 (harmless for DML-only, keeps the runbook uniform) and redeploy the edge
 (boot guard expects 00348).
-
 
 ## ⏳ HELD: 00352_measure_corrections.sql (US-1580, 2026-07-03)
 
@@ -2780,6 +2707,7 @@ re-running the tail is safe. Edge redeploy afterward at your convenience.
 ---
 
 > ## 🚨 STATUS CHANGE 2026-07-02 22:19 CT — THE HELD COMMITS WERE PUSHED
+>
 > A `git pull` + push from this machine (user or the concurrent agent — reflog
 > shows the pull at 22:19:14; I did not push) landed EVERYTHING on origin/main,
 > including migrations **00339–00342**. Consequences RIGHT NOW:
@@ -2795,7 +2723,6 @@ re-running the tail is safe. Edge redeploy afterward at your convenience.
 > **Fix (5 minutes, all idempotent):** apply 00339 → 00342 to prod
 > (`scripts/apply-prod-migrations.sh` or run the four files in order), then
 > `NOTIFY pgrst, 'reload schema';`. Then the edge can be redeployed whenever.
-
 
 ## 📌 CURRENT STATE — 2026-07-02 (bulk-intake epic session)
 
@@ -2908,6 +2835,7 @@ it early is harmless.
 ---
 
 ## How to apply
+
 1. Apply each migration SQL below to prod in listed order (they're idempotent).
    Or run `scripts/apply-prod-migrations.sh` if you prefer the scripted path.
 2. Redeploy the edge service on Coolify so `EXPECTED_SCHEMA_VERSION` matches.
@@ -2922,11 +2850,11 @@ it early is harmless.
 is NOT the same as applying the SQL to prod.** No immediate breakage from the push
 alone (the edge only re-reads the schema version on a Coolify redeploy, and the new
 iOS build isn't released yet) — BUT you must apply `00332` + `00333` to prod BEFORE:
-  • redeploying the edge (its boot guard now expects `00333`; DB at `00331` →
-    schema-guard failure after the ~40s grace window), and
-  • releasing the new iOS build (US-1515 queries `updated_at` on sales/item_photos;
-    missing column → PostgREST 400 on those syncs).
-  • To fix the **Tag-rotation 400 now**, apply `00333` (independent of `00332`).
+• redeploying the edge (its boot guard now expects `00333`; DB at `00331` →
+schema-guard failure after the ~40s grace window), and
+• releasing the new iOS build (US-1515 queries `updated_at` on sales/item_photos;
+missing column → PostgREST 400 on those syncs).
+• To fix the **Tag-rotation 400 now**, apply `00333` (independent of `00332`).
 
 Apply order + steps below. Once applied, tell me and I'll push the remaining
 code-only commit (US-1494).
@@ -2950,6 +2878,7 @@ re-upload (`x-upsert`) is an UPDATE and that bucket had no UPDATE policy (only
 INSERT/SELECT/DELETE). Public `item-photos` rotates fine (it has UPDATE).
 
 **To apply (before I push the held commits):**
+
 1. Apply `00332` then `00333` to prod — `scripts/apply-prod-migrations.sh` or run
    the SQL directly, in order.
 2. `NOTIFY pgrst, 'reload schema';` (00332 adds columns).
@@ -2966,18 +2895,18 @@ pure prod-RLS fix (no code depends on it, but keep the schema-version in lockste
 
 ### Earlier stories this loop — code-only (already pushed, no schema changes)
 
-| Story | Migration? | Schema bump? |
-|-------|-----------|--------------|
-| US-1505 (eBay specifics string[] normalize) | none | none |
-| US-1506 (End-listing truthfulness) | none | none |
-| US-1502 (grade → live eBay listing) | none | none |
-| US-1503 (measurements → live listing) | none | none |
-| US-1504 (price coherence) | none | none |
-| US-1518 (photo thumbnail tier — edge job) | none | none |
-| US-1522 (iOS UX dead-end sweep, 8 fixes) | none | none |
-| US-1521 (iOS auth/signup polish) | none | none |
-| US-1516 (iOS member-tenant item write) | none | none |
-| US-1514 (iOS stale-read gating) | none | none |
+| Story                                       | Migration? | Schema bump? |
+| ------------------------------------------- | ---------- | ------------ |
+| US-1505 (eBay specifics string[] normalize) | none       | none         |
+| US-1506 (End-listing truthfulness)          | none       | none         |
+| US-1502 (grade → live eBay listing)         | none       | none         |
+| US-1503 (measurements → live listing)       | none       | none         |
+| US-1504 (price coherence)                   | none       | none         |
+| US-1518 (photo thumbnail tier — edge job)   | none       | none         |
+| US-1522 (iOS UX dead-end sweep, 8 fixes)    | none       | none         |
+| US-1521 (iOS auth/signup polish)            | none       | none         |
+| US-1516 (iOS member-tenant item write)      | none       | none         |
+| US-1514 (iOS stale-read gating)             | none       | none         |
 
 `EXPECTED_SCHEMA_VERSION` unchanged at **00331**; latest migration file is
 `00331_fix_users_guard_bogus_moderation_cols.sql`. Next migration, when one is

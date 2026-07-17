@@ -166,3 +166,66 @@ Deno.test("fallback omits an empty body half", () => {
   });
   assertEquals(payloads.map((p) => p.format), ["short"]);
 });
+
+// ─── Video distribution ────────────────────────────────────────────────────
+
+Deno.test("image posts carry media_type=image and no video_url", () => {
+  const payloads = planSocialFanout({
+    post: POST,
+    enabled: ["x", "tiktok"],
+    variants: [variant("x"), variant("tiktok")],
+    timestamp: TS,
+  });
+  for (const p of payloads) {
+    assertEquals(p.data.media_type, "image");
+    assert(p.data.video_url === undefined);
+  }
+});
+
+Deno.test("a video post fans out video_url + media_type=video to every platform", () => {
+  const video = "https://cdn.example.com/content-videos/social/post-1/clip.mp4";
+  const payloads = planSocialFanout({
+    post: { ...POST, media_type: "video", video_url: video },
+    enabled: ["tiktok", "instagram", "facebook"],
+    variants: [variant("tiktok"), variant("instagram"), variant("facebook")],
+    timestamp: TS,
+    siteUrl: "https://gradethread.com",
+  });
+  assertEquals(payloads.map((p) => p.platform), [
+    "facebook",
+    "instagram",
+    "tiktok",
+  ]);
+  for (const p of payloads) {
+    assertEquals(p.data.media_type, "video");
+    assertEquals(p.data.video_url, video);
+    // The still card is still present as the cover/poster.
+    assert((p.data.image_url ?? "").length > 0);
+  }
+});
+
+Deno.test("media_type=video with no video_url stays an image post", () => {
+  const payloads = planSocialFanout({
+    post: { ...POST, media_type: "video", video_url: null },
+    enabled: ["tiktok"],
+    variants: [variant("tiktok")],
+    timestamp: TS,
+  });
+  assertEquals(payloads[0].data.media_type, "image");
+  assert(payloads[0].data.video_url === undefined);
+});
+
+Deno.test("the legacy long/short fallback also carries video fields", () => {
+  const video = "https://cdn.example.com/content-videos/social/post-1/clip.mp4";
+  const payloads = planSocialFanout({
+    post: { ...POST, media_type: "video", video_url: video },
+    enabled: ["x"],
+    variants: [], // no variants → legacy path
+    timestamp: TS,
+  });
+  assertEquals(payloads.map((p) => p.format), ["long", "short"]);
+  for (const p of payloads) {
+    assertEquals(p.data.media_type, "video");
+    assertEquals(p.data.video_url, video);
+  }
+});

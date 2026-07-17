@@ -41,6 +41,11 @@ export interface SocialPostForPublish {
   // US-871: a manually uploaded/overridden card. When absent we auto-fill a
   // branded /og/social/card URL per platform so the payload always has an image.
   asset_image_url?: string | null;
+  // Video-distribution: "video" fans out the video_url below to the enabled
+  // platforms (TikTok / IG Reels / FB video); anything else stays an image post.
+  media_type?: "image" | "video" | null;
+  // Publicly fetchable video URL (content-videos bucket) for video posts.
+  video_url?: string | null;
 }
 
 // Replace the post's variant rows with a freshly generated set. We delete +
@@ -118,6 +123,13 @@ export function planSocialFanout(args: {
   const { post, enabled, variants, timestamp } = args;
   const siteUrl = args.siteUrl ?? "https://gradethread.com";
   const asset = post.asset_image_url?.trim() || null;
+  // Video-distribution: a video post carries a public video_url; the image
+  // stays as the cover/poster. When the post isn't a video (or has no url) we
+  // omit the video fields entirely so image posts are byte-for-byte unchanged.
+  const video = post.media_type === "video" ? (post.video_url?.trim() || null) : null;
+  const videoFields = video
+    ? { media_type: "video" as const, video_url: video }
+    : { media_type: "image" as const };
   const byPlatform = new Map<SocialPlatform, SocialVariantRow>();
   for (const v of variants) {
     if (v.body?.trim()) byPlatform.set(v.platform, v);
@@ -152,6 +164,7 @@ export function planSocialFanout(args: {
         product_focus: post.product_focus,
         image_field: v.image_field ?? null,
         image_url: imageFor(v),
+        ...videoFields,
       },
     }));
 
@@ -182,6 +195,7 @@ export function planSocialFanout(args: {
         cta_url: post.cta_url ?? null,
         product_focus: post.product_focus,
         image_url: legacyImage(post.long_body),
+        ...videoFields,
       },
     });
   }
@@ -197,6 +211,7 @@ export function planSocialFanout(args: {
         cta_url: post.cta_url ?? null,
         product_focus: post.product_focus,
         image_url: legacyImage(post.short_body),
+        ...videoFields,
       },
     });
   }

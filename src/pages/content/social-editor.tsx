@@ -15,7 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowLeft, Hash, Image as ImageIcon, RefreshCw, Save, Send, Sparkles, Upload } from "lucide-react";
+import { ArrowLeft, Film, Hash, Image as ImageIcon, RefreshCw, Save, Send, Sparkles, Trash2, Upload } from "lucide-react";
 import {
   CONTENT_PRODUCTS,
   CONTENT_STATUS_LABELS,
@@ -26,6 +26,8 @@ import {
   SOCIAL_SHORT_LIMIT,
 } from "@/lib/constants";
 import {
+  useAttachSocialVideo,
+  useClearSocialVideo,
   useGenerateSocialPost,
   usePublishSocialPost,
   useSetSocialCard,
@@ -66,6 +68,8 @@ export function SocialEditorPage() {
         hashtags: post.hashtags,
         cta_url: post.cta_url,
         asset_image_url: post.asset_image_url,
+        media_type: post.media_type,
+        video_url: post.video_url,
       }}
       onBack={() => navigate("/admin/content/social")}
     />
@@ -86,6 +90,8 @@ function SocialEditorInner({
     hashtags: string[];
     cta_url: string | null;
     asset_image_url: string | null;
+    media_type: "image" | "video";
+    video_url: string | null;
   };
   onBack: () => void;
 }) {
@@ -276,6 +282,12 @@ Then the body..."
 
       <PlatformVariantsSection postId={postId} />
 
+      <VideoSection
+        postId={postId}
+        mediaType={initial.media_type}
+        videoUrl={initial.video_url}
+      />
+
       <SocialCardSection
         postId={postId}
         assetImageUrl={initial.asset_image_url}
@@ -459,6 +471,101 @@ function SocialCardSection({
               : "GradeThread"}{" "}
           branding · auto-generated in each network's aspect ratio. Override
           uploads are validated and stripped of metadata.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+// Video distribution: attach a clip so this post publishes as a video. The
+// clip uploads to the public content-videos bucket and its URL fans out to the
+// video-native networks (TikTok / Instagram Reels / Facebook video) through the
+// same Make.com publish webhook. When a video is attached the post publishes as
+// a video; remove it to fall back to the branded still card.
+function VideoSection({
+  postId,
+  mediaType,
+  videoUrl,
+}: {
+  postId: string;
+  mediaType: "image" | "video";
+  videoUrl: string | null;
+}) {
+  const attach = useAttachSocialVideo(postId);
+  const clear = useClearSocialVideo(postId);
+  const [current, setCurrent] = useState<string | null>(
+    mediaType === "video" ? videoUrl : null,
+  );
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-picking the same file
+    if (!file) return;
+    const res = await attach.mutateAsync(file);
+    // Cache-bust so the freshly uploaded clip shows immediately.
+    setCurrent(`${res.url}?t=${Date.now()}`);
+  };
+
+  const onRemove = async () => {
+    await clear.mutateAsync();
+    setCurrent(null);
+  };
+
+  const busy = attach.isPending || clear.isPending;
+
+  return (
+    <Card>
+      <CardHeader className="flex-row items-center justify-between space-y-0">
+        <CardTitle className="text-base">Video</CardTitle>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            onClick={() => fileRef.current?.click()}
+          >
+            <Upload className="mr-2 h-4 w-4" />
+            {attach.isPending ? "Uploading…" : current ? "Replace" : "Upload video"}
+          </Button>
+          {current && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={onRemove}
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              {clear.isPending ? "Removing…" : "Remove"}
+            </Button>
+          )}
+          <input
+            ref={fileRef}
+            type="file"
+            accept="video/mp4,video/quicktime,video/webm,video/x-m4v"
+            className="hidden"
+            onChange={onFile}
+          />
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {current ? (
+          <video
+            src={current}
+            controls
+            className="max-h-72 w-auto rounded-md border"
+          />
+        ) : (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Film className="h-4 w-4" />
+            No video attached — this post publishes as a still card. Upload a
+            clip to publish it as a video.
+          </div>
+        )}
+        <p className="text-xs text-muted-foreground">
+          Fans out to TikTok, Instagram Reels, and Facebook video via the Make.com
+          publish webhook. mp4, mov, m4v, or webm. The social card above is used as
+          the cover/poster.
         </p>
       </CardContent>
     </Card>
