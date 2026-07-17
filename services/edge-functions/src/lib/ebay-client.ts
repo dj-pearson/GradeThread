@@ -2807,6 +2807,38 @@ export async function withdrawOffer(
   );
 }
 
+// US-1978 (AC1): withdraw (END) a PUBLISHED multi-variation listing by its
+// inventory_item_group key — the inverse of publishOfferByInventoryItemGroup.
+//
+// withdrawOffer CANNOT end a variation listing: eBay models the group as ONE
+// listing spanning many per-variant offers, and the local listings row carries
+// NO platform_offer_id for a group publish (each variant has its own offer), so
+// the single-offer end path has nothing to withdraw and the live multi-variation
+// listing was previously un-endable from FlipDesk. The GROUP is the unit eBay
+// ends. Same contract as withdrawOffer: the per-variant offers stay (a re-publish
+// reuses the group), and an already-ended group reconciles via
+// isOfferAlreadyEndedError. Routes through the hardened fetch path (breaker +
+// retry) like every other lifecycle verb — a 429/5xx is retried, a 4xx is not.
+export async function withdrawByInventoryItemGroup(
+  userId: string,
+  groupKey: string,
+  // US-1507: end via the account that owns the listing (null → primary).
+  connectionId?: string,
+): Promise<void> {
+  await fetchAuthed<unknown>(
+    userId,
+    `/sell/inventory/v1/withdraw_by_inventory_item_group`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        inventoryItemGroupKey: groupKey,
+        marketplaceId: getMarketplaceId(),
+      }),
+    },
+    connectionId,
+  );
+}
+
 // A withdrawOffer / end-listing call can legitimately fail because the eBay
 // listing is ALREADY not live — the seller ended it on eBay, eBay removed it
 // for a policy issue, or a prior end already withdrew it. eBay then refuses the

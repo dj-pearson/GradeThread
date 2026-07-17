@@ -85,6 +85,7 @@ import {
   EBAY_BULK_MAX,
   upsertConnection,
   withdrawOffer,
+  withdrawByInventoryItemGroup,
   getOptedInPrograms,
   optInToProgram,
   optOutOfProgram,
@@ -6133,36 +6134,37 @@ flipdeskEbayRoutes.delete("/listings/:id", async (c) => {
   // so the user can retry; an already-not-live offer reconciles locally.
   let endedOnEbay = false;
   let note: string | null = null;
-  if (row.listing.platform_offer_id) {
-    try {
-      // US-1507: end via the account that owns the listing (null → primary).
-      await withdrawOffer(
-        userId, row.listing.platform_offer_id,
-        row.listing.marketplace_connection_id ?? undefined,
+
+  // US-1506/US-1978: a withdraw (single-offer OR group) fails for the same three
+  // reasons, handled identically. Returns an abort Response to return to the
+  // caller, or a reconcile-note string when the listing was already not live.
+  const classifyWithdrawFailure = (
+    err: unknown,
+  ): { abort: Response } | { note: string } => {
+    // US-1506: a disconnected eBay account throws BEFORE the withdraw runs, so
+    // the listing is still LIVE on eBay. Never reconcile it to ended — that would
+    // tell the seller it's gone while buyers can still purchase it (oversell).
+    // Fail with actionable reconnect copy instead.
+    if (isNoEbayConnectionError(err)) {
+      console.warn(
+        "[flipdesk-ebay] end: no eBay connection — listing left active:",
+        err instanceof Error ? err.message : String(err),
       );
-      endedOnEbay = true;
-    } catch (err) {
-      // US-1506: a disconnected eBay account throws BEFORE the withdraw runs, so
-      // the listing is still LIVE on eBay. Never reconcile it to ended — that
-      // would tell the seller it's gone while buyers can still purchase it
-      // (oversell). Fail with actionable reconnect copy instead.
-      if (isNoEbayConnectionError(err)) {
-        console.warn(
-          "[flipdesk-ebay] end: no eBay connection — listing left active:",
-          err instanceof Error ? err.message : String(err),
-        );
-        return c.json(
+      return {
+        abort: c.json(
           {
             error:
               "Your eBay account isn't connected, so we couldn't end this live " +
               "listing on eBay. Reconnect eBay in Marketplaces, then end it again.",
           },
-          409
-        );
-      }
-      if (!isOfferAlreadyEndedError(err)) {
-        console.error("[flipdesk-ebay] withdrawOffer failed (transient):", err);
-        return c.json(
+          409,
+        ),
+      };
+    }
+    if (!isOfferAlreadyEndedError(err)) {
+      console.error("[flipdesk-ebay] withdraw failed (transient):", err);
+      return {
+        abort: c.json(
           {
             error: "eBay rejected the end-listing call. Please try again.",
             // US-1511: mapped/human detail only — raw blob stays in the log above.
@@ -6171,14 +6173,46 @@ flipdeskEbayRoutes.delete("/listings/:id", async (c) => {
               "eBay couldn't end this listing just now. It's still live — try again in a moment.",
             ),
           },
-          502
-        );
-      }
-      note = "eBay shows this listing was already inactive; ended in FlipDesk.";
-      console.warn(
-        "[flipdesk-ebay] end: offer already not live, reconciling locally:",
-        err instanceof Error ? err.message : String(err),
-      );
+          502,
+        ),
+      };
+    }
+    console.warn(
+      "[flipdesk-ebay] end: listing already not live, reconciling locally:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return { note: "eBay shows this listing was already inactive; ended in FlipDesk." };
+  };
+
+  // US-1978 (AC1): a multi-variation listing is ONE eBay listing spanning an
+  // inventory_item_group, so it has NO single platform_offer_id — it must be
+  // ended by its GROUP KEY. resolveEndStrategy resolves group FIRST so a
+  // variation listing never falls through to the "no offer linked" no-op that
+  // previously left it live on eBay forever.
+  const strategy = resolveEndStrategy({
+    variations: row.listing.variations,
+    itemSku: row.listing.item_sku,
+    platformOfferId: row.listing.platform_offer_id,
+  });
+  // US-1507: end via the account that owns the listing (null → primary).
+  const endConnectionId = row.listing.marketplace_connection_id ?? undefined;
+  if (strategy.kind === "group") {
+    try {
+      await withdrawByInventoryItemGroup(userId, strategy.groupKey, endConnectionId);
+      endedOnEbay = true;
+    } catch (err) {
+      const outcome = classifyWithdrawFailure(err);
+      if ("abort" in outcome) return outcome.abort;
+      note = outcome.note;
+    }
+  } else if (strategy.kind === "offer") {
+    try {
+      await withdrawOffer(userId, strategy.offerId, endConnectionId);
+      endedOnEbay = true;
+    } catch (err) {
+      const outcome = classifyWithdrawFailure(err);
+      if ("abort" in outcome) return outcome.abort;
+      note = outcome.note;
     }
   } else {
     note = "No eBay offer was linked; ended in FlipDesk only.";
@@ -8088,6 +8122,12 @@ interface ListingRowForManage {
   // relist guard can reject imported listings without re-deriving from signals.
   marketplace_connection_id: string | null;
   listing_origin: "ebay" | "gradethread" | null;
+  // US-1978 (AC1): the multi-variant matrix (listings.variations) + the parent
+  // item's SKU (== the inventory_item_group key at publish, US-568). A non-null
+  // variations matrix means this is a GROUP listing, ended via
+  // withdrawByInventoryItemGroup rather than the single-offer withdraw path.
+  variations: ListingVariations | null;
+  item_sku: string | null;
 }
 
 type LoadListingResult =
@@ -8115,6 +8155,32 @@ export function resolvePublishPrice(
   return null;
 }
 
+// US-1978 (AC1): decide HOW to end a listing from its persisted shape — the
+// pure, unit-tested core of the DELETE /listings/:id branch. A variation listing
+// (a publishable variations matrix + a group key) ends via
+// withdrawByInventoryItemGroup; a single-SKU listing with a live offer ends via
+// withdrawOffer; anything else ends locally only. GROUP is resolved FIRST because
+// a variation listing carries NO platform_offer_id and would otherwise no-op live
+// on eBay forever.
+export type EndStrategy =
+  | { kind: "group"; groupKey: string }
+  | { kind: "offer"; offerId: string }
+  | { kind: "local" };
+
+export function resolveEndStrategy(input: {
+  variations: ListingVariations | null;
+  itemSku: string | null;
+  platformOfferId: string | null;
+}): EndStrategy {
+  if (input.variations && input.itemSku) {
+    return { kind: "group", groupKey: input.itemSku };
+  }
+  if (input.platformOfferId) {
+    return { kind: "offer", offerId: input.platformOfferId };
+  }
+  return { kind: "local" };
+}
+
 async function loadListingOwned(
   listingId: string,
   userId: string
@@ -8122,7 +8188,7 @@ async function loadListingOwned(
   const { data } = await supabaseAdmin
     .from("listings")
     .select(
-      "id, inventory_item_id, platform_offer_id, platform_listing_id, listing_title, listing_description, batch_id, synced_to_ebay_at, marketplace_connection_id, listing_origin, inventory_items!inner(user_id)"
+      "id, inventory_item_id, platform_offer_id, platform_listing_id, listing_title, listing_description, batch_id, synced_to_ebay_at, marketplace_connection_id, listing_origin, variations, inventory_items!inner(user_id, sku)"
     )
     .eq("id", listingId)
     .maybeSingle();
@@ -8130,7 +8196,7 @@ async function loadListingOwned(
     return { ok: false, error: { error: "Listing not found" }, status: 404 };
   }
   const row = data as unknown as ListingRowForManage & {
-    inventory_items: { user_id: string };
+    inventory_items: { user_id: string; sku: string | null };
   };
   if (row.inventory_items.user_id !== userId) {
     return { ok: false, error: { error: "Listing not found" }, status: 404 };
@@ -8148,6 +8214,10 @@ async function loadListingOwned(
       synced_to_ebay_at: row.synced_to_ebay_at,
       marketplace_connection_id: row.marketplace_connection_id,
       listing_origin: row.listing_origin,
+      // US-1978 (AC1): coerce the persisted matrix so a group listing ends via
+      // the group path; carry the parent SKU (the group key) for the withdraw.
+      variations: normalizeVariations(row.variations),
+      item_sku: row.inventory_items.sku,
     },
   };
 }

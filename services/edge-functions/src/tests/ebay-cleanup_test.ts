@@ -15,7 +15,7 @@
 //
 // ebay-client.ts constructs the supabase client at load → dummy env first (the
 // same pattern as denim-content_test.ts).
-import { assert } from "@std/assert";
+import { assert, assertEquals } from "@std/assert";
 
 Deno.env.set("SUPABASE_URL", Deno.env.get("SUPABASE_URL") ?? "http://localhost:54321");
 Deno.env.set(
@@ -26,6 +26,17 @@ Deno.env.set(
 const { isAlreadyDeletedError, isAlreadyInProgramStateError } = await import(
   "../lib/ebay-client.ts"
 );
+const { resolveEndStrategy } = await import("../routes/flipdesk-ebay.ts");
+
+// A minimal publishable variation matrix (resolveEndStrategy only checks that the
+// matrix is non-null; normalizeVariations already dropped unpublishable ones).
+const VARIATIONS = {
+  specifications: ["Size"],
+  variants: [
+    { aspects: { Size: "S" }, quantity: 1 },
+    { aspects: { Size: "M" }, quantity: 1 },
+  ],
+};
 
 Deno.test("US-1978: an already-gone artifact reconciles rather than erroring", () => {
   for (const msg of [
@@ -92,6 +103,58 @@ Deno.test("US-1979: already-in-the-requested-state is success, not an error", ()
       `should treat as already-in-state: ${msg}`,
     );
   }
+});
+
+// ── US-1978 (AC1): end-strategy selection for DELETE /listings/:id ──────────
+//
+// A multi-variation listing is ONE eBay listing over an inventory_item_group and
+// carries NO single platform_offer_id, so the single-offer withdraw cannot end
+// it — before AC1 it fell through to a local-only no-op and the listing stayed
+// LIVE on eBay forever. resolveEndStrategy is the pure decision at the heart of
+// the fix; the ORDER (group before offer) is the whole point and is what this
+// test pins.
+
+Deno.test("US-1978 (AC1): a variation listing ends by GROUP KEY, not the offer", () => {
+  // The bug's exact shape: a group listing whose row ALSO happens to carry a
+  // stale offer id must STILL end by group — group is resolved first.
+  const s = resolveEndStrategy({
+    variations: VARIATIONS,
+    itemSku: "SKU-BASE-1",
+    platformOfferId: "9988776655", // present but must be ignored
+  });
+  assertEquals(s, { kind: "group", groupKey: "SKU-BASE-1" });
+});
+
+Deno.test("US-1978 (AC1): a single-SKU listing with a live offer ends by offer", () => {
+  const s = resolveEndStrategy({
+    variations: null,
+    itemSku: "SKU-BASE-1",
+    platformOfferId: "9988776655",
+  });
+  assertEquals(s, { kind: "offer", offerId: "9988776655" });
+});
+
+Deno.test("US-1978 (AC1): no offer and no variations → local-only end (unchanged)", () => {
+  const s = resolveEndStrategy({
+    variations: null,
+    itemSku: "SKU-BASE-1",
+    platformOfferId: null,
+  });
+  assertEquals(s, { kind: "local" });
+});
+
+Deno.test("US-1978 (AC1): a variations matrix without a group key falls back safely", () => {
+  // A group listing must have a SKU (== the group key). If the join somehow
+  // returns no sku, we must NOT try to withdraw a group with an empty key — fall
+  // through to the offer path (or local), never fabricate a key.
+  assertEquals(
+    resolveEndStrategy({ variations: VARIATIONS, itemSku: null, platformOfferId: "42" }),
+    { kind: "offer", offerId: "42" },
+  );
+  assertEquals(
+    resolveEndStrategy({ variations: VARIATIONS, itemSku: null, platformOfferId: null }),
+    { kind: "local" },
+  );
 });
 
 Deno.test("US-1979: a real program failure is never swallowed", () => {
