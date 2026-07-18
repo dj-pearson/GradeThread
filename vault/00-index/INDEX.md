@@ -57,6 +57,7 @@ New here? Read [[CONTRACT]] before adding a note.
 ## 70-agent — how agents work here
 
 - [[agent-knowledge-surfaces]] — reference — Four places currently hold agent-facing knowledge; this note defines the intended division and tracks the unification.
+- [[guards-that-cannot-fail]] — learning — This repo's most common defect is not a broken check but a check that passes for the wrong reason; here are the seven shapes it took and the one habit that catches all of them.
 
 ## 90-archive — historical snapshots
 
