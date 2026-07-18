@@ -12,6 +12,17 @@ import {
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useNavigationGuard } from "@/hooks/use-navigation-guard";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -150,6 +161,17 @@ export function NewSubmissionPage() {
   const [garmentInfo, setGarmentInfo] = useState<GarmentInfo | null>(null);
   const [photos, setPhotos] = useState<PhotoUploadItem[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // US-2032: staged photos live ONLY in React state — the draft autosave stores
+  // a manifest (name + type), never the binaries — so navigating away destroys
+  // them with no warning. Re-shooting a garment set is the most expensive thing
+  // this app can ask of someone, and it happens at the exact moment the seller
+  // has invested the most effort.
+  //
+  // Blocked ONLY while photos are staged and we are not mid-submit: a guard that
+  // fires when nothing is at stake teaches people to click through it, and
+  // blocking during submit would trap the caller behind their own success
+  // navigation.
+  const guard = useNavigationGuard(photos.length > 0 && !isSubmitting);
   // US-774: synchronous double-submit guard. The button's disabled={isSubmitting}
   // only takes effect on the NEXT render, so a fast double-click can fire
   // handleSubmit twice before React commits the disabled state — which would
@@ -1300,6 +1322,40 @@ export function NewSubmissionPage() {
           returnPath={`/dashboard/submissions/${checkoutState.submissionId}?pay_retry=1&tier=${checkoutState.tier}`}
         />
       )}
+
+      {/* US-2032: staged photos exist only in memory — the draft autosave keeps
+          a manifest, never the binaries — so leaving destroys them. Name the
+          exact count, because "unsaved changes" is easy to dismiss and
+          "8 photos" is not. */}
+      <AlertDialog
+        open={guard.blocked}
+        onOpenChange={(open) => {
+          if (!open) guard.cancelLeave();
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Leave without submitting? Your photos won't be saved.
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {photos.length === 1
+                ? "You've added 1 photo. "
+                : `You've added ${photos.length} photos. `}
+              We save your garment details, but not the images themselves — if
+              you leave now you'll need to take them again.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={guard.cancelLeave}>
+              Keep editing
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={guard.confirmLeave}>
+              Leave and discard photos
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

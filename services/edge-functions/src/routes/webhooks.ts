@@ -1372,26 +1372,62 @@ async function handleChargeRefunded(event: Stripe.Event) {
     ? charge.payment_intent
     : charge.payment_intent?.id ?? null;
 
-  // US-1919: revoke only the refunded fraction. `amount_refunded` is cumulative
-  // for the charge, so this event reflects the total refunded so far; the
-  // per-charge idempotency key means a single charge's clawback lands once.
-  const revoked = proportionalClawback(credits, charge.amount_refunded, charge.amount);
+  // US-2033: claw back PER REFUND, not per charge.
+  //
+  // The previous version computed the clawback from `charge.amount_refunded`
+  // (CUMULATIVE for the charge) but keyed the ledger reversal on the CHARGE id.
+  // Stripe fires `charge.refunded` once per refund, and revoke_grade_credits
+  // no-ops on a repeated key — so on a second, partial refund the amount was
+  // right and the write was skipped. Concretely, on a $50 / 50-credit pack:
+  // refund $10 (10 credits revoked, key claimed), later refund the remaining
+  // $40 (clawback computes 50, key already used, NO-OP). The customer keeps all
+  // $50 AND 40 credits. admin-billing's `admin-refund:<charge>:<amount>` path
+  // deliberately permits exactly that second partial refund.
+  //
+  // Keying on the REFUND makes each event claim its own key and move its own
+  // increment. US-892's property is preserved and sharpened: admin-billing now
+  // keys its direct ledger call on the same refund id, so whichever path runs
+  // first still wins and the other no-ops — now per refund rather than per
+  // charge.
+  const refunds: Stripe.Refund[] = charge.refunds?.data ?? [];
+  const latest: Stripe.Refund | null = refunds.length
+    // Newest by `created`; do NOT trust list ordering. Ties break on id so the
+    // choice is deterministic across redeliveries of the same event.
+    ? refunds.reduce((a: Stripe.Refund, b: Stripe.Refund) =>
+      b.created > a.created || (b.created === a.created && b.id > a.id) ? b : a
+    )
+    : null;
+
+  // Fall back to the old cumulative/per-charge behaviour if Stripe did not
+  // include the refunds list. That is strictly better than skipping the
+  // clawback: it under-claws on multi-refund charges (the pre-existing bug)
+  // rather than never clawing at all.
+  const incremental = latest?.amount ?? charge.amount_refunded;
+  const idempotencyKey = latest
+    ? `pack-refund:${latest.id}`
+    : `pack-refund:${charge.id}`;
+  if (!latest) {
+    console.warn(
+      `[Webhook] charge.refunded ${charge.id} carried no refunds list — ` +
+        `falling back to the cumulative per-charge clawback`,
+    );
+  }
+
+  const revoked = proportionalClawback(credits, incremental, charge.amount);
   if (revoked <= 0) {
-    console.log(`[Webhook] charge.refunded credit_pack refunded=${charge.amount_refunded}/${charge.amount} — nothing to claw back`);
+    console.log(`[Webhook] charge.refunded credit_pack refunded=${incremental}/${charge.amount} — nothing to claw back`);
     return;
   }
 
-  // US-892: share the per-charge idempotency key with the admin-initiated
-  // pack-refund flow so the wallet is clawed back EXACTLY ONCE no matter which
-  // path runs first (the other no-ops).
   await clawbackCreditPack(
     event,
     userId,
     revoked,
     charge.id,
     paymentIntentId,
-    `pack-refund:${charge.id}`,
-    `Refund reversal for charge ${charge.id}`,
+    idempotencyKey,
+    `Refund reversal for charge ${charge.id}` +
+      (latest ? ` (refund ${latest.id})` : ""),
   );
 }
 

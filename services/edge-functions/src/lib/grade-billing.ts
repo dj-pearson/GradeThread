@@ -144,7 +144,10 @@ export async function runPaymentPrecedence(
     await supabaseAdmin
       .from("submissions")
       .update({ payment_status: "included", paid_at: now })
-      .eq("id", submissionId);
+      .eq("id", submissionId)
+      // US-2033: scope the super-admin comp to the account being charged, for
+      // the same reason as the two branches below.
+      .eq("user_id", userId);
     await supabaseAdmin.from("grade_credit_transactions").insert({
       user_id: userId,
       delta: 0,
@@ -299,7 +302,13 @@ export async function runPaymentPrecedence(
       await supabaseAdmin
         .from("submissions")
         .update({ payment_status: "credits", paid_at: new Date().toISOString() })
-        .eq("id", submissionId);
+        .eq("id", submissionId)
+        // US-2033: same scoping the included-grade flip above already carries
+        // (US-1638). This branch was missed in that hardening pass. Callers do
+        // owner-verify first, so this is defense-in-depth — but the failure it
+        // guards is that user A's credits get DEBITED to mark user B's
+        // submission paid, which is a money bug, not just a data bug.
+        .eq("user_id", userId);
       return {
         paid: true,
         method: "credits",

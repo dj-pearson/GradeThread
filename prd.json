@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 2022,
+  "nextId": 2034,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -1968,6 +1968,177 @@
       "priority": 1997,
       "notes": "[P3][DB/Growth] Found 2026-07-18 by the data-integrity deep dive. Compounds three other findings at once: GDPR erasure (un-erasable PII), backup/restore duration (RTO), and the stalled retention sweep (the cron that would own this purge is itself not advancing). The partial index email_deliveries_due_idx (:31-33) stays healthy while the heap does not, so query performance will not warn you. | 2026-07-18 FIXED (agent loop). AC1 DONE, with TWO DIFFERENT RULES rather than the one the AC implied — the distinction matters and is the whole risk of this change: (1) status='sent' rows are pure history once delivered, so they are DELETED after 90 days (well past any support window that would need to re-read what a user was actually sent); (2) status='dead_letter' rows are an OPERATOR REPLAY QUEUE and are NEVER deleted — only their heavy PII-bearing `html` body is stripped, and on a longer 180-day window so a genuine replay stays possible. Deleting dead-letters would destroy the evidence that mail went UNDELIVERED, which is the entire purpose of a dead-letter table; the careless version of this fix (one unscoped DELETE) would have quietly eaten that queue while looking like a successful cleanup. Both cutoffs are named constants with the reasoning inline. Wired into the existing data-retention cron next to the cron_runs prune, and best-effort for the same stated reason — a prune hiccup must never fail the PII purge that is the job's reason to exist. THREE NEW TESTS in data-retention_test.ts, all NEGATIVE-VERIFIED by simulating the exact careless edits: removing .eq('status','sent') fails the scoping test, and switching the dead-letter .update({html:''}) to .delete() fails the body-strip test; restoring passes. Checked against the repo gotcha too — no .or() on an UPDATE/DELETE (US-1552), only .eq/.lt/.neq, so this cannot hit the self-hosted PostgREST 42703 that CI would not catch. Verified: deno check + lint clean, 4167 edge tests pass. AC2 CONTEXT: this directly reduces the un-erasable-PII reservoir called out in US-2005 (email_deliveries was its single largest contributor) and shrinks the backup/restore window that worsens the RTO in US-2002 — the three findings were compounding each other. STILL passes:false on AC3's quantification: how much this actually reclaims, and how much accumulated while there was no purge at all, needs a prod query (select pg_total_relation_size('public.email_deliveries'), count(*) filter (where status='sent' and created_at < now() - interval '90 days')). Worth running BEFORE the first sweep so the reclaim is measured rather than assumed, and worth knowing that the first run will be a large delete on a table nobody has ever pruned.",
       "id": "US-2021",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "Consignor payouts are never reversed when the sale is later returned or refunded",
+      "description": "As a seller, when a consigned item comes back I must not be out the consignor's cut. lib/consignor-payout.ts:105 gates NEW payouts on sale.status === 'completed', but there is NO reversal path for one already settled. flipdesk-ebay.ts:3626 flips sales.status to returned/refunded on an eBay return or approved cancellation and restores the inventory item — and touches nothing in consignor_payouts. Once fireTransfer (consignor-payout.ts:322-335) has moved money to the consignor's Connect account and set status='paid', SETTLED_STATUSES (consignor-payout-math.ts:69) makes every later evaluation return skip('already_settled'). A repo-wide grep for 'clawback' finds it in the affiliate, Stripe-metadata, Apple and Google paths — nothing in the consignor engine.",
+      "acceptanceCriteria": [
+        "On the sale-status transition to returned/refunded (flipdesk-ebay.ts:3626 and any other writer), look up consignor_payouts for the affected sale_id(s).",
+        "Cancel pending/failed rows outright; for PAID rows either issue a Stripe transfers.createReversal (idempotency-keyed on the payout id, matching the existing consignor_payout_ key convention) or write a negative-balance row that offsets the consignor's next payout. Pick one and say why in the notes.",
+        "Consider a hold window before transfer, mirroring the affiliate engine's hold_days — the cheapest fix for most of this exposure is not paying out until the return window closes.",
+        "Surface it: a paid payout on a returned sale must appear somewhere an operator sees, because today the row stays 'paid' and nothing signals the loss."
+      ],
+      "priority": 1998,
+      "notes": "[P1][Money/Consignment] Found 2026-07-18 by the money-correctness deep dive. LARGEST PER-INCIDENT DOLLAR EXPOSURE in the codebase: a $200 consigned item at a 60% split transfers $120 to the consignor; the buyer returns it 20 days later and eBay refunds them $200 from the seller. The seller eats $120 with no automated recovery and NO SIGNAL — the payout row still reads 'paid'. Note the shape: this is not a bug in the payout engine, which is well built (pre-flight transfer lookup defeats Stripe's 24h key TTL, math is separated and tested). It is a MISSING EDGE between two subsystems that each work correctly on their own. Source-only finding: the Stripe MCP connector needs authorization, so live transfer/reversal state was not checked.",
+      "id": "US-2022",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "inventory.tsx paginates the grid, then loads the tenant's ENTIRE listings + sales history anyway",
+      "description": "As a seller with real volume, opening Inventory must not download my whole commercial history. src/pages/inventory.tsx:156-159 issues supabase.from('listings').select('*') and supabase.from('sales').select('*') with NO limit, range or filter — only RLS tenant scoping. The grid itself IS correctly paginated (:229 uses .range(page*PAGE_SIZE)) and counts via count:'exact' (:203). The two unbounded reads exist only to build listingsByItem / saleByItem maps (:171-182) for a days-listed column on the ~50 visible rows. Same file :135-137 fetches inventory_items.select('brand') for EVERY row in the tenant just to populate a distinct-brand filter dropdown.",
+      "acceptanceCriteria": [
+        "Scope both hydration queries to the page's item ids: .in('inventory_item_id', itemRows.map(r => r.id)), selecting only the columns the column needs (inventory_item_id, listed_at / sold_at). Both supporting indexes already exist (idx_listings_inventory_item_id, idx_sales_inventory_item_id).",
+        "Replace the whole-tenant brand scan with a distinct RPC or a maintained brand list.",
+        "Verify with a seeded heavy account (thousands of rows) that the Inventory payload is bounded by page size, not by account age."
+      ],
+      "priority": 1999,
+      "notes": "[P1][Perf/Frontend] Found 2026-07-18 by the query-performance deep dive (the pass the ops audit flagged as owed and explicitly NOT done). Concrete scenario: a seller with 5,000 listings and 3,000 sales pulls 8,000 WIDE rows (select('*') on two wide tables; sales carries fee/payout/tracking/buyer columns) into a browser to decorate 50 grid rows. Multi-MB payload plus main-thread JSON parse on the entry path to the app, and it grows monotonically forever because sales is append-only. staleTime 5min limits refetch frequency, not the first paint of every session. Highest value-to-effort ratio in the whole performance audit — roughly an hour's work.",
+      "id": "US-2023",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "Bulk grading submit is an unbounded N+1 that can charge credits and then time out",
+      "description": "As a seller bulk-grading, a large batch must not half-charge me. services/edge-functions/src/routes/flipdesk-grading.ts:419 loops `for (const item of validation.result.items)` and inside it (:490-494) issues a per-item item_photos SELECT — a strict regression against the validation pass in the SAME FILE, which at :193-197 already loads photo coverage for all items in ONE .in('inventory_item_id', itemIds) query with the comment 'Photo coverage — one query covering all items'. Each iteration also INSERTs a submission (:455-465), runs runPaymentPrecedence (:476, itself several queries), copies photos in storage, and inserts links — all sequential, no Promise.all. NOTHING BOUNDS THE BATCH: inputs.length is validated only for === 0 (:109) and submitBodySchema enforces no max that reaches this loop.",
+      "acceptanceCriteria": [
+        "Cap the batch size at the schema, with a clear error when exceeded.",
+        "Hoist the item_photos fetch out of the loop, reusing the .in() pattern already present at :193.",
+        "Chunk the remaining per-item work with bounded concurrency rather than a fully sequential loop.",
+        "Address the partial-charge window: the loop sets charged = true at :487 BEFORE the photo copy, and the catch-block compensation handles a THROWN error, not a killed isolate. Decide what a timed-out batch owes the seller and make it recoverable."
+      ],
+      "priority": 2000,
+      "notes": "[P1][Perf/Money] Found 2026-07-18 by the query-performance deep dive. This one has a correctness dimension, not just latency: 200 selected items is ~1,000+ sequential round trips plus storage copies in a single request — near-certain edge timeout — and because credits are charged per item inside the loop, a timeout leaves a PARTIALLY CHARGED batch that the compensation path does not cover (it catches thrown errors; an isolate kill throws nothing). Fixing the N+1 also shrinks the window in which that can happen, but the charge/commit ordering deserves its own thought.",
+      "id": "US-2024",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "Admin pages load entire forever-growing tables into the browser",
+      "description": "As an operator, the admin console must not fail abruptly as the platform grows. Confirmed unbounded select('*') with no limit/range: admin/disputes.tsx:233-237 (disputes, submissions, grade_reports, submission_images, users — FIVE full tables), admin/ai-models.tsx:299-301 (ai_prompt_versions, human_reviews, grade_reports), admin/submissions.tsx:169,172, admin/user-detail.tsx:200 (the WHOLE grade_reports table on a single-user detail page, while the adjacent query at :197 is properly .eq()-scoped), admin/moderation.tsx:154,165,178,188. Results are aggregated client-side purely to compute counts (e.g. reviews.filter(...) at ai-models.tsx:313).",
+      "acceptanceCriteria": [
+        "Scope admin/user-detail.tsx:200 to the user being viewed — it is the sharpest case and a one-line fix.",
+        "Push aggregation server-side: count:'exact', head:true for counts, an RPC for derived rates (agreement, dispute rates).",
+        "Paginate the list views."
+      ],
+      "priority": 2001,
+      "notes": "[P2][Perf/Admin] Found 2026-07-18 by the query-performance deep dive. Blast radius is operators only, which is why this is P2 — but grade_reports and submissions are platform-wide and append-only, so at 100k graded submissions admin/disputes.tsx alone transfers hundreds of MB to render a list. These do not degrade gracefully; they cross a threshold and then hard-fail (browser OOM / PostgREST timeout), which is the worst failure shape for a console someone reaches for DURING an incident.",
+      "id": "US-2025",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "Six buyer hooks render a failed query as 'you have nothing'",
+      "description": "As a buyer, a failed load must not look like an empty account. src/hooks/use-buyer-closet.ts:88, use-buyer-wants.ts:71, use-buyer-purchases.ts:182, use-buyer-alert-matches.ts:57, use-saved-searches.ts and use-watchlist.ts all do the queryFn correctly (if (error) throw error, e.g. use-buyer-closet.ts:37) and then DISCARD it in the return shape: items: query.data ?? [] with no isError exposed. Consumers structurally cannot tell the difference — src/pages/buyer/portfolio.tsx:59 destructures { items, isLoading, ... } because there is no error field to destructure. A buyer whose closet query fails sees an 'add your first item' empty state while owning 40 graded garments.",
+      "acceptanceCriteria": [
+        "Add isError (and ideally error) to each hook's return, and render the existing src/components/ui/error-state.tsx in the consumers.",
+        "Follow the pattern already correct in src/pages/submissions.tsx:228,541, which threads isError into ErrorState — this is a consistency fix, not a new design.",
+        "Worst case first: use-buyer-purchases.ts covers rewards/credits, where the empty state tells a user their purchases were not recorded."
+      ],
+      "priority": 2002,
+      "notes": "[P2][Frontend/Trust] Found 2026-07-18 by the frontend deep dive. This is the error-vs-empty conflation, which is worse than a visible error: a visible failure prompts a retry, while a confident empty state prompts the user to conclude their data is GONE. All six are buyer-side rather than the seller grading/listing core, which is the only reason this is not P1.",
+      "id": "US-2026",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "RouteErrorFallback reports nothing to Sentry — including the partner embed route",
+      "description": "As GradeThread, a route-level crash must produce telemetry. The class ErrorBoundary calls captureException (src/components/error-boundary.tsx:36), but the router errorElement — RouteErrorFallback at :108-141, used at src/routes/index.tsx:354 and :765 — does not. Route errors render a 'Page Error' card with ZERO telemetry. The sharpest case is /embed/grade/:id (routes/index.tsx:762-766), which sits OUTSIDE RootLayout and therefore has no class boundary above it: a white-label partner iframe can be broken indefinitely with nobody knowing.",
+      "acceptanceCriteria": [
+        "Call useRouteError() + captureException in a useEffect inside RouteErrorFallback, matching what the class boundary already does.",
+        "Confirm an embed-route error actually produces a Sentry event, since that route has no boundary above it."
+      ],
+      "priority": 2003,
+      "notes": "[P2][Frontend/Observability] Found 2026-07-18 by the frontend deep dive. ~5 lines. Worth pairing with US-2001 (the edge ships release='dev'), because both are the same failure: an error reaches production and nothing can attribute it. Credit where due — the audit rated the error-boundary layering as genuinely enterprise-grade (root/dashboard/buyer coverage plus a stale-chunk reload guard in main.tsx:21-26, a white-screen class most teams ship with); this is the one seam it misses.",
+      "id": "US-2027",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "Dialog height overrides regress dvh to vh — the plan picker and credit-pack CTAs can sit under mobile browser chrome",
+      "description": "As a mobile buyer, the purchase button must be reachable. The base DialogContent is mobile-correct — max-h-[calc(100dvh-2rem)] with overflow-y-auto (src/components/ui/dialog.tsx:64) — but ~20 call sites override it with vh, e.g. src/components/billing/flipdesk-plan-picker-dialog.tsx:107 (max-h-[90vh]), credit-pack-dialog.tsx:77, src/components/flipdesk/ai-fill-panel.tsx:248. On mobile Safari vh ignores the collapsing URL bar, so 90vh overflows the visible area and the primary CTA can be hidden.",
+      "acceptanceCriteria": [
+        "Change vh to dvh in these overrides — src/components/flipdesk/photo-editor-dialog.tsx:235 already gets it right (max-h-[95dvh]), so the correct idiom is established in-repo.",
+        "Prioritize the two revenue dialogs (plan picker, credit pack).",
+        "Consider whether the override is needed at all, given the base is already correct."
+      ],
+      "priority": 2004,
+      "notes": "[P2][Frontend/Revenue] Found 2026-07-18 by the frontend deep dive. Effectively a find-and-replace, but it sits directly on the payment path, which is why it outranks several larger items. Also from the same audit and worth folding in: src/components/flipdesk/filter-builder.tsx:112 uses a fixed w-[460px] with no responsive fallback, overflowing any viewport under 460px (iPhone SE 375px, iPhone 14 390px) — FlipDesk filtering is a seller workflow, not admin.",
+      "id": "US-2028",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "Nightly equity snapshot is 5 sequential round trips per seller and will silently stop scaling",
+      "description": "As GradeThread, the equity trend must not quietly go flat. jobs-equity-snapshot.ts:60 loops over owners calling computeEquityForOwner (:62) plus a per-owner upsert (:63-76). computeEquityForOwner (flipdesk-equity.ts:118) issues per owner: sales then listings for personalSellThroughDays (:78-83 then :90-94, genuinely dependent), inventory_items (:122-127), and listings (:128-131, NO limit, whole tenant history). So 4 queries + 1 upsert = 5 sequential round trips per owner, with owner discovery capped at OWNER_SCAN_CAP = 20_000. Separately :44-48 scans inventory_items GLOBALLY with .not('status','in',...) and no user filter, pulling up to 20,000 rows to dedupe user_id client-side — a nightly seq scan on the largest table (a NOT IN over four enum values will not use idx_inventory_items_status).",
+      "acceptanceCriteria": [
+        "Discover owners with a SELECT DISTINCT user_id RPC instead of a global scan + client-side dedupe.",
+        "Process owners in bounded-concurrency chunks rather than fully sequentially.",
+        "Add a .limit() to the unbounded listings read at flipdesk-equity.ts:131.",
+        "Also fix the sibling pattern in jobs-portfolio-alerts.ts: :117-120 issues one UPDATE per closet item inside a per-buyer loop (500 buyers x 100 items = 50,000 sequential UPDATEs). lib/portfolio-valuation-db.ts:147-149 already does this correctly with a single batched .upsert — copy that."
+      ],
+      "priority": 2005,
+      "notes": "[P2][Perf/Cron] Found 2026-07-18 by the query-performance deep dive. The failure is DELAYED and SILENT, which is what makes it worth filing now: at 5,000 sellers this is ~25,000 sequential round trips, roughly 500s at ~20ms each — inside the 1800s job lock today. It scales linearly and blows the lock at ~10k sellers, at which point snapshots simply stop and the equity trend chart goes flat with no error. Compounds with US-2004 (nothing alerts on a stalled cron) — this job could stop and nobody would know.",
+      "id": "US-2029",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "GDPR data export materializes a seller's entire commercial history in one isolate",
+      "description": "As the largest sellers, our data export must not be the one thing that cannot run. services/edge-functions/src/routes/account.ts:221-227 selects grade_reports (.in submissionIds), listings (.eq user_id) and sales (.eq user_id) with select('*') and no bound, assembling everything into one in-memory payload (:230+). Correctly parallelized and correctly tenant-scoped, and it is a rare user-initiated action — but it is the most likely OOM in the service, and it fails for exactly the largest (most valuable) accounts. Same file :378-381 fetches submissions.select('id') and inventory_items.select('id') purely to COUNT them; duplicated at admin-compliance.ts:474 and lib/support-tools.ts:77,96,396.",
+      "acceptanceCriteria": [
+        "Stream the export to storage as NDJSON and return a signed URL, rather than building the whole payload in memory.",
+        "Replace the count-by-fetching-ids patterns with count:'exact', head:true.",
+        "Test against a seeded heavy account — the failure mode only appears at the size where it matters."
+      ],
+      "priority": 2006,
+      "notes": "[P3][Perf/Compliance] Found 2026-07-18 by the query-performance deep dive. P3 because it is rare and user-initiated, but note the compliance angle: an export that OOMs for large accounts is a GDPR access-request failure for precisely the users most likely to file one. Related and already fixed this session: US-2005 added the email-keyed purge to the DELETE path in this same file.",
+      "id": "US-2030",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "Affiliate commissions and hardcoded USD — two unreversed/unchecked money assumptions",
+      "description": "Two SUSPECTED money issues from the same audit, filed together because both need a business answer before code. (1) AFFILIATE CLAWBACK: lib/affiliate-payout.ts has a hold_until window (default 30 days, affiliate-payout-math.ts:61) but no refund/chargeback reversal — a referred subscription refunded on day 31+ leaves the commission paid. Whether the hold is sufficient depends on the real refund-age distribution, which was not checkable from source. (2) CURRENCY: consignor-payout.ts:325 hardcodes currency 'usd' with Math.round(amount * 100). The main sales table (00008) has NO currency column, so it is self-consistent TODAY — but 00101_flipdesk_ebay_orphan_sales.sql:21 and 00327_ebay_payouts.sql:14 DO carry currency, and flipdesk-ebay.ts:1955 defaults line items to 'USD'. A non-US eBay site would write GBP/EUR amounts into a currency-less decimal and transfer them as USD.",
+      "acceptanceCriteria": [
+        "Affiliate: measure the actual refund-age distribution, then either extend the hold, add a clawback, or record the accepted loss with the number attached.",
+        "Currency: decide whether non-US marketplaces are in scope. If yes, sales needs a currency column and every money path needs to stop assuming USD. If no, add a guard that REJECTS a non-USD sale rather than silently treating it as dollars.",
+        "Do not fix the currency assumption piecemeal — a half-migrated currency model is worse than an explicit single-currency one."
+      ],
+      "priority": 2007,
+      "notes": "[P2][Money] Found 2026-07-18 by the money deep dive, both filed as SUSPECTED rather than confirmed. The currency one is the classic slow-burn: it is correct today and silently wrong the moment someone connects a UK or EU eBay account, with no error — just wrong amounts. Also captured from the same audit, not filed separately: ai-metering.ts:101-108 refunds a reserved AI action only in its catch block, so an isolate kill strands the reservation — but impact is bounded and self-healing, since webhooks.ts:868-877 zeroes ai_actions_used_this_month each cycle. Worth knowing, not worth a story.",
+      "id": "US-2031",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "Grading wizard destroys staged photos on navigation with no warning",
+      "description": "As a seller mid-submission, leaving the wizard must not silently discard the photos I just shot. src/pages/new-submission.tsx autosaves form fields and a photo MANIFEST (name + type) but never the binaries — a deliberate and correct choice, since multi-MB Files cannot live in localStorage. The consequence is that staged photos exist only in React state, and NOTHING guarded the exit: there was no useBlocker anywhere in the repo (zero hits) and beforeunload existed only in stores/autolister-upload-store.ts:867, not on this wizard. A seller who staged 8 photos and clicked any sidebar link, or refreshed, lost all of them with no prompt — and handleResumeDraft deliberately caps resume at step 1, forcing full photo re-entry.",
+      "acceptanceCriteria": [
+        "Guard BOTH escape routes: in-app navigation (useBlocker, which can show a real dialog) and page unload (beforeunload, where the browser shows its own generic prompt). Neither alone is sufficient.",
+        "Block only while there is genuinely something to lose — a guard that fires when nothing is at stake trains people to click through it.",
+        "Say what will be lost, with the count. 'Unsaved changes' is easy to dismiss; '8 photos' is not."
+      ],
+      "priority": 1997,
+      "notes": "[P1][Frontend/Data-loss] Found 2026-07-18 by the frontend deep dive, which called it 'the single most expensive failure in the app: photo capture is the highest-effort step of the highest-value journey'. FIXED SAME PASS: added src/hooks/use-navigation-guard.ts (useBlocker + beforeunload, with a reset when the condition clears so a user is never stranded behind a dialog about work that no longer exists) and wired it into new-submission.tsx gated on photos.length > 0 && !isSubmitting — the isSubmitting half matters, or the guard traps the caller behind their own success navigation. The dialog names the exact photo count. Verified: tsc -b clean, eslint 0 errors, 481 lib tests pass, npm run build prerenders 213 routes. STILL passes:false: not driven in a real browser. The behaviours worth confirming by hand are (a) sidebar click while photos are staged shows the dialog, (b) 'Keep editing' leaves state intact, (c) submitting navigates WITHOUT the prompt, (d) refresh shows the browser's own warning.",
+      "id": "US-2032",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "Credit-pack refund clawback was keyed per CHARGE while the amount was CUMULATIVE",
+      "description": "As GradeThread, a partially-refunded credit pack must not leave the customer holding both the credits and the money. webhooks.ts computed the clawback from charge.amount_refunded (CUMULATIVE for the charge) but keyed the ledger reversal on the CHARGE id. Stripe fires charge.refunded once per refund and revoke_grade_credits no-ops on a repeated key, so on a second refund the amount was right and the write was SKIPPED. On a $50 / 50-credit pack: refund $10 (10 credits revoked, key claimed), later refund the remaining $40 (clawback computes 50, key already used, NO-OP) — the customer keeps all $50 AND 40 credits. admin-billing.ts's admin-refund:<charge>:<amount> path deliberately permits exactly that second partial refund, so this was reachable by design, not by accident.",
+      "acceptanceCriteria": [
+        "Key the ledger reversal on the REFUND, not the charge, and pass that refund's INCREMENTAL amount.",
+        "Keep US-892's property intact: admin-billing's direct ledger call must use the same per-refund key, so whichever path runs first still wins and the other no-ops.",
+        "Add the missing Stripe idempotency key on the downgrade-proration refund.",
+        "Scope the credits and super-admin paid-flips by user_id, matching the included-grade flip beside them."
+      ],
+      "priority": 1996,
+      "notes": "[P1][Money] Found 2026-07-18 by the money-correctness deep dive. FIXED SAME PASS, all four ACs. The webhook now picks the newest refund from charge.refunds.data by `created` (with an id tie-break so redeliveries are deterministic — NOT list order, which Stripe does not guarantee) and claws its own increment, keyed pack-refund:<refund.id>. admin-billing keys its direct RPC on the same refund id; Stripe's own idempotency on the refund create guarantees a retry returns the SAME refund object, so that id is stable. ⚠ THE DANGEROUS PART OF THIS FIX was the interaction: naively changing only the webhook key would have BROKEN US-892's dedup and produced a DOUBLE clawback — the opposite bug, and worse. Both sides had to move together. Fallback kept for the case where Stripe omits the refunds list: revert to cumulative/per-charge, which under-claws (the pre-existing bug) rather than never clawing — strictly better than skipping. ALSO FIXED: the downgrade-proration refund (admin-billing.ts:215) was the ONLY Stripe money-mover with no idempotency key, protected purely by ACCIDENT (the subscription cancel above throws first on a retry) — not a guarantee, just an ordering nobody is obliged to preserve. And grade-billing.ts's credits + super-admin flips now carry .eq('user_id', userId) like their US-1638-hardened sibling. 4 new tests pin the increments-sum-to-the-grant property and the clamps. Verified: deno check + lint clean, 4173 edge tests pass. STILL passes:false: source-only. The Stripe MCP connector needs authorization, so no live verification against a real partial-refund sequence — that is the one thing worth doing before trusting this.",
+      "id": "US-2033",
       "passes": false,
       "dependsOn": []
     }

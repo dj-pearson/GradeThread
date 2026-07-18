@@ -212,11 +212,22 @@ adminBillingRoutes.post("/users/:id/change-plan", async (c) => {
     let refundError: string | null = null;
     if (prorate && unusedCents > 0 && paymentIntentId) {
       try {
+        // US-2033: every other Stripe money-mover in this codebase carries an
+        // idempotency key (pack-refund:, admin-refund:, grade-refund:,
+        // guarantee-remedy:, dup-per-grade:, consignor_payout_,
+        // affiliate_payout_). This one did not. It is currently protected only
+        // by ACCIDENT — the subscription cancel above throws on a retry before
+        // execution reaches here — which is not a guarantee, just an ordering
+        // that nobody is obliged to preserve. Key it on the intent + amount so
+        // a retry (or a future reordering) returns the same refund instead of
+        // refunding the customer twice.
         const r = await stripe.refunds.create({
           payment_intent: paymentIntentId,
           amount: unusedCents,
           reason: "requested_by_customer",
           metadata: { admin_changed_by: adminId, purpose: "plan_downgrade_proration" },
+        }, {
+          idempotencyKey: `downgrade-proration:${paymentIntentId}:${unusedCents}`,
         });
         refundId = r.id;
       } catch (err) {
@@ -650,8 +661,17 @@ adminBillingRoutes.post("/billing/users/:id/refund-pack", async (c) => {
     return c.json({ error: `Refund failed: ${msg}` }, 500);
   }
 
-  // (2) Offsetting ledger reversal — SAME per-charge idempotency key as the
-  // charge.refunded webhook, so the wallet is clawed back exactly once.
+  // (2) Offsetting ledger reversal — the SAME idempotency key the
+  // charge.refunded webhook will use, so the wallet is clawed back exactly once
+  // no matter which path runs first (the other no-ops).
+  //
+  // US-2033: that shared key is now keyed on the REFUND, not the charge. Keying
+  // per charge silently under-clawed a second, partial refund on the same
+  // charge: the webhook computed the right amount and then skipped the write
+  // because the key was already claimed. Per refund, each refund moves its own
+  // increment, and this path and the webhook still dedupe against each other —
+  // Stripe's own idempotency above guarantees a retry returns the SAME refund
+  // object, so `refund.id` is stable across retries of this handler.
   const paymentIntentId = typeof charge.payment_intent === "string"
     ? charge.payment_intent
     : charge.payment_intent?.id ?? null;
@@ -661,8 +681,8 @@ adminBillingRoutes.post("/billing/users/:id/refund-pack", async (c) => {
       p_user_id: targetUserId,
       p_credits: credits,
       p_stripe_payment_intent: paymentIntentId,
-      p_notes: `Admin pack refund for charge ${chargeId} by ${adminId}`,
-      p_idempotency_key: `pack-refund:${chargeId}`,
+      p_notes: `Admin pack refund for charge ${chargeId} by ${adminId} (refund ${refund.id})`,
+      p_idempotency_key: `pack-refund:${refund.id}`,
     },
   );
 
