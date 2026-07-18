@@ -18,6 +18,16 @@ import { captureException, logEvent, recordMetric } from "./observability.ts";
 const BUCKET = "submission-images";
 const BATCH_LIMIT = 200;
 
+// US-2021: how long a DELIVERED email's record (including its full rendered
+// html body) is kept. 90 days is well past any support window that would need
+// to re-read what a user was actually sent, and short enough that the table
+// stops being the largest thing in the backup.
+const EMAIL_SENT_RETENTION_DAYS = 90;
+// A dead-lettered email is an operator queue item, so the ROW is kept
+// indefinitely for triage/replay — only its heavy PII-bearing body is dropped,
+// and on a longer window so a real replay is still possible in practice.
+const EMAIL_DEAD_LETTER_BODY_DAYS = 180;
+
 function retentionDays(): number {
   const raw = Number(Deno.env.get("DATA_RETENTION_DAYS"));
   return Number.isFinite(raw) && raw > 0 ? raw : 730;
@@ -135,6 +145,44 @@ export async function handleDataRetentionCron(c: {
     // a prune hiccup must not fail the PII purge that is this job's reason to run.
     const cronCutoff = new Date(Date.now() - 30 * 86_400_000).toISOString();
     await supabaseAdmin.from("cron_runs").delete().lt("created_at", cronCutoff);
+
+    // US-2021: bound email_deliveries. It stores the FULL rendered `html` body
+    // of every critical email and had no purge anywhere, so it grew forever —
+    // on track to become the largest table in the DB, inflating backup and
+    // restore windows (i.e. worsening the RTO in the backup story) and forming
+    // the single largest reservoir of un-erasable PII. Its partial index stays
+    // healthy while the heap does not, so query latency never warns you.
+    //
+    // Two different rules, deliberately:
+    //   • `sent` rows are pure history once delivered → delete outright.
+    //   • `dead_letter` rows are an OPERATOR QUEUE — someone may still need to
+    //     replay them — so the row survives and only the heavy PII-bearing
+    //     `html` body is dropped, and only after a longer window. Deleting them
+    //     would destroy evidence of undelivered mail, which is the opposite of
+    //     what a dead-letter table is for.
+    // Best-effort for the same reason as the cron prune above.
+    const sentCutoff = new Date(Date.now() - EMAIL_SENT_RETENTION_DAYS * 86_400_000)
+      .toISOString();
+    const { error: sentErr } = await supabaseAdmin
+      .from("email_deliveries")
+      .delete()
+      .eq("status", "sent")
+      .lt("created_at", sentCutoff);
+    if (sentErr) {
+      captureException(sentErr, { route: "data-retention.email_sent" });
+    }
+    const deadCutoff = new Date(Date.now() - EMAIL_DEAD_LETTER_BODY_DAYS * 86_400_000)
+      .toISOString();
+    const { error: deadErr } = await supabaseAdmin
+      .from("email_deliveries")
+      .update({ html: "" })
+      .eq("status", "dead_letter")
+      .lt("created_at", deadCutoff)
+      .neq("html", "");
+    if (deadErr) {
+      captureException(deadErr, { route: "data-retention.email_dead_letter" });
+    }
+
     return c.json({ ok: true, ...result });
   } catch (err) {
     captureException(err, { route: "data-retention.cron" });

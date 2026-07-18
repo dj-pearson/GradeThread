@@ -58,3 +58,57 @@ Deno.test("retention scan does NOT batch on submissions (the stalling shape)", (
       "guard exists to prevent.",
   );
 });
+
+// ── US-2021: email_deliveries must be bounded, WITHOUT eating the operator queue ──
+//
+// The table stores the full rendered `html` of every critical email and had no
+// purge at all, so it grew forever: on track to be the largest table in the DB,
+// inflating backup/restore windows and forming the biggest reservoir of
+// un-erasable PII. The risk in FIXING it is the opposite mistake — a careless
+// bulk delete would wipe dead_letter rows, which are an operator replay queue
+// and the only evidence that mail went undelivered.
+
+const CRON = SRC.slice(SRC.indexOf("export async function handleDataRetentionCron"));
+
+Deno.test("US-2021: delivered email records are purged", () => {
+  assert(
+    /from\("email_deliveries"\)[\s\S]{0,200}?\.delete\(\)/.test(CRON),
+    "the retention cron must purge email_deliveries — it stores full message " +
+      "bodies and previously had no purge anywhere in the codebase",
+  );
+});
+
+Deno.test("US-2021: the purge is SCOPED to sent rows and to a cutoff", () => {
+  // Both filters are load-bearing. Without status='sent' the delete eats the
+  // dead-letter queue; without the cutoff it deletes mail sent seconds ago,
+  // which support may still need to read back.
+  const deleteStmt = CRON.slice(
+    CRON.indexOf('from("email_deliveries")'),
+    CRON.indexOf('from("email_deliveries")') + 400,
+  );
+  assert(
+    /\.eq\("status", "sent"\)/.test(deleteStmt),
+    "the email_deliveries DELETE must be scoped to status='sent' — an unscoped " +
+      "delete would destroy the dead_letter operator replay queue",
+  );
+  assert(
+    /\.lt\("created_at",/.test(deleteStmt),
+    "the email_deliveries DELETE must be bounded by a created_at cutoff",
+  );
+});
+
+Deno.test("US-2021: dead-lettered mail is BODY-STRIPPED, never deleted", () => {
+  // A dead-letter row is a queue item someone may still replay. Keep the row,
+  // drop only the heavy PII-bearing body.
+  assert(
+    /\.update\(\{ html: "" \}\)[\s\S]{0,160}?\.eq\("status", "dead_letter"\)/.test(CRON),
+    "dead_letter rows must have their html stripped rather than being deleted — " +
+      "deleting them destroys the evidence that mail was never delivered, which " +
+      "is the entire purpose of a dead-letter table",
+  );
+  assert(
+    !/\.eq\("status", "dead_letter"\)[\s\S]{0,80}?\.delete\(\)/.test(CRON) &&
+      !/\.delete\(\)[\s\S]{0,80}?\.eq\("status", "dead_letter"\)/.test(CRON),
+    "dead_letter rows must never be DELETEd by the retention sweep",
+  );
+});
