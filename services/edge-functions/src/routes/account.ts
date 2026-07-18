@@ -306,6 +306,16 @@ accountRoutes.post("/data-requests", async (c) => {
 // then the auth user — whose ON DELETE CASCADE wipes every public table keyed
 // to it (submissions, inventory_items, marketplace_connections, api_keys, ...).
 //
+// ⚠ US-2005: that cascade is NOT sufficient on its own, and the previous wording
+// here ("wipes every public table keyed to it") was reassuring in exactly the
+// wrong way. It wipes every table keyed to the USER ID. Tables keyed by EMAIL
+// ADDRESS — email_deliveries (which stores full rendered message bodies),
+// marketing_send_log, newsletter_issue_recipients, email_consent_audit,
+// waitlist_entries, email_subscribers — are untouched by it, and the
+// ON DELETE SET NULL ones actively PRESERVE the address while dropping the link.
+// Step 3c below purges/anonymizes those explicitly. If you add a table that
+// stores an email, add it there.
+//
 // Body: { confirm: "DELETE MY ACCOUNT" } — guards against accidental calls.
 accountRoutes.post("/delete", async (c) => {
   const userId = c.get("userId");
@@ -460,6 +470,76 @@ accountRoutes.post("/delete", async (c) => {
       console.error(
         `[account/delete] passport reveal teardown failed for ${userId}:`,
         revealErr.message,
+      );
+    }
+  }
+
+  // 3c. US-2005: EMAIL-KEYED PII. The cascade below reaches only tables with an
+  //     FK to auth.users — but a whole class of PII is keyed by EMAIL ADDRESS
+  //     instead, so erasure never touched it. Worse, the ON DELETE SET NULL
+  //     tables sever the user_id link while PRESERVING the address, which is
+  //     precisely the identifier a data subject would cite in an erasure
+  //     complaint. The endpoint returned {deleted:true} while the address and
+  //     the full rendered HTML of every payment-failed and grade-ready email
+  //     stayed queryable forever.
+  //
+  //     Best-effort per table: a failure here must not block erasure (same rule
+  //     as the deletion log above — the right to be forgotten outranks our
+  //     bookkeeping), but each failure is logged so ops can finish the job.
+  //
+  //     ⚠ email_suppressions is DELIBERATELY EXCLUDED. A suppression list must
+  //     survive erasure or a bounced/complained address starts receiving mail
+  //     again the moment it is forgotten — deleting it would harm the very
+  //     person the erasure protects, and CAN-SPAM/GDPR both treat suppression
+  //     as a legitimate-interest retention. It stores the address for that
+  //     purpose only.
+  const purgeEmail = (user?.email as string | null)?.trim().toLowerCase() ?? "";
+  if (purgeEmail) {
+    // Column names VERIFIED against the migrations — these tables do not agree
+    // on what the address column is called, and guessing would fail silently
+    // (PostgREST 42703 on a .eq() is an error we log and move past, so a wrong
+    // name here would look exactly like a successful purge).
+    const HARD_DELETE: ReadonlyArray<readonly [string, string]> = [
+      ["email_deliveries", "recipient"], // also carries `html`: the full body
+      ["marketing_send_log", "recipient"],
+      ["email_journey_step_sends", "recipient"],
+      ["newsletter_issue_recipients", "email"],
+    ];
+    for (const [table, column] of HARD_DELETE) {
+      const { error } = await supabaseAdmin.from(table).delete().eq(column, purgeEmail);
+      if (error) {
+        console.error(
+          `[account/delete] email-keyed purge failed for ${table}.${column}:`,
+          error.message,
+        );
+      }
+    }
+
+    // waitlist_entries.email and email_subscribers.email are NOT NULL (and
+    // UNIQUE), so "anonymize by nulling" is not available — the write would just
+    // fail and leave the PII in place. Delete the rows instead: a deleted
+    // account has no waitlist position to hold and no newsletter subscription to
+    // keep. (Unsubscribe protection does NOT depend on this row — that is
+    // email_suppressions, deliberately preserved below.)
+    for (const table of ["waitlist_entries", "email_subscribers"] as const) {
+      const { error } = await supabaseAdmin.from(table).delete().eq("email", purgeEmail);
+      if (error) {
+        console.error(`[account/delete] purge failed for ${table}:`, error.message);
+      }
+    }
+
+    // email_consent_audit is nullable on both identifying columns, so it is
+    // ANONYMIZED rather than deleted: the row proves WHEN a consent action
+    // happened, which is a record we may need to defend, and that meaning
+    // survives the subject once the identifiers are gone.
+    const { error: consentErr } = await supabaseAdmin
+      .from("email_consent_audit")
+      .update({ email: null, ip: null })
+      .eq("email", purgeEmail);
+    if (consentErr) {
+      console.error(
+        "[account/delete] consent-audit anonymize failed:",
+        consentErr.message,
       );
     }
   }
