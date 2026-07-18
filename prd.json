@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 2002,
+  "nextId": 2022,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -1682,6 +1682,293 @@
       "priority": 1977,
       "passes": false,
       "notes": "[P2][Ops/Observability][Measured] Found 2026-07-18 during the cross-platform production-readiness deep dive, by querying prod rather than reading config. EVIDENCE, all live: /health -> {\"status\":\"ok\",\"service\":\"gradethread-edge-functions\",\"env\":\"production\",\"release\":\"dev\",\"errorTracking\":\"enabled\"}; the frontend bundle /assets/index-CIbHzx5V.js contains release:\"c9631342084bfd9e96883321a07a390d3be1e814\" (which is also proof Pages auto-deployed that commit). WHY IT MATTERS MORE THAN A COSMETIC TAG: with every edge event tagged \"dev\" you cannot (a) attribute a production error to a build, (b) tell whether a deployed fix actually shipped, (c) see a regression appear at a release boundary, or (d) make a rollback decision on evidence — and ROLLBACK.md assumes you can identify the bad build. Note errorTracking reports \"enabled\" and /health/ready features.observability reports \"ok\", so the health surface actively says observability is fine while the release dimension of it is inert; that is why AC4 asks for a guard rather than just a config fix. The fix itself is small (one build arg); the reason it survived this long is that nothing measured it.",
+      "dependsOn": []
+    },
+    {
+      "title": "Backups: mechanism verified, prod backup cron never installed — real RPO is total loss",
+      "description": "As GradeThread, we want prod data to be recoverable. The scripts are all real and executable (scripts/ops/backup-postgres.sh, backup-storage.sh, restore-postgres.sh, restore-drill.sh) and a restore drill genuinely passed 2026-06-12 (BACKUPS.md:129, 270 RLS policies matched) — but that drill ran against a LOCAL stack at migration 00151. The prod side is unchecked: LAUNCH_CHECKLIST.md:236-243 has all five boxes unticked, including 'Backup cron installed on the DB host' and 'first nightly dump confirmed in the offsite bucket'; the drill table at :231-234 is empty. PITR is explicitly aspirational (BACKUPS.md:90-92, 'MANUAL: wal-g setup happens on the prod host'). So the documented RPO<=24h / RTO<=2h is only true if a cron nobody confirmed is running. Prod is a SINGLE-NODE self-hosted Postgres (SCALING.md:47) holding grades, billing and the credit ledger.",
+      "acceptanceCriteria": [
+        "Install the backup cron on the prod DB host (BACKUPS.md:42-43) and CONFIRM a dump plus its .sha256 lands in the offsite bucket — verified by listing the bucket, not by reading the runbook.",
+        "Run restore-postgres.sh against a REAL offsite dump on a scratch host and record the measured timing in LAUNCH_CHECKLIST.md:231. The 11-second figure at BACKUPS.md:129 came from a near-empty schema-only DB and will not predict prod RTO.",
+        "Either stand up wal-g PITR or amend the stated RPO to the honest nightly-dump figure — do not leave a documented RPO the infrastructure cannot deliver.",
+        "Tick the five LAUNCH_CHECKLIST boxes only once each is independently verified."
+      ],
+      "priority": 1978,
+      "notes": "[P1][Ops/DR][LAUNCH BLOCKER] Found 2026-07-18 by the operational-readiness deep dive. This is the single highest-value hour of work in the repo: the ONLY finding in the entire audit whose failure mode is unrecoverable data loss. Everything else degrades; this one ends the company. Note the shape — NOT a missing-mechanism finding. The scripts exist, they work, someone drilled them. It is an ACTIVATION gap: a runbook step marked MANUAL that was never performed, and a checklist that honestly records it was never performed. The danger is that the presence of good tooling reads as protection.",
+      "id": "US-2002",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "Every alert channel is optional and silently no-ops — nothing proves anyone gets paged",
+      "description": "As GradeThread, we want a SEV1 to reach a human. Today every channel degrades to silence when unconfigured. .github/workflows/uptime.yml:46 marks UPTIME_ALERT_WEBHOOK 'Optional' and scripts/ops/uptime-check.mjs:188 logs 'not set — skipping webhook channel' then continues. Edge-side, ops-events.ts:104-108 falls back to MONITOR_ALERT_WEBHOOK, which ENV_REFERENCE.md:168 marks as not set. ops-events.ts:242-244 records an ops_event.alert_undelivered metric when neither channel exists — a metric that itself has no alert. INCIDENT_RESPONSE.md:42-46 asserts all three sources 'must point at the same on-call channel before launch', which is an instruction, not a verified state; LAUNCH_CHECKLIST.md:264-268 leaves it unchecked. The only channel that works with zero config is the GitHub uptime issue fallback, which pages only if repo-watch mobile notifications happen to be on.",
+      "acceptanceCriteria": [
+        "Set UPTIME_ALERT_WEBHOOK and MONITOR_ALERT_WEBHOOK, then RUN THE DRILL: break a target, confirm the message arrives on a phone, record the date in LAUNCH_CHECKLIST.md. Configuration is not evidence.",
+        "Make alert_undelivered loud rather than a silent metric — fail at boot (or emit at critical) when production has no alert channel configured. A monitoring system that cannot page is worse than none, because it produces false confidence.",
+        "Confirm Sentry alert routing actually delivers (LAUNCH_CHECKLIST.md:264) — see also the webhook dead-letter story, which routes ONLY to Sentry.",
+        "Measure detection latency against the 15-minute ack target in INCIDENT_RESPONSE.md:33 — a 10-minute GitHub cron plus jitter can consume most of it before a human is notified."
+      ],
+      "priority": 1979,
+      "notes": "[P1][Ops/Alerting][LAUNCH BLOCKER] Found 2026-07-18 by the operational-readiness deep dive. Pairs with the backup story: that one is about surviving a disaster, this one is about LEARNING there is one. Every other alerting improvement is worthless until these two secrets are set and drilled, because they are the last mile for all of them.",
+      "id": "US-2003",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "Cron stall detection is fully written, unit-tested, and wired to nothing — 71 crons unmonitored",
+      "description": "As GradeThread, we want a cron that stops running to page someone. The detection logic already exists and is tested: services/edge-functions/src/lib/cron-fleet-governance.ts implements detectMissedTicks, consecutive_missed (:55) and assembleCronFleetReport with a 'stalled' verdict (:202), covered by tests/cron-fleet-governance_test.ts. Its ONLY consumer is an agent read-tool (lib/agent-tools.ts:1621 get_cron_fleet_health, class 'read'). There is no jobs-cron-fleet route, no CRON_REGISTRY entry, and nothing calls emitOpsEvent on a stalled verdict. Meanwhile 71 crons are registered BY HAND in the Coolify UI (CRON_SETUP.md), and LAUNCH_CHECKLIST.md:116-120 documents the failure mode: if curl is missing from the container, EVERY task silently no-ops, the app logs show nothing, and cron_runs stays empty for every job.",
+      "acceptanceCriteria": [
+        "Add a cron-fleet-health job to CRON_REGISTRY that runs assembleCronFleetReport hourly and calls emitOpsEvent(..., 'critical', ...) when stalled.length > 0. The logic is written and tested — roughly a 30-line route.",
+        "Verify it fires: disable one non-critical cron, confirm the alert arrives, re-enable. A stall detector that has never detected a stall is not known to work.",
+        "Ensure the money and compliance crons are explicitly covered: consignor-payouts (*/30) and affiliate-payouts (15 */6) mean sellers silently unpaid; stuck-submissions (*/10) is the auto-refund path INCIDENT_RESPONSE.md:96-97 depends on; data-retention (0 4 * * *) is the GDPR storage-limitation control."
+      ],
+      "priority": 1980,
+      "notes": "[P1][Ops/Monitoring] Found 2026-07-18 by the operational-readiness deep dive. The most striking finding in the audit: not missing capability, but capability wired to the wrong consumer — an agent tool a human must think to invoke, instead of an alert that finds the human. Note the recursive failure: if stuck-submissions dies, users are charged for grades that never complete, AND the runbook remediation for that incident is the very cron that is dead. Depends on the alert-channel story for the last mile.",
+      "id": "US-2004",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "GDPR erasure misses an entire class of email-keyed PII, including full rendered email bodies",
+      "description": "As a data subject, when I delete my account I want my personal data actually erased. Both the erasure endpoint (routes/account.ts:310-496) and the RPC (00043_delete_account_rpc.sql:33-36) rely EXCLUSIVELY on the ON DELETE CASCADE chain rooted at auth.users, which reaches only tables with an FK to users. These tables hold real PII keyed by EMAIL and are untouched: email_deliveries (recipient, subject, and html — the full rendered body of every critical email, 00095:9-13), email_consent_audit (email, ip, 00296:36), email_subscribers, marketing_send_log, waitlist_entries, newsletter_issue_recipients (no FK at all), email_journey_step_sends, guarantee_claims (third-party buyer PII). The ON DELETE SET NULL cases are sharpest: they sever the link while PRESERVING the email address — the exact identifier a subject would cite in an erasure complaint. account.ts:306-307 asserts the cascade 'wipes every public table keyed to it', which is true and precisely the wrong invariant, because these are keyed to an email.",
+      "acceptanceCriteria": [
+        "Add an explicit email-keyed purge before auth.admin.deleteUser: delete from email_deliveries / marketing_send_log / email_journey_step_sends / newsletter_issue_recipients by the user email; anonymize email_consent_audit / waitlist_entries / email_subscribers.",
+        "email_suppressions is a DELIBERATE exception — a suppression list must survive erasure or the user starts receiving mail again. Hash the address there rather than deleting it, and document why.",
+        "Add a test asserting that after deletion NO row in any table matches the deleted address. That assertion is the only durable guard, since the bug class is 'a new table keyed by email'.",
+        "Re-word the comment at account.ts:306-307 so the next reader is not reassured by an invariant that does not cover email-keyed tables."
+      ],
+      "priority": 1981,
+      "notes": "[P1][Compliance/GDPR] Found 2026-07-18 by the data-integrity deep dive. Severity comes precisely from the endpoint SUCCEEDING: it returns {deleted:true} and sends a confirmation email while the address and the full HTML of every payment-failed and grade-ready message remain queryable forever. The surrounding compliance work is genuinely good — account.ts export, a deletion log that does not block erasure on logging failure (:439-442), data-retention keeping the non-PII grade while purging PII — which is what makes this gap easy to miss: everything around it is correct.",
+      "id": "US-2005",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "The data-retention PII sweep cannot advance past its first batch — GDPR retention silently unenforced",
+      "description": "As GradeThread, we want expired submission images actually purged. lib/data-retention.ts:36-50 selects submissions past the cutoff with NO filter for whether images remain and NO ORDER BY, despite the comment claiming 'still have images to purge'. It takes 200 arbitrary expired submissions, looks up their images (:53-56), and returns early when there are none (:63-65). So after the first run purges those 200, every subsequent nightly run re-selects the same already-purged rows, finds zero images, and returns {objects_deleted: 0} — newer expired submissions are NEVER reached. The cron stays perpetually green while enforcement stopped at run two.",
+      "acceptanceCriteria": [
+        "Filter to submissions that still HAVE images and order deterministically, e.g. .select('id, submission_images!inner(id)').lt('created_at', cutoff).order('created_at', {ascending:true}).limit(BATCH_LIMIT).",
+        "Add a regression test asserting a SECOND sweep over a fresh dataset still returns objects_deleted > 0 — the single assertion that distinguishes this bug from correct behaviour.",
+        "Backfill: quantify how much past-retention imagery accumulated while the sweep was stalled, and drain it.",
+        "Emit an ops event when a sweep finds nothing across N consecutive runs while past-cutoff rows exist."
+      ],
+      "priority": 1982,
+      "notes": "[P1][Compliance/GDPR] Found 2026-07-18 by the data-integrity deep dive. Compounds two other findings: the purged originals are EXIF/GPS-bearing (account.ts:377-379), and enforcement also depends on a hand-registered Coolify cron that nothing monitors (see the cron-stall story). A perpetually-green cron doing nothing is the pattern this whole session keeps finding — a check that reports success is indistinguishable from one that works, unless something asserts the work happened.",
+      "id": "US-2006",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "grade_reports 'one active report per submission' is assumed by code but not enforced by the index",
+      "description": "As GradeThread, we want a regrade race to fail loudly rather than strand a grade forever. 00150_grade_report_supersede.sql:18-24 creates idx_grade_reports_active ON grade_reports(submission_id) WHERE superseded_at IS NULL — partial, but NOT UNIQUE. The consumer assumes uniqueness: lib/grading-pipeline.ts:948-953 does .eq('submission_id', ...).is('superseded_at', null).maybeSingle(). Two concurrent finalize/regrade paths (a retry after timeout, a double webhook, the reclaim cron racing a live worker) insert two active rows; maybeSingle() returns PostgREST PGRST116; the call site destructures {data: report} only, discarding the error, so report is null and finalizeIfAlreadyGraded returns false = 'nothing to do'. The grade is then PERMANENTLY stuck unfinalized with no certificate, and every retry hits the same duplicate and returns false again.",
+      "acceptanceCriteria": [
+        "De-dupe any existing violations, then CREATE UNIQUE INDEX CONCURRENTLY on grade_reports(submission_id) WHERE superseded_at IS NULL — the pattern already used correctly in 00440_api_keys_key_hash_unique.sql:15-21. Follow the US-1108 migration triple.",
+        "Stop discarding the error at grading-pipeline.ts:948-953 — a PGRST116 must be surfaced, not silently converted into 'nothing to do'. That conversion is what makes the failure self-perpetuating and invisible.",
+        "Investigate the same shape at inventory_items(submission_id): grading-pipeline.ts:640-643 also uses maybeSingle() against a NON-unique index (00002). Confirm whether two items may legitimately share a submission before adding a constraint."
+      ],
+      "priority": 1983,
+      "notes": "[P2][DB/Data-integrity] Found 2026-07-18 by the data-integrity deep dive. NOT known to have fired in prod — filed on the strength of the code path, not an observed incident. Severity comes from the failure being silent, permanent and self-perpetuating: the user paid, no certificate is ever issued, and retries cannot recover it. Cheap to prevent, expensive to diagnose after the fact.",
+      "id": "US-2007",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "The RLS CI guard has four parsing blind spots; 21 tables are protected only by accident",
+      "description": "As GradeThread, we want the RLS guard promise — 'a NEW zero-policy table still fails until a human classifies it' (rls-guard_test.ts:14-16) — to hold. It holds only for tables naming the column exactly user_id. Four gaps: (a) hasUserId() at :213-222 tests a user_id word-boundary regex, which MISSES seller_user_id / owner_user_id / subject_user_id / admin_user_id because the preceding underscore is a word character — 21 tables with an owner-ish column, zero policies and no registration are never checked, including guarantee_claims (claimant_email/claimant_name), abuse_signals, rate_limit_overrides, marketing_send_log, guarantee_remedies, bulk_admin_operations, owner_nodes/garments/passport_claim_tokens/passport_tags. (b) loadSchema() at :161 requires a public. prefix, so bare CREATE TABLE is invisible (notifications in 00007 needed a bespoke second test at :301-355 for exactly this). (c) RLS enabled via EXECUTE format() in a DO loop is invisible (00381_ads_data_model.sql:134-137, seven ads_* tables). (d) the policy regex at :172 requires a QUOTED policy name, so five tables using bare identifiers are unparsed (e.g. 00256:126 CREATE POLICY garments_select_own).",
+      "acceptanceCriteria": [
+        "Broaden the owner-column regex to cover *_user_id and *_owner_id; drop the mandatory public. prefix from the table AND policy regexes; accept unquoted policy names; assert RLS-enable statements are literal (or parse the format() loops).",
+        "Then explicitly classify the 21 currently-unchecked tables into SERVICE_ROLE_ONLY or PARENT_SCOPED with a one-line justification each, per the tenant-isolation skill.",
+        "Add a test proving the guard CATCHES each blind spot — e.g. a fixture table named with owner_user_id and no policy must fail. Widening the regex without proving it now catches the case just moves the blind spot."
+      ],
+      "priority": 1984,
+      "notes": "[P2][Security/CI] Found 2026-07-18 by the data-integrity deep dive. IMPORTANT SCOPING so this is not misread as a breach: NOT a live data leak. All 21 tables DO have RLS enabled today; the audit separately confirmed zero tenant tables leaking to the anon/authenticated client, and of 201 active policies the only 6 permissive ones are intentionally public content. What is broken is the ENFORCEMENT of the invariant, not the invariant. The risk is future-tense: the next table someone adds with an owner_user_id column and no policy sails through a guard everyone trusts.",
+      "id": "US-2008",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "Migration tracking is a max-watermark, so a skipped mid-sequence migration is undetectable — this already happened",
+      "description": "As GradeThread, we want to know EVERY migration applied, not just the highest-numbered one. latest_schema_migration() (00254:63-79) returns GREATEST(max(cli), max(self)); apply-prod-migrations.sh:29-31 skips any file whose prefix is <= current; schema-version.ts:41 compares a single number. A gap in the MIDDLE of the range is structurally invisible — the watermark only moves forward and a file below it is never re-applied. 00254:108-111 even seeds 00252/00253 on the assumption that reaching 00254 means 00250..00253 ran. NOT THEORETICAL: 00322_api_keys_webhook_url_idempotent.sql:1-16 documents the realized incident — 00005's non-idempotent ADD COLUMN webhook_url never landed in prod, the watermark advanced anyway, and EVERY finalized grade silently no-op'd its developer webhook delivery with 42703 for an unknown duration.",
+      "acceptanceCriteria": [
+        "Change the boot guard from a watermark comparison to a COMPLETENESS check: ship the expected version set as a manifest in the edge image and fail on any missing version, not just on max.",
+        "Run a one-time prod-vs-migrations COLUMN-LEVEL diff (information_schema.columns against the parsed corpus). No such check exists today, and it is the only thing that would have caught webhook_url. The ~253 pre-00254 files carry no self-record footer, so any could have partially failed the same way.",
+        "Note post-00254 hygiene is already excellent — all 224 files >= 00254 carry the footer, zero exceptions — so this is about the historical tail, not new work."
+      ],
+      "priority": 1985,
+      "notes": "[P2][DB/Ops] Found 2026-07-18 by the data-integrity deep dive, dovetailing with a measurement made the same day: /health/ready reports schema {expected:00476, applied:00476, status:match}, which proves the MAX is current and proves nothing about intermediate versions. That is exactly the residual risk here. Re-running the tail via apply-prod-migrations.sh is idempotent and remains the cheap mitigation; the manifest check is the durable one.",
+      "id": "US-2009",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "Single edge replica with no graceful shutdown — every deploy strands in-flight work for 6-15 minutes",
+      "description": "As a seller mid-batch, I do not want a deploy to silently stall my work. SCALING.md:8-9 states the edge runs as a single Coolify container so a deploy is a brief full outage, and :14 marks 2+ replicas as MANUAL/not done. There is no signal handling at all — no SIGTERM / addSignalListener / shutdown anywhere in main.ts (1638 lines) — so in-flight requests are KILLED, not drained. Recovery is by sweep rather than drain: flipdesk-autolister.ts:114 JOB_STALE_MS = 6min, :117 BATCH_STALE_MS = 15min, reclaim crons at */5. The ~30s outage documented at SCALING.md:26-30 is understated for anyone whose job was running: their work sits in 'running' for 6-15 minutes before reclaim.",
+      "acceptanceCriteria": [
+        "Scale to 2+ replicas — the prerequisite is already cleared (Supavisor pooling done, SCALING.md:22).",
+        "Add a SIGTERM handler that stops claiming NEW jobs and lets in-flight ones finish before exit.",
+        "Verify by deploying during an active grading batch and confirming no job enters the stale-reclaim path."
+      ],
+      "priority": 1986,
+      "notes": "[P2][Ops/Reliability] Found 2026-07-18 by the operational-readiness deep dive. Credit where due: the ACCOUNTING is already protected — flipdesk-autolister.ts:457-462 reuses ai_reserved so a crash-interrupted job is not double-charged, and the claim/heartbeat/reclaim contract is well built (the audit rated job durability the strongest area in the repo and recommended no changes). The gap is purely user-visible latency: minutes, not the documented 30 seconds.",
+      "id": "US-2010",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "Stripe webhook dead-letters alert only to Sentry, whose routing is unverified — a paid checkout can vanish quietly",
+      "description": "As GradeThread, we want a dropped payment webhook to page someone. lib/webhook-dead-letter.ts:8-11 ALWAYS captures the drop via captureException but never calls emitOpsEvent, so it never reaches the Slack/webhook fan-out. routes/webhooks.ts only captureException-s (192, 217, 484, 1294). Sentry alert routing is itself the unchecked box at LAUNCH_CHECKLIST.md:264. The module states its own stake at :5-6 — 'a paid checkout could vanish with only a console line as evidence' — and today it vanishes with a Sentry event that may route nowhere.",
+      "acceptanceCriteria": [
+        "Add emitOpsEvent('webhook.dead_letter', 'critical', ...) inside recordWebhookDeadLetter — one line, and it inherits the whole existing fan-out path.",
+        "Verify end to end: force a dead-letter in staging and confirm the alert lands in the on-call channel.",
+        "The recovery runbook at INCIDENT_RESPONSE.md:77-93 needs no changes — it just has no trigger today."
+      ],
+      "priority": 1987,
+      "notes": "[P2][Ops/Payments] Found 2026-07-18 by the operational-readiness deep dive. Smallest fix-to-impact ratio in the audit: one line converts silent revenue loss into a page. Blocked in practice on the alert-channel story (setting the webhook secrets), since the fan-out currently has nowhere to go.",
+      "id": "US-2011",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "Runbook drift: LAUNCH_CHECKLIST says migrations are at 00132 (actual 00477) and DEPLOY says 16 crons (actual 71)",
+      "description": "As an operator following a runbook mid-incident, I want its claims to be true. Four are not: (1) LAUNCH_CHECKLIST.md:216 states 'All migrations applied (latest = 00132)' — actual is 00477, so an operator verifying against this line would CONFIRM a catastrophically wrong state, 345 versions stale. (2) DEPLOY.md:82 says 're-add all 16 tasks from that checklist' — there are 71 in CRON_SETUP.md/CRON_REGISTRY, so rebuilding the service from that line silently drops 55 crons, including the payout and retention jobs. (3) ROLLBACK.md:53-54 marks edge rollback validation as MANUAL/LAUNCH-BLOCKER, still open — the documented rollback procedure has never been executed once, and it also depends on the GIT_SHA build arg that is separately broken. (4) .env.production:31 has VITE_POSTHOG_KEY empty, so src/lib/analytics.ts:148-149 skips posthog.init entirely and product analytics are dark in prod.",
+      "acceptanceCriteria": [
+        "Correct all four claims.",
+        "Extend the generated-and-drift-guarded pattern to cover them. The cron TABLES already stay correct because they are generated and guarded by cron-registry-drift_test.ts (LAUNCH_CHECKLIST.md:122, CRON_SETUP.md:26) — every stale claim found is in HAND-WRITTEN prose outside those markers. Generating the migration-version line and the cron COUNT would prevent recurrence structurally.",
+        "Decide explicitly whether PostHog is intended for launch; if yes set the key, if no remove the claim rather than leaving a dark integration that reads as wired."
+      ],
+      "priority": 1988,
+      "notes": "[P3][Docs/Ops] Found 2026-07-18 by the operational-readiness deep dive. Individually trivial, collectively dangerous: these are read during incidents, when nobody re-derives them. The 00132 line is the worst because it fails in the CONFIRMING direction — it tells a stressed operator that a catastrophically stale DB is correct. The fix is known and proven in-repo: the generated cron tables did NOT drift, which is the argument for generation over vigilance.",
+      "id": "US-2012",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "Correlated fail-open: one DB blip removes per-user rate limiting AND the AI spend kill-switch together",
+      "description": "As GradeThread, we want cost controls that do not all fail at once. middleware/rate-limit.ts:185 defaults failClosed to false and :264-267 logs 'allowing request (fail-open)' on a store error. The grading endpoint does not opt in — main.ts:821 rateLimiter(... 'grade') has no failClosed, unlike main.ts:792/:795/:800 which do. Separately lib/ai-budget-gate.ts:9-12 is FAIL-OPEN on error and :36-41 caches an EMPTY killed-set for the TTL on failure. Both controls read the same Postgres, so they share a failure domain: during a Postgres degradation, per-user grading rate limits and the hard USD kill-switch disappear SIMULTANEOUSLY while Anthropic stays up and billable.",
+      "acceptanceCriteria": [
+        "Add failClosed: true to the grade and flipdesk-ai limiters, or make ai-budget-gate fail CLOSED specifically for action=kill budgets.",
+        "Ensure the two controls do not share a single failure domain, or accept the correlation explicitly and document the residual exposure in dollars.",
+        "Note the argument is the CORRELATION, not fail-open as a policy — fail-open per-control is a deliberate and defensible choice; two failing together is what turns a degradation into an unbounded bill."
+      ],
+      "priority": 1989,
+      "notes": "[P2][Cost/Reliability] Found 2026-07-18 by the operational-readiness deep dive. Mitigating and worth stating: the ai-limiter.ts global semaphore and daily call ceiling SURVIVE a DB outage and are the real backstop — the audit rated the layered cost control correct overall. But the daily ceiling is a blunt global, not a per-tenant guard, so a single abusive or looping tenant can consume it during the window.",
+      "id": "US-2013",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "23 route groups touching multi-tenant tables have no tenant-isolation test case; /api/account is the priority",
+      "description": "As GradeThread, we want the US-268 per-route test rule to actually hold. tenant-isolation_test.ts is strong — 118 cases making real HTTP foreign-tenant probes — but these mounts have ZERO coverage: /api/account (reaches submissions, grade_reports, inventory_items, listings, sales, item_photos, sources — it both exports AND deletes), /api/flipdesk/images, /api/flipdesk/equity, /api/flipdesk/scout, /api/flipdesk/shopify, /api/flipdesk/depop, /api/flipdesk/google, /api/guarantee, /api/drip, /api/webhooks, plus 13 /api/admin/* groups.",
+      "acceptanceCriteria": [
+        "Add cases for the ordinary seller routes first: /api/account (highest — seven multi-tenant tables), then /api/flipdesk/images and /api/flipdesk/equity.",
+        "Treat the /api/admin/* groups as lower priority and document why: adminAuthMiddleware covers them at main.ts:730-731, so they are authorization-gated by design rather than tenant-gated.",
+        "ALSO from the same audit — invert the auth allowlist for /api/flipdesk/ebay. main.ts:401-543 enumerates ~90 individual paths while other modules use a /* wildcard. All 108 currently-unmatched paths were hand-verified as legitimately public or self-authenticating (OAuth callbacks, requireJobSecret crons, signature-verified webhooks, HMAC extension routes), so there is NO live gap — but adding one route to the 7600-line flipdesk-ebay.ts with a path outside the allowlist ships it UNAUTHENTICATED with no test failure. Use a /* wildcard with an explicit skip-list.",
+        "Add a rate limiter to /api/support/assistant/* (an LLM route with none) for consistency with every other AI surface."
+      ],
+      "priority": 1990,
+      "notes": "[P2][Security/Testing] Found 2026-07-18 by the security deep dive. CRITICAL CONTEXT so this is not misread as a breach: the audit traced all 740 .from() call sites on multi-tenant tables, taint-traced request-supplied ids into filters, and machine-diffed every mounted route against the middleware tables — and could NOT confirm a single cross-tenant data hole. Every unscoped-LOOKING query hand-verified as parent-verified (inventory_items!inner(user_id), loadListingOwned, loadReconcilePair, or a locally-minted id). The US-268 discipline is genuinely being followed. This story closes the TEST gap and inverts a default that currently makes unauthenticated exposure a silent one-line mistake.",
+      "id": "US-2014",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "Android is a plumbing skeleton, but its README and 19 passing stories claim near-parity",
+      "description": "As GradeThread, we want the Android backlog to reflect reality. Android has genuinely good infrastructure — auth, a Room sync engine, mutation queue, delete reconciliation, telemetry, app-lock, CameraX capture, ~70 Kotlin files. It has no product: every navigation destination except one is a literal placeholder (ui/shell/AppShell.kt:162-175 — Home, Inventory, Money, Marketplaces, Settings, Details intake, AutoLister all render SectionPlaceholder; only capture/photos is real). Corroborating: Android calls exactly ONE edge endpoint in the entire codebase (/api/flipdesk/photo-profiles) versus iOS's 77 and web's ~530 — no grading submit, no inventory read, no eBay, no payments. Two documentation problems compound it: android/README.md:31-39 presents a package map for grading / inventory / marketplaces / money / billing whose directories contain ZERO .kt files, and :3 calls it 'at iOS parity'. And 19 stories are marked passes:true with no implementing code — verified: US-1380 Glance widgets (zero 'glance' references anywhere, no AppWidgetProvider in the manifest), US-1378 FCM push (no FirebaseMessaging reference), US-1383 Settings (routes to a placeholder), US-1384/1385/1387/1388/1389, US-1393 localization (no values-* locale dirs). The pattern is clean: US-1300-1328 (infrastructure) are genuinely done; US-1378-1396 is a contiguous block marked done without code.",
+      "acceptanceCriteria": [
+        "Re-open the falsely-passing Android stories (start with the verified list: US-1380, US-1378, US-1383, US-1384, US-1385, US-1387, US-1388, US-1389, US-1393) and audit the rest of the US-1378-1396 block the same way.",
+        "Correct android/README.md — remove the 'at iOS parity' claim and the package map for directories that contain no code. This is the first document a new engineer or a diligence reviewer reads.",
+        "Re-baseline the Android estimate: real completion is closer to 29/98 than the 48/98 the backlog implies, and ALL remaining work is the expensive UI/feature half rather than a polish pass.",
+        "Decide explicitly whether Android is on the launch plan. If it is, the remaining work is essentially the whole app."
+      ],
+      "priority": 1991,
+      "notes": "[P1][Android/Backlog-integrity] Found 2026-07-18 by the cross-platform parity deep dive. This is the same class as US-1996 (archived stories marked passes:true that were explicitly DEFERRED) but larger and on a platform nobody is looking at. The state is more misleading than a plain stub would be: sophisticated offline-sync infrastructure attached to zero features reads as 'nearly done' to anyone who opens the project and sees the hard parts solved. NOT verified: whether the 50 OPEN Android stories are correctly open — only the passing ones were falsified.",
+      "id": "US-2015",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "iOS silently omits the entire paid consumer grading path, including the 14-day dispute flow",
+      "description": "As a consumer grading on iOS, I want the same journey the web offers. There are TWO independent grading pipelines in the edge: the consumer/certified path (routes/grade.ts:209 /submit, :751 /pay/:id, :837 /status/:id, :1117 /dispute) and the FlipDesk/reseller path (/api/flipdesk/grading/{validate,submit,submissions/:id}). Web implements BOTH (new-submission.tsx:647, bulk-submission.tsx:332, submission-detail.tsx:244). iOS implements ONLY the FlipDesk path — Grading/GradingService.swift:6,55 documents and calls validate -> submit -> GET /submissions/:id — and grepping iOS for grade/pay, grade/status and grade/dispute returns NOTHING. So iOS has no consumer certified-grading submission, no per-grade payment flow, and NO GRADE DISPUTE FLOW at all.",
+      "acceptanceCriteria": [
+        "Decide explicitly whether the consumer grading path belongs on iOS. Nothing in IOS_PARITY_AUDIT.md or the Android plan mentions this omission either way, which is weak evidence it is accidental rather than a product decision — settle it in writing.",
+        "If it belongs: implement submit / pay / status / dispute on iOS against routes/grade.ts.",
+        "If it does not: document why, and confirm the dispute obligation is discharged some other way — a 14-day dispute window that only one client can exercise is a support and chargeback liability regardless of intent.",
+        "Any parity matrix must stop treating 'grading submission' as ONE row; scoring it that way marks iOS complete while the entire paid consumer path is missing."
+      ],
+      "priority": 1992,
+      "notes": "[P1][iOS/Parity] Found 2026-07-18 by the cross-platform parity deep dive. Two implementations of the core revenue journey is the highest-value drift surface in the repo, and the mobile client omits the paid half. The dispute gap is the sharpest edge: US-1340 tracks a 14-day dispute window as a real obligation, and a user who graded on iOS has no in-app route to exercise it.",
+      "id": "US-2016",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "Legal ToS/privacy versions are hardcoded in both clients while the server derives them from the DB — and iOS has no re-acceptance gate",
+      "description": "As GradeThread, we want consent records to name the version the user actually saw. The edge derives current legal versions DYNAMICALLY from DB rows (lib/legal-versions.ts:66, consumed at routes/legal.ts:73,105,162). Both clients HARDCODE them: ios/GradeThread/Auth/AuthStore.swift:19-20 (legalTosVersion / legalPrivacyVersion = '2026-04-01') and src/lib/constants.ts:1491-1494 (LEGAL_VERSIONS). The only sync mechanism is a code comment (AuthStore.swift:17-18, 'Keep IN SYNC with the web ... and the edge mirror') with no automated guard. Worse, iOS has NO re-acceptance gate at all: web has src/components/auth/legal-gate.tsx; iOS never calls /api/legal (0 matches).",
+      "acceptanceCriteria": [
+        "Clients must READ the current version from the server rather than hardcoding it, or a build-time guard must fail when the constants disagree with the DB-backed source.",
+        "Implement a re-acceptance gate on iOS equivalent to legal-gate.tsx.",
+        "Add a test/guard covering the three-way agreement (edge DB, web constants, iOS constants) — a comment is not a mechanism."
+      ],
+      "priority": 1993,
+      "notes": "[P1][Compliance/Legal] Found 2026-07-18 by the cross-platform parity deep dive. The failure mode is silent and legally material: the moment an operator publishes a new ToS row via admin-legal.ts, web and iOS signups keep recording 2026-04-01 — users are attested to a version they were never shown, and iOS users are never re-prompted at all. That is a defensible-consent failure, and exactly what an enterprise or legal review looks for.",
+      "id": "US-2017",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "Three fully-built marketplace OAuth connectors (Depop/Etsy/Whatnot) are live with zero callers",
+      "description": "As GradeThread, we do not want live token-minting endpoints with no product behind them. 937 lines of production OAuth code have no caller on any client: routes/flipdesk-depop.ts (388 lines, /oauth/start:80, /oauth/callback:127, /oauth/refresh:216, /disconnect:226), flipdesk-etsy.ts (311 lines), flipdesk-whatnot.ts (238 lines) — web 0, iOS 0, extension 0. All three are mounted and live (main.ts:1049-1051). They are also HALF connectors: OAuth plus disconnect only, no publish/revise, so even with UI they could not list. Also uncalled by any client: /api/drip, /api/campaign-track, /api/changelog.",
+      "acceptanceCriteria": [
+        "Decide per connector: gate behind a feature flag, or delete. Live authenticated endpoints that mint and store marketplace tokens are attack surface and an audit finding with zero offsetting value while unreachable.",
+        "If keeping them for a near-term launch, say so in the story and add the missing publish/revise half — an OAuth-only connector cannot deliver the feature it implies.",
+        "Re-check /api/drip, /api/campaign-track and /api/changelog the same way (note /api/drip is separately in scope for the tenant-isolation test gap)."
+      ],
+      "priority": 1994,
+      "notes": "[P2][Security/Dead-code] Found 2026-07-18 by the cross-platform parity deep dive. Related: US-1662 tracks Whatnot listing publish/update/delist as open, so the Whatnot OAuth half was likely built ahead of it — that is the benign reading. The security point stands regardless: unreachable-but-live token endpoints expand the attack surface without expanding the product, and they will be found in any diligence review.",
+      "id": "US-2018",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "50+ documented lockstep mirrors are enforced by comments; only ONE has an automated guard",
+      "description": "As GradeThread, we want cross-platform contract drift to be caught by CI rather than by an incident. The repo is admirably self-aware — 50+ explicit mirror/lockstep markers exist (src/lib/constants.ts:1059-1061 'MUST stay in lockstep', autolister-verify-windows.ts:12-13, best-offer-thresholds.ts:1-6, grading-readiness.ts:6 'Client-side mirror of buildValidation()', cert-number.ts:16, grade-standard.ts:2,16, listing-origin.ts:3, garment-mapping.ts:6, constants.ts:565,1118,1440,1489). iOS adds a THIRD copy of many (AIExtract/AIExtractTypes.swift:3, AIItemFieldWriter.swift:14, Analytics/ListingPerformanceModels.swift:3,96,142, SourceROIRollup.swift:8,99). Exactly ONE has an automated guard — Class A storage, per IOS_PARITY_AUDIT.md:32-34 (item-photo-storage_test.ts). The edge test dir has just 4 guard tests (ads-guardrails, rls-guard, support-output-guard, us1507-relist-guard), none covering the pricing, grading-readiness or legal-version mirrors.",
+      "acceptanceCriteria": [
+        "Generalize the Class A pattern: for each high-risk mirror, add a shared behavioural FIXTURE asserted by every copy's suite (the remedy US-1995 already applied to title-sync), rather than source-diffing.",
+        "Prioritize the mirrors where divergence is silent and expensive: grading-readiness (buildValidation), best-offer thresholds, pricing constants, legal versions (see the legal story), grade-standard.",
+        "IOS_PARITY_AUDIT.md:80-84 already names this fix ('Source-guards for contracts — cheap, deterministic') and it was never generalized beyond Class A. Close that out."
+      ],
+      "priority": 1995,
+      "notes": "[P2][Architecture/Testing] Found 2026-07-18 by the cross-platform parity deep dive. The repo's OWN post-mortem (IOS_PARITY_AUDIT.md:11-20) says all three bugs in the original cluster were exactly this class, missed because unit tests pass on both sides independently while the seam diverges. This session hit the same pattern twice more: US-1995 (edge title-sync mirror with zero callers) and the ai-size-estimate-core dead copy. A comment asserting a link is not the link.",
+      "id": "US-2019",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "Three browser extensions are maintained in parallel against the same marketplace DOMs",
+      "description": "As GradeThread, we want one extension to maintain, not three. Three separate MV3 extensions are all receiving active commits: extension (Lister, v0.1.0, last commit 2026-07-13), extension-condition (Condition Check, v0.2.1, 2026-07-15) and extension-unified ('Grade & List', v0.3.5, 2026-07-18). The name 'unified' implies it supersedes the other two, but both predecessors are still getting feature work — extension-condition received US-1884 accessibility work on 07-15.",
+      "acceptanceCriteria": [
+        "Confirm whether extension and extension-condition are deprecated in favour of extension-unified. If so, freeze them and stop investing.",
+        "If all three ship, document why — three Chrome Web Store listings mean three review cycles and three selector-maintenance burdens against the same marketplace DOMs, which is the expensive part when a marketplace changes its markup.",
+        "Cross-check against US-1872 (unified extension epic) and US-1881 (Firefox/Edge support), which assume a single artifact."
+      ],
+      "priority": 1996,
+      "notes": "[P3][Extension/Maintenance] Found 2026-07-18 by the cross-platform parity deep dive. Likely a migration in progress rather than a mistake — filed so the migration gets finished deliberately instead of leaving three live artifacts drifting apart.",
+      "id": "US-2020",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "email_deliveries stores full rendered email bodies forever with no purge",
+      "description": "As GradeThread, we want the email log bounded. 00095_email_deliveries.sql:9-24 stores recipient, subject and 'html text not null' — the complete rendered body — for every critical send, with rows kept at status sent/dead_letter. There is NO purge anywhere: the only pruning in lib/data-retention.ts:132 is cron_runs (30-day window). No DELETE FROM email_deliveries exists in the codebase.",
+      "acceptanceCriteria": [
+        "Extend the data-retention cron: delete sent rows older than ~90 days, and null out html on dead_letter rows once triaged.",
+        "Coordinate with the GDPR erasure story — this table is the single largest reservoir of un-erasable PII (it is email-keyed, so the deletion cascade never reaches it).",
+        "Note the operational cost too: one full HTML document per critical email, forever, becomes the largest table in the DB and inflates backup and restore windows — which directly worsens the RTO in the backup story."
+      ],
+      "priority": 1997,
+      "notes": "[P3][DB/Growth] Found 2026-07-18 by the data-integrity deep dive. Compounds three other findings at once: GDPR erasure (un-erasable PII), backup/restore duration (RTO), and the stalled retention sweep (the cron that would own this purge is itself not advancing). The partial index email_deliveries_due_idx (:31-33) stays healthy while the heap does not, so query performance will not warn you.",
+      "id": "US-2021",
+      "passes": false,
       "dependsOn": []
     }
   ]
