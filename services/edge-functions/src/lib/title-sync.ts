@@ -10,6 +10,25 @@
 // Pure + dependency-free (aside from the trim helper) so it's fully
 // unit-testable without any DB/eBay/AI calls. The caller decides WHEN to apply
 // it (GT-origin non-ebay listings only) and applies it to BOTH title variants.
+//
+// ⚠ NOTHING IN THE EDGE SERVICE IMPORTS THIS MODULE (verified 2026-07-18).
+//
+// US-1891 AC2 required the substitution on BOTH "the edge item update path AND
+// web item-canvas save". Only the web half shipped: src/lib/title-sync.ts (the
+// frontend copy) is wired into item-canvas.tsx persist(), and this copy — its
+// declared lockstep mirror — has zero callers. Every export here is reachable
+// only from its own tests.
+//
+// CONSEQUENCE: an item field edit that does NOT go through the web item canvas
+// (the edge item-update API, iOS, AutoLister, bulk edit, CSV import) still
+// corrects the brand while leaving the OLD brand in listing_title — which is
+// precisely the bug US-1891 exists to fix, on every surface except one.
+//
+// The tests here pass because they call these functions directly, so nothing
+// signals the gap. Do not treat this module's coverage as evidence the feature
+// works server-side. Tracked as US-1995; wiring it is a real change (it must
+// not double-apply against the frontend path, and it has to respect the same
+// GT-origin / hand-edited / needs_review rules the canvas applies).
 
 import { EBAY_TITLE_MAX, trimTitleToLimit } from "./title-trim.ts";
 

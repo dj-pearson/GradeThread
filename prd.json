@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1995,
+  "nextId": 1996,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -1574,6 +1574,21 @@
         "The two DIVERGENCE tests in sync-precedence_test.ts are removed or rewritten once the paths converge — they exist only to pin the gap"
       ],
       "notes": "[P2][Sync/Correctness] Found 2026-07-18 by an unwired-export audit (exported lib functions with zero production references, including their own file — the signature of behaviour that was built, tested, and never connected). Same class as US-1894, which shipped conditionDescriptionConsistency tested but uncalled until US-1897 wired it. sync-precedence.ts has THREE such exports: buildListingPullPatch, buildCsvFillPatch, isGradeThreadOwned. buildCsvFillPatch means the CSV fill-only contract may be equally unenforced — CHECK THAT TOO, it is a separate write path with the same failure mode. No data-integrity bug is currently believed to exist: applyProvenanceMerge does correctly refuse to let eBay clobber GradeThread title/price/description/quantity/category, and records drift in platform_fields.sync_drift. The defect is the false confidence plus the trap for whoever tries to DRY the two paths. Pinned meanwhile: sync-precedence.ts carries a warning naming the production path, and two DIVERGENCE tests assert the exact gap so neither side can move silently. See CLAUDE.md -> SYNC_SOURCE_OF_TRUTH.md."
+    },
+    {
+      "id": "US-1995",
+      "priority": 1935,
+      "passes": false,
+      "title": "US-1891 backwards title sync never shipped server-side — the edge title-sync module has zero callers",
+      "description": "As a seller, when I correct an item's Brand/size/color/style/department from ANY surface, I want the listing title to update — not just from the web item canvas. US-1891 (P1, archived passes:true) required the substitution on 'the edge item update path AND web item-canvas save' (its AC2). Only the web half shipped. src/lib/title-sync.ts is wired into item-canvas.tsx persist(); its declared lockstep mirror services/edge-functions/src/lib/title-sync.ts is imported by NOTHING — verified 2026-07-18, every export has zero production references. So an edit made through the edge item-update API, iOS, AutoLister, bulk edit or CSV import still corrects the brand and leaves the OLD brand in listing_title: exactly the bug US-1891 exists to fix, on every surface except one. Both suites are green because each calls its own copy directly, so nothing signals the gap.",
+      "acceptanceCriteria": [
+        "The edge item-update path applies the same substitution the web canvas does, under the same conditions (GT-origin non-ebay listings only; both title_variants; hand-edited-vs-ai_generated_snapshot sets needs_review; live listings queue the revise-in-place prompt, never end/relist)",
+        "It cannot DOUBLE-APPLY against the frontend path — decide one owner per surface, or make the substitution provably idempotent for the web canvas case that already ran it",
+        "iOS / AutoLister / bulk edit / CSV import are each confirmed to route through whatever path gets wired (naming any that deliberately stay out of scope, with the reason)",
+        "A BEHAVIOURAL parity fixture shared by both suites: one table of (title, field changes) -> expected output asserted by the deno test AND the vitest test, so the two copies cannot drift. They currently differ by ~80 lines and nothing pins them — the frontend inlines the trim because it cannot import title-trim.ts across projects, which is legitimate, but that is exactly why source-diffing cannot be the guard",
+        "The ⚠ block at the top of the edge title-sync.ts is removed once it has real callers"
+      ],
+      "notes": "[P1][Sync/SEO][Regression of an ARCHIVED story] Found 2026-07-18 by the unwired-export audit that also produced US-1994. This is the more serious of the two: US-1994 is a contract divergence with no known live bug, whereas this is a P1 feature that measurably does not run on most surfaces. US-1891's own notes describe the web wiring in detail ('Wired into item-canvas persist()') and never claim the edge half — the AC asked for both, and the story was marked done anyway. Worth asking what else in the archive has the same shape: a 'lockstep mirror' is a strong smell, since only one copy usually gets a caller. Do NOT just import the module in an edge route and call it — see AC2/AC3; the double-apply and needs_review semantics are the hard part, not the substitution. Meanwhile the edge module carries a ⚠ header naming the gap so its green tests stop reading as proof the feature works server-side."
     }
   ]
 }
