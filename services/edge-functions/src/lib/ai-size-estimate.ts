@@ -18,11 +18,30 @@ import {
   findSizingCharts,
   formatSizingChartsForPrompt,
 } from "./sizing-charts.ts";
+// US-1996: the pure size helpers live in ONE place — ai-size-estimate-core.ts —
+// which exists so tests can exercise them WITHOUT dragging in the Anthropic
+// client and env-gated config this module imports. That rationale is sound; what
+// was broken is that this file RE-DECLARED byte-identical copies instead of
+// importing them, while ai-size-estimate_test.ts imported the core file. So the
+// copies that actually ran were untested and free to drift, and this module's old
+// header even claimed it "re-exports everything" from core — it did not, which is
+// exactly what made the gap invisible. Import and re-export, so the existing
+// suite now covers the live path.
+import {
+  isMeasurementPhoto,
+  normalizeSizeEstimate,
+  prioritizeMeasurementPhotos,
+  SIZE_ESTIMATE_LOW_CONFIDENCE,
+  type SizePhoto,
+} from "./ai-size-estimate-core.ts";
 
-export interface SizePhoto {
-  url: string;
-  type?: string;
-}
+export {
+  isMeasurementPhoto,
+  normalizeSizeEstimate,
+  prioritizeMeasurementPhotos,
+  SIZE_ESTIMATE_LOW_CONFIDENCE,
+};
+export type { SizePhoto };
 
 export interface SizeEstimate {
   /** Best-guess size label, "" when undeterminable. */
@@ -35,18 +54,6 @@ export interface SizeEstimate {
   model: string;
   tokensIn: number;
   tokensOut: number;
-}
-
-// Below this, the UI labels the result an uncertain "best guess" rather than a
-// confident answer (it never auto-applies silently — see US-1088 AC).
-export const SIZE_ESTIMATE_LOW_CONFIDENCE = 0.5;
-
-// Measurement / flat-lay photo roles carry the sizing signal (photo-profiles.ts
-// emits measurement_chest/waist/length/sleeve/inseam + flatlay). A predicate so
-// new measurement_* roles are covered without editing a fixed set.
-export function isMeasurementPhoto(type?: string): boolean {
-  if (!type) return false;
-  return type.startsWith("measurement") || type === "flatlay";
 }
 
 const ESTIMATE_SIZE_TOOL: Anthropic.Tool = {
@@ -108,42 +115,6 @@ function userInstructions(brand?: string | null, category?: string | null): stri
       "a short rationale. Then call estimate_size.",
   );
   return lines.join("\n");
-}
-
-function clamp01(v: unknown): number {
-  const n = typeof v === "number" ? v : Number(v);
-  if (!Number.isFinite(n)) return 0;
-  return Math.max(0, Math.min(1, n));
-}
-
-/**
- * Pure decoder for the estimate_size tool output — no network, so it can be
- * unit-tested directly. Normalizes "Unknown"/blank gender to null and clamps the
- * confidence into 0..1.
- */
-export function normalizeSizeEstimate(raw: unknown): {
-  size: string;
-  gender: string | null;
-  confidence: number;
-  rationale: string;
-} {
-  const o = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
-  const size = typeof o.size === "string" ? o.size.trim() : "";
-  const g = typeof o.gender === "string" ? o.gender.trim() : "";
-  const gender = g && g.toLowerCase() !== "unknown" ? g : null;
-  const rationale = typeof o.rationale === "string" ? o.rationale.trim() : "";
-  return { size, gender, confidence: clamp01(o.confidence), rationale };
-}
-
-/**
- * Order photos so measurement / flat-lay shots come FIRST (the model weights
- * earlier images slightly more, and these carry the sizing signal). Pure; a
- * stable partition that preserves original relative order within each group.
- */
-export function prioritizeMeasurementPhotos<T extends SizePhoto>(photos: T[]): T[] {
-  const measure = photos.filter((p) => isMeasurementPhoto(p.type));
-  const rest = photos.filter((p) => !isMeasurementPhoto(p.type));
-  return [...measure, ...rest];
 }
 
 /**
