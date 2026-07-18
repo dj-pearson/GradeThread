@@ -322,9 +322,55 @@ export async function assembleExemplarSet(
     return true;
   });
 
+  // US-2034: EXCLUDE the golden set. TRAIN/TEST CONTAMINATION.
+  //
+  // Golden eval cases are grown from the same corrected reviews this function
+  // mines (grading-eval.ts promoteGradeReportToEvalCase stores the origin in
+  // grading_eval_cases.source_grade_report_id). Nothing prevented the SAME
+  // corrected report from becoming both a golden case and a few-shot exemplar.
+  //
+  // That is not a cosmetic overlap: evalExemplarSet() gates a candidate exemplar
+  // set against the golden set — so the model was shown the answers to the very
+  // cases it was then scored on. The gate reports inflated agreement and
+  // deflated MAE, an exemplar set that does not generalize gets activated, and
+  // real customer garments are graded by a prompt whose measured quality was
+  // fictitious. It also corrupts any published accuracy figure citing the same
+  // thresholds.
+  //
+  // Exclude ALL golden sources, not just active cases: an inactive case may be
+  // reactivated, and a set that was contaminated at assembly time cannot be
+  // decontaminated later.
+  const { data: goldenSources, error: goldenError } = await supabaseAdmin
+    .from("grading_eval_cases")
+    .select("source_grade_report_id")
+    .not("source_grade_report_id", "is", null);
+  if (goldenError) {
+    // Fail CLOSED. Assembling an exemplar set while unable to prove it is
+    // uncontaminated would produce a number nobody can trust — and the whole
+    // point of the gate is that its number can be trusted.
+    throw new Error(
+      `Failed to load golden-set sources for exemplar exclusion: ${goldenError.message}`,
+    );
+  }
+  const goldenReportIds = new Set(
+    ((goldenSources ?? []) as Array<{ source_grade_report_id: string | null }>)
+      .map((g) => g.source_grade_report_id)
+      .filter((id): id is string => !!id),
+  );
+  const uncontaminated = latestByReport.filter(
+    (r) => !goldenReportIds.has(r.grade_report_id),
+  );
+  const excludedCount = latestByReport.length - uncontaminated.length;
+  if (excludedCount > 0) {
+    console.log(
+      `[few-shot-exemplars] excluded ${excludedCount} golden-set report(s) from ` +
+        `the exemplar pool (train/test separation)`,
+    );
+  }
+
   const signals: CorrectionSignal[] = [];
-  if (latestByReport.length > 0) {
-    const reportIds = latestByReport.map((r) => r.grade_report_id);
+  if (uncontaminated.length > 0) {
+    const reportIds = uncontaminated.map((r) => r.grade_report_id);
     const { data: reports, error: reportsError } = await supabaseAdmin
       .from("grade_reports")
       .select("id, overall_score, submission_id")
@@ -347,7 +393,7 @@ export async function assembleExemplarSet(
         .map((s) => [s.id, s]),
     );
 
-    for (const r of latestByReport) {
+    for (const r of uncontaminated) {
       const report = reportById.get(r.grade_report_id);
       if (!report) continue;
       const sub = subById.get(report.submission_id);

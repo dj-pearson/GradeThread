@@ -3,6 +3,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useAuth } from "@/hooks/use-auth";
 import { GRADE_FACTORS } from "@/lib/constants";
+import {
+  computeWeightedOverall as sharedWeightedOverall,
+  type WeightedFactorScores,
+} from "@/lib/weighted-grade";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -167,12 +171,12 @@ function formatWaitingTime(ms: number): string {
 // The 5 factors are graded in 0.5 steps, but the OVERALL is rounded to 0.1 so a
 // single-factor adjustment moves it (mirrors the edge: ai-grading.roundToTenth +
 // human-review.computeWeightedOverall — keep all three in lockstep).
+// US-2034: delegates to the ONE shared implementation. This used to be a
+// local copy of the weighted-sum + rounding; disputes.tsx's copy had drifted
+// to 0.5 rounding while the server stored 0.1, so an operator saw a number
+// the certificate did not get. See src/lib/weighted-grade.ts.
 function computeWeightedScore(factors: FactorScores): number {
-  let total = 0;
-  for (const key of FACTOR_KEYS) {
-    total += factors[key] * FACTOR_META[key].weight;
-  }
-  return Math.round(total * 10) / 10;
+  return sharedWeightedOverall(factors as WeightedFactorScores);
 }
 
 const PAGE_SIZE = 20;

@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 2034,
+  "nextId": 2042,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2141,6 +2141,123 @@
       "id": "US-2033",
       "passes": false,
       "dependsOn": []
+    },
+    {
+      "title": "Golden set leaked into few-shot exemplars — every exemplar eval number was suspect",
+      "description": "Train/test contamination in the grading engine. Golden eval cases are grown from corrected human reviews (grading-eval.ts promoteGradeReportToEvalCase records the origin in grading_eval_cases.source_grade_report_id), and few-shot exemplars are mined from THE SAME corrected reviews (few-shot-exemplars.ts assembleExemplarSet) with no cross-exclusion. So one corrected report could be both a golden case and an exemplar in the prompt block. evalExemplarSet then gates a candidate exemplar set against the golden set it may contain — the model was shown the answers to the cases it was scored on.",
+      "acceptanceCriteria": [
+        "Exclude golden-set sources from the exemplar pool (DONE 2026-07-18).",
+        "Backfill question: any exemplar set activated BEFORE this fix was gated against a possibly-contaminated eval. Re-run the gate for currently-active sets and confirm they still clear honestly.",
+        "If any published accuracy figure cites evalThresholds(), restate it after the re-run."
+      ],
+      "priority": 1994,
+      "notes": "[P1][Grading/Correctness] Found 2026-07-18 by the grading-engine deep dive; I VERIFIED it myself before acting (source_grade_report_id does exist on grading_eval_cases, and a grep for any exclusion in few-shot-exemplars.ts returned nothing). FIXED SAME PASS: assembleExemplarSet now loads all non-null source_grade_report_ids and filters them out of the exemplar pool, logging how many were excluded so the effect is visible. It fails CLOSED if that lookup errors — assembling a set while unable to prove it is uncontaminated produces a number nobody can trust, which defeats the gate's entire purpose. Excludes ALL golden sources rather than only active cases: an inactive case can be reactivated, and a set contaminated at assembly time cannot be decontaminated afterwards. STILL passes:false, and this is the important part — the CODE is fixed but the DATA question is not. Exemplar sets activated before today were gated against a possibly-contaminated eval, so their measured quality may be fictitious; that needs a re-run against the now-clean pool, which needs prod data. Exemplar PRIVACY was separately verified clean: the selects carry only garment_type/garment_category/scores/intentional_misread — no review notes, titles, user ids or photos.",
+      "id": "US-2034",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "Grading determinism (US-481) is void on the default model, and the code still claims it",
+      "description": "ai-config.ts:157-179 documents that grading ALWAYS uses a low temperature, defaulting to 0 (fully greedy decoding), because a certified score backs a public 'standardized' value prop. But gradingSamplingParams() returns output_config.effort — not temperature — for effort-based models, and the default grading model (DEFAULTS.model = claude-sonnet-5) is effort-based. So getGradingTemperature() is never called on the shipping path, GRADING_MAX_TEMPERATURE and the whole clamping apparatus are dead code, and grading runs at the model's own non-greedy decoding. A regrade of the same photos can return a different score with no explanation.",
+      "acceptanceCriteria": [
+        "DECIDE the product position: is a regrade of identical photos allowed to return a different score? That is a trust question, not an engineering one.",
+        "If determinism is still the promise: add a self-consistency check (grade twice, compare, flag divergence) or pin a decoding mode that guarantees it.",
+        "If it is NOT the promise: correct the ai-config.ts comment block, which currently asserts a property the code does not have, and disclose run-to-run variance wherever the 'standardized grade' claim is made.",
+        "Either way the comment must stop describing temperature clamping as though it governs grading."
+      ],
+      "priority": 1995,
+      "notes": "[P1][Grading/Trust] Found 2026-07-18 by the grading-engine deep dive. I VERIFIED the mechanism myself: DEFAULTS.model is claude-sonnet-5 (ai-config.ts:12), modelUsesEffort() matches it (:189-192), and gradingSamplingParams() returns the effort branch with no temperature (:228-233). This is NOT a code bug — effort-based models do not accept temperature, so the US-1033 migration was a correct API fix. The defect is that it silently removed a DOCUMENTED GUARANTEE and nobody updated the guarantee. Code that claims a property it no longer has is the most dangerous state for a trust product, because everyone downstream reasons from the claim rather than the behaviour. I deliberately did not 'fix' it: the right answer is a product decision — restore determinism (costly, possibly not available on this model family) or stop promising it (cheap, but it changes what a certificate means).",
+      "id": "US-2035",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "The eval gate pins the PROMPT but not the MODEL — an env change bypasses it entirely",
+      "description": "activatePromptVersion (grading-eval.ts:568-580) gates on a boolean eval_passed stamped at :342 with no model attribution, while the grading model is pure env config: getDefaultModel() returns DEFAULT_AI_MODEL with no gate. The allowlist comment (ai-config.ts:65) says to extend it 'when a new model is qualified against the eval gate' — convention, not code. So an operator can point DEFAULT_AI_MODEL at another allowlisted model via a Coolify env change (no deploy, no eval, no audit entry, no step-up) and every subsequent paid grade comes from a model that never cleared MAE/agreement thresholds, while the prompt version still reads eval_passed:true from a run against a different model.",
+      "acceptanceCriteria": [
+        "Record the qualifying model on the version's pass stamp (grading_eval_runs already stores it at grading-eval.ts:322) and have activatePromptVersion compare it against the live grading model.",
+        "Refuse to grade — or at minimum emit a critical ops event — when the live model differs from the model the active prompt version was qualified on.",
+        "Treat a model change as an auditable event: today it leaves no trace at all."
+      ],
+      "priority": 1996,
+      "notes": "[P2][Grading/Governance] Found 2026-07-18 by the grading-engine deep dive (structurally confirmed; the operational scenario is inferred). Worth recording what IS well built, because the contrast is the finding: prompt activation and canary both require step-up, both audit-log, both invalidate the prompt cache, and NO route mutates prompt_text after creation — so the 'pass eval, then edit the text, then activate' attack does not exist. The prompt half of this lifecycle is genuinely solid. The model half has no gate whatsoever.",
+      "id": "US-2036",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "Golden eval cases are hard-deletable and freely editable with no step-up",
+      "description": "The grading-engine skill states: 'Never delete cases to make an eval pass. A shrinking golden set is a red flag in review.' Nothing enforces it. admin-grading.ts PATCH /eval/cases/:id updates expected_score/expected_tier/tags/is_active with no restriction on who or why, and DELETE /eval/cases/:id is a HARD delete rather than a soft is_active=false. Neither route calls requireStepUp — unlike /prompts/:id/activate, /prompts/:id/canary and /review/:id/adjust, which all do.",
+      "acceptanceCriteria": [
+        "Soft-delete instead of hard-delete, so a removed case stays auditable.",
+        "Require step-up on both mutate and delete, matching the other grading-governance routes.",
+        "Alert (or log at critical) when the ACTIVE golden set shrinks — that is the signal the skill actually asks reviewers to watch for, and a human watching a table is not a mechanism.",
+        "Consider making expected_score immutable once a case has appeared in a passing run: editing it retroactively invalidates historical comparisons."
+      ],
+      "priority": 1997,
+      "notes": "[P2][Grading/Governance] Found 2026-07-18 by the grading-engine deep dive. Mitigations that DO exist: both routes write auditLog, and grading_eval_runs snapshots per_case results, so a historical run's contents remain forensically recoverable. The exposure is that an operator can nudge a stubborn prompt version past the gate by deleting or re-scoring the cases it fails and then activating it against live customer traffic — and cross-run accuracy comparisons silently stop being comparable, because the denominator moved underneath them.",
+      "id": "US-2037",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "37 SEO/hydration tests and 11 money/cert integration tests never run in CI",
+      "description": "Two distinct silent-skip classes. (a) STRUCTURAL: ci.yml orders steps Lint, Type-check, Test, Build — but three suites gate on existsSync(dist/index.html): prerender.test.ts:103 (10 tests), crawl-parity.test.ts:57 (1), responsive-images.test.ts:198 (26). dist/ is gitignored, so on a fresh runner it does not exist when tests run. Those 37 SEO/hydration-parity guards have NEVER fired in CI. (b) NO JOB AT ALL: credit-refund_test.ts, ledger-consistency_test.ts, ai-quota-concurrency_test.ts, public-certificate_test.ts and passport-claim_test.ts gate on TEST_SUPABASE_URL / TEST_LEDGER_USER_ID / TEST_CERT_ID / TEST_GARMENT_ID, and grepping .github/workflows for those names returns nothing. ledger-consistency_test.ts is the credit-ledger balance invariant — arguably the single most important money assertion in the repo — and it has never run.",
+      "acceptanceCriteria": [
+        "Move the vitest step AFTER Build in ci.yml (or add a second post-build pass) so the dist-gated suites actually execute.",
+        "Stand up a job that provides the integration env vars, or delete those suites — a test that has never run is worse than no test, because it reads as coverage.",
+        "Apply the US-350 anti-skip pattern to both classes: make a missing fixture a hard CI failure rather than a silent skip."
+      ],
+      "priority": 1998,
+      "notes": "[P1][CI/Testing] Found 2026-07-18 by the test-suite deep dive. Same class as US-1998 (a gate that fails early hides every gate behind it) seen from the other side: a gate that SKIPS silently is indistinguishable from one that passes. The repo already solved this once — tenant-isolation_test.ts:90-107 carries an explicit 'must not SKIP in CI' guard wired to TENANT_ISOLATION_REQUIRED=1. The mechanism exists; it simply was never applied to these suites. Note the ordering fix is nearly free and would light up 37 tests immediately.",
+      "id": "US-2038",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "17 of 121 tenant-isolation tests silently skip inside the job meant to prove isolation",
+      "description": "tenant-isolation_test.ts's anti-skip guard lists 12 required resource ids and the seed script emits exactly those — but seven tests gate on VIEWER_READY (needs TEST_VIEWER_JWT + TEST_WORKSPACE_OWNER_ID) and scripts/seed-tenant-isolation-fixture.ts emits NEITHER. Ten more skip on unseeded ids (TEST_USER_A_GARMENT_ID x6, plus _EBAY_ORDER_ID, _EBAY_OFFER_ID, _EBAY_SKU, _PHOTO_ID). None are in REQUIRED_RESOURCE_IDS, so the guard passes and the job reports green. The skipped set includes 'C3: viewer cannot pay for a grade (drains owner credits)' and the entire US-1639 workspace role-authz block — tests LABELLED as though the wiring landed.",
+      "acceptanceCriteria": [
+        "Seed a viewer in scripts/seed-tenant-isolation-fixture.ts and export TEST_VIEWER_JWT + TEST_WORKSPACE_OWNER_ID.",
+        "Add both to REQUIRED_RESOURCE_IDS so a missing viewer fixture fails CI instead of skipping.",
+        "Seed the remaining ids or explicitly document why each is optional.",
+        "Add unit coverage for workspaceMiddleware's owner resolution — the X-Workspace-Owner logic deciding which tenant a member writes into has NO test importing it."
+      ],
+      "priority": 1999,
+      "notes": "[P1][Security/Testing] Found 2026-07-18 by the test-suite deep dive. This is the least-covered critical path in the product: auth / session / workspace-member. A regression letting a VIEWER spend the owner's credits would ship green — and 'C3: viewer cannot pay for a grade' is exactly the test that would have caught it, sitting there skipped. Pairs directly with US-2014, which added new cases to this same suite: those cases are only as good as the fixture that enables them, so this story is what makes that one real.",
+      "id": "US-2039",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "The US-2033 refund fix is untested — handleChargeRefunded is not exported",
+      "description": "proportional-clawback_test.ts opens by stating the bug plainly ('the arithmetic was always right; the BUG was that the ledger write was keyed per CHARGE while the amount was CUMULATIVE') and then tests only proportionalClawback, the pure helper that was never broken. The actual fix — the newest-refund reducer, the incremental-vs-cumulative choice, and the pack-refund:<refund.id> key — lives inside handleChargeRefunded (webhooks.ts:1343), which is NOT exported, so no test can reach it. Revert the key to charge.id and every test stays green while a customer keeps 40 credits and all their money.",
+      "acceptanceCriteria": [
+        "Export handleChargeRefunded with injectable rpc/recordEvent — webhook-idempotency_test.ts's injectable-store pattern is the model to copy.",
+        "Assert the two-partial-refund sequence produces TWO DISTINCT idempotency keys and two ledger writes summing to the full grant.",
+        "Assert the fallback path (Stripe omits charge.refunds) still claws back rather than skipping.",
+        "Assert the tie-break is deterministic across redeliveries of the same event."
+      ],
+      "priority": 2000,
+      "notes": "[P1][Money/Testing] Found 2026-07-18 by the test-suite deep dive, reviewing code I wrote earlier the same day — a fair catch and worth recording as such. The four tests I added to proportional-clawback_test.ts do pin real invariants (increments summing to the grant, clamping, both directions of the drift), but the reviewer is right that they cannot reach the regression itself, because the keying logic is unreachable from a test. This is ALSO not covered by webhook-idempotency_test.ts, which pins the event-level processed_webhook_events claim — a different mechanism from the RPC's p_idempotency_key. So the money fix currently rests on code review alone, which is exactly the state US-2033's own notes said needed live verification.",
+      "id": "US-2040",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "id": "US-2041",
+      "passes": false,
+      "dependsOn": [],
+      "priority": 1993,
+      "title": "admin/disputes.tsx rounded the weighted overall to 0.5 while the server stored 0.1",
+      "description": "A LIVE grading drift, and the second time this exact bug shipped. computeWeightedScore in src/pages/admin/disputes.tsx returned Math.round(total*2)/2 while every other site — admin/reviews.tsx, admin/grading.tsx, edge human-review.ts and ai-grading.ts roundToTenth — used Math.round(total*10)/10. The weights were identical (all UI copies read GRADE_FACTORS), so rounding was the only difference. An operator adjusting factor scores on a DISPUTE saw a projected overall up to 0.2 away from what admin-disputes.ts actually persisted, in BOTH directions (8.5 shown vs 8.3 stored; 8.5 shown vs 8.7 stored). Grade tier is a pricing-band input, and the resealed certificate hash makes the stored number look authoritative.",
+      "acceptanceCriteria": [
+        "Fix the rounding (DONE).",
+        "Eliminate the duplication rather than fixing site-by-site — US-1557 fixed admin/grading.tsx the same way in July and MISSED this file, which is the failure mode of N copies (DONE: one shared src/lib/weighted-grade.ts).",
+        "Pin the web/edge mirror with a shared behavioural fixture asserted by BOTH suites, since the two projects cannot import each other (DONE).",
+        "Determine whether any dispute was resolved on the wrong displayed number — needs prod data."
+      ],
+      "notes": "[P1][Grading/Money] Found 2026-07-18 by the test-suite deep dive, which caught what the grading-engine deep dive missed: that audit enumerated four rounding sites, concluded 'the lockstep holds today', and never looked at disputes.tsx. I verified the drift numerically before fixing — 4 of 5 realistic factor vectors differ. FIXED SAME PASS: all three admin UIs now delegate to ONE src/lib/weighted-grade.ts; the edge keeps its own copy because the projects cannot import across, and that legitimate mirror is now pinned by src/test/fixtures/weighted-grade-cases.json (15 vectors) asserted by BOTH the vitest and deno suites. Also asserted: weights sum to exactly 1.0 (previously only claimed in a comment), all-equal inputs return that value, and the 1.0-10.0 bounds hold. NEGATIVE-VERIFIED: reintroducing Math.round(total*2)/2 fails the web guard on the exact historical vector. STILL passes:false on AC4 — whether a real dispute was decided on a wrong displayed number is a prod-data question. That matters because a dispute resolution is a customer-facing money decision."
     }
   ]
 }

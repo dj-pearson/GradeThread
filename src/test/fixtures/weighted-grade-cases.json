@@ -1,0 +1,155 @@
+{
+  "_comment": "US-2034 SHARED FIXTURE. The weighted-overall formula exists in two projects that cannot import each other: src/lib/weighted-grade.ts (web) and services/edge-functions/src/lib/human-review.ts (edge). Both suites assert against THIS table, so the mirrors cannot drift silently. A drift here previously shipped twice (US-1557, then US-2034 disputes.tsx). Weights: fabric .30 / structural .25 / cosmetic .20 / functional .15 / odor .10; result rounded to 0.1 — NOT 0.5.",
+  "cases": [
+    {
+      "factors": {
+        "fabric_condition_score": 10,
+        "structural_integrity_score": 10,
+        "cosmetic_appearance_score": 10,
+        "functional_elements_score": 10,
+        "odor_cleanliness_score": 10
+      },
+      "expected_overall": 10
+    },
+    {
+      "factors": {
+        "fabric_condition_score": 1,
+        "structural_integrity_score": 1,
+        "cosmetic_appearance_score": 1,
+        "functional_elements_score": 1,
+        "odor_cleanliness_score": 1
+      },
+      "expected_overall": 1
+    },
+    {
+      "factors": {
+        "fabric_condition_score": 8.5,
+        "structural_integrity_score": 8.5,
+        "cosmetic_appearance_score": 8,
+        "functional_elements_score": 8,
+        "odor_cleanliness_score": 8.5
+      },
+      "expected_overall": 8.3
+    },
+    {
+      "factors": {
+        "fabric_condition_score": 7.5,
+        "structural_integrity_score": 7,
+        "cosmetic_appearance_score": 7.5,
+        "functional_elements_score": 7,
+        "odor_cleanliness_score": 7
+      },
+      "expected_overall": 7.3
+    },
+    {
+      "factors": {
+        "fabric_condition_score": 9,
+        "structural_integrity_score": 8.5,
+        "cosmetic_appearance_score": 9,
+        "functional_elements_score": 8.5,
+        "odor_cleanliness_score": 8
+      },
+      "expected_overall": 8.7
+    },
+    {
+      "factors": {
+        "fabric_condition_score": 6.5,
+        "structural_integrity_score": 6,
+        "cosmetic_appearance_score": 6.5,
+        "functional_elements_score": 7,
+        "odor_cleanliness_score": 6.5
+      },
+      "expected_overall": 6.5
+    },
+    {
+      "factors": {
+        "fabric_condition_score": 8,
+        "structural_integrity_score": 7.5,
+        "cosmetic_appearance_score": 8,
+        "functional_elements_score": 8.5,
+        "odor_cleanliness_score": 9
+      },
+      "expected_overall": 8.1
+    },
+    {
+      "factors": {
+        "fabric_condition_score": 5,
+        "structural_integrity_score": 9,
+        "cosmetic_appearance_score": 5,
+        "functional_elements_score": 9,
+        "odor_cleanliness_score": 5
+      },
+      "expected_overall": 6.6
+    },
+    {
+      "factors": {
+        "fabric_condition_score": 9.5,
+        "structural_integrity_score": 9.5,
+        "cosmetic_appearance_score": 9.5,
+        "functional_elements_score": 9.5,
+        "odor_cleanliness_score": 9.5
+      },
+      "expected_overall": 9.5
+    },
+    {
+      "factors": {
+        "fabric_condition_score": 4,
+        "structural_integrity_score": 4.5,
+        "cosmetic_appearance_score": 4,
+        "functional_elements_score": 4.5,
+        "odor_cleanliness_score": 4
+      },
+      "expected_overall": 4.2
+    },
+    {
+      "factors": {
+        "fabric_condition_score": 10,
+        "structural_integrity_score": 1,
+        "cosmetic_appearance_score": 10,
+        "functional_elements_score": 1,
+        "odor_cleanliness_score": 10
+      },
+      "expected_overall": 6.4
+    },
+    {
+      "factors": {
+        "fabric_condition_score": 7,
+        "structural_integrity_score": 7,
+        "cosmetic_appearance_score": 7,
+        "functional_elements_score": 7,
+        "odor_cleanliness_score": 7
+      },
+      "expected_overall": 7
+    },
+    {
+      "factors": {
+        "fabric_condition_score": 8.5,
+        "structural_integrity_score": 9,
+        "cosmetic_appearance_score": 8,
+        "functional_elements_score": 7.5,
+        "odor_cleanliness_score": 9.5
+      },
+      "expected_overall": 8.5
+    },
+    {
+      "factors": {
+        "fabric_condition_score": 3,
+        "structural_integrity_score": 3.5,
+        "cosmetic_appearance_score": 4,
+        "functional_elements_score": 3,
+        "odor_cleanliness_score": 2.5
+      },
+      "expected_overall": 3.3
+    },
+    {
+      "factors": {
+        "fabric_condition_score": 6,
+        "structural_integrity_score": 6.5,
+        "cosmetic_appearance_score": 7,
+        "functional_elements_score": 7.5,
+        "odor_cleanliness_score": 8
+      },
+      "expected_overall": 6.8
+    }
+  ]
+}

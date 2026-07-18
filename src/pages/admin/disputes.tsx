@@ -7,6 +7,10 @@ import { promoteEvalCandidate } from "@/lib/eval-candidates";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { GRADE_FACTORS } from "@/lib/constants";
+import {
+  computeWeightedOverall as sharedWeightedOverall,
+  type WeightedFactorScores,
+} from "@/lib/weighted-grade";
 import type {
   DisputeRow,
   DisputeStatus,
@@ -171,12 +175,12 @@ function formatWaitingTime(ms: number): string {
   return `${days}d ${remainHours}h`;
 }
 
+// US-2034: delegates to the ONE shared implementation. This used to be a
+// local copy of the weighted-sum + rounding; disputes.tsx's copy had drifted
+// to 0.5 rounding while the server stored 0.1, so an operator saw a number
+// the certificate did not get. See src/lib/weighted-grade.ts.
 function computeWeightedScore(factors: FactorScores): number {
-  let total = 0;
-  for (const key of FACTOR_KEYS) {
-    total += factors[key] * FACTOR_META[key].weight;
-  }
-  return Math.round(total * 2) / 2;
+  return sharedWeightedOverall(factors as WeightedFactorScores);
 }
 
 const PAGE_SIZE = 20;

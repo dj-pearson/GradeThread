@@ -18,7 +18,7 @@
 // because insertion order is preserved; that is easy to break with a
 // well-meaning refactor to a different grouping helper.
 
-import { assert, assertEquals } from "@std/assert";
+import { assert } from "@std/assert";
 
 const SRC = await Deno.readTextFile(
   new URL("../routes/flipdesk-grading.ts", import.meta.url),
@@ -71,32 +71,36 @@ Deno.test("the batch item query is tenant-scoped (US-268)", () => {
 });
 
 Deno.test("photo grouping preserves sort_order (insertion order)", () => {
-  // Reproduces the grouping the route performs on an ordered result set. If
-  // someone swaps this for a helper that sorts by key or reverses, detail_1/2/3
-  // land out of order in the submission and the grade sees the wrong lead image.
-  const ordered = [
-    { inventory_item_id: "a", photo_type: "front", sort_order: 0 },
-    { inventory_item_id: "b", photo_type: "front", sort_order: 0 },
-    { inventory_item_id: "a", photo_type: "detail_1", sort_order: 1 },
-    { inventory_item_id: "a", photo_type: "detail_2", sort_order: 2 },
-    { inventory_item_id: "b", photo_type: "detail_1", sort_order: 1 },
-  ];
-  const byItem = new Map<string, typeof ordered>();
-  for (const row of ordered) {
-    const arr = byItem.get(row.inventory_item_id) ?? [];
-    arr.push(row);
-    byItem.set(row.inventory_item_id, arr);
-  }
-  assertEquals(
-    byItem.get("a")!.map((p) => p.photo_type),
-    ["front", "detail_1", "detail_2"],
-    "interleaved rows from other items must not disturb per-item ordering",
+  // ⚠ THIS TEST WAS SELF-REFERENTIAL AND HAS BEEN CORRECTED (US-2040 review).
+  //
+  // The first version built its own grouping Map inline and asserted on THAT.
+  // It never touched flipdesk-grading.ts, so it was a test of the test: the
+  // stated risk — "easy to break with a well-meaning refactor to a different
+  // grouping helper" — was precisely the regression it could not detect.
+  //
+  // It cannot become a behavioural test without exporting the loop, which is a
+  // larger change. So it is now an honest SOURCE GUARD on the two properties
+  // the ordering actually depends on, which is at least a claim about the real
+  // code rather than about a copy of it.
+  const preLoop = SUBMIT.slice(0, SUBMIT.indexOf("for (const item of validation.result.items)"));
+
+  // 1. The query must be ORDERED — grouping cannot restore an order the query
+  //    never established.
+  assert(
+    /\.from\("item_photos"\)[\s\S]{0,400}?\.order\("sort_order", \{ ascending: true \}\)/
+      .test(preLoop),
+    "the batched item_photos query must be ordered by sort_order — without it, " +
+      "per-item order is whatever Postgres returns and detail_1/2/3 can land " +
+      "out of order, giving the grader the wrong lead image",
   );
-  assertEquals(byItem.get("b")!.map((p) => p.photo_type), ["front", "detail_1"]);
-  assertEquals(
-    byItem.get("a")!.map((p) => p.sort_order),
-    [0, 1, 2],
-    "sort_order must remain ascending within each item",
+
+  // 2. Grouping must PUSH in iteration order (append), not insert positionally
+  //    or re-sort. `arr.push(row)` over an ordered result set is what preserves
+  //    it; a switch to a keyed/sorted helper silently would not.
+  assert(
+    /photosByItem\.get\([\s\S]{0,60}?\?\? \[\][\s\S]{0,80}?\.push\(row\)/.test(preLoop),
+    "grouping must append rows in query order (arr.push) so the ordered result " +
+      "set's sequence survives into each item's photo list",
   );
 });
 

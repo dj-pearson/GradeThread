@@ -3,6 +3,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { GRADE_FACTORS } from "@/lib/constants";
+import {
+  computeWeightedOverall as sharedWeightedOverall,
+  type WeightedFactorScores,
+} from "@/lib/weighted-grade";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -147,14 +151,12 @@ function ageTone(ms: number): string {
   return "bg-muted text-muted-foreground";
 }
 
+// US-2034: delegates to the ONE shared implementation. This used to be a
+// local copy of the weighted-sum + rounding; disputes.tsx's copy had drifted
+// to 0.5 rounding while the server stored 0.1, so an operator saw a number
+// the certificate did not get. See src/lib/weighted-grade.ts.
 function computeWeightedScore(factors: FactorScores): number {
-  let total = 0;
-  for (const key of FACTOR_KEYS) total += factors[key] * FACTOR_META[key].weight;
-  // LOCKSTEP (grading-engine skill): the weighted OVERALL rounds to 0.1 —
-  // matching ai-grading.roundToTenth / human-review.computeWeightedOverall /
-  // reviews.tsx computeWeightedScore. This previewed 0.5-rounded values while
-  // the edge persisted 0.1-rounded ones (drift caught 2026-07-03, US-1557).
-  return Math.round(total * 10) / 10;
+  return sharedWeightedOverall(factors as WeightedFactorScores);
 }
 
 // ─── Main Component ─────────────────────────────────────────────────
