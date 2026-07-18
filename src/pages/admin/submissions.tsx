@@ -118,6 +118,10 @@ function getConfidenceLevel(score: number): "high" | "medium" | "low" {
 
 // SLA: grading should complete within 5 minutes
 const SLA_MS = 5 * 60 * 1000;
+// US-2025: how many of the most recent submissions this console loads. Bounds
+// three platform-wide append-only tables that were previously read in full. The
+// filters run client-side over this window, so the header flags when it is full.
+const SUBMISSION_LIMIT = 2000;
 
 function isOverdueSLA(submission: SubmissionRow): boolean {
   if (submission.status !== "processing") return false;
@@ -165,18 +169,40 @@ export function AdminSubmissionsPage() {
   const { data, isLoading } = useQuery({
     queryKey: ["admin-submissions"],
     queryFn: async () => {
-      const [subsRes, reportsRes, usersRes] = await Promise.all([
-        supabase.from("submissions").select("*"),
-        // US-479: only the ACTIVE report per submission — a regraded submission
-        // keeps its superseded history, which must not win the reportMap.
-        supabase.from("grade_reports").select("*").is("superseded_at", null),
-        supabase.from("users").select("id, email, full_name"),
-      ]);
+      // US-2025: bound the anchor and derive the rest, instead of three
+      // unbounded reads of platform-wide append-only tables.
+      //
+      // ⚠ The filters below (status, confidence, search) run CLIENT-SIDE over
+      // whatever this returns, so the window is not merely a perf knob — it
+      // changes what a filter can find. That is disclosed in the header rather
+      // than left implicit; an admin filtering for "pending" and seeing none
+      // must not conclude there are none.
+      const subsRes = await supabase
+        .from("submissions")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(SUBMISSION_LIMIT);
       if (subsRes.error) throw subsRes.error;
+      const submissions = (subsRes.data ?? []) as SubmissionRow[];
+
+      const submissionIds = submissions.map((sub) => sub.id);
+      const userIds = [...new Set(submissions.map((sub) => sub.user_id))];
+      const [reportsRes, usersRes] = submissionIds.length > 0
+        ? await Promise.all([
+          // US-479: only the ACTIVE report per submission — a regraded
+          // submission keeps its superseded history, which must not win the
+          // reportMap.
+          supabase
+            .from("grade_reports")
+            .select("*")
+            .is("superseded_at", null)
+            .in("submission_id", submissionIds),
+          supabase.from("users").select("id, email, full_name").in("id", userIds),
+        ])
+        : [{ data: [], error: null }, { data: [], error: null }];
       if (reportsRes.error) throw reportsRes.error;
       if (usersRes.error) throw usersRes.error;
 
-      const submissions = (subsRes.data ?? []) as SubmissionRow[];
       const reports = (reportsRes.data ?? []) as GradeReportRow[];
       const users = (usersRes.data ?? []) as Pick<UserRow, "id" | "email" | "full_name">[];
 
@@ -368,6 +394,18 @@ export function AdminSubmissionsPage() {
           <Badge variant="secondary" className="ml-2">
             {filtered.length} submission{filtered.length !== 1 ? "s" : ""}
           </Badge>
+          {items.length >= SUBMISSION_LIMIT && (
+            /* US-2025: the filters run client-side over the loaded window, so
+               say when the window is full. Otherwise "0 pending" is
+               indistinguishable from "0 pending in the newest 2,000". */
+            <Badge
+              variant="outline"
+              className="ml-1 border-amber-300 text-amber-700 dark:border-amber-900/50 dark:text-amber-400"
+              title={`Showing the ${SUBMISSION_LIMIT.toLocaleString()} most recent submissions. Filters apply to this window only — older submissions exist and are not searched.`}
+            >
+              Newest {SUBMISSION_LIMIT.toLocaleString()}
+            </Badge>
+          )}
         </div>
         {overdueSubmissions.length > 0 && (
           <Badge variant="destructive" className="flex items-center gap-1">

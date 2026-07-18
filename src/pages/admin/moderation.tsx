@@ -64,6 +64,11 @@ const AMBER =
   "border-yellow-200 bg-yellow-100 text-yellow-800 dark:border-yellow-800 dark:bg-yellow-950/50 dark:text-yellow-300";
 const SLATE = "border-slate-200 bg-slate-100 text-slate-700";
 
+// US-2025: defensive cap on the moderation queue. Normally a handful of rows —
+// this exists so a mass-flagging event cannot take the console down at the
+// moment it is most needed.
+const MODERATION_QUEUE_LIMIT = 1000;
+
 // Derive the specific reasons a submission is in the queue from the structured
 // grade signals (US-336/337/338) + the free-text flag reason, so a reviewer
 // sees WHAT to check rather than a generic "flagged".
@@ -149,12 +154,23 @@ function SubmissionsTab() {
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["admin-moderation"],
     queryFn: async (): Promise<FlaggedSubmission[]> => {
+      // US-2025: this page was flagged as "four unbounded select('*')", but on
+      // reading it that is not what it is — everything after the anchor is
+      // already a correctly-scoped .in() cascade, which is the pattern the other
+      // admin pages were being fixed TO. The anchor is also selective by nature:
+      // flagged AND not-yet-moderated is a live queue, normally tiny.
+      //
+      // The one real risk is a mass-flagging event (a bad heuristic, an abuse
+      // wave) turning that queue into thousands of rows and taking the console
+      // down exactly when an operator needs it. So: a defensive cap, not a
+      // restructure.
       const { data: subsRaw, error } = await supabase
         .from("submissions")
         .select("*")
         .eq("flagged", true)
         .is("moderation_status", null)
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .limit(MODERATION_QUEUE_LIMIT);
       if (error) throw error;
       const submissions = (subsRaw ?? []) as SubmissionRow[];
       if (submissions.length === 0) return [];
