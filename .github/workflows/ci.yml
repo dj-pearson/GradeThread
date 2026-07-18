@@ -56,18 +56,31 @@ jobs:
       - name: Type-check
         if: ${{ !cancelled() }}
         run: npx tsc -b
-      # US-510 / US-519: run the Vitest suite with coverage thresholds. Fails the
-      # build on any test failure OR if coverage drops below the configured floor
-      # (vitest.config.ts). Runs alongside lint/type-check so all gates report
-      # together. NOTE: make this a REQUIRED status check once branch protection
-      # on `main` is (re)enabled — see US-522.
-      - name: Test (with coverage)
-        if: ${{ !cancelled() }}
-        run: npm run test:coverage
+      # US-2038: BUILD BEFORE TEST — deliberately, and this ordering is load-bearing.
+      #
+      # Three suites gate themselves on `existsSync(dist/index.html)` and skip
+      # when it is absent: prerender.test.ts, crawl-parity.test.ts and
+      # responsive-images.test.ts. `dist/` is gitignored, so on a fresh runner it
+      # did not exist when tests ran — and CI used to run Test BEFORE Build.
+      # Result: 17 SEO / hydration-parity tests silently skipped on every CI run
+      # since they were written. They never once fired. (prerender.test.ts's own
+      # comment says "CI runs them after `npm run build`" — it did not.)
+      #
+      # Safe to reorder because of the `if: !cancelled()` rule above: a failing
+      # build no longer prevents the test step from running, so moving Build
+      # earlier does not hide test results.
       - name: Build
         id: build
         if: ${{ !cancelled() }}
         run: npm run build
+      # US-510 / US-519: run the Vitest suite with coverage thresholds. Fails the
+      # build on any test failure OR if coverage drops below the configured floor
+      # (vitest.config.ts). Runs after Build so the dist-gated suites above
+      # actually execute. NOTE: make this a REQUIRED status check once branch
+      # protection on `main` is (re)enabled — see US-522.
+      - name: Test (with coverage)
+        if: ${{ !cancelled() }}
+        run: npm run test:coverage
       # US-417: guard the eager (landing/cold-load) chunk graph — fail the build
       # if the entry/eager gz size regresses past budget, or if a heavy primitive
       # (radix Dialog/Select/Popover, TipTap) stops being code-split and rides
