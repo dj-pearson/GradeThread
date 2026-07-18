@@ -996,6 +996,14 @@ function AspectField({
 }) {
   const cardinality = aspect.aspectConstraint.itemToAspectCardinality ?? "SINGLE";
   const mode = aspect.aspectConstraint.aspectMode ?? "FREE_TEXT";
+  // While the free-text field is focused, show exactly what the user is typing
+  // (`draft`) rather than the canonical stored value. Measurement aspects are
+  // two-way-synced with the Measurements section, which re-formats the value
+  // with its unit ("31" → "31 in") on every keystroke; without this the reformat
+  // would overwrite the input mid-typing and scatter digits after the unit
+  // ("3 in", then "3 in 1"). On blur we drop the draft so the formatted value
+  // (unit included) takes over. `null` = not editing.
+  const [draft, setDraft] = useState<string | null>(null);
   // Build a unique stable id from the aspect name for proper label↔input
   // accessibility wiring (eBay aspect names can include spaces/specials).
   const fieldId = `aspect-${aspect.localizedAspectName.replace(/\W+/g, "-")}`;
@@ -1100,8 +1108,12 @@ function AspectField({
       ) : (
         <Input
           id={fieldId}
-          value={value[0] ?? ""}
-          onChange={(e) => onChange(e.target.value)}
+          value={draft ?? value[0] ?? ""}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            onChange(e.target.value);
+          }}
+          onBlur={() => setDraft(null)}
           className="h-8 text-xs"
           list={allowedValues.length > 0 ? `${fieldId}-options` : undefined}
         />
