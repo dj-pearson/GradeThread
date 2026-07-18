@@ -1,5 +1,23 @@
 // US-1770: authenticity golden-set eval gate.
 //
+// ⚠ THIS GATE DOES NOT RUN. NOTHING IMPORTS THIS MODULE (verified 2026-07-18).
+//
+// US-1770 is marked passes:true in the archive while its OWN notes say
+// "[DEFERRED 2026-07-09]" — it was deferred pending a held migration and closed
+// anyway. runAuthenticityEval has zero callers outside this file's tests, and
+// there is no authenticity prompt-activation path for it to gate (admin-grading.ts
+// has no authenticity hooks at all).
+//
+// The unmet ACs are the SAFETY ones, which is why this warning is here rather
+// than in a backlog note alone: AC1 requires a candidate authenticity prompt to
+// clear an accuracy gate BEFORE activation, and AC3 requires per-brand regressions
+// to BLOCK activation. Neither is enforced by anything. AC2's human-review routing
+// on a counterfeit call is also absent — the only consumer of red_flags is
+// grading-pipeline.ts, which writes a note and routes nobody.
+//
+// Do not read this module's green tests as evidence the gate exists. Tracked in
+// US-1996.
+//
 // Mirrors grading-eval.ts (runEval) for the brand-authenticity add-on: replay a
 // labeled authentic-vs-counterfeit golden set through the authenticity pass
 // (US-1769) and score how often the derived verdict matches the expert label,

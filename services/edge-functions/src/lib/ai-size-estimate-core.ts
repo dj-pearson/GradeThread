@@ -1,7 +1,24 @@
 // US-1088: PURE Size AI helpers — no ai-config / supabase imports, so tests (and
 // any caller that only needs the types/decoders) don't drag in the Anthropic
-// client or the env-gated supabase module. The network call lives in
-// ai-size-estimate.ts, which re-exports everything here.
+// client or the env-gated supabase module.
+//
+// ⚠ THIS MODULE IS DEAD, AND THE SENTENCE THAT USED TO BE HERE WAS FALSE.
+//
+// It claimed "the network call lives in ai-size-estimate.ts, which re-exports
+// everything here". ai-size-estimate.ts does NOT import this file — it
+// RE-DECLARES its own SizePhoto, SIZE_ESTIMATE_LOW_CONFIDENCE, isMeasurementPhoto,
+// normalizeSizeEstimate and prioritizeMeasurementPhotos. flipdesk-ai.ts imports
+// that one. Nothing anywhere imports this one (verified 2026-07-18 by
+// scripts/audit-unwired-exports.mjs).
+//
+// The two copies are byte-identical TODAY, which is exactly what makes this
+// dangerous rather than merely untidy: the tests point HERE, so the helpers that
+// actually run are effectively untested and free to drift, and the header
+// asserted a link that would have made a reviewer stop looking.
+//
+// Fix is one of two, not both: make ai-size-estimate.ts import this module (as
+// the old header claimed), or delete this file and repoint the test at the live
+// one. Tracked in US-1996.
 
 export interface SizePhoto {
   url: string;
