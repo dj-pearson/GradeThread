@@ -171,7 +171,8 @@ final class ListingMaintenanceTests: XCTestCase {
         service.endOutcome = .planLimit(message: "You've reached your plan's limit.")
         let store = makeStore(quantity: 1, service: service)
 
-        XCTAssertNil(await store.endListing())
+        let applied = await store.endListing()
+        XCTAssertNil(applied)
         XCTAssertEqual(store.actionError, "You've reached your plan's limit.")
     }
 
