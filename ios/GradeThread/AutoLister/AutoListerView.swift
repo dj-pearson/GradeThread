@@ -27,7 +27,11 @@ struct AutoListerView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
             .sheet(isPresented: $showingPicker) {
-                PhotoLibraryPicker(selectionLimit: 0) { results in
+                // Bound the pick to the batch's remaining capacity so the seller
+                // can't over-select (the batch caps at `maxBatchPhotos`). We only
+                // open the picker when capacity > 0, so this is never 0
+                // (PHPicker treats 0 as unlimited).
+                PhotoLibraryPicker(selectionLimit: model.remainingCapacity) { results in
                     showingPicker = false
                     Task {
                         await model.importPicks(results)
@@ -120,6 +124,17 @@ struct AutoListerView: View {
             }
     }
 
+    /// Open the library picker unless the batch is already full, in which case
+    /// nudge the seller to generate or remove photos instead of silently opening
+    /// a picker whose picks would all be dropped by the cap.
+    private func presentPicker() {
+        if model.isAtCapacity {
+            model.capNotice = "This batch is full (\(AutoListerReviewModel.maxBatchPhotos) photos). Generate it, or remove some photos to add more."
+            return
+        }
+        showingPicker = true
+    }
+
     @ViewBuilder
     private var content: some View {
         if model.isImporting && model.isEmpty {
@@ -147,7 +162,7 @@ struct AutoListerView: View {
             message: message,
             systemImage: "photo.badge.exclamationmark",
             retryTitle: "Import photos",
-            retry: { await MainActor.run { showingPicker = true } }
+            retry: { await MainActor.run { presentPicker() } }
         )
     }
 
@@ -158,7 +173,7 @@ struct AutoListerView: View {
             systemImage: "square.stack.3d.up.slash",
             retry: { await MainActor.run { model.regroupAll() } },
             secondaryTitle: "Import photos",
-            secondaryAction: { showingPicker = true }
+            secondaryAction: { presentPicker() }
         )
     }
 
@@ -186,7 +201,7 @@ struct AutoListerView: View {
             Text("Import a batch of photos and we'll group them into items, then generate eBay listings with AI.")
         } actions: {
             Button {
-                showingPicker = true
+                presentPicker()
             } label: {
                 Label("Import photos", systemImage: "photo.on.rectangle.angled")
             }
@@ -202,6 +217,12 @@ struct AutoListerView: View {
     private var reviewList: some View {
         ScrollView {
             LazyVStack(spacing: 16) {
+                // Cap notice — some picks were left out because a batch is bounded
+                // at `maxBatchPhotos` (keeps the serial upload from hanging).
+                // Dismissible; never blocks the review list.
+                if let notice = model.capNotice {
+                    capNoticeBanner(notice)
+                }
                 // US-1548: AI grouping suggestions — advisory, one-tap apply,
                 // never auto-applied. Silent when verification found nothing
                 // (or failed); a small inline hint while it runs. US-1909: a
@@ -241,6 +262,34 @@ struct AutoListerView: View {
         }
         .scrollDismissesKeyboard(.interactively)
         .safeAreaInset(edge: .bottom) { generateBar }
+    }
+
+    /// Non-blocking banner shown when an import was capped at `maxBatchPhotos`.
+    private func capNoticeBanner(_ notice: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "info.circle.fill")
+                .foregroundStyle(Color.brandNavy)
+                .padding(.top, 2)
+            Text(notice)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            Button {
+                withAnimation { model.capNotice = nil }
+            } label: {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .accessibilityLabel("Dismiss notice")
+        }
+        .padding(12)
+        .background(Color.brandNavy.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(Color.brandNavy.opacity(0.3))
+        )
     }
 
     /// US-1909: progress of a multi-window AI pass, with a way out. A pass stops
@@ -613,6 +662,21 @@ struct AutoListerView: View {
     private var generateBar: some View {
         let count = model.groups.count
         return VStack(spacing: 8) {
+            // Batch fill indicator — the seller sees how close they are to the
+            // per-batch photo cap (uploads are serial, so the batch is bounded).
+            HStack {
+                Text("\(model.totalPhotos) of \(AutoListerReviewModel.maxBatchPhotos) photos")
+                    .font(.caption)
+                    .foregroundStyle(model.isAtCapacity ? Color.brandRed : .secondary)
+                if model.isAtCapacity {
+                    Text("· batch full")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(Color.brandRed)
+                }
+                Spacer()
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(model.totalPhotos) of \(AutoListerReviewModel.maxBatchPhotos) photos in this batch\(model.isAtCapacity ? ", batch full" : "")")
             if !templateStore.templates.isEmpty {
                 templatePicker
             }
@@ -714,10 +778,11 @@ struct AutoListerView: View {
             .disabled(model.groups.count < 2 || model.verifying)
 
             Button {
-                showingPicker = true
+                presentPicker()
             } label: {
                 Label("Add photos", systemImage: "plus")
             }
+            .disabled(model.isAtCapacity)
 
             // US-675: jump to the persistent drafts library (review + bulk edit).
             NavigationLink {

@@ -27,6 +27,29 @@ final class AutoListerReviewModelTests: XCTestCase {
         XCTAssertFalse(AutoListerReviewModel().canGenerate)
     }
 
+    // MARK: - Per-batch photo cap
+
+    func test_capacity_startsAtMaxWhenEmpty() {
+        let m = AutoListerReviewModel()
+        XCTAssertEqual(m.remainingCapacity, AutoListerReviewModel.maxBatchPhotos)
+        XCTAssertFalse(m.isAtCapacity)
+    }
+
+    func test_capacity_decrementsAsPhotosAreAdded() {
+        let m = AutoListerReviewModel()
+        m.ingest([cap(0), cap(5), cap(100)])
+        XCTAssertEqual(m.remainingCapacity, AutoListerReviewModel.maxBatchPhotos - 3)
+        XCTAssertFalse(m.isAtCapacity)
+    }
+
+    func test_capacity_reportsFullAtMax() {
+        let m = AutoListerReviewModel()
+        m.ingest((0..<AutoListerReviewModel.maxBatchPhotos).map { cap(Double($0)) })
+        XCTAssertEqual(m.totalPhotos, AutoListerReviewModel.maxBatchPhotos)
+        XCTAssertEqual(m.remainingCapacity, 0)
+        XCTAssertTrue(m.isAtCapacity)
+    }
+
     func test_setCover_movesCoverToFront() {
         let m = AutoListerReviewModel()
         let a = cap(0), b = cap(5)
