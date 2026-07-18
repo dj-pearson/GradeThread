@@ -9,6 +9,11 @@
 //   1. ALWAYS captures the drop to the error tracker (Sentry via captureException)
 //      — this fires regardless of whether the DB write below succeeds, so the
 //      floor is never "console.error only".
+//   1b. ALSO emits a CRITICAL ops event (US-2011). Sentry alone was not enough:
+//      it is one channel, and its alert routing is separately unverified, so a
+//      dropped PAID CHECKOUT could land somewhere nobody watches. emitOpsEvent
+//      is the path that fans out to the on-call webhook, so the drop now reaches
+//      the same place every other critical operational event does.
 //   2. Writes a redacted row to webhook_dead_letters so an operator can see +
 //      manually replay it from the admin queue.
 //
@@ -21,6 +26,7 @@
 
 import { supabaseAdmin } from "./supabase.ts";
 import { captureException } from "./observability.ts";
+import { emitOpsEvent } from "./ops-events.ts";
 import { redact } from "./log-redact.ts";
 
 export interface DeadLetterInput {
@@ -88,6 +94,25 @@ export async function recordWebhookDeadLetter(
       extra: { event_id: input.eventId },
     },
   );
+
+  // (1b) The operational alert channel. Deliberately fire-and-forget: this
+  // function is on the caller's 200-return path and must never throw or block,
+  // and emitOpsEvent already swallows its own failures. Awaiting it would make a
+  // slow alert sink delay a webhook ack, which is how you get Stripe retries.
+  void emitOpsEvent("webhook.dead_letter", "critical", {
+    title:
+      `Webhook DROPPED (non-transient): ${input.provider} ` +
+      `${input.eventType ?? "unknown"} — manual replay required`,
+    source: "webhook",
+    data: {
+      provider: input.provider,
+      event_id: input.eventId,
+      event_type: input.eventType ?? "unknown",
+      // Truncated: the ops feed is a signal surface, not a log store. The full
+      // (redacted) payload lives in webhook_dead_letters for the replay path.
+      error: input.errorMessage.slice(0, 300),
+    },
+  });
 
   // (2) The durable capture — best-effort, never throws.
   try {

@@ -79,7 +79,13 @@ done
 - **Scheduled tasks survive a redeploy:** Coolify Scheduled Tasks are configured
   on the *service*, not baked into the image, so they persist across redeploys.
   After a deploy, spot-check one with **Run Now** (see `LAUNCH_CHECKLIST.md` §3).
-  If you ever recreate the service, re-add all 16 tasks from that checklist.
+  If you ever recreate the service, re-add **every** task from that checklist —
+  there are **71** (`CRON_REGISTRY` in `services/edge-functions/src/lib/cron-runs.ts`
+  is the source of truth, and `CRON_SETUP.md` is generated from it). This line
+  said "16" for a long time; rebuilding from that number would have silently
+  dropped 55 crons, including the consignor/affiliate payout jobs and the GDPR
+  data-retention sweep. Count from the registry rather than trusting this
+  sentence.
 - **Verify:** `curl -fsS https://functions.gradethread.com/health/ready | jq` →
   `status:"ready"`. Edge logs show `[schema-version] OK` and `edge.boot`.
 - **Rollback:** Coolify → Deployments → redeploy the previous successful commit

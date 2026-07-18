@@ -213,7 +213,7 @@ dropped out of the environment).
 
 | Item | Verify | By / Date |
 |---|---|---|
-| All migrations applied (latest = `00132`) | `select version from supabase_migrations.schema_migrations order by version desc limit 1;` → `00132` | ☐ |
+| All migrations applied | `curl -fsS https://functions.gradethread.com/health/ready \| jq .schema` → `status:"match"` (US-1566 reports `expected` vs `applied` from the DB itself). **Do not hardcode a version here** — this row previously read `latest = 00132` while prod was at 00476, so an operator verifying against it would have CONFIRMED a catastrophically stale DB. Ask the system, don't assert. Caveat: `applied` is the recorded MAX, so it proves the head landed, not that every intermediate version did. | ☐ |
 | Edge boots clean against prod schema (US-778) | edge logs show `[schema-version] OK` (not `STALE`) | ☐ |
 | RLS enabled on every multi-tenant table | spot-check `select relrowsecurity from pg_class where relname='submissions';` → t | ☐ |
 

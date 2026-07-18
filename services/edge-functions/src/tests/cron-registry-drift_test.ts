@@ -113,3 +113,34 @@ Deno.test("CRON_SETUP.md embeds the generated Coolify setup blocks verbatim", as
       "`deno run --allow-env --allow-net --allow-read scripts/render-cron-setup.ts` and paste between the markers",
   );
 });
+
+// US-2012: DEPLOY.md tells an operator how many Coolify tasks to re-add when
+// rebuilding the service. It said "16" while CRON_REGISTRY held 71 — rebuilding
+// from that sentence would have silently dropped 55 crons, including the
+// consignor/affiliate payout jobs and the GDPR data-retention sweep, with no
+// error anywhere. The generated tables in this file never drifted; the failure
+// was in hand-written prose beside them, which is exactly the gap a generation
+// guard leaves open. So pin the prose too.
+Deno.test("DEPLOY.md's cron count matches CRON_REGISTRY", async () => {
+  const deploy = (await Deno.readTextFile(
+    new URL("../../../../DEPLOY.md", import.meta.url),
+  )).replace(/\r\n/g, "\n");
+
+  const claimed = deploy.match(/there are \*\*(\d+)\*\*/);
+  if (!claimed) {
+    throw new Error(
+      "DEPLOY.md no longer states a cron count in the expected form " +
+        '("there are **N**"). Update this guard alongside the prose — do not ' +
+        "delete it, or the count is free to drift again.",
+    );
+  }
+
+  const actual = CRON_REGISTRY.length;
+  if (Number(claimed[1]) !== actual) {
+    throw new Error(
+      `DEPLOY.md claims ${claimed[1]} cron tasks but CRON_REGISTRY has ${actual}. ` +
+        "An operator recreating the service follows that sentence, so a stale " +
+        "number silently drops jobs — including payouts and GDPR retention.",
+    );
+  }
+});

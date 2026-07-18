@@ -33,36 +33,41 @@ export interface RetentionResult {
 export async function purgeExpiredGradingPii(): Promise<RetentionResult> {
   const cutoff = new Date(Date.now() - retentionDays() * 86_400_000).toISOString();
 
-  // Submissions past the window that still have images to purge.
-  const { data: subs, error } = await supabaseAdmin
-    .from("submissions")
-    .select("id")
-    .lt("created_at", cutoff)
-    .limit(BATCH_LIMIT);
-  if (error) {
-    captureException(error, { route: "data-retention.scan" });
-    throw new Error(`retention scan failed: ${error.message}`);
-  }
-
-  const submissionIds = (subs ?? []).map((s) => (s as { id: string }).id);
-  if (submissionIds.length === 0) {
-    return { cutoff, submissions_processed: 0, objects_deleted: 0, rows_deleted: 0 };
-  }
-
-  // Pull the storage paths for those submissions' images.
+  // Select the IMAGES to purge directly, joined to their submission's age.
+  //
+  // ⚠ THIS USED TO SELECT SUBMISSIONS FIRST, AND IT COULD NOT MAKE PROGRESS.
+  // The old query took 200 arbitrary submissions past the cutoff with no filter
+  // for whether any images REMAINED and no ORDER BY, then looked up their
+  // images and returned early when there were none. So after the first run
+  // purged those 200, every subsequent nightly run re-selected the SAME
+  // already-purged submissions, found zero images, and returned
+  // objects_deleted: 0 — newer expired submissions were never reached. GDPR
+  // storage-limitation was silently unenforced from run two onward while the
+  // cron reported ok:true forever.
+  //
+  // Driving off submission_images instead makes stalling structurally
+  // impossible: the query only ever returns rows that still exist, and this
+  // function's whole job is to delete them, so every run strictly advances.
+  // Oldest-first so the longest-expired PII goes first and the sweep is
+  // deterministic rather than dependent on Postgres row order.
   const { data: imgs, error: imgErr } = await supabaseAdmin
     .from("submission_images")
-    .select("id, storage_path, submission_id")
-    .in("submission_id", submissionIds);
+    .select("id, storage_path, submission_id, submissions!inner(created_at)")
+    .lt("submissions.created_at", cutoff)
+    .order("created_at", { ascending: true })
+    .limit(BATCH_LIMIT);
   if (imgErr) {
-    captureException(imgErr, { route: "data-retention.images" });
-    throw new Error(`retention image lookup failed: ${imgErr.message}`);
+    captureException(imgErr, { route: "data-retention.scan" });
+    throw new Error(`retention scan failed: ${imgErr.message}`);
   }
 
   const rows = (imgs ?? []) as Array<{ id: string; storage_path: string; submission_id: string }>;
   if (rows.length === 0) {
-    return { cutoff, submissions_processed: submissionIds.length, objects_deleted: 0, rows_deleted: 0 };
+    return { cutoff, submissions_processed: 0, objects_deleted: 0, rows_deleted: 0 };
   }
+  // Distinct submissions touched by this batch — reported, not used as the
+  // batch key, so the count stays meaningful without reintroducing the stall.
+  const submissionIds = [...new Set(rows.map((r) => r.submission_id))];
 
   // Delete the storage objects (PII) in chunks, then the index rows. Storage
   // first: if the row delete fails we retry next run and re-delete (idempotent);

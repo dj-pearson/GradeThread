@@ -816,9 +816,23 @@ app.use("/api/passport-identity/*", rateLimiter(30, 60_000, "passport-identity")
 // (`rate_limit_grade_per_min`) via the per-request resolver so it can be retuned
 // without a deploy. getSettingSync serves the cached value (default 60) and
 // warms the cache in the background — no await on the request path.
+// US-2013: fail CLOSED. This limiter and the AI spend kill-switch
+// (lib/ai-budget-gate.ts, also fail-open) read the SAME Postgres, so they share
+// a failure domain — a DB degradation removed per-user grading limits and the
+// hard USD cap simultaneously, while Anthropic stayed up and billable. Each
+// control failing open is defensible on its own; both failing together turns a
+// blip into an unbounded bill. Grading is the most expensive call in the
+// product, so this is the one to close: during a store outage a caller gets a
+// 429 and retries, instead of an uncapped fan-out to the vision API.
 app.use(
   "/api/grade/*",
-  rateLimiter((_) => getSettingSync<number>("rate_limit_grade_per_min", 60), 60_000, "grade"),
+  rateLimiter(
+    (_) => getSettingSync<number>("rate_limit_grade_per_min", 60),
+    60_000,
+    "grade",
+    undefined,
+    { failClosed: true },
+  ),
 );
 // Snap-to-Value (/api/grade/snap) is a FREE, uncertified Claude Vision call. The
 // monthly SNAP_CAP bounds total volume, but the "business" tier is monthly-
@@ -831,7 +845,12 @@ app.use(
 );
 app.use("/api/flipdesk/ebay/listings/*", rateLimiter(30, 60_000, "ebay-listings"));
 app.use("/api/flipdesk/grading/*", rateLimiter(60, 60_000, "flipdesk-grading"));
-app.use("/api/flipdesk/ai/*", rateLimiter(20, 60_000, "flipdesk-ai"));
+// US-2013: fail closed for the same reason as /api/grade/* above — this is the
+// other AI-spend surface that shares a failure domain with the budget gate.
+app.use(
+  "/api/flipdesk/ai/*",
+  rateLimiter(20, 60_000, "flipdesk-ai", undefined, { failClosed: true }),
+);
 // US-619: ScoutAI is expensive (grades N candidates per scan) - cap tightly.
 app.use("/api/flipdesk/scout/*", rateLimiter(6, 60_000, "flipdesk-scout"));
 // US-1572: calibration is CPU-bound image decode + CV (no model call) — cap
