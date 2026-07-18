@@ -95,11 +95,8 @@ import {
 import type { AspectSourceMap } from "@/lib/aspect-provenance";
 import { advanceItemStatus } from "@/lib/status-writer";
 import { deriveListingOrigin } from "@/lib/listing-origin";
-import {
-  changesFromItemDiff,
-  syncTitle,
-  trimTitleToLimit,
-} from "@/lib/title-sync";
+import { changesFromItemDiff } from "@/lib/title-sync";
+import { buildTitleSyncPatch } from "@/lib/title-sync-patch";
 import { cn, errorMessage } from "@/lib/utils";
 import {
   AiFillPanel,
@@ -1014,37 +1011,31 @@ export function ItemCanvas({
           department: s.attributes.department,
         },
       );
-      if (!lockedByEbay && titleFieldChanges.length > 0) {
-        // Sync the title as it will stand after the draft smart-merge above.
-        const baseTitle =
-          (typeof listingUpdate.listing_title === "string"
-            ? listingUpdate.listing_title
-            : null) ??
-          lstRow?.listing_title ??
-          item.item_title ??
-          "";
-        const syncedTitle = syncTitle(baseTitle, titleFieldChanges);
-        if (syncedTitle && syncedTitle !== trimTitleToLimit(baseTitle)) {
-          listingUpdate.listing_title = syncedTitle;
-          // AC4: both A/B title variants get the substitution.
-          const variants = lstRow?.title_variants;
-          if (Array.isArray(variants)) {
-            listingUpdate.title_variants = variants.map((v) =>
-              v && typeof v.title === "string"
-                ? { ...v, title: syncTitle(v.title, titleFieldChanges) }
-                : v,
-            );
-          }
-          // AC2/AC3: a hand-edited title (diverged from the AI snapshot) or a
-          // LIVE GradeThread listing flags needs_review — the composer surfaces
-          // the diff chip / "listing out of date — push update" prompt (which
-          // uses the revise-in-place path; never an auto end/relist).
-          const snapTitle = (lstRow?.ai_generated_snapshot?.title ?? "").trim();
-          const handEdited = snapTitle !== "" &&
-            trimTitleToLimit(baseTitle) !== trimTitleToLimit(snapTitle);
-          if (handEdited || isGtLive) listingUpdate.needs_review = true;
-        }
-      }
+      // US-1995: the same orchestration bulk-edit uses. This was longhand here
+      // and NOWHERE else, which is why a bulk brand correction left 40 stale
+      // titles — the pure substitution was shared but these decisions were not.
+      // buildTitleSyncPatch owns them: refuse an eBay-origin mirror, move BOTH
+      // A/B variants, and flag needs_review for a hand-edited or live listing
+      // (the composer then surfaces the diff chip / "push update" prompt, which
+      // uses revise-in-place — never an auto end/relist).
+      Object.assign(
+        listingUpdate,
+        buildTitleSyncPatch({
+          // The title as it will stand AFTER the draft smart-merge above.
+          baseTitle:
+            (typeof listingUpdate.listing_title === "string"
+              ? listingUpdate.listing_title
+              : null) ??
+            lstRow?.listing_title ??
+            item.item_title ??
+            "",
+          variants: lstRow?.title_variants,
+          changes: titleFieldChanges,
+          snapshotTitle: lstRow?.ai_generated_snapshot?.title ?? null,
+          isLive: isGtLive,
+          listingOrigin: ebayOrigin,
+        }),
+      );
       await supabase
         .from("listings")
         .update(listingUpdate as never)
