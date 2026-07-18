@@ -1340,6 +1340,47 @@ const fetchPaymentIntentMetadata: PaymentIntentMetadataFetcher = async (id) => {
   }
 };
 
+/**
+ * US-2040 / US-2033 — decide WHICH refund a `charge.refunded` event should claw
+ * back, how much, and under what idempotency key.
+ *
+ * This is the whole bug surface of US-2033, so it is pure and exported. The
+ * original defect was subtle in exactly the way that survives review: the AMOUNT
+ * was computed from `charge.amount_refunded` (cumulative for the charge) while
+ * the ledger KEY was the charge id. `revoke_grade_credits` no-ops on a repeated
+ * key, so a second partial refund computed the right number and then skipped the
+ * write — the customer kept the remaining credits AND all their money.
+ *
+ * Rules, each of which has a test:
+ *  - Pick the NEWEST refund by `created`, breaking ties on id. List order is not
+ *    guaranteed by Stripe, and a tie-break makes redeliveries of the same event
+ *    resolve identically instead of flapping between refunds.
+ *  - Use THAT refund's amount (the increment), not the cumulative total.
+ *  - Key on the refund id, so each refund claims its own key. admin-billing
+ *    keys its direct ledger call the same way, preserving US-892's
+ *    whichever-path-runs-first-wins dedup at per-refund granularity.
+ *  - If Stripe omitted the refunds list, fall back to cumulative + charge id.
+ *    That under-claws a multi-refund charge (the OLD bug) but still claws back
+ *    something, which beats skipping the reversal entirely.
+ */
+export function resolveRefundClawback(charge: {
+  id: string;
+  amount_refunded: number;
+  refunds?: { data?: Array<{ id: string; amount: number; created: number }> } | null;
+}): { incremental: number; idempotencyKey: string; refundId: string | null } {
+  const refunds = charge.refunds?.data ?? [];
+  const latest = refunds.length
+    ? refunds.reduce((a, b) =>
+      b.created > a.created || (b.created === a.created && b.id > a.id) ? b : a
+    )
+    : null;
+  return {
+    incremental: latest?.amount ?? charge.amount_refunded,
+    idempotencyKey: latest ? `pack-refund:${latest.id}` : `pack-refund:${charge.id}`,
+    refundId: latest?.id ?? null,
+  };
+}
+
 async function handleChargeRefunded(event: Stripe.Event) {
   const charge = event.data.object as Stripe.Charge;
   // US-1414: charge.metadata is EMPTY for Checkout payments (metadata lives on
@@ -1389,24 +1430,13 @@ async function handleChargeRefunded(event: Stripe.Event) {
   // keys its direct ledger call on the same refund id, so whichever path runs
   // first still wins and the other no-ops — now per refund rather than per
   // charge.
-  const refunds: Stripe.Refund[] = charge.refunds?.data ?? [];
-  const latest: Stripe.Refund | null = refunds.length
-    // Newest by `created`; do NOT trust list ordering. Ties break on id so the
-    // choice is deterministic across redeliveries of the same event.
-    ? refunds.reduce((a: Stripe.Refund, b: Stripe.Refund) =>
-      b.created > a.created || (b.created === a.created && b.id > a.id) ? b : a
-    )
-    : null;
-
-  // Fall back to the old cumulative/per-charge behaviour if Stripe did not
-  // include the refunds list. That is strictly better than skipping the
-  // clawback: it under-claws on multi-refund charges (the pre-existing bug)
-  // rather than never clawing at all.
-  const incremental = latest?.amount ?? charge.amount_refunded;
-  const idempotencyKey = latest
-    ? `pack-refund:${latest.id}`
-    : `pack-refund:${charge.id}`;
-  if (!latest) {
+  // US-2040: the decision is extracted + exported so it can actually be TESTED.
+  // Previously all of this lived inline in an unexported handler, so the fix for
+  // US-2033 (the real bug) was unreachable from any test — reverting the key to
+  // charge.id would have kept every suite green while a customer kept both the
+  // credits and the money.
+  const { incremental, idempotencyKey, refundId } = resolveRefundClawback(charge);
+  if (!refundId) {
     console.warn(
       `[Webhook] charge.refunded ${charge.id} carried no refunds list — ` +
         `falling back to the cumulative per-charge clawback`,
@@ -1427,7 +1457,7 @@ async function handleChargeRefunded(event: Stripe.Event) {
     paymentIntentId,
     idempotencyKey,
     `Refund reversal for charge ${charge.id}` +
-      (latest ? ` (refund ${latest.id})` : ""),
+      (refundId ? ` (refund ${refundId})` : ""),
   );
 }
 
