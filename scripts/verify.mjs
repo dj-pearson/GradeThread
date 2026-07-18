@@ -60,6 +60,9 @@ if (on("web")) {
   // US-1612: cheap prd.json hygiene gate FIRST — catches a bad nextId / dep
   // cycle / dup id before the expensive lanes run.
   run("web: prd-lint", "node scripts/prd-lint.mjs");
+  // CLAUDE.md is read at the start of every session, so a path that has moved
+  // costs every one of them. Cheap enough to sit beside prd-lint.
+  run("web: doc path refs", "node scripts/doc-refs.mjs");
   run("web: script tests (prd-lint/digest)", "npm run test:scripts");
   run("web: eslint", "npm run lint");
   // US-1879: the browser extensions' zero-dep node tests (pure adapter helpers +
