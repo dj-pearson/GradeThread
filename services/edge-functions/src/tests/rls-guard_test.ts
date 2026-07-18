@@ -13,7 +13,7 @@
 //   - tables that are deliberately client-invisible (RLS on, zero policies =>
 //     deny-all, service-role writes only) must be named in SERVICE_ROLE_ONLY,
 //     so a NEW zero-policy table still fails until a human classifies it.
-import { assert } from "@std/assert";
+import { assert, assertEquals } from "@std/assert";
 
 const MIGRATIONS_DIR = new URL(
   "../../../../supabase/migrations/",
@@ -228,6 +228,55 @@ const SERVICE_ROLE_ONLY = new Set([
   // client; the SPA never reads the raw rows. user_id links a subscriber to a
   // platform account but is not a client read key.
   "email_subscribers",
+
+  // ── US-2008: newly VISIBLE, now explicitly classified ──────────────────
+  //
+  // These eight were never checked before, because the old owner-column test
+  // (/\buser_id\b/) could not see `seller_user_id` / `admin_user_id` /
+  // `owner_user_id`, and the table regex required a `public.` prefix. They all
+  // have RLS enabled and zero policies, and — verified individually — ZERO
+  // frontend references (`grep from("<table>") src/` is empty for each), so the
+  // SPA never reads them and no tenant policy is owed. Classifying rather than
+  // policy-ing is therefore the honest answer, not the convenient one.
+  //
+  // US-1074: abuse/velocity signals (migration 00212), `revoke insert, update,
+  // delete from anon, authenticated`. Appended by the abuse pipeline and read
+  // only by the admin abuse console. user_id is the implicated tenant, not a
+  // client read key.
+  "abuse_signals",
+  // US-1073: admin bulk-operation ledger (migration 00167). Keyed by
+  // admin_user_id — the ACTING ADMIN, not a tenant owner — so it is an operator
+  // audit surface by construction.
+  "bulk_admin_operations",
+  // US-1043: eBay webhook events awaiting connection linkage (migration 00149).
+  // The migration says it outright: "No policies: read/written only via the
+  // service-role edge client, with linkage resolved against
+  // marketplace_connections ownership in code (US-268)." Its `ebay_user_id` is
+  // eBay's identifier, not ours — it is not a tenant key at all.
+  "ebay_pending_webhook_events",
+  // US-867: buyer trust-guarantee claims (migration 00197) and their remedies
+  // (00319). seller_user_id is the seller a claim is filed AGAINST. These carry
+  // third-party buyer PII (claimant_email/claimant_name) and are intentionally
+  // NOT seller-readable — exposing a claimant's identity to the seller they
+  // complained about is precisely what must not happen. Intake is the public
+  // unauthenticated endpoint; triage is admin-only via the service role.
+  "guarantee_claims",
+  "guarantee_remedies",
+  // US-934: marketing send coordination ledger (migration 00276), `REVOKE ALL`.
+  // Deduplication bookkeeping for the send coordinator; keyed by recipient
+  // address, and owner_user_id is ON DELETE SET NULL. Never client-read.
+  "marketing_send_log",
+  // US-1094: Garment Passport pseudonymous owner nodes (migration 00256),
+  // `REVOKE ALL`. Deliberately pseudonymous — linked_user_id exists so a reveal
+  // can be honored, and letting a client read this table directly would defeat
+  // the pseudonymity the whole passport model rests on.
+  "owner_nodes",
+  // US-1075: per-subject rate-limit overrides (migration 00214), `revoke insert,
+  // update, delete from anon, authenticated`. An operator control surface — a
+  // tenant being able to read (let alone write) its own limit override would
+  // defeat the point.
+  "rate_limit_overrides",
+
   // US-932: internal behavioral event stream (migration 00277). RLS enabled with
   // an explicit `revoke all from anon, authenticated` and zero policies by design
   // — written + read ONLY by the edge via the service-role client
@@ -386,36 +435,110 @@ async function loadSchema(): Promise<Schema> {
   for (const name of names) {
     parts.push(await Deno.readTextFile(new URL(name, MIGRATIONS_DIR)));
   }
-  const fullSql = parts.join("\n");
+  return parseSchema(parts.join("\n"));
+}
 
+// US-2008 (AC3): parsing is split from file-reading so the four blind spots can
+// be exercised against SYNTHETIC SQL. Widening a regex without proving it now
+// catches the case it used to miss just relocates the blind spot — and this
+// guard's whole value is that people trust its silence.
+function parseSchema(fullSql: string): Schema {
   const tableBlocks = new Map<string, string>();
+  // US-2008 (b): the `public.` prefix is OPTIONAL. Two tables are declared bare
+  // — `notifications` (00007) and `listing_prompt_acceptance` (00155) — so
+  // requiring the schema qualifier made them invisible to this guard entirely.
+  // `notifications` needed a bespoke second test at the bottom of this file
+  // precisely because of that: the workaround shipped while the general hole
+  // stayed open.
   const tableRe =
-    /CREATE TABLE(?:\s+IF NOT EXISTS)?\s+public\.(\w+)\s*\(([\s\S]*?)\n\)\s*;/gi;
+    /CREATE TABLE(?:\s+IF NOT EXISTS)?\s+(?:public\.)?(\w+)\s*\(([\s\S]*?)\n\)\s*;/gi;
   for (const m of fullSql.matchAll(tableRe)) {
     tableBlocks.set(m[1]!, m[2]!);
   }
 
   const rlsEnabled = new Set<string>();
-  const rlsRe = /ALTER TABLE\s+public\.(\w+)\s+ENABLE ROW LEVEL SECURITY/gi;
+  const rlsRe = /ALTER TABLE\s+(?:public\.)?(\w+)\s+ENABLE ROW LEVEL SECURITY/gi;
   for (const m of fullSql.matchAll(rlsRe)) rlsEnabled.add(m[1]!);
 
+  // US-2008 (c): RLS enabled DYNAMICALLY inside a DO block was invisible to the
+  // literal regex above. 00381 turns it on for all seven ads_* tables via
+  //   FOREACH t IN ARRAY ARRAY['a','b',...] LOOP
+  //     EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY;', t);
+  // RLS really IS on for those in prod — but every static reader (this guard
+  // included) saw them as unprotected. A security check that UNDER-reports is
+  // the dangerous direction: it manufactures work, and worse, it teaches people
+  // that its output needs interpreting rather than acting on.
+  const dynamicRe =
+    /FOREACH\s+\w+\s+IN\s+ARRAY\s+ARRAY\s*\[([\s\S]*?)\]\s*LOOP([\s\S]*?)END LOOP/gi;
+  for (const m of fullSql.matchAll(dynamicRe)) {
+    const body = m[2] ?? "";
+    if (!/ENABLE ROW LEVEL SECURITY/i.test(body)) continue;
+    for (const lit of (m[1] ?? "").matchAll(/'([a-z0-9_]+)'/gi)) {
+      rlsEnabled.add(lit[1]!);
+    }
+  }
+
   const policies = new Map<string, { name: string; body: string }[]>();
-  const polRe = /CREATE POLICY\s+"([^"]+)"\s+ON\s+public\.(\w+)([\s\S]*?);/gi;
-  for (const m of fullSql.matchAll(polRe)) {
-    const list = policies.get(m[2]!) ?? [];
-    list.push({ name: m[1]!, body: m[3]! });
-    policies.set(m[2]!, list);
+  // US-2008 (d): the policy NAME may be a BARE identifier, not just a quoted
+  // string — 00256's passport tables use `CREATE POLICY garments_select_own ON
+  // public.garments`. Requiring quotes meant five tables' policies were never
+  // parsed at all, so a future `USING (true)` on one of them would have sailed
+  // straight past the permissive-policy check below.
+  // US-2008: process CREATE and DROP POLICY IN FILE ORDER so `policies` holds
+  // the FINAL state, not every policy that ever existed.
+  //
+  // This was a latent flaw that widening (b) exposed rather than caused: the
+  // guard concatenates all 477 migrations and only ever matched CREATE, so a
+  // policy that a later migration DROPPED still counted. `notifications` is the
+  // live example — 00007 created an INSERT policy with WITH CHECK (true) and
+  // 00437 removed it (US-1926), yet the moment this guard could finally SEE the
+  // table it reported the long-dead policy as a permissive one. A guard that
+  // reports fixed problems gets its output discounted, which costs more than the
+  // check is worth.
+  //
+  // Note 00007 itself does DROP IF EXISTS immediately followed by CREATE, so
+  // order matters in both directions; a set-based "was it ever dropped" test
+  // would wrongly erase the recreate.
+  const polEventRe =
+    /(CREATE|DROP)\s+POLICY\s+(?:IF EXISTS\s+)?(?:"([^"]+)"|([a-z0-9_]+))\s+ON\s+(?:public\.)?(\w+)([\s\S]*?);/gi;
+  for (const m of fullSql.matchAll(polEventRe)) {
+    const kind = m[1]!.toUpperCase();
+    const name = (m[2] ?? m[3])!;
+    const table = m[4]!;
+    const list = policies.get(table) ?? [];
+    if (kind === "DROP") {
+      policies.set(table, list.filter((p) => p.name !== name));
+    } else {
+      list.push({ name, body: m[5]! });
+      policies.set(table, list);
+    }
   }
 
   return { tableBlocks, rlsEnabled, policies, fullSql };
 }
 
+// US-2008 (a): an owner column is not always literally `user_id`.
+//
+// The old test was /\buser_id\b/, and in `seller_user_id` / `owner_user_id` /
+// `subject_user_id` / `admin_user_id` the character before `user_id` is an
+// UNDERSCORE — a word character — so no word boundary matches and none of them
+// were ever detected. 21 tables carrying an owner-ish column, zero policies, and
+// no SERVICE_ROLE_ONLY / PARENT_SCOPED registration were consequently never
+// checked at all.
+//
+// They DO have RLS enabled today, so this was never a live leak. What was broken
+// is the ENFORCEMENT: this guard's stated promise — "a NEW zero-policy table
+// still fails until a human classifies it" — held only for tables that happened
+// to name the column exactly right. A security check that silently under-reports
+// is worse than a missing one, because it is trusted.
+const OWNER_COLUMN = /\b\w*user_id\b|\b\w*owner_id\b/i;
+
 function hasUserId(table: string, schema: Schema): boolean {
   const block = schema.tableBlocks.get(table) ?? "";
-  if (/\buser_id\b/i.test(block)) return true;
-  // user_id added via a later ALTER TABLE ... ADD COLUMN.
+  if (OWNER_COLUMN.test(block)) return true;
+  // Owner column added via a later ALTER TABLE ... ADD COLUMN.
   const alterRe = new RegExp(
-    `ALTER TABLE\\s+public\\.${table}[^;]*ADD COLUMN[^;]*\\buser_id\\b`,
+    `ALTER TABLE\\s+(?:public\\.)?${table}[^;]*ADD COLUMN[^;]*(?:\\w*user_id|\\w*owner_id)\\b`,
     "is",
   );
   return alterRe.test(schema.fullSql);
@@ -532,5 +655,151 @@ Deno.test("notifications has no permissive INSERT policy (US-1926)", async () =>
       offenders.join(", ") +
       ` — notifications are inserted only by the service-role edge (bypasses RLS); ` +
       `drop the client INSERT policy or scope it to auth.uid() = user_id.`,
+  );
+});
+
+// ── US-2008 AC3: prove each widened blind spot actually CATCHES its case ──
+//
+// Widening a regex and watching the suite stay green proves nothing: the suite
+// was green while all four holes were open. These drive the parser with
+// synthetic SQL shaped exactly like the real cases it used to miss.
+
+Deno.test("US-2008 (a): owner columns that are not literally `user_id` are detected", () => {
+  const schema = parseSchema(`
+CREATE TABLE IF NOT EXISTS public.claims_x (
+  id uuid PRIMARY KEY,
+  seller_user_id uuid NOT NULL REFERENCES public.users(id)
+);
+`);
+  // The old /\buser_id\b/ could not match this: the char before "user_id" is an
+  // underscore, which is a word character, so there is no boundary.
+  assert(
+    hasUserId("claims_x", schema),
+    "seller_user_id must count as an owner column — this exact miss is why 21 " +
+      "tables went unchecked",
+  );
+  for (const col of ["owner_user_id", "subject_user_id", "admin_user_id", "owner_id"]) {
+    const s2 = parseSchema(
+      `CREATE TABLE IF NOT EXISTS public.t_${col} (\n  ${col} uuid\n);\n`,
+    );
+    assert(hasUserId(`t_${col}`, s2), `${col} must count as an owner column`);
+  }
+  // And a table with no owner column still must NOT be treated as tenant data.
+  const none = parseSchema(
+    "CREATE TABLE IF NOT EXISTS public.cfg_x (\n  key text,\n  value text\n);\n",
+  );
+  assert(!hasUserId("cfg_x", none), "a config table has no owner column");
+});
+
+Deno.test("US-2008 (b): tables declared WITHOUT the public. prefix are parsed", () => {
+  const schema = parseSchema(`
+CREATE TABLE IF NOT EXISTS bare_table (
+  id uuid PRIMARY KEY,
+  user_id uuid NOT NULL
+);
+`);
+  assert(
+    schema.tableBlocks.has("bare_table"),
+    "a bare CREATE TABLE must be parsed — requiring `public.` hid `notifications` " +
+      "and `listing_prompt_acceptance` from this guard entirely",
+  );
+  assert(hasUserId("bare_table", schema));
+});
+
+Deno.test("US-2008 (c): RLS enabled inside a DO/FOREACH loop is detected", () => {
+  // The 00381 ads_* shape, reduced.
+  const schema = parseSchema(`
+CREATE TABLE IF NOT EXISTS public.dyn_a (
+  id uuid PRIMARY KEY,
+  owner_user_id uuid
+);
+DO $$
+DECLARE t text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['dyn_a','dyn_b'] LOOP
+    EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY;', t);
+  END LOOP;
+END $$;
+`);
+  assert(
+    schema.rlsEnabled.has("dyn_a") && schema.rlsEnabled.has("dyn_b"),
+    "dynamically-enabled RLS must be recognized — otherwise seven live ads_* " +
+      "tables read as unprotected to every static reviewer",
+  );
+  // A loop that does something else must NOT be misread as enabling RLS.
+  const unrelated = parseSchema(`
+DO $$
+DECLARE t text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['x_a'] LOOP
+    EXECUTE format('ANALYZE public.%I;', t);
+  END LOOP;
+END $$;
+`);
+  assert(
+    !unrelated.rlsEnabled.has("x_a"),
+    "only loops that actually ENABLE ROW LEVEL SECURITY may count",
+  );
+});
+
+Deno.test("US-2008 (d): policies with UNQUOTED names are parsed", () => {
+  const schema = parseSchema(`
+CREATE TABLE IF NOT EXISTS public.pol_x (
+  id uuid PRIMARY KEY,
+  user_id uuid
+);
+CREATE POLICY pol_x_select_own ON public.pol_x FOR SELECT USING (user_id = auth.uid());
+`);
+  const list = schema.policies.get("pol_x") ?? [];
+  assertEquals(list.length, 1, "an unquoted policy name must still be parsed");
+  assertEquals(list[0]!.name, "pol_x_select_own");
+
+  // The point of parsing them: a permissive one must now be visible.
+  const permissive = parseSchema(`
+CREATE TABLE IF NOT EXISTS public.pol_y (
+  id uuid PRIMARY KEY,
+  user_id uuid
+);
+CREATE POLICY pol_y_all ON public.pol_y FOR SELECT USING (true);
+`);
+  const body = (permissive.policies.get("pol_y") ?? [])[0]?.body ?? "";
+  assert(
+    /USING\s*\(\s*true\s*\)/i.test(body),
+    "an unquoted permissive policy must be visible to the USING(true) check",
+  );
+});
+
+Deno.test("US-2008: a DROPPED policy no longer counts (final state, not history)", () => {
+  // The notifications case: 00007 created a WITH CHECK (true) INSERT policy and
+  // 00437 removed it. Concatenating every migration and matching only CREATE
+  // reported the dead policy as live.
+  const schema = parseSchema(`
+CREATE TABLE IF NOT EXISTS notif_x (
+  id uuid PRIMARY KEY,
+  user_id uuid
+);
+CREATE POLICY "svc insert" ON notif_x FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS "svc insert" ON notif_x;
+`);
+  assertEquals(
+    (schema.policies.get("notif_x") ?? []).length,
+    0,
+    "a policy dropped by a later migration must not be reported as live",
+  );
+
+  // ...but DROP-then-CREATE (the idempotent migration idiom) must KEEP it.
+  const recreated = parseSchema(`
+CREATE TABLE IF NOT EXISTS notif_y (
+  id uuid PRIMARY KEY,
+  user_id uuid
+);
+DROP POLICY IF EXISTS "own rows" ON notif_y;
+CREATE POLICY "own rows" ON notif_y FOR SELECT USING (user_id = auth.uid());
+`);
+  assertEquals(
+    (recreated.policies.get("notif_y") ?? []).length,
+    1,
+    "DROP IF EXISTS followed by CREATE is the standard idempotent idiom — the " +
+      "policy must survive it",
   );
 });
