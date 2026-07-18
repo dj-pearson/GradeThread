@@ -228,13 +228,27 @@ async function loadActivity(userId: string): Promise<{
   /** Epoch ms of the most recent real activity (latest grade/listing/sale), or
    * null if the user has done nothing yet. Drives the US-939 inactivity nudge. */
   lastActivityMs: number | null;
+  /**
+   * TRUE when any activity query FAILED, so the counts below are not the user's
+   * real activity — they are the zero-defaults.
+   *
+   * This flag exists because of a real, long-lived bug: these queries filtered
+   * grade_reports.user_id, a column that does not exist, so every call errored
+   * and every user looked like a zero-activity trialist. Nothing distinguished
+   * "did nothing" from "we couldn't tell", so the engine confidently sent
+   * "you've graded 0 items" recaps to people who had graded. A failed read must
+   * never be spendable as a fact about the user.
+   */
+  degraded: boolean;
 }> {
+  let degraded = false;
   const num = (
     res: { count: number | null; error: { message: string } | null },
     label: string,
   ): number => {
     if (res.error) {
       console.warn(`[drip-tick] ${label} count failed:`, res.error.message);
+      degraded = true;
       return 0;
     }
     return res.count ?? 0;
@@ -248,22 +262,32 @@ async function loadActivity(userId: string): Promise<{
   ): number | null => {
     if (res.error) {
       console.warn(`[drip-tick] ${label} latest failed:`, res.error.message);
+      degraded = true;
       return null;
     }
     const ts = res.data?.[0]?.created_at;
     return ts ? Date.parse(ts) : null;
   };
+  // ⚠ grade_reports has NO user_id column — it is PARENT-SCOPED through
+  // submissions (see PARENT_SCOPED in tests/rls-guard_test.ts). Filtering
+  // .eq("user_id", …) here returned PostgREST 42703 on every call, and because
+  // num()/latestMs() below deliberately default a failed query to 0/null, the
+  // drip engine silently saw ZERO grades and ZERO certificates for EVERY user,
+  // forever: wrong cohort, "you've graded 0 items" recaps, and the inactivity
+  // nudge firing at people who graded yesterday. Scope through the parent.
   const [grades, certs, listings, sales, lastGrade, lastListing, lastSale] = await Promise.all([
-    supabaseAdmin.from("grade_reports").select("id", { count: "exact", head: true })
-      .eq("user_id", userId),
-    supabaseAdmin.from("grade_reports").select("id", { count: "exact", head: true })
-      .eq("user_id", userId).not("certificate_id", "is", null),
+    supabaseAdmin.from("grade_reports")
+      .select("id, submissions!inner(user_id)", { count: "exact", head: true })
+      .eq("submissions.user_id", userId),
+    supabaseAdmin.from("grade_reports")
+      .select("id, submissions!inner(user_id)", { count: "exact", head: true })
+      .eq("submissions.user_id", userId).not("certificate_id", "is", null),
     supabaseAdmin.from("listings").select("id", { count: "exact", head: true })
       .eq("user_id", userId),
     supabaseAdmin.from("sales").select("id", { count: "exact", head: true })
       .eq("user_id", userId),
-    supabaseAdmin.from("grade_reports").select("created_at")
-      .eq("user_id", userId).order("created_at", { ascending: false }).limit(1),
+    supabaseAdmin.from("grade_reports").select("created_at, submissions!inner(user_id)")
+      .eq("submissions.user_id", userId).order("created_at", { ascending: false }).limit(1),
     supabaseAdmin.from("listings").select("created_at")
       .eq("user_id", userId).order("created_at", { ascending: false }).limit(1),
     supabaseAdmin.from("sales").select("created_at")
@@ -280,6 +304,8 @@ async function loadActivity(userId: string): Promise<{
     listingsCount: num(listings, "listings"),
     salesCount: num(sales, "sales"),
     lastActivityMs: lastTimes.length ? Math.max(...lastTimes) : null,
+    // num()/latestMs() set this when a read failed — see the field's doc comment.
+    degraded,
   };
 }
 
@@ -668,6 +694,19 @@ async function processEnrollment(
   // branches on `totalActivity` (zero-activity → re-activation variant) and the
   // day-10 deep-dive branches on `certificatesCount` (skip if used).
   const activity = await loadActivity(enrollment.user_id);
+  // A failed activity read is NOT evidence the user did nothing. Every branch
+  // below (the day-7 zero-activity re-activation variant, the day-10
+  // certificate skip, the day-3 inactivity nudge) keys off these counts, so
+  // acting on the zero-defaults would send provably-wrong mail — "you've graded
+  // 0 items" to someone who graded yesterday. Skip this user's tick instead;
+  // the campaign is idempotent per ordinal, so the next tick re-evaluates once
+  // the read recovers. Nothing is lost but a delay.
+  if (activity.degraded) {
+    console.warn(
+      `[drip-tick] skipping user ${enrollment.user_id}: activity read degraded`,
+    );
+    return;
+  }
   userState.gradesCount = activity.gradesCount;
   userState.listingsCount = activity.listingsCount;
   userState.salesCount = activity.salesCount;

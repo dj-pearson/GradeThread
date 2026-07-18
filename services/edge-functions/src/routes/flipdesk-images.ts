@@ -261,6 +261,16 @@ flipdeskImageRoutes.post("/archive", async (c) => {
   // Eligible: photo's item belongs to user, item is in a terminal status,
   // item.updated_at is older than the cutoff, and photo is not yet archived.
   // We require storage_path so we know what to delete on the Supabase side.
+  //
+  // 🔒 SENSITIVE TYPES ARE EXCLUDED. A tag / tag_2 / certificate close-up lives
+  // in the PRIVATE submission-images bucket (US-979), and downloadItemPhoto
+  // below deliberately resolves across BOTH buckets — so without this filter
+  // archival would fetch the private original and rewrite photo_url to
+  // r2PublicUrl(), an UNAUTHENTICATED public URL. That publishes exactly the
+  // PII (serials, receipts, certificate numbers) the rest of the codebase is
+  // careful to keep private: bg-remove refuses these types (US-1638, above),
+  // the eBay push filters them (flipdesk-ebay.ts), and so does the thumbnail
+  // backfill. Archival was the one path that didn't.
   const { data: rows, error } = await supabaseAdmin
     .from("item_photos")
     .select(
@@ -271,6 +281,11 @@ flipdeskImageRoutes.post("/archive", async (c) => {
     .in("inventory_items.status", ARCHIVAL_STATUSES)
     .lt("inventory_items.updated_at", cutoffIso)
     .not("storage_path", "is", null)
+    .not(
+      "photo_type",
+      "in",
+      `(${[...SENSITIVE_ITEM_PHOTO_TYPES].join(",")})`,
+    )
     .limit(ARCHIVE_BATCH);
 
   if (error) {
@@ -292,6 +307,11 @@ flipdeskImageRoutes.post("/archive", async (c) => {
 
   for (const p of eligible) {
     try {
+      // Defence in depth: the query above already excludes these, but this loop
+      // is what actually publishes to a public URL. A future edit to the filter
+      // must not be able to leak PII silently, so re-check at the point of harm
+      // — a NULL photo_type is also treated as unsafe rather than assumed fine.
+      if (SENSITIVE_ITEM_PHOTO_TYPES.has(p.photo_type ?? "")) continue;
       const storagePath = p.storage_path!;
       // 1. Download original from Supabase Storage (resolves across both
       //    buckets — a sensitive photo lives in the private bucket, US-979).

@@ -12,11 +12,23 @@
 # Violations are reported to /csp-report (Pages Function) — watch the Pages logs
 # after deploy and smoke-test Stripe Checkout, Google OAuth, Sentry, PostHog,
 # and GA. A missed origin is a one-line add to the directive below.
+# Permissions-Policy: camera=(self), NOT camera=().
+#
+# An empty allowlist blocks EVERY origin INCLUDING our own. This app has two
+# first-party camera features: CameraCaptureDialog
+# (src/components/submission/camera-capture-dialog.tsx, used by photo-upload.tsx
+# — the grading photo flow) and BarcodeScannerDialog
+# (src/components/flipdesk/barcode-scanner-dialog.tsx, used by intake.tsx).
+# Shipping camera=() made getUserMedia reject in production and both features
+# silently fail. The capture dialog's own feature-detect cannot catch this: the
+# API is present, only the permission is denied, so it looks supported until the
+# user taps. microphone/geolocation stay fully closed — nothing in the app asks
+# for them, so keep those denials explicit.
 /*
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
-  Permissions-Policy: camera=(), microphone=(), geolocation=()
+  Permissions-Policy: camera=(self), microphone=(), geolocation=()
   Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
   Cross-Origin-Opener-Policy: same-origin
   Reporting-Endpoints: csp-endpoint="/csp-report"

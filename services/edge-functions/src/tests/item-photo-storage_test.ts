@@ -118,3 +118,34 @@ Deno.test("US-1571: measurement (MeasureCard) photos are excluded like internal"
   assert(!isInternalItemPhoto("measurement"));
   assertEquals(bucketForItemPhoto("measurement"), ITEM_PHOTOS_BUCKET);
 });
+
+// Every path that publishes an item photo to a PUBLIC destination must exclude
+// the sensitive types. The private-bucket source is only half the protection:
+// downloadItemPhoto deliberately resolves across BOTH buckets, so any consumer
+// that re-publishes what it downloads can launder a private photo into a public
+// URL without touching the bucket logic at all.
+//
+// That is exactly what /api/flipdesk/images/archive did — it selected every
+// item_photos row for the owner, downloaded each (private originals included),
+// PUT it to R2 and rewrote photo_url to r2PublicUrl(), an unauthenticated URL.
+// bg-remove, the eBay push and the thumbnail backfill all filtered these types;
+// archival was the one consumer that didn't.
+Deno.test("R2 archival excludes sensitive photo types (public-URL leak guard)", async () => {
+  const src = await Deno.readTextFile(new URL("routes/flipdesk-images.ts", SRC_DIR));
+
+  // The archival query must filter them out server-side...
+  assert(
+    /\.not\(\s*"photo_type",\s*"in",/.test(src),
+    "flipdesk-images.ts archival must exclude SENSITIVE_ITEM_PHOTO_TYPES in the " +
+      "eligibility query — otherwise private tag/certificate photos are copied " +
+      "to a public R2 URL.",
+  );
+
+  // ...AND the publishing loop must re-check at the point of harm, so a future
+  // edit to the query cannot reintroduce the leak silently.
+  assert(
+    /SENSITIVE_ITEM_PHOTO_TYPES\.has\(p\.photo_type \?\? ""\)\s*\)\s*continue;/.test(src),
+    "The archival loop must skip sensitive photo types defensively before " +
+      "uploading to R2 — the query filter alone is one edit away from leaking.",
+  );
+});
