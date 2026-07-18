@@ -26,6 +26,7 @@
     "verify:edge": "node scripts/verify.mjs --edge",
     "verify:db": "node scripts/verify.mjs --db",
     "verify:security": "node scripts/verify.mjs --security",
+    "verify:vault": "node scripts/verify.mjs --vault",
     "catchup": "node scripts/make-catchup.mjs",
     "migrate:prod": "bash scripts/apply-prod-migrations.sh",
     "smoke:functions": "node scripts/smoke-functions.mjs",

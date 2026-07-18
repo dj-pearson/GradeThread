@@ -36,9 +36,9 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const edgeDir = resolve(root, "services/edge-functions");
 
 const flags = new Set(process.argv.slice(2));
-const anyLaneFlag = ["--web", "--edge", "--db", "--security", "--e2e", "--all"]
+const anyLaneFlag = ["--web", "--edge", "--db", "--security", "--e2e", "--vault", "--all"]
   .some((f) => flags.has(f));
-const on = (name) => flags.has(`--${name}`) || flags.has("--all") || !anyLaneFlag && ["web", "edge", "db"].includes(name);
+const on = (name) => flags.has(`--${name}`) || flags.has("--all") || !anyLaneFlag && ["web", "edge", "db", "vault"].includes(name);
 
 function dockerUp() {
   return spawnSync("docker", ["info"], { stdio: "ignore", shell: true }).status === 0;
@@ -76,6 +76,16 @@ if (on("web")) {
   run("web: vitest + coverage", "npm run test:coverage");
   run("web: bundle-size budget + code-splitting", "node scripts/check-bundle-budget.mjs");
   run("web: npm audit (high)", "npm audit --audit-level=high");
+}
+
+// ── Vault (knowledge base integrity) — US-2044 ───────────────────────────────
+// Fast, no Docker, no network — so it runs in the default set. --strict makes
+// drift on a `type: contract` note an ERROR: those are the notes whose staleness
+// actively misleads, since a stale contract gets read as authoritative and then
+// implemented. Drift on every other note type stays a warning, because a commit
+// touching a file often does not invalidate the prose describing it.
+if (on("vault")) {
+  run("vault: lint (schema, links, orphans, contract drift)", "node scripts/vault-lint.mjs --strict");
 }
 
 // ── Edge (Deno) — mirrors security.yml "deno-check" job ───────────────────────

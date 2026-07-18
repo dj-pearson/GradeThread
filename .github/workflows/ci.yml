@@ -38,6 +38,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # US-2044: the vault drift guard compares each note's `reviewed` date
+          # against the last commit date of the files it documents, so it needs
+          # real per-file history. The default fetch-depth of 1 would give every
+          # path the same commit date.
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -50,6 +56,15 @@ jobs:
       # frontend went unverified for a day while the run merely looked "red for
       # lint". The job still FAILS if any gate fails; you just now learn about
       # all of them in one run instead of peeling them off one push at a time.
+      # US-2044: knowledge-vault integrity. --strict makes drift on a
+      # `type: contract` note an error (a stale contract gets read as
+      # authoritative and then implemented); other types stay warnings.
+      # Needs the full history fetched above — on a shallow clone `git log -1`
+      # returns the same commit for every path, so the script detects that and
+      # skips drift rather than reporting every note as drifted.
+      - name: Vault lint
+        if: ${{ !cancelled() }}
+        run: node scripts/vault-lint.mjs --strict
       - name: Lint
         if: ${{ !cancelled() }}
         run: npm run lint

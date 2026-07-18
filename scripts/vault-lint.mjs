@@ -34,6 +34,7 @@
 // Drift detection (code newer than `reviewed`) is US-2044 and lands separately;
 // this file is the parser and rule engine it builds on.
 
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { globSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
@@ -209,6 +210,75 @@ export function lintVault(notes, { today, exists = existsSync, indexLines = 0 } 
   return { ok: errors.length === 0, errors, warnings };
 }
 
+// ── Drift (US-2044) ─────────────────────────────────────────────────────────
+//
+// The problem this solves: a note can be schema-valid, well-linked and
+// completely wrong. Nothing above notices that grading-scale-and-weights.md
+// describes constants.ts as it was three months ago.
+//
+// So each `source_of_truth: code` note declares what it describes (code_refs)
+// and when someone last verified it (reviewed). If a code_ref has a commit
+// NEWER than the review date, the note is suspect. That is a heuristic, not
+// proof — plenty of commits touch a file without invalidating the prose — which
+// is exactly why drift is a warning by default.
+//
+// It escalates to an ERROR for `type: contract` under --strict. Contracts are
+// the notes whose staleness actively misleads: a wrong rounding rule or a stale
+// tenant-scoping rule gets read as authoritative and then implemented.
+//
+// Archived notes are exempt. They are SUPPOSED to describe code as it was;
+// flagging them would flood the review queue with work nobody can ever action.
+
+export function checkDrift(notes, { commitTime, strict = false } = {}) {
+  const errors = [];
+  const warnings = [];
+  for (const [, n] of notes) {
+    if (!n.fm || n.fm.source_of_truth !== "code") continue;
+    if (n.fm.status === "archived") continue;
+    const reviewed = String(n.fm.reviewed ?? "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(reviewed)) continue; // schema rule already reported it
+    for (const ref of Array.isArray(n.fm.code_refs) ? n.fm.code_refs : []) {
+      const iso = commitTime(ref);
+      if (!iso) continue; // untracked or never committed — nothing to compare
+      const day = iso.slice(0, 10);
+      if (day > reviewed) {
+        const msg = `${n.path}: DRIFT — ${ref} changed ${day}, note last reviewed ${reviewed}. Re-read it and bump 'reviewed'.`;
+        if (strict && n.fm.type === "contract") errors.push(msg);
+        else warnings.push(msg);
+      }
+    }
+  }
+  return { errors, warnings };
+}
+
+// A SHALLOW clone (actions/checkout@v4 defaults to fetch-depth: 1) has only one
+// commit, so `git log -1 -- <path>` returns that same commit for every file —
+// which would report every note as drifted against a date none of them were
+// reviewed before. Silently wrong in the alarming direction, so detect it and
+// disable drift instead. CI sets fetch-depth: 0; this is the backstop for
+// anywhere that forgets.
+export function isShallowRepo(root, spawn = spawnSync) {
+  const r = spawn("git", ["rev-parse", "--is-shallow-repository"], {
+    cwd: root, encoding: "utf8", shell: false,
+  });
+  return r.status === 0 && String(r.stdout).trim() === "true";
+}
+
+// Last commit date for a path, or null if git has no record of it.
+export function gitCommitTime(root) {
+  const cache = new Map();
+  return (relPath) => {
+    if (cache.has(relPath)) return cache.get(relPath);
+    const r = spawnSync("git", ["log", "-1", "--format=%cI", "--", relPath], {
+      cwd: root, encoding: "utf8", shell: false,
+    });
+    const out = r.status === 0 ? String(r.stdout).trim() : "";
+    const val = out || null;
+    cache.set(relPath, val);
+    return val;
+  };
+}
+
 // ── --fix (mechanically safe repairs only) ──────────────────────────────────
 
 export function canonicalizeFrontmatter(fm) {
@@ -287,8 +357,20 @@ export function main(argv = process.argv.slice(2)) {
 
   const idx = notes.get(ROOT_NOTE);
   const indexLines = idx ? idx.raw.split(/\r?\n/).length : 0;
-  const { ok, errors, warnings } = lintVault(notes, { today, indexLines });
+  const { errors, warnings } = lintVault(notes, { today, indexLines });
 
+  // Drift runs unless explicitly disabled; --strict escalates contract drift.
+  if (!flags.has("--no-drift")) {
+    if (isShallowRepo(root)) {
+      warnings.push("drift check SKIPPED — shallow git clone has no per-file history. Use fetch-depth: 0 in CI.");
+    } else {
+      const d = checkDrift(notes, { commitTime: gitCommitTime(root), strict: flags.has("--strict") });
+      errors.push(...d.errors);
+      warnings.push(...d.warnings);
+    }
+  }
+
+  const ok = errors.length === 0;
   if (!quiet) {
     for (const w of warnings) process.stdout.write(`  ! ${w}\n`);
     for (const e of errors) process.stdout.write(`  ✗ ${e}\n`);

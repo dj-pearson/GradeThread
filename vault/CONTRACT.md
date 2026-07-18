@@ -94,17 +94,41 @@ as the `verify:vault` lane (US-2044).
    failure this design trades vector search away for.
 4. Every `code_refs` path exists on disk.
 5. `reviewed` is a valid ISO date, not in the future.
-6. Drift (US-2044): for `source_of_truth: code`, if any `code_refs` path has a
-   commit newer than `reviewed`, flag it. Warning by default; **error** for
-   `type: contract`.
+6. Drift: for `source_of_truth: code`, if any `code_refs` path has a commit newer
+   than `reviewed`, flag it. Warning by default; **error** for `type: contract`
+   under `--strict`, which is what CI runs.
 7. Redirect stubs (US-2047) are ≤ 5 lines and point at a note that exists.
+
+Run it with `npm run vault:lint`. `npm run vault:fix` applies the mechanical
+repairs — key ordering and stamping a *missing* `reviewed` date, nothing else.
+
+## Drift, and what it does and does not mean
+
+Drift is a **heuristic**: it compares the last commit date of each `code_refs`
+path against `reviewed`. Plenty of commits touch a file without invalidating the
+prose about it, so a drift warning means *"someone should look"*, not *"this note
+is wrong"*.
+
+That is why only `type: contract` escalates to an error. A stale contract —
+a wrong rounding rule, an outdated tenant-scoping requirement — gets read as
+authoritative and then implemented. A stale `reference` note merely ages.
+
+Two exemptions:
+- **`status: archived`** notes are exempt. They are supposed to describe old code.
+- **Shallow git clones** disable the check entirely. With `fetch-depth: 1` every
+  path reports the same commit, which would flag every note at once. CI uses
+  `fetch-depth: 0`; the linter detects the shallow case and skips rather than
+  producing confident nonsense.
 
 ## Re-reviewing a note
 
 Bumping `reviewed` means you **re-read the `code_refs` and confirmed the note is
-still true**. Bumping the date to silence CI is a lie the guard cannot catch — it
-is the one failure mode here that automation cannot detect, so it rests on
-whoever edits the file.
+still true**.
+
+Bumping the date to silence CI is a lie the guard cannot catch — it is the one
+failure mode here that automation cannot detect, so it rests on whoever edits the
+file. `--fix` deliberately refuses to touch an existing `reviewed` date for
+exactly this reason: the whole value of the field is that a human asserted it.
 
 ## Folder scheme
 

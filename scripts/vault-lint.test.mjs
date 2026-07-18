@@ -3,6 +3,8 @@
 // a rule tested only in its passing direction proves nothing.
 import { describe, expect, it } from "vitest";
 import {
+  checkDrift,
+  isShallowRepo,
   canonicalizeFrontmatter,
   extractWikilinks,
   fixNote,
@@ -178,6 +180,66 @@ describe("lintVault", () => {
     const r = lintVault(v, opts);
     expect(r.ok).toBe(true);
     expect(r.warnings.some((w) => w.includes("archived note"))).toBe(true);
+  });
+});
+
+describe("checkDrift", () => {
+  // commitTime stub: every ref reports the same commit date.
+  const at = (day) => () => `${day}T12:00:00+00:00`;
+  const codeNote = (over = {}) =>
+    vault({ INDEX: [["a"]], a: [[], { source_of_truth: "code", code_refs: ["src/x.ts"], reviewed: "2026-07-01", ...over }] });
+
+  it("flags a code_ref committed AFTER the review date", () => {
+    const r = checkDrift(codeNote(), { commitTime: at("2026-07-10") });
+    expect(r.warnings.some((w) => w.includes("DRIFT") && w.includes("src/x.ts"))).toBe(true);
+    expect(r.errors).toEqual([]);
+  });
+  it("does not flag a code_ref committed BEFORE the review date", () => {
+    const r = checkDrift(codeNote(), { commitTime: at("2026-06-01") });
+    expect(r.warnings).toEqual([]);
+  });
+  it("does not flag a commit on the review date itself", () => {
+    const r = checkDrift(codeNote(), { commitTime: at("2026-07-01") });
+    expect(r.warnings).toEqual([]);
+  });
+  it("escalates to an ERROR for type:contract under --strict", () => {
+    const r = checkDrift(codeNote({ type: "contract" }), { commitTime: at("2026-07-10"), strict: true });
+    expect(r.errors.length).toBe(1);
+    expect(r.warnings).toEqual([]);
+  });
+  it("keeps NON-contract drift a warning even under --strict", () => {
+    const r = checkDrift(codeNote({ type: "reference" }), { commitTime: at("2026-07-10"), strict: true });
+    expect(r.errors).toEqual([]);
+    expect(r.warnings.length).toBe(1);
+  });
+  it("EXEMPTS archived notes — they are supposed to describe old code", () => {
+    const r = checkDrift(codeNote({ type: "contract", status: "archived" }), { commitTime: at("2026-07-10"), strict: true });
+    expect(r.errors).toEqual([]);
+    expect(r.warnings).toEqual([]);
+  });
+  it("ignores source_of_truth 'vault' notes entirely", () => {
+    const v = vault({ INDEX: [["a"]], a: [[], { source_of_truth: "vault", code_refs: ["src/x.ts"], reviewed: "2020-01-01" }] });
+    expect(checkDrift(v, { commitTime: at("2026-07-10") }).warnings).toEqual([]);
+  });
+  it("skips a ref git has no record of", () => {
+    expect(checkDrift(codeNote(), { commitTime: () => null }).warnings).toEqual([]);
+  });
+  it("skips a note whose reviewed date is malformed (schema rule owns that)", () => {
+    const r = checkDrift(codeNote({ reviewed: "nonsense" }), { commitTime: at("2026-07-10") });
+    expect(r.warnings).toEqual([]);
+  });
+});
+
+describe("isShallowRepo", () => {
+  const spawn = (stdout, status = 0) => () => ({ status, stdout });
+  it("detects a shallow clone", () => {
+    expect(isShallowRepo(".", spawn("true\n"))).toBe(true);
+  });
+  it("reports a full clone as not shallow", () => {
+    expect(isShallowRepo(".", spawn("false\n"))).toBe(false);
+  });
+  it("treats a git failure as not shallow (drift still runs)", () => {
+    expect(isShallowRepo(".", spawn("", 128))).toBe(false);
   });
 });
 
