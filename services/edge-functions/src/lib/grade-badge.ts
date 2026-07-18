@@ -1,9 +1,28 @@
 // Server-side compositing of a GradeThread grade badge onto a listing photo.
 //
-// This is the Deno/edge counterpart of the browser-side compositor in
-// src/lib/grade-badge.ts. It runs at PUBLISH time (assemblePublishContext in
-// routes/flipdesk-ebay.ts) so the badge reaches eBay for EVERY publish path —
-// manual, AutoLister, scheduled, bulk — not just when a human opens the
+// ⚠ NOT WIRED, AND DELIBERATELY SO — DO NOT "RESTORE" IT.
+//
+// compositeGradeBadge has no callers (verified 2026-07-18). It was removed from
+// the publish path in commit 8e1802a6 as an eBay-POLICY decision, not neglect:
+// third-party-grading marks burned onto listing photos are the thing the policy
+// objects to. The grade authority signal is now TEXT ONLY, via
+// applyGradeListingPromotion (routes/flipdesk-ebay.ts), which writes it into the
+// DESCRIPTION and never touches the imagery.
+//
+// So re-wiring this module would reintroduce a policy problem that someone
+// already paid attention to. If badge imagery is ever wanted again, that is a
+// policy question first and a code question second. The web counterpart
+// src/lib/grade-badge.ts is dead for the same reason.
+//
+// The paragraph below described the old behaviour and is kept for context; it
+// no longer describes anything that runs. It used to read as though this ran at
+// publish time for every path, which is exactly how a reader concludes a dead
+// module is load-bearing.
+//
+// (Historic) This is the Deno/edge counterpart of the browser-side compositor in
+// src/lib/grade-badge.ts. It ran at PUBLISH time (assemblePublishContext in
+// routes/flipdesk-ebay.ts) so the badge reached eBay for EVERY publish path —
+// manual, AutoLister, scheduled, bulk — not just when a human opened the
 // composer. The visual mirrors the client badge: an Obsidian-Navy card in the
 // bottom-right with a Crimson accent stripe and white "GRADETHREAD VERIFIED /
 // {grade} / 10 / {tier}" text.

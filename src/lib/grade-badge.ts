@@ -1,6 +1,20 @@
 // Client-side compositing of a GradeThread grade badge onto a listing photo.
-// Used by the listing composer (US-118) to produce an eBay-ready hero image
-// with the grade burned into a corner.
+//
+// ⚠ NOT WIRED, AND DELIBERATELY SO — DO NOT "RESTORE" IT.
+//
+// compositeGradeBadge has no callers (verified 2026-07-18). Badge-on-photo was
+// dropped from the publish path in commit 8e1802a6 as an eBay-POLICY decision:
+// third-party-grading marks burned onto listing imagery are what the policy
+// objects to. The grade authority signal is now TEXT ONLY, written into the
+// listing DESCRIPTION by applyGradeListingPromotion on the edge.
+//
+// Re-wiring this would reintroduce a policy problem someone already thought
+// about. If badge imagery is wanted again, that is a policy question first.
+// The edge counterpart services/edge-functions/src/lib/grade-badge.ts is dead
+// for the same reason.
+//
+// (Historic) Used by the listing composer (US-118) to produce an eBay-ready
+// hero image with the grade burned into a corner.
 
 // Refreshed media-kit palette (design.md §2A): Obsidian Navy anchor + Vibrant
 // Crimson accent. Keep these in sync with src/index.css brand tokens.
