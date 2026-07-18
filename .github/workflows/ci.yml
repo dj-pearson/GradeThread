@@ -43,9 +43,18 @@ jobs:
           node-version: "20"
           cache: npm
       - run: npm ci
+      # US-1998: every gate below carries `if: !cancelled()` so a failure in one
+      # does NOT skip the rest. Previously `npm run lint` was the first step, so
+      # three no-useless-escape errors on main (2026-07-17) meant CI never
+      # reached type-check, tests, coverage, build or the bundle guard — the
+      # frontend went unverified for a day while the run merely looked "red for
+      # lint". The job still FAILS if any gate fails; you just now learn about
+      # all of them in one run instead of peeling them off one push at a time.
       - name: Lint
+        if: ${{ !cancelled() }}
         run: npm run lint
       - name: Type-check
+        if: ${{ !cancelled() }}
         run: npx tsc -b
       # US-510 / US-519: run the Vitest suite with coverage thresholds. Fails the
       # build on any test failure OR if coverage drops below the configured floor
@@ -53,14 +62,22 @@ jobs:
       # together. NOTE: make this a REQUIRED status check once branch protection
       # on `main` is (re)enabled — see US-522.
       - name: Test (with coverage)
+        if: ${{ !cancelled() }}
         run: npm run test:coverage
       - name: Build
+        id: build
+        if: ${{ !cancelled() }}
         run: npm run build
       # US-417: guard the eager (landing/cold-load) chunk graph — fail the build
       # if the entry/eager gz size regresses past budget, or if a heavy primitive
       # (radix Dialog/Select/Popover, TipTap) stops being code-split and rides
       # into the eager graph. Reads build-meta/bundle-modules.json from the build.
+      # Unlike the gates above this one is NOT `!cancelled()`-only: it reads
+      # build-meta/bundle-modules.json, which only exists if Build succeeded. If
+      # the build failed it would fail on a missing artifact and report a bundle
+      # regression that isn't real, so it runs only on a successful build.
       - name: Bundle-size budget + code-splitting guard
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: node scripts/check-bundle-budget.mjs
 
   e2e:
