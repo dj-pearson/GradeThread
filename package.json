@@ -17,6 +17,7 @@
     "test:coverage": "vitest run --coverage",
     "test:scripts": "vitest run --config vitest.scripts.config.mjs",
     "vault:lint": "node scripts/vault-lint.mjs",
+    "vault:index": "node scripts/vault-index.mjs",
     "vault:fix": "node scripts/vault-lint.mjs --fix",
     "prd:lint": "node scripts/prd-lint.mjs",
     "prd:digest": "node scripts/prd-digest.mjs",

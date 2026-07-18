@@ -86,6 +86,10 @@ if (on("web")) {
 // touching a file often does not invalidate the prose describing it.
 if (on("vault")) {
   run("vault: lint (schema, links, orphans, contract drift)", "node scripts/vault-lint.mjs --strict");
+  // Regenerate-and-diff. A stale index is a silently INCOMPLETE index: notes
+  // exist that nothing points at, which the orphan rule then reports as a
+  // separate confusing failure. Catch the cause, not the symptom.
+  run("vault: index up to date", "node scripts/vault-index.mjs --check");
 }
 
 // ── Edge (Deno) — mirrors security.yml "deno-check" job ───────────────────────

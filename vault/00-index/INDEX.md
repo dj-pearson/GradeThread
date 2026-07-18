@@ -19,52 +19,50 @@ decisions and taxonomy — not API surface.
 
 New here? Read [[CONTRACT]] before adding a note.
 
-> **Hand-maintained until US-2045.** The generated regions below are placeholders
-> that `scripts/vault-index.mjs` will own. Until then, adding a note means adding
-> its line here — the orphan rule in `vault-lint` depends on it.
+> **The list below is generated** by `scripts/vault-index.mjs` from note
+> frontmatter. Don't hand-edit between the markers — run `npm run vault:index`.
+> Everything outside them is hand-written and is preserved.
 
 <!-- vault-index:start -->
 
+## Meta
+
+- [[CONTRACT]] — contract — The frontmatter schema every vault note must satisfy, and the rules vault-lint enforces.
+
 ## 10-ops — operations and runbooks
 
-- [[dns-and-routing]] — contract — two hostnames, two systems; the wrong one 404s silently.
+- [[dns-and-routing]] — contract — Two hostnames serve two different systems; calling an app route on the Supabase host 404s silently.
 
 ## 20-domain — grading, measurement, contracts
 
-- [[grading-scale-and-weights]] — contract — the 1.0–10.0 scale, five weighted factors, and the rounding rule that shipped wrong twice.
-- [[brand-taxonomy-overview]] — reference — ~830 lines of taxonomy stranded in immutable migration headers, and the plan to free it.
+- [[brand-taxonomy-overview]] — reference — Where brand and garment taxonomy currently lives, why that is a problem, and how it gets extracted in US-2058.
+- [[grading-scale-and-weights]] — contract — The 1.0-10.0 scale, the five weighted factors, and the rounding rule that has now shipped wrong twice.
 
 ## 30-platform — marketplace integration
 
-- [[ebay-aspect-value-limit]] — contract — 65-char cap rejected at publish, not upload; surfaces as a misleading "already has active offer".
+- [[ebay-aspect-value-limit]] — contract — eBay rejects aspect values over 65 chars at publish, not at upload - which is why the error surfaces as an unrelated "already has active offer".
 
 ## 40-growth — SEO, content, distribution
 
-- [[seo-public-route-registry]] — contract — the lockstep wiring points for a new indexable page, and the Helmet double-path trap.
+- [[seo-public-route-registry]] — contract — A new indexable page must be registered in several places in lockstep; CI guards catch some omissions but not all.
 
 ## 50-business — pricing and economics
 
-- [[pricing-source-of-truth]] — reference — the doc/constants/Stripe three-way mirror and what keeps it consistent.
+- [[pricing-source-of-truth]] — reference — Pricing has a doc and a code mirror that must change together; this note records the contract until docs/PRICING.md moves here in US-2055.
 
 ## 60-decisions — ADRs
 
-- [[adr-0001-knowledge-vault]] — decision — consolidate 203 markdown files into a navigable wiki; navigate, don't embed.
+- [[adr-0001-knowledge-vault]] — decision — Consolidate 203 scattered markdown files into one navigable wiki; retrieve by link traversal rather than embeddings.
 
 ## 70-agent — how agents work here
 
-- [[agent-knowledge-surfaces]] — reference — four overlapping knowledge surfaces and the intended division between them.
+- [[agent-knowledge-surfaces]] — reference — Four places currently hold agent-facing knowledge; this note defines the intended division and tracks the unification.
 
 ## 90-archive — historical snapshots
 
-Excluded from default navigation. Read only when history is the question.
-
-- [[archive-semantics]] — reference — what belongs here, and why open findings must be extracted before archiving.
+- [[archive-semantics]] — reference — What belongs in 90-archive, how CI treats it, and the rule that stops archiving from burying live work.
 
 <!-- vault-index:end -->
-
-## Meta
-
-- [[CONTRACT]] — note schema, lint rules, editing rules
 
 ## Not yet migrated
 

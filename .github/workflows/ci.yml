@@ -65,6 +65,9 @@ jobs:
       - name: Vault lint
         if: ${{ !cancelled() }}
         run: node scripts/vault-lint.mjs --strict
+      - name: Vault index up to date
+        if: ${{ !cancelled() }}
+        run: node scripts/vault-index.mjs --check
       - name: Lint
         if: ${{ !cancelled() }}
         run: npm run lint
