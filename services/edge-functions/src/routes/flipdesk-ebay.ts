@@ -212,6 +212,8 @@ import {
 import {
   deriveListingOrigin,
   ebayOriginWriteLock,
+  EBAY_OWNED_LISTING_FIELDS,
+  LISTING_PULL_ALLOWED_ON_GT_ORIGIN,
   validateEbayOriginEdit,
 } from "../lib/sync-precedence.ts";
 import { resolveAdapter } from "../lib/marketplace-adapters/index.ts";
@@ -2335,11 +2337,20 @@ async function doListingsPull(
     }
 
     // Keep GradeThread's values — never let eBay win on a GT-originated listing.
-    delete patch.listing_title;
-    delete patch.listing_price;
-    delete patch.listing_description;
-    delete patch.quantity;
-    delete patch.platform_category_id;
+    //
+    // US-1994: the locked set is DERIVED from sync-precedence.ts rather than
+    // hand-listed here. This block used to enumerate five deletes, which drifted
+    // from the module documenting the same contract — and because the module had
+    // the tests and no callers, its green suite read as proof of a rule only it
+    // enforced. Now there is one registry: anything eBay owns that is not in
+    // LISTING_PULL_ALLOWED_ON_GT_ORIGIN (state signals + eBay-ASSIGNED identity)
+    // is dropped, so adding a field to EBAY_OWNED_LISTING_FIELDS locks it here
+    // automatically instead of silently leaking through.
+    for (const field of EBAY_OWNED_LISTING_FIELDS) {
+      if (!LISTING_PULL_ALLOWED_ON_GT_ORIGIN.includes(field)) {
+        delete (patch as Record<string, unknown>)[field];
+      }
+    }
 
     // Record (or clear) the drift marker; informational only — we never pull
     // eBay's drifted value into GradeThread. Skip the write unless the marker

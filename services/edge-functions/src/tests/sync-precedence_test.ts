@@ -616,14 +616,19 @@ Deno.test("ebayOriginWriteLock: non-eBay-owned fields never lock, even on eBay o
 
 // ── the lib ⇄ production EQUIVALENCE, pinned (US-1994) ────────────────────
 //
-// buildListingPullPatch is still not what runs on a pull — applyProvenanceMerge
-// in routes/flipdesk-ebay.ts is — but as of US-1994 the two AGREE, so DRYing the
-// route onto this function is now safe. It was not before: this module was
-// stricter and would have stopped eBay ids and URLs reaching a GT-origin row.
+// As of US-1994 there is ONE registry. applyProvenanceMerge (the real pull path
+// in routes/flipdesk-ebay.ts) no longer hand-lists its deletes — it derives them
+// from LISTING_PULL_ALLOWED_ON_GT_ORIGIN, so this module's contract is the one
+// actually enforced in production rather than a parallel description of it.
+//
+// The list below is therefore a GOLDEN expectation, not a mirror of a second
+// copy: it fails if someone widens the allowed set and accidentally unlocks
+// title or price, which is now the only way the two could diverge.
 
 Deno.test("EQUIVALENCE: the fields this lib blocks are exactly the route's delete list", () => {
-  // Mirrors the delete block in applyProvenanceMerge. Update BOTH in the same
-  // commit — this is the only place the two contracts sit side by side.
+  // The five editable fields a gradethread-origin pull must never overwrite.
+  // The route derives this same set from the registry, so a change here is a
+  // deliberate contract change, not a sync chore.
   const productionDeletes = ["listing_title", "listing_price", "listing_description", "quantity", "platform_category_id"].sort();
   const libBlocks = EBAY_OWNED_LISTING_FIELDS.filter(
     (f) => !LISTING_PULL_ALLOWED_ON_GT_ORIGIN.includes(f),
