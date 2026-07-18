@@ -20,6 +20,32 @@
 
 (function () {
   "use strict";
+
+  // US-1882 (AC3): TOP-FRAME ONLY. Refuse to exist inside a frame — no marker,
+  // no listeners, no relay.
+  //
+  // The threat is clickjacking, not message forgery: `event.source !== window`
+  // already means only scripts in THIS frame can send an envelope, and a
+  // cross-origin parent cannot run any. But if gradethread.com were framed
+  // invisibly, the page's OWN "Send to extension" control could be clicked
+  // through by a user who thinks they are clicking something else — a genuine
+  // seller action, triggered by a real click, on a page the victim cannot see.
+  //
+  // The zone does ship `X-Frame-Options: DENY` + CSP `frame-ancestors 'none'`
+  // (verified live), so this is defense in depth rather than a live hole. It is
+  // here because an extension must not stake its security on a response header
+  // it does not control: headers get relaxed for a partner embed, a preview
+  // host, or a future deployment, and the extension would silently lose the
+  // guarantee with nothing failing to signal it.
+  //
+  // Identity comparison only — reading a property off a cross-origin `top`
+  // throws, comparing the reference does not.
+  try {
+    if (window.top !== window) return;
+  } catch (_e) {
+    return; // access denied ⇒ we are framed cross-origin ⇒ stay out.
+  }
+
   // Firefox: promise-based `browser`. Chrome: `chrome` (MV3 promises). Alias so the
   // one relay call works in both.
   var api = globalThis.browser || globalThis.chrome;
