@@ -67,6 +67,18 @@ cd services/edge-functions && deno run --allow-net --allow-env --allow-read src/
 
 (Navigate with Glob/Grep — this list is a map, not an inventory.)
 
+## Knowledge Vault (`vault/`)
+
+Contracts, runbooks, decisions and taxonomy live in `vault/` as a linked wiki —
+no embeddings, navigation only. **Need a reason, a procedure or a constraint?
+Start at `vault/00-index/INDEX.md`, follow ≤2 hops, then grep.** Need to know
+what the code *does*? Go to the code.
+
+**Adding or editing a note, or changing something a note describes? Load the
+`vault` skill first** — it owns the retrieval protocol, the procedure-vs-fact
+split against the domain skills, and the same-commit update rule. Schema lives in
+`vault/CONTRACT.md`. `npm run vault:index` + `npm run vault:lint` (CI-enforced).
+
 ## Architecture
 
 - **Auth:** Supabase PKCE; `onAuthStateChange` in `useAuth()` → Zustand; `handle_new_user()` trigger (SECURITY DEFINER, bypasses RLS) auto-creates profile on signup; `<ProtectedRoute>` guards, `<AuthLayout>` redirects authed users.
