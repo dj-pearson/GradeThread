@@ -32,6 +32,8 @@ import {
   isEbayOwnedListingField,
   isGradeThreadOwned,
   isSheetEditLockedByEbay,
+  LISTING_IDENTITY_FIELDS,
+  LISTING_PULL_ALLOWED_ON_GT_ORIGIN,
   LISTING_READONLY_SIGNALS,
   validateEbayOriginEdit,
 } from "../lib/sync-precedence.ts";
@@ -94,10 +96,12 @@ Deno.test("pull gradethread: price/title/description/quantity are NOT written", 
   assert(!("listing_price" in patch), "GT-originated: price must NOT be pulled from eBay");
   assert(!("listing_description" in patch), "GT-originated: description must NOT be pulled");
   assert(!("quantity" in patch), "GT-originated: quantity must NOT be pulled");
-  assert(!("platform_listing_id" in patch), "GT-originated: platform_listing_id must NOT be pulled");
+  // US-1994: platform_listing_id IS pulled — eBay assigns it, so there is no
+  // GradeThread value to protect. Only the EDITABLE fields are locked.
+  assertEquals(patch.platform_listing_id, "EBY-001", "eBay-assigned identity flows in");
 });
 
-Deno.test("pull gradethread: only LISTING_READONLY_SIGNALS (sold/ended state) flow in", () => {
+Deno.test("pull gradethread: state signals + eBay-assigned identity flow in", () => {
   const data = {
     listing_title: "Irrelevant eBay title",
     listing_price: 9.99,
@@ -111,6 +115,26 @@ Deno.test("pull gradethread: only LISTING_READONLY_SIGNALS (sold/ended state) fl
   // Editable fields must not appear.
   assert(!("listing_price" in patch));
   assert(!("listing_title" in patch));
+});
+
+// US-1994: eBay MINTS these at publish time — there is no GradeThread-side
+// value for a pull to clobber, so blocking them would only starve our row of
+// the ids and URL we need to act on the listing later.
+Deno.test("pull gradethread: eBay-assigned identity fields flow in for BOTH origins", () => {
+  const data = {
+    listed_at: "2026-07-18T00:00:00.000Z",
+    platform_listing_id: "EBY-123",
+    platform_offer_id: "OFFER-9",
+    listing_url: "https://www.ebay.com/itm/EBY-123",
+    listing_title: "eBay's drifted title",
+  };
+  for (const origin of ["gradethread", "ebay"] as const) {
+    const patch = buildListingPullPatch(origin, data);
+    for (const field of LISTING_IDENTITY_FIELDS) {
+      assert(field in patch, `${field} must flow in on ${origin}-origin`);
+    }
+  }
+  assert(!("listing_title" in buildListingPullPatch("gradethread", data)));
 });
 
 Deno.test("pull gradethread: empty eBay data produces empty patch", () => {
@@ -590,81 +614,33 @@ Deno.test("ebayOriginWriteLock: non-eBay-owned fields never lock, even on eBay o
   assertEquals(lock.lockedFields, []);
 });
 
-// ── the lib ⇄ production divergence, pinned ────────────────────────────────
+// ── the lib ⇄ production EQUIVALENCE, pinned (US-1994) ────────────────────
 //
-// buildListingPullPatch is NOT what runs on an eBay pull. The production path
-// is applyProvenanceMerge (routes/flipdesk-ebay.ts), which on a
-// gradethread-origin listing deletes exactly five fields:
-//
-//   listing_title, listing_price, listing_description, quantity,
-//   platform_category_id
-//
-// ...and so still lets eBay write listed_at, platform_listing_id,
-// platform_offer_id and listing_url. This function blocks those four too.
-//
-// Production is probably the correct one — eBay assigns ids, URLs and the
-// listed-at timestamp, so GradeThread cannot own them even on a listing it
-// originated. Which means the copy with the thorough tests encodes the wrong
-// contract, and those green tests read as proof the documented rule is enforced
-// when it is not.
-//
-// These two tests exist to make that visible and to fail loudly if either side
-// moves. Reconciling them is a product decision, not something to guess at.
+// buildListingPullPatch is still not what runs on a pull — applyProvenanceMerge
+// in routes/flipdesk-ebay.ts is — but as of US-1994 the two AGREE, so DRYing the
+// route onto this function is now safe. It was not before: this module was
+// stricter and would have stopped eBay ids and URLs reaching a GT-origin row.
 
-Deno.test("DIVERGENCE: production lets eBay write the four identity fields this lib blocks", () => {
-  const identityFields = [
-    "listed_at",
-    "platform_listing_id",
-    "platform_offer_id",
-    "listing_url",
-  ] as const;
-
-  const patch = buildListingPullPatch("gradethread", {
-    listing_status: "ACTIVE",
-    is_active: true,
-    listed_at: "2026-07-18T00:00:00.000Z",
-    platform_listing_id: "1234567890",
-    platform_offer_id: "offer-1",
-    listing_url: "https://www.ebay.com/itm/1234567890",
-    listing_title: "eBay's drifted title",
-    listing_price: 99.99,
-  });
-
-  // What this lib does today: only the read-only signals survive.
-  assertEquals(Object.keys(patch).sort(), ["is_active", "listing_status"]);
-  for (const f of identityFields) {
-    assert(
-      !(f in patch),
-      `${f} is blocked here but ALLOWED by applyProvenanceMerge in production — ` +
-        "if this assertion is failing, the two paths just converged (good) or this " +
-        "lib changed (decide which contract is right before proceeding)",
-    );
-  }
-  // The fields both paths agree on blocking.
-  for (const f of ["listing_title", "listing_price"]) {
-    assert(!(f in patch), `${f} must never be pulled onto a GradeThread-owned listing`);
-  }
+Deno.test("EQUIVALENCE: the fields this lib blocks are exactly the route's delete list", () => {
+  // Mirrors the delete block in applyProvenanceMerge. Update BOTH in the same
+  // commit — this is the only place the two contracts sit side by side.
+  const productionDeletes = ["listing_title", "listing_price", "listing_description", "quantity", "platform_category_id"].sort();
+  const libBlocks = EBAY_OWNED_LISTING_FIELDS.filter(
+    (f) => !LISTING_PULL_ALLOWED_ON_GT_ORIGIN.includes(f),
+  ).sort();
+  assertEquals(
+    libBlocks,
+    productionDeletes,
+    "buildListingPullPatch and applyProvenanceMerge must lock the SAME fields on a " +
+      "gradethread-origin pull — a difference means one is silently enforcing a " +
+      "contract the other does not",
+  );
 });
 
-Deno.test("DIVERGENCE: the production deletion list is exactly five fields", () => {
-  // Mirrors applyProvenanceMerge's `delete patch.*` block. If someone adds or
-  // removes a delete there, this list should be updated in the same commit —
-  // it is the only place the two contracts are written side by side.
-  const productionDeletes = [
-    "listing_title",
-    "listing_price",
-    "listing_description",
-    "quantity",
-    "platform_category_id",
-  ];
-  const libBlocks = EBAY_OWNED_LISTING_FIELDS.filter(
-    (f) => !LISTING_READONLY_SIGNALS.includes(f),
-  );
-  const onlyLibBlocks = libBlocks.filter((f) => !productionDeletes.includes(f));
-  assertEquals(
-    onlyLibBlocks.sort(),
-    ["listed_at", "listing_url", "platform_listing_id", "platform_offer_id"],
-    "the set of fields this lib blocks but production allows has changed — " +
-      "reconcile SYNC_SOURCE_OF_TRUTH.md with whichever path is now correct",
-  );
+Deno.test("EQUIVALENCE: every eBay-owned field is exactly one of allowed or locked", () => {
+  for (const f of EBAY_OWNED_LISTING_FIELDS) {
+    const allowed = LISTING_PULL_ALLOWED_ON_GT_ORIGIN.includes(f);
+    const locked = ["listing_title", "listing_price", "listing_description", "quantity", "platform_category_id"].includes(f);
+    assert(allowed !== locked, `${f} must be exactly one of allowed / locked`);
+  }
 });

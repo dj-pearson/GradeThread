@@ -84,6 +84,40 @@ export const LISTING_READONLY_SIGNALS: ReadonlyArray<EbayOwnedListingField> = [
 ] as const;
 
 /**
+ * Fields eBay ASSIGNS and GradeThread therefore cannot own — even on a listing
+ * GradeThread originated and published. eBay mints the item id, the offer id
+ * and the public URL at publish time, and stamps when it went live; there is no
+ * GradeThread-side value for a pull to overwrite. So these flow in for BOTH
+ * origins, exactly like the read-only signals.
+ *
+ * US-1994: this list is why the strict reading of "gradethread-origin locks all
+ * EBAY_OWNED_LISTING_FIELDS" was wrong. The production pull path
+ * (applyProvenanceMerge in flipdesk-ebay.ts) has always let these four through
+ * — it deletes only title/price/description/quantity/category — while this
+ * module and SYNC_SOURCE_OF_TRUTH.md both claimed a blanket lock. Production
+ * had the right behaviour and the documented contract was overbroad, so the
+ * contract moved to match it rather than the reverse: blocking these would stop
+ * eBay ids and URLs ever reaching a GradeThread-originated listing, which is a
+ * silent data-integrity regression dressed up as tightening.
+ */
+export const LISTING_IDENTITY_FIELDS: ReadonlyArray<EbayOwnedListingField> = [
+  "listed_at",
+  "platform_listing_id",
+  "platform_offer_id",
+  "listing_url",
+] as const;
+
+/**
+ * Everything an inbound pull may write on a GRADETHREAD-origin listing:
+ * observable state + eBay-assigned identity. The genuinely locked fields are
+ * the editable ones — title, price, description, quantity, category.
+ */
+export const LISTING_PULL_ALLOWED_ON_GT_ORIGIN: ReadonlyArray<EbayOwnedListingField> = [
+  ...LISTING_READONLY_SIGNALS,
+  ...LISTING_IDENTITY_FIELDS,
+] as const;
+
+/**
  * inventory_items fields that GradeThread always owns.
  * No eBay pull (for any listing_origin) and no CSV import may write these.
  */
@@ -169,30 +203,23 @@ export type ListingPullPatch = Partial<
  * • listing_origin='gradethread': writes only LISTING_READONLY_SIGNALS
  *                                (sold/ended status); ignores price/title/etc.
  *
- * ⚠ THIS FUNCTION IS NOT THE PRODUCTION PULL PATH, AND IT IS STRICTER THAN IT.
+ * ⚠ STILL NOT THE PRODUCTION PULL PATH — but it now AGREES with it (US-1994).
  *
  * The real eBay pull merges provenance inline in `applyProvenanceMerge`
- * (routes/flipdesk-ebay.ts). On a gradethread-origin listing that path deletes
- * exactly five fields — listing_title, listing_price, listing_description,
- * quantity, platform_category_id — and therefore still lets eBay write
- * listed_at, platform_listing_id, platform_offer_id and listing_url. This
- * function blocks those four as well.
+ * (routes/flipdesk-ebay.ts), which on a gradethread-origin listing deletes
+ * exactly five fields: listing_title, listing_price, listing_description,
+ * quantity, platform_category_id.
  *
- * That difference is very likely correct in PRODUCTION'S favour: eBay assigns
- * the item/offer ids, the URL and the listed-at timestamp, so GradeThread cannot
- * meaningfully own them even on a listing it originated. Which makes this
- * function — the one with the thorough test suite — the copy encoding the WRONG
- * contract, while the copy that actually runs is untested here.
+ * This function used to be STRICTER — it also blocked the four eBay-assigned
+ * identity fields — so the copy with the thorough test suite encoded a contract
+ * production never enforced, and those green tests read as proof of a rule that
+ * was not in force. The divergence was resolved in production's favour, because
+ * production was right: see LISTING_IDENTITY_FIELDS.
  *
- * The hazard is specific: those green tests read as proof the documented
- * contract is enforced as written. It is not. Do NOT "fix" the route by
- * switching it to this function without deciding the four identity fields
- * first — that swap would stop eBay ids and URLs syncing onto GradeThread-
- * originated listings, which is a silent data-integrity regression.
- *
- * sync-precedence_test.ts pins the divergence so neither side can drift further
- * without failing loudly. Reconciling them is a product decision, tracked rather
- * than guessed at here.
+ * They are now equivalent, so DRYing the route onto this function is safe —
+ * which was explicitly NOT true before. sync-precedence_test.ts pins the
+ * equivalence (it asserts this function's blocked set equals the route's delete
+ * list), so if either side moves the other fails loudly.
  */
 export function buildListingPullPatch(
   origin: "ebay" | "gradethread",
@@ -200,7 +227,7 @@ export function buildListingPullPatch(
 ): ListingPullPatch {
   const patch: ListingPullPatch = {};
   const allowed: ReadonlyArray<EbayOwnedListingField> =
-    origin === "ebay" ? EBAY_OWNED_LISTING_FIELDS : LISTING_READONLY_SIGNALS;
+    origin === "ebay" ? EBAY_OWNED_LISTING_FIELDS : LISTING_PULL_ALLOWED_ON_GT_ORIGIN;
   for (const field of allowed) {
     if (Object.prototype.hasOwnProperty.call(fromEbay, field)) {
       (patch as Record<string, unknown>)[field] = fromEbay[field];

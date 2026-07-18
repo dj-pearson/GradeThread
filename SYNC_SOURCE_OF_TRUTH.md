@@ -21,11 +21,31 @@ Authority is **per-listing, decided by provenance** — not global. Each listing
 
 | Registry export | Fields | Rule |
 |---|---|---|
-| `EBAY_OWNED_LISTING_FIELDS` | `listing_title`, `listing_price`, `listing_description`, `listing_status`, `is_active`, `quantity`, `listed_at`, `platform_category_id`, `platform_listing_id`, `platform_offer_id`, `listing_url` | For `listing_origin='ebay'` these are overwritten on every inbound pull (full mirror). For `listing_origin='gradethread'` these are **locked** — inbound pull must not write them; GradeThread re-asserts on the next push. |
+| `EBAY_OWNED_LISTING_FIELDS` | `listing_title`, `listing_price`, `listing_description`, `listing_status`, `is_active`, `quantity`, `listed_at`, `platform_category_id`, `platform_listing_id`, `platform_offer_id`, `listing_url` | For `listing_origin='ebay'` these are overwritten on every inbound pull (full mirror). For `listing_origin='gradethread'` the **editable** ones are locked — `listing_title`, `listing_price`, `listing_description`, `quantity`, `platform_category_id` — and GradeThread re-asserts them on the next push. The state signals and the eBay-**assigned** identity fields still flow in; see the two rows below. |
 | `LISTING_READONLY_SIGNALS` | `is_active`, `listing_status` | Subset of `EBAY_OWNED_LISTING_FIELDS`. These flow in regardless of `listing_origin`: GradeThread must know when eBay ends or marks a listing sold. |
+| `LISTING_IDENTITY_FIELDS` | `listed_at`, `platform_listing_id`, `platform_offer_id`, `listing_url` | **eBay ASSIGNS these**, so GradeThread cannot own them even on a listing it originated and published — there is no local value for a pull to overwrite. They flow in for BOTH origins. |
+| `LISTING_PULL_ALLOWED_ON_GT_ORIGIN` | the two rows above, combined | What an inbound pull may write on a `gradethread`-origin listing. Everything else in `EBAY_OWNED_LISTING_FIELDS` is locked. |
 | `GRADETHREAD_OWNED_ITEM_FIELDS` | `grade_value`, `condition_notes`, `acquired_price`, `acquired_date`, `sku`, `source_id` | Always owned by GradeThread — no eBay pull (for any `listing_origin`) and no CSV import may write these. |
 
 The server (`buildListingPullPatch`, `validateEbayOriginEdit`) enforces these boundaries; no client-side precedence logic exists.
+
+
+> **US-1994 (2026-07-18) — the identity-field carve-out.** This table used to say
+> a `gradethread`-origin pull locks *all* `EBAY_OWNED_LISTING_FIELDS`. The
+> production pull path (`applyProvenanceMerge` in `flipdesk-ebay.ts`) never did
+> that: it deletes only the five editable fields and has always let `listed_at`,
+> `platform_listing_id`, `platform_offer_id` and `listing_url` through.
+>
+> The divergence was resolved **in production's favour**, because production was
+> right — eBay mints those four at publish time, so blocking them would only
+> starve our own row of the ids and URL needed to act on the listing later. The
+> doc and `sync-precedence.ts` were the overbroad copies and both moved.
+>
+> Note which way this went: the *tested* module encoded the stricter rule, so its
+> green tests read as proof of a contract nothing enforced. `buildListingPullPatch`
+> still has no production callers, but it now AGREES with the route, and
+> `sync-precedence_test.ts` pins the equivalence — so DRYing the route onto it is
+> safe, which it explicitly was not before.
 
 ## Linking sources (lowest authority)
 
