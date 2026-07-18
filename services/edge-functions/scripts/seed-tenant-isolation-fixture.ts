@@ -50,6 +50,14 @@ const admin = createClient(SUPABASE_URL, SERVICE_KEY, {
 const PASSWORD = "Tenant-Isolation-Fixture-1!";
 const A_EMAIL = "tenant-a@tenant-isolation.test";
 const B_EMAIL = "tenant-b@tenant-isolation.test";
+// US-2039: a read-only VIEWER inside A's workspace. Distinct from B, who is a
+// FOREIGN tenant — the two prove different things. B tests cross-tenant
+// isolation ("you cannot touch another account's data"); V tests INTRA-workspace
+// role enforcement ("you are legitimately inside this workspace but may not
+// spend its money"). Seven tenant-isolation cases, including
+// "viewer cannot pay for a grade (drains owner credits)", skipped silently
+// because this user was never seeded.
+const V_EMAIL = "tenant-viewer@tenant-isolation.test";
 
 const out: Record<string, string> = {};
 
@@ -143,9 +151,27 @@ async function insert(
 async function main(): Promise<void> {
   const aId = await ensureUser(A_EMAIL);
   const bId = await ensureUser(B_EMAIL);
+  const vId = await ensureUser(V_EMAIL);
 
   out.TEST_USER_A_JWT = await mintJwt(A_EMAIL);
   out.TEST_USER_B_JWT = await mintJwt(B_EMAIL);
+
+  // US-2039: make V a VIEWER of A's workspace. Upsert on the (owner_id,
+  // member_id) unique constraint so re-running the seed is idempotent and a
+  // role changed by a previous run is reset rather than duplicated.
+  {
+    const { error } = await admin
+      .from("workspace_members")
+      .upsert(
+        { owner_id: aId, member_id: vId, role: "viewer", invited_by: aId },
+        { onConflict: "owner_id,member_id" },
+      );
+    if (error) die(`seed workspace_members(viewer) failed: ${error.message}`);
+    log(`viewer membership: ${V_EMAIL} -> owner ${aId} (role=viewer)`);
+  }
+  out.TEST_VIEWER_JWT = await mintJwt(V_EMAIL);
+  // The X-Workspace-Owner value the viewer acts under — A's id.
+  out.TEST_WORKSPACE_OWNER_ID = aId;
 
   // ── Resources OWNED BY A ────────────────────────────────────────────
   const itemId = await insert("inventory_items", {

@@ -27,6 +27,8 @@
 //   TEST_USER_A_EBAY_SKU        an inventory_items.sku (eBay cleanup, US-1978)
 //   TEST_USER_A_PHOTO_ID        an item_photos.id (US-2014 remove-bg probe;
 //                               OPTIONAL — skips until the seed script adds it)
+//   TEST_VIEWER_JWT             a role=viewer member of A's workspace (US-2039)
+//   TEST_WORKSPACE_OWNER_ID     A's user id — the X-Workspace-Owner value
 // For the AutoLister batch-enqueue test, user B should ideally be on a plan
 // that includes AutoLister so the OWNERSHIP path is exercised; if B is on a
 // free/starter plan the request is denied earlier with 402 (still a pass —
@@ -85,6 +87,14 @@ const REQUIRED_RESOURCE_IDS = [
   "TEST_USER_A_CONFLICT_ID",
   "TEST_USER_A_RECONCILE_SESSION",
   "TEST_USER_A_CONSIGNOR_ID",
+  // US-2039: the VIEWER fixture. Seven intra-workspace role cases — including
+  // "viewer cannot pay for a grade (drains owner credits)" — gated on these and
+  // skipped silently on every CI run because the seed script never emitted
+  // them. They were LABELLED as though the wiring had landed. Requiring them
+  // here is what makes the least-covered critical path (auth / workspace
+  // member) actually covered rather than nominally covered.
+  "TEST_VIEWER_JWT",
+  "TEST_WORKSPACE_OWNER_ID",
 ];
 
 Deno.test({
@@ -2253,8 +2263,10 @@ Deno.test("US-1565: task-board whitelists strip created_by/author_id and unknown
 // are live-integration cases gated on a seeded viewer membership:
 //   TEST_VIEWER_JWT           — a member of the owner's workspace with role=viewer
 //   TEST_WORKSPACE_OWNER_ID   — that owner's user id (the X-Workspace-Owner value)
-// They SKIP until the fixture seeds a viewer (the broader workspace.ts role
-// coverage + seed wiring is US-1639). A 2xx here is a FAIL.
+// US-2039: the seed script now emits both (scripts/seed-tenant-isolation-
+// fixture.ts creates tenant-viewer@ and upserts a role=viewer workspace_members
+// row for A), and both are in REQUIRED_RESOURCE_IDS — so these no longer skip
+// silently in CI; a missing viewer fixture FAILS the job. A 2xx here is a FAIL.
 const VIEWER_JWT = Deno.env.get("TEST_VIEWER_JWT");
 const WS_OWNER = Deno.env.get("TEST_WORKSPACE_OWNER_ID");
 const VIEWER_READY = Boolean(BASE && VIEWER_JWT && WS_OWNER);
