@@ -8,12 +8,19 @@
 // there is no authenticity prompt-activation path for it to gate (admin-grading.ts
 // has no authenticity hooks at all).
 //
-// The unmet ACs are the SAFETY ones, which is why this warning is here rather
-// than in a backlog note alone: AC1 requires a candidate authenticity prompt to
-// clear an accuracy gate BEFORE activation, and AC3 requires per-brand regressions
-// to BLOCK activation. Neither is enforced by anything. AC2's human-review routing
-// on a counterfeit call is also absent — the only consumer of red_flags is
-// grading-pipeline.ts, which writes a note and routes nobody.
+// The unmet ACs are AC1 — a candidate authenticity prompt must clear an accuracy
+// gate BEFORE activation — and AC3, per-brand regressions blocking activation.
+// Neither is enforced by anything, because no authenticity prompt-activation path
+// exists for this to gate.
+//
+// ⚠ CORRECTION (2026-07-18): an earlier version of this comment also claimed AC2's
+// human-review routing was missing. That was WRONG. authenticityNeedsReview()
+// in ai-authenticity.ts routes a red_flags verdict (or a low-confidence branded
+// assessment) to a human, wired at grading-pipeline.ts:2054 and unit-tested. The
+// mistake came from grepping red_flags, finding only the note site ~400 lines
+// earlier, and not noticing the routing reaches the assessment through a helper
+// rather than through that field. So the net that catches a bad CALL exists; what
+// is missing is the gate that would stop a bad PROMPT VERSION shipping.
 //
 // Do not read this module's green tests as evidence the gate exists. Tracked in
 // US-1996.
