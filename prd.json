@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 2042,
+  "nextId": 2068,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2258,6 +2258,625 @@
         "Determine whether any dispute was resolved on the wrong displayed number — needs prod data."
       ],
       "notes": "[P1][Grading/Money] Found 2026-07-18 by the test-suite deep dive, which caught what the grading-engine deep dive missed: that audit enumerated four rounding sites, concluded 'the lockstep holds today', and never looked at disputes.tsx. I verified the drift numerically before fixing — 4 of 5 realistic factor vectors differ. FIXED SAME PASS: all three admin UIs now delegate to ONE src/lib/weighted-grade.ts; the edge keeps its own copy because the projects cannot import across, and that legitimate mirror is now pinned by src/test/fixtures/weighted-grade-cases.json (15 vectors) asserted by BOTH the vitest and deno suites. Also asserted: weights sum to exactly 1.0 (previously only claimed in a comment), all-equal inputs return that value, and the 1.0-10.0 bounds hold. NEGATIVE-VERIFIED: reintroducing Math.round(total*2)/2 fails the web guard on the exact historical vector. STILL passes:false on AC4 — whether a real dispute was decided on a wrong displayed number is a prod-data question. That matters because a dispute resolution is a customer-facing money decision."
+    },
+    {
+      "id": "US-2042",
+      "passes": false,
+      "dependsOn": [],
+      "priority": 1930,
+      "title": "Stand up vault/ skeleton and the note frontmatter contract",
+      "description": "As an agent working in this repo, I want a single navigable knowledge root with a machine-checkable note schema, so that retrieval is one predictable surface instead of 203 scattered markdown files with no index.",
+      "acceptanceCriteria": [
+        "vault/ created at repo root with numbered top-level folders: 00-index, 10-ops, 20-domain (with brands/), 30-platform, 40-growth, 50-business, 60-decisions, 70-agent, 90-archive.",
+        "vault/.obsidian/ committed with wikilink resolution set to shortest-path-when-possible and the graph configured so folder = colour group.",
+        "vault/CONTRACT.md documents the frontmatter schema and is the ONLY place the schema is defined (no restating in CLAUDE.md).",
+        "Frontmatter schema: title, type (runbook|contract|reference|decision|learning|moc), status (current|superseded|archived), source_of_truth (code|vault), code_refs (list of repo-relative paths), reviewed (ISO date), tags.",
+        "source_of_truth:code means the note DESCRIBES code and the code wins on conflict; source_of_truth:vault means the note is authoritative (decisions, runbooks, taxonomy). This distinction drives the US-2044 drift guard — do not collapse it.",
+        "At least one hand-authored seed note per top-level folder so the schema is exercised, not just specified.",
+        "No existing docs are moved in this story — skeleton only."
+      ],
+      "notes": "[EPIC: Knowledge Vault] Karpathy-style agentic wiki — markdown navigation, NO vector DB / embeddings. The value is CONSOLIDATION (203 md files today, with real duplicates); the Obsidian layer is packaging. Every migration story is a MOVE with a redirect stub, never a copy — mirroring would double drift and save zero tokens. Phase 1 (foundation). Folder numbering is deliberate: it sorts in both Obsidian's file explorer and `ls`, and gives wikilinks a stable prefix. code_refs is the load-bearing field — it is what makes staleness DETECTABLE rather than a matter of discipline.",
+      "relevantPaths": [
+        "vault/",
+        "vault/CONTRACT.md",
+        "vault/.obsidian/"
+      ]
+    },
+    {
+      "id": "US-2043",
+      "passes": false,
+      "dependsOn": [
+        "US-2042"
+      ],
+      "priority": 1929,
+      "title": "vault-lint: frontmatter + wikilink parser and rule engine",
+      "description": "As a developer, I want a script that parses every vault note and reports schema violations, dangling wikilinks, and orphans, so that vault integrity is a check rather than a hope.",
+      "acceptanceCriteria": [
+        "scripts/vault-lint.mjs parses all vault/**/*.md frontmatter and [[wikilink]] targets (including [[note|alias]] and [[note#heading]] forms).",
+        "Rules: (1) frontmatter present and schema-valid; (2) every wikilink resolves to an existing note; (3) no orphan notes — every note reachable from vault/00-index/INDEX.md by link traversal; (4) every code_refs path exists on disk; (5) reviewed is a valid ISO date not in the future.",
+        "Prints a ✓/✗ summary matching the house style of scripts/verify.mjs.",
+        "Exits non-zero on any violation; --fix auto-repairs what is mechanically safe (frontmatter key order, reviewed date stamping) and nothing else.",
+        "Unit tests cover each rule with a passing and a failing fixture.",
+        "Handles the alias/heading wikilink forms — the 7 files already using [[US-716]]-style links prove partial syntax will be written."
+      ],
+      "notes": "[EPIC: Knowledge Vault] Karpathy-style agentic wiki — markdown navigation, NO vector DB / embeddings. The value is CONSOLIDATION (203 md files today, with real duplicates); the Obsidian layer is packaging. Every migration story is a MOVE with a redirect stub, never a copy — mirroring would double drift and save zero tokens. Phase 1. Orphan detection is the rule that actually keeps the wiki navigable — a note nothing links to is a note the agent will never find, which is exactly the failure Karpathy's approach trades vector search away for.",
+      "relevantPaths": [
+        "scripts/vault-lint.mjs"
+      ]
+    },
+    {
+      "id": "US-2044",
+      "passes": false,
+      "dependsOn": [
+        "US-2043"
+      ],
+      "priority": 1928,
+      "title": "CI drift guard: fail when code moves out from under a vault note",
+      "description": "As a maintainer, I want CI to fail when a note's described code has changed since the note was reviewed, so that the vault cannot quietly become the 204th stale source of truth.",
+      "acceptanceCriteria": [
+        "vault-lint gains a --drift mode: for every note with source_of_truth:code, compare `git log -1 --format=%cI` of each code_refs path against the note's reviewed date.",
+        "Code newer than reviewed => drift warning naming the note, the path, and the commit that outran it.",
+        "Drift is a WARNING by default and an ERROR under --strict; CI runs --strict only for notes with type:contract (the ones whose staleness actually misleads).",
+        "Wired into scripts/verify.mjs as a verify:vault lane, following the existing lane conventions.",
+        "Added to the GitHub Actions workflow alongside the other lanes.",
+        "Documented in vault/CONTRACT.md: re-reviewing a note means re-reading the code_refs and bumping reviewed — NOT bumping the date to silence CI."
+      ],
+      "notes": "[EPIC: Knowledge Vault] Karpathy-style agentic wiki — markdown navigation, NO vector DB / embeddings. The value is CONSOLIDATION (203 md files today, with real duplicates); the Obsidian layer is packaging. Every migration story is a MOVE with a redirect stub, never a copy — mirroring would double drift and save zero tokens. Phase 1. This is the story that decides whether the vault survives contact with a year of development. Without it we reproduce exactly what the repo already shows: dangling [[US-XXXX]] links and three runbooks that exist twice at different lengths. Drift-as-warning-then-error mirrors how the migrations skill escalates.",
+      "relevantPaths": [
+        "scripts/vault-lint.mjs",
+        "scripts/verify.mjs",
+        ".github/workflows/"
+      ]
+    },
+    {
+      "id": "US-2045",
+      "passes": false,
+      "dependsOn": [
+        "US-2043"
+      ],
+      "priority": 1927,
+      "title": "Autogenerated INDEX and per-folder maps of content",
+      "description": "As an agent, I want one generated entry-point note that lists every vault note with its one-line summary, so that I can find the right note in a single read instead of grepping 200 files.",
+      "acceptanceCriteria": [
+        "scripts/vault-index.mjs regenerates vault/00-index/INDEX.md from note frontmatter: grouped by folder, one line per note (title — type — one-line summary from a `summary` frontmatter field or the first sentence).",
+        "Per-folder MOC notes (vault/00-index/ops.md etc.) generated the same way for deeper navigation.",
+        "Generated regions are delimited by explicit markers so hand-written orientation prose above them survives regeneration.",
+        "INDEX.md stays under 400 lines at current corpus size — if it exceeds that, the generator splits to per-folder MOCs and INDEX links to those instead. This is the token budget for the whole retrieval surface, so enforce it.",
+        "vault-lint fails if INDEX.md is out of date relative to the notes on disk (regenerate-and-diff).",
+        "Runs as part of the verify:vault lane."
+      ],
+      "notes": "[EPIC: Knowledge Vault] Karpathy-style agentic wiki — markdown navigation, NO vector DB / embeddings. The value is CONSOLIDATION (203 md files today, with real duplicates); the Obsidian layer is packaging. Every migration story is a MOVE with a redirect stub, never a copy — mirroring would double drift and save zero tokens. Phase 1. INDEX.md is the librarian. The <400-line cap is the entire token thesis: an agent reads ONE index, picks 1-2 notes, and stops. If the index grows unbounded we have rebuilt the problem with extra steps.",
+      "relevantPaths": [
+        "scripts/vault-index.mjs",
+        "vault/00-index/INDEX.md"
+      ]
+    },
+    {
+      "id": "US-2046",
+      "passes": false,
+      "dependsOn": [
+        "US-2045"
+      ],
+      "priority": 1926,
+      "title": "Agent navigation protocol: vault skill + CLAUDE.md rewiring",
+      "description": "As an agent starting a task, I want an explicit cheap-first retrieval protocol, so that I read the index before grepping and stop reading once I have the answer.",
+      "acceptanceCriteria": [
+        "New .claude/skills/vault/SKILL.md defines the protocol: read vault/00-index/INDEX.md -> follow at most 2 wikilink hops -> only then Grep the codebase.",
+        "Skill states the escape hatch plainly: for CODE questions go to code first; the vault holds contracts, runbooks, decisions and taxonomy, not API surface.",
+        "CLAUDE.md gains a short Knowledge Vault section pointing at vault/00-index/INDEX.md and the skill — a POINTER, with no knowledge restated inline.",
+        "CLAUDE.md's existing per-domain 'load the X skill first' triggers are left intact; the vault skill composes with them rather than replacing them.",
+        "Skill documents the write path too: when work invalidates a note, update the note in the same commit (mirroring the US-1108 migration triple).",
+        "CLAUDE.md net line count does not grow by more than 15 lines."
+      ],
+      "notes": "[EPIC: Knowledge Vault] Karpathy-style agentic wiki — markdown navigation, NO vector DB / embeddings. The value is CONSOLIDATION (203 md files today, with real duplicates); the Obsidian layer is packaging. Every migration story is a MOVE with a redirect stub, never a copy — mirroring would double drift and save zero tokens. Phase 1, and the story that converts the vault from a folder into a behaviour. The +15 line cap on CLAUDE.md is deliberate — CLAUDE.md is loaded on EVERY turn, so knowledge belongs behind a pointer, never inlined.",
+      "relevantPaths": [
+        "CLAUDE.md",
+        ".claude/skills/vault/SKILL.md"
+      ]
+    },
+    {
+      "id": "US-2047",
+      "passes": false,
+      "dependsOn": [
+        "US-2043"
+      ],
+      "priority": 1925,
+      "title": "Redirect-stub mechanism and stub registry",
+      "description": "As anyone holding a link to an old doc path, I want moved files to leave a one-line pointer behind, so that the consolidation does not silently break every existing reference.",
+      "acceptanceCriteria": [
+        "scripts/vault-move.mjs performs the canonical move: git mv doc -> vault note, inject frontmatter, then write a stub at the old path.",
+        "Stub body is exactly: a one-line 'Moved to [[note-name]] (vault/PATH.md)' plus a dated deprecation line. No content duplication — a stub containing prose is a second source of truth.",
+        "vault/00-index/STUBS.md registry tracks every stub with its creation date, for the US-2066 sweep.",
+        "The tool rewrites inbound references it can find (repo-wide markdown links + CLAUDE.md + skills) as part of the same move.",
+        "vault-lint rule: a stub must be <= 5 lines and must point at a note that exists.",
+        "Dry-run mode prints the full plan without touching the tree."
+      ],
+      "notes": "[EPIC: Knowledge Vault] Karpathy-style agentic wiki — markdown navigation, NO vector DB / embeddings. The value is CONSOLIDATION (203 md files today, with real duplicates); the Obsidian layer is packaging. Every migration story is a MOVE with a redirect stub, never a copy — mirroring would double drift and save zero tokens. Phase 1. Every Phase 3 migration story goes through this one tool, so the move is mechanical and reversible instead of 78 hand-edits. Reference-rewriting is bundled here on purpose: a move that leaves broken links behind is how the repo got its current dangling [[US-716]] refs.",
+      "relevantPaths": [
+        "scripts/vault-move.mjs",
+        "vault/00-index/STUBS.md"
+      ]
+    },
+    {
+      "id": "US-2048",
+      "passes": false,
+      "dependsOn": [
+        "US-2047"
+      ],
+      "priority": 1924,
+      "title": "Merge the ENV_REFERENCE / ENVIRONMENT near-duplicate pair",
+      "description": "As a developer looking up an env var, I want exactly one env reference, so that I am not reading whichever of two 363-line near-identical files I happened to open.",
+      "acceptanceCriteria": [
+        "Diff ENV_REFERENCE.md (364 lines) and ENVIRONMENT.md (363 lines) and enumerate every substantive difference before merging — the delta is where the truth is hiding.",
+        "Merged into a single vault/10-ops note, type:contract, with code_refs to .env.example and services/edge-functions/.env.example.",
+        "Every var present in EITHER file survives the merge; any var whose two descriptions conflict is resolved against the actual code and the resolution noted.",
+        "Both old paths become stubs via vault-move.",
+        "CLAUDE.md's env-vars line updated to point at the single note.",
+        "Vars documented in neither file but read by the code are added (audit against process.env / Deno.env usage)."
+      ],
+      "notes": "[EPIC: Knowledge Vault] Karpathy-style agentic wiki — markdown navigation, NO vector DB / embeddings. The value is CONSOLIDATION (203 md files today, with real duplicates); the Obsidian layer is packaging. Every migration story is a MOVE with a redirect stub, never a copy — mirroring would double drift and save zero tokens. Phase 2. Start the consolidation here because it is the clearest possible proof of the thesis: two files, 727 lines, one topic, unknown which is right. The conflict-resolution criterion is the real work — a naive merge would launder the contradictions instead of settling them.",
+      "relevantPaths": [
+        "ENV_REFERENCE.md",
+        "ENVIRONMENT.md",
+        ".env.example",
+        "services/edge-functions/.env.example"
+      ]
+    },
+    {
+      "id": "US-2049",
+      "passes": false,
+      "dependsOn": [
+        "US-2047"
+      ],
+      "priority": 1923,
+      "title": "Resolve the three runbooks that exist twice (root and docs/)",
+      "description": "As an operator in an incident, I want one incident runbook, so that I am not choosing between two versions of the procedure while production is down.",
+      "acceptanceCriteria": [
+        "INCIDENT_RESPONSE.md (root 125 / docs 145), KEY_ROTATION.md (root 98 / docs 108) and DATA_RETENTION.md (root 63 / docs 51) each merged into a single vault/10-ops note.",
+        "For each pair, diff first and enumerate what the longer copy adds — do not assume longer means newer or more correct.",
+        "Merged notes are type:runbook, source_of_truth:vault, with code_refs to the systems they operate on.",
+        "All six old paths become stubs.",
+        "Cross-references between the three (rotation touches retention, incidents trigger rotation) become wikilinks.",
+        "Any step referencing a command, table or env var is verified to still exist before it survives the merge — stale runbook steps are worse than missing ones."
+      ],
+      "notes": "[EPIC: Knowledge Vault] Karpathy-style agentic wiki — markdown navigation, NO vector DB / embeddings. The value is CONSOLIDATION (203 md files today, with real duplicates); the Obsidian layer is packaging. Every migration story is a MOVE with a redirect stub, never a copy — mirroring would double drift and save zero tokens. Phase 2. These are the highest-consequence duplicates in the repo: ops docs are read under time pressure, which is exactly when picking the wrong copy costs the most. The last criterion matters — a merged-but-unverified runbook is a confident wrong answer during an outage.",
+      "relevantPaths": [
+        "INCIDENT_RESPONSE.md",
+        "KEY_ROTATION.md",
+        "DATA_RETENTION.md",
+        "docs/INCIDENT_RESPONSE.md",
+        "docs/KEY_ROTATION.md",
+        "docs/DATA_RETENTION.md"
+      ]
+    },
+    {
+      "id": "US-2050",
+      "passes": false,
+      "dependsOn": [
+        "US-2042"
+      ],
+      "priority": 1922,
+      "title": "Resolve the .agents/skills byte-mirror of .claude/skills",
+      "description": "As a maintainer, I want one skills tree, so that editing a skill does not require remembering to edit a 42-file duplicate.",
+      "acceptanceCriteria": [
+        "Determine what consumes .agents/skills/ — if nothing does, delete it; if something does, replace it with a generated copy or a symlink and document which.",
+        "Confirm the two trees are currently byte-identical before acting; if they have already diverged, reconcile and report the divergence (silent drift here means a skill has been edited in only one place).",
+        "The surviving tree is the only one anyone edits, stated in vault/CONTRACT.md.",
+        "If a generated mirror is required, CI fails when it is out of sync.",
+        "No skill CONTENT changes in this story — mechanism only."
+      ],
+      "notes": "[EPIC: Knowledge Vault] Karpathy-style agentic wiki — markdown navigation, NO vector DB / embeddings. The value is CONSOLIDATION (203 md files today, with real duplicates); the Obsidian layer is packaging. Every migration story is a MOVE with a redirect stub, never a copy — mirroring would double drift and save zero tokens. Phase 2. 42 duplicated files is the same disease as the doubled runbooks, in the agent-instruction layer where drift is least visible. Worth checking for existing divergence first — if the mirrors already differ, that is a live bug, not just cleanup.",
+      "relevantPaths": [
+        ".claude/skills/",
+        ".agents/skills/"
+      ]
+    },
+    {
+      "id": "US-2051",
+      "passes": false,
+      "dependsOn": [
+        "US-2047"
+      ],
+      "priority": 1921,
+      "title": "Migrate ops runbooks into vault/10-ops",
+      "description": "As an operator, I want every runbook in one folder with consistent structure, so that finding the right procedure is navigation rather than recall.",
+      "acceptanceCriteria": [
+        "Move DEPLOY, ROLLBACK, STAGING, BACKUPS, UPTIME_MONITORING, SCALING, CAPACITY, CONNECTION_POOLING, MIGRATIONS, LAUNCH_CHECKLIST and the docs/ runbooks (BILLING_REFUNDS, MFA, runbooks/mfa-ipv6-ip-mismatch, QA_PHOTO_ACCESS) into vault/10-ops.",
+        "Each becomes type:runbook with code_refs to the scripts/config it drives.",
+        "Ordering dependencies between runbooks (DEPLOY's DB->edge->frontend order, ROLLBACK's relationship to it) expressed as wikilinks.",
+        "PENDING_MIGRATIONS.md (3,830 lines) is explicitly NOT moved — it is a mutable work queue, not durable knowledge. Note the decision in the vault so it is not revisited.",
+        "The migrations skill's references updated to the new paths.",
+        "All old paths stubbed; vault-lint clean."
+      ],
+      "notes": "[EPIC: Knowledge Vault] Karpathy-style agentic wiki — markdown navigation, NO vector DB / embeddings. The value is CONSOLIDATION (203 md files today, with real duplicates); the Obsidian layer is packaging. Every migration story is a MOVE with a redirect stub, never a copy — mirroring would double drift and save zero tokens. Phase 3. PENDING_MIGRATIONS.md is called out because it is the largest md in the repo by 6x and would otherwise get swept in by pattern-matching — a 3,830-line queue in the knowledge index would blow the retrieval budget on content that changes weekly.",
+      "relevantPaths": [
+        "DEPLOY.md",
+        "ROLLBACK.md",
+        "BACKUPS.md",
+        "MIGRATIONS.md",
+        "CAPACITY.md",
+        "CONNECTION_POOLING.md",
+        "docs/runbooks/"
+      ]
+    },
+    {
+      "id": "US-2052",
+      "passes": false,
+      "dependsOn": [
+        "US-2047"
+      ],
+      "priority": 1920,
+      "title": "Migrate domain and contract docs into vault/20-domain",
+      "description": "As an agent editing grading, sync or measurement code, I want the governing contracts in one folder linked to the code they govern, so that I load the contract before changing behaviour.",
+      "acceptanceCriteria": [
+        "Move SYNC_SOURCE_OF_TRUTH, MEASUREMENT_ACCURACY, MEASUREMENT_CARD_SPEC, GARMENT_PASSPORT_PRIVACY, SUPPORT_ASSISTANT into vault/20-domain.",
+        "Each is type:contract with populated code_refs — these are the notes that get --strict drift enforcement in CI.",
+        "SYNC_SOURCE_OF_TRUTH links to the FlipDesk platform notes and to the grading notes it constrains.",
+        "The grading-engine skill's reference files stay in the skill (they are load-on-demand agent instructions) but link out to the domain notes rather than restating them.",
+        "CLAUDE.md's SYNC_SOURCE_OF_TRUTH link updated.",
+        "All old paths stubbed."
+      ],
+      "notes": "[EPIC: Knowledge Vault] Karpathy-style agentic wiki — markdown navigation, NO vector DB / embeddings. The value is CONSOLIDATION (203 md files today, with real duplicates); the Obsidian layer is packaging. Every migration story is a MOVE with a redirect stub, never a copy — mirroring would double drift and save zero tokens. Phase 3. These are the type:contract notes, so they are the ones the drift guard treats as errors rather than warnings — a stale sync contract silently authorises the wrong write. Keeping skill references separate from domain notes preserves the load-on-demand split that keeps per-turn tokens low.",
+      "relevantPaths": [
+        "SYNC_SOURCE_OF_TRUTH.md",
+        "MEASUREMENT_ACCURACY.md",
+        "MEASUREMENT_CARD_SPEC.md",
+        "GARMENT_PASSPORT_PRIVACY.md"
+      ]
+    },
+    {
+      "id": "US-2053",
+      "passes": false,
+      "dependsOn": [
+        "US-2047"
+      ],
+      "priority": 1919,
+      "title": "Migrate marketplace and platform docs into vault/30-platform",
+      "description": "As a developer working on eBay or cross-listing, I want the marketplace knowledge in one place, so that integration constraints are discoverable before I hit them at publish time.",
+      "acceptanceCriteria": [
+        "Move Cross_Listing.md, EBAY_RANKING_PLAYBOOK.md, docs/EBAY_TRADING_API_WATCH.md and the FlipDesk gap/dogfood docs into vault/30-platform.",
+        "Colocated service docs (services/edge-functions/EBAY_SETUP, COOLIFY, CRON_SETUP, GOOGLE_SETUP, OBSERVABILITY) are REGISTERED in the vault index as external refs, NOT moved — they belong next to the service they configure.",
+        "External-ref registration is a first-class note type so vault-lint checks the target path still exists.",
+        "Hard-won eBay constraints currently living only in Claude memory (65-char aspect cap, condition remapping, offer-already-active) become notes linked from here, with code_refs to ebay-client.ts.",
+        "Old paths stubbed; external refs are not stubbed (nothing moved)."
+      ],
+      "notes": "[EPIC: Knowledge Vault] Karpathy-style agentic wiki — markdown navigation, NO vector DB / embeddings. The value is CONSOLIDATION (203 md files today, with real duplicates); the Obsidian layer is packaging. Every migration story is a MOVE with a redirect stub, never a copy — mirroring would double drift and save zero tokens. Phase 3. The external-ref pattern matters: colocated deploy docs SHOULD stay colocated, but they must still be findable from the index or the vault is incomplete in a way agents cannot detect. The eBay memory items are included because they are exactly the knowledge that currently only exists if the right memory happens to be recalled.",
+      "relevantPaths": [
+        "Cross_Listing.md",
+        "EBAY_RANKING_PLAYBOOK.md",
+        "services/edge-functions/EBAY_SETUP.md",
+        "services/edge-functions/src/lib/ebay-client.ts"
+      ]
+    },
+    {
+      "id": "US-2054",
+      "passes": false,
+      "dependsOn": [
+        "US-2047"
+      ],
+      "priority": 1918,
+      "title": "Consolidate the SEO cluster into vault/40-growth",
+      "description": "As someone working on SEO, I want the ten overlapping SEO docs reduced to a linked set with clear boundaries, so that I know which one to update when something changes.",
+      "acceptanceCriteria": [
+        "Ten docs/ SEO files (~1,000 lines: seo-geo-plan, SEO_PERFORMANCE, SEO_INDEXABILITY_ACTION_PLAN, SEO_MEASUREMENT, OFF_PAGE_AUTHORITY, CORE_WEB_VITALS, STRUCTURED_DATA_LINT, PRERENDER_PARITY, AI_CRAWLER_POLICY, IMAGE_OPTIMIZATION) reviewed for overlap before moving.",
+        "Overlapping material is merged, not just relocated — the target is a smaller linked set, with the resulting note count and line count reported in the story.",
+        "Aspirational plans separated from current-state reference via the status field; completed action plans move to 90-archive.",
+        "The 7-point SEO wiring checklist (route registry -> entry-server -> head-builder -> routes) becomes a single canonical type:contract note with code_refs, replacing its scattered restatements.",
+        "SEO_STRATEGY.md, REDDIT_DISTRIBUTION_PLAYBOOK.md and the content docs (CONTENT_PUBLISHING, CONTENT_SCHEDULER, COPY_STYLE_GUIDE) join 40-growth.",
+        "Old paths stubbed."
+      ],
+      "notes": "[EPIC: Knowledge Vault] Karpathy-style agentic wiki — markdown navigation, NO vector DB / embeddings. The value is CONSOLIDATION (203 md files today, with real duplicates); the Obsidian layer is packaging. Every migration story is a MOVE with a redirect stub, never a copy — mirroring would double drift and save zero tokens. Phase 3, and the largest merge in the set. Ten files on one topic with a mix of plan and reference is precisely the state Karpathy's approach is meant to collapse. The status field carries the plan-vs-reality distinction that is currently only implied by filename.",
+      "relevantPaths": [
+        "docs/SEO_PERFORMANCE.md",
+        "docs/gradethread-seo-geo-plan.md",
+        "docs/CONTENT_PUBLISHING.md",
+        "src/lib/seo/public-routes.ts"
+      ]
+    },
+    {
+      "id": "US-2055",
+      "passes": false,
+      "dependsOn": [
+        "US-2047"
+      ],
+      "priority": 1917,
+      "title": "Migrate business and pricing docs into vault/50-business",
+      "description": "As anyone reasoning about margin, I want pricing and unit economics in one linked place, so that a pricing change propagates to the docs that depend on it.",
+      "acceptanceCriteria": [
+        "Move docs/PRICING (canonical, 295), SUBSCRIPTION_UNIT_ECONOMICS, AI_PROFITABILITY_REPORT, PASSPORT_FORECAST, GOOGLE_ADS_SETUP, NEWSLETTER_TUNING, DELIVERABILITY into vault/50-business.",
+        "PRICING is marked source_of_truth:vault and the dependent notes link TO it rather than restating any number.",
+        "Any price or margin figure duplicated across these files is replaced by a wikilink to PRICING; duplicated figures that DISAGREE are flagged for resolution, not silently harmonised.",
+        "code_refs link PRICING to src/lib/constants.ts and the Stripe configuration so the drift guard catches code/doc divergence.",
+        "Old paths stubbed."
+      ],
+      "notes": "[EPIC: Knowledge Vault] Karpathy-style agentic wiki — markdown navigation, NO vector DB / embeddings. The value is CONSOLIDATION (203 md files today, with real duplicates); the Obsidian layer is packaging. Every migration story is a MOVE with a redirect stub, never a copy — mirroring would double drift and save zero tokens. Phase 3. Numbers restated across five documents are the highest-drift content in any repo — the disagreement-flagging criterion is there because harmonising a conflict without understanding it is how a wrong price becomes canonical.",
+      "relevantPaths": [
+        "docs/PRICING.md",
+        "docs/SUBSCRIPTION_UNIT_ECONOMICS.md",
+        "src/lib/constants.ts"
+      ]
+    },
+    {
+      "id": "US-2056",
+      "passes": false,
+      "dependsOn": [
+        "US-2047"
+      ],
+      "priority": 1916,
+      "title": "Convert decision records into linked ADRs in vault/60-decisions",
+      "description": "As someone revisiting a past choice, I want decisions in a consistent format with their context and status, so that I can tell whether the reasoning still holds.",
+      "acceptanceCriteria": [
+        "Move docs/bizdev/* (poshmark-rithum, referral-cash-payout, depop-partner-application), COMPS_PSEO_DECISION, EBAY_TRADING_API_WATCH, GRAPHIFY_PILOT into vault/60-decisions.",
+        "Each becomes type:decision with a consistent shape: context, options considered, decision, consequences, status (accepted|superseded|revisit-by).",
+        "revisit-by dates surfaced by vault-lint when passed — a watch item nobody revisits is a decision that expired without anyone noticing.",
+        "Existing dangling [[US-XXXX]] wikilinks in these files either resolve to a real note or are converted to plain text with the story ID — no link is left dangling.",
+        "Decisions link to the domain/platform notes they constrain.",
+        "Old paths stubbed."
+      ],
+      "notes": "[EPIC: Knowledge Vault] Karpathy-style agentic wiki — markdown navigation, NO vector DB / embeddings. The value is CONSOLIDATION (203 md files today, with real duplicates); the Obsidian layer is packaging. Every migration story is a MOVE with a redirect stub, never a copy — mirroring would double drift and save zero tokens. Phase 3. The dangling-wikilink cleanup lands here because these bizdev files are where most of them live. Note we are NOT generating per-story notes from prd.json (deliberately out of scope) — so the fix is to resolve or de-link, not to manufacture 2,000 stub notes.",
+      "relevantPaths": [
+        "docs/bizdev/",
+        "docs/COMPS_PSEO_DECISION.md",
+        "docs/EBAY_TRADING_API_WATCH.md"
+      ]
+    },
+    {
+      "id": "US-2057",
+      "passes": false,
+      "dependsOn": [
+        "US-2047"
+      ],
+      "priority": 1915,
+      "title": "Archive point-in-time audits into vault/90-archive",
+      "description": "As an agent searching the vault, I want superseded audits clearly marked as historical, so that a July snapshot is never mistaken for current state.",
+      "acceptanceCriteria": [
+        "Move CODE_REVIEW_2026-07-04, SECURITY_AUDIT_2026-06, IOS_PARITY_AUDIT, FLIPDESK_RESELLER_GAPS, FLIPDESK_DOGFOOD, VPAT, ANDROID_CONVERSION_PLAN into vault/90-archive.",
+        "All get status:archived and an as-of date in frontmatter.",
+        "Findings from these audits that are still OPEN are extracted into current notes or prd.json stories before archiving — archiving must not bury live work.",
+        "The vault skill states that 90-archive is excluded from default navigation and read only when history is the question.",
+        "vault-lint exempts archived notes from the drift guard (they are supposed to be stale) but still checks their links resolve.",
+        "Old paths stubbed."
+      ],
+      "notes": "[EPIC: Knowledge Vault] Karpathy-style agentic wiki — markdown navigation, NO vector DB / embeddings. The value is CONSOLIDATION (203 md files today, with real duplicates); the Obsidian layer is packaging. Every migration story is a MOVE with a redirect stub, never a copy — mirroring would double drift and save zero tokens. Phase 3. Exempting archives from drift is necessary or the guard drowns in noise, but the extract-open-findings criterion is the one that carries risk — archiving an audit with unaddressed findings is how real issues disappear.",
+      "relevantPaths": [
+        "CODE_REVIEW_2026-07-04.md",
+        "SECURITY_AUDIT_2026-06.md",
+        "VPAT.md",
+        "IOS_PARITY_AUDIT.md"
+      ]
+    },
+    {
+      "id": "US-2058",
+      "passes": false,
+      "dependsOn": [
+        "US-2047"
+      ],
+      "priority": 1914,
+      "title": "Extract brand/garment taxonomy out of immutable migration headers",
+      "description": "As the grading system, I want the brand knowledge in editable linked notes, so that taxonomy can be corrected without writing a new migration to amend a comment.",
+      "acceptanceCriteria": [
+        "Extract the ~830 lines of taxonomy from the five *_brand_knowledge.sql headers (00457 contemporary-womens, 00458 basics-mall, 00459 footwear, 00467 preppy-contemporary-mens, 00468 handbags-accessories, 196 lines) into vault/20-domain/brands/.",
+        "One note per brand family, not one per migration — the migration boundary is an artefact of when it was written, not how the knowledge is shaped.",
+        "Each note links to the migration that seeded it and to the DB table now holding the data; migrations are NOT edited (they are immutable and already applied).",
+        "Notes are source_of_truth:vault for the REASONING (why a brand sits in a tier) and reference the DB as the source of truth for the VALUES the grader reads. State this split explicitly in each note.",
+        "Cross-family relationships (a brand appearing in multiple tiers, tier boundary rationale) become wikilinks — this is knowledge that flat SQL comments could not express at all.",
+        "The grading-engine skill links to the brands folder.",
+        "Verify extracted content against the DB rows actually present in prod, and report any taxonomy in the headers that never made it into a row."
+      ],
+      "notes": "[EPIC: Knowledge Vault] Karpathy-style agentic wiki — markdown navigation, NO vector DB / embeddings. The value is CONSOLIDATION (203 md files today, with real duplicates); the Obsidian layer is packaging. Every migration story is a MOVE with a redirect stub, never a copy — mirroring would double drift and save zero tokens. Phase 4 and, in my judgement, the single highest-value story in the epic. This knowledge is currently write-once: it lives in applied migration headers where it CANNOT be edited, is not indexed anywhere, and is invisible to grading work. The last criterion is a genuine audit — header-vs-row divergence would mean documented taxonomy the grader never actually sees.",
+      "relevantPaths": [
+        "supabase/migrations/00468_handbags_accessories_brand_knowledge.sql",
+        "supabase/migrations/00457_contemporary_womens_brand_knowledge.sql",
+        "supabase/migrations/00459_footwear_brand_knowledge.sql",
+        "vault/20-domain/brands/"
+      ]
+    },
+    {
+      "id": "US-2059",
+      "passes": false,
+      "dependsOn": [
+        "US-2058",
+        "US-2044"
+      ],
+      "priority": 1913,
+      "title": "Guard: new knowledge-bearing migrations must ship a vault note",
+      "description": "As a maintainer, I want the brand-knowledge extraction to stay done, so that the next taxonomy migration does not re-bury 200 lines in an immutable header.",
+      "acceptanceCriteria": [
+        "vault-lint rule: a migration matching *_knowledge.sql, or any migration whose leading comment exceeds 40 lines, must be referenced by code_refs from at least one vault note.",
+        "The rule applies only to migrations added after this story lands — existing migrations are grandfathered via an explicit allowlist, so the guard can be strict from day one.",
+        "The migrations skill gains this as a fourth item alongside the US-1108 triple.",
+        "Failure message names the migration and points at the note template.",
+        "Tested with a fixture migration that violates the rule."
+      ],
+      "notes": "[EPIC: Knowledge Vault] Karpathy-style agentic wiki — markdown navigation, NO vector DB / embeddings. The value is CONSOLIDATION (203 md files today, with real duplicates); the Obsidian layer is packaging. Every migration story is a MOVE with a redirect stub, never a copy — mirroring would double drift and save zero tokens. Phase 4. Extraction without a guard decays — the repo's 32 migrations with >30-line headers accumulated one reasonable-at-the-time decision at a time. Grandfathering via allowlist is what lets this be an error immediately rather than a warning nobody actions.",
+      "relevantPaths": [
+        "scripts/vault-lint.mjs",
+        ".claude/skills/migrations/SKILL.md",
+        "supabase/migrations/"
+      ]
+    },
+    {
+      "id": "US-2060",
+      "passes": false,
+      "dependsOn": [
+        "US-2047"
+      ],
+      "priority": 1912,
+      "title": "Extract contract-level knowledge from long edge-lib headers",
+      "description": "As an agent editing an edge lib, I want its governing contract findable from the index, so that constraints are discoverable without reading the file that already assumes them.",
+      "acceptanceCriteria": [
+        "Audit the 15 services/edge-functions/src/lib/*.ts files with >30-line headers (listing-quality-score, plan-gate, coherent-cache, content-sanitize, crypto-aes, cert-integrity, ebay-marketing and friends).",
+        "For each, decide: knowledge that generalises beyond the file becomes a vault note with code_refs; knowledge that is purely local stays as a comment. Record the decision either way so the audit is not repeated.",
+        "Promoted notes SHORTEN the source header to a one-line pointer at the note — leaving both is duplication.",
+        "Prefer fewer, broader notes over one-note-per-file; several of these headers describe one shared concern.",
+        "No behaviour changes — comments and docs only, verified by the diff touching no executable lines."
+      ],
+      "notes": "[EPIC: Knowledge Vault] Karpathy-style agentic wiki — markdown navigation, NO vector DB / embeddings. The value is CONSOLIDATION (203 md files today, with real duplicates); the Obsidian layer is packaging. Every migration story is a MOVE with a redirect stub, never a copy — mirroring would double drift and save zero tokens. Phase 4. Deliberately a judgement-heavy story rather than a mechanical sweep: most long headers SHOULD stay comments, and hoovering all 15 into the vault would add noise while making the code harder to read on its own. The recorded decision is what stops a future pass re-litigating each file.",
+      "relevantPaths": [
+        "services/edge-functions/src/lib/cert-integrity.ts",
+        "services/edge-functions/src/lib/plan-gate.ts",
+        "services/edge-functions/src/lib/crypto-aes.ts"
+      ]
+    },
+    {
+      "id": "US-2061",
+      "passes": false,
+      "dependsOn": [
+        "US-2058"
+      ],
+      "priority": 1911,
+      "title": "Fold scripts/ralph/learnings into vault/70-agent",
+      "description": "As an agent, I want one knowledge base rather than three competing ones, so that a learning written by one loop is visible to every other agent.",
+      "acceptanceCriteria": [
+        "Move scripts/ralph/LEARNINGS.md (370) and learnings/{email-marketing 373, ios 366, brand-kb 288} into vault/70-agent, type:learning.",
+        "brand-kb.md is reconciled against the US-2058 brand notes — same subject, two knowledge bases, and the conflicts are the interesting part.",
+        "ios.md learnings reconciled against the ios/ docs and the iOS memory entries.",
+        "scripts/ralph/CLAUDE.md and the Ralph loop updated to WRITE new learnings into the vault, so the split does not immediately reopen.",
+        "Ralph's write path goes through the frontmatter contract — an agent-authored note is schema-valid or vault-lint rejects it.",
+        "Old paths stubbed."
+      ],
+      "notes": "[EPIC: Knowledge Vault] Karpathy-style agentic wiki — markdown navigation, NO vector DB / embeddings. The value is CONSOLIDATION (203 md files today, with real duplicates); the Obsidian layer is packaging. Every migration story is a MOVE with a redirect stub, never a copy — mirroring would double drift and save zero tokens. Phase 5. Updating Ralph's WRITE path is the load-bearing criterion — migrating the files without redirecting the writer just means the parallel KB regrows from empty. The brand-kb reconciliation is where I would expect genuine contradictions to surface.",
+      "relevantPaths": [
+        "scripts/ralph/LEARNINGS.md",
+        "scripts/ralph/learnings/",
+        "scripts/ralph/CLAUDE.md"
+      ]
+    },
+    {
+      "id": "US-2062",
+      "passes": false,
+      "dependsOn": [
+        "US-2061"
+      ],
+      "priority": 1910,
+      "title": "Reconcile Claude memory files against the vault",
+      "description": "As an agent, I want memory to hold pointers rather than duplicated content, so that recall surfaces the vault instead of competing with it.",
+      "acceptanceCriteria": [
+        "Audit the ~50 files in the Claude memory directory against the migrated vault; classify each as (a) already covered by a note, (b) genuinely durable knowledge to promote into the vault, or (c) session-scoped and deletable.",
+        "Category (a) memories are reduced to a one-line pointer at the note.",
+        "Category (b) memories are promoted to notes, then reduced to pointers.",
+        "MEMORY.md index updated to match.",
+        "The vault skill documents the division: memory = user preferences, working agreements and pointers; vault = project knowledge. Overlap is a bug.",
+        "Memory entries describing files or flags are verified to still exist before promotion — several were written months ago."
+      ],
+      "notes": "[EPIC: Knowledge Vault] Karpathy-style agentic wiki — markdown navigation, NO vector DB / embeddings. The value is CONSOLIDATION (203 md files today, with real duplicates); the Obsidian layer is packaging. Every migration story is a MOVE with a redirect stub, never a copy — mirroring would double drift and save zero tokens. Phase 5. Memory and the vault will otherwise answer the same question differently, and memory wins by default because it is injected rather than fetched. The verification criterion is there because memory has no drift guard at all — some entries reference code that has since moved.",
+      "relevantPaths": [
+        "MEMORY.md"
+      ]
+    },
+    {
+      "id": "US-2063",
+      "passes": false,
+      "dependsOn": [
+        "US-2052"
+      ],
+      "priority": 1909,
+      "title": "Point domain skills at the vault instead of restating it",
+      "description": "As an agent loading a skill, I want the skill to carry procedure and the vault to carry facts, so that the two cannot disagree.",
+      "acceptanceCriteria": [
+        "Audit grading-engine, migrations, tenant-isolation and durable-jobs SKILL.md files for knowledge now duplicated in vault notes.",
+        "Skills keep the PROCEDURE (what to do, in what order, what to check) and link out for the FACTS (weights, thresholds, taxonomy, contracts).",
+        "grading-engine's references/ files (prompt-lifecycle, rounding-sites) evaluated individually — rounding-sites in particular is a fact list that likely belongs in the vault as a type:contract note with code_refs.",
+        "No skill loses information; every removed line is reachable by one wikilink hop.",
+        "Combined SKILL.md line count drops measurably; report the before/after.",
+        "Skill trigger descriptions are unchanged so activation behaviour does not regress."
+      ],
+      "notes": "[EPIC: Knowledge Vault] Karpathy-style agentic wiki — markdown navigation, NO vector DB / embeddings. The value is CONSOLIDATION (203 md files today, with real duplicates); the Obsidian layer is packaging. Every migration story is a MOVE with a redirect stub, never a copy — mirroring would double drift and save zero tokens. Phase 5. The procedure/fact split is the right seam: procedures are stable and belong where they trigger, facts change and need the drift guard. rounding-sites.md is the clearest case — a list of the three sites that must stay in lockstep is exactly a code_refs-bearing contract, and it has already been missed twice in production (US-1557, US-2041).",
+      "relevantPaths": [
+        ".claude/skills/grading-engine/SKILL.md",
+        ".claude/skills/grading-engine/references/rounding-sites.md",
+        ".claude/skills/migrations/SKILL.md",
+        ".claude/skills/tenant-isolation/SKILL.md"
+      ]
+    },
+    {
+      "id": "US-2064",
+      "passes": false,
+      "dependsOn": [
+        "US-2063"
+      ],
+      "priority": 1908,
+      "title": "Measure the retrieval win against a task benchmark",
+      "description": "As the person who funded this epic, I want evidence that it reduced tokens and improved answers, so that the claim is measured rather than assumed.",
+      "acceptanceCriteria": [
+        "Define ~12 representative retrieval tasks spanning ops, grading, eBay, pricing and SEO (e.g. 'what is the deploy order', 'which sites must round in lockstep', 'why is Poshmark via Rithum').",
+        "Each task run twice: pre-vault (against the git tag before US-2048) and post-vault, measuring tokens read, files opened, and whether the answer was correct and complete.",
+        "Results recorded in a vault note with the methodology, so it can be re-run after future growth.",
+        "Report honestly if the win is smaller than expected, or negative on any task category — a benchmark that can only confirm the thesis is not a benchmark.",
+        "Any task where post-vault retrieval FAILED drives a follow-up story (usually a missing index entry or a missing link)."
+      ],
+      "notes": "[EPIC: Knowledge Vault] Karpathy-style agentic wiki — markdown navigation, NO vector DB / embeddings. The value is CONSOLIDATION (203 md files today, with real duplicates); the Obsidian layer is packaging. Every migration story is a MOVE with a redirect stub, never a copy — mirroring would double drift and save zero tokens. Phase 6. This exists because the epic's premise — fewer tokens, better answers — is an empirical claim about a 203-file corpus, not a certainty. Worth running honestly: if the win concentrates in a couple of categories, that tells us where to keep investing and where to stop.",
+      "relevantPaths": [
+        "vault/00-index/"
+      ]
+    },
+    {
+      "id": "US-2065",
+      "passes": false,
+      "dependsOn": [
+        "US-2064"
+      ],
+      "priority": 1907,
+      "title": "Sweep and delete redirect stubs",
+      "description": "As a maintainer, I want the transitional stubs gone once nothing points at them, so that the repo ends with one knowledge surface rather than a permanent shadow tree.",
+      "acceptanceCriteria": [
+        "For each stub in STUBS.md, search the repo (code, docs, CI, skills, CLAUDE.md, scripts) for remaining references to the old path.",
+        "Zero remaining references => delete the stub and its registry row.",
+        "Remaining references => fix the reference, then delete.",
+        "Stubs referenced from outside the repo (external links, bookmarks) are identified and kept, with the reason recorded — an unexplained surviving stub is indistinguishable from a missed one.",
+        "Final state: root-level markdown reduced to README, CLAUDE.md, SECURITY.md, PENDING_MIGRATIONS.md and any deliberately-kept stubs; report the final root .md count against the starting 42.",
+        "vault-lint clean; full verify passes."
+      ],
+      "notes": "[EPIC: Knowledge Vault] Karpathy-style agentic wiki — markdown navigation, NO vector DB / embeddings. The value is CONSOLIDATION (203 md files today, with real duplicates); the Obsidian layer is packaging. Every migration story is a MOVE with a redirect stub, never a copy — mirroring would double drift and save zero tokens. Phase 6. Run this only after US-2064 has proven the vault actually works — deleting the stubs is the irreversible step, and it should follow the evidence rather than precede it.",
+      "relevantPaths": [
+        "vault/00-index/STUBS.md"
+      ]
+    },
+    {
+      "id": "US-2066",
+      "passes": false,
+      "dependsOn": [
+        "US-2065"
+      ],
+      "priority": 1906,
+      "title": "Human ergonomics: Obsidian graph, templates and daily use",
+      "description": "As a human reading the vault in Obsidian rather than through an agent, I want it to be pleasant to navigate and easy to add to, so that knowledge capture does not depend on an agent being in the loop.",
+      "acceptanceCriteria": [
+        "vault/.obsidian configured: graph colour groups by folder, saved searches for status:current and type:contract, and a sensible default sort.",
+        "Note templates for each type (runbook, contract, decision, learning) with frontmatter prefilled, in vault/00-index/templates/.",
+        "A short vault/README.md explaining the folder scheme and how to add a note — written for a human, not an agent.",
+        "Graph view is legible at full corpus size: no more than a handful of hub notes exceeding ~20 links, and no disconnected islands.",
+        "Verified by actually opening the vault in Obsidian and navigating it, not just by config diff."
+      ],
+      "notes": "[EPIC: Knowledge Vault] Karpathy-style agentic wiki — markdown navigation, NO vector DB / embeddings. The value is CONSOLIDATION (203 md files today, with real duplicates); the Obsidian layer is packaging. Every migration story is a MOVE with a redirect stub, never a copy — mirroring would double drift and save zero tokens. Phase 6. The graph-legibility criterion doubles as a structural check — a hairball graph or an isolated island usually means the folder taxonomy is wrong, which is worth catching while it is still cheap to reorganise.",
+      "relevantPaths": [
+        "vault/.obsidian/",
+        "vault/README.md",
+        "vault/00-index/templates/"
+      ]
+    },
+    {
+      "id": "US-2067",
+      "passes": false,
+      "dependsOn": [
+        "US-2064"
+      ],
+      "priority": 1905,
+      "title": "Vault maintenance cadence and review rotation",
+      "description": "As a maintainer, I want reviewing the vault to be a scheduled, bounded task, so that the drift guard produces action instead of accumulating warnings.",
+      "acceptanceCriteria": [
+        "vault-lint --report emits a prioritised review queue: contract notes with drift first, then oldest reviewed dates, then passed revisit-by decisions.",
+        "The queue is bounded to a workable size (roughly a handful of notes) so a review session ends rather than sprawling.",
+        "Documented cadence in vault/CONTRACT.md, sized to the actual warning rate observed after US-2064 rather than guessed at now.",
+        "Optionally wired to a scheduled task, consistent with the existing Coolify scheduled-task setup.",
+        "Re-reviewing requires re-reading the code_refs; the contract states plainly that bumping the date without reading is a lie the guard cannot catch.",
+        "One full review pass completed as part of this story to prove the queue is actionable."
+      ],
+      "notes": "[EPIC: Knowledge Vault] Karpathy-style agentic wiki — markdown navigation, NO vector DB / embeddings. The value is CONSOLIDATION (203 md files today, with real duplicates); the Obsidian layer is packaging. Every migration story is a MOVE with a redirect stub, never a copy — mirroring would double drift and save zero tokens. Phase 6, and the story that determines whether this whole epic is still true in a year. Deliberately sizes the cadence AFTER measuring the real warning rate — guessing at a weekly cadence now would either overload or under-serve. The date-bumping criterion names the one failure mode automation genuinely cannot detect.",
+      "relevantPaths": [
+        "scripts/vault-lint.mjs",
+        "vault/CONTRACT.md"
+      ]
     }
   ]
 }
