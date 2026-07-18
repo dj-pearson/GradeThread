@@ -57,6 +57,9 @@ import { pruneSources, type AspectSourceMap } from "@/lib/aspect-provenance";
 // a grid — inline title/price/condition/quantity/best-offer — with bulk-apply
 // actions, then save everything at once. Scoped to one batch's drafts.
 
+import { changesFromItemDiff } from "@/lib/title-sync";
+import { buildTitleSyncPatch } from "@/lib/title-sync-patch";
+
 const TITLE_MAX = 80;
 
 // Aspects that have their own dedicated grid columns — excluded from the generic
@@ -83,6 +86,12 @@ interface DraftRow {
   // Brand/Size/Color edit can be stamped "manual" without losing AI stamps.
   item_specifics_sources: AspectSourceMap | null;
   ai_generated_snapshot: ListingAiSnapshot | null;
+  // US-1995: needed to sync the title when a bulk Brand/Size/Color/Style edit
+  // reverse-projects onto the item. listing_origin is the sync-precedence guard
+  // (never rewrite an eBay-owned title); title_variants because a stale brand in
+  // variant B is the same bug, just less visible.
+  listing_origin: string | null;
+  title_variants: unknown;
   // US-553: comp-derived price range (p25/p75) for the "median comp − X%" rule.
   price_range_low_cents: number | null;
   price_range_high_cents: number | null;
@@ -150,6 +159,11 @@ interface EditRow {
   // US-551: the AI's original draft, snapshotted at generation. Drives the
   // per-field diff chips + revert-to-AI. Null for manually-created drafts.
   ai: ListingAiSnapshot | null;
+  // US-1995: inputs for the backwards title sync on save. listingOrigin is the
+  // sync-precedence guard (never rewrite an eBay-owned title); titleVariants so
+  // both A/B variants move together.
+  listingOrigin: string | null;
+  titleVariants: unknown;
   // US-553: comp-derived price range (dollars) for the "median comp − X%" rule.
   compLow: number | null;
   compHigh: number | null;
@@ -187,7 +201,7 @@ export function FlipdeskAutolisterBulkEditPage() {
       const { data: rows, error: err } = await supabase
         .from("listings")
         .select(
-          "id, inventory_item_id, listing_title, listing_description, listing_price, ebay_condition, quantity, best_offer_enabled, best_offer_auto_accept_cents, best_offer_auto_decline_cents, scheduled_publish_at, platform_category_id, item_specifics_override, item_specifics_sources, ai_generated_snapshot, price_range_low_cents, price_range_high_cents, shipping_policy_id, payment_policy_id, return_policy_id",
+          "id, inventory_item_id, listing_title, listing_description, listing_price, ebay_condition, quantity, best_offer_enabled, best_offer_auto_accept_cents, best_offer_auto_decline_cents, scheduled_publish_at, platform_category_id, item_specifics_override, item_specifics_sources, ai_generated_snapshot, price_range_low_cents, price_range_high_cents, shipping_policy_id, payment_policy_id, return_policy_id, listing_origin, title_variants",
         )
         .eq("batch_id", batchId!)
         .eq("listing_status", "draft");
@@ -373,6 +387,8 @@ export function FlipdeskAutolisterBulkEditPage() {
             color: Color?.[0] ?? "",
           },
           ai: r.ai_generated_snapshot ?? null,
+          listingOrigin: r.listing_origin ?? null,
+          titleVariants: r.title_variants ?? null,
           compLow:
             r.price_range_low_cents != null ? r.price_range_low_cents / 100 : null,
           compHigh:
@@ -872,6 +888,49 @@ export function FlipdeskAutolisterBulkEditPage() {
           .update(patch as never)
           .eq("id", r.itemId);
         if (wbErr) throw wbErr;
+
+        // US-1995: the item's Brand/Size/Color/Style just changed, so the
+        // listing TITLE has to follow — otherwise a seller who bulk-corrects a
+        // brand across 40 drafts gets 40 titles still naming the old one, in
+        // the single field buyers search hardest. US-1891 shipped this for the
+        // item canvas and never for here.
+        //
+        // Same orchestration the canvas uses (buildTitleSyncPatch): eBay-origin
+        // listings are refused, both A/B variants move, and a hand-edited title
+        // is flagged for review rather than silently rewritten.
+        const titleChanges = changesFromItemDiff(
+          {
+            brand: attrs.brand ?? null,
+            size: attrs.size ?? null,
+            color: attrs.color ?? null,
+            style: attrs.style ?? null,
+            department: (attrs.attributes?.Department as string | undefined) ?? null,
+          },
+          {
+            brand: (wb.columns.brand as string | null | undefined) ?? attrs.brand ?? null,
+            size: (wb.columns.size as string | null | undefined) ?? attrs.size ?? null,
+            color: (wb.columns.color as string | null | undefined) ?? attrs.color ?? null,
+            style: (wb.columns.style as string | null | undefined) ?? attrs.style ?? null,
+            department:
+              (wb.attributes?.Department as string | undefined) ??
+              (attrs.attributes?.Department as string | undefined) ??
+              null,
+          },
+        );
+        const titlePatch = buildTitleSyncPatch({
+          baseTitle: r.title,
+          variants: r.titleVariants,
+          changes: titleChanges,
+          snapshotTitle: r.ai?.title ?? null,
+          listingOrigin: r.listingOrigin,
+        });
+        if (Object.keys(titlePatch).length > 0) {
+          const { error: tErr } = await supabase
+            .from("listings")
+            .update(titlePatch as never)
+            .eq("id", r.id);
+          if (tErr) throw tErr;
+        }
       }
     }
   }
