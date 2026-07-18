@@ -198,6 +198,37 @@ const TO_LIST_STATUSES: ReadonlySet<ItemStatus> = new Set([
   "comped",
 ]);
 
+// Item statuses that mean "being prepped / drafted, not on a marketplace".
+// Moving an item here should also demote a LOCAL listing row so the composer's
+// live-listing test and the tabs don't desync (item shows as a draft while its
+// listing still says active).
+const DRAFT_LIKE_STATUSES: ReadonlySet<ItemStatus> = new Set<ItemStatus>([
+  ...TO_LIST_STATUSES,
+  "drafted",
+]);
+
+// Keep the listing row consistent when an item moves back to a draft-like
+// status. A LOCAL (never-published) listing is demoted to draft + is_active
+// false; a genuinely LIVE eBay offer is left untouched and reported as `true`
+// so the caller can tell the seller to End it (we never silently pull a live
+// marketplace offer down). Returns true only when a live listing was left.
+async function syncListingForDraftStatus(it: ItemFullRow): Promise<boolean> {
+  if (!it.listing_id || !it.listing_status) return false;
+  // Terminal listing states never get rewound to a draft.
+  if (it.listing_status === "sold" || it.listing_status === "ended") return false;
+  // A live eBay offer (active + a real marketplace URL) must be Ended, not draft-ed.
+  if (it.listing_status === "active" && !!it.link) return true;
+  const patch = it.listing_status === "draft"
+    ? { is_active: false }
+    : { listing_status: "draft", is_active: false };
+  const { error } = await supabase
+    .from("listings")
+    .update(patch as never)
+    .eq("id", it.listing_id);
+  if (error) throw error;
+  return false;
+}
+
 // Default eBay handling window for the ship-by countdown when no explicit
 // handling time is stored on the listing.
 const DEFAULT_HANDLING_DAYS = 3;
@@ -1303,6 +1334,24 @@ export function FlipdeskListingsPage() {
   async function updateItemStatus(it: ItemFullRow, next: ItemStatus) {
     if (next === it.status) return;
     await patchItemColumn(it, "status", next, { status: next }, "Status");
+    // Keep the listing row in lockstep so a re-drafted item doesn't keep showing
+    // as a live listing in the composer.
+    if (DRAFT_LIKE_STATUSES.has(next)) {
+      try {
+        const liveSkipped = await syncListingForDraftStatus(it);
+        if (liveSkipped) {
+          toast.warning(
+            "This item still has a live eBay listing — use End to take it down before drafting.",
+            { duration: 10_000 },
+          );
+        }
+        await qc.invalidateQueries({ queryKey: ["items_full"] });
+      } catch (e) {
+        toast.error(
+          `Status changed, but the listing didn't sync: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
+    }
   }
 
   // Inline numeric edit (cost → acquired_price, target → target_price). Empty
@@ -1587,6 +1636,8 @@ export function FlipdeskListingsPage() {
     setBusy(true);
     const errors: { message: string }[] = [];
     let done = 0;
+    let liveSkipped = 0;
+    const demote = DRAFT_LIKE_STATUSES.has(next);
     for (const id of selected) {
       const it = items.find((i) => i.id === id);
       if (!it || it.status === next) continue;
@@ -1594,8 +1645,20 @@ export function FlipdeskListingsPage() {
         .from("inventory_items")
         .update({ status: next } as never)
         .eq("id", it.id);
-      if (error) errors.push({ message: error.message });
-      else done++;
+      if (error) {
+        errors.push({ message: error.message });
+        continue;
+      }
+      done++;
+      // Keep the listing row consistent so a re-drafted item stops showing as a
+      // live listing (a genuinely live eBay offer is left alone + counted).
+      if (demote) {
+        try {
+          if (await syncListingForDraftStatus(it)) liveSkipped++;
+        } catch (e) {
+          errors.push({ message: e instanceof Error ? e.message : String(e) });
+        }
+      }
     }
     setBusy(false);
     setSelected(new Set());
@@ -1609,6 +1672,14 @@ export function FlipdeskListingsPage() {
     } else {
       toast.warning(
         `Updated ${done}, ${errors.length} failed. First: ${errors[0]?.message}`,
+        { duration: 12_000 },
+      );
+    }
+    if (liveSkipped > 0) {
+      toast.warning(
+        `${liveSkipped} still live on eBay — use End to take ${
+          liveSkipped === 1 ? "it" : "them"
+        } down before drafting.`,
         { duration: 12_000 },
       );
     }

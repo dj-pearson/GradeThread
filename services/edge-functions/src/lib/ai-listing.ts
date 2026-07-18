@@ -1669,6 +1669,11 @@ export async function generateListing(
     listing_title: listing.title,
     listing_description: listingDescription,
     listing_status: "draft" as const,
+    // A draft is never live on a marketplace. The listings column defaults
+    // is_active=true, so without this every generated draft was born "active" —
+    // which desynced status checks (the composer's live-listing test, the
+    // delete guard) into treating plain drafts as live listings.
+    is_active: false,
     // US-1568: a fresh generation overwrites whatever a human reviewed —
     // the draft goes back into the not-yet-reviewed queue.
     reviewed_at: null,
