@@ -61,7 +61,12 @@ final class ListingMaintenanceStore {
     init(
         listingId: String,
         quantity: Int?,
-        service: any ListingMaintenanceProviding = EbayPublishService()
+        // Default is nil (not `EbayPublishService()`): a default argument is
+        // evaluated in a nonisolated context, but `EbayPublishService.init` is
+        // @MainActor-isolated — so a direct default is a hard error under strict
+        // concurrency. Coalesce in this @MainActor init body instead (matches
+        // DraftsLibraryStore / DraftsBulkEditStore).
+        service: (any ListingMaintenanceProviding)? = nil
     ) {
         self.listingId = listingId
         // A listing synced before `quantity` was mirrored reads nil. Assume the
@@ -70,7 +75,7 @@ final class ListingMaintenanceStore {
         let seed = quantity ?? 1
         self.quantity = seed
         self.appliedQuantity = seed
-        self.service = service
+        self.service = service ?? EbayPublishService()
     }
 
     /// True once the stepper differs from what's live — gates the Update button
