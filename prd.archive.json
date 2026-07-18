@@ -28084,6 +28084,829 @@
         "services/edge-functions/src/lib/transactional-push.ts",
         "ios/GradeThread/Notifications/NotificationCategories.swift"
       ]
+    },
+    {
+      "id": "US-1733",
+      "title": "Brand KB group: Athleisure & activewear",
+      "description": "As a reseller, I want the next tier of activewear brands grounded so athleisure beyond the flagship brands lists reliably.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Under Armour, Vuori, Gymshark, Fabletics, Beyond Yoga, Sweaty Betty): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2498,
+      "passes": true,
+      "notes": "[BrandKB][Brand][Group] ~6 brands. Add size markers/decoders only where they exist.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1734",
+      "title": "Brand KB group: Outdoor & technical",
+      "description": "As a reseller, I want outdoor/technical brands grounded by model + fabric tech so jackets and fleece list precisely.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Columbia, Arc’teryx, Marmot, REI Co-op, L.L. Bean, Mountain Hardwear): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2497,
+      "passes": true,
+      "notes": "[BrandKB][Brand][Group] ~6 brands. Fabric-tech -> model maps matter most here (e.g. Arc'teryx Gore-Tex lines, Columbia Omni-Tech).",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1735",
+      "title": "Brand KB group: Premium & vintage denim",
+      "description": "As a reseller, I want premium denim brands grounded by fit + tag era so denim value tiers are right.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Wrangler, Lee, 7 For All Mankind, True Religion, AG, Citizens of Humanity): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2496,
+      "passes": true,
+      "notes": "[BrandKB][Brand][Group] ~6 brands. WxL from patch/tag; True Religion horseshoe/stitch tells; vintage Wrangler/Lee era dating.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1736",
+      "title": "Brand KB group: Luxury & designer",
+      "description": "As a reseller, I want luxury/designer brands grounded by line + authentication tells so high-value items list right and are never auto-authenticated.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Chanel, Burberry, Prada, Michael Kors, Kate Spade, Tory Burch): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2495,
+      "passes": true,
+      "notes": "[BrandKB][Brand][Group] ~6 brands. Authentication tells only, NEVER auto-authenticate (same stance as US-1727/1728). IT/EU->US size cross-maps.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1737",
+      "title": "Brand KB group: Streetwear & hype",
+      "description": "As a reseller, I want streetwear/hype brands grounded by season/collab tells so drops list right and fakes are flagged.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Supreme, Stussy, BAPE, Kith, Palace, Fear of God / Essentials): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2494,
+      "passes": true,
+      "notes": "[BrandKB][Brand][Group] ~6 brands. Season/collab identification + counterfeit tells (Supreme box-logo era, Essentials tag generations). Never auto-authenticate.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1738",
+      "title": "Brand KB group: Contemporary women's",
+      "description": "As a reseller, I want contemporary women’s brands grounded by style + fit so dresses/blouses/knits list right.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Anthropologie, Sezane, Aritzia, Reformation, Vince, Theory, Eileen Fisher): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2493,
+      "passes": true,
+      "notes": "[BrandKB][Brand][Group] ~7 brands. Aritzia sub-labels (Wilfred/Babaton/TNA) and Anthropologie house brands (Maeve/Pilcro) are the key disambiguation.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1739",
+      "title": "Brand KB group: Basics, mall & fast-fashion",
+      "description": "As a reseller, I want high-volume basics/mall brands grounded so staples list quickly and correctly.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Uniqlo, Gap, Banana Republic, Old Navy, American Eagle, Abercrombie & Fitch, Tommy Hilfiger): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2492,
+      "passes": true,
+      "notes": "[BrandKB][Brand][Group] ~7 brands. High volume, lower value — prioritize size charts + fit names over deep decoders.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1740",
+      "title": "Brand KB group: Footwear brands (apparel-adjacent)",
+      "description": "As a reseller, I want footwear-first brands grounded by style code + size system so shoes list right.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (New Balance, Dr. Martens, UGG, Birkenstock, Converse, Vans, Cole Haan): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2491,
+      "passes": true,
+      "notes": "[BrandKB][Brand][Group] ~7 brands. Style-code decoders where regular (New Balance model numbers); US/UK/EU size cross-maps are the priority. Coordinate with resolveStyleCode() in brand-normalize.ts.",
+      "dependsOn": [
+        "US-1712",
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1873",
+      "title": "Unified extension: merged codebase, manifest, and role-aware feature registry",
+      "description": "As a user, I want the merged extension to behave exactly like the two products did — condition-read pill on marketplace listing pages, Lister job handling from the GradeThread tab — from a single install, with seller tools appearing only for authenticated seller accounts.",
+      "acceptanceCriteria": [
+        "New single extension folder (e.g. extension-unified/ until parity, then renamed) with one MV3 manifest: content scripts for all six research marketplaces + the three Lister marketplaces, externally_connectable to gradethread.com, background service worker composing both message routers",
+        "A feature-registry module resolves capabilities from stored auth state: { research: always, autoRun: setting, lister: sellerEntitlement, delist: sellerEntitlement }; content scripts and popup render only granted capabilities",
+        "Anonymous mode works end-to-end (research surface identical to today's extension-condition behavior, including click-to-grade quota UX); signing in upgrades capabilities without reinstall or reload of marketplace tabs",
+        "Existing tests (extension-condition/test/image-utils.test.cjs) move over and pass; the Lister flows keep their fail-loud probe contract and versioned selectors unchanged",
+        "Frontend bridge (src/lib/lister-extension.ts) and VITE_LISTER_EXTENSION_ID work against the unified extension id; EXTENSION_ALLOWED_ORIGINS documented for the single id"
+      ],
+      "priority": 1873,
+      "passes": true,
+      "notes": "Do the merge FIRST, then land US-1874..1885 in the unified folder so fixes aren't done twice. Keep module boundaries (lister/, research/) inside the folder so the store-review narrative stays explainable.\n\nFOUNDATION 2026-07-13 (agent loop; story stays passes:false). Founder chose account-entitlement gating with seller signal = PAID FlipDesk plan. Built the entitlement MECHANISM the unified extension needs: (1) lib/buyer-entitlements.ts resolveSellerEntitlement() — pure, reuses effectivePlanFor so the Lister unlocks only on an active paid FlipDesk tier (starter/pro/business); lapsed/paused/canceled/expired-trial -> free -> locked; empty status fails open like the rest of the edge. Plus getExtensionEntitlements(userId) (tenant-safe: userId from the signed token only) returning {authenticated, sellerEnabled, flipdeskPlan, buyerPlan}, and ANONYMOUS_EXTENSION_ENTITLEMENTS default. (2) GET /api/grading/public/entitlements in public-grading.ts — OPTIONAL auth (verifyExtensionToken; no token -> anonymous buyer-only, never 401), fail-safe on error. 9 deno test cases (paid/free/lapsed/trial/past_due). deno check + lint clean; auth-coverage guard recognizes the public route. Also shipped a dependency-free store packager (scripts/package-extensions.mjs, commit 7fab1516) producing Chrome zips (both extensions) + a Firefox zip (buyer) — seller Firefox skipped (externally_connectable, needs US-1882). STILL TODO for US-1873: merge the two extension codebases into one MV3 manifest (buyer overlay + seller Lister content scripts + one background worker), the role-aware feature registry that calls this endpoint and gates seller content scripts on sellerEnabled, and the role-aware popup (US-1885). | VERIFIED COMPLETE 2026-07-17 (no code — the story was already done; the 2026-07-13 note was STALE). That note listed three things as STILL TODO — the codebase merge, the role-aware feature registry, and the role-aware popup — and all three landed afterwards (the popup last, via US-1885 this session) without anyone updating it. Evidence per AC: AC1 — extension-unified/ has ONE MV3 manifest with 5 content_script entries: the research entry (41 whole-domain matches covering all SIX adapters: ebay/poshmark/grailed/mercari/depop/vinted), three lister entries (poshmark/mercari/grailed), and gt-bridge; externally_connectable = gradethread.com + subdomains; one background composing both routers (service_worker + Firefox scripts, US-1881). AC2 — registry.js resolveCapabilities() returns EXACTLY the specified shape, verified by running it: anonymous -> {research:true, autoRun:false, lister:false, delist:false}; paid seller -> {lister:true, delist:true}; authed buyer with no FlipDesk -> research only. Popup gates its seller section on caps.sellerEnabled. AC3 — signing in upgrades WITHOUT reinstall or tab reload: GT_SET_TOKEN -> invalidateEntCache + clearGradeCache + getCapabilities(true), and NO content script caches capabilities (grep confirms none reference them) — the background resolves them per-action (sellerAllowed() on every list/delist), so a marketplace tab opened while anonymous unlocks the moment the account does. AC4 — image-utils.test.cjs lives in extension-unified/test and passes; the Lister's fail-loud probe contract is intact (US-1875 preserved it, and denim/probe ordering is now regression-tested); selectors carry 6 version: markers. AC5 — src/lib/lister-extension.ts drives the unified id via VITE_LISTER_EXTENSION_ID (documented in .env.example + ENV_REFERENCE.md), and EXTENSION_ALLOWED_ORIGINS is documented in services/edge-functions/.env.example incl. a moz-extension example. 11/11 extension test files green. ONE DELIBERATE NON-BLOCKER: AC1's parenthetical '(e.g. extension-unified/ until parity, then renamed)' — the folder keeps its name and the legacy extension/ + extension-condition/ still exist. That rename is explicitly conditioned on PARITY, which is the parent epic US-1872's call, not this story's completion criterion."
+    },
+    {
+      "id": "US-1874",
+      "title": "Lister reliability: job state must survive MV3 service-worker death",
+      "description": "As a seller, I want a cross-post job to complete even when the marketplace page loads slowly, so jobs stop silently vanishing. Audit: ALL job state (jobsByTab, pendingExternal) is in-memory in the SW (extension/background.js:25-27); Chrome kills an idle SW ~30s after the last event and an open sendResponse channel does NOT keep it alive (the code's keep-alive comment at background.js:23-24 is factually wrong); safety timeouts use setTimeout which dies with the SW (background.js:144-157,190-203).",
+      "acceptanceCriteria": [
+        "Job state persists in chrome.storage.session keyed by tabId + jobId; a freshly-restarted SW serves GT_LISTER_GET_JOB from storage, so a fill still runs after SW suspension",
+        "Job timeouts use chrome.alarms (not setTimeout) driven off persisted job state; on alarm, the job is failed, storage cleaned, and the SaaS informed",
+        "Result delivery no longer relies on the original sendResponse surviving SW death: the extension messages the originating GradeThread tab (tabId persisted with the job) with the result, and the frontend bridge (src/lib/lister-extension.ts) listens for that push in addition to the callback",
+        "Tab-close cleans BOTH the job entry and the pending SaaS response (immediate 'tab was closed' error instead of the 130s timeout); a fill completing after timeout is reported as late-success rather than silently dropped",
+        "handleListRequest/handleDelistRequest wrap their async bodies so a storage throw still calls sendResponse with an error (no unhandled-rejection hangs)"
+      ],
+      "priority": 1874,
+      "passes": true,
+      "notes": "Audit findings F1/F2/F3/F10/F11/F12 (critical cluster). This is the top correctness fix for the seller surface."
+    },
+    {
+      "id": "US-1875",
+      "title": "Lister delist correctness + login-wall detection",
+      "description": "As a seller who sold elsewhere, I want extension delist to actually work and to never claim success falsely, and I want a login wall diagnosed as 'log in and retry' instead of 'selectors broke'. Audit: the Poshmark delist probe requires the remove control to exist BEFORE the menu opens (extension/content/common.js:192-219 + selectors.js:44) so the shipped-enabled flow can basically never pass probe; when it does run, it reports delisted:true without verifying deletion (common.js:220-225); a login redirect consumes the job and mis-reports selector breakage (poshmark.js + background.js:234).",
+      "acceptanceCriteria": [
+        "Delist probe validates in interaction order: probe menu → click menu → wait for remove control → click → wait for confirm; required-selector sets reflect what can exist pre-interaction",
+        "Success is reported ONLY after verifying the deletion took effect (navigation away / listing-gone / marketplace confirmation toast); anything less returns ok:false with a 'verify manually' message — the pending-delist queue stamp must NOT clear on unverified outcomes (preserves US-1629 double-sale protection)",
+        "Content scripts detect marketplace login/interstitial pages (URL + form heuristics) and respond 'log in to <platform> and retry' WITHOUT consuming the job; after the user logs in and lands on the target page, the job still runs",
+        "Probe waits for independent selectors run concurrently (Promise.all) so a broken form is diagnosed in ~6s not 18-24s",
+        "A tenant-isolation-style test isn't applicable (no server code), but the flows get deterministic DOM fixture tests for probe ordering and delist verification"
+      ],
+      "priority": 1875,
+      "passes": true,
+      "notes": "Audit findings F5/F6/F7/F18. F6 is the nastiest failure mode in the product: false 'delisted' = item stays live after selling elsewhere."
+    },
+    {
+      "id": "US-1877",
+      "title": "Lister: capture the real listing URL and stop recording prefills as active listings",
+      "description": "As a seller, I want my cross-listing recorded with its real marketplace URL only once it's actually live, so my inventory doesn't show phantom active listings. Audit: GT.captureListingUrl is referenced in a comment but doesn't exist anywhere — listingUrl is always null (extension/content/common.js:168-169) despite the README claiming listing_url is recorded; the frontend writeback (src/components/flipdesk/listing-kit.tsx:476-518 → /api/flipdesk/listings/extension-writeback) marks the listing active + listed_at:now when the form was merely PREFILLED and the seller hasn't clicked List; partial photo attach reports photosAttached:true (common.js:88-96).",
+      "acceptanceCriteria": [
+        "After a fill, the content script watches for the tab navigating to a live-listing URL (per-platform URL pattern in selectors.js) for a bounded window and reports it; the extension pushes a follow-up GT_LISTER_LISTED message with the captured URL to the originating GradeThread tab",
+        "Writeback records status 'prefilled' (or listing_status distinct from active) at fill time; it flips to active with listing_url + listed_at only on the follow-up confirmation (or via an explicit 'I published it' affordance in the listing kit for when the window is missed)",
+        "Auto-delist eligibility (US-717/US-1629) keys off confirmed-active listings with a listing_url; prefilled-only rows degrade to the manual delist path with honest UI copy",
+        "attachPhotos reports per-photo counts (attached/failed) with a per-fetch timeout; partial attach surfaces as 'attached 6 of 8 — drag the rest in' rather than success",
+        "Migration for any new listing_status value follows the migrations skill triple; edge writeback stays owner-verified (US-268) with a tenant-isolation test for the new confirm transition"
+      ],
+      "priority": 1877,
+      "passes": true,
+      "notes": "Audit findings F4/F13 + integration Medium ('prefill recorded as active'). Requires touching supabase/migrations + edge route — load migrations + tenant-isolation skills when implementing. | PARTIAL 2026-07-17: AC4 DONE — attachPhotos returned a bare boolean, TRUE IF ANY photo landed, so a 6-of-8 attach reported clean success: the seller was told photos were attached, published a listing missing two, and found out from a buyer (non-ok fetches were silently continue'd too). Now reports {attached, failed, total} and the SaaS says 'Attached 6 of 8 photos — drag the rest in' before Submit. Added the per-fetch 15s AbortController timeout (AC4's other half, and worse since US-1874: there was none, so one hung photo stalled the fill indefinitely and the job alarm now turns that into 'the cross-post timed out' with no clue why; AbortController not Promise.race, since race leaves the real request holding its connection). photosAttached kept for existing consumers but now true only when EVERY photo landed; where boolean and counts disagree the counts win. Copy is the fix so copy is tested (pure exported photoNote): partial names real numbers, none-attached differs from some-attached (different actions), nothing-to-attach stays quiet, an older extension without counts falls back to the boolean rather than inventing '0 of 0'. tsc+eslint+vitest 2134+11/11 extension files. KEY FINDING for the rest: AC2 needs NO MIGRATION — listing_status is already an enum containing 'draft' ('draft','active','ended','sold','relisted', 00008), satisfying AC2's 'or listing_status distinct from active'; AC5's migration clause is conditional on adding a NEW value, so reusing 'draft' avoids it entirely. AC1's push infrastructure also already exists (US-1874's pushToSaasTab + gt-bridge relay + clientRef correlation) — GT_LISTER_LISTED is a natural extension of it. REMAINING: AC1 (capture the live listing URL after fill), AC2 (writeback records draft, flips to active only on confirmation + an 'I published it' affordance), AC3 (delist eligibility keys off confirmed-active + listing_url). | AC2+AC3+AC5 DONE 2026-07-17: prefills no longer mint phantom active listings. extension-writeback wrote listing_status:'active'+is_active+listed_at:now on EVERY call — when the extension had only PREFILLED a form the seller hadn't submitted (and listing_url was permanently null since GT.captureListingUrl never existed), so every 'Send to extension' claimed a live cross-listing that existed nowhere. Now records 'draft'; only an explicit confirmation promotes it. NO MIGRATION — reused the existing 'draft' enum value per AC2's 'or listing_status distinct from active' (beats minting 'prefilled': no migration + no new state for every listing_status consumer). published defaults FALSE so an older client gets the safe promotable draft, not the phantom. A prefill of an ALREADY-ACTIVE row leaves it active (a seller re-sending a live listing to fix a typo must not have it demoted — that would hide a real live listing from the delist queue: the same oversell hazard from the other side). A manual confirm never blanks a captured listing_url nor moves an existing listed_at. 'I published it' affordance added (AC2's explicit path; AC1's capture is the automatic one — without the escape hatch a real listing is stranded as a draft forever, the mirror of the phantom bug). AC3: pending-delists carries listing_status + auto_delistable (confirmed-active AND has a URL = the only rows the extension can end); the two degrade reasons get DIFFERENT copy deliberately — 'no saved listing URL' for something never published sends the seller hunting for a listing that may not exist. AC5: tenant-isolation case for the confirm transition (B must not mark A's item live). deno check/lint + edge 4016 passed 0 failed; tsc+eslint+vitest 2134+build. REMAINING: AC1 only — capture the live listing URL after submit (per-platform URL patterns in selectors.js + a bounded watch window), then push GT_LISTER_LISTED to the originating tab. Its transport already exists from US-1874 (pushToSaasTab + gt-bridge relay + clientRef correlation) and the promote path is now in place, so AC1 is purely the capture. | AC1 DONE 2026-07-17 — STORY COMPLETE. GT.captureListingUrl was referenced in a comment and never existed (listingUrl permanently null) — the other half of the phantom-active bug. Now captured. WATCHES FROM THE BACKGROUND via tabs.onUpdated, NOT the content script: submitting usually triggers a FULL PAGE LOAD which tears the content script down and re-injects it with no memory of having filled anything, so an in-page watch dies exactly when needed; the watch record lives in storage.session so it also survives worker suspension between fill and submit (minutes later). Pinned in background-deps.test.cjs because 'just move it into the content script' reads reasonable and silently breaks the common case. Reuses US-1874's transport wholesale (job's persisted tabId/saasTabId/clientRef + pushToSaasTab + gt-bridge relay); delivered as a SEPARATE later event routed by type, NOT a job result — the job settled at fill time and reviving it would re-open a settled promise. New pure GT_LISTER_GUARD.isLiveListingUrl is strict on BOTH axes (host must match the platform's hosts so a mid-flow ad/outbound click can't be captured; path must match an ANCHORED live-listing shape so the create-listing page the tab starts on can't match itself) and fails closed on a missing/malformed pattern — the seller falls back to 'I published it' rather than getting a wrong URL on their listing. 30-min watch TTL (long enough to write a description, short enough that a tab reused hours later can't capture an unrelated listing against this item); one-capture-per-fill (watch dropped BEFORE the push so a redirect chain can't double-report); tab-close and expiry sweep. Missing the capture is fine by design — AC2's manual path covers it. Also caught: the auto-promote useEffect sat after an early return (eslint rules-of-hooks) — hoisted. tsc+eslint 0 errors+vitest 2139+build+11/11 extension files. ALL FIVE ACs done."
+    },
+    {
+      "id": "US-1878",
+      "title": "Research surface: work on SPA marketplaces (inject broadly, detect navigation, kill stale results)",
+      "description": "As a shopper, I want the condition-read pill to appear when I click into a listing from search/feed on Poshmark/Mercari/Depop/Vinted/Grailed, and never see the previous listing's grade on a new listing. Audit: content scripts match only detail-page URL patterns so SPA client-side navigation into a listing gets NO injection at all (manifest.json:24-49) — the extension effectively only works reliably on eBay; the pushState hook is patched in the isolated world so it never fires (content/marketplace.js:323-330); an in-flight grade landing after navigation renders the OLD listing's score on the NEW page and records it against the new URL (marketplace.js:262-282).",
+      "acceptanceCriteria": [
+        "Manifest matches whole marketplace domains; the existing isDetailPage()/adapter detect gate keeps non-listing pages a no-op",
+        "Navigation detection works in the isolated world: Navigation API (window.navigation 'navigate') where available with a location.href poll/MutationObserver fallback — verified by actually clicking listing-to-listing on each SPA marketplace",
+        "Every grade request carries an epoch/generation token; responses for a stale epoch are dropped (not rendered, not saved to recentReads); closing the overlay mid-grade does not resurrect it",
+        "The reboot path re-evaluates the adapter + detail state without the arbitrary 300ms guess (poll until location settles or use the navigate event's commitment)",
+        "recentReads entries always pair the score with the URL that was actually graded"
+      ],
+      "priority": 1878,
+      "passes": true,
+      "notes": "Audit findings 1/2/3/10 (two criticals). Highest-impact buyer-surface fix: five of six marketplaces are SPA-first."
+    },
+    {
+      "id": "US-1883",
+      "title": "Public grading endpoint hardening: trusted client IP, DNS-rebinding pin, honest quota errors",
+      "description": "As GradeThread, we don't want the extension's public endpoint quota to be bypassable or its errors misattributed. Audit: clientIpFor() in public-grading.ts:185-191 blindly trusts cf-connecting-ip / first XFF hop even in prod — unlike the hardened clientIp() in middleware/rate-limit.ts (US-354) which requires the cf-origin-secret proof — so direct-to-origin callers rotate headers for unlimited per-IP quota (same weakness in /grade-check); safeFetch validates the resolved IP then lets fetch re-resolve (ssrf.ts:226-231), leaving a 0-TTL DNS-rebinding window the file's own header claims is closed; AI-daily-ceiling exhaustion surfaces as 400 'make sure the URL points to a public photo', blaming the user and inviting quota-burning retries.",
+      "acceptanceCriteria": [
+        "public-grading routes resolve the client IP via the hardened clientIp() (cf-origin-secret proof, no raw XFF trust in prod); null IP → 429/400, never unlimited; applied to grade-from-url AND grade-check",
+        "safeFetch connects to the IP it validated: resolve once, pin (connect by IP with Host/SNI handling, or re-resolve-and-verify with the fetch's resolution) so validation and connection can't diverge; ssrf tests cover the rebinding scenario",
+        "Server-side capacity conditions (AI ceiling, concurrency) return 503 with a distinct machine-readable code; the extension renders 'GradeThread is at capacity, try later' as NON-retryable, distinct from bad-URL 400s",
+        "EXTENSION_ALLOWED_ORIGINS + the extension-id env story added to services/edge-functions/.env.example and LAUNCH_CHECKLIST.md",
+        "Existing quota/SSRF tests extended; per-instance in-memory quota limitation stays documented as accepted until US-1838's authenticated metering"
+      ],
+      "priority": 1883,
+      "passes": true,
+      "notes": "Integration audit Medium x2 + Low. Edge-only story (services/edge-functions) — tenant-isolation skill applies to any new endpoint; the durable per-user metering is US-1838, not this. \n\nPARTIAL 2026-07-15 (agent loop — story stays passes:false). DONE (AC1): closed the production per-IP quota bypass — clientIpFor() in public-grading.ts blindly trusted client-controlled X-Forwarded-For, so a direct-to-origin caller rotated XFF to mint unlimited per-IP free-grade buckets on grade-check/grade-from-url/authenticity-check. Reimplemented clientIpFor() to delegate to the hardened clientIp() (US-354: CF-Connecting-IP only, gated on cf-origin-secret proof); a no-trustworthy-IP request now collapses to ONE shared sentinel bucket (NO_TRUSTWORTHY_IP) — degraded, never unlimited. 3 deno tests added to grade-check_test.ts (XFF-rotation collapses to sentinel; CF-Connecting-IP trusted; forged CF-IP without secret → sentinel). .env.example CF_ORIGIN_SECRET note extended to cover the public grading quota. Verified: deno lint + deno test grade-check_test.ts green (23), deno check public-grading.ts. NOT DONE (blocks passes): AC2 — safeFetch DNS-rebinding socket-pin: assertPublicUrl already resolves+validates ALL A/AAAA records and RETURNS the validated IPs, but safeFetch discards them and lets fetch() re-resolve (the rebinding window). A literal connect-by-validated-IP is not robustly achievable in Deno stable fetch for HTTPS (no SNI/Host/cert override; no custom resolver on Deno.createHttpClient) — needs a design decision (accept all-records validation + immediate re-resolve as the mitigation, or a Deno.connect-based client). AC3 — distinct 503 machine-readable capacity code for AI-ceiling/concurrency (currently misattributed as a bad-URL 400) + extension non-retryable render. AC4 — EXTENSION_ALLOWED_ORIGINS + extension-id env still undocumented (CF_ORIGIN_SECRET portion done). AC5 — SSRF rebinding test still owed with AC2. \n\nPARTIAL 2026-07-15 (cont.) DONE (AC3): capacity errors now return a distinct machine-readable 503 instead of the misattributed bad-URL 400. quick-grade.ts no longer SWALLOWS AiCeilingError in its per-image loop (it was masked as \"Image analysis failed\" → 400) — systemic ceiling errors propagate. public-grading.ts grade-check + grade-from-url catch AiCeilingError → 503 atCapacityBody({error, code:\"at_capacity\", retryable:false}); authenticity-check aligned from 429 to the same 503 shape. Both buyer extensions (extension-condition + extension-unified) thread code/retryable and render code:at_capacity / status 503 as a NON-retryable \"GradeThread is at capacity\" state (no retry button). Verified: deno test grade-check_test.ts (24) + full edge suite, deno lint, node --check all 4 extension files, node scripts/test-extensions.mjs (7 files). REMAINING for passes: AC2 (safeFetch DNS-rebinding socket-pin — Deno-fetch limitation, needs design decision) + AC2 rebinding test; AC4 EXTENSION_ALLOWED_ORIGINS + extension-id env docs. \n\nPARTIAL 2026-07-15 (cont.) DONE (AC4): documented EXTENSION_ALLOWED_ORIGINS (+ X-GT-Extension-Id header, already allow-listed in main.ts) in services/edge-functions/.env.example and added a buyer_extension row to LAUNCH_CHECKLIST.md 1b noting CF_ORIGIN_SECRET is strongly recommended so the AC1 hardening is effective. ONLY AC2 (safeFetch DNS-rebinding socket-pin) + its AC5 rebinding test now block passes: assertPublicUrl already resolves+validates ALL A/AAAA records and returns the IPs, but Deno stable fetch cannot pin the socket to a validated IP for HTTPS (connectTls has no separate SNI/servername in stable; hand-rolling HTTP over Deno.connect+startTls on an SSRF path is too risky for an autonomous change) — needs a product/runtime decision (accept resolve-all + immediate-refetch as the mitigation, or adopt an unstable/native pinning client). | CLOSED 2026-07-18 (agent loop) — VERIFIED COMPLETE, no new code needed. The three PARTIAL notes above are STALE: they were written while AC2 was open, and the DNS-rebinding pin subsequently landed (ssrf.ts, commit 2cc68343) without anyone reopening the story. Audited all five ACs against the code rather than the notes. AC1 clientIpFor() delegates to the hardened clientIp() (public-grading.ts:343-345), no-trustworthy-IP collapses to the NO_TRUSTWORTHY_IP sentinel — degraded, never unlimited. AC2 IS DONE and the earlier 'not robustly achievable in Deno stable' conclusion was wrong: safeFetch() calls assertPublicUrl() ONCE (which resolves A+AAAA, rejects if ANY record is private, and RETURNS the cleared IPs) then hands them to pinnedRequest(), which Deno.connect()s to the validated IP literal and, for https, Deno.startTls({hostname: url.hostname, alpnProtocols:['http/1.1']}) so the certificate is still verified against the HOSTNAME while the socket is pinned to the IP — the SNI/Host problem the earlier note called a blocker is exactly what startTls's hostname option solves. fetch() is never given the hostname, so there is no second resolution and validation/connection cannot diverge. Redirects re-enter the loop and are re-validated + re-pinned per hop (safeFetch:244-251), which is the hop the pin would otherwise leak through. AC3 AiCeilingError -> 503 atCapacityBody({code:'at_capacity', retryable:false}); both buyer extensions render it as a NON-retryable capacity state (marketplace.js:561). AC4 EXTENSION_ALLOWED_ORIGINS documented at services/edge-functions/.env.example:476 and LAUNCH_CHECKLIST.md:55 (buyer_extension row, incl. the CF_ORIGIN_SECRET dependency that makes AC1 effective). AC5 ssrf_test.ts 21/21 incl. the rebinding proof ('pinnedRequest: connects to the supplied IP, not the URL hostname') + chunked/EOF/redirect parse coverage, and the per-instance in-memory quota limitation is documented as accepted at public-grading.ts:435 with US-1838 named as the durable follow-up. Verified: full edge suite 4090 passed / 0 failed / 109 ignored, deno lint (1163 files), deno check src/main.ts. ONE NON-BLOCKING OBSERVATION, deliberately NOT changed under a closing story: pinnedRequest uses ips[0] with no failover, so a multi-homed host whose first record is unreachable fails instead of trying the next validated IP. That is an AVAILABILITY nit, not a security one (every candidate IP already passed isPrivateIp), and adding retry-next-IP to an SSRF path deserves its own story rather than a drive-by edit."
+    },
+    {
+      "id": "US-1885",
+      "title": "Popup v2 + onboarding: role-aware UI, accurate copy, versioned revocable consent",
+      "description": "As a user, I want the popup to reflect what the unified extension can do for MY account, with accurate multi-marketplace copy and a first-run path that doesn't dead-end. Audit: popup copy says eBay-only in four places despite six marketplaces (popup.html:17,23,34, popup.js:61); 'Sign in / connect account' is just a UTM link that connects nothing; the Lister popup shows zero job state and duplicates enabled-platform flags by hand (drift); consent is irrevocable, unversioned, and nothing opens the popup after install; selector version claimed to be shown in the popup isn't.",
+      "acceptanceCriteria": [
+        "One popup with role-aware sections: Research (recent reads, auto-run, per-site toggles — copy covers all supported marketplaces) always; Seller tools (platform status from the ACTUAL selectors config incl. selector version + lastVerified, last job state/result, pending delists) when seller-entitled",
+        "Sign-in actually connects: launches the US-1838 token flow, then shows account email + plan badge + entitlement summary; signed-out state shows an honest 'Sign in to unlock' with what each role gets",
+        "Clickwrap consent is versioned (terms version stored with acceptance, re-prompt on change), revocable from the popup, and links to the actual terms text",
+        "chrome.runtime.onInstalled opens a small onboarding page (what it does per role, consent, how to use) so first-run isn't a dead-end via the puzzle-piece menu",
+        "Live job progress: during a Lister fill the marketplace tab shows a small banner ('GradeThread is prefilling — review and click List') so form-filling is never unexplained"
+      ],
+      "priority": 1885,
+      "passes": true,
+      "notes": "Audit findings 19/20 + Lister F17/F24/F25/F26. Depends on US-1873 (registry) and US-1838 (token). This is the 'look good / ease of use' story. | PARTIAL 2026-07-17: AC1's last-job-state gap CLOSED — background records each Lister outcome (lastJobRecord -> storage.local, a projection not the job payload) and the popup renders it with per-outcome copy/colour (done / waiting / timed out / tab closed / unconfirmed / failed), incl. a late-success callout so a seller doesn't double-post. New .pop-status.warn for the middle ground. Platform labels hoisted to one list. Re-verified the REST of the story is ALREADY implemented: AC1 role-aware sections + platform status from the real selectors config w/ version+lastVerified; AC2 sign-in/token flow + plan badges; AC3 versioned+revocable consent; AC4 onInstalled onboarding; AC5 fill banner. Tests: lister-jobs.test.cjs covers the outcome mapping + the no-payload projection; 10/10 extension test files green. BLOCKS passes: AC1's 'pending delists' in the popup — FlipDesk seller data the extension cannot reach (the SaaS reads it from Supabase directly), so it needs a new owner-verified edge endpoint (US-268 tenant isolation) + a popup fetch. | CLOSED 2026-07-18 (agent loop). The sole remaining blocker — AC1's 'pending delists' in the popup — is built. The extension could not reach the queue because it speaks a different auth dialect: the SaaS route /api/flipdesk/listings/pending-delists sits behind authMiddleware + workspaceMiddleware (main.ts:482/619) and 401s on the extension's HMAC gtBuyerToken. So: new GET /api/grading/public/pending-delists (extension-token auth, no authMiddleware), a GT_GET_PENDING_DELISTS background proxy (the popup has NO fetch of its own — all egress lives in background.js), and a #delistBlock popup section. THE QUERY IS SHARED, NOT COPIED: extracted to lib/pending-delists.ts and the existing SaaS route refactored onto it, because two doors onto the same queue must not give two answers about auto_delistable — a drift there means one surface offers a one-click end for a listing the other knows it cannot end, and the seller is told it was handled while it stays live for a second buyer. AUTHORIZATION IS SERVER-SIDE, NOT INHERITED: registry.js's delist capability is fail-safe UI gating (it decides what to DRAW), so the endpoint re-resolves getExtensionEntitlements on every call and 403s without sellerEnabled — a token minted before a plan lapsed would otherwise still read as seller. It FAILS CLOSED on an entitlements error (503), unlike /entitlements which fails safe to anonymous: there a hiccup costs a shopper a free read, here it would hand seller data to an unconfirmed caller. 401 (not anonymous-fallback) when unverified, since there is no meaningful anonymous answer to 'what are MY pending delists'. Tenancy is unforgeable by construction — ownerId comes from the signed token and the route accepts no id, filter or workspace header. NOTE the extension token carries no workspace notion, so this serves the TOKEN HOLDER'S OWN tenant only; a workspace member does not see the owner's queue through the extension (acceptable, and stated here so it isn't mistaken for a bug later). Popup states are distinguished deliberately: signed-out / no-plan / error each get their own copy, because rendering 'nothing to end' for any of them is a false all-clear on the one screen a seller checks to avoid double-selling. Non-auto-delistable rows render 'By hand' rather than an action that would silently no-op. Not cached, for the same reason. TESTS: new pending-delists_test.ts (5, incl. the auto_delistable rule in both directions and a guard that the projection never leaks inventory_items.user_id into a response the popup writes to the DOM) + 3 tenant-isolation cases — one of which closes a PRE-EXISTING GAP: /delist-confirm, the MUTATING half, had no cross-tenant coverage at all despite clearing the stamp and flipping the row to ended/inactive. Verified: full edge suite 4095 passed / 0 failed / 112 ignored, deno lint (1165 files), deno check, 12/12 extension test files, node --check. ⚠ UNVERIFIED IN A REAL BROWSER: the popup rendering (#delistBlock) has not been opened in Chrome or Firefox — no browser is available to this agent. The logic is unit-tested and the DOM code follows the adjacent renderLastJob pattern, but the visual result is unconfirmed, same caveat as US-1881 AC3/AC5. Worth 2 minutes of eyeballing on the next manual pass. SCOPE NOTE: AC1 asks the popup to SHOW pending delists and it does; ending one from the popup in a click is NOT built (the row links out to the listing). If a one-click end from the popup is wanted, that is a new story, not a gap in this one."
+    },
+    {
+      "id": "US-1901",
+      "title": "Web push notifications for offers, messages, and sales",
+      "description": "As a seller working in a browser, I want push notifications for time-sensitive events (best offers, buyer messages, new sales, grade complete) so I can respond within offer windows without watching email. Audit 2026-07-09 (verified): src/ has NO pushManager/PushSubscription usage — the only service-worker code is offline intake + the PWA install banner (src/lib/pwa.ts). iOS gets APNs for these events (PushService), but web delivery is email-only even though Settings → Notifications already exposes per-type channel toggles.",
+      "acceptanceCriteria": [
+        "Web Push (VAPID) subscription flow: permission requested only from an explicit control in Settings → Notifications (never on page load); the subscription endpoint is stored server-side per user+device and removed on unsubscribe or when a delivery fails with 404/410 Gone",
+        "Service worker handles push + notificationclick: clicking deep-links to the relevant surface (offer/message → /dashboard/flipdesk/offers, sale → the sale's item, grade complete → the submission)",
+        "Edge delivery goes through the existing notification pipeline and respects the per-type × per-channel preference matrix — the existing push toggles now cover web push alongside APNs, with no new preference schema",
+        "New subscription table/routes are tenant-scoped with a tenant-isolation_test.ts case; VAPID keys come from env and are documented in ENVIRONMENT.md + services/edge-functions/.env.example",
+        "Unsupported browsers (no Push API) and denied permission degrade gracefully: the settings control explains the state and email remains the fallback channel"
+      ],
+      "priority": 1901,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-1906",
+      "priority": 2604,
+      "passes": true,
+      "title": "True virtualization of the grouping workbench (600 photos scroll smooth, DnD intact)",
+      "description": "As a seller working a 600-photo session, I want the ungrouped grid and group list to stay fast however far I scroll. Today the page uses IntersectionObserver load-more chunks (GRID_CHUNK=105, GROUPS_CHUNK=24) — fine at first paint, but a fully-expanded session mounts every tile and drag interactions degrade.",
+      "acceptanceCriteria": [
+        "Ungrouped grid and the groups list render through @tanstack/react-virtual (already a dependency); a fully-loaded 600-photo session scrolls at 60fps-ish without mounting all tiles (verify with React DevTools render counts, note findings on the story)",
+        "dnd-kit still fully works: dragging near viewport edges auto-scrolls, drop targets resolve for groups that were off-screen when the drag started, and keyboard-based DnD (accessibility path) still functions",
+        "Selection, single-level undo, sort modes, group collapse, and the load-more sentinels' role are preserved or cleanly replaced; no layout shift on thumbnail load (fixed tile aspect)",
+        "vitest coverage for any new pure layout/windowing helpers; manual 600-photo pass noted on the story"
+      ],
+      "notes": "[P2][Web/AutoLister] [scale-v2 deep dive 2026-07-09] dnd-kit + virtualization is the fiddly part (measure cache vs. transformed items) — budget time there; keep the pure group-edit transforms (src/lib/autolister-group-edits.ts) untouched."
+    },
+    {
+      "id": "US-1909",
+      "priority": 2607,
+      "passes": true,
+      "title": "iOS AutoLister grouping parity: filename-sequence + bounded merges + full verify coverage",
+      "description": "As an iOS seller, I want the same grouping quality the web workbench has. Today iOS auto-grouping is EXIF time-gap only (PhotoGrouping.swift defers dHash), has no filename-sequence signal, and no windowed verify / propose-groups access.",
+      "acceptanceCriteria": [
+        "iOS auto-grouping adds the filename-sequence seeding signal (same semantics as src/lib/autolister-grouping.ts: last digit-run parsing, contiguous-run partitioning, timeless-only seeding, runs longer than the cap seed as singletons) with matching thresholds/constants",
+        "iOS gains the web's mega-group guards: weak-signal merges bounded by MAX_AUTO_GROUP_PHOTOS-equivalent and the ordinal window; time-gap clusters exempt — port the constants, don't invent new ones",
+        "iOS calls the same edge endpoints for AI assistance: windowed verify-groups coverage (US-1903 semantics) and propose-groups (US-1904) with the same metered-action pre-count UX",
+        "Ungrouped sort modes match web (shooting / name / date / upload); Swift unit tests cover the sequence parser and run partitioning; python3 ios/Scripts/no-ungated-print.py passes"
+      ],
+      "notes": "[P2][iOS/AutoLister] [scale-v2 deep dive 2026-07-09] dHash-on-device stays deferred — the propose-groups endpoint (server vision) substitutes for it on iOS. iOS CI on macOS runners is the build safety net; nothing buildable locally on Windows."
+    },
+    {
+      "id": "US-1910",
+      "priority": 2608,
+      "passes": true,
+      "title": "AutoLister at scale v2 epic — 600 photos in, 45 trustworthy listings out, nothing lost",
+      "description": "As a reseller, I can dump an entire multi-hundred-photo shoot into AutoLister and trust the whole pipeline: grouping that works even without EXIF (AI boundary proposals), AI verification that covers every group, a workbench that stays fast at 600 photos with triage for 45 groups, sessions and uploads that survive reloads, and generation that always sees the most informative role-diverse photos (defect + tag shots guaranteed). Umbrella for US-1903..US-1909; motivated by the founder's 2026-07-09 session report (600 photos → ~45 listings; grouping and reorganization were the pain).",
+      "acceptanceCriteria": [
+        "End-to-end: a 600-photo no-EXIF session uploads, gets AI-proposed groups, full verify coverage, survives a mid-session reload with uploads resuming, and generates drafts whose vision input always includes available defect and tag shots",
+        "All child stories US-1903..US-1909 pass"
+      ],
+      "dependsOn": [
+        "US-1903",
+        "US-1904",
+        "US-1905",
+        "US-1906",
+        "US-1907",
+        "US-1908",
+        "US-1909",
+        "US-1911"
+      ],
+      "notes": "[P1][Web+Edge+iOS/AutoLister][Epic] [scale-v2 deep dive 2026-07-09] Verified current state: ALL of the 2026-07-02 bulk-intake epic (US-1538..1548) shipped — filename-sequence grouping, MAX_AUTO_GROUP_PHOTOS=12 mega-group cap + ordinal-window visual merge (US-1550), @dnd-kit workbench + single-level undo, 4 ungrouped sort modes, verify-groups endpoint, 429 backoff, MAX_BATCH_ITEMS=300, quota pre-check, pre-generate confirm. Do NOT re-file those. ALSO SHIPPED DIRECTLY 2026-07-09 (this deep dive, not a story): generation photo funnel fix — removed the US-1552 pre-slice in loadItemPhotoUrls (ai-listing.ts) that fed selectListingPhotos only the first 8 photos by gallery sort_order (hid defect/tag shots, especially after manual reorder), bumped defect above detail in ROLE_BUDGET (listing-photo-budget.ts), bounded tag-OCR separately (MAX_TAG_OCR_PHOTOS=4); regression test added. Vision count discipline still lives in selectListingPhotos (6 role-diverse photos) — sending literally all photos was evaluated and rejected (3x image-token cost + the US-1552 timeout history; role-diverse selection captures the information). GPS/EXIF-location grouping evaluated and rejected (see US-1904 notes)."
+    },
+    {
+      "id": "US-1963",
+      "title": "EPIC — eBay inbound-sync reliability (subscription mgmt, order backstop, hardened fetch)",
+      "description": "As GradeThread, we want inbound eBay sync (sales, payouts, returns) to be resilient so a misconfigured or dropped notification never silently stops a seller's revenue sync. Today we receive & verify webhooks but have no way to create/verify Notification API subscriptions, no periodic order-sync backstop, and four API families bypass the hardened fetch path (no breaker/retry). This epic tracks US-1964 (subscription management), US-1965 (order-sync cron backstop), and US-1966 (route Finances/Marketing/Disputes/Post-Order through fetchAuthed).",
+      "acceptanceCriteria": [
+        "Child stories US-1964, US-1965, US-1966 all pass",
+        "A dropped or unconfigured notification no longer causes a permanently missed sale — the backstop cron reconciles it",
+        "In-app visibility of which Notification API topics are actually subscribed per environment"
+      ],
+      "priority": 2610,
+      "passes": true,
+      "notes": "[P1][Edge/Sync][Epic] iOS listing-lifecycle audit 2026-07-14. Biggest structural blind spot in the eBay integration: inbound sync depends entirely on manual dev-portal config with no in-app verification + no automatic backstop. See memory ios-listing-lifecycle-audit-2026-07-14.",
+      "relevantPaths": [
+        "services/edge-functions/src/routes/flipdesk-webhooks.ts",
+        "services/edge-functions/src/lib/ebay-client.ts",
+        "services/edge-functions/src/main.ts"
+      ]
+    },
+    {
+      "id": "US-1964",
+      "title": "eBay Notification API subscription & destination management (create/list/verify per env)",
+      "description": "As an operator, I want GradeThread to programmatically create and verify eBay Notification API destinations + topic subscriptions so inbound events don't depend on manual dev-portal config. Today there is NO call to POST /commerce/notification/v1/destination or /subscription anywhere — topics are configured by hand and the app cannot enumerate what is actually subscribed, so an unconfigured/expired topic silently drops all events of that type.",
+      "acceptanceCriteria": [
+        "Edge can create/update a notification destination (our webhook endpoint) and subscribe the required topics (order/sale, payout, return, cancellation, account-deletion) via /commerce/notification/v1/*",
+        "Edge can list current subscriptions and surface, per environment, which required topics are missing (admin-visible health check)",
+        "Idempotent: re-running does not duplicate destinations/subscriptions; handles the marketplace-account-deletion topic already in use",
+        "Startup or scheduled reconcile logs a warning if any required topic is unsubscribed"
+      ],
+      "priority": 2609,
+      "passes": true,
+      "notes": "[P1][Edge/Notification] iOS listing-lifecycle audit 2026-07-14. grep-confirmed: no commerce/notification subscription writer exists; only the verified receiver (flipdesk-webhooks.ts) + public_key verify (ebay-notification-verify.ts). Substring topic router already tolerant (ebay-webhook-topics.ts).",
+      "relevantPaths": [
+        "services/edge-functions/src/routes/flipdesk-webhooks.ts",
+        "services/edge-functions/src/lib/ebay-webhook-topics.ts",
+        "services/edge-functions/src/lib/ebay-client.ts"
+      ]
+    },
+    {
+      "id": "US-1965",
+      "title": "Scheduled periodic order-sync cron backstop for all active eBay connections",
+      "description": "As a seller, I want my sales to appear in GradeThread even if a webhook is dropped or a topic was never subscribed. Today order/sale ingest is webhook-driven + manual pull only (triggerEbaySyncForUser + POST /listings/pull); there is no cron that periodically sweeps orders for every active connection. Add a scheduled task that runs the idempotent incremental order pull across all connections as a safety net.",
+      "acceptanceCriteria": [
+        "New Coolify-scheduled edge job pulls recent orders (incremental lastmodifieddate cursor) for every active marketplace_connection on an interval",
+        "Reuses the existing idempotent order ingest so no duplicate sales are created and it composes with webhook + parked-event drain",
+        "Respects the getOrders/getTransactions 2-year start-date limit (errorId 30830) — never requests a start date >2yr old",
+        "Job is registered like other crons (has curl in image — see edge-cron-curl gotcha) and records a cron_runs row"
+      ],
+      "priority": 2608,
+      "passes": true,
+      "notes": "[P1][Edge/Jobs] iOS listing-lifecycle audit 2026-07-14. Combined with US-1964 this closes the silent-revenue-sync failure mode. listRecentOrders (ebay-client.ts:3021) already incremental+paginated; just needs an all-connections scheduled driver. Heed edge-cron-curl-gotcha memory.",
+      "relevantPaths": [
+        "services/edge-functions/src/routes/flipdesk-ebay.ts",
+        "services/edge-functions/src/main.ts",
+        "docker-compose.coolify.yml"
+      ]
+    },
+    {
+      "id": "US-1967",
+      "title": "Fix the dead 'Send offer to interested buyers' button (license sell.negotiation scope or hide)",
+      "description": "As a seller, I should never see a button that always fails. The iOS Negotiation UI shows an eligible-items list and a send-offer action, but the edge route returns 501 because the sell.negotiation scope is deliberately omitted from the production eBay consent — reconnecting cannot fix it. Either add the scope to the production keyset + consent flow and wire the endpoints, or hide the send-offer surface until the scope is licensed. (Incoming best offers work fine via the Trading API and are unaffected.)",
+      "acceptanceCriteria": [
+        "Decision recorded: license sell.negotiation in prod OR feature-flag the send-offer UI off",
+        "If licensed: find_eligible_items + send_offer_to_interested_buyers work end-to-end from iOS and web; no 501/403 for a connected seller",
+        "If deferred: the send-offer entry points (iOS NegotiationService.sendOffer surfaces) are hidden/disabled with honest copy — no dead button, no misleading 'reconnect' prompt",
+        "Incoming best-offer respond (accept/decline/counter) remains working"
+      ],
+      "priority": 2607,
+      "passes": true,
+      "notes": "[P1][iOS+Edge/Negotiation] iOS listing-lifecycle audit 2026-07-14. Edge POST /negotiation/send-offer returns 501; scope gated off (ebay-client.ts:198-212, flipdesk-ebay.ts:7030-7048,7188). iOS NegotiationService.swift:47. A shipped always-failing feature is worse than an absent one.",
+      "relevantPaths": [
+        "services/edge-functions/src/routes/flipdesk-ebay.ts",
+        "services/edge-functions/src/lib/ebay-client.ts",
+        "ios/GradeThread/Marketplaces/NegotiationService.swift"
+      ],
+      "dependsOn": [
+        "US-1421"
+      ]
+    },
+    {
+      "id": "US-1969",
+      "title": "EPIC — iOS listing composer consolidation (Best Offer, schedule, save-draft, quantity/end, meters)",
+      "description": "As a reseller using the phone as my primary tool, I want one coherent composer that exposes the same conversion levers the web has. The iOS submission flow is fragmented across item canvas + a separate specifics sheet + a publish-only dialog, so Best Offer, scheduled publish, save-draft, single-item quantity/end, auction, and variations are unreachable for the ordinary photograph-and-list flow. This epic tracks US-1970..US-1975 to close the iOS↔web composer parity gaps.",
+      "acceptanceCriteria": [
+        "Child stories US-1970 (Best Offer), US-1971 (schedule), US-1972 (save-draft), US-1973 (quantity/end), US-1974 (quality meters), US-1975 (auction/variations) tracked to completion",
+        "A single-item, camera-created listing can set Best Offer, schedule, and save-as-draft without leaving the compose flow",
+        "No feature empty-state points to a control that doesn't exist on iOS"
+      ],
+      "priority": 2600,
+      "passes": true,
+      "notes": "[P2][iOS/Composer][Epic] iOS listing-lifecycle audit 2026-07-14. Server + web already support these; gaps are missing iOS UI. Root cause = composer fragmentation across ItemCanvasView + EbayCategorySpecificsView + PublishDialog. See memory ios-listing-lifecycle-audit-2026-07-14 for the parity matrix.",
+      "relevantPaths": [
+        "ios/GradeThread/Marketplaces/Publish/PublishDialog.swift",
+        "ios/GradeThread/Inventory/ItemCanvas/ItemCanvasView.swift",
+        "src/pages/flipdesk/composer.tsx"
+      ],
+      "dependsOn": [
+        "US-1970",
+        "US-1971",
+        "US-1972",
+        "US-1973",
+        "US-1974",
+        "US-1975"
+      ]
+    },
+    {
+      "id": "US-1970",
+      "title": "iOS: Best Offer on single-item composer (toggle + auto-accept/decline) incl. camera-created items",
+      "description": "As a seller, I want to enable Best Offer with auto-accept/auto-decline thresholds when publishing a single item from my phone. The web composer has this; the iOS single-item composer has none, and the only iOS surface (AutoLister bulk grid) is a bare boolean that filters batchId != nil — so a camera/canvas-created item can NEVER get Best Offer on iOS. Add Best Offer + thresholds to the single-item composer and persist them on the draft.",
+      "acceptanceCriteria": [
+        "PublishDialog ComposerForm has a Best Offer toggle + auto-accept and auto-decline threshold inputs, matching web behavior",
+        "Values persist on the listing draft and are consumed by the publish context (parity with web composer.tsx:2100-2153 / persisted :1013-1015)",
+        "Best Offer is settable for manually/camera-created items (not gated on batchId)",
+        "Round-trips: reopening the composer shows the saved Best Offer settings"
+      ],
+      "priority": 2606,
+      "passes": true,
+      "notes": "[P2][iOS/Composer] iOS listing-lifecycle audit 2026-07-14. iOS ComposerForm lacks it; bulk grid bool only + DraftsBulkEditStore.load filters batchId!=nil (:161) excluding manual items. Web: composer.tsx:2100-2153. Best Offer is a primary conversion lever.",
+      "relevantPaths": [
+        "ios/GradeThread/Marketplaces/Publish/PublishDialog.swift",
+        "ios/GradeThread/AutoLister/Drafts/DraftsBulkEditStore.swift",
+        "src/pages/flipdesk/composer.tsx"
+      ]
+    },
+    {
+      "id": "US-1971",
+      "title": "iOS: 'Schedule publish' control in the composer (fixes the dead Scheduled Drops empty state)",
+      "description": "As a seller, I want to schedule a listing for a peak-time drop from my phone. The Scheduled Drops screen's empty state tells users to open a draft and 'Schedule publish', but no such control exists in the iOS composer — the service can only reschedule/cancel drops that already have a scheduled time (set from web). Add a schedule-publish date/time control to the composer so an iOS-only seller can create the first schedule.",
+      "acceptanceCriteria": [
+        "Composer has a 'Schedule publish' control that sets scheduled_publish_at on the draft (parity with web composer.tsx:2170)",
+        "A scheduled listing appears in Scheduled Drops and can then be rescheduled/cancelled (existing ScheduledDropsService paths)",
+        "Scheduled Drops empty-state copy matches the now-real control (no dead-end)",
+        "Publishing respects the schedule end-to-end (server consumes scheduled_publish_at)"
+      ],
+      "priority": 2605,
+      "passes": true,
+      "notes": "[P2][iOS/Composer] iOS listing-lifecycle audit 2026-07-14. Dead empty state ScheduledDropsView.swift:87; ScheduledDropsService.swift:15,36 only reschedule/cancel non-null. Web control composer.tsx:2170 (state :266).",
+      "relevantPaths": [
+        "ios/GradeThread/Marketplaces/Publish/PublishDialog.swift",
+        "ios/GradeThread/Marketplaces/ScheduledDrops/ScheduledDropsView.swift",
+        "ios/GradeThread/Marketplaces/ScheduledDrops/ScheduledDropsService.swift"
+      ]
+    },
+    {
+      "id": "US-1972",
+      "title": "iOS: standalone 'Save draft' in the composer (persist edits without publishing)",
+      "description": "As a seller who drafts now and publishes later, I want to save composer edits without publishing. On iOS, edits persist only as the first step of runPush; closing offers only Discard/Keep-editing, so a typed description, condition note, or promo choice is lost unless the seller completes a publish. Add a Save action that writes the listing draft (title/description/condition note/best-offer/schedule/promo) independently of publishing.",
+      "acceptanceCriteria": [
+        "Composer has an explicit Save that calls saveDraft without triggering the push (parity with web composer.tsx:958)",
+        "Closing the composer with unsaved edits offers Save (not only Discard/Keep-editing)",
+        "Saved drafts reopen with all fields intact including Best Offer and schedule",
+        "No work loss on backgrounding/dismiss mid-edit"
+      ],
+      "priority": 2604,
+      "passes": true,
+      "notes": "[P2][iOS/Composer] iOS listing-lifecycle audit 2026-07-14. iOS persists only at runPush (PublishDialog.swift:452); close options :109-118 have no Save. Web independent Save composer.tsx:958-1015.",
+      "relevantPaths": [
+        "ios/GradeThread/Marketplaces/Publish/PublishDialog.swift",
+        "ios/GradeThread/Marketplaces/Listing/ListingDraftService.swift",
+        "src/pages/flipdesk/composer.tsx"
+      ]
+    },
+    {
+      "id": "US-1973",
+      "title": "iOS: single-item quantity / out-of-stock control + 'End listing' button on item detail",
+      "description": "As a seller, I want to pull one live item out of stock (or end it) directly from the item screen. Today the revise body has no quantity field, and ending a single listing requires going to the inventory list → select → bulk 'End listing'. Add a single-item quantity/out-of-stock control and an End-listing action on the item detail so common one-item maintenance doesn't force the bulk tools.",
+      "acceptanceCriteria": [
+        "Item detail / revise flow can set quantity (incl. 0 = out of stock) and it reaches eBay via updateOfferFields/bulkUpdatePriceQuantity",
+        "A single-item 'End listing' action exists on the item screen and calls the withdraw path (DELETE /listings/:id → withdrawOffer)",
+        "Actions respect the sync source-of-truth contract (blocked for eBay-origin mirrors)",
+        "Confirmation + success/failure feedback consistent with existing revise UX"
+      ],
+      "priority": 2603,
+      "passes": true,
+      "notes": "[P2][iOS/Maintenance] iOS listing-lifecycle audit 2026-07-14. EbayPublishService revise Body has no quantity (:126-132); end is bulk-only (BulkActionExecutor.swift:261). Consider OUT_OF_STOCK program opt-in (US-1979) for evergreen multi-qty.",
+      "relevantPaths": [
+        "ios/GradeThread/Marketplaces/EbayPublishService.swift",
+        "ios/GradeThread/Inventory/ItemCanvas/ItemCanvasView.swift",
+        "ios/GradeThread/Inventory/Bulk/BulkActionExecutor.swift"
+      ]
+    },
+    {
+      "id": "US-1974",
+      "title": "iOS: surface validate warnings + recommended-coverage (title-quality & aspect meters)",
+      "description": "As a seller, I want the same pre-publish quality guidance on iOS that the web shows. The /validate endpoint already returns title-quality `warnings` and `recommendedCoverage`, but the iOS ValidateResponse decodes only ok/blockers/summary/aspectDiagnostics, so iOS sellers see only hard blockers. Decode the extra fields and render a title-quality meter and recommended-aspect coverage meter.",
+      "acceptanceCriteria": [
+        "iOS ValidateResponse decodes warnings + recommendedCoverage (EbayPublishTypes.swift)",
+        "Composer renders a title-quality meter and recommended-coverage meter (parity with web composer.tsx:1442,1817)",
+        "Warnings are advisory (do not block publish) and are visually distinct from hard blockers"
+      ],
+      "priority": 2602,
+      "passes": true,
+      "notes": "[P3][iOS/Composer] iOS listing-lifecycle audit 2026-07-14. Fields already returned by edge (flipdesk-ebay.ts:5528-5534) but dropped by iOS decoder (EbayPublishTypes.swift:6-15).",
+      "relevantPaths": [
+        "ios/GradeThread/Marketplaces/Publish/EbayPublishTypes.swift",
+        "ios/GradeThread/Marketplaces/Publish/PublishDialog.swift",
+        "services/edge-functions/src/routes/flipdesk-ebay.ts"
+      ]
+    },
+    {
+      "id": "US-1975",
+      "title": "iOS: auction format + multi-variant (variations) editor in the composer",
+      "description": "As an auction or multi-variant seller, I want to create these listings from iOS. The web composer supports auction (start/reserve/BIN/duration) and size/color variation matrices with per-variant qty/price, and the server already consumes listing_format/auction_*/variations from the draft — but iOS has no format selector or variation editor, so every iOS publish is fixed-price single-variant. Add the format selector and variation editor to the iOS composer.",
+      "acceptanceCriteria": [
+        "Composer offers fixed-price vs auction; auction exposes start/reserve/BIN/duration (parity with listing-format-controls.tsx)",
+        "Variation editor supports size/color matrices with per-variant qty/price, feeding inventory_item_group publish",
+        "Server consumption verified end-to-end (flipdesk-ebay.ts:5841-5949) — an iOS-created auction/variation listing publishes correctly"
+      ],
+      "priority": 2601,
+      "passes": true,
+      "notes": "[P3][iOS/Composer] iOS listing-lifecycle audit 2026-07-14. Purely missing iOS UI; web listing-format-controls.tsx:101-161,190+; server already consumes it. Trailing item in the composer epic (severity depends on seller type).",
+      "relevantPaths": [
+        "ios/GradeThread/Marketplaces/Publish/PublishDialog.swift",
+        "src/components/flipdesk/listing-format-controls.tsx",
+        "services/edge-functions/src/routes/flipdesk-ebay.ts"
+      ]
+    },
+    {
+      "id": "US-1978",
+      "title": "eBay lifecycle cleanup verbs: end variation listings, delete stale offers/items, order-level refund",
+      "description": "As GradeThread, we want complete lifecycle control. Missing: withdrawByInventoryItemGroup (no way to END a multi-variation listing), DELETE inventory_item/{sku} and DELETE offer/{id} cleanup (stale unpublished offers/items accumulate and complicate SKU reuse), and Fulfillment order-level issueRefund (a seller can't issue a goodwill/partial refund outside a return case). Implement these verbs and expose the relevant ones.",
+      "acceptanceCriteria": [
+        "withdrawByInventoryItemGroup ends a published variation listing; wired to the end path",
+        "DELETE /inventory_item/{sku} and DELETE /offer/{id} available for cleanup of stale unpublished artifacts (guarded, not destructive to live listings)",
+        "Fulfillment issueRefund supports proactive/partial refunds outside a return case",
+        "Each new call routes through the hardened fetch path (see US-1966)"
+      ],
+      "priority": 1978,
+      "passes": true,
+      "notes": "[P3][Edge/Inventory+Fulfillment] iOS listing-lifecycle audit 2026-07-14. Absent: withdrawByInventoryItemGroup, DELETE inventory_item/offer, Fulfillment order-level issueRefund (refunds only via Post-Order return issue_refund today). | INVESTIGATION 2026-07-17 (no code): AC1 has an UNSTATED SCHEMA DEPENDENCY that reshapes the story. withdrawByInventoryItemGroup needs the eBay inventory_item_group KEY, and that key is persisted NOWHERE — 00160 adds only listing_format/auction_*/variations jsonb, and no column in any migration holds a group key. It exists solely as a value DERIVED at publish time: flipdesk-ebay.ts:8111 'const sku = (item.sku)?.trim() || FD-<itemId.slice(0,8)>', passed as baseSku into publishVariationListing (:5910) and used as the group key at :6302. So the end path cannot look the key up; it can only RE-DERIVE it from the item's CURRENT sku, which is correct only if inventory_items.sku is immutable after publish (NOT verified — worth confirming before relying on it; if a seller can edit the sku, the re-derived key targets a group that does not exist and the variation listing silently fails to end while staying live = the US-1506 oversell hazard the single-SKU end path is explicitly careful about). Two options: (a) persist the group key on listings at publish = a MIGRATION this story does not budget for, or (b) re-derive + fall back to withdrawing each variant offer individually via listOffersForSku(variantSku(baseSku, v)) when the group withdraw 404s. Recommend (a). NOTE ALSO: publishOfferByInventoryItemGroup deliberately uses fetchAuthedOnce (NOT the retrying fetchAuthed) because publish is non-idempotent — a withdraw IS idempotent, so withdrawByInventoryItemGroup should mirror withdrawOffer and use fetchAuthed (AC4). AC2/AC3 (DELETE inventory_item/offer, Fulfillment issueRefund) carry no such dependency and are clean vertical slices. Deliberately did NOT land the client verbs unrouted — that is exactly the defect the sibling US-1979 complains about ('item_promotion writes built but never routed'). | PARTIAL 2026-07-17: AC3 DONE — Fulfillment issueOrderRefund (POST /sell/fulfillment/v1/order/{id}/issue_refund) added to ebay-client.ts + routed at POST /api/flipdesk/ebay/orders/:orderId/refund. Sellers could not make a goodwill/partial refund before: the only path was Post-Order issueReturnRefund, which requires the buyer to have OPENED a return, so 'here's $10 back, keep it' meant forcing a return first (worse for both sides + drags return metrics). Strict by design: reasonForRefund required (no default — eBay has none and guessing misreports why money moved); amounts validated to a plain decimal > 0; order-level vs line-item are different eBay requests and both-at-once is a 400 rather than a silent drop; audit log records amount/line-item-count/refund-id. US-268: ownership proven against the local sales table BEFORE calling eBay, returning the same 404 as a nonexistent order — deliberately NOT leaning on eBay's token scoping, which would make an external 404 the only thing between a guessed order id and a refund; refunds via the sale's own connection (US-1507). AC4: fetchAuthed (retry) is right here because a refund IS idempotent at eBay (a duplicate on an already-refunded order is rejected, not double-paid) — unlike publishOfferByInventoryItemGroup which uses fetchAuthedOnce. tenant-isolation_test.ts case added same-commit (+ TEST_USER_A_EBAY_ORDER_ID fixture). deno check/lint clean; edge suite 3993 passed 0 failed (also fixed a PRE-EXISTING red test found en route: content-social-publish expected an alphabetized fan-out order contradicting its own documented enabled-order contract). BLOCKS passes: AC1 (see the investigation note re: the unpersisted group key) + AC2 (DELETE inventory_item/{sku} + DELETE offer/{id}, guarded against live listings). | PARTIAL 2026-07-17 (cont.): AC2 DONE — deleteOffer + deleteInventoryItem added and routed at DELETE /offers/:offerId and DELETE /inventory-items/:sku. THE GUARD IS THE STORY: delete is NOT withdraw (withdraw ends a live listing and keeps the offer for re-publish; DELETE destroys the record and on a PUBLISHED offer eBay ends the live listing as a side effect — no undo, no local ended-reconciliation, strictly worse than the US-1506 oversell case). Both routes read the CURRENT state from eBay and 409 if anything is live; deliberately NOT trusting our listings row for liveness since it can be stale (the premise of the sync path). The SKU route clears the SKU's unpublished offers first (eBay rejects a SKU delete while offers attach), each proven non-live. US-268: ownership proven against listings/inventory_items before any eBay call, same 404 as a nonexistent artifact; a tenant-isolation_test.ts case per route + TEST_USER_A_EBAY_OFFER_ID / TEST_USER_A_EBAY_SKU fixtures. isAlreadyDeletedError reconciles an already-gone artifact. TWO BUGS CAUGHT BY TESTS BEFORE SHIPPING: (1) the first predicate matched '404: route not found' — it wanted 'not found' without requiring the ARTIFACT be named, so an API path change would read as already-gone and the stale artifact would survive while the seller believed it cleaned up (new ebay-cleanup_test.ts caught it first run; now requires offer/inventory_item/sku AND a gone-phrase, and a non-Error is never evidence); (2) flipdesk-auth-coverage_test.ts (US-1623) caught both routes missing an authMiddleware whitelist entry in main.ts — they would have 401'd every signed-in seller. deno check/lint clean; edge suite 3997 passed 0 failed. ONLY AC1 (withdrawByInventoryItemGroup) now blocks passes — see the investigation note: the group key is persisted nowhere, so it needs a migration (blocked while the agent loop consumes migration numbers) or a re-derive + per-variant-offer fallback. | AC1 DESIGN QUESTION NOW SETTLED 2026-07-17 — option (b) (re-derive the group key) is UNSAFE; AC1 REQUIRES the persisted key + a migration. The earlier note flagged 'only correct if inventory_items.sku is immutable after publish (NOT verified)'. It is NOT immutable: src/components/flipdesk/ebay-sku-match.tsx:983 updates inventory_items.sku directly via supabase-js ('copy the eBay Custom Label into the FlipDesk item's SKU so the two systems agree'), from the orphan-reconciliation surface, with NO guard against the item already having a published variation listing. Concrete break: (1) seller publishes a variation listing, group key = item.sku at that moment, say SHIRT-01; (2) later reconciles an orphan eBay listing with 'sync SKU' ticked -> item.sku becomes eBay's Custom Label, say EBAY-99; (3) item sells elsewhere -> End/auto-delist re-derives the key as EBAY-99 -> withdrawByInventoryItemGroup 404s -> the variation listing SILENTLY STAYS LIVE -> double sale. That is precisely the oversell hazard the single-SKU end path (US-1506) is built to avoid. CORROBORATING: the single-SKU path does NOT re-derive its identifier either — it STORES listings.platform_offer_id and withdraws by that. The variation path should store the group key by the same reasoning. RECOMMENDATION: add listings.platform_item_group_key (nullable text), write it at publish in publishVariationListing (flipdesk-ebay.ts ~:6302 where createOrReplaceInventoryItemGroup is called with baseSku), and have the end path withdraw by the STORED key, with a per-variant-offer withdraw as the fallback for legacy rows published before the column existed (those genuinely have no stored key and must re-derive, with the risk documented). Migration triple per the migrations skill. BLOCKED at time of writing only by migration numbering: the agent loop is consuming 00466-00473 for the Brand KB block and bumps EXPECTED_SCHEMA_VERSION each story, so any migration authored in parallel conflicts on schema-version.ts. Do this once the loop clears the Brand KB block (or stop it first).",
+      "relevantPaths": [
+        "services/edge-functions/src/lib/ebay-client.ts",
+        "services/edge-functions/src/lib/ebay-postorder.ts",
+        "services/edge-functions/src/routes/flipdesk-ebay.ts"
+      ]
+    },
+    {
+      "id": "US-1979",
+      "title": "eBay marketing/monetization polish: real CPS ad-rate, route item-promotion writes, out-of-stock opt-in",
+      "description": "As a seller, I want better-informed monetization controls. Three gaps: (1) the CPS promoted-listings ad rate is a hardcoded 4-category heuristic instead of eBay's recommendation data; (2) item-promotion write functions (order/volume/coupon promos) are built but never routed; (3) the Account API OUT_OF_STOCK program opt-in isn't managed, which matters for evergreen multi-quantity clothing that should stay live at qty 0.",
+      "acceptanceCriteria": [
+        "CPS suggested ad rate comes from eBay's recommendation/suggested-bid data rather than suggestedAdRateForCategory's hardcoded map",
+        "item_promotion create/update/delete are exposed via routes + UI (create/edit order/volume/coupon promos)",
+        "Seller can opt in/out of the OUT_OF_STOCK program via Account API and keep multi-qty listings live at zero stock"
+      ],
+      "priority": 1979,
+      "passes": true,
+      "notes": "[P3][Edge/Marketing] iOS listing-lifecycle audit 2026-07-14. CPS rate hardcoded ebay-marketing.ts:38-60 (suggest_max_cpc IS used for CPC/Smart). item_promotion writes built but unrouted (:1194,1305-1341). No /sell/account/v1/program opt-in / OUT_OF_STOCK. | PARTIAL 2026-07-17: AC3 DONE — the OUT_OF_STOCK program was entirely unmanaged (no /sell/account/v1/program calls existed anywhere). Added getOptedInPrograms/optInToProgram/optOutOfProgram + routes GET /programs, POST|DELETE /programs/:program (slug map: out-of-stock -> OUT_OF_STOCK_CONTROL). Why it matters: eBay ENDS a multi-qty listing at qty 0, so evergreen clothing loses its item id, watchers, search standing and sales history and must be relisted from scratch; opted in it stays live at qty 0. Kept an explicit OPT-IN — for single-quantity thrift items (most of FlipDesk) eBay's default is correct and a blanket opt-in would leave sold-out one-offs live, so the route exposes the control and never decides. isAlreadyInProgramStateError treats eBay's 409-already-opted-in as success (the seller IS in the requested state; erroring makes the toggle look broken) and is tested in BOTH directions — the swallow-too-much side is dangerous: reporting opted_in when eBay refused means the seller trusts evergreen listings survive qty 0 while eBay keeps ending them. No multi-tenant table touched (the tenant IS the token), so no tenant-isolation case is owed; the authMiddleware whitelist entry (US-1623) was added up front after that guard caught the US-1978 routes. deno check/lint clean; my surfaces 40 passed 0 failed. BLOCKS passes: AC1 (CPS suggested ad rate from eBay's recommendation/suggested-bid data instead of suggestedAdRateForCategory's hardcoded 4-category map — needs confirmation that eBay exposes a CPS suggestion equivalent to the suggest_max_cpc already used for CPC/Smart; did not guess) + AC2 (item_promotion create/update/delete routes + UI — the writes exist at flipdesk-ebay.ts:1194,1305-1341 but are unrouted; AC asks for UI too). | PARTIAL 2026-07-17 (cont.): AC2 ROUTES HALF DONE — the audit's 'item-promotion writes built but never routed' was partly stale (createItemPromotion IS reached, but only as an automation side-effect); updateItemPromotion + deleteItemPromotion genuinely had ZERO route references. Now POST /promotions, PUT /promotions/:id, DELETE /promotions/:id beside the existing GET, so a seller can deliberately create and then edit/end order/volume/coupon promos. Validation runs the REAL buildItemPromotionBody up front rather than re-deriving its rules — a throw is definitionally seller input (400, builder's own message); the first cut sniffed error strings inside the catch and was replaced pre-commit (couples to wording + a new builder rule would silently 502 instead of 400). TENANT MODEL: unlike the refund route (which has a local sales mirror to prove ownership against), an item promotion has NO local mirror — it lives only on eBay under the seller's account, reachable only via their token, so token-scoping is the only available AND a real boundary; no multi-tenant table touched -> no tenant-isolation case owed; /promotions/* was already authMiddleware-whitelisted. New ebay-item-promotion_test.ts pins the per-type rules the routes inherit (incl. VOLUME_DISCOUNT needing no image — a route demanding one uniformly would block it). deno check/lint clean; edge suite 4011 passed 0 failed. BLOCKS passes: AC2's UI half (create/edit promos from FlipDesk) + AC1 (CPS suggested ad rate from eBay recommendation/suggested-bid data — needs confirmation eBay exposes a CPS equivalent to the suggest_max_cpc already used for CPC/Smart; deliberately not guessed at an API contract). | PARTIAL 2026-07-17 (cont.): AC2 UI-PREREQ LANDED (and a data-loss hazard averted). Building the edit UI on what existed would have SHIPPED SILENT DESTRUCTION: getItemPromotions is a LIST call returning only id/name/type/status/dates — no listingIds, percentOff, minSpend, buyQuantity or couponCode — while updateItemPromotion is a PUT that REPLACES the whole promotion. An edit form prefilled from the list shape would send back a body missing all of it: seller edits the name, saves, and the promotion's targeting + discount are wiped with no undo, while it keeps its id and looks like it saved. Added getItemPromotion(promotionId) -> EbayItemPromotionDetail + GET /promotions/:promotionId, parsed as the exact mirror of buildItemPromotionBody (incl. percentageOffItem as well as percentageOffOrder — VOLUME_DISCOUNT/CODED_COUPON use the former, and a parse knowing only the latter would blank the discount on the next save). Tested as a build->parse ROUND-TRIP per type rather than field-by-field: anything the parse drops is a field the seller loses on their next edit, so the mirror property IS the contract. deno check/lint clean; edge suite 4014 passed 0 failed. REMAINING for AC2: the UI itself (card at src/components/flipdesk/ebay-promotions-card.tsx is read-only and its own comment says creating promos is a follow-up; hooks in use-ebay.ts need create/update/delete + a promotable-active-eBay-listings query, which no hook exposes today — listings.tsx queries supabase directly). DESIGN QUESTION for the UI: ORDER_DISCOUNT + CODED_COUPON REQUIRE a promotionImageUrl; the automations path uses the item's cover photo (flipdesk-automations.ts ~:335), which works for its single-listing promo but a multi-listing promo needs ONE banner — whose photo, or a seller-supplied URL? Worth a product call, not a guess. AC1 (CPS suggested ad rate from eBay recommendation data) still open. | AC2 COMPLETE 2026-07-17: the UI landed — New/Edit/End on the promotions card (was read-only, empty state told sellers to use eBay Seller Hub). New ebay-promotion-dialog.tsx + create/update/delete + detail + promotable-listings hooks in use-ebay.ts. Edit prefills from the FULL promotion (GET /promotions/:id) at staleTime 0, never the list row — the PUT replaces the promotion, so a stale/partial prefill silently wipes targeting+discount. Banner image defaults to the first selected listing's cover photo (the automations source) but is SHOWN + overridable — the earlier 'product call' flag was over-cautious: a visible default with an escape hatch isn't a usurped decision. Caught while wiring: (a) NAME+CACHE COLLISION — useEbayPromotion(listingId) already existed for PROMOTED LISTINGS ad rates (different eBay product, same word); mine is useEbayItemPromotion with an ebay_item_promotion key, since sharing it would make ending a coupon blow away the ad-rate cache; (b) type is locked on edit (eBay can't change a promotion's type in place); (c) MARKDOWN_SALE is listed but not editable — different API (item_price_markdown_promotion). Form pre-check extracted as pure promotionFormProblem() + tested per type in both directions (too strict blocks what eBay accepts; too loose turns a fixable mistake into an opaque 'eBay rejected it'). tsc+eslint+build+vitest 2128 green. ONLY AC1 now blocks passes: CPS suggested ad rate from eBay's recommendation/suggested-bid data instead of suggestedAdRateForCategory's hardcoded map (ebay-marketing.ts:38-60) — needs confirmation eBay exposes a CPS equivalent to the suggest_max_cpc already used for CPC/Smart; deliberately not guessed at an API contract. | AC1 DONE 2026-07-17 — STORY COMPLETE. The hardcoded map's own comment claimed 'eBay exposes no synchronous suggested bid per leaf endpoint, so this is our recommendation, not eBay's'. WRONG, instructively: eBay's suggestion is per-LISTING, not per-leaf-CATEGORY, so looking for a category endpoint found nothing. The Recommendation API's findListingRecommendations returns per-listing marketing.ad.bidPercentages with basis TRENDING = the average ad rate of listings that recently SOLD in the same category — exactly what the map was guessing at, available all along. Verified against eBay docs (not assumed): CPS-only; EBAY_US/GB/DE/AU only; scope sell.inventory (already requested); 500 ids/call. New fetchTrendingAdRates() + recommendationApiSupported() in ebay-marketing.ts, wired into GET /listings/:id/promotion which now prefers eBay's rate and falls back to the category map (which MUST stay: EBAY_CA sellers, not-yet-live listings, and listings eBay has no suggestion for all still need a number). Reads ONLY basis==='TRENDING' explicitly rather than bidPercentages[0], so a future basis eBay adds can't silently become 'the suggestion'. Response carries suggested_rate_basis ('ebay_trending'|'category_heuristic') + the frontend type — without it the UI presents our guess as eBay's number, false authority a seller bids real money against. fetchTrendingAdRates swallows its own failures (empty map) so a suggestion outage degrades to the heuristic rather than breaking the promotion panel. Tests: the marketplace gate matches eBay's supported list; the heuristic still works as fallback. deno check/lint; edge 4016 passed 0 failed; web tsc+eslint+vitest 2128 passed. ALL THREE ACs (CPS rate / item_promotion routes+UI / OUT_OF_STOCK opt-in) now done.",
+      "relevantPaths": [
+        "services/edge-functions/src/lib/ebay-marketing.ts",
+        "services/edge-functions/src/lib/ebay-client.ts",
+        "services/edge-functions/src/routes/flipdesk-ebay.ts"
+      ]
+    },
+    {
+      "id": "US-1981",
+      "title": "Brand KB group: Luxury outerwear & down",
+      "description": "As a reseller, I want high-value down/outerwear brands grounded by serial + baffle/construction tells so premium coats list right and are never auto-authenticated.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Moncler, Canada Goose, Mackage, Herno, Woolrich, Bogner): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells (informational only — NEVER auto-authenticate) — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2490,
+      "passes": true,
+      "notes": "[BrandKB][Brand][Group] ~6 brands. Add size markers/decoders only where they exist. High-value luxury outerwear — authentication tells informational only, never auto-authenticate. Serial/QR/hologram tells vary by brand.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1982",
+      "title": "Brand KB group: Luxury RTW & leather (tier 2)",
+      "description": "As a reseller, I want additional luxury houses grounded by line + authentication tells so high-value RTW and leather goods list right and are never auto-authenticated.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Hermès, Dior, Saint Laurent (YSL), Balenciaga, Bottega Veneta, Fendi, Versace, Céline): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells (informational only — NEVER auto-authenticate) — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2489,
+      "passes": true,
+      "notes": "[BrandKB][Brand][Group] ~8 brands. Add size markers/decoders only where they exist. Luxury houses — authentication tells informational only, never auto-authenticate. Versace has a shallow seed row (00389) — promote to full pack.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1983",
+      "title": "Brand KB group: New-gen streetwear & hype",
+      "description": "As a reseller, I want current-generation hype brands grounded by season/collab tells so drops list right and fakes are flagged.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Off-White, Chrome Hearts, Aimé Leon Dore, Gallery Dept, Denim Tears, Rhude, Sp5der, Hellstar, Anti Social Social Club): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells (informational only — NEVER auto-authenticate) — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2488,
+      "passes": true,
+      "notes": "[BrandKB][Brand][Group] ~9 brands. Add size markers/decoders only where they exist. Heavily counterfeited — authentication tells informational only, never auto-authenticate. Collab/season tells are the key signal.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1984",
+      "title": "Brand KB group: Premium denim (tier 2)",
+      "description": "As a reseller, I want additional premium denim brands grounded by fit + tag era so denim value tiers are right.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Diesel, G-Star, Paige, FRAME, MOTHER, Rag & Bone, Hudson, Joe’s Jeans): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2487,
+      "passes": true,
+      "notes": "[BrandKB][Brand][Group] ~8 brands. Add size markers/decoders only where they exist. Complements US-1735 (premium/vintage denim). Fit names + tag era are the key signal.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1985",
+      "title": "Brand KB group: Activewear (tier 2)",
+      "description": "As a reseller, I want high-volume activewear brands promoted to full packs so athleisure and athletic staples list reliably.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Champion, Fila, Puma, Reebok, ASICS, On Running, HOKA, Outdoor Voices, Girlfriend Collective): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2486,
+      "passes": true,
+      "notes": "[BrandKB][Brand][Group] ~9 brands. Add size markers/decoders only where they exist. Champion, Fila, Puma, Reebok, ASICS have shallow seed rows (00389) — promote to full packs. Several are apparel + footwear.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1986",
+      "title": "Brand KB group: Fast-fashion & mall (tier 2)",
+      "description": "As a reseller, I want high-volume fast-fashion and mall brands grounded so staples list quickly and correctly.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Zara, H&M, Urban Outfitters, Express, LOFT, Ann Taylor, Talbots, Lucky Brand, Brandy Melville, PacSun): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2485,
+      "passes": true,
+      "notes": "[BrandKB][Brand][Group] ~10 brands. Add size markers/decoders only where they exist. Complements US-1739 (basics/mall). High submission volume; size-system variance (EU vs US) matters for Zara/H&M.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1987",
+      "title": "Brand KB group: Preppy & contemporary men's",
+      "description": "As a reseller, I want preppy and contemporary men’s brands grounded by fit + line so shirts, chinos and knits list right.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Vineyard Vines, Brooks Brothers, Bonobos, Faherty, Peter Millar, Todd Snyder, Buck Mason, UNTUCKit, Johnnie-O): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2484,
+      "passes": true,
+      "notes": "[BrandKB][Brand][Group] ~9 brands. Add size markers/decoders only where they exist. Fit names (Bonobos, UNTUCKit) and line tiers are the key signal.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1988",
+      "title": "Brand KB group: Handbags & accessories",
+      "description": "As a reseller, I want handbag and accessory brands grounded by line + code so bags, wallets and small leather goods list right.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Longchamp, Marc Jacobs, Rebecca Minkoff, Fossil, Vera Bradley, Dooney & Bourke, Brahmin, Tumi, Herschel): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2483,
+      "passes": true,
+      "notes": "[BrandKB][Brand][Group] ~9 brands. Add size markers/decoders only where they exist. Accessory-first brands; authentication tells informational. Serial/date codes where they exist (Dooney & Bourke, Tumi).",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1989",
+      "title": "Brand KB group: Heritage & workwear",
+      "description": "As a reseller, I want heritage and workwear brands grounded by model + tag era so rugged staples and vintage list right.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Dickies, Filson, Red Wing, Timberland, Duluth Trading, Pendleton, Barbour, Orvis): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2482,
+      "passes": true,
+      "notes": "[BrandKB][Brand][Group] ~8 brands. Add size markers/decoders only where they exist. Dickies and Pendleton have shallow seed rows (00389) — promote to full packs. Tag era drives vintage value.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1990",
+      "title": "Brand KB group: Footwear (tier 2)",
+      "description": "As a reseller, I want additional footwear brands grounded by style code + size system so shoes and boots list right.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Clarks, Merrell, Keen, Sorel, Brooks, Saucony, Steve Madden, Sam Edelman, Allen Edmonds, Crocs): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2481,
+      "passes": true,
+      "notes": "[BrandKB][Brand][Group] ~10 brands. Add size markers/decoders only where they exist. Complements US-1740 (footwear). Style code + US/UK/EU size system are the key signal.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1991",
+      "title": "Brand KB group: Intimates, loungewear & shapewear",
+      "description": "As a reseller, I want intimates, loungewear and shapewear brands grounded by fit + size system so this high-volume category lists right.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Skims, Spanx, Victoria’s Secret, PINK, Aerie, Savage X Fenty, Calvin Klein, Tommy John): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2480,
+      "passes": true,
+      "notes": "[BrandKB][Brand][Group] ~8 brands. Add size markers/decoders only where they exist. Calvin Klein has a shallow seed row (00389) — promote to full pack. Bra/shapewear sizing systems matter.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1992",
+      "title": "Brand KB group: Outdoor & technical (tier 2)",
+      "description": "As a reseller, I want additional outdoor/technical brands grounded by model + fabric tech so jackets, fleece and packs list precisely.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Fjällräven, Salomon, Cotopaxi, Kühl, Helly Hansen, Mammut, Rab, Outdoor Research): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2479,
+      "passes": true,
+      "notes": "[BrandKB][Brand][Group] ~8 brands. Add size markers/decoders only where they exist. Complements US-1734 (outdoor/technical). Model + fabric tech (e.g. G-1000, GORE-TEX) are the key signal.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
+    },
+    {
+      "id": "US-1993",
+      "title": "Brand KB group: Kids & baby",
+      "description": "As a reseller, I want kids and baby brands grounded by size system (age/months) so children’s apparel lists right.",
+      "acceptanceCriteria": [
+        "Seed a brand_knowledge row per brand in this group (Carter’s, Hanna Andersson, Mini Boden, Janie and Jack, The Children’s Place, Gymboree): aliases, category focus, RN/CA where known, tag/label era tells, authentication tells — each fact sourced + confidence-scored.",
+        "Seed brand_styles for each brand's top ~3-5 resale styles with a disambiguating visual fingerprint, fabric tech, era, MSRP band and keywords; add a brand_style_codes decoder spec ONLY where the brand encodes a regular style/size code.",
+        "Seed brand_size_charts for each brand across its common categories (inches), and brand_colorways where the brand uses proprietary named colors.",
+        "Verify each brand against golden fixtures (incl. a cut-tag case where relevant): the resolver recovers brand+style+size better than the pre-KB baseline with no cross-brand regression.",
+        "All seed facts land in the admin verify queue (US-1715) and are marked verified before the story passes; deno test + web build green."
+      ],
+      "priority": 2478,
+      "passes": true,
+      "notes": "[BrandKB][Brand][Group] ~6 brands. Add size markers/decoders only where they exist. Age/month + height size systems are the key signal; measurements in inches where charts exist.",
+      "dependsOn": [
+        "US-1715",
+        "US-1716"
+      ]
     }
   ]
 }
