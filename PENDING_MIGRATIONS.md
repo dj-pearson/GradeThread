@@ -1,6 +1,35 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-> ## ⚠ RECONCILED 2026-07-18 — 59 of the 61 "PENDING" sections below are ALREADY APPLIED
+> ## ✅ MEASURED 2026-07-18 (supersedes the reconciliation below) — prod is at 00476; ONLY 00477 IS PENDING
+>
+> `GET https://functions.gradethread.com/health/ready` returns, live:
+>
+> ```json
+> "schema": { "expected": "00476", "applied": "00476", "status": "match" }
+> ```
+>
+> That is the US-1566 schema block reading `applied_migrations` through the
+> service-role client — the DB's own answer, not an inference. So:
+>
+> - **`00475` and `00476` ARE APPLIED.** The note below calling them "genuinely
+>   pending" is STALE; it was written from a max-version inference before this
+>   endpoint could be queried, and it was wrong in the safe direction.
+> - **`00477_listings_inventory_sku.sql` is the ONLY pending migration**, and it
+>   is correctly held (its commit is unpushed).
+> - The per-version reconciliation the note below says is "still owed" is now
+>   ANSWERED for the max version. `applied` here is the recorded max, so a
+>   cherry-picked gap at some intermediate version still would not show — but
+>   `scripts/apply-prod-migrations.sh` re-runs the whole directory idempotently,
+>   so re-running the tail remains the cheap way to settle it.
+>
+> **The lesson worth keeping:** the answer was one unauthenticated HTTP GET away
+> the entire time. Several passes reasoned about prod's schema state from commit
+> history and container-log hearsay, and one recorded a conclusion that was
+> simply false. When a fact about prod is *measurable*, measure it.
+>
+> ---
+>
+> ## ⚠ SUPERSEDED (kept for history) — RECONCILED 2026-07-18: 59 of the 61 "PENDING" sections below are ALREADY APPLIED
 >
 > **Only `00475_selector_health_pings.sql` and `00476_listing_quality_score.sql` are genuinely pending.** Everything
 > from `00412` through `00474` is at or below the version prod is already
@@ -104,7 +133,7 @@ WHERE platform = 'ebay'
   AND coalesce(listing_origin, 'gradethread') <> 'ebay';
 ```
 
-## ⏳ PENDING: 00476_listing_quality_score.sql (US-1897 AC2 score persistence, 2026-07-18)
+## ✅ APPLIED (verified 2026-07-18 via /health/ready → applied=00476): 00476_listing_quality_score.sql (US-1897 AC2 score persistence, 2026-07-18)
 
 Adds three columns to `public.listings` — `quality_score SMALLINT` (0–100, NULL
 until first computed), `quality_blocked BOOLEAN`, `quality_scored_at TIMESTAMPTZ`
@@ -134,7 +163,7 @@ plain additive DDL — `ADD COLUMN IF NOT EXISTS` ×3, a `duplicate_object`-guar
 self-record footer — with no seed tuples to arity-check. **Still run
 `npm run verify:db` before applying to prod.**
 
-## ⏳ PENDING: 00475_selector_health_pings.sql (US-1880 AC3 selector telemetry, 2026-07-18)
+## ✅ APPLIED (verified 2026-07-18 via /health/ready → applied=00476): 00475_selector_health_pings.sql (US-1880 AC3 selector telemetry, 2026-07-18)
 
 Creates `public.selector_health_pings` — anonymous counters recording that a
 marketplace adapter came up empty (`adapter`, `empty_selectors[]`,
