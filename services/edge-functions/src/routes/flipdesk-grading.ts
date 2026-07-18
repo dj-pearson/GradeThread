@@ -416,6 +416,66 @@ flipdeskGradingRoutes.post("/submit", async (c) => {
   const results: SubmitResult[] = [];
   let successfullySubmitted = 0;
 
+  // US-2024: batch-load everything the loop needs, ONCE.
+  //
+  // This loop previously re-queried inventory_items and item_photos PER ITEM —
+  // a straight N+1, and a regression against buildValidation() in this same
+  // file, which already loads photo coverage for the whole batch in one
+  // `.in(itemIds)` (see "Photo coverage — one query covering all items" above).
+  // At the schema cap of 200 items that was ~400 avoidable sequential round
+  // trips on top of the writes, and the loop CHARGES CREDITS partway through:
+  // every second spent on avoidable I/O widens the window in which an edge
+  // timeout leaves a partially-charged batch that the catch-block compensation
+  // cannot cover (it handles a THROWN error; a killed isolate throws nothing).
+  // Shrinking the window is not the whole fix for that, but it is the half that
+  // is safe to do here.
+  const batchItemIds = validation.result.items.map((i) => i.inventory_item_id);
+  const [batchItemsRes, batchPhotosRes] = await Promise.all([
+    supabaseAdmin
+      .from("inventory_items")
+      .select("id, user_id, title, brand, description, garment_type, garment_category")
+      .in("id", batchItemIds)
+      // US-268: scope by owner here too. The per-item ownership assertion below
+      // is kept as defence in depth, but filtering server-side means a foreign
+      // id simply never enters the map.
+      .eq("user_id", ownerId),
+    supabaseAdmin
+      .from("item_photos")
+      .select("inventory_item_id, photo_type, storage_path, sort_order")
+      .in("inventory_item_id", batchItemIds)
+      .not("storage_path", "is", null)
+      .order("sort_order", { ascending: true }),
+  ]);
+
+  type BatchItem = {
+    id: string;
+    user_id: string;
+    title: string | null;
+    brand: string | null;
+    description: string | null;
+    garment_type: string;
+    garment_category: string;
+  };
+  const itemById = new Map<string, BatchItem>();
+  for (const row of (batchItemsRes.data ?? []) as BatchItem[]) {
+    itemById.set(row.id, row);
+  }
+  type BatchPhoto = {
+    inventory_item_id: string;
+    photo_type: string | null;
+    storage_path: string | null;
+    sort_order: number | null;
+  };
+  const photosByItem = new Map<string, BatchPhoto[]>();
+  // The query is ordered by sort_order, and pushing in iteration order
+  // preserves that per item — the loop below relies on it (detail_1/2/3 must
+  // land in a sensible order in the submission).
+  for (const row of (batchPhotosRes.data ?? []) as BatchPhoto[]) {
+    const arr = photosByItem.get(row.inventory_item_id) ?? [];
+    arr.push(row);
+    photosByItem.set(row.inventory_item_id, arr);
+  }
+
   for (const item of validation.result.items) {
     const tier = item.tier;
     const cost = item.cost;
@@ -424,28 +484,13 @@ flipdeskGradingRoutes.post("/submit", async (c) => {
     let submissionId = "";
     let charged = false;
     try {
-      // Re-load full item row so we have brand/description for the
-      // submission insert. buildValidation only selected the fields it
-      // needed for readiness checks.
-      const { data: itemRow, error: itemErr } = await supabaseAdmin
-        .from("inventory_items")
-        .select(
-          "id, user_id, title, brand, description, garment_type, garment_category",
-        )
-        .eq("id", item.inventory_item_id)
-        .maybeSingle();
-      if (itemErr || !itemRow) {
+      // US-2024: from the batch map (was a per-item query). buildValidation
+      // only selected readiness fields, so the full row is still needed for
+      // brand/description on the submission insert.
+      const it = itemById.get(item.inventory_item_id);
+      if (!it) {
         throw new Error("Item lookup failed");
       }
-      const it = itemRow as {
-        id: string;
-        user_id: string;
-        title: string | null;
-        brand: string | null;
-        description: string | null;
-        garment_type: string;
-        garment_category: string;
-      };
       if (it.user_id !== ownerId) throw new Error("Item ownership mismatch");
 
       // 1. Create submissions row (keyed on workspace owner so all members see it).
@@ -490,12 +535,9 @@ flipdeskGradingRoutes.post("/submit", async (c) => {
 
       // 2. Load item photos eligible for grading (sort_order ascending so
       //    detail_1/2/3 land in a sensible order in the submission too).
-      const { data: photos } = await supabaseAdmin
-        .from("item_photos")
-        .select("photo_type, storage_path, sort_order")
-        .eq("inventory_item_id", it.id)
-        .not("storage_path", "is", null)
-        .order("sort_order", { ascending: true });
+      // US-2024: from the batch map (was a per-item query), already filtered to
+      // non-null storage_path and ordered by sort_order.
+      const photos = photosByItem.get(it.id) ?? [];
 
       const eligible = ((photos ?? []) as Array<{
         photo_type: string;

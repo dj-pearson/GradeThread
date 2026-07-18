@@ -190,29 +190,42 @@ export function AdminUserDetailPage() {
     queryFn: async () => {
       if (!id) throw new Error("Missing user ID");
 
-      const [userRes, subsRes, reportsRes] = await Promise.all([
+      const [userRes, subsRes] = await Promise.all([
         supabase.from("users").select("*").eq("id", id).single(),
         supabase
           .from("submissions")
           .select("*")
           .eq("user_id", id)
           .order("created_at", { ascending: false }),
-        supabase.from("grade_reports").select("*"),
       ]);
 
       if (userRes.error) throw userRes.error;
       if (subsRes.error) throw subsRes.error;
-      if (reportsRes.error) throw reportsRes.error;
 
       const user = userRes.data as UserRow;
       const submissions = (subsRes.data ?? []) as SubmissionRow[];
-      const allReports = (reportsRes.data ?? []) as GradeReportRow[];
 
-      // Filter reports for this user's submissions
-      const submissionIds = new Set(submissions.map((s) => s.id));
-      const gradeReports = allReports.filter((r) =>
-        submissionIds.has(r.submission_id)
-      );
+      // US-2025: fetch ONLY this user's reports.
+      //
+      // This used to be `grade_reports.select("*")` — the ENTIRE
+      // platform-wide, append-only table — pulled into the browser and then
+      // filtered client-side down to one user's rows. On a single-user detail
+      // page, sitting right beside two properly .eq()-scoped queries. At 100k
+      // graded submissions it transfers hundreds of MB to render one page, and
+      // it does not degrade: it works, then abruptly OOMs.
+      //
+      // Costs one extra round trip (the ids come from the query above) — the
+      // right trade against downloading the whole table.
+      const submissionIds = submissions.map((sub) => sub.id);
+      let gradeReports: GradeReportRow[] = [];
+      if (submissionIds.length > 0) {
+        const reportsRes = await supabase
+          .from("grade_reports")
+          .select("*")
+          .in("submission_id", submissionIds);
+        if (reportsRes.error) throw reportsRes.error;
+        gradeReports = (reportsRes.data ?? []) as GradeReportRow[];
+      }
 
       return { user, submissions, gradeReports } as UserDetailData;
     },
