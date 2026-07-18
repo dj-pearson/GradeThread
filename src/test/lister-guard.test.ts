@@ -109,15 +109,15 @@ describe("isLiveListingUrl (US-1877 AC1)", () => {
   const SEL = {
     poshmark: {
       hosts: ["poshmark.com"],
-      liveListingUrlPattern: "^https://[^/]*poshmark\.(com|ca)/listing/[^/]+",
+      liveListingUrlPattern: "^https://[^/]*poshmark\\.(com|ca)/listing/[^/]+",
     },
     mercari: {
       hosts: ["mercari.com"],
-      liveListingUrlPattern: "^https://[^/]*mercari\.com/(us/)?item/[^/]+",
+      liveListingUrlPattern: "^https://[^/]*mercari\\.com/(us/)?item/[^/]+",
     },
     grailed: {
       hosts: ["grailed.com"],
-      liveListingUrlPattern: "^https://[^/]*grailed\.com/listings/[^/]+",
+      liveListingUrlPattern: "^https://[^/]*grailed\\.com/listings/[^/]+",
     },
   };
 

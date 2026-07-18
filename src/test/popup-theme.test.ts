@@ -62,10 +62,18 @@ function luminance(css: string): number {
   return 0.2126 * lin(m[1]) + 0.7152 * lin(m[2]) + 0.0722 * lin(m[3]);
 }
 
+// Match a rule whose selector LIST contains `selector`, not one whose whole
+// selectorText equals it. Grouping is ordinary CSS — when US-1885 added the
+// pending-delists card it correctly reused the last-job card's theming as
+// `.pop-lastjob, .pop-delists { … }`, and an exact-equality lookup read that as
+// "no dark override for .pop-lastjob" and failed. The rule was right; the
+// assertion was too literal about how it was written.
 function darkStyle(selector: string): CSSStyleDeclaration {
-  const rule = Array.from(darkRule.cssRules).find(
-    (r) => (r as CSSStyleRule).selectorText === selector,
-  ) as CSSStyleRule | undefined;
+  const rule = Array.from(darkRule.cssRules).find((r) => {
+    const text = (r as CSSStyleRule).selectorText;
+    if (!text) return false;
+    return text.split(",").some((s) => s.trim() === selector);
+  }) as CSSStyleRule | undefined;
   expect(rule, `expected a dark override for ${selector}`).toBeDefined();
   return rule!.style;
 }
