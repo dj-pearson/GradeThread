@@ -46,6 +46,11 @@ import {
 import { toast } from "sonner";
 import { useBulkPublish } from "@/hooks/use-autolister";
 import { useBulkAspectCoverage, useEbayConnection } from "@/hooks/use-ebay";
+import {
+  QualityScoreChip,
+  type QualityScoreSummary,
+} from "@/components/flipdesk/quality-score-chip";
+import { qualityRankOf, scoreMapFromRows } from "@/pages/flipdesk/draft-quality";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { cn } from "@/lib/utils";
@@ -83,7 +88,8 @@ type SortKey =
   | "price_desc"
   | "price_asc"
   | "title_asc"
-  | "coverage_asc";
+  | "coverage_asc"
+  | "quality_asc";
 
 function fmtRelative(iso: string): string {
   const t = new Date(iso).getTime();
@@ -154,6 +160,39 @@ export function FlipdeskAutolisterDraftsPage() {
   // US-1895: recommended-aspect coverage per draft, so a bulk session can sort
   // + fix low-coverage drafts before publishing (one de-duped edge call).
   const { data: coverageByItem = {} } = useBulkAspectCoverage(itemIds);
+
+  // US-1897: the persisted Listing Quality Score per draft.
+  //
+  // Fetched SEPARATELY and FAIL-SOFT on purpose. quality_score lands in
+  // migration 00476, which is held — adding it to the drafts query above would
+  // make that query 42703 and take the WHOLE PAGE down the moment the frontend
+  // deploys ahead of the SQL (the hazard CLAUDE.md's held-migration rule calls
+  // out). Here a missing column just means no chips: every draft reads as
+  // "not scored", which is exactly what it is.
+  const listingIds = useMemo(() => drafts.map((d) => d.id), [drafts]);
+  const { data: scoreByListing = {} } = useQuery({
+    queryKey: ["draft-quality-scores", listingIds],
+    enabled: listingIds.length > 0,
+    staleTime: 30_000,
+    queryFn: async (): Promise<Record<string, QualityScoreSummary>> => {
+      const { data, error } = await supabase
+        .from("listings")
+        .select("id, quality_score, quality_blocked")
+        .in("id", listingIds);
+      // A missing column (00476 not applied yet) lands here as an error; an
+      // empty map means "nothing scored", which is the honest answer.
+      if (error) return {};
+      return scoreMapFromRows(
+        (data ?? []) as Array<{
+          id: string;
+          quality_score: number | null;
+          quality_blocked: boolean | null;
+        }>,
+      );
+    },
+  });
+  // See draft-quality.ts for why unscored sinks to the end.
+  const qualityRank = (listingId: string): number => qualityRankOf(scoreByListing[listingId]);
   // Ratio (0..1) for sorting; unknown/no-recommended coverage sinks to the end.
   const coverageRatio = (itemId: string): number => {
     const c = coverageByItem[itemId];
@@ -214,13 +253,15 @@ export function FlipdeskAutolisterDraftsPage() {
             coverageRatio(a.inventory_item_id) -
             coverageRatio(b.inventory_item_id)
           );
+        case "quality_asc":
+          return qualityRank(a.id) - qualityRank(b.id);
         case "created_desc":
         default:
           return b.created_at.localeCompare(a.created_at);
       }
     });
     return rows;
-  }, [filtered, sortKey, titles, coverageByItem]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [filtered, sortKey, titles, coverageByItem, scoreByListing]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // US-548: a draft is "ready" to publish when it isn't flagged for review,
   // carries a real price + category, and isn't already on a schedule. Bulk
@@ -504,6 +545,7 @@ export function FlipdeskAutolisterDraftsPage() {
                   <SelectItem value="price_asc">Price: low → high</SelectItem>
                   <SelectItem value="title_asc">Title: A → Z</SelectItem>
                   <SelectItem value="coverage_asc">Coverage: low first</SelectItem>
+                  <SelectItem value="quality_asc">Quality: low first</SelectItem>
                 </SelectContent>
               </Select>
               {/* US-549: publish the keyboard-selected subset. */}
@@ -634,7 +676,13 @@ export function FlipdeskAutolisterDraftsPage() {
                         />
                       </TableCell>
                       <TableCell className="max-w-xs font-medium">
-                        <span className="block truncate">{titleFor(d)}</span>
+                        <span className="flex items-center gap-1.5">
+                          <span className="min-w-0 truncate">{titleFor(d)}</span>
+                          {/* US-1897 AC2: the quality score, so a bulk session
+                              can see at a glance which drafts are weak — and
+                              which cannot be listed at all. */}
+                          <QualityScoreChip score={scoreByListing[d.id]} />
+                        </span>
                         {/* US-1892: flag weak titles (<60 chars or a lint
                             finding) so a bulk session catches them pre-publish. */}
                         {titleQuality({ title: titleFor(d) }).weak && (

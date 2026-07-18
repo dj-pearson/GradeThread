@@ -66,11 +66,21 @@ const STATUS_DOT: Record<QualityComponentStatus, string> = {
   unknown: "bg-muted-foreground/40",
 };
 
+/**
+ * The chip needs only what is PERSISTED on the listing row (00476): the
+ * sortable scalar and the blocked flag. The breakdown is recomputed on demand
+ * and arrives with the full object, so a list surface can render chips from a
+ * cheap column read without pulling a preflight per row.
+ */
+export type QualityScoreSummary = Pick<ListingQualityScore, "score" | "blocked"> & {
+  blockingReasons?: string[];
+};
+
 export function QualityScoreChip({
   score,
   className,
 }: {
-  score: ListingQualityScore | null | undefined;
+  score: QualityScoreSummary | null | undefined;
   className?: string;
 }) {
   // Never scored is not zero. A listing that has not been through preflight
@@ -100,7 +110,7 @@ export function QualityScoreChip({
       )}
       title={
         score.blocked
-          ? `Can't be listed: ${score.blockingReasons[0] ?? "a publish blocker must be fixed"}`
+          ? `Can't be listed: ${score.blockingReasons?.[0] ?? "a publish blocker must be fixed"}`
           : `Listing quality ${score.score}/100`
       }
     >
