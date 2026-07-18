@@ -1,8 +1,8 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-> ## ⚠ RECONCILED 2026-07-18 — 59 of the 60 "PENDING" sections below are ALREADY APPLIED
+> ## ⚠ RECONCILED 2026-07-18 — 59 of the 61 "PENDING" sections below are ALREADY APPLIED
 >
-> **Only `00475_selector_health_pings.sql` is genuinely pending.** Everything
+> **Only `00475_selector_health_pings.sql` and `00476_listing_quality_score.sql` are genuinely pending.** Everything
 > from `00412` through `00474` is at or below the version prod is already
 > running. Read the sections below as HISTORY (the same treatment the old
 > 00435–00442 note gave them), not as a 59-migration apply backlog.
@@ -41,7 +41,7 @@
 >
 > ```sh
 > curl -s https://functions.gradethread.com/health/ready | jq .schema
-> # → { "expected": "00475", "applied": "00474", "status": "behind" }  ⇒ apply 00475
+> # → { "expected": "00476", "applied": "00474", "status": "behind" }  ⇒ apply 00475 then 00476
 > # → status "match"   ⇒ nothing pending
 > # → status "unknown" ⇒ the version RPC is unreadable; do NOT infer "applied"
 > ```
@@ -49,6 +49,36 @@
 > (That `schema` block was added in the same pass that wrote this note —
 > previously the applied version was visible only in container logs, which is how
 > this file drifted 59 sections out of date without anyone noticing.)
+
+## ⏳ PENDING: 00476_listing_quality_score.sql (US-1897 AC2 score persistence, 2026-07-18)
+
+Adds three columns to `public.listings` — `quality_score SMALLINT` (0–100, NULL
+until first computed), `quality_blocked BOOLEAN`, `quality_scored_at TIMESTAMPTZ`
+— plus a 0–100 CHECK constraint and a partial index
+`(inventory_item_id, quality_score) WHERE quality_score IS NOT NULL` for the
+drafts/pipeline sort.
+
+**Risk: LOW.** Additive columns on an existing table, all nullable, no backfill,
+no default — every existing row keeps `NULL` (which reads as "never scored", and
+is deliberately distinct from a score of 0). Nothing reads the columns yet: the
+drafts-list sorting UI is not built, so this only starts populating.
+
+**Client-side read? NO.** The frontend does not query these columns in this
+change, so a Pages auto-deploy on push is safe (unlike 00463). The edge writes
+them from `POST /api/flipdesk/listings/validate`, and that write is
+**best-effort and swallowed** — if the edge deploys before the SQL lands, the
+update fails, the error is logged, and preflight still returns the score
+normally. Preflight is what tells a seller whether they can publish; it must not
+break over a sort key.
+
+**Apply after 00475**, then `NOTIFY pgrst, 'reload schema';` and confirm the edge
+`EXPECTED_SCHEMA_VERSION` is bumped to **00476** (done in this change).
+
+⚠ `verify:db` did NOT run (Docker unavailable on the authoring host). The SQL is
+plain additive DDL — `ADD COLUMN IF NOT EXISTS` ×3, a `duplicate_object`-guarded
+`ADD CONSTRAINT`, `CREATE INDEX IF NOT EXISTS`, two `COMMENT`s and the
+self-record footer — with no seed tuples to arity-check. **Still run
+`npm run verify:db` before applying to prod.**
 
 ## ⏳ PENDING: 00475_selector_health_pings.sql (US-1880 AC3 selector telemetry, 2026-07-18)
 

@@ -6258,11 +6258,51 @@ flipdeskEbayRoutes.post("/listings/validate", async (c) => {
     // US-1895: recommended-aspect coverage (N/M + ranked missing) for the meter.
     recommendedCoverage: result.recommendedCoverage,
     // US-1897 (AC2): the 0-100 Listing Quality Score + component breakdown,
-    // each component naming the surface that fixes it.
-    qualityScore: await buildQualityScore(userId, result),
+    // each component naming the surface that fixes it. Persisted as a
+    // side-effect so the drafts list and pipeline board can sort by it.
+    qualityScore: await scoreAndPersist(userId, result),
     summary: result.summary,
   });
 });
+
+// US-1897 (AC2): compute the score and persist the sortable scalar.
+//
+// The write is BEST-EFFORT and deliberately awaited-but-swallowed: preflight is
+// what tells a seller whether they can publish, and it must not start failing
+// because a score column is missing (this ships with migration 00476, and the
+// edge can briefly run ahead of it) or because the row was deleted mid-request.
+// A missing score costs a sort key; a thrown preflight costs the publish.
+//
+// Only the scalar is stored. The breakdown is recomputed every call so it can
+// never drift from the live weights — see 00476.
+async function scoreAndPersist(
+  ownerId: string,
+  ctx: PublishContextOk,
+): Promise<ListingQualityScore> {
+  const score = await buildQualityScore(ownerId, ctx);
+  // A draft that has never been listed has no listings row yet; there is
+  // nothing to sort, so nothing to store.
+  if (!ctx.listing?.id) return score;
+  try {
+    // Tenant-safe without an extra filter: ctx.listing came from
+    // assemblePublishContext, which loaded it scoped to this owner. The id is
+    // ours by construction, never from the request body (US-268).
+    await supabaseAdmin
+      .from("listings")
+      .update({
+        quality_score: score.score,
+        quality_blocked: score.blocked,
+        quality_scored_at: new Date().toISOString(),
+      })
+      .eq("id", ctx.listing.id);
+  } catch (err) {
+    console.error(
+      "US-1897 quality score persist (non-fatal):",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+  return score;
+}
 
 // US-1897: assemble the quality score from the preflight's structured signals.
 //
