@@ -150,6 +150,11 @@ const WhatsItWorthPage = lazy(() => import("@/pages/marketing/whats-it-worth").t
 const BuyerGuaranteePage = lazy(() => import("@/pages/marketing/buyer-guarantee").then(m => ({ default: m.BuyerGuaranteePage })));
 const AboutPage = lazy(() => import("@/pages/marketing/about").then(m => ({ default: m.AboutPage })));
 const BuyerGuaranteeClaimPage = lazy(() => import("@/pages/buyer-guarantee-claim").then(m => ({ default: m.BuyerGuaranteeClaimPage })));
+// US-2073: the buyer DASHBOARD coverage view. Deliberately named
+// BuyerCoveragePage, not BuyerGuaranteePage — that name is already taken by the
+// public marketing/policy page at /buyer-guarantee, and conflating the two is
+// how someone links a paying subscriber to the sales page.
+const BuyerCoveragePage = lazy(() => import("@/pages/buyer/guarantee").then(m => ({ default: m.BuyerCoveragePage })));
 // US-855: cornerstone pillar pages
 const ReduceReturnsPage = lazy(() => import("@/pages/marketing/reduce-returns").then(m => ({ default: m.ReduceReturnsPage })));
 const ResellerGradingGuidePage = lazy(() => import("@/pages/marketing/reseller-grading-guide").then(m => ({ default: m.ResellerGradingGuidePage })));
@@ -629,7 +634,9 @@ export const router = createBrowserRouter([
                   { path: "/buyer/alerts", element: <SuspenseWrapper><BuyerAlertsPage /></SuspenseWrapper> },
                   { path: "/buyer/rewards", element: <SuspenseWrapper><BuyerRewardsPage /></SuspenseWrapper> },
                   { path: "/buyer/portfolio", element: <SuspenseWrapper><BuyerPortfolioPage /></SuspenseWrapper> },
-                  { path: "/buyer/guarantee", element: <SuspenseWrapper><BuyerPlaceholderPage title="Purchase Guarantee" requiresFlag="purchaseGuarantee" description="Insured grade-locked coverage on eligible purchases." action={{ to: "/buyer-guarantee/claim", label: "File a guarantee claim" }} /></SuspenseWrapper> },
+                  // US-2073: real coverage surface, replacing the placeholder that told a PAYING
+                  // subscriber the feature they bought was "coming soon".
+                  { path: "/buyer/guarantee", element: <SuspenseWrapper><BuyerCoveragePage /></SuspenseWrapper> },
                   { path: "/buyer/demand", element: <SuspenseWrapper><BuyerDemandPage /></SuspenseWrapper> },
                   { path: "/buyer/billing", element: <SuspenseWrapper><BuyerBillingPage /></SuspenseWrapper> },
                   { path: "/buyer/settings", element: <SuspenseWrapper><BuyerSettingsPage /></SuspenseWrapper> },

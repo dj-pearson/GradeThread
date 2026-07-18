@@ -26,8 +26,11 @@ overlap is the problem this folder exists to fix.
 | Claude memory | ~50 files | Injected on recall | No drift guard at all |
 | `vault/` | new | On navigation | — |
 
-`.agents/skills/` is a 42-file byte-mirror of `.claude/skills/` and is not a real
-surface — it is a sync artifact, resolved in US-2050.
+`.agents/skills/` is not a fifth surface. It holds **only the two vendor skills**
+(`supabase`, `supabase-postgres-best-practices`) — 40 files, byte-identical to
+their `.claude/skills/` copies. The four first-party skills are *not* there, so
+this is a vendor-install artifact rather than a mirror of the skills tree.
+Verified 2026-07-18; resolved in US-2050.
 
 ## The intended division
 

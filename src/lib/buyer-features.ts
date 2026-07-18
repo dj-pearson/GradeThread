@@ -70,7 +70,12 @@ export const BUYER_FEATURES: Record<keyof BuyerGateFlags, BuyerFeatureMeta> = {
   // The only buyer surface still behind BuyerPlaceholderPage (/buyer/guarantee).
   purchaseGuarantee: {
     label: "Grade-locked purchase guarantee",
-    live: false,
+    // US-2073: now LIVE — /buyer/guarantee renders the real coverage surface
+    // (covered purchases with window + payout cap + trigger threshold, claim
+    // status, and WHY anything is excluded) instead of a placeholder. This flag
+    // drives the "Coming soon" badge on the public pricing page, so leaving it
+    // false would keep advertising a shipped feature as unshipped.
+    live: true,
     match: (b) => /guarantee|purchase protection/i.test(b),
   },
   wardrobePortfolio: {

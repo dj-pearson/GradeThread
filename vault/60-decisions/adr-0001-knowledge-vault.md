@@ -22,7 +22,9 @@ A survey of the repo on 2026-07-18 found **203 markdown files** outside
   pair on the same topic, with no marker for which is current.
 - `INCIDENT_RESPONSE.md`, `KEY_ROTATION.md` and `DATA_RETENTION.md` each exist in
   **both** the repo root and `docs/`, at different lengths.
-- `.agents/skills/` is a 42-file byte-mirror of `.claude/skills/`.
+- `.agents/skills/` duplicates the two **vendor** skills (`supabase`,
+  `supabase-postgres-best-practices`) byte-for-byte — 40 files also present under
+  `.claude/skills/`. It does *not* contain the four first-party skills.
 - Wikilinks in the `US-716` style were already in use in 7 files and **all of them
   dangle** — they point at story IDs with no backing note.
 - Roughly 830 lines of brand and garment taxonomy live in the headers of five

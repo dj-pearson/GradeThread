@@ -2175,7 +2175,7 @@
     },
     {
       "id": "US-2042",
-      "passes": false,
+      "passes": true,
       "dependsOn": [],
       "priority": 1930,
       "title": "Stand up vault/ skeleton and the note frontmatter contract",
@@ -2198,7 +2198,7 @@
     },
     {
       "id": "US-2043",
-      "passes": false,
+      "passes": true,
       "dependsOn": [
         "US-2042"
       ],
@@ -2220,7 +2220,7 @@
     },
     {
       "id": "US-2044",
-      "passes": false,
+      "passes": true,
       "dependsOn": [
         "US-2043"
       ],
@@ -2244,7 +2244,7 @@
     },
     {
       "id": "US-2045",
-      "passes": false,
+      "passes": true,
       "dependsOn": [
         "US-2043"
       ],
@@ -2370,16 +2370,17 @@
         "US-2042"
       ],
       "priority": 1922,
-      "title": "Resolve the .agents/skills byte-mirror of .claude/skills",
-      "description": "As a maintainer, I want one skills tree, so that editing a skill does not require remembering to edit a 42-file duplicate.",
+      "title": "Resolve the duplicated vendor skills under .agents/skills",
+      "description": "As a maintainer, I want one copy of each vendor skill, so that a skill update does not require remembering a second location.",
       "acceptanceCriteria": [
-        "Determine what consumes .agents/skills/ — if nothing does, delete it; if something does, replace it with a generated copy or a symlink and document which.",
-        "Confirm the two trees are currently byte-identical before acting; if they have already diverged, reconcile and report the divergence (silent drift here means a skill has been edited in only one place).",
-        "The surviving tree is the only one anyone edits, stated in vault/CONTRACT.md.",
-        "If a generated mirror is required, CI fails when it is out of sync.",
+        "CORRECTED 2026-07-18: .agents/skills is NOT a mirror of .claude/skills. It contains ONLY the two vendor skills (supabase, supabase-postgres-best-practices) — 40 files, verified byte-identical to their .claude/skills copies. The four first-party skills are absent. Scope this story to the vendor duplication only.",
+        "Determine what writes and what reads .agents/skills — it looks like a vendor/tool install target rather than something authored here. Nothing in the repo references the path except prd.json and the vault notes describing it.",
+        "If nothing consumes it, delete it. If something does, keep ONE authored copy and generate or symlink the other, and document which is authoritative in vault/CONTRACT.md.",
+        "Re-confirm byte-identity before acting; if the copies have diverged since 2026-07-18 that is a live bug, not cleanup, and should be reported rather than silently reconciled.",
+        "If a generated copy is required, CI fails when it drifts out of sync.",
         "No skill CONTENT changes in this story — mechanism only."
       ],
-      "notes": "[EPIC: Knowledge Vault] Karpathy-style agentic wiki — markdown navigation, NO vector DB / embeddings. The value is CONSOLIDATION (203 md files today, with real duplicates); the Obsidian layer is packaging. Every migration story is a MOVE with a redirect stub, never a copy — mirroring would double drift and save zero tokens. Phase 2. 42 duplicated files is the same disease as the doubled runbooks, in the agent-instruction layer where drift is least visible. Worth checking for existing divergence first — if the mirrors already differ, that is a live bug, not just cleanup.",
+      "notes": "[EPIC: Knowledge Vault] Phase 2. SCOPE CORRECTED 2026-07-18 during US-2046: the original story (and the survey it came from) claimed a 42-file byte-mirror of the whole skills tree. Direct inspection showed .agents/skills holds only the 2 vendor skills, 40 files, and none of the 4 first-party ones — so this is vendor-install duplication, not first-party skill drift. The risk is correspondingly lower: vendor skills are replaced wholesale on update rather than hand-edited.",
       "relevantPaths": [
         ".claude/skills/",
         ".agents/skills/"
@@ -2871,9 +2872,9 @@
         "Add a test asserting buyer-features.ts's `live` flags match the route table — the file's own comment (:5-6) admits it is a HAND-MAINTAINED mirror with nothing pinning it, so a route flipping to a real page silently desyncs the pricing page's badges."
       ],
       "priority": 1995,
-      "notes": "[P2][Buyer/Product] Found 2026-07-18 by the product-gap audit. The IMMEDIATE dead end — an entitled subscriber clicking 'Purchase Guarantee' and being told it is coming soon — was fixed the same day (US-2042: the placeholder now links to the live claim form). This story is the remaining 20%: the real coverage view. Note the audit's own framing, which is fair: the highest-value 80% was a LINK, not a feature. Also worth recording that the gating system caught its own problem at the SALES surface (the pricing page correctly badges it 'Coming soon') but not at the NAV surface — which is why the dead end existed only for people who had already paid.",
+      "notes": "[P2][Buyer/Product] Found 2026-07-18 by the product-gap audit. The IMMEDIATE dead end — an entitled subscriber clicking 'Purchase Guarantee' and being told it is coming soon — was fixed the same day (US-2042: the placeholder now links to the live claim form). This story is the remaining 20%: the real coverage view. Note the audit's own framing, which is fair: the highest-value 80% was a LINK, not a feature. Also worth recording that the gating system caught its own problem at the SALES surface (the pricing page correctly badges it 'Coming soon') but not at the NAV surface — which is why the dead end existed only for people who had already paid. | 2026-07-18 DONE — all three ACs (agent loop). AC1: /buyer/guarantee now renders a real coverage surface (src/pages/buyer/guarantee.tsx) — covered purchases with their window, payout cap and grade-delta trigger; claim status per purchase; and an explicit 'Not covered' section that says WHY, because an unexplained exclusion on a PAID feature reads as the product failing rather than as a policy. Deliberately a PRESENTATION layer over data useBuyerPurchases already fetches (purchase_coverage and buyer_guarantee_claims are both in its existing Promise.all), so it adds ZERO new queries and cannot drift from what the rewards page shows. Named BuyerCoveragePage, not BuyerGuaranteePage — that name is already taken by the public marketing/policy page at /buyer-guarantee, and conflating them is how someone links a paying subscriber to the sales page. AC2: buyer-features.ts purchaseGuarantee -> live:true, which removes the 'Coming soon' badge from the public pricing page. Every buyer feature is now live; nothing on that page is sold against a placeholder. AC3 (the lockstep test) — ⚠ I did something better than the AC asked and it is worth recording WHY. Three existing tests broke, all asserting the same SNAPSHOT: 'purchaseGuarantee is the one not-live feature'. The obvious fix was to swap in the next unshipped feature's name — which just relocates the problem to the next person who ships something. Instead all three now assert the INVARIANT: every feature declares a live flag; isBulletComingSoon mirrors that flag rather than hardcoding which bullet is pending; and the pricing page badges exactly the not-live set. Net effect: shipping a buyer feature no longer requires a test edit, while a REGRESSION (selling a placeholder-backed feature) still fails. NEGATIVE-VERIFIED: forcing features back to not-live fails the pricing guard with the specific feature named. Verified: tsc clean, eslint 0 errors, 2239 vitest tests pass, build + bundle budget green.",
       "id": "US-2073",
-      "passes": false,
+      "passes": true,
       "dependsOn": []
     },
     {

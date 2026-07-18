@@ -19,11 +19,23 @@ describe("buyer feature registry", () => {
     expect(registryKeys).toEqual(flagKeys);
   });
 
-  it("marks the purchase guarantee as the one not-live buyer surface", () => {
-    const notLive = (Object.keys(BUYER_FEATURES) as BuyerFeatureFlag[]).filter(
-      (f) => !BUYER_FEATURES[f].live,
-    );
-    expect(notLive).toEqual(["purchaseGuarantee"]);
+  it("every registry entry has an explicit live flag", () => {
+    // US-2073: this used to assert notLive === ["purchaseGuarantee"] — a
+    // SNAPSHOT of which feature happened to be unshipped. Shipping the
+    // guarantee coverage surface then failed the test for the right reason but
+    // the wrong shape, and the fix would have been to swap in the NEXT
+    // unshipped feature's name, which just relocates the problem.
+    //
+    // What actually needs protecting is that every feature declares its status
+    // (the "no unlabeled surface" invariant asserted above), not which
+    // particular one is pending. isBulletComingSoon's behaviour is covered
+    // below, including the all-off case.
+    for (const f of Object.keys(BUYER_FEATURES) as BuyerFeatureFlag[]) {
+      expect(
+        typeof BUYER_FEATURES[f].live,
+        `${f} must declare live:boolean so the pricing page can badge it`,
+      ).toBe("boolean");
+    }
   });
 });
 
@@ -47,9 +59,19 @@ describe("buyerFeatureForBullet", () => {
 });
 
 describe("isBulletComingSoon", () => {
-  it("flags the guarantee bullet, not a live one", () => {
-    expect(isBulletComingSoon("Standard grade-locked purchase guarantee")).toBe(true);
-    expect(isBulletComingSoon("25 condition alerts (hourly)")).toBe(false);
+  it("mirrors each feature's live flag, and ignores non-feature bullets", () => {
+    // US-2073: was hardcoded to "guarantee bullet => true". The guarantee is
+    // live now, so assert the RULE instead: a bullet is coming-soon exactly
+    // when the feature it maps to is not live.
+    const guaranteeBullet = "Standard grade-locked purchase guarantee";
+    expect(isBulletComingSoon(guaranteeBullet)).toBe(
+      !BUYER_FEATURES.purchaseGuarantee.live,
+    );
+    const alertsBullet = "25 condition alerts (hourly)";
+    expect(isBulletComingSoon(alertsBullet)).toBe(
+      !BUYER_FEATURES.conditionAlerts.live,
+    );
+    // A bullet that maps to no feature is never badged, whatever ships.
     expect(isBulletComingSoon("Everything in Guard")).toBe(false);
   });
 
