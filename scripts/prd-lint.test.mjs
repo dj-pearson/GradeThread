@@ -1,7 +1,7 @@
 // US-1612: vitest coverage for the prd.json linter (Node env — see
 // vitest.scripts.config.mjs). Fixtures are inline prd objects.
 import { describe, expect, it } from "vitest";
-import { accumulationReminder, findCycles, findUnresolvedDeferrals, lintPrd, parseIdNum } from "./prd-lint.mjs";
+import { accumulationReminder, findCycles, findStaleHeldMigrations, findUnresolvedDeferrals, lintPrd, parseIdNum } from "./prd-lint.mjs";
 
 const story = (over = {}) => ({ id: "US-1", title: "t", description: "d", acceptanceCriteria: ["a"], passes: false, ...over });
 const prd = (userStories, nextId = 10_000) => ({ nextId, userStories });
@@ -201,5 +201,73 @@ describe("findUnresolvedDeferrals", () => {
       story("US-Y", true, "[DEFERRED 2026-01-01] best done in a user-present session, work done by hand meanwhile"),
     ]);
     expect(hits.map((h) => h.id)).toEqual(["US-Y"]);
+  });
+});
+
+// A HELD claim on a migration that is already pushed. Held means unpushed, so
+// origin/main membership is proof the hold was released.
+describe("findStaleHeldMigrations", () => {
+  const story = (id, notes) => ({
+    id,
+    title: "t",
+    description: "d",
+    acceptanceCriteria: ["a"],
+    passes: false,
+    notes,
+  });
+
+  it("flags a HELD claim on a pushed migration", () => {
+    const hits = findStaleHeldMigrations(
+      [story("US-1421", "MIGRATION 00345 (HELD) adds a column")],
+      new Set(["00345"]),
+    );
+    expect(hits).toEqual([{ id: "US-1421", migrations: ["00345"] }]);
+  });
+
+  it("ignores a genuinely pending migration", () => {
+    // 00475/00476 are not on origin/main, so a hold on them is real.
+    expect(
+      findStaleHeldMigrations(
+        [story("US-1897", "HELD MIGRATION: 00476 is committed locally")],
+        new Set(["00345"]),
+      ),
+    ).toEqual([]);
+  });
+
+  it("is immune to its own correction text", () => {
+    // The correction explains the fix by NAMING the genuinely-pending pair.
+    // Keying on "pushed" rather than on version numbers means quoting them
+    // cannot re-trigger the warning — reading numbers out of notes did exactly
+    // that, reclassifying corrected stories as pending.
+    const corrected = story(
+      "US-1421",
+      "MIGRATION 00345 (HELD) | ⚠ STALE HELD-MIGRATION CLAIM — the genuinely pending ones are 00475 and 00476.",
+    );
+    expect(findStaleHeldMigrations([corrected], new Set(["00345"]))).toEqual([]);
+  });
+
+  it("matches five-digit ids", () => {
+    // An earlier hand-written sweep used 00[3-4][0-9]{3} — six digits — so it
+    // could never match 00345 and reported zero, which reads as clean.
+    expect(
+      findStaleHeldMigrations([story("US-X", "HELD 00345")], new Set(["00345"])).length,
+    ).toBe(1);
+  });
+
+  it("skips stories with no HELD marker at all", () => {
+    expect(findStaleHeldMigrations([story("US-Y", "migration 00345 shipped")], new Set(["00345"]))).toEqual([]);
+  });
+});
+
+// The CLI must actually execute. Its entry guard compared import.meta.url to
+// `file://` + a raw argv path, which is only accidentally correct on POSIX and
+// never matches on Windows — so `node scripts/prd-lint.mjs` exited 0 having run
+// nothing, on every Windows invocation including the verify:web lane.
+describe("prd-lint CLI entry", () => {
+  it("uses a URL-to-URL comparison, not string concatenation", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync("scripts/prd-lint.mjs", "utf8");
+    expect(src).not.toContain("`file://${process.argv[1]}`");
+    expect(src).toContain("pathToFileURL(process.argv[1]).href");
   });
 });

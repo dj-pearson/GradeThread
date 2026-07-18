@@ -13,7 +13,7 @@
 import { createReadStream, existsSync, readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 export const ACCUMULATION_THRESHOLD = 50;
 export const LEARNINGS_LINE_WARN = 800;
@@ -139,6 +139,53 @@ export function findUnresolvedDeferrals(stories) {
   return hits;
 }
 
+// US-1421/1849/1850: a story whose notes still say a migration is HELD, when
+// that migration is already on origin/main.
+//
+// The invariant is exact, which is what makes this checkable at all: the
+// standing rule says a commit containing a migration is NOT pushed until the
+// operator applies the SQL. So a migration present on origin/main was pushed,
+// which means its hold was released — and any note still calling it held is
+// stale. A stale hold is not cosmetic: it tells the next reader the branch is
+// frozen and invites a pointless prod session.
+//
+// Deliberately keyed on PUSHED rather than on a version number. That makes the
+// check immune to its own corrections — an annotation explaining the fix names
+// the genuinely-pending migrations, and those are by definition not on
+// origin/main, so quoting them cannot re-trigger the warning. Reading version
+// NUMBERS out of notes had exactly that failure, reclassifying corrected
+// stories as pending because the correction mentioned 00475/00476.
+const HELD_MARKER = /\bHELD\b|held migration|not pushed/i;
+// Five digits. An earlier hand-written sweep used 00[3-4][0-9]{3} — six — and
+// could never match 00345, so it reported zero and read as clean.
+const MIGRATION_ID = /\b(00\d{3})\b/g;
+
+/**
+ * Stories claiming a HELD migration that is already pushed.
+ * `pushedMigrationIds` is a Set of five-digit ids present on origin/main.
+ * Pure + exported; the CLI supplies the set from git.
+ */
+// Notes here are append-only, so a stale claim is corrected by APPENDING a
+// correction rather than editing the original sentence out. Both texts then
+// coexist, and a naive check keeps firing on a story someone already fixed —
+// which is how a warning becomes background noise and stops being read. So an
+// explicit correction silences it.
+const HELD_CORRECTED =
+  /STALE HELD-MIGRATION CLAIM|STATUS CORRECTION|is STALE and should not be acted on/i;
+
+export function findStaleHeldMigrations(stories, pushedMigrationIds) {
+  const hits = [];
+  for (const s of stories ?? []) {
+    const notes = typeof s?.notes === "string" ? s.notes : "";
+    if (!HELD_MARKER.test(notes)) continue;
+    if (HELD_CORRECTED.test(notes)) continue;
+    const ids = [...new Set([...notes.matchAll(MIGRATION_ID)].map((m) => m[1]))];
+    const pushed = ids.filter((id) => pushedMigrationIds.has(id)).sort();
+    if (pushed.length) hits.push({ id: s.id, migrations: pushed });
+  }
+  return hits;
+}
+
 export function findCycles(graph) {
   const WHITE = 0, GRAY = 1, BLACK = 2;
   const color = new Map([...graph.keys()].map((k) => [k, WHITE]));
@@ -169,7 +216,7 @@ export function findCycles(graph) {
   return cycles;
 }
 
-export function lintPrd({ prd, archiveIds = new Set(), archiveMaxId = 0, learningsLines = 0, opts = {} }) {
+export function lintPrd({ prd, archiveIds = new Set(), archiveMaxId = 0, learningsLines = 0, pushedMigrationIds = null, opts = {} }) {
   const errors = [];
   const warnings = [];
   const threshold = opts.accumulationThreshold ?? ACCUMULATION_THRESHOLD;
@@ -226,6 +273,22 @@ export function lintPrd({ prd, archiveIds = new Set(), archiveMaxId = 0, learnin
   // accumulation guard (WARNING — a full active backlog is not a failure)
   const done = stories.filter((s) => s?.passes === true).length;
   if (done > threshold) warnings.push(accumulationReminder(done, threshold));
+
+  // US-1421/1849/1850 (WARNING): a HELD claim on an already-pushed migration.
+  // Skipped entirely when the caller could not determine what is pushed (no
+  // remote, offline) — guessing there would be worse than not checking.
+  if (pushedMigrationIds && pushedMigrationIds.size > 0) {
+    const stale = findStaleHeldMigrations(stories, pushedMigrationIds);
+    if (stale.length > 0) {
+      warnings.push(
+        stale.length +
+          " story(ies) still describe a migration as HELD that is already on origin/main — " +
+          "a held migration is by definition unpushed, so these notes tell the next reader the " +
+          "branch is frozen when it is not: " +
+          stale.map((h) => h.id + " [" + h.migrations.join(",") + "]").join(", "),
+      );
+    }
+  }
 
   // US-1996 (WARNING): passes:true with an unresolved blocker marker. See
   // findUnresolvedDeferrals — a later note can legitimately supersede an earlier
@@ -286,7 +349,34 @@ async function main() {
   const { maxId: archiveMaxId, ids: archiveIds } = await probeArchiveIds(archivePath);
   const learningsLines = countLines(learningsPath);
 
-  const { errors, warnings, ok, stats } = lintPrd({ prd, archiveIds, archiveMaxId, learningsLines });
+  // Which migrations are already PUSHED? Held means unpushed, so anything on
+  // origin/main has had its hold released. Best-effort: no remote, no fetch, or
+  // a git failure yields null and the check is skipped rather than guessed.
+  let pushedMigrationIds = null;
+  try {
+    const { execFileSync } = await import("node:child_process");
+    const out = execFileSync(
+      "git",
+      ["ls-tree", "--name-only", "origin/main", "supabase/migrations/"],
+      { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+    );
+    const ids = new Set();
+    for (const line of out.split("\n")) {
+      const m = /\/(\d{5})_/.exec(line);
+      if (m) ids.add(m[1]);
+    }
+    if (ids.size > 0) pushedMigrationIds = ids;
+  } catch {
+    pushedMigrationIds = null;
+  }
+
+  const { errors, warnings, ok, stats } = lintPrd({
+    prd,
+    archiveIds,
+    archiveMaxId,
+    learningsLines,
+    pushedMigrationIds,
+  });
 
   process.stdout.write(`prd-lint: ${stats.active} active stories, ${stats.done} passes:true, max id ${stats.maxAnywhere}, nextId ${prd.nextId}\n`);
   for (const w of warnings) process.stdout.write(`\n⚠️  ${w}\n`);
@@ -298,7 +388,14 @@ async function main() {
   process.stdout.write(`\n\x1b[32mprd-lint OK\x1b[0m${warnings.length ? ` (${warnings.length} warning(s))` : ""}\n`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Entry check. Compare URL to URL: `file://` + a raw argv path is not a valid
+// file URL on Windows (backslashes, and a missing third slash before the drive
+// letter), so the old comparison was always false there and main() never ran —
+// the script exited 0 having done nothing, on every Windows run.
+const isEntry = process.argv[1]
+  ? import.meta.url === pathToFileURL(process.argv[1]).href
+  : false;
+if (isEntry) {
   main().catch((err) => {
     process.stderr.write(`prd-lint failed: ${err?.stack ?? err}\n`);
     process.exit(2);

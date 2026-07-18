@@ -8,7 +8,7 @@
 
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const DATE_RE = /(\d{4}-\d{2}-\d{2})/;
 const HEADER_RE = /^===\s*(.+?)\s*===\s*$/;
@@ -101,6 +101,13 @@ function main() {
   process.stdout.write(digest({ progressText, prd, sinceDate }));
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Entry check. Compare URL to URL: `file://` + a raw argv path is not a valid
+// file URL on Windows (backslashes, and a missing third slash before the drive
+// letter), so the old comparison was always false there and main() never ran —
+// the script exited 0 having done nothing, on every Windows run.
+const isEntry = process.argv[1]
+  ? import.meta.url === pathToFileURL(process.argv[1]).href
+  : false;
+if (isEntry) {
   main();
 }
