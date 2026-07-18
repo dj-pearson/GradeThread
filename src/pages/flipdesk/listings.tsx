@@ -515,6 +515,14 @@ export function FlipdeskListingsPage() {
     done: number;
     total: number;
   } | null>(null);
+  // Bulk hard-delete of the selected items — a discoverable list-level delete
+  // (the per-row trash button lives in the far-right actions column, easy to
+  // miss). Confirm dialog + per-item progress, mirroring bulk publish.
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bulkDeleteProgress, setBulkDeleteProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
 
   // Advanced filter — composes ON TOP of the stage tabs. Initialised from
   // the URL so saved-view links round-trip cleanly.
@@ -1462,6 +1470,51 @@ export function FlipdeskListingsPage() {
     } else {
       toast.warning(
         `Published ${published}, ${errors.length} failed. First: ${errors[0]?.title} — ${errors[0]?.message}`,
+        { duration: 14_000 },
+      );
+    }
+  }
+
+  // Hard-delete every selected item (for clearing out drafts/dupes in bulk).
+  // The server guards items with a live listing or any sale (409) — those are
+  // reported and skipped, the rest still delete.
+  async function bulkDeleteItems() {
+    if (selected.size === 0) return;
+    const ids = Array.from(selected);
+    setBusy(true);
+    setBulkDeleteProgress({ done: 0, total: ids.length });
+    const errors: { title: string; message: string }[] = [];
+    let deleted = 0;
+    for (let i = 0; i < ids.length; i++) {
+      const id = ids[i]!;
+      const it = items.find((x) => x.id === id);
+      try {
+        await deleteItemApi.mutateAsync({ itemId: id });
+        deleted++;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        errors.push({
+          title: it?.item_title ?? "item",
+          message: msg.split("\n")[0] ?? msg,
+        });
+      }
+      setBulkDeleteProgress({ done: i + 1, total: ids.length });
+    }
+    setBusy(false);
+    setBulkDeleteProgress(null);
+    setBulkDeleteOpen(false);
+    setSelected(new Set());
+    await qc.invalidateQueries({ queryKey: ["items_full"] });
+    if (errors.length === 0) {
+      toast.success(`Deleted ${deleted} item${deleted === 1 ? "" : "s"}.`);
+    } else if (deleted === 0) {
+      toast.error(
+        `Couldn't delete ${errors.length}. First: ${errors[0]?.title} — ${errors[0]?.message}`,
+        { duration: 14_000 },
+      );
+    } else {
+      toast.warning(
+        `Deleted ${deleted}, ${errors.length} skipped. First: ${errors[0]?.title} — ${errors[0]?.message}`,
         { duration: 14_000 },
       );
     }
@@ -3068,22 +3121,38 @@ export function FlipdeskListingsPage() {
                   </Button>
                 </>
               ) : isDrafts ? (
-                ebayConnection ? (
-                  <Button onClick={bulkPublishToEbay} disabled={busy}>
-                    {busy ? (
+                <>
+                  {ebayConnection ? (
+                    <Button onClick={bulkPublishToEbay} disabled={busy}>
+                      {busy && bulkPublishProgress ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Rocket className="mr-2 h-4 w-4" />
+                      )}
+                      {bulkPublishProgress
+                        ? `Publishing ${bulkPublishProgress.done}/${bulkPublishProgress.total}…`
+                        : `Publish ${selected.size} to eBay`}
+                    </Button>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">
+                      Connect eBay to bulk-publish
+                    </span>
+                  )}
+                  <Button
+                    variant="destructive"
+                    onClick={() => setBulkDeleteOpen(true)}
+                    disabled={busy}
+                  >
+                    {busy && bulkDeleteProgress ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : (
-                      <Rocket className="mr-2 h-4 w-4" />
+                      <Trash2 className="mr-2 h-4 w-4" />
                     )}
-                    {bulkPublishProgress
-                      ? `Publishing ${bulkPublishProgress.done}/${bulkPublishProgress.total}…`
-                      : `Publish ${selected.size} to eBay`}
+                    {bulkDeleteProgress
+                      ? `Deleting ${bulkDeleteProgress.done}/${bulkDeleteProgress.total}…`
+                      : `Delete ${selected.size}`}
                   </Button>
-                ) : (
-                  <span className="text-xs text-muted-foreground">
-                    Connect eBay to bulk-publish
-                  </span>
-                )
+                </>
               ) : (
                 <Button
                   onClick={() => setPrepareShipOpen(true)}
@@ -3208,6 +3277,48 @@ export function FlipdeskListingsPage() {
                 <Trash2 className="mr-2 h-4 w-4" />
               )}
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk delete confirm for the selected drafts. */}
+      <AlertDialog
+        open={bulkDeleteOpen}
+        onOpenChange={(o) => {
+          if (!o && !busy) setBulkDeleteOpen(false);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {selected.size} item{selected.size === 1 ? "" : "s"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              The selected item{selected.size === 1 ? "" : "s"} and their photos,
+              drafts, and listing records will be permanently deleted. This can't
+              be undone. Anything with a live listing or a recorded sale is
+              skipped automatically.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={busy}
+              onClick={(e) => {
+                e.preventDefault();
+                void bulkDeleteItems();
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {busy && bulkDeleteProgress ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="mr-2 h-4 w-4" />
+              )}
+              {bulkDeleteProgress
+                ? `Deleting ${bulkDeleteProgress.done}/${bulkDeleteProgress.total}…`
+                : `Delete ${selected.size}`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

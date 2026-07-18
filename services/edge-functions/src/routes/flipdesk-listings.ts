@@ -695,19 +695,34 @@ flipdeskListingsRoutes.delete("/item/:id", async (c) => {
     .maybeSingle();
   if (!item) return c.json({ error: "Item not found." }, 404);
 
-  // GUARD 1: a live listing must be ended first (never orphan a live offer).
+  // GUARD 1: a genuinely LIVE listing must be ended first (never orphan a live
+  // marketplace offer). "Live" keys off the lifecycle STATUS + whether it was
+  // actually published — NOT the denormalized `is_active` flag, which the
+  // listings table defaults to TRUE on every row (so an ordinary, never-published
+  // DRAFT is born is_active=true). Trusting is_active blocked deleting normal
+  // draft duplicates.
   const { data: listings } = await supabaseAdmin
     .from("listings")
-    .select("is_active, listing_status, platform_offer_id")
+    .select(
+      "listing_status, platform_offer_id, platform_listing_id, synced_to_ebay_at",
+    )
     .eq("inventory_item_id", itemId);
   const hasLive = (listings ?? []).some((l) => {
     const row = l as {
-      is_active: boolean | null;
       listing_status: string | null;
       platform_offer_id: string | null;
+      platform_listing_id: string | null;
+      synced_to_ebay_at: string | null;
     };
-    return row.is_active === true ||
-      (!!row.platform_offer_id && row.listing_status !== "ended");
+    const status = row.listing_status ?? "";
+    // Terminal states never block.
+    if (status === "ended" || status === "sold") return false;
+    // An active lifecycle status is live (covers eBay + manually-marked-listed).
+    if (status === "active" || status === "relisted") return true;
+    // Any other status (e.g. 'draft'): only live if it was actually published to
+    // a marketplace — a real offer/listing id or a completed eBay sync.
+    return !!row.platform_offer_id || !!row.platform_listing_id ||
+      !!row.synced_to_ebay_at;
   });
   if (hasLive) {
     return c.json({
