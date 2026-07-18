@@ -24,10 +24,24 @@ import {
   unsubscribeMailto,
 } from "./email-transport.ts";
 import { htmlToPlainText, sendViaSesApi } from "./ses-api.ts";
+import {
+  EMAIL_BRAND,
+  EMAIL_CANVAS,
+  EMAIL_FONT_STACK,
+  emailButton,
+  emailCertificateCard,
+  emailFooterRows,
+  emailHeadStyle,
+  emailHeaderRows,
+  emailScoreCard,
+  GRADETHREAD_SOCIAL_LINKS,
+} from "./email-theme.ts";
 
-const BRAND_NAVY = "#0F3460";
-const BRAND_RED = "#E94560";
-const BRAND_NIGHT = "#1A1A2E";
+// Brand tokens now live in email-theme.ts (shared with email-render.ts). These
+// aliases keep the many existing inline-style call sites in this file readable.
+const BRAND_NAVY = EMAIL_BRAND.navy;
+const BRAND_RED = EMAIL_BRAND.red;
+const BRAND_NIGHT = EMAIL_BRAND.night;
 const BRAND_GRAY = "#F5F5F5";
 // US-801: derive the email base URL from env (same PUBLIC_SITE_URL the rest of
 // the edge service uses) so staging/preview sends don't deep-link to production.
@@ -341,95 +355,80 @@ function postalAddress(): string {
 // `unsubscribeUrl` (US-516): when provided (MARKETING email), render a no-login
 // unsubscribe link. Transactional email omits it (and must not be globally
 // suppressed) but still carries the postal address.
+// Social chips for the footer — the canonical list lives in email-theme.ts so
+// the transactional and marketing engines render the same row.
+const EMAIL_SOCIAL_LINKS = GRADETHREAD_SOCIAL_LINKS;
+
+/**
+ * The shared transactional shell (Engine A). Wraps `content` in the premium
+ * navy-gradient header (real wordmark + red hairline), a white content card,
+ * and the night footer — all from the shared email-theme components, so every
+ * transactional / broadcast / drip / journey email inherits the same look.
+ * Now MSO- and dark-mode-hardened to match the marketing engine (email-render).
+ */
 function emailLayout(
   content: string,
-  opts: { unsubscribeUrl?: string; preferenceCenterUrl?: string } = {},
+  opts: {
+    unsubscribeUrl?: string;
+    preferenceCenterUrl?: string;
+    /** Inbox preview line (hidden in-body). Escaped by the caller if needed. */
+    preheader?: string;
+  } = {},
 ): string {
-  // US-911 / CAN-SPAM: marketing email carries BOTH a one-click unsubscribe AND
-  // a link to the self-serve preference center (fine-tune categories).
-  const prefLink = opts.preferenceCenterUrl
-    ? ` &nbsp;&middot;&nbsp; <a href="${opts.preferenceCenterUrl}" style="color: #999; font-size: 12px; text-decoration: underline;">Manage email preferences</a>`
-    : "";
-  const unsubscribeSection = opts.unsubscribeUrl
-    ? `<tr>
-        <td style="padding: 16px 32px; text-align: center;">
-          <a href="${opts.unsubscribeUrl}" style="color: #999; font-size: 12px; text-decoration: underline;">
-            Unsubscribe from marketing emails
-          </a>${prefLink}
-        </td>
-      </tr>`
+  const preheader = opts.preheader && opts.preheader.trim()
+    ? `<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;opacity:0;font-size:1px;line-height:1px;color:${EMAIL_CANVAS};">${opts.preheader}</div>` +
+      `<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">${"&#847;&zwnj;&nbsp;".repeat(20)}</div>`
     : "";
 
+  const header = emailHeaderRows({ siteUrl: SITE_URL, tdClass: "gt-pad" });
+  const footer = emailFooterRows({
+    siteUrl: SITE_URL,
+    year: new Date().getFullYear(),
+    postalAddress: postalAddress(),
+    unsubscribeUrl: opts.unsubscribeUrl,
+    preferenceCenterUrl: opts.preferenceCenterUrl,
+    // US-911 / CAN-SPAM: marketing email carries BOTH a one-click unsubscribe
+    // AND a link to the self-serve preference center (fine-tune categories).
+    unsubscribeLabel: "Unsubscribe from marketing emails",
+    social: EMAIL_SOCIAL_LINKS,
+    tdClass: "gt-pad",
+  });
+
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="en" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="color-scheme" content="light dark">
+  <meta name="supported-color-schemes" content="light dark">
+  ${emailHeadStyle()}
 </head>
-<body style="margin: 0; padding: 0; background-color: ${BRAND_GRAY}; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: ${BRAND_GRAY};">
+<body class="gt-body" style="margin:0;padding:0;background-color:${EMAIL_CANVAS};font-family:${EMAIL_FONT_STACK};">
+  ${preheader}
+  <!--[if mso]><table role="presentation" width="600" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
+  <table role="presentation" class="gt-body" cellspacing="0" cellpadding="0" border="0" width="100%" bgcolor="${EMAIL_CANVAS}" style="background-color:${EMAIL_CANVAS};">
     <tr>
-      <td style="padding: 32px 16px;">
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="margin: 0 auto; max-width: 600px;">
-          <!-- Header -->
+      <td align="center" style="padding:32px 16px;">
+        <table role="presentation" class="gt-container" cellspacing="0" cellpadding="0" border="0" width="600" style="width:600px;max-width:600px;margin:0 auto;">
+          ${header}
           <tr>
-            <td style="background-color: ${BRAND_NAVY}; padding: 24px 32px; border-radius: 12px 12px 0 0; text-align: center;">
-              <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">
-                GradeThread
-              </h1>
-              <p style="margin: 4px 0 0; color: rgba(255,255,255,0.7); font-size: 13px;">
-                AI-Powered Clothing Condition Grading
-              </p>
-            </td>
-          </tr>
-          <!-- Content -->
-          <tr>
-            <td style="background-color: #ffffff; padding: 32px;">
+            <td class="gt-card gt-pad" bgcolor="#ffffff" style="background-color:#ffffff;padding:34px;">
               ${content}
             </td>
           </tr>
-          <!-- Footer -->
-          <tr>
-            <td style="background-color: ${BRAND_NIGHT}; padding: 20px 32px; border-radius: 0 0 12px 12px; text-align: center;">
-              <p style="margin: 0; color: rgba(255,255,255,0.6); font-size: 12px;">
-                &copy; ${new Date().getFullYear()} Pearson Media LLC. All rights reserved.
-              </p>
-              <p style="margin: 8px 0 0; color: rgba(255,255,255,0.4); font-size: 11px;">
-                <a href="${SITE_URL}" style="color: rgba(255,255,255,0.6); text-decoration: none;">gradethread.com</a>
-              </p>
-              <!-- US-516 CAN-SPAM: physical postal address on every email. -->
-              <p style="margin: 8px 0 0; color: rgba(255,255,255,0.4); font-size: 11px;">
-                ${postalAddress()}
-              </p>
-            </td>
-          </tr>
-          ${unsubscribeSection}
+          ${footer}
         </table>
       </td>
     </tr>
   </table>
+  <!--[if mso]></td></tr></table><![endif]-->
 </body>
 </html>`;
 }
 
 function ctaButton(text: string, url: string): string {
-  return `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 24px auto;">
-    <tr>
-      <td style="background-color: ${BRAND_RED}; border-radius: 8px;">
-        <a href="${url}" style="display: inline-block; padding: 14px 32px; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600;">
-          ${text}
-        </a>
-      </td>
-    </tr>
-  </table>`;
-}
-
-// ─── Score Color Helper ─────────────────────────────────────────────
-
-function scoreColor(score: number): string {
-  if (score >= 7) return "#22c55e";
-  if (score >= 5) return "#eab308";
-  return "#ef4444";
+  return emailButton(text, url);
 }
 
 // ─── Email Templates ────────────────────────────────────────────────
@@ -446,43 +445,44 @@ export async function sendGradeCompleteEmail(
     ? `${SITE_URL}/cert/${data.certificateId}`
     : null;
 
+  const firstName = escapeHtml(data.userName.split(" ")[0] || data.userName);
   const content = `
-    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
-      Your Grade Is Ready!
+    <p style="margin:0 0 10px;color:${BRAND_RED};font-size:12px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;">Grade complete</p>
+    <h2 class="gt-heading" style="margin:0 0 12px;color:${EMAIL_BRAND.ink};font-size:24px;font-weight:800;letter-spacing:-0.2px;line-height:1.15;">
+      Your grade is ready, ${firstName}
     </h2>
-    <p style="margin: 0 0 24px; color: #666; font-size: 15px; line-height: 1.5;">
-      Hi ${escapeHtml(data.userName)}, your submission <strong>"${escapeHtml(data.submissionTitle)}"</strong> has been graded.
+    <p class="gt-text" style="margin:0 0 20px;color:${EMAIL_BRAND.body};font-size:15.5px;line-height:1.6;">
+      We finished grading <strong style="color:${EMAIL_BRAND.ink};">&ldquo;${escapeHtml(data.submissionTitle)}&rdquo;</strong>. Here&rsquo;s how it scored.
     </p>
 
-    <!-- Score Card -->
-    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom: 24px;">
-      <tr>
-        <td style="background-color: ${BRAND_GRAY}; border-radius: 12px; padding: 24px; text-align: center;">
-          <div style="font-size: 48px; font-weight: 700; color: ${scoreColor(data.overallScore)}; line-height: 1;">
-            ${data.overallScore.toFixed(1)}
-          </div>
-          <div style="margin-top: 8px; font-size: 14px; font-weight: 600; color: ${BRAND_NAVY}; text-transform: uppercase; letter-spacing: 1px;">
-            ${escapeHtml(data.gradeTier)}
-          </div>
-        </td>
-      </tr>
-    </table>
+    ${
+    emailScoreCard({
+      score: data.overallScore,
+      tier: data.gradeTier,
+      summary: "Open the full report for factor-by-factor scores and the AI condition analysis.",
+    })
+  }
 
-    <p style="margin: 0 0 8px; color: #666; font-size: 14px; line-height: 1.5; text-align: center;">
-      View your full grade report with detailed factor scores and AI analysis.
-    </p>
+    ${
+    certUrl
+      ? emailCertificateCard({
+        certId: data.certificateId ?? "",
+        certUrl,
+        title: "Shareable, public condition report",
+        subtitle: "Add it to your listing to boost buyer trust and resale value.",
+      })
+      : ""
+  }
 
-    ${ctaButton("View Grade Report", reportUrl)}
-
-    ${certUrl ? `<p style="margin: 0; color: #999; font-size: 13px; text-align: center;">
-      Share your <a href="${certUrl}" style="color: ${BRAND_RED}; text-decoration: underline;">grade certificate</a> with buyers.
-    </p>` : ""}
+    ${ctaButton("View full report", reportUrl)}
   `;
 
   return await sendEmail({
     to,
     subject: `Grade Ready: ${data.submissionTitle} — ${data.overallScore.toFixed(1)} (${data.gradeTier})`,
-    html: emailLayout(content),
+    html: emailLayout(content, {
+      preheader: `${data.submissionTitle} scored ${data.overallScore.toFixed(1)} — ${data.gradeTier}.`,
+    }),
     category: "grade_ready", // US-498: critical → durable retry on failure
   });
 }
@@ -498,45 +498,35 @@ export async function sendGradePreliminaryEmail(
 ): Promise<boolean> {
   const reportUrl = `${SITE_URL}/dashboard/submissions/${data.submissionId}`;
 
+  const firstName = escapeHtml(data.userName.split(" ")[0] || data.userName);
   const content = `
-    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
-      Your Preliminary Grade Is Ready
+    <p style="margin:0 0 10px;color:${BRAND_RED};font-size:12px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;">Preliminary &middot; Pending review</p>
+    <h2 class="gt-heading" style="margin:0 0 12px;color:${EMAIL_BRAND.ink};font-size:24px;font-weight:800;letter-spacing:-0.2px;line-height:1.15;">
+      Your preliminary grade is in, ${firstName}
     </h2>
-    <p style="margin: 0 0 24px; color: #666; font-size: 15px; line-height: 1.5;">
-      Hi ${escapeHtml(data.userName)}, our AI has graded
-      <strong>"${escapeHtml(data.submissionTitle)}"</strong>. This is a
-      <strong>preliminary</strong> result — one of our experts will review it
-      before it becomes official and your shareable certificate goes live.
+    <p class="gt-text" style="margin:0 0 20px;color:${EMAIL_BRAND.body};font-size:15.5px;line-height:1.6;">
+      Our AI graded <strong style="color:${EMAIL_BRAND.ink};">&ldquo;${escapeHtml(data.submissionTitle)}&rdquo;</strong>. This is a
+      <strong style="color:${EMAIL_BRAND.ink};">preliminary</strong> result — one of our experts reviews it before it becomes
+      official and your shareable certificate goes live.
     </p>
 
-    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom: 16px;">
-      <tr>
-        <td style="background-color: ${BRAND_GRAY}; border-radius: 12px; padding: 24px; text-align: center;">
-          <div style="font-size: 13px; font-weight: 600; color: ${BRAND_RED}; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;">
-            Preliminary · Pending Review
-          </div>
-          <div style="font-size: 48px; font-weight: 700; color: ${scoreColor(data.overallScore)}; line-height: 1;">
-            ${data.overallScore.toFixed(1)}
-          </div>
-          <div style="margin-top: 8px; font-size: 14px; font-weight: 600; color: ${BRAND_NAVY}; text-transform: uppercase; letter-spacing: 1px;">
-            ${escapeHtml(data.gradeTier)}
-          </div>
-        </td>
-      </tr>
-    </table>
+    ${
+    emailScoreCard({
+      score: data.overallScore,
+      tier: data.gradeTier,
+      summary: "We'll email you the moment it's finalized — the score may shift slightly after review.",
+    })
+  }
 
-    <p style="margin: 0 0 8px; color: #666; font-size: 14px; line-height: 1.5; text-align: center;">
-      We'll email you again the moment your grade is finalized. The score may
-      change slightly after review.
-    </p>
-
-    ${ctaButton("View Pending Grade", reportUrl)}
+    ${ctaButton("View pending grade", reportUrl)}
   `;
 
   return await sendEmail({
     to,
     subject: `Preliminary Grade (Pending Review): ${data.submissionTitle} — ${data.overallScore.toFixed(1)}`,
-    html: emailLayout(content),
+    html: emailLayout(content, {
+      preheader: `Preliminary: ${data.submissionTitle} scored ${data.overallScore.toFixed(1)} — pending expert review.`,
+    }),
     category: "grade_preliminary", // critical lifecycle → durable retry on failure
   });
 }
@@ -610,44 +600,54 @@ export async function sendGradeFinalizedEmail(
     : `${SITE_URL}/dashboard/submissions/${data.submissionId}`;
   const certUrl = data.certificateId ? `${SITE_URL}/cert/${data.certificateId}` : null;
 
+  const firstName = escapeHtml(data.userName.split(" ")[0] || data.userName);
   const content = `
-    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
-      Your Grade Is Now Official!
+    <p style="margin:0 0 10px;color:#16A34A;font-size:12px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;">Grade finalized</p>
+    <h2 class="gt-heading" style="margin:0 0 12px;color:${EMAIL_BRAND.ink};font-size:24px;font-weight:800;letter-spacing:-0.2px;line-height:1.15;">
+      It's official, ${firstName} 🎉
     </h2>
-    <p style="margin: 0 0 24px; color: #666; font-size: 15px; line-height: 1.5;">
-      Hi ${escapeHtml(data.userName)}, <strong>"${escapeHtml(data.submissionTitle)}"</strong>
+    <p class="gt-text" style="margin:0 0 20px;color:${EMAIL_BRAND.body};font-size:15.5px;line-height:1.6;">
+      <strong style="color:${EMAIL_BRAND.ink};">&ldquo;${escapeHtml(data.submissionTitle)}&rdquo;</strong>
       has been reviewed and finalized${data.wasModified ? " (the score was adjusted during review)" : ""}.
       Your certificate is live and the item is ready to go.
     </p>
 
-    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom: 24px;">
-      <tr>
-        <td style="background-color: ${BRAND_GRAY}; border-radius: 12px; padding: 24px; text-align: center;">
-          <div style="font-size: 13px; font-weight: 600; color: #22c55e; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;">
-            Final Grade
-          </div>
-          <div style="font-size: 48px; font-weight: 700; color: ${scoreColor(data.overallScore)}; line-height: 1;">
-            ${data.overallScore.toFixed(1)}
-          </div>
-          <div style="margin-top: 8px; font-size: 14px; font-weight: 600; color: ${BRAND_NAVY}; text-transform: uppercase; letter-spacing: 1px;">
-            ${escapeHtml(data.gradeTier)}
-          </div>
-        </td>
-      </tr>
-    </table>
+    ${
+    emailScoreCard({
+      score: data.overallScore,
+      tier: data.gradeTier,
+      summary: "This is the official, expert-reviewed grade.",
+    })
+  }
 
-    ${ctaButton("View Final Grade", reportUrl)}
+    ${
+    certUrl
+      ? emailCertificateCard({
+        certId: data.certificateId ?? "",
+        certUrl,
+        title: "Your certificate is live",
+        subtitle: "Share it with buyers to boost trust and resale value.",
+      })
+      : ""
+  }
 
-    ${certUrl ? `<p style="margin: 0; color: #999; font-size: 13px; text-align: center;">
-      Share your <a href="${certUrl}" style="color: ${BRAND_RED}; text-decoration: underline;">grade certificate</a> with buyers.
-      If you disagree with the final grade, you can open a dispute from your submission page.
-    </p>` : ""}
+    ${ctaButton("View final grade", reportUrl)}
+
+    ${
+    certUrl
+      ? `<p class="gt-text" style="margin:0;color:${EMAIL_BRAND.slate};font-size:13px;line-height:1.5;text-align:center;">
+      Disagree with the final grade? You can open a dispute from your submission page.
+    </p>`
+      : ""
+  }
   `;
 
   return await sendEmail({
     to,
     subject: `Grade Finalized: ${data.submissionTitle} — ${data.overallScore.toFixed(1)} (${data.gradeTier})`,
-    html: emailLayout(content),
+    html: emailLayout(content, {
+      preheader: `Official: ${data.submissionTitle} — ${data.overallScore.toFixed(1)} (${data.gradeTier}). Certificate is live.`,
+    }),
     category: "grade_finalized", // critical lifecycle → durable retry on failure
   });
 }

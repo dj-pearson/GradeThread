@@ -32,12 +32,19 @@
 
 import { applyEmailTracking, rewriteLinksForClickTracking } from "./email-tracking.ts";
 import type { RenderableIssue, RenderOptions } from "./newsletter-issue.ts";
+import {
+  EMAIL_BRAND,
+  emailButton,
+  emailFooterRows,
+  emailHeaderRows,
+  GRADETHREAD_SOCIAL_LINKS,
+} from "./email-theme.ts";
 
 // ── Brand palette + typography ────────────────────────────────────────────────
 
-const BRAND_NAVY = "#0F3460";
-const BRAND_RED = "#E94560";
-const BRAND_NIGHT = "#1A1A2E";
+const BRAND_NAVY = EMAIL_BRAND.navy;
+const BRAND_RED = EMAIL_BRAND.red;
+const BRAND_NIGHT = EMAIL_BRAND.night;
 const BRAND_GRAY = "#F5F5F5";
 const TEXT_DARK = "#333333";
 
@@ -158,40 +165,24 @@ export function renderEmailImage(image: EmailImage, opts: { maxWidth?: number } 
 
 /** Branded header: navy bar with the GradeThread wordmark (or a logo image) + a
  * tagline. Returns a table row. */
-export function renderHeader(opts: { logoUrl?: string; tagline?: string } = {}): string {
-  const tagline = opts.tagline ?? DEFAULT_TAGLINE;
-  const logo = opts.logoUrl && isAbsoluteUrl(opts.logoUrl)
-    ? `<img src="${escapeHtml(opts.logoUrl)}" alt="GradeThread" width="180" height="36" style="display:block;margin:0 auto;border:0;" />`
-    : `<h1 style="margin:0;color:#ffffff;font-size:24px;font-weight:700;letter-spacing:-0.5px;">GradeThread</h1>`;
-  return `<tr>
-    <td class="gt-pad" bgcolor="${BRAND_NAVY}" style="background-color:${BRAND_NAVY};padding:24px 32px;border-radius:12px 12px 0 0;text-align:center;">
-      ${logo}
-      <p style="margin:4px 0 0;color:rgba(255,255,255,0.7);font-size:13px;">${escapeHtml(tagline)}</p>
-    </td>
-  </tr>`;
+export function renderHeader(
+  opts: { logoUrl?: string; tagline?: string; siteUrl?: string } = {},
+): string {
+  // Delegate to the shared brand system (email-theme) so the marketing engine
+  // and the transactional engine (email.ts) render an identical header.
+  return emailHeaderRows({
+    siteUrl: opts.siteUrl ?? DEFAULT_SITE_URL,
+    tagline: opts.tagline ?? DEFAULT_TAGLINE,
+    logoUrl: opts.logoUrl && isAbsoluteUrl(opts.logoUrl) ? opts.logoUrl : undefined,
+    tdClass: "gt-pad",
+  });
 }
 
-/** Bulletproof CTA button: a VML <v:roundrect> for Outlook (which ignores
- * border-radius) + a styled anchor everywhere else. Pure; `url` must already be
- * absolute + (optionally) tracking-wrapped by the caller. */
+/** Bulletproof CTA button (shared with the transactional engine): a VML
+ * <v:roundrect> for Outlook + a gradient anchor everywhere else. Pure; `url`
+ * must already be absolute + (optionally) tracking-wrapped by the caller. */
 export function renderCtaButton(label: string, url: string): string {
-  const href = escapeHtml(url);
-  const text = escapeHtml(label);
-  return `<table role="presentation" align="center" cellspacing="0" cellpadding="0" border="0" style="margin:20px auto;">
-    <tr>
-      <td align="center">
-        <!--[if mso]>
-        <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${href}" style="height:44px;v-text-anchor:middle;width:240px;" arcsize="18%" strokecolor="${BRAND_RED}" fillcolor="${BRAND_RED}">
-          <w:anchorlock/>
-          <center style="color:#ffffff;font-family:Arial,sans-serif;font-size:15px;font-weight:600;">${text}</center>
-        </v:roundrect>
-        <![endif]-->
-        <!--[if !mso]><!-->
-        <a href="${href}" style="background-color:${BRAND_RED};border-radius:8px;color:#ffffff;display:inline-block;font-family:${FONT_STACK};font-size:15px;font-weight:600;line-height:44px;text-align:center;text-decoration:none;padding:0 28px;">${text}</a>
-        <!--<![endif]-->
-      </td>
-    </tr>
-  </table>`;
+  return emailButton(label, url);
 }
 
 /** An article-card content block: optional heading + image + body HTML + CTA. */
@@ -263,31 +254,17 @@ export function renderFooter(opts: {
   unsubscribeUrl?: string;
   preferenceCenterUrl?: string;
 }): string {
-  const site = (opts.siteUrl ?? DEFAULT_SITE_URL).replace(/\/+$/, "");
-  const year = opts.year ?? 2026;
-  const postal = opts.postalAddress
-    ? `<p style="margin:8px 0 0;color:rgba(255,255,255,0.4);font-size:11px;">${escapeHtml(opts.postalAddress)}</p>`
-    : "";
-  const prefLink = opts.preferenceCenterUrl
-    ? ` &nbsp;&middot;&nbsp; <a href="${escapeHtml(opts.preferenceCenterUrl)}" style="color:#999999;font-size:12px;text-decoration:underline;">Manage email preferences</a>`
-    : "";
-  const unsubscribe = opts.unsubscribeUrl
-    ? `<tr>
-        <td class="gt-pad" style="padding:16px 32px;text-align:center;">
-          <a href="${escapeHtml(opts.unsubscribeUrl)}" style="color:#999999;font-size:12px;text-decoration:underline;">Unsubscribe from this newsletter</a>${prefLink}
-        </td>
-      </tr>`
-    : "";
-  return `<tr>
-      <td class="gt-pad" bgcolor="${BRAND_NIGHT}" style="background-color:${BRAND_NIGHT};padding:20px 32px;border-radius:0 0 12px 12px;text-align:center;">
-        <p style="margin:0;color:rgba(255,255,255,0.6);font-size:12px;">&copy; ${year} Pearson Media LLC. All rights reserved.</p>
-        <p style="margin:8px 0 0;color:rgba(255,255,255,0.4);font-size:11px;">
-          <a href="${escapeHtml(site)}" style="color:rgba(255,255,255,0.6);text-decoration:none;">gradethread.com</a>
-        </p>
-        ${postal}
-      </td>
-    </tr>
-    ${unsubscribe}`;
+  // Shared footer (email-theme). Newsletter keeps its own unsubscribe wording.
+  return emailFooterRows({
+    siteUrl: opts.siteUrl ?? DEFAULT_SITE_URL,
+    year: opts.year ?? 2026,
+    postalAddress: opts.postalAddress,
+    unsubscribeUrl: opts.unsubscribeUrl,
+    preferenceCenterUrl: opts.preferenceCenterUrl,
+    unsubscribeLabel: "Unsubscribe from this newsletter",
+    social: GRADETHREAD_SOCIAL_LINKS,
+    tdClass: "gt-pad",
+  });
 }
 
 // ── Block dispatch ────────────────────────────────────────────────────────────
@@ -402,7 +379,7 @@ export function renderEmailDocument(doc: EmailDocument, opts: EmailRenderOptions
     : "";
 
   const content = (doc.blocks ?? []).map((b) => renderBlock(b, siteUrl)).join("");
-  const header = renderHeader({ logoUrl: opts.logoUrl, tagline: opts.tagline });
+  const header = renderHeader({ logoUrl: opts.logoUrl, tagline: opts.tagline, siteUrl });
   const footer = renderFooter({
     siteUrl,
     year,
