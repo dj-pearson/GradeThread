@@ -20,6 +20,7 @@ import { generatePlatformVariants } from "../lib/ai-listing.ts";
 import { withAiAction } from "../lib/ai-metering.ts";
 import { checkQuota } from "./flipdesk-ai.ts";
 import { recordRelist } from "../lib/passport-relist.ts";
+import { loadPendingDelists } from "../lib/pending-delists.ts";
 
 // Multi-marketplace cross-listing dispatch (US-149 + US-564).
 //
@@ -577,55 +578,22 @@ flipdeskListingsRoutes.post("/extension-writeback", async (c) => {
 // the queue here, the GradeThread Lister extension ends each listing in the
 // seller's own tab, then the SaaS confirms back to clear the stamp.
 
-interface PendingDelistRow {
-  id: string;
-  platform: string;
-  listing_url: string | null;
-  listing_status: string | null;
-  inventory_item_id: string;
-  delist_requested_at: string;
-  inventory_items: { user_id: string; item_title: string | null };
-}
 
 // GET /pending-delists — extension siblings still awaiting an end on their
 // marketplace. Tenant-scoped via inventory_items.user_id (US-268).
+//
+// The query + projection live in lib/pending-delists.ts because the extension
+// popup reads the same queue over a different auth dialect (US-1885 AC1). Two
+// copies would eventually disagree about `auto_delistable`, and the failure is
+// silent: one surface offers a one-click end for a listing the other knows it
+// cannot end, so the seller is told it was handled while it stays live.
 flipdeskListingsRoutes.get("/pending-delists", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
-  const { data, error } = await supabaseAdmin
-    .from("listings")
-    .select(
-      // US-1877 (AC3): listing_status rides along so the client can tell a
-      // CONFIRMED-live sibling (auto-delistable) from a prefill we never saw go
-      // live (nothing to end automatically — and we must not pretend otherwise).
-      "id, platform, listing_url, listing_status, inventory_item_id, delist_requested_at, " +
-        // item_title is an items_full VIEW alias; the base inventory_items table
-        // has `title`. Alias it back so PendingDelistRow.item_title resolves.
-        "inventory_items!inner(user_id, item_title:title)",
-    )
-    .eq("inventory_items.user_id", ownerId)
-    .in("platform", [...EXTENSION_PLATFORMS])
-    .not("delist_requested_at", "is", null)
-    .order("delist_requested_at", { ascending: true });
+  const { pending, error } = await loadPendingDelists(ownerId);
   if (error) {
     return failSafe(c, 500, "Could not load pending delists.", error, "flipdesk.pending-delists");
   }
-  const rows = (data ?? []) as unknown as PendingDelistRow[];
-  return c.json({
-    ok: true,
-    pending: rows.map((r) => ({
-      listing_id: r.id,
-      platform: r.platform,
-      listing_url: r.listing_url,
-      listing_status: r.listing_status,
-      // AC3: auto-delist eligibility is CONFIRMED-ACTIVE *and* has a URL. A draft
-      // was never confirmed live; a URL-less active was confirmed by hand. Neither
-      // can be ended by the extension, which needs a live URL to open.
-      auto_delistable: r.listing_status === "active" && !!r.listing_url,
-      item_id: r.inventory_item_id,
-      item_title: r.inventory_items.item_title,
-      requested_at: r.delist_requested_at,
-    })),
-  });
+  return c.json({ ok: true, pending });
 });
 
 // POST /delist-confirm — the extension ended the listing on the marketplace (or

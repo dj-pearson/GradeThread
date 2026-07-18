@@ -31,6 +31,7 @@ import {
   getExtensionEntitlements,
 } from "../lib/buyer-entitlements.ts";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { loadPendingDelists } from "../lib/pending-delists.ts";
 
 // US-1836: fraud flags are legally sensitive (a public "these look manipulated"
 // signal), so the whole feature is FAIL-CLOSED behind a kill-switch until the
@@ -312,6 +313,71 @@ publicGradingRoutes.get("/entitlements", async (c) => {
     console.error("public-grading /entitlements:", err instanceof Error ? err.message : String(err));
     return c.json(ANONYMOUS_EXTENSION_ENTITLEMENTS, 200, { "Cache-Control": "no-store" });
   }
+});
+
+// ── Pending cross-listing delists for the extension popup (US-1885 AC1) ──
+// GET /pending-delists — the queue of marketplace listings a sale elsewhere has
+// ended in our DB but which still need ending in the seller's own browser
+// (Poshmark/Mercari/Grailed have no delist API).
+//
+// This is a second door onto data the SaaS already exposes at
+// /api/flipdesk/listings/pending-delists, and it exists because the extension
+// speaks a different auth dialect: an HMAC extension token, not a Supabase JWT,
+// so it cannot reach the JWT-guarded route. The QUERY is shared
+// (lib/pending-delists.ts) precisely so a second door does not become a second
+// answer.
+//
+// TENANCY (US-268): ownerId comes from the HMAC-signed token and NEVER from the
+// request — there is no id, no filter and no workspace header a caller can
+// supply here, so there is nothing to forge. Note the extension token carries no
+// workspace notion, so this deliberately serves the TOKEN HOLDER'S OWN tenant
+// only; a workspace member does not see the owner's queue through the extension.
+//
+// AUTHORIZATION IS ENFORCED HERE, NOT INHERITED FROM THE CLIENT. The extension's
+// `delist` capability comes from registry.js, which is fail-safe UI GATING — it
+// decides what to draw, not what the holder may read. A token minted before a
+// plan lapsed would still say "seller" in the popup, so the seller entitlement
+// is re-resolved server-side on every call.
+publicGradingRoutes.get("/pending-delists", async (c) => {
+  const verified = await verifyExtensionToken(bearerFromHeader(c.req.header("authorization")));
+  // 401, not the anonymous-fallback the entitlements route uses: there is no
+  // meaningful anonymous answer to "what are MY pending delists".
+  if (!verified) {
+    return c.json({ error: "Sign in to GradeThread to see pending delists." }, 401, {
+      "Cache-Control": "no-store",
+    });
+  }
+
+  let ent: { sellerEnabled: boolean };
+  try {
+    ent = await getExtensionEntitlements(verified.userId);
+  } catch (err) {
+    // FAIL CLOSED. The entitlements route fails safe to anonymous because a
+    // hiccup there costs a shopper their free read; here the same hiccup would
+    // hand seller data to a caller we could not confirm is entitled to it.
+    console.error(
+      "public-grading /pending-delists entitlements:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return c.json({ error: "Could not verify your plan. Try again." }, 503, {
+      "Cache-Control": "no-store",
+    });
+  }
+  if (!ent.sellerEnabled) {
+    return c.json({ error: "FlipDesk plan required." }, 403, { "Cache-Control": "no-store" });
+  }
+
+  const { pending, error } = await loadPendingDelists(verified.userId, { limit: 50 });
+  if (error) {
+    console.error(
+      "public-grading /pending-delists:",
+      error instanceof Error ? error.message : String(error),
+    );
+    return c.json({ error: "Could not load pending delists." }, 500, {
+      "Cache-Control": "no-store",
+    });
+  }
+  return c.json({ ok: true, pending }, 200, { "Cache-Control": "no-store, private" });
 });
 
 // ── Selector health telemetry (US-1880 AC3) ──────────────────────────

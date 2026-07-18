@@ -94,6 +94,20 @@
           <p class="pop-lastjob-error" id="lastJobError" hidden></p>
         </div>
 
+        <!-- US-1885 AC1: pending delists. When an item sells on one marketplace,
+             its siblings on Poshmark/Mercari/Grailed have no delist API and must
+             be ended in the seller's own browser. Until now the extension — the
+             only thing that CAN end them — never showed the queue, so a sold item
+             stayed live until the seller happened to open the SaaS. -->
+        <div class="pop-delists" id="delistBlock" hidden>
+          <div class="pop-lastjob-head">
+            <span class="pop-lastjob-label">Needs ending</span>
+            <span class="pop-lastjob-when" id="delistCount"></span>
+          </div>
+          <p class="pop-delist-note" id="delistNote" hidden></p>
+          <ul class="pop-delist-list" id="delistList"></ul>
+        </div>
+
         <div class="pop-tos" id="tosBlock">
           <label class="pop-tos-row">
             <input type="checkbox" id="tosCheck" />

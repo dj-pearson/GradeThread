@@ -48,6 +48,8 @@ const GRADE_ENDPOINT = "https://functions.gradethread.com/api/grading/public/gra
 const ENTITLEMENTS_ENDPOINT = "https://functions.gradethread.com/api/grading/public/entitlements";
 const SELECTOR_HEALTH_ENDPOINT =
   "https://functions.gradethread.com/api/grading/public/selector-health";
+const PENDING_DELISTS_ENDPOINT =
+  "https://functions.gradethread.com/api/grading/public/pending-delists";
 const CONFIG_URL = "https://gradethread.com/extension/marketplace-selectors.json";
 const CONFIG_TTL_HIT_MS = 6 * 60 * 60 * 1000;
 const CONFIG_TTL_MISS_MS = 10 * 60 * 1000;
@@ -142,6 +144,36 @@ async function getSettings() {
     autoRun: Boolean(out.autoRun),
     disabledHosts: Array.isArray(out.disabledHosts) ? out.disabledHosts : [],
   };
+}
+
+// ── pending cross-listing delists (US-1885 AC1) ──────────────────────────
+// The popup has no network access of its own (every fetch in this extension
+// lives here), so it asks the worker. Not cached: the queue changes when a sale
+// lands on another marketplace, and a stale "nothing pending" is the one wrong
+// answer that matters — it leaves a sold item live for someone to buy again.
+async function getPendingDelists() {
+  const { gtBuyerToken } = await ext.storage.local.get("gtBuyerToken");
+  if (!gtBuyerToken || typeof gtBuyerToken !== "string") {
+    return { ok: false, reason: "signed-out", pending: [] };
+  }
+  try {
+    const resp = await fetch(PENDING_DELISTS_ENDPOINT, {
+      headers: { Authorization: "Bearer " + gtBuyerToken },
+      cache: "no-store",
+    });
+    // Distinguish the states the popup renders differently. 401 = the token
+    // expired (say so, and offer sign-in) and 403 = signed in without a
+    // FlipDesk plan — showing "no pending delists" for either would be a lie
+    // that reads as reassurance.
+    if (resp.status === 401) return { ok: false, reason: "signed-out", pending: [] };
+    if (resp.status === 403) return { ok: false, reason: "no-plan", pending: [] };
+    if (!resp.ok) return { ok: false, reason: "error", pending: [] };
+    const json = await resp.json();
+    return { ok: true, pending: Array.isArray(json.pending) ? json.pending : [] };
+  } catch (_e) {
+    // Offline or blocked. NOT an empty queue — see above.
+    return { ok: false, reason: "error", pending: [] };
+  }
 }
 
 // ── selector-failure telemetry (US-1880 AC3) ─────────────────────────────
@@ -935,6 +967,10 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
       case "GT_CC_SELECTOR_MISS":
         sendResponse({ ok: true });
         reportSelectorMiss(msg);
+        break;
+      // US-1885 (AC1): the popup's pending-delist queue.
+      case "GT_GET_PENDING_DELISTS":
+        sendResponse(await getPendingDelists());
         break;
       // US-1873: popup + content scripts read the resolved capability map.
       case "GT_GET_CAPABILITIES":

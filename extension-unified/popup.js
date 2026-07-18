@@ -302,6 +302,111 @@ async function renderLastJob() {
   }
 }
 
+// US-1885 AC1: pending cross-listing delists.
+//
+// When an item sells on one marketplace, its siblings on Poshmark/Mercari/Grailed
+// have no delist API — they can only be ended in the seller's own browser, which
+// is exactly what this extension is. Until now it never showed the queue, so a
+// sold item stayed live until the seller happened to open the SaaS and look.
+//
+// Unlike renderLastJob (a storage read) this needs the network, so it goes
+// through the worker. Every non-OK state gets its OWN copy: rendering "nothing
+// to end" for a expired token, a lapsed plan, or an offline fetch would be a
+// false all-clear on the one screen a seller checks to avoid double-selling.
+const DELIST_REASON = {
+  "signed-out": "Sign in to see listings that still need ending.",
+  "no-plan": "A FlipDesk plan is required to manage cross-listings.",
+  error: "Couldn't check for listings that need ending. Try again in a moment.",
+};
+
+async function renderPendingDelists(caps) {
+  const block = document.getElementById("delistBlock");
+  if (!block) return;
+  // Seller-only surface; don't even ask the server otherwise.
+  if (!caps || !caps.sellerEnabled) {
+    block.hidden = true;
+    return;
+  }
+
+  const list = document.getElementById("delistList");
+  const note = document.getElementById("delistNote");
+  const count = document.getElementById("delistCount");
+  list.textContent = "";
+
+  const res = await send({ type: "GT_GET_PENDING_DELISTS" });
+
+  if (!res || !res.ok) {
+    const reason = (res && res.reason) || "error";
+    block.hidden = false;
+    count.textContent = "";
+    note.hidden = false;
+    note.textContent = DELIST_REASON[reason] || DELIST_REASON.error;
+    return;
+  }
+
+  const pending = Array.isArray(res.pending) ? res.pending : [];
+  if (!pending.length) {
+    // Nothing pending is genuinely good news, and only shown when we actually
+    // know it — every other path above returns before here.
+    block.hidden = true;
+    return;
+  }
+
+  block.hidden = false;
+  count.textContent = String(pending.length);
+
+  // A listing we cannot open cannot be ended by the extension. Say so plainly
+  // rather than offering an action that would silently do nothing.
+  const manual = pending.filter((p) => !p.auto_delistable).length;
+  if (manual) {
+    note.hidden = false;
+    note.textContent = manual === pending.length
+      ? "These need ending by hand on the marketplace — GradeThread doesn't have a live link for them."
+      : manual + " of these need ending by hand (no live link saved).";
+  } else {
+    note.hidden = true;
+    note.textContent = "";
+  }
+
+  for (const p of pending) {
+    const li = document.createElement("li");
+    li.className = "pop-delist";
+
+    const left = document.createElement("div");
+    left.className = "pop-delist-body";
+
+    const title = document.createElement("span");
+    title.className = "pop-delist-title";
+    // item_title is nullable in the DB; never render a bare "null".
+    title.textContent = p.item_title || "Untitled item";
+
+    const meta = document.createElement("span");
+    meta.className = "pop-delist-meta";
+    const platform = PLATFORM_LABELS[p.platform] || p.platform || "marketplace";
+    meta.textContent = p.requested_at ? platform + " · " + timeAgo(p.requested_at) : platform;
+
+    left.appendChild(title);
+    left.appendChild(meta);
+    li.appendChild(left);
+
+    if (p.auto_delistable && p.listing_url) {
+      const open = document.createElement("a");
+      open.className = "pop-linkbtn";
+      open.href = p.listing_url;
+      open.target = "_blank";
+      open.rel = "noopener noreferrer";
+      open.textContent = "Open";
+      li.appendChild(open);
+    } else {
+      const badge = document.createElement("span");
+      badge.className = "pop-status warn";
+      badge.textContent = "By hand";
+      li.appendChild(badge);
+    }
+    list.appendChild(li);
+  }
+}
+
 // US-1885 AC3: versioned + revocable consent.
 async function renderConsent() {
   const out = await ext.storage.local.get(["tosAcceptedAt", "tosVersion"]);
@@ -359,6 +464,7 @@ function renderSellerSections(caps) {
     locked.hidden = true;
     renderPlatforms();
     renderLastJob();
+    renderPendingDelists(caps);
     renderConsent();
   } else if (caps && caps.authenticated) {
     // Signed in but no active FlipDesk plan → honest upsell, not a dead section.

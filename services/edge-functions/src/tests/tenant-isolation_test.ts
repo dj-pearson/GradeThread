@@ -2631,3 +2631,78 @@ Deno.test({
     assertDenied(res.status, "POST propose-groups with a foreign staging path");
   },
 });
+
+// ── Pending cross-listing delists (US-1885 AC1) ────────────────────────────
+//
+// The delist queue is the instruction list for ending listings in a browser, so
+// a cross-tenant leak here is not just a read: it tells the extension to open
+// ANOTHER SELLER'S live listing and end it. Both doors onto the queue are
+// covered — the SaaS route (JWT) and the extension route (HMAC token).
+
+// The confirm side had NO isolation coverage at all before this, despite being
+// the mutating half: it clears the stamp and flips the row to ended/inactive. If
+// B could confirm A's listing, A's sold sibling silently drops off the queue and
+// stays live on the marketplace for a second buyer.
+Deno.test({
+  name: "B cannot confirm a delist on A's listing",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    const listingId = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/listings/delist-confirm`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ listing_id: listingId }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST delist-confirm on a foreign listing");
+  },
+});
+
+// The read side takes NO id from the request — the queue is derived from the
+// caller's identity — so "denied" is the wrong assertion shape. The property
+// that matters is that A's listing never APPEARS in B's queue.
+Deno.test({
+  name: "B's pending-delist queue never contains A's listing",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    const listingId = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/listings/pending-delists`, {
+      headers: authHeaders(B_JWT!),
+    });
+    if (res.status !== 200) {
+      await res.body?.cancel();
+      assertDenied(res.status, "GET pending-delists as B");
+      return;
+    }
+    const json = await res.json();
+    const ids = (json.pending ?? []).map((p: { listing_id: string }) => p.listing_id);
+    assert(
+      !ids.includes(listingId),
+      `pending-delists returned A's listing ${listingId} to user B — cross-tenant leak`,
+    );
+  },
+});
+
+// The extension door. It resolves the tenant from an HMAC extension token and
+// accepts no id, filter or workspace header, so there is nothing for a caller to
+// forge — but that is only true while the token is actually REQUIRED. Assert the
+// unauthenticated and forged-token paths stay closed; a regression that made
+// this route fall back to "anonymous" the way /entitlements does would expose
+// somebody's queue to an unauthenticated caller.
+Deno.test({
+  name: "extension pending-delists rejects missing/forged tokens",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const url = `${BASE}/api/grading/public/pending-delists`;
+
+    const noAuth = await fetch(url);
+    await noAuth.body?.cancel();
+    assertEquals(noAuth.status, 401, "GET pending-delists with no token must be 401");
+
+    for (const bad of ["garbage", "a.b.c", "user-a.9999999999999.deadbeef"]) {
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${bad}` } });
+      await res.body?.cancel();
+      assertDenied(res.status, `GET pending-delists with a forged token (${bad})`);
+    }
+  },
+});
