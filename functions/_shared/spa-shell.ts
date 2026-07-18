@@ -26,15 +26,43 @@ export async function serveSpaShell(
     return new Response("Service unavailable", { status: 503 });
   }
   const shell = await env.ASSETS.fetch(`${origin}/`);
-  // Re-wrap with an explicit 200 and the shell's content-type, dropping any
-  // asset cache/redirect headers that shouldn't apply to an authed app route.
-  return new Response(shell.body, {
+
+  // US-2045: KEEP THESE APP ROUTES OUT OF THE INDEX.
+  //
+  // "/" is the PRERENDERED landing page, not a blank shell, so every route
+  // using this helper served crawlers a byte-identical copy of the homepage.
+  // Live, /login and /signup returned `<title>GradeThread - The Standard…`,
+  // `robots: index, follow`, the full hero <h1>, and duplicate WebSite /
+  // SoftwareApplication / FAQPage JSON-LD — three URLs claiming to be the
+  // homepage, two of them showing users an auth form. WebSite in particular is
+  // meant to be singular per site. The canonical inherited from the homepage
+  // probably made Google consolidate them, but that mitigation was accidental,
+  // and it did not stop the duplicate structured data.
+  //
+  // ⚠ Note on approach: an earlier draft of this tried to strip the prerendered
+  // <head> using the `prerender:head:start/end` markers. Those markers exist in
+  // the SOURCE index.html but are CONSUMED by scripts/prerender.mjs — dist/
+  // has none — so that surgery would have matched nothing and silently done
+  // nothing. Verified against the built file rather than assumed.
+  //
+  // So: the X-Robots-Tag HEADER is the real mechanism. It is authoritative for
+  // every major crawler, outranks any meta tag, and cannot be defeated by a
+  // template change. The meta rewrite below is a secondary signal for tooling
+  // that only reads HTML.
+  let html = await shell.text();
+  html = html.replace(
+    /<meta\s+name=["']robots["'][^>]*>/i,
+    '<meta name="robots" content="noindex, nofollow">',
+  );
+
+  return new Response(html, {
     status: 200,
     headers: {
       "content-type": shell.headers.get("content-type") ?? "text/html; charset=utf-8",
       // App shells are user-specific once mounted; don't let a shared cache pin
       // a stale build's HTML to an authed route.
       "cache-control": "no-cache",
+      "x-robots-tag": "noindex, nofollow",
     },
   });
 }

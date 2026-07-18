@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 2068,
+  "nextId": 2075,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2791,6 +2791,103 @@
         "scripts/vault-lint.mjs",
         "vault/CONTRACT.md"
       ]
+    },
+    {
+      "title": "iOS: full-resolution JPEG encode runs on the main actor, once per shutter press",
+      "description": "ios/GradeThread/Capture/CameraSession.swift:296-309 — the class is @MainActor (line 10-11) and deliver() is called from a @MainActor hop (line 291-293), so photo.fileDataRepresentation() (line 302) and UIImage(data:) (line 303) both run on the main thread. The shot is explicitly configured for maximum quality (AVVideoCodecType.jpeg at 206-208, quality prioritization clamped to the output ceiling at 214-219), so this is a full-sensor-resolution JPEG serialization on the main thread. The irony in context: PhotoIntakeView.capture() at line 958 deliberately calls PhotoCompressor.compressOffMain with the comment 'US-636: compress off the main actor' — but the UIImage it receives was ALREADY produced by a main-thread encode. The expensive half was paid before the optimized half began.",
+      "acceptanceCriteria": [
+        "Move the encode off the main actor: do fileDataRepresentation() + UIImage(data:) inside a Task.detached(priority: .userInitiated) in photoOutput(_:didFinishProcessingPhoto:) — it is already nonisolated, so this is a small change — and hop to @MainActor only to call finishPendingCapture with the finished UIImage.",
+        "The watchdog at 199-204 keys on pendingCaptureID and is unaffected; confirm that still holds after the change.",
+        "MEASURE the encode duration on-device before and after. The main-thread claim is confirmed from the isolation annotations; the magnitude is inferred from the operation and the quality settings, and should not be assumed."
+      ],
+      "priority": 1990,
+      "notes": "[P1][iOS/Performance] Found 2026-07-18 by the first iOS audit this repo has had. Symptom: a visible hitch on EVERY shutter tap — shutter animation and slot-strip update stutter. Grading requires 4+ photos per item, so a seller feels it 4+ times per item and continuously in bulk capture; it is the app's most-repeated interaction. NOT FIXED HERE, deliberately: Swift cannot be built or tested on this Windows checkout (repo guidance is explicit that xcodebuild is macOS-only and only ios/Scripts/no-ungated-print.py runs locally), and an unverifiable edit to the camera path — the highest-volume, hardest-to-debug surface in the app — is not worth the risk. Needs a macOS session. Worth knowing the surrounding code is otherwise strong: US-635 downsampling, US-636 off-main compression, US-1165/1166 off-main parse + size caps are all in place, which is exactly why this one site stands out.",
+      "id": "US-2068",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "iOS: AutoLister ungrouped pool is a non-lazy stack that re-sorts up to 200 photos per render",
+      "description": "Two compounding problems in ios/GradeThread/AutoLister/AutoListerView.swift:352-358. (a) Line 353 is HStack, not LazyHStack, so every ungrouped photo's view is materialized however far off-screen; the batch cap is maxBatchPhotos = 200 (AutoListerReviewModel.swift:168) and the ungrouped pool can hold all 200, since ungrouping to re-sort is its documented purpose (:377-384). (b) ungroupedSorted (AutoListerReviewModel.swift:403-445) is a COMPUTED property doing an O(n log n) sort — building a Set, filtering importOrder, compactMapping into structs, then stableSorted with a per-comparison provenance/numeric comparator — and it is read directly inside body, so it re-runs on EVERY body evaluation, including ones triggered by unrelated @Published churn (isImporting, verifying, verifyProgress, proposing, proposeProgress, capNotice, actionError, suggestions, proposalReviews, aiActionsRemaining — lines 52-95).",
+      "acceptanceCriteria": [
+        "Change line 353 to LazyHStack. (The sibling groupCard at 556-562 has the same non-lazy HStack but groups are individually small — that one is benign; the ungrouped pool is the one that scales.)",
+        "Memoize ungroupedSorted: either the InventoryDerivation pattern (a non-observable final class cache keyed on ungrouped + ungroupedSort + importOrder) or recompute in the didSet of ungrouped/ungroupedSort and store it as a plain stored property.",
+        "Verify with Instruments on a 200-photo batch, specifically during an AI verify/propose pass — those publish progress per window (lines 78, 80), which is when the re-sort storm is worst."
+      ],
+      "priority": 1991,
+      "notes": "[P1][iOS/Performance] Found 2026-07-18 by the iOS audit. Symptom: dropped frames scrolling the ungrouped strip on a large batch, plus stutter during AI verify/propose — each progress publish re-sorts up to 200 photos AND rebuilds up to 200 views. The instructive part is that this problem was already SOLVED elsewhere in the same app: InventoryListView uses InventoryDerivation memoization and its header comment (Inventory/InventoryDerivation.swift:6-13) describes this precise failure mode. AutoLister never got the same treatment. NOT FIXED HERE — Swift is unbuildable/untestable on Windows; needs a macOS session.",
+      "id": "US-2069",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "iOS: bulk photo import is strictly serial though a bounded-concurrency helper already exists",
+      "description": "Both PHPicker import paths — AutoListerReviewModel.swift:218-243 and PhotoIntakeView.swift:907-923 — are plain serial for loops awaiting per photo: result.loadImage() (I/O; for iCloud-backed photos a NETWORK round trip each), then PhotoCompressor.compressOffMain (CPU), then a detached DHash.compute (CPU, :238-240). Meanwhile PhotoCompressor.compressBatch(_:maxConcurrent:) (PhotoCompressor.swift:64-91) exists for exactly this — bounded concurrency, per-item autoreleasepool, order-preserving — and a grep of the whole ios/ tree shows its ONLY caller is Inventory/PhotosDropHandler.swift:20. Neither high-volume import path uses it.",
+      "acceptanceCriteria": [
+        "Wrap the whole per-photo unit (load + compress + dHash) in the chunked withTaskGroup shape already used correctly three times in this codebase: PhotoCompressor.compressBatch, DisclosureStore.renderAll (Disclosure/DisclosureStore.swift:88-115) and ReconciliationService (:215-242).",
+        "Keep concurrency modest (3-4) so only a few full-resolution UIImages are resident — that memory property is why compressBatch was written, and parallelising without it trades a latency win for a jetsam risk.",
+        "Preserve input order via the enumerate-and-sort approach at DisclosureStore.swift:106."
+      ],
+      "priority": 1992,
+      "notes": "[P2][iOS/Performance] Found 2026-07-18 by the iOS audit. The dominant cost is loadImage(), not compression: for iCloud-backed photos that is a serialized network fetch per photo, so a 200-photo import is 200 sequential round trips. Symptom: bulk import sits on the spinner for minutes rather than tens of seconds when photos are not local, and it widens the window for the 'still downloading from iCloud' partial-failure path the code already anticipates (:255-259). NOT FIXED HERE — Swift is unbuildable on Windows.",
+      "id": "US-2070",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "SEO: cert dateModified can never survive the SSR path, and the equivalence test cannot catch it",
+      "description": "src/lib/seo/json-ld.ts:686 emits dateModified when supplied, but the SSR mirror's input type CertProductLdInput (functions/_shared/blog-render.ts:1328-1340) has NO dateModified field and certificateProductLd never emits one. The byte-equality test at src/lib/seo/__tests__/json-ld.test.ts:154 passes only because its CERT_INPUT fixture (:135-144) omits the field. Not currently a live defect — certificate.tsx:553-562 does not pass dateModified either — but the moment someone does, the SPA and SSR silently diverge and the equivalence test stays green.",
+      "acceptanceCriteria": [
+        "Add dateModified to CertProductLdInput and the SSR builder.",
+        "Add it to the CERT_INPUT test fixture, so the byte-equality test would actually catch a divergence.",
+        "Then consider passing it from certificate.tsx — freshness signals on certificates are worth having, and a regraded certificate genuinely has a modified date."
+      ],
+      "priority": 1993,
+      "notes": "[P3][SEO] Found 2026-07-18 by the SEO/GEO audit. Latent, not firing. Filed because it is the exact shape of the bug class this session keeps hitting: a guard that passes because its FIXTURE omits the field under test. The fix is to widen the fixture, not just the type — otherwise the next person adds dateModified, both paths type-check, and only one emits it.",
+      "id": "US-2071",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "SEO: two hub pages declare CollectionPage but emit no structured data at all",
+      "description": "/compare and /grading/platform-standards had jsonLdType: 'CollectionPage' in the registry while their JSON-LD builders return [] (marketing-jsonld.ts:634 and :734), so only the generic Organization + BreadcrumbList base is emitted on both the SPA and prerender paths. The registry field was corrected to declare nothing (US-2044) rather than assert markup that does not exist — but the underlying opportunity remains: these are hubs with 16 and N children respectively, which are good ItemList/CollectionPage candidates.",
+      "acceptanceCriteria": [
+        "Emit a real CollectionPage or ItemList enumerating each hub's children, so an AI assistant can enumerate the comparison set and the platform-standards set rather than parsing prose.",
+        "Re-declare jsonLdType on both routes once the markup exists — the US-2044 parity test then enforces it automatically.",
+        "Same for /for-brands, which passes no jsonLd at all (src/lib/seo/for-brands.ts)."
+      ],
+      "priority": 1994,
+      "notes": "[P3][SEO/GEO] Found 2026-07-18 by the SEO/GEO audit (its finding #7). Enhancement rather than defect: there is no client/server DISAGREEMENT here, so no cloaking risk — the SPA emits nothing either. I corrected the registry to be truthful rather than faking markup to satisfy a field, which is why this is filed separately: writing real ItemList markup is genuinely valuable for AI enumeration and deserves doing properly, not as a side effect of making a test pass.",
+      "id": "US-2072",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "Buyer Purchase Guarantee has no coverage dashboard — a paid feature with one cramped render site",
+      "description": "The buyer purchaseGuarantee entitlement is sold on the Guard and Connoisseur plans (constants.ts:518,554) and the backend is fully built: claim intake (guarantee-public.ts:102), admin review/resolve (admin-guarantee-pool.ts:35,89), a pool cron (main.ts:1515), and a working claim form at /buyer-guarantee/claim. What does not exist is the buyer-facing COVERAGE surface: /buyer/guarantee renders BuyerPlaceholderPage, and buyer-features.ts:70-75 marks purchaseGuarantee as the only non-live buyer feature. The data model already supports the real thing — purchase.coverage carries eligible / covered_until / ineligible_reason and flows to the client — but has exactly one cramped render site (buyer/rewards.tsx:156-159, a 'Grade-Locked — covered until {date}' chip).",
+      "acceptanceCriteria": [
+        "Build the coverage dashboard at /buyer/guarantee: which purchases are covered, until when, what is excluded and why, and how to claim.",
+        "Flip buyer-features.ts purchaseGuarantee to live: true once it exists, and remove the 'Coming soon' badge on the pricing page (asserted by pricing-coming-soon.test.tsx:31, which will need updating).",
+        "Add a test asserting buyer-features.ts's `live` flags match the route table — the file's own comment (:5-6) admits it is a HAND-MAINTAINED mirror with nothing pinning it, so a route flipping to a real page silently desyncs the pricing page's badges."
+      ],
+      "priority": 1995,
+      "notes": "[P2][Buyer/Product] Found 2026-07-18 by the product-gap audit. The IMMEDIATE dead end — an entitled subscriber clicking 'Purchase Guarantee' and being told it is coming soon — was fixed the same day (US-2042: the placeholder now links to the live claim form). This story is the remaining 20%: the real coverage view. Note the audit's own framing, which is fair: the highest-value 80% was a LINK, not a feature. Also worth recording that the gating system caught its own problem at the SALES surface (the pricing page correctly badges it 'Coming soon') but not at the NAV surface — which is why the dead end existed only for people who had already paid.",
+      "id": "US-2073",
+      "passes": false,
+      "dependsOn": []
+    },
+    {
+      "title": "CLAUDE.md's '501 handlers, wire incrementally' note is stale and points auditors at phantom work",
+      "description": "CLAUDE.md's FlipDesk section says 'Some other flipdesk-* handlers still 501 — wire incrementally', implying unfinished features. An audit traced every one and they are all DELIBERATE and documented: flipdesk-grading.ts:699 is a webhook receiver reserved for a Phase 2 public API (same-process DB sync via grading-pipeline is used instead); flipdesk-images.ts:50 /process is superseded by client-side thumbnails + EXIF strip in PhotoUploader; flipdesk-listings.ts:251 is an unreachable defensively-typed fallback for an unknown platform (all 7 are registered in lib/marketplace-adapters/index.ts:16-24); and flipdesk-ebay.ts:8026,8120,8133 are negotiation endpoints gated on eBay restricted scopes not yet granted (tracked: US-1421). flipdesk-ebay.ts:1840-1850 already classifies them explicitly.",
+      "acceptanceCriteria": [
+        "Rewrite the CLAUDE.md sentence to say the remaining 501s are deliberate, with a pointer to the classification at flipdesk-ebay.ts:1840-1850 and to US-1421 for the scope-gated ones.",
+        "Do not remove the note entirely — a future reader still needs to know why a 501 exists; they need to know it is intentional, not that it is invisible."
+      ],
+      "priority": 1996,
+      "notes": "[P3][Docs] Found 2026-07-18 by the product-gap audit. Small, but the cost is real and measurable: the audit spent effort chasing phantom unfinished features because the project's own primary context file said they existed. CLAUDE.md is loaded into every agent session, so a stale sentence there is paid repeatedly rather than once. Same class as the LAUNCH_CHECKLIST '00132' line (US-2012) — hand-written prose beside accurate generated content. | 2026-07-18 FIXED same pass (agent loop). CLAUDE.md now states the remaining 501s are deliberate, names each one's reason, and points at the classification comment at flipdesk-ebay.ts:1840-1850 plus US-1421 for the scope-gated negotiation endpoints. Kept the note rather than deleting it, per AC2: a future reader still needs to know WHY a 501 exists — they need it marked intentional, not made invisible.",
+      "id": "US-2074",
+      "passes": true,
+      "dependsOn": []
     }
   ]
 }

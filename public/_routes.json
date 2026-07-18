@@ -10,6 +10,8 @@
     "/signup",
     "/accept-invite",
     "/connect-extension",
+    "/buyer-guarantee/*",
+    "/waitlist-pending",
     "/cert/*",
     "/passport/*",
     "/verified/*",

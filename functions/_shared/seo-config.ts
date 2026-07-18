@@ -93,6 +93,23 @@ export const DISALLOWED_PATHS: readonly string[] = [
   "/api/",
   "/accept-invite",
   "/connect-extension",
+  // US-2045: auth entry points. These are served by serveSpaShell, which
+  // returns the PRERENDERED HOMEPAGE — so before this they were two indexable
+  // URLs serving a byte-identical copy of "/" to crawlers while showing users a
+  // login form. The shell now sends X-Robots-Tag: noindex, which is the real
+  // mechanism; disallowing them here additionally saves the crawl budget.
+  //
+  // Note the interaction, since it is easy to get wrong: a page that is BOTH
+  // disallowed and noindex can have its noindex go unseen (a crawler that obeys
+  // the disallow never fetches the page to read the header). That is fine HERE
+  // because these URLs carry no inbound links worth consolidating and were only
+  // ever indexable by accident. Do NOT copy this pattern onto a page you need
+  // actively DE-indexed — for that, allow the crawl and let noindex do its job.
+  "/login",
+  "/signup",
+  // US-2045: client-routed app pages, now served by their own Functions.
+  // Reachable only from in-app flows; nothing to index.
+  "/waitlist-pending",
 ];
 
 export function buildRobotsTxt(opts: {
