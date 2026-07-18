@@ -531,7 +531,7 @@ export function BulkIntake() {
               getKey={(it) => it.id}
               estimateSize={60}
               gap={6}
-              className="max-h-[60vh]"
+              className="max-h-[60dvh]"
               renderItem={(it, i) => (
                 <div className="flex items-center gap-3 rounded-md border p-2.5">
                   <span className="w-6 flex-shrink-0 text-center font-mono text-xs text-muted-foreground">

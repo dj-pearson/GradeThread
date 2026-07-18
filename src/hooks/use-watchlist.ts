@@ -23,6 +23,7 @@ type WatchTarget = {
 export interface UseWatchlist {
   items: WatchlistItemRow[];
   isLoading: boolean;
+  isError: boolean;
   /** True when the given target is already on the buyer's watchlist. */
   isWatched: (target_type: WatchlistItemRow["target_type"], target_id: string) => boolean;
   /** Idempotent add (unique on user+target — a repeat is a no-op upsert). */
@@ -98,6 +99,12 @@ export function useWatchlist(): UseWatchlist {
   return {
     items: query.data ?? [],
     isLoading: query.isLoading,
+    // US-2026: expose the FAILURE. Without this the hook returns [] on
+    // error, which consumers render as a confident empty state — a buyer
+    // with 40 graded garments is told to "add your first item". A visible
+    // error prompts a retry; a false empty state prompts the user to
+    // conclude their data is gone.
+    isError: query.isError,
     isWatched: (t, id) => watched.has(watchTargetKey(t, id)),
     watch: (target) => watchMutation.mutateAsync(target),
     unwatch: (t, id) => unwatchMutation.mutateAsync({ target_type: t, target_id: id }),

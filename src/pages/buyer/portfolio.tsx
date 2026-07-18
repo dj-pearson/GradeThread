@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 import { useBuyerEntitlements } from "@/hooks/use-buyer-entitlements";
 import { useBuyerCloset } from "@/hooks/use-buyer-closet";
 import { useBuyerPortfolioValuation, type ItemValuation } from "@/hooks/use-buyer-portfolio-valuation";
@@ -56,7 +57,7 @@ type FilterKey = "all" | "gainers" | "losers";
 
 export function BuyerPortfolioPage() {
   const ent = useBuyerEntitlements();
-  const { items, isLoading, addItem, isAdding, removeItem, isRemoving, listItem, isListing, exportCsv } =
+  const { items, isLoading, isError, addItem, isAdding, removeItem, isRemoving, listItem, isListing, exportCsv } =
     useBuyerCloset();
   const { totals, valuationFor } = useBuyerPortfolioValuation();
   // US-1844: coarse public trust signals for the certified items in the closet —
@@ -290,6 +291,16 @@ export function BuyerPortfolioPage() {
           <div className="flex justify-center py-12">
             <Loader2 className="h-6 w-6 animate-spin text-primary" />
           </div>
+        ) : isError ? (
+          /* US-2026: a failed load must NOT render as "your closet is empty".
+             That told a buyer who owns 40 graded garments to add their first
+             item — a false empty state reads as data loss, while a visible
+             error reads as "try again". */
+          <ErrorState
+            title="Couldn't load your closet"
+            description="Your items are safe — we just couldn't fetch them right now."
+            onRetry={() => window.location.reload()}
+          />
         ) : items.length === 0 ? (
           <EmptyState
             icon={Shirt}

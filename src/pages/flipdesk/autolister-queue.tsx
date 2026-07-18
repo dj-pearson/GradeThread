@@ -874,7 +874,7 @@ export function FlipdeskAutolisterQueuePage() {
           getKey={(job) => job.id}
           estimateSize={120}
           gap={8}
-          className="max-h-[70vh] pr-1"
+          className="max-h-[70dvh] pr-1"
           renderItem={(job) => {
             const pub = bulkPublish.results[job.inventory_item_id];
             // US-550: tier dot (only meaningful once a draft is generated).
@@ -1067,7 +1067,7 @@ export function FlipdeskAutolisterQueuePage() {
             </DialogDescription>
           </DialogHeader>
           {photoItem && (
-            <div className="max-h-[70vh] overflow-y-auto pr-1">
+            <div className="max-h-[70dvh] overflow-y-auto pr-1">
               <PhotoUploader
                 itemId={photoItem.id}
                 currentStatus={photoItem.status ?? undefined}
@@ -1214,7 +1214,7 @@ function PublishConfirmDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[80vh] max-w-2xl overflow-y-auto">
+      <DialogContent className="max-h-[80dvh] max-w-2xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Publish {items.length} drafts to eBay?</DialogTitle>
           <DialogDescription>

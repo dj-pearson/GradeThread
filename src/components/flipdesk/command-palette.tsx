@@ -654,7 +654,7 @@ export function CommandPalette() {
           id="command-palette-listbox"
           role="listbox"
           aria-label="Search results"
-          className="max-h-[60vh] overflow-y-auto p-2"
+          className="max-h-[60dvh] overflow-y-auto p-2"
         >
           {flat.length === 0 ? (
             <div className="py-8 text-center text-sm text-muted-foreground">

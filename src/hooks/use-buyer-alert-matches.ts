@@ -14,6 +14,7 @@ const CONDITION_ALERT_TYPE = "buyer_condition_alert" as const;
 export interface UseBuyerAlertMatches {
   matches: NotificationRow[];
   isLoading: boolean;
+  isError: boolean;
   /** Mark a single match read (dismiss its unread dot). */
   markRead: (id: string) => Promise<void>;
 }
@@ -56,6 +57,12 @@ export function useBuyerAlertMatches(limit = 30): UseBuyerAlertMatches {
   return {
     matches: query.data ?? [],
     isLoading: query.isLoading,
+    // US-2026: expose the FAILURE. Without this the hook returns [] on
+    // error, which consumers render as a confident empty state — a buyer
+    // with 40 graded garments is told to "add your first item". A visible
+    // error prompts a retry; a false empty state prompts the user to
+    // conclude their data is gone.
+    isError: query.isError,
     markRead: (id) => markReadMutation.mutateAsync(id),
   };
 }

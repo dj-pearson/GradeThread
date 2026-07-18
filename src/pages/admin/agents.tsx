@@ -560,7 +560,7 @@ function TranscriptDialog({ runId, onClose }: { runId: string | null; onClose: (
 
   return (
     <Dialog open={!!runId} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-h-[80vh] max-w-3xl overflow-y-auto">
+      <DialogContent className="max-h-[80dvh] max-w-3xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Run transcript</DialogTitle>
           <DialogDescription>

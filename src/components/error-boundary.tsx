@@ -1,5 +1,6 @@
-import { Component } from "react";
+import { Component, useEffect } from "react";
 import type { ReactNode, ErrorInfo } from "react";
+import { useRouteError } from "react-router-dom";
 import { captureException } from "@/lib/sentry";
 import { AlertTriangle, RefreshCw, Home } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -106,6 +107,38 @@ export class ErrorBoundary extends Component<Props, State> {
 
 /** Standalone fallback for React Router errorElement */
 export function RouteErrorFallback() {
+  const error = useRouteError();
+
+  // US-2027: REPORT it. The class ErrorBoundary above calls captureException,
+  // but this router-level fallback did not — so every route error rendered this
+  // card with ZERO telemetry. The sharpest case is /embed/grade/:id, which is
+  // mounted OUTSIDE RootLayout and therefore has no class boundary above it: a
+  // white-label partner iframe could be broken indefinitely with nobody knowing.
+  //
+  // useRouteError() also catches thrown Responses (a 404/500 from a loader),
+  // which are NOT Errors — normalize so Sentry gets something useful rather
+  // than "[object Object]".
+  useEffect(() => {
+    if (!error) return;
+    const normalized = error instanceof Error
+      ? error
+      : new Error(
+        typeof error === "object" && error !== null && "status" in error
+          ? `Route error: HTTP ${(error as { status?: unknown }).status} ${
+            String((error as { statusText?: unknown }).statusText ?? "")
+          }`.trim()
+          : `Route error: ${String(error)}`,
+      );
+    captureException(normalized, {
+      tags: { source: "RouteErrorFallback" },
+      extra: {
+        // The embed route has no boundary above it, so knowing WHERE this fired
+        // is the difference between a triaged partner outage and a mystery.
+        pathname: typeof window !== "undefined" ? window.location.pathname : undefined,
+      },
+    });
+  }, [error]);
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-6">
       <Card className="w-full max-w-md">

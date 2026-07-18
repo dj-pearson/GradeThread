@@ -13,7 +13,7 @@ interface VirtualListProps<T> {
   gap?: number;
   /** Extra rows rendered above/below the viewport to smooth fast scrolls. */
   overscan?: number;
-  /** Scroll-container classes — set a bounded height here (e.g. max-h-[70vh]). */
+  /** Scroll-container classes — set a bounded height here (e.g. max-h-[70dvh]). */
   className?: string;
 }
 

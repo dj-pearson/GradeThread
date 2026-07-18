@@ -70,6 +70,12 @@ export function useBuyerWants() {
   return {
     wants: query.data ?? [],
     isLoading: query.isLoading,
+    // US-2026: expose the FAILURE. Without this the hook returns [] on
+    // error, which consumers render as a confident empty state — a buyer
+    // with 40 graded garments is told to "add your first item". A visible
+    // error prompts a retry; a false empty state prompts the user to
+    // conclude their data is gone.
+    isError: query.isError,
     createWant: (input: CreateWantInput) => createMutation.mutateAsync(input),
     isCreating: createMutation.isPending,
     setStatus: (id: string, status: BuyerWantRow["status"]) => statusMutation.mutateAsync({ id, status }),

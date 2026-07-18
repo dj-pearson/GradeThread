@@ -1866,7 +1866,7 @@ export function FlipdeskListingsPage() {
               )}
             </Button>
           </SheetTrigger>
-          <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto">
+          <SheetContent side="bottom" className="max-h-[85dvh] overflow-y-auto">
             <SheetHeader>
               <SheetTitle>Filters</SheetTitle>
               <SheetDescription>
@@ -2196,7 +2196,7 @@ export function FlipdeskListingsPage() {
                 ref={tableScrollRef}
                 className={cn(
                   "hidden overflow-x-auto md:block",
-                  virtualize && "max-h-[70vh] overflow-y-auto",
+                  virtualize && "max-h-[70dvh] overflow-y-auto",
                 )}
               >
                 <Table className="text-xs">

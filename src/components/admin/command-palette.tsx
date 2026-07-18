@@ -192,7 +192,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
           />
         </div>
 
-        <div ref={listRef} className="max-h-[60vh] overflow-y-auto p-2">
+        <div ref={listRef} className="max-h-[60dvh] overflow-y-auto p-2">
           {debounced.length < 2 && (
             <p className="px-3 py-6 text-center text-sm text-muted-foreground">
               Type at least 2 characters to search. Try an email, SKU,

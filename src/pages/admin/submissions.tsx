@@ -741,7 +741,7 @@ export function AdminSubmissionsPage() {
 
       {/* View AI Raw Analysis Dialog */}
       <Dialog open={!!viewingRawAnalysis} onOpenChange={() => setViewingRawAnalysis(null)}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl max-h-[80dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>AI Raw Analysis</DialogTitle>
             <DialogDescription>

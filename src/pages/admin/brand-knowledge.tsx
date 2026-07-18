@@ -258,7 +258,7 @@ export function AdminBrandKnowledgePage() {
               />
             </div>
           </CardHeader>
-          <CardContent className="max-h-[70vh] space-y-1 overflow-auto">
+          <CardContent className="max-h-[70dvh] space-y-1 overflow-auto">
             {isLoading
               ? [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-10 w-full" />)
               : filtered.map((b) => (

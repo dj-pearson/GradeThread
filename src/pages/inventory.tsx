@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -40,7 +40,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from "@/lib/supabase";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { GARMENT_TYPES, ITEM_STATUSES } from "@/lib/constants";
-import type { InventoryItemRow, ListingRow, SaleRow } from "@/types/database";
+import type { InventoryItemRow } from "@/types/database";
 
 const PAGE_SIZE = 25;
 
@@ -62,11 +62,23 @@ function formatCurrency(amount: number | null): string {
   }).format(amount);
 }
 
+// US-2023: only these two columns are ever read, so the queries project only
+// these two columns. Narrow types keep that honest — widening the projection now
+// requires widening the type, which is a visible decision rather than a drift.
+interface DaysListedListing {
+  inventory_item_id: string;
+  listed_at: string;
+}
+interface DaysListedSale {
+  inventory_item_id: string;
+  sale_date: string;
+}
+
 function calcDaysListed(
   itemId: string,
   itemStatus: string,
-  listingsByItem: Map<string, ListingRow[]>,
-  saleByItem: Map<string, SaleRow>,
+  listingsByItem: Map<string, DaysListedListing[]>,
+  saleByItem: Map<string, DaysListedSale>,
 ): number | null {
   const listings = listingsByItem.get(itemId);
   if (!listings || listings.length === 0) return null;
@@ -149,38 +161,6 @@ export function InventoryPage() {
 
   const brands = brandsData ?? [];
 
-  // Fetch listings and sales for days-listed calculation
-  const { data: listingsData } = useQuery({
-    queryKey: ["inventory-listings"],
-    queryFn: async () => {
-      const [listingsRes, salesRes] = await Promise.all([
-        supabase.from("listings").select("*"),
-        supabase.from("sales").select("*"),
-      ]);
-      if (listingsRes.error) throw listingsRes.error;
-      if (salesRes.error) throw salesRes.error;
-      return {
-        listings: (listingsRes.data ?? []) as ListingRow[],
-        sales: (salesRes.data ?? []) as SaleRow[],
-      };
-    },
-    staleTime: 5 * 60 * 1000,
-  });
-
-  // Build lookup maps for days-listed calculation
-  const listingsByItem = new Map<string, ListingRow[]>();
-  const saleByItem = new Map<string, SaleRow>();
-  if (listingsData) {
-    for (const l of listingsData.listings) {
-      const arr = listingsByItem.get(l.inventory_item_id) ?? [];
-      arr.push(l);
-      listingsByItem.set(l.inventory_item_id, arr);
-    }
-    for (const s of listingsData.sales) {
-      saleByItem.set(s.inventory_item_id, s);
-    }
-  }
-
   const {
     data,
     isLoading,
@@ -239,9 +219,66 @@ export function InventoryPage() {
     staleTime: 5 * 60 * 1000,
   });
 
-  const items = data?.items ?? [];
+  // US-2023: memoized because `pageItemIds` below derives from it and feeds a
+  // queryKey. `data?.items ?? []` produces a NEW array identity every render, so
+  // without this the derived memo recomputes constantly. TanStack hashes keys
+  // structurally, so this was not causing refetch churn — but a stable identity
+  // is what makes that guarantee obvious instead of incidental.
+  const items = useMemo(() => data?.items ?? [], [data]);
   const totalCount = data?.totalCount ?? 0;
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
+
+  // US-2023: hydrate days-listed for the VISIBLE PAGE ONLY.
+  //
+  // This used to be `listings.select("*")` + `sales.select("*")` with no bound —
+  // the tenant's ENTIRE commercial history, both wide tables, pulled into the
+  // browser to decorate ~50 rows. A seller with 5,000 listings and 3,000 sales
+  // downloaded 8,000 wide rows on the entry path to the app, and it grew forever
+  // because `sales` is append-only. The grid beside it was already correctly
+  // paginated, which is what made the cost invisible.
+  //
+  // Scoped by .in(page ids) and projected to the TWO columns calcDaysListed
+  // actually reads. Both supporting indexes already exist
+  // (idx_listings_inventory_item_id, idx_sales_inventory_item_id).
+  const pageItemIds = useMemo(() => items.map((i) => i.id), [items]);
+  const { data: daysListedData } = useQuery({
+    // The ids are the cache key: paging re-fetches, revisiting a page is a hit.
+    queryKey: ["inventory-days-listed", pageItemIds],
+    enabled: pageItemIds.length > 0,
+    queryFn: async () => {
+      const [listingsRes, salesRes] = await Promise.all([
+        supabase
+          .from("listings")
+          .select("inventory_item_id, listed_at")
+          .in("inventory_item_id", pageItemIds),
+        supabase
+          .from("sales")
+          .select("inventory_item_id, sale_date")
+          .in("inventory_item_id", pageItemIds),
+      ]);
+      if (listingsRes.error) throw listingsRes.error;
+      if (salesRes.error) throw salesRes.error;
+      return {
+        listings: (listingsRes.data ?? []) as DaysListedListing[],
+        sales: (salesRes.data ?? []) as DaysListedSale[],
+      };
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const { listingsByItem, saleByItem } = useMemo(() => {
+    const byItem = new Map<string, DaysListedListing[]>();
+    const sale = new Map<string, DaysListedSale>();
+    for (const l of daysListedData?.listings ?? []) {
+      const arr = byItem.get(l.inventory_item_id) ?? [];
+      arr.push(l);
+      byItem.set(l.inventory_item_id, arr);
+    }
+    for (const sl of daysListedData?.sales ?? []) {
+      sale.set(sl.inventory_item_id, sl);
+    }
+    return { listingsByItem: byItem, saleByItem: sale };
+  }, [daysListedData]);
 
   function toggleSort(field: SortField) {
     if (sortField === field) {

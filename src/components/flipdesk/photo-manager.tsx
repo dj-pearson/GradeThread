@@ -332,7 +332,7 @@ export function PhotoManager({
             <img
               src={viewingPhoto.photo_url}
               alt={PHOTO_TYPE_LABELS[viewingPhoto.photo_type]}
-              className="max-h-[80vh] w-full rounded object-contain"
+              className="max-h-[80dvh] w-full rounded object-contain"
             />
           )}
         </DialogContent>

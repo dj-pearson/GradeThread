@@ -109,7 +109,14 @@ export function FilterBuilder({
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[460px] p-3" align="start">
+      {/* US-2028: w-[460px] alone overflowed any viewport under 460px — an
+          iPhone SE is 375px and an iPhone 14 is 390px, and FlipDesk filtering is
+          a seller workflow, not an admin screen. Clamp to the viewport on small
+          screens and keep the roomy width from sm up. */}
+      <PopoverContent
+        className="w-[calc(100vw-2rem)] p-3 sm:w-[460px]"
+        align="start"
+      >
         <div className="mb-2 flex items-center gap-2 text-xs">
           <span className="text-muted-foreground">Match</span>
           <div className="flex overflow-hidden rounded-md border">

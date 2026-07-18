@@ -181,6 +181,12 @@ export function useBuyerPurchases() {
   return {
     purchases: query.data ?? [],
     isLoading: query.isLoading,
+    // US-2026: expose the FAILURE. Without this the hook returns [] on
+    // error, which consumers render as a confident empty state — a buyer
+    // with 40 graded garments is told to "add your first item". A visible
+    // error prompts a retry; a false empty state prompts the user to
+    // conclude their data is gone.
+    isError: query.isError,
     rewardCredits: rewardsQuery.data ?? null,
     linkPurchase: (input: LinkPurchaseInput) => linkMutation.mutateAsync(input),
     isLinking: linkMutation.isPending,

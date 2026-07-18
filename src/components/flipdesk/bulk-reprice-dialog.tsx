@@ -138,7 +138,7 @@ export function BulkRepriceDialog({
             Nothing to reprice.
           </div>
         ) : (
-          <div className="max-h-[55vh] space-y-1 overflow-y-auto pr-1">
+          <div className="max-h-[55dvh] space-y-1 overflow-y-auto pr-1">
             {capped && (
               <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
                 Only the first {rows.length} listings were priced — narrow the

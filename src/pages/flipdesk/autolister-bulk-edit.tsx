@@ -1630,7 +1630,7 @@ export function FlipdeskAutolisterBulkEditPage() {
           sticky header and bounded height drive the row virtualizer. */}
       <div
         ref={scrollRef}
-        className="max-h-[70vh] overflow-auto rounded-xl border bg-card shadow-sm"
+        className="max-h-[70dvh] overflow-auto rounded-xl border bg-card shadow-sm"
       >
         <table className="w-full text-sm">
           <thead className="border-b text-left text-xs uppercase text-muted-foreground [&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-muted">

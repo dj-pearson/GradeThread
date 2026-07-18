@@ -88,7 +88,7 @@ export function ItemQuickEditSheet({
 
   return (
     <Sheet open={!!item} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent side="bottom" className="max-h-[88vh] overflow-y-auto">
+      <SheetContent side="bottom" className="max-h-[88dvh] overflow-y-auto">
         <SheetHeader>
           <SheetTitle>Quick edit</SheetTitle>
           <SheetDescription>

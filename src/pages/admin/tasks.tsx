@@ -501,7 +501,7 @@ function ImportDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[90vh] max-w-2xl flex-col overflow-hidden">
+      <DialogContent className="flex max-h-[90dvh] max-w-2xl flex-col overflow-hidden">
         <DialogHeader>
           <DialogTitle>Import from Markdown</DialogTitle>
           <DialogDescription>

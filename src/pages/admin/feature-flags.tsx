@@ -175,7 +175,7 @@ function RuleEditorDialog({
 
   return (
     <Dialog open={flag != null} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
+      <DialogContent className="max-h-[90dvh] max-w-lg overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Flag className="h-4 w-4" /> Targeting — {flag?.key}

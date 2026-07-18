@@ -338,7 +338,7 @@ export function PhotoEditorDialog({ open, src, onClose, onSave }: Props) {
             {/* Rotated canvas — CSS-scaled to fit the dialog */}
             <canvas
               ref={canvasRef}
-              className="block max-h-[52vh] max-w-full"
+              className="block max-h-[52dvh] max-w-full"
             />
 
             {/* Crop overlay — absolutely covers the canvas exactly */}

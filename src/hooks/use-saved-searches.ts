@@ -14,6 +14,7 @@ import type { SavedSearchRow, SavedSearchUpdate } from "@/types/database";
 export interface UseSavedSearches {
   searches: SavedSearchRow[];
   isLoading: boolean;
+  isError: boolean;
   /** Create a new search, defaulting criteria from buyer preferences. */
   create: (label?: string) => Promise<SavedSearchRow>;
   /** Patch a search's criteria / notify flags / active state. */
@@ -90,6 +91,12 @@ export function useSavedSearches(): UseSavedSearches {
   return {
     searches: query.data ?? [],
     isLoading: query.isLoading,
+    // US-2026: expose the FAILURE. Without this the hook returns [] on
+    // error, which consumers render as a confident empty state — a buyer
+    // with 40 graded garments is told to "add your first item". A visible
+    // error prompts a retry; a false empty state prompts the user to
+    // conclude their data is gone.
+    isError: query.isError,
     create: (label) => createMutation.mutateAsync(label),
     update: (id, patch) => updateMutation.mutateAsync({ id, patch }),
     remove: (id) => removeMutation.mutateAsync(id),
