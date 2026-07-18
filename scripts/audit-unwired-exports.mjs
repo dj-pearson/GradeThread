@@ -47,15 +47,25 @@ const showAll = args.includes("--all");
 const modulesOnly = args.includes("--module");
 const norm = (p) => p.split(sep).join("/");
 
+// The caller corpus is src/ MINUS tests, PLUS services/edge-functions/scripts/.
+//
+// That last part was a real blind spot in the first version. Operator scripts
+// live outside src/ and are genuine callers: scripts/measure-eval.ts imports
+// measure-eval-stats.ts and calls releaseGate(), so the module was reported dead
+// when it is the backbone of the US-1582 accuracy gate. An audit that
+// over-reports gets ignored exactly as fast as one that under-reports.
 const prodFiles = [];
-(function walk(d) {
+function walk(d) {
   for (const e of readdirSync(d, { withFileTypes: true })) {
     const p = join(d, e.name);
     if (e.isDirectory()) {
       if (e.name !== "tests") walk(p);
     } else if (e.name.endsWith(".ts")) prodFiles.push(p);
   }
-})(edge);
+}
+walk(edge);
+const edgeScripts = join(root, "services", "edge-functions", "scripts");
+if (existsSync(edgeScripts)) walk(edgeScripts);
 const corpus = prodFiles.map((p) => [norm(p), readFileSync(p, "utf8")]);
 
 const testSrc = existsSync(testsDir)
