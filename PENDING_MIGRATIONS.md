@@ -4,6 +4,39 @@
 > The sections below for those are historical; the only NEW held migration is
 > **00443** at the top.
 
+## ⏳ PENDING: 00475_selector_health_pings.sql (US-1880 AC3 selector telemetry, 2026-07-18)
+
+Creates `public.selector_health_pings` — anonymous counters recording that a
+marketplace adapter came up empty (`adapter`, `empty_selectors[]`,
+`config_version`, `ext_version`, `created_at`) plus an
+`(adapter, created_at DESC)` index. Written ONLY by the service-role edge from
+the new unauthenticated `POST /api/grading/public/selector-health`; the SPA never
+reads it. Deny-all RLS, registered in `SERVICE_ROLE_ONLY` in `rls-guard_test.ts`.
+
+**Risk: LOW.** New standalone table, no backfill, no FK, no changes to existing
+tables, and **nothing on the client side reads it** — so the Cloudflare Pages
+frontend auto-deploy on push is safe here (unlike 00463). If the SQL lags behind
+the edge deploy, the insert fails, the handler swallows it, and the shopper's
+overlay is unaffected: telemetry is best-effort by construction and the honest
+"couldn't read the photos" degrade never depends on it.
+
+**Privacy note for whoever applies this:** the table is deliberately incapable of
+identifying a person or a listing — no URL, no account, no IP, no extension
+instance id, and a closed server-side vocabulary for `adapter`/`empty_selectors`
+so a modified client cannot smuggle one in (`selector-health_test.ts` covers the
+hostile-client cases). It is off by default in the extension and opt-in per
+install. Any future column that narrows a row toward one user or one listing
+turns this from a counter into tracking — don't.
+
+**Apply after 00474**, then `NOTIFY pgrst, 'reload schema';` and confirm the edge
+`EXPECTED_SCHEMA_VERSION` is bumped to **00475** (done in this change).
+
+⚠ `verify:db` did NOT run on the authoring host (Docker not available). The SQL is
+plain DDL — one `CREATE TABLE IF NOT EXISTS`, one `CREATE INDEX IF NOT EXISTS`,
+`ENABLE ROW LEVEL SECURITY`, a guarded `REVOKE`, a `COMMENT`, and the self-record
+footer — with no seed tuples to arity-check, but **run `npm run verify:db` before
+applying to prod.**
+
 ## ⏳ PENDING: 00474_push_subscriptions.sql (US-1901 web push notifications, 2026-07-17)
 
 Creates `public.push_subscriptions` — one row per browser PushManager subscription

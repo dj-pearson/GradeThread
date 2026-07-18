@@ -137,6 +137,17 @@ async function initResearch() {
     ext.storage.local.set({ autoRun: autoEl.checked });
   });
 
+  // US-1880 (AC3): opt-in selector-failure reporting. Unchecked unless the key
+  // is explicitly true, so absent/unset reads as OFF; unchecking removes the key
+  // outright rather than storing false, so a revoke leaves nothing behind.
+  const telemetryEl = document.getElementById("selectorTelemetry");
+  const { selectorTelemetry } = await ext.storage.local.get("selectorTelemetry");
+  telemetryEl.checked = Boolean(selectorTelemetry);
+  telemetryEl.addEventListener("change", async () => {
+    if (telemetryEl.checked) await ext.storage.local.set({ selectorTelemetry: true });
+    else await ext.storage.local.remove("selectorTelemetry");
+  });
+
   const host = await activeHost();
   if (host && MARKETPLACE_HOST_RE.test(host)) {
     const wrap = document.getElementById("siteToggleWrap");

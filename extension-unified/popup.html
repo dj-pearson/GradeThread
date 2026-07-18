@@ -47,6 +47,19 @@
           <input type="checkbox" id="siteEnabled" />
           <span id="siteToggleLabel">Enabled on this site</span>
         </label>
+        <!-- US-1880 AC3: opt-in, off by default. The copy states exactly what is
+             sent and what is not — a vague "help us improve" prompt is how a
+             telemetry toggle becomes a thing people feel tricked by later. -->
+        <label class="pop-toggle">
+          <input type="checkbox" id="selectorTelemetry" />
+          <span>
+            Report when a site’s layout breaks the read
+            <small class="pop-note">
+              Sends only the marketplace name and which part failed — never the
+              listing, the page address, or anything about you. Off by default.
+            </small>
+          </span>
+        </label>
       </section>
 
       <section class="pop-section">

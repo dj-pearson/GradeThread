@@ -133,8 +133,17 @@
     return "";
   }
 
+  // US-1880 (AC3): which selector list came up empty on the last extract. The
+  // gallery has TWO distinct failure modes and conflating them wastes the
+  // signal: "no gallery selector matched any element" points at the gallery
+  // selectors, while "elements matched but produced no usable URL" points at
+  // imageAttrs or the urlUpgrade rule instead. The dead Poshmark upgrade regex
+  // this story fixed was exactly the second kind.
+  let lastGalleryMatched = false;
+
   function extractImageUrls() {
     let imgs = [];
+    lastGalleryMatched = false;
     for (const sel of adapter.gallery || []) {
       let found;
       try {
@@ -144,6 +153,7 @@
       }
       if (found && found.length) {
         imgs = Array.from(found);
+        lastGalleryMatched = true;
         break;
       }
     }
@@ -487,6 +497,31 @@
     return firstText(adapter.price).slice(0, 24);
   }
 
+  // US-1880 (AC3): tell the background an adapter came up empty, so a silently
+  // broken marketplace shows up as a counter instead of waiting for a shopper to
+  // report it. Fire-and-forget by design.
+  //
+  // WHAT IS SENT: the adapter key, which selector LISTS were empty, and the
+  // config version. Never the URL, the title, the brand, or any scraped text —
+  // `title`/`brand` are passed in only to test them for emptiness, and their
+  // VALUES never leave this function. The background drops it entirely unless
+  // the shopper opted in.
+  function reportSelectorMiss(title, brand) {
+    try {
+      const empty = [];
+      // The gallery is the failure that matters — split by which half broke.
+      empty.push(lastGalleryMatched ? "gallery-no-urls" : "gallery");
+      if (!title) empty.push("title");
+      if (!brand) empty.push("brand");
+      send({
+        type: "GT_CC_SELECTOR_MISS",
+        adapter: (adapter && adapter.key) || "",
+        emptySelectors: empty,
+        configVersion: (CFG && CFG.version) || null,
+      });
+    } catch (_e) { /* never let telemetry break the degrade path */ }
+  }
+
   async function runGrade() {
     if (grading) return;
     const title = extractTitle();
@@ -494,10 +529,13 @@
     const condition = extractCondition();
     const imageUrls = extractImageUrls();
     if (!imageUrls.length) {
+      // AC5 first: the honest degrade is rendered unconditionally and never
+      // depends on telemetry succeeding, being consented to, or being reachable.
       renderError(
         "Couldn't find this listing's photos. The site may have changed its layout — try reloading.",
         true
       );
+      reportSelectorMiss(title, brand);
       return;
     }
     grading = true;

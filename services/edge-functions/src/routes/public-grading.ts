@@ -30,6 +30,7 @@ import {
   getBuyerEntitlements,
   getExtensionEntitlements,
 } from "../lib/buyer-entitlements.ts";
+import { supabaseAdmin } from "../lib/supabase.ts";
 
 // US-1836: fraud flags are legally sensitive (a public "these look manipulated"
 // signal), so the whole feature is FAIL-CLOSED behind a kill-switch until the
@@ -311,6 +312,111 @@ publicGradingRoutes.get("/entitlements", async (c) => {
     console.error("public-grading /entitlements:", err instanceof Error ? err.message : String(err));
     return c.json(ANONYMOUS_EXTENSION_ENTITLEMENTS, 200, { "Cache-Control": "no-store" });
   }
+});
+
+// ── Selector health telemetry (US-1880 AC3) ──────────────────────────
+// POST /selector-health — UNAUTHENTICATED, anonymous, opt-in-gated in the
+// extension. selectors.js has always claimed broken adapters can be "corrected
+// from telemetry"; nothing ever collected any, so a marketplace could change its
+// DOM and the only signal was shoppers seeing "couldn't read this listing's
+// photos" and saying nothing.
+//
+// THE SERVER ENFORCES THE PRIVACY PROMISE — it does not merely trust the client.
+// A compromised or modified extension must not be able to turn this into a
+// browsing-history sink, so the handler accepts a CLOSED VOCABULARY and drops
+// everything else: unknown adapter keys, unknown selector-list names, and any
+// over-long string are rejected rather than stored. There is deliberately no
+// free-text column to write a URL into, and the IP is used for rate limiting
+// only — never persisted, never inserted.
+const SELECTOR_HEALTH_LISTS = new Set([
+  "gallery",
+  "gallery-no-urls",
+  "title",
+  "brand",
+  "price",
+  "condition",
+]);
+// Mirrors the shipped config's adapter keys. A new marketplace adapter must be
+// added here too — a closed list is the point, so an unknown key is dropped
+// rather than trusted.
+const SELECTOR_HEALTH_ADAPTERS = new Set([
+  "ebay",
+  "poshmark",
+  "grailed",
+  "mercari",
+  "depop",
+  "vinted",
+]);
+const SELECTOR_HEALTH_PER_IP_PER_HOUR = 30;
+const SELECTOR_HEALTH_WINDOW_MS = 60 * 60 * 1000;
+const selectorHealthHits = new Map<string, number[]>();
+
+// Exported for the edge test: pure shape/vocabulary validation, no IO.
+export function parseSelectorHealth(
+  body: unknown,
+): { adapter: string; emptySelectors: string[]; configVersion: string | null; extVersion: string | null } | null {
+  if (!body || typeof body !== "object") return null;
+  const b = body as Record<string, unknown>;
+
+  const adapter = typeof b.adapter === "string" ? b.adapter.trim().toLowerCase() : "";
+  if (!SELECTOR_HEALTH_ADAPTERS.has(adapter)) return null;
+
+  const raw = Array.isArray(b.emptySelectors) ? b.emptySelectors : [];
+  // Closed vocabulary + dedupe. An empty result after filtering is not an error
+  // worth reporting on — it carries no signal, so it is rejected.
+  const emptySelectors = Array.from(
+    new Set(raw.filter((s): s is string => typeof s === "string" && SELECTOR_HEALTH_LISTS.has(s))),
+  );
+  if (!emptySelectors.length) return null;
+
+  // Version strings are the only free-ish text; hard-capped and charset-limited
+  // so neither can smuggle a URL or an identifier.
+  const version = (v: unknown): string | null => {
+    if (typeof v !== "string") return null;
+    const t = v.trim();
+    return t && t.length <= 32 && /^[\w.\-]+$/.test(t) ? t : null;
+  };
+
+  return {
+    adapter,
+    emptySelectors,
+    configVersion: version(b.configVersion),
+    extVersion: version(b.extVersion),
+  };
+}
+
+publicGradingRoutes.post("/selector-health", async (c) => {
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON" }, 400);
+  }
+
+  const parsed = parseSelectorHealth(body);
+  // Deliberately a flat 204 on a bad body as well as a good one: this endpoint
+  // reports nothing back to an anonymous caller, so it cannot be used to probe
+  // which adapters or selector names the server knows about.
+  if (!parsed) return c.body(null, 204);
+
+  const ip = clientIpFor(c);
+  if (windowLimited(selectorHealthHits, ip, Date.now(), SELECTOR_HEALTH_PER_IP_PER_HOUR, SELECTOR_HEALTH_WINDOW_MS)) {
+    return c.body(null, 204);
+  }
+
+  try {
+    // No owner column, no IP, no instance id — see 00475. Telemetry must never
+    // be able to fail a shopper's page, so this is best-effort and swallows.
+    await supabaseAdmin.from("selector_health_pings").insert({
+      adapter: parsed.adapter,
+      empty_selectors: parsed.emptySelectors,
+      config_version: parsed.configVersion,
+      ext_version: parsed.extVersion,
+    });
+  } catch (err) {
+    console.error("public-grading /selector-health:", err instanceof Error ? err.message : String(err));
+  }
+  return c.body(null, 204);
 });
 
 // ── Free grade-checker tool (US-1687) ────────────────────────────────

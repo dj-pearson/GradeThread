@@ -51,6 +51,12 @@ body {
 /* toggles */
 .pop-toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
 .pop-toggle input { accent-color: var(--red); }
+/* A toggle carrying an explanatory sub-note is two lines tall, so centre-aligning
+   would float the checkbox against the middle of the text block. Align to the
+   top and pin the checkbox's own line-height to the first line. */
+.pop-toggle:has(.pop-note) { align-items: flex-start; }
+.pop-toggle:has(.pop-note) input { margin-top: 2px; }
+.pop-note { display: block; margin-top: 2px; font-size: 11px; color: var(--muted); line-height: 1.35; }
 
 /* recent reads */
 .pop-reads { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto; }

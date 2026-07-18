@@ -75,8 +75,17 @@ const EXTENSIONS = [
       // Firefox data-consent (mzl.la/firefox-builtin-data-consent): the condition
       // read transmits the listing's page content (image URLs + title/brand/price)
       // to the grading endpoint on user action. Nothing is persisted server-side
-      // and no PII/cookies are read, so websiteContent is the only category.
-      dataCollection: { required: ["websiteContent"] },
+      // and no PII/cookies are read, so websiteContent is the required category.
+      // US-1880 AC3 adds OPTIONAL technicalAndInteraction: the selector-failure
+      // ping (adapter key + which selector list was empty + config version, no
+      // URL and nothing about the user). It is off by default and opt-in per
+      // install, which is exactly what `optional` means here — declaring it
+      // required would misstate it, and omitting it entirely would understate
+      // what the add-on can send.
+      dataCollection: {
+        required: ["websiteContent"],
+        optional: ["technicalAndInteraction"],
+      },
     },
   },
 ];

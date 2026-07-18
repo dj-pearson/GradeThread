@@ -56,6 +56,12 @@ Give shoppers an independent AI condition read on second-hand clothing listings,
 
 **Data usage disclosures** (certify):
 - Collected: **Website content** (the listing's photos/text, sent for grading on user action).
+- Collected **only if the user opts in** (off by default, per-install toggle in the
+  popup): a diagnostic ping when a marketplace's layout defeats the reader —
+  the marketplace name, which selector group came up empty, and the config/extension
+  version. **No page address, no listing, no account, and no device or install
+  identifier**, so it cannot be tied to a person or a browsing history. Declared to
+  AMO as OPTIONAL `technicalAndInteraction`.
 - NOT collected: PII, health, financial, authentication, location, personal communications, web history.
 - Certify: not sold to third parties · not used/transferred for anything beyond the single purpose · not used for creditworthiness/lending. (All true.)
 
@@ -73,7 +79,7 @@ Give shoppers an independent AI condition read on second-hand clothing listings,
 
 **Privacy policy summary (if AMO wants text):**
 ```
-GradeThread Condition Check & Lister does not read your marketplace accounts and has no "cookies" permission. When you request a condition read, the extension sends the public listing's image URLs and basic details (title, brand, price) to GradeThread's grading service to produce a score; results are not stored on our servers. Your recent reads and settings are stored only on your device. If you sign in, a short-lived access token is stored locally to apply your account's quota and unlock seller tools. Cross-listing runs entirely in your browser; your marketplace passwords and cookies are never sent to GradeThread. On gradethread.com itself the extension runs a small message relay so our website can hand cross-listing requests to the extension (Firefox provides no other way for a site to reach its own extension); it reads no page content and forwards only our own messages. Full policy: https://gradethread.com/privacy
+GradeThread Condition Check & Lister does not read your marketplace accounts and has no "cookies" permission. When you request a condition read, the extension sends the public listing's image URLs and basic details (title, brand, price) to GradeThread's grading service to produce a score; results are not stored on our servers. Your recent reads and settings are stored only on your device. If you turn on the optional "report when a site's layout breaks the read" setting (off by default), the extension sends us the marketplace's name and which part of the read failed, so we can fix it — never the listing, the page address, or any identifier for you or your installation. If you sign in, a short-lived access token is stored locally to apply your account's quota and unlock seller tools. Cross-listing runs entirely in your browser; your marketplace passwords and cookies are never sent to GradeThread. On gradethread.com itself the extension runs a small message relay so our website can hand cross-listing requests to the extension (Firefox provides no other way for a site to reach its own extension); it reads no page content and forwards only our own messages. Full policy: https://gradethread.com/privacy
 ```
 
 ## Notes to Reviewer (AMO) / Testing instructions

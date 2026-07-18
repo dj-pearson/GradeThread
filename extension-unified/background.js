@@ -46,6 +46,8 @@ const ext = globalThis.browser || globalThis.chrome;
 const SITE = "https://gradethread.com";
 const GRADE_ENDPOINT = "https://functions.gradethread.com/api/grading/public/grade-from-url";
 const ENTITLEMENTS_ENDPOINT = "https://functions.gradethread.com/api/grading/public/entitlements";
+const SELECTOR_HEALTH_ENDPOINT =
+  "https://functions.gradethread.com/api/grading/public/selector-health";
 const CONFIG_URL = "https://gradethread.com/extension/marketplace-selectors.json";
 const CONFIG_TTL_HIT_MS = 6 * 60 * 60 * 1000;
 const CONFIG_TTL_MISS_MS = 10 * 60 * 1000;
@@ -140,6 +142,55 @@ async function getSettings() {
     autoRun: Boolean(out.autoRun),
     disabledHosts: Array.isArray(out.disabledHosts) ? out.disabledHosts : [],
   };
+}
+
+// ── selector-failure telemetry (US-1880 AC3) ─────────────────────────────
+// OPT-IN, and the default is OFF: `Boolean(undefined)` is false, so an existing
+// install that has never seen the toggle sends nothing. Consent is re-read from
+// storage on EVERY send rather than cached — revoking it in the popup has to
+// take effect immediately, not at the next service-worker restart.
+//
+// This is intentionally NOT wired to the Lister's `tosAcceptedAt` clickwrap.
+// That key is legal acceptance for automating a seller's marketplace account and
+// it only ever renders behind caps.sellerEnabled — gating on it would collect
+// nothing from anonymous research users, who are the entire population that
+// hits a broken adapter. Same consent PATTERN (versioned key, revocable), a
+// separate decision.
+const SELECTOR_TELEMETRY_KEY = "selectorTelemetry";
+
+async function selectorTelemetryEnabled() {
+  try {
+    const out = await ext.storage.local.get(SELECTOR_TELEMETRY_KEY);
+    return Boolean(out && out[SELECTOR_TELEMETRY_KEY]);
+  } catch (_e) {
+    return false; // fail-safe: never send on a storage hiccup
+  }
+}
+
+// Best-effort and deliberately silent. A telemetry failure must never surface to
+// a shopper or block the overlay's honest degrade path (US-1880 AC5) — the
+// content script does not even await this.
+async function reportSelectorMiss(msg) {
+  if (!(await selectorTelemetryEnabled())) return;
+  const adapter = msg && typeof msg.adapter === "string" ? msg.adapter : "";
+  const emptySelectors = Array.isArray(msg && msg.emptySelectors) ? msg.emptySelectors : [];
+  if (!adapter || !emptySelectors.length) return;
+  try {
+    await fetch(SELECTOR_HEALTH_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      // NO instance id header here, unlike the grading calls: that id is a
+      // stable per-install identifier and attaching it would make an otherwise
+      // anonymous counter linkable into a browsing trail.
+      body: JSON.stringify({
+        adapter,
+        emptySelectors,
+        configVersion: typeof msg.configVersion === "string" ? msg.configVersion : null,
+        extVersion: (ext.runtime.getManifest && ext.runtime.getManifest().version) || null,
+      }),
+      keepalive: true,
+    });
+  } catch (_e) { /* offline / blocked — drop it */ }
 }
 
 // ── entitlements (US-1873) ───────────────────────────────────────────────
@@ -877,6 +928,13 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
       case "GT_CC_SAVE_READ":
         await saveRead(msg.read);
         sendResponse({ ok: true });
+        break;
+      // US-1880 (AC3): an adapter found nothing. Respond immediately and let the
+      // post fly on its own — the content script has already rendered the honest
+      // degrade state and must not wait on telemetry.
+      case "GT_CC_SELECTOR_MISS":
+        sendResponse({ ok: true });
+        reportSelectorMiss(msg);
         break;
       // US-1873: popup + content scripts read the resolved capability map.
       case "GT_GET_CAPABILITIES":
