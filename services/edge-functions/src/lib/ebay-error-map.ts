@@ -17,10 +17,20 @@ export interface EbayFix {
 
 // Common Sell Inventory/Offer publish error IDs. Extend as new ones surface in
 // the logs (the raw detail is always logged server-side for triage).
+// eBay's 25002 and 2004 are OVERLOADED "A user error has occurred" codes: the
+// SAME id covers "offer already exists", "the item specific <X> is missing",
+// aspect-value-too-long, and many more. A fixed message for these is a guess and
+// actively misleads (25002 showed "already has a live eBay offer" for a
+// missing-Inseam rejection), so resolveEbayFix() prefers eBay's OWN message text
+// for these ids and only falls back to the entry below when eBay sent none.
+const OVERLOADED_EBAY_ERROR_IDS = new Set<number>([25002, 2004]);
+
 const EBAY_ERROR_FIX: Record<number, EbayFix> = {
-  // Offer already exists for this SKU — handled by adopt-on-retry (US-464/528),
-  // but if it ever reaches the user, this is the explanation.
-  25002: { message: "This item already has a live eBay offer." },
+  // Overloaded generic (see above) — last-resort text only.
+  25002: {
+    message:
+      "eBay rejected the listing — a required field or value is missing or invalid. Check the highlighted item specifics, category, and condition.",
+  },
   // Invalid/expired listing policy or a category↔policy mismatch.
   25007: {
     message:
@@ -77,14 +87,58 @@ export function mapEbayError(errorIds: number[] | undefined | null): EbayFix | n
   return null;
 }
 
+// Best-effort composer field to deep-link from eBay's free-text message when we
+// only have the raw message (no specific mapped id).
+function fieldHintFromMessage(msg: string): EbayFix["field"] | undefined {
+  const m = msg.toLowerCase();
+  if (m.includes("item specific") || m.includes("aspect")) return "specifics";
+  if (m.includes("category")) return "category";
+  if (m.includes("condition")) return "condition";
+  if (m.includes("policy") || m.includes("policies")) return "policies";
+  if (m.includes("price")) return "price";
+  if (m.includes("image") || m.includes("photo") || m.includes("picture")) {
+    return "photos";
+  }
+  return undefined;
+}
+
+/**
+ * Resolve the best client-facing fix (message + optional field) for an eBay
+ * failure. Priority:
+ *   1. a SPECIFIC mapped errorId (25007/25019/25709/…) — clean + actionable;
+ *   2. eBay's OWN structured message — for overloaded (25002/2004) or unmapped
+ *      ids, this is the real reason ("The item specific Inseam is missing…");
+ *   3. the hardcoded fallback for a known id, else the caller's generic.
+ * Never returns the raw provider blob (err.message) — that stays in the logs.
+ */
+export function resolveEbayFix(
+  err: unknown,
+  generic: string = EBAY_PUBLISH_GENERIC_FIX,
+): EbayFix {
+  const e = err as { ebayErrorIds?: number[]; ebayErrorMessages?: string[] } | null;
+  const ids = e?.ebayErrorIds ?? [];
+  // 1. A specific, non-overloaded mapping wins.
+  for (const id of ids) {
+    if (OVERLOADED_EBAY_ERROR_IDS.has(id)) continue;
+    const fix = EBAY_ERROR_FIX[id];
+    if (fix) return fix;
+  }
+  // 2. eBay's own message (overloaded/unmapped ids).
+  const real = (e?.ebayErrorMessages ?? [])
+    .map((m) => m.trim())
+    .find((m) => m.length > 0);
+  if (real) return { message: real.slice(0, 400), field: fieldHintFromMessage(real) };
+  // 3. Fallback to any hardcoded fix, else the generic.
+  return mapEbayError(ids) ?? { message: generic };
+}
+
 /**
  * US-1511: client-safe `detail` for an eBay failure on the NON-publish paths
  * (revise/price/end/negotiation). Mirrors the publish path's US-567 contract:
- * the mapped structured-errorId message when one matches, else the caller's
- * operation-specific generic — NEVER the raw provider blob ("eBay POST
- * /sell/... failed (400): {json}"), which stays in the server logs only.
+ * the resolved structured-errorId / eBay message, else the caller's operation-
+ * specific generic — NEVER the raw provider blob ("eBay POST /sell/... failed
+ * (400): {json}"), which stays in the server logs only.
  */
 export function ebayFailureDetail(err: unknown, generic: string): string {
-  const ids = (err as { ebayErrorIds?: number[] } | null)?.ebayErrorIds;
-  return mapEbayError(ids)?.message ?? generic;
+  return resolveEbayFix(err, generic).message;
 }

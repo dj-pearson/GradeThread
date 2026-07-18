@@ -192,7 +192,7 @@ import { claimSyncRun, failSyncRun } from "../lib/sync-run-lock.ts";
 import {
   EBAY_PUBLISH_GENERIC_FIX,
   ebayFailureDetail,
-  mapEbayError,
+  resolveEbayFix,
 } from "../lib/ebay-error-map.ts";
 import { failSafe } from "../lib/http-errors.ts";
 import { writeAuditLog, writeSystemAuditLog } from "../lib/audit-log.ts";
@@ -5351,10 +5351,7 @@ async function persistReviseFailure(
   err: unknown,
 ): Promise<void> {
   try {
-    const ebayErrorIds = (err as { ebayErrorIds?: number[] }).ebayErrorIds;
-    const fix = mapEbayError(ebayErrorIds);
-    const msg =
-      fix?.message ?? (err instanceof Error ? err.message : String(err));
+    const msg = resolveEbayFix(err, EBAY_PUBLISH_GENERIC_FIX).message;
     await supabaseAdmin
       .from("listings")
       .update({
@@ -6845,8 +6842,9 @@ export async function publishItemForOwner(
     // short, actionable message mapped from eBay's structured error IDs.
     console.error("[flipdesk-ebay] publish failed:", msg);
     const ebayErrorIds = (err as { ebayErrorIds?: number[] }).ebayErrorIds;
-    const fix = mapEbayError(ebayErrorIds);
-    const userMessage = fix?.message ?? EBAY_PUBLISH_GENERIC_FIX;
+    // Surface eBay's REAL reason (25002 is overloaded — "Inseam is missing" et al.)
+    const fix = resolveEbayFix(err, EBAY_PUBLISH_GENERIC_FIX);
+    const userMessage = fix.message;
     // US-321: persist the failure on the draft listing so the queue/UI can
     // surface "last failed: X" on reload, and US-325 retry can target it. Store
     // the user-facing message (not the raw eBay blob).

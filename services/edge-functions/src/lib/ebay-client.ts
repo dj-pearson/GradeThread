@@ -1644,7 +1644,12 @@ async function fetchAuthedOnce<T>(
     // matches on the numeric status (not just the message regex).
     const err = new Error(
       `eBay ${init?.method ?? "GET"} ${path} failed (${res.status}): ${text.slice(0, 500)}`,
-    ) as Error & { status: number; ebayErrorIds?: number[]; retryAfterMs?: number };
+    ) as Error & {
+      status: number;
+      ebayErrorIds?: number[];
+      ebayErrorMessages?: string[];
+      retryAfterMs?: number;
+    };
     err.status = res.status;
     // US-406: honor eBay's Retry-After (and the rate-limit window header it
     // sends on 429s) so withRetry waits exactly as long as eBay asked instead
@@ -1659,14 +1664,22 @@ async function fetchAuthedOnce<T>(
     // stable errorId (e.g. 25002 = offer already exists) instead of brittle
     // message regexes that break when eBay rewords or localizes a message.
     try {
-      const parsed = JSON.parse(text) as { errors?: Array<{ errorId?: number }> };
+      const parsed = JSON.parse(text) as {
+        errors?: Array<{ errorId?: number; message?: string; longMessage?: string }>;
+      };
       if (Array.isArray(parsed.errors)) {
         err.ebayErrorIds = parsed.errors
           .map((e) => e.errorId)
           .filter((id): id is number => typeof id === "number");
+        // Keep eBay's OWN human message (e.g. "The item specific Inseam is
+        // missing…") — it's user-facing guidance, unlike the raw HTTP blob in
+        // err.message. Overloaded ids (25002) map to a fixed guess without it.
+        err.ebayErrorMessages = parsed.errors
+          .map((e) => (e.longMessage ?? e.message ?? "").trim())
+          .filter((m) => m.length > 0);
       }
     } catch {
-      // Non-JSON error body (gateway HTML, etc.) — leave ebayErrorIds undefined.
+      // Non-JSON error body (gateway HTML, etc.) — leave the fields undefined.
     }
     throw err;
   }
