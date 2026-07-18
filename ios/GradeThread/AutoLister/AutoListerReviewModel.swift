@@ -62,6 +62,12 @@ final class AutoListerReviewModel: ObservableObject {
     /// Transient failure (e.g. a rotate that couldn't re-encode) surfaced as an
     /// alert; the review list stays put.
     @Published var actionError: String?
+    /// Non-blocking notice shown as an inline banner (NOT the error state) when
+    /// an import was capped at `maxBatchPhotos` — some photos the seller picked
+    /// weren't added because a batch is bounded so the serial upload doesn't
+    /// leave them waiting. Cleared on the seller's next successful import or when
+    /// dismissed.
+    @Published var capNotice: String?
     /// US-1548: AI merge/split/move suggestions from the verify-groups pass.
     /// NEVER auto-applied — the user taps Apply or Dismiss per suggestion. A
     /// failed/timed-out verify silently leaves this empty (no blocking UI).
@@ -153,6 +159,22 @@ final class AutoListerReviewModel: ObservableObject {
     var isEmpty: Bool { photosById.isEmpty }
     var totalPhotos: Int { photosById.count }
 
+    /// Hard ceiling on photos per bulk batch. Uploads run strictly serially
+    /// (`PhotoUploadService.maxConcurrent = 1`, ~1s per ~700 KB PUT against the
+    /// self-hosted storage), so an unbounded import would leave the seller
+    /// watching a very long upload. Capping the batch keeps the wait predictable
+    /// and stays well under the edge worker's `MAX_BATCH_ITEMS = 300` (grouping
+    /// collapses these photos into far fewer items). Add more in a second batch.
+    static let maxBatchPhotos = 200
+
+    /// Photos that can still be added before hitting `maxBatchPhotos`. Drives the
+    /// picker's `selectionLimit` so the seller can't over-pick in the first place.
+    var remainingCapacity: Int { max(0, Self.maxBatchPhotos - totalPhotos) }
+
+    /// The batch is full — importing more is blocked until the seller removes
+    /// some photos or generates and starts a fresh batch.
+    var isAtCapacity: Bool { totalPhotos >= Self.maxBatchPhotos }
+
     /// Photos imported but auto-grouping produced nothing to review (US-1116).
     /// US-1909: a pool of ungrouped photos IS reviewable (the seller can sort
     /// and AI-group them), so it doesn't count as "couldn't group".
@@ -179,9 +201,21 @@ final class AutoListerReviewModel: ObservableObject {
     func importPicks(_ results: [PHPickerResult]) async {
         isImporting = true
         importError = nil
+        capNotice = nil
         defer { isImporting = false }
+        // Defensive cap: the picker's `selectionLimit` already bounds a single
+        // pick to `remainingCapacity`, but a seller can pick across several
+        // sessions ("Add photos"), so truncate here too and tell them how many
+        // were left out. The invariant `totalPhotos <= maxBatchPhotos` holds
+        // regardless of how the picker was configured.
+        let capacity = remainingCapacity
+        let picks = Array(results.prefix(capacity))
+        let dropped = results.count - picks.count
+        if dropped > 0 {
+            capNotice = "Added \(picks.count) photo\(picks.count == 1 ? "" : "s") — \(dropped) more weren't included. A batch holds up to \(Self.maxBatchPhotos) photos so the upload doesn't leave you waiting. Generate this batch, then start another."
+        }
         var captures: [PhotoCapture] = []
-        for result in results {
+        for result in picks {
             guard let image = await result.loadImage(),
                   let output = await PhotoCompressor.compressOffMain(image) else { continue }
             let creationDate = result.creationDate()
@@ -216,8 +250,10 @@ final class AutoListerReviewModel: ObservableObject {
         // The user picked photos but none could be materialized (still syncing
         // from iCloud, undecodable). Surface a retryable error rather than the
         // empty state, which would look like the import never ran (US-1116).
-        if captures.isEmpty && !results.isEmpty {
-            importError = results.count == 1
+        // Guard on `picks`, not `results`: when the batch was already full every
+        // pick is dropped by the cap, which is a `capNotice`, not an iCloud error.
+        if captures.isEmpty && !picks.isEmpty {
+            importError = picks.count == 1
                 ? "Couldn't import that photo. It may still be downloading from iCloud — try again."
                 : "Couldn't import those photos. They may still be downloading from iCloud — try again."
         }
