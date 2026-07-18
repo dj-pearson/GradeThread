@@ -99,6 +99,10 @@ export const CRON_REGISTRY: CronDef[] = [
   { name: "email-retry", label: "Email outbox retry", schedule: "*/5 * * * *", category: "email", endpoint: "/api/jobs/email-retry", recorded: true },
   { name: "integrity-scan", label: "DB integrity scan", schedule: "0 7 * * *", category: "maintenance", endpoint: "/api/jobs/integrity-scan", recorded: true },
   { name: "data-retention", label: "Data-retention purge", schedule: "0 4 * * *", category: "maintenance", endpoint: "/api/jobs/data-retention", recorded: true },
+  // US-2004: the watcher that watches the watchers — alerts when any recorded
+  // job below has missed its schedule. Hourly: frequent enough that a stalled
+  // payout/retention job is caught the same day, cheap enough to be free.
+  { name: "cron-fleet-health", label: "Cron fleet health", schedule: "17 * * * *", category: "maintenance", endpoint: "/api/jobs/cron-fleet-health", recorded: true },
   { name: "condition-index-refresh", label: "Condition Index refresh", schedule: "0 8 * * *", category: "content", endpoint: "/api/jobs/condition-index-refresh", recorded: true },
   // US-1746: propose new Value/Condition Index seeds from graded demand (weekly; off until enabled in settings).
   { name: "condition-index-seedgen", label: "Condition Index seed generation", schedule: "0 9 * * 1", category: "content", endpoint: "/api/jobs/condition-index-seedgen", recorded: true },

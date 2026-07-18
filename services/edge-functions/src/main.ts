@@ -169,6 +169,7 @@ import { handleAdsConversionsUploadCron } from "./routes/jobs-ads-conversions-up
 import { handleRecordAttribution } from "./routes/ads-attribution.ts";
 import { handleBillingReconciliationCron } from "./routes/jobs-billing-reconciliation.ts";
 import { handleAiBudgetCron } from "./routes/jobs-ai-budget.ts";
+import { handleCronFleetHealthCron } from "./routes/jobs-cron-fleet.ts";
 import { handleMarketplaceEventsCron } from "./routes/jobs-marketplace-events.ts";
 import { handleEbayOrderBackstopCron } from "./routes/jobs-ebay-order-backstop.ts";
 import { handleEbayNotificationReconcileCron } from "./routes/jobs-ebay-notification-reconcile.ts";
@@ -1321,6 +1322,11 @@ app.post("/api/jobs/grading-monitor", (c) => handleGradingMonitorCron(c));
 // X-Internal-Job-Secret itself. Evaluates per-feature spend budgets and, on a
 // fresh breach, alerts + (for action=kill) flips the feature kill-switch off.
 app.post("/api/jobs/ai-budget-guardrails", (c) => handleAiBudgetCron(c));
+// US-2004: cron-fleet stall alerting. Same job-secret pattern. Emits a CRITICAL
+// ops event when a recorded cron has missed its schedule, so a silently-dead
+// payout / retention / stuck-submission job reaches a human instead of only
+// being visible to an agent read-tool nobody thought to invoke.
+app.post("/api/jobs/cron-fleet-health", (c) => handleCronFleetHealthCron(c));
 // US-495 stuck-submission recovery sweep. OUTSIDE the JWT groups; the handler
 // enforces X-Internal-Job-Secret itself. Fails orphaned 'processing' grades and
 // reverses their charge so a crash/redeploy can't strand paid work.
