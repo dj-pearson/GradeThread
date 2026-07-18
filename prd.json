@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1998,
+  "nextId": 1999,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -1620,6 +1620,20 @@
         "The decision is written into the story notes so the next reader does not have to re-derive it from a commit message"
       ],
       "notes": "[P3][Grading/Cleanup] Found 2026-07-18 by scripts/audit-unwired-exports.mjs — rubric.ts was one of 10 whole modules nothing imports. ⚠ CORRECTION TO AN EARLIER CLAIM in this session's audit triage (US-1996 notes): the triage said 'exhaustive queries return no story mentioning rubric'. That is wrong — NINE stories mention it (US-1030, US-1031, US-1532, US-1534, US-1682, US-1948, US-1951 archived, plus US-1995/1996). I read each: they all use 'rubric' in the generic grading-criteria sense (wrinkle anchors, fabric-aware criteria, pSEO guides, homepage copy). None owns the CATEGORY-rubric activation this story covers. The conclusion stood; the stated evidence did not, which is why it is restated correctly here. P3 rather than P1 because there is no user-visible breakage: clothing grading is unaffected and the certificate simply never renders a rubric block. The cost is a permanently-NULL pair of prod columns, a dead edge module, and a live client module waiting on data that never arrives."
+    },
+    {
+      "id": "US-1998",
+      "priority": 1975,
+      "passes": false,
+      "title": "CI is red before it reaches coverage, and coverage is ~5 points under its own threshold",
+      "description": "As GradeThread, we want the frontend gate to be trustworthy. Two problems compound. (1) CI's FIRST step is `npm run lint`, and main carried three no-useless-escape errors from 2026-07-17 (fixed 2026-07-18), so every CI run since then failed at lint and never reached type-check, tests, coverage, build or the bundle guard. (2) With lint fixed, the next gate fails: vitest coverage is Statements 67.21% / Branches 59.88% / Functions 64.45% / Lines 69.1% against thresholds of 72/65/68/72. So the frontend has not been fully verified in CI since at least 2026-07-17, and the coverage floor has been unmet for at least that long without anyone seeing it.",
+      "acceptanceCriteria": [
+        "Decide: raise coverage to the existing thresholds, or lower the thresholds to an honest floor and record why. Do NOT pad with tests that assert nothing — the point of the gate is signal, and filler would restore the number while removing the meaning",
+        "If raising: the shortfall is concentrated and identifiable — src/hooks/use-ebay.ts alone has 640 uncovered statements at 0%, then listing-kit.tsx (167), use-autolister.ts (154, 0%), autolister-upload-store.ts (111), edge-fetch.ts (106, 2%). Those five are ~1,178 of the ~3,149 uncovered statements",
+        "CI stays green afterwards, verified on an actual push rather than assumed",
+        "Consider whether lint should run AFTER the cheap-but-informative steps, or whether CI should continue past a failing step, so one style error cannot mask every other gate"
+      ],
+      "notes": "[P2][CI/Quality] Found 2026-07-18 while running the full verify:web lane for the first time after fixing three local gates that had been reporting false success (test:scripts dead from a CRLF shebang, npm run lint failing on main, prd-lint's CLI never executing on Windows). ATTRIBUTION CHECKED, because the obvious worry is that a long unpushed session caused this: it did not. Of the files changed across the 41 unpushed commits, those visible to the coverage reporter sit at 94-100% (quality-score-chip.tsx 94.1%, title-sync-patch.ts 100%, draft-quality.ts 100%, privacy.tsx 100%, acceptable-use.tsx 100%, title-sync.ts 97.8%), and exactly ONE uncovered statement out of ~3,149 belongs to a file this session touched. The three page files it also edited (autolister-drafts.tsx, autolister-bulk-edit.tsx, item-canvas.tsx) are absent from the report entirely — no test imports them, before or after — so they neither helped nor hurt the number. ⚠ PRACTICAL CONSEQUENCE: pushing the current branch will turn CI red at the coverage step even though every local suite passes (2185 vitest tests, 4129 deno tests, tsc, lint, build, bundle budget all green). That is worth knowing BEFORE the push rather than discovering it in the PR. The deeper point is the one the whole session keeps landing on: a gate that fails early can hide every gate behind it, and a gate nobody reads is indistinguishable from a gate that passes."
     }
   ]
 }
