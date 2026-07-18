@@ -64,3 +64,34 @@ describe("trimTitleToLimit (mirror)", () => {
     expect(trimTitleToLimit("short title", 80)).toBe("short title");
   });
 });
+
+// ── shared behavioural fixture (US-1995 AC4) ───────────────────────────────
+//
+// The edge has its own copy of this logic (services/edge-functions/src/lib/
+// title-sync.ts) because the two projects cannot import each other. They are
+// declared to stay in lockstep and nothing pinned them — and a source diff
+// cannot be the guard, since the two files legitimately differ by ~80 lines
+// (this copy inlines the trim because it cannot import title-trim.ts).
+//
+// So both suites read the SAME fixture. Add a case to the fixture, never to one
+// suite. If these drift, one of the two suites goes red.
+import fixture from "../../test/fixtures/title-sync-cases.json";
+
+describe("shared behavioural fixture (edge ⇄ web lockstep)", () => {
+  it("syncTitle matches the edge copy's expectations", () => {
+    expect(fixture.syncTitle.length).toBeGreaterThan(0);
+    for (const c of fixture.syncTitle) {
+      expect(syncTitle(c.title, c.changes), `fixture case: ${c.name}`).toBe(c.expected);
+    }
+  });
+
+  it("changesFromItemDiff matches the edge copy's expectations", () => {
+    expect(fixture.changesFromItemDiff.length).toBeGreaterThan(0);
+    for (const c of fixture.changesFromItemDiff) {
+      expect(
+        changesFromItemDiff(c.before, c.after),
+        `fixture case: ${c.name}`,
+      ).toEqual(c.expected);
+    }
+  });
+});

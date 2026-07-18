@@ -1,0 +1,110 @@
+{
+  "_readme": [
+    "US-1995 AC4: the SHARED behavioural fixture for backwards title sync.",
+    "",
+    "There are two implementations of this logic — services/edge-functions/src/lib/title-sync.ts",
+    "and src/lib/title-sync.ts — because the edge and the web app are separate projects that",
+    "cannot import each other. They are declared to stay in lockstep and NOTHING pinned them:",
+    "the two files differ by ~80 lines, much of it legitimate (the web copy inlines the trim",
+    "because it cannot import title-trim.ts), which is exactly why a source diff cannot be the",
+    "guard.",
+    "",
+    "So the guard is BEHAVIOURAL. Both suites load this file and assert the same inputs produce",
+    "the same outputs. Add a case here, not to one suite.",
+    "",
+    "Consumed by services/edge-functions/src/tests/title-sync_test.ts and",
+    "src/lib/__tests__/title-sync.test.ts."
+  ],
+  "syncTitle": [
+    {
+      "name": "brand swap, exact token",
+      "title": "Patagonia Better Sweater Fleece Jacket Men's Medium",
+      "changes": [{ "field": "brand", "from": "Patagonia", "to": "Arc'teryx" }],
+      "expected": "Arc'teryx Better Sweater Fleece Jacket Men's Medium"
+    },
+    {
+      "name": "case is transferred from the original token",
+      "title": "PATAGONIA Better Sweater Fleece Jacket",
+      "changes": [{ "field": "brand", "from": "Patagonia", "to": "Arc'teryx" }],
+      "expected": "ARC'TERYX Better Sweater Fleece Jacket"
+    },
+    {
+      "name": "multi-word brand",
+      "title": "The North Face Nuptse Puffer Jacket Medium",
+      "changes": [{ "field": "brand", "from": "The North Face", "to": "Patagonia" }],
+      "expected": "Patagonia Nuptse Puffer Jacket Medium"
+    },
+    {
+      "name": "size in the 'Size L' form",
+      "title": "Patagonia Fleece Jacket Size L",
+      "changes": [{ "field": "size", "from": "L", "to": "XL" }],
+      "expected": "Patagonia Fleece Jacket Size XL"
+    },
+    {
+      "name": "size as a bare token",
+      "title": "Patagonia Fleece Jacket L Navy",
+      "changes": [{ "field": "size", "from": "L", "to": "XL" }],
+      "expected": "Patagonia Fleece Jacket XL Navy"
+    },
+    {
+      "name": "no-op when the old value is absent",
+      "title": "Patagonia Better Sweater Fleece Jacket",
+      "changes": [{ "field": "brand", "from": "Nike", "to": "Adidas" }],
+      "expected": "Patagonia Better Sweater Fleece Jacket"
+    },
+    {
+      "name": "several fields in one pass",
+      "title": "Patagonia Fleece Jacket Size L Navy",
+      "changes": [
+        { "field": "brand", "from": "Patagonia", "to": "Arc'teryx" },
+        { "field": "size", "from": "L", "to": "XL" },
+        { "field": "color", "from": "Navy", "to": "Black" }
+      ],
+      "expected": "Arc'teryx Fleece Jacket Size XL Black"
+    },
+    {
+      "name": "token boundary — a substring inside a word is NOT replaced",
+      "title": "Patagonian Wool Blend Coat",
+      "changes": [{ "field": "brand", "from": "Patagonia", "to": "Arc'teryx" }],
+      "expected": "Patagonian Wool Blend Coat"
+    },
+    {
+      "name": "blank from/to is ignored rather than blanking the title",
+      "title": "Patagonia Fleece Jacket",
+      "changes": [
+        { "field": "brand", "from": "", "to": "Nike" },
+        { "field": "color", "from": "Navy", "to": "" }
+      ],
+      "expected": "Patagonia Fleece Jacket"
+    },
+    {
+      "name": "an empty change list leaves the title untouched",
+      "title": "Patagonia Fleece Jacket",
+      "changes": [],
+      "expected": "Patagonia Fleece Jacket"
+    }
+  ],
+  "changesFromItemDiff": [
+    {
+      "name": "only changed syncable fields are reported",
+      "before": { "brand": "Patagonia", "size": "L", "color": "Navy", "style": "Fleece", "department": "Men" },
+      "after": { "brand": "Arc'teryx", "size": "L", "color": "Black", "style": "Fleece", "department": "Men" },
+      "expected": [
+        { "field": "brand", "from": "Patagonia", "to": "Arc'teryx" },
+        { "field": "color", "from": "Navy", "to": "Black" }
+      ]
+    },
+    {
+      "name": "no changes yields an empty list",
+      "before": { "brand": "Patagonia", "size": "L" },
+      "after": { "brand": "Patagonia", "size": "L" },
+      "expected": []
+    },
+    {
+      "name": "a non-syncable field is ignored",
+      "before": { "brand": "Patagonia", "material": "Wool" },
+      "after": { "brand": "Patagonia", "material": "Cotton" },
+      "expected": []
+    }
+  ]
+}

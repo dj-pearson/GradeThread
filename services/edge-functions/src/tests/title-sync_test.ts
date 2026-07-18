@@ -5,6 +5,7 @@ import {
   changesFromItemDiff,
   syncTitle,
   titleNeedsSync,
+  type FieldChange,
 } from "../lib/title-sync.ts";
 
 // ── brand swap ─────────────────────────────────────────────────────
@@ -117,4 +118,43 @@ Deno.test("changesFromItemDiff ignores empty/whitespace transitions", () => {
   const after = { brand: "  ", size: "M" };
   const changes = changesFromItemDiff(before, after);
   assertEquals(changes.map((c) => c.field), ["size"]);
+});
+
+// ── shared behavioural fixture (US-1995 AC4) ───────────────────────────────
+//
+// This logic exists TWICE — here and in src/lib/title-sync.ts — because the
+// edge and the web app are separate projects that cannot import each other.
+// They are declared to stay in lockstep and nothing pinned them. A source diff
+// cannot be the guard: the two files differ by ~80 lines, much of it legitimate
+// (the web copy inlines the trim because it cannot import title-trim.ts).
+//
+// So the guard is behavioural. Both suites read the SAME fixture and assert the
+// same inputs produce the same outputs. Add a case to the fixture, never to one
+// suite.
+const FIXTURE = JSON.parse(
+  await Deno.readTextFile(
+    new URL("../../../../src/test/fixtures/title-sync-cases.json", import.meta.url),
+  ),
+) as {
+  syncTitle: { name: string; title: string; changes: FieldChange[]; expected: string }[];
+  changesFromItemDiff: {
+    name: string;
+    before: Record<string, string>;
+    after: Record<string, string>;
+    expected: FieldChange[];
+  }[];
+};
+
+Deno.test("shared fixture: syncTitle matches the web copy's expectations", () => {
+  assert(FIXTURE.syncTitle.length > 0, "fixture is empty — wrong path?");
+  for (const c of FIXTURE.syncTitle) {
+    assertEquals(syncTitle(c.title, c.changes), c.expected, `fixture case: ${c.name}`);
+  }
+});
+
+Deno.test("shared fixture: changesFromItemDiff matches the web copy's expectations", () => {
+  assert(FIXTURE.changesFromItemDiff.length > 0, "fixture is empty — wrong path?");
+  for (const c of FIXTURE.changesFromItemDiff) {
+    assertEquals(changesFromItemDiff(c.before, c.after), c.expected, `fixture case: ${c.name}`);
+  }
 });
