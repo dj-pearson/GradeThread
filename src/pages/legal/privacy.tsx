@@ -262,7 +262,7 @@ export function PrivacyPage() {
         <a href="mailto:privacy@gradethread.com">privacy@gradethread.com</a>{" "}
         — objecting does not affect your grades or certificates. QA access
         ends when your photos are deleted under the retention schedule in{" "}
-        <a href="#retention">Section 7</a> (or earlier on request); deleted
+        <a href="#retention">Section 8</a> (or earlier on request); deleted
         photos drop out of QA samples because reviewers always read the live
         stored photo, never a copy.
       </p>
@@ -278,7 +278,56 @@ export function PrivacyPage() {
         <a href="mailto:support@gradethread.com">support@gradethread.com</a>.
       </p>
 
-      <h2 id="sharing">6. How we share information</h2>
+      {/* US-1757 AC1: the Chrome Web Store and Firefox AMO both require the
+          submitted privacy policy to disclose what the EXTENSION collects, and
+          extension-unified/SUBMISSION.md sends operators to this exact URL.
+          Until this section existed, that submission would have pointed at a
+          policy silent about the extension. Every claim below is checked
+          against the shipped code, not the marketing copy. */}
+      <h2 id="extension">6. The GradeThread browser extension</h2>
+      <p>
+        The extension is optional and separate from your account. Most of it
+        works without signing in, and what it sends depends on what you ask it
+        to do.
+      </p>
+      <p>
+        <strong>Condition reads.</strong> When you click for a condition read on
+        a marketplace listing, the extension sends that listing&rsquo;s public
+        photo URLs and basic details (title, brand, price, stated condition) to
+        our grading service to produce a score. It reads the page you are
+        already looking at; it does not browse on your behalf, and it does not
+        run on sites outside the marketplaces it supports. Results are not
+        stored on our servers. Your recent reads and settings stay on your
+        device.
+      </p>
+      <p>
+        <strong>Diagnostics are off by default.</strong> If you turn on
+        &ldquo;report when a site&rsquo;s layout breaks the read&rdquo;, the
+        extension tells us which marketplace failed and which part of the page
+        it could not read, plus the version of its configuration. It does{" "}
+        <strong>not</strong> send the listing, the page address, your account,
+        or any identifier for you or your installation &mdash; the report cannot
+        be tied back to a person or a browsing history, by design rather than by
+        promise. You can turn it off again at any time in the
+        extension&rsquo;s popup.
+      </p>
+      <p>
+        <strong>Seller tools.</strong> If you use the cross-posting tools, the
+        form filling happens entirely in your own logged-in browser tab. Your
+        marketplace passwords and cookies are never sent to GradeThread, and we
+        do not read your marketplace accounts. On gradethread.com the extension
+        runs a small message relay so our own site can hand it a cross-posting
+        request &mdash; it reads no page content and forwards only our own
+        messages.
+      </p>
+      <p>
+        <strong>Signing in.</strong> If you sign in, a short-lived access token
+        is stored locally so the extension can apply your plan&rsquo;s limits
+        and unlock seller features. The extension does not have the{" "}
+        <code>cookies</code> permission.
+      </p>
+
+      <h2 id="sharing">7. How we share information</h2>
       <p>
         We do not sell personal information. We share it only as follows. A
         complete, dated list of our subprocessors is on the{" "}
@@ -342,7 +391,7 @@ export function PrivacyPage() {
         </li>
       </ul>
 
-      <h2 id="retention">7. Data retention</h2>
+      <h2 id="retention">8. Data retention</h2>
       <p>
         We retain personal information for as long as your account is active
         and as needed to provide the Service, then delete or de-identify it
@@ -395,7 +444,7 @@ export function PrivacyPage() {
         <a href="#your-rights">Your rights</a>).
       </p>
 
-      <h2 id="your-rights">8. Your rights and choices</h2>
+      <h2 id="your-rights">9. Your rights and choices</h2>
       <p>
         Depending on where you live, you may have rights to access, correct,
         delete, restrict, or port your personal information, and to object to
@@ -431,7 +480,7 @@ export function PrivacyPage() {
         sell personal information.
       </p>
 
-      <h2 id="security">9. Security</h2>
+      <h2 id="security">10. Security</h2>
       <p>
         We use industry-standard administrative, technical, and physical
         safeguards to protect your information &mdash; including encryption in
@@ -441,7 +490,7 @@ export function PrivacyPage() {
         guarantee absolute security.
       </p>
 
-      <h2 id="international">10. International transfers</h2>
+      <h2 id="international">11. International transfers</h2>
       <p>
         Pearson Media LLC is based in the United States. If you access the
         Service from outside the U.S., your information will be transferred
@@ -450,7 +499,7 @@ export function PrivacyPage() {
         mechanisms such as the Standard Contractual Clauses.
       </p>
 
-      <h2 id="children">11. Children</h2>
+      <h2 id="children">12. Children</h2>
       <p>
         The Service is intended for adults. You must be at least 18 years old to
         use it (see our <Link to="/terms">Terms of Service</Link>). The Service
@@ -461,7 +510,7 @@ export function PrivacyPage() {
         we will delete it.
       </p>
 
-      <h2 id="changes">12. Changes to this policy</h2>
+      <h2 id="changes">13. Changes to this policy</h2>
       <p>
         We may update this Privacy Policy from time to time. When we make
         material changes, we will update the &ldquo;Effective date&rdquo;
@@ -470,7 +519,7 @@ export function PrivacyPage() {
         becomes effective constitutes acceptance of the updated policy.
       </p>
 
-      <h2 id="contact">13. Contact us</h2>
+      <h2 id="contact">14. Contact us</h2>
       <p>
         Pearson Media LLC
         <br />
