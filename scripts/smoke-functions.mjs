@@ -55,8 +55,18 @@ async function discoverCertId() {
   return { id: null, seeded: false };
 }
 
-// A marker is a substring that ONLY a Function-rendered response contains.
-// `optional: true` checks skip (warn, don't fail) when no sample id is supplied.
+// A marker is a substring — or a RegExp — that ONLY a Function-rendered response
+// contains. `optional: true` checks skip (warn, don't fail) when no sample id is
+// supplied.
+//
+// USE A RegExp FOR ANYTHING INSIDE JSON. A plain substring like '"@type": "Product"'
+// silently encodes an assumption about JSON.stringify's SPACING, not about the
+// page being correct. That exact marker failed against a perfectly healthy
+// production cert whose JSON-LD serializes compactly ('"@type":"Product"') — the
+// check reported the launch-blocker route as broken when it was fine. A smoke
+// check that cries wolf is worse than no smoke check: it is the same
+// trust-erosion class as the silent-skip this file already had to fix, just
+// inverted. Match the structure, not the whitespace.
 const checks = [
   { name: "robots.txt", path: "/robots.txt", marker: "User-agent", contentType: "text/plain" },
   { name: "llms.txt", path: "/llms.txt", marker: "GradeThread", contentType: "text/" },
@@ -68,7 +78,12 @@ const checks = [
     path: certId ? `/cert/${encodeURIComponent(certId)}` : null,
     // Function-rendered cert carries Product + Review JSON-LD (US-300); the SPA
     // shell never does. This is the AC's headline assertion.
-    marker: '"@type": "Product"',
+    //
+    // Both halves are checked. The comment here claimed "Product + Review" since
+    // US-300 but only Product was ever asserted, so the cert could have lost its
+    // Review/Rating markup — the part that actually carries the GRADE into search
+    // and AI answers — with the smoke check still green.
+    marker: [/"@type"\s*:\s*"Product"/, /"@type"\s*:\s*"Review"/],
     contentType: "text/html",
     optional: true,
     optionalHint: "pass --cert <id> of a known public certificate",
@@ -123,7 +138,10 @@ async function run() {
       if (c.contentType && !ct.toLowerCase().includes(c.contentType)) {
         problems.push(`content-type "${ct}" lacks "${c.contentType}"`);
       }
-      if (!body.includes(c.marker)) problems.push(`missing marker ${JSON.stringify(c.marker)}`);
+      for (const m of [c.marker].flat()) {
+        const hit = m instanceof RegExp ? m.test(body) : body.includes(m);
+        if (!hit) problems.push(`missing marker ${m instanceof RegExp ? String(m) : JSON.stringify(m)}`);
+      }
       const shellHit = SPA_SHELL_MARKERS.find((m) => body.includes(m));
       if (shellHit) problems.push(`served SPA shell (found ${JSON.stringify(shellHit)})`);
 
