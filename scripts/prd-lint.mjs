@@ -42,6 +42,79 @@ export function accumulationReminder(done, threshold) {
 
 // ── Pure lint over already-loaded data ───────────────────────────────────────
 
+// US-1996: a story marked passes:true whose notes still carry an UNRESOLVED
+// blocker marker ("[DEFERRED …]", "NOT DONE (blocks passes)").
+//
+// WHY THIS IS A REAL CLASS AND NOT PEDANTRY. US-1770 shipped exactly this way:
+// deferred pending a held migration, then closed anyway. Its authenticity eval
+// gate has no callers, so the safety ACs it claims — a prompt must clear an
+// accuracy gate BEFORE activation, a per-brand regression must BLOCK activation
+// — are enforced by nothing, while the story reads as delivered. US-744 and
+// US-1399 share the shape. Nothing surfaced any of them until someone thought to
+// grep, which is not a control.
+//
+// WARNING, NEVER AN ERROR. A later note legitimately supersedes an earlier
+// blocker: US-1883 carried "NOT DONE (blocks passes): AC2 …" for weeks and was
+// then genuinely finished, the closing note appended after the stale one. Hard
+// failing would punish the correct history. So this reports and lets a human
+// judge.
+const BLOCKER_MARKER =
+  /(\[DEFERRED\b[^\]]*\]|\bDEFERRED \d{4}-\d{2}-\d{2}|NOT DONE \(blocks passes\)|\bblocks passes\b)/i;
+
+// A STRUCTURED closing marker, deliberately CASE-SENSITIVE and anchored to a
+// note segment — not an English word.
+//
+// The first version of this guard matched /\b(DONE|...)\b/i anywhere after the
+// blocker, and so cleared US-1770 — the exact story it was written for —
+// because 2300 characters later the prose said "best done in a user-present
+// session". Searching long free text for a common word will always find it.
+// Notes in this repo are append-only and pipe-separated, and real closings look
+// like "| DONE 2026-07-12:", "| CLOSED 2026-07-18", "| PROD-VERIFIED", so the
+// signal is an UPPERCASE token in a LATER SEGMENT.
+const CLOSING_TOKEN = /\b(DONE|CLOSED|SHIPPED|COMPLETED?|RESOLVED|VERIFIED|PROD-VERIFIED)\b/;
+// "NOT DONE (blocks passes)" contains an uppercase DONE and is the OPPOSITE of a
+// closing — it must never clear anything.
+const NEGATED_CLOSING = /\bNOT\s+DONE\b/;
+
+/**
+ * Returns the stories that claim to pass while still carrying an unresolved
+ * blocker marker. Pure + exported so it is testable on its own.
+ *
+ * Resolution requires an uppercase closing token in a note segment AFTER the one
+ * raising the blocker. Segment-scoped because ordering is meaningful (notes are
+ * append-only) and because free-text proximity is not evidence of anything.
+ */
+export function findUnresolvedDeferrals(stories) {
+  const hits = [];
+  for (const s of stories ?? []) {
+    if (s?.passes !== true) continue;
+    const notes = typeof s.notes === "string" ? s.notes : "";
+    const m = BLOCKER_MARKER.exec(notes);
+    if (!m) continue;
+
+    const segments = notes.split(/\s\|\s/);
+    // Which segment raised the blocker? (offset walk, so a marker appearing
+    // twice resolves against its FIRST occurrence — the conservative choice.)
+    let idx = 0;
+    let seen = 0;
+    for (let i = 0; i < segments.length; i++) {
+      const end = seen + segments[i].length;
+      if (m.index <= end) {
+        idx = i;
+        break;
+      }
+      seen = end + 3; // the " | " separator
+    }
+
+    const laterClosed = segments
+      .slice(idx + 1)
+      .some((seg) => CLOSING_TOKEN.test(seg) && !NEGATED_CLOSING.test(seg));
+    if (laterClosed) continue;
+    hits.push({ id: s.id, marker: m[0].trim() });
+  }
+  return hits;
+}
+
 export function findCycles(graph) {
   const WHITE = 0, GRAY = 1, BLACK = 2;
   const color = new Map([...graph.keys()].map((k) => [k, WHITE]));
@@ -129,6 +202,19 @@ export function lintPrd({ prd, archiveIds = new Set(), archiveMaxId = 0, learnin
   // accumulation guard (WARNING — a full active backlog is not a failure)
   const done = stories.filter((s) => s?.passes === true).length;
   if (done > threshold) warnings.push(accumulationReminder(done, threshold));
+
+  // US-1996 (WARNING): passes:true with an unresolved blocker marker. See
+  // findUnresolvedDeferrals — a later note can legitimately supersede an earlier
+  // blocker, so this can never be an error.
+  const deferred = findUnresolvedDeferrals(stories);
+  if (deferred.length > 0) {
+    warnings.push(
+      `${deferred.length} story(ies) marked passes:true still carry an unresolved blocker note ` +
+        `— verify the behaviour actually ships before trusting the flag ` +
+        `(US-1770 was closed this way and its authenticity safety gate has no callers): ` +
+        deferred.map((d) => `${d.id} "${d.marker}"`).join(", "),
+    );
+  }
 
   // LEARNINGS.md size guard (WARNING — it's read every Ralph iteration)
   if (learningsLines > learningsWarn) {
