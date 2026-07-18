@@ -231,6 +231,8 @@ import {
   normalizeBulkEntry,
   type PriceQtyUpdate,
 } from "../lib/ebay-bulk.ts";
+// US-1999: one derivation rule, and the published SKU wins over item.sku.
+import { resolveInventorySku } from "../lib/ebay-sku.ts";
 import {
   approveCancellation,
   decideReturn,
@@ -4795,7 +4797,7 @@ flipdeskEbayRoutes.post("/listings/bulk-price-quantity", async (c) => {
   const { data: rows } = await supabaseAdmin
     .from("listings")
     .select(
-      "id, platform_offer_id, inventory_item_id, inventory_items!inner(user_id, sku)",
+      "id, platform_offer_id, inventory_item_id, inventory_sku, inventory_items!inner(user_id, sku)",
     )
     .in("id", listingIds)
     .eq("inventory_items.user_id", userId);
@@ -4803,6 +4805,7 @@ flipdeskEbayRoutes.post("/listings/bulk-price-quantity", async (c) => {
     id: string;
     platform_offer_id: string | null;
     inventory_item_id: string | null;
+    inventory_sku: string | null;
     inventory_items: { user_id: string; sku: string | null };
   }>;
 
@@ -4818,7 +4821,10 @@ flipdeskEbayRoutes.post("/listings/bulk-price-quantity", async (c) => {
       continue;
     }
     const offerId = row.platform_offer_id;
-    const sku = row.inventory_items.sku;
+    // US-1999: bulk reprice addresses the Inventory API by SKU, so it uses the
+    // PINNED publish-time value; the item's current sku is only a pre-00477
+    // fallback. Both being null still means "no eBay SKU" (a draft).
+    const sku = row.inventory_sku ?? row.inventory_items.sku;
     if (!offerId || !sku) {
       results.push({ listing_id: lid, ok: false, error: "Listing has no eBay offer/SKU" });
       continue;
@@ -5767,10 +5773,11 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
       .from("inventory_items")
       .update({ ebay_aspects: aspects })
       .eq("id", itemId);
-    const sku =
-      item.sku && item.sku.trim()
-        ? item.sku.trim()
-        : `FD-${item.id.slice(0, 8)}`;
+    // US-1999: address the SKU eBay actually holds this listing under. Deriving
+    // from item.sku here is what let a post-publish SKU rename send the revise
+    // to a key eBay never had — creating an orphan inventory item while the
+    // offer-id-keyed calls below still hit the real offer.
+    const sku = resolveInventorySku(row.listing, item);
 
     const { data: photoRows } = await supabaseAdmin
       .from("item_photos")
@@ -6206,7 +6213,10 @@ flipdeskEbayRoutes.delete("/listings/:id", async (c) => {
   // previously left it live on eBay forever.
   const strategy = resolveEndStrategy({
     variations: row.listing.variations,
-    itemSku: row.listing.item_sku,
+    // US-1999: the inventory_item_group was created under the BASE SKU at
+    // publish, so the withdraw key is the PINNED sku — not the item's current
+    // one, which a rename would have moved out from under the live group.
+    itemSku: row.listing.inventory_sku ?? row.listing.item_sku,
     platformOfferId: row.listing.platform_offer_id,
   });
   // US-1507: end via the account that owns the listing (null → primary).
@@ -6851,6 +6861,11 @@ export async function publishItemForOwner(
       marketplace_connection_id: ctx.connectionId,
       platform_listing_id: listingId,
       platform_offer_id: offerId,
+      // US-1999: PIN the SKU this went live under. Every later Inventory call
+      // reads this instead of re-deriving from the seller-editable
+      // inventory_items.sku, so renaming the item's SKU can no longer orphan
+      // the live listing.
+      inventory_sku: sku,
       platform_category_id: ctx.summary.categoryId,
       listing_url: url,
       listing_price: Number(ctx.summary.priceValue),
@@ -7164,6 +7179,10 @@ async function publishVariationListing(args: {
     // US-1507: stamp the publishing connection (see single-SKU payload above).
     marketplace_connection_id: ctx.connectionId,
     platform_listing_id: listingId,
+    // US-1999: for a multi-variation listing the pinned SKU is the BASE sku —
+    // it is the inventory_item_group key, and each variant SKU is derived from
+    // it by variantSku(). Pinning the base therefore pins every variant.
+    inventory_sku: baseSku,
     platform_category_id: ctx.summary.categoryId,
     listing_url: url,
     listing_price: Number(ctx.summary.priceValue),
@@ -8241,7 +8260,14 @@ interface ListingRowForManage {
   // variations matrix means this is a GROUP listing, ended via
   // withdrawByInventoryItemGroup rather than the single-offer withdraw path.
   variations: ListingVariations | null;
+  // US-1999: the item's CURRENT sku — the seller's item number, freely editable.
+  // Do NOT address eBay with it; it may differ from what the listing went live
+  // under. Kept only as the derivation input for pre-00477 rows.
   item_sku: string | null;
+  // US-1999 (00477): the SKU this listing was PUBLISHED under. Authoritative
+  // for every Inventory-API call — including the group-withdraw key, since the
+  // inventory_item_group was created under the base SKU at publish time.
+  inventory_sku: string | null;
 }
 
 type LoadListingResult =
@@ -8302,7 +8328,7 @@ async function loadListingOwned(
   const { data } = await supabaseAdmin
     .from("listings")
     .select(
-      "id, inventory_item_id, platform_offer_id, platform_listing_id, listing_title, listing_description, batch_id, synced_to_ebay_at, marketplace_connection_id, listing_origin, variations, inventory_items!inner(user_id, sku)"
+      "id, inventory_item_id, platform_offer_id, platform_listing_id, listing_title, listing_description, batch_id, synced_to_ebay_at, marketplace_connection_id, listing_origin, variations, inventory_sku, inventory_items!inner(user_id, sku)"
     )
     .eq("id", listingId)
     .maybeSingle();
@@ -8332,6 +8358,7 @@ async function loadListingOwned(
       // the group path; carry the parent SKU (the group key) for the withdraw.
       variations: normalizeVariations(row.variations),
       item_sku: row.inventory_items.sku,
+      inventory_sku: row.inventory_sku,
     },
   };
 }
@@ -8486,6 +8513,10 @@ export function variantSku(baseSku: string, variant: ListingVariation): string {
 
 interface PublishListing {
   id: string;
+  // US-1999 (00477): the SKU eBay holds this listing under. Authoritative for
+  // every Inventory call on an already-published listing — a relist must reuse
+  // it rather than re-derive from the seller-editable inventory_items.sku.
+  inventory_sku: string | null;
   listing_title: string | null;
   listing_description: string | null;
   listing_price: number | null;
@@ -8813,7 +8844,7 @@ export async function resyncGradeToLiveListing(
   const { data: listingRow } = await supabaseAdmin
     .from("listings")
     .select(
-      "id, listing_title, platform_offer_id, platform_category_id, item_specifics_override, ebay_condition, ebay_condition_description, listing_description, listing_status, listing_origin, marketplace_connection_id",
+      "id, listing_title, platform_offer_id, platform_category_id, item_specifics_override, ebay_condition, ebay_condition_description, listing_description, listing_status, listing_origin, marketplace_connection_id, inventory_sku",
     )
     .eq("inventory_item_id", itemId)
     .eq("platform", "ebay")
@@ -8835,6 +8866,8 @@ export async function resyncGradeToLiveListing(
         listing_status: string | null;
         listing_origin: string | null;
         marketplace_connection_id: string | null;
+        // US-1999 (00477): the SKU this listing went live under.
+        inventory_sku: string | null;
       }
     | null;
   if (!listing?.platform_offer_id) {
@@ -8928,7 +8961,11 @@ export async function resyncGradeToLiveListing(
     ).map(ebayPublicPhotoUrl),
   );
 
-  const sku = (item.sku as string | null)?.trim() || `FD-${itemId.slice(0, 8)}`;
+  // US-1999: re-PUT the inventory item eBay actually has, not whatever the
+  // seller's item number says today. This path is automated (it fires on grade
+  // completion), so a mismatch here would silently create orphan inventory
+  // items with no human in the loop to notice.
+  const sku = resolveInventorySku(listing, { id: itemId, sku: item.sku as string | null });
   const finalTitle = (
     listing.listing_title ?? (item.title as string | null) ?? ""
   ).trim();
@@ -9133,7 +9170,7 @@ export async function assemblePublishContext(
   const { data: listingRow } = await supabaseAdmin
     .from("listings")
     .select(
-      "id, listing_title, listing_description, listing_price, price_is_estimated, ebay_condition, ebay_condition_description, quantity, best_offer_enabled, best_offer_auto_accept_cents, best_offer_auto_decline_cents, price_range_low_cents, price_range_high_cents, platform_category_id, item_specifics_override, item_specifics_sources, scheduled_publish_at, badge_enabled, slab_image_mode, shipping_policy_id, payment_policy_id, return_policy_id, promo_rate_pct, promo_opt_out, promote_override, promo_mode, listing_format, auction_start_price_cents, auction_reserve_price_cents, auction_buy_it_now_price_cents, auction_duration, variations, listing_origin, listing_status, is_active, platform_listing_id, batch_id, synced_to_ebay_at",
+      "id, listing_title, listing_description, listing_price, price_is_estimated, ebay_condition, ebay_condition_description, quantity, best_offer_enabled, best_offer_auto_accept_cents, best_offer_auto_decline_cents, price_range_low_cents, price_range_high_cents, platform_category_id, item_specifics_override, item_specifics_sources, scheduled_publish_at, badge_enabled, slab_image_mode, shipping_policy_id, payment_policy_id, return_policy_id, promo_rate_pct, promo_opt_out, promote_override, promo_mode, listing_format, auction_start_price_cents, auction_reserve_price_cents, auction_buy_it_now_price_cents, auction_duration, variations, listing_origin, listing_status, is_active, platform_listing_id, batch_id, synced_to_ebay_at, inventory_sku",
     )
     .eq("inventory_item_id", itemId)
     .eq("platform", "ebay")
@@ -9658,7 +9695,10 @@ export async function assemblePublishContext(
 
   const description = (listing?.listing_description ?? item.description ?? title).trim() ||
     title;
-  const sku = item.sku && item.sku.trim() ? item.sku.trim() : `FD-${item.id.slice(0, 8)}`;
+  // US-1999: a RELIST reuses the listing row, so the SKU eBay already holds it
+  // under wins over item.sku (which the seller may have edited since). Only a
+  // never-published item mints a fresh one.
+  const sku = resolveInventorySku(listing, item);
   // Condition: explicit editor value wins; only fall back to grade-derived
   // mapping when the user/AI hasn't set one.
   let condition = (listing?.ebay_condition && listing.ebay_condition.trim())

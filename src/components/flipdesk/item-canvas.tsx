@@ -1503,6 +1503,16 @@ export function ItemCanvas({
             label="SKU / Item #"
             value={state.sku}
             onChange={(v) => patch("sku", v)}
+            // US-1999: renaming this used to orphan a live listing, because
+            // every eBay Inventory call re-derived its key from this field. The
+            // SKU the listing went live under is now pinned on the listing row,
+            // so an edit here is safe — but say so, because "safe" is not
+            // obvious for a field the marketplace treats as identity.
+            hint={
+              isGtLive
+                ? "Your internal item number. The eBay listing keeps the SKU it was published under, so renaming this won't affect it."
+                : undefined
+            }
           />
           <FieldText
             label="Container"
@@ -2131,6 +2141,7 @@ function FieldText({
   aiMarked = false,
   disabled = false,
   lockHint = false,
+  hint,
 }: {
   label: string;
   value: string;
@@ -2140,6 +2151,9 @@ function FieldText({
   disabled?: boolean;
   // When true, show a small lock glyph next to the label (US-1080 eBay-owned).
   lockHint?: boolean;
+  // Optional explanatory line under the input (US-1999: what an edit does NOT
+  // affect). Shown as muted helper text, not an error.
+  hint?: string;
 }) {
   return (
     <div className="space-y-1">
@@ -2160,6 +2174,7 @@ function FieldText({
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
       />
+      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>
   );
 }

@@ -50,6 +50,60 @@
 > previously the applied version was visible only in container logs, which is how
 > this file drifted 59 sections out of date without anyone noticing.)
 
+## ⏳ PENDING: 00477_listings_inventory_sku.sql (US-1999 pin the published eBay SKU, 2026-07-18)
+
+Adds `public.listings.inventory_sku TEXT` (nullable) + a partial index
+`idx_listings_user_inventory_sku (user_id, inventory_sku) WHERE inventory_sku IS
+NOT NULL`, then backfills it for already-published GradeThread-origin eBay rows
+from `coalesce(nullif(trim(i.sku), ''), 'FD-' || left(i.id::text, 8))`.
+
+**Why:** eBay's Inventory API addresses items BY SKU, and GradeThread derived
+that key at three call sites from `inventory_items.sku` — which the seller can
+freely edit in the item canvas. Renaming the SKU of a live item made every later
+Inventory call (revise, grade-resync, bulk reprice, group withdraw) address a key
+eBay never had: it created a NEW orphan inventory item while the offer-id-keyed
+calls still hit the real offer. Split-brain listing, no error surfaced.
+
+**Risk: LOW.** Additive column + index; the backfill is a single UPDATE scoped to
+`platform='ebay' AND platform_offer_id IS NOT NULL AND listing_origin <> 'ebay'`
+and only touches rows where `inventory_sku IS NULL`, so it is re-runnable.
+Nothing is dropped or rewritten.
+
+**⚠ APPLY ORDER MATTERS — the edge SELECTS the new column.**
+`flipdesk-ebay.ts` adds `inventory_sku` to four `listings` selects (publish
+context, `loadListingOwned`, grade-resync, bulk price/qty). If the edge deploys
+BEFORE this SQL applies, PostgREST returns `42703` on those selects and publish /
+revise / bulk-reprice break. So: **apply the SQL → `NOTIFY pgrst, 'reload
+schema';` → redeploy the edge on Coolify → then push.**
+
+The FRONTEND does not read this column (the item-canvas change is a static hint
+string only), so the Cloudflare Pages auto-deploy on push is safe either way.
+
+**Backfill caveat, stated plainly:** the backfill reproduces today's derivation,
+which is correct only for rows whose `inventory_items.sku` has NOT changed since
+publish. A row renamed post-publish is ALREADY mismatched against eBay and
+nothing stored locally records what it went live as — the backfill will pin the
+WRONG value for those. That is not a regression (the code re-derived the same
+wrong value on every call); it makes existing breakage explicit. Such listings
+surface as orphans in the eBay pull-sync (their `custom_label` matches no local
+listing) and are repaired on the Reconciliation page.
+
+```sql
+\i supabase/migrations/00477_listings_inventory_sku.sql
+NOTIFY pgrst, 'reload schema';
+```
+
+Post-apply sanity check (expect: every live GT-origin eBay listing has a SKU):
+
+```sql
+SELECT count(*) FILTER (WHERE inventory_sku IS NULL) AS unpinned,
+       count(*)                                      AS live_total
+FROM public.listings
+WHERE platform = 'ebay'
+  AND platform_offer_id IS NOT NULL
+  AND coalesce(listing_origin, 'gradethread') <> 'ebay';
+```
+
 ## ⏳ PENDING: 00476_listing_quality_score.sql (US-1897 AC2 score persistence, 2026-07-18)
 
 Adds three columns to `public.listings` — `quality_score SMALLINT` (0–100, NULL
