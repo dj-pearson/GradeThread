@@ -168,6 +168,31 @@ export type ListingPullPatch = Partial<
  *                                in fromEbay (full mirror).
  * • listing_origin='gradethread': writes only LISTING_READONLY_SIGNALS
  *                                (sold/ended status); ignores price/title/etc.
+ *
+ * ⚠ THIS FUNCTION IS NOT THE PRODUCTION PULL PATH, AND IT IS STRICTER THAN IT.
+ *
+ * The real eBay pull merges provenance inline in `applyProvenanceMerge`
+ * (routes/flipdesk-ebay.ts). On a gradethread-origin listing that path deletes
+ * exactly five fields — listing_title, listing_price, listing_description,
+ * quantity, platform_category_id — and therefore still lets eBay write
+ * listed_at, platform_listing_id, platform_offer_id and listing_url. This
+ * function blocks those four as well.
+ *
+ * That difference is very likely correct in PRODUCTION'S favour: eBay assigns
+ * the item/offer ids, the URL and the listed-at timestamp, so GradeThread cannot
+ * meaningfully own them even on a listing it originated. Which makes this
+ * function — the one with the thorough test suite — the copy encoding the WRONG
+ * contract, while the copy that actually runs is untested here.
+ *
+ * The hazard is specific: those green tests read as proof the documented
+ * contract is enforced as written. It is not. Do NOT "fix" the route by
+ * switching it to this function without deciding the four identity fields
+ * first — that swap would stop eBay ids and URLs syncing onto GradeThread-
+ * originated listings, which is a silent data-integrity regression.
+ *
+ * sync-precedence_test.ts pins the divergence so neither side can drift further
+ * without failing loudly. Reconciling them is a product decision, tracked rather
+ * than guessed at here.
  */
 export function buildListingPullPatch(
   origin: "ebay" | "gradethread",

@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1994,
+  "nextId": 1995,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -1559,6 +1559,21 @@
         "services/edge-functions/src/lib/ebay-client.ts",
         "services/edge-functions/src/routes/flipdesk-ebay.ts"
       ]
+    },
+    {
+      "id": "US-1994",
+      "priority": 1930,
+      "passes": false,
+      "title": "Sync precedence: the tested buildListingPullPatch is NOT the production pull path, and the two contracts disagree",
+      "description": "As GradeThread, we want ONE enforced answer to 'what may an eBay pull overwrite on a GradeThread-originated listing'. Today there are two. lib/sync-precedence.ts buildListingPullPatch is pure, heavily tested (13 refs) and has ZERO production callers. The path that actually runs is applyProvenanceMerge inline in routes/flipdesk-ebay.ts. They disagree: on listing_origin='gradethread' the lib admits only LISTING_READONLY_SIGNALS (is_active, listing_status), while production deletes exactly five fields (listing_title, listing_price, listing_description, quantity, platform_category_id) and therefore still lets eBay write listed_at, platform_listing_id, platform_offer_id and listing_url. Production is probably right — eBay assigns ids, URLs and the listed-at timestamp, so GradeThread cannot own them even on a listing it originated — which means the copy with the thorough test suite encodes the WRONG contract, and its green tests read as proof the documented rule is enforced when it is not.",
+      "acceptanceCriteria": [
+        "Decide which contract is correct for the four disputed identity fields (listed_at, platform_listing_id, platform_offer_id, listing_url) on a gradethread-origin pull, and write the decision into SYNC_SOURCE_OF_TRUTH.md",
+        "ONE implementation enforces it: either the route calls buildListingPullPatch (after widening it to admit whatever the decision keeps), or the lib is deleted and its tests moved onto the production path — no third copy",
+        "⚠ Do NOT simply point the route at the lib as it stands: that would stop eBay item/offer ids and listing URLs syncing onto GradeThread-originated listings, a silent data-integrity regression",
+        "The applyProvenanceMerge behaviour gains direct test coverage (today only the unused lib is tested)",
+        "The two DIVERGENCE tests in sync-precedence_test.ts are removed or rewritten once the paths converge — they exist only to pin the gap"
+      ],
+      "notes": "[P2][Sync/Correctness] Found 2026-07-18 by an unwired-export audit (exported lib functions with zero production references, including their own file — the signature of behaviour that was built, tested, and never connected). Same class as US-1894, which shipped conditionDescriptionConsistency tested but uncalled until US-1897 wired it. sync-precedence.ts has THREE such exports: buildListingPullPatch, buildCsvFillPatch, isGradeThreadOwned. buildCsvFillPatch means the CSV fill-only contract may be equally unenforced — CHECK THAT TOO, it is a separate write path with the same failure mode. No data-integrity bug is currently believed to exist: applyProvenanceMerge does correctly refuse to let eBay clobber GradeThread title/price/description/quantity/category, and records drift in platform_fields.sync_drift. The defect is the false confidence plus the trap for whoever tries to DRY the two paths. Pinned meanwhile: sync-precedence.ts carries a warning naming the production path, and two DIVERGENCE tests assert the exact gap so neither side can move silently. See CLAUDE.md -> SYNC_SOURCE_OF_TRUTH.md."
     }
   ]
 }

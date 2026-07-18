@@ -589,3 +589,82 @@ Deno.test("ebayOriginWriteLock: non-eBay-owned fields never lock, even on eBay o
   assertEquals(lock.locked, false);
   assertEquals(lock.lockedFields, []);
 });
+
+// ── the lib ⇄ production divergence, pinned ────────────────────────────────
+//
+// buildListingPullPatch is NOT what runs on an eBay pull. The production path
+// is applyProvenanceMerge (routes/flipdesk-ebay.ts), which on a
+// gradethread-origin listing deletes exactly five fields:
+//
+//   listing_title, listing_price, listing_description, quantity,
+//   platform_category_id
+//
+// ...and so still lets eBay write listed_at, platform_listing_id,
+// platform_offer_id and listing_url. This function blocks those four too.
+//
+// Production is probably the correct one — eBay assigns ids, URLs and the
+// listed-at timestamp, so GradeThread cannot own them even on a listing it
+// originated. Which means the copy with the thorough tests encodes the wrong
+// contract, and those green tests read as proof the documented rule is enforced
+// when it is not.
+//
+// These two tests exist to make that visible and to fail loudly if either side
+// moves. Reconciling them is a product decision, not something to guess at.
+
+Deno.test("DIVERGENCE: production lets eBay write the four identity fields this lib blocks", () => {
+  const identityFields = [
+    "listed_at",
+    "platform_listing_id",
+    "platform_offer_id",
+    "listing_url",
+  ] as const;
+
+  const patch = buildListingPullPatch("gradethread", {
+    listing_status: "ACTIVE",
+    is_active: true,
+    listed_at: "2026-07-18T00:00:00.000Z",
+    platform_listing_id: "1234567890",
+    platform_offer_id: "offer-1",
+    listing_url: "https://www.ebay.com/itm/1234567890",
+    listing_title: "eBay's drifted title",
+    listing_price: 99.99,
+  });
+
+  // What this lib does today: only the read-only signals survive.
+  assertEquals(Object.keys(patch).sort(), ["is_active", "listing_status"]);
+  for (const f of identityFields) {
+    assert(
+      !(f in patch),
+      `${f} is blocked here but ALLOWED by applyProvenanceMerge in production — ` +
+        "if this assertion is failing, the two paths just converged (good) or this " +
+        "lib changed (decide which contract is right before proceeding)",
+    );
+  }
+  // The fields both paths agree on blocking.
+  for (const f of ["listing_title", "listing_price"]) {
+    assert(!(f in patch), `${f} must never be pulled onto a GradeThread-owned listing`);
+  }
+});
+
+Deno.test("DIVERGENCE: the production deletion list is exactly five fields", () => {
+  // Mirrors applyProvenanceMerge's `delete patch.*` block. If someone adds or
+  // removes a delete there, this list should be updated in the same commit —
+  // it is the only place the two contracts are written side by side.
+  const productionDeletes = [
+    "listing_title",
+    "listing_price",
+    "listing_description",
+    "quantity",
+    "platform_category_id",
+  ];
+  const libBlocks = EBAY_OWNED_LISTING_FIELDS.filter(
+    (f) => !LISTING_READONLY_SIGNALS.includes(f),
+  );
+  const onlyLibBlocks = libBlocks.filter((f) => !productionDeletes.includes(f));
+  assertEquals(
+    onlyLibBlocks.sort(),
+    ["listed_at", "listing_url", "platform_listing_id", "platform_offer_id"],
+    "the set of fields this lib blocks but production allows has changed — " +
+      "reconcile SYNC_SOURCE_OF_TRUTH.md with whichever path is now correct",
+  );
+});
