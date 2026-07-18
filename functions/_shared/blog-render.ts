@@ -1334,6 +1334,17 @@ export interface CertProductLdInput {
   brand?: string | null;
   images?: string[] | null;
   datePublished?: string | null;
+  /**
+   * US-2071: MUST exist here, even though nothing passes it yet.
+   *
+   * The SPA builder (src/lib/seo/json-ld.ts:686) already emits dateModified
+   * when supplied. This mirror had no such field, so the moment a caller
+   * started passing it the two paths would silently diverge — and the
+   * byte-equality test that is supposed to catch exactly that would have stayed
+   * GREEN, because its CERT_INPUT fixture omitted the field too. A guard whose
+   * fixture omits the field under test cannot fail.
+   */
+  dateModified?: string | null;
   /** Public site origin without a trailing slash, e.g. https://gradethread.com */
   siteUrl: string;
 }
@@ -1383,6 +1394,9 @@ export function certificateProductLd(
       author: { "@type": "Organization", name: "GradeThread", url: cert.siteUrl },
       ...(cert.datePublished ? { datePublished: cert.datePublished } : {}),
     },
+    // US-2071: same position and same conditional shape as the SPA builder, so
+    // the byte-equality test holds when a caller does start supplying it.
+    ...(cert.dateModified ? { dateModified: cert.dateModified } : {}),
     mainEntityOfPage: { "@type": "WebPage", "@id": canonical },
   };
 }

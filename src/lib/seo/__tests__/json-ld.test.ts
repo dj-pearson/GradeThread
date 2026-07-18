@@ -140,6 +140,10 @@ describe("JSON-LD builders (US-298/299/300)", () => {
     category: "denim",
     brand: "Levi's",
     images: ["https://img.example/front.jpg"],
+    // US-2071: the fixture MUST exercise dateModified. Omitting it is why the
+    // byte-equality guard passed while the SSR mirror had no such field — the
+    // test could not fail on a divergence it never fed either side.
+    dateModified: "2026-07-18",
     datePublished: "2026-01-01T00:00:00Z",
   };
 
