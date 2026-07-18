@@ -71,7 +71,13 @@ const BLOCKER_MARKER =
 // Notes in this repo are append-only and pipe-separated, and real closings look
 // like "| DONE 2026-07-12:", "| CLOSED 2026-07-18", "| PROD-VERIFIED", so the
 // signal is an UPPERCASE token in a LATER SEGMENT.
-const CLOSING_TOKEN = /\b(DONE|CLOSED|SHIPPED|COMPLETED?|RESOLVED|VERIFIED|PROD-VERIFIED)\b/;
+// COMPLETION and "un-deferred" are listed because US-1399 was a real false
+// positive: its notes carry "[COMPLETION 2026-07-03 - un-deferred]" and the work
+// was genuinely finished, but COMPLETED? does not match COMPLETION, so the guard
+// reported a resolved story as still blocked. A guard that cries wolf gets
+// ignored — the same trust problem this whole check exists to fix.
+const CLOSING_TOKEN =
+  /\b(DONE|CLOSED|SHIPPED|COMPLETED?|COMPLETION|RESOLVED|VERIFIED|PROD-VERIFIED)\b|un-deferred/;
 // "NOT DONE (blocks passes)" contains an uppercase DONE and is the OPPOSITE of a
 // closing — it must never clear anything.
 const NEGATED_CLOSING = /\bNOT\s+DONE\b/;
@@ -106,10 +112,28 @@ export function findUnresolvedDeferrals(stories) {
       seen = end + 3; // the " | " separator
     }
 
+    // Resolution counts in a LATER segment, or later within the SAME one.
+    //
+    // The same-segment case is not a nicety: US-1399's entire history is a
+    // single segment that ends in an un-deferral, so requiring a segment break
+    // reported a finished story as blocked. Position still matters — text
+    // BEFORE the marker cannot resolve it — and the token must be the
+    // structured uppercase form, which is what keeps the original false
+    // NEGATIVE closed (a lowercase prose "done" 2300 characters later must not
+    // clear a real deferral, which is how the first version of this guard
+    // cleared US-1770).
+    const seg = segments[idx] ?? "";
+    // Slice past the END of the marker, not one character past its start.
+    // Slicing at +1 leaves "OT DONE (blocks passes)" behind, whose uppercase
+    // DONE then clears the very blocker it announces — the guard's own suite
+    // caught that regression.
+    const segMatch = BLOCKER_MARKER.exec(seg);
+    const afterInSeg = segMatch ? seg.slice(segMatch.index + segMatch[0].length) : "";
+    const closedHere = CLOSING_TOKEN.test(afterInSeg) && !NEGATED_CLOSING.test(afterInSeg);
     const laterClosed = segments
       .slice(idx + 1)
-      .some((seg) => CLOSING_TOKEN.test(seg) && !NEGATED_CLOSING.test(seg));
-    if (laterClosed) continue;
+      .some((sg) => CLOSING_TOKEN.test(sg) && !NEGATED_CLOSING.test(sg));
+    if (closedHere || laterClosed) continue;
     hits.push({ id: s.id, marker: m[0].trim() });
   }
   return hits;

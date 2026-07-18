@@ -183,4 +183,23 @@ describe("findUnresolvedDeferrals", () => {
       story("US-C", true, "[DEFERRED 2026-01-01] x | DONE 2026-02-02: shipped it"),
     ])).toEqual([]);
   });
+
+  it("clears an un-deferral written in the SAME segment (the US-1399 shape)", () => {
+    // Real false positive: US-1399s whole history is one segment ending in
+    // "[COMPLETION 2026-07-03 - un-deferred]". Requiring a segment break, and
+    // matching COMPLETED? rather than COMPLETION, reported a finished story as
+    // blocked.
+    const hits = findUnresolvedDeferrals([
+      story("US-1399", true, "[DEFERRED 2026-06-27: needs a build-time fetch] [COMPLETION 2026-07-03 - un-deferred] graceful degradation is the contract now"),
+    ]);
+    expect(hits).toEqual([]);
+  });
+
+  it("still refuses to clear on a lowercase prose done in the same segment", () => {
+    // The same-segment allowance must not reopen the original false negative.
+    const hits = findUnresolvedDeferrals([
+      story("US-Y", true, "[DEFERRED 2026-01-01] best done in a user-present session, work done by hand meanwhile"),
+    ]);
+    expect(hits.map((h) => h.id)).toEqual(["US-Y"]);
+  });
 });
