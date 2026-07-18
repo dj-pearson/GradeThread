@@ -67,8 +67,20 @@ jwt_expiry = 3600
 # US-375: rotate refresh tokens on every use and detect reuse of a revoked token
 # (a sign of theft). The self-hosted GoTrue mirrors this with
 # GOTRUE_SECURITY_REFRESH_TOKEN_ROTATION_ENABLED=true and
-# GOTRUE_SECURITY_REFRESH_TOKEN_REUSE_INTERVAL=10; set an absolute session TTL
-# there too (GOTRUE_SESSIONS_TIMEBOX) so a refreshed session can't live forever.
+# GOTRUE_SECURITY_REFRESH_TOKEN_REUSE_INTERVAL=10.
+#
+# SESSION LIFETIME (mobile-friendly, US-…): the ACCESS token stays short (1h,
+# above) and the SDK auto-refreshes it; what controls how long a login LASTS is
+# the GoTrue session TTL on the self-hosted prod Auth container:
+#   • GOTRUE_SESSIONS_TIMEBOX             — absolute cap on a session's age.
+#   • GOTRUE_SESSIONS_INACTIVITY_TIMEOUT  — logout after this long unused.
+# A SHORT value here (e.g. 12h/24h) forces the iOS app to re-login every day —
+# it revokes the refresh token server-side, so the SDK drops to the login
+# screen. For a passive ~30-day mobile session set BOTH to 720h (GoTrue uses Go
+# durations — days aren't valid, so 30d = 720h), or leave them UNSET for no cap.
+# The web app is bounded separately by a CLIENT-side 12h idle-logout
+# (src/lib/idle-logout.ts, scope:"local") that never revokes the server session,
+# so a long server TTL keeps mobile signed in without weakening the browser.
 enable_refresh_token_rotation = true
 refresh_token_reuse_interval = 10
 enable_signup = true

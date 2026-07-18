@@ -281,7 +281,9 @@ Set on the self-hosted `auth` container. Full list with values in
 | `GOTRUE_MAILER_AUTOCONFIRM` | ✅ Supabase auth | `false` → email confirmation required. |
 | `GOTRUE_PASSWORD_MIN_LENGTH` / `_REQUIRED_CHARACTERS` / `_HIBP_ENABLED` | ⬜ Supabase auth | Password length / complexity / breached-password blocking. |
 | `GOTRUE_SECURITY_REFRESH_TOKEN_ROTATION_ENABLED` / `_REUSE_INTERVAL` | ⬜ Supabase auth | Refresh-token rotation + reuse detection. |
-| `GOTRUE_JWT_EXP` | ⬜ Supabase auth | Access-token lifetime (sec). |
+| `GOTRUE_JWT_EXP` | ⬜ Supabase auth | Access-token lifetime (sec). SDK auto-refreshes — not how long a login lasts. |
+| `GOTRUE_SESSIONS_TIMEBOX` | ⬜ Supabase auth | Absolute session TTL. Short value = iOS "logs out daily". `720h` (30d) for a passive mobile session, or unset. Go duration (use `h`, not `d`). |
+| `GOTRUE_SESSIONS_INACTIVITY_TIMEOUT` | ⬜ Supabase auth | Logout after this long unused. Match the timebox (`720h` / 30d) or unset. |
 | `GOTRUE_RATE_LIMIT_*` | ⬜ Supabase auth | Brute-force / OTP / email rate limits. |
 | `GOTRUE_SECURITY_CAPTCHA_ENABLED` / `_PROVIDER` / `_SECRET` 🔒 | ⬜ Supabase auth | Turnstile captcha on auth (pair with `VITE_TURNSTILE_SITE_KEY`). |
 | `GOTRUE_MFA_ENABLED` | ⬜ Supabase auth | Allows TOTP factor enrollment (pairs with edge `ADMIN_MFA_ENFORCED`). |
