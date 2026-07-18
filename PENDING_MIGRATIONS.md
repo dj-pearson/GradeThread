@@ -1,8 +1,54 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-> **00435–00442 were applied to prod + pushed on 2026-07-12** (user confirmed).
-> The sections below for those are historical; the only NEW held migration is
-> **00443** at the top.
+> ## ⚠ RECONCILED 2026-07-18 — 59 of the 60 "PENDING" sections below are ALREADY APPLIED
+>
+> **Only `00475_selector_health_pings.sql` is genuinely pending.** Everything
+> from `00412` through `00474` is at or below the version prod is already
+> running. Read the sections below as HISTORY (the same treatment the old
+> 00435–00442 note gave them), not as a 59-migration apply backlog.
+>
+> **How this was established** (measured against prod on 2026-07-18, not assumed):
+>
+> 1. The deployed edge is built from `origin/main`, whose
+>    `EXPECTED_SCHEMA_VERSION` is **00474**.
+> 2. In production a confirmed-behind DB calls `onFatal` → `Deno.exit(1)` after
+>    the ~40s grace window (`schema-version.ts`) — the container refuses to start.
+> 3. `https://functions.gradethread.com/health` returns 200 with
+>    `env:"production"`, and public endpoints reading real tables serve live data.
+> 4. The one escape hatch — a missing `latest_schema_migration` RPC failing OPEN
+>    to `"unknown"` — is ruled out: calling that RPC returns `42501 permission
+>    denied` (it EXISTS, anon just can't execute it), whereas a genuinely absent
+>    function returns `404 / PGRST202 "no matches were found"`. The edge's
+>    service-role call therefore reads a real version.
+>
+> Together: **prod's applied version is ≥ 00474.**
+>
+> ### ⚠ What this does NOT prove — a per-version reconciliation is still owed
+>
+> `latest_schema_migration` returns the **MAX** recorded version, so it proves
+> 00474 landed; it does **not** prove every intermediate did. An operator who
+> cherry-picked could leave a gap at, say, 00460 and the max would still read
+> 00474 — and the boot guard compares only that max, so it would not catch it
+> either. `scripts/apply-prod-migrations.sh` runs the whole directory
+> idempotently, so if that was used there is no gap.
+>
+> **This is exactly US-1566 AC1's "run the applied_migrations reconciliation
+> query to catch older drift", and it remains open** — it needs DB access.
+> Re-running the tail is always safe (everything here is idempotent), so when in
+> doubt, re-run rather than reason about it.
+>
+> ### Fastest re-check, any time
+>
+> ```sh
+> curl -s https://functions.gradethread.com/health/ready | jq .schema
+> # → { "expected": "00475", "applied": "00474", "status": "behind" }  ⇒ apply 00475
+> # → status "match"   ⇒ nothing pending
+> # → status "unknown" ⇒ the version RPC is unreadable; do NOT infer "applied"
+> ```
+>
+> (That `schema` block was added in the same pass that wrote this note —
+> previously the applied version was visible only in container logs, which is how
+> this file drifted 59 sections out of date without anyone noticing.)
 
 ## ⏳ PENDING: 00475_selector_health_pings.sql (US-1880 AC3 selector telemetry, 2026-07-18)
 
