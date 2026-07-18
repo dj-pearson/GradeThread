@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { itemPhotoThumb } from "@/lib/images";
+import { splitSellerCredentials } from "@/lib/listing-templates";
 import type { ItemPhotoRow } from "@/types/database";
 
 export type PreviewViewport = "desktop" | "mobile";
@@ -25,7 +26,11 @@ export interface EbayViewItemPreviewProps {
   conditionLabel: string;
   /** Two-column "Item specifics" rows (already filtered to non-empty). */
   specifics: { label: string; value: string }[];
-  /** Resolved (template-interpolated) HTML-free description text. */
+  /**
+   * Resolved (template-interpolated) description. The plain body is rendered as
+   * escaped text; the trailing GradeThread seller-credentials block (behind its
+   * HTML marker) is rendered as HTML, matching how eBay renders the description.
+   */
   description: string;
   /** Flat shipping charge; 0 / null renders as "Free". */
   shippingCost: number | null;
@@ -226,13 +231,30 @@ export function EbayViewItemPreview(props: EbayViewItemPreviewProps) {
       </div>
     ) : null;
 
+  // Peel the trailing GradeThread seller-credentials block off the body: the
+  // body stays escaped text, the block renders as HTML (as eBay renders it).
+  // The block is GradeThread-built markup with all dynamic values escaped at the
+  // source (edge seller-credentials.ts), so rendering it here is safe.
+  const { body: descriptionBody, credentials } = splitSellerCredentials(description);
+  const credentialsHtml = credentials
+    .replace("<!--gradethread-seller-credentials-->", "")
+    .trim();
+
   const descriptionBlock = (
     <div>
       <div className="mb-2 text-sm font-semibold">Description</div>
       {description.trim() ? (
-        <p className="whitespace-pre-wrap rounded-md border bg-muted/30 p-3 text-xs leading-relaxed">
-          {description}
-        </p>
+        <div className="rounded-md border bg-muted/30 p-3 text-xs leading-relaxed">
+          {descriptionBody.trim() && (
+            <p className="whitespace-pre-wrap">{descriptionBody}</p>
+          )}
+          {credentialsHtml && (
+            <div
+              className={cn(descriptionBody.trim() && "mt-3")}
+              dangerouslySetInnerHTML={{ __html: credentialsHtml }}
+            />
+          )}
+        </div>
       ) : (
         <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
           Apply a template or write a description to preview it here.

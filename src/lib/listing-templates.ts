@@ -127,6 +127,40 @@ export function ensureGradeLine(description: string, item: ItemFullRow): string 
   return trimmed.length > 0 ? `${trimmed}\n\n${block}` : block;
 }
 
+// The GradeThread "Verified Seller" credentials block is appended to a listing
+// description server-side (edge ai-listing.ts) behind this HTML comment marker,
+// which anchors the block so we can find, preserve, and render it. Keep this
+// literal in lockstep with the edge injection.
+export const SELLER_CREDENTIALS_MARKER = "<!--gradethread-seller-credentials-->";
+
+// Split a description into its plain body and the trailing seller-credentials
+// block (marker + HTML). Everything from the marker to the end is the block —
+// it is always appended last. Returns an empty `credentials` when absent.
+export function splitSellerCredentials(
+  description: string,
+): { body: string; credentials: string } {
+  const idx = description.indexOf(SELLER_CREDENTIALS_MARKER);
+  if (idx < 0) return { body: description, credentials: "" };
+  return {
+    body: description.slice(0, idx).replace(/\s+$/, ""),
+    credentials: description.slice(idx),
+  };
+}
+
+// Idempotently preserve the seller-credentials block across an AI rewrite.
+// A rewrite (esp. "regenerate") writes a fresh description that drops — or
+// half-mangles — the appended GradeThread block; strip any marker the model
+// echoed out of the new copy, then re-append the ORIGINAL block verbatim so the
+// draft/preview keeps showing the seller's verified-grade card. No-op when the
+// original had no block. Mirrors `ensureGradeLine`.
+export function ensureSellerCredentials(next: string, original: string): string {
+  const { credentials } = splitSellerCredentials(original);
+  const cleaned = splitSellerCredentials(next).body;
+  if (!credentials) return cleaned;
+  const trimmed = cleaned.replace(/\s+$/, "");
+  return trimmed.length > 0 ? `${trimmed}\n${credentials}` : credentials;
+}
+
 export function interpolateDescription(
   template: string,
   item: ItemFullRow,

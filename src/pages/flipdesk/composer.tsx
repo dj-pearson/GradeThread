@@ -58,11 +58,13 @@ import { useSellerPromoDefaults } from "@/hooks/use-seller-promo-defaults";
 import { useMeasurementPrefs } from "@/stores/measurement-prefs";
 import {
   DESCRIPTION_TEMPLATES,
-  interpolateDescription,
   ensureGradeLine,
+  ensureSellerCredentials,
+  interpolateDescription,
+  splitSellerCredentials,
   suggestTitle,
-  titleKeywords,
   templateGroupFor,
+  titleKeywords,
 } from "@/lib/listing-templates";
 import { titleQuality } from "@/lib/title-quality";
 import {
@@ -766,7 +768,9 @@ export function FlipdeskComposerPage() {
         item_id: item.id,
         action,
         title,
-        description,
+        // Hide the appended GradeThread credentials block from the model so it
+        // isn't rewritten into prose — it's re-appended verbatim on accept.
+        description: splitSellerCredentials(description).body,
       });
       setRewriteResult(res);
       setRewritePanelOpen(true);
@@ -784,10 +788,13 @@ export function FlipdeskComposerPage() {
       if (f.field === "title") setTitle(f.value.slice(0, TITLE_MAX));
       else if (f.field === "description") {
         // A rewrite (esp. "regenerate") writes a fresh description that drops the
-        // "Graded by GradeThread — Condition Grade X" line. Re-insert it idempotently
-        // so the draft/preview keeps showing the grade the server re-asserts at
-        // publish (applyGradeListingPromotion). No-op when the item has no grade.
-        setDescription(item ? ensureGradeLine(f.value, item) : f.value);
+        // "Graded by GradeThread — Condition Grade X" line AND the appended
+        // GradeThread Verified Seller block. Re-insert both idempotently so the
+        // draft/preview keeps showing the grade (the server re-asserts it at
+        // publish via applyGradeListingPromotion) and the seller-credentials card
+        // (carried over from the pre-rewrite description). No-ops when absent.
+        const withGrade = item ? ensureGradeLine(f.value, item) : f.value;
+        setDescription(ensureSellerCredentials(withGrade, description));
       }
     }
     if (accepted.length > 0) {
@@ -1526,6 +1533,37 @@ export function FlipdeskComposerPage() {
           </p>
         </div>
       </div>
+
+      {/* At-a-glance "this IS listed" confirmation. Keys off a genuinely live
+          listing (active status + a real eBay offer id) so it never claims
+          "listed" for a draft or a publish that didn't complete — the absence of
+          the banner is itself the signal that the item isn't live yet. */}
+      {isLiveListing && (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 dark:border-emerald-500/40 dark:bg-emerald-500/10">
+          <BadgeCheck className="h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-emerald-900 dark:text-emerald-200">
+              Listed &amp; live on eBay
+            </p>
+            <p className="text-xs text-emerald-800 dark:text-emerald-300/90">
+              This item is currently listed and buyers can purchase it now
+              {listing?.listed_at
+                ? ` — went live ${new Date(listing.listed_at).toLocaleDateString()}`
+                : ""}.
+            </p>
+          </div>
+          {ebayItemUrl && (
+            <a
+              href={ebayItemUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="shrink-0 rounded-md border border-emerald-400 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-100 dark:bg-transparent dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+            >
+              View on eBay ↗
+            </a>
+          )}
+        </div>
+      )}
 
       {/* US-1077/US-1081: listing provenance tag. Provenance decides sync
           authority — GradeThread-originated listings are edited here and pushed to
