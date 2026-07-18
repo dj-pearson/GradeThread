@@ -142,7 +142,55 @@ export function AcceptableUsePage() {
         </li>
       </ul>
 
-      <h2 id="reporting">6. Reporting abuse</h2>
+      {/* US-1757/US-1885: the extension popup's consent clickwrap says "I am
+          responsible for each marketplace's Terms of Service" and its "Read the
+          terms" link points HERE. Until this section existed, that link landed
+          on a page that never mentioned the extension, browser automation, or
+          cross-posting — a consent gate whose terms did not describe the thing
+          being consented to. */}
+      <h2 id="extension">6. The browser extension and assisted cross-posting</h2>
+      <p>
+        The GradeThread extension fills marketplace listing forms in{" "}
+        <strong>your own logged-in browser session</strong>. It does not act on
+        your accounts from our servers, and we never receive your marketplace
+        passwords or cookies. Because the actions happen as you, you remain the
+        party responsible for them.
+      </p>
+      <ul>
+        <li>
+          <strong>Each marketplace&rsquo;s own rules still apply.</strong> Some
+          marketplaces restrict or prohibit automated or assisted listing. It is
+          your responsibility to know the rules of every marketplace you use and
+          to stop using the extension there if it is not permitted.
+        </li>
+        <li>
+          <strong>Review before you publish.</strong> The extension prefills a
+          draft; it does not decide that a listing is accurate. You are
+          responsible for the final content, including condition, measurements,
+          authenticity and price.
+        </li>
+        <li>
+          <strong>Do not use it to evade a marketplace&rsquo;s limits.</strong>{" "}
+          That includes circumventing listing caps, rate limits, suspensions, or
+          bans, and operating accounts you are not authorised to operate.
+        </li>
+        <li>
+          <strong>One person, your own accounts.</strong> Do not use the
+          extension to operate accounts on behalf of others in a way those
+          marketplaces prohibit, or to run bulk activity that would breach their
+          terms.
+        </li>
+      </ul>
+      <p>
+        Consequences of a marketplace enforcing its own rules against your
+        account &mdash; including suspension &mdash; sit with you, not with
+        GradeThread. If a marketplace tells you not to use assisted listing,
+        that instruction takes precedence over anything the extension makes
+        possible. Data handling for the extension is described in Section 6 of
+        our <Link to="/privacy">Privacy Policy</Link>.
+      </p>
+
+      <h2 id="reporting">7. Reporting abuse</h2>
       <p>
         To report a violation of this AUP, a suspected counterfeit certificate,
         copyright infringement, or any other abuse, email{" "}
@@ -153,7 +201,7 @@ export function AcceptableUsePage() {
         <Link to="/dmca">Copyright &amp; Content Takedown (DMCA)</Link> page.
       </p>
 
-      <h2 id="enforcement">7. Enforcement</h2>
+      <h2 id="enforcement">8. Enforcement</h2>
       <p>
         We may investigate suspected violations and take any action we
         consider appropriate, including removing content, revoking
@@ -163,7 +211,7 @@ export function AcceptableUsePage() {
         discretion.
       </p>
 
-      <h2 id="changes">8. Changes</h2>
+      <h2 id="changes">9. Changes</h2>
       <p>
         We may update this AUP from time to time. The &ldquo;Effective
         date&rdquo; above will reflect the latest version.
