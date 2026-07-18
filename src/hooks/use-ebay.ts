@@ -2488,3 +2488,86 @@ export function useDeleteItemPromotion() {
     onError: (e) => toast.error(e.message),
   });
 }
+
+// US-1968: bring existing eBay (Trading-created) listings under management.
+//
+// An imported listing is a read-only mirror — revise/reprice/withdraw/relist all
+// refuse it — so this is the seller's way out of that wall. The endpoint is bulk
+// and answers PER LISTING, so the result must be reported per listing: eBay
+// declines individual listings for real product reasons (multi-variation
+// listings are the common one) and a seller can only act on that if they're told
+// which listing and why. Never collapse the response to a single "done".
+export interface MigrateListingResult {
+  listing_id: string;
+  status: "migrated" | "already_managed" | "skipped" | "failed";
+  sku?: string | null;
+  offer_id?: string | null;
+  reason?: string;
+}
+
+export interface MigrateListingsResponse {
+  ok: true;
+  summary: {
+    migrated: number;
+    already_managed: number;
+    skipped: number;
+    failed: number;
+  };
+  results: MigrateListingResult[];
+}
+
+export function useMigrateEbayListings() {
+  const qc = useQueryClient();
+  return useMutation<MigrateListingsResponse, Error, string[]>({
+    mutationFn: async (listingIds) => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/listings/migrate`,
+        {
+          method: "POST",
+          headers: await ebayHeaders(),
+          body: JSON.stringify({ listing_ids: listingIds }),
+        },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.error || "Could not migrate the listing(s).");
+      }
+      return json as MigrateListingsResponse;
+    },
+    onSuccess: (data) => {
+      const { migrated, already_managed, failed, skipped } = data.summary;
+      if (migrated > 0) {
+        toast.success(
+          migrated === 1
+            ? "Listing is now managed in FlipDesk — you can revise, reprice and promote it."
+            : `${migrated} listings are now managed in FlipDesk.`,
+        );
+      } else if (already_managed > 0 && failed === 0 && skipped === 0) {
+        toast.info("Already managed in FlipDesk.");
+      }
+      // Surface eBay's own reason per listing rather than a generic failure —
+      // "multi-variation listings can't be migrated" is actionable; "failed"
+      // is not. Cap the toasts so a large batch can't bury the screen; the
+      // remainder stays in `results` for the caller to render.
+      const problems = data.results.filter(
+        (r) => r.status === "failed" || r.status === "skipped",
+      );
+      for (const p of problems.slice(0, 3)) {
+        toast.error(p.reason || "eBay declined the migration.");
+      }
+      if (problems.length > 3) {
+        toast.error(`…and ${problems.length - 3} more could not be migrated.`);
+      }
+      // The origin flip changes what the whole UI allows on these rows, so the
+      // reads that gate those affordances must be refetched. item_ebay_sync is
+      // the load-bearing one: it backs the item canvas's lockedByEbay banner, so
+      // without it a seller sees "this listing is locked" and the migrate button
+      // still sitting there immediately after a successful migration.
+      void qc.invalidateQueries({ queryKey: ["item_ebay_sync"] });
+      void qc.invalidateQueries({ queryKey: ["item_listing_platforms"] });
+      void qc.invalidateQueries({ queryKey: ["inventory"] });
+      void qc.invalidateQueries({ queryKey: ["item"] });
+    },
+    onError: (e) => toast.error(e.message),
+  });
+}

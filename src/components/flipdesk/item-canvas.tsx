@@ -66,7 +66,11 @@ import {
   EBAY_DEPARTMENT_OPTIONS,
 } from "@/lib/constants";
 import { deriveGarmentDefaults, deriveGarmentType } from "@/lib/garment-mapping";
-import { useEbayReviseListing, type ReviseListingPatch } from "@/hooks/use-ebay";
+import {
+  useEbayReviseListing,
+  useMigrateEbayListings,
+  type ReviseListingPatch,
+} from "@/hooks/use-ebay";
 import { CompEditor } from "@/components/flipdesk/comp-editor";
 import { PhotoUploader } from "@/components/flipdesk/photo-uploader";
 import { PhotoManager } from "@/components/flipdesk/photo-manager";
@@ -407,11 +411,16 @@ export function ItemCanvas({
       listing_price: number | null;
       batch_id: string | null;
       synced_to_ebay_at: string | null;
+      // US-1968: the PERSISTED origin. deriveListingOrigin lets this win over
+      // the provenance signals, and migration writes it — without selecting it
+      // the canvas would keep deriving "ebay" from platform_listing_id and go on
+      // showing the locked banner after a successful migration.
+      listing_origin: string | null;
     } | null> => {
       const { data, error } = await supabase
         .from("listings")
         .select(
-          "id, platform_offer_id, platform_listing_id, listing_url, listing_title, listing_description, listing_price, batch_id, synced_to_ebay_at",
+          "id, platform_offer_id, platform_listing_id, listing_url, listing_title, listing_description, listing_price, batch_id, synced_to_ebay_at, listing_origin",
         )
         .eq("inventory_item_id", item.id)
         .eq("listing_status", "active")
@@ -429,6 +438,7 @@ export function ItemCanvas({
         listing_price: number | null;
         batch_id: string | null;
         synced_to_ebay_at: string | null;
+        listing_origin: string | null;
       } | null;
     },
   });
@@ -439,6 +449,7 @@ export function ItemCanvas({
   const ebayOrigin = liveListing
     ? deriveListingOrigin({
         platform: "ebay",
+        listing_origin: liveListing.listing_origin,
         platform_listing_id: liveListing.platform_listing_id,
         batch_id: liveListing.batch_id,
         synced_to_ebay_at: liveListing.synced_to_ebay_at,
@@ -449,6 +460,13 @@ export function ItemCanvas({
   // Only GradeThread-published listings (with a Sell offer) are revisable here,
   // and never an eBay-originated mirror.
   const isGtLive = !!liveListing?.platform_offer_id && !lockedByEbay;
+  // US-1968: an eBay-created listing can be converted into a managed Inventory
+  // offer, which is what unlocks revise/reprice/promote here. Only offered for a
+  // listing that is actually live on eBay — a mirror with no platform_listing_id
+  // has nothing for eBay's bulk_migrate_listing to act on, and offering the
+  // button anyway would just produce a confusing server-side skip.
+  const migrateListings = useMigrateEbayListings();
+  const canMigrate = lockedByEbay && !!liveListing?.platform_listing_id;
 
   // US-404: the inventory LIST now omits these heavy/derived columns from its
   // bulk load (the per-row photo subqueries + the ai_field_sources jsonb) to
@@ -1415,8 +1433,36 @@ export function ItemCanvas({
                 description, and photos — those are locked here. Your grade,
                 notes, measurements, and cost stay editable. Edit the eBay-owned
                 fields on eBay.
+                {/* US-1968: this banner is exactly where the seller hits the
+                    wall, so the way out belongs here rather than on a settings
+                    page they'd have to know to look for. */}
+                {canMigrate && (
+                  <>
+                    {" "}
+                    Or bring it under FlipDesk management to revise, reprice and
+                    promote it from here.
+                  </>
+                )}
               </span>
             </div>
+            {canMigrate && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                disabled={migrateListings.isPending}
+                onClick={() => migrateListings.mutate([liveListing!.id])}
+              >
+                {migrateListings.isPending ? (
+                  <>
+                    <span className="mr-2 h-4 w-4 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+                    Migrating…
+                  </>
+                ) : (
+                  "Manage in FlipDesk"
+                )}
+              </Button>
+            )}
             {ebayListingUrl && (
               <Button asChild variant="outline" size="sm" className="shrink-0">
                 <a

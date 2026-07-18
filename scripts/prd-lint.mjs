@@ -181,7 +181,16 @@ export function findStaleHeldMigrations(stories, pushedMigrationIds) {
     if (HELD_CORRECTED.test(notes)) continue;
     const ids = [...new Set([...notes.matchAll(MIGRATION_ID)].map((m) => m[1]))];
     const pushed = ids.filter((id) => pushedMigrationIds.has(id)).sort();
-    if (pushed.length) hits.push({ id: s.id, migrations: pushed });
+    if (!pushed.length) continue;
+    // A note that mentions ANY genuinely-unpushed migration is not stale: the
+    // HELD claim is about that one, and the pushed ids are context (the note
+    // citing which earlier migration added the column it builds on). Warning
+    // here would be a false positive on a CORRECT hold — and a false positive
+    // is worse than silence for this check, because its whole job is to stop a
+    // reader trusting a stale freeze. Only warn when EVERY migration the note
+    // names is already pushed, i.e. there is nothing left that could be held.
+    if (ids.some((id) => !pushedMigrationIds.has(id))) continue;
+    hits.push({ id: s.id, migrations: pushed });
   }
   return hits;
 }

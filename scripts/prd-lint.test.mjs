@@ -246,6 +246,36 @@ describe("findStaleHeldMigrations", () => {
     expect(findStaleHeldMigrations([corrected], new Set(["00345"]))).toEqual([]);
   });
 
+  it("does not warn when the note also names a genuinely-unpushed migration", () => {
+    // US-1968's real shape: the hold is on 00477 (unpushed), and the note CITES
+    // 00113/00232 as the migrations that added the columns it builds on. Those
+    // are long since pushed, so a naive check flagged a correct hold. A false
+    // positive is worse than silence here — this check exists to stop a reader
+    // trusting a stale freeze, so crying wolf on a real one defeats it.
+    expect(
+      findStaleHeldMigrations(
+        [
+          story(
+            "US-1968",
+            "builds on 00113 platform_fields and 00232 listing_origin. ⚠ HELD: depends on 00477.",
+          ),
+        ],
+        new Set(["00113", "00232"]),
+      ),
+    ).toEqual([]);
+  });
+
+  it("still warns when EVERY migration named is already pushed", () => {
+    // The complement of the case above: nothing is left that could be held, so
+    // the HELD claim cannot be about anything real.
+    expect(
+      findStaleHeldMigrations(
+        [story("US-Z", "HELD: 00113 and 00232 are committed locally, do not push")],
+        new Set(["00113", "00232"]),
+      ),
+    ).toEqual([{ id: "US-Z", migrations: ["00113", "00232"] }]);
+  });
+
   it("matches five-digit ids", () => {
     // An earlier hand-written sweep used 00[3-4][0-9]{3} — six digits — so it
     // could never match 00345 and reported zero, which reads as clean.
