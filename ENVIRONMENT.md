@@ -336,6 +336,7 @@ JWT is not `aal2`) — not just the client gate.
 | Var | Where | Default | Notes |
 |---|---|---|---|
 | `ADMIN_MFA_ENFORCED` | edge service env | `true` | Standing AAL2 requirement on `/api/admin/*` + step-up on destructive actions. Set `false` ONLY during the initial enrollment window so the team can enroll before the gate turns on, then set back to `true`. |
+| `ADMIN_STEP_UP_MAX_AGE_SEC` | edge service env | `28800` (8h) | How long one authenticator verification stays valid before the next DESTRUCTIVE admin action (refund, credit grant, role change, deletion) re-prompts. Whole seconds, min `60`. Lower it to tighten re-auth; raising it very high effectively disables fresh re-auth on those actions. |
 | `GOTRUE_MFA_ENABLED` | Supabase auth container | `true` | Allows TOTP factor enrollment via `supabase.auth.mfa.*`. |
 
 **Enrollment flow (Pearson Media team):**
