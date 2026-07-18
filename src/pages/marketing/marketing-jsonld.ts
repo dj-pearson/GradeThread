@@ -51,12 +51,14 @@ import {
 } from "@/lib/seo/reselling-guides";
 import {
   COMPARE_HUB_PATH,
+  COMPARISONS,
   comparePath,
   type Comparison,
 } from "@/lib/seo/comparison-guides";
 import { type OpportunistGuide } from "@/lib/seo/opportunist-guides";
 import { RETURNS_SPINE, RETURNS_SPINE_PATH } from "@/lib/seo/returns-spine";
 import {
+  PLATFORM_STANDARDS,
   PLATFORM_STANDARDS_HUB_PATH,
   platformStandardPath,
   type PlatformStandard,
@@ -630,9 +632,41 @@ export function comparisonBreadcrumbItems(
   ];
 }
 
-/** Hub JSON-LD: Organization + breadcrumb come from the layout; nothing extra. */
+/**
+ * Hub JSON-LD: a real CollectionPage + ItemList enumerating the comparisons.
+ *
+ * US-2072: this returned [] — the hub declared `jsonLdType: "CollectionPage"` in
+ * the route registry and emitted nothing on either the SPA or the prerender
+ * path, so the declaration was decorative.
+ *
+ * An enumerated ItemList is the point: a hub's value to an AI answer engine is
+ * that it can be READ AS A SET ("which marketplace comparisons does this site
+ * have?") rather than scraped out of prose. Organization + breadcrumb still
+ * come from the layout.
+ */
 export function compareHubJsonLd(): JsonLd[] {
-  return [];
+  return [
+    {
+      "@context": "https://schema.org",
+      "@type": "CollectionPage",
+      "@id": `${SITE_URL}${COMPARE_HUB_PATH}#collection`,
+      name: "Marketplace comparisons for resellers",
+      description:
+        "Side-by-side comparisons of the marketplaces resellers sell used clothes on — fees, reach, shipping, payout speed, and how each handles condition disputes.",
+      url: `${SITE_URL}${COMPARE_HUB_PATH}`,
+      mainEntity: {
+        "@type": "ItemList",
+        itemListOrder: "https://schema.org/ItemListUnordered",
+        numberOfItems: COMPARISONS.length,
+        itemListElement: COMPARISONS.map((c, i) => ({
+          "@type": "ListItem",
+          position: i + 1,
+          name: `${c.platformA} vs ${c.platformB}`,
+          url: `${SITE_URL}${comparePath(c.slug)}`,
+        })),
+      },
+    },
+  ];
 }
 
 /** Comparison JSON-LD: Article + the comparison FAQ. */
@@ -732,7 +766,31 @@ export function platformStandardBreadcrumbItems(
 
 /** Hub JSON-LD: Organization + breadcrumb come from the layout; nothing extra. */
 export function platformStandardsHubJsonLd(): JsonLd[] {
-  return [];
+  // US-2072: see compareHubJsonLd — same reasoning. This hub enumerates how
+  // each marketplace defines condition, which is exactly the kind of set an AI
+  // assistant should be able to read whole rather than infer from prose.
+  return [
+    {
+      "@context": "https://schema.org",
+      "@type": "CollectionPage",
+      "@id": `${SITE_URL}${PLATFORM_STANDARDS_HUB_PATH}#collection`,
+      name: "Condition standards by marketplace",
+      description:
+        "How each resale marketplace defines and labels item condition, and how those labels map onto the GradeThread 1.0–10.0 scale.",
+      url: `${SITE_URL}${PLATFORM_STANDARDS_HUB_PATH}`,
+      mainEntity: {
+        "@type": "ItemList",
+        itemListOrder: "https://schema.org/ItemListUnordered",
+        numberOfItems: PLATFORM_STANDARDS.length,
+        itemListElement: PLATFORM_STANDARDS.map((ps, i) => ({
+          "@type": "ListItem",
+          position: i + 1,
+          name: ps.name,
+          url: `${SITE_URL}${platformStandardPath(ps.slug)}`,
+        })),
+      },
+    },
+  ];
 }
 
 /** Platform-standard JSON-LD: Article + the FAQ. */

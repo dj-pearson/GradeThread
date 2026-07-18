@@ -397,10 +397,11 @@ export function platformStandardsRoutes(): PublicRoute[] {
     // US-2044: jsonLdType must describe what is ACTUALLY prerendered — it is
     // now enforced by jsonld-parity.test.tsx, so a decorative value fails the
     // build rather than quietly misinforming the next reader.
-    // No jsonLdType: this hub's JSON-LD builder currently returns [], so only
-    // the generic base is emitted. A real ItemList/CollectionPage enumerating
-    // the children would be genuinely valuable for AI enumeration — filed
-    // rather than faked.
+    // US-2072: now emits a real CollectionPage + ItemList enumerating this
+    // hub's children, so an AI answer engine can read the set whole rather
+    // than scrape it out of prose. Declaring it here makes the US-2044 parity
+    // test enforce that the markup keeps being prerendered.
+    jsonLdType: "CollectionPage",
   };
   const pages: PublicRoute[] = PLATFORM_STANDARDS.map((s) => ({
     path: platformStandardPath(s.slug),
