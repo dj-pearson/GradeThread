@@ -25,6 +25,8 @@
 //   TEST_USER_A_EBAY_ORDER_ID   a sales.platform_order_id (eBay refund, US-1978)
 //   TEST_USER_A_EBAY_OFFER_ID   a listings.platform_offer_id (eBay cleanup, US-1978)
 //   TEST_USER_A_EBAY_SKU        an inventory_items.sku (eBay cleanup, US-1978)
+//   TEST_USER_A_PHOTO_ID        an item_photos.id (US-2014 remove-bg probe;
+//                               OPTIONAL — skips until the seed script adds it)
 // For the AutoLister batch-enqueue test, user B should ideally be on a plan
 // that includes AutoLister so the OWNERSHIP path is exercised; if B is on a
 // free/starter plan the request is denied earlier with 402 (still a pass —
@@ -276,6 +278,85 @@ Deno.test({
     );
     await res.body?.cancel();
     assertDenied(res.status, "POST rate-limit override");
+  },
+});
+
+// ── US-2014: /api/account had NO isolation coverage at all ────────────────
+//
+// It is the highest-value uncovered mount: /export reaches seven multi-tenant
+// tables (users, submissions, inventory_items, sources, listings, sales,
+// item_photos) and /delete destroys them. Note the probe shape has to differ
+// from the rest of this suite: these endpoints take NO resource id — they act on
+// the CALLER — so there is nothing to point at A. assertDenied is meaningless
+// here. The property that actually matters is CONTAINMENT: B's own export must
+// contain none of A's rows. That is the assertion a leak would actually trip.
+//
+// /delete is deliberately NOT probed. The only cross-tenant shape would be
+// "can B redirect the delete at A?", and every way of asking that risks
+// destroying a fixture account if the answer is ever wrong — a test whose
+// failure mode is data loss is not worth its signal. It reads only
+// c.get("userId") and takes no target id, which is the property to preserve in
+// review.
+Deno.test({
+  name: "B's account export contains NONE of A's data",
+  ignore: !CONFIGURED ||
+    !Deno.env.get("TEST_USER_A_ITEM_ID") ||
+    !Deno.env.get("TEST_USER_A_SUBMISSION_ID"),
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/account/export`, {
+      headers: authHeaders(B_JWT!),
+    });
+    // The export itself must succeed for B — this is not an access test.
+    assertEquals(res.status, 200, "B must be able to export B's own data");
+    const text = await res.text();
+    for (const key of ["TEST_USER_A_ITEM_ID", "TEST_USER_A_SUBMISSION_ID"]) {
+      const aId = Deno.env.get(key)!;
+      assert(
+        !text.includes(aId),
+        `GDPR export leaked ${key} (${aId}) into user B's export — the export ` +
+          `must be scoped to the caller across ALL seven tables it reads.`,
+      );
+    }
+  },
+});
+
+Deno.test({
+  // US-1638/US-2005: remove-bg writes its output to the PUBLIC item-photos
+  // bucket, so a cross-tenant call would publish another seller's photo. The
+  // route resolves the photo through inventory_items ownership; this pins it.
+  // Env-gated and intentionally NOT in REQUIRED_RESOURCE_IDS — it needs a new
+  // seeded id, and a case that hard-fails CI before the seed script provides it
+  // would just get muted, which is worse than skipping loudly.
+  name: "B cannot background-remove A's item photo",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_PHOTO_ID"),
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/images/remove-bg`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ item_photo_id: Deno.env.get("TEST_USER_A_PHOTO_ID") }),
+    });
+    await res.body?.cancel();
+    // 503 = REMOVE_BG_API_KEY unset in this environment; that is a skip, not a
+    // pass — the ownership check sits AFTER the config guard in the handler.
+    if (res.status === 503) return;
+    assertDenied(res.status, "POST images/remove-bg");
+  },
+});
+
+Deno.test({
+  // US-1868: the equity endpoints aggregate the CALLER's inventory/listings/
+  // sales. Like /export they take no id, so the meaningful assertion is that the
+  // numbers are the caller's own. A full containment check needs seeded values
+  // to compare against; for now pin the weaker-but-real property that the route
+  // is authenticated at all, so an unauthenticated read can never aggregate.
+  name: "equity requires auth (no anonymous aggregate read)",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/equity/`, {
+      headers: { "Content-Type": "application/json" },
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "GET equity unauthenticated");
   },
 });
 

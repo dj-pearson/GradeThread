@@ -852,6 +852,12 @@ app.use(
   "/api/flipdesk/ai/*",
   rateLimiter(20, 60_000, "flipdesk-ai", undefined, { failClosed: true }),
 );
+// US-2014: the support assistant is an LLM surface and was the ONE AI route
+// with no limiter at all. It is not an open faucet — support-assistant.ts calls
+// loadGateAndDecide() before any token spend, so metering exists — but every
+// other AI surface carries a limiter too, and defence-in-depth is exactly what
+// you want on the path where a loop costs money per iteration.
+app.use("/api/support/assistant/*", rateLimiter(20, 60_000, "support-assistant"));
 // US-619: ScoutAI is expensive (grades N candidates per scan) - cap tightly.
 app.use("/api/flipdesk/scout/*", rateLimiter(6, 60_000, "flipdesk-scout"));
 // US-1572: calibration is CPU-bound image decode + CV (no model call) — cap
