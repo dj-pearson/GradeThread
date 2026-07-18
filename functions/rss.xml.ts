@@ -5,6 +5,8 @@
 import {
   escape,
   fetchJson,
+  UpstreamUnavailable,
+  upstreamUnavailableResponse,
   siteUrl,
   type PagesEnv,
   type PublicPostListItem,
@@ -15,10 +17,19 @@ interface IndexResponse {
 }
 
 export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
-  const data = await fetchJson<IndexResponse>(
+  // US-2044: fetchJson now THROWS UpstreamUnavailable rather than returning
+  // null when it could not reach the API — so a transient failure can never
+  // again be reported to a crawler as "this page is gone".
+  let data: IndexResponse | null;
+  try {
+    data = await fetchJson<IndexResponse>(
     env,
     "/api/content/public/posts?limit=50",
   );
+  } catch (e) {
+    if (e instanceof UpstreamUnavailable) return upstreamUnavailableResponse();
+    throw e;
+  }
   const base = siteUrl(env);
   const posts = data?.posts ?? [];
   const lastBuildDate = new Date().toUTCString();

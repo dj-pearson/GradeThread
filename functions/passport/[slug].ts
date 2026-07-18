@@ -15,6 +15,8 @@ import {
   breadcrumbListLd,
   escape,
   fetchJson,
+  UpstreamUnavailable,
+  upstreamUnavailableResponse,
   notFoundResponse,
   passportProductLd,
   renderBreadcrumbs,
@@ -73,10 +75,19 @@ async function renderPassport(context: Ctx): Promise<Response> {
   const slug = String(params.slug ?? "");
   if (!slug) return notFoundResponse(env);
 
-  const data = await fetchJson<PassportResponse>(
+  // US-2044: fetchJson now THROWS UpstreamUnavailable rather than returning
+  // null when it could not reach the API — so a transient failure can never
+  // again be reported to a crawler as "this page is gone".
+  let data: PassportResponse | null;
+  try {
+    data = await fetchJson<PassportResponse>(
     env,
     `/api/passport/${encodeURIComponent(slug)}`,
   );
+  } catch (e) {
+    if (e instanceof UpstreamUnavailable) return upstreamUnavailableResponse();
+    throw e;
+  }
   if (!data?.slug) return notFoundResponse(env);
 
   const base = siteUrl(env);

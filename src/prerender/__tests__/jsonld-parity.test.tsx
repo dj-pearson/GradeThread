@@ -158,3 +158,61 @@ describe("JSON-LD prerender parity (US-423)", () => {
     expect(terms.length).toBe(12);
   });
 });
+
+// ── US-2044: REGISTRY-WIDE parity, not a hand-maintained list ────────────
+//
+// The suite above imports 16 page components by hand. That list has not kept up
+// with the site: of 213 registered routes, the newer families (tools, flipdesk
+// landings, comparisons, reselling guides, flaw library, garment guides,
+// platform standards, returns, durability) are entirely unguarded. Adding a page
+// with <SEO jsonLd={…}> and forgetting head-builder.ts produced a GREEN CI —
+// which is exactly how /state-of-durability and both /tools/* calculators ended
+// up shipping their structured data to the SPA only, invisible to every
+// non-JS crawler (Google's HTML pass, GPTBot, ClaudeBot, PerplexityBot).
+//
+// CLAUDE.md claims "the mirror is enforced by jsonld-parity.test.tsx". This is
+// the assertion that makes that sentence true.
+//
+// Deliberately checks the REGISTRY's declared jsonLdType against what the
+// prerenderer actually emits, rather than rendering all 213 components: it is
+// cheap, it needs no per-page wiring, and it catches the real failure — a route
+// that promises a type and prerenders nothing.
+describe("US-2044: every route's declared jsonLdType is actually prerendered", () => {
+  it("emits the declared @type for each route that declares one", async () => {
+    const { PUBLIC_ROUTES } = await import("@/lib/seo/public-routes");
+
+    const missing: string[] = [];
+    for (const route of PUBLIC_ROUTES) {
+      const declared = (route as { jsonLdType?: string }).jsonLdType;
+      if (!declared) continue;
+      // jsonLdForRoute returns a JsonLd[] — collect every @type it emits,
+      // including nested ones (an Article's mainEntity, a FAQPage's Questions),
+      // since a declared type can legitimately appear nested rather than at the
+      // top level.
+      const emitted = jsonLdForRoute(route.path) ?? [];
+      const types = new Set<string>();
+      const walk = (node: unknown): void => {
+        if (Array.isArray(node)) return node.forEach(walk);
+        if (!node || typeof node !== "object") return;
+        const t = (node as { "@type"?: unknown })["@type"];
+        if (typeof t === "string") types.add(t);
+        else if (Array.isArray(t)) t.forEach((x) => typeof x === "string" && types.add(x));
+        Object.values(node as Record<string, unknown>).forEach(walk);
+      };
+      walk(emitted);
+
+      if (!types.has(declared)) {
+        missing.push(
+          `${route.path} declares ${declared} but prerenders [${[...types].join(", ")}]`,
+        );
+      }
+    }
+
+    expect(
+      missing,
+      "These routes declare a jsonLdType the prerenderer does not emit, so the " +
+        "markup exists only in the SPA and no non-JS crawler can see it:\n  " +
+        missing.join("\n  "),
+    ).toEqual([]);
+  });
+});

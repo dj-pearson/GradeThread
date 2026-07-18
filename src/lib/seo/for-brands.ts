@@ -25,6 +25,12 @@ export function forBrandsRoute(): PublicRoute {
     description: FOR_BRANDS_META.description,
     changefreq: "monthly",
     priority: 0.7,
-    jsonLdType: "WebPage",
+    // US-2044: jsonLdType must describe what is ACTUALLY prerendered — it is
+    // now enforced by jsonld-parity.test.tsx, so a decorative value fails the
+    // build rather than quietly misinforming the next reader.
+    // No jsonLdType: the page passes no jsonLd, so it gets the generic
+    // Organization + BreadcrumbList base. Declaring "WebPage" claimed markup
+    // that was never emitted on either path. Wiring real markup here is a
+    // worthwhile follow-up; asserting it exists when it does not is not.
   };
 }

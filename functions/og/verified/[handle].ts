@@ -6,7 +6,7 @@
 // than a generic logo. Mirrors functions/og/cert/[id].ts.
 
 import { ImageResponse } from "workers-og";
-import { fetchJson, type PagesEnv } from "../../_shared/blog-render";
+import { fetchJson, UpstreamUnavailable, upstreamUnavailableResponse, type PagesEnv } from "../../_shared/blog-render";
 import { buildSellerOgHtml, FALLBACK_PNG_BASE64 } from "../../_shared/og-template";
 
 interface SellerResponse {
@@ -25,10 +25,19 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
   if (!handle) return fallbackImage();
 
   try {
-    const data = await fetchJson<SellerResponse>(
+    // US-2044: fetchJson now THROWS UpstreamUnavailable rather than returning
+    // null when it could not reach the API — so a transient failure can never
+    // again be reported to a crawler as "this page is gone".
+    let data: SellerResponse | null;
+    try {
+      data = await fetchJson<SellerResponse>(
       env,
       `/api/content/public/sellers/${encodeURIComponent(handle)}`,
     );
+    } catch (e) {
+      if (e instanceof UpstreamUnavailable) return upstreamUnavailableResponse();
+      throw e;
+    }
     if (!data?.seller) return fallbackImage();
 
     const html = buildSellerOgHtml({

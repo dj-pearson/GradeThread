@@ -20,7 +20,7 @@
 // hard-filters flagged/private reports (US-484/US-268); a miss yields a 404
 // no-op script so nothing renders on the host page.
 
-import { fetchJson, siteUrl, type PagesEnv } from "../../_shared/blog-render";
+import { fetchJson, UpstreamUnavailable, upstreamUnavailableResponse, siteUrl, type PagesEnv } from "../../_shared/blog-render";
 
 interface PublicCertificate {
   id: string;
@@ -41,10 +41,19 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
     .replace(/\.js$/i, "");
   if (!id) return noopScript();
 
-  const data = await fetchJson<{ certificate: PublicCertificate }>(
+  // US-2044: fetchJson now THROWS UpstreamUnavailable rather than returning
+  // null when it could not reach the API — so a transient failure can never
+  // again be reported to a crawler as "this page is gone".
+  let data: { certificate: PublicCertificate } | null;
+  try {
+    data = await fetchJson<{ certificate: PublicCertificate }>(
     env,
     `/api/content/public/certificates/${encodeURIComponent(id)}`,
   );
+  } catch (e) {
+    if (e instanceof UpstreamUnavailable) return upstreamUnavailableResponse();
+    throw e;
+  }
   // Non-public / flagged / unknown → 404 no-op (nothing renders).
   if (!data?.certificate) return noopScript();
 

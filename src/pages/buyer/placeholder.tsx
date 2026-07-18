@@ -13,10 +13,18 @@ export function BuyerPlaceholderPage({
   title,
   requiresFlag,
   description,
+  action,
 }: {
   title: string;
   requiresFlag?: keyof BuyerGateFlags;
   description?: string;
+  /**
+   * US-2042: a real thing an ENTITLED buyer can do right now, when the full
+   * surface has not shipped but the capability exists elsewhere. Without this,
+   * a placeholder tells someone who PAID for a feature that it is "coming
+   * soon" — which is indistinguishable from not having bought it.
+   */
+  action?: { to: string; label: string };
 }) {
   const ent = useBuyerEntitlements();
   const locked = requiresFlag ? !ent.has(requiresFlag) : false;
@@ -47,6 +55,23 @@ export function BuyerPlaceholderPage({
             <p className="text-sm text-muted-foreground">
               {description ?? `${title} is coming soon to your buyer dashboard.`}
             </p>
+            {action && (
+              <>
+                {/* US-2042: the capability is LIVE even though this dashboard
+                    view is not — send the buyer to it rather than dead-ending
+                    them on the feature their plan includes. */}
+                <Link
+                  to={action.to}
+                  className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                >
+                  {action.label}
+                </Link>
+                <p className="text-xs text-muted-foreground">
+                  The full dashboard view is on its way — this does everything
+                  you need in the meantime.
+                </p>
+              </>
+            )}
             <Link to="/buyer" className="text-sm font-medium text-primary hover:underline">
               ← Back to buyer home
             </Link>

@@ -29,7 +29,7 @@
 // request and delegate everything else to the SPA shell, so loading the embed
 // page top-level still works unchanged.
 
-import { fetchJson, siteUrl, type PagesEnv } from "../../_shared/blog-render";
+import { fetchJson, UpstreamUnavailable, upstreamUnavailableResponse, siteUrl, type PagesEnv } from "../../_shared/blog-render";
 import { serveSpaShell } from "../../_shared/spa-shell";
 import {
   gradeEmbedCardHtml,
@@ -63,10 +63,19 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
   const id = rawId.replace(/\.js$/i, "");
   if (!id) return noopScript();
 
-  const data = await fetchJson<CertResponse>(
+  // US-2044: fetchJson now THROWS UpstreamUnavailable rather than returning
+  // null when it could not reach the API — so a transient failure can never
+  // again be reported to a crawler as "this page is gone".
+  let data: CertResponse | null;
+  try {
+    data = await fetchJson<CertResponse>(
     env,
     `/api/content/public/certificates/${encodeURIComponent(id)}`,
   );
+  } catch (e) {
+    if (e instanceof UpstreamUnavailable) return upstreamUnavailableResponse();
+    throw e;
+  }
   // Non-public / flagged / unknown → 404 no-op (nothing renders).
   if (!data?.certificate) return noopScript();
 

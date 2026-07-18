@@ -394,7 +394,13 @@ export function platformStandardsRoutes(): PublicRoute[] {
       "How each marketplace's condition vocabulary maps to the 1.0–10.0 scale — eBay, Poshmark, Mercari, Depop, Grailed, Vinted, Whatnot, ThredUp, and more.",
     changefreq: "monthly",
     priority: 0.6,
-    jsonLdType: "CollectionPage",
+    // US-2044: jsonLdType must describe what is ACTUALLY prerendered — it is
+    // now enforced by jsonld-parity.test.tsx, so a decorative value fails the
+    // build rather than quietly misinforming the next reader.
+    // No jsonLdType: this hub's JSON-LD builder currently returns [], so only
+    // the generic base is emitted. A real ItemList/CollectionPage enumerating
+    // the children would be genuinely valuable for AI enumeration — filed
+    // rather than faked.
   };
   const pages: PublicRoute[] = PLATFORM_STANDARDS.map((s) => ({
     path: platformStandardPath(s.slug),

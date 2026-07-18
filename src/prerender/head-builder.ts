@@ -90,6 +90,9 @@ import {
   guideBreadcrumbItems,
   garmentHubJsonLd,
   guideHubBreadcrumbItems,
+  durabilityReportJsonLd,
+  authenticityCheckJsonLd,
+  fitCheckerJsonLd,
 } from "@/pages/marketing/marketing-jsonld";
 import { getGlossaryEntryByPath } from "@/lib/seo/glossary";
 import {
@@ -164,6 +167,19 @@ const MARKETING_LD: Record<string, () => JsonLd[]> = {
   // US-976: public "State of Resale Condition" data report (Dataset + Article +
   // FAQPage). Deterministic JSON-LD so prerender == SPA (parity test covers it).
   "/resale-condition-report": resaleConditionReportJsonLd,
+  // US-2044: /state-of-durability shipped its Dataset markup to the SPA ONLY.
+  // It is the flagship ORIGINAL-DATA asset — precisely the surface that earns
+  // AI-answer citations — and every non-JS crawler (Google's HTML pass, GPTBot,
+  // ClaudeBot, PerplexityBot) saw an undifferentiated marketing page. Its
+  // sibling report above was wired; this one was missed.
+  "/state-of-durability": durabilityReportJsonLd,
+  // US-2044: both free-tool calculators lost WebApplication + FAQPage the same
+  // way. Free tools are the highest-intent acquisition surface and the most
+  // likely to be recommended by an AI assistant — WebApplication is what makes
+  // that machine-readable. The third tool (/tools/grade-checker) was wired,
+  // which is what made these two easy to miss.
+  "/tools/authenticity-check": authenticityCheckJsonLd,
+  "/tools/fit-checker": fitCheckerJsonLd,
   "/verify": verifyJsonLd,
   // US-1106: buyer-facing passport lookup (HowTo + FAQPage).
   "/scan": passportScanJsonLd,

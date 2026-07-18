@@ -11,6 +11,8 @@ import {
   breadcrumbListLd,
   escape,
   fetchJson,
+  UpstreamUnavailable,
+  upstreamUnavailableResponse,
   formatDate,
   ga4MeasurementId,
   notFoundResponse,
@@ -97,10 +99,19 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
   if (detailMatch) {
     const slug = detailMatch[1];
     if (!slug) return notFoundResponse(env);
-    const dto = await fetchJson<BrandDto>(
+    // US-2044: fetchJson now THROWS UpstreamUnavailable rather than returning
+    // null when it could not reach the API — so a transient failure can never
+    // again be reported to a crawler as "this page is gone".
+    let dto: BrandDto | null;
+    try {
+      dto = await fetchJson<BrandDto>(
       env,
       `/api/grading/public/durability/${encodeURIComponent(slug)}`,
     );
+    } catch (e) {
+      if (e instanceof UpstreamUnavailable) return upstreamUnavailableResponse();
+      throw e;
+    }
     if (!dto || !dto.cohorts?.length) return notFoundResponse(env);
     const canonical = `${site}/durability/${slug}`;
 
@@ -166,7 +177,16 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
 
   // Hub page: /durability
   if (path === "/durability") {
-    const data = await fetchJson<{ items: HubItem[] }>(env, `/api/grading/public/durability`);
+    // US-2044: fetchJson now THROWS UpstreamUnavailable rather than returning
+    // null when it could not reach the API — so a transient failure can never
+    // again be reported to a crawler as "this page is gone".
+    let data: { items: HubItem[] } | null;
+    try {
+      data = await fetchJson<{ items: HubItem[] }>(env, `/api/grading/public/durability`);
+    } catch (e) {
+      if (e instanceof UpstreamUnavailable) return upstreamUnavailableResponse();
+      throw e;
+    }
     const items = data?.items ?? [];
     const rows = items
       .map(

@@ -1551,6 +1551,34 @@ export function wasUpdatedAfterPublish(
 
 // Best-effort JSON fetch from the edge API. Returns null on any error so
 // callers can render a graceful 404/500.
+/**
+ * US-2044: "the record does not exist" and "we could not find out" are NOT the
+ * same answer, and collapsing them cost us index coverage.
+ *
+ * fetchJson previously returned `null` for every failure — upstream 404, 5xx,
+ * 429, an 8s timeout, a network blip, a JSON parse error — and every caller
+ * treats `null` as ABSENT and serves a hard 404 with `noindex`. A 404 is a
+ * REMOVAL signal: Google drops the URL rather than retrying. Under a crawl
+ * burst (which is exactly how Googlebot fetches, and far heavier than a human
+ * browsing), a slow upstream silently deindexes certificates — the whole
+ * distribution flywheel, since every shared certificate link is a backlink.
+ *
+ * This was observed, not theorised: a sequential crawl of the sitemap returned
+ * 404 for all 22 /cert/* URLs, /verified/pearson and 62 /blog/tag/* URLs, while
+ * re-fetching those same URLs individually returned 200 every time.
+ *
+ * So the result is now three-valued. `undefined` means "upstream said it isn't
+ * there" (a real 404 → serve the branded not-found). A thrown UpstreamUnavailable
+ * means "we could not determine" → the caller serves 503 + Retry-After, which
+ * Googlebot treats as "come back later" and which RETAINS the URL.
+ */
+export class UpstreamUnavailable extends Error {
+  constructor(readonly reason: string) {
+    super(`upstream unavailable: ${reason}`);
+    this.name = "UpstreamUnavailable";
+  }
+}
+
 export async function fetchJson<T>(
   env: PagesEnv,
   path: string,
@@ -1570,11 +1598,36 @@ export async function fetchJson<T>(
     } as RequestInit);
     if (!res.ok) {
       console.warn(`[blog ssr] upstream ${res.status} ${path}`);
-      return null;
+      // 404/410 are the ONLY statuses that mean "definitely not there".
+      // Everything else (5xx, 429, 403 from a misconfigured secret, …) is our
+      // problem, not the URL's, and must not be reported as gone.
+      if (res.status === 404 || res.status === 410) return null;
+      throw new UpstreamUnavailable(`status ${res.status}`);
     }
     return (await res.json()) as T;
   } catch (e) {
+    if (e instanceof UpstreamUnavailable) throw e;
+    // Timeout, network error, malformed JSON — all "could not determine".
     console.warn(`[blog ssr] upstream error ${path}:`, e);
-    return null;
+    throw new UpstreamUnavailable(e instanceof Error ? e.name : "unknown");
   }
+}
+
+/**
+ * The response to serve when we could not reach the upstream. 503 + Retry-After
+ * makes Googlebot back off and KEEP the URL, instead of dropping it as a 404
+ * would. Deliberately not cached — withEdgeCache already skips non-200s.
+ */
+export function upstreamUnavailableResponse(): Response {
+  return new Response(
+    "Temporarily unavailable — please retry shortly.",
+    {
+      status: 503,
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Retry-After": "120",
+        "Cache-Control": "no-store",
+      },
+    },
+  );
 }

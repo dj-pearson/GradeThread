@@ -14,6 +14,8 @@ import {
   breadcrumbListLd,
   escape,
   fetchJson,
+  UpstreamUnavailable,
+  upstreamUnavailableResponse,
   notFoundResponse,
   renderBreadcrumbs,
   renderSsrResponse,
@@ -92,10 +94,19 @@ async function renderSellerProfile(context: Ctx): Promise<Response> {
   const handle = String(params.handle ?? "").trim();
   if (!handle) return notFoundResponse(env);
 
-  const data = await fetchJson<SellerResponse>(
+  // US-2044: fetchJson now THROWS UpstreamUnavailable rather than returning
+  // null when it could not reach the API — so a transient failure can never
+  // again be reported to a crawler as "this page is gone".
+  let data: SellerResponse | null;
+  try {
+    data = await fetchJson<SellerResponse>(
     env,
     `/api/content/public/sellers/${encodeURIComponent(handle)}`,
   );
+  } catch (e) {
+    if (e instanceof UpstreamUnavailable) return upstreamUnavailableResponse();
+    throw e;
+  }
   if (!data?.seller) return notFoundResponse(env);
 
   const { seller, stats, recent_certificates } = data;

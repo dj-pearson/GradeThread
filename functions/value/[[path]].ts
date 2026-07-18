@@ -13,6 +13,8 @@ import {
   escape,
   faqPageJsonLd,
   fetchJson,
+  UpstreamUnavailable,
+  upstreamUnavailableResponse,
   formatDate,
   ga4MeasurementId,
   notFoundResponse,
@@ -93,10 +95,19 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
     const [, brand, item, condition] = condMatch;
     const tier = CONDITION_TIERS.find((t) => t.slug === condition?.toLowerCase());
     if (!brand || !item || !tier) return notFoundResponse(env);
-    const data = await fetchJson<ResolvedCurve>(
+    // US-2044: fetchJson now THROWS UpstreamUnavailable rather than returning
+    // null when it could not reach the API — so a transient failure can never
+    // again be reported to a crawler as "this page is gone".
+    let data: ResolvedCurve | null;
+    try {
+      data = await fetchJson<ResolvedCurve>(
       env,
       `/api/grading/public/value/${encodeURIComponent(brand)}/${encodeURIComponent(item)}`,
     );
+    } catch (e) {
+      if (e instanceof UpstreamUnavailable) return upstreamUnavailableResponse();
+      throw e;
+    }
     if (!data?.curve) return notFoundResponse(env);
     const curve = data.curve;
     const point = nearestPoint(curve.points, tier.grade);
@@ -170,10 +181,19 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
   if (itemMatch) {
     const [, brand, item] = itemMatch;
     if (!brand || !item) return notFoundResponse(env);
-    const data = await fetchJson<ResolvedCurve>(
+    // US-2044: fetchJson now THROWS UpstreamUnavailable rather than returning
+    // null when it could not reach the API — so a transient failure can never
+    // again be reported to a crawler as "this page is gone".
+    let data: ResolvedCurve | null;
+    try {
+      data = await fetchJson<ResolvedCurve>(
       env,
       `/api/grading/public/value/${encodeURIComponent(brand)}/${encodeURIComponent(item)}`,
     );
+    } catch (e) {
+      if (e instanceof UpstreamUnavailable) return upstreamUnavailableResponse();
+      throw e;
+    }
     if (!data?.curve) return notFoundResponse(env);
     const curve = data.curve;
     const canonical = `${site}/value/${data.brandSlug}/${data.itemSlug}`;
@@ -251,7 +271,16 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
 
   // ── Hub: /value ────────────────────────────────────────────────────
   if (path === "/value") {
-    const data = await fetchJson<{ items: HubItem[] }>(env, `/api/grading/public/value`);
+    // US-2044: fetchJson now THROWS UpstreamUnavailable rather than returning
+    // null when it could not reach the API — so a transient failure can never
+    // again be reported to a crawler as "this page is gone".
+    let data: { items: HubItem[] } | null;
+    try {
+      data = await fetchJson<{ items: HubItem[] }>(env, `/api/grading/public/value`);
+    } catch (e) {
+      if (e instanceof UpstreamUnavailable) return upstreamUnavailableResponse();
+      throw e;
+    }
     const items = data?.items ?? [];
     const rows = items
       .map(

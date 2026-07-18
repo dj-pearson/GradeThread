@@ -641,10 +641,17 @@ export function LandingPage() {
           <span className="bg-gradient-to-r from-brand-red to-rose-500 bg-clip-text text-transparent drop-shadow-sm">Condition Grading</span>
         </h1>
         <p className="gt-hero-rise gt-hero-rise-2 mt-6 max-w-xl text-lg text-muted-foreground">
+          {/* US-2043: previously "applied the same way every time, so a grade
+              means the same thing everywhere" — a reproducibility claim we
+              cannot currently substantiate (US-2035: the default model is
+              effort-based, so the temperature=0 determinism guarantee no longer
+              holds, and /transparency still reports "Not enough data yet" for
+              agreement at 22 graded items). "One published standard, not one
+              seller's opinion" is the true and still-differentiating claim. */}
           GradeThread gives every pre-owned garment an objective 1.0–10.0
-          condition grade and a certificate buyers can verify — one published
-          standard, applied the same way every time, so a grade means the same
-          thing everywhere. Sell faster, cut returns, and build buyer trust —
+          condition grade and a certificate buyers can verify — scored against
+          one published standard rather than one seller's opinion. Sell faster,
+          cut returns, and build buyer trust —
           whether you're clearing out a closet or running a full reselling
           business.
         </p>
@@ -712,7 +719,7 @@ export function LandingPage() {
       {/* Why GradeThread is the standard — the four justifications (US-1297). */}
       <section className="px-6 py-20">
         <div data-gt-reveal>
-          <StandardJustifications intro="GradeThread is the standard for pre-owned clothing condition because a grade here is objective, published, reproducible, and independently verifiable — not one more seller's opinion." />
+          <StandardJustifications intro="GradeThread is the standard for pre-owned clothing condition because a grade here is objective, published, consistently applied, and independently verifiable — not one more seller's opinion." />
         </div>
       </section>
 

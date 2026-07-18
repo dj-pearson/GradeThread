@@ -10,6 +10,8 @@ import {
   breadcrumbListLd,
   escape,
   fetchJson,
+  UpstreamUnavailable,
+  upstreamUnavailableResponse,
   formatDate,
   ga4MeasurementId,
   notFoundResponse,
@@ -60,10 +62,19 @@ async function routeAuthors(context: Ctx): Promise<Response> {
 }
 
 async function renderIndex(env: PagesEnv): Promise<Response> {
-  const data = await fetchJson<AuthorsIndexResponse>(
+  // US-2044: fetchJson now THROWS UpstreamUnavailable rather than returning
+  // null when it could not reach the API — so a transient failure can never
+  // again be reported to a crawler as "this page is gone".
+  let data: AuthorsIndexResponse | null;
+  try {
+    data = await fetchJson<AuthorsIndexResponse>(
     env,
     "/api/content/public/authors.json",
   );
+  } catch (e) {
+    if (e instanceof UpstreamUnavailable) return upstreamUnavailableResponse();
+    throw e;
+  }
   if (!data) {
     return new Response("Authors temporarily unavailable", {
       status: 503,
@@ -113,10 +124,19 @@ async function renderIndex(env: PagesEnv): Promise<Response> {
 
 async function renderAuthor(env: PagesEnv, slug: string): Promise<Response> {
   if (!slug) return notFoundResponse(env);
-  const data = await fetchJson<AuthorResponse>(
+  // US-2044: fetchJson now THROWS UpstreamUnavailable rather than returning
+  // null when it could not reach the API — so a transient failure can never
+  // again be reported to a crawler as "this page is gone".
+  let data: AuthorResponse | null;
+  try {
+    data = await fetchJson<AuthorResponse>(
     env,
     `/api/content/public/authors/${encodeURIComponent(slug)}`,
   );
+  } catch (e) {
+    if (e instanceof UpstreamUnavailable) return upstreamUnavailableResponse();
+    throw e;
+  }
   if (!data?.author) return notFoundResponse(env);
   const author = data.author;
   const posts = data.posts ?? [];

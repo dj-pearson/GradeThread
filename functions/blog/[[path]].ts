@@ -12,6 +12,8 @@ import {
   breadcrumbListLd,
   escape,
   fetchJson,
+  UpstreamUnavailable,
+  upstreamUnavailableResponse,
   formatDate,
   ga4MeasurementId,
   notFoundResponse,
@@ -99,10 +101,18 @@ async function routeBlog(context: Ctx): Promise<Response> {
 // and withEdgeCache makes repeat hits a real edge HIT.
 async function renderPostMarkdown(env: PagesEnv, slug: string): Promise<Response> {
   if (!slug) return notFoundResponse(env);
-  const data = await fetchJson<PostResponse>(
+  // US-2044: a 404 is a REMOVAL signal. Only serve one when the upstream
+  // actually said the record is absent — never because we could not reach it.
+  let data: PostResponse | null;
+  try {
+    data = await fetchJson<PostResponse>(
     env,
     `/api/content/public/posts/${encodeURIComponent(slug)}`,
   );
+  } catch (e) {
+    if (e instanceof UpstreamUnavailable) return upstreamUnavailableResponse();
+    throw e;
+  }
   if (!data?.post) {
     return new Response(`# Not found\n\nNo published post at /blog/${slug}.\n`, {
       status: 404,
@@ -124,7 +134,15 @@ async function renderPostMarkdown(env: PagesEnv, slug: string): Promise<Response
 }
 
 async function renderIndex(env: PagesEnv): Promise<Response> {
-  const data = await fetchJson<IndexResponse>(env, "/api/content/public/posts?limit=20");
+  // US-2044: a 404 is a REMOVAL signal. Only serve one when the upstream
+  // actually said the record is absent — never because we could not reach it.
+  let data: IndexResponse | null;
+  try {
+    data = await fetchJson<IndexResponse>(env, "/api/content/public/posts?limit=20");
+  } catch (e) {
+    if (e instanceof UpstreamUnavailable) return upstreamUnavailableResponse();
+    throw e;
+  }
   if (!data) {
     return new Response("Blog temporarily unavailable", {
       status: 503,
@@ -197,10 +215,18 @@ async function renderIndex(env: PagesEnv): Promise<Response> {
 
 async function renderPost(env: PagesEnv, slug: string): Promise<Response> {
   if (!slug) return notFoundResponse(env);
-  const data = await fetchJson<PostResponse>(
+  // US-2044: a 404 is a REMOVAL signal. Only serve one when the upstream
+  // actually said the record is absent — never because we could not reach it.
+  let data: PostResponse | null;
+  try {
+    data = await fetchJson<PostResponse>(
     env,
     `/api/content/public/posts/${encodeURIComponent(slug)}`,
   );
+  } catch (e) {
+    if (e instanceof UpstreamUnavailable) return upstreamUnavailableResponse();
+    throw e;
+  }
   if (!data?.post) return notFoundResponse(env);
   const post = data.post;
   const canonical = `${siteUrl(env)}/blog/${post.slug}`;
@@ -412,10 +438,18 @@ async function renderPost(env: PagesEnv, slug: string): Promise<Response> {
 
 async function renderPreview(env: PagesEnv, token: string): Promise<Response> {
   if (!token) return notFoundResponse(env);
-  const data = await fetchJson<PostResponse & { preview?: boolean; expires_at?: string }>(
+  // US-2044: a 404 is a REMOVAL signal. Only serve one when the upstream
+  // actually said the record is absent — never because we could not reach it.
+  let data: PostResponse & { preview?: boolean; expires_at?: string } | null;
+  try {
+    data = await fetchJson<PostResponse & { preview?: boolean; expires_at?: string }>(
     env,
     `/api/content/public/posts/preview/${encodeURIComponent(token)}`,
   );
+  } catch (e) {
+    if (e instanceof UpstreamUnavailable) return upstreamUnavailableResponse();
+    throw e;
+  }
   if (!data?.post) {
     return renderSsrResponse(
       {
@@ -464,10 +498,18 @@ async function renderPreview(env: PagesEnv, token: string): Promise<Response> {
 
 async function renderTag(env: PagesEnv, tag: string): Promise<Response> {
   if (!tag) return notFoundResponse(env);
-  const data = await fetchJson<TagResponse>(
+  // US-2044: a 404 is a REMOVAL signal. Only serve one when the upstream
+  // actually said the record is absent — never because we could not reach it.
+  let data: TagResponse | null;
+  try {
+    data = await fetchJson<TagResponse>(
     env,
     `/api/content/public/tags/${encodeURIComponent(tag)}`,
   );
+  } catch (e) {
+    if (e instanceof UpstreamUnavailable) return upstreamUnavailableResponse();
+    throw e;
+  }
   if (!data) return notFoundResponse(env);
   const posts = data.posts ?? [];
   const canonical = `${siteUrl(env)}/blog/tag/${encodeURIComponent(tag)}`;

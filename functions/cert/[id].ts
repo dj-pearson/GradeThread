@@ -15,6 +15,8 @@ import {
   certificateProductLd,
   escape,
   fetchJson,
+  UpstreamUnavailable,
+  upstreamUnavailableResponse,
   renderBreadcrumbs,
   renderSsrResponse,
   siteUrl,
@@ -108,10 +110,25 @@ async function renderCertificate(context: Ctx): Promise<Response> {
   const id = String(params.id ?? "");
   if (!id) return certNotFoundResponse(env);
 
-  const data = await fetchJson<CertResponse>(
-    env,
-    `/api/content/public/certificates/${encodeURIComponent(id)}`,
-  );
+  // US-2044: distinguish "this certificate does not exist" from "we could not
+  // reach the API". Serving a 404 for the latter DEINDEXES real certificates —
+  // and certificates are the distribution flywheel, since every shared cert link
+  // is a backlink. A 503 + Retry-After makes Googlebot back off and keep the URL.
+  let data: CertResponse | null;
+  try {
+    data = await fetchJson<CertResponse>(
+      env,
+      `/api/content/public/certificates/${encodeURIComponent(id)}`,
+    );
+  } catch (e) {
+    if (e instanceof UpstreamUnavailable) {
+      console.warn(`[cert ssr] upstream unavailable for ${id}: ${e.reason}`);
+      return upstreamUnavailableResponse();
+    }
+    throw e;
+  }
+  // Reaching here means the upstream ANSWERED and the cert genuinely is not
+  // there (or is withheld) — the one case that deserves the branded 404.
   if (!data?.certificate) return certNotFoundResponse(env);
 
   const cert = data.certificate;

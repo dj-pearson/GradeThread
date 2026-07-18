@@ -24,13 +24,28 @@ const JUSTIFICATIONS: { icon: LucideIcon; title: string; body: string }[] = [
   },
   {
     icon: Repeat,
-    title: "Reproducible",
-    body: "Because the rubric and weights are fixed, two items in the same condition earn the same grade — regardless of who submits them or when.",
+    title: "Consistent",
+    // US-2043: this said "Reproducible" and claimed two items in the same
+    // condition earn the same grade "regardless of who submits them or when".
+    // That is a run-to-run IDENTITY claim, and US-2035 established we cannot
+    // currently back it: the default grading model is effort-based, so it does
+    // not accept the temperature=0 greedy decoding the determinism guarantee
+    // assumed, and a regrade of the same photos can differ. What IS true and
+    // still differentiating is that the METHOD is fixed — same rubric, same
+    // weights, same scale for everyone — rather than a seller-by-seller
+    // eyeball. Claim the method, not an identity we have not measured.
+    body: "Every grade uses the same fixed rubric and weights — the same five factors, scored the same way, whoever submits the item. Not a seller-by-seller eyeball judgement.",
   },
   {
     icon: ShieldCheck,
     title: "Independently verifiable",
-    body: "Every grade becomes a public certificate buyers can open and check, and we publish our measured accuracy against expert reviewers.",
+    // US-2043: previously "we publish our measured accuracy against expert
+    // reviewers". The report is real and public, but at 22 graded items / 17
+    // reviews it still reads "Not enough data yet" for agreement AND dispute
+    // rate — so promising measured accuracy sends the highest-intent visitor to
+    // a page that cannot yet answer the question we just raised. Promise the
+    // report and the commitment, which are true today.
+    body: "Every grade becomes a public certificate buyers can open and check, and we publish an open accuracy report — updated as review volume grows.",
   },
 ];
 

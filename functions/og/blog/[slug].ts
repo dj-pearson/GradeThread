@@ -7,6 +7,8 @@
 import { ImageResponse } from "workers-og";
 import {
   fetchJson,
+  UpstreamUnavailable,
+  upstreamUnavailableResponse,
   type PagesEnv,
   type PublicPost,
 } from "../../_shared/blog-render";
@@ -26,10 +28,19 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
   if (!slug) return fallbackImage();
 
   try {
-    const data = await fetchJson<{ post: PublicPost }>(
+    // US-2044: fetchJson now THROWS UpstreamUnavailable rather than returning
+    // null when it could not reach the API — so a transient failure can never
+    // again be reported to a crawler as "this page is gone".
+    let data: { post: PublicPost } | null;
+    try {
+      data = await fetchJson<{ post: PublicPost }>(
       env,
       `/api/content/public/posts/${encodeURIComponent(slug)}`,
     );
+    } catch (e) {
+      if (e instanceof UpstreamUnavailable) return upstreamUnavailableResponse();
+      throw e;
+    }
     if (!data?.post) return fallbackImage();
     const post = data.post;
 

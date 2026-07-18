@@ -1476,7 +1476,12 @@ export function garmentGuideRoutes(): PublicRoute[] {
       "Garment-by-garment grading guides — denim, leather, knitwear, activewear and more — each with the flaws to check, a photo checklist, and graded examples.",
     changefreq: "monthly",
     priority: 0.6,
-    jsonLdType: "HowTo",
+    // US-2044: jsonLdType must describe what is ACTUALLY prerendered — it is
+    // now enforced by jsonld-parity.test.tsx, so a decorative value fails the
+    // build rather than quietly misinforming the next reader.
+    // The hub renders garmentHubJsonLd (FAQPage). The individual guides below
+    // are the HowTo surfaces.
+    jsonLdType: "FAQPage",
   };
   const guides: PublicRoute[] = GARMENT_GUIDES.map((g) => ({
     path: guidePath(g.slug),
