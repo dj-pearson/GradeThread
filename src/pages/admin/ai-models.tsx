@@ -158,6 +158,13 @@ interface DryRunResponse {
 }
 
 const ACCURACY_THRESHOLD = 0.8; // 80% agreement rate
+// US-2025: how many of the most recent human reviews this console analyses.
+// human_reviews and grade_reports are append-only and platform-wide, so an
+// unbounded read here scaled with total product volume rather than with what the
+// page shows. 5,000 is far more than any agreement/drift statistic needs to be
+// stable, and the UI flags when the window is full so a partial rate is never
+// mistaken for the complete one.
+const REVIEW_LIMIT = 5000;
 
 const FACTOR_NAMES = [
   "fabric_condition",
@@ -295,17 +302,42 @@ export function AdminAiModelsPage() {
   const { data, isLoading } = useQuery({
     queryKey: ["admin-ai-models"],
     queryFn: async () => {
-      const [versionsRes, reviewsRes, reportsRes] = await Promise.all([
+      // US-2025: bound the two append-only, platform-wide tables.
+      //
+      // This used to pull ALL of human_reviews and ALL of grade_reports into the
+      // browser. Both grow forever with platform volume, so this page worked
+      // right up until it abruptly didn't.
+      //
+      // The analytics below are genuinely whole-set computations (agreement
+      // rates, per-version drift), so they cannot become count-only queries
+      // without an RPC. But they are also inherently RECENT-WINDOW analytics —
+      // the drift section already filters to recent reviews — so bounding to the
+      // most recent REVIEW_LIMIT reviews and only the reports those reviews
+      // reference preserves the meaning while making the payload constant.
+      //
+      // ⚠ The window is surfaced in the UI (see reviewWindowTruncated below).
+      // A silently-truncated accuracy metric is worse than an unbounded query,
+      // because an operator would read a partial agreement rate as the real one.
+      const [versionsRes, reviewsRes] = await Promise.all([
         supabase.from("ai_prompt_versions").select("*"),
-        supabase.from("human_reviews").select("*"),
-        supabase.from("grade_reports").select("*"),
+        supabase
+          .from("human_reviews")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .limit(REVIEW_LIMIT),
       ]);
       if (versionsRes.error) throw versionsRes.error;
       if (reviewsRes.error) throw reviewsRes.error;
-      if (reportsRes.error) throw reportsRes.error;
 
       const versions = (versionsRes.data ?? []) as AiPromptVersionRow[];
       const reviews = (reviewsRes.data ?? []) as HumanReviewRow[];
+
+      // Only the reports these reviews actually reference.
+      const reviewReportIds = [...new Set(reviews.map((r) => r.grade_report_id))];
+      const reportsRes = reviewReportIds.length > 0
+        ? await supabase.from("grade_reports").select("*").in("id", reviewReportIds)
+        : { data: [], error: null };
+      if (reportsRes.error) throw reportsRes.error;
       const reports = (reportsRes.data ?? []) as GradeReportRow[];
 
       const totalReviewed = reviews.length;
@@ -320,6 +352,9 @@ export function AdminAiModelsPage() {
         })),
         reviews,
         reports,
+        // True when the window may be hiding older reviews — the UI must say so
+        // rather than present a partial rate as the whole picture.
+        reviewWindowTruncated: reviews.length >= REVIEW_LIMIT,
       };
     },
     staleTime: 30 * 1000,
@@ -328,6 +363,11 @@ export function AdminAiModelsPage() {
   const versions = useMemo(() => data?.versions ?? [], [data]);
   const allReviews = useMemo(() => data?.reviews ?? [], [data]);
   const allReports = useMemo(() => data?.reports ?? [], [data]);
+  // US-2025: true when the review window is full, i.e. older reviews exist that
+  // these statistics do NOT include. Surfaced below — an operator reading a
+  // partial agreement rate as the complete one is a worse failure than the slow
+  // unbounded query this replaced.
+  const reviewWindowTruncated = data?.reviewWindowTruncated ?? false;
 
   // ─── Compute accuracy metrics per prompt version ───────────────────
 
@@ -961,6 +1001,15 @@ export function AdminAiModelsPage() {
           <Badge variant="secondary" className="ml-2">
             {versions.length} versions
           </Badge>
+          {reviewWindowTruncated && (
+            <Badge
+              variant="outline"
+              className="ml-1 border-amber-300 text-amber-700 dark:border-amber-900/50 dark:text-amber-400"
+              title={`Statistics on this page cover the ${REVIEW_LIMIT.toLocaleString()} most recent human reviews. Older reviews exist and are not included.`}
+            >
+              Last {REVIEW_LIMIT.toLocaleString()} reviews
+            </Badge>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <Button

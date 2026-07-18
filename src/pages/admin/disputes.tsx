@@ -180,6 +180,12 @@ function computeWeightedScore(factors: FactorScores): number {
 }
 
 const PAGE_SIZE = 20;
+// US-2025: hard bound on the dispute set this console loads. The page is a
+// triage queue ordered newest-first, so an operator works the head of it — but
+// the query behind it was unbounded, and it also anchors the cascade that pulls
+// reports/submissions/images. 500 is generous for a queue that should normally
+// sit in the low tens; if it is ever hit, the queue itself is the incident.
+const DISPUTE_LIMIT = 500;
 
 // ─── Main Component ─────────────────────────────────────────────────
 
@@ -229,24 +235,57 @@ export function AdminDisputesPage() {
   const { data, isLoading } = useQuery({
     queryKey: ["admin-disputes"],
     queryFn: async () => {
-      const [disputesRes, subsRes, reportsRes, imagesRes, usersRes] = await Promise.all([
-        supabase.from("disputes").select("*"),
-        supabase.from("submissions").select("*"),
-        supabase.from("grade_reports").select("*"),
-        supabase.from("submission_images").select("*"),
-        supabase.from("users").select("id, email, full_name"),
-      ]);
+      // US-2025: fetch as a DEPENDENT CASCADE off the disputes actually shown.
+      //
+      // This used to be five unbounded select("*") calls in one Promise.all —
+      // the ENTIRE disputes, submissions, grade_reports, submission_images and
+      // users tables — assembled into maps client-side just to enrich a dispute
+      // list. submissions and grade_reports are platform-wide and append-only,
+      // so at 100k graded submissions this transferred hundreds of MB into a
+      // browser. It does not degrade gracefully: it works, then abruptly OOMs
+      // or times out — the worst shape for a console someone reaches for DURING
+      // an incident.
+      //
+      // Everything here hangs off `disputes`, so bound THAT and derive the rest
+      // by id. Each step is still parallel where it can be.
+      const disputesRes = await supabase
+        .from("disputes")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(DISPUTE_LIMIT);
       if (disputesRes.error) throw disputesRes.error;
-      if (subsRes.error) throw subsRes.error;
-      if (reportsRes.error) throw reportsRes.error;
-      if (imagesRes.error) throw imagesRes.error;
-      if (usersRes.error) throw usersRes.error;
-
       const disputes = (disputesRes.data ?? []) as DisputeRow[];
-      const submissions = (subsRes.data ?? []) as SubmissionRow[];
+
+      if (disputes.length === 0) return [];
+
+      const reportIds = [...new Set(disputes.map((d) => d.grade_report_id))];
+      const userIds = [...new Set(disputes.map((d) => d.user_id))];
+
+      const [reportsRes, usersRes] = await Promise.all([
+        supabase.from("grade_reports").select("*").in("id", reportIds),
+        supabase.from("users").select("id, email, full_name").in("id", userIds),
+      ]);
+      if (reportsRes.error) throw reportsRes.error;
+      if (usersRes.error) throw usersRes.error;
       const reports = (reportsRes.data ?? []) as GradeReportRow[];
-      const images = (imagesRes.data ?? []) as SubmissionImageRow[];
       const users = (usersRes.data ?? []) as Pick<UserRow, "id" | "email" | "full_name">[];
+
+      // Submissions + their images are reachable only via the reports above.
+      const submissionIds = [...new Set(reports.map((r) => r.submission_id))];
+      const [subsRes, imagesRes] = submissionIds.length > 0
+        ? await Promise.all([
+          supabase.from("submissions").select("*").in("id", submissionIds),
+          supabase
+            .from("submission_images")
+            .select("*")
+            .in("submission_id", submissionIds),
+        ])
+        : [{ data: [], error: null }, { data: [], error: null }];
+      if (subsRes.error) throw subsRes.error;
+      if (imagesRes.error) throw imagesRes.error;
+
+      const submissions = (subsRes.data ?? []) as SubmissionRow[];
+      const images = (imagesRes.data ?? []) as SubmissionImageRow[];
 
       // Build lookup maps
       const reportById = new Map<string, GradeReportRow>();
