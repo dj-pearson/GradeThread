@@ -128,7 +128,14 @@ export async function computeEquityForOwner(owner: string) {
     supabaseAdmin
       .from("listings")
       .select("inventory_item_id, listed_at")
-      .eq("user_id", owner),
+      .eq("user_id", owner)
+      // US-2029: bound it. The inventory read beside it has always been capped
+      // at INVENTORY_CAP, but this one pulled the owner's ENTIRE listing
+      // history — including every long-since-sold listing — on a path the
+      // nightly snapshot runs for every seller. It only feeds a
+      // listed_at lookup for CURRENT inventory, so the same cap is the right
+      // bound: a listing with no matching unsold item contributes nothing.
+      .limit(INVENTORY_CAP),
   ]);
 
   const items = (itemsRaw ?? []) as ItemRow[];

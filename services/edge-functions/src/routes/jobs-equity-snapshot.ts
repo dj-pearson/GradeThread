@@ -57,7 +57,23 @@ export async function handleEquitySnapshotCron(c: Context): Promise<Response> {
     const snapshotDate = todayKeyUTC();
     let written = 0;
     let failed = 0;
-    for (const owner of owners) {
+
+    // US-2029: process owners with BOUNDED CONCURRENCY instead of one at a time.
+    //
+    // computeEquityForOwner issues 4 queries per owner (2 of them genuinely
+    // sequential) plus this upsert, so a strictly serial loop is ~5 round trips
+    // x every seller. At 5,000 sellers that is ~25,000 sequential round trips —
+    // roughly 500s at ~20ms each, still inside the 1800s lock TODAY, but it
+    // scales linearly and blows the lock somewhere around 10k sellers. The
+    // failure then is SILENT: snapshots simply stop and the equity trend chart
+    // goes flat with no error anywhere.
+    //
+    // Concurrency 8 is deliberately modest. These are reads plus one idempotent
+    // upsert per owner (onConflict user_id,snapshot_date), so ordering does not
+    // matter and a retry is harmless — but the shared Postgres is the same one
+    // serving live traffic, and a nightly job has no business saturating it.
+    const CONCURRENCY = 8;
+    const processOwner = async (owner: string) => {
       try {
         const { aggregate } = await computeEquityForOwner(owner);
         const { error } = await supabaseAdmin
@@ -87,6 +103,15 @@ export async function handleEquitySnapshotCron(c: Context): Promise<Response> {
           err instanceof Error ? err.message : String(err),
         );
       }
+    };
+
+    for (let i = 0; i < owners.length; i += CONCURRENCY) {
+      // One owner's failure must not abort the batch — processOwner swallows and
+      // counts its own errors, so allSettled is belt-and-braces for anything
+      // thrown outside that try.
+      await Promise.allSettled(
+        owners.slice(i, i + CONCURRENCY).map((owner) => processOwner(owner)),
+      );
     }
 
     return c.json({ ok: true, owners: owners.length, written, failed, snapshotDate });

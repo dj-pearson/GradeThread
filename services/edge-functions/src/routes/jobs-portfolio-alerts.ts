@@ -75,7 +75,22 @@ export async function handlePortfolioAlertsCron(c: Context): Promise<Response> {
           }),
         );
 
-        for (const row of fresh) {
+        // US-2029: process this buyer's items with BOUNDED CONCURRENCY.
+        //
+        // Each iteration awaits a notifyBuyer call AND an UPDATE, strictly
+        // sequentially. At the MAX_BUYERS cap of 500 with ~100 closet items
+        // each that is ~50,000 sequential round trips in one cron run.
+        //
+        // NOT the batched upsert the finding suggested: peak_estimate_cents
+        // differs per row, and the update SHAPE differs too (only alerting rows
+        // carry last_alert_estimate_cents / last_alerted_at). A single upsert
+        // would need every column for every row, and any row missing from
+        // closet_item_valuations would be INSERTed partially rather than
+        // updated. Setting distinct per-row values in one statement needs a
+        // VALUES join, i.e. an RPC and a migration. Concurrency gets most of the
+        // win with none of that risk.
+        const ITEM_CONCURRENCY = 8;
+        const processRow = async (row: typeof fresh[number]) => {
           const state = stateById.get(row.closet_item_id);
           const verdict = detectValuationAlert(
             {
@@ -118,6 +133,15 @@ export async function handlePortfolioAlertsCron(c: Context): Promise<Response> {
             .from("closet_item_valuations")
             .update(update as never)
             .eq("closet_item_id", row.closet_item_id);
+        };
+
+        for (let i = 0; i < fresh.length; i += ITEM_CONCURRENCY) {
+          // allSettled: one item's notify/update failure must not abandon the
+          // rest of this buyer's closet. The outer catch still covers anything
+          // thrown by the surrounding setup.
+          await Promise.allSettled(
+            fresh.slice(i, i + ITEM_CONCURRENCY).map((row) => processRow(row)),
+          );
         }
       } catch (err) {
         console.error(`[portfolio-alerts] buyer ${userId} failed:`, err instanceof Error ? err.message : err);
