@@ -1,9 +1,3 @@
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "@/components/ui/select";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ITEM_STATUSES, ITEM_STATUS_LABELS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
@@ -16,10 +10,15 @@ type Props = {
   className?: string;
 };
 
-// Inline status control for the listings table. Renders the status as the same
-// compact pill <StatusBadge> uses, but opens a dropdown so a reseller can
-// advance/change item_status straight from a row — no detail modal. `pending`
-// adds an amber ring while an optimistic write is in flight (mirrors InlineCell).
+// Inline status control for the listings table. A transparent NATIVE <select>
+// is overlaid on the compact <StatusBadge> so a reseller can change item_status
+// straight from a row — no detail modal.
+//
+// Native, NOT a Radix Select popover, on purpose: a portal-based dropdown was
+// unreliable inside the virtualized, click-to-open table rows — clicking the
+// pill "did nothing" (the popover never opened). A native <select> always opens
+// on click, regardless of virtualization / row-level onClick handlers.
+// `pending` adds an amber ring while an optimistic write is in flight.
 export function InlineStatusSelect({
   value,
   onChange,
@@ -27,24 +26,31 @@ export function InlineStatusSelect({
   className,
 }: Props) {
   return (
-    <Select value={value} onValueChange={(v) => onChange(v as ItemStatus)}>
-      <SelectTrigger
+    <span
+      className={cn(
+        "relative inline-flex items-center rounded-full focus-within:ring-2 focus-within:ring-brand-navy",
+        pending && "ring-1 ring-amber-400/60",
+        className,
+      )}
+    >
+      <StatusBadge status={value} className="text-[10px]" />
+      {/* The native <select> is layered over the badge (inset-0), so every click
+          in this cell lands on it — and its own stopPropagation keeps the row's
+          navigate-on-click from swallowing the interaction. */}
+      <select
         aria-label="Change status"
-        className={cn(
-          "h-auto w-fit gap-1 rounded-full border-0 bg-transparent px-0 py-0 shadow-none focus-visible:ring-2 focus-visible:ring-brand-navy",
-          pending && "ring-1 ring-amber-400/60",
-          className,
-        )}
+        value={value}
+        onChange={(e) => onChange(e.target.value as ItemStatus)}
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+        className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
       >
-        <StatusBadge status={value} className="text-[10px]" />
-      </SelectTrigger>
-      <SelectContent>
         {ITEM_STATUSES.map((s) => (
-          <SelectItem key={s} value={s}>
+          <option key={s} value={s}>
             {ITEM_STATUS_LABELS[s]}
-          </SelectItem>
+          </option>
         ))}
-      </SelectContent>
-    </Select>
+      </select>
+    </span>
   );
 }
