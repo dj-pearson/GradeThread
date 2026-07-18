@@ -163,8 +163,15 @@ import {
   resolveCategoryLeafStatus,
   leafCategoryBlocker,
   photoStandardsPreflight,
+  conditionDescriptionConsistency,
   type LeafCategorySuggestion,
 } from "../lib/publish-preflight.ts";
+// US-1897: Listing Quality Score (validate surface only — see buildQualityScore).
+import {
+  computeListingQualityScore,
+  type ListingQualityScore,
+} from "../lib/listing-quality-score.ts";
+import { loadFulfillmentSignals } from "../lib/business-policy-signals.ts";
 import {
   getAllActiveEbaySelling,
   getItemSpecifics,
@@ -6250,9 +6257,67 @@ flipdeskEbayRoutes.post("/listings/validate", async (c) => {
     aspectDiagnostics: result.aspectDiagnostics,
     // US-1895: recommended-aspect coverage (N/M + ranked missing) for the meter.
     recommendedCoverage: result.recommendedCoverage,
+    // US-1897 (AC2): the 0-100 Listing Quality Score + component breakdown,
+    // each component naming the surface that fixes it.
+    qualityScore: await buildQualityScore(userId, result),
     summary: result.summary,
   });
 });
+
+// US-1897: assemble the quality score from the preflight's structured signals.
+//
+// Lives here rather than inside assemblePublishContext on purpose: it needs one
+// extra DB read (business policies) and one extra check, and the publish and
+// auto-publish paths share that function. Scoring is a validate-time concern, so
+// the hot path should not pay for it.
+async function buildQualityScore(
+  ownerId: string,
+  ctx: PublishContextOk,
+): Promise<ListingQualityScore> {
+  const qs = ctx.qualitySignals;
+
+  // US-1894's consistency check shipped tested but was never called by any
+  // production path — this is its first real caller. Guarded so a listing with
+  // no resolved condition reports "unknown" rather than a confident verdict.
+  const conditionText = ctx.summary.conditionDescription || null;
+  const condition = ctx.summary.condition
+    ? conditionDescriptionConsistency(
+      ctx.summary.condition as Parameters<typeof conditionDescriptionConsistency>[0],
+      conditionText,
+    )
+    : null;
+
+  return computeListingQualityScore({
+    title: {
+      text: ctx.summary.title || null,
+      policyViolations: qs.titlePolicyViolations,
+      warnings: qs.titleWarnings,
+    },
+    aspects: {
+      requiredMissing: qs.requiredMissing,
+      recommendedFilled: ctx.recommendedCoverage.filled,
+      recommendedTotal: ctx.recommendedCoverage.total,
+    },
+    photos: {
+      blockers: qs.photoBlockers,
+      warnings: qs.photoWarnings,
+      nudge: ctx.photoNudge,
+      count: qs.photoCount,
+    },
+    category: {
+      leafStatus: qs.categoryLeafStatus,
+      // We only KNOW the chosen category matches eBay's suggestion when we just
+      // resolved it from one. Otherwise it is genuinely unknown — asserting
+      // false would penalise every hand-picked category we never cross-checked.
+      matchesSuggestion: qs.categoryWasSuggested ? true : null,
+    },
+    condition: {
+      consistent: condition ? condition.ok : null,
+      warnings: condition ? condition.warnings : [],
+    },
+    fulfillment: await loadFulfillmentSignals(ownerId),
+  });
+}
 
 // US-1895: bulk recommended-aspect coverage for the AutoLister drafts list, so a
 // bulk session can sort/fix low-coverage drafts. Body { itemIds: string[] } →
@@ -8460,6 +8525,20 @@ interface PublishContextOk {
   // US-828: aspect values omitted from the eBay payload for value-validation
   // reasons, so the client can surface "X was not sent" (empty = nothing dropped).
   aspectDiagnostics: PublishAspectDiagnostic[];
+  // US-1897: raw signals for the Listing Quality Score — NOT a score. They are
+  // values this function already computes for blockers/warnings; surfacing them
+  // structured keeps the scorer off string-matching the blocker array, which
+  // would break silently the first time a message is reworded.
+  qualitySignals: {
+    titlePolicyViolations: string[];
+    titleWarnings: string[];
+    photoBlockers: string[];
+    photoWarnings: string[];
+    photoCount: number;
+    categoryLeafStatus: "leaf" | "non_leaf" | "not_found" | "unverified";
+    categoryWasSuggested: boolean;
+    requiredMissing: string[];
+  };
   sku: string;
   summary: {
     title: string;
@@ -9078,6 +9157,14 @@ export async function assemblePublishContext(
   // the response after the title-quality warnings are built.
   const photoWarnings: string[] = [];
   let photoNudge: string | null = null;
+  // US-1897: structured signals captured for the Listing Quality Score. These
+  // are values already computed below for blockers/warnings; capturing them
+  // keeps the score off string-sniffing the blocker array, which would break
+  // silently the first time a message is reworded.
+  let qsPhotoBlockers: string[] = [];
+  let qsPhotoWarnings: string[] = [];
+  let qsTitlePolicyViolations: string[] = [];
+  let qsCategoryLeafStatus: "leaf" | "non_leaf" | "not_found" | "unverified" = "unverified";
   // US-1509: surfaced first — nothing else matters while the item is already live.
   if (liveEbayMirrorBlocker) blockers.push(liveEbayMirrorBlocker);
   // Category resolution: listing-row override wins (AutoLister writes here);
@@ -9105,6 +9192,7 @@ export async function assemblePublishContext(
         if (suggestions.length > 0) {
           categoryId = suggestions[0]!.categoryId;
           categoryWasSuggested = true; // a Taxonomy suggestion is always a leaf.
+          qsCategoryLeafStatus = "leaf"; // US-1897: and it matches the suggestion.
           // Persist so subsequent publishes (and the composer) reuse it.
           // Prefer the listing row when one exists; always mirror onto the
           // item so legacy/no-listing flows pick it up too.
@@ -9138,6 +9226,7 @@ export async function assemblePublishContext(
         hasCachedLeaf: categoryHasCachedLeafAspects,
         probeLeafStatus: fetchCategoryLeafStatus,
       });
+      qsCategoryLeafStatus = leafStatus;
       if (leafStatus === "non_leaf" || leafStatus === "not_found") {
         // Same suggestion mechanism the category-check card uses (suggestCategories).
         const fixQuery = [item.brand, item.title, item.item_category]
@@ -9413,6 +9502,8 @@ export async function assemblePublishContext(
     for (const b of standards.blockers) blockers.push(b);
     for (const w of standards.warnings) photoWarnings.push(w);
     photoNudge = standards.nudge;
+    qsPhotoBlockers = [...standards.blockers];
+    qsPhotoWarnings = [...standards.warnings];
   }
 
   // Price priority: explicit listing edits beat inventory defaults so a user
@@ -9452,6 +9543,7 @@ export async function assemblePublishContext(
     const lint = lintTitle(rawTitle);
     for (const v of lint.policyViolations) blockers.push(v);
     titleWarnings.push(...lint.warnings);
+    qsTitlePolicyViolations = [...lint.policyViolations];
   }
 
   // Look up policies last — only blocks if everything else is ready, but
@@ -9673,6 +9765,19 @@ export async function assemblePublishContext(
     aspectDiagnostics,
     sku,
     summary,
+    // US-1897: structured inputs for the Listing Quality Score. Deliberately
+    // raw signals, not a score — the score is computed on the validate surface
+    // so the publish hot path pays nothing for it.
+    qualitySignals: {
+      titlePolicyViolations: qsTitlePolicyViolations,
+      titleWarnings: [...titleWarnings],
+      photoBlockers: qsPhotoBlockers,
+      photoWarnings: qsPhotoWarnings,
+      photoCount: photosWithUrl.length,
+      categoryLeafStatus: qsCategoryLeafStatus,
+      categoryWasSuggested,
+      requiredMissing: [...requiredMissing],
+    },
   };
 }
 

@@ -15,6 +15,8 @@
 // them would tell a seller to go fix something already correct. The scorer treats
 // null as "unknown" and declines to award or penalise the component.
 
+import { supabaseAdmin } from "./supabase.ts";
+
 /** eBay's `timeDuration` shape: { value, unit: "DAY" | "HOUR" | … }. */
 interface TimeDuration {
   value?: unknown;
@@ -101,6 +103,37 @@ export function parseReturnsAccepted(policyData: unknown): boolean | null {
   const p = asRecord(policyData);
   if (!p) return null;
   return typeof p.returnsAccepted === "boolean" ? p.returnsAccepted : null;
+}
+
+/**
+ * Load the seller's DEFAULT fulfillment + return policies and parse their
+ * signals. Tenant-scoped on user_id (US-268 — the service-role client bypasses
+ * RLS, so this filter is the only thing standing between tenants).
+ *
+ * `ownerId` MUST come from a trusted source (workspace middleware or a verified
+ * token), never from the request body.
+ *
+ * Deliberately NOT called from assemblePublishContext: this is a second DB read
+ * and the score is a validate-time concern, so the publish hot path pays
+ * nothing for it. Fails to UNKNOWN_FULFILLMENT — a telemetry-grade read must
+ * never break a preflight.
+ */
+export async function loadFulfillmentSignals(ownerId: string): Promise<FulfillmentSignals> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("business_policies")
+      .select("policy_type, policy_data")
+      .eq("user_id", ownerId)
+      .eq("marketplace", "ebay")
+      .eq("is_default", true);
+    if (error || !Array.isArray(data)) return UNKNOWN_FULFILLMENT;
+    const rows = data as Array<{ policy_type?: unknown; policy_data?: unknown }>;
+    const byType = (t: string) =>
+      rows.find((r) => typeof r.policy_type === "string" && r.policy_type === t)?.policy_data ?? null;
+    return parseFulfillmentSignals(byType("fulfillment"), byType("return"));
+  } catch {
+    return UNKNOWN_FULFILLMENT;
+  }
 }
 
 /**
