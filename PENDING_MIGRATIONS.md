@@ -79,6 +79,55 @@
 > previously the applied version was visible only in container logs, which is how
 > this file drifted 59 sections out of date without anyone noticing.)
 
+## ⏳ PENDING: 00478_grade_reports_active_unique.sql (US-2007 enforce one active report, 2026-07-18)
+
+**Apply AFTER 00477.** Makes `idx_grade_reports_active` UNIQUE, enforcing the
+"exactly one active (`superseded_at IS NULL`) grade_report per submission"
+invariant that 00150 documented in a comment and then created a NON-unique index
+for.
+
+**Why it matters:** `finalizeIfAlreadyGraded()` does
+`.eq(submission_id).is(superseded_at, null).maybeSingle()`. With two active rows
+PostgREST returns `PGRST116`; the call site discarded the error, so `report` came
+back null and the function returned `false` = "nothing to do". The grade then
+sits **unfinalized forever** — no certificate — and every retry reproduces the
+same false no-op. Silent, permanent, self-perpetuating, and the user has paid.
+Two concurrent finalize/regrade paths produce it: a retry after timeout, a double
+webhook, or the reclaim cron racing a live worker.
+
+**Risk: LOW-MEDIUM.** It rewrites rows, unlike 00477. The de-dupe **supersedes,
+never deletes** — deliberately diverging from 00440 (the api_keys precedent),
+because a duplicate key hash is a duplicate issuance whereas a second active
+grade_report is REAL PAID GRADING OUTPUT that a live certificate may already
+point at. Deleting it would destroy paid work and could orphan a certificate.
+Keeping the newest and superseding the rest puts them in exactly the state 00150
+intended; nothing is lost and the history stays queryable.
+
+**Check the blast radius BEFORE applying** — this should normally be zero rows:
+
+```sql
+SELECT submission_id, count(*) AS active_reports
+FROM public.grade_reports
+WHERE superseded_at IS NULL
+GROUP BY submission_id HAVING count(*) > 1
+ORDER BY active_reports DESC;
+```
+
+If that returns rows, each one is a submission whose grade is currently stranded
+unfinalized — worth noting the ids before the migration supersedes them, since
+those users may need their certificates re-issued.
+
+```sql
+\i supabase/migrations/00478_grade_reports_active_unique.sql
+NOTIFY pgrst, 'reload schema';
+```
+
+Post-apply, the query above must return zero rows, and a second insert of an
+active report for the same submission must now fail with a unique violation.
+
+The edge change that ships with it (grading-pipeline.ts no longer swallows the
+read error) is safe in either order — it only makes a failure loud.
+
 ## ⏳ PENDING: 00477_listings_inventory_sku.sql (US-1999 pin the published eBay SKU, 2026-07-18)
 
 Adds `public.listings.inventory_sku TEXT` (nullable) + a partial index

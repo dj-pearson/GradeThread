@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "./supabase.ts";
+import { captureException } from "./observability.ts";
 import { deleteCertImages } from "./cloudflare-purge.ts";
 import {
   analyzeImage,
@@ -945,12 +946,32 @@ export async function finalizeGradeReview(
 // go-live wiring only for a grade that was already finalized. Returns true if an
 // active report existed, false if there's nothing to do (the normal no-op).
 export async function finalizeIfAlreadyGraded(submissionId: string): Promise<boolean> {
-  const { data: report } = await supabaseAdmin
+  const { data: report, error: reportErr } = await supabaseAdmin
     .from("grade_reports")
     .select("id, overall_score, grade_tier, certificate_id, review_status")
     .eq("submission_id", submissionId)
     .is("superseded_at", null)
     .maybeSingle();
+  // US-2007: do NOT swallow this. maybeSingle() returns PGRST116 when more than
+  // one active report exists, and discarding the error turned that into
+  // `report == null` -> "nothing to do" -> the grade stranded UNFINALIZED
+  // forever, with every retry reproducing the same false no-op. 00478 makes the
+  // duplicate impossible at the DB level; this makes the residual case (and any
+  // other read failure) LOUD rather than a silent success, because "we could not
+  // tell" and "there is nothing here" must never look the same.
+  if (reportErr) {
+    captureException(reportErr, {
+      route: "grading-pipeline.finalizeIfAlreadyGraded",
+      extra: { submission_id: submissionId, code: reportErr.code },
+    });
+    throw new Error(
+      `finalizeIfAlreadyGraded: could not read the active grade report for ` +
+        `${submissionId}: ${reportErr.message}` +
+        (reportErr.code === "PGRST116"
+          ? " (multiple active reports — 00478's unique index should prevent this)"
+          : ""),
+    );
+  }
   if (!report) return false;
 
   const r = report as {
