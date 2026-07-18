@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 import { useBuyerEntitlements } from "@/hooks/use-buyer-entitlements";
 import { useBuyerPurchases, type PurchaseWithCaptures } from "@/hooks/use-buyer-purchases";
 import { useBuyerRewards } from "@/hooks/use-buyer-rewards";
@@ -431,7 +432,7 @@ function RewardsSummarySection() {
 
 export function BuyerRewardsPage() {
   const ent = useBuyerEntitlements();
-  const { purchases, isLoading, linkPurchase, isLinking, rewardCredits } = useBuyerPurchases();
+  const { purchases, isLoading, isError, linkPurchase, isLinking, rewardCredits } = useBuyerPurchases();
 
   const [certNumber, setCertNumber] = useState("");
   const [price, setPrice] = useState("");
@@ -554,6 +555,15 @@ export function BuyerRewardsPage() {
           <div className="flex justify-center py-12">
             <Loader2 className="h-6 w-6 animate-spin text-primary" />
           </div>
+        ) : isError ? (
+          /* US-2026: a failed load must not render as an empty state — that reads as data loss, not as "retry". */
+          /* Sharpest case in this story: telling a buyer they have no linked
+             purchases implies their rewards were never recorded. */
+          <ErrorState
+            title="Couldn't load your purchases"
+            description="Your linked purchases and rewards are safe — we just couldn't fetch them right now."
+            onRetry={() => window.location.reload()}
+          />
         ) : purchases.length === 0 ? (
           <EmptyState
             icon={Gift}

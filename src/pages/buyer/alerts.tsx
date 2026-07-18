@@ -10,6 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 import { ChipInput } from "@/components/buyer/chip-input";
 import { useBuyerEntitlements } from "@/hooks/use-buyer-entitlements";
 import { useBuyerPreferences } from "@/hooks/use-buyer-preferences";
@@ -325,6 +326,15 @@ export function BuyerAlertsPage() {
             <div className="flex justify-center py-12">
               <Loader2 className="h-6 w-6 animate-spin text-primary" />
             </div>
+          ) : searches.isError ? (
+            /* US-2026: a failed load must not render as an empty state — an
+               empty alerts/watchlist screen tells the buyer their saved setup is
+               GONE, which is the opposite of "try again". */
+            <ErrorState
+              title="Couldn't load your saved searches"
+              description="Your alerts are still active — we just couldn't fetch them right now."
+              onRetry={() => window.location.reload()}
+            />
           ) : searches.searches.length === 0 ? (
             <EmptyState
               icon={Search}
@@ -351,6 +361,15 @@ export function BuyerAlertsPage() {
             <div className="flex justify-center py-12">
               <Loader2 className="h-6 w-6 animate-spin text-primary" />
             </div>
+          ) : watchlist.isError ? (
+            /* US-2026: a failed load must not render as an empty state — an
+               empty alerts/watchlist screen tells the buyer their saved setup is
+               GONE, which is the opposite of "try again". */
+            <ErrorState
+              title="Couldn't load your watchlist"
+              description="The items you follow are still saved — we just couldn't fetch them right now."
+              onRetry={() => window.location.reload()}
+            />
           ) : watchlist.items.length === 0 ? (
             <EmptyState
               icon={Bell}
@@ -406,6 +425,15 @@ export function BuyerAlertsPage() {
             <div className="flex justify-center py-12">
               <Loader2 className="h-6 w-6 animate-spin text-primary" />
             </div>
+          ) : matches.isError ? (
+            /* US-2026: a failed load must not render as an empty state — an
+               empty alerts/watchlist screen tells the buyer their saved setup is
+               GONE, which is the opposite of "try again". */
+            <ErrorState
+              title="Couldn't load recent matches"
+              description="This is a display issue only — your alerts are still running."
+              onRetry={() => window.location.reload()}
+            />
           ) : matches.matches.length === 0 ? (
             <EmptyState
               icon={BellRing}

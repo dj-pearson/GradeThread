@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 import { useBuyerEntitlements } from "@/hooks/use-buyer-entitlements";
 import { useBuyerWants } from "@/hooks/use-buyer-wants";
 
@@ -22,7 +23,7 @@ const centsFrom = (v: string): number | null => {
 
 export function BuyerDemandPage() {
   const ent = useBuyerEntitlements();
-  const { wants, isLoading, createWant, isCreating, setStatus, removeWant } = useBuyerWants();
+  const { wants, isLoading, isError, createWant, isCreating, setStatus, removeWant } = useBuyerWants();
 
   const [brands, setBrands] = useState("");
   const [categories, setCategories] = useState("");
@@ -121,6 +122,13 @@ export function BuyerDemandPage() {
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Your wants ({wants.length})</h2>
         {isLoading ? (
           <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
+        ) : isError ? (
+          /* US-2026: a failed load must not render as an empty state — that reads as data loss, not as "retry". */
+          <ErrorState
+            title="Couldn't load your wants"
+            description="They're still saved — we just couldn't fetch them right now."
+            onRetry={() => window.location.reload()}
+          />
         ) : wants.length === 0 ? (
           <EmptyState icon={Megaphone} title="No wants yet" description="Post what you're hunting for above." />
         ) : (
