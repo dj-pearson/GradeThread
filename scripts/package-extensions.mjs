@@ -67,13 +67,11 @@ const EXTENSIONS = [
     // an event page (background.scripts, in dependency order — Firefox has no
     // importScripts), and the API namespace is aliased (browser/promises).
     firefox: {
-      geckoId: "unified@gradethread.com",
-      backgroundScripts: [
-        "lister/selectors.js",
-        "lister/lister-guard.js",
-        "registry.js",
-        "background.js",
-      ],
+      // Fallback only — extension-unified/manifest.json declares gecko.id (and
+      // strict_min_version), and the manifest wins. Kept in sync with it so the
+      // two can never disagree; background scripts are read from the manifest's
+      // own background.scripts rather than restated here (see firefoxManifest).
+      geckoId: "extension@gradethread.com",
       // Firefox data-consent (mzl.la/firefox-builtin-data-consent): the condition
       // read transmits the listing's page content (image URLs + title/brand/price)
       // to the grading endpoint on user action. Nothing is persisted server-side
@@ -230,21 +228,46 @@ function pngSize(buf) {
 }
 
 // Firefox needs a gecko id and, for broad MV3 compat, an event-page background
-// (background.scripts) rather than a service worker. `firefox.backgroundScripts`
-// lets an extension list the deps Chrome loads via importScripts (Firefox has no
-// importScripts), in load order, ending with the worker file itself.
+// (background.scripts) rather than a service worker.
+//
+// DERIVE, NEVER RE-DECLARE (US-1881). Everything this transform needs is already
+// in the manifest, and the manifest is the copy under test
+// (extension-unified/test/background-deps.test.cjs). Any value this function
+// *states* instead of *reads* is a second source of truth that no test can see,
+// because the guard checks the repo manifest while the STORE gets this output.
+// That drift already shipped three separate breakages:
+//   • a hand-listed backgroundScripts that predated lister/job-store.js, so the
+//     Firefox event page loaded with GT_LISTER_JOBS undefined — the tab opened,
+//     the form never filled, and the seller waited out a 130s timeout;
+//   • a wholesale overwrite of browser_specific_settings that dropped
+//     strict_min_version, letting the add-on install on pre-109 Firefox with no
+//     MV3 at all;
+//   • a gecko id that disagreed with the manifest's, so a dev-loaded temporary
+//     add-on and the shipped one had different identities.
+// So: read from the manifest, and let `firefox.*` only FILL GAPS.
 function firefoxManifest(manifest, firefox) {
   const m = JSON.parse(JSON.stringify(manifest));
-  m.browser_specific_settings = { gecko: { id: firefox.geckoId } };
+
+  const gecko = { ...(m.browser_specific_settings?.gecko || {}) };
+  // Manifest wins; the config value is a fallback for extensions whose manifest
+  // does not declare one (it also doubles as the "emit a Firefox zip" flag).
+  gecko.id = gecko.id || firefox.geckoId;
   // Firefox now REQUIRES a data-collection disclosure on new add-ons/versions
   // (mzl.la/firefox-builtin-data-consent). Declared per-extension; defaults to
   // "no user data collected".
-  m.browser_specific_settings.gecko.data_collection_permissions =
-    firefox.dataCollection || { required: ["none"] };
+  gecko.data_collection_permissions =
+    gecko.data_collection_permissions || firefox.dataCollection || { required: ["none"] };
+  m.browser_specific_settings = { ...m.browser_specific_settings, gecko };
+
   if (m.background?.service_worker) {
-    const scripts = firefox.backgroundScripts?.length
-      ? firefox.backgroundScripts
-      : [m.background.service_worker];
+    // background.scripts is the manifest's own Firefox half, kept in lockstep
+    // with background.js's importScripts by background-deps.test.cjs. Prefer it
+    // over anything restated here.
+    const scripts = m.background.scripts?.length
+      ? m.background.scripts
+      : firefox.backgroundScripts?.length
+        ? firefox.backgroundScripts
+        : [m.background.service_worker];
     m.background = { scripts };
   }
   // externally_connectable is unsupported on Firefox (AMO linter flags it); the
@@ -253,7 +276,20 @@ function firefoxManifest(manifest, firefox) {
   return m;
 }
 
+// Exported so the Firefox transform can be asserted on its ACTUAL OUTPUT rather
+// than re-described in a test (extension-unified/test/background-deps.test.cjs).
+// A guard that restates the expected values has the same blind spot as the bug it
+// is guarding against.
+export { EXTENSIONS, firefoxManifest };
+
 // ── run ───────────────────────────────────────────────────────────────────────
+// Guarded so importing this module for tests has no side effects (no zip writes,
+// no rm -rf of outDir).
+const isEntry =
+  process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isEntry) main();
+
+function main() {
 if (existsSync(outDir)) rmSync(outDir, { recursive: true, force: true });
 mkdirSync(outDir, { recursive: true });
 
@@ -300,7 +336,10 @@ for (const ext of EXTENSIONS) {
     const ffZip = zip(ffEntries);
     const ffPath = join(outDir, `${ext.name}-v${manifest.version}-firefox.zip`);
     writeFileSync(ffPath, ffZip);
-    report.push(`✓ ${ext.name} (${ext.role}) → firefox ${(ffZip.length / 1024).toFixed(0)}KB  gecko:${ext.firefox.geckoId}  [${relative(root, ffPath)}]`);
+    // Report the id/scripts actually written, not the config's fallback — the
+    // whole point of the transform is that the manifest can override it.
+    const g = ffManifest.browser_specific_settings.gecko;
+    report.push(`✓ ${ext.name} (${ext.role}) → firefox ${(ffZip.length / 1024).toFixed(0)}KB  gecko:${g.id}${g.strict_min_version ? ` min:${g.strict_min_version}` : ""}  bg:${(ffManifest.background?.scripts || []).length} scripts  [${relative(root, ffPath)}]`);
   }
 }
 
@@ -311,3 +350,4 @@ if (failed) {
   process.exit(1);
 }
 process.stdout.write(`\nDone. Upload the chrome zip to the Web Store and the firefox zip to AMO.\n`);
+}
