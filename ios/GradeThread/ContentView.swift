@@ -628,7 +628,7 @@ struct MainShell: View {
             Button("Details-first (manual form)") {
                 router.startIntake(.detailsFirst)
             }
-            Button("AutoLister (batch photos → AI listings)") {
+            Button("Bulk add — up to 200 photos → AI listings (AutoLister)") {
                 router.startIntake(.autoLister)
             }
             Button("Cancel", role: .cancel) {}
@@ -1375,13 +1375,14 @@ final class AppRouter {
             set: { newValue in
                 Self.haptic()
                 if newValue == .add {
-                    // US-649: the Add tab is now a one-tap shortcut straight
-                    // into the photo-first capture flow — the most frequent
-                    // action — instead of a mandatory 3-way mode dialog. The
-                    // other modes live in the Home toolbar "Add" menu + the
-                    // iPad sidebar Add menu. Don't change `selection`: that
-                    // snaps the tab bar back after the brief tap state.
-                    self.startIntake(.photoFirst)
+                    // Tapping Add presents the "Add an item" chooser (photo-first
+                    // single item / details-first / AutoLister bulk-add) rather
+                    // than jumping straight into single-item photo capture — the
+                    // bulk path was otherwise undiscoverable from the tab bar, so
+                    // Add looked like an ~8-photo single-listing tool. Matches the
+                    // iPad sidebar. Don't change `selection`: that snaps the tab
+                    // bar back after the brief tap state.
+                    self.showingAddSheet = true
                     return
                 }
                 self.selection = newValue
