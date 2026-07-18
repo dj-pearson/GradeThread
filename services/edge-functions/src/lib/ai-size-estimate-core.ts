@@ -2,23 +2,24 @@
 // any caller that only needs the types/decoders) don't drag in the Anthropic
 // client or the env-gated supabase module.
 //
-// ⚠ THIS MODULE IS DEAD, AND THE SENTENCE THAT USED TO BE HERE WAS FALSE.
+// This module is LIVE and is the single definition of these helpers:
+// ai-size-estimate.ts imports and re-exports them, and flipdesk-ai.ts imports
+// that. So ai-size-estimate_test.ts, which imports this file directly, is
+// testing the code that actually runs.
 //
-// It claimed "the network call lives in ai-size-estimate.ts, which re-exports
-// everything here". ai-size-estimate.ts does NOT import this file — it
-// RE-DECLARES its own SizePhoto, SIZE_ESTIMATE_LOW_CONFIDENCE, isMeasurementPhoto,
-// normalizeSizeEstimate and prioritizeMeasurementPhotos. flipdesk-ai.ts imports
-// that one. Nothing anywhere imports this one (verified 2026-07-18 by
-// scripts/audit-unwired-exports.mjs).
+// ⚠ HISTORY, kept deliberately (US-1996). This file used to be DEAD while
+// claiming the opposite: its header said ai-size-estimate.ts "re-exports
+// everything here", when in fact that module RE-DECLARED byte-identical copies
+// of SizePhoto, SIZE_ESTIMATE_LOW_CONFIDENCE, isMeasurementPhoto,
+// normalizeSizeEstimate and prioritizeMeasurementPhotos. The tests pointed
+// here; the copies that ran were untested and free to drift — and the false
+// header is what made that invisible, because it would have stopped a reviewer
+// from looking further.
 //
-// The two copies are byte-identical TODAY, which is exactly what makes this
-// dangerous rather than merely untidy: the tests point HERE, so the helpers that
-// actually run are effectively untested and free to drift, and the header
-// asserted a link that would have made a reviewer stop looking.
-//
-// Fix is one of two, not both: make ai-size-estimate.ts import this module (as
-// the old header claimed), or delete this file and repoint the test at the live
-// one. Tracked in US-1996.
+// The lesson worth keeping: a comment asserting a link is not the link. If you
+// split a module again for the same (good) reason — keeping pure helpers
+// importable without the Anthropic client and env-gated config — make the
+// dependency real and let the type checker hold it, rather than describing it.
 
 export interface SizePhoto {
   url: string;

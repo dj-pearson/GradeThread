@@ -4,6 +4,25 @@ Read every iteration. Keep it SMALL (target < 150 lines). One terse bullet per
 durable, non-obvious trap. Prune anything stale. This is cheap persistent
 memory — not a progress log (the harness records progress separately).
 
+## Topic playbooks — read ON DEMAND, not every iteration
+
+This file is read on EVERY Ralph iteration, so it holds only what is
+cross-cutting. Three epic-specific bodies of knowledge were split out — nothing
+was deleted, and each is still the authoritative playbook for its surface. Read
+the matching file IN ADDITION to this one when your story touches it:
+
+- `learnings/ios.md` — iOS / Swift (~314 lines). Any story touching `ios/`.
+- `learnings/brand-kb.md` — Brand Knowledge Base (~284 lines). Brand KB group
+  stories (US-1717…US-1733+) and `brand_knowledge`/`brand_styles`/
+  `brand_size_charts`/`brand_colorways`.
+- `learnings/email-marketing.md` — newsletter, broadcast, drip, SES (~350
+  lines). The US-911…US-946 family, send coordinator, suppression loop.
+
+Why: at 1308 lines this file cost every iteration the price of all three epics,
+which is how the 800-line warning in prd-lint had been firing unread. If you add
+a learning that only matters to ONE surface, put it in that surface's file.
+
+
 ## Build / verify
 - `npm run build` does NOT run vitest — it only typechecks + builds. Run
   `npm test` separately or you ship a red `main`.
@@ -65,6 +84,8 @@ memory — not a progress log (the harness records progress separately).
   yourself (the test compares VERBATIM). Both need SUPABASE_URL/
   SUPABASE_SERVICE_ROLE_KEY set or they die on the supabase.ts import.
 
+
+
 ## Agent cohabitation (co-running loops)
 - A CO-RUNNING loop that commits with `git add -A` / `git commit -a` will SWEEP
   YOUR STAGED FILES INTO ITS OWN COMMIT — staging early does not reserve them.
@@ -75,6 +96,8 @@ memory — not a progress log (the harness records progress separately).
   check `git log -1 -- <your file>` after committing. Do NOT try to rebase/reset
   it apart afterwards — the other loop is still writing to `main` and history
   surgery races it. Report the mis-attribution instead.
+
+
 
 ## Architecture / routing
 - Two hosts, easy to confuse: Supabase/Kong = `api.gradethread.com` (Supabase
@@ -87,33 +110,7 @@ memory — not a progress log (the harness records progress separately).
   request-body id without confirming ownership. See
   `services/edge-functions/src/tests/tenant-isolation_test.ts`.
 
-## Email subscriber registry (US-912 / US-931)
-- `email_subscribers` (00278) is the shared newsletter list (used by
-  broadcast-audience union + newsletter_analytics). Its status set is
-  pending/confirmed/unsubscribed/bounced/cleaned; only `confirmed` is emailable.
-  Public double-opt-in capture = `routes/newsletter-subscribe.ts`
-  (`/api/newsletter/{subscribe,confirm}`, unauthenticated, rate-limited in
-  main.ts). `suppressEmail` (email-suppression.ts) mirrors a bounce/complaint
-  onto the matching subscriber row, so suppression applies to leads identically
-  to users. A trigger on public.users links a lead's row to the new account by
-  email on signup (dedup by email).
-- Two Hono routers can share a prefix (`/api/newsletter` + the more-specific
-  `/api/newsletter/scheduler`) because `app.route` registers CONCRETE paths, not
-  greedy prefixes — `/subscribe` + `/confirm` never shadow `/scheduler/*`.
 
-## Marketing consent canonical key (US-911)
-- ALL marketing-consent logic now lives in PURE `lib/email-consent.ts`: a master
-  `notification_preferences.marketing.email` umbrella (every send gate reads it via
-  `marketingConsentDenied(prefs, source)`) + per-source granular categories
-  (`weekly_newsletter`). The no-login unsubscribe link writes the `marketing`
-  umbrella (NOT the old `product_updates.email`, which the send gate never read —
-  that was the US-911 bug; migration 00296 backfilled old opt-outs). `marketingOptedOutEmail`
-  (drip-graph) + `marketingOptedOut` (admin-growth) delegate to it. Newsletter sends
-  add the `weekly_newsletter` category check on top of the umbrella.
-- Adding a key to `NotificationPreferences` (src/types/database.ts) REQUIRES adding
-  it to `DEFAULT_NOTIFICATION_PREFERENCES` too — `withPreferenceDefaults` rebuilds the
-  blob from DEFAULT's keys only, so a key absent from DEFAULT is SILENTLY DROPPED on
-  a settings save (would wipe a recipient's opt-out).
 
 ## Plan-gate from a background worker
 - `requireFlipdesk` only reads `c.get` and (on block/warn) `c.json`/`c.header`.
@@ -123,332 +120,14 @@ memory — not a progress log (the harness records progress separately).
   body carries `used`/`limit` for partial-fit math. See `evaluateGate` in
   `flipdesk-autolister.ts`. Don't reimplement the matrix logic.
 
-## Trial-conversion drip (US-945/946)
-- The drip is split across pieces: analytics tables (00253: drip_enrollments/
-  sends/attributions) record what the engine did; the editable step-graph
-  DEFINITION lives in `drip_campaigns` (00255, service-role only, no user_id so
-  rls-guard doesn't auto-discover it); the admin BUILDER (`src/pages/admin/
-  drip.tsx` + builder routes in `admin-drip.ts`) edits/validates/simulates it; and
-  the SENDING ENGINE is now wired (US-943, see below) — it reads
-  `drip_campaigns.graph` + the pure evaluator in `lib/drip-graph.ts`
-  (`planTick`/`simulateJourney`/`validateGraph`/`renderStep`).
-- `lib/drip-graph.ts` is dependency-free (no supabase/env) so its test imports
-  without the env dance; keep AI/supabase/email imports in the route file only.
-- US-944 added the per-step A/B optimizer (`lib/drip-optimizer.ts`, also pure):
-  epsilon-greedy weight shift toward the highest-CONVERTING arm (click is only a
-  secondary tiebreak), exploration floor for losers, auto-retire of high-unsub
-  arms. The optimizer is STATELESS per call — it must be fed the CUMULATIVE
-  windowed ledger (`drip_sends`/`drip_attributions`), not per-round deltas, or a
-  retired arm with 0 new traffic falls back below `minSample` and re-enters as a
-  survivor (oscillates). `optimizeGraph` keys stats by 1-based ordinal =
-  `drip_sends.step`. Conversion is attributed per (step,variant) by joining each
-  send to its enrollment's attribution. `graph.autotuneEnabled` (optional, off by
-  default) is the autonomous gate the future engine tick reads.
+
 
 ## system_settings seed gotcha
 - A `system_settings` seed row's `value_type` must be one of `'number' | 'bool' |
   'string' | 'json'` (00208 check constraint) — `'boolean'` is REJECTED at apply
   time (`system_settings_value_type_check`), only caught by `verify:db`. Use `'bool'`.
 
-## Newsletter per-recipient personalization (US-921)
-- Per-recipient dynamic blocks: PURE `lib/newsletter-personalization.ts`
-  (`personalizeIssueSections` = recap "your week" + tailored CTA prepended, then
-  `substituteTokens` over the issue copy — unknown/missing `{{token}}` collapses to
-  "" so "undefined" never renders; zero/null activity ⇒ evergreen CTA + no recap)
-  + IMPURE `lib/newsletter-personalization-job.ts` (`resolveActivityBatch` =
-  chunked `.in(user_id,…)` over users/submissions/listings/sales/inventory_items,
-  O(chunks) not N+1; `resolvePersonalizationForBatch` folds the per-issue
-  `newsletter_issues.personalize` toggle (00287) AND `newsletter_personalization_*`
-  settings). Wired into EVERY send path: `deliverIssueRecipient` (new optional
-  `personalization` param → dispatch cron + A/B start/finalize) and the console
-  `/send` inline loop. No AI is re-run per user (O(1) AI per issue).
 
-## Newsletter copywriter (US-918 content-ai-email)
-- `lib/content-ai-email.ts` is the canonical AI issue copywriter mirroring
-  content-ai-blog.ts (impure: supabase + anthropic). The PURE prompt builders +
-  validate/normalize/grounding live in `content-ai-prompts.ts`
-  (`buildEmailIssue{System,User}Prompt`, `normalizeEmailIssue`/`parseEmailIssue`,
-  `isGroundedEmailLink`, `EMAIL_LINK_ALLOWLIST`, version `email_issue_v1`) so the
-  grounding negative test runs with no env. Grounding = a CTA link is kept only if
-  it's an https gradethread.com URL on the evergreen allowlist OR appears verbatim
-  in the changelog inputs — invented feature links are stripped.
-- AC5 dedup-on-send is a DB TRIGGER (00289 `newsletter_issue_history_on_send`),
-  not app code — fires on status→sent for EVERY send path (plain dispatch + A/B
-  finalize), appends topic+summary to content_history_index. So
-  `content_surface` enum gained `'email'`: `ALTER TYPE ... ADD VALUE IF NOT EXISTS`
-  MUST sit OUTSIDE the migration's BEGIN/COMMIT (the value must be committed
-  before the trigger fn that references `'email'::content_surface` is created +
-  validated by check_function_bodies). The trigger's INSERT is wrapped in a
-  plpgsql EXCEPTION block so history bookkeeping can never block a send.
-
-## Newsletter topic bank (US-917)
-- The assembler's educational angle now comes from the DB `email_topic_bank`
-  (evergreen, reusable) via `selectEmailTopic` (newsletter-topic-bank-job.ts), NOT
-  the static `NEWSLETTER_TOPICS` catalog — that catalog is only the FALLBACK (empty
-  bank) + the tuning-attribution key map (`topicByPillarAngle`). Pure select/dedup/
-  refill-parse logic = `newsletter-topic-bank.ts` (no env, unit-tested). Dedup =
-  bank `last_used_at` + recently-sent issues (`topic_bank_id`/pillar+angle) +
-  `content_history_index` email titles, within `newsletter_topic_dedup_window_days`.
-  Refill cron = `/api/jobs/newsletter-topic-bank-refill` (Haiku, tops up below
-  `newsletter_topic_bank_min` → target). The angle is marked used at SHELL INSERT
-  (once per period), not on send. New (pillar,angle) pairs not in the tuning catalog
-  are un-biased until they earn data — graceful, by design.
-
-## Product changelog "What's New" (US-916)
-- The assembler's "what's new" now has TWO sources, in priority order: the
-  dedicated `changelog_entries` table (US-916, migration 00291; curated, audience-
-  gated, only `status='published'` rows) THEN `content_history_index` fills the
-  remaining slots. Pure policy in `lib/changelog.ts` (`audiencesForProduct` gates
-  flipdesk-only news away from grading-only issues; `selectUnsentChangelog`);
-  impure DB in `lib/changelog-job.ts`. Featured entries are stamped `featured_at`
-  AFTER copy persists so they aren't re-sent. Auto-capture (`autoCaptureChangelogDrafts`,
-  run weekly from the assembler + a manual admin trigger) drafts entries from
-  recently published blog posts — DRAFTS only (`source='auto'`, idempotent via the
-  `source_ref` unique index); an operator publishes them before they ever send.
-- `changelog_entries` is service-role-only (no user_id; in rls-guard SERVICE_ROLE_ONLY).
-  The string-concat `CHANGELOG_COLS` projection yields `GenericStringError`, so cast
-  insert/update `data` through `as unknown as ChangelogRow` (same trap as newsletter_issues).
-  Admin CRUD = `/api/admin/changelog`; public feed = `GET /api/changelog` (published only).
-
-## Newsletter program (US-930 console)
-- The autonomous newsletter has NO dedicated issue/engine table before US-930 —
-  US-931's `email_subscribers` + `newsletter_analytics` RPC was analytics only.
-  US-930 (migration 00279) added the durable substrate the engine stories
-  (US-918 copywriter, etc.) populate: `newsletter_issues` (full lifecycle enum
-  draft→ready_for_qa→awaiting_review→approved→sending→sent + `blocked`) and
-  `newsletter_issue_recipients` (per-issue resolved/skipped-with-reason ledger).
-  Both service-role-only (in rls-guard SERVICE_ROLE_ONLY); cols are created_by/
-  approved_by/subscriber_user_id (NOT `user_id`) since it's an operator surface.
-- Pure lifecycle/render/QA/schedule helpers live in `lib/newsletter-issue.ts`
-  (no supabase/env → unit-testable): `canTransition`/`isEditable`/`runIssueQa`/
-  `renderNewsletterHtml`/`nextScheduledRun`. The console route
-  (`routes/admin-newsletter.ts`, /api/admin/newsletter/{program,issues/*}) owns
-  the DB/email side. Master controls: pause = `newsletter_send_paused` setting,
-  approval = `newsletter_require_approval` setting, kill-switch = the `newsletter`
-  feature flag (FeatureKey). Approve/reject/send/program-toggles are super_admin +
-  requireStepUp + audited; send routes each recipient through coordinateMarketingSend.
-- `supabaseAdmin.from("newsletter_issues").select(cols).maybeSingle()` returns
-  `data` typed as `GenericStringError` (unknown table to the generated Database
-  type) → `data as NewsletterIssueRow` fails `deno check`; cast through
-  `as unknown as NewsletterIssueRow` (same `tsc -b never` trap on the web side).
-
-## Newsletter imagery (US-920)
-- AI-image cost is invisible in the spend dashboard UNLESS the model is priced in
-  `system_settings.ai_model_prices` AND you log token counts: `ai_spend`/
-  `ai_budget_status` RPCs re-price from tokens × that table and IGNORE the stored
-  `cost_usd`. So `recordAiCall` for gpt-image-1 (cost 0 via computeCostUsd) only
-  surfaces $ after 00288 seeds `gpt-image-1` AND we log estimated image-output
-  tokens (`estimateImageTokens`, lib/newsletter-imagery.ts).
-- Email-safe imagery split: PURE `buildEmailImageHtml`/`brandedCardUrl`/
-  `resolveImageFromUrl`/`estimateImageTokens` + impure `resolveIssueImage`
-  (photo via openai-images → branded Satori card on failure, never throws).
-  Branded card = an absolute URL to the public `/og/social/card` Pages Function
-  (Satori), NOT rendered in the Deno edge (workers-og is CF-only). Assets tracked
-  in `newsletter_issue_assets` (00288, cascade-deletes with the issue).
-
-## Newsletter pre-send QA gate (US-924)
-- The autonomous guardrail gate is split: PURE `lib/newsletter-qa.ts`
-  (`runGuardrailQa` structural/compliance checks over issue+rendered ctx +
-  `computeSpamScore`/`findPlaceholders`/`isAbsoluteLink` + `decideGateOutcome`
-  routing) + `lib/newsletter-ai-editor.ts` (cheap-model brand-voice/factual pass;
-  pure `parseEditorResult`/`buildEditor*`, impure `runAiEditorPass`) glued by the
-  impure `lib/newsletter-qa-job.ts` (`runIssueGuardrailGate` renders → scans →
-  AI → `decideGateOutcome` → persists qa_results + status + ops alert). Reusable
-  from the console route AND the sibling autonomous engine.
-- `newsletter-ai-editor.ts` DYNAMIC-imports ai-config.ts/ai-feature-context.ts
-  inside `runAiEditorPass` (both chain into lib/supabase.ts → throw on unset
-  SUPABASE_URL) so the pure parser/prompt builders unit-test with no env dance.
-- Fail-safe: AI editor model error ⇒ `ran:false` ⇒ gate routes to
-  `awaiting_review` (never auto-approve an unverified issue). Outcome: hard QA/AI
-  fail → blocked+alert; inconclusive OR `newsletter_require_approval` →
-  awaiting_review; else approved. Thresholds are settings keys (seeded 00284):
-  `newsletter_qa_{spam_score_max,subject_max_length,preheader_max_length,
-  require_preference_center,ai_editor_enabled,link_check_enabled}`.
-
-## Newsletter kickoff trigger (US-923)
-- The ONE external touchpoint is `POST /api/newsletter/scheduler/tick`
-  (routes/newsletter-scheduler.ts) — own auth (NEWSLETTER_INTERNAL_JOB_SECRET /
-  signed / admin JWT), job-lock "newsletter-kickoff", records cron_runs itself
-  (in CRON_REGISTRY, NOT under /api/jobs). Each tick: create (cadence-gated via
-  pure `kickoffDue` in newsletter-webhook.ts) → advance gateable issues through
-  `runIssueGuardrailGate` → `runNewsletterDispatch`. It SUPERSEDES the standalone
-  `/api/jobs/newsletter-dispatch` cron (calls the same dispatcher) — don't run both
-  or issue.sent can fire from the cron path unnoticed.
-- Issue assembly now lives in `lib/newsletter-assembler.ts` (`assembleNextIssue` +
-  `NEWSLETTER_ISSUE_COLS`), shared by the console build-next button AND the kickoff
-  tick — edit the assembler, not the route, so they never drift.
-- US-922 made `assembleNextIssue` the FULL autonomous orchestrator (no longer a bare
-  scaffold): changelog→topic→copy→imagery→render→finalize, persisting status
-  `ready_for_qa`. Idempotent per `newsletter_issues.period_key` (partial UNIQUE, 00286)
-  + resumable via the `build_steps` jsonb ledger (reuses done copy/imagery on a retry
-  so AI isn't re-spent). "What's new" = recent `content_history_index` rows minus every
-  prior issue's `featured_content_ids` (no dedicated changelog table). Copy =
-  `lib/newsletter-copy.ts` (pure builders/parse + impure `generateNewsletterCopy` that
-  NEVER throws — degrades to `evergreenCopy` so AC3 "lean evergreen" holds). Config =
-  `lib/newsletter-settings.ts` singleton (reads the seeded `newsletter_assembler_*` keys).
-- Lifecycle webhook (`lib/newsletter-webhook.ts`): HMAC-signed
-  (NEWSLETTER_WEBHOOK_SIGNING_SECRET, X-Newsletter-Signature), retried 0/5/30s,
-  per-attempt logged to `newsletter_webhook_log`, target = settings key
-  `newsletter_make_webhook_url` (empty = disabled). Mirrors content-webhook.ts.
-
-## Newsletter self-tuning (US-928)
-- Closed loop = PURE `lib/newsletter-tuning.ts` (catalog + `computeWeights`
-  [CTR-first winner, exploration floor, unsub-ceiling PAUSE→weight 0] +
-  `selectWeightedKey` [FNV, never picks a 0-weight key] + `recommendSendHour`)
-  feeding the analysis pass `lib/newsletter-tuning-job.ts` (DB) → settings stores
-  `newsletter_{topic_weights,subject_style_weights,send_hour_stats,tuning_recommendations}`
-  (migration 00281). Cron `/api/jobs/newsletter-tuning` (job-secret, recorded by
-  the /api/jobs middleware). `build-next` reads the stores to bias topic/style/
-  send-hour and STAMPS `newsletter_issues.{pillar,angle,subject_style,send_hour}`
-  (00281) so the next pass can attribute engagement. Console card + GET
-  `/api/admin/newsletter/tuning` for transparency; override via settings registry.
-- Engagement source = `newsletter_issue_recipients.{opened_at,clicked_at,
-  unsubscribed_at}` (00281). Pixel/unsub POPULATION is a sibling; the column home
-  + aggregation are this story's substrate (cold start ⇒ uniform weights, correct).
-
-## Newsletter subject A/B test (US-927)
-- PURE logic = `lib/newsletter-ab.ts` (normalizeVariants/planHoldout/assignVariant
-  [FNV]/aggregateVariantStats/selectAbWinner [min-sample → fallback default]/
-  isMeasurementWindowElapsed). Two-phase send in `lib/newsletter-ab-job.ts`:
-  `startAbTest` (console `/send` branches here when issue has ≥2 `subject_variants`
-  + `newsletter_ab_test_enabled`) sends the holdout with variants assigned + leaves
-  status `sending`/ab_phase `testing`; the `newsletter-ab-finalize` cron (or console
-  POST `/issues/:id/ab/finalize`) picks the winner from holdout opens/clicks and
-  sends it to the remainder → status `sent`/ab_phase `completed`. Variant + holdout
-  flag live on `newsletter_issue_recipients` (NOT campaign_recipients — that's the
-  growth-broadcast surface). Idempotent via upsert onConflict (issue_id,email) +
-  the ab_phase gate. Operator override: POST `/ab/winner` sets ab_winner_source
-  'operator' which finalize honors over auto-selection (migration 00282).
-
-## Durable broadcast send (US-925)
-- The US-627 growth broadcast EMAIL channel is now durable: `dispatchCampaign`
-  (admin-growth.ts) routes each email through `sendCampaignEmailDurable` →
-  `coordinateMarketingSend` (consent + suppression + email_deliveries outbox),
-  NOT `sendBroadcastEmail` (which fired an un-retried SMTP send). Audience =
-  segment `iterateSegmentUsers` UNION confirmed `email_subscribers` deduped by
-  email (pure `partitionExtraSubscribers`, lib/broadcast-audience.ts). The send
-  is bounded per tick by `marketing_send_batch_limit` (SES warmup); overflow
-  stays `status='sending'` and `handleGrowthDispatchCron` resumes it
-  (`dispatchCampaign(id,{resume:true})`). Idempotency = the `done` set now treats
-  campaign_recipients rows 'sent' OR 'skipped' as terminal. Click/open tracking
-  uses the campaign_recipients row id as token → public `/api/campaign-track/{o,c}`
-  (sibling of /api/drip-track, mirrors routes/drip-tracking.ts). No migration —
-  campaign_recipients already had opened_at/clicked_at.
-- SUPERSEDED by US-913: the US-925 rewriter (`applyEmailTracking`) is hardcoded to
-  `/api/drip-track` + a row-id token, so broadcast opens/clicks hit `drip_sends`
-  (no match) and `campaign_recipients` stayed un-stamped (dashboard always 0).
-  Broadcasts now use SIGNED tokens via `applyMarketingEmailTracking`
-  (lib/email-engagement-token.ts) → `/api/email/{o,c}/:token` (routes/
-  email-engagement.ts), stamping campaign_recipients by (campaign_id,user_id,
-  channel='email') through the `record_campaign_email_{open,click}` RPCs (00294).
-  Click destination is INSIDE the signed body (no `?u=` open-redirect). Gated by
-  the `marketing_email_tracking_enabled` no-track setting. The old
-  `/api/campaign-track` + `applyEmailTracking` remain only for the drip path.
-
-## Email transport / SES deliverability (US-915)
-- `deliverEmail` (email.ts) now picks transport per send via pure
-  `lib/email-transport.ts`: marketing → SES v2 HTTP API (`lib/ses-api.ts`,
-  SigV4 via `aws4fetch` — already in deno.json import map) when AWS creds are
-  set, else SMTP; transactional ALWAYS SMTP. SES API failure falls back to SMTP
-  (never drops mail). `resolveIsMarketing` HARD-GUARDS `TRANSACTIONAL_CATEGORIES`
-  so account mail can never use the marketing identity (AC6 test asserts this) —
-  if you add a new transactional `send*Email`, add its category to that set.
-- denomailer 1.6.0 `client.send` DOES accept `replyTo` + `headers` (used for the
-  SES config-set `X-SES-CONFIGURATION-SET` + List-Unsubscribe headers on SMTP).
-- Warmup ramp = pure `lib/email-warmup.ts` (daily caps in settings, seeded 00292,
-  `marketing_warmup_*`, off by default) folded into the broadcast batch limit via
-  `effectiveBatchLimit`. Runbook: `DELIVERABILITY.md`.
-
-## SES suppression loop (US-914)
-- `email_suppressions` already existed (US-1057, 00245) with a DIFFERENT shape;
-  00293 migrates it to the US-914 enum (`hard_bounce|complaint|manual|
-  unsubscribe_all`, NOT `bounce`) + adds `source`/`notes`. parseSesNotification
-  now returns `hard_bounce` for permanent bounces. Canonical signature-verified
-  ingest = public `POST /api/email/ses-notifications` (routes/email-sns.ts);
-  the legacy `/api/webhooks/ses` stays for back-compat and shares applySesFeedback.
-- SNS signature verify (`lib/sns-verify.ts`) is REAL (RSA-SHA1/256 over the
-  documented string-to-sign, cert host pinned to `sns.<region>.amazonaws.com`),
-  fail-closed, with an `SES_SNS_SKIP_VERIFICATION=true` opt-out. X.509→SPKI is a
-  manual DER walk (find rsaEncryption OID, rebuild the enclosing SEQUENCE). Pass
-  crypto.subtle args as a fresh `ArrayBuffer` (toArrayBuffer/base64ToArrayBuffer)
-  — strict Deno lib rejects `Uint8Array<ArrayBufferLike>` as BufferSource.
-- `email_deliveries` gained a `skipped` status + `skip_reason` (00293). Skips
-  are recorded by `recordSkippedDelivery` (email.ts, exported) from the live send
-  path (deliverEmail) + marketing coordinator; the retry cron marks its own row
-  skipped and pre-checks BEFORE deliverEmail so there's no double-record (pass
-  `skipSuppressionRecord` to suppress deliverEmail's insert if you add a path).
-- A complaint flips `notification_preferences.marketing.email=false` (the flag
-  the coordinator's consent gate reads, via marketingOptedOutEmail) AND runs
-  `evaluateComplaintRate` (rolling complaints/sends over a settings window →
-  ops alert + optional newsletter_send_paused). ops-events is dynamic-imported
-  inside it to avoid the email→email-suppression→ops-events→email cycle.
-
-## Marketing send coordinator (US-934)
-- Any NEW marketing email must route through `coordinateMarketingSend`
-  (lib/marketing-coordinator.ts) — the single chokepoint for consent (US-911),
-  suppression (US-914), the per-recipient daily cap, quiet hours, and the
-  drip-precedence pause. Don't re-implement those gates per sender. Pass a
-  fully-rendered `html` (layout + unsubscribe + tracking already applied); a
-  capped/paused send is DEFERRED to the email_deliveries outbox, not dropped.
-  Pure decision lives in `lib/marketing-frequency.ts` (no supabase → test it
-  directly). The drip records its sends via `recordMarketingSend` so the cap
-  counts cross-program. Cap/quiet-hours config = settings registry keys
-  `marketing_frequency_cap_per_day` / `marketing_quiet_hours` (seeded 00276).
-  Transactional mail must NOT route through it (never capped).
-
-## Trial-conversion drip ENGINE (US-943)
-- The autonomous sending loop IS now wired: `POST /api/drip/tick` (routes/drip.ts,
-  mounted at /api/drip with its OWN auth — DRIP_INTERNAL_JOB_SECRET / signed
-  request / admin JWT — NOT under any /api/* JWT group). It enrolls trialists,
-  evaluates active enrollments via the PURE `planTick` (drip-graph.ts), sends the
-  ONE due step per enrollment per tick (catch-up safe, frequent-safe), and exits
-  on conversion/completion/opt-out. Job-locked ("drip-tick"), self-gates on
-  `drip_enrollments.next_evaluation_at` (00267). Records to cron_runs as
-  "drip-tick" (added to CRON_REGISTRY). Honors the campaign kill via
-  `isFeatureEnabled("trial_conversion_drip")`.
-- `drip_sends.step` is the 1-based index of the step in `graph.steps` (matches the
-  optimizer's ordinal) — NOT the path position. The engine stamps it that way.
-- /api/drip/tick is NOT under /api/jobs/*, so the cron_runs MIDDLEWARE doesn't
-  record it; the handler calls `recordCronRun({jobName:"drip-tick", …})` itself.
-
-## Trial-conversion drip DURABLE/TRACKED send (US-938)
-- The engine no longer calls `deliverEmail` directly — it uses
-  `sendDripStepEmail` (email.ts): wraps the rendered fragment in `emailLayout`
-  (CAN-SPAM postal + one-click unsubscribe footer), applies the open/click
-  tracking rewriter (`applyEmailTracking`, email-tracking.ts), and on a live SMTP
-  failure enqueues to `email_deliveries` (category `drip:<campaign>:<step>`) so
-  the US-498 retry cron does backoff + dead-letter. delivered||enqueued ⇒ "sent".
-- Per-(enrollment, step) idempotency = a UNIQUE index on `drip_sends
-  (enrollment_id, step)` (00272) + `upsertSend` (onConflict that pair). Skips are
-  recorded on the SAME row via `skip_reason` (sent_at stays null → not counted as
-  sent → planTick re-evaluates next tick). A SEND reserves the row (sent_at null)
-  to mint the tracking token (= drip_sends.id), then stamps sent_at.
-- The dispatch gate is the PURE `evaluateSendGate` (drip-graph.ts): consent
-  (opt-out) / no-address / suppression EXIT the journey; frequency-cap / QA-gate
-  failure only SKIP (retry next tick). The engine resolves the booleans
-  (isEmailSuppressed, lastSentMs vs FREQUENCY_GAP_MS, qaCheckEmail) and feeds them
-  in — keep the policy pure so the AC6 "suppressed/opted-out is not sent" test
-  needs no DB.
-- Open/click pixels are PUBLIC + unauthenticated → mounted at `/api/drip-track`
-  (a SIBLING of /api/drip, NOT nested) so the drip job-auth `/*` middleware never
-  applies. A `Uint8Array<ArrayBufferLike>` is not a valid `BodyInit` under Deno's
-  strict lib — back the pixel `Response` with a concrete `ArrayBuffer` (`.buffer.slice(...)`).
-
-## Trial-conversion drip INCENTIVE (US-942)
-- The conversion incentive is config-gated on `graph.incentive` (DripIncentive,
-  off by default — validated in drip-graph.ts). The `{{incentive}}` token has NO
-  hardcoded fallback anymore: renderStep injects it ONLY when step.incentiveEnabled
-  AND a resolved RenderableIncentive is passed; otherwise empty (value-only email).
-- Server-side eligibility is `isIncentiveEligible` (drip-graph.ts, pure):
-  win_back phase + step.incentiveEnabled + !converted. In-trial steps NEVER
-  surface a code even if their toggle is on (AC: never expose outside win-back).
-- `lib/drip-incentive.ts` (Stripe-touching) resolves the live coupon → label +
-  enforces the maxPercentOff guardrail; engine calls it ONCE per tick. On an
-  eligible send the engine stamps `users.pending_drip_coupon(+_expires_at)` (00268,
-  mirrors pending_referral_coupon) so payments.ts flipdesk/subscribe pre-applies
-  it as `discounts:[{coupon}]`, and flips `drip_enrollments.incentive_enabled`
-  (the existing incentiveSplit analytics + attribution pick it up). Webhook
-  clears the pending coupon on subscription.created.
 
 ## Sync provenance epic (US-1076…1086)
 - The `listings.listing_origin` enum column is now PERSISTED (US-1077, migration
@@ -470,6 +149,8 @@ memory — not a progress log (the harness records progress separately).
   `GradethreadListingCard` (item.tsx) + `src/lib/listing-origin.ts`; re-push reuses
   the `/revise` endpoint, which now clears `sync_drift` on success.
 
+
+
 ## Android conversion backlog (US-1299…US-1396)
 - The Android client is REAL and this host CAN build it. `android/` is tracked
   (100+ `*.kt`, Gradle wrapper, `android-ci.yml`) and the Windows loop host has
@@ -488,319 +169,7 @@ memory — not a progress log (the harness records progress separately).
   accessibility audit) presuppose a running app on a device. Don't fabricate an
   audit/test result — leave a note and stop without emitting STORY_DONE.
 
-## iOS (Swift)
-- The eBay publish `/listings/validate` summary already carries MORE than iOS
-  reads (quantity, bestOffer*, format/auction*, variations; plus sibling
-  `warnings`/`recommendedCoverage`) — the iOS↔web composer gaps are missing UI,
-  not missing server work. But its threshold/rate values are RESOLVED (often
-  comp-derived), not the seller's override columns: seed an editable box from the
-  `listings` override column (blank = "use the suggestion") and show the resolved
-  value only as a PLACEHOLDER. Seeding the box with the resolved value pins a
-  dynamic suggestion into the override column on the next save (US-1970; same
-  trap as US-1512's promo rate). Corollary: after saveDraft, advance the seed
-  baseline from what you just wrote (a pure `applying(edits)`) — a re-seed from a
-  stale baseline silently reverts typed values on a push-failure retry (US-1006).
-- The publish composer's dirty check REBUILDS its seed baseline on every render
-  (`isDirty` calls `seeded*(summary:settings:)`), so any seeded value type
-  carrying a fresh identity — `let id = UUID()` for a `ForEach` row — must
-  EXCLUDE that id from `==` (US-1975 `ComposerVariant`). A synthesized Equatable
-  latches the dirty ratchet permanently on first render: swipe-dismiss blocked
-  and a "save your edits?" prompt on a composer nobody touched.
-- An IMPLICIT save in the publish composer (US-1972 background autosave, or any
-  future one) must pass `schedule: .unchanged` / skip entirely — persisting
-  `scheduled_publish_at` ARMS the scheduled-publish worker, so a save the seller
-  never confirmed puts the item live. Best Offer/promo/text carry no such
-  autonomous side effect and are safe to bank. Corollary: an implicit save whose
-  edits differ from what a full save would write must not bump the composer's
-  `.id` (it re-seeds from the baseline and reverts the uncommitted control).
-- `PhotoCapture.capturedAt` is NON-optional and `AutoListerReviewModel.importPicks`
-  fabricates `result.creationDate() ?? .now`. That silently defeats every
-  timeless-dump signal: a no-EXIF batch looks like ONE instantaneous EXIF burst,
-  and time-gap clusters are deliberately EXEMPT from the mega-group guards
-  (`maxAutoGroupPhotos`/`visualMergeOrdinalWindow`), so it grows unbounded and the
-  filename-sequence + propose-groups paths never run. US-1909 tracks the
-  fabricated ones in `timelessIds` and passes `capturedAt: nil` to
-  `GroupablePhoto`. Any new iOS photo intake must preserve "the library gave no
-  date" — don't collapse it into `.now` and assume grouping still works.
-- The two intake draft stores are INDEPENDENT by design (US-1234): details-first
-  `DetailsIntakeView` owns only `IntakeDraftStore`, photo-first `PhotoIntakeView`
-  owns only `PhotoDraftStore`; the flows have separate entry points and never
-  co-create both drafts for one item. Each already clears its OWN draft on
-  save/discard. Do NOT make one flow cross-clear the other's store — a pending
-  photo draft belongs to a SEPARATE still-unsaved photo-first session, so
-  clearing it from a details-first save discards the user's captures. Locked in
-  by `IntakeDraftCleanSlateTests`; an audit may re-flag this as a "desync bug" —
-  it isn't.
-- Adding a property to a `@Model` in `Persistence/Models/` does NOT need a
-  `GradeThreadSchemaVN` bump — and adding one the naive way CRASHES launch. A
-  `VersionedSchema.models` list resolves to the LIVE classes, so a V2 that
-  re-lists the same (edited-in-place) classes hashes identically to V1 and
-  SwiftData aborts on every device with "Duplicate version checksums" — exactly
-  what US-1249 did. Pre-production there's no deployed store, so an additive
-  change just rides `GradeThreadSchemaV1` (a fresh install creates it directly);
-  `SchemaVersioningTests` only asserts the model-NAME set + plan consistency, so
-  it stays green. A REAL new version requires first snapshotting the OLD shape as
-  distinct nested types inside V1 (see the trap comment atop
-  `Persistence/GradeThreadSchema.swift` — it's the authority, not this file).
-  Additive optionals (US-1973's `LocalListing.quantity`) get an implicit nil
-  default, so the existing `init` needs no change.
-- Adding a field to a decode-only `struct` (e.g. `ValidateResponse`) silently
-  breaks its SYNTHESIZED memberwise init at every construction site — tests and
-  previews build these positionally (DraftsTests builds ValidateResponse). Swift
-  doesn't compile on the Windows loop host, so it only fails on iOS CI. Give the
-  struct an EXPLICIT init whose new params default to nil (US-1974), and grep
-  `TypeName(` across GradeThread + GradeThreadTests before adding the field. Same
-  for a custom `init(from:)`: declare `CodingKeys` explicitly (every peer in
-  EbayPublishTypes.swift does) rather than relying on synthesis.
-- Adding a DEFAULT-valued associated value to an existing enum case is fully
-  backward-compatible: `case rateLimited(retryAfter: TimeInterval? = nil)` lets
-  every bare `.rateLimited` CONSTRUCTION keep compiling (default fills in) AND
-  every value-less `case .rateLimited:` MATCH still matches (ignoring the
-  payload), and synthesized `Equatable` still derives. That's how US-1253
-  carried the 429 `Retry-After` onto `EdgeAPIError.rateLimited` without touching
-  the ~6 existing call/match sites — contrast the `.badRequest(detail:)` case in
-  US-1255 where adding values would have broken dozens of matchers.
-- `@SceneStorage` is keyed by string and SCENE-scoped (per iPad window): a child
-  view and the shell can share per-scene state by declaring the SAME key (US-1157
-  `shell.focusedItemId` — `ItemCanvasSceneHost` writes it, `MainShell` restores
-  it). Value type must be a scalar / `RawRepresentable<String|Int>`; making
-  `AppSection` restorable meant adding a `String` raw value (keep raws stable —
-  they're persisted). Restore once per scene (guard a `@State` bool in `.task`).
-- `BulkPricingStore.PriceMode` (Marketplaces/BulkPricing) now has a 4th case
-  `.suggestFromComps` (US-1167 AC2): per-row comp-median prices fetched via the
-  injected `CompsProviding` (`suggestFromComps()`), applied through the same
-  `.set` floor in `apply()`. Adding ANOTHER PriceMode case breaks the exhaustive
-  switches in `priceValue` + `priceInputError` + `priceActive`. The store takes
-  an optional `comps:` init param (defaults to `CompsService()` built in the
-  MainActor init body, like `CompsStore`) so tests inject a title-keyed fake.
-- Adding a new `SyncWatermark.Table` case (US-1221 `.listings`) needs NO
-  `currentSchemaVersion` bump: a never-set cursor reads nil → the first pull is a
-  full fetch for that table automatically, then deltas. Bump the version ONLY
-  when an EXISTING install must re-backfill an already-synced table. Server-side
-  deletes never arrive via a watermark delta (it only returns surviving rows), so
-  delete propagation is a separate concern — `SyncEngine.reconcileDeletesIfDue`
-  (throttled id-only fetch) prunes locals absent from the server set, protecting
-  pending-create + staged-upload ids (`protectedReconcileIds`).
-- Two DIFFERENT decoders on iOS: the EdgeAPI decoder converts snake→camel
-  (`.convertFromSnakeCase`), but the supabase-swift PostgREST client
-  (`supabase.from(...).select(...).execute().value`) does NOT — decode its rows
-  with EXPLICIT snake_case `CodingKeys` (see `RemoteMarketplaceConnection`,
-  `ListingPerformanceRow`). Keep timestamp columns as `String` and parse at the
-  display boundary (fractional seconds break the default ISO date strategy).
-- The EdgeAPI decoder (`JSONDecoder.iso8601`) uses `keyDecodingStrategy =
-  .convertFromSnakeCase`, which camelCases NESTED free-form jsonb keys too — so a
-  passport `sku_class.garment_type` decodes as `garmentType`. When reading
-  arbitrary jsonb from an EdgeAPI response into a `[String: …]` dict, look up both
-  forms (`dict["garmentType"] ?? dict["garment_type"]`). Also keep edge timestamps
-  as `String` (the edge emits fractional seconds, which the default `.iso8601`
-  date strategy REJECTS) and format at the display boundary.
-- Plan-gate UX is centralized (US-805): `EdgeAPI.interceptPlanSignals` decodes a
-  402 `PlanGateError` body + the `X-Plan-Warning` header on EVERY response and
-  publishes to `PlanGateNotifier.shared` (`nonisolated static let publish*`
-  bridges hop to MainActor), which the shell renders via `.planGatePresentation()`
-  (UpgradePromptView sheet + soft banner). So any call through `EdgeAPI.shared`
-  gets the upgrade prompt for free. The eBay publish path uses its OWN client
-  (`EbayPublishService`, not EdgeAPI), so it publishes to the notifier itself in
-  the 402 branch — don't assume EdgeAPI's interceptor covers it. Soft-banner
-  sensitivity = `AppPreferences.usageAlertThreshold` (50/80/95).
-- Adding a case to `PublishOutcome` (EbayPublishTypes.swift) breaks every
-  EXHAUSTIVE switch: `BulkActionExecutor` (×4: validate/push/end/price),
-  `PublishDialog` (×2), and `DraftsBulkEditStore` + `DraftsLibraryStore`
-  `publishSelected`. The `ReviseOutcome` switches (ItemCanvasView/
-  PhotoManagerView) and the grading-result enum are SEPARATE — don't touch them.
-  Edge plan-gate (plan-gate.ts) returns 402 with `{error:"CAP_REACHED"|
-  "FEATURE_LOCKED", cap, used, limit, requiredPlan}`; parse it via `PlanGateBody`
-  (US-820) and stop the bulk loop on `.planLimit` (every further publish 402s).
-- SwiftData's `#Index` / `#Unique` macros are **iOS 18.0+** only (they carry
-  `@available(iOS 18, *)`); they cannot live in a `@Model` body compiled for a
-  lower deployment target. US-985 raised the floor to iOS 18 in `project.yml`
-  (`deploymentTarget.iOS` + `IPHONEOS_DEPLOYMENT_TARGET`, two places) so the
-  cache models can declare `#Index`. Note the models still use the iOS-17-era
-  `@Attribute(.unique)` (NOT the `#Unique` macro) for the `id` uniqueness — the
-  unique constraint already indexes `id`, so don't add a redundant `#Index([\.id])`.
-  Adding `#Index` is an automatic lightweight migration (no SchemaMigrationPlan
-  needed) and is non-destructive.
-- `Money.cents(_:)` (Money/MoneyMath.swift) is the shared cents-normalization
-  primitive — `NSDecimalRound .plain` to 2dp, returned as `Double`. Route ANY
-  single money value through it at a boundary that must agree with the drift-free
-  rollups to the cent (listing price before push, a profit estimate shown beside
-  the Money tab). The Money tab rounds each sale's realized net via `Money.sum`
-  over `SalePnL.net`; a composer estimate matches it only if its displayed net is
-  `Money.cents(net)` — raw Double + `%.2f` can disagree on .xx5 boundaries
-  (NSDecimalRound rounds half-away, printf rounds half-even). Keep
-  `ListingProfit.estimate` itself raw (it mirrors the web `estimateListingProfit`
-  field-for-field); round only at the display boundary (`netCents`/`feesCents`).
-- A row price stored as a String that a user edits in a `.decimalPad` is in the
-  user's LOCALE separator ("19,99" in de_DE) — parse it with
-  `CurrencyFormatter().parse`, never `Double(_:)` (which is "."-only → nil → $0,
-  silently skipping the "Price not set" check). The seeded/echoed string MUST
-  also be locale-formatted (US-1236 `DraftEditRow.priceString`/`priceString2dp`
-  go through a locale `NumberFormatter`, not `String(format:"%.2f")`) or the
-  parse misreads a canonical "." seed as grouping (de_DE "19.99"→1999). Seed,
-  bulk-write, and parse must all use the SAME locale convention to round-trip.
-- Dynamic-Type-scale an SF Symbol glyph with `.scaledIconFont(size:weight:relativeTo:maxSize:)`
-  (Accessibility/ScaledIconFont.swift) — NOT `.font(.system(size:))`, which pins
-  the glyph to a fixed point size that ignores accessibility text settings. There
-  is no `Font.system(size:relativeTo:)`; the modifier wraps `@ScaledMetric`. Pass
-  `maxSize:` for glyphs inside a fixed-size frame so they grow but can't overflow
-  it at AX5. Reuse it for interactive icon buttons; leave large decorative
-  empty-state icons alone.
-- The iOS app has NO checked-in `.xcodeproj` — it's generated by XcodeGen from
-  `ios/project.yml`, whose `sources:` are directory paths (`GradeThread`,
-  `GradeThreadTests`). New `.swift` files under those dirs are auto-included; do
-  NOT hand-edit a pbxproj. Not buildable on Windows — gates on iOS CI.
-- Edge 4xx error bodies are `{error, detail?, error_code?}`; iOS `EdgeAPIError.from`
-  sets `.badRequest`'s `detail` to `detail ?? error ?? preview`. So a 409 like
-  `{error:"ACTIVE_STRIPE_SUBSCRIPTION"}` (no `detail`) surfaces as
-  `.badRequest(detail:"ACTIVE_STRIPE_SUBSCRIPTION")` — match on that string to
-  branch (US-806 routes it to web billing). No dedicated EdgeAPIError case.
-- `EdgeAPIError.from` DISCARDS the `error_code` discriminator for the generic 4xx
-  cases (only workspace/email get typed cases), so a thrown EdgeAPIError can't
-  tell self-referral (400) from already-referred (409) — both collapse to
-  `.badRequest`. To branch on a domain `error_code` on iOS, call the raw
-  `EdgeAPI.postForStatus(path:bodyData:)` (returns `(status, body)` without the
-  retry/refresh loop) and decode the code yourself — don't add associated values
-  to the shared enum's cases (dozens of `.badRequest(detail:)` call sites + the
-  `case .badRequest(let detail)` matchers would break). US-1255 redeem.
-- StoreKit native sub management (US-806): `.manageSubscriptionsSheet(isPresented:)`
-  (SwiftUI, iOS 17+, target is 18) is the system cancel/auto-renew sheet — no
-  scene plumbing needed; refresh billing in `.onChange(of:)` when it dismisses.
-  Renewal date + auto-renew come from `Transaction.currentEntitlements` (filter
-  `.autoRenewable`; `expirationDate` + `try? await transaction.subscriptionStatus`
-  → `.renewalInfo.willAutoRenew`). Upgrade/downgrade is just buying another tier
-  in the same group via the normal purchase path.
-- iOS error→UI copy: reuse `FriendlyErrorCopy` (Telemetry/) — maps raw
-  Supabase/URLError failures to friendly copy (offline/invalid-creds/
-  email-not-confirmed/rate-limited/generic) + a `rawDetail` flattener for Sentry.
-  Never surface `error.localizedDescription` on user-facing screens; log raw to
-  `Telemetry.breadcrumb`/`event` at the call site instead.
-- To memoize an expensive SwiftUI computed property (full filter/sort, facet
-  derive) across `body` re-renders, store a PLAIN `final class` cache in `@State`
-  (NOT `@Observable`/`ObservableObject` — those would re-invalidate the view).
-  Mutating its internal memo during `body` is safe (doesn't schedule an update);
-  key the slot on a cheap `Hasher`-built signature of the inputs (for `@Model`
-  rows: `count` + each `id`+`updatedAt`). See `InventoryDerivation` (US-1017).
-  Lighter variant for a plain lookup/series (no instrumentation needed): hold
-  the result in `@State` and rebuild it in `.onChange(of: signature, initial:
-  true) { … }`, where `signature` is a cheap `Hasher`-built `Int` over only the
-  fields the derive reads. `initial: true` populates on first appearance. Used
-  for MoneyView.titlesByItemId, DashboardView.trendPoints, ItemCanvasView
-  measurements + the editable-field onChange key (US-967) — the last replaced a
-  per-render `ItemDraft(from:)` (two `CurrencyFormatter` calls) with a raw-Double
-  signature.
-- Base URLs MUST be https: `AppConfig.validatedHTTPSURL` rejects non-https and
-  the accessors fatal-error (US-1008). `ios/Scripts/check-ats.py` (runs in
-  ios-ci.yml after `xcodegen generate`, also locally on Windows) fails on any ATS
-  relaxation key in a plist/project.yml OR a non-https SUPABASE_URL/EDGE_API_URL
-  in an xcconfig. xcconfig escapes `//` in URLs as `/$()/` — the script strips it.
-- Offline writes go through `OfflineMutationQueue` (Persistence/, US-982):
-  `shouldQueue(error)` = `FriendlyErrorCopy.isOffline` (queue ONLY true network
-  failures, never 4xx/RLS — those replay forever); `enqueueCreate` injects a
-  client `id` so the SyncEngine replay UPSERTs idempotently. Adding a
-  `MutationKind` case means updating TWO exhaustive switches or the build breaks:
-  `SyncEngine.apply` AND `PendingChangesView.title`. Creates carrying a client id
-  must replay via `replayUpsert` (not `replayInsert`) for exactly-once.
-- Offline-gating a network-only button (US-981): read `@Environment(NetworkMonitor.self)
-  private var networkMonitor: NetworkMonitor?` (optional — nil in previews/tests), gate with
-  `NetworkMonitor.isOffline(networkMonitor)` and show `OfflineNotice(intent:.blocked,detail:…)`
-  (both in Networking/OfflineNotice.swift). Reading `.isConnected` from `body` re-enables the
-  button automatically on reconnect (no stream needed). NetworkMonitor is injected once at
-  ContentView root, so every sheet/canvas under MainShell inherits it. DON'T gate offline-queue
-  paths (Add Expense, item create/edit, photo upload) — those durably queue (US-982); use
-  `intent:.queued` and leave the button enabled.
-- Action feedback convention: FlipDesk `@MainActor @Observable` stores expose
-  `actionError: String?` (view shows an alert) + `actionBanner: String?` (view
-  shows a transient brandNavy capsule overlay via `.task(id: banner)` 2.5s
-  auto-dismiss). Reuse this pair for new success/error feedback instead of a new
-  toast type. `HapticFeedback` is a same-module `@MainActor` enum — call its
-  `.success()/.warning()/.error()` straight from a store method (no import); the
-  XCTest host instantiates the UIKit generators harmlessly.
-- Full-screen "couldn't load" / `.failed` states use the shared `ErrorStateView`
-  (Components/, US-971): `ContentUnavailableView` + a `.brandSecondary` "Try again"
-  that shows its own spinner; the parent store clears the error by moving its
-  phase off `.failed`. Optional `secondaryTitle`/`secondaryAction` (e.g. "Back").
-  Pass `retry:` with an EXPLICIT label — a bare trailing closure binds to the
-  optional `secondaryAction`, not `retry`, and won't compile.
-- Keyboard dismissal for `.decimalPad`/`.numberPad` fields (no Return key) uses
-  the shared `.keyboardDoneToolbar()` modifier (Components/KeyboardToolbar.swift,
-  US-969) — resigns first responder via UIApplication.sendAction, so it's
-  field-agnostic (no `@FocusState` to thread). Apply it ONCE per screen at the
-  Form/List/ScrollView root: SwiftUI AGGREGATES `.keyboard`-placement toolbars
-  across the responder hierarchy, so applying on multiple fields (or both a
-  parent and child) renders DUPLICATE "Done" buttons. A `.decimalPad` field
-  inside a SwiftUI `.alert` can't take a keyboard toolbar — it's already
-  dismissable via the alert's buttons, so skip it. Pair scrollable forms with
-  `.scrollDismissesKeyboard(.interactively)`.
-- A SwiftData `#Predicate` comparing an OPTIONAL column to a value needs both
-  sides optional, or the macro's `==` can't type-match: bind the target as
-  `let target: String? = value` then `#Predicate { $0.optCol == target }` (not a
-  bare non-optional literal). See `mergeDisputes` (US-819, SyncMergeActor).
-- supabase-swift `.update(payload)` with an `Encodable` struct OMITS nil optional
-  fields (synthesized Codable uses `encodeIfPresent`), so a nil never clears a
-  column and an all-nil body is a no-op. To clear/restore a column to NULL, give
-  the payload a custom `encode(to:)` that `encodeNil(forKey:)` for that field
-  (see `SourceStore.setArchived`/`updateSource`, US-814).
-- To filter a PostgREST column IS NULL, use `.is("col", value: nil)` — the
-  supabase-swift 2.x signature is `func is(_:String, value: Bool?)` and `nil`
-  emits `is.null` (verified against source; US-1271 `FulfillmentService`). For
-  IS NOT NULL pass `value: true`/`false` semantics don't apply — use `.not("is",
-  ...)` if ever needed. Place `.is` in the filter chain before `.order`/`.limit`.
-- A "clear prior default, then write the new one" pair on a table with a
-  single-default partial UNIQUE index MUST be atomic, or a failed write leaves
-  zero defaults (the clear can't follow the write — the index rejects a 2nd
-  is_default=true row). Fix = one plpgsql RPC (clear + insert/update in the
-  request transaction; a write error rolls the clear back). SECURITY INVOKER so
-  RLS still scopes it. US-1265 `create/update_listing_template` (00317). Call
-  via `.rpc(name, params:).execute()` then decode `res.data`. PostgREST resolves
-  an RPC OVERLOAD by the exact SET of argument-name keys you send — `create_*`
-  takes no `p_id`, so send a struct WITHOUT it (an extra/missing key picks the
-  wrong overload or 404s); params have no SQL defaults, so encode nil optionals
-  as explicit JSON null (custom `encode`, not `encodeIfPresent`).
-- Money-tab financial analytics (US-812: inventory-aging, time-on-market,
-  cash-flow, per-item P&L) live in PURE `Money/MoneyAnalyticsRollup.swift`
-  (unit-tested, no view math); ROI-by-source reuses `SourceROIRollup` (shared
-  with `AnalyticsView`). The Money tab and the Home→Analytics tab are SEPARATE
-  surfaces that both render rollups over the same `@Query` arrays — extend the
-  rollup, don't duplicate the arithmetic in a view.
-- In-flow grade-credit top-up (US-809): both grading stores own a shared
-  `CreditTopUpFlow` (`Grading/CreditTopUpFlow.swift`, `@Observable @MainActor`) —
-  a poll/re-validate machine that, after an inline `CreditPackSheet` purchase,
-  polls `PaywallStore.liveBillingFetcher()?.credits` with bounded backoff until
-  the async grant (`/appstore/verify` → `grant_appstore_credits`) lifts the
-  balance > baseline, then re-validates so submit unblocks. `fetchBalance`/`sleep`
-  are injected (no-op sleep in tests) and `revalidate` is passed per-call, so the
-  machine is unit-tested with no StoreKit/Supabase (CreditTopUpFlowTests). Funnel
-  events: `grade.credits_blocked` → `grade.credits_topup_started` →
-  `grade.credits_topup_{granted,timeout}` → existing submit events. It NEVER
-  submits (only unblocks the button) so no double-grant.
-- SyncEngine's offline-queue SwiftData work (snapshot/delete/markFailed/markStuck/
-  counts) runs OFF-MAIN on `PendingMutationActor` (a `@ModelActor`, US-1165) — it
-  no longer wraps each touch in `await MainActor.run { ModelContext(container) }`.
-  Mirror `SyncMergeActor`: own one reused private context, return only `Sendable`
-  snapshots, hop to `@MainActor` only to publish status counts. Reads see writes
-  from the view/main context because each `@ModelActor` fetch hits the shared store.
-- `InventoryFilterCriteria` has a hand-written tolerant `Codable` (decodeIfPresent
-  per field). Add new saved-filter fields the same way — synthesized Codable
-  would throw on legacy blobs missing the key, and `SavedFilterStore.load` uses
-  `try?` so one decode failure silently wipes ALL saved views.
-- SwiftUI swallows a present that fires while another is dismissing: setting a
-  `.alert`/`.fullScreenCover` trigger in the SAME pass that dismisses the prior
-  one is dropped. When walking a QUEUE (US-1273 ShareInbox batches), don't
-  recurse to the next item synchronously after presenting an error — resume the
-  drain from the dismiss handler (alert `isPresented` binding `set:`/cover
-  `onDisappear`) so each item gets its own present.
-- iPad `NavigationSplitView` (ContentView.swift `SidebarSplitView`): a section
-  that renders its whole UI + its own in-view nav in ONE content-column
-  NavigationStack (Money/Marketplaces/Settings) leaves a dead "Make a selection"
-  detail pane in the 3-column layout. Fix = branch `body` on
-  `AppSection.ownsContentNavigation`: TWO-column split (`sidebar`+`detail:`) for
-  those, with the section view as the detail stack root (bound to its per-section
-  path, carrying the deep-link `navigationDestination`s); 3-column only for
-  list→detail sections (Home/Inventory). You can't hide just the detail column of
-  a 3-column split (`columnVisibility .doubleColumn` hides the SIDEBAR), so use
-  the 2-vs-3 conditional — SwiftUI rebuilds the split view on cross-boundary
-  switches but the sidebar selection + NavigationPaths live in `AppRouter` so
-  they survive.
+
 
 ## Frontend conventions
 - Virtualizing a dnd-kit surface (US-1906 autolister workbench) has three traps:
@@ -852,6 +221,8 @@ memory — not a progress log (the harness records progress separately).
   `InventoryModeRedirect`s. listings' tab-change effect must skip clearing the
   shared selection on mount (else a view switch wipes it).
 
+
+
 ## Upgrade prompts (US-1289)
 - The hard 402 upgrade modal funnels through `useUpgradeDialogStore.show()` (the
   single chokepoint — edge-fetch's `handlePaymentRequired` + the autolister
@@ -861,6 +232,8 @@ memory — not a progress log (the harness records progress separately).
   boolean (false = suppressed by cooldown) so edge-fetch can fall back to a
   lightweight `upgradeReminderToast`. Cooldown policy is the pure, testable
   `lib/upgrade-prompt-rate-limit.ts` (storage-injectable, keyed by user+subject).
+
+
 
 ## Storage / uploads
 - Server uploads: `validateImageUpload()` → `stripImageMetadata()` →
@@ -878,47 +251,7 @@ memory — not a progress log (the harness records progress separately).
   edge `ebayPublicPhotoUrl` helper in `flipdesk-ebay.ts` mirrors the sensitive
   set so private photos are skipped (not turned into a 404 item-photos URL).
 
-## iOS hermetic UI tests (US-1153)
-- Launch-arg hooks live in `GradeThread/Testing/UITestSupport.swift` — every flag
-  is gated behind `-uitest` (no-op in production via `ProcessInfo.arguments`):
-  `-uitest-reset-auth` (wipe keychain in `GradeThreadApp.init` BEFORE any
-  `SupabaseShared.client` access → cold sign-out), `-uitest-paywall`
-  (`ProtectedRouteShell` presents `PaywallView(userId:)` directly — its live
-  billing/catalog fetchers fail-soft to nil/[] offline, and StoreKit prices come
-  from the scheme's `.storekit` config so the paywall renders hermetically),
-  `-uitest-mock-grading` (`GradingService` returns canned JSON via `GradingMock`,
-  decoded through the SAME `.convertFromSnakeCase` decoder so the wire shape can't
-  drift). Stable selectors already exist from US-1173 (`login.*`,
-  `paywall.product.*`, `capture.shutter`).
-- The UI-test scheme attaches the StoreKit config via XcodeGen
-  `schemes.<name>.run.storeKitConfiguration: GradeThread.storekit` (path relative
-  to `ios/`). Skip the fastlane-only `ScreenshotUITests` in the test action with a
-  per-target `skippedTests:` entry. The CI `ui-test` job is separate +
-  `continue-on-error: true` (non-blocking until proven stable).
 
-## iOS App Intents / Siri / widgets (US-1134)
-- App Intents live in `ios/GradeThread/Intents/`; one `AppShortcutsProvider`
-  (`GradeThreadAppShortcuts`) auto-registers them for Siri/Spotlight — no
-  Info.plist/entitlement needed. Navigation intents set `openAppWhenRun = true`
-  + `@MainActor perform()` and reuse `DeepLinkRouter.post(_:)` (the same bus as
-  push + the widget), gated on signed-in by ContentView; value-returning intents
-  (`openAppWhenRun = false`) read `WidgetSnapshotStore.read()`. Keep spoken-copy
-  formatting in a PURE helper (`SoldTodaySummary`) so it unit-tests with no Siri
-  runtime. Lock Screen accessory widgets just add `.accessory{Rectangular,Inline,
-  Circular}` to `supportedFamilies` + family-switch views; StandBy = the
-  `.systemSmall` family with `@Environment(\.showsWidgetContainerBackground)`
-  false → render a full-bleed treatment.
-
-## iOS pipeline auto-advance (US-815)
-- Status auto-advance + the prep checklist are PURE in `ios/GradeThread/
-  Inventory/ItemWorkflow.swift` (`ItemWorkflow.resolveStatus`/`earnedStatus`/
-  `rank` mirror web `src/lib/workflow.ts`; `ItemPrepChecklist` derives the
-  rows). ItemCanvasView wires them: `.task(id: prepAdvanceSignature)` reacts to
-  completed work (measurements/photos syncing in) + `save()` applies
-  `resolveStatus` to the draft. Forward-only; never regresses a terminal/
-  side-track status. US-827 (measurements→aspects) shares the measured-status
-  write — REUSE `resolveStatus`, don't reimplement. The checklist deep-links by
-  wrapping `Form` in a `ScrollViewReader` and tagging sections `.id(Step.x)`.
 
 ## One-call eBay prep / aspects (US-826)
 - `runEbayAspectsPhase` (flipdesk-ai.ts /extract) persistence is now routed
@@ -934,6 +267,8 @@ memory — not a progress log (the harness records progress separately).
   via `[String: AnyJSON]`) MUST run AFTER auto-apply, or the core-field sources
   clobber the attribute sources. Only `/extract` is called from iOS (always with
   a required `item_id`); AutoLister does its eBay prep server-side (ai-listing.ts).
+
+
 
 ## eBay OAuth scopes — the two UNLICENSED ones (US-1510/1421/1967)
 - `sell.negotiation` (send-offer-to-interested-buyers) and
@@ -953,6 +288,8 @@ memory — not a progress log (the harness records progress separately).
   to AVAILABLE — a blip shouldn't hide a working feature. Incoming Best Offers
   ride the Trading API and are unaffected by any of this.
 
+
+
 ## Consignor auto-payout (US-1112)
 - A consigned item's sale auto-creates the consignor payout: PURE math/decision
   in `lib/consignor-payout-math.ts` (no env → unit-testable) +
@@ -967,6 +304,8 @@ memory — not a progress log (the harness records progress separately).
   `/api/jobs/consignor-payouts`. Manual POST /payouts (source='manual') is the
   untouched override.
 
+
+
 ## Condition Index price-guide API (US-1285)
 - The queryable price guide (`lib/price-guide.ts`, `/api/v1/price-guide*`) is a
   THIN composition over two existing aggregates — it adds NO new DB/comp queries:
@@ -976,6 +315,8 @@ memory — not a progress log (the harness records progress separately).
   (cached in-module, 15-min TTL). Sell-through is PLATFORM-WIDE, not per-brand
   (entry carries `sellThroughScope:"platform"` to say so). Read-scoped, so it
   rides the existing `/api/v1/*` api-key auth + read rate-limit — no new scope.
+
+
 
 ## Garment Passport re-grade + condition curve (US-1282)
 - A re-grade links to an EXISTING garment via `submissions.regrade_of_garment_id`
@@ -991,6 +332,8 @@ memory — not a progress log (the harness records progress separately).
   `lib/passport-curve.ts` `buildConditionCurve` (per-factor deltas, rounded to
   1dp); endpoint returns `grade_curve`; UI = `condition-curve.tsx` (≥2 grades).
 
+
+
 ## DB schema ownership gotchas
 - `grade_reports` has NO `user_id` column — ownership flows through
   `submissions.user_id` (`grade_reports.submission_id → submissions.id`). A
@@ -998,289 +341,7 @@ memory — not a progress log (the harness records progress separately).
   gr.user_id does not exist`; JOIN submissions instead. (`listings`/`sales` DID
   gain `user_id` in 00146, so those are fine to scope directly.)
 
-## Brand KB group stories (US-1717…US-1733+)
-- The next migration number is NOT "last brand-KB seed + 1", and the drift is
-  SILENT: a merged/co-running non-KB branch can take the slot AND bump
-  `EXPECTED_SCHEMA_VERSION` ahead of the KB run, so schema-version.ts already
-  reads the number you were about to claim and looks "already done" — US-1984
-  found 00463 held by `00463_social_video.sql` (renumbered by its own merge) and
-  had to ship as 00464. ALWAYS `ls supabase/migrations` + read
-  EXPECTED_SCHEMA_VERSION before naming the file; the comment above that constant
-  names the migration it belongs to, which is the tell. Same merge also CLOBBERED
-  the previous story's `PENDING_MIGRATIONS.md` section — check the held-migration
-  list still documents every unapplied migration, not just yours.
-- `PENDING_MIGRATIONS.md` DOES exist at the repo root and every brand-KB commit
-  updates it — but the Bash tool's cwd PERSISTS across calls, so an `ls`/`find`
-  for it run after a `cd services/edge-functions` reports "No such file" and reads
-  as "the doc was removed / that bullet is stale". US-1987 nearly skipped the
-  held-migration section on exactly that. Re-check from the repo root before
-  concluding a root-level file is gone.
-- A brand-group story ships FOUR things, not just the migration: the
-  `NNNNN_*_brand_knowledge.sql` seed, any missing `BRAND_ALIASES` in
-  `brand-normalize.ts` (a brand absent there PASSES THROUGH the seller's casing
-  into the prompt + the eBay Brand aspect), the `sizing-charts.ts` in-code
-  fallback charts, AND **two** test files — cases in
-  `brand-knowledge-golden_test.ts` (resolver: recovery/never-guess/no-false-
-  positive) plus a per-group `<group>-content_test.ts` (prompt block renders the
-  disambiguation + `findSizingCharts` reachability). The content test is easy to
-  miss; every prior group has one (`alo-yoga-`, `athleta-`, `free-people-`,
-  `madewell-jcrew-`, `athleisure-content_test.ts`).
-- A seeded `brand_style_codes` decoder must capture into **`styleCode`** or it
-  recovers NOTHING: `enrichExtractionWithBrandKnowledge` keys brand recovery off
-  `decoderHits.find((h) => h.styleCode)`, then spells the brand from `pack.brand`
-  (so no `KEY_TO_CANONICAL` entry in brand-decoders.ts is needed). And every
-  `fieldMap` target must be a REAL `DecodeResult` field (gender/styleCode/size/
-  colorInitial/colorway/season/year) — `decoderSpecsFromPack` CASTS the jsonb, so
-  a bogus target silently writes a phantom property nothing reads instead of
-  failing. Put un-modellable extras (e.g. a HEATTECH warmth level) in a
-  NON-capturing group. US-1739.
-- The three pack RENDERERS carry DIFFERENT content, and seeding a fact into the
-  wrong one makes it invisible: `brandPackPromptBlock` (extract) renders styles'
-  `visualFingerprint` VERBATIM + decoders + colorways, but collapses every
-  authentication tell to ONE GENERIC LINE — tell PROSE never reaches the extract
-  prompt. Tells render only via `buildTrustedBrandFactsBlock` (garment-baselines,
-  grading), which takes the FIRST FOUR only and hard-caps the block at 900 chars
-  (so lead each row's tells with the important ones). `formatSizingChartsForPrompt`
-  renders size LABELS + the note IN FULL, uncapped — it is the only uncapped
-  channel. So a fact that must reach identification belongs in a fingerprint or a
-  chart note, NOT a tell. US-1740.
-- Tell PROSE has a FOURTH renderer, and it — not the grading block — is where
-  authentication tells actually land: `normalizeTells`/`getEffectiveTells`
-  (brand-authenticity.ts, US-1768) feeding the confidence-capped, human-review-gated
-  ai-authenticity add-on. `coerceTell` maps the group-convention `{tell, detail}`
-  shape onto the structured `{category, claim, check, redFlag}` one on READ, so keep
-  seeding `{tell, detail}` (every migration 00443..00460 does). Corollary: do NOT
-  "fix" `buildTrustedBrandFactsBlock` to hoist tells above fingerprints to make a
-  never-auto-authenticate tell survive its 900-char cap — that block is for GRADING,
-  it spends its budget on construction fingerprints ON PURPOSE, and tell truncation
-  there is not the liability it looks like. Assert the guard via normalizeTells
-  instead. US-1981.
-- Inside the seed migrations' DOLLAR-quoted JSON (`$j$…$j$`, `$json$…$json$`),
-  `''` is NOT an escape — it stays two literal apostrophes, so `men''s` ships as
-  "men''s" in the seeded prose. Postgres applies no escaping in a dollar-quoted
-  body; only the surrounding ordinary `'…'` SQL strings (the chart `note`, the
-  identity blob) need `''`. Both conventions sit inches apart in the same row, so
-  it's easy to over-escape by reflex — and NOTHING catches it: the SQL is valid,
-  the JSON is valid, `verify:db` applies it clean, and the content tests match on
-  substrings that miss it. Grep new seed migrations for `''` inside `$j$` blocks
-  before committing. US-1981 (fixed 12 in 00460; 00455/00457/00459 were clean).
-- `brandFromStyleFormat`'s formats are NOT brand-exclusive (Converse's classic
-  codes are M+4 digits, same shape as New Balance model numbers) and
-  `ai-listing.ts` takes `styleResolution?.brand ?? canonicalBrand` — so a format
-  GUESS overrides the tag's own brand. US-1740 fixed the precedence (curated table
-  > explicit sneaker brandHint > format inference). Adding a format here without
-  checking which other brands share the shape re-opens a silent mis-branding.
-- The US-1738 leading-boundary `brandTextMatches` has a standing bill: a CONCATENATED
-  sub-label does NOT match its parent's short token ("babygap".indexOf("gap") is
-  preceded by "y", a word char), so babyGap/GapKids/GapFit must be listed in
-  `brandMatch` explicitly or they silently miss the parent's charts. Spaced forms
-  ("Baby Gap") are fine. Check this for every short-token brand you seed. US-1739.
-- Some brands are ALREADY covered by a SHARED multi-brand chart — the 00389
-  `thenorthfacepatagoniaouterwear` row / its `sizing-charts.ts` twin matched
-  north face+patagonia+columbia+arcteryx. Giving such a brand its OWN chart makes
-  `findSizingCharts` return BOTH (same numbers twice, competing for the 3-chart
-  prompt budget), so narrow the shared `brandMatch` in the SAME commit — in-code
-  AND via an UPDATE of the DB row (US-1734 did this for columbia+arcteryx). Check
-  for a shared chart before adding a per-brand one.
-- `verified=false` is CORRECT and intentional on every seeded fact even though
-  the AC says "marked verified before the story passes" — verification is the
-  US-1715 human admin queue's job. Every prior group shipped verified=false; do
-  not flip it to true to satisfy the AC (that fabricates a human review).
-- ACCESSORY/BAG brands are NOT garment brands with different nouns, and two
-  "missing" facts are STATUTORY/STRUCTURAL absences that must be seeded as
-  REFUSALS, not logged as research gaps (US-1988, the first accessory group):
-  (a) **an RN legitimately does not exist** — the Textile Act excludes handbags &
-  luggage unless a fiber claim is made, so only a brand that ALSO sells RTW has one
-  (Marc Jacobs did; the other eight don't). Absence must never read as a red flag,
-  and the prior packs' "the FTC site is a JS shell" note is an ACCESS excuse that
-  hides this. (b) **the style code left with the hangtag** — apparel prints it on
-  the sewn care label (hence 00460/00467's cut-tag decoders), but a bag has no care
-  label, so seed a decoder only where the mark is ON THE BODY (Coach's sewn creed
-  patch, 00398; Fossil's metal case back, 00468). Beware the sourced-but-wrong RN:
-  the FTC register's only "longchamp" hit is LONGCHAMP FABRICS CORP, an unrelated
-  NYC fabric wholesaler — right string, real record, wrong company.
-- Seed only what a source supports: `tag_eras` is populated for heritage brands
-  (Levi's/Carhartt/Lululemon) but left EMPTY for modern athleisure (Alo/Athleta/
-  Free People/US-1733's six) — no authoritative era documentation exists. Same
-  rule for decoders: seed `brand_style_codes` ONLY for a code that is both
-  tag-printed and regular (of US-1733's six, only Under Armour qualifies); a
-  web/catalog SKU is an informational tell, never a decoder.
-- `brandKey()` STRIPS ACCENTS (it keeps `[a-z0-9]` only), and `brand_key` =
-  `brandKey(canonical_brand)` — so an accented canonical keys WEIRDLY and a row
-  seeded under the spelling you'd expect is NEVER FOUND: "Hermès"→`herms`,
-  "Céline"→`cline`, "Stüssy"→`stssy` (the 00389 precedent). Seed the row under the
-  stripped key and alias BOTH spellings, or pick an unaccented canonical when the
-  brand itself is unaccented (US-1982 made Celine unaccented — the house dropped
-  the accent in 2018 — and kept `Hermès`/`herms`). Check with
-  `deno eval` on `brandKey(canonicalizeBrand(x))` before writing the seed.
-- The accent trap has a SECOND half that bites in BRAND_ALIASES, not just the
-  seed: `brandKey()` DELETES the accented char rather than folding it to ASCII, so
-  the accented and unaccented spellings are DIFFERENT keys — "Aimé Leon Dore" →
-  `aimleondore` (no e!) but "Aime Leon Dore" → `aimeleondore`. Sellers type both,
-  so BOTH keys must be in the alias map or the one who bothers with the accent gets
-  a passthrough. It looks like a duplicate line and is not. (Hermès dodged this:
-  `herms` vs `hermes` are visibly different, so 00461 noticed. US-1983.)
-- A canonical VALUE that is an ordinary word has NO protection, even though an
-  ordinary-word alias KEY is safe: `CANONICAL_BRANDS` is built from BRAND_ALIASES'
-  VALUES and `detectBrandInText` regex-scans those over prose, while the KEY side is
-  an exact whole-field lookup (the "ag"/"spider"/"ch" play). The word-boundary guard
-  can't save a value like "Off-White" — an off-white garment's title contains the
-  brand name EXACTLY — and longest-first ordering makes the false positive BEAT the
-  real brand in the same string. Fix (US-1983): `DETECT_EXCLUDED_FROM_TEXT` in
-  brand-normalize.ts, filtered out of CANONICAL_BRANDS — the brand stays reachable
-  by TAG (canonicalizeBrand, which is what the eBay aspect/comp filter read) but is
-  never guessed from prose. Opt-in and additive; it does NOT fix the Gucci GG
-  Supreme→Supreme case (we WANT Supreme detected — that needs a positional rule).
-- Reuse an EXISTING decoder transform by choosing the capture BOUNDARY, not by
-  adding code: `genderCode` only maps `W`/`M`, so Off-White's `OM`/`OW` prefix
-  captures the SECOND character (`^(?<code>O(?<gender>[MW])…`) and maps to Men/Women
-  for free. Capturing "OM" whole would fall through the transform's table and emit
-  the raw "OM" as a gender. Check TRANSFORMS' actual lookup tables before assuming a
-  new one is needed. Also note `decodeTagCode(brandKey, raw, specs)` takes THREE args
-  (brandKey first) — calling it (raw, specs) silently returns null for everything.
-- `python3` does not exist on this host but `python` does (3.13 + pglast v8.2) — so
-  when Docker is down and `verify:db` can't run, the 00461-style static validation
-  (real PostgreSQL parser: parses / column-count vs every tuple / names + conflict
-  targets resolve against the DDL / no duplicate conflict key in one VALUES list)
-  IS available; just don't invoke it as `python3`. Related: the Bash tool eats one
-  level of backslashes, so a `new RegExp("\\$j\\$")` built in a `node -e '…'`
-  one-liner silently becomes `/$j$/` and matches NOTHING — write the script to a
-  file instead of debugging a phantom zero-match. CORRECTION (US-1985): a quoted
-  `<<'EOF'` HEREDOC eats them too — "write it to a file" only works via the Write
-  TOOL. And the failure is SILENT-SUCCESS, not an error: a vacuous scan finds 0
-  blocks and prints "no problems", so it reads as a clean bill of health. Any
-  throwaway validator must be SELF-TESTED against a planted bug (`--selftest` that
-  breaks one block and asserts the scanner goes red) before you trust a green run
-  — US-1985 shipped two vacuous scans in a row before catching it.
-  **STOP REBUILDING IT (US-1988): the validator is now COMMITTED** as
-  `scripts/ralph/validate-seed-sql.py` (pglast parse + tuple-arity vs column list
-  + duplicate on-conflict key + `''`-inside-`$j$` + JSON validity; prints what it
-  scanned). Run `python scripts/ralph/validate-seed-sql.py --selftest <seed.sql>`
-  (plants all 3 bug classes, asserts each is caught) then the bare form. A FOURTH
-  way to fake a green: the Bash tool rewrites `/tmp/x` in ARGV but NOT inside a
-  heredoc's string literals, so a `python - <<EOF` that writes `/tmp/bug.sql`
-  dies FileNotFound while the validator invoked on `/tmp/bug.sql` happily reads
-  the CLEAN copy — three "planted" bugs all printed OK. Plant via the Write tool
-  or a repo-relative path, and never accept a self-test that prints no PLANT step.
-- A brand that sells BOTH shoes and clothes under one name (US-1985's Fila/PUMA/
-  Reebok — the first in the epic) owns TWO charts on one `brand_key`, and
-  `category_match` is the ONLY thing choosing between them: a stamped US/UK/EU
-  shoe number vs an alpha chest letter, read in OPPOSITE directions (a shoe chart
-  TRANSLATES, a garment chart ESTIMATES). A miss silently hands a hoodie a shoe
-  chart. Keep the two brands' category lists tight + non-overlapping, name the
-  system in `garment` so the model sees which it got, and remember `category_match`
-  is a plain SUBSTRING test (deliberately) — so a `boot` token fires on `bootcut`.
-- A sub-label an ORDER OF MAGNITUDE below its parent gets its OWN canonical and
-  must NOT fold onto the parent (the AGOLDE/Miu Miu rule) — folding it silently
-  retitles the cheap piece as the parent and prices it against mainline via the
-  eBay Brand aspect. Fold only same-price-band labels (Fire+Ice→Bogner, the MK
-  play). US-1982: Versace Jeans Couture / Versus / Collection each got their own
-  canonical. Safe even though they contain the parent's name — CANONICAL_BRANDS is
-  sorted LONGEST-FIRST, so `detectBrandInText` tests the sub-label first.
-- Tag-printed + regular is NOT sufficient for a decoder — the FORMAT must also be
-  brand-unique, and the older luxury rows mislead on this. 00399 seeds an
-  informational LV `date_code`, which reads as a licence to decode any serial;
-  it survives only because `SD1160` (2 letters + 4 digits) is distinctive. A bare
-  digit run is an ordinary number, so Chanel's 7-8 digit serial is deliberately
-  decoder-less (US-1736) — a pattern over it mints the KB's costliest false
-  positive from any tag with 8 digits. Same rule as Lee's "101"; put the era fact
-  in `tag_eras`/`authentication_tells` instead, which is where it belongs anyway.
-- A PARENT-WIDE identifier can never attribute a SIBLING, and this kills decoders
-  that clear every other bar. URBN's `OB######` style number is primary-sourced
-  (its own vendor manual) AND tag-printed AND regular — and US-1986 still seeded no
-  decoder for it, because the code is URBN-wide and Anthropologie (00457) + Free
-  People (00449) already own packs, so a hit would spell "Urban Outfitters" onto a
-  sibling with DECODER authority (which outranks the AI on conflict). Same for the
-  shared RN 66170. It is US-1985's Reebok refusal (the format was adidas's) in a new
-  costume: before seeding a decoder/RN, ask WHICH ENTITY the identifier names, not
-  just whether it's regular. Record it in `registered_numbers`/`tag_eras` with the
-  can't-disambiguate caveat instead.
-- For fast-fashion/mall brands the brand's OWN size guide is usually 403 to
-  automated fetches (zara.com, hm.com, express.com, pacsun.com all were in
-  US-1986) — and the SEO/aggregator pages that fill the gap are where FABRICATED
-  charts live. Every "Brandy Melville size chart" on the open web traces to
-  scraper spam; the brand publishes none. This is the KB's worst failure mode
-  because a model RECALLS exactly those numbers, so a seeded fabrication reads as
-  confirmation. Use the `confidence` column honestly (US-1986 ships 0.85 for a
-  brand-published chart down to 0.5 where none exists) and say IN THE NOTE that the
-  numbers are not the brand's own. Corollary: widely-repeated brand "facts" are
-  often UNCITED-Wikipedia laundered into prose — US-1986 found Talbots' real ranges
-  (2-18 / 0P-16P / 14W-26W) contradict the universally-repeated ones, and Lucky's
-  "two four-leaf clovers on the fly shield" has no source at all. Fetch the primary
-  document or seed the refusal; never seed recall.
-- `canonicalizeBrand` returns `string | null` (NOT an object) — assert
-  `canonicalizeBrand("x") === "Brand"`; `isKnownBrand` is what separates a
-  curated entry from a passthrough.
-- A SHORT brand token is a live hazard, and the two matchers differ:
-  `sizing-charts.ts` `findSizingCharts` matches `brandMatch` by SUBSTRING
-  (`brand.includes(m)`) and `detectBrandInText` regex-scans CANONICAL_BRANDS over
-  free text — so a 2-3 letter entry false-fires (`"patagonia".includes("ag")` is
-  TRUE, so a bare `"ag"` hands every Patagonia garment AG's denim charts).
-  `BRAND_ALIASES` is an EXACT-key lookup, so the short form is safe THERE. Fix
-  (US-1735): make the canonical the long form ("AG Jeans"), keep the short form as
-  an alias key only, and never put it in `brandMatch` — the chart is then reached
-  via the canonical, which is what brand-knowledge.ts passes anyway.
-- The substring rule bites a SECOND way (US-1737): a diffusion label whose name
-  CONTAINS its mainline's ("Fear of God Essentials" ⊃ "Fear of God") inherits the
-  mainline's charts, and no narrowing can fix it — there is no token unique to the
-  shorter name. DB charts are safe (fetched by exact `brand_key`); only the
-  in-code fallback collides. Give the chart to the brand that actually has sourced
-  sizing and leave the other chartless (it falls through to the generics, as
-  Coach/LV/Gucci do) — and assert it, so a later chart addition fails loudly.
-- `sizing-charts.ts` `norm()` only LOWERCASES — it does NOT strip accents, while
-  `brandKey()` strips everything non-`[a-z0-9]`. So Stüssy's KB key is `stssy`
-  (00389 seeded it that way — do not "correct" it, the resolver re-derives the
-  same key at read time) but its `brandMatch` needs the ACCENTED `"stüssy"` to
-  match the canonical brand-knowledge.ts passes in; include the plain spelling too
-  for raw seller text. Only non-ASCII canonical in the KB.
-- `detectBrandInText` sorts CANONICAL_BRANDS LONGEST-FIRST, which is what makes a
-  contained-name pair safe (it tests "Fear of God Essentials" before "Fear of
-  God"). But length is a proxy for specificity, not specificity: "Gucci GG
-  Supreme" (Gucci's canvas, 00400) mis-detects as **Supreme**, because "Supreme"
-  is longer than "Gucci". Pre-existing, barcode-title path only, NOT fixed by
-  US-1737 — a positional (earliest-match) rule would fix it but changes a shared
-  matcher for every brand. Corollary you CAN use: listing a containing brand in
-  BRAND_ALIASES is PROTECTIVE — US-1738 added `vincecamuto: "Vince Camuto"` so
-  detectBrandInText tests it before the "Vince" it contains.
-- `findSizingCharts` no longer matches `brandMatch` by bare substring (US-1738):
-  it requires the token to START a word (`brandTextMatches`, `\p{L}`-based). The
-  bug that forced it: `"eileen fisher".includes("lee")` is TRUE ("ei-LEE-n"), so
-  Lee's DENIM charts fired on every Eileen Fisher garment. UNFIXABLE in data — any
-  brandMatch still matching its own canonical "lee" is also a substring of
-  "eileen". The boundary is LEADING-ONLY on purpose: a trailing letter is
-  load-bearing ("Burberrys" = "Burberry"+s must still reach Burberry's charts;
-  a both-sides boundary broke `luxury-content_test.ts`). This does NOT rescue a
-  genuine leading-word collision — "vince camuto" still matches "vince" — so the
-  omit-the-shorter-brand's-chart remedy below still applies. Category matching
-  stays a plain substring test on purpose.
-- The DB and in-code chart lookups DIFFER, and US-1738 is the first story to
-  exploit it: `brand_size_charts` is fetched by EXACT `brand_key` (safe), while
-  `findSizingCharts` matches `brand_match` as a leading-word substring (leaks onto
-  a longer brand name). So a brand whose name PREFIXES an unrelated brand's can be
-  given a DB chart and deliberately NO in-code mirror — Vince gets its chart while
-  "Vince Camuto" (a DIFFERENT COMPANY, not a diffusion line) correctly falls to
-  the generics. Prefer this over dropping the chart entirely.
-- A retailer's HOUSE LABELS (Aritzia's Wilfred/Babaton/TNA, Anthropologie's
-  Maeve/Pilcro/Moth) print their OWN name and never the parent's — the tag does
-  not say the brand. Fold them onto the parent canonical with the label in `style`
-  (the MK precedent) when they share a PRICE BAND; split into separate canonicals
-  (the Fear of God/AGOLDE precedent) only when they are an order of magnitude
-  apart. Folding also keeps short tokens ("tna") out of CANONICAL_BRANDS. Watch
-  for ordinary-word labels: "moth" is a garment-DAMAGE term the product's own
-  condition text emits constantly, so it must never be an alias.
-- HERITAGE/WORKWEAR (US-1989, 00469): for this tier the TAG IS THE ASSET — the
-  interior label ERA is the price driver, so the pack's weight goes to `tag_eras`,
-  and empty `tag_eras` is CORRECT for a modern catalogue brand (Duluth Trading
-  1989 / Orvis) — the athleisure call, do not invent a chronology. The ONE decoder
-  is Barbour's interior-label `[ML](WX|QU|CA|KN|TN|…)\d{4}` (MWX0018 = Bedale) —
-  the Canada Goose department-letter case: a bare "0018" is refused, the M/L
-  prefix makes it brand-unique; capture styleCode, don't map M/L to gender. The
-  boot brands' household-name model numbers (Dickies 874, Red Wing 875, Timberland
-  10061) are REFUSED as bare digit runs. NEW COLLISION seeded as a refusal: a bare
-  "duluth" is DULUTH PACK (est. 1882), NOT Duluth Trading — alias only the
-  two-word forms (the Longchamp-Fabrics trap). And "Red Wing" went into
-  DETECT_EXCLUDED_FROM_TEXT ("Detroit Red Wings"/the blackbird). RN refused (not
-  faked) even though these ARE textiles — no registrant sourced.
+
 
 ## prd.json / Ralph workflow
 - Never read or edit `prd.json` from inside an iteration — the harness selects
@@ -1305,3 +366,5 @@ memory — not a progress log (the harness records progress separately).
     `hard`). Env `RALPH_FORCE_MODEL` overrides all stories for a one-off sweep.
   - `"relevantPaths": ["src/...", "..."]` → file/glob hints the agent reads
     first instead of sweeping the tree (see GRAPHIFY_PILOT for auto-populating).
+
+

@@ -19,6 +19,14 @@ this repository.
    iteration (`id`, `title`, `description`, `acceptanceCriteria`, `notes`).
 2. Read `scripts/ralph/LEARNINGS.md` — a short curated playbook of recurring
    gotchas. Honor it; it exists so you don't rediscover the same traps.
+   Then, ONLY if your story touches that surface, also read the matching
+   topic playbook (they were split out of LEARNINGS.md so their bulk isn't
+   re-read every iteration — see the pointer section at the top of it):
+   - `scripts/ralph/learnings/ios.md` — any story touching `ios/`
+   - `scripts/ralph/learnings/brand-kb.md` — Brand KB group stories
+     (US-1717…US-1733+) / the `brand_*` tables
+   - `scripts/ralph/learnings/email-marketing.md` — newsletter, broadcast,
+     drip, SES (the US-911…US-946 family)
 3. Implement the story completely, satisfying every acceptance criterion.
 4. Verify your work (typecheck, build, tests — see "After coding").
 5. Commit your changes locally (do NOT push, do NOT edit `prd.json`).
