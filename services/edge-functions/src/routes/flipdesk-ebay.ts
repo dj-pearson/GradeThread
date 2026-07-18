@@ -40,6 +40,7 @@ import {
   buildConsentUrl,
   createInventoryLocation,
   createOffer,
+  bulkMigrateListing,
   createOrReplaceInventoryItem,
   createShippingFulfillment,
   debugSnapshot,
@@ -233,6 +234,14 @@ import {
 } from "../lib/ebay-bulk.ts";
 // US-1999: one derivation rule, and the published SKU wins over item.sku.
 import { resolveInventorySku } from "../lib/ebay-sku.ts";
+// US-1968: existing-listing migration (pure response parsing + eBay's 5/call cap).
+import { chunkForMigrate, parseMigrateResponse } from "../lib/ebay-migrate.ts";
+
+// US-1968: how many listings one migrate REQUEST may carry. eBay's own cap is 5
+// per CALL (chunkForMigrate enforces that); this is the separate cap on how many
+// calls one HTTP request will fan out to, so a single request can't sit there
+// making 40 sequential eBay calls and time out. The UI migrates in pages.
+const MIGRATE_MAX_PER_REQUEST = 50;
 import {
   approveCancellation,
   decideReturn,
@@ -8222,6 +8231,238 @@ flipdeskEbayRoutes.post("/messages/:messageId/reply", async (c) => {
     console.error("[flipdesk-ebay] replyToMemberMessage failed:", err);
     return c.json({ error: "eBay rejected the reply.", detail: String(err) }, 502);
   }
+});
+
+// US-1968: bring EXISTING eBay (Trading-created) listings under management.
+//
+// Imported listings are read-only mirrors: revise/reprice/withdraw/relist all
+// refuse origin='ebay'. bulk_migrate_listing converts them into managed
+// Inventory offers. See lib/ebay-migrate.ts for why the returned SKU is the
+// load-bearing part — flipping origin without persisting it produces a row that
+// is marked managed, is NOT addressable by any Inventory call, and has ALSO
+// stopped being refreshed by the inbound pull (SYNC_SOURCE_OF_TRUTH only lets
+// the pull overwrite EBAY_OWNED_LISTING_FIELDS while origin='ebay'). That is
+// strictly worse than the mirror it replaced, so origin and inventory_sku are
+// written in the SAME update, and only when eBay returned a SKU.
+flipdeskEbayRoutes.post("/listings/migrate", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+
+  let body: { listing_ids?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const requestedIds = Array.isArray(body.listing_ids)
+    ? [...new Set(body.listing_ids.filter((v): v is string => typeof v === "string"))]
+    : [];
+  if (requestedIds.length === 0) {
+    return c.json({ error: "listing_ids (array) is required" }, 400);
+  }
+  if (requestedIds.length > MIGRATE_MAX_PER_REQUEST) {
+    return c.json(
+      {
+        error:
+          `Too many listings in one request (max ${MIGRATE_MAX_PER_REQUEST}). ` +
+          `Migrate in smaller batches.`,
+      },
+      400,
+    );
+  }
+
+  // US-268: the ids come from the request body, so they are attacker input.
+  // Scope the read by the OWNER's tenant and act only on what comes back —
+  // never on the requested ids directly.
+  const { data: rows } = await supabaseAdmin
+    .from("listings")
+    .select(
+      "id, platform_listing_id, platform_offer_id, listing_origin, listing_status, is_active, inventory_sku, marketplace_connection_id, batch_id, synced_to_ebay_at",
+    )
+    .in("id", requestedIds)
+    .eq("platform", "ebay")
+    .eq("user_id", userId);
+  const owned = (rows ?? []) as Array<{
+    id: string;
+    platform_listing_id: string | null;
+    platform_offer_id: string | null;
+    listing_origin: string | null;
+    listing_status: string | null;
+    is_active: boolean | null;
+    inventory_sku: string | null;
+    marketplace_connection_id: string | null;
+    batch_id: string | null;
+    synced_to_ebay_at: string | null;
+  }>;
+
+  // US-268: if NONE of the requested ids belong to this tenant, deny outright
+  // rather than returning 200 with a per-item "not found". Two reasons: a bulk
+  // 200 makes a cross-tenant probe indistinguishable from a success at the
+  // status level (the tenant-isolation suite asserts on status, and so would a
+  // reviewer), and "you asked only for listings that aren't yours" genuinely is
+  // a 404. A MIXED request still returns 200 with per-item reasons, because the
+  // caller's own listings must not be held hostage to one bad id.
+  if (owned.length === 0) {
+    return c.json({ error: "Listing not found" }, 404);
+  }
+
+  const results: Array<{
+    listing_id: string;
+    status: "migrated" | "already_managed" | "skipped" | "failed";
+    sku?: string | null;
+    offer_id?: string | null;
+    reason?: string;
+  }> = [];
+
+  // Eligibility, and the reason for each rejection — AC3 applies to OUR skips
+  // just as much as to eBay's, otherwise a listing vanishes from the result
+  // with no explanation of why it was never attempted.
+  const eligible: typeof owned = [];
+  for (const id of requestedIds) {
+    const row = owned.find((r) => r.id === id);
+    if (!row) {
+      results.push({ listing_id: id, status: "skipped", reason: "Listing not found" });
+      continue;
+    }
+    // Idempotency (AC4): a row already migrated is a no-op, not an error, so a
+    // retry after a partial batch is safe and reports the same end state.
+    if (row.inventory_sku && row.listing_origin !== "ebay") {
+      results.push({
+        listing_id: id,
+        status: "already_managed",
+        sku: row.inventory_sku,
+        offer_id: row.platform_offer_id,
+      });
+      continue;
+    }
+    const origin = deriveListingOrigin({
+      listing_origin: row.listing_origin,
+      platform: "ebay",
+      platform_listing_id: row.platform_listing_id,
+      batch_id: row.batch_id,
+      synced_to_ebay_at: row.synced_to_ebay_at,
+    });
+    if (origin !== "ebay") {
+      results.push({
+        listing_id: id,
+        status: "skipped",
+        reason:
+          "This listing was published from FlipDesk and is already managed — migration only applies to listings created on eBay.",
+      });
+      continue;
+    }
+    if (!row.platform_listing_id) {
+      results.push({
+        listing_id: id,
+        status: "skipped",
+        reason: "No eBay listing id on this row, so there is nothing to migrate.",
+      });
+      continue;
+    }
+    const live = row.is_active === true ||
+      row.listing_status === "active" ||
+      row.listing_status === "relisted";
+    if (!live) {
+      results.push({
+        listing_id: id,
+        status: "skipped",
+        reason: "Only ACTIVE eBay listings can be migrated.",
+      });
+      continue;
+    }
+    eligible.push(row);
+  }
+
+  // eBay caps the call at 5 listings; chunk and keep going on a batch error so
+  // one bad batch cannot fail the rest.
+  for (const batch of chunkForMigrate(eligible)) {
+    const byEbayId = new Map(batch.map((r) => [r.platform_listing_id as string, r]));
+    let outcomes: ReturnType<typeof parseMigrateResponse>;
+    try {
+      const raw = await bulkMigrateListing(
+        userId,
+        batch.map((r) => r.platform_listing_id as string),
+        // Migrate through the connection that owns the listing (null → primary),
+        // or a multi-store seller's migration lands on the wrong account.
+        batch[0]?.marketplace_connection_id ?? undefined,
+      );
+      outcomes = parseMigrateResponse(raw);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[flipdesk-ebay] bulkMigrateListing failed:", err);
+      for (const r of batch) {
+        results.push({ listing_id: r.id, status: "failed", reason: msg.slice(0, 300) });
+      }
+      continue;
+    }
+
+    // A listing eBay simply omitted from responses[] must not disappear.
+    const answered = new Set<string>();
+    for (const outcome of outcomes) {
+      const row = byEbayId.get(outcome.listingId);
+      if (!row) continue; // not ours / not in this batch — ignore defensively
+      answered.add(outcome.listingId);
+
+      if (!outcome.ok || !outcome.sku) {
+        results.push({
+          listing_id: row.id,
+          status: "failed",
+          reason: outcome.reason ?? "eBay declined the migration.",
+        });
+        continue;
+      }
+
+      // The single write that makes the row managed. inventory_sku and the
+      // origin flip travel TOGETHER — see this block's header.
+      const { error: updErr } = await supabaseAdmin
+        .from("listings")
+        .update({
+          inventory_sku: outcome.sku,
+          ...(outcome.offerId ? { platform_offer_id: outcome.offerId } : {}),
+          listing_origin: "gradethread" as const,
+        })
+        .eq("id", row.id)
+        .eq("user_id", userId);
+      if (updErr) {
+        // eBay migrated it but we failed to record it. Say so precisely: the
+        // listing IS an Inventory offer now, and a retry is safe because the
+        // migration itself is idempotent on eBay's side.
+        results.push({
+          listing_id: row.id,
+          status: "failed",
+          reason:
+            `Migrated on eBay (SKU ${outcome.sku}) but could not be saved locally: ` +
+            `${updErr.message}. Retry — the migration is idempotent.`,
+        });
+        continue;
+      }
+      results.push({
+        listing_id: row.id,
+        status: "migrated",
+        sku: outcome.sku,
+        offer_id: outcome.offerId,
+      });
+    }
+    for (const r of batch) {
+      if (!answered.has(r.platform_listing_id as string)) {
+        results.push({
+          listing_id: r.id,
+          status: "failed",
+          reason: "eBay returned no result for this listing.",
+        });
+      }
+    }
+  }
+
+  const summary = {
+    migrated: results.filter((r) => r.status === "migrated").length,
+    already_managed: results.filter((r) => r.status === "already_managed").length,
+    skipped: results.filter((r) => r.status === "skipped").length,
+    failed: results.filter((r) => r.status === "failed").length,
+  };
+  return c.json({ ok: true, summary, results });
 });
 
 // ── Helpers ─────────────────────────────────────────────────────────

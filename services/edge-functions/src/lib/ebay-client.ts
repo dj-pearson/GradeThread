@@ -2762,6 +2762,34 @@ export async function deleteOffer(
   );
 }
 
+// US-1968: convert existing Trading-created listings into managed Inventory
+// offers. eBay caps this at 5 listings per call (MIGRATE_BATCH_MAX) and answers
+// PER LISTING — a batch can be partly successful — so this returns the raw
+// payload and lets parseMigrateResponse (pure, tested) normalize it rather than
+// throwing on a partial failure and discarding the successes.
+//
+// The returned sku is eBay's OWN (derived from the listing's Custom Label or
+// generated). It MUST be persisted to listings.inventory_sku; see the header of
+// lib/ebay-migrate.ts for why flipping origin without it is worse than not
+// migrating at all.
+export async function bulkMigrateListing(
+  userId: string,
+  ebayListingIds: string[],
+  connectionId?: string,
+): Promise<unknown> {
+  return await fetchAuthed<unknown>(
+    userId,
+    `/sell/inventory/v1/bulk_migrate_listing`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        requests: ebayListingIds.map((listingId) => ({ listingId })),
+      }),
+    },
+    connectionId,
+  );
+}
+
 // US-1978 (AC2): DELETE the inventory item (SKU) record.
 //
 // Same contract as deleteOffer: destructive, no undo, and eBay refuses (or

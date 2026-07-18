@@ -280,6 +280,27 @@ Deno.test({
 });
 
 Deno.test({
+  // US-1968: migration turns a read-only eBay mirror into a GT-MANAGED listing
+  // (it writes listings.inventory_sku + flips listing_origin), so a successful
+  // cross-tenant call would hand B control of A's live catalog. The route scopes
+  // its read by user_id and 404s when NONE of the requested ids are the caller's
+  // — deliberately not a 200-with-per-item-"not found", which would make a probe
+  // indistinguishable from a success at the status level.
+  name: "B cannot migrate A's eBay listing under management",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/ebay/listings/migrate`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ listing_ids: [id] }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST listings migrate");
+  },
+});
+
+Deno.test({
   name: "B cannot reprice A's eBay listing",
   ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
   fn: async () => {
