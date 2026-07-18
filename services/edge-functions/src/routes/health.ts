@@ -3,6 +3,7 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { isErrorTrackingConfigured, releaseSha } from "../lib/observability.ts";
 import { computeFeatureReadiness } from "../lib/env-validation.ts";
 import { edgeEnv } from "../lib/env.ts";
+import { compareSchemaVersion, EXPECTED_SCHEMA_VERSION } from "../lib/schema-version.ts";
 import {
   gradingBufferConcurrency,
   summarizeMemory,
@@ -47,7 +48,34 @@ export interface ReadinessSummary {
     // degraded feature does NOT flip `ready` — the orchestrator keeps routing —
     // it's surfaced so ops can see WHICH integration is unconfigured.
     features?: Record<string, string>;
+    // US-1566: applied vs expected migration version — see summarizeSchema.
+    schema?: SchemaSummary;
   };
+}
+
+// US-1566: SCHEMA DRIFT WAS UNOBSERVABLE FROM OUTSIDE THE CONTAINER.
+//
+// The boot guard already refuses to start a production edge whose DB is behind,
+// but that verdict was only ever visible in container logs. Nothing served it,
+// so answering "is prod actually migrated?" meant reading logs you may not have
+// access to — which is precisely how US-1566's premise ("00339–00342 not
+// applied") went ~130 migrations stale without anyone noticing it had been
+// fixed. Reporting it here makes the answer a curl away, for humans and for the
+// post-deploy smoke check.
+//
+// DRIFT DOES NOT FLIP `ready`, deliberately. "behind" is already fatal at boot,
+// so a running container cannot be behind unless the version read failed open —
+// and "ahead" is the NORMAL state in the migrate-then-deploy window this repo
+// mandates. Gating readiness on it would pull healthy containers out of rotation
+// during every correct deploy.
+export interface SchemaSummary {
+  expected: string;
+  applied: string | null;
+  status: "match" | "ahead" | "behind" | "unknown";
+}
+
+export function summarizeSchema(expected: string, applied: string | null): SchemaSummary {
+  return { expected, applied, status: compareSchemaVersion(expected, applied) };
 }
 
 // Pure decision (unit-tested) so the route's I/O stays trivial. `features` is
@@ -57,6 +85,7 @@ export function summarizeReadiness(
   dbOk: boolean,
   missingEnv: string[],
   features: Record<string, string> = {},
+  schema?: SchemaSummary,
 ): ReadinessSummary {
   const ready = dbOk && missingEnv.length === 0;
   return {
@@ -70,6 +99,8 @@ export function summarizeReadiness(
       },
       ...(missingEnv.length > 0 ? { missing_env: missingEnv } : {}),
       ...(Object.keys(features).length > 0 ? { features } : {}),
+      // Informational, like `features` — never part of the ready decision.
+      ...(schema ? { schema } : {}),
     },
   };
 }
@@ -141,7 +172,26 @@ healthRoutes.get("/ready", async (c) => {
     dbOk = false;
   }
 
-  const summary = summarizeReadiness(dbOk, missingEnv, computeFeatureReadiness());
+  // Applied schema version. Best-effort: a failure here reports status
+  // "unknown" and must never affect readiness — this is a visibility feature,
+  // and a probe that can fail a container over a diagnostic is a worse bug than
+  // the blind spot it fixes.
+  let applied: string | null = null;
+  if (dbOk) {
+    try {
+      const { data, error } = await supabaseAdmin.rpc("latest_schema_migration");
+      applied = !error && typeof data === "string" ? data : null;
+    } catch {
+      applied = null;
+    }
+  }
+
+  const summary = summarizeReadiness(
+    dbOk,
+    missingEnv,
+    computeFeatureReadiness(),
+    summarizeSchema(EXPECTED_SCHEMA_VERSION, applied),
+  );
   return c.json(
     { ...summary.body, timestamp: new Date().toISOString() },
     summary.httpStatus,

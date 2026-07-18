@@ -12,7 +12,7 @@ Deno.env.set(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
 );
 
-const { summarizeReadiness } = await import("../routes/health.ts");
+const { summarizeReadiness, summarizeSchema } = await import("../routes/health.ts");
 
 Deno.test("ready when DB is up and no env is missing", () => {
   const s = summarizeReadiness(true, []);
@@ -89,4 +89,50 @@ Deno.test("memory: unknown pressure / null pct when no limit configured", () => 
   assertEquals(m.rss_pct_of_limit, null);
   assertEquals(m.headroom_pct, null);
   assertEquals(m.pressure, "unknown");
+});
+
+// ── schema-drift visibility (US-1566) ──────────────────────────────────────
+// Drift was only ever visible in container logs, so "is prod actually
+// migrated?" could not be answered by anyone without log access — which is how
+// US-1566's premise went ~130 migrations stale without anyone noticing it had
+// been fixed. /health/ready now reports it.
+// (summarizeSchema comes from the dynamic import above — a static import here
+// would be hoisted above the dummy-env setup and blow up on SUPABASE_URL.)
+
+Deno.test("summarizeSchema: classifies the four drift states", () => {
+  assertEquals(summarizeSchema("00475", "00475").status, "match");
+  // Ahead is the NORMAL state in the migrate-then-deploy window this repo
+  // mandates — the SQL lands before the edge build that expects it.
+  assertEquals(summarizeSchema("00474", "00475").status, "ahead");
+  assertEquals(summarizeSchema("00475", "00474").status, "behind");
+  // A failed/absent version read must degrade to "unknown", never to a
+  // confident wrong answer.
+  assertEquals(summarizeSchema("00475", null).status, "unknown");
+});
+
+Deno.test("summarizeSchema: reports both sides so drift is diagnosable", () => {
+  const s = summarizeSchema("00475", "00470");
+  assertEquals(s.expected, "00475");
+  assertEquals(s.applied, "00470");
+  // "behind" alone would say something is wrong; the pair says WHAT to apply.
+  assertEquals(s.status, "behind");
+});
+
+Deno.test("schema drift never affects the ready decision", () => {
+  // The boot guard already refuses to start a production edge that is behind,
+  // and "ahead" is normal mid-deploy. Gating readiness on drift would pull
+  // healthy containers out of rotation during every correct deploy.
+  for (const applied of ["00475", "00470", "00999", null]) {
+    const r = summarizeReadiness(true, [], {}, summarizeSchema("00475", applied));
+    assertEquals(r.ready, true, `drift (applied=${applied}) must not flip ready`);
+    assertEquals(r.httpStatus, 200);
+  }
+  // ...and a real dependency failure still fails, schema block present or not.
+  assertEquals(summarizeReadiness(false, [], {}, summarizeSchema("00475", "00475")).ready, false);
+});
+
+Deno.test("schema block is omitted entirely when not supplied", () => {
+  // Back-compat: existing callers/tests that pass three args get the old shape.
+  const body = summarizeReadiness(true, [], {}).body;
+  assertEquals("schema" in body, false);
 });
