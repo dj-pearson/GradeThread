@@ -1,5 +1,5 @@
 ---
-title: "Open authenticity decisions (awaiting a call)"
+title: "Authenticity decisions (decided 2026-07-19)"
 type: decision
 status: current
 source_of_truth: vault
@@ -9,17 +9,25 @@ code_refs:
   - services/edge-functions/src/lib/buyer-guarantee-claim.ts
 reviewed: 2026-07-19
 revisit_by: 2026-09-30
-tags: [decision, authenticity, open, legal, product]
-summary: Four authenticity decisions the engineering work is blocked on, each with options and a recommendation — none is decided yet.
+tags: [decision, authenticity, legal, product]
+summary: Four authenticity decisions, all decided 2026-07-19 — the appeal SLA number and the counsel engagement are the only pieces still outstanding.
 ---
-# Open authenticity decisions
+# Authenticity decisions
 
-Four questions the authenticity module cannot answer for itself. Each is written
-up with what is already built, the real options, and a recommendation — but
-**none is decided**, and the code deliberately stops short of assuming an answer.
+> **DECIDED 2026-07-19.** The user approved every recommendation below as written.
+> Each section keeps its options and reasoning as the record of WHY. Two things
+> remain genuinely outstanding and are called out where they sit:
+>
+> - **§1c — the SLA number.** Approved in principle; no figure given yet. The
+>   appeal routes can ship without it, but the seller-facing notice cannot.
+> - **§4 — counsel.** The recommendation (fold into the US-2114 review) is
+>   approved; the engagement still has to be scheduled, and US-2143 stays blocked
+>   until it concludes.
 
-This note becomes the record once the calls are made. Until then it is the list
-of what is blocking.
+Four questions the authenticity module could not answer for itself. Each records
+what was already built, the options considered, and the call made — the options
+are kept deliberately, because the reasoning is the durable part and a decision
+with no recorded alternatives gets re-litigated.
 
 Related: [[adr-authenticity-guarantee]] (the parked guarantee, with its own
 revisit criteria).
@@ -45,7 +53,7 @@ A seller currently has no way to know it happened, and no way to contest it.
 | **Notify only on `red_flags`** (rec.) | The only case with real consequence | Still tells a seller something they may not want to hear |
 | **No notification** | Least alarming | A seller cannot contest what they never saw — makes the appeal path decorative |
 
-**Recommendation: notify on `red_flags` only.** An appeal route nobody knows to
+**DECIDED — notify on `red_flags` only.** An appeal route nobody knows to
 use is not a correction path.
 
 ### 1b. What do the certificate and passport render while an appeal is open?
@@ -56,7 +64,7 @@ use is not a correction path.
 | **Hide pending review** (rec.) | Stops the harm while it is unresolved | A buyer mid-purchase loses a signal; gameable if appeals are free |
 | **Show "under review"** | Most transparent | Tells a buyer there is doubt, which may harm the seller more than the flag did |
 
-**Recommendation: hide while under review**, with a rate limit so an appeal
+**DECIDED — hide while under review**, with a rate limit so an appeal
 cannot be used to park a verdict indefinitely. The passport is append-only, so a
 withdrawal is a superseding event — decide whether the public passport view
 renders superseded verdicts at all.
@@ -65,11 +73,11 @@ renders superseded verdicts at all.
 
 No SLA exists. Note the coupling: while an appeal is open the item is
 effectively unsellable at its stated grade, so a slow SLA is itself a penalty.
-**Recommendation: a stated target measured in business days, published in the
-notice.** The number is yours.
+**DECIDED in principle — a stated target in business days, published in the
+notice. ⚠ THE NUMBER IS STILL OPEN.**
 
-**Needed from you:** answers to 1a/1b/1c. **Then** the routes get built, and the
-notice wording goes through counsel with US-2133 — I will not draft it.
+**Next:** the appeal routes can now be built. The seller-facing notice WORDING
+still goes through counsel with US-2133, and needs the §1c number.
 
 ---
 
@@ -90,12 +98,11 @@ nor flooding the review queue.
 | **Drop below 0.7** | No-macro assessment can never read `likely_authentic` — arguably correct, but **no clothing submission has ever had a macro slot**, so this reclassifies effectively every past verdict |
 | **Drop further** | Also routes them all to human review — correct in principle, unworkable without reviewer capacity |
 
-**Recommendation: keep 0.7 until macro slots have been live long enough that
+**DECIDED — keep 0.7 until macro slots have been live long enough that
 lowering it affects new assessments rather than rewriting old ones.** Revisit
 once US-2134's slots have real uptake.
 
-**Needed from you:** confirm 0.7, or name the value and accept the retroactive
-reclassification.
+
 
 ---
 
@@ -117,7 +124,7 @@ owed credits nobody knows are missing.
 | **Reverse the drawdown too** | Pool accounting stays exact | Silently undoing a payout is worse than silently succeeding |
 | **Retry inline** | Fixes the transient case | Hides the persistent case, which is the dangerous one |
 
-**Recommendation: flip to `manual_review`, keep the drawdown.** Keeping the
+**DECIDED — flip to `manual_review`, keep the drawdown.** Keeping the
 drawdown reserves the money conservatively; a human resolves it. I did not
 implement this because it changes money-path semantics after a buyer has been
 told they were approved, and that is your call, not a refactor's.
@@ -151,7 +158,7 @@ the questions counsel needs to answer.
    overlays on listing imagery, and eBay runs its own Authenticity Guarantee.
    What may be stated on a listing?
 
-**Recommendation: fold this into the US-2114 subscription-compliance counsel
+**DECIDED — fold this into the US-2114 subscription-compliance counsel
 review** rather than running a second engagement — same lawyer, same
 substantiation question, different claim.
 
@@ -161,9 +168,14 @@ FTC batch exists to fix.
 
 ---
 
-## What I need, shortest path
+## What these unblocked
 
-1. **1a/1b/1c** → unblocks building the seller appeal routes.
-2. **§3** → unblocks the guarantee fix.
-3. **§2** → one-line confirmation.
-4. **§4** → schedule with counsel; everything buyer-facing waits on it.
+- **§1a/1b** → the seller appeal routes (US-2145).
+- **§3** → the guarantee remedy-failure fix, plus the pool drawdown race.
+- **§2** → nothing to change; 0.7 stands, revisit when macro slots have uptake.
+
+## Still outstanding
+
+- **The §1c SLA number** — routes can ship, the notice cannot.
+- **The counsel engagement (§4)** — US-2143 (buyer-facing positioning) stays
+  blocked until it concludes.
