@@ -115,6 +115,42 @@ interface ResolvedTarget {
   field: string;
 }
 
+/**
+ * US-2104 AC3: is ANY social destination configured at all?
+ *
+ * This is a PRE-FLIGHT question, deliberately distinct from a delivery failure.
+ *
+ *   configured + POST fails  → the payload is logged to content_webhook_log,
+ *                              dead-lettered, and replayable from the console
+ *                              (POST /webhooks/:logId/retry). Publishing anyway
+ *                              is correct: nothing is lost and a retry lands it.
+ *   nothing configured       → dispatchContentWebhook returns early with
+ *                              attempts:0 and writes NO log row and NO dead
+ *                              letter. There is nothing to retry and no record
+ *                              that the post went nowhere. Marking it published
+ *                              is a claim we cannot support.
+ *
+ * So the fix is not "roll back on webhook failure" — that would reverse a sound
+ * decision and break the replay workflow. It is "refuse to claim publication
+ * when there is provably nowhere to publish to".
+ */
+export async function hasAnySocialWebhookConfigured(): Promise<boolean> {
+  const { data, error } = await supabaseAdmin
+    .from("content_settings")
+    .select("make_webhook_social, make_webhook_social_long, make_webhook_social_short")
+    .eq("id", 1)
+    .maybeSingle();
+  // FAIL OPEN on a read error: a transient DB blip must not block publishing.
+  // The failure mode we are fixing is a confident false success, not a lost
+  // publish — and an unreachable settings row is not evidence of misconfiguration.
+  if (error || !data) return true;
+  return Boolean(
+    data.make_webhook_social ||
+      data.make_webhook_social_long ||
+      data.make_webhook_social_short,
+  );
+}
+
 async function resolveTargetUrl(
   payload: WebhookPayload,
 ): Promise<ResolvedTarget | null> {

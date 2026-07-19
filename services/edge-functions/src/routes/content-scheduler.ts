@@ -8,6 +8,7 @@ import { generateBlogArticle } from "../lib/content-ai-blog.ts";
 import { generateSocialPost } from "../lib/content-ai-social.ts";
 import { researchTopics } from "../lib/content-ai-research.ts";
 import { sanitizeHtml } from "../lib/content-sanitize.ts";
+import { hasAnySocialWebhookConfigured } from "../lib/content-webhook.ts";
 import { appendToHistoryIndex } from "../lib/content-history.ts";
 import { dispatchContentWebhook } from "../lib/content-webhook.ts";
 import {
@@ -325,6 +326,27 @@ async function publishDueScheduledPosts(settings: SettingsRow): Promise<number> 
     .select("*")
     .eq("status", "scheduled")
     .lte("scheduled_for", nowIso);
+
+  // US-2104 AC3: the same false-success guard as the manual publish route, and
+  // it matters MORE here. Unattended, this loop would drain the entire scheduled
+  // queue to status='published' — a terminal state — while every fan-out skipped
+  // silently for want of a configured webhook. One operator click publishes one
+  // post into nothing; one cron tick publishes the whole backlog into nothing.
+  //
+  // Checked ONCE per tick rather than per post: it is the same global settings
+  // row, and re-reading it per post would turn a batch into N queries for an
+  // answer that cannot change mid-loop.
+  //
+  // Posts stay 'scheduled' so they publish for real once a webhook is set —
+  // they are deferred, not dropped, and no scheduled_for is rewritten.
+  if ((socials?.length ?? 0) > 0 && !(await hasAnySocialWebhookConfigured())) {
+    console.warn(
+      `[scheduler] ${socials!.length} social post(s) are due but NO social webhook ` +
+        `is configured (make_webhook_social / _long / _short all unset) — leaving them ` +
+        `scheduled rather than marking them published with nothing sent.`,
+    );
+    return published;
+  }
 
   for (const post of socials ?? []) {
     try {

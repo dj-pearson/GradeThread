@@ -9,6 +9,7 @@ import {
   persistSocialVariants,
 } from "../lib/content-social-publish.ts";
 import { isSocialPlatform } from "../lib/social-platforms.ts";
+import { hasAnySocialWebhookConfigured } from "../lib/content-webhook.ts";
 import {
   getAiTemperature,
   getAnthropicClient,
@@ -131,6 +132,27 @@ contentSocialRoutes.post("/:id/publish", async (c) => {
   if (!post) return c.json({ error: "Not found" }, 404);
   if (!post.long_body?.trim() && !post.short_body?.trim()) {
     return c.json({ error: "long_body or short_body must be set" }, 400);
+  }
+
+  // US-2104 AC3: refuse to CLAIM publication when there is provably nowhere to
+  // publish to. With every make_webhook_social* unset — which is the current
+  // production state — the fan-out below skips each payload with a console line,
+  // writes no webhook log and no dead letter, and the row was still flipped to
+  // status='published'. The engine reported success while publishing nothing,
+  // and because 'published' is terminal the post would never be revisited.
+  //
+  // Note this checks CONFIGURATION, not delivery. A configured webhook that
+  // fails still publishes: that payload is logged, dead-lettered and replayable
+  // (POST /webhooks/:logId/retry), so nothing is lost and rolling back would
+  // reverse a deliberate decision. Only the nowhere-to-send case is a lie.
+  if (!(await hasAnySocialWebhookConfigured())) {
+    return c.json({
+      error:
+        "No social webhook is configured (make_webhook_social / _long / _short are all unset), " +
+        "so publishing would fan out to nothing. The post has been left unpublished. " +
+        "Set a webhook in content settings, then publish again.",
+      code: "social_webhook_unconfigured",
+    }, 422);
   }
 
   const now = new Date().toISOString();
