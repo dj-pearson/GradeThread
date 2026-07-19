@@ -106,7 +106,12 @@ in `vault/20-domain/`, where they carry `code_refs` and a CI drift guard:
 
 - `vault/20-domain/grading-scale-and-weights.md` — scale, factor weights, and the
   rounding rule that has shipped wrong twice (US-1557, US-2041).
-- `vault/20-domain/brands/` — brand and garment taxonomy (populated by US-2058).
+- `vault/20-domain/brands/` — the brand KB's governing RULES. Per-brand VALUES
+  live in the `brand_knowledge` tables, not in notes; the notes carry the rules
+  that have no column: the decoder bar (tag-printed AND regular AND brand-unique),
+  the alias refusals, and the recorded negative findings. Read them before adding
+  a decoder or an alias — several absences there are deliberate and look like
+  oversights.
 - `vault/20-domain/measurement-accuracy.md` — measurement tolerances and validation.
 
 Link to those rather than restating a weight or threshold here: two copies of a

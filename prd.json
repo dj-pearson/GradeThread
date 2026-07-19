@@ -2588,7 +2588,7 @@
     },
     {
       "id": "US-2058",
-      "passes": false,
+      "passes": true,
       "dependsOn": [
         "US-2047"
       ],
@@ -2596,15 +2596,18 @@
       "title": "Extract brand/garment taxonomy out of immutable migration headers",
       "description": "As the grading system, I want the brand knowledge in editable linked notes, so that taxonomy can be corrected without writing a new migration to amend a comment.",
       "acceptanceCriteria": [
+        "SCOPE CORRECTED 2026-07-19: the story said FIVE migrations and ~830 header lines. That was the top five BY HEADER SIZE (00457/00458/00459/00467/00468 = 819 lines). The real corpus is 37 *_brand_knowledge.sql migrations carrying 2,259 header lines across 12,059 total — roughly 2.7x the estimate.",
         "Extract the ~830 lines of taxonomy from the five *_brand_knowledge.sql headers (00457 contemporary-womens, 00458 basics-mall, 00459 footwear, 00467 preppy-contemporary-mens, 00468 handbags-accessories, 196 lines) into vault/20-domain/brands/.",
         "One note per brand family, not one per migration — the migration boundary is an artefact of when it was written, not how the knowledge is shaped.",
         "Each note links to the migration that seeded it and to the DB table now holding the data; migrations are NOT edited (they are immutable and already applied).",
         "Notes are source_of_truth:vault for the REASONING (why a brand sits in a tier) and reference the DB as the source of truth for the VALUES the grader reads. State this split explicitly in each note.",
         "Cross-family relationships (a brand appearing in multiple tiers, tier boundary rationale) become wikilinks — this is knowledge that flat SQL comments could not express at all.",
         "The grading-engine skill links to the brands folder.",
-        "Verify extracted content against the DB rows actually present in prod, and report any taxonomy in the headers that never made it into a row."
+        "Verify extracted content against the DB rows actually present in prod, and report any taxonomy in the headers that never made it into a row.",
+        "AUDIT RESULT (the header-vs-row check): the finding is STRUCTURAL, not missing data. The schema is per-BRAND (aliases, tag_eras, country_patterns, authentication_tells, decoders, colorways, size charts). The headers carry per-CORPUS rules — the decoder bar, the alias refusals, the sourcing policy, why a negative was recorded — which are not attributes of any single brand and had no column they could ever have occupied.",
+        "DONE: extracted the cross-cutting rules into 4 notes (309 lines) rather than ~20 per-family notes restating row data. Per-brand narrative in the remaining headers is largely mirrored by each row's notes column, so it is queryable; the rules were not recoverable anywhere."
       ],
-      "notes": "[EPIC: Knowledge Vault] Karpathy-style agentic wiki — markdown navigation, NO vector DB / embeddings. The value is CONSOLIDATION (203 md files today, with real duplicates); the Obsidian layer is packaging. Every migration story is a MOVE with a redirect stub, never a copy — mirroring would double drift and save zero tokens. Phase 4 and, in my judgement, the single highest-value story in the epic. This knowledge is currently write-once: it lives in applied migration headers where it CANNOT be edited, is not indexed anywhere, and is invisible to grading work. The last criterion is a genuine audit — header-vs-row divergence would mean documented taxonomy the grader never actually sees.",
+      "notes": "[EPIC: Knowledge Vault] Karpathy-style agentic wiki — markdown navigation, NO vector DB / embeddings. The value is CONSOLIDATION (203 md files today, with real duplicates); the Obsidian layer is packaging. Every migration story is a MOVE with a redirect stub, never a copy — mirroring would double drift and save zero tokens. Phase 4 and, in my judgement, the single highest-value story in the epic. This knowledge is currently write-once: it lives in applied migration headers where it CANNOT be edited, is not indexed anywhere, and is invisible to grading work. The last criterion is a genuine audit — header-vs-row divergence would mean documented taxonomy the grader never actually sees. | DONE 2026-07-19. Extraction targeted the knowledge with NO column: the decoder bar (tag-printed AND regular AND brand-unique — the Reebok/adidas shared-coding case is the clearest argument for the third test), the alias refusals (bare goose/Brooks/duluth/bean/citizens/joe/Faherty, plus the Express-Structure case where an alias cannot express a time window), and the negative findings (RN 17257 is a NYC fabric wholesaler not the French maison; a missing RN on a handbag is statutorily CORRECT since FTC excludes handbags/luggage from textile labeling). Per-family notes deliberately NOT written — see the overview for why.",
       "relevantPaths": [
         "supabase/migrations/00468_handbags_accessories_brand_knowledge.sql",
         "supabase/migrations/00457_contemporary_womens_brand_knowledge.sql",

@@ -36,7 +36,10 @@ New here? Read [[CONTRACT]] before adding a note.
 ## 20-domain — grading, measurement, contracts
 
 - [[accessibility-conformance-vpat]] — contract — WCAG 2.1 AA, Section 508 and EN 301 549 conformance claims — a published artifact that must stay true, not a snapshot.
-- [[brand-taxonomy-overview]] — reference — Where brand and garment taxonomy currently lives, why that is a problem, and how it gets extracted in US-2058.
+- [[brand-kb-alias-refusals]] — contract — An alias that is also an ordinary word or a shared surname false-positives on unrelated goods; several are refused on purpose and must stay refused.
+- [[brand-kb-decoder-bar]] — contract — A style code becomes a decoder only if it is tag-printed AND regular AND brand-unique in format; the third test is the one that fails, and failing it mints false positives.
+- [[brand-kb-negative-findings]] — contract — Facts that look right and are wrong, plus the statutory reason a missing RN on a handbag is correct rather than suspicious.
+- [[brand-taxonomy-overview]] — reference — Per-brand values live in the database; the per-corpus rules that govern them had no column and lived only in immutable migration headers until US-2058.
 - [[garment-passport-privacy]] — contract — What a passport may expose publicly, and the salted-hash rule that keeps it de-identified.
 - [[grading-scale-and-weights]] — contract — The 1.0-10.0 scale, the five weighted factors, and the rounding rule that has now shipped wrong twice.
 - [[measurement-accuracy]] — contract — Tolerances the measurement pipeline must hold and how accuracy is validated.

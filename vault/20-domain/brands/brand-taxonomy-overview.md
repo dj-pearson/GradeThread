@@ -1,73 +1,81 @@
 ---
-title: Brand taxonomy — overview and extraction status
+title: Brand knowledge base — what lives where
 type: reference
 status: current
 source_of_truth: vault
 code_refs:
-  - supabase/migrations/00457_contemporary_womens_brand_knowledge.sql
-  - supabase/migrations/00458_basics_mall_brand_knowledge.sql
-  - supabase/migrations/00459_footwear_brand_knowledge.sql
-  - supabase/migrations/00467_preppy_contemporary_mens_brand_knowledge.sql
-  - supabase/migrations/00468_handbags_accessories_brand_knowledge.sql
-reviewed: 2026-07-18
-tags: [grading, brands, taxonomy]
-summary: Where brand and garment taxonomy currently lives, why that is a problem, and how it gets extracted in US-2058.
+  - supabase/migrations/00389_brand_knowledge_base.sql
+reviewed: 2026-07-19
+tags: [grading, brands, taxonomy, moc]
+summary: Per-brand values live in the database; the per-corpus rules that govern them had no column and lived only in immutable migration headers until US-2058.
 ---
 
-# Brand taxonomy — overview and extraction status
+<!-- vault-move:no-rewrite -->
 
-This folder will hold the brand and garment taxonomy that grounds grading and
-listing. **It is largely empty on purpose** — the extraction is US-2058, and this
-note exists to explain the situation until then.
+# Brand knowledge base — what lives where
 
-## Where the knowledge lives today
+## The split
 
-Roughly **830 lines** of brand taxonomy sit in the leading comments of five
-migrations:
+| Kind of knowledge | Lives in | Authority |
+|---|---|---|
+| Per-**brand** values — aliases, `tag_eras`, `country_patterns`, `authentication_tells`, decoders, colorways, size charts | the database (`brand_knowledge` + 5 sibling tables) | **the DB** |
+| Per-**corpus** rules — what qualifies as a decoder, what may be an alias, what a recorded negative means | **these notes** | **the vault** |
 
-| Migration | Header lines |
-|---|---|
-| `00468_handbags_accessories_brand_knowledge.sql` | 196 |
-| `00467_preppy_contemporary_mens_brand_knowledge.sql` | 182 |
-| `00458_basics_mall_brand_knowledge.sql` | 167 |
-| `00457_contemporary_womens_brand_knowledge.sql` | 143 |
-| `00459_footwear_brand_knowledge.sql` | 141 |
+The grader reads the database. It never reads these notes. That is intentional:
+notes carry the *reasoning*, rows carry the *values*, and conflating them is how
+a note starts drifting from the table it describes.
 
-## Why that is a problem
+**Do not restate row data here.** If you find a brand's aliases listed in a note,
+that copy is wrong by construction — delete it and query the table.
 
-**Applied migrations are immutable.** Correcting a fact in one of those headers is
-not possible — the file has already run against production, and editing it after
-the fact breaks the guarantee that migrations describe what actually happened. The
-only way to "amend" the knowledge is to write another migration whose sole purpose
-is to carry a corrected comment, which nobody does.
+## Why the rules needed extracting
 
-So this taxonomy is effectively **write-once**: not indexed, not searchable
-alongside other grading knowledge, and invisible to anyone working on grading who
-does not already know it is there.
+37 `*_brand_knowledge.sql` migrations carry **2,259 lines of header comments**
+across 12,059 total lines. Those headers are not decoration; they contain the
+research reasoning behind every seeded row, and they cite each other constantly —
+`00389` is referenced 126 times, `00468` 118 times, `00454` 109 times. A citation
+network of that density is a wiki trying to exist inside SQL comments.
 
-It is also flat. SQL comments cannot express that a brand appears in two tiers, or
-why a tier boundary sits where it does — relationships that wikilinks handle
-naturally.
+**The audit answer (US-2058):** the schema has columns for aliases, tells, eras,
+patterns, decoders, colorways and size charts — all **per-brand**. It has no
+column, and could not sensibly have one, for a rule that spans the corpus: the
+decoder bar, the sourcing policy, or *why* a negative was recorded. Those are not
+attributes of any single brand.
 
-## The split this folder maintains
+So the finding is not "taxonomy failed to reach a row". It is structural:
 
-When US-2058 lands, each brand-family note owns the **reasoning** — why a brand
-sits in a tier, what the authentication tells are, how eras are distinguished. The
-`brand_knowledge` **table rows** remain the source of truth for the **values** the
-grader actually reads at runtime.
+> **The per-brand data is in the database. The rules that govern it never had
+> anywhere to go, so they went into immutable migration headers — where they
+> cannot be edited, are not indexed, and no grading work will surface them.**
 
-Keep that split explicit in every note here. A note that starts restating row data
-will drift from the table silently, and the grader will never notice.
+Applied migrations are immutable. Correcting a fact in one of those headers is
+not possible without writing another migration whose only purpose is a corrected
+comment, which nobody does. The rules were write-once.
 
-## Open question for the extraction
+## The extracted rules
 
-US-2058 includes an audit comparing the header content against the rows actually
-present in production. Any taxonomy documented in a header but never inserted as a
-row is **documented knowledge the grader has never seen** — worth knowing about
-before treating these headers as a description of live behaviour.
+- [[brand-kb-decoder-bar]] — tag-printed AND regular AND brand-unique; the third
+  test is the one that fails, and failing it mints false positives
+- [[brand-kb-alias-refusals]] — the words deliberately NOT seeded, and why an
+  alias cannot express "only when pre-2003"
+- [[brand-kb-negative-findings]] — RN 17257 is not Longchamp; why a missing RN on
+  a handbag is *correct*; folklore that survives repetition
+
+## Scope correction
+
+The story that commissioned this (US-2058) described **five** migrations and
+~830 header lines. That was the top five *by header size*
+(`00457`, `00458`, `00459`, `00467`, `00468` — 819 lines between them). The real
+corpus is **37 migrations and 2,259 header lines**, roughly 2.7× the estimate.
+
+This pass extracted the **cross-cutting rules**, which is where the
+unrecoverable knowledge concentrated. Per-brand narrative in the remaining
+headers is largely mirrored by the `notes` column on each row, so it is
+queryable even though it is not indexed. If per-family notes are wanted later,
+that is a separate piece of work against a corpus that is now understood.
 
 ## Related
 
-- [[grading-scale-and-weights]] — what consumes this taxonomy
-- [[adr-0001-knowledge-vault]] — why extraction is worth doing
+- [[grading-scale-and-weights]] — what consumes brand identification
+- [[adr-0001-knowledge-vault]] — why extraction was worth doing
 - [[INDEX]]
