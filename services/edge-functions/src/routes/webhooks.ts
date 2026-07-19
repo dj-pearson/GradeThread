@@ -33,6 +33,7 @@ import { classifyPerGradeFlip } from "../lib/per-grade-flip.ts";
 import { recordWebhookDeadLetter } from "../lib/webhook-dead-letter.ts";
 import { captureException } from "../lib/observability.ts";
 import { emitOpsEvent } from "../lib/ops-events.ts";
+import { recordAgreedTerms } from "../lib/agreed-terms.ts";
 import { notifyPlanDowngrade } from "../lib/plan-change-notify.ts";
 import { applySesFeedback } from "../lib/email-suppression.ts";
 import { type SnsMessage, verifySnsSignature } from "../lib/sns-verify.ts";
@@ -397,6 +398,9 @@ async function recordEvent(
   fromPlan: FlipdeskPlan | null,
   toPlan: FlipdeskPlan | null,
   rawPayload: Record<string, unknown>,
+  // US-2117 AC3: monthly|yearly. Optional so the other four call sites (which
+  // are not plan changes) need no argument.
+  billingInterval?: string | null,
 ): Promise<void> {
   const { error } = await supabaseAdmin
     .from("flipdesk_subscription_events")
@@ -404,6 +408,7 @@ async function recordEvent(
       user_id: userId,
       stripe_event_id: stripeEventId,
       event_type: eventType,
+      billing_interval: billingInterval ?? null,
       from_plan: fromPlan,
       to_plan: toPlan,
       raw_payload: rawPayload,
@@ -570,7 +575,24 @@ async function handleSubscriptionChange(event: Stripe.Event) {
     user.flipdesk_plan,
     plan,
     { subscription_id: sub.id, status: sub.status, plan, interval },
+    // US-2117 AC3: the gap 00215's own comment recorded. from_plan/to_plan
+    // alone cannot distinguish a monthly→yearly switch from a no-op, so a plan
+    // change was ambiguous in the ledger.
+    interval,
   );
+
+  // US-2117 AC1: snapshot the agreed terms, immutably, at purchase.
+  //
+  // Price is otherwise resolved LIVE from a mutable pricing_plans row, so a
+  // later price change silently rewrites what this user "agreed to". Written
+  // here rather than at checkout because this handler sees the authoritative
+  // subscription object (amount, interval and trial as Stripe actually applied
+  // them) — checkout.session sees what was requested, which is not the same.
+  //
+  // Best-effort: a compliance record must never be the reason entitlement
+  // fails. The insert is idempotent via uniq_subscription_agreements_stripe, so
+  // a webhook redelivery cannot mint a second "agreement" for one purchase.
+  await recordAgreedTerms(user.id, sub, plan);
 
   // If Stripe set trial_end on a new subscription, persist it (one trial ever).
   const trialEndsAtUpdate =

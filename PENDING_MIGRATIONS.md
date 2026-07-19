@@ -4061,3 +4061,43 @@ one on the next nightly tick.
 discovery errors and the job now returns 500 **by design** — it fails loud
 rather than writing zero snapshots, which would look identical to "no sellers
 hold inventory". Expect a failed equity-snapshot run, not a silent flat trend.
+
+---
+
+## 00486_agreed_terms_record.sql — PENDING (US-2117, **P0**)
+
+**Risk: MEDIUM.** Three new tables, two triggers, one column, and **two
+backfills**. Idempotent and safe to re-run, but the backfills touch existing
+rows — read them before applying.
+
+**What it does**
+- `subscription_agreements` — immutable snapshot of what a user agreed to
+  (plan, interval, amount, currency, trial terms, disclosure version).
+  **Trigger-enforced append-only**: UPDATE and DELETE both raise.
+- `pricing_plan_revisions` + a trigger on `pricing_plans` — append-only price
+  history, written automatically so a past price is reconstructable.
+- `flipdesk_subscription_events.billing_interval` — the gap 00215's own comment
+  recorded.
+- `subscription_cancellations` — append-only, replacing the single mutable
+  `users.cancellation_reason` that each cancel overwrote.
+
+**The two backfills, so they are not a surprise:**
+1. Seeds `pricing_plan_revisions` with the CURRENT `pricing_plans` rows as
+   revision zero — so the history has a floor rather than implying prices did
+   not exist before today.
+2. Copies the existing `users.cancellation_reason` into
+   `subscription_cancellations`, timestamped `users.updated_at` (the best
+   available approximation — the true cancel time was never recorded, which is
+   the defect). Both are `NOT EXISTS`-guarded, so re-running adds nothing.
+
+**`users.cancellation_reason` is KEPT.** Readers still use it; this migration
+adds the durable record beside it rather than breaking them.
+
+**Apply order:** after 00485. Then `NOTIFY pgrst, 'reload schema';` — the edge
+writes `subscription_agreements` and the new `billing_interval` column.
+
+**⚠ Deploy-order note:** the edge writes these on the subscription webhook. If
+the edge rolls before the migration, `recordAgreedTerms` fails its insert —
+which is caught and reported, never fatal (a compliance record must not block a
+paying customer's entitlement), but you would silently miss agreements for any
+subscription created in that window.

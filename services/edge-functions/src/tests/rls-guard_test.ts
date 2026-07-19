@@ -55,6 +55,20 @@ const PARENT_SCOPED = [
 // service-role (which bypasses RLS) reads/writes them. This is the most
 // restrictive configuration, not a gap.
 const SERVICE_ROLE_ONLY = new Set([
+  // US-2117 compliance records. All three are EVIDENTIARY: they exist so a past
+  // claim about price/terms can be proven later, and they are read only by
+  // admin/support tooling through the service-role client. Deny-all is the
+  // deliberate posture — no seller route reads them, and the failure mode of a
+  // permissive policy here (a user reading, or worse influencing, the record of
+  // what they agreed to) is exactly what the table is meant to rule out.
+  //
+  // subscription_agreements is additionally trigger-enforced APPEND-ONLY, so
+  // even the service role cannot amend a written agreement.
+  "subscription_agreements",
+  "subscription_cancellations",
+  // Not tenant data at all — one row per pricing change, no user column. Listed
+  // for completeness so a future reader does not wonder why it is unpoliced.
+  "pricing_plan_revisions",
   // US-1880 selector health: anonymous adapter-failure counters written by the
   // public (unauthenticated) selector-health endpoint. NON-TENANT and, by
   // construction, unjoinable — no listing URL, no account, no IP, no instance
