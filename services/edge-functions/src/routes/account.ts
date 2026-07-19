@@ -8,6 +8,11 @@ import {
   generateRecoveryCodes,
   hashRecoveryCode,
 } from "../lib/recovery-codes.ts";
+import {
+  type PageFetcher,
+  pageThrough,
+  streamJsonArrayMembers,
+} from "../lib/export-stream.ts";
 
 // Account data portability (US-275 / GDPR + CCPA). Authed user exports a copy
 // of their own data. Mounted behind authMiddleware in main.ts, so c.var.userId
@@ -195,6 +200,14 @@ async function removeAll(bucket: string, paths: string[]) {
   }
 }
 
+// Minimal structural shape of the query builder we chain onto. Avoids importing
+// supabase-js generics into a route file just to describe two methods.
+type PostgrestLike = {
+  eq: (col: string, val: unknown) => PostgrestLike;
+  in: (col: string, vals: readonly unknown[]) => PostgrestLike;
+  range: (from: number, to: number) => unknown;
+};
+
 accountRoutes.get("/export", async (c) => {
   const userId = c.get("userId");
 
@@ -215,32 +228,80 @@ accountRoutes.get("/export", async (c) => {
 
   const submissionIds = (submissions.data ?? []).map((r) => (r as { id: string }).id);
 
-  // grade_reports is still scoped through the owned submissions; listings/sales
-  // now carry a denormalized user_id (US-410), so they filter by the tenant key
-  // directly — index-backed, no inventory_items round-trip.
-  const [gradeReports, listings, sales] = await Promise.all([
-    submissionIds.length
-      ? supabaseAdmin.from("grade_reports").select("*").in("submission_id", submissionIds)
-      : Promise.resolve({ data: [] }),
-    supabaseAdmin.from("listings").select("*").eq("user_id", userId),
-    supabaseAdmin.from("sales").select("*").eq("user_id", userId),
-  ]);
+  // US-2030: the three unbounded tables are now PAGED and STREAMED rather than
+  // materialised. grade_reports/listings/sales are where a large seller's whole
+  // commercial history lives, and select("*") with no bound on all three at once
+  // was the most likely OOM in the service — failing for exactly the biggest
+  // accounts. Peak memory is now ~one page per table instead of the account.
+  //
+  // The small, inherently-bounded sets above (profile, sources, passport nodes)
+  // stay eager: paging a handful of rows buys nothing and costs clarity.
+  //
+  // The response is still ONE JSON DOCUMENT, written progressively — see
+  // lib/export-stream.ts for why this streams the response rather than writing
+  // NDJSON to a bucket (an export at rest is a new copy of the subject's data
+  // with its own retention obligation, and iOS consumes these bytes as .json).
+  const pageOf = (table: string, scope: (q: PostgrestLike) => PostgrestLike): PageFetcher =>
+  (from, to) =>
+    scope(supabaseAdmin.from(table).select("*")).range(from, to) as unknown as ReturnType<
+      PageFetcher
+    >;
 
-  const payload = {
-    exported_at: new Date().toISOString(),
-    user_id: userId,
-    profile: profile.data ?? null,
-    submissions: submissions.data ?? [],
-    grade_reports: gradeReports.data ?? [],
-    inventory_items: inventory.data ?? [],
-    listings: listings.data ?? [],
-    sales: sales.data ?? [],
-    sources: sources.data ?? [],
-    passport_identity_nodes: passportNodes.data ?? [],
-  };
+  const encoder = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const push = (s: string) => controller.enqueue(encoder.encode(s));
+      try {
+        push(
+          `{"exported_at":${JSON.stringify(new Date().toISOString())},` +
+            `"user_id":${JSON.stringify(userId)},` +
+            `"profile":${JSON.stringify(profile.data ?? null)},` +
+            `"submissions":${JSON.stringify(submissions.data ?? [])},` +
+            `"inventory_items":${JSON.stringify(inventory.data ?? [])},` +
+            `"sources":${JSON.stringify(sources.data ?? [])},` +
+            `"passport_identity_nodes":${JSON.stringify(passportNodes.data ?? [])},`,
+        );
 
-  return c.json(payload, 200, {
-    "Content-Disposition": `attachment; filename="gradethread-export-${userId}.json"`,
+        const streamed: Array<[string, PageFetcher | null]> = [
+          [
+            "grade_reports",
+            submissionIds.length
+              ? pageOf("grade_reports", (q) => q.in("submission_id", submissionIds))
+              : null,
+          ],
+          ["listings", pageOf("listings", (q) => q.eq("user_id", userId))],
+          ["sales", pageOf("sales", (q) => q.eq("user_id", userId))],
+        ];
+
+        for (let i = 0; i < streamed.length; i++) {
+          const [key, fetcher] = streamed[i];
+          push(`"${key}":[`);
+          if (fetcher) {
+            for await (const chunk of streamJsonArrayMembers(pageThrough(fetcher))) {
+              push(chunk);
+            }
+          }
+          push(i === streamed.length - 1 ? "]" : "],");
+        }
+        push("}");
+        controller.close();
+      } catch (err) {
+        // A mid-stream failure cannot become a 500 — headers are already sent.
+        // ERROR the stream rather than closing it: a truncated-but-valid-looking
+        // JSON file is the worst outcome, because the subject receives something
+        // that looks complete and is not. An aborted download is visibly broken.
+        console.error("[account/export] stream failed:", err);
+        controller.error(err instanceof Error ? err : new Error(String(err)));
+      }
+    },
+  });
+
+  return new Response(body, {
+    status: 200,
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Content-Disposition": `attachment; filename="gradethread-export-${userId}.json"`,
+    },
   });
 });
 
