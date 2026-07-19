@@ -734,7 +734,31 @@ async function handleSubscriptionChange(event: Stripe.Event) {
 
     // First-time subscription → welcome-to-paid email (skip when the price was
     // unmappable — we didn't entitle a paid plan, so don't send a paid welcome).
-    if (event.type === "customer.subscription.created" && status !== "trialing" && resolvedPlan) {
+    //
+    // US-2122 AC4: this used to fire ONLY on `subscription.created` with a
+    // non-trialing status — so two real purchase paths acknowledged nothing:
+    //
+    //   • TRIAL → PAID conversion. The user adds a card during the trial and is
+    //     charged for the first time, and that arrives as subscription.UPDATED
+    //     (trialing → active), never .created. The one moment they most need a
+    //     receipt was the one moment they got none.
+    //   • IN-PLACE UPGRADE. Also .updated, and per US-2118 the click IS the
+    //     purchase with no checkout page — so this email was the only artifact
+    //     that could have confirmed it, and it never sent.
+    //
+    // Both are detected from a STATE TRANSITION rather than the event type,
+    // using the stored previous values the handler already loaded. That matters:
+    // subscription.updated fires for many things (renewals, cancel-at-period-end
+    // toggles, payment-method changes), so acknowledging every update would spam
+    // a user on events that are not purchases at all.
+    const wasTrialing = user.subscription_status === "trialing";
+    const trialConverted = wasTrialing && status === "active";
+    const planChanged = !!resolvedPlan && user.flipdesk_plan !== plan;
+    const isNewPurchase =
+      (event.type === "customer.subscription.created" && status !== "trialing") ||
+      (event.type === "customer.subscription.updated" && (trialConverted || planChanged));
+
+    if (isNewPurchase && resolvedPlan) {
       const priceCents = sub.items?.data?.[0]?.price?.unit_amount ?? 0;
       safeSendEmail(
         sendSubscriptionStartedEmail(user.email, {

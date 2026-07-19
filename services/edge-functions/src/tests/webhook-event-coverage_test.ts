@@ -216,3 +216,54 @@ Deno.test("US-2119/US-2120: the two trial notices cannot both fire for one user"
       "those, and without this filter both would fire for the same user",
   );
 });
+
+// ── US-2122 AC4: acknowledge EVERY purchase path ────────────────────
+//
+// The acknowledgement fired only on subscription.created with a non-trialing
+// status, so two real purchase paths acknowledged nothing:
+//
+//   • TRIAL → PAID: the user adds a card during the trial and is charged for
+//     the first time. That arrives as subscription.UPDATED (trialing → active),
+//     never .created — the moment they most need a receipt was the one moment
+//     they got none.
+//   • IN-PLACE UPGRADE: also .updated, and per US-2118 the click IS the purchase
+//     with no checkout page, so this email was the only possible artifact.
+//
+// Detected from a STATE TRANSITION, not the event type: subscription.updated
+// also fires for renewals, cancel-at-period-end toggles and payment-method
+// changes, so acknowledging every update would mail users about non-purchases.
+
+Deno.test("US-2122: the acknowledgement is not gated on .created alone", () => {
+  const handler = WEBHOOKS_SRC.slice(
+    WEBHOOKS_SRC.indexOf("const wasTrialing"),
+    WEBHOOKS_SRC.indexOf("const wasTrialing") + 900,
+  );
+  assert(
+    /customer\.subscription\.updated/.test(handler),
+    "an in-place upgrade and a trial conversion both arrive as .updated — " +
+      "gating on .created alone is what made them silent",
+  );
+});
+
+Deno.test("US-2122: a trial conversion and a plan change each qualify", () => {
+  const handler = WEBHOOKS_SRC.slice(
+    WEBHOOKS_SRC.indexOf("const wasTrialing"),
+    WEBHOOKS_SRC.indexOf("const wasTrialing") + 900,
+  );
+  assert(/trialConverted/.test(handler), "trial → paid must acknowledge");
+  assert(/planChanged/.test(handler), "an in-place upgrade must acknowledge");
+});
+
+// The guard against the opposite failure: mailing on every update.
+Deno.test("US-2122: a bare .updated with no transition does NOT acknowledge", () => {
+  const handler = WEBHOOKS_SRC.slice(
+    WEBHOOKS_SRC.indexOf("const wasTrialing"),
+    WEBHOOKS_SRC.indexOf("const wasTrialing") + 900,
+  );
+  // The .updated branch must be conditioned on a transition, never bare.
+  assert(
+    /customer\.subscription\.updated"\s*&&\s*\(trialConverted \|\| planChanged\)/.test(handler),
+    "the .updated branch must require a transition — renewals, cancel toggles " +
+      "and payment-method changes are all .updated and are NOT purchases",
+  );
+});
