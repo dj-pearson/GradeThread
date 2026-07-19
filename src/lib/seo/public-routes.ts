@@ -225,6 +225,9 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
   },
   {
     path: "/flipdesk",
+    // US-2105: the markup was already prerendered; it simply was not DECLARED,
+    // so the US-2044 parity guard could not see it.
+    jsonLdType: "SoftwareApplication",
     title: "FlipDesk — eBay Reseller Management",
     description:
       "FlipDesk is GradeThread's eBay reseller suite: grade, comp, list, reprice, and reconcile in one place — with a verifiable condition grade in every listing.",
@@ -233,6 +236,7 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
   },
   {
     path: "/sell-used-clothes-ebay",
+    jsonLdType: "Article",
     title: "How to Sell Used Clothes on eBay",
     description:
       "A condition-first guide to selling used clothes on eBay: grade the condition, map it to eBay's fields, price to sold comps, and cut returns.",
@@ -250,6 +254,7 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
   },
   {
     path: "/condition-grading",
+    jsonLdType: "DefinedTermSet",
     title: "What Is Clothing Condition Grading?",
     description:
       "A complete guide to pre-owned clothing condition grading: the 1.0–10.0 scale, the 7 tiers (NWT to Poor), and the 5 weighted factors graders assess.",

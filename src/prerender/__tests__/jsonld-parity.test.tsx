@@ -216,3 +216,102 @@ describe("US-2044: every route's declared jsonLdType is actually prerendered", (
     ).toEqual([]);
   });
 });
+
+// ── US-2105 AC3: close the other half of the US-2044 hole ───────────
+//
+// The guard above walks the registry and checks that a DECLARED jsonLdType is
+// actually prerendered. It can only check routes that declare one — and 19 of
+// 213 declare nothing, so they sit entirely outside it.
+//
+// That narrows the US-2044 regression rather than eliminating it. Adding
+// <SEO jsonLd={...}> to any undeclared route ships markup that exists ONLY in
+// the SPA: react-helmet-async v3 renders no server-side head, so <SEO> injects
+// JSON-LD via useEffect and the prerendered HTML a non-JS crawler sees carries
+// nothing. CI stays green, the page looks correct in a browser, and the
+// structured data is invisible to exactly the consumers it was written for.
+//
+// This asserts the inverse direction: a page that passes jsonLd MUST declare a
+// jsonLdType, so the guard above then picks it up automatically.
+describe("US-2105: a page passing jsonLd must declare a jsonLdType", () => {
+  it("no undeclared route ships SPA-only structured data", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const { PUBLIC_ROUTES } = await import("@/lib/seo/public-routes");
+
+    const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
+    const router = read("src/routes/index.tsx");
+
+    // component name → page source file
+    const componentFile = new Map<string, string>();
+    for (const m of router.matchAll(
+      /const (\w+) = lazy\(\(\) => import\("@\/(pages\/[^"]+)"\)/g,
+    )) {
+      componentFile.set(m[1]!, `src/${m[2]!}`);
+    }
+    // route path → component name (first binding wins)
+    const pathComponent = new Map<string, string>();
+    for (const m of router.matchAll(/\{\s*path:\s*"([^"]+)"[\s\S]{0,200}?<(\w+)\s*\/>/g)) {
+      if (!pathComponent.has(m[1]!)) pathComponent.set(m[1]!, m[2]!);
+    }
+    // The mapping is the load-bearing part — if the router's shape changes and
+    // this silently resolves nothing, the guard passes while checking zero
+    // files, which is the failure mode it exists to prevent.
+    expect(
+      componentFile.size,
+      "could not parse lazy() page bindings out of src/routes/index.tsx",
+    ).toBeGreaterThan(50);
+    expect(pathComponent.size).toBeGreaterThan(50);
+
+    // The router imports without a file extension ("@/pages/marketing/for-brands"),
+    // so the module path has to be resolved to a real file. An earlier version of
+    // this guard did `try { read(file) } catch { continue }` — every read threw,
+    // every route was skipped, and the guard reported green while checking
+    // NOTHING. That is precisely the failure it exists to catch, so an
+    // unresolvable page is now a hard failure rather than a silent skip.
+    const resolve = (base: string): string | null => {
+      for (const ext of [".tsx", ".ts"]) {
+        try {
+          read(base + ext);
+          return base + ext;
+        } catch {
+          /* try next */
+        }
+      }
+      return null;
+    };
+
+    const offenders: string[] = [];
+    const unresolved: string[] = [];
+    let checked = 0;
+    for (const route of PUBLIC_ROUTES) {
+      if ((route as { jsonLdType?: string }).jsonLdType) continue;
+      const comp = pathComponent.get(route.path);
+      const base = comp ? componentFile.get(comp) : undefined;
+      if (!base) continue; // SSR'd or non-lazy route; not in scope here
+      const file = resolve(base);
+      if (!file) {
+        unresolved.push(`${route.path} -> ${base}`);
+        continue;
+      }
+      checked++;
+      if (/jsonLd\s*[=:]/.test(read(file))) offenders.push(`${route.path} (${file})`);
+    }
+
+    expect(
+      unresolved,
+      "could not resolve these page modules to a file — the guard would " +
+        "silently check nothing for them: " + unresolved.join(", "),
+    ).toEqual([]);
+    // Proof the guard actually inspected the undeclared routes rather than
+    // skipping them all and passing vacuously.
+    expect(checked, "the guard inspected no page files at all").toBeGreaterThan(10);
+
+    expect(
+      offenders,
+      "These routes pass jsonLd in the page but declare no jsonLdType in " +
+        "PUBLIC_ROUTES, so the markup is SPA-only and the US-2044 parity guard " +
+        "cannot see it. Add a jsonLdType to the registry AND mirror the markup " +
+        "in head-builder.ts jsonLdForRoute():\n  " + offenders.join("\n  "),
+    ).toEqual([]);
+  });
+});
