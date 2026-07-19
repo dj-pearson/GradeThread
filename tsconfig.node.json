@@ -14,7 +14,13 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    "noUncheckedIndexedAccess": true
+    "noUncheckedIndexedAccess": true,
+    // US-2106: vite.config.ts imports the SEO/grading constants directly to emit
+    // dist/llms-full-data.json, and that chain reaches modules using the "@/"
+    // alias (grading-scale → json-ld → @/lib/constants). Without this mapping
+    // the build fails to resolve them here even though the app config has it.
+    "baseUrl": ".",
+    "paths": { "@/*": ["./src/*"] }
   },
   "include": ["vite.config.ts"]
 }

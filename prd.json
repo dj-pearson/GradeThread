@@ -3342,7 +3342,7 @@
     {
       "id": "US-2106",
       "priority": 1997,
-      "passes": false,
+      "passes": true,
       "title": "Ship llms-full.txt — full grading scale + glossary in one fetch",
       "description": "functions/llms.txt.ts is high quality and registry-driven, but vault/40-growth/seo-geo-strategy.md section 6.4 also calls for an llms-full.txt carrying the full text of the scale and glossary in a single fetch, so an answer engine can ingest the whole standard without crawling 40+ pages. It was never built. The data already exists as structured constants in src/lib/seo/grading-scale.ts, glossary.ts, reseller-glossary.ts and flaw-library.ts.",
       "acceptanceCriteria": [
@@ -3351,7 +3351,7 @@
         "Reference it from llms.txt and robots.txt.",
         "CI guard mirroring src/test/llms-txt.test.ts."
       ],
-      "notes": "[P2][GEO] Found 2026-07-18 by the SEO/marketing deep-dive audit. Cheapest remaining GEO win — pure derivation from data we already own, and it adds no indexable page surface, so it is not affected by the pSEO/indexability constraint."
+      "notes": "[P2][GEO] Found 2026-07-18 by the SEO/marketing deep-dive audit. Cheapest remaining GEO win — pure derivation from data we already own, and it adds no indexable page surface, so it is not affected by the pSEO/indexability constraint. [2026-07-19 DONE — all 4 ACs] /llms-full.txt is a Pages Function rendering dist/llms-full-data.json, emitted at build by a new llmsFullDataPlugin in vite.config.ts from the existing constants (grading-scale, glossary, reseller-glossary, flaw-library) PLUS src/lib/grading-standard.ts. Nothing hand-maintained. Pages Functions cannot import from src/ (functions tsconfig includes only functions/**), so this follows the exact pattern llms.txt already uses with seo-manifest.json: build emits data, function fetches and renders. Landed AFTER US-2107, which materially changed the value: the payload carries the measurable half of the standard — mm size tolerances, severity multipliers, flaw->factor routing, and the 0.75 review threshold — so llms-full.txt is a citable SPEC rather than a rubric of adjectives. Shipped payload: 7 tiers with marketplace equivalents, 5 factor weights, 6 size buckets, 15 flaw routings, 12 glossary terms, 44 reseller terms, 32 flaws. AC3: robots.txt gained an LLM-Full comment line and buildLlmsTxt now points at the full standard ABOVE the link map, so an engine following one URL skips the 40+ page crawl. AC4: src/test/llms-full-txt.test.ts (7 tests) asserts EVERY tier/factor/tolerance/glossary term/reseller term/flaw reaches the output — the derivation guarantee, since a term added to the constants but missing here would hand engines a standard quietly narrower than the site. Negative-verified by making the renderer drop the last flaw: the guard names it exactly. The function returns 503 rather than a partial render on a missing/malformed artifact (US-2097 lesson: half a grading spec served 200 and cached is a document an engine will quote as complete). TWO THINGS CAUGHT BY EXISTING GUARDS, both real: (1) routes-json.test.ts (US-424) failed because I had not added /llms-full.txt to public/_routes.json — without it Cloudflare Pages serves a static 404 instead of invoking the function, a silent prod failure; (2) tsc failed because importing the SEO constants into vite.config.ts drags @/-aliased modules (grading-scale -> json-ld -> @/lib/constants) into tsconfig.node.json, which had no paths mapping — added."
     },
     {
       "id": "US-2107",

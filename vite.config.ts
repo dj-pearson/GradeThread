@@ -6,6 +6,23 @@ import { sentryVitePlugin } from "@sentry/vite-plugin";
 import path from "path";
 import { writeFileSync, mkdirSync } from "fs";
 import { PUBLIC_ROUTES, SITE_URL, lastModifiedFor } from "./src/lib/seo/public-routes";
+// US-2106: sources for dist/llms-full-data.json. All existing constants — this
+// plugin derives, it does not author.
+import {
+  GRADETHREAD_SCALE_NAME,
+  GRADETHREAD_SCALE_DEFINITION,
+  scaleBands,
+} from "./src/lib/seo/grading-scale";
+import { GLOSSARY_ENTRIES } from "./src/lib/seo/glossary";
+import { RESELLER_TERMS, RESELLER_GLOSSARY_HUB_PATH } from "./src/lib/seo/reseller-glossary";
+import { FLAW_ENTRIES, FLAW_LIBRARY_HUB_PATH } from "./src/lib/seo/flaw-library";
+import {
+  PUBLISHED_FACTOR_WEIGHTS,
+  PUBLISHED_SIZE_BUCKETS,
+  PUBLISHED_SEVERITY_SCALE,
+  PUBLISHED_FLAW_ROUTING,
+} from "./src/lib/grading-standard";
+import { GRADING_REVIEW_CONFIDENCE_THRESHOLD } from "./src/lib/constants";
 
 // Source-map upload only runs on builds that carry a Sentry auth token (CI).
 // Local/tokenless builds skip it and emit no source maps, so nothing leaks.
@@ -101,12 +118,73 @@ function seoManifestPlugin(): Plugin {
   };
 }
 
+// US-2106: emits dist/llms-full-data.json — the whole grading standard (scale,
+// factor weights, measurable tolerances, glossary, flaw library) as one payload,
+// which functions/llms-full.txt.ts renders at /llms-full.txt.
+//
+// Derived, never hand-maintained: an answer engine can ingest the entire
+// standard in ONE fetch instead of crawling 40+ pages, and it cannot drift from
+// the pages, because both read these same constants.
+//
+// This mirrors seoManifestPlugin: Pages Functions do not import from src/ (the
+// functions tsconfig only includes functions/**), so the build emits data and
+// the function fetches it — exactly how llms.txt already consumes
+// seo-manifest.json.
+function llmsFullDataPlugin(): Plugin {
+  return {
+    name: "llms-full-data",
+    apply: "build",
+    closeBundle() {
+      const payload = {
+        generatedAt: new Date().toISOString(),
+        scale: {
+          name: GRADETHREAD_SCALE_NAME,
+          definition: GRADETHREAD_SCALE_DEFINITION,
+          bands: scaleBands(),
+        },
+        factorWeights: PUBLISHED_FACTOR_WEIGHTS,
+        // US-2107: the measurable half — mm tolerances, severity multipliers and
+        // flaw→factor routing, mirrored from the grading engine and guarded by
+        // grading-standard-parity.test.ts. This is the part that makes the
+        // standard citable as a SPEC rather than a rubric of adjectives.
+        sizeBuckets: PUBLISHED_SIZE_BUCKETS,
+        severityScale: PUBLISHED_SEVERITY_SCALE,
+        flawRouting: PUBLISHED_FLAW_ROUTING,
+        reviewConfidenceThreshold: GRADING_REVIEW_CONFIDENCE_THRESHOLD,
+        glossary: GLOSSARY_ENTRIES.map((e) => ({
+          term: e.term,
+          expansion: e.expansion,
+          path: e.path,
+          definition: e.definition,
+        })),
+        resellerTerms: RESELLER_TERMS.map((t) => ({
+          term: t.term,
+          alternateNames: t.alternateNames,
+          path: `${RESELLER_GLOSSARY_HUB_PATH}/${t.slug}`,
+          definition: t.definition,
+        })),
+        flaws: FLAW_ENTRIES.map((f) => ({
+          name: f.name,
+          alternateNames: f.alternateNames,
+          path: `${FLAW_LIBRARY_HUB_PATH}/${f.slug}`,
+          definition: f.definition,
+        })),
+      };
+      writeFileSync(
+        path.resolve(__dirname, "dist/llms-full-data.json"),
+        JSON.stringify(payload) + "\n",
+      );
+    },
+  };
+}
+
 export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
     bundleModulesManifestPlugin(),
     seoManifestPlugin(),
+    llmsFullDataPlugin(),
     VitePWA({
       registerType: "autoUpdate",
       // The service worker is registered explicitly from the FlipDesk intake

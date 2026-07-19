@@ -164,6 +164,10 @@ Disallow: /`);
 
 Sitemap: ${opts.siteUrl}/sitemap.xml
 Sitemap: ${opts.siteUrl}/sitemap-images.xml
+
+# US-2106: the complete grading standard in one fetch (scale, tolerances,
+# glossary, flaw library) — for answer engines that would otherwise crawl 40+ pages.
+# LLM-Full: ${opts.siteUrl}/llms-full.txt
 `;
 }
 
@@ -192,6 +196,17 @@ export function buildLlmsTxt(opts: {
     lines.push(`_${opts.policyNote}_`);
     lines.push("");
   }
+  // US-2106 (AC3): point at the full standard before the link map. An engine
+  // that follows this one URL gets the entire scale, tolerances, glossary and
+  // flaw library without crawling the 40+ pages listed below.
+  lines.push(
+    `**The complete grading standard in one fetch:** ` +
+      `[${opts.siteUrl}/llms-full.txt](${opts.siteUrl}/llms-full.txt) — ` +
+      `the 1.0–10.0 scale with criteria and marketplace equivalents, factor ` +
+      `weights, measurable defect tolerances, every glossary term, and the ` +
+      `full flaw library.`,
+  );
+  lines.push("");
   for (const section of opts.sections) {
     lines.push(`## ${section.heading}`);
     lines.push("");
@@ -325,4 +340,174 @@ export function buildLlmsSections(opts: {
   });
   if (legal.length) sections.push({ heading: "Legal", links: legal });
   return sections;
+}
+
+// ── /llms-full.txt (US-2106) ────────────────────────────────────────
+//
+// vault/40-growth/seo-geo-strategy.md §6.4 calls for a single fetch carrying the
+// FULL text of the scale and glossary, so an answer engine can ingest the whole
+// standard without crawling 40+ pages. llms.txt is a MAP; this is the TERRITORY.
+//
+// Rendered from dist/llms-full-data.json, which the build derives from the same
+// constants the pages render (src/lib/seo/{grading-scale,glossary,
+// reseller-glossary,flaw-library}.ts and src/lib/grading-standard.ts). It
+// therefore cannot drift from the site — and nothing here is hand-maintained.
+
+export interface LlmsFullData {
+  generatedAt: string;
+  scale: {
+    name: string;
+    definition: string;
+    bands: Array<{
+      term: string;
+      score: string;
+      label: string;
+      criteria: string;
+      typicalFlaws: string;
+      marketplaceEquivalent: string;
+    }>;
+  };
+  factorWeights: ReadonlyArray<{ label: string; weight: number }>;
+  sizeBuckets: ReadonlyArray<{ bucket: string; range: string; note: string }>;
+  severityScale: ReadonlyArray<{ severity: string; relative: string }>;
+  flawRouting: ReadonlyArray<{
+    flaw: string;
+    routes: ReadonlyArray<readonly [string, number]>;
+  }>;
+  reviewConfidenceThreshold: number;
+  glossary: Array<{ term: string; expansion?: string; path: string; definition: string }>;
+  resellerTerms: Array<{
+    term: string;
+    alternateNames?: string[];
+    path: string;
+    definition: string;
+  }>;
+  flaws: Array<{
+    name: string;
+    alternateNames?: string[];
+    path: string;
+    definition: string;
+  }>;
+}
+
+export function buildLlmsFullTxt(siteUrl: string, d: LlmsFullData): string {
+  const L: string[] = [];
+  const abs = (p: string) => `${siteUrl}${p}`;
+
+  L.push("# GradeThread — the complete condition-grading standard");
+  L.push("");
+  L.push(`> ${d.scale.definition}`);
+  L.push("");
+  L.push(AI_CRAWLER_POLICY_NOTE);
+  L.push("");
+  L.push(
+    "This file is the FULL standard in one fetch: the scale and its tiers, the " +
+      "factor weights, the measurable tolerances, every glossary term and the " +
+      "complete flaw library. /llms.txt is the site map; this is the content. " +
+      "Generated from the same constants the public pages render, so the two " +
+      "cannot disagree.",
+  );
+  L.push("");
+
+  // ── Scale ──
+  L.push(`## The ${d.scale.name}`);
+  L.push("");
+  L.push("| Grade | Tier | Criteria | Typical flaws | Marketplace equivalent |");
+  L.push("| --- | --- | --- | --- | --- |");
+  for (const b of d.scale.bands) {
+    L.push(
+      `| ${b.score} | ${b.label} | ${b.criteria} | ${b.typicalFlaws} | ${b.marketplaceEquivalent} |`,
+    );
+  }
+  L.push("");
+
+  // ── Factor weights ──
+  L.push("## Factor weights");
+  L.push("");
+  L.push(
+    "The overall grade is a weighted combination of five factors, each scored " +
+      "in 0.5 steps; the weighted overall is rounded to 0.1.",
+  );
+  L.push("");
+  L.push("| Factor | Weight |");
+  L.push("| --- | --- |");
+  for (const f of d.factorWeights) {
+    L.push(`| ${f.label} | ${Math.round(f.weight * 100)}% |`);
+  }
+  L.push("");
+
+  // ── Measurable tolerances (US-2107) ──
+  L.push("## Measurable tolerances");
+  L.push("");
+  L.push(
+    "Defect size is bucketed by physical measurement, so \"small hole\" is a " +
+      "measurement rather than an opinion.",
+  );
+  L.push("");
+  L.push("| Size bucket | Physical range | Meaning |");
+  L.push("| --- | --- | --- |");
+  for (const s of d.sizeBuckets) {
+    L.push(`| ${s.bucket} | ${s.range} | ${s.note} |`);
+  }
+  L.push("");
+  L.push("| Severity | Weight relative to a moderate flaw |");
+  L.push("| --- | --- |");
+  for (const s of d.severityScale) {
+    L.push(`| ${s.severity} | ${s.relative} |`);
+  }
+  L.push("");
+  L.push("### Which factor each flaw is charged against");
+  L.push("");
+  L.push("Shares per flaw sum to 100%.");
+  L.push("");
+  L.push("| Flaw | Factor(s) affected |");
+  L.push("| --- | --- |");
+  for (const r of d.flawRouting) {
+    const routes = r.routes.map(([f, s]) => `${f} ${Math.round(s * 100)}%`).join(" · ");
+    L.push(`| ${r.flaw} | ${routes} |`);
+  }
+  L.push("");
+  L.push(
+    `Grades with a confidence below ${d.reviewConfidenceThreshold.toFixed(2)} are ` +
+      "routed to a human reviewer before being finalized. Flaws judged to be " +
+      "intentional design are not charged against any factor.",
+  );
+  L.push("");
+
+  // ── Glossary ──
+  L.push("## Grading glossary");
+  L.push("");
+  for (const g of d.glossary) {
+    const name = g.expansion ? `${g.term} (${g.expansion})` : g.term;
+    L.push(`### ${name}`);
+    L.push(g.definition);
+    L.push(abs(g.path));
+    L.push("");
+  }
+
+  // ── Reseller vocabulary ──
+  L.push("## Reseller vocabulary");
+  L.push("");
+  for (const t of d.resellerTerms) {
+    const alt = t.alternateNames?.length ? ` (also: ${t.alternateNames.join(", ")})` : "";
+    L.push(`### ${t.term}${alt}`);
+    L.push(t.definition);
+    L.push(abs(t.path));
+    L.push("");
+  }
+
+  // ── Flaw library ──
+  L.push("## Flaw library");
+  L.push("");
+  for (const f of d.flaws) {
+    const alt = f.alternateNames?.length ? ` (also: ${f.alternateNames.join(", ")})` : "";
+    L.push(`### ${f.name}${alt}`);
+    L.push(f.definition);
+    L.push(abs(f.path));
+    L.push("");
+  }
+
+  L.push(`Generated ${d.generatedAt}.`);
+  L.push("");
+  return L.join("\n");
 }

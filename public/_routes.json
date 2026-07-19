@@ -50,6 +50,7 @@
     "/rss.xml",
     "/robots.txt",
     "/llms.txt",
+    "/llms-full.txt",
     "/csp-report",
     "/geo.json"
   ],
