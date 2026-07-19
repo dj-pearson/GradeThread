@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2087",
+  "nextId": "US-2088",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2771,6 +2771,35 @@
       "notes": "[EPIC: Knowledge Vault] Karpathy-style agentic wiki — markdown navigation, NO vector DB / embeddings. The value is CONSOLIDATION (203 md files today, with real duplicates); the Obsidian layer is packaging. Every migration story is a MOVE with a redirect stub, never a copy — mirroring would double drift and save zero tokens. Phase 6. Run this only after US-2064 has proven the vault actually works — deleting the stubs is the irreversible step, and it should follow the evidence rather than precede it.",
       "relevantPaths": [
         "vault/00-index/STUBS.md"
+      ]
+    },
+    {
+      "id": "US-2087",
+      "passes": false,
+      "dependsOn": [
+        "US-2057"
+      ],
+      "priority": 1906,
+      "title": "Make the vault fully Obsidian-native (dual-consumer, not either/or)",
+      "description": "As a human reading the vault in Obsidian, I want it to use Obsidian idiom properly — live queries, transclusion, callouts, aliases — so that it is a real Obsidian vault rather than a folder of markdown that Obsidian happens to open.",
+      "acceptanceCriteria": [
+        "AUDIT (2026-07-19, 60 notes): 281 wikilinks and full frontmatter, but ZERO embeds, ZERO block refs, ZERO aliases, ZERO callouts, ZERO Dataview/Bases, 1 heading-link out of 281, no plugins installed, and 47 hand-written Related sections duplicating what the backlinks pane gives free. Roughly 40% Obsidian-native.",
+        "PURE WINS (no downside for either reader): convert hand-rolled \"> **WARNING ...**\" blocks to real callouts (> [!warning] / [!info] / [!danger]) — they render natively AND grep as plain text; add aliases: to notes with common alternate names (frontmatter only, invisible to agents); use heading links [[note#section]] where a section is meant, currently 1 of 281.",
+        "LIVE VIEWS: add Dataview (or core Bases) views — all contract notes, notes by reviewed-date staleness, notes by tag, orphan risk. Install the plugin(s) into .obsidian and commit the config.",
+        "DUAL-CONSUMER RULE — the design constraint, do not skip. An agent reading raw markdown CANNOT run a Dataview query and does NOT see embedded content: ![[pricing#Credit packs]] greps as link text, not as 4.99. Live views are therefore ADDED ALONGSIDE the generated INDEX.md, never replacing it, and vault-index.mjs stays. Humans get the live view, agents get the materialized one, both from the same frontmatter.",
+        "TRANSCLUSION with eyes open: use ![[note#section]] where a fact genuinely must not be duplicated (the price table is the obvious case). For each embed, confirm the consuming note still carries enough surrounding context that an agent landing there via Grep is not stranded.",
+        "Convert the 47 hand-written Related sections to a generated or Dataview-backed backlinks view, OR keep them and add a lint rule that they are complete — nothing verifies one today, so they will rot silently.",
+        "Validate the graph by ACTUALLY OPENING Obsidian: per-folder colour groups work, no disconnected islands, no more than a handful of hubs above ~20 links. It was configured blind in US-2042 and never checked.",
+        "Record the dual-consumer decision as an ADR in vault/60-decisions, so nobody deletes vault-index.mjs as redundant once Bases exists.",
+        "vault-lint still passes, and verify:vault still catches a dangling link, an orphan, a stale index and contract drift after conversion."
+      ],
+      "notes": "[P2][EPIC: Knowledge Vault][Obsidian] Raised by the user 2026-07-19: is this using Obsidian principles or just markdown in a folder? Audit says the latter. USER CHOSE FULL NATIVE over the recommended middle path. Disagreement recorded rather than buried: Dataview/Bases and embeds are inert to agent retrieval, and cheaper agent retrieval was this epic premise, so the direction trades against the original goal. Mitigated by the dual-consumer rule above (live views ADDED, generator KEPT) rather than by refusing. Sequenced after Phase 3 so 60+ notes convert once against a complete set.",
+      "relevantPaths": [
+        "vault/",
+        ".obsidian/",
+        "scripts/vault-index.mjs",
+        "scripts/vault-lint.mjs",
+        "vault/60-decisions/"
       ]
     },
     {
