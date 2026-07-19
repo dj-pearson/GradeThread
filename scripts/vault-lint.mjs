@@ -210,6 +210,48 @@ export function lintVault(notes, { today, exists = existsSync, indexLines = 0 } 
   return { ok: errors.length === 0, errors, warnings };
 }
 
+// ── Redirect stubs (US-2047) ────────────────────────────────────────────────
+//
+// Stubs live OUTSIDE vault/, at the paths documents used to occupy, so they are
+// not notes and the rules above never see them. They are checked from the
+// registry instead.
+//
+// The 5-line cap is the whole point. A stub that grows prose has quietly become
+// a second copy of the document — the failure this epic exists to remove, and it
+// would reappear one "just a note about why this moved" at a time.
+
+export const STUB_MAX_LINES = 5;
+
+export function parseStubRegistry(md) {
+  const rows = [];
+  for (const line of md.split(/\r?\n/)) {
+    const m = line.match(/^\|\s*`([^`]+)`\s*\|\s*\[\[([^\]]+)\]\]\s*\|\s*([\d-]+)\s*\|/);
+    if (m) rows.push({ oldPath: m[1], note: m[2], created: m[3] });
+  }
+  return rows;
+}
+
+export function checkStubs(rows, notes, { read, exists }) {
+  const errors = [];
+  for (const row of rows) {
+    if (!notes.has(row.note)) {
+      errors.push(`${STUBS_REGISTRY}: stub \`${row.oldPath}\` points at [[${row.note}]], which does not exist`);
+      continue;
+    }
+    if (!exists(row.oldPath)) continue; // already swept by US-2065
+    const lines = read(row.oldPath).split(/\r?\n/).filter((l) => l.trim()).length;
+    if (lines > STUB_MAX_LINES) {
+      errors.push(
+        `${row.oldPath}: redirect stub is ${lines} lines, over the ${STUB_MAX_LINES}-line cap. ` +
+        `A stub is a pointer; prose here is a second source of truth.`,
+      );
+    }
+  }
+  return errors;
+}
+
+export const STUBS_REGISTRY = "vault/00-index/STUBS.md";
+
 // ── Drift (US-2044) ─────────────────────────────────────────────────────────
 //
 // The problem this solves: a note can be schema-valid, well-linked and
@@ -358,6 +400,14 @@ export function main(argv = process.argv.slice(2)) {
   const idx = notes.get(ROOT_NOTE);
   const indexLines = idx ? idx.raw.split(/\r?\n/).length : 0;
   const { errors, warnings } = lintVault(notes, { today, indexLines });
+
+  const stubsNote = notes.get("STUBS");
+  if (stubsNote) {
+    errors.push(...checkStubs(parseStubRegistry(stubsNote.raw), notes, {
+      read: (p) => readFileSync(resolve(root, p), "utf8"),
+      exists: (p) => existsSync(resolve(root, p)),
+    }));
+  }
 
   // Drift runs unless explicitly disabled; --strict escalates contract drift.
   if (!flags.has("--no-drift")) {

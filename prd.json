@@ -2290,7 +2290,7 @@
     },
     {
       "id": "US-2047",
-      "passes": false,
+      "passes": true,
       "dependsOn": [
         "US-2043"
       ],
@@ -2396,14 +2396,17 @@
       "title": "Migrate ops runbooks into vault/10-ops",
       "description": "As an operator, I want every runbook in one folder with consistent structure, so that finding the right procedure is navigation rather than recall.",
       "acceptanceCriteria": [
+        "SCOPE EXPANDED 2026-07-18 (found in US-2047): ops runbooks exist in THREE places, not two. src/lib/admin/runbooks.ts is a 378-line shipped in-app runbook feature (US-910) hand-distilled from DEPLOY/ROLLBACK/INCIDENT_RESPONSE/BACKUPS/LAUNCH_CHECKLIST — it is what on-call actually reads during an incident, and it has NO drift guard. See vault/10-ops/runbook-copies.md.",
         "Move DEPLOY, ROLLBACK, STAGING, BACKUPS, UPTIME_MONITORING, SCALING, CAPACITY, CONNECTION_POOLING, MIGRATIONS, LAUNCH_CHECKLIST and the docs/ runbooks (BILLING_REFUNDS, MFA, runbooks/mfa-ipv6-ip-mismatch, QA_PHOTO_ACCESS) into vault/10-ops.",
         "Each becomes type:runbook with code_refs to the scripts/config it drives.",
         "Ordering dependencies between runbooks (DEPLOY's DB->edge->frontend order, ROLLBACK's relationship to it) expressed as wikilinks.",
         "PENDING_MIGRATIONS.md (3,830 lines) is explicitly NOT moved — it is a mutable work queue, not durable knowledge. Note the decision in the vault so it is not revisited.",
         "The migrations skill's references updated to the new paths.",
-        "All old paths stubbed; vault-lint clean."
+        "All old paths stubbed; vault-lint clean.",
+        "Reconcile src/lib/admin/runbooks.ts against the merged vault notes — a three-way reconciliation, not a two-way merge. Report every place the shipped copy already disagrees with the markdown.",
+        "Decide and record as an ADR: generate the in-app runbooks from vault notes at build time, or keep them hand-written and add a drift guard. Both have real costs; do NOT delete the in-app copy, it is a deliberate feature."
       ],
-      "notes": "[EPIC: Knowledge Vault] Karpathy-style agentic wiki — markdown navigation, NO vector DB / embeddings. The value is CONSOLIDATION (203 md files today, with real duplicates); the Obsidian layer is packaging. Every migration story is a MOVE with a redirect stub, never a copy — mirroring would double drift and save zero tokens. Phase 3. PENDING_MIGRATIONS.md is called out because it is the largest md in the repo by 6x and would otherwise get swept in by pattern-matching — a 3,830-line queue in the knowledge index would blow the retrieval budget on content that changes weekly.",
+      "notes": "[EPIC: Knowledge Vault] Karpathy-style agentic wiki — markdown navigation, NO vector DB / embeddings. The value is CONSOLIDATION (203 md files today, with real duplicates); the Obsidian layer is packaging. Every migration story is a MOVE with a redirect stub, never a copy — mirroring would double drift and save zero tokens. Phase 3. PENDING_MIGRATIONS.md is called out because it is the largest md in the repo by 6x and would otherwise get swept in by pattern-matching — a 3,830-line queue in the knowledge index would blow the retrieval budget on content that changes weekly. SCOPE EXPANDED 2026-07-18: the third (shipped) copy makes this the highest-value ops story in the epic and also the largest — consider splitting the runbooks.ts reconciliation into its own story if it grows.",
       "relevantPaths": [
         "DEPLOY.md",
         "ROLLBACK.md",

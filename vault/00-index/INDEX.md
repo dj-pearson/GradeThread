@@ -32,6 +32,7 @@ New here? Read [[CONTRACT]] before adding a note.
 ## 10-ops — operations and runbooks
 
 - [[dns-and-routing]] — contract — Two hostnames serve two different systems; calling an app route on the Supabase host 404s silently.
+- [[runbook-copies]] — reference — Ops procedures are duplicated across repo root, docs/, and a shipped in-app admin feature — and the in-app copy is the one on-call actually reads.
 
 ## 20-domain — grading, measurement, contracts
 
@@ -64,6 +65,10 @@ New here? Read [[CONTRACT]] before adding a note.
 - [[archive-semantics]] — reference — What belongs in 90-archive, how CI treats it, and the rule that stops archiving from burying live work.
 
 <!-- vault-index:end -->
+
+## Migration status
+
+- [[STUBS]] — redirect stubs left at old doc paths, swept in US-2065
 
 ## Not yet migrated
 
