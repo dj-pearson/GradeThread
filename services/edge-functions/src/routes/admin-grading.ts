@@ -48,7 +48,15 @@ import {
 import {
   AUTHENTICITY_PROMPT_VERSION,
   AUTHENTICITY_PROMPT_VERSION_GROUNDED,
+  type AuthenticityVerdict,
 } from "../lib/ai-authenticity.ts";
+import {
+  canPromoteToGoldenSet,
+  isDangerousOverride,
+  overrodeModel,
+  validateReviewOutcome,
+  type ReviewerVerdict,
+} from "../lib/authenticity-review.ts";
 import { compareModelEvals, type ModelEvalRun } from "../lib/model-comparison.ts";
 import { isAllowedGradingModel } from "../lib/ai-config.ts";
 import {
@@ -511,6 +519,171 @@ adminGradingRoutes.post("/prompts/:id/deactivate", async (c) => {
 // authenticity-eval.ts became dead code in the first place (see the reasoning in
 // authenticity-gate-guard_test.ts). When that lifecycle is genuinely needed, it
 // must call assertAuthenticityPromptActivatable, which refuses by default.
+
+// ── US-2140: authenticity review outcomes → golden set ──────────────────────
+//
+// authenticityNeedsReview routes an uncertain or contradicted assessment to a
+// human; these routes let that human resolve it, and then turn the resolution
+// into an eval case. That promotion is the only source of golden-set cases that
+// scales — everything else is hand-sourced.
+
+// POST /authenticity/reviews — record what a reviewer concluded.
+adminGradingRoutes.post("/authenticity/reviews", async (c) => {
+  const userId = c.get("userId");
+  const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+
+  const invalid = validateReviewOutcome(body);
+  if (invalid) return c.json({ error: invalid }, 400);
+
+  const reportId = String(body.grade_report_id);
+
+  // Snapshot what the pass actually said, so a later re-assessment cannot
+  // rewrite the record of what this reviewer was looking at.
+  // NOTE: authenticity_assessment (00172, the BRAND authenticity add-on), NOT
+  // image_authenticity (00061, photo-edit detection). They are different systems
+  // and the prompt says so explicitly; snapshotting the wrong one would record a
+  // photo-manipulation score as if it were the counterfeit verdict.
+  const { data: reportRow } = await supabaseAdmin
+    .from("grade_reports")
+    .select("id, authenticity_assessment")
+    .eq("id", reportId)
+    .maybeSingle();
+  if (!reportRow) return c.json({ error: "Grade report not found." }, 404);
+  const assessment =
+    (reportRow as { authenticity_assessment?: Record<string, unknown> | null })
+      .authenticity_assessment ?? null;
+
+  const { data, error } = await supabaseAdmin
+    .from("authenticity_review_outcomes")
+    .upsert({
+      grade_report_id: reportId,
+      human_review_id: typeof body.human_review_id === "string" ? body.human_review_id : null,
+      reviewer_id: userId,
+      model_verdict: (assessment?.verdict as string | undefined) ?? null,
+      model_confidence: (assessment?.verdict_confidence as number | undefined) ?? null,
+      model_prompt_version: (assessment?.prompt_version as string | undefined) ?? null,
+      reviewer_verdict: body.reviewer_verdict,
+      tells_relied_on: Array.isArray(body.tells_relied_on) ? body.tells_relied_on.map(String) : [],
+      reasoning: typeof body.reasoning === "string" ? body.reasoning : null,
+      reviewed_at: new Date().toISOString(),
+    }, { onConflict: "grade_report_id" })
+    .select("id")
+    .single();
+  if (error) {
+    return failSafe(c, 400, "Couldn't record the review outcome.", error, "admin.grading.authenticity.reviews.create");
+  }
+
+  const modelVerdict = (assessment?.verdict as AuthenticityVerdict | undefined) ?? null;
+  const reviewerVerdict = body.reviewer_verdict as ReviewerVerdict;
+  await auditLog(c, "record_authenticity_review", "authenticity_review_outcome", (data as { id: string }).id, {
+    grade_report_id: reportId,
+    reviewer_verdict: reviewerVerdict,
+    model_verdict: modelVerdict,
+    overrode_model: overrodeModel(modelVerdict, reviewerVerdict),
+    // Called out explicitly in the audit trail: this is the error class the eval
+    // gate fails outright on, and the one where a buyer was actively misled.
+    dangerous_override: isDangerousOverride(modelVerdict, reviewerVerdict),
+  });
+  return c.json({ id: (data as { id: string }).id }, 201);
+});
+
+// POST /authenticity/reviews/:id/promote — turn a resolved review into an eval
+// case, carrying the submission's photos across.
+adminGradingRoutes.post("/authenticity/reviews/:id/promote", async (c) => {
+  const userId = c.get("userId");
+  const id = c.req.param("id");
+
+  const { data: row } = await supabaseAdmin
+    .from("authenticity_review_outcomes")
+    .select("id, grade_report_id, reviewer_verdict, reasoning, golden_case_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (!row) return c.json({ error: "Review outcome not found." }, 404);
+  const outcome = row as {
+    id: string;
+    grade_report_id: string;
+    reviewer_verdict: ReviewerVerdict;
+    reasoning: string | null;
+    golden_case_id: string | null;
+  };
+
+  // Resolve the submission behind the report, and the photos the eval replays.
+  const { data: report } = await supabaseAdmin
+    .from("grade_reports")
+    .select("submission_id")
+    .eq("id", outcome.grade_report_id)
+    .maybeSingle();
+  const submissionId = (report as { submission_id?: string } | null)?.submission_id;
+  if (!submissionId) return c.json({ error: "Grade report has no submission." }, 422);
+
+  const { data: sub } = await supabaseAdmin
+    .from("submissions")
+    .select("brand, garment_type")
+    .eq("id", submissionId)
+    .maybeSingle();
+  const { data: imgs } = await supabaseAdmin
+    .from("submission_images")
+    .select("image_type, storage_path")
+    .eq("submission_id", submissionId);
+
+  const images = ((imgs ?? []) as { image_type: string; storage_path: string }[]).map((i) => ({
+    image_type: i.image_type,
+    storage_path: i.storage_path,
+  }));
+
+  const check = canPromoteToGoldenSet(outcome, images.length, Boolean(outcome.golden_case_id));
+  if (!check.ok) return c.json({ error: check.reason }, 422);
+
+  const submission = (sub ?? {}) as { brand?: string | null; garment_type?: string | null };
+  const brand = submission.brand?.trim() || null;
+  if (!brand) {
+    // brand_key joins brand_knowledge; a case with no brand cannot be scored
+    // per-brand, and per-brand regression is what blocks activation.
+    return c.json({ error: "The submission has no brand, so the case has no brand_key to score against." }, 422);
+  }
+
+  const { data: created, error: insErr } = await supabaseAdmin
+    .from("authenticity_eval_cases")
+    .insert({
+      label: `Review-promoted: ${brand} (${outcome.reviewer_verdict})`,
+      brand_key: brand.toLowerCase().replace(/[^a-z0-9]+/g, ""),
+      brand,
+      garment_type: submission.garment_type ?? null,
+      images,
+      expected_label: outcome.reviewer_verdict,
+      tags: ["review_promoted"],
+      notes: outcome.reasoning,
+      // Provenance: this label came from a named reviewer resolving a real
+      // review, which is stronger than a hand-entered case with no source.
+      source_url: `internal:authenticity_review_outcome/${outcome.id}`,
+      created_by: userId,
+    })
+    .select("id")
+    .single();
+  if (insErr) {
+    return failSafe(c, 400, "Couldn't create the golden-set case.", insErr, "admin.grading.authenticity.reviews.promote");
+  }
+
+  const caseId = (created as { id: string }).id;
+  const { error: linkErr } = await supabaseAdmin
+    .from("authenticity_review_outcomes")
+    .update({ golden_case_id: caseId })
+    .eq("id", outcome.id)
+    // Guard the double-promote race: if another request linked this review
+    // first, this update matches nothing and we surface it rather than leaving
+    // two cases behind one review.
+    .is("golden_case_id", null);
+  if (linkErr) {
+    return failSafe(c, 400, "Created the case but couldn't link it.", linkErr, "admin.grading.authenticity.reviews.link");
+  }
+
+  await auditLog(c, "promote_authenticity_review", "authenticity_eval_case", caseId, {
+    review_outcome_id: outcome.id,
+    expected_label: outcome.reviewer_verdict,
+    image_count: images.length,
+  });
+  return c.json({ golden_case_id: caseId }, 201);
+});
 
 // ── US-2131: golden-set curation ────────────────────────────────────────────
 //
