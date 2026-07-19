@@ -79,6 +79,12 @@ import { compareModelEvals, type ModelEvalRun } from "../lib/model-comparison.ts
 import { isAllowedGradingModel } from "../lib/ai-config.ts";
 import { brandKeyForRaw } from "../lib/brand-normalize.ts";
 import {
+  resealAfterAuthenticityChange,
+  resolveAppeal,
+  restoreAssessmentAfterAppeal,
+  withdrawAssessment,
+} from "../lib/authenticity-appeal.ts";
+import {
   coverageWarnings,
   prepareImport,
   validateBatchSize,
@@ -544,6 +550,121 @@ adminGradingRoutes.post("/prompts/:id/deactivate", async (c) => {
 // authenticity-eval.ts became dead code in the first place (see the reasoning in
 // authenticity-gate-guard_test.ts). When that lifecycle is genuinely needed, it
 // must call assertAuthenticityPromptActivatable, which refuses by default.
+
+// ── US-2145: resolve a seller's authenticity appeal ─────────────────────────
+
+// GET /authenticity/appeals — the open queue, oldest first.
+adminGradingRoutes.get("/authenticity/appeals", async (c) => {
+  const { data, error } = await supabaseAdmin
+    .from("disputes")
+    .select("id, grade_report_id, user_id, reason, status, created_at")
+    .eq("kind", "authenticity")
+    .in("status", ["open", "under_review"])
+    // Oldest first: while an appeal is open the item is effectively unsellable
+    // at its stated grade, so waiting time is itself a penalty.
+    .order("created_at", { ascending: true })
+    .limit(200);
+  if (error) {
+    return failSafe(c, 400, "Couldn't load appeals.", error, "admin.grading.authenticity.appeals");
+  }
+  return c.json({ appeals: data ?? [] });
+});
+
+// POST /authenticity/appeals/:id/resolve — uphold or reject.
+adminGradingRoutes.post("/authenticity/appeals/:id/resolve", async (c) => {
+  // Upholding withdraws a published verdict and reseals a certificate; rejecting
+  // republishes one. Both are consequential enough for step-up.
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
+
+  const userId = c.get("userId");
+  const id = c.req.param("id");
+  const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+  const outcome = body.outcome === "upheld" || body.outcome === "rejected" ? body.outcome : null;
+  const notes = typeof body.notes === "string" ? body.notes.trim().slice(0, 2000) : "";
+  if (!outcome) return c.json({ error: "outcome must be 'upheld' or 'rejected'." }, 400);
+  if (!notes) return c.json({ error: "Resolution notes are required." }, 400);
+
+  const { data: row } = await supabaseAdmin
+    .from("disputes")
+    .select("id, grade_report_id, status, kind")
+    .eq("id", id)
+    .maybeSingle();
+  const appeal = row as { grade_report_id: string; status: string; kind: string } | null;
+  if (!appeal || appeal.kind !== "authenticity") {
+    return c.json({ error: "Authenticity appeal not found." }, 404);
+  }
+  if (appeal.status === "resolved" || appeal.status === "rejected") {
+    return c.json({ error: "This appeal is already resolved." }, 409);
+  }
+
+  const { data: gr } = await supabaseAdmin
+    .from("grade_reports")
+    .select("authenticity_assessment, certificate_id")
+    .eq("id", appeal.grade_report_id)
+    .maybeSingle();
+  const stored = (gr as { authenticity_assessment: Record<string, unknown> | null } | null)
+    ?.authenticity_assessment ?? null;
+
+  const plan = resolveAppeal(outcome);
+  // Upheld → withdraw permanently. Rejected → restore exactly what was hidden;
+  // the reviewer found the appeal unpersuasive, which is not a new finding about
+  // the item, so nothing about the assessment should change.
+  const next = plan.withdraw
+    ? withdrawAssessment(stored, notes, new Date().toISOString())
+    : restoreAssessmentAfterAppeal(stored);
+
+  const update: Record<string, unknown> = { authenticity_assessment: next };
+  const resealed = await resealAfterAuthenticityChange(
+    appeal.grade_report_id,
+    next as { verdict?: string | null; verdict_confidence?: number | null } | null,
+  );
+  if (resealed) Object.assign(update, resealed);
+
+  const { error: uErr } = await supabaseAdmin
+    .from("grade_reports")
+    .update(update)
+    .eq("id", appeal.grade_report_id);
+  if (uErr) {
+    return failSafe(c, 400, "Couldn't apply the resolution.", uErr, "admin.grading.authenticity.appeals.resolve");
+  }
+
+  await supabaseAdmin
+    .from("disputes")
+    .update({ status: outcome === "upheld" ? "resolved" : "rejected", resolution_notes: notes })
+    .eq("id", id);
+
+  // An upheld appeal is a CONFIRMED FALSE POSITIVE — the most valuable label the
+  // system can obtain, and the error direction nothing else measures. Record it
+  // through the same review path so it feeds accuracy and can be promoted.
+  let reviewRecorded = false;
+  if (plan.reviewerVerdict) {
+    const { error: rErr } = await supabaseAdmin
+      .from("authenticity_review_outcomes")
+      .upsert({
+        grade_report_id: appeal.grade_report_id,
+        reviewer_id: userId,
+        model_verdict: (stored?.appeal_hidden_original as Record<string, unknown> | undefined)
+          ?.verdict ?? stored?.verdict ?? null,
+        model_confidence: null,
+        model_prompt_version: (stored?.prompt_version as string | undefined) ?? null,
+        reviewer_verdict: plan.reviewerVerdict,
+        tells_relied_on: [],
+        reasoning: notes,
+        reviewed_at: new Date().toISOString(),
+      }, { onConflict: "grade_report_id" });
+    reviewRecorded = !rErr;
+  }
+
+  await auditLog(c, "resolve_authenticity_appeal", "dispute", id, {
+    outcome,
+    grade_report_id: appeal.grade_report_id,
+    withdrew_verdict: plan.withdraw,
+    review_recorded: reviewRecorded,
+  });
+
+  return c.json({ ok: true, outcome, withdrew_verdict: plan.withdraw, review_recorded: reviewRecorded });
+});
 
 // ── US-2146: authenticity accuracy + drift ──────────────────────────────────
 //
