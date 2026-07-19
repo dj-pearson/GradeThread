@@ -48,5 +48,5 @@ branches.
 
 ## Related internal docs
 
-- [Incident response runbook](docs/INCIDENT_RESPONSE.md)
-- [Key & secret rotation runbook](docs/KEY_ROTATION.md)
+- [Incident response runbook](vault/10-ops/incident-response.md)
+- [Key & secret rotation runbook](vault/10-ops/key-rotation.md)

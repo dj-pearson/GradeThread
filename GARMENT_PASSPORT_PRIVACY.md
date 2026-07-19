@@ -7,7 +7,7 @@ buyer/seller PII** — keeping the platform defensible and compliant. This is th
 authoritative data-classification note for the epic (AC#1).
 
 Pairs with: the US-268 tenant-isolation rule, US-276 upload hardening, and the
-platform [`DATA_RETENTION.md`](DATA_RETENTION.md) / [`SECURITY.md`](SECURITY.md).
+platform [`vault/10-ops/data-retention.md`](vault/10-ops/data-retention.md) / [`SECURITY.md`](SECURITY.md).
 
 ## Tables & classification (migration `00256_garment_passport_core.sql`)
 
@@ -48,7 +48,7 @@ platform [`DATA_RETENTION.md`](DATA_RETENTION.md) / [`SECURITY.md`](SECURITY.md)
    `PASSPORT_LINKAGE_SALT`). The digest lets us dedupe/match the handoff; the raw
    id (which can be correlated back to a person) is discarded. Raw marketplace
    order payloads are processed in-memory only and not persisted to passport
-   rows. This follows the minimization posture in `DATA_RETENTION.md`.
+   rows. This follows the minimization posture in `vault/10-ops/data-retention.md`.
 
 ## Opt-in identity reveal (US-1105, migration `00265`)
 

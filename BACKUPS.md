@@ -61,7 +61,7 @@ endpoint).
 | Storage mirror | `r2:gradethread-backups/storage` | live mirror | n/a (sync) |
 | Storage deleted/overwritten files | `r2:gradethread-backups/storage-deleted/<ts>/` | 30 days | R2 lifecycle rule on the `storage-deleted/` prefix |
 
-This is the "backup rotation policy" referenced by `docs/DATA_RETENTION.md`:
+This is the "backup rotation policy" referenced by `vault/10-ops/data-retention.md`:
 data deleted under GDPR/CCPA ages out of all backups within **30 days**.
 
 > **MANUAL (one-time):** create the two R2 lifecycle rules (30-day expiry on

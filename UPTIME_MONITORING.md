@@ -41,7 +41,7 @@ its only shared dependency is Cloudflare Pages serving the SPA itself.
 
 ## 3. Thresholds, escalation & on-call
 
-Defined in `docs/INCIDENT_RESPONSE.md` →
+Defined in `vault/10-ops/incident-response.md` →
 "Availability monitoring, thresholds & escalation": monitor inventory,
 2-consecutive-failures threshold, severity mapping (SEV-1 = SPA/edge/DB down),
 escalation ladder and the end-to-end alert drill.
@@ -52,7 +52,7 @@ escalation ladder and the end-to-end alert drill.
 > `UPTIME_ALERT_WEBHOOK` (Slack incoming webhook for the on-call channel) and
 > `SUPABASE_ANON_KEY` (lets the auth check assert a real 200 from GoTrue).
 > Everyone on call must watch the repo with issue notifications on. Then run
-> the failure drill in `docs/INCIDENT_RESPONSE.md` and tick it off in
+> the failure drill in `vault/10-ops/incident-response.md` and tick it off in
 > `LAUNCH_CHECKLIST.md`.
 
 ## Optional upgrade: 1-minute vendor checks + hosted status page

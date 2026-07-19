@@ -266,11 +266,11 @@ offsite dump on a scratch host. Record the result here so the drill has a home.
 - ☐ Uptime monitor live (US-500): `UPTIME_ALERT_WEBHOOK` + `SUPABASE_ANON_KEY`
   Actions secrets set, "Uptime" workflow green on manual dispatch, on-call
   watching the repo, `/status` page reachable — then run the failure drill in
-  `docs/INCIDENT_RESPONSE.md` (see `UPTIME_MONITORING.md`). Drill date: ______
-- ☐ Incident runbook reachable by on-call (`INCIDENT_RESPONSE.md`)
+  `vault/10-ops/incident-response.md` (see `UPTIME_MONITORING.md`). Drill date: ______
+- ☐ Incident runbook reachable by on-call (`vault/10-ops/incident-response.md`)
 - ☐ Private on-call contact sheet (phone numbers for the escalation ladder)
   exists outside the repo and every responder knows where it is
-  (`INCIDENT_RESPONSE.md` → "On-call & escalation")
+  (`vault/10-ops/incident-response.md` → "On-call & escalation")
 - ☐ Pre-launch banner / `VITE_LAUNCH_DATE` set to self-expire (US-785)
 - ☐ Reseller feature scope confirmed — Best Offer responses and returns/
   cancellations are **out of scope** for launch (handled in eBay Seller Hub);

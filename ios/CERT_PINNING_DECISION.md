@@ -69,7 +69,7 @@ Adopt **public-key (SPKI) pinning with a controlled, long-lived key** if/when:
   AND
 - We can ship **2+ backup pins** (current + next-rotation) so a planned rotation
   never requires an app update, AND
-- A **rotation runbook** lives in `KEY_ROTATION.md` and a **remote kill-switch**
+- A **rotation runbook** lives in `vault/10-ops/key-rotation.md` and a **remote kill-switch**
   (a server-delivered flag that disables pinning) is in place to recover from a
   bad pin without an App Store round-trip.
 
@@ -84,5 +84,5 @@ origins we don't control). File follow-up stories for each bullet above.
 ## Outcome
 
 No production code change for launch. This document is the deliverable;
-`KEY_ROTATION.md` / `UPTIME_MONITORING.md` get the CT-monitoring + (future)
+`vault/10-ops/key-rotation.md` / `UPTIME_MONITORING.md` get the CT-monitoring + (future)
 pin-rotation runbook entries.
