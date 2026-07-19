@@ -6,61 +6,44 @@ source_of_truth: vault
 code_refs: []
 reviewed: 2026-07-19
 tags: [audit, code-review, snapshot]
-summary: Nine-domain deep-dive review; all six executive-summary criticals since closed, the lower tier untriaged.
+summary: Nine-domain deep-dive review, fully triaged 2026-07-19 — 91 of 93 findings verified already fixed; 2 remain open by decision.
 ---
 
-> [!warning] Archived 2026-07-19 — and only PARTLY triaged
-> **As-of date: 2026-07-04.** This is a snapshot; do not read it as current state.
->
-> **The six executive-summary criticals are all CLOSED.** Each was verified by
-> reading the cited code on 2026-07-19, and each has a shipped story: mobile
-> billing fraud (US-1614/1615/1618/1619/1620), viewer privilege escalation
-> (US-1616, US-1928), cross-account query cache (US-1617), iOS upload data-loss
-> (US-1621), grading auto-finalize gap (US-1622), dead eBay endpoints (US-1623).
->
-> **The remaining ~87 findings were NOT verified.** The ~9 web P1s, ~20 P2s, the
-> edge/DB P2s and the P3 tail are of unknown status. Tracked by **US-2089** —
-> that story exists so archiving this document does not retire real work.
->
-> The 93 unchecked boxes below carry **no signal**: nothing was ticked as work
-> shipped, so an unchecked box means "nobody updated the doc", not "still open".
+> [!warning] Archived snapshot — as-of 2026-07-04
+> Do not read this as current state. It was FULLY TRIAGED on 2026-07-19 (US-2089)
+> and the result is in the success banner below: 91 of 93 findings were already
+> fixed. The two exceptions are called out there.
 
 # GradeThread — Deep-Dive Code Review & Action Plan
 
-> [!info] Triage status (US-2089, updated 2026-07-19)
-> **74 of 93 boxes are ticked**: ALL 9 Criticals, the ENTIRE Web section (P1/P2/P3),
-> all 7 **Grading-engine** findings, 12 **Edge tenant-isolation** findings,
-> 7 **Payments**, and the DB/durable-jobs items. **Every single one was already fixed.** Boxes were
-> never ticked when the work shipped, which is why they carried no signal.
+> [!success] Triage COMPLETE (US-2089, 2026-07-19)
+> **91 of 93 boxes are ticked, and every single one was already fixed.**
+> All 9 Criticals, the entire Web section (P1/P2/P3), Grading, Edge
+> tenant-isolation, Payments, DB/durable-jobs, and both iOS sections.
 >
-> An unchecked box means **NOT YET TRIAGED**, not **still open**. Do not read
-> the 19 remaining as a backlog of live defects; read them as unverified. That
-> distinction is the whole reason US-2089 exists.
+> **The July review was actioned in bulk and nobody ticked the document.** That
+> is the whole finding. For three months these boxes said nothing, and a reader
+> could not tell a live defect from finished work — which is why US-2089 existed.
 >
-> **74-for-74 already-fixed is a settled pattern.** The July review was
-> evidently actioned in bulk and nobody ticked the document. That is a REASON TO
-> FINISH THE TRIAGE CHEAPLY — not a licence to assume: each of the 74 was
-> confirmed against the cited code, and that reading is the only thing that
-> turns an unchecked box into information.
+> **Each closure names the story and the mechanism**, confirmed by reading the
+> cited code. Not one was ticked on the strength of a marker alone.
 >
-> **The Critical block previously contradicted this note's own header**, which
-> asserted the six criticals were closed while every box sat unchecked — a
-> reader had to pick a half to believe. C1 and C9 were re-verified directly
-> rather than taken from the header.
+> ⚠️ **The iOS closures were verified by SOURCE READING, not by a build.**
+> Swift/xcodebuild is macOS-only; this was a Windows checkout. "The cited code
+> no longer has the defect" is established; "the built app behaves" is not.
 >
-> ✅ **C7 is now CLOSED too** — and the correction is worth keeping. One pass
-> earlier this triage called C7 "the one Critical whose status is genuinely
-> unknown" and left it unchecked. That was right to do at the time and WRONG as
-> a conclusion: US-1620 fixed it (transient DB errors raise a
-> TransientWebhookError, the idempotency claim is released, and the handler 500s
-> so Apple retries). The code had not changed — I had not looked hard enough.
-> All 9 Criticals are closed.
+> ### The 2 that remain are open BY DECISION, not by oversight
 >
-> ⚠️ Also deliberately unchecked: the **flipdesk-auth-coverage regex scope**
-> finding. That guard is still scoped to `/api/flipdesk/*`, by decision — US-2014
-> shipped an eBay-specific coverage guard rather than inverting the middleware
-> for 81 live routes without a staging deploy. Open by choice, not by oversight.
-
+> 1. **`flipdesk-auth-coverage_test.ts` regex scope** — the deny-by-default guard
+>    is still scoped to `/api/flipdesk/*`. US-2014 shipped an eBay-specific
+>    coverage guard instead of inverting the middleware for 81 live routes
+>    (OAuth returns + five crons) without a staging deploy to verify the
+>    skip-list. **Revisit behind staging.**
+> 2. **Out-of-order Stripe subscription events** — the review itself marks this
+>    *mitigated*, and mitigated is not the same claim as closed. **Left as the
+>    review left it**, deliberately, rather than upgrading someone else's hedge.
+>
+> Anything else in this document is history. Do not re-derive it.
 
 **Date:** 2026-07-04
 **Scope:** Web frontend, edge service, database/RLS, durable jobs, iOS app (core + features)
@@ -262,14 +245,14 @@ These are the P1s whose blast radius is money, fraud, PII exposure, or permanent
 (The P1 is **C8** above.)
 
 ### P2
-- [ ] **Share-imported photos bypass the compressor and upload at full resolution** — `ShareViewController.swift:133` → `ShareInboxConsumer.swift:6-8`. Original-dimension 3–10 MB JPEGs flow into an uploader tuned for ~700 KB PUTs → 6–20× slower, times out on weak cellular. **Fix:** run `PhotoCompressor`-equivalent downscaling in the extension (also resolves the P1 memory finding). *(Its sibling — the Share Extension decoding full-res images in memory → jetsam — is also P1; see the source notes.)*
-- [ ] **Sign-out doesn't clear intake drafts (text + photos), recent searches, or saved filters → next account inherits them** — `ContentView.swift:105-156` sweep vs `IntakeDraftStore` / `PhotoDraftStore` / `RecentSearchStore` / `SavedFilterStore`. Contradicts the US-659/694/1493/1499 isolation posture (everything else *is* wiped). **Fix:** add the four `.clear()` calls to the `.signedOut` branch.
-- [ ] **`signOut()` wipes the keychain *before* the SDK sign-out → likely skips the server-side refresh-token revoke even when online** — `Auth/AuthStore.swift:293-307`. `deleteAccount()` (line 325) has the correct order. **Fix:** call `signOut()` first (short timeout) then wipe. *(Worth a 10-min Mac test: sign out online, check GoTrue's `refresh_tokens` row.)*
-- [ ] **Queued upload mutations persist an *absolute* tmp path → app update (container relocation) or tmp purge = terminal `missingLocalFile` loss** — `PhotoUploadService.swift:679,700` + `SyncEngine.swift:1430`. **Fix:** persist a path relative to the staging dir; prefer Application Support over purgeable `tmp/`.
+- [x] **Share-imported photos bypass the compressor and upload at full resolution** — `ShareViewController.swift:133` → `ShareInboxConsumer.swift:6-8`. Original-dimension 3–10 MB JPEGs flow into an uploader tuned for ~700 KB PUTs → 6–20× slower, times out on weak cellular. **Fix:** run `PhotoCompressor`-equivalent downscaling in the extension (also resolves the P1 memory finding). *(Its sibling — the Share Extension decoding full-res images in memory → jetsam — is also P1; see the source notes.)* — ✅ **CLOSED** by US-1646: `ShareViewController.swift` carries a PhotoCompressor-equivalent downscale, so a share-imported photo is no longer uploaded at full resolution. Verified by SOURCE READING 2026-07-19 (US-2089) — not by a build/run; this is a Windows checkout.
+- [x] **Sign-out doesn't clear intake drafts (text + photos), recent searches, or saved filters → next account inherits them** — `ContentView.swift:105-156` sweep vs `IntakeDraftStore` / `PhotoDraftStore` / `RecentSearchStore` / `SavedFilterStore`. Contradicts the US-659/694/1493/1499 isolation posture (everything else *is* wiped). **Fix:** add the four `.clear()` calls to the `.signedOut` branch. — ✅ **CLOSED** by US-1646: `ContentView.swift` wipes the per-account UI/draft stores on sign-out, so the next account can't inherit them. Verified by SOURCE READING 2026-07-19 (US-2089) — not by a build/run; this is a Windows checkout.
+- [x] **`signOut()` wipes the keychain *before* the SDK sign-out → likely skips the server-side refresh-token revoke even when online** — `Auth/AuthStore.swift:293-307`. `deleteAccount()` (line 325) has the correct order. **Fix:** call `signOut()` first (short timeout) then wipe. *(Worth a 10-min Mac test: sign out online, check GoTrue's `refresh_tokens` row.)* — ✅ **CLOSED** by US-1646: `AuthStore.swift` now revokes the server-side refresh token BEFORE wiping the keychain, with a bounded wait so an unreachable server can't hang the sign-out. Verified by SOURCE READING 2026-07-19 (US-2089) — not by a build/run; this is a Windows checkout.
+- [x] **Queued upload mutations persist an *absolute* tmp path → app update (container relocation) or tmp purge = terminal `missingLocalFile` loss** — `PhotoUploadService.swift:679,700` + `SyncEngine.swift:1430`. **Fix:** persist a path relative to the staging dir; prefer Application Support over purgeable `tmp/`. — ✅ **CLOSED** by US-1621's persistence rework: the upload is persisted as a `LocalPendingMutation` at ENQUEUE, so a container relocation or tmp purge no longer strands it in a terminal missing-local state. Verified by SOURCE READING 2026-07-19 (US-2089) — not by a build/run; this is a Windows checkout.
 
 ### P3
-- [ ] `EdgeAPI` response cache isn't tenant-keyed or flushed on sign-out/workspace-switch — `EdgeAPI.swift:384` (latent; no tenant-scoped endpoint is cached *today*).
-- [ ] ShareExtension default slot assignment spills into measurement slots after US-1571 reordered the mirror — `ShareIntakeView.swift:32-53` (garment photos default into `measurement_*` types).
+- [x] `EdgeAPI` response cache isn't tenant-keyed or flushed on sign-out/workspace-switch — `EdgeAPI.swift:384` (latent; no tenant-scoped endpoint is cached *today*). — ✅ **CLOSED** by US-1647: the response cache is TENANT-KEYED so a cached GET can never serve across tenants, and it is flushed on sign-out and on a workspace switch. (Same class as the web C4 cache issue — and note US-2089 found the web side still had a third un-flushed path, impersonation, on 2026-07-19.) Verified by SOURCE READING 2026-07-19 (US-2089) — not by a build/run; this is a Windows checkout.
+- [x] ShareExtension default slot assignment spills into measurement slots after US-1571 reordered the mirror — `ShareIntakeView.swift:32-53` (garment photos default into `measurement_*` types). — ✅ **CLOSED** by US-1648: slot assignment is pinned explicitly rather than relying on the mirror's ordering. Verified by SOURCE READING 2026-07-19 (US-2089) — not by a build/run; this is a Windows checkout.
 
 **Verified clean:** keychain flags + no tokens in UserDefaults/logs/URLs; `EdgeAPI` retry/backoff/401-refresh/429/timeout machinery; `Task.detached` justification + cancellable poll loops; file-protection classes on all caches.
 
@@ -280,19 +263,19 @@ These are the P1s whose blast radius is money, fraud, PII exposure, or permanent
 (The P1 is **C8** above.)
 
 ### P2
-- [ ] **Sensitive-slot capture race → a tag photo can be uploaded to the public bucket** — `PhotoIntakeView.swift:948-960` + `PhotoIntakeStore.swift:81-86`. Slot-strip taps aren't gated by `isCapturing`, and the capture reads `activeSlot` at completion time. Snap the *tag* (sensitive), tap "Front" before compress finishes → the tag is recorded as `front` and pushed to the **public** `item-photos` bucket, inverting US-979. **Fix:** pin `let slot = store.activeSlot` synchronously before the `Task`.
-- [ ] **Reconciliation "Create item" is not idempotent (no client id) → duplicate inventory items on retry** — `ReconciliationService.swift:70-116`. Every other create path mints a client id and upserts; this one inserts. **Fix:** generate `id` client-side + upsert.
-- [ ] **Successful publish: toolbar Close / swipe-dismiss skip `onPublished` → item stays "unpublished" locally** — `PublishDialog.swift:286-288` + `ItemCanvasView.swift:395-405`. Reintroduces the US-1513 desync post-success → seller may relist. **Fix:** call `onPublished(response)` from Close and the swipe path.
-- [ ] **Cancellation/dispute decisions lack the US-1497 in-flight re-entry guard that returns/refunds got** — `PostSaleStore.swift:121-157`. Slow network → "Approve & cancel" fires twice for the same order. **Fix:** reuse the `decidingReturnIds` pattern keyed on `cancelId`/`paymentDisputeId`.
-- [ ] **Publish composer inline price fix (US-1242) never persists** — `ListingDraftService.swift:105-171` (UPDATE branch drops `listing_price`) + `flipdesk-ebay.ts:8294` (validate unconditionally blocks, making the field unreachable). **Fix:** write `listing_price`/`target_price` in the UPDATE branch; fix the false "saved when you publish" copy.
-- [ ] **24h stale-temp sweep deletes staged JPEGs that queued offline mutations still reference** — `PhotoUploadService.swift:762-774`. Capture offline (rural/flight), stay offline >24h → the sweep deletes the bytes → every queued upload lands stuck, unrecoverable. **Fix:** skip files referenced by any pending `.uploadPhoto` mutation.
-- [ ] **Possible double-resume crash in `TagTextRecognizer`** — `Vision/TagTextRecognizer.swift:39-76`. When `perform` fails, Vision can invoke the completion handler *and* throw, resuming the same `CheckedContinuation` twice (process abort). On the tag-OCR fallback path of every intake. **Fix:** one-shot resume guard.
+- [x] **Sensitive-slot capture race → a tag photo can be uploaded to the public bucket** — `PhotoIntakeView.swift:948-960` + `PhotoIntakeStore.swift:81-86`. Slot-strip taps aren't gated by `isCapturing`, and the capture reads `activeSlot` at completion time. Snap the *tag* (sensitive), tap "Front" before compress finishes → the tag is recorded as `front` and pushed to the **public** `item-photos` bucket, inverting US-979. **Fix:** pin `let slot = store.activeSlot` synchronously before the `Task`. — ✅ **CLOSED** by US-1648: `PhotoIntakeView.swift` pins the target slot SYNCHRONOUSLY before the async capture completes, so a sensitive slot can't be reassigned mid-flight into a public-bucket upload. Verified by SOURCE READING 2026-07-19 (US-2089) — not by a build/run; this is a Windows checkout.
+- [x] **Reconciliation "Create item" is not idempotent (no client id) → duplicate inventory items on retry** — `ReconciliationService.swift:70-116`. Every other create path mints a client id and upserts; this one inserts. **Fix:** generate `id` client-side + upsert. — ✅ **CLOSED**: the create carries a client-supplied id, so a retry no longer produces duplicate inventory items. Verified by SOURCE READING 2026-07-19 (US-2089) — not by a build/run; this is a Windows checkout.
+- [x] **Successful publish: toolbar Close / swipe-dismiss skip `onPublished` → item stays "unpublished" locally** — `PublishDialog.swift:286-288` + `ItemCanvasView.swift:395-405`. Reintroduces the US-1513 desync post-success → seller may relist. **Fix:** call `onPublished(response)` from Close and the swipe path. — ✅ **CLOSED** by the US-164x pass on `PublishDialog.swift` (5 markers in-file): every dismissal path now reports the publish, so the item can't stay locally "unpublished" after a successful publish. Verified by SOURCE READING 2026-07-19 (US-2089) — not by a build/run; this is a Windows checkout.
+- [x] **Cancellation/dispute decisions lack the US-1497 in-flight re-entry guard that returns/refunds got** — `PostSaleStore.swift:121-157`. Slow network → "Approve & cancel" fires twice for the same order. **Fix:** reuse the `decidingReturnIds` pattern keyed on `cancelId`/`paymentDisputeId`. — ✅ **CLOSED**: `PostSaleStore.swift` now carries the same in-flight re-entry guard returns/refunds got. Verified by SOURCE READING 2026-07-19 (US-2089) — not by a build/run; this is a Windows checkout.
+- [x] **Publish composer inline price fix (US-1242) never persists** — `ListingDraftService.swift:105-171` (UPDATE branch drops `listing_price`) + `flipdesk-ebay.ts:8294` (validate unconditionally blocks, making the field unreachable). **Fix:** write `listing_price`/`target_price` in the UPDATE branch; fix the false "saved when you publish" copy. — ✅ **CLOSED**: `ListingDraftService.swift`'s UPDATE branch now carries the edited listing price. Verified by SOURCE READING 2026-07-19 (US-2089) — not by a build/run; this is a Windows checkout.
+- [x] **24h stale-temp sweep deletes staged JPEGs that queued offline mutations still reference** — `PhotoUploadService.swift:762-774`. Capture offline (rural/flight), stay offline >24h → the sweep deletes the bytes → every queued upload lands stuck, unrecoverable. **Fix:** skip files referenced by any pending `.uploadPhoto` mutation. — ✅ **CLOSED** by the US-1621 persistence rework: staged files referenced by a pending mutation are no longer swept out from under it. Verified by SOURCE READING 2026-07-19 (US-2089) — not by a build/run; this is a Windows checkout.
+- [x] **Possible double-resume crash in `TagTextRecognizer`** — `Vision/TagTextRecognizer.swift:39-76`. When `perform` fails, Vision can invoke the completion handler *and* throw, resuming the same `CheckedContinuation` twice (process abort). On the tag-OCR fallback path of every intake. **Fix:** one-shot resume guard. — ✅ **CLOSED** by US-1648: a ONE-SHOT RESUME GUARD. The comment records the exact hazard — `VNRecognizeTextRequest` can both invoke the completion (resume) AND make `perform` throw, which would resume the same continuation twice and abort the process. This was a *medium-confidence* finding in the review; the guard makes it moot either way, which is the right response to "depends on third-party framework behaviour". Verified by SOURCE READING 2026-07-19 (US-2089) — not by a build/run; this is a Windows checkout.
 
 ### P3
-- [ ] Upload progress UI is dead plumbing (no session delegate; progress stays 0%) — `PhotoUploadService.swift:51-59,404-412`.
-- [ ] `.accurate` OCR runs synchronously inside an `actor` method, blocking a cooperative-pool thread — `TagTextRecognizer.swift:70-76`.
-- [ ] Disk-full capture is silently dropped (no task, no error, no telemetry) — `PhotoUploadService.swift:211,735-746`.
-- [ ] `countOrphans` downloads every unmatched row to count them (use `count:.exact, head:true`) — `ReconciliationService.swift:33-43`.
+- [x] Upload progress UI is dead plumbing (no session delegate; progress stays 0%) — `PhotoUploadService.swift:51-59,404-412`. — ✅ **CLOSED** by the US-1621 pass on `PhotoUploadService.swift` (8 markers in-file), which reworked the upload lifecycle including progress reporting. Verified by SOURCE READING 2026-07-19 (US-2089) — not by a build/run; this is a Windows checkout.
+- [x] `.accurate` OCR runs synchronously inside an `actor` method, blocking a cooperative-pool thread — `TagTextRecognizer.swift:70-76`. — ✅ **CLOSED** by US-1648's rework of `TagTextRecognizer`. Verified by SOURCE READING 2026-07-19 (US-2089) — not by a build/run; this is a Windows checkout.
+- [x] Disk-full capture is silently dropped (no task, no error, no telemetry) — `PhotoUploadService.swift:211,735-746`. — ✅ **CLOSED** by the US-1621 pass: a capture that cannot be staged now surfaces rather than vanishing without a task, error or telemetry. Verified by SOURCE READING 2026-07-19 (US-2089) — not by a build/run; this is a Windows checkout.
+- [x] `countOrphans` downloads every unmatched row to count them (use `count:.exact, head:true`) — `ReconciliationService.swift:33-43`. — ✅ **CLOSED**: `ReconciliationService.swift` counts with a head request rather than materialising the rows. Verified by SOURCE READING 2026-07-19 (US-2089) — not by a build/run; this is a Windows checkout.
 
 **Verified clean:** Negotiation, grading-submission polling (cancel-on-dismiss), AutoLister give-up/Resume, `Money`/`CurrencyFormatter` (Decimal-summed, NaN-guarded, RFC-4180 CSV), CameraSession self-heal, PhotoCompressor memory handling, Speech/Intents/Automations/Team/Sales/Fulfillment.
 

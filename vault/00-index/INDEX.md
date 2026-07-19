@@ -98,7 +98,7 @@ New here? Read [[CONTRACT]] before adding a note.
 
 - [[android-conversion-plan]] — reference — Superseded by the 51-story Android epic in the backlog.
 - [[archive-semantics]] — reference — What belongs in 90-archive, how CI treats it, and the rule that stops archiving from burying live work.
-- [[code-review-2026-07-04]] — reference — Nine-domain deep-dive review; all six executive-summary criticals since closed, the lower tier untriaged.
+- [[code-review-2026-07-04]] — reference — Nine-domain deep-dive review, fully triaged 2026-07-19 — 91 of 93 findings verified already fixed; 2 remain open by decision.
 - [[ios-parity-audit]] — reference — Web/iOS feature parity check; 4 of 6 items closed, the remaining two extracted to US-2090.
 - [[security-audit-2026-06]] — reference — Self-reports all findings and follow-ups addressed, no open items.
 
