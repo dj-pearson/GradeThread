@@ -325,6 +325,34 @@ appstoreWebhookRoutes.post("/", async (c) => {
     const txn = note.transaction;
     if (action === "ignore" || !txn) return c.json({ ok: true });
 
+    // US-2124 AC2: a platform-side change we RECORD without touching
+    // entitlement. Apple owns price-increase consent, so acting here would be
+    // wrong — but a bare EXPIRED arriving later is uninterpretable unless we
+    // know a price change preceded it. This is what makes that distinction
+    // possible after the fact.
+    if (action === "record_only") {
+      const userId = txn ? await resolveUserId(txn) : null;
+      if (userId) {
+        // Reuse the existing audit helper rather than hand-rolling the insert:
+        // it already namespaces stripe_event_id as `appstore:<id>` and dedupes
+        // on 23505, so an Apple retry cannot double-record.
+        await recordAppstoreEvent(
+          userId,
+          note.notificationType.toLowerCase(),
+          txn?.transactionId ?? note.notificationUUID ?? note.notificationType,
+          null,
+          null,
+          {
+            notification_type: note.notificationType,
+            subtype: note.subtype ?? null,
+            product_id: txn?.productId ?? null,
+            platform: "appstore",
+          },
+        );
+      }
+      return c.json({ ok: true, recorded: true });
+    }
+
     const mapping = classifyProduct(txn.productId);
     if (!mapping) return c.json({ ok: true });
 
