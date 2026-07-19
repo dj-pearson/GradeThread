@@ -44,7 +44,13 @@ const GT_LISTER_SELECTORS = {
       enabled: true,
       version: "2026.06.1",
       lastVerified: "2026-06-13",
-      required: ["menu", "remove"],
+      // US-2020 (porting US-1875 AC1 from extension-unified): ONLY what can
+      // exist BEFORE any interaction. `remove` lives inside the overflow menu
+      // and does not exist until `menu` is clicked — which runDelistFlow does
+      // AFTER this probe — so requiring it here made the probe unsatisfiable
+      // and every delist bailed out with a message blaming the marketplace.
+      // It is validated after the click, by the waitFor that follows.
+      required: ["menu"],
       menu:
         'button[data-test="listing-menu"], button.listing__menu, [data-et-name="listing_options"]',
       remove:
@@ -76,7 +82,13 @@ const GT_LISTER_SELECTORS = {
       enabled: false,
       version: "2026.06.0-draft",
       lastVerified: null,
-      required: ["menu", "remove"],
+      // US-2020 (porting US-1875 AC1 from extension-unified): ONLY what can
+      // exist BEFORE any interaction. `remove` lives inside the overflow menu
+      // and does not exist until `menu` is clicked — which runDelistFlow does
+      // AFTER this probe — so requiring it here made the probe unsatisfiable
+      // and every delist bailed out with a message blaming the marketplace.
+      // It is validated after the click, by the waitFor that follows.
+      required: ["menu"],
       menu: 'button[data-testid="ListingMenu"], button[aria-label*="menu"]',
       remove: '[data-testid="Delete"], [data-testid="DeleteListing"]',
       confirm: 'button[data-testid="ConfirmDelete"], button[type="submit"]',
@@ -102,7 +114,13 @@ const GT_LISTER_SELECTORS = {
       enabled: false,
       version: "2026.06.0-draft",
       lastVerified: null,
-      required: ["menu", "remove"],
+      // US-2020 (porting US-1875 AC1 from extension-unified): ONLY what can
+      // exist BEFORE any interaction. `remove` lives inside the overflow menu
+      // and does not exist until `menu` is clicked — which runDelistFlow does
+      // AFTER this probe — so requiring it here made the probe unsatisfiable
+      // and every delist bailed out with a message blaming the marketplace.
+      // It is validated after the click, by the waitFor that follows.
+      required: ["menu"],
       menu: 'button[aria-label*="actions"], button.listing-actions',
       remove: 'button[data-action="delete"], a[href*="delete"]',
       confirm: 'button[data-action="confirm-delete"], button[type="submit"]',

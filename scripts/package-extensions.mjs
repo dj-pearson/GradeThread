@@ -38,6 +38,26 @@ const args = process.argv.slice(2);
 const outDir = resolve(root, args[(args.indexOf("--out") + 1) || -1] || "dist-ext");
 
 // ── what we ship ────────────────────────────────────────────────────────────
+//
+// US-2020 — WHY THREE, and when it stops being three.
+//
+// extension/ and extension-condition/ are DEPRECATED (founder decision
+// 2026-07-09) in favour of extension-unified/, which merges both behind one
+// role-aware manifest. They are still built here because deleting them is
+// US-1872 AC5, gated on the unified extension reaching parity, and parity is not
+// reached (US-1880/1881/1882/1883 open). Users have the legacy ones installed, so
+// they must keep working until their store listings are retired.
+//
+// The cost is real and is the reason this comment exists rather than a shrug:
+// three store listings means three review cycles, and every selector fix has to
+// be made twice against the same marketplace DOMs. That hand-sync already failed
+// once — the US-1875 delist fix reached only the unified copy and the legacy
+// Lister shipped a Poshmark delist that failed every run. Guarded now by
+// extension-unified/test/legacy-parity.test.cjs.
+//
+// WHEN US-1872 AC5 LANDS: drop the first two entries below, and the legacy-parity
+// guard along with them — it exists only to make the overlap survivable, not to
+// make it permanent.
 const EXTENSIONS = [
   {
     dir: "extension-condition",

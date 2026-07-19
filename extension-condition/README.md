@@ -1,5 +1,29 @@
 # GradeThread Condition Check (browser extension) — US-1755, US-1756
 
+> ## ⚠️ DEPRECATED — do not add features here
+>
+> Superseded by **`extension-unified/`** ("GradeThread: Grade & List"), which
+> merges this extension with its counterpart behind one role-aware manifest.
+> Founder decision **2026-07-09**; see `extension-unified/README.md`.
+>
+> **Why this folder still exists.** Deleting it is **US-1872 AC5**, which is
+> correctly gated on the unified extension reaching parity — and it has not
+> (US-1880/1881/1882/1883 are open). So `scripts/package-extensions.mjs` still
+> builds a store zip from here, real users still have it installed, and it still
+> has to be kept correct.
+>
+> **The rule until then (US-2020):** bug fixes only, and **apply every fix to
+> `extension-unified/` in the same commit**. New features go to the unified
+> extension alone.
+>
+> This is not a style preference. The hand-sync has already failed once: the
+> US-1875 delist-probe fix landed in the unified extension only, and this folder
+> shipped a Poshmark auto-delist that failed on **every** run — reporting
+> "Poshmark's page changed", so it read as a marketplace problem rather than
+> ours. `extension-unified/test/legacy-parity.test.cjs` now fails the build on
+> that class of divergence.
+
+
 A Chrome / Firefox (Manifest V3) **buyer-side** extension that gives an
 independent GradeThread AI condition read on a resale listing while you shop, so
 you buy pre-owned clothing with confidence. Works across **eBay, Poshmark,
