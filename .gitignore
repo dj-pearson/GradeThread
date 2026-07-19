@@ -134,3 +134,4 @@ dist-ext/
 # Extension packaging output (US-1757) + stray local zips
 dist-ext/
 /extension.zip
+.flake-logs/
