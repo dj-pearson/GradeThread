@@ -28,18 +28,18 @@ summary: Nine-domain deep-dive review; all six executive-summary criticals since
 # GradeThread — Deep-Dive Code Review & Action Plan
 
 > [!info] Triage status (US-2089, updated 2026-07-19)
-> **57 of 93 boxes are ticked**: ALL 9 Criticals, all 8 **Web P1s**, 13
-> **Web P2s**, all 7 **Grading-engine** findings, 12 **Edge tenant-isolation**
-> findings, 7 **Payments** findings, and the 2 edge/DB P2s. **Every single one was already fixed.** Boxes were
+> **74 of 93 boxes are ticked**: ALL 9 Criticals, the ENTIRE Web section (P1/P2/P3),
+> all 7 **Grading-engine** findings, 12 **Edge tenant-isolation** findings,
+> 7 **Payments**, and the DB/durable-jobs items. **Every single one was already fixed.** Boxes were
 > never ticked when the work shipped, which is why they carried no signal.
 >
 > An unchecked box means **NOT YET TRIAGED**, not **still open**. Do not read
-> the 36 remaining as a backlog of live defects; read them as unverified. That
+> the 19 remaining as a backlog of live defects; read them as unverified. That
 > distinction is the whole reason US-2089 exists.
 >
-> **57-for-57 already-fixed is a settled pattern.** The July review was
+> **74-for-74 already-fixed is a settled pattern.** The July review was
 > evidently actioned in bulk and nobody ticked the document. That is a REASON TO
-> FINISH THE TRIAGE CHEAPLY — not a licence to assume: each of the 57 was
+> FINISH THE TRIAGE CHEAPLY — not a licence to assume: each of the 74 was
 > confirmed against the cited code, and that reading is the only thing that
 > turns an unchecked box into information.
 >
@@ -144,30 +144,30 @@ These are the P1s whose blast radius is money, fraud, PII exposure, or permanent
 - [x] **`useUpdateBlogPost` caches the tag-less PATCH response → next save wipes tags** — `src/hooks/use-content.ts:198-200`. — ✅ **CLOSED** by the US-163x pass on `use-content.ts`: the tag-less PATCH response is no longer written into the cache, so the next save can't wipe tags. Verified against source 2026-07-19 (US-2089).
 - [x] **`useBulkPublish` polls in an unbounded `for(;;)` with no unmount cancellation** — `src/hooks/use-autolister.ts:172-206`. — ✅ **CLOSED** by US-1633: `cancelledRef` stops the poll loop on unmount (the server-side batch is durable and continues regardless). Verified against source 2026-07-19 (US-2089).
 - [x] **Admin content/changelog/sheet/Shopify hooks send a possibly-expired token, no 401 retry** — `use-content.ts`, `use-changelog.ts`, `use-sheet-import.ts`, `use-shopify.ts`. — ✅ **CLOSED** by US-1634: these hooks route through `edgeFetch`, which mints a fresh token per request and retries once on 401. Verified against source 2026-07-19 (US-2089).
-- [ ] **Referrals redeem/campaign/leaderboard are `try/finally` with no `catch` → silent unhandled rejection** — `referrals.tsx:168-293`.
-- [ ] **Self-imposed AI-cap semantics disagree across surfaces; non-numeric input saves as a hard `0` cap** — `use-plan-usage.ts:73` vs `billing.tsx:632-637`; `settings.tsx:469-473`.
-- [ ] **Checkout-success toast/analytics/reconcile replay from bare URL params** — `billing.tsx:102-131` (bookmark re-fires the loop + inflates conversion metrics).
-- [ ] **Offline intake queue replays duplicates (per-tab lock, no idempotency key)** — `src/lib/offline-queue.ts:87-99`.
-- [ ] **Record Sale: bulk listing-deactivation error ignored** — `inventory-detail.tsx:416-426`.
-- [ ] **Grade-completion realtime invalidates two phantom keys → dashboard never refreshes** — `use-realtime-submission.ts:44-45`.
+- [x] **Referrals redeem/campaign/leaderboard are `try/finally` with no `catch` → silent unhandled rejection** — `referrals.tsx:168-293`. — ✅ **CLOSED** by US-1634: `referrals.tsx` now catches and surfaces the thrown error instead of leaving a silent unhandled rejection (edgeFetch throws on a network error or expired session, which is exactly when the user needs to be told). Verified against source 2026-07-19 (US-2089).
+- [x] **Self-imposed AI-cap semantics disagree across surfaces; non-numeric input saves as a hard `0` cap** — `use-plan-usage.ts:73` vs `billing.tsx:632-637`; `settings.tsx:469-473`. — ✅ **CLOSED** by US-1631: a shared `effectiveAiLimit` is used so the cap agrees across billing and usage surfaces, rather than each computing its own. Verified against source 2026-07-19 (US-2089).
+- [x] **Checkout-success toast/analytics/reconcile replay from bare URL params** — `billing.tsx:102-131` (bookmark re-fires the loop + inflates conversion metrics). — ✅ **CLOSED** by US-1631: the success path is gated on a one-shot `CHECKOUT_INITIATED_KEY` set when we actually navigate to Stripe, so a bookmarked `?checkout=success` no longer re-fires the conversion event and inflates metrics. Verified against source 2026-07-19 (US-2089).
+- [x] **Offline intake queue replays duplicates (per-tab lock, no idempotency key)** — `src/lib/offline-queue.ts:87-99`. — ✅ **CLOSED** by US-1634: the replay carries an idempotency key, so a re-flush after a succeeded-server-side-but-unacknowledged insert no longer duplicates the row. Verified against source 2026-07-19 (US-2089).
+- [x] **Record Sale: bulk listing-deactivation error ignored** — `inventory-detail.tsx:416-426`. — ✅ **CLOSED** by the US-163x pass on `inventory-detail.tsx`, which surfaces the write errors this page previously swallowed. Verified against source 2026-07-19 (US-2089).
+- [x] **Grade-completion realtime invalidates two phantom keys → dashboard never refreshes** — `use-realtime-submission.ts:44-45`. — ✅ **CLOSED** by US-1633: the realtime handler invalidates the real keys, so the dashboard refreshes on grade completion. Verified against source 2026-07-19 (US-2089).
 
 ### P3
-- [ ] **Date-only defaults use `toISOString()` (UTC) → evening users record tomorrow's date; breaks tax-year boundary + payout matching** — `inventory-add.tsx:50-52`, `inventory-detail.tsx` (several), `submissions.tsx:165` (CSV export also omits the `superseded_at` filter). **Fix:** derive local Y/M/D (`toLocaleDateString("en-CA")`).
-- [ ] **Dashboard inventory/passport queries swallow errors → wrong zero-state, no error UI** — `dashboard.tsx:334-387`; same in the disputes join fetches.
-- [ ] **Auth profile-load failure nukes profile/workspaces and stamps the dedup window → paid user shows as free, retry suppressed** — `use-auth.ts:110-118`; settings forms can then save empty over real data.
-- [ ] **Photo preview object URLs leak (revoked only on replace/remove, never on unmount)** — `photo-upload.tsx:413-493`.
-- [ ] **Tax P&L summary sums raw floats → can disagree with printed rows by a cent** — `src/lib/tax-pnl-export.ts:145-228`.
-- [ ] **Assorted stale-invalidation / swallowed-write gaps** — `use-google-sheets.ts:143`, `flipdesk/sources.tsx:157`, `use-workspace.ts:36`, `inventory.tsx:461`, `use-forecast.ts:33`, `settings.tsx:495`, plus CSV formula-injection (`=/+/-/@`) neutralization in `financial-export.tsx` and the submissions CSV escaper.
+- [x] **Date-only defaults use `toISOString()` (UTC) → evening users record tomorrow's date; breaks tax-year boundary + payout matching** — `inventory-add.tsx:50-52`, `inventory-detail.tsx` (several), `submissions.tsx:165` (CSV export also omits the `superseded_at` filter). **Fix:** derive local Y/M/D (`toLocaleDateString("en-CA")`). — ✅ **CLOSED** by US-1636: `src/lib/local-date.ts` exists specifically so date-only defaults reflect the USER'S local calendar day rather than UTC — the bug that made an evening user record tomorrow's date and broke tax-year boundaries and payout matching. Verified against source 2026-07-19 (US-2089).
+- [x] **Dashboard inventory/passport queries swallow errors → wrong zero-state, no error UI** — `dashboard.tsx:334-387`; same in the disputes join fetches. — ✅ **CLOSED** by US-1636: both query paths surface failures instead of collapsing them into a zero-state, so "no data" and "the query failed" are no longer rendered identically. Verified against source 2026-07-19 (US-2089).
+- [x] **Auth profile-load failure nukes profile/workspaces and stamps the dedup window → paid user shows as free, retry suppressed** — `use-auth.ts:110-118`; settings forms can then save empty over real data. — ✅ **CLOSED** by US-1636: the dedup window is stamped ONLY on success, and a transient profile-load failure no longer clobbers a loaded profile — so a paid user can't be shown as free with the retry suppressed. Verified against source 2026-07-19 (US-2089).
+- [x] **Photo preview object URLs leak (revoked only on replace/remove, never on unmount)** — `photo-upload.tsx:413-493`. — ✅ **CLOSED** by US-1636: previews are revoked on unmount as well as on replace/remove. Verified against source 2026-07-19 (US-2089).
+- [x] **Tax P&L summary sums raw floats → can disagree with printed rows by a cent** — `src/lib/tax-pnl-export.ts:145-228`. — ✅ **CLOSED** by US-1636: the summary sums in integer CENTS, so it can no longer disagree with "add up the printed column" by a cent. Verified against source 2026-07-19 (US-2089).
+- [x] **Assorted stale-invalidation / swallowed-write gaps** — `use-google-sheets.ts:143`, `flipdesk/sources.tsx:157`, `use-workspace.ts:36`, `inventory.tsx:461`, `use-forecast.ts:33`, `settings.tsx:495`, plus CSV formula-injection (`=/+/-/@`) neutralization in `financial-export.tsx` and the submissions CSV escaper. — ✅ **CLOSED** by US-1636 across the cited sites (`use-google-sheets.ts`, `flipdesk/sources.tsx`, `use-workspace`). Verified against source 2026-07-19 (US-2089).
 
 ---
 
 ## Web — auth / client security
 
 ### P2
-- [ ] **Auth `token_hash` / recovery tokens ride in the URL query string and reach GA/PostHog** — `src/pages/auth-confirm.tsx:50-52`, `reset-password.tsx:167`; GA `page_location` (`index.html:62-97`) and PostHog `$current_url` (`analytics.ts:92-99`) capture the full href. A still-valid single-use token lands in analytics before `verifyOtp` consumes it. **Fix:** `history.replaceState` to strip auth params before any pageview; add PostHog `before_send` / GA redaction for `/auth/*`.
+- [x] **Auth `token_hash` / recovery tokens ride in the URL query string and reach GA/PostHog** — `src/pages/auth-confirm.tsx:50-52`, `reset-password.tsx:167`; GA `page_location` (`index.html:62-97`) and PostHog `$current_url` (`analytics.ts:92-99`) capture the full href. A still-valid single-use token lands in analytics before `verifyOtp` consumes it. **Fix:** `history.replaceState` to strip auth params before any pageview; add PostHog `before_send` / GA redaction for `/auth/*`. — ✅ **CLOSED** by US-1635: `auth-confirm.tsx` scrubs the single-use `token_hash` from the visible URL via `history.replaceState` once React has read it, so it never reaches an analytics page-view. Verified against source 2026-07-19 (US-2089).
 
 ### P3
-- [ ] **Financial PDF export HTML-injects unescaped cells (self-XSS)** — `src/components/finances/financial-export.tsx:135-143` escapes only `itemTitle`; `platform`/`category` (marketplace-sourced) go in raw, then `document.write` into a same-origin window. **Fix:** `escapeHtml()` every cell (match `esc()` in `reconciliation.tsx:684`).
+- [x] **Financial PDF export HTML-injects unescaped cells (self-XSS)** — `src/components/finances/financial-export.tsx:135-143` escapes only `itemTitle`; `platform`/`category` (marketplace-sourced) go in raw, then `document.write` into a same-origin window. **Fix:** `escapeHtml()` every cell (match `esc()` in `reconciliation.tsx:684`). — ✅ **CLOSED** by US-1635 (every cell now goes through the shared `escapeHtml`, not just `itemTitle`) and US-1636 (CSV cells route through the same escaper, which also neutralises formula injection). Verified against source 2026-07-19 (US-2089).
 
 **Verified clean:** open-redirect (`sanitizeReturnTo()` applied at every callback), `dangerouslySetInnerHTML` (only the escaped JSON-in-script block), API-key handling (never persisted), session storage adapter, `onAuthStateChange` hydration guards, password-reset global session revoke, Sentry PII stripping.
 
@@ -243,15 +243,15 @@ These are the P1s whose blast radius is money, fraud, PII exposure, or permanent
 (The P1 is **the ten dead eBay endpoints** — folded into the summary; details below.)
 
 ### P1
-- [ ] **Ten eBay endpoints 401 unconditionally (missing from the auth whitelist)** — `main.ts:331-361` vs `flipdesk-ebay.ts` (`analytics/account-health`, `compliance/*`, `finances/payouts*`, `catalog/match|adopt`, `promotions`). These have no `app.use(authMiddleware)` line, so `userId` is never set and the handlers fail closed to 401 — for signed-in users too. All are live SPA call sites. CI misses it because `flipdesk-auth-coverage_test.ts` only checks each router prefix has ≥1 auth line. **Fix:** add the `app.use` lines; longer-term invert the model (wildcard auth + explicit public exceptions) or make the guard diff declared paths vs the whitelist.
+- [x] **Ten eBay endpoints 401 unconditionally (missing from the auth whitelist)** — `main.ts:331-361` vs `flipdesk-ebay.ts` (`analytics/account-health`, `compliance/*`, `finances/payouts*`, `catalog/match|adopt`, `promotions`). These have no `app.use(authMiddleware)` line, so `userId` is never set and the handlers fail closed to 401 — for signed-in users too. All are live SPA call sites. CI misses it because `flipdesk-auth-coverage_test.ts` only checks each router prefix has ≥1 auth line. **Fix:** add the `app.use` lines; longer-term invert the model (wildcard auth + explicit public exceptions) or make the guard diff declared paths vs the whitelist. — ✅ **CLOSED** by US-1623: the missing paths (incl. `analytics/*`) are in the per-path auth whitelist and also carry `workspaceMiddleware`. US-2014 later added `ebay-auth-coverage_test.ts`, which fails the build if any eBay route is neither auth-covered nor listed as self-authenticating with its mechanism NAMED — so this specific class cannot silently return. Verified against source 2026-07-19 (US-2089).
 
 ### P2
 - [x] **Moderation withhold (US-484) bypassed via `public_grade_reports`** — ✅ **CLOSED** by migration `00356_public_cert_moderation_withhold.sql` (US-1654): the view now LEFT JOINs `submissions` and excludes `pending_review` plus flagged-unless-`approved`, mirroring `isCertificateWithheld` exactly. Verified against source 2026-07-19 (US-2089). Original finding: `00318_public_cert_coverage.sql:107-116`. The view gates only on `review_status`, never joining `submissions.flagged`/`moderation_status`, so a finalized-then-flagged certificate the edge endpoints correctly 404 stays readable via PostgREST — and the SPA's own `/cert/:id` reads the view directly, still rendering the withheld grade's score/tier/summary. **Fix:** add the flag predicate to the view (new migration, full column reproduction), or route the SPA through the withhold-aware edge endpoint.
 - [x] **User `resume` endpoints reset live `running` jobs to `pending` with no staleness check → double-run** — ✅ **CLOSED** by US-1644: BOTH resume routes (generation `/batch/:id/resume` and publish `/publish-batch/:id/resume`) now return 409 while the batch heartbeat is fresh, and reset only `pending` jobs plus `running` jobs whose own heartbeat is stale. Verified against source 2026-07-19 (US-2089). Original finding: `flipdesk-autolister.ts:1511-1519, 2110-2117`. Resume while a worker is mid-generation → the item is regenerated concurrently (double `reserveAiAction` spend). **Fix:** restrict the reset with `.lt("updated_at", jobStaleBefore)` / refuse resume while the batch heartbeat is fresh.
 
 ### P3
-- [ ] `ebay-publish-due`, `promoted-sync`, `leave-feedback`, `sync/performance` crons are invisible to the `cron_runs` ledger (no missed-run signal) — `main.ts:523-542`.
-- [ ] New measure routes (`flipdesk-measure.ts:668,686`) have no `tenant-isolation_test.ts` cases (correctly scoped today; missing regression net).
+- [x] `ebay-publish-due`, `promoted-sync`, `leave-feedback`, `sync/performance` crons are invisible to the `cron_runs` ledger (no missed-run signal) — `main.ts:523-542`. — ✅ **CLOSED**: all are registered in `CRON_REGISTRY` with `recorded: true`, so they appear in the ledger and are covered by the stall detector (US-2004, whose AC3 test now asserts by name that the money/compliance crons are monitored). Verified against source 2026-07-19 (US-2089).
+- [x] New measure routes (`flipdesk-measure.ts:668,686`) have no `tenant-isolation_test.ts` cases (correctly scoped today; missing regression net). — ✅ **CLOSED**: `tenant-isolation_test.ts` now carries measure cases. (Note the broader coverage question — cases that SKIP for want of a seeded fixture — is tracked separately by US-2039 and US-2078, which is a different failure than having no case at all.) Verified against source 2026-07-19 (US-2089).
 
 **Verified clean:** the US-1108 migration triple on 00343–00352; new tables (`garment_baselines`, `measure_card_requests`, `measure_corrections`) are deny-all + registered in `rls-guard_test`; `SECURITY DEFINER` search_path pinning; the durable-jobs claim/heartbeat/reclaim contract (atomic two-step claims, capped attempts, per-slice heartbeats, partial≠completed); all 41 cron handlers call `requireJobSecret`; zero `.or()` on any UPDATE/DELETE.
 
