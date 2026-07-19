@@ -34,6 +34,7 @@
 
 import { supabaseAdmin } from "./supabase.ts";
 import { edgeEnv } from "./env.ts";
+import { EXPECTED_MIGRATIONS, FOOTER_ERA_START } from "./migration-manifest.ts";
 
 // Bump this in the SAME commit that adds a migration. = highest NNNNN in
 // supabase/migrations/. (00485_equity_owner_discovery.sql)
@@ -185,4 +186,117 @@ export async function assertSchemaVersion(
       return "behind";
     }
   }
+}
+
+// ── US-2009: completeness, not just a watermark ─────────────────────
+//
+// Everything above compares ONE NUMBER. That proves the head landed and proves
+// nothing beneath it: apply-prod-migrations.sh skips any file whose prefix is
+// <= current, and the watermark only moves forward, so a migration that failed
+// or was skipped in the MIDDLE of the range is never re-applied and never seen
+// again. This has already happened once in this repo's history.
+//
+// So: compare the whole SET. Two distinct findings fall out, and they mean
+// opposite things.
+
+export interface SchemaCompleteness {
+  /** In the manifest, absent from applied_migrations — a real gap. */
+  missing: string[];
+  /** Applied, but no such migration file exists in this build — a phantom. */
+  unexpected: string[];
+  /** False when the applied set could not be read (never treat as "clean"). */
+  checked: boolean;
+}
+
+/**
+ * Compare the shipped manifest against what the DB says it has applied.
+ *
+ * Pure, so both directions are unit-testable. Only versions at or above
+ * FOOTER_ERA_START participate: below that the self-recording footer did not
+ * exist, so absence is expected and carries no signal.
+ */
+export function compareSchemaSets(
+  expected: readonly string[],
+  applied: readonly string[],
+  footerEraStart: string,
+): Omit<SchemaCompleteness, "checked"> {
+  const appliedSet = new Set(applied);
+  const expectedSet = new Set(expected);
+  return {
+    missing: expected.filter((v) => !appliedSet.has(v)).sort(),
+    // Only flag phantoms inside the footer era. An older recorded version is
+    // just history the manifest deliberately does not cover.
+    unexpected: applied
+      .filter((v) => v >= footerEraStart && !expectedSet.has(v))
+      .sort(),
+  };
+}
+
+/**
+ * Read every recorded version and report gaps and phantoms.
+ *
+ * DELIBERATELY NOT FATAL, unlike the behind-max check. This is a brand-new
+ * assertion over ~231 historical migrations that has never run against prod: if
+ * any one of them failed to self-record years ago, making it fatal would refuse
+ * to boot the whole service on the first deploy that includes this code —
+ * converting an unknown into an outage. It logs at ERROR and surfaces on
+ * /health/ready instead.
+ *
+ * PROMOTE IT TO FATAL once prod has been observed clean. That is a deliberate
+ * follow-up, recorded in US-2009, not an oversight.
+ *
+ * Fails CLOSED on a read error in the sense that matters: `checked:false` means
+ * "we do not know", which must never be rendered as "clean".
+ */
+export async function checkSchemaCompleteness(
+  deps: {
+    expected?: readonly string[];
+    footerEraStart?: string;
+    getApplied?: () => Promise<string[] | null>;
+  } = {},
+): Promise<SchemaCompleteness> {
+  const expected = deps.expected ?? EXPECTED_MIGRATIONS;
+  const footerEraStart = deps.footerEraStart ?? FOOTER_ERA_START;
+  const getApplied = deps.getApplied ?? (async () => {
+    const { data, error } = await supabaseAdmin
+      .from("applied_migrations")
+      .select("version");
+    if (error) {
+      console.warn(`[schema-version] completeness read failed: ${error.message}`);
+      return null;
+    }
+    return ((data ?? []) as Array<{ version: string }>).map((r) => r.version);
+  });
+
+  let applied: string[] | null;
+  try {
+    applied = await getApplied();
+  } catch (err) {
+    console.warn(
+      `[schema-version] completeness read threw: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+    applied = null;
+  }
+  if (applied === null) return { missing: [], unexpected: [], checked: false };
+
+  const { missing, unexpected } = compareSchemaSets(expected, applied, footerEraStart);
+
+  if (missing.length > 0) {
+    console.error(
+      `[schema-version] ${missing.length} MIGRATION(S) NEVER APPLIED: ${
+        missing.join(", ")
+      } — the max-version check cannot see these because the watermark is past them.`,
+    );
+  }
+  if (unexpected.length > 0) {
+    console.error(
+      `[schema-version] ${unexpected.length} version(s) recorded in applied_migrations with NO migration file in this build: ${
+        unexpected.join(", ")
+      } — either the file was never committed, or a row was inserted by hand. ` +
+        `Reusing one of these numbers would satisfy the boot guard off a stale row.`,
+    );
+  }
+  return { missing, unexpected, checked: true };
 }

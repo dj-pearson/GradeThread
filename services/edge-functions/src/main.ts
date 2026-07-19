@@ -226,7 +226,7 @@ import { securityHeaders } from "./middleware/security-headers.ts";
 import { bodyLimit, BodyTooLargeError } from "./middleware/body-limit.ts";
 import { assertAdminMfaConfig, assertNoProdDebugFlags, isProduction } from "./lib/env.ts";
 import { assertRequiredEnv, warnDeliverability, warnMissingFeatureGroups } from "./lib/env-validation.ts";
-import { assertSchemaVersion } from "./lib/schema-version.ts";
+import { assertSchemaVersion, checkSchemaCompleteness } from "./lib/schema-version.ts";
 import { redactError } from "./lib/log-redact.ts";
 import { captureException, logEvent, readCtxVar, releaseSha } from "./lib/observability.ts";
 import { featureGate } from "./lib/feature-flags.ts";
@@ -1642,6 +1642,11 @@ warnDeliverability();
 // migration the DB hasn't applied corrupts data). Fail-open on an unreadable
 // migrations table; fatal only on a confirmed behind-version in prod.
 await assertSchemaVersion();
+// US-2009: the max-version check above proves the HEAD landed and nothing
+// beneath it. This compares the whole SET, catching a migration that failed
+// mid-sequence (invisible to a watermark) and a version recorded with no file
+// in this build. Deliberately non-fatal for now — see checkSchemaCompleteness.
+await checkSchemaCompleteness();
 
 // US-884: warm the settings cache for the hot-path keys so the first requests
 // read the live registry value rather than the fallback (background, non-fatal).

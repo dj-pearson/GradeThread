@@ -32,6 +32,14 @@
 >    migration written from the actual prod schema.
 > 3. If it is a bare row with no schema behind it, delete the row and say so here.
 >
+> **UPDATE 2026-07-19 (US-2009): the edge will now NAME it for you.** The boot
+> guard no longer compares only the max version — checkSchemaCompleteness()
+> reads the whole applied set and logs any version recorded with NO migration
+> file in the build, plus any manifest version never applied. On the next edge
+> deploy, look for `[schema-version] ... recorded in applied_migrations with NO
+> migration file` in the container logs; that line resolves question 1 without
+> a psql session.
+>
 > ---
 >
 > ## ✅ MEASURED 2026-07-18 (superseded above for the schema-version question) — prod is at 00476; ONLY 00477 IS PENDING

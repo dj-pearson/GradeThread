@@ -183,3 +183,78 @@ Deno.test("migrations after 00254 self-record their version (US-1108)", async ()
       "Missing in: " + missing.join(", "),
   );
 });
+
+// ── US-2009: set completeness, not just a max watermark ─────────────
+//
+// The watermark only moves forward and apply-prod-migrations.sh skips anything
+// at or below it, so a migration that failed in the MIDDLE of the range is
+// never re-applied and never seen again. This repo has already had one.
+
+const { compareSchemaSets } = await import("../lib/schema-version.ts");
+const { EXPECTED_MIGRATIONS, FOOTER_ERA_START } = await import(
+  "../lib/migration-manifest.ts"
+);
+
+Deno.test("US-2009: a fully-applied set reports nothing", () => {
+  const r = compareSchemaSets(["00254", "00255", "00256"], ["00254", "00255", "00256"], "00254");
+  assertEquals(r.missing, []);
+  assertEquals(r.unexpected, []);
+});
+
+// THE CASE THE WATERMARK CANNOT SEE: the head is present, so max comparison is
+// happy, while a version underneath it never applied.
+Deno.test("US-2009: a MID-SEQUENCE gap is detected even though the max matches", () => {
+  const r = compareSchemaSets(
+    ["00254", "00255", "00256"],
+    ["00254", "00256"], // 00255 never applied; max is still 00256
+    "00254",
+  );
+  assertEquals(r.missing, ["00255"]);
+});
+
+// THE PHANTOM CASE, measured live on 2026-07-19: /health/ready reported an
+// applied version with no corresponding file anywhere in the repo. Reusing that
+// number would satisfy the boot guard off a stale row even if the new SQL never
+// ran — exactly the failure the guard exists to catch.
+Deno.test("US-2009: a version applied with NO file in this build is flagged", () => {
+  const r = compareSchemaSets(["00254", "00255"], ["00254", "00255", "00479"], "00254");
+  assertEquals(r.unexpected, ["00479"]);
+  assertEquals(r.missing, []);
+});
+
+// Pre-footer migrations carry no self-record, so their absence is expected and
+// means nothing. Flagging them would produce ~253 permanent false positives —
+// and a check that always fires is a check nobody reads.
+Deno.test("US-2009: pre-footer-era versions are ignored in both directions", () => {
+  const r = compareSchemaSets(["00254"], ["00100", "00253", "00254"], "00254");
+  assertEquals(r.missing, []);
+  assertEquals(r.unexpected, [], "an old recorded version is history, not a phantom");
+});
+
+Deno.test("US-2009: the shipped manifest is non-empty and starts at the footer era", () => {
+  assert(EXPECTED_MIGRATIONS.length > 0, "manifest must not be empty");
+  assertEquals(EXPECTED_MIGRATIONS[0], FOOTER_ERA_START);
+  // Sorted + unique: the comparison relies on both.
+  const sorted = [...EXPECTED_MIGRATIONS].sort();
+  assertEquals([...EXPECTED_MIGRATIONS], sorted, "manifest must be sorted");
+  assertEquals(new Set(EXPECTED_MIGRATIONS).size, EXPECTED_MIGRATIONS.length, "no duplicates");
+});
+
+// The manifest is generated, so it can go stale the moment someone adds a
+// migration without regenerating — which would silently shrink what the boot
+// guard checks.
+Deno.test("US-2009: the manifest matches supabase/migrations on disk", async () => {
+  const dir = new URL("../../../../supabase/migrations/", import.meta.url);
+  const onDisk: string[] = [];
+  for await (const entry of Deno.readDir(dir)) {
+    if (!entry.isFile || !entry.name.endsWith(".sql")) continue;
+    const v = entry.name.slice(0, entry.name.indexOf("_"));
+    if (/^\d{5}$/.test(v) && v >= FOOTER_ERA_START) onDisk.push(v);
+  }
+  onDisk.sort();
+  assertEquals(
+    [...EXPECTED_MIGRATIONS],
+    onDisk,
+    "migration manifest is stale — run: node scripts/gen-migration-manifest.mjs",
+  );
+});
