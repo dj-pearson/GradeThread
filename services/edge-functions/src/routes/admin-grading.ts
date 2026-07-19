@@ -57,6 +57,12 @@ import {
   validateReviewOutcome,
   type ReviewerVerdict,
 } from "../lib/authenticity-review.ts";
+import {
+  draftTellFromCandidate,
+  isPromotable,
+  rankTellCandidates,
+  type ReviewTellObservation,
+} from "../lib/tell-candidates.ts";
 import { compareModelEvals, type ModelEvalRun } from "../lib/model-comparison.ts";
 import { isAllowedGradingModel } from "../lib/ai-config.ts";
 import {
@@ -519,6 +525,62 @@ adminGradingRoutes.post("/prompts/:id/deactivate", async (c) => {
 // authenticity-eval.ts became dead code in the first place (see the reasoning in
 // authenticity-gate-guard_test.ts). When that lifecycle is genuinely needed, it
 // must call assertAuthenticityPromptActivatable, which refuses by default.
+
+// ── US-2147: reviewer tells → brand-knowledge candidates ────────────────────
+//
+// Read-only on purpose. This surfaces what reviewers keep relying on, ranked;
+// an operator then writes the actual tell through the brand-knowledge curation
+// surface, where validateTellsForWrite applies. Nothing here writes to the KB —
+// frequency is evidence, not authority, and a tell entering the KB changes every
+// future verdict for that brand.
+
+// GET /authenticity/tell-candidates — ranked candidates from resolved reviews.
+adminGradingRoutes.get("/authenticity/tell-candidates", async (c) => {
+  const brandKey = c.req.query("brand_key")?.trim();
+
+  // Join the outcome's tells to the brand behind its grade report. brand_key is
+  // derived the same way the golden-set promotion derives it, so a candidate and
+  // a promoted case agree on which brand they belong to.
+  let q = supabaseAdmin
+    .from("authenticity_review_outcomes")
+    .select("reviewer_verdict, tells_relied_on, grade_reports!inner(submissions!inner(brand))");
+  if (brandKey) q = q.limit(2000);
+  const { data, error } = await q;
+  if (error) {
+    return failSafe(c, 400, "Couldn't load review outcomes.", error, "admin.grading.authenticity.tell_candidates");
+  }
+
+  type Row = {
+    reviewer_verdict: string;
+    tells_relied_on: string[] | null;
+    grade_reports?: { submissions?: { brand?: string | null } | null } | null;
+  };
+  const observations: ReviewTellObservation[] = ((data ?? []) as Row[])
+    .map((r) => {
+      const brand = r.grade_reports?.submissions?.brand?.trim();
+      if (!brand) return null;
+      return {
+        brand_key: brand.toLowerCase().replace(/[^a-z0-9]+/g, ""),
+        reviewer_verdict: r.reviewer_verdict,
+        tells_relied_on: r.tells_relied_on ?? [],
+      };
+    })
+    .filter((o): o is ReviewTellObservation => o !== null)
+    .filter((o) => !brandKey || o.brand_key === brandKey);
+
+  const ranked = rankTellCandidates(observations);
+  return c.json({
+    // Split rather than filtered: an operator should see what is NOT yet
+    // promotable too, since "three more reviews and this qualifies" is useful
+    // signal and silently hiding it looks like there is no data.
+    promotable: ranked.filter(isPromotable).map((cand) => ({
+      ...cand,
+      draft: draftTellFromCandidate(cand),
+    })),
+    emerging: ranked.filter((cand) => !isPromotable(cand)),
+    observations_considered: observations.length,
+  });
+});
 
 // ── US-2140: authenticity review outcomes → golden set ──────────────────────
 //
