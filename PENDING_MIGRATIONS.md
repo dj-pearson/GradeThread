@@ -121,6 +121,35 @@
 > previously the applied version was visible only in container logs, which is how
 > this file drifted 59 sections out of date without anyone noticing.)
 
+## ⏳ PENDING: 00487_authenticity_review_outcomes.sql (US-2140 authenticity review outcomes, 2026-07-19)
+
+**Apply AFTER 00486.** Adds `authenticity_review_outcomes` — a place for a human
+reviewer to record what they concluded about an authenticity assessment, plus a
+`golden_case_id` link that promotes a resolved review into the eval golden set.
+
+**Why it matters:** `authenticityNeedsReview()` already routes a `red_flags`
+verdict (or a branded assessment under the confidence threshold) to a human, but
+`human_reviews` is condition-shaped — `original_score`/`adjusted_score` decimals
+— so there was no field to resolve an authenticity review INTO. Reviews were
+being requested and then left unresolvable. The golden-set link matters more than
+the bookkeeping: a resolved authenticity review is expert-labelled ground truth
+about a real submission, which is the cheapest ongoing source of the cases the
+eval gate needs before it can pass at all (US-2131).
+
+**Risk: LOW.** New table only. No existing row is read or rewritten, no enum is
+altered, and nothing outside the admin surface queries it. Admin-only RLS
+(`public.is_admin()`), matching the 00405 eval tables.
+
+**Deploy-order note — nothing breaks if the edge rolls first.** No client-side
+code reads the new table; the only readers/writers are admin routes that have no
+frontend yet. The edge boot guard will expect `00487`, so apply the SQL before
+the next Coolify edge deploy (~40s grace window, US-778). Unlike 00486 there is
+no webhook path that silently drops data during the gap.
+
+**After applying:** `NOTIFY pgrst, 'reload schema';` (new table).
+
+---
+
 ## ⏳ PENDING: 00478_grade_reports_active_unique.sql (US-2007 enforce one active report, 2026-07-18)
 
 **Apply AFTER 00477.** Makes `idx_grade_reports_active` UNIQUE, enforcing the
