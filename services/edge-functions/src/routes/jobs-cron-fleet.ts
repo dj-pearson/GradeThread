@@ -4,7 +4,7 @@
 // unit-tested since US-1611, but its only consumer was the agent read-tool
 // `get_cron_fleet_health` — something a human has to think to invoke. So a cron
 // that silently stopped firing (a Coolify task never added, a typo'd secret, a
-// container missing curl — see LAUNCH_CHECKLIST.md:116-120) stayed invisible.
+// container missing curl — see vault/10-ops/launch-checklist.md:116-120) stayed invisible.
 //
 // That blast radius is money and compliance, not cosmetics:
 //   • consignor-payouts / affiliate-payouts → sellers silently unpaid

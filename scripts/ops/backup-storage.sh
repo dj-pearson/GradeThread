@@ -13,7 +13,7 @@
 #   ALERT_WEBHOOK_URL    POSTed {"text": ...} on failure
 #
 # Old `storage-deleted/` prefixes age out via the same 30-day bucket lifecycle
-# rule as Postgres dumps — see BACKUPS.md.
+# rule as Postgres dumps — see vault/10-ops/backups.md.
 
 set -euo pipefail
 

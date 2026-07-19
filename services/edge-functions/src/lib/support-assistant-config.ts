@@ -17,7 +17,7 @@
 //
 //   2. TIER-ELIGIBILITY / ROLLOUT PHASE — SUPPORT_ASSISTANT_PHASE narrows WHICH
 //      plans see the assistant once the kill-switch is on. The phased rollout is
-//      internal -> business -> paid (all paid tiers); see SUPPORT_ASSISTANT.md.
+//      internal -> business -> paid (all paid tiers); see vault/20-domain/support-assistant.md.
 //      Free is never eligible. Bump the phase constant as the rollout progresses.
 
 import type { FlipdeskPlan } from "./pricing-config.ts";

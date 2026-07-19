@@ -5,7 +5,7 @@ import XCTest
 /// Backend-independent on purpose — it asserts only that the UI mounts (the
 /// welcome/sign-in surface, or the dashboard if a session is restored), so it
 /// runs in CI without seeded credentials and never hard-fails on a missing
-/// secret. This is the foundation the audit (`IOS_PARITY_AUDIT.md`) called for;
+/// secret. This is the foundation the audit (`vault/90-archive/ios-parity-audit.md`) called for;
 /// auth'd seam-flow tests (edit field → eBay specifics, measurement edit,
 /// garment fields → grading) are the next step and need the
 /// `TEST_RUNNER_UITEST_*` credentials the screenshots lane already uses.

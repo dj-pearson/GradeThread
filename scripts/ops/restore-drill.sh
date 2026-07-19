@@ -113,7 +113,7 @@ done
 
 echo
 if [ "$FAIL" = "0" ]; then
-  echo "[drill] PASS — dump ${T_DUMP}s, restore ${T_RESTORE}s. Record this run in BACKUPS.md (drill log) and LAUNCH_CHECKLIST.md §5."
+  echo "[drill] PASS — dump ${T_DUMP}s, restore ${T_RESTORE}s. Record this run in vault/10-ops/backups.md (drill log) and vault/10-ops/launch-checklist.md §5."
 else
   echo "[drill] FAIL — restored copy does not match source. Do NOT trust backups until this passes." >&2
   exit 1

@@ -1144,7 +1144,7 @@ export interface ListingRow {
   // signals); 'ebay' = imported/matched from eBay (eBay is source of truth, full
   // mirror, eBay-owned fields locked in the editor). Drives sync direction + the
   // UI editing badge. Supersedes the deprecated source_of_truth pin (US-148).
-  // See SYNC_SOURCE_OF_TRUTH.md.
+  // See vault/20-domain/sync-source-of-truth.md.
   listing_origin: ListingOrigin;
   // Cross-listing group key (US-149, migration 00134): siblings created by a
   // multi-marketplace push share the source draft's id; the source draft

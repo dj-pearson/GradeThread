@@ -11,7 +11,7 @@ import { supabase } from "@/lib/supabase";
 // POST can leave from different source addresses, so a SINGLE attempt flakes.
 //
 // The guaranteed fix normalises the client IP the GoTrue container sees at the
-// proxy (see docs/runbooks/mfa-ipv6-ip-mismatch.md). This helper is the client
+// proxy (see vault/10-ops/mfa-ipv6-ip-mismatch.md). This helper is the client
 // half: re-running challenge→verify as one tight unit re-stamps the challenge IP
 // immediately before the verify, so the retry's verify reuses the just-warmed
 // keep-alive connection and usually carries the same source IP — the transient

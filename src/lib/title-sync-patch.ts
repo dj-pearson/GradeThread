@@ -39,7 +39,7 @@ export interface TitleSyncPatchInput {
   isLive?: boolean;
   /**
    * listing_origin. An 'ebay'-origin listing is eBay's to own — the sync
-   * contract forbids writing its title (SYNC_SOURCE_OF_TRUTH.md), so this
+   * contract forbids writing its title (vault/20-domain/sync-source-of-truth.md), so this
    * returns an empty patch for those.
    */
   listingOrigin?: string | null;

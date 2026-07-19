@@ -166,7 +166,7 @@ data class ListingEntity(
     val endedAt: Long?,
     val viewsTotal: Int?,
     val watchersCount: Int?,
-    /** Provenance: which side authored this listing (SYNC_SOURCE_OF_TRUTH.md). */
+    /** Provenance: which side authored this listing (vault/20-domain/sync-source-of-truth.md). */
     val listingOrigin: String?,
     val publishError: String?,
     @ColumnInfo(defaultValue = "0") val hasLocalChanges: Boolean = false,

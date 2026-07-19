@@ -4,7 +4,7 @@
 // `services/edge-functions/src/lib/sync-precedence.ts` so the editor can show
 // the correct authority badge. This is display-only: there is NO client-side
 // precedence/write logic — the edge service is the single enforcement point
-// (see SYNC_SOURCE_OF_TRUTH.md "Surface parity").
+// (see vault/20-domain/sync-source-of-truth.md "Surface parity").
 
 export interface ListingOriginSignals {
   /** Persisted marker once US-1077 lands it ('ebay' | 'gradethread'). */

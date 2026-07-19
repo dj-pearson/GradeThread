@@ -85,7 +85,7 @@ function isBlank(v: unknown): boolean {
 // inventory_items columns a re-import may FILL on an existing row (matched by
 // SKU). Deliberately excludes GRADETHREAD_OWNED_ITEM_FIELDS — `sku` (the match
 // key), `source_id`, `condition_notes`, `acquired_price`, `acquired_date` — which
-// no CSV import may write (SYNC_SOURCE_OF_TRUTH.md). Listing/sale rows are not
+// no CSV import may write (vault/20-domain/sync-source-of-truth.md). Listing/sale rows are not
 // touched on re-import either; eBay-owned fields live on `listings`, so an
 // import never fills them and never pushes to eBay.
 const FILL_ITEM_FIELDS = [

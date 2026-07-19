@@ -58,7 +58,7 @@ public enum ConflictPolicy {
     // MARK: - Listing provenance (US-1086)
 
     /// Source of truth for a listing's eBay-owned editable fields, decided by
-    /// `listing_origin`. See SYNC_SOURCE_OF_TRUTH.md for the full contract.
+    /// `listing_origin`. See vault/20-domain/sync-source-of-truth.md for the full contract.
     enum ListingOrigin: String {
         case gradethread
         case ebay

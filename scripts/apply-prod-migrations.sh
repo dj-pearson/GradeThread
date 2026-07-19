@@ -7,7 +7,7 @@
 #
 #   SUPABASE_DB_URL="postgres://…@host:5432/postgres" ./scripts/apply-prod-migrations.sh
 #
-# ⚠️ Back up prod first (BACKUPS.md). Migrations are forward-only.
+# ⚠️ Back up prod first (vault/10-ops/backups.md). Migrations are forward-only.
 set -euo pipefail
 
 : "${SUPABASE_DB_URL:?set SUPABASE_DB_URL to the target Postgres connection string}"

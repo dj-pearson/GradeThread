@@ -12,7 +12,7 @@
 // with null values rather than a confident-looking fabrication. No PII enters
 // here: observations carry only money/condition/time scalars.
 //
-// METHODOLOGY (documented in docs/PASSPORT_FORECAST.md):
+// METHODOLOGY (documented in vault/50-business/passport-forecast.md):
 //   • List price        — median cohort sale price, adjusted toward the subject's
 //                         current grade via a least-squares price~grade slope when
 //                         the cohort has grade spread (else the plain median).

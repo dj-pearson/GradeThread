@@ -13,7 +13,7 @@
     "public/fonts/outfit-latin-ext.woff2"
   ],
   "guidelinesGlob": [
-    "docs/COPY_STYLE_GUIDE.md",
+    "vault/40-growth/copy-style-guide.md",
     "docs/ACCESSIBILITY_CONTRAST.md"
   ],
   "overrides": {

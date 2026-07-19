@@ -128,7 +128,7 @@ export function AdminKeywordResearchPage() {
     },
     onSuccess: (data) => {
       if (data.status === "skipped") {
-        toast.info("Google Ads not configured — nothing ingested. See ENVIRONMENT.md §2j.");
+        toast.info("Google Ads not configured — nothing ingested. See vault/10-ops/env-reference.md (Google Ads).");
       } else if (data.status === "error") {
         toast.error(`Ingestion error: ${data.error ?? "unknown"}`);
       } else {
@@ -195,7 +195,7 @@ export function AdminKeywordResearchPage() {
             <span>
               Google Ads API isn&apos;t configured yet, so a refresh will no-op. Add the
               <code className="mx-1 rounded bg-muted px-1">GOOGLE_ADS_*</code>
-              env vars (see ENVIRONMENT.md §2j) to enable ingestion.
+              env vars (see vault/10-ops/env-reference.md — Google Ads) to enable ingestion.
             </span>
           </CardContent>
         </Card>

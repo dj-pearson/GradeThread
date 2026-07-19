@@ -12,7 +12,7 @@
 // JSON-LD plus representative dynamic (cert/passport/blog) nodes in
 // src/lib/seo/__tests__/jsonld-schema-lint.test.ts. A violation fails CI.
 //
-// Adding a new @type? See docs/STRUCTURED_DATA_LINT.md — add a checker to
+// Adding a new @type? See vault/40-growth/seo-technical-guards.md — add a checker to
 // TYPE_CHECKERS below and a case to the test's node fixtures.
 
 export type JsonLdNode = Record<string, unknown>;

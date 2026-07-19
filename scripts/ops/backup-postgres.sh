@@ -19,7 +19,7 @@
 #   ALERT_WEBHOOK_URL    POSTed {"text": ...} on failure (Slack/Discord-style)
 #
 # Offsite retention (30 days) is enforced by a lifecycle rule on the bucket —
-# see BACKUPS.md. Restore with scripts/ops/restore-postgres.sh.
+# see vault/10-ops/backups.md. Restore with scripts/ops/restore-postgres.sh.
 
 set -euo pipefail
 

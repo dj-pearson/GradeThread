@@ -119,7 +119,7 @@ const stories = [
       "New services/edge-functions/src/lib/indexnow.ts exposes submitUrls(urls: string[]) that POSTs {host, key, keyLocation, urlList} to https://api.indexnow.org/indexnow (best-effort, never throws into the request path)",
       "content-blog.ts publish/edit/unpublish flow calls submitUrls alongside the existing purgeCloudflareCache (cloudflare-purge.ts) — old + new slug on rename",
       "Certificate publication (US-294) also submits the cert URL",
-      "The key is read from an env var (INDEXNOW_KEY) and documented in ENVIRONMENT.md and services/edge-functions/.env.example; submission no-ops cleanly when unset",
+      "The key is read from an env var (INDEXNOW_KEY) and documented in vault/10-ops/env-reference.md and services/edge-functions/.env.example; submission no-ops cleanly when unset",
       "Unit test mocks fetch and asserts the correct payload shape + that failures are swallowed",
       "Tests pass",
       "Typecheck passes",
@@ -283,7 +283,7 @@ const stories = [
       "Layout-shift fixes: explicit width/height (or aspect-ratio) on all above-the-fold images, reserved space for the cookie banner, font-display: swap + preload Inter",
       "Landing hero LCP element is preloaded/prioritized",
       "Lighthouse CI runs in GitHub Actions against the prerendered build with budgets (LCP < 2.5s, CLS < 0.1, INP/TBT proxy) as a non-blocking report comment",
-      "A short docs/SEO_PERFORMANCE.md records the budgets + where vitals land in analytics",
+      "A short vault/40-growth/seo-performance-images.md records the budgets + where vitals land in analytics",
       "Tests pass",
       "Typecheck passes",
     ],
@@ -333,7 +333,7 @@ const stories = [
     description:
       "As a site owner, I need verified ownership in Google Search Console and Bing Webmaster Tools and the search-performance data pulled into the platform, so I can monitor what's ranking and submit/inspect URLs.",
     acceptanceCriteria: [
-      "Site verification supported via a verification meta tag (through the <SEO> component / index.html) and/or a static verification file; values come from env, documented in ENVIRONMENT.md",
+      "Site verification supported via a verification meta tag (through the <SEO> component / index.html) and/or a static verification file; values come from env, documented in vault/10-ops/env-reference.md",
       "A scheduled edge job pulls Google Search Console Search Analytics (queries, pages, impressions, clicks, CTR, position) via the GSC API into a new table (migration) using a service account",
       "Indexation coverage summary (indexed vs submitted) is ingested where the API allows",
       "Ingestion is idempotent, rate-limit-aware, and tenant-agnostic (platform-level data, admin-only)",

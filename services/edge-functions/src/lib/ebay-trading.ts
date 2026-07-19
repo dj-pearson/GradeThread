@@ -10,7 +10,7 @@
 //
 // US-1476 — DEPRECATION WATCH: eBay is decommissioning the legacy Trading API.
 // Every call in this file is tracked (purpose, REST-equivalent status, migration
-// stance) in docs/EBAY_TRADING_API_WATCH.md — review it each eBay release-notes
+// stance) in vault/30-platform/ebay-trading-api-watch.md — review it each eBay release-notes
 // cycle and prefer REST wherever an equivalent exists (order sync already does:
 // see ebay-client.listRecentOrders / Fulfillment getOrders).
 

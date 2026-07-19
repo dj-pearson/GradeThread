@@ -69,7 +69,7 @@ export function imageCapBlocker(
 // ── US-1896: photo standards preflight ─────────────────────────────────
 //
 // eBay's picture standards drive both listing eligibility and search ranking
-// (EBAY_RANKING_PLAYBOOK.md §6): a photo under 500px on its longest side is
+// (vault/30-platform/ebay-ranking-playbook.md §6): a photo under 500px on its longest side is
 // below eBay's hard minimum (a fixable BLOCKER), and a hero photo under 1600px
 // disables buyer zoom / hurts ranking (a WARNING). Separately, the FIRST photo
 // is the search-result thumbnail — leading with a tag/detail/defect shot instead

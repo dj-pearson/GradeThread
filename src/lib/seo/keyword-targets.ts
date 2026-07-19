@@ -5,7 +5,7 @@
 // can't silently drift).
 //
 // Clusters + keywords are derived from the 2026 SEO deep-research pass
-// (SEO_STRATEGY.md). NOTE: search-volume/difficulty figures were under-evidenced
+// (vault/40-growth/seo-geo-strategy.md). NOTE: search-volume/difficulty figures were under-evidenced
 // in that research (flagged as an open question) — these targets encode INTENT
 // and topical CLUSTER, not hard volume. Validate volume/difficulty with GSC +
 // a keyword tool post-launch and refine. `questions[]` feed FAQ/answer-capsule

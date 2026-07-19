@@ -33,79 +33,22 @@ nothing references, and reports the ones that must stay.
 
 | Old path | Note | Created |
 |---|---|---|
-| `ANDROID_CONVERSION_PLAN.md` | [[android-conversion-plan]] | 2026-07-19 |
-| `BACKUPS.md` | [[backups]] | 2026-07-19 |
-| `CAPACITY.md` | [[capacity]] | 2026-07-19 |
-| `CODE_REVIEW_2026-07-04.md` | [[code-review-2026-07-04]] | 2026-07-19 |
-| `CONNECTION_POOLING.md` | [[connection-pooling]] | 2026-07-19 |
-| `Cross_Listing.md` | [[cross-listing]] | 2026-07-19 |
-| `DATA_RETENTION.md` | [[data-retention]] | 2026-07-19 |
-| `DELIVERABILITY.md` | [[deliverability]] | 2026-07-19 |
-| `DEPLOY.md` | [[deploy]] | 2026-07-19 |
-| `docs/AI_CRAWLER_POLICY.md` | [[ai-crawler-policy]] | 2026-07-19 |
-| `docs/AI_PROFITABILITY_REPORT.md` | [[ai-profitability]] | 2026-07-19 |
-| `docs/BILLING_REFUNDS.md` | [[billing-refunds]] | 2026-07-19 |
-| `docs/bizdev/depop-partner-application.md` | [[adr-depop-partner-application]] | 2026-07-19 |
-| `docs/bizdev/poshmark-rithum-decision.md` | [[adr-poshmark-via-extension]] | 2026-07-19 |
-| `docs/bizdev/referral-cash-payout-decision.md` | [[adr-referral-cash-payout]] | 2026-07-19 |
-| `docs/COMPS_PSEO_DECISION.md` | [[adr-comps-pseo]] | 2026-07-19 |
-| `docs/CONTENT_PUBLISHING.md` | [[content-publishing]] | 2026-07-19 |
-| `docs/CONTENT_SCHEDULER.md` | [[content-scheduler]] | 2026-07-19 |
-| `docs/COPY_STYLE_GUIDE.md` | [[copy-style-guide]] | 2026-07-19 |
-| `docs/CORE_WEB_VITALS.md` | [[seo-performance-images]] | 2026-07-19 |
-| `docs/DATA_RETENTION.md` | [[data-retention]] | 2026-07-19 |
-| `docs/EBAY_TRADING_API_WATCH.md` | [[ebay-trading-api-watch]] | 2026-07-19 |
-| `docs/GOOGLE_ADS_SETUP.md` | [[google-ads-setup]] | 2026-07-19 |
-| `docs/gradethread-seo-geo-plan.md` | [[seo-geo-strategy]] | 2026-07-19 |
-| `docs/GRAPHIFY_PILOT.md` | [[adr-graphify-pilot]] | 2026-07-19 |
-| `docs/IMAGE_OPTIMIZATION.md` | [[seo-performance-images]] | 2026-07-19 |
-| `docs/INCIDENT_RESPONSE.md` | [[incident-response]] | 2026-07-19 |
-| `docs/KEY_ROTATION.md` | [[key-rotation]] | 2026-07-19 |
-| `docs/MFA.md` | [[mfa]] | 2026-07-19 |
-| `docs/OFF_PAGE_AUTHORITY.md` | [[seo-distribution-and-measurement]] | 2026-07-19 |
-| `docs/PASSPORT_FORECAST.md` | [[passport-forecast]] | 2026-07-19 |
-| `docs/PRERENDER_PARITY.md` | [[seo-technical-guards]] | 2026-07-19 |
-| `docs/PRICING.md` | [[pricing]] | 2026-07-19 |
-| `docs/QA_PHOTO_ACCESS.md` | [[qa-photo-access]] | 2026-07-19 |
-| `docs/runbooks/mfa-ipv6-ip-mismatch.md` | [[mfa-ipv6-ip-mismatch]] | 2026-07-19 |
-| `docs/SEO_INDEXABILITY_ACTION_PLAN.md` | [[seo-indexability]] | 2026-07-19 |
-| `docs/SEO_MEASUREMENT.md` | [[seo-distribution-and-measurement]] | 2026-07-19 |
-| `docs/SEO_PERFORMANCE.md` | [[seo-performance-images]] | 2026-07-19 |
-| `docs/STRUCTURED_DATA_LINT.md` | [[seo-technical-guards]] | 2026-07-19 |
-| `docs/SUBSCRIPTION_UNIT_ECONOMICS.md` | [[subscription-unit-economics]] | 2026-07-19 |
-| `EBAY_RANKING_PLAYBOOK.md` | [[ebay-ranking-playbook]] | 2026-07-19 |
-| `ENV_REFERENCE.md` | [[env-reference]] | 2026-07-19 |
-| `ENVIRONMENT.md` | [[env-reference]] | 2026-07-19 |
-| `FLIPDESK_DOGFOOD.md` | [[flipdesk-dogfood]] | 2026-07-19 |
-| `FLIPDESK_RESELLER_GAPS.md` | [[flipdesk-reseller-gaps]] | 2026-07-19 |
-| `GARMENT_PASSPORT_PRIVACY.md` | [[garment-passport-privacy]] | 2026-07-19 |
-| `INCIDENT_RESPONSE.md` | [[incident-response]] | 2026-07-19 |
-| `IOS_PARITY_AUDIT.md` | [[ios-parity-audit]] | 2026-07-19 |
-| `KEY_ROTATION.md` | [[key-rotation]] | 2026-07-19 |
-| `LAUNCH_CHECKLIST.md` | [[launch-checklist]] | 2026-07-19 |
-| `MEASUREMENT_ACCURACY.md` | [[measurement-accuracy]] | 2026-07-19 |
-| `MEASUREMENT_CARD_SPEC.md` | [[measurement-card-spec]] | 2026-07-19 |
-| `MIGRATIONS.md` | [[migrations-process]] | 2026-07-19 |
-| `NEWSLETTER_TUNING.md` | [[newsletter-tuning]] | 2026-07-19 |
-| `REDDIT_DISTRIBUTION_PLAYBOOK.md` | [[seo-distribution-and-measurement]] | 2026-07-19 |
-| `ROLLBACK.md` | [[rollback]] | 2026-07-19 |
-| `SCALING.md` | [[scaling]] | 2026-07-19 |
-| `scripts/ralph/LEARNINGS.md` | [[ralph-learnings]] | 2026-07-19 |
-| `scripts/ralph/learnings/brand-kb.md` | [[ralph-brand-kb-log]] | 2026-07-19 |
-| `scripts/ralph/learnings/email-marketing.md` | [[ralph-email-marketing-log]] | 2026-07-19 |
-| `scripts/ralph/learnings/ios.md` | [[ralph-ios-log]] | 2026-07-19 |
-| `SECURITY_AUDIT_2026-06.md` | [[security-audit-2026-06]] | 2026-07-19 |
-| `SEO_STRATEGY.md` | [[seo-geo-strategy]] | 2026-07-19 |
-| `STAGING.md` | [[staging]] | 2026-07-19 |
-| `SUPPORT_ASSISTANT.md` | [[support-assistant]] | 2026-07-19 |
-| `SYNC_SOURCE_OF_TRUTH.md` | [[sync-source-of-truth]] | 2026-07-19 |
-| `UPTIME_MONITORING.md` | [[uptime-monitoring]] | 2026-07-19 |
-| `VPAT.md` | [[accessibility-conformance-vpat]] | 2026-07-19 |
 
 <!-- stubs:end -->
 
-First entries created by US-2048 (the env pair). The Phase 3 migrations
-(US-2051 → US-2057) add the rest.
+**Swept empty on 2026-07-19 by US-2065.** All 68 stubs were deleted after
+their remaining live pointers — 52 references across 44 source, config, CI,
+asset and script files — were rewritten to the vault paths.
+
+Sequenced deliberately after the US-2064 benchmark: deleting the stubs is the
+irreversible step, so it followed the evidence rather than preceding it.
+
+Historical mentions of the old paths were left alone on purpose. Ralph's
+append-only `progress.txt`, immutable migrations, one-off catchup scripts,
+`prd.json` story history, test fixtures, and vault notes carrying the
+`vault-move:no-rewrite` marker all record where a document USED to live. A
+stub is only needed when something LINKS to a path, not when prose mentions
+one.
 
 ## Related
 

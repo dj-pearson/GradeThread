@@ -2,7 +2,7 @@
 // path that sits on top of the US-713 connection layer (depop-client.ts owns
 // OAuth/token storage; this module owns everything you do WITH a valid token).
 //
-// Endpoints (per Cross_Listing.md §2 / partnerapi.depop.com OpenAPI):
+// Endpoints (per vault/30-platform/cross-listing.md §2 / partnerapi.depop.com OpenAPI):
 //   PUT    /api/v1/products/{sku}                                  upsert (create OR update)
 //   DELETE /api/v1/products/{sku}                                  delist
 //   GET    /api/v1/products?cursor&limit                           list (sync)

@@ -3,7 +3,7 @@
 //
 //   deno run --allow-read --allow-env --allow-net scripts/measure-eval.ts <golden-dir>
 //
-// <golden-dir> layout (see MEASUREMENT_ACCURACY.md for the capture protocol):
+// <golden-dir> layout (see vault/20-domain/measurement-accuracy.md for the capture protocol):
 //   manifest.json          — { garments: [{ id, class, photo, truth: {key: inches} }] }
 //   <photo files>          — the MeasureCard flat-lay shots (JPEG/PNG)
 //

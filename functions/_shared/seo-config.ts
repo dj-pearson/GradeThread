@@ -15,7 +15,7 @@
 //     by DEFAULT (presence in training corpora still strengthens brand recall in
 //     AI answers, and our public content is marketing we WANT memorised), but the
 //     handler can flip them to Disallow via the AI_TRAINING_CRAWLERS env var with
-//     no code change — see `trainingCrawlersAllowed()` and docs/AI_CRAWLER_POLICY.md.
+//     no code change — see `trainingCrawlersAllowed()` and vault/40-growth/ai-crawler-policy.md.
 //
 // Stakeholder decision (Pearson Media LLC, 2026-06-12): allow training by
 // default; revisit if/when proprietary, non-marketing content (e.g. the full

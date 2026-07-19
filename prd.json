@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2094",
+  "nextId": "US-2095",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2766,7 +2766,7 @@
     },
     {
       "id": "US-2065",
-      "passes": false,
+      "passes": true,
       "dependsOn": [
         "US-2064"
       ],
@@ -2779,7 +2779,11 @@
         "Remaining references => fix the reference, then delete.",
         "Stubs referenced from outside the repo (external links, bookmarks) are identified and kept, with the reason recorded — an unexplained surviving stub is indistinguishable from a missed one.",
         "Final state: root-level markdown reduced to README, CLAUDE.md, SECURITY.md, PENDING_MIGRATIONS.md and any deliberately-kept stubs; report the final root .md count against the starting 42.",
-        "vault-lint clean; full verify passes."
+        "vault-lint clean; full verify passes.",
+        "DONE 2026-07-19: all 68 stubs deleted. 52 live references across 44 source, config, CI, asset and script files rewritten to vault paths first. Root markdown 42 -> 9.",
+        "HISTORICAL mentions deliberately left: Ralph progress.txt (append-only), immutable migrations, one-off catchup scripts, prd.json story history, test fixtures, and vault notes carrying vault-move:no-rewrite. A stub is needed when something LINKS to a path, not when prose records where a document used to live.",
+        "The 9 remaining root .md are MORE than the 4 this story predicted (README, CLAUDE.md, SECURITY.md, PENDING_MIGRATIONS.md). The extra five — AGENTIC_OS.md, AGENT_LEVELUP_ROADMAP.md, design.md, ebay-flips-prd.md, LOOP_HANDOFF.md — were never assigned to any Phase 3 migration story. Filed as US-2094 rather than swept in unreviewed.",
+        "Caught while sweeping: the rewrite left a user-facing admin toast pointing at \"env-reference.md §2j\", a section number that did not survive the merge. Fixed to name the section instead. Second time a doc move has broken user-visible text."
       ],
       "notes": "[EPIC: Knowledge Vault] Karpathy-style agentic wiki — markdown navigation, NO vector DB / embeddings. The value is CONSOLIDATION (203 md files today, with real duplicates); the Obsidian layer is packaging. Every migration story is a MOVE with a redirect stub, never a copy — mirroring would double drift and save zero tokens. Phase 6. Run this only after US-2064 has proven the vault actually works — deleting the stubs is the irreversible step, and it should follow the evidence rather than precede it.",
       "relevantPaths": [
@@ -3136,6 +3140,33 @@
       "relevantPaths": [
         "vault/70-agent/memory-vault-division.md",
         "vault/"
+      ]
+    },
+    {
+      "id": "US-2094",
+      "passes": false,
+      "dependsOn": [
+        "US-2065"
+      ],
+      "priority": 1904,
+      "title": "Five root docs were never assigned to a migration story",
+      "description": "As a maintainer, I want the last five root markdown files either migrated or explicitly kept, so that the repo root reflects a decision rather than an oversight.",
+      "acceptanceCriteria": [
+        "CONTEXT: US-2065 reduced root markdown 42 -> 9. Four are deliberate (README, CLAUDE.md, SECURITY.md, PENDING_MIGRATIONS.md). The other five were simply never listed in US-2051..US-2057 and were left rather than swept in unreviewed.",
+        "AGENTIC_OS.md (341 lines) — the A-Z agent map. Durable knowledge; likely vault/70-agent.",
+        "AGENT_LEVELUP_ROADMAP.md (175) — a roadmap. Decide plan-vs-reference; may belong in prd.json instead of the vault at all.",
+        "design.md (145) — brand and design system. Durable; likely a new vault area or 20-domain.",
+        "ebay-flips-prd.md (293) — the FlipDesk PRD. Product spec; check it is not superseded by the shipped FlipDesk surface before moving it.",
+        "LOOP_HANDOFF.md (242) — carry-forward directive for the Ralph loop. Probably a mutable work file like PENDING_MIGRATIONS.md; if so, record the decision so it is not revisited.",
+        "For each: migrate with vault-move, or keep at root WITH THE REASON RECORDED. An unexplained root file is indistinguishable from a forgotten one."
+      ],
+      "notes": "[P3][EPIC: Knowledge Vault] Filed by US-2065 on 2026-07-19. These five were outside every migration story's explicit list, so sweeping them during the stub deletion would have been an unreviewed judgement call on 1,196 lines of content.",
+      "relevantPaths": [
+        "AGENTIC_OS.md",
+        "AGENT_LEVELUP_ROADMAP.md",
+        "design.md",
+        "ebay-flips-prd.md",
+        "LOOP_HANDOFF.md"
       ]
     }
   ]

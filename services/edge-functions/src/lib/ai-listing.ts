@@ -339,7 +339,7 @@ Hard rules:
 // title token, prefer buyer-typed qualifiers) and description guidance for the
 // era where eBay AI-summarizes descriptions for buyers. Ships through the
 // eval gate + acceptance loop before it can go active; never hot-swaps v1.
-// See EBAY_RANKING_PLAYBOOK.md §2/§3.
+// See vault/30-platform/ebay-ranking-playbook.md §2/§3.
 export const LISTING_GEN_SYSTEM_PROMPT_V2 =
   `You are an expert eBay listing creator for FlipDesk, a reseller tool. Given
 photos of a single second-hand item (and optionally known attributes and

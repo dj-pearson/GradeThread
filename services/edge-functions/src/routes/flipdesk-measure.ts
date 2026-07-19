@@ -815,7 +815,7 @@ flipdeskMeasureRoutes.post("/card-downloaded", async (c) => {
 // pass had proposed, the delta between proposal and the seller's final value.
 // Deltas/class/confidence ONLY (no photo content, no free text); rows land in
 // the deny-all measure_corrections operator table and are read via the
-// documented SQL in MEASUREMENT_ACCURACY.md. Fire-and-forget from the client;
+// documented SQL in vault/20-domain/measurement-accuracy.md. Fire-and-forget from the client;
 // never billed.
 flipdeskMeasureRoutes.post("/correction", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");

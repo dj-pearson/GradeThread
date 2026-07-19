@@ -141,7 +141,7 @@ healthRoutes.get("/_throw", (c) => {
 // limit) and the grading buffer-pipeline cap — no secrets — so it's safe to
 // leave unauthenticated, consistent with `/health` already exposing the release.
 // `scripts/ops/loadtest-grading.mjs` samples this to gate "no OOM at target
-// concurrency"; ops watches `memory.pressure` for the scale-out rule (CAPACITY.md).
+// concurrency"; ops watches `memory.pressure` for the scale-out rule (vault/10-ops/capacity.md).
 healthRoutes.get("/metrics", (c) => {
   const rawLimit = Number(Deno.env.get("EDGE_MEMORY_LIMIT_MB"));
   const limitMb = Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : null;

@@ -24,7 +24,7 @@
 // these without notice — VERIFY against the live platform before treating any
 // single number as authoritative. Each spec carries a `sourceNote`.
 
-// Platforms with a real cross-listing path (per Cross_Listing.md). Other
+// Platforms with a real cross-listing path (per vault/30-platform/cross-listing.md). Other
 // listing_platform values (facebook, offerup, whatnot, other) are intentionally
 // not specced here yet — getSpec() returns undefined for them.
 export type MarketplacePlatform =

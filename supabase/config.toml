@@ -7,7 +7,7 @@ extra_search_path = ["public", "extensions"]
 
 # US-570: connection pooler (Supavisor) in front of Postgres. In the local
 # throwaway stack this boots Supavisor in TRANSACTION mode so `supabase db start`
-# exercises the same pooled topology we run in production (see CONNECTION_POOLING.md).
+# exercises the same pooled topology we run in production (see vault/10-ops/connection-pooling.md).
 # Transaction mode is what lets many short-lived edge/replica connections share a
 # small fixed set of backend Postgres connections without exhausting max_connections.
 [db.pooler]
@@ -18,7 +18,7 @@ pool_mode = "transaction"
 port = 54329
 # Backend connections held open to Postgres per (db,user) — keep this comfortably
 # under Postgres max_connections once multiplied by replica count (US-501). See
-# the sizing table in CONNECTION_POOLING.md.
+# the sizing table in vault/10-ops/connection-pooling.md.
 default_pool_size = 20
 # Upper bound on simultaneous CLIENT connections the pooler will accept.
 max_client_conn = 100
@@ -159,7 +159,7 @@ redirect_uri = ""
 # Apple Sign In is iOS-NATIVE ONLY (AuthStore.signInWithApple →
 # signInWithIdToken); the local throwaway stack never exercises it, so it stays
 # disabled here to avoid forcing two more env vars on every `verify:db` run.
-# PRODUCTION must enable it on the self-hosted GoTrue (see ENVIRONMENT.md
+# PRODUCTION must enable it on the self-hosted GoTrue (see vault/10-ops/env-reference.md
 # "OAuth providers"): GOTRUE_EXTERNAL_APPLE_ENABLED=true,
 # GOTRUE_EXTERNAL_APPLE_CLIENT_ID=com.gradethread.app (the BUNDLE ID — GoTrue
 # validates the native identity token's `aud` against it), and

@@ -8,7 +8,7 @@ import { useEffect, useRef } from "react";
 // The whole feature is gated on VITE_TURNSTILE_SITE_KEY: unset (dev / local /
 // before the key is provisioned) → `captchaRequired` is false and the widget
 // renders nothing, so auth keeps working. Flip it on together with the GoTrue
-// secret (see supabase/config.toml + ENVIRONMENT.md), never one without the other.
+// secret (see supabase/config.toml + vault/10-ops/env-reference.md), never one without the other.
 const SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY as string | undefined;
 const SCRIPT_SRC =
   "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";

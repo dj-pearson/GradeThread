@@ -43,7 +43,7 @@ import { fetchWithTimeout } from "./circuit-breaker.ts";
 const DEPOP_TIMEOUT_MS = 20_000;
 
 // US-713 AC#1: the full multi-seller scope set requested from Depop (matches the
-// US-712 partner application and Cross_Listing.md §2).
+// US-712 partner application and vault/30-platform/cross-listing.md §2).
 const DEFAULT_SCOPES = [
   "products_read",
   "products_write",

@@ -110,7 +110,7 @@ svg = [
     f'viewBox="0 0 {CARD_W} {CARD_H}">',
     "<!-- GradeThread MeasureCard v1 - DO NOT SCALE. Marker centers form an",
     f"     exact {RECT_W}x{RECT_H} inch rectangle; markers are {DICT_NAME} ids {IDS}.",
-    "     Print 100% K-only black on matte stock. See MEASUREMENT_CARD_SPEC.md. -->",
+    "     Print 100% K-only black on matte stock. See vault/20-domain/measurement-card-spec.md. -->",
     f'<rect x="0" y="0" width="{CARD_W}" height="{CARD_H}" fill="#ffffff"/>',
 ]
 for mid in IDS:

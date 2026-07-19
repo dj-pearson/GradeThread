@@ -23,7 +23,7 @@ interface ImageProps {
 }
 
 // Cloudflare Image Resizing only works when Transformations is enabled on the
-// zone (a one-time dashboard toggle — see docs/SEO_PERFORMANCE.md). When it's
+// zone (a one-time dashboard toggle — see vault/40-growth/seo-performance-images.md). When it's
 // OFF, every `/cdn-cgi/image/...` URL 404s, and because a failed `srcset`
 // candidate does NOT fall back to `src`, the image renders broken. So we gate
 // the srcset behind an explicit build flag: only emit it once the infra is

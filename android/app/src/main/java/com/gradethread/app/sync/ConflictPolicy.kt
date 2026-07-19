@@ -4,7 +4,7 @@ package com.gradethread.app.sync
  * US-1318: field-level merge rules between a locally-cached row and a
  * freshly-pulled server row (iOS ConflictPolicy — the same policy the web app
  * and edge use for FlipDesk ↔ eBay ↔ Sheets reconciliation, US-148/1086;
- * SYNC_SOURCE_OF_TRUTH.md is the cross-platform contract).
+ * vault/20-domain/sync-source-of-truth.md is the cross-platform contract).
  *
  * Four strategies:
  *  - SERVER-OWNED — marketplace/pipeline-authored fields (listing_price,
@@ -37,7 +37,7 @@ object ConflictPolicy {
         serverUpdatedAtMs: Long,
     ): T = if (serverUpdatedAtMs >= localUpdatedAtMs) server else local
 
-    /** Listing provenance (US-1086; SYNC_SOURCE_OF_TRUTH.md). */
+    /** Listing provenance (US-1086; vault/20-domain/sync-source-of-truth.md). */
     enum class ListingOrigin(val wire: String) {
         GRADETHREAD("gradethread"),
         EBAY("ebay"),

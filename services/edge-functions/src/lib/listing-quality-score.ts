@@ -1,7 +1,7 @@
 // Listing Quality Score (US-1897) — one 0–100 number per listing, plus the
 // breakdown that says which fix earns the most points.
 //
-// SOURCE OF TRUTH FOR WEIGHTS: EBAY_RANKING_PLAYBOOK.md (verified 2026-07-09).
+// SOURCE OF TRUTH FOR WEIGHTS: vault/30-platform/ebay-ranking-playbook.md (verified 2026-07-09).
 // That doc deliberately publishes NO numeric weights, so the numbers below are a
 // judgement call — but the ORDERING is not, and each weight cites the section it
 // comes from. If the playbook is revised, revise these with it.

@@ -9,7 +9,7 @@
 // browsers without srcset support still get a working image.
 //
 // PREREQUISITE: Image Resizing must be enabled on the Cloudflare zone (a one-time
-// setting). See docs/SEO_PERFORMANCE.md / the PR notes.
+// setting). See vault/40-growth/seo-performance-images.md / the PR notes.
 
 /** Default candidate widths if a caller doesn't specify any. */
 export const DEFAULT_IMAGE_QUALITY = 80;
