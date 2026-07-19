@@ -32,10 +32,17 @@ export interface SitemapUrl {
 
 interface ManifestRoute {
   path: string;
+  title?: string;
   changefreq?: string;
   priority?: number;
   /** US-429: stable per-route content-change date (YYYY-MM-DD). */
   lastModified?: string;
+  /**
+   * US-2111: the route's share card, emitted from ROUTE_OG_IMAGES. Optional
+   * because most routes have none — and because a manifest from a build that
+   * predates this field must still parse.
+   */
+  image?: { file: string; alt: string };
 }
 interface SeoManifest {
   siteUrl: string;
@@ -589,13 +596,20 @@ export interface ImageSitemapEntry {
   images: SitemapImage[];
 }
 
-// Public marketing images keyed by the page they appear on. Mirrors
-// src/lib/seo/public-routes.ts ROUTE_OG_IMAGES (Pages Functions can't import
-// from src/), plus the home page hero. The 1200×630 share cards double as the
-// representative image Google associates with each marketing page. Keep titles
-// concise and captions descriptive (they map to image:title / image:caption).
-// KEEP IN SYNC with ROUTE_OG_IMAGES when adding/renaming a marketing card.
-const MARKETING_IMAGES: Array<{
+// US-2111: FALLBACK ONLY — the live source is dist/seo-manifest.json, whose
+// `image` field is emitted from ROUTE_OG_IMAGES by the Vite seoManifestPlugin.
+// This is the same cross-boundary pattern llms.txt uses (Pages Functions cannot
+// import from src/, so the build emits data and the function fetches it).
+//
+// This list was previously the ONLY source, carried a "KEEP IN SYNC with
+// ROUTE_OG_IMAGES" comment, and had no guard enforcing it — so a new share card
+// silently never reached the image sitemap. It is kept, deliberately, for the
+// case where the manifest fetch fails at the edge: a stale-but-correct set of
+// marketing images beats an EMPTY image sitemap, which would tell Google we
+// removed every image we have. It may drift; that is acceptable precisely
+// because it only serves a transient failure. Do not add new cards here — add
+// them to ROUTE_OG_IMAGES and they arrive automatically.
+const FALLBACK_MARKETING_IMAGES: Array<{
   path: string;
   image: string;
   title: string;
@@ -659,10 +673,42 @@ const MARKETING_IMAGES: Array<{
   },
 ];
 
-/** Static marketing image entries (no network — derived from the constant). */
-export function marketingImageUrls(env: PagesEnv): ImageSitemapEntry[] {
+/**
+ * Static marketing image entries, derived from the build-emitted manifest so
+ * they cannot drift from ROUTE_OG_IMAGES (US-2111).
+ *
+ * Falls back to FALLBACK_MARKETING_IMAGES when the manifest is unreachable or
+ * carries no image-bearing routes. The empty-image-set case is treated as a
+ * failure rather than as "there are no marketing images": a manifest emitted by
+ * an older build predates the `image` field entirely, and reading that as an
+ * intentional zero would silently empty the image sitemap on the first deploy
+ * after a rollback.
+ */
+export async function marketingImageUrls(
+  env: PagesEnv,
+): Promise<ImageSitemapEntry[]> {
   const base = siteUrl(env);
-  return MARKETING_IMAGES.map((m) => ({
+  const manifest = await fetchManifest(env);
+  const fromManifest = (manifest?.routes ?? []).filter((r) => r.image?.file);
+
+  if (fromManifest.length > 0) {
+    return fromManifest.map((r) => ({
+      loc: r.path === "/" ? `${base}/` : `${base}${r.path}`,
+      images: [
+        {
+          loc: `${base}${r.image!.file}`,
+          title: r.title || undefined,
+          caption: r.image!.alt || undefined,
+        },
+      ],
+    }));
+  }
+
+  console.error(
+    "[sitemap] seo-manifest carried no route images; serving the static " +
+      "fallback marketing set, which MAY BE STALE.",
+  );
+  return FALLBACK_MARKETING_IMAGES.map((m) => ({
     loc: m.path === "/" ? `${base}/` : `${base}${m.path}`,
     images: [
       { loc: `${base}${m.image}`, title: m.title, caption: m.caption },
@@ -698,8 +744,11 @@ export async function blogImageUrls(env: PagesEnv): Promise<ImageSitemapEntry[]>
 
 /** All image-sitemap entries: marketing images + blog hero images. */
 export async function imageUrls(env: PagesEnv): Promise<ImageSitemapEntry[]> {
-  const blog = await blogImageUrls(env);
-  return [...marketingImageUrls(env), ...blog];
+  const [marketing, blog] = await Promise.all([
+    marketingImageUrls(env),
+    blogImageUrls(env),
+  ]);
+  return [...marketing, ...blog];
 }
 
 /** Serialize image-sitemap entries to a Google image-sitemap <urlset>. */

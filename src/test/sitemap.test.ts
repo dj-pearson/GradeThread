@@ -263,8 +263,34 @@ describe("image sitemap (US-975)", () => {
     expect(xml).not.toContain("/empty");
   });
 
-  it("marketingImageUrls maps the home page + each marketing card to absolute URLs", () => {
-    const entries = marketingImageUrls(env);
+  // US-2111: the marketing image set is DERIVED from the build-emitted
+  // manifest, not from a hand-synced copy of ROUTE_OG_IMAGES.
+  it("marketingImageUrls derives entries from the manifest's image field", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mockFetch({
+        "/seo-manifest.json": {
+          siteUrl: "https://gradethread.com",
+          generatedAt: "2026-07-19T00:00:00.000Z",
+          routes: [
+            {
+              path: "/",
+              title: "The Standard for Clothing Condition Grading",
+              image: { file: "/og-image.png", alt: "Home card alt." },
+            },
+            {
+              path: "/pricing",
+              title: "Pricing",
+              image: { file: "/social/pricing.png", alt: "Pricing card alt." },
+            },
+            // A route with NO share card must not enter the image sitemap.
+            { path: "/privacy", title: "Privacy" },
+          ],
+        },
+      }),
+    );
+    const entries = await marketingImageUrls(env);
+    expect(entries).toHaveLength(2);
     const home = entries.find((e) => e.loc === "https://gradethread.com/");
     expect(home?.images[0]!.loc).toBe("https://gradethread.com/og-image.png");
     const pricing = entries.find(
@@ -273,8 +299,67 @@ describe("image sitemap (US-975)", () => {
     expect(pricing?.images[0]!.loc).toBe(
       "https://gradethread.com/social/pricing.png",
     );
-    expect(pricing?.images[0]!.title?.length).toBeGreaterThan(0);
-    expect(pricing?.images[0]!.caption?.length).toBeGreaterThan(0);
+    expect(pricing?.images[0]!.title).toBe("Pricing");
+    expect(pricing?.images[0]!.caption).toBe("Pricing card alt.");
+    expect(entries.some((e) => e.loc.endsWith("/privacy"))).toBe(false);
+  });
+
+  // A NEW share card must reach the sitemap with no second edit — this is the
+  // whole point of the change, and the property the old hand-synced list broke.
+  it("marketingImageUrls picks up a card the fallback list has never heard of", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mockFetch({
+        "/seo-manifest.json": {
+          siteUrl: "https://gradethread.com",
+          generatedAt: "2026-07-19T00:00:00.000Z",
+          routes: [
+            {
+              path: "/brand-new-page",
+              title: "Brand New Page",
+              image: { file: "/social/brand-new.png", alt: "Brand new alt." },
+            },
+          ],
+        },
+      }),
+    );
+    const entries = await marketingImageUrls(env);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.loc).toBe("https://gradethread.com/brand-new-page");
+    expect(entries[0]!.images[0]!.loc).toBe(
+      "https://gradethread.com/social/brand-new.png",
+    );
+  });
+
+  it("marketingImageUrls falls back to the static set when the manifest is unreachable", async () => {
+    vi.stubGlobal("fetch", mockFetch({}));
+    const entries = await marketingImageUrls(env);
+    expect(entries.length).toBeGreaterThan(0);
+    const pricing = entries.find(
+      (e) => e.loc === "https://gradethread.com/pricing",
+    );
+    expect(pricing?.images[0]!.loc).toBe(
+      "https://gradethread.com/social/pricing.png",
+    );
+  });
+
+  // An OLD manifest predates the `image` field entirely. Reading its zero
+  // image-bearing routes as an intentional empty set would blank the image
+  // sitemap on the first deploy after a rollback.
+  it("marketingImageUrls treats an image-less manifest as stale, not as empty", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mockFetch({
+        "/seo-manifest.json": {
+          siteUrl: "https://gradethread.com",
+          generatedAt: "2026-01-01T00:00:00.000Z",
+          routes: [{ path: "/" }, { path: "/pricing" }],
+        },
+      }),
+    );
+    const entries = await marketingImageUrls(env);
+    expect(entries.length).toBeGreaterThan(0);
+    expect(entries.every((e) => e.images.length > 0)).toBe(true);
   });
 
   it("blogImageUrls lists posts with a hero image and skips those without", async () => {

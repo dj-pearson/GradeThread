@@ -5,7 +5,14 @@ import { VitePWA } from "vite-plugin-pwa";
 import { sentryVitePlugin } from "@sentry/vite-plugin";
 import path from "path";
 import { writeFileSync, mkdirSync } from "fs";
-import { PUBLIC_ROUTES, SITE_URL, lastModifiedFor } from "./src/lib/seo/public-routes";
+import {
+  PUBLIC_ROUTES,
+  SITE_URL,
+  lastModifiedFor,
+  ROUTE_OG_IMAGES,
+  DEFAULT_OG_IMAGE_PATH,
+  DEFAULT_OG_IMAGE_ALT,
+} from "./src/lib/seo/public-routes";
 // US-2106: sources for dist/llms-full-data.json. All existing constants — this
 // plugin derives, it does not author.
 import {
@@ -96,6 +103,20 @@ const NAVIGATE_FALLBACK_DENYLIST: RegExp[] = [
 ];
 
 function seoManifestPlugin(): Plugin {
+  // US-2111: the image half of the manifest. `alt` is reused verbatim as the
+  // image:caption, which is why ROUTE_OG_IMAGES alt text must stay descriptive
+  // rather than terse — it is now doing two jobs.
+  function manifestImageFor(
+    routePath: string,
+  ): { file: string; alt: string } | undefined {
+    const card = ROUTE_OG_IMAGES[routePath];
+    if (card) return card;
+    if (routePath === "/") {
+      return { file: DEFAULT_OG_IMAGE_PATH, alt: DEFAULT_OG_IMAGE_ALT };
+    }
+    return undefined;
+  }
+
   return {
     name: "seo-manifest",
     apply: "build",
@@ -108,6 +129,14 @@ function seoManifestPlugin(): Plugin {
         routes: PUBLIC_ROUTES.map((r) => ({
           ...r,
           lastModified: lastModifiedFor(r.path),
+          // US-2111: carry the route's share card so the image sitemap
+          // (functions/sitemap-images.xml.ts) derives from ROUTE_OG_IMAGES
+          // instead of a hand-synced copy of it. Only routes with a DISTINCT
+          // card are emitted — plus the home page, which legitimately
+          // represents itself with the site-wide default. Repeating that
+          // default across 200+ routes would be a duplicate-image sitemap,
+          // which is noise, not coverage.
+          image: manifestImageFor(r.path),
         })),
       };
       writeFileSync(
