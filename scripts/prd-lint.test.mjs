@@ -1,7 +1,7 @@
 // US-1612: vitest coverage for the prd.json linter (Node env — see
 // vitest.scripts.config.mjs). Fixtures are inline prd objects.
 import { describe, expect, it } from "vitest";
-import { accumulationReminder, findCycles, findStaleHeldMigrations, findUnresolvedDeferrals, lintPrd, parseIdNum } from "./prd-lint.mjs";
+import { accumulationReminder, findCycles, findStaleHeldMigrations, findUnresolvedDeferrals, lintPrd, normalizeNextId, parseIdNum } from "./prd-lint.mjs";
 
 const story = (over = {}) => ({ id: "US-1", title: "t", description: "d", acceptanceCriteria: ["a"], passes: false, ...over });
 const prd = (userStories, nextId = 10_000) => ({ nextId, userStories });
@@ -299,5 +299,47 @@ describe("prd-lint CLI entry", () => {
     const src = readFileSync("scripts/prd-lint.mjs", "utf8");
     expect(src).not.toContain("`file://${process.argv[1]}`");
     expect(src).toContain("pathToFileURL(process.argv[1]).href");
+  });
+});
+
+describe("US-2088: planning fields only bind unfinished stories", () => {
+  const bare = (over = {}) => ({ id: "US-1", title: "t", passes: false, ...over });
+
+  it("still requires description + acceptanceCriteria on passes:false", () => {
+    const r = lintPrd({ prd: prd([bare()]) });
+    expect(r.errors.some((e) => e.includes('missing required field "description"'))).toBe(true);
+    expect(r.errors.some((e) => e.includes('missing required field "acceptanceCriteria"'))).toBe(true);
+  });
+  it("exempts a passes:true record — a finished story cannot be planned", () => {
+    const r = lintPrd({ prd: prd([bare({ passes: true })]) });
+    expect(r.errors.some((e) => e.includes("missing required field"))).toBe(false);
+  });
+  it("still requires id/title/passes even on a record", () => {
+    const r = lintPrd({ prd: prd([{ id: "US-1", passes: true }]) });
+    expect(r.errors.some((e) => e.includes('missing required field "title"'))).toBe(true);
+  });
+  it("still type-checks the fields a record DOES carry", () => {
+    const r = lintPrd({ prd: prd([bare({ passes: true, acceptanceCriteria: "not an array" })]) });
+    expect(r.errors.some((e) => e.includes("acceptanceCriteria must be an array"))).toBe(true);
+  });
+});
+
+describe("US-2088: normalizeNextId", () => {
+  it("accepts a bare integer", () => {
+    expect(normalizeNextId(2088)).toBe(2088);
+  });
+  it("accepts the US-<n> string form", () => {
+    expect(normalizeNextId("US-2088")).toBe(2088);
+  });
+  it("rejects anything else", () => {
+    for (const v of ["2088", "US-", "US-abc", 20.5, null, undefined, {}]) {
+      expect(normalizeNextId(v)).toBeNull();
+    }
+  });
+  it("enforces the > max-id invariant in BOTH forms", () => {
+    const s = story({ id: "US-50" });
+    expect(lintPrd({ prd: prd([s], 10) }).errors.some((e) => e.includes("nextId"))).toBe(true);
+    expect(lintPrd({ prd: prd([s], "US-10") }).errors.some((e) => e.includes("nextId"))).toBe(true);
+    expect(lintPrd({ prd: prd([s], "US-51") }).errors.some((e) => e.includes("nextId"))).toBe(false);
   });
 });

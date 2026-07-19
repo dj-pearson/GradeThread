@@ -18,6 +18,18 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 export const ACCUMULATION_THRESHOLD = 50;
 export const LEARNINGS_LINE_WARN = 800;
 const REQUIRED_FIELDS = ["id", "title", "description", "acceptanceCriteria", "passes"];
+// Subset of the above that only applies while a story is still PLANNED work.
+export const PLANNING_FIELDS = ["description", "acceptanceCriteria"];
+
+/** nextId as a number, accepting 2088 or "US-2088". null if neither. */
+export function normalizeNextId(v) {
+  if (typeof v === "number" && Number.isInteger(v)) return v;
+  if (typeof v === "string") {
+    const m = v.match(/^US-(\d+)$/);
+    if (m) return Number(m[1]);
+  }
+  return null;
+}
 const ID_RE = /^US-\d+$/;
 const ID_FIELD_RE = /"id":\s*"US-(\d+)"/g;
 
@@ -248,20 +260,39 @@ export function lintPrd({ prd, archiveIds = new Set(), archiveMaxId = 0, learnin
   }
 
   // required fields + type checks
+  //
+  // US-2088: description and acceptanceCriteria are PLANNING fields — they say
+  // what the work is and how you will know it is done. A story that is already
+  // `passes: true` cannot be planned; requiring them there is ceremony, and it
+  // blocked a legitimate use that emerged in practice: recording a completed
+  // audit or a negative result as a lightweight {id, title, passes, notes} entry.
+  //
+  // They stay REQUIRED for `passes: false`, which is the actionable backlog the
+  // Ralph loop selects from and the only place the fields do any work. So the
+  // guard still catches the failure that matters — an unplannable story entering
+  // the queue — while no longer rejecting a finished record.
   for (const s of stories) {
     const id = typeof s?.id === "string" ? s.id : "(no id)";
+    const planning = s?.passes !== true;
     for (const f of REQUIRED_FIELDS) {
+      if (!planning && PLANNING_FIELDS.includes(f)) continue;
       if (!(f in s) || s[f] === undefined || s[f] === null) errors.push(`${id}: missing required field "${f}"`);
     }
     if ("acceptanceCriteria" in s && !Array.isArray(s.acceptanceCriteria)) errors.push(`${id}: acceptanceCriteria must be an array`);
     if ("passes" in s && typeof s.passes !== "boolean") errors.push(`${id}: passes must be a boolean`);
   }
 
-  // nextId strictly greater than the max id ANYWHERE
+  // nextId strictly greater than the max id ANYWHERE.
+  //
+  // Accepts either 2088 or "US-2088". Only this linter reads nextId, so the
+  // form is a style question; the invariant (it must beat every id anywhere) is
+  // the part that matters, and it holds for both. The string form is canonical
+  // because that is what an author copies straight into a new story's `id`.
   const maxAnywhere = Math.max(maxActive, archiveMaxId);
-  if (typeof prd?.nextId !== "number" || !Number.isInteger(prd.nextId)) {
-    errors.push("nextId must be an integer");
-  } else if (prd.nextId <= maxAnywhere) {
+  const nextIdNum = normalizeNextId(prd?.nextId);
+  if (nextIdNum === null) {
+    errors.push(`nextId must be an integer or a "US-<n>" string, got ${JSON.stringify(prd?.nextId)}`);
+  } else if (nextIdNum <= maxAnywhere) {
     errors.push(`nextId (${prd.nextId}) must be > the max story id anywhere (active max ${maxActive}, archive max ${archiveMaxId})`);
   }
 
