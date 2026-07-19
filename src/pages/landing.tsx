@@ -367,7 +367,7 @@ function GradeThreadPricingBlock() {
 function IncludedGradesTable() {
   return (
     <div className="rounded-lg border border-border bg-card p-6">
-      <h4 className="font-semibold">Included with FlipDesk</h4>
+      <h3 className="font-semibold">Included with FlipDesk</h3>
       <p className="mt-1 text-sm text-muted-foreground">
         Every FlipDesk plan includes Standard grades each month. Overage uses
         credits or pay-per-grade.

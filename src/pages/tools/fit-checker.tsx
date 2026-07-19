@@ -197,7 +197,7 @@ function FitCheckerTool() {
 
         <div className="mt-6 grid gap-6 sm:grid-cols-2">
           <div>
-            <h3 className="text-sm font-semibold">The garment ({unitLabel}, flat)</h3>
+            <h2 className="text-sm font-semibold">The garment ({unitLabel}, flat)</h2>
             <div className="mt-2 space-y-3">
               {GARMENT_FIELDS[group].map((f) => (
                 <div key={f.key}>
@@ -214,7 +214,7 @@ function FitCheckerTool() {
             </div>
           </div>
           <div>
-            <h3 className="text-sm font-semibold">Your body ({unitLabel})</h3>
+            <h2 className="text-sm font-semibold">Your body ({unitLabel})</h2>
             <div className="mt-2 space-y-3">
               {BODY_FIELDS[group].map((key) => (
                 <div key={key}>
