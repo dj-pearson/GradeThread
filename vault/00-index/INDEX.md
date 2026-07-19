@@ -78,6 +78,7 @@ New here? Read [[CONTRACT]] before adding a note.
 - [[adr-0002-shipped-runbook-copies]] — decision — The in-app runbooks and rotation registry stay hand-written with a staleness guard, because generating them would either flood the UI or require an excerpt field that is a second copy anyway.
 - [[adr-0003-dual-consumer-vault]] — decision — Live Dataview queries serve humans, the generated INDEX serves agents; both are kept because each is inert to the other's reader.
 - [[adr-authenticity-guarantee]] — decision — Why GradeThread does not financially back its authenticity assessments yet, and the four things that would have to be true to revisit.
+- [[adr-authenticity-open-questions]] — decision — Four authenticity decisions the engineering work is blocked on, each with options and a recommendation — none is decided yet.
 - [[adr-comps-pseo]] — decision — Whether to build programmatic comp pages, and why the answer turned on indexation risk.
 - [[adr-depop-partner-application]] — decision — The Depop API partnership application, what it requires and what it unlocks.
 - [[adr-graphify-pilot]] — decision — The Graphify pilot, its scope and the criteria for continuing or stopping.
