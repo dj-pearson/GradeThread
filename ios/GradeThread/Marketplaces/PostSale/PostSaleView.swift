@@ -349,12 +349,24 @@ struct PostSaleView: View {
         showingEvidencePicker = false
         guard let target = evidenceTarget, let result = results.first else { return }
         Task {
+            // Route through PhotoCompressor rather than encoding here. Its own
+            // header explains why this matters for THIS destination: camera and
+            // library UIImages carry orientation as a flag with pixels in the
+            // sensor's native rotation, and "consumers that ignore EXIF (eBay's
+            // image pipeline does) then render them sideways/upside-down". This
+            // path uploads straight to eBay as dispute evidence, so a bare
+            // jpegData() encode could submit rotated evidence at the single
+            // highest-stakes moment a seller has — contesting a case.
+            //
+            // It also gets the 1600px/0.75 downscale (full-res originals are
+            // 3-10 MB) and moves the encode off the MainActor, which this
+            // Task inherits from the enclosing View.
             guard let image = await result.loadImage(),
-                  let data = image.jpegData(compressionQuality: 0.8) else {
+                  let output = await PhotoCompressor.compressOffMain(image) else {
                 store.actionError = "Couldn't read the selected photo."
                 return
             }
-            await store.uploadDisputeEvidence(target, imageData: data)
+            await store.uploadDisputeEvidence(target, imageData: output.imageData)
             evidenceTarget = nil
         }
     }
