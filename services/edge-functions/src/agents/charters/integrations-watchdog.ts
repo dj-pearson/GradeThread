@@ -33,7 +33,7 @@ export const INTEGRATIONS_WATCHDOG_CHARTER: AgentCharter = {
     "proposal payload has a title and a body; attach the relevant memo slice as",
     "evidence:",
     "  • one task per OVERDUE rotation — title names the secret, body cites the",
-    "    KEY_ROTATION.md procedure and how many days overdue; evidence is that",
+    "    vault/10-ops/key-rotation.md procedure and how many days overdue; evidence is that",
     "    rotation calendar item;",
     "  • one task for a DEGRADED/DOWN vendor — title names the vendor, body gives",
     "    the error window + counts; evidence is that vendor_health entry;",

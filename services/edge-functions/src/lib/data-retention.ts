@@ -8,7 +8,7 @@
 // analytics). I.e. we anonymize old grades rather than destroy them.
 //
 // Retention window is env-tunable (DATA_RETENTION_DAYS, default 730 = 2 years)
-// and documented in the Privacy Policy + DATA_RETENTION.md.
+// and documented in the Privacy Policy + vault/10-ops/data-retention.md.
 
 import { supabaseAdmin } from "./supabase.ts";
 import { requireJobSecret } from "./job-auth.ts";

@@ -33,8 +33,14 @@ nothing references, and reports the ones that must stay.
 
 | Old path | Note | Created |
 |---|---|---|
+| `DATA_RETENTION.md` | [[data-retention]] | 2026-07-19 |
+| `docs/DATA_RETENTION.md` | [[data-retention]] | 2026-07-19 |
+| `docs/INCIDENT_RESPONSE.md` | [[incident-response]] | 2026-07-19 |
+| `docs/KEY_ROTATION.md` | [[key-rotation]] | 2026-07-19 |
 | `ENV_REFERENCE.md` | [[env-reference]] | 2026-07-19 |
 | `ENVIRONMENT.md` | [[env-reference]] | 2026-07-19 |
+| `INCIDENT_RESPONSE.md` | [[incident-response]] | 2026-07-19 |
+| `KEY_ROTATION.md` | [[key-rotation]] | 2026-07-19 |
 
 <!-- stubs:end -->
 

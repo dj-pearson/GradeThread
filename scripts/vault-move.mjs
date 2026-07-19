@@ -48,6 +48,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 export const STUBS_PATH = "vault/00-index/STUBS.md";
 export const STUB_MAX_LINES = 5;
+// Opt-out marker: a file containing this is never reference-rewritten.
+export const NO_REWRITE_MARKER = "vault-move:no-rewrite";
 
 // ── Derivation ──────────────────────────────────────────────────────────────
 
@@ -98,7 +100,14 @@ export function rewriteRefs(text, oldPath, newPath) {
   let count = 0;
   const esc = oldPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-  let out = text.replace(new RegExp(`\\]\\(\\.?/?${esc}\\)`, "g"), () => {
+  // Link TEXT very often repeats the path — `[docs/X.md](docs/X.md)`. Rewriting
+  // only the target leaves a link whose visible label names a file that no
+  // longer exists, which reads as a broken doc even though the link works.
+  let out = text.replace(new RegExp(`\\[\\.?/?${esc}\\]\\(\\.?/?${esc}\\)`, "g"), () => {
+    count++;
+    return `[${newPath}](${newPath})`;
+  });
+  out = out.replace(new RegExp(`\\]\\(\\.?/?${esc}\\)`, "g"), () => {
     count++;
     return `](${newPath})`;
   });
@@ -172,10 +181,25 @@ export function planMove(root, source, dest, opts, { read = readFileSync, glob =
   });
 
   // Scan every tracked text file for references to the old path.
-  const candidates = glob("**/*.{md,mjs,js,ts,tsx,json,yml,yaml}", {
-    cwd: root,
-    exclude: (p) => /node_modules|[\\/]dist[\\/]|\.git[\\/]/.test(String(p)),
-  }).map((f) => String(f).replace(/\\/g, "/"));
+  //
+  // `**` does NOT match dot-directories in Node's glob, so .github/ (workflows,
+  // security docs) and .claude/ (the skills that instruct agents where to read)
+  // are invisible to a plain `**` pass. They are exactly the files whose stale
+  // paths cost the most, so they get their own explicit patterns.
+  const patterns = [
+    "**/*.{md,mjs,js,ts,tsx,json,yml,yaml}",
+    ".github/**/*.{md,yml,yaml}",
+    ".claude/**/*.{md,json}",
+    ".agents/**/*.{md,json}",
+  ];
+  const seen = new Set();
+  for (const pattern of patterns) {
+    for (const f of glob(pattern, {
+      cwd: root,
+      exclude: (p) => /node_modules|[\\/]dist[\\/]|\.git[\\/]/.test(String(p)),
+    })) seen.add(String(f).replace(/\\/g, "/"));
+  }
+  const candidates = [...seen];
 
   // Absorbed documents are replaced by a stub pointing at THIS note, so
   // references to them must be rewritten exactly as references to the source
@@ -189,6 +213,12 @@ export function planMove(root, source, dest, opts, { read = readFileSync, glob =
     if (rel === dest || oldPaths.includes(rel)) continue;
     let text;
     try { text = read(resolve(root, rel), "utf8"); } catch { continue; }
+    // Some documents record paths as HISTORICAL FACTS — an ADR's Context
+    // section describes the repo as it was, so "updating" it makes the file
+    // claim the past contained files at their present paths. That happened
+    // twice to adr-0001 before this opt-out existed. The tool cannot tell a
+    // live reference from a historical one, so the file says which it is.
+    if (text.includes(NO_REWRITE_MARKER)) continue;
     if (!oldPaths.some((p) => text.includes(p))) continue;
     let count = 0;
     const left = [];

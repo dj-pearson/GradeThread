@@ -16,7 +16,7 @@
 //      email/mobile. Exit 1 so the workflow run itself shows red.
 //   4. Full recovery → comment on + close any open `uptime` issue.
 //
-// Thresholds + escalation: docs/INCIDENT_RESPONSE.md ("Availability monitoring").
+// Thresholds + escalation: vault/10-ops/incident-response.md ("Availability monitoring").
 // Local test: `node scripts/ops/uptime-check.mjs` (GitHub-issue steps are
 // skipped without GITHUB_TOKEN; webhook skipped without UPTIME_ALERT_WEBHOOK).
 
@@ -163,7 +163,7 @@ async function reportFailure(failures, allResults) {
   const body =
     `Confirmed by 2 consecutive failed checks ${CONFIRM_DELAY_MS / 1000}s apart ` +
     `(run: ${runUrl()}).\n\n${lines}\n\n` +
-    `Runbook: docs/INCIDENT_RESPONSE.md → "Availability monitoring, thresholds & escalation".`;
+    `Runbook: vault/10-ops/incident-response.md → "Availability monitoring, thresholds & escalation".`;
 
   // Channel 1: Slack-compatible webhook (optional secret).
   const webhook = process.env.UPTIME_ALERT_WEBHOOK?.trim();

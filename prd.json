@@ -2338,7 +2338,7 @@
     },
     {
       "id": "US-2049",
-      "passes": false,
+      "passes": true,
       "dependsOn": [
         "US-2047"
       ],
@@ -2397,6 +2397,7 @@
       "description": "As an operator, I want every runbook in one folder with consistent structure, so that finding the right procedure is navigation rather than recall.",
       "acceptanceCriteria": [
         "SCOPE EXPANDED 2026-07-18 (found in US-2047): ops runbooks exist in THREE places, not two. src/lib/admin/runbooks.ts is a 378-line shipped in-app runbook feature (US-910) hand-distilled from DEPLOY/ROLLBACK/INCIDENT_RESPONSE/BACKUPS/LAUNCH_CHECKLIST — it is what on-call actually reads during an incident, and it has NO drift guard. See vault/10-ops/runbook-copies.md.",
+        "ALSO (found US-2049): services/edge-functions/src/lib/integrations-watchdog.ts holds KEY_ROTATION_REGISTRY — the rotation SCHEDULE transcribed as structured data. That is a FOURTH copy. Hand-transcribing ops markdown into TypeScript is a habit in this codebase, not two accidents; grep the source tree for any doc filename before calling its move complete.",
         "Move DEPLOY, ROLLBACK, STAGING, BACKUPS, UPTIME_MONITORING, SCALING, CAPACITY, CONNECTION_POOLING, MIGRATIONS, LAUNCH_CHECKLIST and the docs/ runbooks (BILLING_REFUNDS, MFA, runbooks/mfa-ipv6-ip-mismatch, QA_PHOTO_ACCESS) into vault/10-ops.",
         "Each becomes type:runbook with code_refs to the scripts/config it drives.",
         "Ordering dependencies between runbooks (DEPLOY's DB->edge->frontend order, ROLLBACK's relationship to it) expressed as wikilinks.",

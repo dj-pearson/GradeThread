@@ -9,6 +9,13 @@ tags: [meta, knowledge, retrieval]
 summary: Consolidate 203 scattered markdown files into one navigable wiki; retrieve by link traversal rather than embeddings.
 ---
 
+<!-- vault-move:no-rewrite -->
+<!-- This ADR records the state of the repo BEFORE the migration. Its paths are
+     historical facts, not live references. vault-move.mjs must not update them —
+     doing so made this file claim the pre-migration repo contained files at their
+     post-migration paths. It happened twice (US-2048, US-2049) before the marker
+     above was added. -->
+
 # ADR-0001: Knowledge vault as an agentic wiki
 
 **Date:** 2026-07-18 · **Status:** accepted · **Epic:** US-2042 → US-2067
@@ -24,7 +31,9 @@ A survey of the repo on 2026-07-18 found **203 markdown files** outside
   had drifted, with the guide documenting a service the code never used. Both are
   now [[env-reference]].)*
 - `INCIDENT_RESPONSE.md`, `KEY_ROTATION.md` and `DATA_RETENTION.md` each exist in
-  **both** the repo root and `docs/`, at different lengths.
+  **both** the repo root and `docs/`, at different lengths. *(US-2049 found the
+  same pattern as the env pair — complementary halves that had diverged, and two
+  mutually contradictory rotation procedures that were both wrong.)*
 - `.agents/skills/` duplicates the two **vendor** skills (`supabase`,
   `supabase-postgres-best-practices`) byte-for-byte — 40 files also present under
   `.claude/skills/`. It does *not* contain the four first-party skills.

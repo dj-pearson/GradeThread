@@ -13,7 +13,7 @@ an automated suppression:
    usage** (e.g. a dev-only tool, or a code path we don't hit), record it below
    so reviewers know the red `npm audit` was triaged, not ignored.
 3. Re-review every accepted entry at the quarterly security review
-   (`docs/INCIDENT_RESPONSE.md`).
+   (`vault/10-ops/incident-response.md`).
 
 Do **not** lower `--audit-level` to make the build pass.
 

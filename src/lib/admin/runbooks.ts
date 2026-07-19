@@ -2,7 +2,7 @@
 //
 // Curated, BUILD-TIME-BUNDLED operational playbooks distilled from the repo
 // markdown (DEPLOY.md, LAUNCH_CHECKLIST.md, COOLIFY.md, ROLLBACK.md,
-// INCIDENT_RESPONSE.md, BACKUPS.md) and the cron/jobs registry
+// vault/10-ops/incident-response.md, BACKUPS.md) and the cron/jobs registry
 // (services/edge-functions/src/lib/cron-runs.ts → CRON_REGISTRY). The point is
 // that on-call has the playbook WHERE THE CONTROLS ARE, not buried in the repo:
 // each runbook deep-links to the relevant admin control (`controls`).

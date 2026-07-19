@@ -1316,7 +1316,7 @@ adminBillingRoutes.post("/pending-refunds/:id/resolve", async (c) => {
 // re-sends the event from the Stripe dashboard (Developers → Events → the evt_…
 // id shown here → "Resend"). The new delivery is a fresh event id, so the
 // idempotency claim won't dedupe it. After confirming it processed, resolve the
-// row here. See INCIDENT_RESPONSE.md → "3a. Dead-lettered webhook".
+// row here. See vault/10-ops/incident-response.md → "3a. Dead-lettered webhook".
 
 // GET /webhook-dead-letters — open (unresolved) queue, newest first.
 adminBillingRoutes.get("/webhook-dead-letters", async (c) => {

@@ -170,7 +170,7 @@ Each module: **Purpose · Exists today · Build · Stories.**
 ### I — Integrations Watchdog
 - **Purpose:** vendor-facing health: Stripe/eBay/SES/Google/Apple API error
   rates and circuit-breaker trips, OAuth token fleet health, key/secret
-  rotation calendar (KEY_ROTATION.md as data), quota tracking.
+  rotation calendar (vault/10-ops/key-rotation.md as data), quota tracking.
 - **Exists:** circuit-breaker, marketplace-health, ebay token refresh cron,
   email warmup/suppression machinery.
 - **Stories:** US-1604.

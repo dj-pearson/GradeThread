@@ -1437,7 +1437,7 @@ const TOOL_LIST: AgentToolDef[] = [
   },
   {
     name: "get_integrations_health",
-    description: "Integrations Watchdog memo (US-1604): pre-assembled vendor health verdicts (from ops events), the OAuth token-fleet expiry forecast (expired / 7d / 30d by marketplace), the key-rotation calendar (overdue / due-soon / baseline-needed, from KEY_ROTATION.md encoded as data), and an email deliverability watch. Read-about-credentials only — expiry metadata + cadences, never secret material.",
+    description: "Integrations Watchdog memo (US-1604): pre-assembled vendor health verdicts (from ops events), the OAuth token-fleet expiry forecast (expired / 7d / 30d by marketplace), the key-rotation calendar (overdue / due-soon / baseline-needed, from vault/10-ops/key-rotation.md encoded as data), and an email deliverability watch. Read-about-credentials only — expiry metadata + cadences, never secret material.",
     class: "read",
     inputSchema: {
       type: "object",

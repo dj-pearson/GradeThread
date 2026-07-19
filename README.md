@@ -73,11 +73,11 @@ We take security seriously and welcome responsible disclosure.
 
 - **[SECURITY.md](SECURITY.md)** — how to report a vulnerability, scope, safe
   harbor, and supported versions.
-- **[docs/INCIDENT_RESPONSE.md](docs/INCIDENT_RESPONSE.md)** — severity levels,
+- **[vault/10-ops/incident-response.md](vault/10-ops/incident-response.md)** — severity levels,
   the first-60-minutes playbook, mass marketplace-token revocation, the
   notification chain, emergency consoles, and the quarterly security-review
   checklist.
-- **[docs/KEY_ROTATION.md](docs/KEY_ROTATION.md)** — key-rotation runbook,
+- **[vault/10-ops/key-rotation.md](vault/10-ops/key-rotation.md)** — key-rotation runbook,
   including the `EDGE_ENCRYPTION_KEY` `v1:` → `v2:` re-encryption procedure.
 
 Secrets are kept out of git: every `.env` variant is gitignored (only the

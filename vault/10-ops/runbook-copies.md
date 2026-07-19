@@ -10,6 +10,10 @@ tags: [ops, runbooks, duplication, migration]
 summary: Ops procedures are duplicated across repo root, docs/, and a shipped in-app admin feature — and the in-app copy is the one on-call actually reads.
 ---
 
+<!-- vault-move:no-rewrite -->
+<!-- Records where documents USED to live. Rewriting those paths would make the
+     finding describe a state that never existed. -->
+
 # Ops runbooks exist in three places, not two
 
 Found 2026-07-18 while dry-running `vault-move.mjs` against `ROLLBACK.md` for
@@ -20,13 +24,35 @@ which turned out not to be a stray comment.
 
 | # | Where | What it is |
 |---|---|---|
-| 1 | Repo root — `DEPLOY.md`, `ROLLBACK.md`, `INCIDENT_RESPONSE.md`, `BACKUPS.md`, `LAUNCH_CHECKLIST.md` | The documents everyone assumes are canonical |
-| 2 | `docs/` | Second copies of `INCIDENT_RESPONSE`, `KEY_ROTATION`, `DATA_RETENTION`, at different lengths |
+| 1 | Repo root — DEPLOY.md, ROLLBACK.md, INCIDENT_RESPONSE.md, BACKUPS.md, LAUNCH_CHECKLIST.md | The documents everyone assumes are canonical. *(The three doubled ones were merged into the vault by US-2049; DEPLOY/BACKUPS/LAUNCH_CHECKLIST move in US-2051.)* |
+| 2 | `docs/` | Second copies of INCIDENT_RESPONSE, KEY_ROTATION, DATA_RETENTION, at different lengths — **resolved 2026-07-19 by US-2049** |
 | 3 | **`src/lib/admin/runbooks.ts`** | A 378-line `RUNBOOKS` array (US-910), **shipped in the frontend bundle** |
+
+| 4 | **`services/edge-functions/src/lib/integrations-watchdog.ts`** | `KEY_ROTATION_REGISTRY` — the rotation **schedule** encoded as structured data (found 2026-07-19, US-2049) |
 
 Copy 3 is not a link to the markdown. It is operational prose hand-distilled into
 TypeScript string literals, each runbook deep-linked to the admin control it
 governs (`controls[]`), rendered in-app and searchable from the command palette.
+
+Copy 4 is the same move applied to a different runbook: the rotation cadences
+from `KEY_ROTATION.md` transcribed into a typed registry so the Integrations
+Watchdog can compute what is overdue. Its own comment says it is
+"`KEY_ROTATION.md` encoded as data", and it has a test
+(`integrations-watchdog_test.ts`) asserting the encoding matches the document —
+which is closer to a guard than copies 2 and 3 have, but the test pins the
+*shape* of the split, not that the cadences still match the prose.
+
+## The pattern, not the instance
+
+This is not two accidents. It is a **habit** in this codebase: operational
+knowledge gets hand-transcribed from markdown into TypeScript so a feature can
+use it. Each instance is individually reasonable — the in-app runbooks and the
+watchdog registry are both good ideas — and each one creates a copy that no
+markdown edit will ever reach.
+
+Expect more. When migrating any ops document, grep the source tree for its
+filename before declaring the move complete; `vault-move.mjs` reports these as
+residual mentions precisely because they need a human decision.
 
 ## Why this is the copy that matters
 

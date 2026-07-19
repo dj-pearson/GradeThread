@@ -11,7 +11,7 @@
 //   • minimizeLinkageRef() — when we need to MATCH a transient external
 //     identifier (e.g. an eBay order id) to dedupe a sold→bought handoff, we
 //     store a SALTED SHA-256 of it, never the raw PII-bearing value (AC#4 /
-//     DATA_RETENTION.md). Same input+salt → same hash (dedupe works); the raw
+//     vault/10-ops/data-retention.md). Same input+salt → same hash (dedupe works); the raw
 //     value is not recoverable from what we keep.
 //
 // Tenant-scoping (US-268): the three passport tables are written ONLY by the

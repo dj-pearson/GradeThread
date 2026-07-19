@@ -7,9 +7,9 @@
 // the impure reads (marketplace connections, ops events, rotation state) and
 // this module turns them into a deterministic memo the agent narrates.
 
-// ── Key-rotation registry (KEY_ROTATION.md encoded as data) ──────────────────
+// ── Key-rotation registry (vault/10-ops/key-rotation.md encoded as data) ──────────────────
 //
-// The rotation SCHEDULE from KEY_ROTATION.md, checked in as structured data so
+// The rotation SCHEDULE from vault/10-ops/key-rotation.md, checked in as structured data so
 // the agent can compute a due/overdue calendar. `cadence_days: null` = an
 // event-driven secret (rotate on leak / on policy / on endpoint change) — it has
 // no timer and is never "overdue" on a clock, only flagged for awareness.
@@ -27,7 +27,7 @@ export const KEY_ROTATION_REGISTRY: readonly RotationEntry[] = [
   { secret: "STRIPE_SECRET_KEY", location: "edge", cadence_days: 365, note: "Roll in Stripe dashboard; update env; redeploy. Or on leak." },
   { secret: "STRIPE_WEBHOOK_SECRET", location: "edge", cadence_days: null, note: "On endpoint change — Stripe supports multiple signing secrets during cutover." },
   { secret: "EBAY_CERT_ID", location: "edge", cadence_days: null, note: "Per eBay policy; token refresh continues without re-consent." },
-  { secret: "EDGE_ENCRYPTION_KEY", location: "edge", cadence_days: null, note: "Special: rotating requires dual-key re-encryption of stored eBay tokens (see KEY_ROTATION.md)." },
+  { secret: "EDGE_ENCRYPTION_KEY", location: "edge", cadence_days: null, note: "Special: rotating requires dual-key re-encryption of stored eBay tokens (see vault/10-ops/key-rotation.md)." },
   { secret: "SUPABASE_SERVICE_ROLE_KEY", location: "edge", cadence_days: null, note: "On leak — high blast radius, coordinate." },
   { secret: "UNSUBSCRIBE_SECRET", location: "edge", cadence_days: null, note: "On leak — rotating invalidates outstanding unsubscribe links (acceptable)." },
   { secret: "DEPLOY_REGISTRY_TOKENS", location: "ci", cadence_days: 90, note: "Deploy/registry tokens in GitHub Actions (US-522 inventory)." },

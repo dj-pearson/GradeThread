@@ -307,7 +307,7 @@ async function handleShopifyProductUpdate(
 //       handle in marketplace_connections — we DELETE those rows (erasing the
 //       encrypted token). We deliberately DON'T delete the GradeThread user's own
 //       inventory/listings/sales: those are the seller's business records
-//       governed by GradeThread's retention policy (docs/DATA_RETENTION.md), not
+//       governed by GradeThread's retention policy (vault/10-ops/data-retention.md), not
 //       Shopify shop data.
 async function handleShopifyComplianceWebhook(
   topic: string,
