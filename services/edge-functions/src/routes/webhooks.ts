@@ -34,6 +34,7 @@ import { recordWebhookDeadLetter } from "../lib/webhook-dead-letter.ts";
 import { captureException } from "../lib/observability.ts";
 import { emitOpsEvent } from "../lib/ops-events.ts";
 import { recordAgreedTerms } from "../lib/agreed-terms.ts";
+import { safeSendEmail, userDisplayName } from "../lib/email-helpers.ts";
 import { notifyPlanDowngrade } from "../lib/plan-change-notify.ts";
 import { applySesFeedback } from "../lib/email-suppression.ts";
 import { type SnsMessage, verifySnsSignature } from "../lib/sns-verify.ts";
@@ -46,18 +47,6 @@ import {
 } from "../lib/stripe-metadata.ts";
 
 // Fire-and-forget email helper — webhook MUST NOT fail if email fails.
-function safeSendEmail(promise: Promise<boolean>, label: string) {
-  promise.catch((err) => {
-    console.error(`[Webhook] ${label} email send failed:`, err instanceof Error ? err.message : err);
-  });
-}
-
-function userDisplayName(email: string | null | undefined, fullName: string | null | undefined): string {
-  if (fullName && fullName.trim()) return fullName.trim().split(/\s+/)[0]!;
-  if (email) return email.split("@")[0]!;
-  return "there";
-}
-
 export const webhookRoutes = new Hono();
 
 // ── Stripe webhook (US-206) ──────────────────────────────────────

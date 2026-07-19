@@ -18,8 +18,61 @@ import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
 import { acquireJobLock } from "../lib/job-lock.ts";
+import { sendTrialExpiringEmail } from "../lib/email.ts";
+import { safeSendEmail, userDisplayName } from "../lib/email-helpers.ts";
 
 const BATCH_LIMIT = 1000;
+
+// ── US-2120: the ADVANCE notice, before the downgrade above ─────────
+//
+// sendTrialExpiringEmail has existed and been well-written since US-801 — and
+// has had NO CALLER outside its own test. It was decommissioned in favour of the
+// US-943 drip engine, and that engine is unambiguously MARKETING: it ships via
+// sendDripStepEmail with a one-click marketing unsubscribe footer, and drip.ts
+// skips the send entirely when optedOut || suppressed || frequencyCapped.
+//
+// So a user who unsubscribed from marketing received NO trial-ending notice at
+// all — the one notice that must not depend on marketing consent, because it is
+// the only warning that their plan is about to change.
+//
+// This restores it as a TRANSACTIONAL send. `trial_expiring` is already in
+// TRANSACTIONAL_CATEGORIES, so resolveIsMarketing force-classifies it
+// transactional regardless of any flag: it cannot be routed onto the marketing
+// identity, and the marketing opt-out/suppression/frequency-cap checks in the
+// drip engine are simply not on this path.
+//
+// The marketing drip is deliberately LEFT ALONE (AC3) — conversion messaging is
+// legitimate. What changes is that the required notice no longer depends on it.
+const NOTICE_DAYS_BEFORE = 3;
+
+/** Whole days from `now` until `endsAt`, or null if unparseable. */
+export function daysUntil(endsAt: string | null | undefined, nowMs: number): number | null {
+  if (!endsAt) return null;
+  const t = Date.parse(endsAt);
+  if (!Number.isFinite(t)) return null;
+  return Math.ceil((t - nowMs) / 86_400_000);
+}
+
+/**
+ * Should this trialist get the advance notice on this run?
+ *
+ * Pure so the window logic is testable without a DB or a clock. The cron is
+ * daily, so the window is a single day rather than "<= N": sending on every day
+ * inside the window would mail the same person three times.
+ */
+export function shouldSendTrialNotice(args: {
+  daysLeft: number | null;
+  alreadyNotifiedAt: string | null | undefined;
+}): boolean {
+  if (args.daysLeft === null) return false;
+  // Already sent — once is the requirement, and a repeat reads as marketing.
+  if (args.alreadyNotifiedAt) return false;
+  // The day the notice is due. A trial already past its end gets nothing: the
+  // downgrade below is the event, and a "3 days left" mail about a lapsed trial
+  // is worse than silence.
+  return args.daysLeft === NOTICE_DAYS_BEFORE;
+}
+
 
 export async function handleTrialExpiryCron(c: Context): Promise<Response> {
   if (!(await requireJobSecret(c))) {
@@ -33,6 +86,56 @@ export async function handleTrialExpiryCron(c: Context): Promise<Response> {
     return c.json({ ok: true, skipped: true, reason: lock.reason });
   }
   try {
+  // US-2120: send the advance notice BEFORE the downgrade below, so a user is
+  // warned while they can still act. Best-effort — a mail hiccup must never
+  // block the downgrade, which is the correctness-critical half of this job.
+  let noticesSent = 0;
+  try {
+    const nowMs = Date.now();
+    const { data: soon } = await supabaseAdmin
+      .from("users")
+      .select("id, email, full_name, trial_ends_at")
+      .eq("subscription_status", "trialing")
+      .is("flipdesk_subscription_id", null)
+      .gt("trial_ends_at", new Date(nowMs).toISOString())
+      .lt("trial_ends_at", new Date(nowMs + (NOTICE_DAYS_BEFORE + 1) * 86_400_000).toISOString())
+      .limit(BATCH_LIMIT);
+
+    for (const row of (soon ?? []) as Array<{
+      id: string;
+      email: string | null;
+      full_name: string | null;
+      trial_ends_at: string | null;
+    }>) {
+      const daysLeft = daysUntil(row.trial_ends_at, nowMs);
+      // `alreadyNotifiedAt` is null today: successful sends are not recorded in
+      // email_deliveries (only skips and failures are), so there is no existing
+      // marker to read. The exact-day window IS the dedupe — on a daily cron a
+      // user hits daysLeft === NOTICE_DAYS_BEFORE exactly once. The seam is kept
+      // because that is a weaker guarantee than a stored marker: a missed cron
+      // day means a missed notice, and a same-day manual re-run could double-
+      // send. A users.trial_notice_sent_at column plugs in here and removes both.
+      if (!shouldSendTrialNotice({ daysLeft, alreadyNotifiedAt: null })) continue;
+      if (!row.email || !row.trial_ends_at) continue;
+
+      safeSendEmail(
+        sendTrialExpiringEmail(row.email, {
+          userName: userDisplayName(row.email, row.full_name),
+          daysLeft: daysLeft ?? NOTICE_DAYS_BEFORE,
+          trialEndsAt: row.trial_ends_at,
+          // US-2120: NO userId. That parameter (US-516) adds a no-login
+          // marketing unsubscribe link, which is incoherent on a notice that by
+          // definition cannot be unsubscribed from — offering an opt-out we do
+          // not honour is worse than offering none.
+        }),
+        "trial_expiring",
+      );
+      noticesSent++;
+    }
+  } catch (err) {
+    console.error("[trial-expiry] advance notice failed:", err);
+  }
+
   const nowIso = new Date().toISOString();
 
   // Target: still 'trialing', trial window elapsed, and NO Stripe subscription
@@ -61,7 +164,7 @@ export async function handleTrialExpiryCron(c: Context): Promise<Response> {
   if (downgraded > 0) {
     console.log(`[trial-expiry] downgraded ${downgraded} expired trial(s) to Free`);
   }
-  return c.json({ ok: true, downgraded });
+  return c.json({ ok: true, downgraded, notices_sent: noticesSent });
   } finally {
     await lock.release();
   }

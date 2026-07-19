@@ -1,0 +1,113 @@
+// US-2120: the trial-ending notice must be TRANSACTIONAL, not a marketing drip.
+//
+// sendTrialExpiringEmail has been well-written and CALLERLESS since US-801 — its
+// only reference outside its own definition was a test. It was decommissioned in
+// favour of the US-943 drip engine, and that engine is unambiguously marketing:
+// it ships with a one-click marketing unsubscribe footer, and drip.ts skips the
+// send entirely when optedOut || suppressed || frequencyCapped.
+//
+// So a user who unsubscribed from marketing got NO warning that their plan was
+// about to change. That is the one notice which must not depend on marketing
+// consent.
+//
+//   deno test --allow-env src/tests/trial-notice_test.ts
+
+import { assert, assertEquals } from "@std/assert";
+
+Deno.env.set("SUPABASE_URL", Deno.env.get("SUPABASE_URL") ?? "http://localhost:54321");
+Deno.env.set(
+  "SUPABASE_SERVICE_ROLE_KEY",
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
+);
+
+const { daysUntil, shouldSendTrialNotice } = await import(
+  "../routes/jobs-trial-expiry.ts"
+);
+const { TRANSACTIONAL_CATEGORIES, resolveIsMarketing } = await import(
+  "../lib/email-transport.ts"
+);
+
+// THE LOAD-BEARING ONE. If trial_expiring is ever classified marketing, the
+// notice becomes suppressible again and this whole story silently regresses.
+Deno.test("US-2120: trial_expiring is TRANSACTIONAL and cannot be sent as marketing", () => {
+  assert(
+    TRANSACTIONAL_CATEGORIES.has("trial_expiring"),
+    "trial_expiring must be transactional — otherwise a marketing opt-out " +
+      "suppresses the only warning that a plan is about to change",
+  );
+  // The hard guard: even asking for marketing must not move it.
+  assertEquals(
+    resolveIsMarketing({ category: "trial_expiring", marketing: true }),
+    false,
+    "a known-transactional category must be force-classified transactional " +
+      "regardless of the requested flag",
+  );
+});
+
+Deno.test("daysUntil counts whole days, rounding up", () => {
+  const now = Date.parse("2026-07-19T00:00:00.000Z");
+  assertEquals(daysUntil("2026-07-22T00:00:00.000Z", now), 3);
+  // Part-days round UP: 2.5 days left is still "3 days left" to a human.
+  assertEquals(daysUntil("2026-07-21T12:00:00.000Z", now), 3);
+  assertEquals(daysUntil(null, now), null);
+  assertEquals(daysUntil("not-a-date", now), null);
+});
+
+Deno.test("the notice fires on exactly one day, not every day in the window", () => {
+  // A daily cron plus a `<= 3` rule would mail the same person three times,
+  // which is precisely what makes a required notice read as marketing.
+  assertEquals(shouldSendTrialNotice({ daysLeft: 3, alreadyNotifiedAt: null }), true);
+  for (const d of [5, 4, 2, 1, 0]) {
+    assertEquals(
+      shouldSendTrialNotice({ daysLeft: d, alreadyNotifiedAt: null }),
+      false,
+      `daysLeft=${d} must not send`,
+    );
+  }
+});
+
+// A trial already past its end gets nothing: the downgrade IS the event, and a
+// "3 days left" mail about a lapsed trial is worse than silence.
+Deno.test("an already-expired trial gets no advance notice", () => {
+  for (const d of [-1, -30]) {
+    assertEquals(shouldSendTrialNotice({ daysLeft: d, alreadyNotifiedAt: null }), false);
+  }
+  assertEquals(shouldSendTrialNotice({ daysLeft: null, alreadyNotifiedAt: null }), false);
+});
+
+Deno.test("a recorded prior notice suppresses a repeat", () => {
+  assertEquals(
+    shouldSendTrialNotice({ daysLeft: 3, alreadyNotifiedAt: "2026-07-16T00:00:00Z" }),
+    false,
+    "once is the requirement; a repeat reads as marketing",
+  );
+});
+
+// AC1's actual promise: the notice does not travel the drip path at all.
+Deno.test("US-2120: the job sends directly, not via the drip engine", async () => {
+  const src = await Deno.readTextFile(
+    new URL("../routes/jobs-trial-expiry.ts", import.meta.url),
+  );
+  assert(
+    /sendTrialExpiringEmail\(/.test(src),
+    "the transactional sender must actually be called — it sat callerless for " +
+      "the entire life of this defect",
+  );
+  // Anchor on the CALL, not the words: the comment above the send explains the
+  // drip engine's opt-out/suppression/frequency-cap behaviour, and matching
+  // prose instead of code failed this assertion against correct source on the
+  // first run. (Third time this session — match syntax that only appears in
+  // code.)
+  assert(
+    !/sendDripStepEmail\(/.test(src),
+    "the notice must NOT route through the drip engine, whose opt-out / " +
+      "suppression / frequency-cap checks are what suppressed it",
+  );
+  // US-516's userId parameter adds a no-login MARKETING unsubscribe link, which
+  // is incoherent on a notice that cannot be unsubscribed from.
+  assert(
+    !/userId: row\.id/.test(src),
+    "must not pass userId — that adds a marketing unsubscribe link to a notice " +
+      "we do not honour an opt-out for",
+  );
+});
