@@ -14,6 +14,7 @@ import { supabaseAdmin } from "./supabase.ts";
 import { requireJobSecret } from "./job-auth.ts";
 import { acquireJobLock } from "./job-lock.ts";
 import { captureException, logEvent, recordMetric } from "./observability.ts";
+import { emitOpsEvent } from "./ops-events.ts";
 
 const BUCKET = "submission-images";
 const BATCH_LIMIT = 200;
@@ -234,9 +235,60 @@ export async function handleDataRetentionCron(c: {
       }
     }
 
+    // US-2006 AC4: did this sweep actually advance? Only suspicious when there
+    // is still past-cutoff work AND we deleted nothing — zero-deleted alone is
+    // the normal steady state once the backlog is drained.
+    let stall: StallDecision | null = null;
+    try {
+      const cutoff = new Date(Date.now() - retentionDays() * 86_400_000).toISOString();
+      const { count: remaining } = await supabaseAdmin
+        .from("submission_images")
+        .select("id, submissions!inner(created_at)", { count: "exact", head: true })
+        .lt("submissions.created_at", cutoff);
+
+      const { data: lastEvent } = await supabaseAdmin
+        .from("ops_events")
+        .select("payload")
+        .eq("type", RETENTION_STALL_EVENT)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const priorConsecutive = Number(
+        (lastEvent as { payload?: { consecutive?: unknown } } | null)?.payload?.consecutive ?? 0,
+      );
+
+      stall = decideRetentionStall({
+        objectsDeleted: result.objects_deleted,
+        pastCutoffRemaining: remaining ?? 0,
+        priorConsecutive: Number.isFinite(priorConsecutive) ? priorConsecutive : 0,
+      });
+
+      if (stall.alert) {
+        await emitOpsEvent(RETENTION_STALL_EVENT, stall.severity, {
+          title:
+            `Data-retention sweep purged nothing while ${remaining} past-cutoff image(s) remain ` +
+            `(${stall.consecutive} consecutive run(s))`,
+          source: "data-retention.stall",
+          data: {
+            // Read back as priorConsecutive next run — keep the key stable.
+            consecutive: stall.consecutive,
+            past_cutoff_remaining: remaining ?? 0,
+            objects_deleted: result.objects_deleted,
+            cutoff,
+          },
+        });
+      }
+    } catch (err) {
+      // Best-effort, like the prunes above: the stall DETECTOR must never be
+      // the reason the purge itself reports failure.
+      captureException(err, { route: "data-retention.stall_check" });
+    }
+
     return c.json({
       ok: true,
       ...result,
+      retention_stalled: stall?.alert ?? false,
+      retention_stall_consecutive: stall?.consecutive ?? 0,
       // US-2021: report what the sweep actually did. A capped run that reports
       // nothing is indistinguishable from a no-op, and this is the signal that
       // tells an operator whether the backlog is still draining.
@@ -250,4 +302,65 @@ export async function handleDataRetentionCron(c: {
   } finally {
     await lock.release();
   }
+}
+
+// ── US-2006 AC4: notice when the sweep stops advancing ───────────────
+//
+// The original bug was a sweep that could not progress past its first batch:
+// after run one, every subsequent nightly run re-selected the same
+// already-purged submissions, found zero images, and returned
+// objects_deleted:0 forever. GDPR storage-limitation was silently unenforced
+// from run two onward while the cron reported ok:true every night.
+//
+// The query shape is now fixed and pinned by tests. This is the RUNTIME
+// counterpart: the shape guard proves the code is right today, and this proves
+// the BEHAVIOUR is right in production — which is the thing that actually
+// failed. A stall could return in a new form (a bad cutoff, an RLS change, a
+// storage outage) that no source assertion would catch.
+//
+// THE SIGNAL IS DELIBERATELY A CONJUNCTION: zero deleted AND past-cutoff rows
+// still present. Zero-deleted alone is the NORMAL steady state once the backlog
+// is drained — alerting on it would fire every night forever, which is how a
+// channel becomes noise and stops being read.
+
+export const RETENTION_STALL_EVENT = "retention.sweep_stalled";
+
+/** How many consecutive suspicious runs before this escalates to critical. */
+export const RETENTION_STALL_THRESHOLD = 3;
+
+export interface StallDecision {
+  alert: boolean;
+  severity: "warning" | "critical";
+  consecutive: number;
+}
+
+/**
+ * Decide whether a sweep result is a stall, and how loudly to say so.
+ *
+ * Pure so every branch is testable without a DB or a clock.
+ *
+ * `priorConsecutive` is the count carried on the last stall event; 0 when there
+ * is none. Escalation is by CONSECUTIVE runs rather than elapsed time because
+ * the failure is "the sweep is not advancing", and runs are the unit in which
+ * that is true.
+ */
+export function decideRetentionStall(args: {
+  objectsDeleted: number;
+  pastCutoffRemaining: number;
+  priorConsecutive: number;
+  threshold?: number;
+}): StallDecision {
+  const threshold = args.threshold ?? RETENTION_STALL_THRESHOLD;
+
+  // Progress, or nothing left to do → not a stall, and the streak resets.
+  if (args.objectsDeleted > 0 || args.pastCutoffRemaining <= 0) {
+    return { alert: false, severity: "warning", consecutive: 0 };
+  }
+
+  const consecutive = Math.max(0, args.priorConsecutive) + 1;
+  return {
+    alert: true,
+    severity: consecutive >= threshold ? "critical" : "warning",
+    consecutive,
+  };
 }

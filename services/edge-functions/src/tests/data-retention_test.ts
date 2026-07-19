@@ -18,6 +18,15 @@
 
 import { assert, assertEquals } from "@std/assert";
 
+// The US-2006 AC4 block below IMPORTS data-retention.ts (rather than only
+// reading its source), which transitively constructs the service-role supabase
+// client — that throws without these. Set before any dynamic import.
+Deno.env.set("SUPABASE_URL", Deno.env.get("SUPABASE_URL") ?? "http://localhost:54321");
+Deno.env.set(
+  "SUPABASE_SERVICE_ROLE_KEY",
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
+);
+
 const SRC = await Deno.readTextFile(
   new URL("../lib/data-retention.ts", import.meta.url),
 );
@@ -139,4 +148,79 @@ Deno.test("US-2021: both email sweeps are BOUNDED per run", () => {
     "both the sent-purge and dead-letter scans must be capped by EMAIL_PURGE_BATCH — " +
       "an uncapped first sweep over a never-pruned table is one enormous transaction",
   );
+});
+
+// ── US-2006 AC4: notice when the sweep stops advancing ───────────────
+//
+// The original bug ran green every night while purging nothing from run two
+// onward. The query shape is fixed and pinned above; this is the RUNTIME
+// counterpart, because a stall could return in a form no source assertion
+// catches (a bad cutoff, an RLS change, a storage outage).
+
+const { decideRetentionStall, RETENTION_STALL_THRESHOLD } = await import(
+  "../lib/data-retention.ts"
+);
+
+Deno.test("US-2006: progress is never a stall", () => {
+  const d = decideRetentionStall({
+    objectsDeleted: 12,
+    pastCutoffRemaining: 500,
+    priorConsecutive: 4,
+  });
+  assertEquals(d.alert, false);
+  assertEquals(d.consecutive, 0, "a productive run must RESET the streak");
+});
+
+// The steady state once the backlog is drained. Alerting here would fire every
+// night forever, which is how a channel becomes noise and stops being read —
+// the same reasoning as the cron-fleet suppression window.
+Deno.test("US-2006: zero deleted with nothing left to do is NOT a stall", () => {
+  const d = decideRetentionStall({
+    objectsDeleted: 0,
+    pastCutoffRemaining: 0,
+    priorConsecutive: 0,
+  });
+  assertEquals(d.alert, false);
+});
+
+// THE ACTUAL BUG: past-cutoff work exists and the sweep purged nothing.
+Deno.test("US-2006: zero deleted WHILE past-cutoff rows remain alerts", () => {
+  const d = decideRetentionStall({
+    objectsDeleted: 0,
+    pastCutoffRemaining: 1_337,
+    priorConsecutive: 0,
+  });
+  assertEquals(d.alert, true);
+  assertEquals(d.consecutive, 1);
+  assertEquals(d.severity, "warning", "one odd run is a warning, not a page");
+});
+
+Deno.test("US-2006: a persistent stall escalates to critical at the threshold", () => {
+  const below = decideRetentionStall({
+    objectsDeleted: 0,
+    pastCutoffRemaining: 10,
+    priorConsecutive: RETENTION_STALL_THRESHOLD - 2,
+  });
+  assertEquals(below.severity, "warning");
+
+  const at = decideRetentionStall({
+    objectsDeleted: 0,
+    pastCutoffRemaining: 10,
+    priorConsecutive: RETENTION_STALL_THRESHOLD - 1,
+  });
+  assertEquals(at.consecutive, RETENTION_STALL_THRESHOLD);
+  assertEquals(at.severity, "critical", "a sweep stuck this long is the original bug");
+});
+
+// A corrupt/missing prior count must not make the detector go quiet.
+Deno.test("US-2006: a negative or absent prior count still alerts from 1", () => {
+  for (const prior of [-5, 0]) {
+    const d = decideRetentionStall({
+      objectsDeleted: 0,
+      pastCutoffRemaining: 1,
+      priorConsecutive: prior,
+    });
+    assertEquals(d.alert, true, `prior=${prior}`);
+    assertEquals(d.consecutive, 1);
+  }
 });
