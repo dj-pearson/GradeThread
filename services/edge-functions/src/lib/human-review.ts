@@ -73,6 +73,12 @@ export interface ResealInput extends FactorScores {
   // (a score adjustment never changes which zones the photos documented).
   coverage_pct?: number | null;
   covered_zones?: string[] | null;
+  // US-2141: the coarse authenticity verdict, carried verbatim from the stored
+  // row. A CONDITION adjustment must never silently rewrite an authenticity
+  // verdict — if a reviewer disputes that, it goes through the authenticity
+  // review path (US-2140), not through a grade reseal.
+  authenticity_verdict?: string | null;
+  authenticity_verdict_confidence?: number | null;
 }
 
 // Recompute the certificate integrity (hash + signature + version) for an
@@ -93,5 +99,10 @@ export function resealCertificate(input: ResealInput): Promise<CertIntegrity> {
     // US-1279: carry the unchanged coverage scope so the v3 hash keeps matching.
     coverage_pct: input.coverage_pct,
     covered_zones: input.covered_zones,
+    // US-2141: likewise the authenticity verdict — unchanged by a score
+    // adjustment, but it must be present or the reseal would drop it and the
+    // v4 hash would stop matching what the certificate displays.
+    authenticity_verdict: input.authenticity_verdict,
+    authenticity_verdict_confidence: input.authenticity_verdict_confidence,
   });
 }

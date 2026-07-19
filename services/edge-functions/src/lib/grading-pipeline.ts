@@ -2040,6 +2040,11 @@ export async function processSubmission(submissionId: string) {
       // US-1279: seal the documented coverage scope (v3).
       coverage_pct: coverageFinal.coverage_pct,
       covered_zones: coverageFinal.covered_zones,
+      // US-2141: seal the coarse authenticity verdict (v4). Null whenever the
+      // add-on didn't run, which is the common case — that seals a defined
+      // empty verdict, not a missing key.
+      authenticity_verdict: authenticityAssessment?.verdict ?? null,
+      authenticity_verdict_confidence: authenticityAssessment?.verdict_confidence ?? null,
     });
 
     const { data: gradeReport, error: reportError } = await supabaseAdmin

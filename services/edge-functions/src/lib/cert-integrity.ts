@@ -31,7 +31,14 @@
 //   the fact. A claim that a defect sits in a zone the certificate never sealed
 //   as covered can be shown out-of-scope. Old v1/v2 rows still verify under their
 //   stored version (coverage simply isn't part of their canonical form).
-export const CERT_INTEGRITY_VERSION = 3;
+// v4 (US-2141): additionally seals the COARSE brand-authenticity verdict shown
+//   on the certificate — the verdict class and its capped confidence, nothing
+//   more. Red flags and per-tell findings stay operator-side, so the hash stays
+//   reproducible from publicly visible data. Sealing integrity is NOT a claim
+//   about accuracy: it makes a displayed verdict tamper-evident, which is
+//   orthogonal to whether the pass that produced it has cleared its eval gate
+//   (US-2130). Old rows still verify under their stored version.
+export const CERT_INTEGRITY_VERSION = 4;
 
 const SIGNING_KEY_ENV = "CERT_SIGNING_KEY";
 
@@ -55,6 +62,19 @@ export interface CertIntegrityFields {
   // 00308), which seal as v3 with an empty coverage scope.
   coverage_pct?: number | null;
   covered_zones?: string[] | null;
+  // US-2141: the COARSE brand-authenticity verdict shown on the certificate.
+  // Sealed from v4 onward; absent/ignored under versions 1–3.
+  //
+  // Only the two publicly-visible fields are sealed. red_flags and tell_findings
+  // stay operator-side (the public certificate view projects them away), and the
+  // hash must be reproducible from what a verifier can actually see — sealing a
+  // hidden field would make every public verification fail.
+  //
+  // Null on the vast majority of certificates: the authenticity add-on is
+  // premium-gated, so a grade without it seals an empty verdict, which is a
+  // DEFINED v4 value rather than a missing key.
+  authenticity_verdict?: string | null;
+  authenticity_verdict_confidence?: number | null;
 }
 
 export interface CertIntegrity {
@@ -132,6 +152,18 @@ export function canonicalizeCertificate(
       .map((z) => String(z))
       .sort()
       .join(",");
+  }
+  // US-2141: v4+ seals the coarse authenticity verdict. Confidence is fixed to
+  // 2dp as a string so float formatting can never shift the hash (the same
+  // reason scores go through score1). A grade with no authenticity add-on seals
+  // "" / "" — a defined v4 value, so v4 rows all hash under one shape.
+  if (version >= 4) {
+    obj.authenticity_verdict = String(f.authenticity_verdict ?? "");
+    obj.authenticity_verdict_confidence =
+      f.authenticity_verdict_confidence == null ||
+        !Number.isFinite(Number(f.authenticity_verdict_confidence))
+        ? ""
+        : Number(f.authenticity_verdict_confidence).toFixed(2);
   }
   // Pass the sorted key list as the replacer so output order is fixed
   // regardless of insertion order.

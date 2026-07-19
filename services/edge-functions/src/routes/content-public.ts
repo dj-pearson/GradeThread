@@ -1115,7 +1115,8 @@ contentPublicRoutes.get("/certificates/:id/verify", async (c) => {
       "certificate_id, submission_id, overall_score, grade_tier, fabric_condition_score, " +
         "structural_integrity_score, cosmetic_appearance_score, " +
         "functional_elements_score, odor_cleanliness_score, ai_summary, " +
-        "buyer_writeup, coverage, content_hash, content_signature, integrity_version, created_at",
+        "buyer_writeup, coverage, authenticity_assessment, content_hash, content_signature, " +
+        "integrity_version, created_at",
     )
     .eq("certificate_id", certId)
     .not("certificate_id", "is", null)
@@ -1139,6 +1140,11 @@ contentPublicRoutes.get("/certificates/:id/verify", async (c) => {
     // >= 3; v1/v2 rows canonicalize without it.
     coverage:
       | { coverage_pct?: number | null; covered_zones?: string[] | null }
+      | null;
+    // US-2141: the sealed coarse authenticity verdict. Only consulted when
+    // integrity_version >= 4; v1–v3 rows canonicalize without it.
+    authenticity_assessment:
+      | { verdict?: string | null; verdict_confidence?: number | null }
       | null;
     content_hash: string | null;
     content_signature: string | null;
@@ -1179,6 +1185,11 @@ contentPublicRoutes.get("/certificates/:id/verify", async (c) => {
       // coverage (the verifier keys off the row's stored integrity_version).
       coverage_pct: r.coverage?.coverage_pct ?? null,
       covered_zones: r.coverage?.covered_zones ?? null,
+      // US-2141: sealed under integrity v4. v1–v3 rows canonicalize without it
+      // (the verifier keys off the row's stored integrity_version), so this is
+      // additive and no historical certificate changes verdict.
+      authenticity_verdict: r.authenticity_assessment?.verdict ?? null,
+      authenticity_verdict_confidence: r.authenticity_assessment?.verdict_confidence ?? null,
     },
     r.content_hash,
     r.content_signature,

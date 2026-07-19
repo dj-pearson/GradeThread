@@ -34,6 +34,14 @@ export interface AdjustableReport {
   coverage?:
     | { coverage_pct?: number | null; covered_zones?: string[] | null }
     | null;
+  // US-2141: the sealed authenticity verdict, likewise carried verbatim. A
+  // CONDITION adjustment must not rewrite it — and if it were dropped here the
+  // reseal would emit a v4 hash over an empty verdict while the certificate
+  // still displays the real one, so verification would start failing on exactly
+  // the rows a human had just corrected.
+  authenticity_assessment?:
+    | { verdict?: string | null; verdict_confidence?: number | null }
+    | null;
 }
 
 export interface GradeAdjustmentResult {
@@ -78,6 +86,10 @@ export async function applyGradeAdjustment(
       // US-1279: reseal with the unchanged coverage scope so the v3 hash matches.
       coverage_pct: report.coverage?.coverage_pct ?? null,
       covered_zones: report.coverage?.covered_zones ?? null,
+      // US-2141: ditto the authenticity verdict, for the v4 hash.
+      authenticity_verdict: report.authenticity_assessment?.verdict ?? null,
+      authenticity_verdict_confidence:
+        report.authenticity_assessment?.verdict_confidence ?? null,
     });
     update.content_hash = integrity.content_hash;
     update.content_signature = integrity.content_signature;

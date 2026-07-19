@@ -41,6 +41,11 @@ export interface UnsealedCertRow {
   coverage?:
     | { coverage_pct?: number | null; covered_zones?: string[] | null }
     | null;
+  // US-2141: sealed coarse authenticity verdict (v4). Null whenever the premium
+  // add-on didn't run, which is most rows → empty verdict.
+  authenticity_assessment?:
+    | { verdict?: string | null; verdict_confidence?: number | null }
+    | null;
 }
 
 export interface CertIntegrityShare {
@@ -82,7 +87,8 @@ const defaultStore: CertBackfillStore = {
       .select(
         "id, certificate_id, overall_score, grade_tier, fabric_condition_score, " +
           "structural_integrity_score, cosmetic_appearance_score, " +
-          "functional_elements_score, odor_cleanliness_score, ai_summary, buyer_writeup, coverage",
+          "functional_elements_score, odor_cleanliness_score, ai_summary, buyer_writeup, coverage, " +
+          "authenticity_assessment",
       )
       .not("certificate_id", "is", null)
       .is("content_hash", null)
@@ -186,6 +192,11 @@ export async function backfillCertificateIntegrity(
           buyer_writeup: row.buyer_writeup,
           coverage_pct: row.coverage?.coverage_pct ?? null,
           covered_zones: row.coverage?.covered_zones ?? null,
+          // US-2141: seal the coarse authenticity verdict (v4). Mirrors what the
+          // public verify endpoint passes back, so the backfilled hash round-trips.
+          authenticity_verdict: row.authenticity_assessment?.verdict ?? null,
+          authenticity_verdict_confidence:
+            row.authenticity_assessment?.verdict_confidence ?? null,
         });
         if (await store.seal(row.id, integrity)) {
           sealed += 1;

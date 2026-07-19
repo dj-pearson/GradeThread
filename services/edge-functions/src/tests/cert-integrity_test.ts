@@ -151,6 +151,78 @@ Deno.test("missing stored hash → unverifiable (legacy grade)", async () => {
   assertEquals(res.verified, false);
 });
 
+// ── US-2141: v4 seals the coarse authenticity verdict ───────────────────────
+
+Deno.test("v4 seals the authenticity verdict: tampering it is detected", async () => {
+  const fields: CertIntegrityFields = {
+    ...BASE,
+    authenticity_verdict: "likely_authentic",
+    authenticity_verdict_confidence: 0.82,
+  };
+  const hash = await computeContentHash(fields, 4);
+
+  // Downgrading a verdict to "authentic-looking" after the fact is exactly the
+  // edit the seal exists to catch.
+  const tampered: CertIntegrityFields = { ...fields, authenticity_verdict: "red_flags" };
+  const res = await verifyCertIntegrity(tampered, hash, null, 4);
+  assertEquals(res.verified, false);
+});
+
+Deno.test("v4 seals the verdict CONFIDENCE too", async () => {
+  const fields: CertIntegrityFields = {
+    ...BASE,
+    authenticity_verdict: "likely_authentic",
+    authenticity_verdict_confidence: 0.7,
+  };
+  const hash = await computeContentHash(fields, 4);
+  const res = await verifyCertIntegrity(
+    { ...fields, authenticity_verdict_confidence: 0.95 },
+    hash,
+    null,
+    4,
+  );
+  assertEquals(res.verified, false);
+});
+
+Deno.test("v4: a grade with no authenticity add-on seals a DEFINED empty verdict", async () => {
+  // The common case — the add-on is premium-gated. Both spellings of "absent"
+  // must hash identically, or a round-trip through the verify endpoint (which
+  // passes `?? null`) would fail against a seal written from `undefined`.
+  const omitted = await computeContentHash(BASE, 4);
+  const explicitNull = await computeContentHash(
+    { ...BASE, authenticity_verdict: null, authenticity_verdict_confidence: null },
+    4,
+  );
+  assertEquals(omitted, explicitNull);
+
+  const res = await verifyCertIntegrity(BASE, omitted, null, 4);
+  assertEquals(res.status, "verified");
+});
+
+Deno.test("legacy v3 row still verifies after the version bump to v4", async () => {
+  // The whole point of storing the version per row: v1-v3 certificates
+  // canonicalize without the authenticity keys and must not be invalidated by
+  // a bump they predate.
+  const v3Fields: CertIntegrityFields = { ...BASE, coverage_pct: 80, covered_zones: ["front"] };
+  const v3Hash = await computeContentHash(v3Fields, 3);
+
+  // Even with an authenticity verdict now present on the row, verifying under
+  // the STORED version 3 must ignore it.
+  const res = await verifyCertIntegrity(
+    { ...v3Fields, authenticity_verdict: "red_flags", authenticity_verdict_confidence: 0.5 },
+    v3Hash,
+    null,
+    3,
+  );
+  assertEquals(res.status, "verified");
+});
+
+Deno.test("CERT_INTEGRITY_VERSION is 4 and new seals use it", async () => {
+  assertEquals(CERT_INTEGRITY_VERSION, 4);
+  const { integrity_version } = await buildCertIntegrity(BASE);
+  assertEquals(integrity_version, 4);
+});
+
 // ── US-2132: an unsigned certificate must not verify while signing is on ────
 
 Deno.test("signed mode: stripping the signature does NOT yield verified", async () => {
@@ -335,7 +407,11 @@ Deno.test("a v3 row with no coverage still verifies (empty scope)", async () => 
   // and round-trips, exactly as the verify endpoint passes back null coverage.
   const fields: CertIntegrityFields = { ...BASE, coverage_pct: null, covered_zones: null };
   const { content_hash, integrity_version } = await buildCertIntegrity(fields);
-  assertEquals(integrity_version, 3);
+  // Tracks the CURRENT version rather than a literal: buildCertIntegrity always
+  // seals at CERT_INTEGRITY_VERSION, and what this test is actually about — an
+  // absent coverage record round-tripping as a defined empty scope — holds at
+  // every version. The v2→v3 and v3→v4 legacy tests cover the pinned cases.
+  assertEquals(integrity_version, CERT_INTEGRITY_VERSION);
   const ok = await verifyCertIntegrity(fields, content_hash, null, integrity_version);
   assertEquals(ok.status, "verified");
 });
