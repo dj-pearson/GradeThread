@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2088",
+  "nextId": "US-2092",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2777,7 +2777,7 @@
       ]
     },
     {
-      "id": "US-2087",
+      "id": "US-2091",
       "passes": false,
       "dependsOn": [
         "US-2057"
@@ -2796,7 +2796,7 @@
         "Record the dual-consumer decision as an ADR in vault/60-decisions, so nobody deletes vault-index.mjs as redundant once Bases exists.",
         "vault-lint still passes, and verify:vault still catches a dangling link, an orphan, a stale index and contract drift after conversion."
       ],
-      "notes": "[P2][EPIC: Knowledge Vault][Obsidian] Raised by the user 2026-07-19: is this using Obsidian principles or just markdown in a folder? Audit says the latter. USER CHOSE FULL NATIVE over the recommended middle path. Disagreement recorded rather than buried: Dataview/Bases and embeds are inert to agent retrieval, and cheaper agent retrieval was this epic premise, so the direction trades against the original goal. Mitigated by the dual-consumer rule above (live views ADDED, generator KEPT) rather than by refusing. Sequenced after Phase 3 so 60+ notes convert once against a complete set.",
+      "notes": "[P2][EPIC: Knowledge Vault][Obsidian] Raised by the user 2026-07-19: is this using Obsidian principles or just markdown in a folder? Audit says the latter. USER CHOSE FULL NATIVE over the recommended middle path. Disagreement recorded rather than buried: Dataview/Bases and embeds are inert to agent retrieval, and cheaper agent retrieval was this epic premise, so the direction trades against the original goal. Mitigated by the dual-consumer rule above (live views ADDED, generator KEPT) rather than by refusing. Sequenced after Phase 3 so 60+ notes convert once against a complete set. | ID COLLISION 2026-07-19: filed as US-2087, but a concurrent agent independently claimed US-2087 for a shipped newsletter-cron fix (commit 4e181962). Renumbered THIS story to US-2091 rather than theirs, because theirs is referenced by a commit for code that actually shipped and mine was unstarted. The earlier docs commit 546c6723 therefore names US-2087 while this story is US-2091.",
       "relevantPaths": [
         "vault/",
         ".obsidian/",
