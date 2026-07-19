@@ -81,15 +81,28 @@ const schedulerAuth = createMiddleware<SchedulerEnv>(async (c, next) => {
   // looser than the AuthEnv/AdminEnv these middlewares expect. They only read
   // headers and call c.set, so reusing this context is sound at runtime — cast
   // to each middleware's own context type to express that.
-  await authMiddleware(
+  // RETURN the response through the chain. Hono finalizes a context from the
+  // middleware's RETURN VALUE, so discarding it here meant a rejected request
+  // produced no response at all: authMiddleware built its 401, this wrapper
+  // dropped it, the context never finalized, and Hono threw "Context is not
+  // finalized" -> onError -> HTTP 500. A clean 401 was being turned into a 500,
+  // and the real cause (a job secret that no longer verifies) was hidden behind
+  // a framework error with no stack.
+  // Hono's Next type is `() => Promise<void>`, so the inner rejection cannot be
+  // returned directly — capture it and propagate.
+  let innerResponse: Response | void = undefined;
+  const outerResponse = await authMiddleware(
     c as unknown as Parameters<typeof authMiddleware>[0],
     async () => {
-      await adminAuthMiddleware(
+      innerResponse = await adminAuthMiddleware(
         c as unknown as Parameters<typeof adminAuthMiddleware>[0],
         next,
       );
     },
   );
+  // adminAuthMiddleware's 403 wins when it produced one; otherwise
+  // authMiddleware's 401. Both undefined => the handler ran and finalized.
+  return innerResponse ?? outerResponse;
 });
 
 contentSchedulerRoutes.use("/*", schedulerAuth);
