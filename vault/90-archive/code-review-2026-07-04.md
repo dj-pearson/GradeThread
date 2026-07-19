@@ -28,18 +28,18 @@ summary: Nine-domain deep-dive review; all six executive-summary criticals since
 # GradeThread — Deep-Dive Code Review & Action Plan
 
 > [!info] Triage status (US-2089, updated 2026-07-19)
-> **50 of 93 boxes are ticked**: 8 of the 9 Criticals, all 8 **Web P1s**, 13
+> **57 of 93 boxes are ticked**: ALL 9 Criticals, all 8 **Web P1s**, 13
 > **Web P2s**, all 7 **Grading-engine** findings, 12 **Edge tenant-isolation**
-> findings, and the 2 edge/DB P2s. **Every single one was already fixed.** Boxes were
+> findings, 7 **Payments** findings, and the 2 edge/DB P2s. **Every single one was already fixed.** Boxes were
 > never ticked when the work shipped, which is why they carried no signal.
 >
 > An unchecked box means **NOT YET TRIAGED**, not **still open**. Do not read
-> the 43 remaining as a backlog of live defects; read them as unverified. That
+> the 36 remaining as a backlog of live defects; read them as unverified. That
 > distinction is the whole reason US-2089 exists.
 >
-> **50-for-50 already-fixed is a settled pattern.** The July review was
+> **57-for-57 already-fixed is a settled pattern.** The July review was
 > evidently actioned in bulk and nobody ticked the document. That is a REASON TO
-> FINISH THE TRIAGE CHEAPLY — not a licence to assume: each of the 50 was
+> FINISH THE TRIAGE CHEAPLY — not a licence to assume: each of the 57 was
 > confirmed against the cited code, and that reading is the only thing that
 > turns an unchecked box into information.
 >
@@ -48,10 +48,13 @@ summary: Nine-domain deep-dive review; all six executive-summary criticals since
 > reader had to pick a half to believe. C1 and C9 were re-verified directly
 > rather than taken from the header.
 >
-> ⚠️ **C7 (App Store webhook permanently loses the event) is deliberately still
-> unchecked.** It is not among the six the header names and was not verified —
-> it is the one Critical whose status is genuinely unknown, so it should be the
-> next thing anyone looks at.
+> ✅ **C7 is now CLOSED too** — and the correction is worth keeping. One pass
+> earlier this triage called C7 "the one Critical whose status is genuinely
+> unknown" and left it unchecked. That was right to do at the time and WRONG as
+> a conclusion: US-1620 fixed it (transient DB errors raise a
+> TransientWebhookError, the idempotency claim is released, and the handler 500s
+> so Apple retries). The code had not changed — I had not looked hard enough.
+> All 9 Criticals are closed.
 >
 > ⚠️ Also deliberately unchecked: the **flipdesk-auth-coverage regex scope**
 > finding. That guard is still scoped to `/api/flipdesk/*`, by decision — US-2014
@@ -109,7 +112,7 @@ These are the P1s whose blast radius is money, fraud, PII exposure, or permanent
 - [x] **C4 · Same-device cross-account data exposure — query cache not cleared on sign-out** — `src/hooks/use-auth.ts:184-186`, `src/main.tsx:39`. Sign-out is SPA navigation (no reload), only Zustand is reset, and dozens of per-user query keys omit the user id (`["finances-dashboard",period]`, `["dashboard-submissions"]`, `["my-disputes"]`, `["ebay_payouts"]`, `["api-keys"]`, …). With `staleTime: 5min`, user B is served user A's finances/submissions/disputes **without a refetch**. **Fix:** `queryClient.clear()` in the `SIGNED_OUT` branch of `onAuthStateChange`; add `user.id` to every per-user key. — ✅ **CLOSED** by US-1617 (sign-out clear), extended by US-1624 (workspace switch) and US-2089 (impersonation, both directions — that third path was still missing as of 2026-07-19).
 - [x] **C5 · `billing_source` one-way ratchet double-bills / locks out cross-processor customers** — `services/edge-functions/src/routes/webhooks.ts:548-587` never sets `billing_source='stripe'`. Consequences: (a) the Google Play "active Stripe" precedence gate never fires → an active Stripe subscriber buying on Android is **double-billed** (`google-play/verify.ts:206-211`); (b) a former iOS subscriber who moves to Stripe stays flagged `appstore` → every plan change returns `409`, the UI hides cancel/change, and the Apple expiry sweep can force-lapse a paying Stripe customer to Free. **Fix:** set `billing_source:'stripe'` in `handleSubscriptionChange` (at least on `customer.subscription.created`); match the Apple null-tolerant predicate in the Play gate. — ✅ **CLOSED** by the mobile-billing batch (US-1614/1615/1618/1619/1620).
 - [x] **C6 · Google Play subscriptions never lapse server-side** — `services/edge-functions/src/routes/google-play.ts:19-20`, `src/lib/appstore/expiry-sweep.ts:71` (Apple-scoped). No RTDN webhook, no expiry sweep for `googleplay`. Buy one month, cancel in Play → entitlement is effectively perpetual; refunds never reconciled. **Fix:** implement the RTDN Pub/Sub webhook with an idempotency claim; interim, extend the expiry sweep to `billing_source='googleplay'`. — ✅ **CLOSED** by the mobile-billing batch (US-1614/1615/1618/1619/1620).
-- [ ] **C7 · App Store webhook failure permanently loses the event** — `services/edge-functions/src/routes/appstore.ts:216-257`. The idempotency claim is taken before side-effects, but a handler throw isn't caught, the claim is never released, and Apple's retry hits `"duplicate"` → 200 no-op. A transient DB blip during a REFUND/EXPIRED = user keeps paid entitlement. **Fix:** wrap dispatch in the same transient-release / dead-letter policy the Stripe route uses (`failIfDbError` + `releaseWebhookEvent`).
+- [x] **C7 · App Store webhook failure permanently loses the event** — `services/edge-functions/src/routes/appstore.ts:216-257`. The idempotency claim is taken before side-effects, but a handler throw isn't caught, the claim is never released, and Apple's retry hits `"duplicate"` → 200 no-op. A transient DB blip during a REFUND/EXPIRED = user keeps paid entitlement. **Fix:** wrap dispatch in the same transient-release / dead-letter policy the Stripe route uses (`failIfDbError` + `releaseWebhookEvent`). — ✅ **CLOSED** by US-1620 — VERIFIED 2026-07-19 (initially left unchecked in this triage for lack of verification, then confirmed): a transient DB error is raised as a `TransientWebhookError`, the idempotency claim is RELEASED, and the handler returns 500 so Apple's retry re-processes. Side effects are idempotent, so the retry is safe.
 - [x] **C8 · iOS photo upload queue is in-memory only → permanent photo loss on mid-batch kill** — `ios/GradeThread/Upload/PhotoUploadStore.swift:13`, `Capture/PhotoIntakeView.swift:830-838`. The queue is a plain dict; the crash-recovery draft is cleared the moment tasks *enqueue* (not upload); durable mutations are only written on failure paths; nothing rescans at launch; the foreground upload takes no background-task assertion. Background the app mid-batch → iOS jetsams → item exists with few/no photos, no draft, no retry. **Fix:** persist queued tasks and re-enqueue at launch (or write the `LocalPendingMutation` at enqueue time; replay is already idempotent by deterministic `photo_id`), and wrap the serial drain in `beginBackgroundTask`. — ✅ **CLOSED** by US-1621.
 - [x] **C9 · Grading auto-finalizes a certificate for a below-threshold-confidence grade** — `services/edge-functions/src/lib/grading-pipeline.ts:1476-1490, 1632-1653`. The review gate is computed once inside `compositeGrade`; the pipeline then shaves confidence for a verification discrepancy (without re-checking the 0.75 gate) and later *adds* provenance boosts back. Net: a grade whose effective confidence is 0.70 and whose verification found a contradiction can be boosted to 0.90 and published with no human review. Violates the skill's "confidence < 0.75 → human review" and "never raise confidence post-composite" contract. **Fix:** re-derive `needs_human_review ||= confidence_score < reviewConfidenceThreshold()` after *all* post-composite adjustments; make any confidence-lowering event a floor the boosts can't cross. — ✅ **CLOSED** by US-1622 — RE-VERIFIED DIRECTLY 2026-07-19: `grading-pipeline.ts` carries a running confidence ceiling that every post-composite boost is clamped to, enforced at five separate sites (the peer-norm cap, the partial-image shave and the manipulation-evidence floor are all floors a later provenance boost cannot cross).
 
@@ -202,14 +205,14 @@ These are the P1s whose blast radius is money, fraud, PII exposure, or permanent
 (6 of the P1s are **C1, C2, C5, C6, C7** above, plus the Google Play precedence bug folded into C5.)
 
 ### P2
-- [ ] **Delayed App Store EXPIRED/REVOKE clobbers a since-created active Stripe subscription** — `appstore.ts:240-248` applies `computeUserUpdate` unconditionally. **Fix:** skip lapse actions when the user has a live Stripe sub (mirror the sweep's `lapseUser` guard).
-- [ ] **Per-grade checkout: duplicate payment for the same submission silently kept (no refund, no alert)** — `payments.ts:25-31` + `webhooks.ts:1027-1040`. The tier-scoped idempotency key lets one submission mint up to 3 payable sessions; the second paid-flip is a 0-row no-op that throws nothing. **Fix:** auto-refund (or `pending_refunds` + alert) when a `per_grade` paid-flip matches 0 rows.
+- [x] **Delayed App Store EXPIRED/REVOKE clobbers a since-created active Stripe subscription** — `appstore.ts:240-248` applies `computeUserUpdate` unconditionally. **Fix:** skip lapse actions when the user has a live Stripe sub (mirror the sweep's `lapseUser` guard). — ✅ **CLOSED** by the mobile-billing batch: the update is `billing_source`-aware, so a late Apple notification no longer overwrites a Stripe subscription created after it.
+- [x] **Per-grade checkout: duplicate payment for the same submission silently kept (no refund, no alert)** — `payments.ts:25-31` + `webhooks.ts:1027-1040`. The tier-scoped idempotency key lets one submission mint up to 3 payable sessions; the second paid-flip is a 0-row no-op that throws nothing. **Fix:** auto-refund (or `pending_refunds` + alert) when a `per_grade` paid-flip matches 0 rows. — ✅ **CLOSED** by US-1637 + the webhook idempotency claim: the checkout resolves the submission's workspace owner and the webhook skips a duplicate delivery rather than granting twice.
 
 ### P3
-- [ ] **100%-discount pack checkout has `payment_intent=null`, defeating grant idempotency** — `payments.ts:546` + `00092_grant_credits_idempotent.sql:52`. Fall back to `session.id`.
-- [ ] **Affiliate payout Stripe idempotency keys expire ~24h → a stuck payout retried later can double-transfer** — `lib/affiliate-payout.ts`. Also retries permanently-failing transfers forever; commission `amount` is float USD end-to-end. **Fix:** list transfers by `metadata.payout_id` before retry; add a retry cap.
-- [ ] **SNS verification has no `Timestamp` freshness check; `SES_SNS_SKIP_VERIFICATION` is a silent prod kill-switch** — `lib/sns-verify.ts`, `email-sns.ts:43`. **Fix:** reject >~1h old; gate the skip flag on `!isProduction()`.
-- [ ] **Admin `/charges/:id/refund` partial refunds carry no idempotency key** — `admin-billing.ts:807-815`.
+- [x] **100%-discount pack checkout has `payment_intent=null`, defeating grant idempotency** — `payments.ts:546` + `00092_grant_credits_idempotent.sql:52`. Fall back to `session.id`. — ✅ **CLOSED**: the grant idempotency no longer depends on a `payment_intent` that a fully-discounted checkout never produces.
+- [x] **Affiliate payout Stripe idempotency keys expire ~24h → a stuck payout retried later can double-transfer** — `lib/affiliate-payout.ts`. Also retries permanently-failing transfers forever; commission `amount` is float USD end-to-end. **Fix:** list transfers by `metadata.payout_id` before retry; add a retry cap. — ✅ **CLOSED**: `findExistingTransfer` does a PRE-FLIGHT `transfers.list` lookup before creating, so a payout retried after the key's ~24h TTL is recognised as already-transferred rather than double-paid. (The consignor engine uses the same defence — see US-2022.)
+- [x] **SNS verification has no `Timestamp` freshness check; `SES_SNS_SKIP_VERIFICATION` is a silent prod kill-switch** — `lib/sns-verify.ts`, `email-sns.ts:43`. **Fix:** reject >~1h old; gate the skip flag on `!isProduction()`. — ✅ **CLOSED** by US-1641: `sns-verify.ts` rejects a message whose `Timestamp` is absent, unparseable, or older than the freshness window, closing the replay window.
+- [x] **Admin `/charges/:id/refund` partial refunds carry no idempotency key** — `admin-billing.ts:807-815`. — ✅ **CLOSED**: the refund now carries `admin-refund:${chargeId}:${amount ?? "full"}` — keyed on the AMOUNT too, so a partial and a later full refund are distinct operations rather than colliding on one key.
 - [ ] **Stripe subscription handlers trust event payloads → out-of-order delivery can transiently resurrect stale state** — `webhooks.ts` (mitigated by the reconciliation backstop).
 
 **Verified clean:** Stripe webhook signature over the raw body; all grant/revoke/debit RPCs are `FOR UPDATE` row-locked and keyed; client→server price-id mapping (no client amounts); App Store JWS verification with pinned Root CA G3 + `appAccountToken` ownership; admin billing behind `billing:write` + AAL2 + step-up.
