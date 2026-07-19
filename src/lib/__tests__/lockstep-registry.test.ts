@@ -48,6 +48,10 @@ const PINNED: Record<string, string> = {
   "src/lib/photo-standards.test.ts": "the guard itself",
   "src/lib/password-policy.test.ts":
     "the guard itself — mirrors the GoTrue policy",
+  "src/lib/__tests__/signed-url-ttl.test.ts":
+    "the guard itself — enforces the <=900s private-bucket signed-URL rule that " +
+    "CLAUDE.md states and four edge modules each restate. It matches the marker " +
+    "only because its rationale QUOTES the lockstep-comment failure mode.",
   "src/lib/__tests__/signup-source.test.ts":
     "the guard itself — pins the 00379 trigger whitelist",
   "services/edge-functions/src/tests/weighted-grade-parity_test.ts":

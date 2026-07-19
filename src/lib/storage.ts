@@ -60,10 +60,27 @@ export async function uploadSubmissionImage(
   return { storagePath, publicUrl };
 }
 
+/**
+ * Signed-URL lifetime for the PRIVATE submission-images bucket.
+ *
+ * CLAUDE.md caps private-bucket signed URLs at 900s, and every other path that
+ * reads this bucket already uses 15 minutes (admin-compliance, flipdesk-
+ * disclosure, cert images, listing-eval). This one was 3600s, so a link to a
+ * seller's garment and LABEL photos — which can carry names, addresses and
+ * receipts — stayed live four times longer than policy if it leaked through a
+ * referrer, a screenshot, or a log.
+ *
+ * Practical effect of the reduction: these URLs are minted when the admin
+ * dispute dialog opens and dropped when it closes, so only a review session
+ * left open past 15 minutes sees broken images — reopening the dialog re-signs
+ * them. That is the intended trade against the exposure window.
+ */
+const SIGNED_URL_TTL_SECONDS = 15 * 60;
+
 export async function getImageUrl(storagePath: string): Promise<string> {
   const { data, error } = await supabase.storage
     .from(BUCKET_NAME)
-    .createSignedUrl(storagePath, 60 * 60); // 1 hour expiry
+    .createSignedUrl(storagePath, SIGNED_URL_TTL_SECONDS);
 
   if (error) {
     throw new Error(`Failed to create signed URL: ${error.message}`);

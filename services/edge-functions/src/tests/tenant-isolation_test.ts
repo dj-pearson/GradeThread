@@ -73,7 +73,17 @@ function assertDenied(status: number, label: string) {
 const REQUIRED = Boolean(Deno.env.get("TENANT_ISOLATION_REQUIRED"));
 
 // Resource ids whose cross-tenant cases MUST run in CI (they'd otherwise skip
-// when their id env var is unset). Keep in sync with the seed script.
+// when their id env var is unset).
+//
+// ⚠️ This list is NOT the guard. "Keep in sync with the seed script" is exactly
+// what stopped happening: the list held 14 ids while 38 gated a case, so 26
+// cross-tenant cases — refunding another tenant's eBay order, marking their
+// sale shipped, reading their support conversations — skipped on every CI run
+// while the workflow reported green. That is US-2039 a second time, in the very
+// guard added to prevent it.
+//
+// The real guard is "every gating id is seeded or classified", derived below
+// from the source. This list is kept only as the explicit floor.
 const REQUIRED_RESOURCE_IDS = [
   "TEST_USER_A_SUBMISSION_ID",
   "TEST_USER_A_LISTING_ID",
@@ -96,6 +106,112 @@ const REQUIRED_RESOURCE_IDS = [
   "TEST_VIEWER_JWT",
   "TEST_WORKSPACE_OWNER_ID",
 ];
+
+/**
+ * Ids that gate a case but which the seed script does not yet emit, so those
+ * cases CANNOT run in CI. Each must be listed here with a reason — the point is
+ * that the gap is visible and counted, not that it is acceptable.
+ *
+ * Tracked by US-2078. Do not add to this list to make a red build green: an
+ * entry here means a cross-tenant path is UNVERIFIED in CI.
+ */
+const KNOWN_UNSEEDED: Record<string, string> = {
+  TEST_USER_A_EBAY_OFFER_ID: "needs a live eBay sandbox offer — external dependency",
+  TEST_USER_A_EBAY_ORDER_ID: "needs a live eBay sandbox order — external dependency",
+  TEST_USER_A_EBAY_SKU: "needs a published eBay inventory item — external dependency",
+  TEST_USER_A_FULFILLMENT_POLICY_ID: "needs eBay business policies — external dependency",
+  TEST_USER_A_PUSH_ENDPOINT: "needs a real Web Push subscription endpoint",
+  TEST_USER_A_CONVERSATION_ID: "plain DB row — seedable, not yet wired",
+  TEST_USER_A_TICKET_ID: "plain DB row — seedable, not yet wired",
+  TEST_USER_A_CLOSET_ITEM_ID: "plain DB row — seedable, not yet wired",
+  TEST_USER_A_WANT_ID: "plain DB row — seedable, not yet wired",
+  TEST_USER_A_SALE_ID: "plain DB row — seedable, not yet wired",
+  TEST_USER_A_GARMENT_ID: "plain DB row — seedable, not yet wired",
+  TEST_USER_A_PHOTO_ID: "needs an uploaded item photo in storage",
+  TEST_USER_A_SUGGESTION_ID: "produced by a repricing run — needs pipeline execution",
+  TEST_USER_A_GRADING_BATCH_ID: "plain DB row — seedable, not yet wired",
+  TEST_USER_A_PASSPORT_NODE_ID: "plain DB row — seedable, not yet wired",
+  TEST_USER_A_BUYER_PURCHASE_ID: "needs a completed buyer purchase",
+  TEST_USER_A_CERT_ID: "needs a certified grade report",
+  TEST_PRIVATE_REPORT_ID: "needs an uncertified/private report",
+  TEST_USER_B_API_KEY: "needs an issued API key for tenant B",
+  TEST_USER_B_HANDLE: "needs a storefront handle for tenant B",
+  TEST_SELLER_NO_STOREFRONT_HANDLE: "needs a seller with storefront opt-in disabled",
+};
+
+/**
+ * The structural guard: every env id that GATES a case must be either seeded or
+ * explicitly classified above. Derived from the sources, so a new gated case
+ * with an unseeded id fails immediately instead of skipping quietly.
+ *
+ * Runs unconditionally — it reads files, needs no fixture, and a guard that
+ * only runs in CI is a guard nobody watches fail.
+ */
+Deno.test({
+  name: "every gating resource id is seeded or classified (no silent skips)",
+  fn: async () => {
+    const here = new URL(".", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
+    const suite = await Deno.readTextFile(`${here}tenant-isolation_test.ts`);
+    const seed = await Deno.readTextFile(
+      `${here}../../scripts/seed-tenant-isolation-fixture.ts`,
+    );
+
+    const seeded = new Set([...seed.matchAll(/TEST_[A-Z_]+/g)].map((m) => m[0]));
+    // Supplied by the workflow, not the seed script.
+    for (const k of ["TEST_EDGE_BASE_URL", "TEST_USER_A_JWT", "TEST_USER_B_JWT"]) {
+      seeded.add(k);
+    }
+
+    // Ids are gated two ways, and missing the second is how a guard like this
+    // quietly stops working:
+    //   (a) inline    — ignore: !Deno.env.get("TEST_USER_A_ITEM_ID")
+    //   (b) aliased   — const A_WANT_ID = Deno.env.get("TEST_USER_A_WANT_ID")
+    //                   ... later ... ignore: !A_WANT_ID
+    // Resolve the aliases first, then treat a header mentioning an alias as
+    // gating the env id behind it.
+    const aliasToEnv = new Map<string, string>();
+    for (const m of suite.matchAll(
+      /const\s+([A-Za-z_$][\w$]*)\s*=\s*Deno\.env\.get\(\s*"(TEST_[A-Z_]+)"\s*\)/g,
+    )) {
+      aliasToEnv.set(m[1]!, m[2]!);
+    }
+
+    const gating = new Set<string>();
+    for (const block of suite.split("Deno.test({").slice(1)) {
+      const cut = block.indexOf("fn:");
+      const head = block.slice(0, cut === -1 ? block.length : cut);
+      for (const m of head.matchAll(/TEST_[A-Z_]+/g)) gating.add(m[0]);
+      for (const m of head.matchAll(/[A-Za-z_$][\w$]*/g)) {
+        const env = aliasToEnv.get(m[0]);
+        if (env) gating.add(env);
+      }
+    }
+
+    const unaccounted = [...gating]
+      .filter((id) => !seeded.has(id) && !(id in KNOWN_UNSEEDED))
+      .sort();
+
+    assert(
+      unaccounted.length === 0,
+      "These env ids gate a cross-tenant case but are neither emitted by " +
+        "scripts/seed-tenant-isolation-fixture.ts nor listed in KNOWN_UNSEEDED, " +
+        "so their cases SKIP in CI while the suite reports green:\n  " +
+        unaccounted.join("\n  ") +
+        "\n\nSeed the id, or classify it in KNOWN_UNSEEDED with a reason.",
+    );
+
+    // A classification that has since been seeded is stale and understates
+    // real coverage — clean it up so the count stays honest.
+    const stale = Object.keys(KNOWN_UNSEEDED)
+      .filter((id) => seeded.has(id) || !gating.has(id))
+      .sort();
+    assert(
+      stale.length === 0,
+      "KNOWN_UNSEEDED entries that are now seeded or no longer gate anything — " +
+        "remove them:\n  " + stale.join("\n  "),
+    );
+  },
+});
 
 Deno.test({
   name: "fixture is configured — suite must not SKIP in CI",
