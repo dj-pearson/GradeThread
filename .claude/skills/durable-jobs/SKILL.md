@@ -28,6 +28,15 @@ select status, updated_at from listing_generation_batches where id = '<batch>';
 Read `error` + `attempts` per job. Only after that, read code. (US-1552: a
 43-item batch died to per-item timeouts that wrote only job rows.)
 
+## Facts this procedure rests on
+
+- `vault/10-ops/edge-runtime-invariants.md` — the edge runs N replicas, which is
+  why a claim must be atomic and why no worker may cache state in module scope.
+- `vault/50-business/flipdesk-plan-gating.md` — AI-action budgets a batch worker
+  consumes are gated by `requireFlipdesk`, not by the worker itself.
+
+Everything below is PROCEDURE and belongs here, not in a note.
+
 ## The contract
 
 - **Tables**: one `*_batches` row (status + progress counters) + one job row

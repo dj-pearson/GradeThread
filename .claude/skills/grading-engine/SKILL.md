@@ -37,7 +37,9 @@ changing all three in the same commit:
 2. `services/edge-functions/src/lib/human-review.ts` → `computeWeightedOverall`
 3. `src/pages/admin/reviews.tsx` → `computeWeightedScore`
 
-See `references/rounding-sites.md` for the exact code shapes.
+The lockstep map (which implementations exist, and why it shipped wrong
+twice) is `vault/20-domain/weighted-overall-lockstep.md` — a drift-guarded
+contract note, not a static list.
 
 ## Prompt-version lifecycle (never hot-edit a live prompt)
 

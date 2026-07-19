@@ -1,37 +1,12 @@
-# The three weighted-overall rounding sites (lockstep map)
+# The weighted-overall lockstep
 
-All three compute: `overall = roundToTenth(clamp(Σ factor × weight, 1.0, 10.0))`
-with weights 0.30 / 0.25 / 0.20 / 0.15 / 0.10 and round-half-up to one decimal.
-Any change to weights or rounding must land in ALL THREE in the same commit —
-CI (`schema-version_test` siblings) does not catch drift here; reviewers must.
+**Moved to `vault/20-domain/weighted-overall-lockstep.md` (US-2063).**
 
-## 1. AI composite — `services/edge-functions/src/lib/ai-grading.ts`
+That note is `type: contract` with `code_refs`, so the drift guard flags it when
+any implementation changes — which is what this file needed and could not have.
 
-- `roundToTenth(value)` (~line 1500) + the weighted sum in the composite parse
-  (`calculatedScore = roundToTenth(Math.max(1.0, Math.min(10.0, weightedSum)))`).
-- This is the score the AI report ships with before any human touches it.
-
-## 2. Human-review recompute — `services/edge-functions/src/lib/human-review.ts`
-
-- `computeWeightedOverall(f: FactorScores)` — recomputes the overall after a
-  reviewer adjusts individual factor scores. If this drifts from site 1, a
-  review that changes NOTHING would still move the grade.
-
-## 3. Admin reviews UI — `src/pages/admin/reviews.tsx`
-
-- `computeWeightedScore(factors)` (~line 170) — the LIVE preview the reviewer
-  sees while dragging factor sliders. If this drifts from site 2, the reviewer
-  approves a number different from what persists.
-
-## 4. Admin grading QUEUE dialog — `src/pages/admin/grading.tsx`
-
-- Its OWN `computeWeightedScore(factors)` (~line 145) feeds the mandatory-
-  review dialog's `computedOverall` preview. Found rounding to 0.5 on
-  2026-07-03 (drift from the 0.1 contract) and fixed — proof this map is
-  needed. Any future weighted-overall preview belongs on this list too.
-
-## Why 0.1 overall / 0.5 factors
-
-Factors move in half-points (human-scale judgments); the overall rounds to a
-tenth so a single-factor correction (e.g. fabric 7.0 → 6.5, weight 30%)
-changes the overall by 0.15 → visible at 0.1 rounding, invisible at 0.5.
+It was materially stale when moved: titled "the three rounding sites", listing
+four, while the code had nine touch points and, more importantly, had been
+CONSOLIDATED by US-2034 into one client helper (`src/lib/weighted-grade.ts`) and
+one edge helper (`human-review.ts`). Anyone following this file would have gone
+looking for four copies to keep in sync that no longer exist.

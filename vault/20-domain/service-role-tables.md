@@ -1,0 +1,56 @@
+---
+title: Operator tables and the rls-guard discovery rule
+type: contract
+status: current
+source_of_truth: code
+code_refs:
+  - services/edge-functions/src/tests/rls-guard_test.ts
+reviewed: 2026-07-19
+tags: [security, rls, tenant-isolation, contract]
+summary: rls-guard discovers tenant tables by regex on the CREATE TABLE block, so an operator table must be registered AND must avoid the literal token user_id.
+---
+
+# Operator tables and the rls-guard discovery rule
+
+`rls-guard_test.ts` auto-discovers tenant tables by matching `\buser_id\b`
+against each table's `CREATE TABLE` block, then asserts every discovered table
+either has a restrictive RLS policy **or** is named in `SERVICE_ROLE_ONLY`.
+
+An **operator table** carries no tenant data — config caches and ops bookkeeping
+like `garment_baselines`, `grading_exemplar_sets`, `abuse_signals`,
+`content_moderation_flags`. It is deny-all: RLS on, `revoke insert, update,
+delete from anon, authenticated`, and zero policies.
+
+## Two things to get right when adding one
+
+**1. Register it in `SERVICE_ROLE_ONLY`** with a one-line justification, or the
+guard fails with *"no RLS policy and not in SERVICE_ROLE_ONLY"*.
+
+**2. Keep the literal token `user_id` out of the `CREATE TABLE` block — including
+comments.**
+
+This is subtler than it looks and is the part people get wrong:
+
+- `owner_user_id` / `subject_user_id` as a **column name** does **not** match.
+  `_` is a word character, so `\buser_id\b` finds no boundary.
+- A **comment** like `-- (NOT user_id) ...` **does** match, and forces discovery.
+  The table is then treated as user-owned data and the guard demands an RLS
+  policy it should not have.
+
+So name the owning column `owner_user_id` or `subject_user_id`, and resist the
+urge to explain in a comment that the table has no `user_id` — saying the words
+is what triggers it.
+
+## Why discovery-by-regex rather than an explicit list
+
+An explicit list of tenant tables would go stale the moment someone added a
+table and forgot to list it — and the failure would be silent, which is the
+worst property a security guard can have. Regex discovery fails **loudly** on
+anything unrecognised, and pushes the cost onto the rare operator table instead
+of the common tenant one. The awkward comment rule is the price of that trade.
+
+## Related
+
+- [[INDEX]]
+- The procedure for scoping edge queries lives in the `tenant-isolation` skill;
+  this note is the fact it operates on.

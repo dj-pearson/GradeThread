@@ -59,11 +59,13 @@ case is unreviewable — add the case in the same commit as the route.
 
 ## Operator tables (no tenant data)
 
-Deny-all RLS tables written only by the service role (config caches, ops
-bookkeeping like `garment_baselines`, `grading_exemplar_sets`) must be
-registered in `SERVICE_ROLE_ONLY` in `rls-guard_test.ts` with a one-line
-justification comment. Name any owner column `owner_user_id` and keep the
-literal `user_id` out of the CREATE TABLE block (discovery trips on it).
+Deny-all tables written only by the service role must be registered in
+`SERVICE_ROLE_ONLY` in `rls-guard_test.ts`, and must keep the literal token
+`user_id` out of the CREATE TABLE block.
+
+**Full rule, including why a COMMENT saying `user_id` trips discovery while a
+column named `owner_user_id` does not:**
+`vault/20-domain/service-role-tables.md`.
 
 ## Review checklist for an edge diff
 

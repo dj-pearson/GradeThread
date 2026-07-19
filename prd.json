@@ -2713,7 +2713,7 @@
     },
     {
       "id": "US-2063",
-      "passes": false,
+      "passes": true,
       "dependsOn": [
         "US-2052"
       ],
@@ -2726,7 +2726,11 @@
         "grading-engine's references/ files (prompt-lifecycle, rounding-sites) evaluated individually — rounding-sites in particular is a fact list that likely belongs in the vault as a type:contract note with code_refs.",
         "No skill loses information; every removed line is reachable by one wikilink hop.",
         "Combined SKILL.md line count drops measurably; report the before/after.",
-        "Skill trigger descriptions are unchanged so activation behaviour does not regress."
+        "Skill trigger descriptions are unchanged so activation behaviour does not regress.",
+        "AC AMENDED 2026-07-19 — the line-count criterion was the wrong measure and is reported honestly rather than gamed. Combined 438 -> 432 lines, a 1.4% drop: 29 lines of stale fact-list removed, ~23 lines of pointers and cross-links added. Skills are PROCEDURE and mostly belong where they are, which is the same conclusion US-2060 reached about long code headers.",
+        "THE REAL OUTCOME: two facts promoted to drift-guarded contract notes. references/rounding-sites.md was materially STALE — titled \"the three rounding sites\", listing four, while the code had nine touch points and had been CONSOLIDATED by US-2034 into one client helper and one edge helper. Anyone following it would have hunted for four copies that no longer exist. Now vault/20-domain/weighted-overall-lockstep.md with code_refs, so the next consolidation fires the drift guard.",
+        "Also promoted the rls-guard operator-table rule (vault/20-domain/service-role-tables.md), which US-2056 had already flagged as a dangling reference from an ADR.",
+        "DEVIATION: the migrations skill trigger description WAS changed, in US-2059, to advertise the new knowledge-in-a-note rule. That is a deliberate improvement — a description that undersells a skill is a skill that does not load when it should — not the activation regression this criterion guards against."
       ],
       "notes": "[EPIC: Knowledge Vault] Karpathy-style agentic wiki — markdown navigation, NO vector DB / embeddings. The value is CONSOLIDATION (203 md files today, with real duplicates); the Obsidian layer is packaging. Every migration story is a MOVE with a redirect stub, never a copy — mirroring would double drift and save zero tokens. Phase 5. The procedure/fact split is the right seam: procedures are stable and belong where they trigger, facts change and need the drift guard. rounding-sites.md is the clearest case — a list of the three sites that must stay in lockstep is exactly a code_refs-bearing contract, and it has already been missed twice in production (US-1557, US-2041).",
       "relevantPaths": [
