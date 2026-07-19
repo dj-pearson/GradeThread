@@ -2,11 +2,22 @@
 //
 // Reproducibility is the whole value prop of a "standardized" grade: the SAME
 // garment, graded twice, must land on the SAME score (or within one grading
-// increment). With grading pinned to a low temperature (see getGradingTemperature
-// in ai-config.ts) the model decodes near-greedily, so repeated runs of one
-// input should barely move. This module is the measurement + gate for that:
-// feed it the overall scores from N repeated grades of one input and it reports
-// the spread and whether it's within tolerance.
+// increment).
+//
+// ⚠️ US-2035: this file used to say grading is "pinned to a low temperature (see
+// getGradingTemperature in ai-config.ts)" so the model "decodes near-greedily".
+// That is FALSE on the default model — claude-sonnet-5 is effort-based, takes no
+// temperature, and decodes non-greedily. See the US-2035 block in ai-config.ts.
+//
+// That makes this module MORE important, not less: it is the only thing that
+// could detect the resulting run-to-run variance. But it currently has ZERO
+// non-test callers — the "separate, env-gated job" described below was never
+// built, so nothing measures self-consistency on live traffic and nothing flags
+// divergence. The math here is correct and tested; it is simply unwired.
+//
+// This module is the measurement + gate: feed it the overall scores from N
+// repeated grades of one input and it reports the spread and whether it's
+// within tolerance.
 //
 // All functions are PURE and deterministic so the reliability harness can gate
 // on fixtures in CI (no live API needed). A separate, env-gated job can sample

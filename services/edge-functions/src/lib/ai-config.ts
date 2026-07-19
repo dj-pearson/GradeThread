@@ -154,19 +154,43 @@ export function getAiTemperature(): number | undefined {
   return undefined;
 }
 
-// US-481: Grading must be REPRODUCIBLE — the same garment must not score
-// differently on a re-grade or dispute. So grading (the per-image vision pass
-// AND the composite synthesis) ALWAYS uses a low temperature, defaulting to 0
-// (fully greedy decoding) regardless of whether AI_TEMPERATURE is set. This is
-// deliberately decoupled from getAiTemperature(): a global AI_TEMPERATURE meant
-// to add variety to copywriting must never leak nondeterminism into a graded,
-// certified score that backs a public "standardized" value prop.
+// ⚠️ US-2035: READ THIS BEFORE TRUSTING THE TEMPERATURE PATH BELOW.
+//
+// This block used to assert that grading "ALWAYS uses a low temperature,
+// defaulting to 0 (fully greedy decoding)". That is FALSE on the shipping path
+// and has been since grading moved to an effort-based model:
+//
+//   DEFAULTS.model is "claude-sonnet-5" → modelUsesEffort() is true →
+//   gradingSamplingParams() returns { output_config: { effort } } and NO
+//   temperature → getGradingTemperature() is never called.
+//
+// So on the default model, getGradingTemperature(), GRADING_DEFAULT_TEMPERATURE,
+// GRADING_MAX_TEMPERATURE and the whole clamping apparatus are DEAD CODE, and
+// grading runs at the model's own non-greedy decoding. A regrade of identical
+// photos can return a different score.
+//
+// The original US-481 intent below still stands as INTENT — a certified score
+// backing a public "standardized" value prop should be reproducible. But intent
+// is not enforcement, and nothing here enforces it today:
+//   - no greedy decoding on the default model (this block);
+//   - no measurement — grading-reliability.ts implements the self-consistency
+//     math but has ZERO non-test callers, so it never observes live grades;
+//   - no gate — nothing fails or flags when two grades of one input diverge.
+//
+// Whether run-to-run variance is ACCEPTABLE is a product/trust decision, not an
+// engineering one, and it is open (US-2035 AC1). Do not "fix" this by pinning a
+// temperature: effort-based models reject `temperature` with a 400 (US-1033).
+// The remedy, if determinism is still the promise, is a self-consistency check
+// (grade twice, compare, flag divergence) — not this knob.
+//
+// The code below is retained, unchanged, for the legacy Sonnet 4.x / Haiku path
+// where temperature IS still accepted. It is correct there and only there.
 //
 // An operator MAY raise it via GRADING_AI_TEMPERATURE (clamped to [0, 0.2]) if a
 // documented experiment shows a higher value improves accuracy without harming
 // self-consistency — the cap keeps any non-zero choice within a reproducible
 // band. Always returns a number (never undefined) so the SDK default of 1.0 can
-// never apply to grading.
+// never apply to grading ON THAT LEGACY PATH.
 export const GRADING_DEFAULT_TEMPERATURE = 0;
 export const GRADING_MAX_TEMPERATURE = 0.2;
 
