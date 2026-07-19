@@ -96,6 +96,10 @@ New here? Read [[CONTRACT]] before adding a note.
 
 - [[agent-knowledge-surfaces]] — reference — Four places currently hold agent-facing knowledge; this note defines the intended division and tracks the unification.
 - [[guards-that-cannot-fail]] — learning — This repo's most common defect is not a broken check but a check that passes for the wrong reason; here are the seven shapes it took and the one habit that catches all of them.
+- [[ralph-brand-kb-log]] — learning — Per-story record of applying the brand-KB rules; the rules themselves live in 20-domain/brands.
+- [[ralph-email-marketing-log]] — learning — Email and deliverability gotchas accumulated by the loop; loaded on demand.
+- [[ralph-ios-log]] — learning — iOS-specific gotchas accumulated by the loop; loaded on demand, not every iteration.
+- [[ralph-learnings]] — learning — Recurring gotchas the Ralph loop reads on every iteration; kept short on purpose because its cost is per-iteration.
 - [[shipped-but-unwired]] — learning — Three modules pass their tests while nothing calls them; two are accidents that leave a stated guarantee unenforced, one is a deliberate policy retirement.
 
 ## 90-archive — historical snapshots

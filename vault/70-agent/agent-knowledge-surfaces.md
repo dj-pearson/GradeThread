@@ -22,7 +22,7 @@ overlap is the problem this folder exists to fix.
 |---|---|---|---|
 | `CLAUDE.md` | ~134 lines | **Every turn** | Cheapest to read, most expensive to grow |
 | `.claude/skills/` | 4 first-party skills, ~360 lines | On trigger | Mixes procedure with facts |
-| `scripts/ralph/learnings/` | ~1,400 lines | Only if found | Parallel KB, agent-written, unindexed |
+| `scripts/ralph/learnings/` | — | — | **Folded into `vault/70-agent/` by US-2061** |
 | Claude memory | ~50 files | Injected on recall | No drift guard at all |
 | `vault/` | new | On navigation | — |
 
@@ -74,9 +74,17 @@ files or flags that have since moved. Verify before relying on one.
 ## Unification plan
 
 - **US-2050** — resolve the `.agents/skills` mirror.
-- **US-2061** — fold `scripts/ralph/learnings/` into this folder, and redirect
-  Ralph's **write** path here. Migrating the files without redirecting the writer
-  just regrows the parallel KB from empty.
+- **US-2061 — DONE 2026-07-19.** `scripts/ralph/LEARNINGS.md` and the three topic
+  logs are now `70-agent` notes, and Ralph's `CLAUDE.md` writes here through the
+  frontmatter contract: append to the body, never disturb the frontmatter, and a
+  new note needs valid frontmatter plus an inbound link or CI rejects it as an
+  orphan. Durable RULES go to the domain notes; these files are working logs.
+
+  Two things that fell out of it. The brand-KB log carried a rule the US-2058
+  extraction had missed (a parent-wide identifier cannot attribute a sibling), so
+  the reconciliation ran both ways. And `prd-lint`'s 800-line playbook guard was
+  still pointed at the old path — it would have measured a 4-line redirect stub
+  against an 800-line threshold, a guard that can never fire while reading green.
 - **US-2062** — reconcile memory against the vault; promote, point, or delete.
 - **US-2063** — split skills into procedure (stays) and facts (moves here).
 

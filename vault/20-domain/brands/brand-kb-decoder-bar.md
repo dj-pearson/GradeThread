@@ -49,6 +49,40 @@ a format guess."
 
 Two of three tests passing is not a near miss. It is the failure mode.
 
+## The fourth question: WHICH ENTITY does the identifier name?
+
+Added 2026-07-19 when the Ralph brand-KB log was reconciled into the vault
+(US-2061). The three tests above are necessary and **not sufficient**.
+
+URBN's `OB######` style number is primary-sourced (URBN's own vendor manual),
+tag-printed, and regular. US-1986 still seeded **no decoder** for it:
+
+> "the code is URBN-wide and Anthropologie (00457) + Free People (00449) already
+> own packs, so a hit would spell 'Urban Outfitters' onto a sibling with DECODER
+> AUTHORITY (which outranks the AI on conflict)."
+
+A **parent-wide identifier can never attribute a sibling.** The same applies to
+the shared RN 66170. This is the Reebok/adidas refusal in a new costume: there
+the format belonged to another brand, here the *code* belongs to the parent.
+
+So before seeding a decoder or an RN, ask **which entity the identifier names**,
+not merely whether it is regular.
+
+> **Decoder authority outranks the AI on conflict.** That is why a false decoder
+> is worse than no decoder — it does not merely add a wrong guess, it overrides a
+> correct one.
+
+### An existing row that models the bad practice
+
+`00399` seeds an informational Louis Vuitton `date_code`, which "reads as a
+licence to decode any serial." It survives only because `SD1160` (2 letters + 4
+digits) happens to be distinctive. Do not treat it as precedent — a bare digit
+run is an ordinary number, which is why Chanel's 7–8 digit serial is deliberately
+decoder-less (US-1736) and why Lee's `101` is too.
+
+Where a code carries era information but fails the bar, put the fact in
+`tag_eras` or `authentication_tells`, which is where it belonged anyway.
+
 ## What to do with a code that fails the bar
 
 **Transcribe it, never let it recover a brand.** A PUMA six-digit number is worth

@@ -343,9 +343,9 @@ export function lintPrd({ prd, archiveIds = new Set(), archiveMaxId = 0, learnin
     );
   }
 
-  // LEARNINGS.md size guard (WARNING — it's read every Ralph iteration)
+  // Ralph playbook size guard (WARNING — it's read every Ralph iteration)
   if (learningsLines > learningsWarn) {
-    warnings.push(`scripts/ralph/LEARNINGS.md is ${learningsLines} lines (> ${learningsWarn}); it is read every Ralph iteration — prune it to keep loop cost down.`);
+    warnings.push(`vault/70-agent/ralph-learnings.md is ${learningsLines} lines (> ${learningsWarn}); it is read every Ralph iteration — prune it to keep loop cost down.`);
   }
 
   return { errors, warnings, ok: errors.length === 0, stats: { active: stories.length, done, maxActive, maxAnywhere } };
@@ -383,7 +383,10 @@ async function main() {
   const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
   const prdPath = resolve(root, "prd.json");
   const archivePath = resolve(root, "prd.archive.json");
-  const learningsPath = resolve(root, "scripts/ralph/LEARNINGS.md");
+  // US-2061: the playbook moved into the vault. Pointing this at the old path
+  // would measure a 4-line REDIRECT STUB against an 800-line threshold — a guard
+  // that can never fire, which is worse than no guard because it reads as green.
+  const learningsPath = resolve(root, "vault/70-agent/ralph-learnings.md");
 
   const prd = JSON.parse(readFileSync(prdPath, "utf8"));
   const { maxId: archiveMaxId, ids: archiveIds } = await probeArchiveIds(archivePath);

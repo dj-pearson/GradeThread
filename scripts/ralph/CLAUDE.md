@@ -17,15 +17,15 @@ this repository.
 
 1. Read `scripts/ralph/current-story.json` — this is your story for this
    iteration (`id`, `title`, `description`, `acceptanceCriteria`, `notes`).
-2. Read `scripts/ralph/LEARNINGS.md` — a short curated playbook of recurring
+2. Read `vault/70-agent/ralph-learnings.md` — a short curated playbook of recurring
    gotchas. Honor it; it exists so you don't rediscover the same traps.
    Then, ONLY if your story touches that surface, also read the matching
    topic playbook (they were split out of LEARNINGS.md so their bulk isn't
    re-read every iteration — see the pointer section at the top of it):
-   - `scripts/ralph/learnings/ios.md` — any story touching `ios/`
-   - `scripts/ralph/learnings/brand-kb.md` — Brand KB group stories
+   - `vault/70-agent/ralph-ios-log.md` — any story touching `ios/`
+   - `vault/70-agent/ralph-brand-kb-log.md` — Brand KB group stories
      (US-1717…US-1733+) / the `brand_*` tables
-   - `scripts/ralph/learnings/email-marketing.md` — newsletter, broadcast,
+   - `vault/70-agent/ralph-email-marketing-log.md` — newsletter, broadcast,
      drip, SES (the US-911…US-946 family)
 3. Implement the story completely, satisfying every acceptance criterion.
 4. Verify your work (typecheck, build, tests — see "After coding").
@@ -52,7 +52,7 @@ Key facts:
 ## Implementation Rules
 
 ### Before coding
-- Read `scripts/ralph/LEARNINGS.md` and the project root `CLAUDE.md`.
+- Read `vault/70-agent/ralph-learnings.md` and the project root `CLAUDE.md`.
 - If `current-story.json` has a `relevantPaths` array, **start from those files
   /globs** — they are a curated hint of where this story's code lives. Read them
   first; only widen your search if they turn out to be insufficient.
@@ -102,10 +102,29 @@ check. Do not paste full passing logs into your reasoning.
 ## Capturing learnings (cheap persistent memory)
 
 If you hit a NON-OBVIOUS gotcha that a future iteration would otherwise
-rediscover, append ONE concise bullet to `scripts/ralph/LEARNINGS.md` under the
-right heading. Keep it terse and durable — this file is read every iteration,
-so it must stay small. Do not log story-specific trivia or routine progress
-there (the harness records per-story progress separately).
+rediscover, append ONE concise bullet to `vault/70-agent/ralph-learnings.md`
+under the right heading. Keep it terse and durable — this file is read every
+iteration, so it must stay small. Do not log story-specific trivia or routine
+progress there (the harness records per-story progress separately).
+
+**These are VAULT NOTES now (US-2061), not loose markdown.** Two consequences:
+
+- Each file opens with YAML frontmatter. Append your bullet to the BODY; do not
+  disturb the frontmatter block, or `vault-lint` fails the build.
+- If a learning deserves its own note rather than a bullet, read
+  `vault/CONTRACT.md` first. A new note needs valid frontmatter AND a link from
+  something already in the vault — an unlinked note is an ORPHAN and CI rejects
+  it, because a note nothing points at is one no agent will ever find.
+
+`npm run vault:lint` checks both locally. It runs in CI too, so a malformed
+learning fails the build rather than rotting quietly.
+
+**Durable RULES belong in the domain notes, not here.** This file is a working
+log. If you discover a rule that constrains future work — a contract, a refused
+pattern, a policy — put it in the relevant `vault/20-domain/` or
+`vault/30-platform/` note and reference it from here. The brand-KB split is the
+worked example: the RULES live in `vault/20-domain/brands/`, this log records
+applying them.
 
 ## Completion
 
