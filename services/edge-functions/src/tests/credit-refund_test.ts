@@ -14,18 +14,21 @@
 
 import { assert, assertEquals } from "@std/assert";
 import { createClient } from "@supabase/supabase-js";
+import { requireIntegrationFixtures } from "./integration-required.ts";
 
 const URL = Deno.env.get("TEST_SUPABASE_URL");
 const KEY = Deno.env.get("TEST_SUPABASE_SERVICE_ROLE_KEY");
 const USER_ID = Deno.env.get("TEST_CREDIT_USER_ID");
 
 const CONFIGURED = Boolean(URL && KEY && USER_ID);
-if (!CONFIGURED) {
-  console.warn(
-    "[credit-refund] SKIPPED — set TEST_SUPABASE_URL + " +
-      "TEST_SUPABASE_SERVICE_ROLE_KEY + TEST_CREDIT_USER_ID to run.",
-  );
-}
+
+// US-2038 AC3 (class b): skip locally, but FAIL LOUDLY in a lane that
+// declared it would run these — a silent skip and a pass look identical.
+const RUN = requireIntegrationFixtures(
+  "credit-refund",
+  ["TEST_SUPABASE_URL", "TEST_SUPABASE_SERVICE_ROLE_KEY", "TEST_CREDIT_USER_ID"],
+  CONFIGURED,
+);
 
 function admin() {
   return createClient(URL!, KEY!, { auth: { persistSession: false } });
@@ -53,7 +56,7 @@ async function latestLedger(db: ReturnType<typeof admin>) {
 
 Deno.test({
   name: "refund of an unspent pack reduces the balance and ledger is consistent",
-  ignore: !CONFIGURED,
+  ignore: !RUN,
   fn: async () => {
     const db = admin();
     const start = await balanceOf(db);
@@ -89,7 +92,7 @@ Deno.test({
 
 Deno.test({
   name: "refund of an already-spent pack clamps at zero and reports shortfall",
-  ignore: !CONFIGURED,
+  ignore: !RUN,
   fn: async () => {
     const db = admin();
     const start = await balanceOf(db);

@@ -16,22 +16,24 @@
 //   deno test --allow-net --allow-env src/tests/ai-quota-concurrency_test.ts
 import { assert, assertEquals } from "@std/assert";
 import { createClient } from "@supabase/supabase-js";
+import { requireIntegrationFixtures } from "./integration-required.ts";
 
 const URL = Deno.env.get("TEST_SUPABASE_URL");
 const KEY = Deno.env.get("TEST_SUPABASE_SERVICE_ROLE_KEY");
 const USER = Deno.env.get("TEST_QUOTA_USER_ID");
 const CONFIGURED = Boolean(URL && KEY && USER);
 
-if (!CONFIGURED) {
-  console.warn(
-    "[ai-quota-concurrency] SKIPPED — set TEST_SUPABASE_URL + " +
-      "TEST_SUPABASE_SERVICE_ROLE_KEY + TEST_QUOTA_USER_ID to run this test.",
-  );
-}
+// US-2038 AC3 (class b): skip locally, but FAIL LOUDLY in a lane that
+// declared it would run these — a silent skip and a pass look identical.
+const RUN = requireIntegrationFixtures(
+  "ai-quota-concurrency",
+  ["TEST_SUPABASE_URL", "TEST_SUPABASE_SERVICE_ROLE_KEY", "TEST_QUOTA_USER_ID"],
+  CONFIGURED,
+);
 
 Deno.test({
   name: "reserve_ai_action: N parallel reservations cannot exceed the cap",
-  ignore: !CONFIGURED,
+  ignore: !RUN,
   fn: async () => {
     const db = createClient(URL!, KEY!, { auth: { persistSession: false } });
 

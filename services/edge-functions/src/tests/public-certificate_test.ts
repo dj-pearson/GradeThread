@@ -17,18 +17,21 @@
 
 import { assert } from "@std/assert";
 import { createClient } from "@supabase/supabase-js";
+import { requireIntegrationFixtures } from "./integration-required.ts";
 
 const URL = Deno.env.get("TEST_SUPABASE_URL");
 const ANON = Deno.env.get("TEST_SUPABASE_ANON_KEY");
 const CERT_ID = Deno.env.get("TEST_PUBLIC_CERTIFICATE_ID");
 
 const CONFIGURED = Boolean(URL && ANON && CERT_ID);
-if (!CONFIGURED) {
-  console.warn(
-    "[public-certificate] SKIPPED — set TEST_SUPABASE_URL + " +
-      "TEST_SUPABASE_ANON_KEY + TEST_PUBLIC_CERTIFICATE_ID to run these tests.",
-  );
-}
+
+// US-2038 AC3 (class b): skip locally, but FAIL LOUDLY in a lane that
+// declared it would run these — a silent skip and a pass look identical.
+const RUN = requireIntegrationFixtures(
+  "public-certificate",
+  ["TEST_SUPABASE_URL", "TEST_SUPABASE_ANON_KEY", "TEST_PUBLIC_CERTIFICATE_ID"],
+  CONFIGURED,
+);
 
 // Columns that must NEVER reach an anonymous viewer.
 const FORBIDDEN_PUBLIC_FIELDS = [
@@ -51,7 +54,7 @@ function anonClient() {
 
 Deno.test({
   name: "anon select('*') on grade_reports by certificate_id leaks nothing",
-  ignore: !CONFIGURED,
+  ignore: !RUN,
   fn: async () => {
     const supabase = anonClient();
     const { data, error } = await supabase
@@ -73,7 +76,7 @@ Deno.test({
 
 Deno.test({
   name: "anon CAN read the public_grade_reports view",
-  ignore: !CONFIGURED,
+  ignore: !RUN,
   fn: async () => {
     const supabase = anonClient();
     const { data, error } = await supabase
@@ -97,7 +100,7 @@ Deno.test({
 
 Deno.test({
   name: "public view row carries no anti-fraud / internal fields",
-  ignore: !CONFIGURED,
+  ignore: !RUN,
   fn: async () => {
     const supabase = anonClient();
     const { data, error } = await supabase

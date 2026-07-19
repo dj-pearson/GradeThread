@@ -14,6 +14,7 @@
 
 import { assert, assertEquals } from "@std/assert";
 import { createClient } from "@supabase/supabase-js";
+import { requireIntegrationFixtures } from "./integration-required.ts";
 import { hashClaimToken } from "../lib/garment-passport.ts";
 
 const BASE = Deno.env.get("TEST_EDGE_BASE_URL");
@@ -22,12 +23,14 @@ const KEY = Deno.env.get("TEST_SUPABASE_SERVICE_ROLE_KEY");
 const GARMENT_ID = Deno.env.get("TEST_PASSPORT_GARMENT_ID");
 
 const CONFIGURED = Boolean(BASE && URL && KEY && GARMENT_ID);
-if (!CONFIGURED) {
-  console.warn(
-    "[passport-claim] SKIPPED — set TEST_EDGE_BASE_URL + TEST_SUPABASE_URL + " +
-      "TEST_SUPABASE_SERVICE_ROLE_KEY + TEST_PASSPORT_GARMENT_ID to run.",
-  );
-}
+
+// US-2038 AC3 (class b): skip locally, but FAIL LOUDLY in a lane that
+// declared it would run these — a silent skip and a pass look identical.
+const RUN = requireIntegrationFixtures(
+  "passport-claim",
+  ["TEST_EDGE_BASE_URL", "TEST_SUPABASE_URL", "TEST_SUPABASE_SERVICE_ROLE_KEY", "TEST_PASSPORT_GARMENT_ID"],
+  CONFIGURED,
+);
 
 function admin() {
   return createClient(URL!, KEY!, { auth: { persistSession: false } });
@@ -78,7 +81,7 @@ async function transferCount(db: ReturnType<typeof admin>): Promise<number> {
 
 Deno.test({
   name: "happy path: a valid token transfers ownership and appends the event",
-  ignore: !CONFIGURED,
+  ignore: !RUN,
   fn: async () => {
     const db = admin();
     const before = await transferCount(db);
@@ -114,7 +117,7 @@ Deno.test({
 
 Deno.test({
   name: "invalid token → 410",
-  ignore: !CONFIGURED,
+  ignore: !RUN,
   fn: async () => {
     const res = await claim(rawToken()); // never seeded
     await res.body?.cancel();
@@ -124,7 +127,7 @@ Deno.test({
 
 Deno.test({
   name: "expired token → 410, and is not redeemable",
-  ignore: !CONFIGURED,
+  ignore: !RUN,
   fn: async () => {
     const db = admin();
     const token = rawToken();
@@ -137,7 +140,7 @@ Deno.test({
 
 Deno.test({
   name: "replay: a token can be claimed only once (second → 410)",
-  ignore: !CONFIGURED,
+  ignore: !RUN,
   fn: async () => {
     const db = admin();
     const token = rawToken();
