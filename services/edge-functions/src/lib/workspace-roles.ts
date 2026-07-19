@@ -92,3 +92,88 @@ export function workspaceMfaBlocked(
   if (!roleAtLeast(memberRole, requiredRole)) return false; // below threshold
   return !isSessionAal2;
 }
+
+// ── US-2039 AC4: workspace owner resolution (pure) ───────────────────
+//
+// The X-Workspace-Owner header decides WHICH TENANT a member writes into. It is
+// the single most security-critical piece of routing in the product — get it
+// wrong and one tenant's writes land in another's data — and it had NO test
+// importing it, because the logic lived inline in a Hono middleware that pulls
+// in the service-role supabase client at module load.
+//
+// So the decision is extracted here, matching the idiom the rest of this
+// codebase already uses (planAutoPayout, planReversal, evaluateAlerts): a pure
+// function that takes the lookup RESULTS and returns what to do, with the
+// middleware reduced to fetching and applying. The middleware keeps the I/O;
+// this keeps the reasoning, and the reasoning is what needs pinning.
+
+/** Where a request should act, or why it must be refused. */
+export type WorkspaceAccessDecision =
+  | { action: "allow"; ownerId: string; role: WorkspaceRole }
+  | { action: "deny"; status: 401 | 403 | 500; error: string; errorCode?: string };
+
+/**
+ * Resolve the target workspace from the header, WITHOUT any lookup.
+ *
+ * Returns `self: true` when the request acts in the caller's own workspace —
+ * absent header, blank header, or a header naming the caller. The middleware
+ * uses this to skip the membership query entirely, so the trimming rules here
+ * decide whether a request touches the DB at all.
+ */
+export function resolveRequestedOwner(
+  userId: string | null | undefined,
+  header: string | null | undefined,
+): { self: boolean; ownerId: string } | null {
+  const caller = (userId ?? "").trim();
+  if (!caller) return null; // no auth context — the caller must 401.
+  const requested = (header ?? "").trim();
+  if (requested.length === 0) return { self: true, ownerId: caller };
+  return { self: requested === caller, ownerId: requested };
+}
+
+/**
+ * Decide access for a request targeting ANOTHER user's workspace, given the
+ * membership row and the owner's MFA policy.
+ *
+ * `member: null` means no membership row exists — which is also what a REVOKED
+ * membership looks like, hence the machine-readable code so a client holding a
+ * stale X-Workspace-Owner can clear it and recover rather than seeing an
+ * unexplained 403.
+ */
+export function resolveWorkspaceAccess(input: {
+  ownerId: string;
+  member: { role: string | null } | null;
+  lookupFailed: boolean;
+  ownerMfaRequiredRole: WorkspaceRole | null;
+  sessionAal2: boolean;
+}): WorkspaceAccessDecision {
+  // Fail CLOSED on a lookup error. "We could not determine membership" must
+  // never resolve the same way as "membership confirmed" — this is the branch
+  // where a DB blip would otherwise hand out cross-tenant access.
+  if (input.lookupFailed) {
+    return { action: "deny", status: 500, error: "Workspace lookup failed" };
+  }
+
+  const role = (input.member?.role ?? "").trim() as WorkspaceRole;
+  if (!input.member || !role) {
+    return {
+      action: "deny",
+      status: 403,
+      error: "You don't have access to this workspace",
+      errorCode: "workspace_access_revoked",
+    };
+  }
+
+  if (workspaceMfaBlocked(role, input.ownerMfaRequiredRole, input.sessionAal2)) {
+    return {
+      action: "deny",
+      status: 403,
+      error:
+        "This workspace requires two-factor authentication for your role. " +
+        "Enable 2FA in Settings, then sign in again to continue.",
+      errorCode: "workspace_mfa_required",
+    };
+  }
+
+  return { action: "allow", ownerId: input.ownerId, role };
+}

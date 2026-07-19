@@ -1,9 +1,10 @@
 import { createMiddleware } from "hono/factory";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import {
+  resolveRequestedOwner,
+  resolveWorkspaceAccess,
   roleAtLeast,
   type WorkspaceRole,
-  workspaceMfaBlocked,
 } from "../lib/workspace-roles.ts";
 import { type AuthAssuranceClaims, isAal2 } from "../lib/jwt-claims.ts";
 
@@ -36,15 +37,18 @@ type WorkspaceEnv = {
 export const workspaceMiddleware = createMiddleware<WorkspaceEnv>(
   async (c, next) => {
     const userId = c.get("userId");
-    if (!userId) {
+
+    // US-2039 AC4: the resolution + access decisions are pure and live in
+    // lib/workspace-roles.ts so they can be unit-tested. This middleware is now
+    // just the I/O around them.
+    const target = resolveRequestedOwner(userId, c.req.header("X-Workspace-Owner"));
+    if (!target) {
       return c.json({ error: "Auth context missing" }, 401);
     }
 
-    const requested = c.req.header("X-Workspace-Owner")?.trim();
-    const ownerId = requested && requested.length > 0 ? requested : userId;
-
-    if (ownerId === userId) {
-      c.set("workspaceOwnerId", userId);
+    const ownerId = target.ownerId;
+    if (target.self) {
+      c.set("workspaceOwnerId", ownerId);
       c.set("workspaceRole", "owner");
       await next();
       return;
@@ -66,51 +70,35 @@ export const workspaceMiddleware = createMiddleware<WorkspaceEnv>(
         .maybeSingle(),
     ]);
     const { data, error } = memberRes;
+    if (error) console.error("[workspace] lookup failed", error);
 
-    if (error) {
-      console.error("[workspace] lookup failed", error);
-      return c.json({ error: "Workspace lookup failed" }, 500);
-    }
-    if (!data) {
-      // US-794: a machine-readable code so a client whose membership was revoked
-      // mid-session (stale X-Workspace-Owner) can detect it, clear the cached
-      // scope, and recover — instead of treating every workspace request as a
-      // generic, unexplained 403.
-      return c.json(
-        {
-          error: "You don't have access to this workspace",
-          error_code: "workspace_access_revoked",
-        },
-        403,
-      );
-    }
-
-    const memberRole = data.role as WorkspaceRole;
-
-    // US-374: enforce the owner's MFA policy. If the owner requires MFA at or
-    // above this member's role and the member's session isn't AAL2, block with
-    // a machine-readable code so the client can route them to Settings →
-    // Two-Factor Authentication to enroll. Enrollment itself goes
+    // US-374: the owner's MFA policy is enforced inside resolveWorkspaceAccess.
+    // If the owner requires MFA at or above this member's role and the member's
+    // session isn't AAL2, it denies with a machine-readable code so the client
+    // can route them to Settings → Two-Factor Authentication. Enrollment goes
     // client→Supabase (never through workspace routes), so this can't lock a
     // member out of enrolling.
-    const requiredRole =
-      (ownerRes.data as { workspace_mfa_required_role: WorkspaceRole | null } | null)
-        ?.workspace_mfa_required_role ?? null;
-    const sessionAal2 = isAal2(c.get("authClaims") ?? { aal: null, amr: [] });
-    if (workspaceMfaBlocked(memberRole, requiredRole, sessionAal2)) {
+    const decision = resolveWorkspaceAccess({
+      ownerId,
+      member: (data as { role: string | null } | null) ?? null,
+      lookupFailed: Boolean(error),
+      ownerMfaRequiredRole:
+        (ownerRes.data as { workspace_mfa_required_role: WorkspaceRole | null } | null)
+          ?.workspace_mfa_required_role ?? null,
+      sessionAal2: isAal2(c.get("authClaims") ?? { aal: null, amr: [] }),
+    });
+
+    if (decision.action === "deny") {
       return c.json(
-        {
-          error:
-            "This workspace requires two-factor authentication for your role. " +
-            "Enable 2FA in Settings, then sign in again to continue.",
-          error_code: "workspace_mfa_required",
-        },
-        403,
+        decision.errorCode
+          ? { error: decision.error, error_code: decision.errorCode }
+          : { error: decision.error },
+        decision.status,
       );
     }
 
-    c.set("workspaceOwnerId", ownerId);
-    c.set("workspaceRole", memberRole);
+    c.set("workspaceOwnerId", decision.ownerId);
+    c.set("workspaceRole", decision.role);
     await next();
   },
 );
