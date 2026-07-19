@@ -1,20 +1,25 @@
 import { Link } from "react-router-dom";
 import { Gift, Trophy } from "lucide-react";
-import { SEO } from "@/components/seo";
+import { MarketingLayout } from "@/components/marketing/marketing-layout";
 import { TopReferrers } from "@/components/referral/top-referrers";
 
 // US-864: public, opt-in top-referrers leaderboard. A little public competition
 // to drive referral participation. Renders only PII-free aliases + counts (from
-// /api/content/public/referral-leaderboard.json). Dynamic — NOT registered in
-// PUBLIC_ROUTES (no prerender), like /status.
+// /api/content/public/referral-leaderboard.json). The rows load client-side,
+// but the page IS registered in PUBLIC_ROUTES and IS prerendered (as is
+// /status) — an earlier comment here claimed the opposite, which is the kind
+// of stale note that argues someone out of giving an indexable page the
+// marketing chrome it needs.
 export function ReferralLeaderboardPage() {
   return (
-    <div className="min-h-screen bg-background">
-      <SEO
-        title="Top Referrers — GradeThread"
-        description="The GradeThread top-referrers leaderboard. Sellers who share GradeThread and earn grade credits when friends join and qualify."
-        canonicalUrl="https://gradethread.com/leaderboard"
-      />
+    // MarketingLayout so this indexable page carries the site nav + footer.
+    // Without it the page shipped ONE outbound link, giving a visitor from
+    // search no path to sign up.
+    <MarketingLayout
+      title="Top Referrers — GradeThread"
+      description="The GradeThread top-referrers leaderboard. Sellers who share GradeThread and earn grade credits when friends join and qualify."
+      canonicalPath="/leaderboard"
+    >
 
       <div className="bg-brand-navy py-10 text-white">
         <div className="mx-auto flex max-w-2xl flex-col items-center gap-3 px-6 text-center">
@@ -45,6 +50,6 @@ export function ReferralLeaderboardPage() {
           </p>
         </div>
       </div>
-    </div>
+    </MarketingLayout>
   );
 }

@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
-import { SEO } from "@/components/seo";
+import { MarketingLayout } from "@/components/marketing/marketing-layout";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { cn } from "@/lib/utils";
 
@@ -148,13 +148,17 @@ export function VerifiedDirectoryPage() {
   }, [sellers, sort, query]);
 
   return (
-    <div className="min-h-screen bg-background">
-      <SEO
-        title="GradeThread Verified Sellers Directory"
-        description="Browse trusted GradeThread Verified sellers, ranked by graded volume and average condition grade. Every item is independently AI condition-graded."
-        canonicalUrl="https://gradethread.com/verified"
-      />
-
+    // MarketingLayout, not a bare div: this is a PUBLIC, indexable page — the
+    // trust surface a buyer lands on from a seller's shared badge — and without
+    // the layout it rendered with no site nav and no footer. It carried exactly
+    // ONE outbound link (/for-resellers) against 45 on a normal marketing page,
+    // so a visitor arriving from search had no route to sign up and the page
+    // absorbed link equity from the sitewide footer without passing any on.
+    <MarketingLayout
+      title="GradeThread Verified Sellers Directory"
+      description="Browse trusted GradeThread Verified sellers, ranked by graded volume and average condition grade. Every item is independently AI condition-graded."
+      canonicalPath="/verified"
+    >
       {/* Header */}
       <div className="bg-brand-navy py-10 text-white">
         <div className="mx-auto flex max-w-3xl flex-col items-center gap-3 px-6 text-center">
@@ -256,6 +260,6 @@ export function VerifiedDirectoryPage() {
           </p>
         </div>
       </div>
-    </div>
+    </MarketingLayout>
   );
 }
