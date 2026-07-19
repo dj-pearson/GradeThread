@@ -67,6 +67,12 @@ import {
   summarizeSellerAuthenticity,
   type SellerAuthenticityRecord,
 } from "../lib/authenticity-seller-signal.ts";
+import {
+  computeAuthenticityAccuracy,
+  detectAuthenticityDrift,
+  splitByCutoff,
+  type AuthenticityObservation,
+} from "../lib/authenticity-accuracy.ts";
 import { compareModelEvals, type ModelEvalRun } from "../lib/model-comparison.ts";
 import { isAllowedGradingModel } from "../lib/ai-config.ts";
 import {
@@ -529,6 +535,57 @@ adminGradingRoutes.post("/prompts/:id/deactivate", async (c) => {
 // authenticity-eval.ts became dead code in the first place (see the reasoning in
 // authenticity-gate-guard_test.ts). When that lifecycle is genuinely needed, it
 // must call assertAuthenticityPromptActivatable, which refuses by default.
+
+// ── US-2146: authenticity accuracy + drift ──────────────────────────────────
+//
+// The eval gate certifies a prompt version once. This is what says it is STILL
+// true — and it reports the two error directions separately, because a single
+// agreement rate stays flat while a version stops missing fakes and starts
+// flagging genuine items.
+
+// GET /authenticity/accuracy?since=ISO — accuracy by version and brand, + drift.
+adminGradingRoutes.get("/authenticity/accuracy", async (c) => {
+  const { data, error } = await supabaseAdmin
+    .from("authenticity_review_outcomes")
+    .select(
+      "model_verdict, model_prompt_version, reviewer_verdict, reviewed_at, " +
+        "grade_reports!inner(submissions!inner(brand))",
+    )
+    .limit(5000);
+  if (error) {
+    return failSafe(c, 400, "Couldn't load review outcomes.", error, "admin.grading.authenticity.accuracy");
+  }
+
+  type Row = {
+    model_verdict: string | null;
+    model_prompt_version: string | null;
+    reviewer_verdict: string;
+    reviewed_at: string;
+    grade_reports?: { submissions?: { brand?: string | null } | null } | null;
+  };
+  const observations: AuthenticityObservation[] = ((data ?? []) as unknown as Row[]).map((r) => {
+    const brand = r.grade_reports?.submissions?.brand?.trim();
+    return {
+      prompt_version: r.model_prompt_version,
+      brand_key: brand ? brand.toLowerCase().replace(/[^a-z0-9]+/g, "") : null,
+      model_verdict: r.model_verdict,
+      reviewer_verdict: r.reviewer_verdict,
+      reviewed_at: r.reviewed_at,
+    };
+  });
+
+  const report = computeAuthenticityAccuracy(observations);
+  // Caller-supplied cutoff so an operator can ask "since we changed the model",
+  // which is the question drift detection actually gets used for.
+  const since = c.req.query("since");
+  let drift = null;
+  if (since) {
+    const { recent, baseline } = splitByCutoff(observations, since);
+    drift = detectAuthenticityDrift(recent, baseline);
+  }
+
+  return c.json({ ...report, drift, observations_considered: observations.length });
+});
 
 // ── US-2148: per-seller authenticity signal ─────────────────────────────────
 //
