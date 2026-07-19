@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { requireDist } from "../../test/dist-required";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { PUBLIC_ROUTES } from "@/lib/seo/public-routes";
@@ -100,7 +101,7 @@ describe("prerender head-builder (US-292)", () => {
 
 // These run only after a build has produced dist/. Skipped otherwise so the
 // unit suite stays build-independent; CI runs them after `npm run build`.
-const hasDist = existsSync(dist("index.html"));
+const hasDist = requireDist(dist("index.html"), "prerender.test.ts");
 describe.skipIf(!hasDist)("prerendered dist output (US-292)", () => {
   it("dist/index.html contains the landing hero as static text (no JS needed)", () => {
     const html = readFileSync(dist("index.html"), "utf8");

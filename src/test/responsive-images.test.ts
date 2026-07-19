@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { existsSync, readFileSync } from "node:fs";
+import { requireDist } from "./dist-required";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { cfImage, buildSrcSet, itemPhotoThumb } from "../lib/images";
 import {
@@ -195,7 +196,7 @@ describe("deriveAltFromSrc (US-434)", () => {
 // /cdn-cgi/image srcset once Cloudflare Transformations is enabled), so this
 // asserts the behavior that matches the flag the build ran with.
 const distIndex = resolve(process.cwd(), "dist", "index.html");
-const hasDist = existsSync(distIndex);
+const hasDist = requireDist(distIndex, "responsive-images.test.ts");
 // Build-independent suite: skip when dist/ is absent (same precondition as the
 // prerender dist tests). The unit suite runs before `npm run build` in CI, so a
 // hard `existsSync` assertion here would fail the build — skip instead.

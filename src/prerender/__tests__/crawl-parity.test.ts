@@ -16,6 +16,7 @@
 // fails the build. Runbook for fixing drift: docs/PRERENDER_PARITY.md.
 
 import { describe, it, expect } from "vitest";
+import { requireDist } from "../../test/dist-required";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -54,7 +55,7 @@ const AUDIT: Array<{ path: string; must: string[] }> = [
   { path: "/about", must: ["Pearson Media"] },
 ];
 
-const hasDist = existsSync(dist("index.html"));
+const hasDist = requireDist(dist("index.html"), "crawl-parity.test.ts");
 
 describe.skipIf(!hasDist)("prerender/hydration parity audit (US-1669)", () => {
   it.each(AUDIT.map((a) => [a.path, a] as const))(
