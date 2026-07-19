@@ -81,3 +81,55 @@ Deno.test("handled events are not also listed as ignored", () => {
     );
   }
 });
+
+// ── US-2011: money-critical webhook failures must PAGE, not just log ──
+//
+// recordWebhookDeadLetter was fixed to emit a critical ops event. But the
+// story's own description named other captureException-only sites in
+// webhooks.ts, and two of them are the same failure class by a different route:
+//
+//   • an unmappable subscription price DEMOTES A PAYING CUSTOMER to Free
+//   • a failed duplicate-refund leaves a customer DOUBLE-CHARGED — its own log
+//     line says "needs operator follow-up", and until now the only thing that
+//     could bring an operator was Sentry, whose routing is unverified (US-2003)
+//
+// Source-asserted rather than behavioural: these sit inside webhook handlers
+// that talk to Stripe and the service-role client with no injection seam, so
+// driving them would need a live DB. The property that matters — "this path
+// reaches the on-call fan-out at all" — is visible in the source.
+
+const WEBHOOKS_SRC = await Deno.readTextFile(
+  new URL("../routes/webhooks.ts", import.meta.url),
+);
+
+Deno.test("US-2011: a paying customer demoted by an unmappable price pages", () => {
+  assert(
+    /emitOpsEvent\(\s*"billing\.unmappable_price",\s*"critical"/.test(WEBHOOKS_SRC),
+    "an unmappable price demotes a PAYING customer to Free — Sentry alone is not " +
+      "enough when its routing is itself unverified",
+  );
+});
+
+Deno.test("US-2011: a failed duplicate refund pages", () => {
+  assert(
+    /emitOpsEvent\(\s*"billing\.duplicate_refund_failed",\s*"critical"/.test(WEBHOOKS_SRC),
+    "this state is a customer charged twice whose refund failed — the log line " +
+      "already says 'needs operator follow-up', so something must actually fetch one",
+  );
+});
+
+// Both sit on the webhook ACK path. Awaiting a slow alert sink would delay the
+// 200 that stops Stripe retrying — which is the retry storm the dead-letter
+// path exists to prevent, caused by the alert about it.
+Deno.test("US-2011: those emits are fire-and-forget, never awaited", () => {
+  for (const type of ["billing.unmappable_price", "billing.duplicate_refund_failed"]) {
+    const at = WEBHOOKS_SRC.indexOf(`emitOpsEvent("${type}"`);
+    assert(at > -1, `${type} emit not found`);
+    const preceding = WEBHOOKS_SRC.slice(Math.max(0, at - 12), at);
+    assert(
+      preceding.includes("void "),
+      `${type} must be fire-and-forget (void) — awaiting it on the ack path can ` +
+        `delay the 200 and trigger the Stripe retries the alert is warning about`,
+    );
+  }
+});

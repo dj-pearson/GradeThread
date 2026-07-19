@@ -32,6 +32,7 @@ import { getStripe } from "../lib/stripe-client.ts";
 import { classifyPerGradeFlip } from "../lib/per-grade-flip.ts";
 import { recordWebhookDeadLetter } from "../lib/webhook-dead-letter.ts";
 import { captureException } from "../lib/observability.ts";
+import { emitOpsEvent } from "../lib/ops-events.ts";
 import { notifyPlanDowngrade } from "../lib/plan-change-notify.ts";
 import { applySesFeedback } from "../lib/email-suppression.ts";
 import { type SnsMessage, verifySnsSignature } from "../lib/sns-verify.ts";
@@ -513,6 +514,18 @@ async function handleSubscriptionChange(event: Stripe.Event) {
     void captureServer(user.id, "billing.unmappable_price", {
       subscription_id: sub.id,
       price_id: priceId,
+    });
+    // US-2011: ALSO page. This demotes a PAYING customer to Free because a
+    // price is missing its metadata — revenue loss and a support ticket in one
+    // — and Sentry was the only signal, on routing that is itself unverified
+    // (US-2003). Same reasoning as the dead-letter emit: fire-and-forget, since
+    // this sits on the webhook's ack path and a slow alert sink must never
+    // delay the 200 that stops Stripe retrying.
+    void emitOpsEvent("billing.unmappable_price", "critical", {
+      title: `Subscription price ${priceId} has no plan mapping — customer demoted to Free`,
+      source: "webhook.unmappable_price",
+      actorUserId: user.id,
+      data: { subscription_id: sub.id, price_id: priceId, user_id: user.id },
     });
     // US-776: keep the Sentry alert so ops fixes the price metadata...
     captureException(
@@ -1325,6 +1338,23 @@ async function refundDuplicatePerGrade(
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    // US-2011: ALSO page. The log line below says "needs operator follow-up" —
+    // and until now the only thing that could bring an operator was Sentry, on
+    // routing that is itself unverified (US-2003). This state is a customer who
+    // was charged TWICE and whose refund then failed: the most expensive
+    // silence in the webhook surface. Fire-and-forget for the same reason as
+    // the dead-letter emit (this is on the ack path).
+    void emitOpsEvent("billing.duplicate_refund_failed", "critical", {
+      title: `Duplicate per-grade charge could NOT be refunded — customer is double-charged`,
+      source: "webhooks.refundDuplicatePerGrade",
+      actorUserId: ownerId,
+      data: {
+        submission_id: submissionId,
+        payment_intent: paymentIntentId,
+        // Truncated: the ops feed is a signal surface, not a log store.
+        error: msg.slice(0, 300),
+      },
+    });
     captureException(err, {
       route: "webhooks.refundDuplicatePerGrade",
       tags: { submissionId },
