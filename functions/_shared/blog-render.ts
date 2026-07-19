@@ -1391,7 +1391,15 @@ export function certificateProductLd(
         worstRating: 1,
         alternateName: cert.gradeTier,
       },
-      author: { "@type": "Organization", name: "GradeThread", url: cert.siteUrl },
+      // US-2103: inline (a bare @id would dangle — this page emits only the
+      // Product + Breadcrumb) but carrying ORG_ID so it merges with the
+      // site-wide Organization. Mirrors the SPA certificateLd() exactly.
+      author: {
+        "@type": "Organization",
+        "@id": `${cert.siteUrl}/#organization`,
+        name: "GradeThread",
+        url: cert.siteUrl,
+      },
       ...(cert.datePublished ? { datePublished: cert.datePublished } : {}),
     },
     // US-2071: same position and same conditional shape as the SPA builder, so
@@ -1439,7 +1447,13 @@ export function passportProductLd(
               worstRating: 1,
               alternateName: input.latestGrade.tier,
             },
-            author: { "@type": "Organization", name: "GradeThread", url: input.siteUrl },
+            // US-2103: self-contained AND @id-merged — see certificateProductLd.
+            author: {
+              "@type": "Organization",
+              "@id": `${input.siteUrl}/#organization`,
+              name: "GradeThread",
+              url: input.siteUrl,
+            },
             ...(input.latestGrade.datePublished
               ? { datePublished: input.latestGrade.datePublished }
               : {}),

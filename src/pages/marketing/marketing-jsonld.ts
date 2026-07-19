@@ -83,6 +83,9 @@ import { FIT_CHECKER_META, FIT_CHECKER_PATH } from "@/lib/seo/fit-checker";
 import { absoluteUrl } from "@/lib/seo/site";
 import { LANDING_FAQS } from "@/pages/landing-faqs";
 import { SITE_URL } from "@/lib/seo/site";
+// US-2103: the canonical entity ids, so brand nodes here MERGE with the
+// site-wide Organization/WebSite instead of minting anonymous duplicates.
+import { ORG_ID, WEBSITE_ID } from "@/lib/seo/json-ld";
 import { FOR_BRANDS_META } from "@/lib/seo/for-brands";
 import {
   glossaryTrail,
@@ -433,8 +436,8 @@ export function flipdeskLandingJsonLd(landing: FlipdeskLanding): JsonLd[] {
     operatingSystem: "Web",
     url,
     description: landing.appDescription,
-    isPartOf: { "@type": "WebSite", url: `${SITE_URL}/` },
-    publisher: { "@type": "Organization", name: "GradeThread", url: `${SITE_URL}/` },
+    isPartOf: { "@type": "WebSite", "@id": WEBSITE_ID, name: "GradeThread", url: `${SITE_URL}/` },
+    publisher: { "@id": ORG_ID },
     featureList: landing.featureList,
     offers: flipdeskOffers(),
   };
@@ -983,7 +986,7 @@ export function gradeCheckerJsonLd(): JsonLd[] {
     description: GRADE_CHECKER_META.description,
     offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
     isAccessibleForFree: true,
-    provider: { "@id": `${SITE_URL}/#organization` },
+    provider: { "@id": ORG_ID },
   };
   return [app, faqPageLd(GRADE_CHECKER_META.faqs)];
 }
@@ -1007,7 +1010,7 @@ export function authenticityCheckJsonLd(): JsonLd[] {
     description: AUTHENTICITY_CHECK_META.description,
     offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
     isAccessibleForFree: true,
-    provider: { "@id": `${SITE_URL}/#organization` },
+    provider: { "@id": ORG_ID },
   };
   return [app, faqPageLd(AUTHENTICITY_CHECK_META.faqs)];
 }
@@ -1031,7 +1034,7 @@ export function fitCheckerJsonLd(): JsonLd[] {
     description: FIT_CHECKER_META.description,
     offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
     isAccessibleForFree: true,
-    provider: { "@id": `${SITE_URL}/#organization` },
+    provider: { "@id": ORG_ID },
   };
   return [app, faqPageLd(FIT_CHECKER_META.faqs)];
 }
@@ -1170,7 +1173,7 @@ export function durabilityReportJsonLd(): JsonLd[] {
     datePublished: DURABILITY_REPORT_PUBLISHED,
     dateModified: DURABILITY_REPORT_MODIFIED,
     license: "https://creativecommons.org/licenses/by/4.0/",
-    creator: { "@id": `${SITE_URL}/#organization` },
+    creator: { "@id": ORG_ID },
   };
   return [
     dataset,
@@ -1601,8 +1604,8 @@ export function flipdeskJsonLd(): JsonLd[] {
     url,
     description:
       "FlipDesk is GradeThread's eBay reseller-management suite: source, measure, photograph, grade, comp, list, reprice, and reconcile in one workspace — with a standardized condition grade and verifiable certificate built into every listing.",
-    isPartOf: { "@type": "WebSite", url: `${SITE_URL}/` },
-    publisher: { "@type": "Organization", name: "GradeThread", url: `${SITE_URL}/` },
+    isPartOf: { "@type": "WebSite", "@id": WEBSITE_ID, name: "GradeThread", url: `${SITE_URL}/` },
+    publisher: { "@id": ORG_ID },
     featureList: [
       "eBay listing management and AI-assisted drafting",
       "Cross-listing and inventory management",
@@ -1759,7 +1762,7 @@ export function forBrandsJsonLd(): JsonLd[] {
       serviceType: "Resale condition grading and circularity reporting",
       description: FOR_BRANDS_META.description,
       url: `${SITE_URL}/for-brands`,
-      provider: { "@type": "Organization", name: "GradeThread" },
+      provider: { "@id": ORG_ID },
       audience: { "@type": "BusinessAudience", name: "Brands running resale or trade-in programs" },
       areaServed: "US",
     } as JsonLd,
@@ -1778,7 +1781,7 @@ export function forResellersJsonLd(): JsonLd[] {
       description:
         "Standardized condition grades that build buyer trust, cut returns, and speed up sales for eBay, Poshmark, Mercari, Depop, and Grailed sellers.",
       url: `${SITE_URL}/for-resellers`,
-      provider: { "@type": "Organization", name: "GradeThread" },
+      provider: { "@id": ORG_ID },
       audience: { "@type": "Audience", name: "Clothing resellers" },
       areaServed: "US",
     } as JsonLd,
@@ -1801,7 +1804,7 @@ export function developersJsonLd(): JsonLd[] {
         "Embed GradeThread AI clothing condition grading via a REST API and JavaScript SDK — free sandbox, white-label embeds, documented rate limits and pricing.",
       url: `${SITE_URL}/developers`,
       programmingModel: "REST",
-      publisher: { "@type": "Organization", name: "GradeThread" },
+      publisher: { "@id": ORG_ID },
     } as JsonLd,
   ];
 }
@@ -1825,7 +1828,7 @@ export function verifiedJsonLd(): JsonLd[] {
       description:
         "Browse trusted GradeThread Verified sellers, ranked by graded volume and average condition grade. Every item is independently AI condition-graded.",
       url: `${SITE_URL}/verified`,
-      isPartOf: { "@type": "WebSite", name: "GradeThread", url: SITE_URL },
+      isPartOf: { "@type": "WebSite", "@id": WEBSITE_ID, name: "GradeThread", url: SITE_URL },
     } as JsonLd,
   ];
 }

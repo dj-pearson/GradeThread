@@ -16,8 +16,23 @@ import { GRADETHREAD_TIERS } from "@/lib/constants";
 const LOGO_URL = `${SITE_URL}/logo_icon_512.png`;
 
 // Stable @id for the Organization so other nodes can reference it as a graph.
-const ORG_ID = `${SITE_URL}/#organization`;
-const WEBSITE_ID = `${SITE_URL}/#website`;
+//
+// US-2103: exported, because marketing-jsonld.ts was re-declaring the brand as
+// inline literal nodes ({"@type":"Organization", name:"GradeThread"}) instead of
+// pointing at these. Those literals are anonymous nodes: a consumer cannot tell
+// they are the SAME organization as the site-wide one, so every publisher /
+// provider edge landed on a fresh unnamed entity and none of it accrued to the
+// brand graph. Reference these ids, or at minimum carry them on an inline node.
+//
+// WHICH OF THE TWO you can use as a BARE reference is not the same:
+//   ORG_ID     — organizationLd() is emitted by marketing-layout, legal-layout
+//                and every prerender head, so it is present on every public
+//                page. A bare {"@id": ORG_ID} always resolves.
+//   WEBSITE_ID — webSiteLd() is emitted ONLY on the home page. A bare
+//                {"@id": WEBSITE_ID} elsewhere DANGLES. Keep the isPartOf node
+//                inline and give it this @id so it merges without dangling.
+export const ORG_ID = `${SITE_URL}/#organization`;
+export const WEBSITE_ID = `${SITE_URL}/#website`;
 
 export interface JsonLd {
   "@context": "https://schema.org";
@@ -677,10 +692,20 @@ export function certificateLd(cert: {
         worstRating: 1,
         alternateName: cert.gradeTier,
       },
-      // US-425: inline Organization (not an @id graph reference). The cert page
-      // emits only the Product + Breadcrumb nodes, so a bare {"@id"} author
-      // would dangle; this keeps the node self-contained and matches the SSR.
-      author: { "@type": "Organization", name: "GradeThread", url: SITE_URL },
+      // US-425: inline Organization, NOT a bare {"@id"} graph reference — the
+      // cert page emits only the Product + Breadcrumb nodes, so a reference
+      // would dangle. US-2103: it now also CARRIES @id: ORG_ID, which is the
+      // distinction that matters. The node stays fully self-contained (a
+      // consumer reading this page alone still gets a named author), and a
+      // consumer that has also seen the site-wide Organization merges the two
+      // into one entity instead of treating the certificate's grader as an
+      // unrelated same-named org. Mirrored in the SSR (blog-render.ts).
+      author: {
+        "@type": "Organization",
+        "@id": ORG_ID,
+        name: "GradeThread",
+        url: SITE_URL,
+      },
       ...(cert.datePublished ? { datePublished: cert.datePublished } : {}),
     },
     ...(cert.dateModified ? { dateModified: cert.dateModified } : {}),
@@ -724,7 +749,13 @@ export function passportLd(opts: {
               worstRating: 1,
               alternateName: opts.latestGrade.tier,
             },
-            author: { "@type": "Organization", name: "GradeThread", url: SITE_URL },
+            // US-2103: self-contained AND @id-merged — see certificateLd().
+            author: {
+              "@type": "Organization",
+              "@id": ORG_ID,
+              name: "GradeThread",
+              url: SITE_URL,
+            },
             ...(opts.latestGrade.datePublished
               ? { datePublished: opts.latestGrade.datePublished }
               : {}),

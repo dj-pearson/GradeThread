@@ -13,6 +13,7 @@ import {
   definedTermLd,
   definedTermSetLd,
   CONDITION_GLOSSARY_SET_ID,
+  ORG_ID,
 } from "../json-ld";
 import { SITE_URL } from "../public-routes";
 // US-425: the cert SSR Pages Function builds its Product JSON-LD from this shared
@@ -164,8 +165,15 @@ describe("JSON-LD builders (US-298/299/300)", () => {
     expect((spa.review as Record<string, unknown>).name).toBe(
       "Condition grade: Excellent (8.5/10)",
     );
+    // US-2103: the author node is inline (a bare @id would dangle — the cert
+    // page emits only Product + Breadcrumb) AND carries ORG_ID, so it merges
+    // with the site-wide Organization rather than being an anonymous
+    // same-named entity. Both properties are asserted: dropping the @id
+    // re-orphans the certificate from the brand graph, and dropping the
+    // name/url turns it into a dangling reference.
     expect((spa.review as Record<string, unknown>).author).toEqual({
       "@type": "Organization",
+      "@id": ORG_ID,
       name: "GradeThread",
       url: SITE_URL,
     });
