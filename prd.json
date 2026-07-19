@@ -3199,7 +3199,7 @@
     {
       "id": "US-2096",
       "priority": 1993,
-      "passes": false,
+      "passes": true,
       "title": "Certificate sitemap silently caps at ~1,000 — certUrls() never follows next_cursor",
       "description": "functions/_shared/sitemap.ts:52 declares next_cursor: string | null on CertSitemap, and certUrls() (:185-198) never reads it. The upstream /api/content/public/certificates.json defaults to limit=1000 (content-public.ts:1202), so only the most recent ~1,000 certificates (fewer after withheld filtering) ever reach /sitemap.xml or /sitemap-certs.xml. Certificates are the designated growth flywheel and the highest-volume indexable asset class we own — it stops scaling at 1k with no error and no log line.",
       "acceptanceCriteria": [

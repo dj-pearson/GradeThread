@@ -118,7 +118,17 @@ async function fetchEdgeJson<T>(env: PagesEnv, path: string): Promise<T | null> 
     throw new UpstreamUnavailable(`status ${res.status}`);
   }
   try {
-    return (await res.json()) as T;
+    const json = (await res.json()) as T;
+    // US-2096: uncursored feeds report their own truncation via `truncated`.
+    // Checked here rather than per-generator so a feed that grows the flag
+    // later is covered without touching every call site.
+    if ((json as { truncated?: boolean } | null)?.truncated) {
+      console.error(
+        `[sitemap] upstream reports a TRUNCATED response for ${path} — this ` +
+          `sitemap section is incomplete and the feed needs cursor pagination.`,
+      );
+    }
+    return json;
   } catch (e) {
     console.error(`[sitemap] malformed JSON from ${path}:`, e);
     throw new UpstreamUnavailable("malformed-json");
@@ -218,19 +228,61 @@ export async function blogUrls(env: PagesEnv): Promise<SitemapUrl[]> {
   return urls;
 }
 
+// US-2096: the certificates endpoint is cursor-paginated (`next_cursor`, keyed
+// on created_at) and hard-caps `limit` at 5,000. certUrls() used to make ONE
+// unparameterised request and drop the cursor on the floor, so the certificate
+// sitemap silently stopped at the first page — the default limit of 1,000.
+//
+// Certificates are the highest-volume indexable asset class in the product, so
+// this was a growth ceiling that reported itself as success: a well-formed 200
+// listing exactly 1,000 URLs, with no error and no log line.
+const CERT_PAGE_SIZE = 5000; // the endpoint's own maximum
+// The sitemap spec's real per-file ceiling is 50,000 URLs. sitemap-certs.xml
+// emits a single <urlset>, so that — not SITEMAP_MAX_URLS (5,000), which only
+// decides the ROOT document's index-vs-urlset shape — is the binding limit here.
+const CERT_MAX_URLS = 50_000;
+
 export async function certUrls(env: PagesEnv): Promise<SitemapUrl[]> {
   const base = siteUrl(env);
-  const data = await fetchEdgeJson<CertSitemap>(
-    env,
-    "/api/content/public/certificates.json",
-  );
-  if (!data) return [];
-  return data.certificates.map((cI) => ({
-    loc: `${base}/cert/${cI.id}`,
-    lastmod: cI.updated_at?.slice(0, 10),
-    changefreq: "monthly",
-    priority: 0.7,
-  }));
+  const urls: SitemapUrl[] = [];
+  let cursor: string | null = null;
+
+  while (urls.length < CERT_MAX_URLS) {
+    const qs = new URLSearchParams({ limit: String(CERT_PAGE_SIZE) });
+    if (cursor) qs.set("cursor", cursor);
+    const data: CertSitemap | null = await fetchEdgeJson<CertSitemap>(
+      env,
+      `/api/content/public/certificates.json?${qs}`,
+    );
+    if (!data) break;
+
+    for (const cI of data.certificates) {
+      urls.push({
+        loc: `${base}/cert/${cI.id}`,
+        lastmod: cI.updated_at?.slice(0, 10),
+        changefreq: "monthly",
+        priority: 0.7,
+      });
+    }
+
+    const next: string | null = data.next_cursor ?? null;
+    // Guard against a non-advancing cursor. The endpoint derives next_cursor
+    // from the last row of the RAW page (so a fully-withheld page still
+    // advances), but a bug or a duplicate created_at upstream must not spin
+    // this loop at the edge.
+    if (!next || next === cursor) break;
+    cursor = next;
+  }
+
+  // Never truncate silently — that is the exact defect this story exists to fix.
+  if (urls.length >= CERT_MAX_URLS) {
+    console.error(
+      `[sitemap] certificate sitemap hit the ${CERT_MAX_URLS}-URL ceiling and is ` +
+        `now TRUNCATED. It must be split into numbered sub-sitemaps ` +
+        `(sitemap-certs-1.xml …) before certificate volume grows further.`,
+    );
+  }
+  return urls;
 }
 
 export async function sellerUrls(env: PagesEnv): Promise<SitemapUrl[]> {

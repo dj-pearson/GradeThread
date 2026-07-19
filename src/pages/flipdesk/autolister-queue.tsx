@@ -195,7 +195,24 @@ export function FlipdeskAutolisterQueuePage() {
       return map;
     },
   });
-  const titleOf = (id: string): string => itemMeta[id]?.title ?? id;
+  // Position in the batch, so an untitled row reads "Generation 3" rather than
+  // leaking a raw inventory_item_id. Keyed off the FULL job list (not the
+  // filtered view) so the number stays stable as the user filters.
+  const ordinalOf = useMemo(() => {
+    const map: Record<string, number> = {};
+    jobs.forEach((j, i) => {
+      map[j.inventory_item_id] = i + 1;
+    });
+    return map;
+  }, [jobs]);
+  // Titles arrive from a separate query and are null until the AI names the
+  // draft, so this fallback is the common case while a batch is still running.
+  const titleOf = (id: string): string => {
+    const title = itemMeta[id]?.title?.trim();
+    if (title) return title;
+    const n = ordinalOf[id];
+    return n ? `Generation ${n}` : "Generation";
+  };
 
   // US-541: which generated drafts the AI flagged as needing a human look, plus
   // the specific low-confidence fields (for the badge tooltip). Keyed by

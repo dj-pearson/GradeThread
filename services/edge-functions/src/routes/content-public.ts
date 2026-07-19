@@ -98,6 +98,26 @@ export const contentPublicRoutes = new Hono();
 const MAX_LIMIT = 100;
 const DEFAULT_LIMIT = 20;
 
+/**
+ * US-2096: several sitemap feeds are hard-capped with NO cursor, so once the
+ * cap is reached the response is a silently truncated 200 — indistinguishable
+ * from "that is everything". A sitemap that under-reports is worse than one
+ * that errors: it tells crawlers the missing pages do not exist.
+ *
+ * The cap lives here, so the detection lives here too — the alternative was
+ * duplicating each limit into the Pages Function and letting the two drift.
+ * Returns `truncated` for the response body so the client can log it as well.
+ */
+function warnIfCapped(label: string, rowCount: number, limit: number): boolean {
+  if (rowCount < limit) return false;
+  console.error(
+    `[content-public] ${label} returned exactly its ${limit}-row cap — the ` +
+      `response is TRUNCATED and this feed needs cursor pagination (see US-2096, ` +
+      `which added it to certificates.json).`,
+  );
+  return true;
+}
+
 const POST_COLUMNS =
   "id, slug, title, excerpt, body_html, product_focus, hero_image_url, " +
   "seo_title, seo_description, primary_keyword, secondary_keywords, " +
@@ -451,7 +471,8 @@ contentPublicRoutes.get("/authors.json", async (c) => {
     ...publicAuthor(row),
     updated_at: row.updated_at,
   }));
-  return c.json({ authors });
+  const truncated = warnIfCapped("authors.json", authors.length, 1000);
+  return c.json({ truncated, authors });
 });
 
 // ── GET /authors/:slug ────────────────────────────────────
@@ -570,7 +591,10 @@ contentPublicRoutes.get("/sitemap.json", async (c) => {
     if (r.tag) tagSet.add(r.tag as string);
   }
 
+  const truncated = warnIfCapped("sitemap.json posts", (data ?? []).length, 1000);
+
   return c.json({
+    truncated,
     posts: data ?? [],
     tags: Array.from(tagSet).sort(),
   });
@@ -1558,6 +1582,7 @@ contentPublicRoutes.get("/sellers.json", async (c) => {
   }
 
   return c.json({
+    truncated: warnIfCapped("sellers.json", sellers.length, 5000),
     sellers: sellers.map((s) => {
       const agg = statById.get(s.id);
       const total = agg?.count ?? 0;
