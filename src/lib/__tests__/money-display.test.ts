@@ -59,4 +59,27 @@ describe("money display", () => {
     ).not.toContain("toFixed(0)");
     expect(packBlock).toContain("toFixed(2)");
   });
+
+  it("the whole-dollar billing components stay free of cents-bearing money", () => {
+    // The other two toFixed(0) formatters live in the FlipDesk plan cards. They
+    // are safe ONLY because every value reaching them comes from FLIPDESK_PLANS,
+    // which the test above pins to whole dollars. Nothing structurally stops a
+    // later edit from rendering a credit pack or a grading tier through the same
+    // helper — and that is precisely the bug that shipped on landing ($25 for a
+    // $24.99 pack). Keeping the cents-bearing constants OUT of these two files
+    // makes the safety a property of the file rather than of reviewer attention.
+    const wholeDollarFiles = [
+      "src/components/billing/flipdesk-plan-comparison.tsx",
+      "src/components/billing/flipdesk-plan-picker-dialog.tsx",
+    ];
+    for (const rel of wholeDollarFiles) {
+      const text = readFileSync(resolve(process.cwd(), rel), "utf8");
+      expect(
+        text,
+        `${rel} rounds money to whole dollars, so importing a constant that ` +
+          "carries cents (CREDIT_PACKS / GRADETHREAD_TIERS) risks displaying a " +
+          "price the customer is not charged. Format those with toFixed(2).",
+      ).not.toMatch(/\b(CREDIT_PACKS|GRADETHREAD_TIERS)\b/);
+    }
+  });
 });
