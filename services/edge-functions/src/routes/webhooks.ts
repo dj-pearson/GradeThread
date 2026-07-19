@@ -23,6 +23,7 @@ import { emitEvent } from "../lib/user-events.ts";
 import { recordMetric } from "../lib/observability.ts";
 import { nextPastDueSince } from "../lib/grade-pricing.ts";
 import { getPlanMatrix } from "../lib/pricing-config.ts";
+import { isProduction } from "../lib/env.ts";
 import { reconcileCustomerLink } from "../lib/stripe-customer.ts";
 import { shouldClearPendingDowngrade } from "../lib/pending-downgrade.ts";
 import { maybeQualifyReferral } from "../lib/referrals.ts";
@@ -167,7 +168,14 @@ webhookRoutes.post("/ses", async (c) => {
   // a deliverability DoS (suppress an arbitrary recipient). Mirrors the canonical
   // /api/email/ses-notifications receiver; verifying the SNS signature here also
   // makes the SubscribeURL fetch below safe (the URL is then AWS-attested).
-  const skipVerify = Deno.env.get("SES_SNS_SKIP_VERIFICATION")?.trim() === "true";
+  //
+  // The skip flag is gated on !isProduction() so a stray
+  // SES_SNS_SKIP_VERIFICATION=true in prod cannot turn this public endpoint into
+  // a forgeable one. US-1641 added that gate to the sibling receiver in
+  // email-sns.ts but not here, even though the comment above already claimed the
+  // two mirrored each other — so this half stayed disableable in production.
+  const skipVerify = !isProduction() &&
+    Deno.env.get("SES_SNS_SKIP_VERIFICATION")?.trim() === "true";
   if (!skipVerify) {
     const valid = await verifySnsSignature(envelope as SnsMessage);
     if (!valid) {

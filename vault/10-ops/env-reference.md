@@ -135,6 +135,8 @@ Set these in the same Pages env; the SSR functions in `functions/` read them per
 | `EVAL_MAX_MAE` / `EVAL_MIN_AGREEMENT` / `MONITOR_RUN_EVAL` | ⬜ Coolify edge | Grading-eval thresholds + toggle for the monitoring eval job. |
 | `LISTING_EVAL_MIN_AGREEMENT` / `LISTING_EVAL_MIN_ASPECT_COVERAGE` | ⬜ Coolify edge | Quality gates for listing-copy eval. |
 | `LISTING_AB_MIN_SAMPLE` / `LISTING_AB_PROMOTE_MARGIN` | ⬜ Coolify edge | A/B sample size + margin to promote a winning listing-copy variant. |
+| `VERIFIED_360_MIN_COVERAGE` | ⬜ Coolify edge | Minimum turntable coverage for a 360 capture to count as Verified (default 0.85; accepted range 0–1, out-of-range falls back to the default). |
+| `VERIFIED_360_CONFIDENCE_BOOST` | ⬜ Coolify edge | Confidence added to a grade backed by a qualifying 360 capture (default 0.1; capped at 0.3). |
 
 > AI config is centralized in `lib/ai-config.ts` and intended as **Coolify Team Shared Variables** so all Pearson Media projects flip together. `AI_TIMEOUT_MS`, `AI_MAX_RETRIES`, `AI_ENABLE_CACHING` also live here (see `ENVIRONMENT.md`).
 
@@ -173,6 +175,7 @@ Set these in the same Pages env; the SSR functions in `functions/` read them per
 | `SMTP_SENDER_NAME` | ⬜ Coolify edge | Friendly From-name on outgoing mail. |
 | `SMTP_ADMIN_EMAIL` | 🟡 Coolify edge | Admin/from + operational mailbox. |
 | `SES_SNS_TOPIC_ARN` | ⬜ Coolify edge | AWS SNS topic ARN for SES bounce/complaint notifications. |
+| `SES_SNS_SKIP_VERIFICATION` | ⬜ local/dev ONLY | Skips SNS signature verification so local dev needs no outbound cert fetch. **Inert in production** — both receivers gate it on `!isProduction()`, enforced by `sns-skip-verify-gate_test.ts`. Never set it on Coolify: these endpoints are unauthenticated, so an unverified bounce lets anyone suppress mail to any address. |
 | `COMPANY_POSTAL_ADDRESS` | ⬜ Coolify edge | Physical address in email footers (CAN-SPAM compliance). |
 | `SUPPORT_EMAIL` / `SUPPORT_ESCALATION_EMAIL` / `SUPPORT_ABUSE_ALERT_EMAIL` | ⬜ Coolify edge | Support inbox + escalation/abuse alert targets. |
 | `AUDIT_ALERT_EMAIL` / `AUDIT_ALERT_WEBHOOK` | ⬜ Coolify edge | Targets for security-audit alerts. |

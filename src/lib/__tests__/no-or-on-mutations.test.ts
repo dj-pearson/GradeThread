@@ -1,0 +1,112 @@
+// `.or(...)` must never be applied to a supabase-js UPDATE / DELETE / UPSERT.
+//
+// US-1552. The self-hosted production PostgREST rejects logical operators on
+// mutations with 42703 ("column <table>.x does not exist" — it is complaining
+// about the update-CTE alias, which is why the error looks unrelated). The
+// NEWER PostgREST in the local Supabase stack accepts them happily.
+//
+// That version split is the whole problem: this is a defect CI cannot catch by
+// RUNNING anything. `verify:db` boots the local stack, the query succeeds, the
+// suite goes green, and the failure appears only against prod. A source guard
+// is the only mechanism available, which is presumably why the rule has lived
+// as prose in CLAUDE.md, in the durable-jobs skill, and as inline warnings in
+// seven source files — none of which can fail.
+//
+// The codebase is currently clean (verified across 2,137 files). This exists so
+// it stays that way.
+//
+// The sanctioned rewrite is sequential conditional updates:
+//     await sb.from("jobs").update(p).eq("id", id).eq("status", "pending");
+//     await sb.from("jobs").update(p).eq("id", id)
+//       .eq("status", "running").lt("updated_at", stale);
+// `.or()` on a SELECT is fine and is not flagged.
+import { describe, expect, it } from "vitest";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join, relative, resolve, sep } from "node:path";
+
+const ROOT = process.cwd();
+const SCAN_DIRS = ["src", "functions", "services/edge-functions/src"];
+const MUTATIONS = ["update", "delete", "upsert"];
+
+function walk(dir: string, out: string[] = []): string[] {
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return out;
+  }
+  for (const entry of entries) {
+    if (entry === "node_modules" || entry === "dist" || entry.startsWith(".")) continue;
+    const full = join(dir, entry);
+    if (statSync(full).isDirectory()) walk(full, out);
+    else if (/\.(ts|tsx)$/.test(entry)) out.push(full);
+  }
+  return out;
+}
+
+interface Hit {
+  file: string;
+  line: number;
+  snippet: string;
+}
+
+function findHits(files: string[]): Hit[] {
+  const hits: Hit[] = [];
+  for (const file of files) {
+    const text = readFileSync(file, "utf8");
+    const rel = relative(ROOT, file).split(sep).join("/");
+    if (rel === "src/lib/__tests__/no-or-on-mutations.test.ts") continue;
+
+    for (const m of text.matchAll(
+      new RegExp(`\\.(${MUTATIONS.join("|")})\\s*\\(`, "g"),
+    )) {
+      // A supabase chain is one statement; stop at the terminating semicolon so
+      // an unrelated later `.or()` cannot produce a false positive.
+      const tail = text.slice(m.index!, m.index! + 800);
+      const end = tail.indexOf(";");
+      const chain = end === -1 ? tail : tail.slice(0, end);
+      if (!/\.or\s*\(/.test(chain)) continue;
+
+      hits.push({
+        file: rel,
+        line: text.slice(0, m.index!).split("\n").length,
+        snippet: chain.replace(/\s+/g, " ").slice(0, 130),
+      });
+    }
+  }
+  return hits;
+}
+
+describe("US-1552: no .or() on a supabase mutation", () => {
+  const files = SCAN_DIRS.flatMap((d) => walk(resolve(ROOT, d)));
+
+  it("scans a plausible number of files", () => {
+    // If the walk breaks, the guard below passes while checking nothing.
+    expect(files.length, "source scan found almost nothing — the walk broke").toBeGreaterThan(500);
+  });
+
+  it("finds mutation chains at all", () => {
+    // And if the mutation regex stops matching, likewise. Proves the detector
+    // is still looking at real code rather than silently matching zero things.
+    let mutations = 0;
+    for (const f of files) {
+      const t = readFileSync(f, "utf8");
+      mutations += [...t.matchAll(new RegExp(`\\.(${MUTATIONS.join("|")})\\s*\\(`, "g"))].length;
+    }
+    expect(mutations, "no .update()/.delete()/.upsert() calls found — detector broke").toBeGreaterThan(
+      100,
+    );
+  });
+
+  it("no mutation chain uses .or()", () => {
+    const hits = findHits(files);
+    expect(
+      hits,
+      "These apply .or() to a mutation. Prod PostgREST rejects this with a 42703 " +
+        "that names a column nobody wrote, and the local stack ACCEPTS it — so no " +
+        "test run can catch it. Rewrite as sequential conditional updates " +
+        "(US-1552, CLAUDE.md):\n  " +
+        hits.map((h) => `${h.file}:${h.line}  ${h.snippet}`).join("\n  "),
+    ).toEqual([]);
+  });
+});
