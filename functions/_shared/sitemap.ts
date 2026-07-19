@@ -141,6 +141,44 @@ async function fetchEdgeJson<T>(env: PagesEnv, path: string): Promise<T | null> 
 
 const today = () => new Date().toISOString().slice(0, 10);
 
+/**
+ * US-2100: the newest lastmod among a set of URLs (ISO YYYY-MM-DD sorts
+ * lexicographically, so a string compare is correct here).
+ */
+export function newestLastmod(urls: readonly SitemapUrl[]): string | undefined {
+  let newest: string | undefined;
+  for (const u of urls) {
+    const lm = u.lastmod;
+    if (!lm) continue;
+    if (!newest || lm > newest) newest = lm;
+  }
+  return newest;
+}
+
+/**
+ * US-2100: give a hub URL the lastmod of its NEWEST CHILD instead of today().
+ *
+ * ROUTE_LAST_MODIFIED enforces an explicit "NEVER the build timestamp" contract
+ * for static routes (US-429), precisely so an unchanged page keeps a steady
+ * lastmod and crawlers stop re-fetching it. The dynamic generators ignored that
+ * discipline and stamped today() on every hub, every day — so every sub-sitemap
+ * claimed it changed today, forever. That does not just waste crawl budget: a
+ * lastmod that is always "now" is a signal crawlers learn to discount, which
+ * devalues the honest dates on the 213 static routes too.
+ *
+ * Every generator here builds the hub at index 0 and appends children, so this
+ * rewrites in place. If there are NO children the hub keeps today(): an empty
+ * hub genuinely has no content date to inherit, and inventing an older one
+ * would be a different lie.
+ */
+export function withHubLastmod(urls: SitemapUrl[]): SitemapUrl[] {
+  const hub = urls[0];
+  if (!hub) return urls;
+  const newest = newestLastmod(urls.slice(1));
+  if (newest) hub.lastmod = newest;
+  return urls;
+}
+
 // US-1679: a route is "grading pSEO" if it lives under /grading/ (the scale,
 // methodology, disambiguation, glossary hub + terms, and the tier/factor spokes).
 // Splitting these into their own segment lets GSC report the pSEO indexation rate
@@ -221,15 +259,24 @@ export async function blogUrls(env: PagesEnv): Promise<SitemapUrl[]> {
         priority: 0.8,
       });
     }
+    // US-2100 AC3: tag URLs carried NO lastmod at all. The payload gives tags
+    // as a flat string[] with no post mapping, so a per-tag date is not
+    // derivable here — the newest published post is the honest upper bound: a
+    // tag page's content cannot have changed more recently than the most
+    // recent post on the blog. Deliberately not today(), which would be the
+    // same lie this story exists to remove.
+    const newestPost = newestLastmod(urls.slice(1));
     for (const t of data.tags) {
       urls.push({
         loc: `${base}/blog/tag/${encodeURIComponent(t)}`,
+        lastmod: newestPost,
         changefreq: "weekly",
         priority: 0.5,
       });
     }
   }
-  return urls;
+  // US-2100: hub inherits its newest child's date instead of today().
+  return withHubLastmod(urls);
 }
 
 // US-2096: the certificates endpoint is cursor-paginated (`next_cursor`, keyed
@@ -351,7 +398,8 @@ export async function sellerUrls(env: PagesEnv): Promise<SitemapUrl[]> {
       priority: 0.6,
     });
   }
-  return urls;
+  // US-2100: hub inherits its newest child's date instead of today().
+  return withHubLastmod(urls);
 }
 
 // US-874: public author (E-E-A-T) pages — the /authors hub + each profile.
@@ -372,7 +420,8 @@ export async function authorUrls(env: PagesEnv): Promise<SitemapUrl[]> {
       priority: 0.5,
     });
   }
-  return urls;
+  // US-2100: hub inherits its newest child's date instead of today().
+  return withHubLastmod(urls);
 }
 
 // US-621: public Condition Index hub + per-item pages.
@@ -393,7 +442,8 @@ export async function conditionIndexUrls(env: PagesEnv): Promise<SitemapUrl[]> {
       priority: 0.6,
     });
   }
-  return urls;
+  // US-2100: hub inherits its newest child's date instead of today().
+  return withHubLastmod(urls);
 }
 
 /**
@@ -420,7 +470,8 @@ export async function valueIndexUrls(env: PagesEnv): Promise<SitemapUrl[]> {
       priority: 0.6,
     });
   }
-  return urls;
+  // US-2100: hub inherits its newest child's date instead of today().
+  return withHubLastmod(urls);
 }
 
 // US-1774: public Durability Rankings hub + per-brand pages. The
@@ -443,7 +494,8 @@ export async function durabilityUrls(env: PagesEnv): Promise<SitemapUrl[]> {
       priority: 0.6,
     });
   }
-  return urls;
+  // US-2100: hub inherits its newest child's date instead of today().
+  return withHubLastmod(urls);
 }
 
 export function urlsetXml(urls: SitemapUrl[]): string {
@@ -465,14 +517,31 @@ export function urlsetXml(urls: SitemapUrl[]): string {
   );
 }
 
-export function sitemapIndexXml(env: PagesEnv, names: string[]): string {
+/** US-2100: an index entry, optionally carrying its sub-sitemap's real date. */
+export type SitemapIndexEntry = string | { name: string; lastmod?: string };
+
+/**
+ * US-2100 AC2: every index entry used to claim today(), so the index asserted
+ * that all ten sub-sitemaps changed every single day. Callers now pass the
+ * newest lastmod from the URLs they already built for each section.
+ *
+ * A section with no derivable date falls back to today() rather than being
+ * omitted: <lastmod> is optional in the spec, but dropping it for some entries
+ * and keeping it for others makes the index harder to read than a conservative
+ * date does.
+ */
+export function sitemapIndexXml(
+  env: PagesEnv,
+  names: SitemapIndexEntry[],
+): string {
   const base = siteUrl(env);
-  const lm = today();
+  const fallback = today();
   const body = names
-    .map(
-      (n) =>
-        `<sitemap><loc>${escape(`${base}/${n}`)}</loc><lastmod>${lm}</lastmod></sitemap>`,
-    )
+    .map((entry) => {
+      const n = typeof entry === "string" ? entry : entry.name;
+      const lm = (typeof entry === "string" ? undefined : entry.lastmod) ?? fallback;
+      return `<sitemap><loc>${escape(`${base}/${n}`)}</loc><lastmod>${lm}</lastmod></sitemap>`;
+    })
     .join("\n");
   return (
     `<?xml version="1.0" encoding="UTF-8"?>\n` +

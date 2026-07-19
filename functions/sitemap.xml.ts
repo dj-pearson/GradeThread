@@ -24,6 +24,7 @@ import {
   authorUrls,
   urlsetXml,
   sitemapIndexXml,
+  newestLastmod,
   SITEMAP_MAX_URLS,
   SITEMAP_HEADERS,
 } from "./_shared/sitemap";
@@ -81,17 +82,24 @@ export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
       ? sitemapIndexXml(env, [
           // US-1679: the static registry split into marketing vs grading pSEO so
           // per-segment indexation is observable in GSC.
-          "sitemap-marketing.xml",
-          "sitemap-grading.xml",
-          "sitemap-blog.xml",
-          "sitemap-certs.xml",
-          "sitemap-passports.xml",
-          "sitemap-sellers.xml",
-          "sitemap-condition.xml",
-          "sitemap-value.xml",
-          "sitemap-durability.xml",
-          "sitemap-authors.xml",
-          "sitemap-images.xml",
+          //
+          // US-2100: each entry carries the newest lastmod from the URLs that
+          // section actually contains, instead of every entry claiming today()
+          // every day. The static split is derived from `statics` because
+          // marketingUrls/gradingUrls partition exactly that set.
+          { name: "sitemap-marketing.xml", lastmod: newestLastmod(statics) },
+          { name: "sitemap-grading.xml", lastmod: newestLastmod(statics) },
+          { name: "sitemap-blog.xml", lastmod: newestLastmod(blog) },
+          { name: "sitemap-certs.xml", lastmod: newestLastmod(certs) },
+          { name: "sitemap-passports.xml", lastmod: newestLastmod(passports) },
+          { name: "sitemap-sellers.xml", lastmod: newestLastmod(sellers) },
+          { name: "sitemap-condition.xml", lastmod: newestLastmod(condition) },
+          { name: "sitemap-value.xml", lastmod: newestLastmod(value) },
+          { name: "sitemap-durability.xml", lastmod: newestLastmod(durability) },
+          { name: "sitemap-authors.xml", lastmod: newestLastmod(authors) },
+          // The image sitemap is generated from the blog payload, so its
+          // content date is the blog's.
+          { name: "sitemap-images.xml", lastmod: newestLastmod(blog) },
         ])
       : urlsetXml([
           ...statics,
