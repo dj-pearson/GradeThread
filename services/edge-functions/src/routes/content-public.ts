@@ -55,6 +55,32 @@ function publicError(c: Context, err: unknown, label: string): Response {
   return c.json({ error: "Internal error" }, 500);
 }
 
+/**
+ * Is this a syntactically valid UUID?
+ *
+ * certificate_id is a uuid COLUMN, so passing anything else straight into
+ * `.eq()` makes Postgres raise 22P02 ("invalid input syntax for type uuid"),
+ * which publicError() then reports as a 500 — plus a fresh Sentry issue per
+ * distinct junk value.
+ *
+ * That was live: scanners probing /cert/EXAMPLE, /cert/not-a-uuid-xyz,
+ * /cert/%3Cid%3E and friends produced five separate Sentry issues, and because
+ * the cert SSR Pages Function treats any non-404 upstream reply as
+ * UpstreamUnavailable (US-2044 — deliberately, so a transient blip is never
+ * reported to a crawler as "gone"), each of those 500s surfaced to the outside
+ * world as a 503 with Retry-After. A permanently invalid certificate URL was
+ * telling search engines to come back and try again.
+ *
+ * A malformed id cannot match any row, so the honest answer is 404 — which is
+ * exactly what these routes already document.
+ */
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isUuid(value: string | undefined): boolean {
+  return typeof value === "string" && UUID_RE.test(value);
+}
+
 // Anonymous read endpoints powering the public blog SSR worker. No
 // auth middleware: every query is constrained server-side to
 // status='published', so even if someone hits these directly they
@@ -642,6 +668,9 @@ const CERT_IMAGE_TTL = 15 * 60;
 // map to a certified (public) report — never leaks a private report.
 contentPublicRoutes.get("/certificates/:id", async (c) => {
   const certId = c.req.param("id");
+  // A non-UUID can never match a row; answer 404 rather than letting Postgres
+  // raise 22P02 and turning a bad URL into a 500 (and a 503 at the SSR layer).
+  if (!isUuid(certId)) return c.json({ error: "Not found" }, 404);
 
   const { data: report, error } = await loadPublicCertReport(certId);
   if (error) return publicError(c, error, "query");
@@ -765,6 +794,7 @@ contentPublicRoutes.on("HEAD", "/cert-image/:id", () =>
 
 contentPublicRoutes.get("/cert-image/:id", async (c) => {
   const certId = c.req.param("id");
+  if (!isUuid(certId)) return c.json({ error: "Not found" }, 404);
   const kindRaw = (c.req.query("kind") ?? "slab").toLowerCase();
   const kind = kindRaw === "og" || kindRaw === "badge" ? kindRaw : "slab";
   const format = (
@@ -1022,6 +1052,7 @@ contentPublicRoutes.get("/certificates/by-number/:number", async (c) => {
 // the verification verdict, algorithm, and the (non-secret) recomputed hash.
 contentPublicRoutes.get("/certificates/:id/verify", async (c) => {
   const certId = c.req.param("id");
+  if (!isUuid(certId)) return c.json({ error: "Not found" }, 404);
 
   // Same RLS-safe access as the cert endpoint: BY certificate_id, and only
   // certified (public) reports. A private report must stay unreachable (US-268).
