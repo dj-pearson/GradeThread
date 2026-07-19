@@ -118,6 +118,26 @@ export function rewriteRefs(text, oldPath, newPath) {
   return { text: out, count };
 }
 
+// A move usually RENAMES the note (docs/bizdev/poshmark-rithum-decision.md ->
+// adr-poshmark-via-extension.md), and any existing [[old-name]] wikilink then
+// points at nothing. Path rewriting does not catch these: a wikilink carries the
+// note NAME, not the path, so none of the patterns above match it.
+//
+// This bit US-2056 — a sibling ADR linked [[poshmark-rithum-decision]] and only
+// vault-lint's dangling-link rule caught it after the fact. Cheap to do here,
+// and it keeps the guard for genuine mistakes rather than for the tool's own.
+export function rewriteWikilinks(text, oldName, newName) {
+  if (oldName === newName) return { text, count: 0 };
+  let count = 0;
+  const esc = oldName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // Preserve any |alias or #heading the link carries.
+  const out = text.replace(new RegExp(`\\[\\[${esc}([|#][^\\]]*)?\\]\\]`, "g"), (_m, suffix) => {
+    count++;
+    return `[[${newName}${suffix ?? ""}]]`;
+  });
+  return { text: out, count };
+}
+
 // Mentions we did NOT rewrite, so a human can judge them.
 export function findResidualMentions(text, oldPath, newPath) {
   const esc = oldPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -234,7 +254,8 @@ export function planMove(root, source, dest, opts, { read = readFileSync, glob =
       if (left.length) residual.push({ path: rel, lines: left, testFile: true });
       continue;
     }
-    if (!oldPaths.some((p) => text.includes(p))) continue;
+    const names = oldPaths.map((p) => basename(p, ".md"));
+    if (!oldPaths.some((p) => text.includes(p)) && !names.some((n) => text.includes(`[[${n}`))) continue;
     let count = 0;
     const left = [];
     for (const old of oldPaths) {
@@ -243,6 +264,12 @@ export function planMove(root, source, dest, opts, { read = readFileSync, glob =
       text = r.text;
       count += r.count;
       left.push(...findResidualMentions(text, old, dest));
+    }
+    // …and repoint wikilinks that used the note's previous name.
+    for (const old of oldPaths) {
+      const w = rewriteWikilinks(text, basename(old, ".md"), noteName);
+      text = w.text;
+      count += w.count;
     }
     if (count > 0) rewrites.push({ path: rel, count, text });
     if (left.length) residual.push({ path: rel, lines: left });

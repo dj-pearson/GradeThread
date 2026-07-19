@@ -197,6 +197,20 @@ export function lintVault(notes, { today, exists = existsSync, indexLines = 0 } 
     );
   }
 
+  // Expired decisions (US-2056). A decision with a `revisit_by` date that has
+  // passed is one nobody revisited — it expired silently, which is how a
+  // deliberate "we'll look again in six months" becomes a permanent default
+  // nobody re-argued. Surfaced as a warning: the date passing is a prompt to
+  // look, not proof the decision is now wrong.
+  for (const [, n] of notes) {
+    const by = n.fm?.revisit_by;
+    if (!by || !/^\d{4}-\d{2}-\d{2}$/.test(String(by))) continue;
+    if (n.fm?.status === "superseded" || n.fm?.status === "archived") continue;
+    if (String(by) < today) {
+      warnings.push(`${n.path}: REVISIT DUE — revisit_by ${by} has passed and status is still '${n.fm.status}'. Re-argue it or move the date.`);
+    }
+  }
+
   // Not errors: a stub is transitional, an archived note is meant to be stale.
   for (const [, n] of notes) {
     if (n.fm?.status === "archived" && n.fm?.source_of_truth === "code") {

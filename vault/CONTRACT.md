@@ -56,6 +56,7 @@ summary: One sentence. Feeds the generated index.
 | `reviewed` | yes | ISO date. Never in the future. |
 | `tags` | no | Defaults to empty. |
 | `summary` | no | Falls back to the note's first sentence in the generated index. |
+| `revisit_by` | no | `type: decision` only. ISO date after which vault-lint warns the decision is due a re-argument. |
 
 ### `type`
 
@@ -98,6 +99,10 @@ as the `verify:vault` lane (US-2044).
    than `reviewed`, flag it. Warning by default; **error** for `type: contract`
    under `--strict`, which is what CI runs.
 7. Redirect stubs (US-2047) are ≤ 5 lines and point at a note that exists.
+8. `revisit_by` (US-2056): a `type: decision` note whose revisit date has passed,
+   and whose status is still `accepted`, warns that it is due a re-argument. A
+   decision nobody revisits expired silently — which is how a deliberate "look
+   again in six months" becomes a permanent default nobody re-argued.
 
 Run it with `npm run vault:lint`. `npm run vault:fix` applies the mechanical
 repairs — key ordering and stamping a *missing* `reviewed` date, nothing else.

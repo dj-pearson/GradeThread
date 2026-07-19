@@ -11,6 +11,7 @@ import {
   parseStubRegistry,
   renderStubRegistry,
   rewriteRefs,
+  rewriteWikilinks,
   STUB_MAX_LINES,
   upsertStubRow,
 } from "./vault-move.mjs";
@@ -134,5 +135,28 @@ describe("stub registry", () => {
     const next = upsertStubRow(rows, { oldPath: "DEPLOY.md", note: "deploy-v2", created: "2026-07-20" });
     expect(next.filter((r) => r.oldPath === "DEPLOY.md")).toHaveLength(1);
     expect(next.find((r) => r.oldPath === "DEPLOY.md").note).toBe("deploy-v2");
+  });
+});
+
+describe("rewriteWikilinks", () => {
+  it("repoints a link that used the note's old name", () => {
+    const r = rewriteWikilinks("see [[old-name]] here", "old-name", "new-name");
+    expect(r.text).toBe("see [[new-name]] here");
+    expect(r.count).toBe(1);
+  });
+  it("preserves an alias", () => {
+    expect(rewriteWikilinks("[[old-name|The Thing]]", "old-name", "new").text).toBe("[[new|The Thing]]");
+  });
+  it("preserves a heading anchor", () => {
+    expect(rewriteWikilinks("[[old-name#Section]]", "old-name", "new").text).toBe("[[new#Section]]");
+  });
+  it("is a no-op when the name is unchanged", () => {
+    expect(rewriteWikilinks("[[same]]", "same", "same").count).toBe(0);
+  });
+  it("does not match a longer name that merely starts the same", () => {
+    expect(rewriteWikilinks("[[old-name-extended]]", "old-name", "new").count).toBe(0);
+  });
+  it("leaves unrelated links alone", () => {
+    expect(rewriteWikilinks("[[other]]", "old-name", "new").text).toBe("[[other]]");
   });
 });

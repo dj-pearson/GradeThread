@@ -79,6 +79,11 @@ New here? Read [[CONTRACT]] before adding a note.
 ## 60-decisions — ADRs
 
 - [[adr-0001-knowledge-vault]] — decision — Consolidate 203 scattered markdown files into one navigable wiki; retrieve by link traversal rather than embeddings.
+- [[adr-comps-pseo]] — decision — Whether to build programmatic comp pages, and why the answer turned on indexation risk.
+- [[adr-depop-partner-application]] — decision — The Depop API partnership application, what it requires and what it unlocks.
+- [[adr-graphify-pilot]] — decision — The Graphify pilot, its scope and the criteria for continuing or stopping.
+- [[adr-poshmark-via-extension]] — decision — Why Poshmark/Mercari/Grailed are reached through the browser extension rather than an aggregator contract.
+- [[adr-referral-cash-payout]] — decision — Whether referral rewards pay cash, and the compliance and abuse constraints that shaped the answer.
 
 ## 70-agent — how agents work here
 

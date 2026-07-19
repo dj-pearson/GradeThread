@@ -284,3 +284,31 @@ describe("fixNote", () => {
     expect(fixNote("just text", { today: TODAY }).changed).toBe(false);
   });
 });
+
+describe("revisit_by (US-2056)", () => {
+  const opts = { today: TODAY, exists: yes };
+  const withRevisit = (over) =>
+    vault({ INDEX: [["d"]], d: [[], { type: "decision", status: "accepted", ...over }] });
+
+  it("warns when the revisit date has passed", () => {
+    const r = lintVault(withRevisit({ revisit_by: "2026-01-01" }), opts);
+    expect(r.ok).toBe(true);
+    expect(r.warnings.some((w) => w.includes("REVISIT DUE"))).toBe(true);
+  });
+  it("stays silent before the date", () => {
+    const r = lintVault(withRevisit({ revisit_by: "2099-01-01" }), opts);
+    expect(r.warnings.some((w) => w.includes("REVISIT DUE"))).toBe(false);
+  });
+  it("stays silent on the date itself", () => {
+    const r = lintVault(withRevisit({ revisit_by: TODAY }), opts);
+    expect(r.warnings.some((w) => w.includes("REVISIT DUE"))).toBe(false);
+  });
+  it("does not nag about a decision already superseded", () => {
+    const r = lintVault(withRevisit({ revisit_by: "2026-01-01", status: "superseded" }), opts);
+    expect(r.warnings.some((w) => w.includes("REVISIT DUE"))).toBe(false);
+  });
+  it("ignores a malformed date rather than guessing", () => {
+    const r = lintVault(withRevisit({ revisit_by: "soon" }), opts);
+    expect(r.warnings.some((w) => w.includes("REVISIT DUE"))).toBe(false);
+  });
+});

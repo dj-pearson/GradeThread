@@ -43,6 +43,10 @@ nothing references, and reports the ones that must stay.
 | `docs/AI_CRAWLER_POLICY.md` | [[ai-crawler-policy]] | 2026-07-19 |
 | `docs/AI_PROFITABILITY_REPORT.md` | [[ai-profitability]] | 2026-07-19 |
 | `docs/BILLING_REFUNDS.md` | [[billing-refunds]] | 2026-07-19 |
+| `docs/bizdev/depop-partner-application.md` | [[adr-depop-partner-application]] | 2026-07-19 |
+| `docs/bizdev/poshmark-rithum-decision.md` | [[adr-poshmark-via-extension]] | 2026-07-19 |
+| `docs/bizdev/referral-cash-payout-decision.md` | [[adr-referral-cash-payout]] | 2026-07-19 |
+| `docs/COMPS_PSEO_DECISION.md` | [[adr-comps-pseo]] | 2026-07-19 |
 | `docs/CONTENT_PUBLISHING.md` | [[content-publishing]] | 2026-07-19 |
 | `docs/CONTENT_SCHEDULER.md` | [[content-scheduler]] | 2026-07-19 |
 | `docs/COPY_STYLE_GUIDE.md` | [[copy-style-guide]] | 2026-07-19 |
@@ -51,6 +55,7 @@ nothing references, and reports the ones that must stay.
 | `docs/EBAY_TRADING_API_WATCH.md` | [[ebay-trading-api-watch]] | 2026-07-19 |
 | `docs/GOOGLE_ADS_SETUP.md` | [[google-ads-setup]] | 2026-07-19 |
 | `docs/gradethread-seo-geo-plan.md` | [[seo-geo-strategy]] | 2026-07-19 |
+| `docs/GRAPHIFY_PILOT.md` | [[adr-graphify-pilot]] | 2026-07-19 |
 | `docs/IMAGE_OPTIMIZATION.md` | [[seo-performance-images]] | 2026-07-19 |
 | `docs/INCIDENT_RESPONSE.md` | [[incident-response]] | 2026-07-19 |
 | `docs/KEY_ROTATION.md` | [[key-rotation]] | 2026-07-19 |
