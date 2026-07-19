@@ -7,7 +7,7 @@ import { router } from "@/routes";
 import { queryClient } from "@/lib/query-client";
 import { initAnalyticsFromStoredConsent } from "@/lib/analytics";
 import { initSentry } from "@/lib/sentry";
-import { captureClickIds } from "@/lib/ad-attribution";
+import { captureUtms, captureClickIds } from "@/lib/ad-attribution";
 import { initAdAttributionSync } from "@/lib/ad-attribution-sync";
 import "@/index.css";
 
@@ -41,6 +41,11 @@ initAnalyticsFromStoredConsent();
 // in. Click ids aren't PII and this runs independent of the analytics consent
 // gate (first-party attribution, no third-party advertising signals set here).
 captureClickIds();
+// US-2101: UTM channel capture. Unlike click ids above, this IS consent-gated
+// (captureUtms checks analytics consent internally and fails closed) — utm tags
+// describe a marketing channel rather than being an opaque first-party click
+// identifier, so it belongs behind the same gate as analytics.
+captureUtms();
 initAdAttributionSync();
 
 createRoot(document.getElementById("root")!).render(
