@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2114",
+  "nextId": "US-2129",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2109,9 +2109,9 @@
         "Treat a model change as an auditable event: today it leaves no trace at all."
       ],
       "priority": 1996,
-      "notes": "[P2][Grading/Governance] Found 2026-07-18 by the grading-engine deep dive (structurally confirmed; the operational scenario is inferred). Worth recording what IS well built, because the contrast is the finding: prompt activation and canary both require step-up, both audit-log, both invalidate the prompt cache, and NO route mutates prompt_text after creation — so the 'pass eval, then edit the text, then activate' attack does not exist. The prompt half of this lifecycle is genuinely solid. The model half has no gate whatsoever.",
+      "notes": "[P2][Grading/Governance] Found 2026-07-18 by the grading-engine deep dive (structurally confirmed; the operational scenario is inferred). Worth recording what IS well built, because the contrast is the finding: prompt activation and canary both require step-up, both audit-log, both invalidate the prompt cache, and NO route mutates prompt_text after creation — so the 'pass eval, then edit the text, then activate' attack does not exist. The prompt half of this lifecycle is genuinely solid. The model half has no gate whatsoever. — RESOLVED 2026-07-19. Migration 00480 adds ai_prompt_versions.qualified_model; runEval stamps it alongside eval_passed (and CLEARS it on a failing run, so a stale pass from an earlier model cannot linger); activatePromptVersion compares it against getGradingCompositeModel() and refuses on mismatch. Fails CLOSED on a missing stamp: a pass we cannot attribute to a model is not a pass we can honour. The activation check alone is NOT sufficient — the model is env config and can change UNDER an already-active version — so grading-monitor gained a CRITICAL model_not_qualified alert covering the runtime half, unit-tested for match/mismatch/missing-stamp/nothing-active. EXPECT ON FIRST DEPLOY: every existing version has qualified_model NULL, so activation is blocked and the monitor fires critical until an eval is re-run against the live model. That is correct, not an incident — re-run the eval on the active composite version right after applying the migration. See PENDING_MIGRATIONS.md.",
       "id": "US-2036",
-      "passes": false,
+      "passes": true,
       "dependsOn": []
     },
     {
@@ -2124,9 +2124,9 @@
         "Consider making expected_score immutable once a case has appeared in a passing run: editing it retroactively invalidates historical comparisons."
       ],
       "priority": 1997,
-      "notes": "[P2][Grading/Governance] Found 2026-07-18 by the grading-engine deep dive. Mitigations that DO exist: both routes write auditLog, and grading_eval_runs snapshots per_case results, so a historical run's contents remain forensically recoverable. The exposure is that an operator can nudge a stubborn prompt version past the gate by deleting or re-scoring the cases it fails and then activating it against live customer traffic — and cross-run accuracy comparisons silently stop being comparable, because the denominator moved underneath them.",
+      "notes": "[P2][Grading/Governance] Found 2026-07-18 by the grading-engine deep dive. Mitigations that DO exist: both routes write auditLog, and grading_eval_runs snapshots per_case results, so a historical run's contents remain forensically recoverable. The exposure is that an operator can nudge a stubborn prompt version past the gate by deleting or re-scoring the cases it fails and then activating it against live customer traffic — and cross-run accuracy comparisons silently stop being comparable, because the denominator moved underneath them. — RESOLVED 2026-07-19. Migration 00480 adds grading_eval_cases.deleted_at; DELETE /eval/cases/:id is now a soft delete (is_active=false + tombstone) and every read path filters deleted_at IS NULL — runEval, evalExemplarSet, grading-monitor, review-queue-order, admin list. ONE read path deliberately does NOT filter it: the US-2034 contamination exclusion in few-shot-exemplars.ts, because a soft-deleted case can be restored and over-excluding is the safe direction there. Both PATCH and DELETE now requireStepUp, matching prompts/activate, prompts/canary and review/adjust. expected_score/expected_tier are IMMUTABLE (409) once the case has appeared in a passing eval run, and that check fails CLOSED if the lookup errors. The shrink signal is now a mechanism rather than a human watching a table: a CRITICAL golden_set_shrank alert compares the active count against its HIGH-WATER MARK over the last 10 runs — deliberately not the previous run, because this cycle's own eval has already written a row with the current count, so a last-run comparison would compare the set against itself and never fire. Admin candidates panel handles the new STEP_UP_REQUIRED 403 and replays the action after verification.",
       "id": "US-2037",
-      "passes": false,
+      "passes": true,
       "dependsOn": []
     },
     {
@@ -3448,6 +3448,221 @@
         "Emit real CollectionPage/ItemList on the /compare hub (overlaps US-2072)."
       ],
       "notes": "[P2][SEO/Content] Found 2026-07-18 by the SEO/marketing deep-dive audit. GATED: the domain is new and pSEO volume is already an indexability risk (vault/40-growth/seo-indexability.md) — do not start until the GSC Page-indexing diagnosis (US-2095) is read. Sequenced deliberately AFTER the diagnosis: it is the strongest keyword opportunity in the corpus, but adding pages to a new domain with an unresolved indexing problem may simply dilute further. If the diagnosis says the domain is crawl-constrained, consolidate before expanding."
+    },
+    {
+      "id": "US-2114",
+      "priority": 1990,
+      "passes": false,
+      "title": "Counsel review gate + jurisdiction matrix for subscription disclosure and cancellation",
+      "description": "This batch of stories encodes engineering work against auto-renewal law, but the copy, the consent wording and the retention period are legal determinations, not engineering ones. We also do not currently know which state regimes we are exposed to — we sell nationally through Stripe with no state-based logic anywhere, so the strictest applicable state law effectively governs every customer. Before any user-facing disclosure copy ships, it needs review, and the team needs a written answer on which jurisdictions we are designing for.",
+      "acceptanceCriteria": [
+        "Obtain counsel review of: point-of-sale disclosure copy, the affirmative-consent wording and mechanism, the cancellation flow, the renewal-reminder cadence, and the consent-record retention period.",
+        "Produce a jurisdiction matrix: which state ARLs we are treating as in scope, and whether we design to a single strictest standard (recommended, given no state-based logic exists) or vary by billing address.",
+        "Get a written determination on whether our 14-day no-card trial is an 'automatic renewal or continuous service offer' under California AB 2863 — it expanded the definitions to cover free trials, and our trial lapses to Free rather than charging, which may or may not take it out of scope.",
+        "Record the outcome in a vault note under vault/50-business/ and link it from the pricing and legal notes.",
+        "Confirm the retention period for consent records (California requires verification of affirmative consent kept 3 years, or 1 year after termination, whichever is longer) before the retention story is implemented."
+      ],
+      "notes": "[P0][Compliance/Legal] Found 2026-07-18 by the subscription-compliance deep-dive audit. LEGAL CONTEXT (verified 2026-07-18, not legal advice): the FTC's 2024 'Click-to-Cancel' Negative Option Rule was VACATED by the Eighth Circuit on 2025-07-08 and is not in force. The FTC restarted rulemaking with an ANPRM on 2026-03-11 (comments closed 2026-04-13), so a successor rule is in flux. The binding obligations today are (a) ROSCA 15 U.S.C. 8403 and FTC Act Section 5, both actively enforced, and (b) STATE automatic-renewal laws — most importantly California's ARL as amended by AB 2863, effective 2025-07-01, which is stricter than what we do today and expressly covers free trials. Design to the California standard: it is the binding one, and it closely tracks the vacated federal rule, so building to it also front-runs the successor. Every story in this batch needs counsel sign-off before copy ships (see the review-gate story). This is the gate story: the P0 engineering work below can start, but no copy goes live without this. Do not let an agent invent legal language."
+    },
+    {
+      "id": "US-2115",
+      "priority": 1990,
+      "passes": false,
+      "title": "No auto-renewal disclosure exists on ANY web purchase surface",
+      "description": "Audit finding, verified by exhaustive search of src/: the strings 'auto-renew', 'automatically renews', 'recurring', and 'until you cancel' appear ZERO times in any user-facing purchase surface. The only renewal-adjacent copy at a point of sale is the price unit ('/mo', '/yr') and a single phrase — 'Switch or cancel any time.' — in src/components/billing/flipdesk-plan-picker-dialog.tsx:111. Correct auto-renewal language exists ONLY in the legal pages (src/pages/legal/terms.tsx:69-71 'renew automatically until cancelled'; refund.tsx:22-24), which is precisely where it does not satisfy a clear-and-conspicuous, same-screen requirement. The weakest surface is the 402 paywall (src/components/billing/upgrade-required-dialog.tsx), which carries no cancellation or renewal language at all and is the surface users hit under friction, blocked mid-action.",
+      "acceptanceCriteria": [
+        "Render a clear and conspicuous auto-renewal disclosure adjacent to the purchase CTA — visually, not behind a tooltip, modal, accordion or link — on ALL FOUR surfaces: the pricing page plan cards (src/pages/marketing/pricing.tsx), the plan picker (flipdesk-plan-picker-dialog.tsx), the 402 paywall (upgrade-required-dialog.tsx), and buyer billing (src/pages/buyer/billing.tsx:147-220).",
+        "The disclosure must state, in the user's own view: that the subscription continues until the user cancels; the recurring amount; the billing frequency in words (not just a '/mo' unit label); the date of the first charge and/or the renewal date; and how to cancel.",
+        "Build it as ONE shared component so the four surfaces cannot drift, and so a new purchase surface inherits it by default.",
+        "Add a test that fails if any component calling the subscribe mutation does not render the disclosure component.",
+        "Copy must come from the counsel review gate, not be drafted by an agent."
+      ],
+      "notes": "[P0][Compliance/Web] Found 2026-07-18 by the subscription-compliance deep-dive audit. LEGAL CONTEXT (verified 2026-07-18, not legal advice): the FTC's 2024 'Click-to-Cancel' Negative Option Rule was VACATED by the Eighth Circuit on 2025-07-08 and is not in force. The FTC restarted rulemaking with an ANPRM on 2026-03-11 (comments closed 2026-04-13), so a successor rule is in flux. The binding obligations today are (a) ROSCA 15 U.S.C. 8403 and FTC Act Section 5, both actively enforced, and (b) STATE automatic-renewal laws — most importantly California's ARL as amended by AB 2863, effective 2025-07-01, which is stricter than what we do today and expressly covers free trials. Design to the California standard: it is the binding one, and it closely tracks the vacated federal rule, so building to it also front-runs the successor. Every story in this batch needs counsel sign-off before copy ships (see the review-gate story). This is the single largest exposure in the audit and maps directly to the same-screen requirement. Note the credit-pack dialog is correctly free of recurrence language (one-time purchase) and should stay that way."
+    },
+    {
+      "id": "US-2116",
+      "priority": 1990,
+      "passes": false,
+      "title": "No affirmative consent to recurring billing is captured or retained at purchase",
+      "description": "There is no checkbox, no separate consent step, and no consent artifact of any kind for the recurring charge — verified across payments.ts, billing.tsx and pricing.tsx (zero hits). Stripe's consent_collection parameter is not used on the Checkout Session (services/edge-functions/src/routes/payments.ts:395-422, 542-554), and no custom_text is set. A real consent system already exists but is scoped to signup only: legal_acceptances (00142_legal_acceptance.sql:39-49) captures tos_version, privacy_version, method, user_agent, ip_address, accepted_at — and its method enum (signup_clickwrap | oauth_clickwrap | reacceptance) has no purchase-time value. It is never written at subscribe time. Separately, the highest-volume path is the weakest evidence: the signup trigger insert (:121-126) omits ip_address and user_agent entirely.",
+      "acceptanceCriteria": [
+        "Capture express affirmative consent to the recurring charge at purchase, separate from and in addition to general ToS acceptance.",
+        "Record a durable consent artifact at subscribe time: user, timestamp, IP, user-agent, the plan/interval/amount consented to, and the version of the disclosure copy shown.",
+        "Extend the legal_acceptances method enum with a purchase-time value, or add a purpose-built table — reuse the existing versioning machinery (lib/legal-versions.ts) rather than inventing a second system.",
+        "Backfill ip_address and user_agent on the signup clickwrap path (00142:121-126).",
+        "Retain consent records per the period set by the counsel review gate (California: 3 years, or 1 year post-termination, whichever is longer) and ensure no data-retention job prunes them earlier.",
+        "Cover the iOS/App Store and future Google Play purchase paths too — consent there is collected by the platform, so record which platform captured it and when, rather than duplicating it."
+      ],
+      "notes": "[P0][Compliance/Web] Found 2026-07-18 by the subscription-compliance deep-dive audit. LEGAL CONTEXT (verified 2026-07-18, not legal advice): the FTC's 2024 'Click-to-Cancel' Negative Option Rule was VACATED by the Eighth Circuit on 2025-07-08 and is not in force. The FTC restarted rulemaking with an ANPRM on 2026-03-11 (comments closed 2026-04-13), so a successor rule is in flux. The binding obligations today are (a) ROSCA 15 U.S.C. 8403 and FTC Act Section 5, both actively enforced, and (b) STATE automatic-renewal laws — most importantly California's ARL as amended by AB 2863, effective 2025-07-01, which is stricter than what we do today and expressly covers free trials. Design to the California standard: it is the binding one, and it closely tracks the vacated federal rule, so building to it also front-runs the successor. Every story in this batch needs counsel sign-off before copy ships (see the review-gate story). Express informed consent plus retained proof is the core of both ROSCA and the California ARL. Today we could not demonstrate what any subscriber agreed to. Depends on the terms-snapshot story for the 'what was shown' half."
+    },
+    {
+      "id": "US-2117",
+      "priority": 1990,
+      "passes": false,
+      "title": "No record of what price or terms any user actually agreed to — pricing_plans is mutated in place",
+      "description": "The users table stores flipdesk_plan and flipdesk_interval but NO amount column; price is resolved live on every read via getFlipdeskPriceIds() against pricing_plans. pricing_plans (00166:69-80) is mutated in place with only an updated_at trigger — no history table, no versioning. flipdesk_subscription_events records from_plan/to_plan and the raw payload but, per the note already in 00215_revenue_dashboard.sql:20, not even the billing interval. Combined, there is no way to reconstruct what price any user was shown or agreed to on any past date. If a price changes, the historical record changes with it.",
+      "acceptanceCriteria": [
+        "Snapshot the agreed terms onto the subscription record at purchase: amount, currency, interval, plan, trial terms, and the disclosure-copy version — immutable once written.",
+        "Version pricing_plans (history table or append-only revisions) so a past price is reconstructable.",
+        "Record the billing interval on flipdesk_subscription_events.",
+        "Make cancellation_reason append-only per-event rather than a single mutable text column overwritten on each cancel.",
+        "Follow the migrations skill: idempotent SQL, EXPECTED_SCHEMA_VERSION bump in the same commit, self-record footer."
+      ],
+      "notes": "[P0][Compliance/Data] Found 2026-07-18 by the subscription-compliance deep-dive audit. LEGAL CONTEXT (verified 2026-07-18, not legal advice): the FTC's 2024 'Click-to-Cancel' Negative Option Rule was VACATED by the Eighth Circuit on 2025-07-08 and is not in force. The FTC restarted rulemaking with an ANPRM on 2026-03-11 (comments closed 2026-04-13), so a successor rule is in flux. The binding obligations today are (a) ROSCA 15 U.S.C. 8403 and FTC Act Section 5, both actively enforced, and (b) STATE automatic-renewal laws — most importantly California's ARL as amended by AB 2863, effective 2025-07-01, which is stricter than what we do today and expressly covers free trials. Design to the California standard: it is the binding one, and it closely tracks the vacated federal rule, so building to it also front-runs the successor. Every story in this batch needs counsel sign-off before copy ships (see the review-gate story). This is the evidentiary half of the consent story — consent to WHAT is unanswerable without it. Also unblocks honest revenue reporting."
+    },
+    {
+      "id": "US-2118",
+      "priority": 1991,
+      "passes": false,
+      "title": "In-place plan upgrade charges a prorated amount on a single click with no confirmation",
+      "description": "services/edge-functions/src/routes/payments.ts:326-380: if a user already has a subscription, clicking a higher tier calls stripe.subscriptions.update with proration_behavior: 'create_prorations' — charging immediately with NO Stripe Checkout page, no price confirmation, no interstitial and no disclosure. The click IS the purchase. Every other purchase path at least passes through Stripe's hosted checkout, which renders the recurring price; this one renders nothing.",
+      "acceptanceCriteria": [
+        "Show an explicit confirmation step before an in-place upgrade that states the prorated amount charged today, the new recurring amount, the new billing frequency, and the next renewal date.",
+        "Capture the same affirmative consent artifact as a new subscription.",
+        "Apply the same treatment to downgrades and interval switches if they charge or change terms.",
+        "Test asserting the upgrade mutation cannot fire without the confirmation step."
+      ],
+      "notes": "[P1][Compliance/Web] Found 2026-07-18 by the subscription-compliance deep-dive audit. LEGAL CONTEXT (verified 2026-07-18, not legal advice): the FTC's 2024 'Click-to-Cancel' Negative Option Rule was VACATED by the Eighth Circuit on 2025-07-08 and is not in force. The FTC restarted rulemaking with an ANPRM on 2026-03-11 (comments closed 2026-04-13), so a successor rule is in flux. The binding obligations today are (a) ROSCA 15 U.S.C. 8403 and FTC Act Section 5, both actively enforced, and (b) STATE automatic-renewal laws — most importantly California's ARL as amended by AB 2863, effective 2025-07-01, which is stricter than what we do today and expressly covers free trials. Design to the California standard: it is the binding one, and it closely tracks the vacated federal rule, so building to it also front-runs the successor. Every story in this batch needs counsel sign-off before copy ships (see the review-gate story). A charge with no disclosure and no confirmation is the clearest Section 5 / ROSCA exposure in the codebase after the missing disclosures themselves."
+    },
+    {
+      "id": "US-2119",
+      "priority": 1991,
+      "passes": false,
+      "title": "No advance renewal reminder exists anywhere — annual plans are charged silently",
+      "description": "Confirmed absence, verified three ways: invoice.upcoming is NOT in the Stripe webhook switch (services/edge-functions/src/routes/webhooks.ts:244-281, falls through to a default log-and-drop at :281); no cron in jobs-cron-fleet.ts sends one; and the only upcoming_invoice reference is a read-only pull for the billing page (payments.ts:1142). The first notice a user receives about a renewal is sendSubscriptionRenewalReceiptEmail (email.ts:1183), sent AFTER the money is taken. Yearly price IDs exist for all five paid tiers (src/lib/constants.ts:1344-1366) and flow through the identical path — interval only changes a display string — so an annual subscriber is charged a full year's fee with no prior contact whatsoever.",
+      "acceptanceCriteria": [
+        "Handle invoice.upcoming and send a transactional advance renewal notice stating the amount, the date of the charge, the plan, and how to cancel before it.",
+        "Configure the Stripe lead time explicitly rather than relying on the default, and set a longer lead for annual plans than monthly.",
+        "Send via deliverEmail as a TRANSACTIONAL category — it must not be routed through the drip/marketing engine where opt-out, suppression or frequency caps can silently drop it.",
+        "Also handle customer.subscription.trial_will_end.",
+        "Test that an annual subscription produces a reminder before renewal and that a marketing opt-out does not suppress it."
+      ],
+      "notes": "[P1][Compliance/Comms] Found 2026-07-18 by the subscription-compliance deep-dive audit. LEGAL CONTEXT (verified 2026-07-18, not legal advice): the FTC's 2024 'Click-to-Cancel' Negative Option Rule was VACATED by the Eighth Circuit on 2025-07-08 and is not in force. The FTC restarted rulemaking with an ANPRM on 2026-03-11 (comments closed 2026-04-13), so a successor rule is in flux. The binding obligations today are (a) ROSCA 15 U.S.C. 8403 and FTC Act Section 5, both actively enforced, and (b) STATE automatic-renewal laws — most importantly California's ARL as amended by AB 2863, effective 2025-07-01, which is stricter than what we do today and expressly covers free trials. Design to the California standard: it is the binding one, and it closely tracks the vacated federal rule, so building to it also front-runs the successor. Every story in this batch needs counsel sign-off before copy ships (see the review-gate story). Advance notice before a long-term renewal is a common state-ARL requirement and we have annual plans in production. Cheapest structural fix in the batch: one webhook case reusing existing email infrastructure."
+    },
+    {
+      "id": "US-2120",
+      "priority": 1991,
+      "passes": false,
+      "title": "Trial-ending notice is a suppressible marketing drip, not a transactional notice",
+      "description": "sendTrialExpiringEmail (email.ts:1391) is well-written, states the end date, and is DEAD CODE — its only reference outside its own definition is a test (src/tests/email-category_test.ts:25). It was deliberately decommissioned (routes/notifications.ts:830) in favour of the US-943 drip engine. What replaced it is unambiguously marketing: it ships via sendDripStepEmail (email.ts:2570) with a one-click marketing unsubscribe footer, and routes/drip.ts:526-574 skips the send entirely when optedOut || suppressed || frequencyCapped. So a user who unsubscribes from marketing receives NO trial-ending notice at all. The seed copy (00255_drip_campaign_definitions.sql:134-135) states neither a charge amount nor a charge date, carries an {{incentive}} coupon block, and is operator-editable at runtime with no guaranteed terms.",
+      "acceptanceCriteria": [
+        "Restore a transactional trial-ending notice that cannot be suppressed by marketing opt-out, suppression lists or frequency caps — sendTrialExpiringEmail already exists and needs a caller.",
+        "It must state what happens at trial end: whether a charge occurs, the amount and date if so, and how to cancel or avoid it.",
+        "Keep the marketing drip for conversion messaging, but the required notice must not depend on it.",
+        "Test that a marketing-opted-out trialist still receives the transactional notice."
+      ],
+      "notes": "[P1][Compliance/Comms] Found 2026-07-18 by the subscription-compliance deep-dive audit. LEGAL CONTEXT (verified 2026-07-18, not legal advice): the FTC's 2024 'Click-to-Cancel' Negative Option Rule was VACATED by the Eighth Circuit on 2025-07-08 and is not in force. The FTC restarted rulemaking with an ANPRM on 2026-03-11 (comments closed 2026-04-13), so a successor rule is in flux. The binding obligations today are (a) ROSCA 15 U.S.C. 8403 and FTC Act Section 5, both actively enforced, and (b) STATE automatic-renewal laws — most importantly California's ARL as amended by AB 2863, effective 2025-07-01, which is stricter than what we do today and expressly covers free trials. Design to the California standard: it is the binding one, and it closely tracks the vacated federal rule, so building to it also front-runs the successor. Every story in this batch needs counsel sign-off before copy ships (see the review-gate story). Mitigating: the default 14-day trial takes NO card and lapses to Free (jobs-trial-expiry.ts:39-51), so no charge occurs — which is the compliance-favourable design and worth preserving. The exposure is that trials which DO convert, and any future card-required trial, have no reliable notice path. California AB 2863 expressly extended ARL coverage to free trials, so confirm scope via the review gate."
+    },
+    {
+      "id": "US-2121",
+      "priority": 1991,
+      "passes": false,
+      "title": "Users are auto-enrolled in a 14-day Pro trial with zero on-screen disclosure",
+      "description": "handle_new_user() grants a 14-day Pro trial server-side (00401_buyer_account_roles.sql:100-104, originally 00037_pricing_split.sql:240-252). src/pages/signup.tsx displays NO plan or trial copy at all — line 132-135 only fires an analytics event track('trial.started', { plan: 'pro', trial_days: 14 }). The trial is disclosed only in the pricing-page FAQ (marketing-jsonld.ts:140) and in an in-app banner AFTER signup (src/pages/billing.tsx:311-320). So a user is enrolled in a trial program without being told, at the point of enrolment, that it exists, how long it lasts, or what happens when it ends.",
+      "acceptanceCriteria": [
+        "Disclose the trial on the signup screen: that one is being started, its length, that no card is required, and what happens at the end (features drop to Free — no charge).",
+        "State the no-charge outcome positively; the current in-app copy 'Add a card before then to keep your features' implies loss without confirming no charge occurs.",
+        "Ensure the disclosure survives the OAuth signup path as well as email signup."
+      ],
+      "notes": "[P1][Compliance/Web] Found 2026-07-18 by the subscription-compliance deep-dive audit. LEGAL CONTEXT (verified 2026-07-18, not legal advice): the FTC's 2024 'Click-to-Cancel' Negative Option Rule was VACATED by the Eighth Circuit on 2025-07-08 and is not in force. The FTC restarted rulemaking with an ANPRM on 2026-03-11 (comments closed 2026-04-13), so a successor rule is in flux. The binding obligations today are (a) ROSCA 15 U.S.C. 8403 and FTC Act Section 5, both actively enforced, and (b) STATE automatic-renewal laws — most importantly California's ARL as amended by AB 2863, effective 2025-07-01, which is stricter than what we do today and expressly covers free trials. Design to the California standard: it is the binding one, and it closely tracks the vacated federal rule, so building to it also front-runs the successor. Every story in this batch needs counsel sign-off before copy ships (see the review-gate story). California AB 2863 expanded 'automatic renewal' and 'continuous service' to expressly include free trials — the review gate must determine whether a no-card trial that lapses to Free is in scope. Disclosing it is cheap and correct either way."
+    },
+    {
+      "id": "US-2122",
+      "priority": 1991,
+      "passes": false,
+      "title": "Post-purchase acknowledgement omits the auto-renewal statement and how to cancel",
+      "description": "sendSubscriptionStartedEmail (email.ts:1149, fired from webhooks.ts:671) does state Plan, Billed amount + frequency, and a 'Next charge' date (:1161-1167) — genuinely better than the purchase surfaces. But the words auto-renew, recurring or automatically appear nowhere in it; 'Next charge' is a bare date with no statement that renewal is automatic and ongoing. The only CTA is a generic 'Go to Billing' button (:1169) with no cancellation instructions or statement of the cancellation mechanism.",
+      "acceptanceCriteria": [
+        "Add an explicit statement that the subscription renews automatically until cancelled.",
+        "State how to cancel, with a direct link to the cancellation flow — not just 'Go to Billing'.",
+        "Restate the amount, frequency and renewal date (already present — keep).",
+        "Confirm the acknowledgement is sent for every purchase path including trial-to-paid conversion (webhooks.ts:628) and in-place upgrades."
+      ],
+      "notes": "[P1][Compliance/Comms] Found 2026-07-18 by the subscription-compliance deep-dive audit. LEGAL CONTEXT (verified 2026-07-18, not legal advice): the FTC's 2024 'Click-to-Cancel' Negative Option Rule was VACATED by the Eighth Circuit on 2025-07-08 and is not in force. The FTC restarted rulemaking with an ANPRM on 2026-03-11 (comments closed 2026-04-13), so a successor rule is in flux. The binding obligations today are (a) ROSCA 15 U.S.C. 8403 and FTC Act Section 5, both actively enforced, and (b) STATE automatic-renewal laws — most importantly California's ARL as amended by AB 2863, effective 2025-07-01, which is stricter than what we do today and expressly covers free trials. Design to the California standard: it is the binding one, and it closely tracks the vacated federal rule, so building to it also front-runs the successor. Every story in this batch needs counsel sign-off before copy ships (see the review-gate story). A post-purchase acknowledgement restating material terms is a standard state-ARL requirement and this one is two sentences away from satisfying it."
+    },
+    {
+      "id": "US-2123",
+      "priority": 1991,
+      "passes": false,
+      "title": "iOS paywall advertises 1,000 AI actions for Pro; the server grants 750",
+      "description": "ios/GradeThread/Billing/IAPProduct.swift:88,93 advertises Pro as '1,000 listings · 1,000 AI actions · 30 grades · AutoLister'. Both the server catalog (services/edge-functions/src/lib/appstore/products.ts:75,80) and web (src/lib/constants.ts:243, aiActionsPerMonth: 750) say 750. iOS buyers are sold 1,000 AI actions and will be plan-gated at 750 — a paid-for entitlement that does not exist. The drift test that should catch this (iap-catalog-drift_test.ts:69-106) compares ids, credits, plan/interval and fallbackPrice but NOT blurb or title, so the guard has a hole exactly where the misleading copy lives.",
+      "acceptanceCriteria": [
+        "Correct the iOS copy to match the entitlement actually granted (or change the entitlement — but the two must agree).",
+        "Extend iap-catalog-drift_test.ts to compare user-facing blurb and title against the server catalog, so advertised entitlements cannot drift from granted ones.",
+        "Audit every other advertised number on the paywall against the server catalog.",
+        "Check whether any user purchased Pro on iOS under the 1,000 copy and determine remediation with the review gate."
+      ],
+      "notes": "[P1][Compliance/iOS] Found 2026-07-18 by the subscription-compliance deep-dive audit. LEGAL CONTEXT (verified 2026-07-18, not legal advice): the FTC's 2024 'Click-to-Cancel' Negative Option Rule was VACATED by the Eighth Circuit on 2025-07-08 and is not in force. The FTC restarted rulemaking with an ANPRM on 2026-03-11 (comments closed 2026-04-13), so a successor rule is in flux. The binding obligations today are (a) ROSCA 15 U.S.C. 8403 and FTC Act Section 5, both actively enforced, and (b) STATE automatic-renewal laws — most importantly California's ARL as amended by AB 2863, effective 2025-07-01, which is stricter than what we do today and expressly covers free trials. Design to the California standard: it is the binding one, and it closely tracks the vacated federal rule, so building to it also front-runs the successor. Every story in this batch needs counsel sign-off before copy ships (see the review-gate story). Distinct from the disclosure gaps: this is a straightforward misrepresentation of what was purchased (FTC Act Section 5), and it is the only finding here with a potential remediation obligation to existing buyers. NOTE the iOS paywall is otherwise the BEST surface we have — PaywallView.swift:303 carries a complete Apple 3.1.2 disclosure ('Auto-renewing subscription... unless you cancel at least 24 hours before the renewal date. Manage or cancel anytime in Settings'). Reuse that copy as the model for the web disclosure story."
+    },
+    {
+      "id": "US-2124",
+      "priority": 1992,
+      "passes": false,
+      "title": "No price-change notice or consent path on any platform",
+      "description": "No code path notifies a user of a price increase before it takes effect. Stripe's price.updated and customer.subscription.updated-with-price-delta are not inspected (webhooks.ts:244-281). On Apple, the ASSN router (lib/appstore/notifications.ts:18-32) does not handle PRICE_INCREASE or DID_CHANGE_RENEWAL_PREF — Apple collects price-increase consent natively so this is not a rejection risk, but the server never learns a price change occurred, and an unconsented lapse arrives only as a generic EXPIRED. On Google Play, PRICE_CHANGE_CONFIRMED is explicitly a no-op (lib/google-play/rtdn.ts:11,107).",
+      "acceptanceCriteria": [
+        "Notify subscribers in advance of any price increase, stating the old price, new price, effective date and how to cancel first.",
+        "Handle Apple PRICE_INCREASE and DID_CHANGE_RENEWAL_PREF so server state reflects platform-side changes.",
+        "Decide and document whether a price increase requires fresh affirmative consent on the web (it commonly does under state ARLs) and implement accordingly.",
+        "Do not implement a price change of any kind until this exists."
+      ],
+      "notes": "[P2][Compliance/Billing] Found 2026-07-18 by the subscription-compliance deep-dive audit. LEGAL CONTEXT (verified 2026-07-18, not legal advice): the FTC's 2024 'Click-to-Cancel' Negative Option Rule was VACATED by the Eighth Circuit on 2025-07-08 and is not in force. The FTC restarted rulemaking with an ANPRM on 2026-03-11 (comments closed 2026-04-13), so a successor rule is in flux. The binding obligations today are (a) ROSCA 15 U.S.C. 8403 and FTC Act Section 5, both actively enforced, and (b) STATE automatic-renewal laws — most importantly California's ARL as amended by AB 2863, effective 2025-07-01, which is stricter than what we do today and expressly covers free trials. Design to the California standard: it is the binding one, and it closely tracks the vacated federal rule, so building to it also front-runs the successor. Every story in this batch needs counsel sign-off before copy ships (see the review-gate story). Currently latent — no price change has been attempted. It becomes a live exposure the moment pricing moves, which makes it cheap to fix now and expensive to fix under deadline."
+    },
+    {
+      "id": "US-2125",
+      "priority": 1992,
+      "passes": false,
+      "title": "Two divergent cancellation paths — the stale portal route bypasses the reviewed flow",
+      "description": "The primary cancellation flow is good and should be preserved: self-serve, ~4 clicks / 2 screens, no email or phone required, period-end timing stated on every screen (cancel-subscription-dialog.tsx:106,178,219), a required acknowledgement checkbox, clearly-labelled escape buttons, and an 'Undo cancel' banner afterwards (billing.tsx:373-395). It has one retention interstitial with two off-ramps ('Pause instead' / 'Switch to cheaper plan'), which is defensible but is the part most worth a second look. The defect is a SECOND path: selecting the Free tile in the plan picker routes to the Stripe billing portal instead (flipdesk-plan-picker-dialog.tsx:393-406), with a stale comment 'until US-216's cancel flow ships' — US-216 has shipped. That path bypasses the reviewed dialog and shows different, portal-native copy.",
+      "acceptanceCriteria": [
+        "Route the Free-tile selection through the reviewed cancellation dialog; remove the stale portal path and its comment.",
+        "Audit for any other route to cancellation and ensure all converge on one reviewed flow.",
+        "Have the review gate assess the retention interstitial against 'simple mechanism' expectations — in particular whether two deflection off-ramps before the confirm step is defensible.",
+        "Confirm cancellation is available in the same medium as signup for every purchase path (web-purchased cancels on web; IAP correctly defers to the platform via .manageSubscriptionsSheet)."
+      ],
+      "notes": "[P2][Compliance/Web] Found 2026-07-18 by the subscription-compliance deep-dive audit. LEGAL CONTEXT (verified 2026-07-18, not legal advice): the FTC's 2024 'Click-to-Cancel' Negative Option Rule was VACATED by the Eighth Circuit on 2025-07-08 and is not in force. The FTC restarted rulemaking with an ANPRM on 2026-03-11 (comments closed 2026-04-13), so a successor rule is in flux. The binding obligations today are (a) ROSCA 15 U.S.C. 8403 and FTC Act Section 5, both actively enforced, and (b) STATE automatic-renewal laws — most importantly California's ARL as amended by AB 2863, effective 2025-07-01, which is stricter than what we do today and expressly covers free trials. Design to the California standard: it is the binding one, and it closely tracks the vacated federal rule, so building to it also front-runs the successor. Every story in this batch needs counsel sign-off before copy ships (see the review-gate story). California AB 2863 requires cancellation through the same medium used for the original transaction. Web is fine; the divergent path is the risk, not the flow itself."
+    },
+    {
+      "id": "US-2126",
+      "priority": 1992,
+      "passes": false,
+      "title": "Android has no purchase capability but the server will entitle it — build disclosure in before billing ships",
+      "description": "There is no billing package, no BillingClient dependency, no paywall, no disclosure copy and no restore path anywhere in android/ (android/README.md:38 lists billing as planned). Meanwhile the entire server side is built and live: lib/google-play/{verify,rtdn,products,expiry-sweep}.ts, routes/google-play.ts, migrations 00321/00353/00354 — so POST /verify (google-play.ts:108) would grant a real entitlement. Separately, decideAppstorePrecedence (lib/appstore/precedence.ts:30-34) treats a user as Stripe-active only when billing_source is null or 'stripe', and appstoreSubscriptionBlocksStripe (:48-55) checks only 'appstore' — Google Play appears in NEITHER guard, so a Play subscriber could stack an App Store or Stripe subscription and be double-charged.",
+      "acceptanceCriteria": [
+        "Add Google Play to the cross-platform precedence matrix on both sides BEFORE any Android billing client ships.",
+        "When the Android paywall is built, carry the full disclosure set from the start — model it on PaywallView.swift:303 rather than writing new copy.",
+        "Include a restore/entitlement-recovery path and a link to the Play subscription-management screen.",
+        "Add an Android equivalent of the iap-catalog-drift test, including blurb/title comparison.",
+        "Until the client ships, confirm /verify cannot be exercised by a client that cannot produce a valid purchase token."
+      ],
+      "notes": "[P2][Compliance/Android] Found 2026-07-18 by the subscription-compliance deep-dive audit. LEGAL CONTEXT (verified 2026-07-18, not legal advice): the FTC's 2024 'Click-to-Cancel' Negative Option Rule was VACATED by the Eighth Circuit on 2025-07-08 and is not in force. The FTC restarted rulemaking with an ANPRM on 2026-03-11 (comments closed 2026-04-13), so a successor rule is in flux. The binding obligations today are (a) ROSCA 15 U.S.C. 8403 and FTC Act Section 5, both actively enforced, and (b) STATE automatic-renewal laws — most importantly California's ARL as amended by AB 2863, effective 2025-07-01, which is stricter than what we do today and expressly covers free trials. Design to the California standard: it is the binding one, and it closely tracks the vacated federal rule, so building to it also front-runs the successor. Every story in this batch needs counsel sign-off before copy ships (see the review-gate story). Not a live exposure today (nothing ships), which is exactly why it is worth fixing now — the double-charge path goes live the instant the Android client lands. Google Play's subscription-disclosure policy mirrors Apple's."
+    },
+    {
+      "id": "US-2127",
+      "priority": 1992,
+      "passes": false,
+      "title": "Refund policy contradicts the vault: an undisclosed 14-day money-back guarantee",
+      "description": "vault/50-business/pricing.md:204-205 states 'Subscriptions: 14-day money-back guarantee on the first subscription invoice only.' No such guarantee appears on either public legal page — src/pages/legal/terms.tsx:80-82 and src/pages/legal/refund.tsx:45-47 both state subscription fees are non-refundable once a billing period has begun. Either the vault is stale, or we are operating a guarantee we do not disclose (or declining one we promised internally). Support and billing decisions are presumably being made against one of these.",
+      "acceptanceCriteria": [
+        "Determine which is authoritative and reconcile — update the vault note or the public policy, in the same commit per the vault same-commit rule.",
+        "If the guarantee is real, disclose it at the point of sale, where it is also a conversion asset.",
+        "Review the ToS/refund pages alongside the new disclosure copy so the point-of-sale statements and the legal pages agree.",
+        "Check the EU/UK right-of-withdrawal waiver (refund.tsx section 4) and chargeback clause (section 5) with counsel while the pages are open."
+      ],
+      "notes": "[P2][Compliance/Legal-docs] Found 2026-07-18 by the subscription-compliance deep-dive audit. LEGAL CONTEXT (verified 2026-07-18, not legal advice): the FTC's 2024 'Click-to-Cancel' Negative Option Rule was VACATED by the Eighth Circuit on 2025-07-08 and is not in force. The FTC restarted rulemaking with an ANPRM on 2026-03-11 (comments closed 2026-04-13), so a successor rule is in flux. The binding obligations today are (a) ROSCA 15 U.S.C. 8403 and FTC Act Section 5, both actively enforced, and (b) STATE automatic-renewal laws — most importantly California's ARL as amended by AB 2863, effective 2025-07-01, which is stricter than what we do today and expressly covers free trials. Design to the California standard: it is the binding one, and it closely tracks the vacated federal rule, so building to it also front-runs the successor. Every story in this batch needs counsel sign-off before copy ships (see the review-gate story). Cheap to resolve and it removes an internal/external inconsistency that would look bad in any enforcement or dispute context."
+    },
+    {
+      "id": "US-2128",
+      "priority": 1992,
+      "passes": false,
+      "title": "Unhandled Stripe subscription webhooks including payment_action_required",
+      "description": "The webhook switch (webhooks.ts:244-281) covers the core lifecycle well — subscription created/updated/paused/resumed/deleted, invoice.payment_succeeded/failed, checkout.session.completed, charge.refunded, charge.dispute.created/closed — with solid infrastructure (idempotency claims, fail-closed metrics, transient-vs-permanent error split). Everything else hits a default log-and-drop. Unhandled and consequential: invoice.upcoming and customer.subscription.trial_will_end (covered by their own stories), invoice.payment_action_required (SCA/3DS — the user is never told a payment needs authorization and simply fails), invoice.finalized, checkout.session.async_payment_succeeded/_failed (already flagged in a code comment as a live risk if non-card payment methods are enabled), price.updated, payment_method.attached/detached.",
+      "acceptanceCriteria": [
+        "Handle invoice.payment_action_required and notify the user that action is needed, with a link to complete authentication.",
+        "Handle the async payment-method events before enabling any non-card payment method.",
+        "Review the remaining unhandled events and either handle or explicitly document each as intentionally ignored, so the default branch means 'known-ignored' rather than 'unexamined'."
+      ],
+      "notes": "[P2][Billing/Reliability] Found 2026-07-18 by the subscription-compliance deep-dive audit. Not a disclosure issue — filed alongside because it is the same webhook surface and a silent SCA failure looks to the user like an unexplained loss of service. Dunning otherwise is genuinely thorough (US-395 grace clock, Smart Retries, fail-closed to Free)."
     }
   ]
 }
