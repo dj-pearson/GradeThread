@@ -3285,7 +3285,7 @@
     {
       "id": "US-2102",
       "priority": 1995,
-      "passes": false,
+      "passes": true,
       "title": "Dead email-preference anchor and no in-app marketing opt-out",
       "description": "lib/unsubscribe.ts:74 links users to /dashboard/account#email-preferences — that anchor does not exist anywhere in the frontend (zero matches across src/**/*.tsx). Users who click 'manage preferences' from the one-click unsubscribe confirmation land on a page with no such section. Separately, the 'marketing' master umbrella consent key (lib/email-consent.ts:18) is not exposed in the settings UI: src/lib/notification-preferences.ts surfaces only weekly_newsletter and product_updates, so a user cannot opt out of marketing in-app at all — only via an emailed link.",
       "acceptanceCriteria": [
@@ -3293,7 +3293,7 @@
         "Expose the 'marketing' umbrella toggle in the settings UI.",
         "A test asserts every anchor emitted by unsubscribe/preference emails resolves to a real element."
       ],
-      "notes": "[P1][Growth/Compliance] Found 2026-07-18 by the SEO/marketing deep-dive audit. Real compliance exposure, and it becomes material the moment lifecycle email is switched on. The underlying consent infrastructure (RFC 8058 one-click, HMAC-gated no-login preference center, SES SNS auto-suppression) is already excellent — this is purely the missing UI surface."
+      "notes": "[P1][Growth/Compliance] Found 2026-07-18 by the SEO/marketing deep-dive audit. Real compliance exposure, and it becomes material the moment lifecycle email is switched on. The underlying consent infrastructure (RFC 8058 one-click, HMAC-gated no-login preference center, SES SNS auto-suppression) is already excellent — this is purely the missing UI surface. [2026-07-19 DONE — all 3 ACs] AC1: the link was wrong in BOTH halves, which the story only half-caught. /dashboard/account#email-preferences pointed at a page that has no preference UI at all — the controls live on /dashboard/settings (notifications tab) — AND no #email-preferences id existed anywhere in src. Repointed to /dashboard/settings?tab=notifications#email-preferences (tabs are deep-linkable via ?tab=, verified) and added the anchor to the actual preferences Card with scroll-mt so it lands readably. Chose repointing over building a duplicate section on the account page: two preference surfaces is how they drift. AC2: exposed the marketing master umbrella (US-911 MARKETING_MASTER_KEY) in NOTIFICATION_TYPES, listed FIRST and worded as an override — the granular toggles gate ADDITIONALLY, so off here means off regardless of them. A consent control that understates its own scope is worse than none. The copy also states transactional email is never affected, so it does not over-promise in the other direction; tests assert both properties. AC3: src/test/email-preference-anchors.test.ts extracts every in-app URL the email layer emits and asserts (a) the path is a registered route, (b) any #fragment exists as an id in the frontend, (c) the target is /dashboard/settings not /dashboard/account, (d) the notifications tab is deep-linked — landing on the profile tab would still hide the promised controls. Includes an emits-at-least-one guard so a broken extractor cannot pass vacuously. Negative-verified by pointing the link at a nonexistent anchor: the guard names the fragment. Compliance framing that made this worth doing properly rather than minimally: the opt-out path we ADVERTISE has to work, and nothing failed while it did not."
     },
     {
       "id": "US-2103",

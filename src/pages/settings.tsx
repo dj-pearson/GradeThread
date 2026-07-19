@@ -792,8 +792,13 @@ export function SettingsPage() {
         </TabsContent>
 
         <TabsContent value="notifications" className="space-y-6">
-          {/* Notification Preferences Section */}
-          <Card>
+          {/* Notification Preferences Section.
+              US-2102: id="email-preferences" is the anchor every unsubscribe /
+              preference email links to (accountPreferenceCenterUrl). It pointed
+              at /dashboard/account#email-preferences, which existed nowhere —
+              so the advertised opt-out path dead-ended. The anchor lives here
+              because this is where the controls actually are. */}
+          <Card id="email-preferences" className="scroll-mt-24">
         <CardHeader>
           <CardTitle>Notification Preferences</CardTitle>
           <CardDescription>

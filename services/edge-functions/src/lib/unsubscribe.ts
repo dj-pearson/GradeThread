@@ -71,7 +71,18 @@ export async function marketingPreferenceCenterUrl(userId: string): Promise<stri
 // In-app (authenticated) preference center — the SPA settings page. Used where a
 // recipient already has a session (e.g. links in the app, not email footers).
 export function accountPreferenceCenterUrl(): string {
-  return `${SITE_URL}/dashboard/account#email-preferences`;
+  // US-2102: this pointed at /dashboard/account#email-preferences. BOTH halves
+  // were wrong: the preference UI lives on /dashboard/settings (the notifications
+  // tab), not the account page, and no #email-preferences anchor existed
+  // anywhere in the frontend. A user clicking "manage preferences" from an
+  // unsubscribe confirmation landed on the wrong page with no such section —
+  // which is a compliance problem the moment lifecycle email is switched on,
+  // because the opt-out path we advertise has to actually work.
+  //
+  // The tab is deep-linkable via ?tab=, and the anchor now exists on the email
+  // preferences block, so this resolves to the real control rather than the
+  // top of an unrelated page.
+  return `${SITE_URL}/dashboard/settings?tab=notifications#email-preferences`;
 }
 
 export { SITE_URL };

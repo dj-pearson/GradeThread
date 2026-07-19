@@ -136,6 +136,22 @@ export const NOTIFICATION_TYPES: NotificationTypeMeta[] = [
     channels: ["email", "in_app"],
   },
   {
+    // US-2102: the MASTER marketing umbrella (US-911's MARKETING_MASTER_KEY).
+    // Every marketing send path honors it — growth broadcasts, the trial drip,
+    // journeys and the newsletter — but it was surfaced NOWHERE in the UI, so a
+    // user could only opt out of marketing via an emailed link, never in-app.
+    //
+    // Listed FIRST and worded as an override, because that is what it is: the
+    // granular toggles below gate ADDITIONALLY, so turning this off stops all
+    // marketing regardless of them. A consent control that understates its own
+    // scope is worse than none.
+    key: "marketing",
+    label: "All marketing email",
+    description:
+      "Master switch for every marketing email — newsletter, product announcements, tips and offers. Turning this off stops all of them, whatever the settings below say. Transactional email (receipts, grade results, disputes, security) is never affected.",
+    channels: ["email"],
+  },
+  {
     key: "weekly_newsletter",
     label: "Weekly newsletter",
     description:
