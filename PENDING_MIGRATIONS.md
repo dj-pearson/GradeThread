@@ -121,6 +121,32 @@
 > previously the applied version was visible only in container logs, which is how
 > this file drifted 59 sections out of date without anyone noticing.)
 
+## ⏳ PENDING: 00489_dispute_kind_authenticity.sql (US-2145 seller appeal path, 2026-07-19)
+
+**Apply AFTER 00488.** Adds a `kind` column to `disputes` (`'grade'` |
+`'authenticity'`, defaulting to `'grade'`) plus a partial index for the open
+authenticity-appeal queue.
+
+**Why it matters:** a seller whose GENUINE item draws a `red_flags` verdict has
+had no way to contest it. That is the error direction no guarantee reimburses,
+from a pass with no measured error rate — and it became durable when US-2141
+sealed the verdict into certificate integrity v4 and US-2142 wrote it to an
+append-only passport ledger. Extending `disputes` rather than adding an appeals
+table keeps one lifecycle, one admin queue, and one place a user looks.
+
+**Risk: LOW.** Additive column with a default, so every existing row is correct
+with no backfill; the CHECK constraint is added idempotently. No existing query
+filters on `kind`, so nothing changes behaviour until the appeal routes ship.
+
+**Deploy-order note — safe either way, with one caveat.** The edge in this commit
+does not yet expose appeal endpoints (the lib is pure logic plus tests), so an
+edge roll ahead of the SQL breaks nothing. If a later commit adds the routes,
+that commit inherits the ordering requirement. The boot guard expects `00489`.
+
+**After applying:** `NOTIFY pgrst, 'reload schema';` (new column).
+
+---
+
 ## ⏳ PENDING: 00488_garment_event_authenticity.sql (US-2142 passport authenticity event, 2026-07-19)
 
 **Apply AFTER 00487.** Adds `'authenticity_assessed'` to the
