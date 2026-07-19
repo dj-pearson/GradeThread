@@ -266,6 +266,69 @@ export function checkStubs(rows, notes, { read, exists }) {
 
 export const STUBS_REGISTRY = "vault/00-index/STUBS.md";
 
+// ── Knowledge-bearing migrations (US-2059) ──────────────────────────────────
+//
+// US-2058 found 2,259 lines of research reasoning stranded in the headers of 37
+// *_brand_knowledge.sql migrations. Applied migrations are IMMUTABLE, so that
+// knowledge was write-once: not editable, not indexed, and invisible to anyone
+// working on grading. Extraction fixed the backlog. This rule stops it refilling.
+//
+// A migration is knowledge-bearing if its NAME says so (*knowledge*) or if its
+// leading comment block runs past HEADER_LINE_LIMIT — at which point the author
+// is writing prose, not annotating SQL, and prose belongs where it can be edited.
+//
+// GRANDFATHERED BY NUMBER, not by a filename list. Migrations are sequential and
+// immutable, so every future one necessarily has a higher number; a single
+// threshold covers all 40 existing cases exactly and cannot drift out of date.
+// Raising it is a one-line diff a reviewer will question, which an ever-growing
+// allowlist of filenames would not be.
+
+export const HEADER_LINE_LIMIT = 40;
+// Highest migration number at the time this rule landed. Everything at or below
+// predates it. DO NOT RAISE to silence a failure — write the note instead.
+export const MIGRATIONS_GRANDFATHERED_THROUGH = 478;
+
+export function migrationNumber(file) {
+  const m = /^(\d+)_/.exec(file);
+  return m ? Number(m[1]) : NaN;
+}
+
+export function leadingCommentLines(sql) {
+  let n = 0;
+  for (const line of sql.split(/\r?\n/)) {
+    if (line.startsWith("--")) n++;
+    else if (line.trim() === "") continue;
+    else break;
+  }
+  return n;
+}
+
+export function isKnowledgeBearing(file, sql) {
+  if (/knowledge/i.test(file)) return "name says knowledge";
+  const n = leadingCommentLines(sql);
+  if (n > HEADER_LINE_LIMIT) return `${n}-line header (limit ${HEADER_LINE_LIMIT})`;
+  return null;
+}
+
+// migrations: [{ file, sql }]; refs: Set of every code_refs path across all notes
+export function checkMigrationNotes(migrations, refs, { grandfatheredThrough = MIGRATIONS_GRANDFATHERED_THROUGH } = {}) {
+  const errors = [];
+  for (const { file, sql } of migrations) {
+    const num = migrationNumber(file);
+    if (!Number.isNaN(num) && num <= grandfatheredThrough) continue;
+    const why = isKnowledgeBearing(file, sql);
+    if (!why) continue;
+    if (refs.has(`supabase/migrations/${file}`)) continue;
+    errors.push(
+      `supabase/migrations/${file}: knowledge-bearing (${why}) but no vault note references it. ` +
+      `Applied migrations are IMMUTABLE — knowledge left in this header can never be corrected. ` +
+      `Add a note under vault/20-domain/ (see vault/20-domain/brands/brand-taxonomy-overview.md for the value/rule split) ` +
+      `and list this path in its code_refs.`,
+    );
+  }
+  return errors;
+}
+
 // ── Drift (US-2044) ─────────────────────────────────────────────────────────
 //
 // The problem this solves: a note can be schema-valid, well-linked and
@@ -414,6 +477,19 @@ export function main(argv = process.argv.slice(2)) {
   const idx = notes.get(ROOT_NOTE);
   const indexLines = idx ? idx.raw.split(/\r?\n/).length : 0;
   const { errors, warnings } = lintVault(notes, { today, indexLines });
+
+  // US-2059: knowledge-bearing migrations must be claimed by a note.
+  {
+    const migDir = resolve(root, "supabase/migrations");
+    let files = [];
+    try { files = globSync("*.sql", { cwd: migDir }).map(String); } catch { /* no migrations dir */ }
+    const allRefs = new Set();
+    for (const [, n] of notes) {
+      for (const r of Array.isArray(n.fm?.code_refs) ? n.fm.code_refs : []) allRefs.add(r);
+    }
+    const migrations = files.map((f) => ({ file: f, sql: readFileSync(resolve(migDir, f), "utf8") }));
+    errors.push(...checkMigrationNotes(migrations, allRefs));
+  }
 
   const stubsNote = notes.get("STUBS");
   if (stubsNote) {

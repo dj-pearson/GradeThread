@@ -4,6 +4,9 @@
 import { describe, expect, it } from "vitest";
 import {
   checkDrift,
+  checkMigrationNotes,
+  isKnowledgeBearing,
+  leadingCommentLines,
   isShallowRepo,
   canonicalizeFrontmatter,
   extractWikilinks,
@@ -310,5 +313,51 @@ describe("revisit_by (US-2056)", () => {
   it("ignores a malformed date rather than guessing", () => {
     const r = lintVault(withRevisit({ revisit_by: "soon" }), opts);
     expect(r.warnings.some((w) => w.includes("REVISIT DUE"))).toBe(false);
+  });
+});
+
+describe("knowledge-bearing migrations (US-2059)", () => {
+  const mig = (file, sql = "SELECT 1;") => ({ file, sql });
+  const prose = (n) => Array.from({ length: n }, (_, i) => `-- line ${i}`).join("\n") + "\nSELECT 1;";
+  const none = new Set();
+
+  it("grandfathers everything at or below the threshold", () => {
+    const r = checkMigrationNotes([mig("00468_handbags_accessories_brand_knowledge.sql")], none);
+    expect(r).toEqual([]);
+  });
+  it("FAILS a NEW migration whose name says knowledge", () => {
+    const r = checkMigrationNotes([mig("00500_shoes_brand_knowledge.sql")], none);
+    expect(r[0]).toMatch(/name says knowledge/);
+    expect(r[0]).toMatch(/IMMUTABLE/);
+  });
+  it("FAILS a NEW migration with an over-long header even when the name is innocent", () => {
+    const r = checkMigrationNotes([mig("00500_add_column.sql", prose(45))], none);
+    expect(r[0]).toMatch(/45-line header/);
+  });
+  it("passes once a note claims it via code_refs", () => {
+    const refs = new Set(["supabase/migrations/00500_shoes_brand_knowledge.sql"]);
+    expect(checkMigrationNotes([mig("00500_shoes_brand_knowledge.sql")], refs)).toEqual([]);
+  });
+  it("passes a NEW migration with a short header and an ordinary name", () => {
+    expect(checkMigrationNotes([mig("00500_add_column.sql", prose(5))], none)).toEqual([]);
+  });
+  it("treats exactly the limit as acceptable, one over as not", () => {
+    expect(checkMigrationNotes([mig("00500_a.sql", prose(40))], none)).toEqual([]);
+    expect(checkMigrationNotes([mig("00501_a.sql", prose(41))], none)).toHaveLength(1);
+  });
+  it("ignores a file with no leading number rather than crashing", () => {
+    expect(checkMigrationNotes([mig("no_number_knowledge.sql")], none)).toHaveLength(1);
+  });
+});
+
+describe("leadingCommentLines / isKnowledgeBearing", () => {
+  it("counts only the LEADING comment block, not comments after SQL", () => {
+    expect(leadingCommentLines("-- a\n-- b\nSELECT 1;\n-- c\n-- d")).toBe(2);
+  });
+  it("skips blank lines inside the leading block", () => {
+    expect(leadingCommentLines("-- a\n\n-- b\nSELECT 1;")).toBe(2);
+  });
+  it("returns null for an ordinary migration", () => {
+    expect(isKnowledgeBearing("00500_add_index.sql", "-- one line\nSELECT 1;")).toBeNull();
   });
 });

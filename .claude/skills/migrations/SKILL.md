@@ -1,6 +1,6 @@
 ---
 name: migrations
-description: "Use when creating or editing ANY file under supabase/migrations/, bumping EXPECTED_SCHEMA_VERSION (services/edge-functions/src/lib/schema-version.ts), applying migrations to prod, or committing work that contains a migration. Encodes the US-1108 migration triple (idempotent / version bump same commit / self-record footer), the held-migration push rule, and the prod-apply runbook."
+description: "Use when creating or editing ANY file under supabase/migrations/, bumping EXPECTED_SCHEMA_VERSION (services/edge-functions/src/lib/schema-version.ts), applying migrations to prod, or committing work that contains a migration. Encodes the US-1108 migration triple (idempotent / version bump same commit / self-record footer), the US-2059 knowledge-in-a-note rule, the held-migration push rule, and the prod-apply runbook."
 metadata:
   author: gradethread
   version: "1.0.0"
@@ -12,7 +12,7 @@ Prod is a SELF-HOSTED Supabase; migrations apply via an explicit step, never
 `supabase db push`. The edge container boot-guards on the schema version, so a
 migration and its code MUST travel together and reach prod in the right order.
 
-## The triple — every migration, no exceptions
+## The rules — every migration, no exceptions
 
 1. **Idempotent**: `CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`,
    `CREATE OR REPLACE FUNCTION`, `CREATE INDEX IF NOT EXISTS`,
@@ -26,6 +26,22 @@ migration and its code MUST travel together and reach prod in the right order.
 3. **Self-record footer** — last line of every migration:
    `insert into public.applied_migrations (version) values ('NNNNN') on conflict do nothing;`
    This keeps the boot guard truthful no matter how the SQL was applied.
+4. **Knowledge belongs in a note, not in the header** (US-2059). A migration
+   whose name contains `knowledge`, or whose leading comment runs past **40
+   lines**, must be referenced by `code_refs` from at least one vault note.
+   `vault-lint` fails otherwise.
+
+   **Why this is a rule and not a style preference:** applied migrations are
+   IMMUTABLE. Knowledge left in a header can never be corrected — amending it
+   means writing another migration whose only purpose is a fixed comment, which
+   nobody does. US-2058 found **2,259 lines** of research reasoning stranded
+   this way across 37 `*_brand_knowledge.sql` files: not editable, not indexed,
+   invisible to anyone working on grading.
+
+   Migrations at or below **00478** are grandfathered by number. Do NOT raise
+   that threshold to silence a failure — write the note. See
+   `vault/20-domain/brands/brand-taxonomy-overview.md` for the split: per-brand
+   VALUES go in the table, per-corpus RULES go in a note.
 
 ## Numbering
 

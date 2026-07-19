@@ -99,7 +99,13 @@ as the `verify:vault` lane (US-2044).
    than `reviewed`, flag it. Warning by default; **error** for `type: contract`
    under `--strict`, which is what CI runs.
 7. Redirect stubs (US-2047) are ≤ 5 lines and point at a note that exists.
-8. `revisit_by` (US-2056): a `type: decision` note whose revisit date has passed,
+8. Knowledge-bearing migrations (US-2059): a migration named `*knowledge*`, or
+   one whose leading comment exceeds 40 lines, must be referenced by `code_refs`
+   from some note. Applied migrations are immutable, so a header is a
+   write-once home — US-2058 found 2,259 lines stranded that way. Migrations
+   through 00478 are grandfathered by number; raising that threshold to silence
+   a failure defeats the rule.
+9. `revisit_by` (US-2056): a `type: decision` note whose revisit date has passed,
    and whose status is still `accepted`, warns that it is due a re-argument. A
    decision nobody revisits expired silently — which is how a deliberate "look
    again in six months" becomes a permanent default nobody re-argued.
