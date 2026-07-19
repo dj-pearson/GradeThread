@@ -73,7 +73,12 @@ Deno.test("US-1996: any authenticity prompt activation must call the eval gate",
     // The gate module itself, and this guard, obviously mention both.
     if (f.name === "authenticity-eval.ts") continue;
     if (authenticityActivationSites(f.src) === 0) continue;
-    if (!/runAuthenticityEval/.test(f.src)) offenders.push(f.name);
+    // US-2130 added assertAuthenticityPromptActivatable — the fail-closed guard
+    // an activation path should call. Either satisfies the requirement: running
+    // the eval, or asserting a prior run passed for the serving model.
+    if (!/runAuthenticityEval|assertAuthenticityPromptActivatable/.test(f.src)) {
+      offenders.push(f.name);
+    }
   }
 
   assertEquals(
@@ -83,6 +88,20 @@ Deno.test("US-1996: any authenticity prompt activation must call the eval gate",
       "gate (lib/authenticity-eval.ts runAuthenticityEval). US-1770 required that " +
       "a candidate authenticity prompt pass an accuracy gate BEFORE activation, " +
       "and that a per-brand regression block it:\n" + offenders.join("\n"),
+  );
+});
+
+// US-2130: the gate is no longer only a future promise — authenticityGateStatus
+// reports whether the version actually serving traffic has a passing run, and
+// main.ts warns at boot when it does not. Pin that wiring: losing it returns us
+// to a silently-ungated authenticity pass, which is the exact state US-1996
+// documented.
+Deno.test("US-2130: the live authenticity prompt gate is checked at boot", async () => {
+  const src = await Deno.readTextFile(new URL("../main.ts", import.meta.url));
+  assert(
+    /warnAuthenticityGate\(\)/.test(src),
+    "main.ts no longer checks whether the live authenticity prompt is gated. If " +
+      "this moved, point this guard at the new call site — do not drop it.",
   );
 });
 

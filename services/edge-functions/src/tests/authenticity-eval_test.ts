@@ -16,7 +16,39 @@ const {
   isDangerousMiss,
   aggregateAuthenticityEval,
   authenticityEvalMinAgreement,
+  gateStatusFromRun,
 } = await import("../lib/authenticity-eval.ts");
+
+// ── US-2130: the gate decision fails closed ─────────────────────────────────
+// Both "no passing run" and "the query blew up" must report ungated. A pass has
+// to be positively evidenced — never inferred from silence.
+
+Deno.test("gate: a passing run on the serving model is gated", () => {
+  const s = gateStatusFromRun(
+    "authenticity_v1",
+    "claude-x",
+    { agreement_rate: 0.91, created_at: "2026-07-19T00:00:00Z" },
+    null,
+  );
+  assert(s.gated);
+  assertEquals(s.reason, null);
+  assertEquals(s.agreement_rate, 0.91);
+});
+
+Deno.test("gate: no passing run → NOT gated, with a reason naming the version", () => {
+  const s = gateStatusFromRun("authenticity_v1", "claude-x", null, null);
+  assertEquals(s.gated, false);
+  assert(s.reason?.includes("authenticity_v1"), "reason should name the version");
+  assertEquals(s.agreement_rate, null);
+});
+
+Deno.test("gate: a failed query is NOT a pass (fail closed)", () => {
+  // The regression that matters: treating an unreadable ledger as "fine" is how
+  // a gate silently stops gating.
+  const s = gateStatusFromRun("authenticity_v1", "claude-x", null, "connection reset");
+  assertEquals(s.gated, false);
+  assert(s.reason?.includes("connection reset"));
+});
 
 // ── verdict → label mapping ─────────────────────────────────────────────────
 Deno.test("verdictToLabel maps the verdict vocabulary onto the golden-set labels", () => {

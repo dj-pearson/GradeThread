@@ -205,6 +205,7 @@ import { buyerRewardsRoutes } from "./routes/buyer-rewards.ts";
 import { buyerProfileRoutes } from "./routes/buyer-profile.ts";
 import { buyerWantsRoutes } from "./routes/buyer-wants.ts";
 import { buyerAuthenticityRoutes } from "./routes/buyer-authenticity.ts";
+import { warnAuthenticityGate } from "./lib/authenticity-eval.ts";
 import { buyerTrustRoutes } from "./routes/buyer-trust.ts";
 import { supportAssistantRoutes } from "./routes/support-assistant.ts";
 import { authMiddleware } from "./middleware/auth.ts";
@@ -1652,6 +1653,13 @@ await checkSchemaCompleteness();
 // read the live registry value rather than the fallback (background, non-fatal).
 void getSetting<number>("rate_limit_grade_per_min", 60);
 void getSetting<number>("grading_review_confidence_threshold", 0.75);
+
+// US-2130: the authenticity pass ships to real users (paid add-on, buyer check,
+// and an unauthenticated public endpoint) while its eval gate has never run.
+// Warn when a live authenticity prompt has no passing eval run, so "ungated"
+// stops being silent. Deliberately backgrounded and non-throwing — a boot guard
+// that can fail is how the schema check once crash-looped the service (US-778).
+void warnAuthenticityGate();
 
 // US-890: warm the per-user rate-limit override cache so an active throttle/block
 // is enforced from the first request (background, non-fatal).

@@ -37,6 +37,11 @@ import {
   evalExemplarSet,
 } from "../lib/few-shot-exemplars.ts";
 import { computeDefectAccuracyReport } from "../lib/defect-accuracy.ts";
+import { authenticityGateStatus, runAuthenticityEval } from "../lib/authenticity-eval.ts";
+import {
+  AUTHENTICITY_PROMPT_VERSION,
+  AUTHENTICITY_PROMPT_VERSION_GROUNDED,
+} from "../lib/ai-authenticity.ts";
 import { compareModelEvals, type ModelEvalRun } from "../lib/model-comparison.ts";
 import { isAllowedGradingModel } from "../lib/ai-config.ts";
 import {
@@ -487,6 +492,66 @@ adminGradingRoutes.post("/prompts/:id/deactivate", async (c) => {
   await invalidatePromptCache();
   await auditLog(c, "deactivate_prompt_version", "ai_prompt_version", id, {});
   return c.json({ ok: true });
+});
+
+// ── US-2130: authenticity eval gate ─────────────────────────────────────────
+//
+// The authenticity pass ships to real users (paid add-on, buyer check, and an
+// unauthenticated public endpoint) while its golden-set gate has never run.
+// These two routes make it runnable and inspectable. They deliberately do NOT
+// introduce an authenticity prompt-version lifecycle — authenticity prompts are
+// code constants, and inventing an activation flow to satisfy a checkbox is how
+// authenticity-eval.ts became dead code in the first place (see the reasoning in
+// authenticity-gate-guard_test.ts). When that lifecycle is genuinely needed, it
+// must call assertAuthenticityPromptActivatable, which refuses by default.
+
+// GET /authenticity/gate — is the version actually serving traffic backed by a
+// passing eval run, on the model that will serve it? Read-only.
+adminGradingRoutes.get("/authenticity/gate", async (c) => {
+  const versions = [AUTHENTICITY_PROMPT_VERSION, AUTHENTICITY_PROMPT_VERSION_GROUNDED];
+  const statuses = await Promise.all(versions.map((v) => authenticityGateStatus(v)));
+  return c.json({
+    // The headline an operator needs: is ANY live version serving ungated?
+    all_gated: statuses.every((s) => s.gated),
+    versions: statuses,
+  });
+});
+
+// POST /authenticity/eval — replay the labeled golden set through the
+// authenticity pass and record the run. Costs real vision calls (one pass per
+// case), so it is step-up gated rather than casually runnable.
+adminGradingRoutes.post("/authenticity/eval", async (c) => {
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
+  const userId = c.get("userId");
+  const body = await c.req.json().catch(() => ({})) as { prompt_version?: string };
+  // Default to the grounded constant — that is what the live pass uses when
+  // brand tells are available, so it is the version worth certifying.
+  const promptVersion = body.prompt_version?.trim() || AUTHENTICITY_PROMPT_VERSION_GROUNDED;
+
+  try {
+    const result = await runAuthenticityEval(promptVersion, userId);
+    await auditLog(c, "run_authenticity_eval", "authenticity_eval_run", null, {
+      prompt_version: result.prompt_version,
+      model: result.model,
+      passed: result.passed,
+      agreement_rate: result.agreement_rate,
+      dangerous_misses: result.dangerous_misses,
+      cases_total: result.cases_total,
+    });
+    return c.json(result);
+  } catch (err) {
+    // The expected failure today is "no active cases" — the golden set is
+    // operator-curated and empty until US-2131 seeds it. Surface that plainly
+    // rather than as a generic 500; it is a setup state, not a bug.
+    return c.json(
+      {
+        error: "Authenticity eval run failed",
+        detail: err instanceof Error ? err.message : String(err),
+      },
+      400,
+    );
+  }
 });
 
 // ── US-896: staged rollout / canary % ────────────────────────────────

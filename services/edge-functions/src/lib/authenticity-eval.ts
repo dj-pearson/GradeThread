@@ -1,10 +1,26 @@
 // US-1770: authenticity golden-set eval gate.
 //
-// ↳ REGISTERED AS UNWIRED: vault/70-agent/shipped-but-unwired.md — all six
-//   exports have zero non-self callers, so the authenticity prompt gate the
-//   grading lifecycle implies does not actually run (US-1996).
+// ⚠ STATUS (US-2130, 2026-07-19): PARTIALLY WIRED. Read this before trusting it.
 //
-// ⚠ THIS GATE DOES NOT RUN. NOTHING IMPORTS THIS MODULE (verified 2026-07-18).
+//   NOW WIRED: authenticityGateStatus / assertAuthenticityPromptActivatable /
+//   warnAuthenticityGate (below). main.ts warns at boot when a live authenticity
+//   prompt has no passing eval run, so "ungated" is no longer silent.
+//
+//   STILL NOT ENFORCED: runAuthenticityEval does not BLOCK anything, because
+//   authenticity prompts are code constants rather than ai_prompt_versions rows —
+//   there is no activation call to intercept. assertAuthenticityPromptActivatable
+//   exists so that when that path is built it fails closed by default.
+//
+//   STILL MISSING: the golden set itself. authenticity_eval_cases has no seed
+//   rows, so runAuthenticityEval throws on first call and warnAuthenticityGate
+//   will report ungated for every version until real labeled cases exist
+//   (US-2131 — expert-dependent, cannot be generated).
+//
+// The history below is kept because it explains how a safety gate shipped
+// green-tested and unenforced, which is the failure mode this module now guards.
+//
+// ↳ WAS REGISTERED AS UNWIRED: vault/70-agent/shipped-but-unwired.md — all six
+//   exports had zero non-self callers (US-1996).
 //
 // US-1770 is marked passes:true in the archive while its OWN notes say
 // "[DEFERRED 2026-07-09]" — it was deferred pending a held migration and closed
@@ -44,7 +60,12 @@
 import { supabaseAdmin } from "./supabase.ts";
 import { getDefaultModel } from "./ai-config.ts";
 import { downloadCaseImage } from "./grading-eval.ts";
-import { assessAuthenticity, type AuthenticityVerdict } from "./ai-authenticity.ts";
+import {
+  assessAuthenticity,
+  AUTHENTICITY_PROMPT_VERSION,
+  AUTHENTICITY_PROMPT_VERSION_GROUNDED,
+  type AuthenticityVerdict,
+} from "./ai-authenticity.ts";
 import { getEffectiveTells } from "./brand-authenticity.ts";
 import type { GarmentInfo } from "./ai-grading.ts";
 
@@ -150,6 +171,160 @@ export function aggregateAuthenticityEval(
     passed,
     per_brand,
   };
+}
+
+// ── US-2130: the gate, and making an ungated prompt visible ─────────────────
+//
+// Authenticity prompts are CODE CONSTANTS (AUTHENTICITY_PROMPT_VERSION), not
+// ai_prompt_versions rows, so there is no runtime activation call to intercept
+// the way activatePromptVersion gates grading. Building that table + admin flow
+// needs a migration (held). What ships here is the half that needs no schema
+// change and closes the dangerous half of the gap:
+//
+//   1. authenticityGateStatus() — does the version actually serving traffic have
+//      a PASSING eval run, on the model that will serve it?
+//   2. assertAuthenticityPromptActivatable() — the fail-closed guard any future
+//      activation path must call. It exists now so that path cannot be built
+//      without it, which is exactly how US-1770 shipped ungated.
+//   3. warnAuthenticityGate() — boot-time visibility, so "no gate" stops being
+//      silent.
+//
+// Everything here FAILS CLOSED: a query error, a missing run, or a model
+// mismatch all report ungated. Never infer "gated" from an absence.
+
+export interface AuthenticityGateStatus {
+  prompt_version: string;
+  model: string;
+  /** True only when a passing run exists for THIS version on THIS model. */
+  gated: boolean;
+  last_passing_run_at: string | null;
+  agreement_rate: number | null;
+  /** Why the gate is not satisfied. Null when gated. */
+  reason: string | null;
+}
+
+/**
+ * Does `promptVersion` have a passing authenticity eval run on `model`?
+ *
+ * Model is part of the key for the same reason as US-2036 on the grading side:
+ * qualifying a prompt on model A and then switching DEFAULT_AI_MODEL to model B
+ * via env is a no-deploy, no-eval, no-audit behavior change. A pass earned on a
+ * model that is no longer serving is not a pass.
+ */
+export async function authenticityGateStatus(
+  promptVersion: string,
+  model: string = getDefaultModel(),
+): Promise<AuthenticityGateStatus> {
+  const { data, error } = await supabaseAdmin
+    .from("authenticity_eval_runs")
+    .select("agreement_rate, created_at")
+    .eq("prompt_version", promptVersion)
+    .eq("model", model)
+    .eq("passed", true)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  return gateStatusFromRun(
+    promptVersion,
+    model,
+    data as PassingRunRow | null,
+    error ? error.message : null,
+  );
+}
+
+export interface PassingRunRow {
+  agreement_rate: number;
+  created_at: string;
+}
+
+/**
+ * The gate decision, separated from the query so the fail-closed paths are
+ * directly testable. Pure + exported for tests, mirroring aggregateAuthenticityEval.
+ *
+ * Both "no row" and "query failed" resolve to NOT gated. That asymmetry is the
+ * whole point: a pass must be positively evidenced, never inferred from silence.
+ */
+export function gateStatusFromRun(
+  promptVersion: string,
+  model: string,
+  row: PassingRunRow | null,
+  queryError: string | null,
+): AuthenticityGateStatus {
+  const base: Omit<AuthenticityGateStatus, "gated" | "reason"> = {
+    prompt_version: promptVersion,
+    model,
+    last_passing_run_at: null,
+    agreement_rate: null,
+  };
+
+  if (queryError) {
+    // An unreadable ledger is not evidence of a pass.
+    return { ...base, gated: false, reason: `Could not read eval runs: ${queryError}` };
+  }
+  if (!row) {
+    return {
+      ...base,
+      gated: false,
+      reason:
+        `No passing authenticity eval run for "${promptVersion}" on model "${model}". ` +
+        `Run the gate against a labeled golden set before this version serves users.`,
+    };
+  }
+
+  return {
+    ...base,
+    gated: true,
+    last_passing_run_at: row.created_at,
+    agreement_rate: Number(row.agreement_rate),
+    reason: null,
+  };
+}
+
+/**
+ * Fail-closed guard for any authenticity prompt-activation path.
+ *
+ * Mirrors activatePromptVersion's eval_passed check. Call this BEFORE promoting
+ * an authenticity prompt version — it refuses by default, so a future activation
+ * route cannot ship ungated by omission.
+ */
+export async function assertAuthenticityPromptActivatable(
+  promptVersion: string,
+  model: string = getDefaultModel(),
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const status = await authenticityGateStatus(promptVersion, model);
+  return status.gated
+    ? { ok: true }
+    : { ok: false, reason: status.reason ?? "Authenticity eval gate not satisfied." };
+}
+
+/**
+ * Boot-time visibility for an ungated live authenticity prompt.
+ *
+ * Deliberately best-effort and non-throwing: a boot guard that can fail is how
+ * the schema-version check once crash-looped the whole edge service (US-778).
+ * This warns and returns; it never blocks startup and never rejects.
+ */
+export async function warnAuthenticityGate(
+  versions: string[] = [AUTHENTICITY_PROMPT_VERSION, AUTHENTICITY_PROMPT_VERSION_GROUNDED],
+): Promise<void> {
+  try {
+    const model = getDefaultModel();
+    for (const v of versions) {
+      const status = await authenticityGateStatus(v, model);
+      if (!status.gated) {
+        console.warn(
+          `[BOOT] authenticity: prompt "${v}" is serving UNGATED — ${status.reason}`,
+        );
+      }
+    }
+  } catch (err) {
+    console.warn(
+      `[BOOT] authenticity: could not check the eval gate: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
 }
 
 interface EvalCaseRow {
