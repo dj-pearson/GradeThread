@@ -471,7 +471,7 @@ Highest blast radius first:
 - **SES / email cluster (~21).** `EMAIL_TRANSPORT`, the `SES_AWS_*` and `AWS_*`
   credential pairs, the three `SES_*_CONFIGURATION_SET`s, `SES_MARKETING_FROM_*`,
   `SES_SNS_TOPIC_ARN`, `EMAIL_TRACKING_SECRET`, `MARKETING_*`, `SMTP_REPLY_TO`.
-  `DELIVERABILITY.md` covers most of these; neither env doc did.
+  `vault/50-business/deliverability.md` covers most of these; neither env doc did.
 - **Extension / auth.** `EXTENSION_TOKEN_SECRET`, `EXTENSION_ALLOWED_ORIGINS`,
   `EXTENSION_FRAUD_FLAGS_ENABLED`, `GOOGLE_RTDN_WEBHOOK_SECRET`.
 - **Mobile / IAP / push.** `FCM_PROJECT_ID`, `FCM_SERVICE_ACCOUNT_JSON`,

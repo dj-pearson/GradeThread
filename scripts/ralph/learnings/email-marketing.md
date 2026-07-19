@@ -273,7 +273,7 @@ Read this IN ADDITION to LEARNINGS.md when your story touches the newsletter/bro
   SES config-set `X-SES-CONFIGURATION-SET` + List-Unsubscribe headers on SMTP).
 - Warmup ramp = pure `lib/email-warmup.ts` (daily caps in settings, seeded 00292,
   `marketing_warmup_*`, off by default) folded into the broadcast batch limit via
-  `effectiveBatchLimit`. Runbook: `DELIVERABILITY.md`.
+  `effectiveBatchLimit`. Runbook: `vault/50-business/deliverability.md`.
 
 
 ## SES suppression loop (US-914)

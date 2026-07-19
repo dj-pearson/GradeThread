@@ -20,7 +20,7 @@ live and what keeps them consistent.
 
 Pricing is defined in three places that must move together:
 
-1. **`docs/PRICING.md`** — the canonical model (US-200), currently still at its
+1. **`vault/50-business/pricing.md`** — the canonical model (US-200), currently still at its
    original path. Moves into this folder in US-2055.
 2. **`src/lib/constants.ts`** — the machine-readable mirror: `FLIPDESK_PLANS`,
    `GRADETHREAD_TIERS`, `CREDIT_PACKS`, `FLIPDESK_UPGRADE_TRIGGERS` (re-exported
@@ -28,7 +28,7 @@ Pricing is defined in three places that must move together:
 3. **The Stripe catalog** — generated from the same numbers by
    `scripts/setup-stripe-pricing.mjs` (US-203).
 
-`docs/PRICING.md` states the rule directly: any change to those constants must
+`vault/50-business/pricing.md` states the rule directly: any change to those constants must
 update the doc **in the same PR, and vice-versa**.
 
 ## Why this note exists before the migration

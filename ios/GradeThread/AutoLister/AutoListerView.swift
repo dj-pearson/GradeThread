@@ -349,8 +349,18 @@ struct AutoListerView: View {
                     "The AI looks at the remaining photos in order and proposes where each item begins. Uses AI actions — you'll see the count first."
                 )
             }
+            // LazyHStack, not HStack: the ungrouped pool holds up to ~200 photos
+            // on a bulk import, and a plain HStack realizes EVERY thumbnail
+            // including the ones scrolled off-screen. Each AI verify/propose
+            // progress publish re-renders this strip, so the cost is paid
+            // repeatedly and shows up as dropped frames mid-run.
+            //
+            // Same reasoning as InventoryBoardView (:34-35), which already
+            // documents it for a 500+-item catalog. The per-group strip below
+            // stays a plain HStack deliberately — a group is one item's photos,
+            // typically 4-12, where laziness would add overhead for nothing.
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
+                LazyHStack(spacing: 8) {
                     ForEach(model.ungroupedSorted) { photo in
                         ungroupedThumbnail(photo)
                     }

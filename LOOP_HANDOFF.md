@@ -124,7 +124,7 @@
   CI, graceful insufficient/sparse/sufficient). Tenant-scoped route
   `flipdesk-forecast.ts` (`/api/flipdesk/forecast` POST + `/garments/:id`; cohort
   from owner's own sales only; compPulls tier + `passport_forecast` flag).
-  `docs/PASSPORT_FORECAST.md`. Scout surface `components/flipdesk/forecast-card.tsx`
+  `vault/50-business/passport-forecast.md`. Scout surface `components/flipdesk/forecast-card.tsx`
   + `hooks/use-resale-forecast.ts` (NB: `use-forecast.ts` is the pre-existing
   US-623 sell-through hook — do not clobber).
 
