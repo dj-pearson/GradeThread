@@ -16,6 +16,7 @@ import {
   staticUrls,
   blogUrls,
   certUrls,
+  passportUrls,
   sellerUrls,
   conditionIndexUrls,
   valueIndexUrls,
@@ -38,16 +39,18 @@ export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
   let statics: SitemapUrl[],
     blog: SitemapUrl[],
     certs: SitemapUrl[],
+    passports: SitemapUrl[],
     sellers: SitemapUrl[],
     condition: SitemapUrl[],
     value: SitemapUrl[],
     durability: SitemapUrl[],
     authors: SitemapUrl[];
   try {
-    [statics, blog, certs, sellers, condition, value, durability, authors] = await Promise.all([
+    [statics, blog, certs, passports, sellers, condition, value, durability, authors] = await Promise.all([
       staticUrls(env),
       blogUrls(env),
       certUrls(env),
+      passportUrls(env),
       sellerUrls(env),
       conditionIndexUrls(env),
       valueIndexUrls(env),
@@ -66,6 +69,7 @@ export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
     statics.length +
     blog.length +
     certs.length +
+    passports.length +
     sellers.length +
     condition.length +
     value.length +
@@ -81,6 +85,7 @@ export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
           "sitemap-grading.xml",
           "sitemap-blog.xml",
           "sitemap-certs.xml",
+          "sitemap-passports.xml",
           "sitemap-sellers.xml",
           "sitemap-condition.xml",
           "sitemap-value.xml",
@@ -92,6 +97,7 @@ export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
           ...statics,
           ...blog,
           ...certs,
+          ...passports,
           ...sellers,
           ...condition,
           ...value,

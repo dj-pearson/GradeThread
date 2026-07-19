@@ -38,6 +38,7 @@
     "/sitemap.xml",
     "/sitemap-blog.xml",
     "/sitemap-certs.xml",
+    "/sitemap-passports.xml",
     "/sitemap-condition.xml",
     "/sitemap-value.xml",
     "/sitemap-durability.xml",

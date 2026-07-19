@@ -1221,6 +1221,58 @@ contentPublicRoutes.post("/badge-click", async (c) => {
 // Compact list for the sitemap (US-293): every public certificate's id +
 // lastmod. Capped + cursor-paginated by created_at so a crawler can't pull the
 // whole table at once.
+// ── GET /passports.json ───────────────────────────────────────────
+// US-2110: compact list of PUBLIC garment passports for the sitemap.
+//
+// /passport/:slug is SSR'd with full Product JSON-LD and is explicitly designed
+// to be indexable ("the marquee buyer-facing provenance surface — one
+// indexable, AI-citable page per garment"), but no sitemap generator existed,
+// so the pages were discoverable only via inbound links. They also sit outside
+// the static-route CI guard, which skips any path containing ":" — nothing
+// flagged the omission.
+//
+// VISIBILITY GATE: public_passport_slug is the opt-in. A garment is public if
+// and only if it has one, which is exactly the predicate GET /api/passport/:slug
+// resolves against — so this list cannot advertise a URL that would 404, and
+// cannot leak a garment whose owner never published it.
+//
+// Cursor-paginated on created_at like certificates.json, and for the same
+// reason: a crawler must not be able to pull the whole table in one request.
+contentPublicRoutes.get("/passports.json", async (c) => {
+  const limit = Math.min(
+    Math.max(Number(c.req.query("limit") ?? 1000) || 1000, 1),
+    5000,
+  );
+  const cursor = c.req.query("cursor");
+
+  let q = supabaseAdmin
+    .from("garments")
+    .select("public_passport_slug, created_at")
+    .not("public_passport_slug", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (cursor) q = q.lt("created_at", cursor);
+
+  const { data, error } = await q;
+  if (error) return publicError(c, error, "query");
+
+  const rows = (data ?? []) as Array<{
+    public_passport_slug: string | null;
+    created_at: string;
+  }>;
+  // Paginate on the RAW page so the cursor always advances, mirroring
+  // certificates.json.
+  const nextCursor =
+    rows.length === limit ? rows[rows.length - 1]?.created_at ?? null : null;
+
+  return c.json({
+    passports: rows
+      .filter((r) => !!r.public_passport_slug)
+      .map((r) => ({ slug: r.public_passport_slug as string, updated_at: r.created_at })),
+    next_cursor: nextCursor,
+  });
+});
+
 contentPublicRoutes.get("/certificates.json", async (c) => {
   const limit = Math.min(
     Math.max(Number(c.req.query("limit") ?? 1000) || 1000, 1),

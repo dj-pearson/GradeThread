@@ -60,6 +60,10 @@ interface CertSitemap {
   certificates: Array<{ id: string; updated_at: string }>;
   next_cursor: string | null;
 }
+interface PassportSitemap {
+  passports: Array<{ slug: string; updated_at: string }>;
+  next_cursor: string | null;
+}
 interface SellerSitemap {
   sellers: Array<{ handle: string; updated_at: string }>;
 }
@@ -280,6 +284,50 @@ export async function certUrls(env: PagesEnv): Promise<SitemapUrl[]> {
       `[sitemap] certificate sitemap hit the ${CERT_MAX_URLS}-URL ceiling and is ` +
         `now TRUNCATED. It must be split into numbered sub-sitemaps ` +
         `(sitemap-certs-1.xml …) before certificate volume grows further.`,
+    );
+  }
+  return urls;
+}
+
+// US-2110: /passport/:slug is SSR'd with full Product JSON-LD and is designed to
+// be indexed, but had no generator — the pages were reachable only via inbound
+// links. Cursor-paginated from the start, following US-2096 rather than
+// repeating the bug it fixed.
+const PASSPORT_PAGE_SIZE = 5000;
+const PASSPORT_MAX_URLS = 50_000;
+
+export async function passportUrls(env: PagesEnv): Promise<SitemapUrl[]> {
+  const base = siteUrl(env);
+  const urls: SitemapUrl[] = [];
+  let cursor: string | null = null;
+
+  while (urls.length < PASSPORT_MAX_URLS) {
+    const qs = new URLSearchParams({ limit: String(PASSPORT_PAGE_SIZE) });
+    if (cursor) qs.set("cursor", cursor);
+    const data: PassportSitemap | null = await fetchEdgeJson<PassportSitemap>(
+      env,
+      `/api/content/public/passports.json?${qs}`,
+    );
+    if (!data) break;
+
+    for (const p of data.passports) {
+      urls.push({
+        loc: `${base}/passport/${p.slug}`,
+        lastmod: p.updated_at?.slice(0, 10),
+        changefreq: "monthly",
+        priority: 0.6,
+      });
+    }
+
+    const next: string | null = data.next_cursor ?? null;
+    if (!next || next === cursor) break;
+    cursor = next;
+  }
+
+  if (urls.length >= PASSPORT_MAX_URLS) {
+    console.error(
+      `[sitemap] passport sitemap hit the ${PASSPORT_MAX_URLS}-URL ceiling and is ` +
+        `now TRUNCATED; it must be split into numbered sub-sitemaps.`,
     );
   }
   return urls;

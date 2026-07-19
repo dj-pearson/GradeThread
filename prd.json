@@ -3399,7 +3399,7 @@
     {
       "id": "US-2110",
       "priority": 1999,
-      "passes": false,
+      "passes": true,
       "title": "/passport/:slug is SSR'd with full JSON-LD but has no sitemap generator",
       "description": "functions/passport/[slug].ts SSRs passport pages with complete Product JSON-LD (json-ld.ts:699), and src/pages/passport.tsx passes jsonLd — but there is no passportUrls() in functions/_shared/sitemap.ts, unlike certs, sellers, authors, value and durability which all have one. The pages are discoverable only via inbound links. Note these sit outside the static-route CI guard, which skips any path containing ':' (public-routes.test.ts:42), so nothing flags the omission.",
       "acceptanceCriteria": [
@@ -3407,7 +3407,7 @@
         "Wire it into the sitemap index.",
         "Confirm the pages should be indexed at all — if they are user-owned surfaces like /trust/:handle, noindex them deliberately instead and document why."
       ],
-      "notes": "[P3][SEO] Found 2026-07-18 by the SEO/marketing deep-dive audit. Decide indexability first; do not add URLs by default given the indexability constraint."
+      "notes": "[P3][SEO] Found 2026-07-18 by the SEO/marketing deep-dive audit. Decide indexability first; do not add URLs by default given the indexability constraint. [2026-07-19 DONE — all 3 ACs] AC3 FIRST, as the story demanded (decide indexability before adding URLs). ANSWERED BY EVIDENCE, not preference: functions/passport/[slug].ts states the intent outright — the marquee buyer-facing provenance surface, one INDEXABLE, AI-citable page per garment ... PII-free by construction. It carries no noindex, unlike /trust/:handle which is explicitly x-robots-tag noindex and private-by-default. So passports are meant to be indexed and the cited comparison surface is the counter-example, not the model. AC1: new GET /api/content/public/passports.json (cursor-paginated on created_at, limit capped at 5000) + passportUrls() in functions/_shared/sitemap.ts, written cursor-correct FROM THE START rather than repeating the US-2096 bug — non-advancing-cursor break and a 50k ceiling that logs rather than truncating silently. AC2: wired into the sitemap index (counts toward the index-vs-urlset threshold, listed in the sitemapindex) plus a new functions/sitemap-passports.xml.ts sub-route with the US-2097 503 guard. VISIBILITY GATE: public_passport_slug is the publish opt-in, and it is the SAME predicate GET /api/passport/:slug resolves against. That parity is what stops the sitemap advertising a URL that 404s or leaking an unpublished garment. Negative-verified by removing the .not(...is null) filter — the guard fails. Registered /sitemap-passports.xml in public/_routes.json; without it Cloudflare Pages serves a static 404 instead of invoking the Function, the same silent prod failure the US-424 guard caught on /llms-full.txt last commit. A test now asserts that entry directly. ⚠ OBSERVED, NOT CAUSED BY THIS WORK: the vitest suite is FLAKY under parallel load. Slow file-scanning guards (no-or-on-mutations, lockstep-registry, both ~8.6s) fail nondeterministically and the failing test varies run to run. Measured: with my changes stashed the clean tree produced 10 failures; with them applied, 1. All pass in isolation. Worth its own story — a suite that fails randomly trains people to re-run rather than investigate."
     },
     {
       "id": "US-2111",
