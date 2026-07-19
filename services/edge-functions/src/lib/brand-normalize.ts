@@ -1389,6 +1389,25 @@ export function canonicalizeBrand(
   return BRAND_ALIASES[brandKey(cleaned)] ?? cleaned;
 }
 
+/**
+ * The brand_key for a RAW brand string as a seller supplies it — alias-resolved.
+ *
+ * This is the only correct way to turn seller input into a key that joins
+ * brand_knowledge. `brandKey(raw)` alone is NOT equivalent: it skips
+ * canonicalizeBrand, so "YSL" keys as `ysl` while the KB row is
+ * `yvessaintlaurent`, and the two never meet. That mismatch is silent — the
+ * lookup simply returns nothing, which is indistinguishable from a brand we have
+ * no knowledge of.
+ *
+ * Exported so the golden set, the tell-candidate aggregator and per-brand
+ * accuracy all bucket under the SAME key. They were each hand-rolling
+ * `brandKey(raw)` and would have split one brand across its alias spellings.
+ */
+export function brandKeyForRaw(raw: string | null | undefined): string | null {
+  const canonical = canonicalizeBrand(raw);
+  return canonical ? brandKey(canonical) : null;
+}
+
 /** True when the brand resolves to a curated canonical entry (vs. passthrough). */
 export function isKnownBrand(raw: string | null | undefined): boolean {
   if (raw == null) return false;

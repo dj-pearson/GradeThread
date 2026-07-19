@@ -77,6 +77,7 @@ import {
 import { recordMetric } from "../lib/observability.ts";
 import { compareModelEvals, type ModelEvalRun } from "../lib/model-comparison.ts";
 import { isAllowedGradingModel } from "../lib/ai-config.ts";
+import { brandKeyForRaw } from "../lib/brand-normalize.ts";
 import {
   COMPOSITE_PROMPT_VERSION,
   invalidatePromptCache,
@@ -569,7 +570,7 @@ async function loadAuthenticityObservations(): Promise<AuthenticityObservation[]
     const brand = r.grade_reports?.submissions?.brand?.trim();
     return {
       prompt_version: r.model_prompt_version,
-      brand_key: brand ? brand.toLowerCase().replace(/[^a-z0-9]+/g, "") : null,
+      brand_key: brandKeyForRaw(brand),
       model_verdict: r.model_verdict,
       reviewer_verdict: r.reviewer_verdict,
       reviewed_at: r.reviewed_at,
@@ -690,8 +691,12 @@ adminGradingRoutes.get("/authenticity/tell-candidates", async (c) => {
     .map((r) => {
       const brand = r.grade_reports?.submissions?.brand?.trim();
       if (!brand) return null;
+      // Drop rather than bucket under "": an unresolvable brand cannot join
+      // brand_knowledge, so a candidate for it could never be promoted anyway.
+      const key = brandKeyForRaw(brand);
+      if (!key) return null;
       return {
-        brand_key: brand.toLowerCase().replace(/[^a-z0-9]+/g, ""),
+        brand_key: key,
         reviewer_verdict: r.reviewer_verdict,
         tells_relied_on: r.tells_relied_on ?? [],
       };
@@ -843,7 +848,12 @@ adminGradingRoutes.post("/authenticity/reviews/:id/promote", async (c) => {
 
   const submission = (sub ?? {}) as { brand?: string | null; garment_type?: string | null };
   const brand = submission.brand?.trim() || null;
-  if (!brand) {
+  // Alias-resolved, so a case promoted from a seller writing "YSL" keys to the
+  // same brand_knowledge row as one written "Yves Saint Laurent". Without this
+  // the golden set silently splits one brand across its spellings, and per-brand
+  // coverage — which is what blocks activation — reads as thinner than it is.
+  const promotedBrandKey = brandKeyForRaw(brand);
+  if (!brand || !promotedBrandKey) {
     // brand_key joins brand_knowledge; a case with no brand cannot be scored
     // per-brand, and per-brand regression is what blocks activation.
     return c.json({ error: "The submission has no brand, so the case has no brand_key to score against." }, 422);
@@ -853,7 +863,7 @@ adminGradingRoutes.post("/authenticity/reviews/:id/promote", async (c) => {
     .from("authenticity_eval_cases")
     .insert({
       label: `Review-promoted: ${brand} (${outcome.reviewer_verdict})`,
-      brand_key: brand.toLowerCase().replace(/[^a-z0-9]+/g, ""),
+      brand_key: promotedBrandKey,
       brand,
       garment_type: submission.garment_type ?? null,
       images,

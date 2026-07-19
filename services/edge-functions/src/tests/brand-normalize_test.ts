@@ -4,6 +4,8 @@
 import { assertEquals } from "@std/assert";
 import {
   applyCanonicalBrandAndStyle,
+  brandKey,
+  brandKeyForRaw,
   canonicalizeBrand,
   detectBrandInText,
   isKnownBrand,
@@ -190,4 +192,37 @@ Deno.test("applyCanonicalBrandAndStyle is pure (does not mutate input)", () => {
   const input = { Brand: ["Levis"] };
   applyCanonicalBrandAndStyle(input, "Levi's", null);
   assertEquals(input.Brand, ["Levis"]);
+});
+
+// ── US-2147/US-2140/US-2146: brand_key must be ALIAS-RESOLVED ───────────────
+// The golden set, the tell-candidate aggregator and per-brand accuracy all key
+// on brand_key. Deriving it with brandKey(raw) skips alias resolution, which
+// silently splits one brand across its spellings — and the failure is invisible,
+// because a lookup that finds nothing looks exactly like a brand we have no
+// knowledge of.
+
+Deno.test("brandKeyForRaw resolves an alias before keying", () => {
+  // brandKey alone would key this as its own thing and never join the KB row.
+  assertEquals(brandKey("Levi Strauss"), "levistrauss");
+  assertEquals(brandKeyForRaw("Levi Strauss"), "levis");
+  assertEquals(brandKeyForRaw("levis"), "levis");
+  assertEquals(brandKeyForRaw("Levi's"), "levis");
+});
+
+Deno.test("brandKeyForRaw maps a parent mark to the brand it identifies", () => {
+  // A Blue Bell tag IS a Wrangler (pre-1986 parent mark). Keying it literally
+  // would file tells and eval cases under a brand nothing reads.
+  assertEquals(brandKeyForRaw("Blue Bell"), "wrangler");
+});
+
+Deno.test("brandKeyForRaw passes an unknown brand through, keyed", () => {
+  assertEquals(brandKeyForRaw("Some Indie Label"), "someindielabel");
+});
+
+Deno.test("brandKeyForRaw returns null for nothing usable", () => {
+  // Callers drop these rather than bucketing under "" — an unresolvable brand
+  // cannot join brand_knowledge, so a candidate for it is unpromotable anyway.
+  assertEquals(brandKeyForRaw(null), null);
+  assertEquals(brandKeyForRaw("   "), null);
+  assertEquals(brandKeyForRaw(undefined), null);
 });
