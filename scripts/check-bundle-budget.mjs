@@ -156,6 +156,61 @@ if (tiptapChunks.length === 0) {
   // (an eager TipTap chunk is already reported by the FORBIDDEN_IN_EAGER pass)
 }
 
+// US-2112: WARN BEFORE THE BREACH, WITH THE CAUSE ATTACHED.
+//
+// The documented history of this file is four ceiling raises (48.2 -> 54.6 ->
+// 57.0 -> 61.91 -> 62.44), each attributed to route-table growth and each
+// followed by a note that the real fix "remains overdue". That pattern is not
+// carelessness — it is what happens when the budget first speaks on the PR that
+// happens to cross it, which is almost never the PR that caused the growth and
+// is usually under time pressure. The reflexive fix is then to raise the
+// ceiling, because the alternative is blocking unrelated work.
+//
+// So: warn while there is still room to act, and name what is actually IN the
+// chunk so the next person does not have to re-derive it. This never fails the
+// build — a warning that can block is just a lower ceiling.
+const HEADROOM_WARN_KB = 3;
+
+function warnNearBudget(label, kb, budget, modules) {
+  const headroom = budget - kb;
+  if (headroom > HEADROOM_WARN_KB || headroom < 0) return;
+  console.warn(
+    `
+[33m[1m[bundle-budget] NEAR LIMIT[0m ${label} ${kb.toFixed(2)}/${budget} KB gz ` +
+      `— only ${headroom.toFixed(2)} KB left.`,
+  );
+  if (modules && modules.length) {
+    const pkgs = new Map();
+    for (const id of modules) {
+      const m = String(id).match(/node_modules\/(?:\.pnpm\/)?((?:@[^/]+\/)?[^/]+)/);
+      if (m) pkgs.set(m[1], (pkgs.get(m[1]) ?? 0) + 1);
+    }
+    const top = [...pkgs.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
+    if (top.length) {
+      console.warn(
+        `  eager node_modules in this chunk: ` +
+          top.map(([n, c]) => `${n}(${c})`).join(", "),
+      );
+    }
+  }
+  console.warn(
+    `  [2mDo NOT reflexively raise the ceiling — see US-2112. The cause is
+` +
+      `  structural (the ~250-route eager route table in src/routes/index.tsx),
+` +
+      `  so raising it trades LCP on the marketing pages for one more PR.[0m
+`,
+  );
+}
+
+const entryFile = rows.find((r) => r.isEntry)?.f;
+warnNearBudget(
+  "entry",
+  entryKb,
+  ENTRY_GZ_BUDGET_KB,
+  entryFile ? manifest[entryFile]?.modules : null,
+);
+warnNearBudget("eager total", eagerTotalKb, EAGER_TOTAL_GZ_BUDGET_KB, null);
 if (errors.length) {
   for (const e of errors) console.error(`  \x1b[31m✗\x1b[0m ${e}`);
   fail(`${errors.length} budget/code-splitting violation(s).`);
