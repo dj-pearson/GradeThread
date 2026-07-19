@@ -9,6 +9,7 @@
 // purchase (US-268).
 
 import { supabaseAdmin } from "./supabase.ts";
+import { captureException, recordMetric } from "./observability.ts";
 import { getSetting } from "./system-settings.ts";
 import { notifyBuyer } from "./buyer-notify.ts";
 import {
@@ -363,7 +364,24 @@ export async function fileBuyerGuaranteeClaim(
         p_credits: decision.remedyCredits,
         p_reason: "guarantee_remedy",
       });
-      if (grantErr) console.error("[buyer-guarantee] remedy grant failed:", grantErr.message);
+      if (grantErr) {
+        // US-2144: a swallowed failure here leaves a buyer owed credits nobody
+        // knows are missing — the claim row already reads auto_approved with
+        // remedy_credits set, and the pool has already been drawn down, so
+        // nothing downstream ever revisits it. A bare console.error is not
+        // alertable; this makes the discrepancy observable.
+        //
+        // Deliberately NOT changing the payout semantics here: whether the claim
+        // should flip to manual_review, and whether the drawdown should reverse,
+        // is a money decision with an owner, recorded in
+        // vault/60-decisions/adr-authenticity-guarantee.md. Silently succeeding
+        // is wrong either way; silently *undoing* a payout would be worse.
+        captureException(grantErr, {
+          route: "buyer-guarantee.remedy_grant",
+          extra: { claimId, credits: decision.remedyCredits },
+        });
+        recordMetric("guarantee.remedy_grant_failed", 1, { claim_id: claimId });
+      }
     }
   }
 
