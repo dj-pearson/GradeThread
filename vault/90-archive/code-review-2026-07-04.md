@@ -28,18 +28,18 @@ summary: Nine-domain deep-dive review; all six executive-summary criticals since
 # GradeThread — Deep-Dive Code Review & Action Plan
 
 > [!info] Triage status (US-2089, updated 2026-07-19)
-> **38 of 93 boxes are ticked**: 8 of the 9 Criticals, all 8 **Web P1s**, 13
-> **Web P2s**, all 7 **Grading-engine** findings, and the 2 edge/DB P2s US-2089
-> names explicitly. **Every single one was already fixed.** The boxes were
+> **50 of 93 boxes are ticked**: 8 of the 9 Criticals, all 8 **Web P1s**, 13
+> **Web P2s**, all 7 **Grading-engine** findings, 12 **Edge tenant-isolation**
+> findings, and the 2 edge/DB P2s. **Every single one was already fixed.** Boxes were
 > never ticked when the work shipped, which is why they carried no signal.
 >
 > An unchecked box means **NOT YET TRIAGED**, not **still open**. Do not read
-> the 55 remaining as a backlog of live defects; read them as unverified. That
+> the 43 remaining as a backlog of live defects; read them as unverified. That
 > distinction is the whole reason US-2089 exists.
 >
-> **38-for-38 already-fixed is a settled pattern.** The July review was
+> **50-for-50 already-fixed is a settled pattern.** The July review was
 > evidently actioned in bulk and nobody ticked the document. That is a REASON TO
-> FINISH THE TRIAGE CHEAPLY — not a licence to assume: each of the 38 was
+> FINISH THE TRIAGE CHEAPLY — not a licence to assume: each of the 50 was
 > confirmed against the cited code, and that reading is the only thing that
 > turns an unchecked box into information.
 >
@@ -52,6 +52,11 @@ summary: Nine-domain deep-dive review; all six executive-summary criticals since
 > unchecked.** It is not among the six the header names and was not verified —
 > it is the one Critical whose status is genuinely unknown, so it should be the
 > next thing anyone looks at.
+>
+> ⚠️ Also deliberately unchecked: the **flipdesk-auth-coverage regex scope**
+> finding. That guard is still scoped to `/api/flipdesk/*`, by decision — US-2014
+> shipped an eBay-specific coverage guard rather than inverting the middleware
+> for 81 live routes without a staging deploy. Open by choice, not by oversight.
 
 
 **Date:** 2026-07-04
@@ -170,23 +175,23 @@ These are the P1s whose blast radius is money, fraud, PII exposure, or permanent
 **No P0 cross-tenant path.** Scoping, webhook/OAuth tenant resolution, and cron auth all verified clean. (The P1 role-enforcement gap is **C3** above.)
 
 ### P2
-- [ ] **Per-grade checkout scoped to bare `userId` strands workspace-member submissions** — `payments.ts:612-624` (no `workspaceMiddleware` on `/api/payments/*`). Member submissions are `user_id = ownerId`, so `/per-grade` 404s. Strict scoping is what *prevents* injection here — the defect is a broken workspace flow. **Fix:** mount `workspaceMiddleware`, thread `ownerId` through the ownership check + `metadata.user_id` + webhook flip.
-- [ ] **Account deletion orphans retained originals + dispute evidence (GPS-bearing PII survives)** — `account.ts:355-371` selects only `storage_path`, never `submission_images.original_storage_path` (EXIF/GPS deliberately intact) or `disputes.evidence_paths`. Returns `{deleted:true}` while the objects persist. **Fix:** include both in the caller-scoped `removeAll` sweep.
+- [x] **Per-grade checkout scoped to bare `userId` strands workspace-member submissions** — `payments.ts:612-624` (no `workspaceMiddleware` on `/api/payments/*`). Member submissions are `user_id = ownerId`, so `/per-grade` 404s. Strict scoping is what *prevents* injection here — the defect is a broken workspace flow. **Fix:** mount `workspaceMiddleware`, thread `ownerId` through the ownership check + `metadata.user_id` + webhook flip. — ✅ **CLOSED**: `workspaceMiddleware` is now mounted on `/api/payments/*` (main.ts), so the checkout resolves the workspace owner rather than the bare caller. Verified against source 2026-07-19 (US-2089).
+- [x] **Account deletion orphans retained originals + dispute evidence (GPS-bearing PII survives)** — `account.ts:355-371` selects only `storage_path`, never `submission_images.original_storage_path` (EXIF/GPS deliberately intact) or `disputes.evidence_paths`. Returns `{deleted:true}` while the objects persist. **Fix:** include both in the caller-scoped `removeAll` sweep. — ✅ **CLOSED** by US-1637: `collectSubmissionImagePaths` sweeps `original_storage_path` (the EXIF/GPS-intact forensic original) and `disputes.evidence_paths` alongside `storage_path`, de-duplicated. Verified against source 2026-07-19 (US-2089).
 
 ### P3 (hardening — verified not currently exploitable)
-- [ ] `grade.ts:792` `/status/:id` uses `select("*")` → leaks `reviewed_by` to the tenant (whitelist columns).
-- [ ] `lib/grade-billing.ts:252` `runPaymentPrecedence` marks paid by `.eq("id",…)` alone (all callers owner-verify first; add `.eq("user_id",…)` at the chokepoint).
-- [ ] `notifications.ts:568` `/dispute-filed` — existence/status oracle + re-fires admin email every call (scope + `admin_alerted_at` guard).
-- [ ] `notifications.ts:733` `/welcome` unauthenticated, takes `userId` from body — account-existence oracle (move behind auth).
-- [ ] `flipdesk-ai.ts:364` inserts `ai_enrichment_log` before ownership check → cross-tenant UUID-existence oracle.
-- [ ] `flipdesk-autolister.ts:1025/1183` use `${ownerId}/` not `${ownerId}/_staging/` (tighten).
-- [ ] `flipdesk-listings.ts:287` `/cross-push` bare `.eq("id",…)` (add `.eq("user_id",ownerId)` — now free via `00146`).
-- [ ] `flipdesk-images.ts:53` `/remove-bg` can write a sensitive `tag`/`certificate` derivative into the **public** bucket (block sensitive `photo_type`s).
+- [x] `grade.ts:792` `/status/:id` uses `select("*")` → leaks `reviewed_by` to the tenant (whitelist columns). — ✅ **CLOSED** by US-1638: the tenant-facing columns are whitelisted instead of `select("*")`. Verified against source 2026-07-19 (US-2089).
+- [x] `lib/grade-billing.ts:252` `runPaymentPrecedence` marks paid by `.eq("id",…)` alone (all callers owner-verify first; add `.eq("user_id",…)` at the chokepoint). — ✅ **CLOSED**: the mark-paid update now carries `.eq("user_id", userId)` as defence in depth beneath the callers' owner check. Verified against source 2026-07-19 (US-2089).
+- [x] `notifications.ts:568` `/dispute-filed` — existence/status oracle + re-fires admin email every call (scope + `admin_alerted_at` guard). — ✅ **CLOSED** by US-1638 (lookup scoped to the caller's own dispute) + US-1652 (race-safe `admin_alerted_at IS NULL` claim, so exactly one of N concurrent callers sends the admin email). Verified against source 2026-07-19 (US-2089).
+- [x] `notifications.ts:733` `/welcome` unauthenticated, takes `userId` from body — account-existence oracle (move behind auth). — ✅ **CLOSED**: the handler takes the id from the verified session, not the body, and `/api/notifications/*` is behind `authMiddleware`. Verified against source 2026-07-19 (US-2089).
+- [x] `flipdesk-ai.ts:364` inserts `ai_enrichment_log` before ownership check → cross-tenant UUID-existence oracle. — ✅ **CLOSED** by US-1638: ownership is verified BEFORE any DB write keyed on the supplied `item_id`, so the insert can no longer act as a cross-tenant UUID-existence oracle. Verified against source 2026-07-19 (US-2089).
+- [x] `flipdesk-autolister.ts:1025/1183` use `${ownerId}/` not `${ownerId}/_staging/` (tighten). — ✅ **CLOSED**: the staging paths are now `_staging/`-qualified throughout. Verified against source 2026-07-19 (US-2089).
+- [x] `flipdesk-listings.ts:287` `/cross-push` bare `.eq("id",…)` (add `.eq("user_id",ownerId)` — now free via `00146`). — ✅ **CLOSED**: `/cross-push` resolves `ownerId` from the workspace context and rejects the draft unless the joined `inventory_items.user_id` matches — ownership via the parent row rather than a bare id filter. Verified against source 2026-07-19 (US-2089).
+- [x] `flipdesk-images.ts:53` `/remove-bg` can write a sensitive `tag`/`certificate` derivative into the **public** bucket (block sensitive `photo_type`s). — ✅ **CLOSED** by US-1638: `SENSITIVE_ITEM_PHOTO_TYPES` blocks label/tag/certificate close-ups from the background-removal path, so they can't land in the public `item-photos` bucket. Verified against source 2026-07-19 (US-2089).
 - [ ] `flipdesk-auth-coverage_test.ts:35` deny-by-default guard is regex-scoped to `/api/flipdesk/*` only — a new router elsewhere that forgets auth ships uncaught (generalize the guard).
 
 ### Test-coverage gaps (US-268 mandates a rejection case per route)
-- [ ] `workspace.ts` — **zero** cases (the role-authz surface **C3** most needs coverage and has none).
-- [ ] `notifications.ts`, `verified.ts`, `passport.ts tags/:tagId/revoke` — no cross-tenant cases.
+- [x] `workspace.ts` — **zero** cases (the role-authz surface **C3** most needs coverage and has none). — ✅ **CLOSED** by US-2039 (2026-07-19): `resolveRequestedOwner` / `resolveWorkspaceAccess` were extracted from the middleware precisely so this surface could be tested, and now carry 13 cases — including fail-closed on a lookup error and a viewer resolving as exactly `viewer`, which is what `blockViewerWrites` (the C3 fix) keys on. Verified against source 2026-07-19 (US-2089).
+- [x] `notifications.ts`, `verified.ts`, `passport.ts tags/:tagId/revoke` — no cross-tenant cases. — ✅ **CLOSED**: `tenant-isolation_test.ts` now carries cross-tenant cases across these surfaces. Verified against source 2026-07-19 (US-2089).
 
 > Residual: a full line-by-line sweep of `flipdesk-ebay.ts` (8,546 lines) did not complete; its load-bearing helpers were cross-verified clean, but a targeted pass on the remaining bespoke handlers is recommended before launch.
 
