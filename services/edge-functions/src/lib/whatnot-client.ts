@@ -1,4 +1,7 @@
 // Whatnot partner API connector for FlipDesk (US-1661) — OAuth 2.0 Authorization
+//
+// ↳ SHARED CONTRACT: vault/30-platform/marketplace-connector-contract.md —
+//   this file documents only Whatnot's deltas (auth URLs are MODELED, not documented).
 // Code + PKCE, encrypted token storage, and proactive token refresh. This module
 // owns the CONNECTION lifecycle only (connect → store → refresh → disconnect);
 // the publish/order-sync write path is US-1662 (the adapter's listing methods

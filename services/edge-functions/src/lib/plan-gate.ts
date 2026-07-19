@@ -1,5 +1,9 @@
 // FlipDesk plan-gate middleware (US-208).
 //
+// ↳ CONTRACT: vault/50-business/flipdesk-plan-gating.md — the call rule every
+//   new FlipDesk endpoint must honour, and the 80%-warning / 402 response
+//   protocol two frontends parse.
+//
 // Single source of truth for "can this user do this thing?" — every
 // FlipDesk-side endpoint that touches a gated capacity (active listings, AI
 // actions, marketplace connections) or a gated feature (bulk actions,

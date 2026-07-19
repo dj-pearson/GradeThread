@@ -1,5 +1,9 @@
 // US-1770: authenticity golden-set eval gate.
 //
+// ↳ REGISTERED AS UNWIRED: vault/70-agent/shipped-but-unwired.md — all six
+//   exports have zero non-self callers, so the authenticity prompt gate the
+//   grading lifecycle implies does not actually run (US-1996).
+//
 // ⚠ THIS GATE DOES NOT RUN. NOTHING IMPORTS THIS MODULE (verified 2026-07-18).
 //
 // US-1770 is marked passes:true in the archive while its OWN notes say

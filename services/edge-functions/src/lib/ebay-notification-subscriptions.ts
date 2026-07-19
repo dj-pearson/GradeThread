@@ -1,5 +1,9 @@
 // eBay Notification API subscription + destination management (US-1964).
 //
+// ↳ The destination-mapping CORRECTNESS constraint (an account-deletion event
+//   sent to the general receiver is silently dropped) is carried in
+//   vault/30-platform/ebay-condition-and-policies.md.
+//
 // Everything inbound from eBay (sales, payouts, returns, account deletion) is
 // delivered by the Notification API to a *destination* we register, for each
 // *topic* we subscribe. Before this module those were configured BY HAND in the

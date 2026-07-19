@@ -2641,7 +2641,7 @@
     },
     {
       "id": "US-2060",
-      "passes": false,
+      "passes": true,
       "dependsOn": [
         "US-2047"
       ],

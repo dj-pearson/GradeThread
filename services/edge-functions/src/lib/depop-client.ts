@@ -1,4 +1,7 @@
 // Depop Selling API connector for FlipDesk (US-713) — OAuth 2.0 Authorization
+//
+// ↳ SHARED CONTRACT: vault/30-platform/marketplace-connector-contract.md —
+//   the kill-switch / PKCE / token-encryption / refresh shape all connectors use.
 // Code + PKCE, encrypted token storage, and proactive token refresh. This module
 // owns the CONNECTION lifecycle only (connect → store → refresh → disconnect);
 // the publish/order-sync write path is US-714 (the adapter's listing methods

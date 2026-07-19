@@ -1,5 +1,10 @@
 // US-571: cross-replica cache coherence.
 //
+// ↳ The GENERAL rule this file is an instance of — "the edge runs N replicas,
+//   therefore a module-level cache is a correctness bug" — is stated once in
+//   vault/10-ops/edge-runtime-invariants.md. Read that before adding a cache
+//   anywhere in the edge service.
+//
 // The edge service runs as multiple replicas (US-501). Several module-level
 // caches were per-process, which broke once we scaled out:
 //   - eBay app token (client_credentials) + GSC service-account token: each

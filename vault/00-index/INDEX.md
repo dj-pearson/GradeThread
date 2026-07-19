@@ -31,7 +31,7 @@ New here? Read [[CONTRACT]] before adding a note.
 
 ## 10-ops — operations and runbooks
 
-20 notes — see [[moc-ops]].
+21 notes — see [[moc-ops]].
 
 ## 20-domain — grading, measurement, contracts
 
@@ -56,6 +56,7 @@ New here? Read [[CONTRACT]] before adding a note.
 - [[ebay-trading-api-watch]] — reference — Deprecation exposure on the legacy Trading API and what would force a migration.
 - [[flipdesk-dogfood]] — reference — What broke when the pipeline was run end to end on real inventory.
 - [[flipdesk-reseller-gaps]] — reference — Where the reseller workflow still falls short of what a working seller needs.
+- [[marketplace-connector-contract]] — contract — Every marketplace connector shares one kill-switch, PKCE, token-encryption and refresh shape; new connectors copy it rather than inventing one.
 
 ## 40-growth — SEO, content, distribution
 
@@ -74,6 +75,7 @@ New here? Read [[CONTRACT]] before adding a note.
 
 - [[ai-profitability]] — reference — Per-surface model choice, unit cost and margin, with the keep/downgrade call for each.
 - [[deliverability]] — runbook — SES/SMTP configuration, warmup, DMARC alignment and what to check when mail stops landing.
+- [[flipdesk-plan-gating]] — contract — Every FlipDesk endpoint touching a gated capacity or feature calls requireFlipdesk; the 80%-warning and 402 responses are a protocol two frontends depend on.
 - [[google-ads-setup]] — runbook — Account structure, conversion wiring and the gclid path for the Ads Command Center.
 - [[newsletter-tuning]] — runbook — Cadence, segmentation and the levers that move open and click rates.
 - [[passport-forecast]] — reference — Volume and revenue projection for the passport surface.
@@ -94,6 +96,7 @@ New here? Read [[CONTRACT]] before adding a note.
 
 - [[agent-knowledge-surfaces]] — reference — Four places currently hold agent-facing knowledge; this note defines the intended division and tracks the unification.
 - [[guards-that-cannot-fail]] — learning — This repo's most common defect is not a broken check but a check that passes for the wrong reason; here are the seven shapes it took and the one habit that catches all of them.
+- [[shipped-but-unwired]] — learning — Three modules pass their tests while nothing calls them; two are accidents that leave a stated guarantee unenforced, one is a deliberate policy retirement.
 
 ## 90-archive — historical snapshots
 

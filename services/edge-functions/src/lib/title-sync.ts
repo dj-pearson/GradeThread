@@ -1,5 +1,9 @@
 // US-1891: backwards title sync.
 //
+// ↳ REGISTERED AS UNWIRED: vault/70-agent/shipped-but-unwired.md — this edge
+//   copy's only consumer is its own test; the web copy shipped, so every
+//   non-web surface still leaves a stale brand in listing_title.
+//
 // Aspects sync both ways already (US-822/824), but `listing_title` is a
 // free-form column that nothing rebuilds — so correcting an item's Brand (or
 // size/color/style/department) after AI generation left the OLD value in the one

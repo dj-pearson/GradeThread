@@ -1,5 +1,8 @@
 // Server-side compositing of a GradeThread grade badge onto a listing photo.
 //
+// ↳ WHY THIS MODULE IS DEAD ON PURPOSE: vault/70-agent/shipped-but-unwired.md
+//   Re-wiring it would recreate the eBay photo-policy violation it was pulled for.
+//
 // ⚠ NOT WIRED, AND DELIBERATELY SO — DO NOT "RESTORE" IT.
 //
 // compositeGradeBadge has no callers (verified 2026-07-18). It was removed from
