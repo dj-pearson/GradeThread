@@ -1,7 +1,7 @@
 // US-1585 / AGENTIC-OS Phase 0 (Module A): the agent tool registry v1.
 //
 // Agents see the world ONLY through this typed, allowlisted, audited registry
-// (AGENTIC_OS.md §2 guardrails 1–2). v1 ships READ-ONLY tools that wrap EXISTING
+// (vault/70-agent/agentic-os-map.md §2 guardrails 1–2). v1 ships READ-ONLY tools that wrap EXISTING
 // operator libraries / RPCs — no agent can mutate anything and every access is
 // attributable. Write tools are deferred to US-1587 so the kernel can run at L0
 // (observe) immediately.

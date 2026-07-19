@@ -2,7 +2,7 @@
 // logic — triage the abuse / moderation / fraud / passport-integrity queues by
 // severity and pattern, and summarize cross-account rings (shared signals across
 // accounts). It RANKS and PROPOSES; account-level actions (suspend, step-up,
-// claim denial) are HARD-CAPPED at L1 in the policy engine (AGENTIC_OS.md §2
+// claim denial) are HARD-CAPPED at L1 in the policy engine (vault/70-agent/agentic-os-map.md §2
 // ladder note) — a human always approves them.
 //
 // Deterministic, fixture-tested core: severity ranking + ring detection. The

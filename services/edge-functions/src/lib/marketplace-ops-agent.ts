@@ -3,7 +3,7 @@
 // SCOPE AGGREGATES ONLY: counts + batch/resource ids + ages, never a raw tenant
 // row, handle, title, or any PII. It reports and proposes UNSTICK paths that go
 // THROUGH existing reclaim/sweep jobs; it NEVER mutates a tenant's listings or
-// inventory (AGENTIC_OS.md §3.L + §5).
+// inventory (vault/70-agent/agentic-os-map.md §3.L + §5).
 //
 // Reuses the pure pipeline-oversight helpers (US-899) so this agent's "stuck"
 // agrees byte-for-byte with the admin cockpit + the reclaim sweepers.

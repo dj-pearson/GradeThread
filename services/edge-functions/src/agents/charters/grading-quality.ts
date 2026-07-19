@@ -2,7 +2,7 @@
 //
 // SAFETY: this agent may NEVER execute a grading-config change. Any prompt-
 // version / threshold / calibration / exemplar change is a file_task pointing at
-// the human-driven shadow → eval gate → canary lifecycle (AGENTIC_OS.md §5).
+// the human-driven shadow → eval gate → canary lifecycle (vault/70-agent/agentic-os-map.md §5).
 
 import type { AgentCharter } from "./types.ts";
 

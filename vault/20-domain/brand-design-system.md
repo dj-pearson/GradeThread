@@ -1,3 +1,13 @@
+---
+title: GradeThread Brand Profile & Refreshed Design System
+type: reference
+status: current
+source_of_truth: vault
+code_refs: []
+reviewed: 2026-07-19
+tags: [brand, design-system, media-kit]
+summary: Welcome to the official design system, branding guidelines, and media kit for **GradeThread**.
+---
 # GradeThread Brand Profile & Refreshed Design System
 
 Welcome to the official design system, branding guidelines, and media kit for **GradeThread**. This document serves as the single source of truth for design, styling, and visual communications across the GradeThread React web platform, native iOS application, and press materials.

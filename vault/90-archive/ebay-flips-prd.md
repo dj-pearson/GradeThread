@@ -1,4 +1,32 @@
+---
+title: Flips — eBay Reseller Management Platform
+type: reference
+status: archived
+source_of_truth: vault
+code_refs: []
+reviewed: 2026-07-19
+tags: [flipdesk, ebay, prd, superseded]
+summary: Solo eBay reselling operation currently managed in a Google Sheets flip tracker.
+---
 # Flips — eBay Reseller Management Platform
+
+> [!info] Archived 2026-07-19 (US-2094) — SUPERSEDED, verified
+> This is the ORIGINAL FlipDesk draft (v1, last updated 2026-05-21), kept for the
+> reasoning behind the early data model and the eBay integration sequence. It does
+> NOT describe what shipped, and several of its statements are now false:
+>
+> - §3 declares "multi-user / multi-tenant" and "other marketplaces" NON-GOALS.
+>   Both shipped — FlipDesk is multi-tenant and covers seven platforms.
+> - §4 locks "Supabase Edge Functions (Deno)". The edge service is Deno + Hono on
+>   Coolify at `functions.gradethread.com`.
+>
+> The current PRD is `FlipDesk_PRD_v1.docx` (cited by CLAUDE.md).
+>
+> **Open findings extracted: none.** §10's four open questions were each checked
+> against shipped reality and are all answered — eBay production OAuth is wired,
+> the domain is gradethread.com, auth is Supabase PKCE, and bulk publish/pricing
+> shipped. Nothing was left to file.
+
 
 **Status:** Draft v1
 **Owner:** Dan Pearson (Pearson Media LLC)

@@ -3,7 +3,7 @@
 // has full CPU. These are framework-agnostic HTML-string builders fed to
 // satori (see cert-image-render.ts). Ported from functions/_shared/og-template.ts
 // + functions/_shared/qr.ts and brand-aligned to the current app palette
-// (design.md): Obsidian Navy / Vibrant Crimson / Midnight Coal / Pearl White.
+// (vault/20-domain/brand-design-system.md): Obsidian Navy / Vibrant Crimson / Midnight Coal / Pearl White.
 //
 // Satori constraints: flexbox only (no grid/float), inline styles only. The
 // font is Inter (shipped as bytes by cert-image-render.ts) — templates name it
@@ -11,7 +11,7 @@
 
 import qrcode from "qrcode-generator";
 
-// ── Brand palette (current — design.md) ──────────────────────────────────
+// ── Brand palette (current — vault/20-domain/brand-design-system.md) ──────────────────────────────────
 const BRAND_NAVY = "#0C1E36"; // Obsidian Navy
 const BRAND_RED = "#F03D5F"; // Vibrant Crimson
 const BRAND_NIGHT = "#0E0E1A"; // Midnight Coal

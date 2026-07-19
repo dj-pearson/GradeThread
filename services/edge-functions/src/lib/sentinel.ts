@@ -2,7 +2,7 @@
 //
 // The health & incident agent's job is to turn a storm of low-level failures
 // (cron failures, dead letters, warning ops events) into a SMALL number of
-// incidents — one root-cause hypothesis, not ten alerts (AGENTIC_OS.md §3.H).
+// incidents — one root-cause hypothesis, not ten alerts (vault/70-agent/agentic-os-map.md §3.H).
 // The correlation is DETERMINISTIC + pure (fixture-tested) so the agent's LLM
 // pass only has to review + propose, keeping a healthy run a cheap no-op.
 //

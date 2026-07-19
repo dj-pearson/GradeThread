@@ -1,3 +1,13 @@
+---
+title: GradeThread Agentic OS — the A→Z Map
+type: reference
+status: current
+source_of_truth: vault
+code_refs: []
+reviewed: 2026-07-19
+tags: [agent, agentic-os, architecture]
+summary: GradeThread is already unusually automated.
+---
 # GradeThread Agentic OS — the A→Z Map
 
 > The operating layer that lets GradeThread run itself: a governed fleet of AI agents

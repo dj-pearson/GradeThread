@@ -1,7 +1,7 @@
 // US-1584 / AGENTIC-OS Phase 0 (Module A — Agent Kernel): the single run loop.
 //
 // runAgent(agentKey, trigger) is the hardened, budgeted runtime every domain
-// agent shares (AGENTIC_OS.md §2 guardrails, §3.A). It: loads the agent, honors
+// agent shares (vault/70-agent/agentic-os-map.md §2 guardrails, §3.A). It: loads the agent, honors
 // the pause kill-switches, creates an agent_runs row, runs a BOUNDED Claude
 // tool-use loop (max steps / output tokens / wall-clock), records every model
 // and tool step to agent_run_steps (PII-redacted), gates each model call on the

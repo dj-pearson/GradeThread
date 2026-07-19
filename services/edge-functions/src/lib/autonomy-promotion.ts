@@ -1,7 +1,7 @@
 // US-1608 / AGENTIC-OS Phase 2 (Modules D+V): earned autonomy promotion.
 //
 // Promotion/demotion is PER (agent, action-class). L1→L2 is EARNED — the ladder
-// rule (AGENTIC_OS.md §2, exactly these numbers): ≥20 approved, ≥90% approval
+// rule (vault/70-agent/agentic-os-map.md §2, exactly these numbers): ≥20 approved, ≥90% approval
 // rate, the agent's eval suite passing (Module V / US-1607), and NO policy breach
 // in the last 14 days. Hard-capped classes (US-1597 Trust & Safety account
 // actions) are NEVER offered. Demotion is immediate on a rejection spike or a

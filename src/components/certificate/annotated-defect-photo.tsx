@@ -9,7 +9,7 @@ import type { PublicImageDefectAnnotations } from "@/types/database";
 // list, which remains the canonical fallback.
 
 // Severity tones mirror the disclosure compositor (annotated-photo.tsx,
-// design.md §3B): crimson for major, amber for moderate, gold for minor.
+// vault/20-domain/brand-design-system.md §3B): crimson for major, amber for moderate, gold for minor.
 const SEVERITY_COLOR: Record<string, string> = {
   major: "#F03D5F",
   moderate: "#F59E0B",

@@ -287,7 +287,7 @@ async function renderCertificate(context: Ctx): Promise<Response> {
 }
 
 // Grade → accent colour for the score circle + factor bars. Green (excellent) →
-// navy (good) → amber (fair) → crimson (poor). Brand palette (design.md).
+// navy (good) → amber (fair) → crimson (poor). Brand palette (vault/20-domain/brand-design-system.md).
 function scoreColor(v: number): string {
   const n = Number(v);
   if (n >= 8) return "#16a34a";

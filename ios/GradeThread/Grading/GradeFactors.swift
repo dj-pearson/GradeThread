@@ -104,7 +104,7 @@ enum GradeTierOption: String, CaseIterable, Identifiable {
 // MARK: - Score presentation
 
 /// Shared score → color mapping so the ring, factor bars, and row badge all
-/// agree. Follows the design.md §3B grading tiers: Pristine/NWT (≥9.5) Emerald,
+/// agree. Follows the vault/20-domain/brand-design-system.md §3B grading tiers: Pristine/NWT (≥9.5) Emerald,
 /// Excellent/NWOT (7.0–9.0) Steel Navy, Good/Fair (5.0–6.5) Amber, and
 /// Poor/Damaged (<5.0) Crimson.
 enum GradeScale {

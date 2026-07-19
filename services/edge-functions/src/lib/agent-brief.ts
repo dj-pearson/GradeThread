@@ -2,7 +2,7 @@
 //
 // One cross-agent digest instead of N alert streams: what the fleet found, what
 // is pending approval (deep-linked), spend, anomalies, and an honest "nothing
-// needs you" when true (AGENTIC_OS.md §3.N). The assembly + rendering are PURE
+// needs you" when true (vault/70-agent/agentic-os-map.md §3.N). The assembly + rendering are PURE
 // (fixture-tested); routes/jobs-operator-brief.ts gathers the rows, renders via
 // the existing email machinery, emails admins, and persists the latest brief.
 

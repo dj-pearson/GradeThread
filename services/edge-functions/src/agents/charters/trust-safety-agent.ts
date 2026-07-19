@@ -3,7 +3,7 @@
 // Triages the abuse / moderation / fraud / passport-integrity queues by severity
 // and pattern, and summarizes cross-account rings. Account-level actions are
 // HARD-CAPPED at L1 in the policy engine — a human always approves a suspension,
-// step-up, or claim denial (AGENTIC_OS.md §2 ladder note).
+// step-up, or claim denial (vault/70-agent/agentic-os-map.md §2 ladder note).
 
 import type { AgentCharter } from "./types.ts";
 

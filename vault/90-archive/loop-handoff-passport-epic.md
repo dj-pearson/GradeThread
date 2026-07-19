@@ -1,4 +1,36 @@
+---
+title: 🔁 Loop Handoff — Garment Passport epic (carry-forward directive)
+type: reference
+status: archived
+source_of_truth: vault
+code_refs: []
+reviewed: 2026-07-19
+tags: [ralph, loop, handoff, session-log]
+summary: /loop Loop through all of our open stories in prd.json to work to build out our features.
+---
 # 🔁 Loop Handoff — Garment Passport epic (carry-forward directive)
+
+> [!warning] Archived 2026-07-19 (US-2094) — STALE; do NOT follow its instructions
+> This file was a carry-forward directive for the Ralph loop. Its own header set
+> the retirement condition — "delete it once the Passport epic + backlog are done
+> (or when it goes stale)" — and BOTH halves are now met, which is why it was
+> archived rather than kept at root as a live work file.
+>
+> - The epic it carries is finished: the file itself records "Garment Passport
+>   epic (US-1089→1106) DONE."
+> - Its resume prompt and session entries route work through
+>   `claude/prd-story-loop-*` BRANCHES. CLAUDE.md's current workflow override says
+>   to commit directly to `main` and open no PRs. A carry-forward directive that
+>   contradicts the live workflow is worse than none — that contradiction, not the
+>   age of the file, is the reason this could not simply be left in place.
+>
+> Kept for the per-session engineering record it contains (root causes, migration
+> numbers, iOS decisions). The same work is also recorded story-by-story in
+> `prd.archive.json`, and the ongoing loop logs live in `vault/70-agent/ralph-*`.
+>
+> **Open findings extracted: none.** Every story it references is `passes: true`
+> in `prd.archive.json`; the "next story" pointers it ends on were all completed.
+
 
 > **Purpose:** this file is a pay-it-forward directive so the *next* session can
 > resume the feature-build loop with zero re-discovery. The container is

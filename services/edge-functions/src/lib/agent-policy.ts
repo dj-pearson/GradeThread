@@ -1,5 +1,5 @@
 // US-1586 / AGENTIC-OS Phase 0 (Module D): the policy engine — the spine of the
-// whole OS (AGENTIC_OS.md §2 autonomy ladder, §3.D).
+// whole OS (vault/70-agent/agentic-os-map.md §2 autonomy ladder, §3.D).
 //
 // Every agent capability is gated by a per-(agent, action-class) autonomy LEVEL
 // (L0 observe → L3 act-silent), granted in small reversible increments and
@@ -59,7 +59,7 @@ export function isKnownActionClass(v: string): v is KnownActionClass {
 
 // ── Permanent per-(agent, action-class) autonomy hard caps ───────────────────
 //
-// A PERMANENT design decision, NOT a tunable (AGENTIC_OS.md §2 ladder note): the
+// A PERMANENT design decision, NOT a tunable (vault/70-agent/agentic-os-map.md §2 ladder note): the
 // Trust & Safety agent's account-level actions can never exceed L1 (a human
 // always approves a suspension / step-up / claim denial), regardless of what the
 // agents.autonomy config or any future promotion grants. resolveAutonomy clamps
@@ -289,7 +289,7 @@ export function prodPolicyDeps(): PolicyDeps {
 
 // Demote (agent, action-class) one level (floored at L0), persist the change,
 // and emit a warning ops event. A rejected-then-executed action or a budget
-// breach calls this (AGENTIC_OS.md §2). Best-effort persistence/event — never
+// breach calls this (vault/70-agent/agentic-os-map.md §2). Best-effort persistence/event — never
 // throws. Returns the level transition.
 export async function recordPolicyBreach(
   agent: AgentRow,

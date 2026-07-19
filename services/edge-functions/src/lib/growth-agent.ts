@@ -2,7 +2,7 @@
 // funnel/retention anomaly narration and referral/affiliate program health, feeding
 // a ranked experiment slate the agent revisits week over week. It GENERATES and
 // RANKS ideas; it does NOT start experiments (that governance is Module X /
-// US-1609, AGENTIC_OS.md §3.R). Proposals are admin-task experiment briefs.
+// US-1609, vault/70-agent/agentic-os-map.md §3.R). Proposals are admin-task experiment briefs.
 //
 // Deterministic, fixture-tested core: funnel conversion + the week-over-week
 // cliff comparison. The tool supplies the reads (funnel_metrics current + prior,

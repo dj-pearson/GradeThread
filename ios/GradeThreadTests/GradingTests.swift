@@ -389,7 +389,7 @@ final class GradingTests: XCTestCase {
     }
 
     func test_gradeScaleColorThresholds() {
-        // Tiers follow the refreshed media kit (design.md §3B):
+        // Tiers follow the refreshed media kit (vault/20-domain/brand-design-system.md §3B):
         // Pristine/NWT (>=9.5) Emerald, Excellent/NWOT (7.0-9.0) Steel Navy,
         // Good/Fair (5.0-6.5) Amber, Poor/Damaged (<5.0) Crimson.
         XCTAssertEqual(GradeScale.color(for: 9.5), .brandEmerald)

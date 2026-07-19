@@ -3,7 +3,7 @@
 // FlipDesk operational health across tenants (operator view). OPERATOR-SCOPE
 // AGGREGATES ONLY. It reports and proposes UNSTICK paths that go THROUGH existing
 // reclaim/sweep jobs; it NEVER mutates a tenant's listings or inventory
-// (AGENTIC_OS.md §3.L + §5 — the OS supervises the platform, not users'
+// (vault/70-agent/agentic-os-map.md §3.L + §5 — the OS supervises the platform, not users'
 // businesses).
 
 import type { AgentCharter } from "./types.ts";

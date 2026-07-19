@@ -1,7 +1,7 @@
 // US-1601 / AGENTIC-OS Phase 1 (Module P): the Pricing agent's domain logic —
 // operator-side oversight of the repricing / automation engines. CROSS-TENANT
 // AGGREGATES ONLY. It AUDITS and REPORTS; it NEVER edits a tenant's rules or
-// prices (AGENTIC_OS.md §3.P + §5 — automations are user-owned).
+// prices (vault/70-agent/agentic-os-map.md §3.P + §5 — automations are user-owned).
 //
 // Deterministic, fixture-tested core: repricing efficacy, ping-pong detection
 // (the canonical pathological pattern), automation-rule churn, and price-guide /

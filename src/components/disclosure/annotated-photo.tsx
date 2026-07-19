@@ -9,7 +9,7 @@ import { useSaveAnnotatedPhoto, type DisclosurePhoto } from "@/hooks/use-disclos
 // defects the grader couldn't localize). Exports the composited image so it can
 // be downloaded or attached to the listing's photo set.
 
-// Severity tones follow the refreshed media kit (design.md §3B): Vibrant
+// Severity tones follow the refreshed media kit (vault/20-domain/brand-design-system.md §3B): Vibrant
 // Crimson for major defects, Amber Gold for moderate.
 const SEVERITY_COLOR: Record<string, string> = {
   major: "#F03D5F",

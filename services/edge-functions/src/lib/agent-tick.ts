@@ -1,7 +1,7 @@
 // US-1588 / AGENTIC-OS Phase 0 (Module J): the agent scheduler tick.
 //
 // Agents run on the SAME Coolify cron + job-secret + cron_runs rails as the
-// other 54 jobs (AGENTIC_OS.md §3.J) — POST /api/jobs/agent-tick every ~10 min.
+// other 54 jobs (vault/70-agent/agentic-os-map.md §3.J) — POST /api/jobs/agent-tick every ~10 min.
 // The tick: honors the global pause, expires stale proposals, selects the
 // enabled agents that are DUE per their schedule, and runs them sequentially
 // via the kernel under a per-tick wall-clock budget. Leftover due agents defer

@@ -36,7 +36,7 @@
 
 import { Image } from "imagescript";
 
-// Refreshed media-kit palette (design.md §2A). RGBA ints (0xRRGGBBAA) to match
+// Refreshed media-kit palette (vault/20-domain/brand-design-system.md §2A). RGBA ints (0xRRGGBBAA) to match
 // the client tokens in src/index.css / src/lib/grade-badge.ts.
 const NAVY = 0x0c1e36ff;
 const RED = 0xf03d5fff;

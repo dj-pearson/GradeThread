@@ -2,7 +2,7 @@
 //
 // What an agent learned persists across runs: curated learnings assembled into
 // its context each run, deduped by key, and pruned so memory stays small and
-// sharp. THE CAPS ARE THE FEATURE (AGENTIC_OS.md §3.K — quality over quantity);
+// sharp. THE CAPS ARE THE FEATURE (vault/70-agent/agentic-os-map.md §3.K — quality over quantity);
 // keep them tight. The kernel does the I/O (agent_memory table, unique
 // (agent_id, kind, key)); this module is the selection + write-merge + curation.
 

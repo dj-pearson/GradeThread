@@ -841,7 +841,7 @@ export function getStatusBadgeClasses(status: string): string {
 }
 
 // ─── Grade-score color tokens ────────────────────────────────────
-// Single source for grade-score coloring across the app — design.md §3B
+// Single source for grade-score coloring across the app — vault/20-domain/brand-design-system.md §3B
 // refreshed media kit: Emerald Mint (>7), Amber Gold (5–7), AA-safe brand red
 // (<5). Used by certificate, submission/inventory detail, dashboard,
 // submissions. Edit these three to restyle every score everywhere.

@@ -35,7 +35,7 @@ New here? Read [[CONTRACT]] before adding a note.
 
 ## 20-domain — grading, measurement, contracts
 
-13 notes — see [[moc-domain]].
+14 notes — see [[moc-domain]].
 
 ## 30-platform — marketplace integration
 
@@ -89,6 +89,8 @@ New here? Read [[CONTRACT]] before adding a note.
 ## 70-agent — how agents work here
 
 - [[agent-knowledge-surfaces]] — reference — Four places currently hold agent-facing knowledge; this note defines the intended division and tracks the unification.
+- [[agent-levelup-roadmap]] — reference — What to install, build, and wire so agents working on GradeThread get materially
+- [[agentic-os-map]] — reference — GradeThread is already unusually automated.
 - [[guards-that-cannot-fail]] — learning — This repo's most common defect is not a broken check but a check that passes for the wrong reason; here are the seven shapes it took and the one habit that catches all of them.
 - [[memory-vault-division]] — learning — The premise that memory duplicates the vault and wins by default is only half right — memory is frequently the MORE detailed source, so pointing at a note can lose information.
 - [[ralph-brand-kb-log]] — learning — Per-story record of applying the brand-KB rules; the rules themselves live in 20-domain/brands.
@@ -102,7 +104,9 @@ New here? Read [[CONTRACT]] before adding a note.
 - [[android-conversion-plan]] — reference — Superseded by the 51-story Android epic in the backlog.
 - [[archive-semantics]] — reference — What belongs in 90-archive, how CI treats it, and the rule that stops archiving from burying live work.
 - [[code-review-2026-07-04]] — reference — Nine-domain deep-dive review, fully triaged 2026-07-19 — 91 of 93 findings verified already fixed; 2 remain open by decision.
+- [[ebay-flips-prd]] — reference — Solo eBay reselling operation currently managed in a Google Sheets flip tracker.
 - [[ios-parity-audit]] — reference — Web/iOS feature parity check; 4 of 6 items closed, the remaining two extracted to US-2090.
+- [[loop-handoff-passport-epic]] — reference — /loop Loop through all of our open stories in prd.json to work to build out our features.
 - [[security-audit-2026-06]] — reference — Self-reports all findings and follow-ups addressed, no open items.
 
 <!-- vault-index:end -->

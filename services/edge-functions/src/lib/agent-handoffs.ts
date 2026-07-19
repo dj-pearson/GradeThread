@@ -1,6 +1,6 @@
 // US-1613 / AGENTIC-OS Phase 2 (Modules E+N): agent-to-agent handoffs — pure core.
 //
-// A handoff moves INFORMATION, never AUTHORITY (AGENTIC_OS.md §3.E). One agent's
+// A handoff moves INFORMATION, never AUTHORITY (vault/70-agent/agentic-os-map.md §3.E). One agent's
 // finding becomes another agent's queued input: Support's ticket-cluster finding
 // queues a Sentinel investigation; Sentinel's vendor-degradation finding queues
 // an Integrations Watchdog deep-dive — cross-domain incidents connect without an

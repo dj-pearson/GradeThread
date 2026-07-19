@@ -1,7 +1,7 @@
 // US-1591 / AGENTIC-OS Phase 0 (Module B): the budget governor.
 //
 // Each agent is leashed to a daily dollar cap (plus a fleet-wide cap), enforced
-// on the EXISTING ai-budget rails — no parallel metering (AGENTIC_OS.md §3.B):
+// on the EXISTING ai-budget rails — no parallel metering (vault/70-agent/agentic-os-map.md §3.B):
 //   • METERING: agent runs tag the AI-feature context `agent:<key>` (kernel via
 //     enterAiFeature), so every model call auto-records to the ai_usage_events
 //     ledger under that feature — /admin/ai-spend?groupBy=feature shows one line

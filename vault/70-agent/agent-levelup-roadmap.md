@@ -1,3 +1,13 @@
+---
+title: Agent & Codebase Level-Up Roadmap
+type: reference
+status: current
+source_of_truth: vault
+code_refs: []
+reviewed: 2026-07-19
+tags: [agent, roadmap, grading-moat, tooling]
+summary: What to install, build, and wire so agents working on GradeThread get materially
+---
 # Agent & Codebase Level-Up Roadmap
 
 What to install, build, and wire so agents working on GradeThread get materially

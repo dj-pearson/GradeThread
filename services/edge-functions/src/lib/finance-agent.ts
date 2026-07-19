@@ -1,7 +1,7 @@
 // US-1596 / AGENTIC-OS Phase 1 (Module F): the Finance agent's domain logic —
 // billing-reconciliation deltas, payout-run sanity, revenue-vs-baseline, and AI
 // spend vs revenue. READ-HEAVY by design: at L0/L1 this agent narrates and files
-// admin tasks; it NEVER moves money or credits (AGENTIC_OS.md §3.F, §5).
+// admin tasks; it NEVER moves money or credits (vault/70-agent/agentic-os-map.md §3.F, §5).
 //
 // The deterministic, fixture-tested core lives here (reconciliation ranking +
 // payout sanity + all-clear); the revenue/AI-profitability docs are passed

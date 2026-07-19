@@ -16,7 +16,7 @@ This document triages the reseller/store-management features that a power eBay
 seller might expect but that FlipDesk does **not** fully handle today. It exists
 so the team has one prioritized gap list, an explicit launch-scope decision for
 each item, and a contract that the UI never *implies* an unhandled feature is
-handled. Source-of-truth PRDs: `FlipDesk_PRD_v1.docx`, `ebay-flips-prd.md`.
+handled. Source-of-truth PRDs: `FlipDesk_PRD_v1.docx`, `vault/90-archive/ebay-flips-prd.md`.
 
 > **2026-06-20 re-baseline (US-1132):** The original guiding principle — keep
 > post-sale negotiation/dispute surfaces in eBay Seller Hub for launch — has been

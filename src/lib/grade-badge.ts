@@ -16,7 +16,7 @@
 // (Historic) Used by the listing composer (US-118) to produce an eBay-ready
 // hero image with the grade burned into a corner.
 
-// Refreshed media-kit palette (design.md §2A): Obsidian Navy anchor + Vibrant
+// Refreshed media-kit palette (vault/20-domain/brand-design-system.md §2A): Obsidian Navy anchor + Vibrant
 // Crimson accent. Keep these in sync with src/index.css brand tokens.
 const NAVY = "#0C1E36";
 const RED = "#F03D5F";

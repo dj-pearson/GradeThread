@@ -6,7 +6,7 @@
 // risks on the horizon. The chief-analyst agent narrates from the context this
 // module assembles; the assembly is PURE (fixture-tested).
 //
-// HONESTY RULE (AGENTIC_OS.md §3.Y): attribution ONLY when an agent actually
+// HONESTY RULE (vault/70-agent/agentic-os-map.md §3.Y): attribution ONLY when an agent actually
 // ran and observed a cause. When few agents have run, the brief degrades to
 // metrics + an explicit "unattributed" note — it NEVER fabricates a cause.
 

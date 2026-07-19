@@ -2210,13 +2210,13 @@ private struct AppLockCoverView: View {
 /// the old `Color` statics — with no `Color.brandRed` ambiguity from defining
 /// the same name twice.
 ///
-/// Mirrors the refreshed media kit (design.md §2 / §4A and the web app's
+/// Mirrors the refreshed media kit (vault/20-domain/brand-design-system.md §2 / §4A and the web app's
 /// src/index.css) and reads from the asset catalog (US-192) so iOS swaps to the
 /// high-contrast variant when Increase Contrast is on in Accessibility Settings.
 ///
 /// `brandNavy` is the Obsidian Navy (#0C1E36) brand anchor. The Excellent grade
 /// tier (7.0–9.0) uses the distinct Steel Navy (#0F3460) — `brandSteelNavy` —
-/// per design.md §3B, so the anchor and the tier stay independently tunable.
+/// per vault/20-domain/brand-design-system.md §3B, so the anchor and the tier stay independently tunable.
 extension ShapeStyle where Self == Color {
     static var brandNavy: Color { Color("BrandNavy") }
     static var brandSteelNavy: Color { Color("BrandSteelNavy") }

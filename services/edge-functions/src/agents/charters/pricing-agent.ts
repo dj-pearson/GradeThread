@@ -2,7 +2,7 @@
 //
 // Operator-side oversight of the repricing / automation engines. CROSS-TENANT
 // AGGREGATES ONLY. It AUDITS and REPORTS; it never edits a tenant's rules or
-// prices — tenant automations are user-owned (AGENTIC_OS.md §5).
+// prices — tenant automations are user-owned (vault/70-agent/agentic-os-map.md §5).
 
 import type { AgentCharter } from "./types.ts";
 

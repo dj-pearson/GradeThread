@@ -27,7 +27,7 @@ import {
 } from "./disclosure.ts";
 import { readImageDimensions } from "./upload-validation.ts";
 
-// Severity tones mirror the client compositor (design.md §3B).
+// Severity tones mirror the client compositor (vault/20-domain/brand-design-system.md §3B).
 const SEVERITY_COLOR: Record<string, number> = {
   major: 0xf03d5fff,
   moderate: 0xf59e0bff,

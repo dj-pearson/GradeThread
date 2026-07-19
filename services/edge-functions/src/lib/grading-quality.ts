@@ -3,7 +3,7 @@
 // Reads the grading telemetry we already collect (accuracy tracking, calibration
 // state, review-queue depth, exemplar coverage) and folds it into a structured
 // weekly memo — what regressed / improved per category + prompt version,
-// calibration gaps, exemplar coverage holes (AGENTIC_OS.md §3.G).
+// calibration gaps, exemplar coverage holes (vault/70-agent/agentic-os-map.md §3.G).
 //
 // SAFETY (grading-engine contract, AGENTIC_OS §5): this agent NEVER executes a
 // grading-config change. classifyGradingIntent maps every prompt-version /
