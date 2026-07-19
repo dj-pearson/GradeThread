@@ -551,7 +551,7 @@ services); permissions rationale; account deletion location.
    lightweight beta review; surfaces issues before the real one).
 2. Upload build via Xcode/fastlane; attach all 10 IAPs to the version.
 3. **Release option: Manually release this version** — decouples approval from
-   launch day; flip the switch when the web side is ready (LAUNCH_CHECKLIST.md).
+   launch day; flip the switch when the web side is ready (vault/10-ops/launch-checklist.md).
 4. **Phased release: ON** for 1.0 updates (not applicable to the very first
    version, which goes 100% at release).
 5. After approval, set `APPLE_APP_APPLE_ID` on the server env (strict JWS validation).

@@ -161,7 +161,7 @@ system better in a way competitors can't copy without the volume. Next layers:
 Once §2–3 exist, run these as fan-out workflows on demand:
 - **Tenant-isolation audit:** one `tenant-auditor` per edge route file →
   adversarial verify pass on findings → report.
-- **Pre-launch sweep:** parallel agents over LAUNCH_CHECKLIST.md sections.
+- **Pre-launch sweep:** parallel agents over vault/10-ops/launch-checklist.md sections.
 - **Prompt-version regression triage:** per-category analysis agents feeding
   the `grading-eval-analyst` synthesis.
 

@@ -12,7 +12,7 @@ name: Uptime
 #
 # Cadence: every 10 minutes. GitHub cron is best-effort (runs may start a few
 # minutes late under load) — acceptable as the launch baseline; the upgrade
-# path to 1-minute vendor checks is documented in UPTIME_MONITORING.md.
+# path to 1-minute vendor checks is documented in vault/10-ops/uptime-monitoring.md.
 # Thresholds + escalation: docs/INCIDENT_RESPONSE.md.
 
 on:

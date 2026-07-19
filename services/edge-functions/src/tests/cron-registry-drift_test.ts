@@ -6,7 +6,7 @@
 //      fails; a registry entry whose route was removed fails).
 //   2. REGISTRY sanity — unique names/endpoints, every schedule parses through
 //      nextCronRun (a typo'd cron string would silently never fire).
-//   3. DOCS ↔ REGISTRY — COOLIFY.md and LAUNCH_CHECKLIST.md embed the exact
+//   3. DOCS ↔ REGISTRY — COOLIFY.md and vault/10-ops/launch-checklist.md embed the exact
 //      renderCronDocs() output between the cron-registry markers, so the
 //      operator docs can never drift from the code again.
 import { assert, assertEquals } from "@std/assert";
@@ -24,7 +24,7 @@ const { CRON_REGISTRY, nextCronRun, renderCronDocs, renderCronSetupGuide } = awa
 const MAIN_TS = new URL("../main.ts", import.meta.url);
 const EBAY_ROUTES = new URL("../routes/flipdesk-ebay.ts", import.meta.url);
 const COOLIFY = new URL("../../COOLIFY.md", import.meta.url);
-const CHECKLIST = new URL("../../../../LAUNCH_CHECKLIST.md", import.meta.url);
+const CHECKLIST = new URL("../../../../vault/10-ops/launch-checklist.md", import.meta.url);
 const CRON_SETUP = new URL("../../CRON_SETUP.md", import.meta.url);
 
 Deno.test("US-1561: every /api/jobs/* route in main.ts is registered (and none is stale)", async () => {
@@ -114,22 +114,22 @@ Deno.test("CRON_SETUP.md embeds the generated Coolify setup blocks verbatim", as
   );
 });
 
-// US-2012: DEPLOY.md tells an operator how many Coolify tasks to re-add when
+// US-2012: vault/10-ops/deploy.md tells an operator how many Coolify tasks to re-add when
 // rebuilding the service. It said "16" while CRON_REGISTRY held 71 — rebuilding
 // from that sentence would have silently dropped 55 crons, including the
 // consignor/affiliate payout jobs and the GDPR data-retention sweep, with no
 // error anywhere. The generated tables in this file never drifted; the failure
 // was in hand-written prose beside them, which is exactly the gap a generation
 // guard leaves open. So pin the prose too.
-Deno.test("DEPLOY.md's cron count matches CRON_REGISTRY", async () => {
+Deno.test("vault/10-ops/deploy.md cron count matches CRON_REGISTRY", async () => {
   const deploy = (await Deno.readTextFile(
-    new URL("../../../../DEPLOY.md", import.meta.url),
+    new URL("../../../../vault/10-ops/deploy.md", import.meta.url),
   )).replace(/\r\n/g, "\n");
 
   const claimed = deploy.match(/there are \*\*(\d+)\*\*/);
   if (!claimed) {
     throw new Error(
-      "DEPLOY.md no longer states a cron count in the expected form " +
+      "vault/10-ops/deploy.md no longer states a cron count in the expected form " +
         '("there are **N**"). Update this guard alongside the prose — do not ' +
         "delete it, or the count is free to drift again.",
     );
@@ -138,7 +138,7 @@ Deno.test("DEPLOY.md's cron count matches CRON_REGISTRY", async () => {
   const actual = CRON_REGISTRY.length;
   if (Number(claimed[1]) !== actual) {
     throw new Error(
-      `DEPLOY.md claims ${claimed[1]} cron tasks but CRON_REGISTRY has ${actual}. ` +
+      `vault/10-ops/deploy.md claims ${claimed[1]} cron tasks but CRON_REGISTRY has ${actual}. ` +
         "An operator recreating the service follows that sentence, so a stale " +
         "number silently drops jobs — including payouts and GDPR retention.",
     );

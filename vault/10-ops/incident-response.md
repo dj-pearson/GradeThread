@@ -40,7 +40,7 @@ token-refresh backoff) that contain damage until a human responds.
 | Final escalation / comms owner | Pearson Media LLC (owner) | Same channels; owns user notification, `/status` + social updates |
 
 **Ack targets** (clock starts at the first *confirmed* alert — see
-`UPTIME_MONITORING.md` for what counts as confirmed): **SEV1 = 15 min,
+`vault/10-ops/uptime-monitoring.md` for what counts as confirmed): **SEV1 = 15 min,
 SEV2 = 1 h, SEV3 = next business day.**
 
 **Escalation ladder** (SEV1; advance every 15 unacknowledged minutes):
@@ -51,13 +51,13 @@ SEV2 = 1 h, SEV3 = next business day.**
 
 All three alert sources — Sentry (`SENTRY_DSN`), the edge service's
 `MONITOR_ALERT_WEBHOOK`, and the uptime monitor's `UPTIME_ALERT_WEBHOOK`
-(`UPTIME_MONITORING.md`) — must point at the same on-call channel before
-launch (`LAUNCH_CHECKLIST.md`), and everyone on call watches the repo with
+(`vault/10-ops/uptime-monitoring.md`) — must point at the same on-call channel before
+launch (`vault/10-ops/launch-checklist.md`), and everyone on call watches the repo with
 issue notifications enabled.
 
 ## Detection
 
-- Synthetic monitors → `UPTIME_MONITORING.md`.
+- Synthetic monitors → `vault/10-ops/uptime-monitoring.md`.
 - App alarms → the error tracker (US-491) + metrics (US-508): `circuit.open`,
   `submissions.stuck`, `webhook.fail_open/closed`, `email.dead_lettered`,
   `integrity.anomaly`, `grading_monitor.alert_*`.
@@ -67,7 +67,7 @@ issue notifications enabled.
 ### 1. Database outage / unreachable
 1. Confirm: `/health/ready` → 503; `circuit`/DB errors in the tracker.
 2. Check the Postgres host (disk full? OOM? crashed?). Restart if safe.
-3. If the volume/data is lost → restore from backup: `BACKUPS.md` → "Restore
+3. If the volume/data is lost → restore from backup: `vault/10-ops/backups.md` → "Restore
    procedure" (verified by drill; `scripts/ops/restore-postgres.sh`). Prefer
    PITR when WAL archiving covers the loss window.
 4. After recovery: run `integrity-scan` cron; verify a test grade + certificate.
@@ -75,8 +75,8 @@ issue notifications enabled.
 ### 2. Edge crash-loop
 1. `GET /health` failing; Coolify shows restarts.
 2. Check container stdout (structured logs, correlation IDs) for the boot error —
-   common cause: a missing migration (`MIGRATIONS.md`) or a bad env var.
-3. Roll back to the last-good commit (`ROLLBACK.md`) while you fix forward.
+   common cause: a missing migration (`vault/10-ops/migrations-process.md`) or a bad env var.
+3. Roll back to the last-good commit (`vault/10-ops/rollback.md`) while you fix forward.
 
 ### 3. Webhook backlog / dropped events
 1. Stripe: check `webhook.fail_closed` metric + Stripe dashboard's failed
@@ -91,7 +91,7 @@ fix. The event returned 200 (so Stripe stops storming it) and was captured in
 `webhook_dead_letters` with a redacted payload. To recover:
 1. Open the card; read the error + redacted payload to identify the failing
    handler.
-2. Fix the bug and deploy (`ROLLBACK.md` in reverse — ship the fix).
+2. Fix the bug and deploy (`vault/10-ops/rollback.md` in reverse — ship the fix).
 3. **Replay the event:** Stripe Dashboard → Developers → Events → search the
    `evt_…` id shown on the row → **Resend**. The resend is a *new* event id, so
    the idempotency claim (`processed_webhook_events`) won't dedupe it; the (now
@@ -119,7 +119,7 @@ fix. The event returned 200 (so Stripe stops storming it) and was captured in
   or `repricing` → graceful 503, no redeploy. Re-enable after.
 
 ### 7. Bad deploy
-- `ROLLBACK.md` (Pages rollback / Coolify redeploy prior commit).
+- `vault/10-ops/rollback.md` (Pages rollback / Coolify redeploy prior commit).
 
 ## Post-incident
 
@@ -128,9 +128,9 @@ File follow-up work as new prd.json stories.
 
 ## Links
 
-- Backups/restore: `BACKUPS.md` · Rollback: `ROLLBACK.md` · Migrations:
-  `MIGRATIONS.md` · Uptime/alerting: `UPTIME_MONITORING.md` · Secrets:
-  `vault/10-ops/key-rotation.md` · Scaling/degradation: `SCALING.md` · Security incidents +
+- Backups/restore: `vault/10-ops/backups.md` · Rollback: `vault/10-ops/rollback.md` · Migrations:
+  `vault/10-ops/migrations-process.md` · Uptime/alerting: `vault/10-ops/uptime-monitoring.md` · Secrets:
+  `vault/10-ops/key-rotation.md` · Scaling/degradation: `vault/10-ops/scaling.md` · Security incidents +
   alert thresholds/drill: `docs/INCIDENT_RESPONSE.md`
 
 ---
@@ -249,7 +249,7 @@ US-500. What watches what, when it pages, and who responds.
 
 | Sev | Condition | Response time | Action |
 |---|---|---|---|
-| **SEV-1** | SPA or edge API confirmed down, or DB unreachable (`edge_ready` failing) | 15 min ack | Page incident lead now; restore service first (Coolify restart / Cloudflare rollback per `ROLLBACK.md`), diagnose second |
+| **SEV-1** | SPA or edge API confirmed down, or DB unreachable (`edge_ready` failing) | 15 min ack | Page incident lead now; restore service first (Coolify restart / Cloudflare rollback per `vault/10-ops/rollback.md`), diagnose second |
 | **SEV-2** | Single non-critical component degraded (auth health flapping, readiness intermittently 503) or repeated self-recovering blips | 1 h ack | Investigate same day; check Coolify resource limits, Supabase logs |
 | **SEV-3** | Latency elevated but all checks passing; monitor itself failing (Actions outage) | next business day | Schedule into the work cycle |
 
@@ -260,7 +260,7 @@ roster + contact channels are defined in the repo-root
 2. Pearson Media leadership (phone — see private contact sheet).
 3. If user data may be affected, switch to the security flow above.
 
-Recovery procedures per failure mode (DB outage + restore via `BACKUPS.md`,
+Recovery procedures per failure mode (DB outage + restore via `vault/10-ops/backups.md`,
 edge crash-loop, webhook backlog/dead-letter, stuck submissions, eBay token
 mass-refresh failure) are the per-scenario runbooks in the repo-root
 [INCIDENT_RESPONSE.md](../INCIDENT_RESPONSE.md).
@@ -276,7 +276,7 @@ exceeds 30 min.
 - Force a failure end-to-end (staging/maintenance window): stop the edge
   container in Coolify, dispatch the workflow, confirm the webhook message
   arrives and an `uptime` issue opens; restart, re-dispatch, confirm the issue
-  closes. Log the drill date in `LAUNCH_CHECKLIST.md`.
+  closes. Log the drill date in `vault/10-ops/launch-checklist.md`.
 
 ## Quarterly security review checklist
 

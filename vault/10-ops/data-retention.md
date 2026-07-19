@@ -122,7 +122,7 @@ which also handles the external resources below.
 - **On deletion**, DB data is removed immediately via the cascade; external
   cleanup (above) should run in the same flow.
 - **Backups**: database and storage backups age out per the retention policy
-  in `BACKUPS.md` (7 days local, 30 days offsite); deleted data is therefore
+  in `vault/10-ops/backups.md` (7 days local, 30 days offsite); deleted data is therefore
   purged from all backups within 30 days.
 - **A minimal, non-PII record of the deletion request** (timestamp + opaque
   id) may be retained for compliance evidence.

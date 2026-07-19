@@ -2,7 +2,7 @@ name: Staging smoke
 
 # US-520: run smoke + e2e against the STAGING stack before promotion to main.
 # Triggers:
-#   - push to the `staging` branch (the promotion flow in STAGING.md)
+#   - push to the `staging` branch (the promotion flow in vault/10-ops/staging.md)
 #   - manual dispatch (e.g. after a manual staging deploy of a PR branch)
 #   - nightly, to catch staging drift (expired certs, dead containers)
 #
@@ -12,7 +12,7 @@ name: Staging smoke
 #   STAGING_WEB_URL       e.g. https://staging.gradethread.com
 #   STAGING_SUPABASE_URL  e.g. https://api-staging.gradethread.com
 #
-# Until the staging stack is provisioned (STAGING.md §"Standing it up"), the
+# Until the staging stack is provisioned (vault/10-ops/staging.md §"Standing it up"), the
 # vars are unset and this workflow SKIPS with a notice — that is the
 # documented gap, not a green-washed pass.
 
@@ -43,7 +43,7 @@ jobs:
         run: |
           if [ -z "$STAGING_EDGE_URL" ]; then
             echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::STAGING_EDGE_URL repo variable is not set — staging stack not provisioned yet (see STAGING.md). Skipping smoke."
+            echo "::notice::STAGING_EDGE_URL repo variable is not set — staging stack not provisioned yet (see vault/10-ops/staging.md). Skipping smoke."
           else
             echo "configured=true" >> "$GITHUB_OUTPUT"
           fi

@@ -219,6 +219,21 @@ export function planMove(root, source, dest, opts, { read = readFileSync, glob =
     // twice to adr-0001 before this opt-out existed. The tool cannot tell a
     // live reference from a historical one, so the file says which it is.
     if (text.includes(NO_REWRITE_MARKER)) continue;
+    // Test files are never auto-rewritten, but they ARE reported.
+    //
+    // They use paths two incompatible ways. As FIXTURE DATA —
+    // `rewriteRefs("[a](DEPLOY.md)", "DEPLOY.md", ...)` — where rewriting the
+    // input silently breaks the assertion (this tool did that to its own suite
+    // during US-2051). And as REAL references — cron-registry-drift_test.ts
+    // opens `../../../../LAUNCH_CHECKLIST.md` and would read a stub after the
+    // move. Skipping them outright hid the second case, which is the dangerous
+    // one, so they fall through to the residual report for a human to judge.
+    if (/\.(test|spec)\.[cm]?[jt]sx?$|[\\/]__tests__[\\/]|_test\.ts$/.test(rel)) {
+      const left = [];
+      for (const old of oldPaths) left.push(...findResidualMentions(text, old, dest));
+      if (left.length) residual.push({ path: rel, lines: left, testFile: true });
+      continue;
+    }
     if (!oldPaths.some((p) => text.includes(p))) continue;
     let count = 0;
     const left = [];
@@ -288,7 +303,8 @@ export function main(argv = process.argv.slice(2)) {
   if (plan.residual.length) {
     process.stdout.write(`  ! ${plan.residual.length} file(s) mention the old path in a form NOT auto-rewritten — review each:\n`);
     for (const r of plan.residual) {
-      for (const l of r.lines.slice(0, 3)) process.stdout.write(`      ${r.path}: ${l.slice(0, 100)}\n`);
+      const tag = r.testFile ? " [TEST — fixture or real ref? check]" : "";
+      for (const l of r.lines.slice(0, 3)) process.stdout.write(`      ${r.path}${tag}: ${l.slice(0, 100)}\n`);
     }
   }
 

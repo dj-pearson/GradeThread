@@ -78,7 +78,7 @@ a learning that only matters to ONE surface, put it in that surface's file.
   set env with `??`-defaults so you never clobber a real value.
 - Adding a cron means FOUR edits or `cron-registry-drift_test.ts` fails: the
   `/api/jobs/*` route in main.ts, a CRON_REGISTRY entry (cron-runs.ts), AND the
-  generated tables in COOLIFY.md + LAUNCH_CHECKLIST.md (`cron-registry` markers)
+  generated tables in COOLIFY.md + vault/10-ops/launch-checklist.md (`cron-registry` markers)
   + CRON_SETUP.md (`cron-setup` markers). `scripts/render-cron-{docs,setup}.ts`
   only PRINT to stdout — they don't write; splice the output between the markers
   yourself (the test compares VERBATIM). Both need SUPABASE_URL/

@@ -1,7 +1,7 @@
 // US-1610 / Module Q — Release agent's charter (repo-versioned prompt).
 //
 // Post-deploy verification + regression attribution. It NEVER rolls back —
-// rollback is a human-executed procedure (ROLLBACK.md). It verifies and files an
+// rollback is a human-executed procedure (vault/10-ops/rollback.md). It verifies and files an
 // admin task on a regression; a clean deploy is an all-clear worth stating.
 
 import type { AgentCharter } from "./types.ts";

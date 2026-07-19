@@ -129,7 +129,7 @@ commit as each migration), but prod migrations apply as a *separate* step. If th
 new container boots against a DB that hasn't applied that migration yet, the
 US-778 schema-version guard refuses to start — and because that happens before
 `Deno.serve`, the **whole service** 503s (`no available server`) until the
-migration lands. The deploy order in `DEPLOY.md` is DB → edge → frontend; this
+migration lands. The deploy order in `vault/10-ops/deploy.md` is DB → edge → frontend; this
 gate makes "DB first" automatic instead of a thing you have to remember.
 
 **The gate — a Coolify Pre-deployment Command.** In the edge-functions resource:
@@ -152,7 +152,7 @@ SUPABASE_DB_URL="$SUPABASE_DB_URL" bash scripts/apply-prod-migrations.sh
   point: a bad/failed migration never reaches the boot guard.
 - Locally / by hand the same thing is `npm run migrate:prod` (with
   `SUPABASE_DB_URL` exported). Always back up first — migrations are forward-only
-  (`BACKUPS.md`).
+  (`vault/10-ops/backups.md`).
 
 **Safety net (still in place):** even with the gate, the boot guard now waits out
 a short **grace window** (`SCHEMA_GUARD_GRACE_ATTEMPTS` × `SCHEMA_GUARD_GRACE_DELAY_MS`,

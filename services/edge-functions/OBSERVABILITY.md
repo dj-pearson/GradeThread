@@ -12,7 +12,7 @@ Three things are pinned down here, one per US-578 acceptance criterion:
 
 Related: `src/lib/observability.ts` (logging/metrics/Sentry transport),
 `src/middleware/access-log.ts` (the per-request line), `src/lib/log-redact.ts`
-(PII/secret scrubbing), `UPTIME_MONITORING.md`, `CAPACITY.md`.
+(PII/secret scrubbing), `vault/10-ops/uptime-monitoring.md`, `vault/10-ops/capacity.md`.
 
 ---
 
@@ -148,7 +148,7 @@ aggregator's retention + the sample rate are sized against.
 | Item | Ceiling | Backstop / action on breach |
 |---|---|---|
 | Log volume / replica / month | **≤ 5 GB** | on-box: 50 MiB `json-file` cap (§1). Aggregator: drop `EDGE_TRACE_SAMPLE_RATE` to `0.01`. |
-| Log volume, all replicas / month | **≤ 25 GB** | sized for ≤5 replicas (`SCALING.md`); revisit aggregator plan tier past that |
+| Log volume, all replicas / month | **≤ 25 GB** | sized for ≤5 replicas (`vault/10-ops/scaling.md`); revisit aggregator plan tier past that |
 | Aggregator spend / month | **≤ \$50** | pick a plan whose included volume ≥ 25 GB + 30-day retention; alert at 80% |
 | Sentry events / month | **within free/team tier** | errors only (not sampled); if quota-pressured, server-side rate-limit noisy issues in Sentry, not here |
 

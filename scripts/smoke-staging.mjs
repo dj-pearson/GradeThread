@@ -47,7 +47,7 @@ const SUPABASE = strip(flags.supabase || process.env.STAGING_SUPABASE_URL);
 if (!EDGE) {
   console.error(
     "✗ No staging edge URL. Pass --edge <url> or set STAGING_EDGE_URL.\n" +
-      "  (See STAGING.md — if the staging stack isn't stood up yet, that is\n" +
+      "  (See vault/10-ops/staging.md — if the staging stack isn't stood up yet, that is\n" +
       "  the documented gap, not a smoke failure.)",
   );
   process.exit(2);

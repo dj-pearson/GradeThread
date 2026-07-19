@@ -1,8 +1,8 @@
 // US-910: in-app operational runbooks for on-call / operators.
 //
 // Curated, BUILD-TIME-BUNDLED operational playbooks distilled from the repo
-// markdown (DEPLOY.md, LAUNCH_CHECKLIST.md, COOLIFY.md, ROLLBACK.md,
-// vault/10-ops/incident-response.md, BACKUPS.md) and the cron/jobs registry
+// markdown (vault/10-ops/deploy.md, vault/10-ops/launch-checklist.md, COOLIFY.md, vault/10-ops/rollback.md,
+// vault/10-ops/incident-response.md, vault/10-ops/backups.md) and the cron/jobs registry
 // (services/edge-functions/src/lib/cron-runs.ts → CRON_REGISTRY). The point is
 // that on-call has the playbook WHERE THE CONTROLS ARE, not buried in the repo:
 // each runbook deep-links to the relevant admin control (`controls`).

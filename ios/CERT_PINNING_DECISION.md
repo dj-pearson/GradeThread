@@ -58,7 +58,7 @@ mis-issued CA can't MITM auth tokens, StoreKit receipts, PII, and photos?
   integrity does **not** depend on transport pinning.
 - **Certificate Transparency monitoring** (operator): subscribe to a CT-log
   monitor (e.g. crt.sh / Cloudflare) for `*.gradethread.com` so a mis-issued
-  cert is detected out-of-band. Track in `UPTIME_MONITORING.md`.
+  cert is detected out-of-band. Track in `vault/10-ops/uptime-monitoring.md`.
 
 ## When to revisit (the GO path, pre-designed)
 
@@ -84,5 +84,5 @@ origins we don't control). File follow-up stories for each bullet above.
 ## Outcome
 
 No production code change for launch. This document is the deliverable;
-`vault/10-ops/key-rotation.md` / `UPTIME_MONITORING.md` get the CT-monitoring + (future)
+`vault/10-ops/key-rotation.md` / `vault/10-ops/uptime-monitoring.md` get the CT-monitoring + (future)
 pin-rotation runbook entries.

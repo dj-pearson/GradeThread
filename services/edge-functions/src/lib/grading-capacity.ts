@@ -6,7 +6,7 @@
 // are kicked fire-and-forget (grade.ts → processSubmission().catch) from several
 // places, so without a bound an unbounded number of submissions can buffer their
 // images simultaneously and OOM the container (hard-capped 1.5 CPU / 1G before
-// this story; right-sized to 2G — see CAPACITY.md).
+// this story; right-sized to 2G — see vault/10-ops/capacity.md).
 //
 // This module is the process-wide cap on how many pipelines may hold image data
 // resident at once. It bounds peak base64 residency to
@@ -21,7 +21,7 @@ import { Semaphore } from "./ai-limiter.ts";
 // Generous default: 6 concurrent buffering pipelines. With worst-case images
 // (~8 photos near the 15 MiB upload cap → ~100 MB resident per submission) this
 // keeps peak base64 residency near ~600 MB, comfortably under the 2G limit's
-// 30% headroom target. See CAPACITY.md for the math + the scale-out rule.
+// 30% headroom target. See vault/10-ops/capacity.md for the math + the scale-out rule.
 const DEFAULT_MAX_BUFFERING_PIPELINES = 6;
 
 function readPositiveInt(name: string, fallback: number): number {

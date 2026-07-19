@@ -175,7 +175,7 @@ if (dbProbe && samples > 0) {
       `FAIL: peak backend connections reached ${peakPct.toFixed(1)}% of ` +
         `max_connections (threshold ${thresholdPct}%). The pooler is not ` +
         `absorbing the fan-out — check that pooled consumers point at the ` +
-        `transaction port (6543), not direct 5432. See CONNECTION_POOLING.md.`,
+        `transaction port (6543), not direct 5432. See vault/10-ops/connection-pooling.md.`,
     );
     process.exit(1);
   }
@@ -186,7 +186,7 @@ if (dbProbe && samples > 0) {
 } else {
   console.log(
     "[loadtest] no DB gate ran — HTTP load completed; verify pg_stat_activity " +
-      "stayed well under max_connections (see CONNECTION_POOLING.md §7).",
+      "stayed well under max_connections (see vault/10-ops/connection-pooling.md §7).",
   );
 }
 

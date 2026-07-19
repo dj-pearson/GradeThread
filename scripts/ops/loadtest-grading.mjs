@@ -37,7 +37,7 @@
 // breached, or the metrics endpoint never returned a usable sample).
 //
 // The 80% default threshold is the OOM safety gate; the 70% line in
-// /health/metrics `pressure` is the SCALE-OUT trigger (CAPACITY.md), not a
+// /health/metrics `pressure` is the SCALE-OUT trigger (vault/10-ops/capacity.md), not a
 // failure — they are deliberately different.
 
 import { readFileSync } from "node:fs";
@@ -209,7 +209,7 @@ if (peakPct >= thresholdPct) {
   console.error(
     `FAIL: peak RSS reached ${peakPct.toFixed(1)}% of the ${limitMb} MiB limit ` +
       `(threshold ${thresholdPct}%). Lower GRADING_MAX_CONCURRENT_PIPELINES or ` +
-      `raise the container memory limit. See CAPACITY.md.`,
+      `raise the container memory limit. See vault/10-ops/capacity.md.`,
   );
   process.exit(1);
 }

@@ -14,7 +14,7 @@
 //   node scripts/smoke-functions.mjs [baseUrl] [--cert <id>] [--verified <handle>]
 //   BASE_URL=https://gradethread.com node scripts/smoke-functions.mjs
 //
-// Wired into LAUNCH_CHECKLIST.md §6 (run after every prod deploy). Exit code is
+// Wired into vault/10-ops/launch-checklist.md §6 (run after every prod deploy). Exit code is
 // non-zero if any required check fails, so it can gate a deploy pipeline.
 
 const args = process.argv.slice(2);

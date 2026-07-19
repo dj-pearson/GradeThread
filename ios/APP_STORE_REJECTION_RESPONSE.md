@@ -28,7 +28,7 @@ your profile")`. The iOS flow itself is correct — the error originates on the 
    `verified_embed_in_listings` (added in `00305_verified_embed_in_listings.sql`).
    If prod hasn't applied 00305, the query 500s. → **Action:** verify prod is at
    `00305` (`EXPECTED_SCHEMA_VERSION`); if behind, apply via
-   `scripts/apply-prod-migrations.sh` (DB before edge, per `DEPLOY.md`).
+   `scripts/apply-prod-migrations.sh` (DB before edge, per `vault/10-ops/deploy.md`).
 
 **Code hardening (this branch):** the `email_unverified` 403 now maps to a
 distinct `EdgeAPIError.emailUnverified` with an actionable message ("Please

@@ -1,7 +1,7 @@
 // US-1610 / AGENTIC-OS Phase 2 (Module Q): release verification — post-deploy
 // regression detection by comparing health metrics to a pre-deploy baseline.
 // PURE + fixture-tested. The agent NEVER rolls back (that's a human procedure,
-// ROLLBACK.md); it verifies and files an admin task on a regression.
+// vault/10-ops/rollback.md); it verifies and files an admin task on a regression.
 //
 // Deploy detection is by RELEASE_SHA change; the comparison uses the health
 // signals that ARE queryable (24h cron-failure count, webhook/email dead-letter

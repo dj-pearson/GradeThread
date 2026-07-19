@@ -3735,7 +3735,7 @@ until you apply 00338 (+ any earlier stragglers) and say "OK to push".
 
 > Running package for the pre-launch loop. As of the latest push (af1b3d74), local main == origin/main and ALL committed stories are code-only (no migrations). Future migrations will be listed here for you to apply before the next push. At
 > check-in, apply any migrations below to prod (DB → edge → frontend order per
-> DEPLOY.md), redeploy the edge (Coolify), then give the OK to `git push`.
+> vault/10-ops/deploy.md), redeploy the edge (Coolify), then give the OK to `git push`.
 
 ## 🔸 HELD (commit-only loop — NOT pushed): `00334` (US-1531)
 

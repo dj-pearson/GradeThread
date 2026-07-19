@@ -292,7 +292,7 @@ export function nextCronRun(schedule: string, from: Date): string | null {
 
 // ── US-1561: canonical doc rendering ─────────────────────────────────
 //
-// COOLIFY.md and LAUNCH_CHECKLIST.md embed this exact rendering between
+// COOLIFY.md and vault/10-ops/launch-checklist.md embed this exact rendering between
 // `<!-- cron-registry:start -->` / `<!-- cron-registry:end -->` markers; the
 // drift test (cron-registry-drift_test.ts) regenerates it and fails when the
 // docs diverge from the registry. Update the registry, re-run

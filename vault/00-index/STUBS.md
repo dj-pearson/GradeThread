@@ -33,14 +33,28 @@ nothing references, and reports the ones that must stay.
 
 | Old path | Note | Created |
 |---|---|---|
+| `BACKUPS.md` | [[backups]] | 2026-07-19 |
+| `CAPACITY.md` | [[capacity]] | 2026-07-19 |
+| `CONNECTION_POOLING.md` | [[connection-pooling]] | 2026-07-19 |
 | `DATA_RETENTION.md` | [[data-retention]] | 2026-07-19 |
+| `DEPLOY.md` | [[deploy]] | 2026-07-19 |
+| `docs/BILLING_REFUNDS.md` | [[billing-refunds]] | 2026-07-19 |
 | `docs/DATA_RETENTION.md` | [[data-retention]] | 2026-07-19 |
 | `docs/INCIDENT_RESPONSE.md` | [[incident-response]] | 2026-07-19 |
 | `docs/KEY_ROTATION.md` | [[key-rotation]] | 2026-07-19 |
+| `docs/MFA.md` | [[mfa]] | 2026-07-19 |
+| `docs/QA_PHOTO_ACCESS.md` | [[qa-photo-access]] | 2026-07-19 |
+| `docs/runbooks/mfa-ipv6-ip-mismatch.md` | [[mfa-ipv6-ip-mismatch]] | 2026-07-19 |
 | `ENV_REFERENCE.md` | [[env-reference]] | 2026-07-19 |
 | `ENVIRONMENT.md` | [[env-reference]] | 2026-07-19 |
 | `INCIDENT_RESPONSE.md` | [[incident-response]] | 2026-07-19 |
 | `KEY_ROTATION.md` | [[key-rotation]] | 2026-07-19 |
+| `LAUNCH_CHECKLIST.md` | [[launch-checklist]] | 2026-07-19 |
+| `MIGRATIONS.md` | [[migrations-process]] | 2026-07-19 |
+| `ROLLBACK.md` | [[rollback]] | 2026-07-19 |
+| `SCALING.md` | [[scaling]] | 2026-07-19 |
+| `STAGING.md` | [[staging]] | 2026-07-19 |
+| `UPTIME_MONITORING.md` | [[uptime-monitoring]] | 2026-07-19 |
 
 <!-- stubs:end -->
 

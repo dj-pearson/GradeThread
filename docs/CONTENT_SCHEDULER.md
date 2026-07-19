@@ -100,7 +100,7 @@ curl -fsS -X POST http://localhost:8787/api/content/scheduler/tick \
 Click **Run Now** once and confirm a JSON body (`{"skipped":true,...}` is a
 healthy idle response; `{"status":"published"|"draft"|"held",...}` means it acted).
 `localhost:8787` hits the container directly, skipping Traefik/WAF — same pattern
-as every other job in `LAUNCH_CHECKLIST.md` §3.
+as every other job in `vault/10-ops/launch-checklist.md` §3.
 
 ### Option B — Make.com scenario
 

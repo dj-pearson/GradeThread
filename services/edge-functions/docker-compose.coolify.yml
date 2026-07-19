@@ -45,7 +45,7 @@ services:
       # business counters are always logged at 100%. Tune in OBSERVABILITY.md.
       - EDGE_TRACE_SAMPLE_RATE=0.1
       # US-573: max grading pipelines allowed to hold base64 image data resident
-      # at once (the OOM bound — see grading-capacity.ts + CAPACITY.md). Tuned so
+      # at once (the OOM bound — see grading-capacity.ts + vault/10-ops/capacity.md). Tuned so
       # worst-case residency stays under the 2G limit's 30% headroom target.
       - GRADING_MAX_CONCURRENT_PIPELINES=6
     env_file:
@@ -112,7 +112,7 @@ services:
       # ~100 MB resident per submission. GRADING_MAX_CONCURRENT_PIPELINES=6
       # caps that to ~600 MB of base64; with the Deno baseline + caches + AI SDK
       # buffers, 2G keeps peak RSS under the 70% scale-out line (≥30% headroom).
-      # Memory-based scale-out rule + the headroom target live in CAPACITY.md.
+      # Memory-based scale-out rule + the headroom target live in vault/10-ops/capacity.md.
       # Keep `memory` in sync with EDGE_MEMORY_LIMIT_MB above.
       resources:
         limits:

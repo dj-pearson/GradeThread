@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 2076,
+  "nextId": 2077,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2388,7 +2388,7 @@
     },
     {
       "id": "US-2051",
-      "passes": false,
+      "passes": true,
       "dependsOn": [
         "US-2047"
       ],
@@ -2396,18 +2396,15 @@
       "title": "Migrate ops runbooks into vault/10-ops",
       "description": "As an operator, I want every runbook in one folder with consistent structure, so that finding the right procedure is navigation rather than recall.",
       "acceptanceCriteria": [
-        "SCOPE EXPANDED 2026-07-18 (found in US-2047): ops runbooks exist in THREE places, not two. src/lib/admin/runbooks.ts is a 378-line shipped in-app runbook feature (US-910) hand-distilled from DEPLOY/ROLLBACK/INCIDENT_RESPONSE/BACKUPS/LAUNCH_CHECKLIST — it is what on-call actually reads during an incident, and it has NO drift guard. See vault/10-ops/runbook-copies.md.",
-        "ALSO (found US-2049): services/edge-functions/src/lib/integrations-watchdog.ts holds KEY_ROTATION_REGISTRY — the rotation SCHEDULE transcribed as structured data. That is a FOURTH copy. Hand-transcribing ops markdown into TypeScript is a habit in this codebase, not two accidents; grep the source tree for any doc filename before calling its move complete.",
-        "Move DEPLOY, ROLLBACK, STAGING, BACKUPS, UPTIME_MONITORING, SCALING, CAPACITY, CONNECTION_POOLING, MIGRATIONS, LAUNCH_CHECKLIST and the docs/ runbooks (BILLING_REFUNDS, MFA, runbooks/mfa-ipv6-ip-mismatch, QA_PHOTO_ACCESS) into vault/10-ops.",
+        "Move DEPLOY, ROLLBACK, STAGING, BACKUPS, UPTIME_MONITORING, SCALING, CAPACITY, CONNECTION_POOLING, MIGRATIONS, LAUNCH_CHECKLIST and the docs/ runbooks (BILLING_REFUNDS, MFA, runbooks/mfa-ipv6-ip-mismatch, QA_PHOTO_ACCESS) into vault/10-ops via scripts/vault-move.mjs.",
         "Each becomes type:runbook with code_refs to the scripts/config it drives.",
-        "Ordering dependencies between runbooks (DEPLOY's DB->edge->frontend order, ROLLBACK's relationship to it) expressed as wikilinks.",
-        "PENDING_MIGRATIONS.md (3,830 lines) is explicitly NOT moved — it is a mutable work queue, not durable knowledge. Note the decision in the vault so it is not revisited.",
-        "The migrations skill's references updated to the new paths.",
-        "All old paths stubbed; vault-lint clean.",
-        "Reconcile src/lib/admin/runbooks.ts against the merged vault notes — a three-way reconciliation, not a two-way merge. Report every place the shipped copy already disagrees with the markdown.",
-        "Decide and record as an ADR: generate the in-app runbooks from vault notes at build time, or keep them hand-written and add a drift guard. Both have real costs; do NOT delete the in-app copy, it is a deliberate feature."
+        "Ordering dependencies between runbooks (DEPLOY DB->edge->frontend, ROLLBACK relationship to it) expressed as wikilinks.",
+        "PENDING_MIGRATIONS.md (3,830 lines) is explicitly NOT moved — a mutable work queue, not durable knowledge. Record the decision so it is not revisited.",
+        "The migrations skill references updated to the new paths.",
+        "GREP THE SOURCE TREE for each doc filename before calling its move complete — hand-transcribing ops markdown into TypeScript is a habit here (see vault/10-ops/runbook-copies.md). vault-move reports these as residual mentions; each needs a human decision.",
+        "All old paths stubbed; vault-lint clean; doc-refs reports 0 missing."
       ],
-      "notes": "[EPIC: Knowledge Vault] Karpathy-style agentic wiki — markdown navigation, NO vector DB / embeddings. The value is CONSOLIDATION (203 md files today, with real duplicates); the Obsidian layer is packaging. Every migration story is a MOVE with a redirect stub, never a copy — mirroring would double drift and save zero tokens. Phase 3. PENDING_MIGRATIONS.md is called out because it is the largest md in the repo by 6x and would otherwise get swept in by pattern-matching — a 3,830-line queue in the knowledge index would blow the retrieval budget on content that changes weekly. SCOPE EXPANDED 2026-07-18: the third (shipped) copy makes this the highest-value ops story in the epic and also the largest — consider splitting the runbooks.ts reconciliation into its own story if it grows.",
+      "notes": "[EPIC: Knowledge Vault] Phase 3. SPLIT 2026-07-19: the shipped-copy reconciliation (src/lib/admin/runbooks.ts, integrations-watchdog.ts) moved to US-2076 — it is a design decision plus a content audit, not a file move, and bundling them would have made one story unreviewable.",
       "relevantPaths": [
         "DEPLOY.md",
         "ROLLBACK.md",
@@ -2416,6 +2413,31 @@
         "CAPACITY.md",
         "CONNECTION_POOLING.md",
         "docs/runbooks/"
+      ]
+    },
+    {
+      "id": "US-2076",
+      "passes": false,
+      "dependsOn": [
+        "US-2051"
+      ],
+      "priority": 1920,
+      "title": "Reconcile the shipped in-app copies of the ops runbooks",
+      "description": "As an operator reading a runbook inside the admin UI during an incident, I want it to agree with the vault, so that the copy I actually use is not the one nobody checks.",
+      "acceptanceCriteria": [
+        "Two shipped copies of ops knowledge exist in TypeScript: src/lib/admin/runbooks.ts (378-line RUNBOOKS array, US-910, rendered in-app and deep-linked to admin controls) and services/edge-functions/src/lib/integrations-watchdog.ts (KEY_ROTATION_REGISTRY, the rotation schedule as structured data).",
+        "Diff BOTH against the merged vault notes and report every disagreement. The in-app runbooks are what on-call reads under time pressure, so a divergence there costs more than the same divergence in markdown.",
+        "Specifically re-check the EDGE_ENCRYPTION_KEY guidance: US-2049 found BOTH markdown copies wrong (one demanded a maintenance window that is unnecessary; the other named EDGE_ENCRYPTION_KEY_OLD, which does not exist and would break every marketplace connection). Verify neither wrong version was transcribed into the shipped copies.",
+        "Decide and record as an ADR in vault/60-decisions: generate the in-app runbooks from vault notes at build time, or keep them hand-written and add a drift guard. Both have real costs — generation constrains what the in-app copy can say and how it links to controls; a guard is cheaper but still relies on someone acting on it.",
+        "Implement the chosen option. If a guard, it must be able to FAIL — verify by deliberately diverging a copy.",
+        "Do NOT delete the in-app runbooks. US-910 put the playbook where the controls are, which is a deliberate and good design."
+      ],
+      "notes": "[P1][Ops/Docs][EPIC: Knowledge Vault] Phase 3, split out of US-2051 on 2026-07-19. Found during US-2047/US-2049: ops knowledge exists in FOUR places, two of them shipped TypeScript that no markdown edit reaches. The in-app copy has no drift guard at all and is the one read during an incident.",
+      "relevantPaths": [
+        "src/lib/admin/runbooks.ts",
+        "services/edge-functions/src/lib/integrations-watchdog.ts",
+        "vault/10-ops/runbook-copies.md",
+        "vault/10-ops/key-rotation.md"
       ]
     },
     {
