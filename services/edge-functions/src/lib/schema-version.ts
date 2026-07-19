@@ -36,14 +36,14 @@ import { supabaseAdmin } from "./supabase.ts";
 import { edgeEnv } from "./env.ts";
 
 // Bump this in the SAME commit that adds a migration. = highest NNNNN in
-// supabase/migrations/. (00481_consignor_payout_reversal.sql)
+// supabase/migrations/. (00482_inventory_distinct_brands.sql)
 //
 // ⚠ 00479 IS DELIBERATELY SKIPPED. On 2026-07-19 /health/ready reported
 // applied="00479" while no 00479 file has ever existed in this repo (no file, no
 // git history, no branch). Reusing that number would let the boot guard read
 // "match" off prod's pre-existing row even if this migration never applied —
 // exactly the failure the guard exists to catch. See PENDING_MIGRATIONS.md.
-export const EXPECTED_SCHEMA_VERSION = "00481";
+export const EXPECTED_SCHEMA_VERSION = "00482";
 
 export type SchemaVersionComparison = "match" | "behind" | "ahead" | "unknown";
 

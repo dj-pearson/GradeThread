@@ -144,17 +144,22 @@ export function InventoryPage() {
   const { data: brandsData } = useQuery({
     queryKey: ["inventory-brands"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("inventory_items")
-        .select("brand");
+      // US-2023 AC2: an RPC, not a select over the whole table. This dropdown
+      // used to pull `brand` for EVERY inventory row in the tenant just to
+      // produce ~200 distinct strings. PostgREST cannot express DISTINCT, and
+      // the client-side workarounds (a LIMIT, or sampling) would silently DROP
+      // brands from the filter — a correctness regression traded for a perf
+      // win — so the aggregate belongs in the database. The function is
+      // SECURITY INVOKER and takes no user_id, so RLS scopes it to the caller.
+      const { data, error } = await supabase.rpc("inventory_distinct_brands");
 
       if (error) throw error;
 
-      const rows = (data ?? []) as Pick<InventoryItemRow, "brand">[];
-      const brands = [
-        ...new Set(rows.map((r) => r.brand).filter(Boolean)),
-      ] as string[];
-      return brands.sort();
+      // The RPC already returns distinct, non-blank, sorted brands — the Set
+      // and sort that used to live here were compensating for the client-side
+      // scan and are now the database's job.
+      const rows = (data ?? []) as Array<{ brand: string | null }>;
+      return rows.map((r) => r.brand).filter((b): b is string => !!b);
     },
     staleTime: 5 * 60 * 1000,
   });

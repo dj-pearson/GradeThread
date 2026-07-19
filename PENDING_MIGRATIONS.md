@@ -3936,3 +3936,27 @@ broken. Still: apply the SQL before pushing.
 pay-immediately behaviour. Reversal, by contrast, is active immediately: a
 returned/refunded sale now cancels or claws back the consignor payout where it
 previously did nothing.
+
+---
+
+## 00482_inventory_distinct_brands.sql — PENDING (US-2023 AC2)
+
+**Risk: LOW.** One new read-only function and one index. No table or column
+changes, nothing destructive, safe to re-run (`CREATE OR REPLACE`).
+
+**What it does**
+- `public.inventory_distinct_brands()` — distinct non-blank brands for the
+  Inventory filter dropdown, replacing a select over every row in the tenant.
+- `idx_inventory_items_user_brand` to support the DISTINCT scan.
+
+**SECURITY INVOKER, deliberately.** It does NOT take a `user_id` argument and is
+NOT `SECURITY DEFINER`: running as the caller means the existing RLS policy on
+`inventory_items` applies unchanged, so it cannot return another tenant's brands
+even if called directly with a forged argument. The tenant comes from
+`auth.uid()` via RLS, never from the caller.
+
+**⚠ THE FRONTEND CALLS THIS RPC** (`src/pages/inventory.tsx`). Cloudflare Pages
+auto-deploys on push, so if the frontend ships before the migration applies, the
+brand dropdown errors and Inventory loses its brand filter. **Apply before
+pushing.** Then `NOTIFY pgrst, 'reload schema';` — required here, since
+PostgREST will not expose a new RPC until it reloads.
