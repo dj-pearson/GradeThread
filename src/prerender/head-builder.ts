@@ -93,6 +93,10 @@ import {
   durabilityReportJsonLd,
   authenticityCheckJsonLd,
   fitCheckerJsonLd,
+  forBrandsJsonLd,
+  forResellersJsonLd,
+  developersJsonLd,
+  verifiedJsonLd,
 } from "@/pages/marketing/marketing-jsonld";
 import { getGlossaryEntryByPath } from "@/lib/seo/glossary";
 import {
@@ -153,6 +157,11 @@ export function stripHeadTagsFromBody(body: string): string {
 const MARKETING_LD: Record<string, () => JsonLd[]> = {
   "/how-it-works": howItWorksJsonLd,
   "/pricing": pricingJsonLd,
+  // US-2105 AC1: these four shipped only Organization + BreadcrumbList.
+  "/for-brands": forBrandsJsonLd,
+  "/for-resellers": forResellersJsonLd,
+  "/developers": developersJsonLd,
+  "/verified": verifiedJsonLd,
   "/faq": faqJsonLd,
   "/condition-grading": conditionGradingJsonLd,
   "/grading-standard": gradingStandardJsonLd,

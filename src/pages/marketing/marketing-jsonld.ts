@@ -83,6 +83,7 @@ import { FIT_CHECKER_META, FIT_CHECKER_PATH } from "@/lib/seo/fit-checker";
 import { absoluteUrl } from "@/lib/seo/site";
 import { LANDING_FAQS } from "@/pages/landing-faqs";
 import { SITE_URL } from "@/lib/seo/site";
+import { FOR_BRANDS_META } from "@/lib/seo/for-brands";
 import {
   glossaryTrail,
   GLOSSARY_ENTRIES,
@@ -1730,5 +1731,101 @@ export function glossaryJsonLd(entry: GlossaryEntry): JsonLd[] {
       path: entry.path,
     }),
     faqPageLd(entry.faqs),
+  ];
+}
+
+// ── US-2105 AC1: page-level schema for four commercially important routes ──
+//
+// /for-brands, /for-resellers, /developers and /verified declared no jsonLdType
+// and shipped only the layout's Organization + a 2-level BreadcrumbList. The
+// for-brands route file was explicit about it ("No jsonLdType: the page passes
+// no jsonLd"), and that refusal was right — declaring a decorative type would
+// have claimed markup that was never emitted. This wires the real markup so the
+// declaration becomes true.
+//
+// Everything below is derived from the registry meta these pages already
+// render. In particular there is NO FAQPage on any of them: none of the three
+// marketing pages carries FAQ content, and authoring Q&A purely to earn a rich
+// result would be inventing claims the page does not make.
+
+/** /for-brands — a Service offered to brands, not an article. */
+export function forBrandsJsonLd(): JsonLd[] {
+  return [
+    {
+      "@context": "https://schema.org",
+      "@type": "Service",
+      "@id": `${SITE_URL}/for-brands#service`,
+      name: "GradeThread for Brands — resale condition & circularity",
+      serviceType: "Resale condition grading and circularity reporting",
+      description: FOR_BRANDS_META.description,
+      url: `${SITE_URL}/for-brands`,
+      provider: { "@type": "Organization", name: "GradeThread" },
+      audience: { "@type": "BusinessAudience", name: "Brands running resale or trade-in programs" },
+      areaServed: "US",
+    } as JsonLd,
+  ];
+}
+
+/** /for-resellers — the same shape, aimed at individual sellers. */
+export function forResellersJsonLd(): JsonLd[] {
+  return [
+    {
+      "@context": "https://schema.org",
+      "@type": "Service",
+      "@id": `${SITE_URL}/for-resellers#service`,
+      name: "GradeThread for Resellers",
+      serviceType: "Clothing condition grading for resale listings",
+      description:
+        "Standardized condition grades that build buyer trust, cut returns, and speed up sales for eBay, Poshmark, Mercari, Depop, and Grailed sellers.",
+      url: `${SITE_URL}/for-resellers`,
+      provider: { "@type": "Organization", name: "GradeThread" },
+      audience: { "@type": "Audience", name: "Clothing resellers" },
+      areaServed: "US",
+    } as JsonLd,
+  ];
+}
+
+/**
+ * /developers — APIReference (a schema.org subtype of TechArticle), which is
+ * the type that actually describes an API surface rather than a marketing page.
+ */
+export function developersJsonLd(): JsonLd[] {
+  return [
+    {
+      "@context": "https://schema.org",
+      "@type": "APIReference",
+      "@id": `${SITE_URL}/developers#api`,
+      name: "GradeThread Grading API",
+      headline: "Grading API for Developers",
+      description:
+        "Embed GradeThread AI clothing condition grading via a REST API and JavaScript SDK — free sandbox, white-label embeds, documented rate limits and pricing.",
+      url: `${SITE_URL}/developers`,
+      programmingModel: "REST",
+      publisher: { "@type": "Organization", name: "GradeThread" },
+    } as JsonLd,
+  ];
+}
+
+/**
+ * /verified — a CollectionPage over the seller directory.
+ *
+ * Deliberately NO ItemList: the sellers are fetched at runtime, so this
+ * build-time prerender cannot enumerate them. An ItemList with zero members, or
+ * one built from a stale snapshot, would be a structured claim about a
+ * collection we are not actually listing here. The CollectionPage itself is
+ * true unconditionally.
+ */
+export function verifiedJsonLd(): JsonLd[] {
+  return [
+    {
+      "@context": "https://schema.org",
+      "@type": "CollectionPage",
+      "@id": `${SITE_URL}/verified#collection`,
+      name: "GradeThread Verified Seller Directory",
+      description:
+        "Browse trusted GradeThread Verified sellers, ranked by graded volume and average condition grade. Every item is independently AI condition-graded.",
+      url: `${SITE_URL}/verified`,
+      isPartOf: { "@type": "WebSite", name: "GradeThread", url: SITE_URL },
+    } as JsonLd,
   ];
 }

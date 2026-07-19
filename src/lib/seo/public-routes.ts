@@ -223,6 +223,7 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
   },
   {
     path: "/for-resellers",
+    jsonLdType: "Service",
     title: "For Resellers",
     description:
       "Standardized condition grades that build buyer trust, cut returns, and speed up sales for eBay, Poshmark, Mercari, Depop, and Grailed sellers.",
@@ -385,6 +386,7 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     // authority surface; the ranked seller list loads client-side from the
     // public sellers feed (/api/content/public/sellers.json).
     path: "/verified",
+    jsonLdType: "CollectionPage",
     title: "Verified Seller Directory",
     description:
       "Browse trusted GradeThread Verified sellers, ranked by graded volume and average condition grade. Every item is independently AI condition-graded.",
@@ -479,6 +481,7 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     // US-596: developer docs for the Grade-as-a-Service API (SDK, sandbox, rate
     // limits, quotas, pricing, white-label).
     path: "/developers",
+    jsonLdType: "APIReference",
     title: "Grading API for Developers",
     description:
       "Embed GradeThread AI clothing condition grading via a REST API and JavaScript SDK — free sandbox, white-label embeds, documented rate limits and pricing.",
