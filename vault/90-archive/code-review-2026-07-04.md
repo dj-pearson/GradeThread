@@ -28,14 +28,22 @@ summary: Nine-domain deep-dive review; all six executive-summary criticals since
 # GradeThread — Deep-Dive Code Review & Action Plan
 
 > [!info] Triage status (US-2089, updated 2026-07-19)
-> **2 of 93 boxes are ticked.** Both were the edge/DB P2s US-2089 names
-> explicitly, and both turned out to be ALREADY FIXED by later stories — the
-> boxes were never ticked when the work shipped, which is why they carried no
-> signal either way.
+> **10 of 93 boxes are ticked** — the 2 edge/DB P2s US-2089 names explicitly,
+> plus all 8 **Web P1s**. Every one turned out to be ALREADY FIXED by a later
+> story (US-1624/1625/1626/1627/1629/1633/1636/1644/1654, plus two inventory
+> invalidation fixes). The boxes were never ticked when the work shipped, which
+> is why they carried no signal either way.
 >
 > An unchecked box in this note means **NOT YET TRIAGED**, not **still open**.
-> Do not read the 91 remaining as a backlog of live defects; read them as
+> Do not read the 83 remaining as a backlog of live defects; read them as
 > unverified. That distinction is the whole reason US-2089 exists.
+>
+> **Ten-for-ten already-fixed is now a real pattern, not a coincidence.** The
+> most likely story for the remaining 83 is that the July review was largely
+> actioned and nobody ticked the document. That is a REASON TO FINISH THE
+> TRIAGE CHEAPLY, not a reason to assume — each of the ten was confirmed by
+> reading the cited code, and doing that is the only thing that turns an
+> unchecked box into information.
 
 
 **Date:** 2026-07-04
@@ -97,14 +105,14 @@ These are the P1s whose blast radius is money, fraud, PII exposure, or permanent
 ## Web — data-flow & UI correctness
 
 ### P1
-- [ ] **Workspace-scoped queries not owner-keyed → previous tenant's data on switch** — `src/hooks/use-automations.ts:84`, `use-repricing.ts:57,70`, `use-google-sheets.ts:61`, most of `use-ebay.ts`. `switchWorkspace` only sets Zustand; no invalidation. A member switching workspaces sees (and can mutate) the prior workspace's automation rules and repricing nudges. **Fix:** key on `activeWorkspaceOwnerId ?? user.id` and/or invalidate in `switchWorkspace`.
-- [ ] **Bulk submission has no synchronous double-submit guard → double charge** — `src/pages/bulk-submission.tsx:287-291`. `disabled={isSubmitting}` only applies next render; `new-submission.tsx` fixed this with `submitLockRef` (US-774) but bulk never got it. Two clicks in one frame POST every row twice. **Fix:** add the same synchronous ref lock.
-- [ ] **`compressImage` double-applies EXIF orientation → sideways garment photos** — `src/lib/image-utils.ts:423-480`. `loadImage` decodes via a plain `<img>` (browsers already bake in orientation), then the manual transform rotates again. Hits every surface via `compressImage`. **Fix:** delete the manual transform, or decode with `createImageBitmap(file,{imageOrientation:"none"})`.
-- [ ] **PhotoUpload loses staged photos when stepping back from Review; edits clobber the parent list** — `src/pages/new-submission.tsx:822-861` + `components/submission/photo-upload.tsx:326-360`. Photos live only in child state and are never passed back down; "Back" remounts empty while Continue stays enabled; the retake remount re-seeds the original photos over replacements. **Fix:** lift slot state to the parent (controlled), or keep the component mounted and hide via CSS.
-- [ ] **Detail-page realtime invalidates a phantom key → `pending_review` never updates** — `src/hooks/use-realtime-submission.ts:94` + `submission-detail.tsx`. The page uses `useState`, not `useQuery`, so `["submission",id]` matches nothing and the fallback poll excludes `pending_review`. The "we'll let you know the moment it's official" banner never resolves without a hard refresh. **Fix:** add an `onChange` callback (or convert to `useQuery`); include `pending_review` in the poll.
-- [ ] **Auto-delist stamp cleared even when the extension hard-fails → double-sale risk** — `src/hooks/use-pending-delists.ts:74-91`. `delist-confirm` fires unconditionally even when `sendDelistToLister` resolved `{ok:false}`, so a still-live cross-listing drops off the queue and can sell twice; conversely the manual paths never clear and nag forever. **Fix:** confirm only on real success; add an explicit "mark done" for manual paths.
-- [ ] **Inventory-detail writes never invalidate any query** — `src/pages/inventory-detail.tsx:285-296` and 4 other sites. No `useQueryClient` in the file; recording a sale leaves the FlipDesk pipeline showing "Listed" for up to 15 min. **Fix:** invalidate `["items_full"]`, `["inventory"]`, `["inventory-listings"]`.
-- [ ] **Adding an inventory item invalidates nothing** — `src/pages/inventory-add.tsx:106-126`. New item missing from the cached list the user lands on → confusion / duplicate re-add. **Fix:** invalidate `["inventory"]`, `["inventory-brands"]`, `["items_full"]`.
+- [x] **Workspace-scoped queries not owner-keyed → previous tenant's data on switch** — `src/hooks/use-automations.ts:84`, `use-repricing.ts:57,70`, `use-google-sheets.ts:61`, most of `use-ebay.ts`. `switchWorkspace` only sets Zustand; no invalidation. A member switching workspaces sees (and can mutate) the prior workspace's automation rules and repricing nudges. **Fix:** key on `activeWorkspaceOwnerId ?? user.id` and/or invalidate in `switchWorkspace`. — ✅ **CLOSED** by US-1624: `switchWorkspace()` calls `queryClient.clear()` before changing the active owner, so the un-keyed queries refetch under the new scope. The keys still omit the owner deliberately — the clear IS the isolation mechanism (US-2089 later extended it to impersonation). Verified against source 2026-07-19 (US-2089).
+- [x] **Bulk submission has no synchronous double-submit guard → double charge** — `src/pages/bulk-submission.tsx:287-291`. `disabled={isSubmitting}` only applies next render; `new-submission.tsx` fixed this with `submitLockRef` (US-774) but bulk never got it. Two clicks in one frame POST every row twice. **Fix:** add the same synchronous ref lock. — ✅ **CLOSED** by US-1625: `submitLockRef` rejects a re-entrant double-click synchronously, before the `disabled={isSubmitting}` re-render lands. Verified against source 2026-07-19 (US-2089).
+- [x] **`compressImage` double-applies EXIF orientation → sideways garment photos** — `src/lib/image-utils.ts:423-480`. `loadImage` decodes via a plain `<img>` (browsers already bake in orientation), then the manual transform rotates again. Hits every surface via `compressImage`. **Fix:** delete the manual transform, or decode with `createImageBitmap(file,{imageOrientation:"none"})`. — ✅ **CLOSED** by US-1626 (see the comment at `image-utils.ts:363`). Verified against source 2026-07-19 (US-2089).
+- [x] **PhotoUpload loses staged photos when stepping back from Review; edits clobber the parent list** — `src/pages/new-submission.tsx:822-861` + `components/submission/photo-upload.tsx:326-360`. Photos live only in child state and are never passed back down; "Back" remounts empty while Continue stays enabled; the retake remount re-seeds the original photos over replacements. **Fix:** lift slot state to the parent (controlled), or keep the component mounted and hide via CSS. — ✅ **CLOSED** by US-1627 (PhotoUpload stays mounted once reached) and US-1636 (object-URL revoke handling). Verified against source 2026-07-19 (US-2089).
+- [x] **Detail-page realtime invalidates a phantom key → `pending_review` never updates** — `src/hooks/use-realtime-submission.ts:94` + `submission-detail.tsx`. The page uses `useState`, not `useQuery`, so `["submission",id]` matches nothing and the fallback poll excludes `pending_review`. The "we'll let you know the moment it's official" banner never resolves without a hard refresh. **Fix:** add an `onChange` callback (or convert to `useQuery`); include `pending_review` in the poll. — ✅ **CLOSED** by US-1633: the realtime handler now invalidates the real keys (`submissions`, `submission/:id`). Verified against source 2026-07-19 (US-2089).
+- [x] **Auto-delist stamp cleared even when the extension hard-fails → double-sale risk** — `src/hooks/use-pending-delists.ts:74-91`. `delist-confirm` fires unconditionally even when `sendDelistToLister` resolved `{ok:false}`, so a still-live cross-listing drops off the queue and can sell twice; conversely the manual paths never clear and nag forever. **Fix:** confirm only on real success; add an explicit "mark done" for manual paths. — ✅ **CLOSED** by US-1629: `delist-confirm` fires only when `res.ok`; a hard failure keeps the stamp so it stays retryable, and `useMarkDelistDone` covers the manual path. Verified against source 2026-07-19 (US-2089).
+- [x] **Inventory-detail writes never invalidate any query** — `src/pages/inventory-detail.tsx:285-296` and 4 other sites. No `useQueryClient` in the file; recording a sale leaves the FlipDesk pipeline showing "Listed" for up to 15 min. **Fix:** invalidate `["items_full"]`, `["inventory"]`, `["inventory-listings"]`. — ✅ **CLOSED**: `inventory-detail.tsx` now uses `useQueryClient` and invalidates `items_full` / `inventory` / `inventory-listings`. Verified against source 2026-07-19 (US-2089).
+- [x] **Adding an inventory item invalidates nothing** — `src/pages/inventory-add.tsx:106-126`. New item missing from the cached list the user lands on → confusion / duplicate re-add. **Fix:** invalidate `["inventory"]`, `["inventory-brands"]`, `["items_full"]`. — ✅ **CLOSED**: `inventory-add.tsx` now imports `useQueryClient` and invalidates on create. Verified against source 2026-07-19 (US-2089).
 
 ### P2 (high-value subset — full list in the domain notes)
 - [ ] **Stripe checkout/portal buttons re-enable before the redirect → duplicate Checkout sessions** — `src/hooks/use-billing-summary.ts:138-143`. Setting `location.href` resolves the mutation; the button re-enables in the seconds before navigation. **Fix:** latch a "redirecting" flag; keep disabled.
