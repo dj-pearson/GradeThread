@@ -2802,3 +2802,54 @@ export async function sendBuyerDigestEmail(
     category: "buyer_notification",
   });
 }
+
+// ── US-2128: SCA / 3-D Secure authentication required ────────────────
+//
+// Distinct from sendPaymentFailedEmail on purpose. A failed payment is fixed by
+// updating a card; THIS is fixed by the cardholder completing a bank challenge,
+// and nothing retries it automatically. Sending the "update your card" email
+// here would send someone to the wrong remedy and leave the real one undone.
+
+interface PaymentActionRequiredData {
+  userName: string;
+  plan: string;
+  amountCents: number;
+  /** Stripe's hosted invoice page — where the 3DS challenge is completed. */
+  actionUrl: string | null;
+}
+
+export async function sendPaymentActionRequiredEmail(
+  to: string,
+  data: PaymentActionRequiredData,
+): Promise<boolean> {
+  const content = `
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      Your bank needs you to confirm this payment
+    </h2>
+    <p style="margin: 0 0 16px; color: #666; font-size: 15px; line-height: 1.5;">
+      Hi ${escapeHtml(data.userName)}, your bank asked for extra verification before
+      it would approve your <strong>FlipDesk ${escapeHtml(data.plan)}</strong> renewal
+      (${dollars(data.amountCents)}). Your card wasn't declined — the payment is just
+      waiting on you.
+    </p>
+    <p style="margin: 0 0 16px; color: #666; font-size: 14px; line-height: 1.5;">
+      This one won't retry on its own. Confirm with your bank to keep your plan
+      active; if it isn't confirmed, the renewal will eventually fail and your plan
+      will drop to Free.
+    </p>
+    ${
+    data.actionUrl
+      ? ctaButton("Confirm payment", data.actionUrl)
+      : ctaButton("Open billing", `${SITE_URL}/dashboard/billing`)
+  }
+  `;
+  return await sendEmail({
+    to,
+    subject: "Action needed: confirm your payment with your bank",
+    html: emailLayout(content),
+    // Critical → durable retry on failure (US-498). This is arguably the most
+    // critical of the billing emails: it is the ONLY notice of a state that
+    // never resolves without the user.
+    category: "payment_action_required",
+  });
+}

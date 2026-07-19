@@ -11,6 +11,7 @@ import {
 } from "../lib/webhook-idempotency.ts";
 import {
   sendCreditPackPurchasedEmail,
+  sendPaymentActionRequiredEmail,
   sendPaymentFailedEmail,
   sendSubscriptionCanceledEmail,
   sendSubscriptionPausedEmail,
@@ -277,8 +278,33 @@ export async function dispatchStripeEvent(event: Stripe.Event): Promise<void> {
       await handleChargeDisputeClosed(event);
       break;
 
+    // US-2128: SCA / 3-D Secure. Stripe could not take the payment because the
+    // bank wants the cardholder to authenticate. Nothing retries this on its
+    // own — the customer must act — so dropping it into the default branch
+    // meant the user saw an unexplained loss of service with no idea why or
+    // what to do. That is the same end state as a failed payment, which we DO
+    // notify on, reached by a path we were silent about.
+    case "invoice.payment_action_required":
+      await handleInvoicePaymentActionRequired(event);
+      break;
+
     default:
-      console.log(`[Webhook] Unhandled event type: ${event.type}`);
+      // US-2128: the default branch now means KNOWN-IGNORED, not unexamined.
+      // Every Stripe event we receive and deliberately drop is listed in
+      // INTENTIONALLY_IGNORED_EVENTS with a reason; anything NOT on that list
+      // is logged as genuinely unexpected so a newly-enabled Stripe feature
+      // (a new payment method, a new lifecycle event) surfaces instead of
+      // disappearing into a log line nobody greps for.
+      if (isIntentionallyIgnored(event.type)) {
+        console.log(`[Webhook] Ignored (known): ${event.type}`);
+      } else {
+        console.warn(
+          `[Webhook] UNEXPECTED event type: ${event.type} — not handled and not ` +
+            `on the known-ignored list. If this is expected, add it to ` +
+            `INTENTIONALLY_IGNORED_EVENTS with a reason.`,
+        );
+        recordMetric("webhook.unexpected_event", 1, { type: event.type });
+      }
   }
 }
 
@@ -1885,3 +1911,114 @@ export function mapSubscriptionStatus(
     default: return "none";
   }
 }
+
+// ── US-2128: SCA / 3-D Secure authentication required ────────────────
+//
+// `invoice.payment_action_required` fires when the bank demands cardholder
+// authentication before it will take the money. Two things make this worse than
+// an ordinary failed payment:
+//
+//   1. NOTHING RETRIES IT. Stripe's Smart Retries drive the dunning cadence for
+//      `invoice.payment_failed`, so that path self-heals or escalates on its
+//      own. This one waits on a HUMAN who has not been told anything.
+//   2. The end state looks identical to the user — service degrades — but the
+//      remedy is completely different: they must complete a 3DS challenge, not
+//      update a card.
+//
+// So it was silence on the one path where silence guarantees the problem
+// persists. This mirrors the payment-failed handler deliberately (same customer
+// resolution, same buyer skip, same event ledger, same safeSendEmail) rather
+// than inventing a parallel shape.
+//
+// NOT flipping subscription_status to past_due here: Stripe will send
+// `invoice.payment_failed` if the authentication is never completed and the
+// invoice ultimately fails, and THAT is the event that owns the dunning clock.
+// Starting the grace period twice from two events would make `past_due_since`
+// depend on delivery order.
+async function handleInvoicePaymentActionRequired(event: Stripe.Event) {
+  const invoice = event.data.object as Stripe.Invoice;
+  const customerId = typeof invoice.customer === "string"
+    ? invoice.customer
+    : (invoice.customer as Stripe.Customer | null)?.id;
+  if (!customerId) return;
+
+  // US-1799: buyer invoices are carried by subscription.updated — same skip as
+  // the payment-failed handler, so a buyer doesn't get a seller-shaped email.
+  if (invoiceIsBuyer(invoice)) return;
+
+  const user = await loadUserByCustomerId(customerId);
+  if (!user) return;
+
+  await recordEvent(
+    user.id,
+    event.type,
+    event.id,
+    user.flipdesk_plan,
+    user.flipdesk_plan,
+    {
+      invoice_id: invoice.id,
+      amount_due: invoice.amount_due,
+      // The hosted page is where the customer completes the 3DS challenge —
+      // recorded so support can hand it to them directly.
+      hosted_invoice_url: invoice.hosted_invoice_url ?? null,
+    },
+  );
+
+  if (user.email) {
+    const planLabel = user.flipdesk_plan.charAt(0).toUpperCase() +
+      user.flipdesk_plan.slice(1);
+    safeSendEmail(
+      sendPaymentActionRequiredEmail(user.email, {
+        userName: userDisplayName(user.email, user.full_name),
+        plan: planLabel,
+        amountCents: invoice.amount_due ?? 0,
+        // Stripe's hosted invoice page carries the authentication flow. Without
+        // a link the email would tell someone their payment needs action and
+        // give them no way to take it.
+        actionUrl: invoice.hosted_invoice_url ?? null,
+      }),
+      "payment_action_required",
+    );
+  }
+}
+
+// ── US-2128: the known-ignored list ──────────────────────────────────
+//
+// Before this, the switch's default branch logged "Unhandled event type" for
+// BOTH events we deliberately don't care about and events we'd simply never
+// considered. Those are very different facts, and collapsing them meant a newly
+// enabled Stripe feature could start firing an unhandled consequential event
+// and read exactly like the routine noise beside it.
+//
+// Anything on this list is a decision. Anything NOT on it now warns and records
+// a metric, so it surfaces.
+const INTENTIONALLY_IGNORED_EVENTS = new Set<string>([
+  // Covered by their own stories / other handlers.
+  "invoice.upcoming", // renewal-reminder story owns this
+  "customer.subscription.trial_will_end", // trial-ending notice story owns this
+  // Informational duplicates of state we already derive from the subscription
+  // or invoice objects we DO handle.
+  "invoice.created",
+  "invoice.finalized",
+  "invoice.updated",
+  "invoice.paid", // we act on invoice.payment_succeeded
+  "payment_intent.succeeded", // charge/checkout handlers carry the outcome
+  "payment_intent.created",
+  "payment_method.attached",
+  "payment_method.detached",
+  "customer.updated",
+  "customer.created",
+  "charge.succeeded", // checkout.session.completed carries what we need
+  "invoiceitem.created",
+  "billing_portal.session.created",
+  "checkout.session.expired", // an abandoned checkout needs no server action
+]);
+
+export function isIntentionallyIgnored(eventType: string): boolean {
+  return INTENTIONALLY_IGNORED_EVENTS.has(eventType);
+}
+
+/** Exposed for the test that pins the list is non-empty and documented. */
+export const INTENTIONALLY_IGNORED_EVENT_LIST: readonly string[] = [
+  ...INTENTIONALLY_IGNORED_EVENTS,
+];
