@@ -58,6 +58,8 @@ const EVENT_LABELS: Record<string, string> = {
   sold: "Sold",
   ownership_transfer: "Ownership transferred",
   fingerprinted: "Fingerprinted",
+  // US-2142 (00488) — keep in step with EVENT_META in src/pages/passport.tsx.
+  authenticity_assessed: "Authenticity assessed",
 };
 const CONFIDENCE_LABELS: Record<string, string> = {
   deterministic: "Verified",

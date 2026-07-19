@@ -15,6 +15,7 @@
 
 import type { AuthenticityVerdict } from "./ai-authenticity.ts";
 import type { ExpectedLabel } from "./authenticity-eval.ts";
+import { AUTH_TELL_CATEGORIES, isAuthTellCategory } from "./brand-authenticity.ts";
 
 export type ReviewerVerdict = ExpectedLabel;
 
@@ -130,8 +131,20 @@ export function validateReviewOutcome(body: Record<string, unknown>): string | n
   ) {
     return `reviewer_verdict must be one of: ${[...REVIEWER_VERDICTS].join(", ")}.`;
   }
-  if (body.tells_relied_on !== undefined && !Array.isArray(body.tells_relied_on)) {
-    return "tells_relied_on must be an array of tell categories.";
+  if (body.tells_relied_on !== undefined) {
+    if (!Array.isArray(body.tells_relied_on)) {
+      return "tells_relied_on must be an array of tell categories.";
+    }
+    // US-2147 reads these to rank brand-knowledge candidates, and its aggregator
+    // DROPS anything that is not a known category. Accepting free text here
+    // would look like it was recorded while contributing nothing — the reviewer
+    // would have done the work and the signal would silently vanish. Reject at
+    // write time so the caller finds out immediately.
+    const unknown = body.tells_relied_on.filter((t) => !isAuthTellCategory(t));
+    if (unknown.length > 0) {
+      return `Unknown tell categories: ${unknown.map(String).join(", ")}. ` +
+        `Valid: ${AUTH_TELL_CATEGORIES.join(", ")}.`;
+    }
   }
   return null;
 }

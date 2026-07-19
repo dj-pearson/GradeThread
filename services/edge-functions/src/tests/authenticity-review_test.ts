@@ -1,13 +1,20 @@
 // US-2140: authenticity review outcomes + the golden-set promotion rules.
 // Pure logic only — no supabase load, so no dummy env needed.
 
+// authenticity-review now imports brand-authenticity (to validate tell
+// categories at write time), which transitively loads the service-role supabase
+// client — so set dummy env first and dynamic-import.
 import { assert, assertEquals } from "@std/assert";
-import {
+
+Deno.env.set("SUPABASE_URL", "https://example.test");
+Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "dummy");
+
+const {
   canPromoteToGoldenSet,
   isDangerousOverride,
   overrodeModel,
   validateReviewOutcome,
-} from "../lib/authenticity-review.ts";
+} = await import("../lib/authenticity-review.ts");
 
 // ── override detection across two vocabularies ──────────────────────────────
 
@@ -89,5 +96,27 @@ Deno.test("validateReviewOutcome rejects a missing report or a junk verdict", ()
       reviewer_verdict: "authentic",
       tells_relied_on: "date_code",
     })?.includes("tells_relied_on"),
+  );
+});
+
+Deno.test("validateReviewOutcome rejects unknown tell categories at write time", () => {
+  // US-2147 drops anything that is not a known category when ranking candidates.
+  // Accepting free text here would look recorded while contributing nothing —
+  // the reviewer does the work and the signal silently vanishes.
+  const err = validateReviewOutcome({
+    grade_report_id: "abc",
+    reviewer_verdict: "counterfeit",
+    tells_relied_on: ["date_code", "vibes"],
+  });
+  assert(err?.includes("vibes"), "names the offending value");
+  assert(err?.includes("date_code"), "lists the valid set");
+
+  assertEquals(
+    validateReviewOutcome({
+      grade_report_id: "abc",
+      reviewer_verdict: "counterfeit",
+      tells_relied_on: ["date_code", "stitching"],
+    }),
+    null,
   );
 });

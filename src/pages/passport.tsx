@@ -105,6 +105,10 @@ const EVENT_META: Record<string, { icon: LucideIcon; label: string }> = {
   sold: { icon: ShoppingBag, label: "Sold" },
   ownership_transfer: { icon: ArrowRightLeft, label: "Ownership transferred" },
   fingerprinted: { icon: Fingerprint, label: "Fingerprinted" },
+  // US-2142 (00488). Without this the event fell through to the generic
+  // History icon — the enum gained a value and this map, which claims to mirror
+  // it, did not.
+  authenticity_assessed: { icon: ShieldCheck, label: "Authenticity assessed" },
 };
 function eventMeta(type: string): { icon: LucideIcon; label: string } {
   return EVENT_META[type] ?? { icon: History, label: formatLabel(type) };
