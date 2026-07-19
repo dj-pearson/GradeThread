@@ -103,6 +103,11 @@ New here? Read [[CONTRACT]] before adding a note.
 
 <!-- vault-index:end -->
 
+## Evidence
+
+- [[benchmark-2026-07-19]] — navigating this vault costs 89% less than the old
+  corpus; **grepping it blindly costs 16% MORE**. Read the protocol above.
+
 ## Also registered here
 
 - [[external-docs]] — docs that deliberately stay next to the code they configure

@@ -22,6 +22,13 @@ follow the structure.
    two. That should be enough.
 3. **Only then grep the codebase.**
 
+This ordering is measured, not assumed. A 12-task benchmark (US-2064) found
+navigating costs **89% less** than the pre-vault corpus — and grepping the vault
+blindly costs **16% MORE**, because the vault added 86 cross-linked files to a
+corpus that already had 200. Skipping step 1 does not merely forgo the benefit;
+it lands you worse off than before the vault existed. See
+[[benchmark-2026-07-19]].
+
 If you find yourself on a third hop, or back at the index for a second pass, the
 taxonomy has failed for that question. **Say so** — a missing index entry or a
 missing link is a fixable bug, and reporting it is worth more than quietly

@@ -2742,7 +2742,7 @@
     },
     {
       "id": "US-2064",
-      "passes": false,
+      "passes": true,
       "dependsOn": [
         "US-2063"
       ],
@@ -2754,7 +2754,10 @@
         "Each task run twice: pre-vault (against the git tag before US-2048) and post-vault, measuring tokens read, files opened, and whether the answer was correct and complete.",
         "Results recorded in a vault note with the methodology, so it can be re-run after future growth.",
         "Report honestly if the win is smaller than expected, or negative on any task category — a benchmark that can only confirm the thesis is not a benchmark.",
-        "Any task where post-vault retrieval FAILED drives a follow-up story (usually a missing index entry or a missing link)."
+        "Any task where post-vault retrieval FAILED drives a follow-up story (usually a missing index entry or a missing link).",
+        "RESULT 2026-07-19 — TWO-SIDED, both halves reported. Navigated (index -> note): 1995.5 KB -> 216.7 KB, -89%. Blind grep: 1995.5 -> 2307.7 KB, +16% WORSE, because the vault ADDED 86 cross-linked files to a corpus of 200. The vault is ~9x cheaper used as designed and worse than before if the protocol is skipped.",
+        "NEGATIVE RESULTS REPORTED, not buried: 2 of 12 tasks got MORE expensive even navigated (ebay-aspect-limit +117%, incident-first-60 +121%). Cause is the 8.8 KB INDEX.md fixed tax on questions that were already cheap (2 candidate files each). The vault wins on expensive questions and loses on cheap ones — the four biggest wins all had 8-22 pre-vault candidates.",
+        "NO task FAILED to find an answer, so no follow-up story was needed on that criterion. But the byte count cannot see that three pre-vault answers would have been CONFIDENTLY WRONG (the key-rotation procedure that would break every marketplace connection, the fictional Resend integration, the stale rounding map). The correctness findings, not the token ratio, are what this epic actually bought."
       ],
       "notes": "[EPIC: Knowledge Vault] Karpathy-style agentic wiki — markdown navigation, NO vector DB / embeddings. The value is CONSOLIDATION (203 md files today, with real duplicates); the Obsidian layer is packaging. Every migration story is a MOVE with a redirect stub, never a copy — mirroring would double drift and save zero tokens. Phase 6. This exists because the epic's premise — fewer tokens, better answers — is an empirical claim about a 203-file corpus, not a certainty. Worth running honestly: if the win concentrates in a couple of categories, that tells us where to keep investing and where to stop.",
       "relevantPaths": [
