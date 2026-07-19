@@ -17,7 +17,53 @@ const {
   aggregateAuthenticityEval,
   authenticityEvalMinAgreement,
   gateStatusFromRun,
+  summarizeCaseCoverage,
+  validateAuthenticityCase,
 } = await import("../lib/authenticity-eval.ts");
+
+// ── US-2131: golden-set curation ────────────────────────────────────────────
+
+Deno.test("coverage: a brand needs BOTH an authentic and a counterfeit case to be usable", () => {
+  const c = summarizeCaseCoverage([
+    { brand_key: "gucci", expected_label: "authentic", is_active: true },
+    { brand_key: "gucci", expected_label: "counterfeit", is_active: true },
+    // Authentic-only: a perfect score here proves nothing, because the one error
+    // the gate exists to catch (a known fake called authentic) cannot occur.
+    { brand_key: "coach", expected_label: "authentic", is_active: true },
+    { brand_key: "coach", expected_label: "authentic", is_active: true },
+  ]);
+  assert(c.brands.gucci?.usable);
+  assertEquals(c.brands.coach?.usable, false);
+  assertEquals(c.usable_brands, 1);
+  assertEquals(c.total_active, 4);
+});
+
+Deno.test("coverage: retired cases are excluded", () => {
+  const c = summarizeCaseCoverage([
+    { brand_key: "gucci", expected_label: "authentic", is_active: true },
+    { brand_key: "gucci", expected_label: "counterfeit", is_active: false },
+  ]);
+  assertEquals(c.total_active, 1);
+  assertEquals(c.brands.gucci?.usable, false, "a retired counterfeit no longer backs the brand");
+});
+
+Deno.test("validate: rejects a case the eval would choke on", () => {
+  const ok = {
+    label: "Gucci Marmont, boutique",
+    brand_key: "gucci",
+    expected_label: "authentic",
+    images: [{ image_type: "serial", storage_path: "u/1/serial.jpg" }],
+  };
+  assertEquals(validateAuthenticityCase(ok), null);
+
+  assert(validateAuthenticityCase({ ...ok, label: "  " })?.includes("label"));
+  assert(validateAuthenticityCase({ ...ok, brand_key: undefined })?.includes("brand_key"));
+  assert(validateAuthenticityCase({ ...ok, expected_label: "probably" })?.includes("expected_label"));
+  // Empty images is the one runAuthenticityEval throws on mid-run, after it has
+  // already spent vision calls on earlier cases — so reject it at write time.
+  assert(validateAuthenticityCase({ ...ok, images: [] })?.includes("images"));
+  assert(validateAuthenticityCase({ ...ok, images: [{ image_type: "serial" }] })?.includes("storage_path"));
+});
 
 // ── US-2130: the gate decision fails closed ─────────────────────────────────
 // Both "no passing run" and "the query blew up" must report ungated. A pass has

@@ -37,7 +37,14 @@ import {
   evalExemplarSet,
 } from "../lib/few-shot-exemplars.ts";
 import { computeDefectAccuracyReport } from "../lib/defect-accuracy.ts";
-import { authenticityGateStatus, runAuthenticityEval } from "../lib/authenticity-eval.ts";
+import {
+  authenticityGateStatus,
+  EXPECTED_LABELS,
+  runAuthenticityEval,
+  summarizeCaseCoverage,
+  validateAuthenticityCase,
+  type AuthenticityCaseRow,
+} from "../lib/authenticity-eval.ts";
 import {
   AUTHENTICITY_PROMPT_VERSION,
   AUTHENTICITY_PROMPT_VERSION_GROUNDED,
@@ -504,6 +511,104 @@ adminGradingRoutes.post("/prompts/:id/deactivate", async (c) => {
 // authenticity-eval.ts became dead code in the first place (see the reasoning in
 // authenticity-gate-guard_test.ts). When that lifecycle is genuinely needed, it
 // must call assertAuthenticityPromptActivatable, which refuses by default.
+
+// ── US-2131: golden-set curation ────────────────────────────────────────────
+//
+// The gate is worthless without ground truth, and ground truth cannot be
+// generated — it needs an expert to label real authentic-vs-counterfeit items.
+// These routes are the surface that lets that happen. The table (00405) already
+// carries every column required, including source_url for the PROVENANCE of a
+// label, so no migration is involved.
+//
+// There is deliberately NO delete route. Per the grading-engine contract a
+// shrinking golden set is a red flag, and deleting the cases a prompt fails is
+// the easiest way to fake a passing gate. Cases are RETIRED (is_active=false),
+// which preserves the record and is audited.
+
+// GET /authenticity/cases — the golden set + per-brand coverage.
+adminGradingRoutes.get("/authenticity/cases", async (c) => {
+  const { data, error } = await supabaseAdmin
+    .from("authenticity_eval_cases")
+    .select("id, label, brand_key, brand, garment_type, expected_label, tags, is_active, notes, source_url, images, created_at")
+    .order("created_at", { ascending: false });
+  if (error) {
+    return failSafe(c, 400, "Couldn't load the authenticity golden set.", error, "admin.grading.authenticity.cases.list");
+  }
+  const rows = (data ?? []) as AuthenticityCaseRow[];
+  return c.json({ cases: rows, coverage: summarizeCaseCoverage(rows) });
+});
+
+// POST /authenticity/cases — add a labeled case.
+adminGradingRoutes.post("/authenticity/cases", async (c) => {
+  const userId = c.get("userId");
+  const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+
+  const invalid = validateAuthenticityCase(body);
+  if (invalid) return c.json({ error: invalid }, 400);
+
+  const { data, error } = await supabaseAdmin
+    .from("authenticity_eval_cases")
+    .insert({
+      label: String(body.label).trim(),
+      brand_key: String(body.brand_key).trim(),
+      brand: typeof body.brand === "string" ? body.brand.trim() : null,
+      garment_type: typeof body.garment_type === "string" ? body.garment_type : null,
+      images: body.images,
+      expected_label: body.expected_label,
+      tags: Array.isArray(body.tags) ? body.tags.map(String) : [],
+      notes: typeof body.notes === "string" ? body.notes : null,
+      source_url: typeof body.source_url === "string" ? body.source_url : null,
+      created_by: userId,
+    })
+    .select("id")
+    .single();
+  if (error) {
+    return failSafe(c, 400, "Couldn't add the case.", error, "admin.grading.authenticity.cases.create");
+  }
+
+  const id = (data as { id: string }).id;
+  await auditLog(c, "create_authenticity_eval_case", "authenticity_eval_case", id, {
+    brand_key: body.brand_key,
+    expected_label: body.expected_label,
+    // Recorded because a label with no stated provenance is the weak kind.
+    has_source: Boolean(body.source_url),
+  });
+  return c.json({ id }, 201);
+});
+
+// PATCH /authenticity/cases/:id — correct a case, or retire it. Retiring is the
+// only removal path; see the note above.
+adminGradingRoutes.patch("/authenticity/cases/:id", async (c) => {
+  const id = c.req.param("id");
+  const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+
+  const patch: Record<string, unknown> = {};
+  if (typeof body.label === "string") patch.label = body.label.trim();
+  if (typeof body.notes === "string") patch.notes = body.notes;
+  if (typeof body.source_url === "string") patch.source_url = body.source_url;
+  if (Array.isArray(body.tags)) patch.tags = body.tags.map(String);
+  if (typeof body.is_active === "boolean") patch.is_active = body.is_active;
+  if (typeof body.expected_label === "string") {
+    if (!EXPECTED_LABELS.has(body.expected_label)) {
+      return c.json({ error: `expected_label must be one of: ${[...EXPECTED_LABELS].join(", ")}` }, 400);
+    }
+    patch.expected_label = body.expected_label;
+  }
+  if (Object.keys(patch).length === 0) return c.json({ error: "Nothing to update." }, 400);
+
+  const { error } = await supabaseAdmin
+    .from("authenticity_eval_cases")
+    .update(patch)
+    .eq("id", id);
+  if (error) {
+    return failSafe(c, 400, "Couldn't update the case.", error, "admin.grading.authenticity.cases.update");
+  }
+
+  // Changing ground truth or retiring a case both alter what the gate certifies,
+  // so both are audited with the before/after intent visible.
+  await auditLog(c, "update_authenticity_eval_case", "authenticity_eval_case", id, patch);
+  return c.json({ ok: true });
+});
 
 // GET /authenticity/gate — is the version actually serving traffic backed by a
 // passing eval run, on the model that will serve it? Read-only.

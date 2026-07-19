@@ -327,6 +327,99 @@ export async function warnAuthenticityGate(
   }
 }
 
+// ── US-2131: golden-set curation helpers (pure, exported for tests) ─────────
+
+export const EXPECTED_LABELS: ReadonlySet<string> = new Set([
+  "authentic",
+  "counterfeit",
+  "inconclusive",
+]);
+
+export interface AuthenticityCaseRow {
+  brand_key: string;
+  expected_label: string;
+  is_active: boolean;
+}
+
+export interface BrandCoverage {
+  total: number;
+  authentic: number;
+  counterfeit: number;
+  inconclusive: number;
+  /** A brand the gate cannot meaningfully certify — see usable below. */
+  usable: boolean;
+}
+
+/**
+ * Per-brand coverage of the ACTIVE golden set.
+ *
+ * `usable` requires at least one authentic AND one counterfeit case for the
+ * brand. A brand with only genuine examples cannot demonstrate the one error
+ * the gate exists to catch — calling a known fake authentic — so a perfect
+ * agreement rate over authentic-only cases is not evidence of anything.
+ */
+export function summarizeCaseCoverage(
+  rows: readonly AuthenticityCaseRow[],
+): { brands: Record<string, BrandCoverage>; usable_brands: number; total_active: number } {
+  const brands: Record<string, BrandCoverage> = {};
+  let totalActive = 0;
+
+  for (const r of rows) {
+    if (!r.is_active) continue;
+    totalActive += 1;
+    const b = (brands[r.brand_key] ??= {
+      total: 0,
+      authentic: 0,
+      counterfeit: 0,
+      inconclusive: 0,
+      usable: false,
+    });
+    b.total += 1;
+    if (r.expected_label === "authentic") b.authentic += 1;
+    else if (r.expected_label === "counterfeit") b.counterfeit += 1;
+    else b.inconclusive += 1;
+  }
+  for (const b of Object.values(brands)) {
+    b.usable = b.authentic > 0 && b.counterfeit > 0;
+  }
+
+  return {
+    brands,
+    usable_brands: Object.values(brands).filter((b) => b.usable).length,
+    total_active: totalActive,
+  };
+}
+
+/**
+ * Validate an incoming golden-set case. Returns an error string, or null when
+ * the case is acceptable. Pure + exported.
+ *
+ * Strict about images because runAuthenticityEval throws on a case with none —
+ * better to reject at write time than to discover it mid-eval, after the run has
+ * already spent vision calls on the cases before it.
+ */
+export function validateAuthenticityCase(body: Record<string, unknown>): string | null {
+  if (typeof body.label !== "string" || !body.label.trim()) {
+    return "label is required.";
+  }
+  if (typeof body.brand_key !== "string" || !body.brand_key.trim()) {
+    return "brand_key is required (it joins brand_knowledge.brand_key).";
+  }
+  if (typeof body.expected_label !== "string" || !EXPECTED_LABELS.has(body.expected_label)) {
+    return `expected_label must be one of: ${[...EXPECTED_LABELS].join(", ")}.`;
+  }
+  if (!Array.isArray(body.images) || body.images.length === 0) {
+    return "images must be a non-empty array of {image_type, storage_path}.";
+  }
+  for (const img of body.images) {
+    const i = img as Record<string, unknown> | null;
+    if (!i || typeof i.image_type !== "string" || typeof i.storage_path !== "string") {
+      return "each image needs an image_type and a storage_path.";
+    }
+  }
+  return null;
+}
+
 interface EvalCaseRow {
   id: string;
   label: string;
