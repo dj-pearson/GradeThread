@@ -88,6 +88,59 @@ export function withdrawAssessment(
 }
 
 /**
+ * Hide the verdict while an appeal is open. Pure + exported.
+ *
+ * DECIDED 2026-07-19 (vault/60-decisions/adr-authenticity-open-questions.md §1b):
+ * we stop publishing a claim we are actively reconsidering. The alternative —
+ * showing "under review" — tells a buyer there is doubt, which can harm the
+ * seller more than the original flag did.
+ *
+ * Implemented by clearing the same publicly-projected fields a withdrawal
+ * clears, stashing the originals under `appeal_hidden_original`. That makes the
+ * transition REVERSIBLE: a rejected appeal restores exactly what was there, so
+ * hiding is not a quiet way to lose a verdict.
+ *
+ * The certificate must be RESEALED after this — integrity v4 covers the verdict,
+ * so the hash has to track what is actually displayed.
+ */
+export function hideAssessmentForAppeal(
+  assessment: Record<string, unknown> | null,
+  nowIso: string,
+): Record<string, unknown> | null {
+  if (!assessment) return null;
+  // Already hidden — do not stash a stash, which would make the original
+  // unrecoverable on a second appeal.
+  if (assessment.appeal_hidden_original) return assessment;
+  return {
+    ...assessment,
+    verdict: null,
+    verdict_confidence: null,
+    authenticity_confidence: null,
+    counterfeit_risk: null,
+    summary: null,
+    under_appeal: true,
+    appeal_opened_at: nowIso,
+    appeal_hidden_original: { ...assessment },
+  };
+}
+
+/**
+ * Restore the verdict after a REJECTED appeal. Pure + exported.
+ *
+ * Returns the assessment exactly as it was before hiding. A rejected appeal is
+ * not a finding about the item — the reviewer found the appeal unpersuasive —
+ * so nothing about the original assessment should change.
+ */
+export function restoreAssessmentAfterAppeal(
+  assessment: Record<string, unknown> | null,
+): Record<string, unknown> | null {
+  if (!assessment) return null;
+  const stashed = assessment.appeal_hidden_original as Record<string, unknown> | undefined;
+  if (!stashed) return assessment;
+  return { ...stashed };
+}
+
+/**
  * Fields the PUBLIC certificate view reads out of `authenticity_assessment`.
  * Exported so a test can assert the withdrawal clears every one of them — if
  * the view ever learns a new field, that test fails rather than a seller
@@ -153,6 +206,101 @@ export function resolveAppeal(outcome: AppealOutcome): AppealResolution {
     promoteAsAuthentic: false,
     reviewerVerdict: null,
   };
+}
+
+/**
+ * How many open authenticity appeals one seller may hold at once.
+ *
+ * Hiding the verdict while an appeal is open is what makes a rate limit
+ * necessary: without one, filing an appeal per item is a way to suppress every
+ * verdict indefinitely at no cost. Deliberately generous — this is a brake on
+ * abuse, not a barrier to a seller with several genuinely-misjudged items.
+ */
+export const MAX_OPEN_APPEALS_PER_SELLER = 5;
+
+/** Can this seller open another appeal? Pure + exported. */
+export function canOpenAppeal(openCount: number): { ok: true } | { ok: false; reason: string } {
+  if (openCount >= MAX_OPEN_APPEALS_PER_SELLER) {
+    return {
+      ok: false,
+      reason:
+        `You already have ${openCount} authenticity appeals open. ` +
+        `We'll review those first — the limit is ${MAX_OPEN_APPEALS_PER_SELLER} at a time.`,
+    };
+  }
+  return { ok: true };
+}
+
+/**
+ * Reseal a certificate after its authenticity verdict changed (hidden,
+ * restored, or withdrawn).
+ *
+ * Integrity v4 seals the verdict, so ANY change to it without a reseal leaves a
+ * hash computed over something the certificate no longer displays — and
+ * verification then fails on precisely the certificate we just corrected. This
+ * exists so no caller has to remember that.
+ *
+ * Reads the row back rather than taking fields from the caller: the reseal must
+ * canonicalize over what is actually stored, and a caller assembling the fields
+ * by hand is how the six seal sites drift apart.
+ *
+ * Returns the columns to merge into the update, or null when the row has no
+ * certificate (nothing to seal) or is unreadable — never throws, because a
+ * failed reseal must not lose the appeal that triggered it.
+ */
+export async function resealAfterAuthenticityChange(
+  gradeReportId: string,
+  // The assessment AS IT WILL BE after this change — not as it currently is.
+  // Callers reseal in the same round-trip as the update, so reading the stored
+  // value here would hash the verdict being replaced and write a signature that
+  // verifies against nothing. Passing it explicitly makes that impossible.
+  nextAssessment: { verdict?: string | null; verdict_confidence?: number | null } | null,
+): Promise<Record<string, unknown> | null> {
+  try {
+    const { supabaseAdmin } = await import("./supabase.ts");
+    const { buildCertIntegrity } = await import("./cert-integrity.ts");
+
+    const { data } = await supabaseAdmin
+      .from("grade_reports")
+      .select(
+        "certificate_id, overall_score, grade_tier, fabric_condition_score, " +
+          "structural_integrity_score, cosmetic_appearance_score, " +
+          "functional_elements_score, odor_cleanliness_score, ai_summary, " +
+          "buyer_writeup, coverage",
+      )
+      .eq("id", gradeReportId)
+      .maybeSingle();
+    const r = data as Record<string, unknown> | null;
+    if (!r || !r.certificate_id) return null;
+
+    const coverage = r.coverage as
+      | { coverage_pct?: number | null; covered_zones?: string[] | null }
+      | null;
+    const integrity = await buildCertIntegrity({
+      certificate_id: String(r.certificate_id),
+      overall_score: r.overall_score as number,
+      grade_tier: String(r.grade_tier),
+      fabric_condition_score: r.fabric_condition_score as number,
+      structural_integrity_score: r.structural_integrity_score as number,
+      cosmetic_appearance_score: r.cosmetic_appearance_score as number,
+      functional_elements_score: r.functional_elements_score as number,
+      odor_cleanliness_score: r.odor_cleanliness_score as number,
+      ai_summary: (r.ai_summary as string) ?? "",
+      buyer_writeup: (r.buyer_writeup as string | null) ?? null,
+      coverage_pct: coverage?.coverage_pct ?? null,
+      covered_zones: coverage?.covered_zones ?? null,
+      authenticity_verdict: nextAssessment?.verdict ?? null,
+      authenticity_verdict_confidence: nextAssessment?.verdict_confidence ?? null,
+    });
+
+    return {
+      content_hash: integrity.content_hash,
+      content_signature: integrity.content_signature,
+      integrity_version: integrity.integrity_version,
+    };
+  } catch {
+    return null;
+  }
 }
 
 /** Validate an incoming appeal. Returns an error string, or null. */

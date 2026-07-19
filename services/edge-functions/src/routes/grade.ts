@@ -18,6 +18,12 @@ import {
   tierSupportsAuthenticityAddon,
 } from "../lib/grade-billing.ts";
 import { captureException, readCtxVar } from "../lib/observability.ts";
+import {
+  canOpenAppeal,
+  hideAssessmentForAppeal,
+  resealAfterAuthenticityChange,
+  validateAppeal,
+} from "../lib/authenticity-appeal.ts";
 import { featureDisabledBody, isFeatureEnabled } from "../lib/feature-flags.ts";
 import { aiBudgetExceededBody, isAiBudgetExhausted } from "../lib/ai-budget-gate.ts";
 import { quickGrade } from "../lib/quick-grade.ts";
@@ -1220,4 +1226,112 @@ gradeRoutes.post("/dispute", async (c) => {
     .eq("user_id", ownerId);
 
   return c.json({ dispute, evidence_failures: failures });
+});
+
+// US-2145: contest an AUTHENTICITY verdict.
+//
+// The only path in the module that protects a SELLER. A red_flags verdict is
+// published on a public certificate, comes from a pass with no measured error
+// rate, and since US-2141/2142 is sealed into certificate integrity and written
+// to an append-only passport ledger. Until now there was no way to contest it.
+//
+// Files as disputes.kind='authenticity' (00489) rather than a parallel appeals
+// table, and HIDES the verdict while open (decided 2026-07-19, §1b) — we stop
+// publishing a claim we are actively reconsidering. Hiding is reversible; a
+// rejected appeal restores exactly what was there.
+gradeRoutes.post("/authenticity-appeal", async (c) => {
+  const userId = c.get("userId");
+  const ownerId = c.get("workspaceOwnerId") ?? userId;
+  if ((c.get("workspaceRole") ?? "owner") === "viewer") {
+    return c.json({ error: "Viewers cannot file appeals in this workspace" }, 403);
+  }
+
+  const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+  const invalid = validateAppeal({
+    grade_report_id: body.gradeReportId,
+    reason: body.reason,
+  });
+  if (invalid) return c.json({ error: invalid }, 400);
+  const gradeReportId = String(body.gradeReportId).trim();
+  const reason = String(body.reason).trim().slice(0, 2000);
+
+  // Ownership (US-268): grade_reports carries no user_id, so verify through the
+  // submission. A miss reports not-found so an id probe cannot distinguish
+  // "doesn't exist" from "not yours".
+  const { data: gr } = await supabaseAdmin
+    .from("grade_reports")
+    .select("id, submission_id, certificate_id, authenticity_assessment")
+    .eq("id", gradeReportId)
+    .maybeSingle();
+  const report = gr as {
+    submission_id: string;
+    certificate_id: string | null;
+    authenticity_assessment: Record<string, unknown> | null;
+  } | null;
+  if (!report) return c.json({ error: "Grade report not found" }, 404);
+
+  const { data: owned } = await supabaseAdmin
+    .from("submissions")
+    .select("id")
+    .eq("id", report.submission_id)
+    .eq("user_id", ownerId)
+    .maybeSingle();
+  if (!owned) return c.json({ error: "Grade report not found" }, 404);
+
+  if (!report.authenticity_assessment) {
+    return c.json({ error: "This grade has no authenticity assessment to contest." }, 422);
+  }
+
+  // Rate limit: hiding the verdict while an appeal is open means an unlimited
+  // appeal is a free way to suppress every verdict indefinitely.
+  const { count } = await supabaseAdmin
+    .from("disputes")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", ownerId)
+    .eq("kind", "authenticity")
+    .in("status", ["open", "under_review"]);
+  const gate = canOpenAppeal(count ?? 0);
+  if (!gate.ok) return c.json({ error: gate.reason }, 429);
+
+  const { data: appeal, error: aErr } = await supabaseAdmin
+    .from("disputes")
+    .insert({
+      grade_report_id: gradeReportId,
+      user_id: ownerId,
+      kind: "authenticity",
+      reason,
+    })
+    .select("id")
+    .single();
+  if (aErr || !appeal) {
+    captureException(aErr, { route: "grade.authenticity_appeal", userId });
+    return c.json({ error: "Couldn't file the appeal" }, 500);
+  }
+
+  // Hide the verdict, then RESEAL — integrity v4 covers the verdict, so a
+  // change without a reseal leaves a hash over something no longer displayed
+  // and verification starts failing on the certificate we just corrected.
+  const hidden = hideAssessmentForAppeal(report.authenticity_assessment, new Date().toISOString());
+  const update: Record<string, unknown> = { authenticity_assessment: hidden };
+  if (report.certificate_id) {
+    // Pass the HIDDEN assessment — resealing against the stored (still visible)
+    // one would write a signature over a verdict we are about to replace.
+    const resealed = await resealAfterAuthenticityChange(
+      gradeReportId,
+      hidden as { verdict?: string | null; verdict_confidence?: number | null } | null,
+    );
+    if (resealed) Object.assign(update, resealed);
+  }
+  const { error: uErr } = await supabaseAdmin
+    .from("grade_reports")
+    .update(update)
+    .eq("id", gradeReportId);
+  if (uErr) {
+    captureException(uErr, { route: "grade.authenticity_appeal.hide", userId });
+    // The appeal is on record even if hiding failed — better a visible verdict
+    // with a filed appeal than a silent appeal nobody will action.
+    return c.json({ appeal_id: appeal.id, hidden: false }, 201);
+  }
+
+  return c.json({ appeal_id: (appeal as { id: string }).id, hidden: true }, 201);
 });

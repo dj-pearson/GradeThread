@@ -3,7 +3,11 @@
 
 import { assert, assertEquals } from "@std/assert";
 import {
+  canOpenAppeal,
+  hideAssessmentForAppeal,
+  MAX_OPEN_APPEALS_PER_SELLER,
   PUBLICLY_PROJECTED_ASSESSMENT_FIELDS,
+  restoreAssessmentAfterAppeal,
   resealFieldsAfterWithdrawal,
   resolveAppeal,
   validateAppeal,
@@ -126,4 +130,65 @@ Deno.test("an appeal needs a substantive reason", () => {
   assert(validateAppeal({ reason: ok.reason })?.includes("grade_report_id"));
   assert(validateAppeal({ grade_report_id: "abc", reason: "wrong" })?.includes("describe"));
   assert(validateAppeal({ grade_report_id: "abc" })?.includes("describe"));
+});
+
+// ── US-2145 §1b: hide while under review, reversibly ────────────────────────
+
+Deno.test("filing an appeal hides every publicly-projected field", () => {
+  const h = hideAssessmentForAppeal(
+    {
+      verdict: "red_flags",
+      authenticity_confidence: 0.31,
+      counterfeit_risk: "elevated",
+      summary: "Stitching irregular.",
+      limitations: "Photo-only.",
+    },
+    NOW,
+  );
+  assert(h);
+  for (const field of PUBLICLY_PROJECTED_ASSESSMENT_FIELDS) {
+    assertEquals(h[field], null, `${field} must stop being published while under appeal`);
+  }
+  assertEquals(h.under_appeal, true);
+  assertEquals(h.appeal_opened_at, NOW);
+});
+
+Deno.test("hiding is REVERSIBLE — a rejected appeal restores exactly what was there", () => {
+  // Hiding must not be a quiet way to lose a verdict. A rejected appeal is not a
+  // finding about the item, so nothing about the assessment should change.
+  const original = {
+    verdict: "red_flags",
+    verdict_confidence: 0.5,
+    authenticity_confidence: 0.31,
+    counterfeit_risk: "elevated",
+    summary: "Stitching irregular.",
+    limitations: "Photo-only.",
+  };
+  const hidden = hideAssessmentForAppeal(original, NOW);
+  const restored = restoreAssessmentAfterAppeal(hidden);
+  assertEquals(restored, original);
+});
+
+Deno.test("hiding twice does not bury the original", () => {
+  // Stashing a stash would make the first original unrecoverable on a second
+  // appeal — the restore would return the already-hidden shape.
+  const original = { verdict: "red_flags", counterfeit_risk: "elevated", summary: "x" };
+  const once = hideAssessmentForAppeal(original, NOW);
+  const twice = hideAssessmentForAppeal(once, "2026-08-01T00:00:00Z");
+  assertEquals(restoreAssessmentAfterAppeal(twice), original);
+});
+
+Deno.test("restoring something never hidden is a no-op", () => {
+  const a = { verdict: "red_flags" };
+  assertEquals(restoreAssessmentAfterAppeal(a), a);
+  assertEquals(restoreAssessmentAfterAppeal(null), null);
+});
+
+Deno.test("open-appeal rate limit brakes abuse without blocking a real seller", () => {
+  assertEquals(canOpenAppeal(0).ok, true);
+  assertEquals(canOpenAppeal(MAX_OPEN_APPEALS_PER_SELLER - 1).ok, true);
+  const blocked = canOpenAppeal(MAX_OPEN_APPEALS_PER_SELLER);
+  assertEquals(blocked.ok, false);
+  // Without a limit, one appeal per item suppresses every verdict for free.
+  assert(!blocked.ok && blocked.reason.includes("open"));
 });
