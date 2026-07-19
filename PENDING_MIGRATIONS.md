@@ -1,5 +1,38 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ PENDING: 00490_guarantee_pool_reserve.sql (US-2144 transactional pool reserve, 2026-07-19)
+
+**Apply AFTER 00489.** Adds `reserve_guarantee_pool_drawdown(...)` — a
+`SECURITY DEFINER` function that evaluates the guarantee pool caps **and** records
+the drawdown under one advisory lock.
+
+**Why it matters:** the gate read pool state, decided, and only recorded the
+drawdown after the claim insert. Two concurrent claims therefore evaluated
+against the same pre-drawdown state and could both pass the same budget — the
+period budget and the per-account cap were advisory under concurrency, which is
+exactly the correlated-batch case they exist to bound. This is real money.
+
+**Risk: LOW-MEDIUM.** New function only; no table or column changes and no
+existing row is touched. The medium half is behavioural: the claim path now
+depends on this RPC existing, and the reserve **fails closed** — if the function
+is missing or errors, `reservePoolDrawdown` returns `allowed:false` and the claim
+downgrades to `manual_review` rather than auto-paying against an unknown budget.
+
+**⚠ Deploy-order note — apply BEFORE the edge rolls.** The edge in this commit
+calls the RPC on every auto-approvable claim. If the edge rolls first, every such
+claim routes to manual review until the SQL lands. Nothing is lost or
+double-paid — the failure mode is conservative by design — but a backlog of
+manual reviews appears until it is applied.
+
+**After applying:** `NOTIFY pgrst, 'reload schema';` (new RPC).
+
+**Verify:** two concurrent claims against a budget that only covers one should
+now produce one `auto_approved` and one `manual_review` with
+`decision_reason = 'pool_period_budget'`.
+
+---
+
+
 > ## ✅ ALL CLEAR (2026-07-19) — nothing pending
 >
 > The 64-migration backlog (`00412 … 00489`) was applied to prod on 2026-07-19,

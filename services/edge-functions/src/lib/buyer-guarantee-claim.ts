@@ -13,11 +13,10 @@ import { captureException, recordMetric } from "./observability.ts";
 import { getSetting } from "./system-settings.ts";
 import { notifyBuyer } from "./buyer-notify.ts";
 import {
-  evaluatePoolGate,
   getGuaranteePoolConfig,
-  getPoolPeriodState,
   periodKey,
   recordPoolDrawdown,
+  reservePoolDrawdown,
 } from "./guarantee-pool.ts";
 import {
   DEFAULT_GUARANTEE_FRAUD_CONFIG,
@@ -316,12 +315,26 @@ export async function fileBuyerGuaranteeClaim(
       finalDecision = "manual_review";
       finalReason = `fraud:${fraud.reasons.join(",")}`;
     } else {
+      // US-2144: RESERVE rather than read-then-decide. The old sequence read
+      // pool state here and recorded the drawdown after the claim insert, so two
+      // concurrent claims evaluated against the same pre-drawdown state and
+      // could both pass the same budget — the exact correlated-batch case the
+      // budget exists to bound. The reserve checks and records atomically.
+      //
+      // Reserved against the purchase id, not the claim id: the claim row does
+      // not exist yet, and the claim itself is idempotent on purchase_id, so
+      // this keeps one reservation per purchase through a retry.
       const poolConfig = await getGuaranteePoolConfig();
-      const state = await getPoolPeriodState(period, userId);
-      const gate = evaluatePoolGate(decision.remedyCents, state, poolConfig);
-      if (!gate.allowAuto) {
+      const reserve = await reservePoolDrawdown(
+        `purchase:${purchase.id}`,
+        userId,
+        decision.remedyCents,
+        period,
+        poolConfig,
+      );
+      if (!reserve.allowed) {
         finalDecision = "manual_review";
-        finalReason = `pool_${gate.reason}`;
+        finalReason = `pool_${reserve.reason}`;
       }
     }
   }
@@ -356,6 +369,9 @@ export async function fileBuyerGuaranteeClaim(
   // Auto-approved → draw down the pool + grant the remedy credits now (both
   // idempotent on the claim id).
   if (isAuto) {
+    // The pool was already reserved above, at decision time — this is no longer
+    // where the money moves. Kept as a no-op-on-conflict so a claim reserved
+    // under the pre-US-2144 flow still reconciles.
     await recordPoolDrawdown(claimId, userId, decision.remedyCents, period);
     if (decision.remedyCredits > 0) {
       const { error: grantErr } = await supabaseAdmin.rpc("grant_buyer_reward_credit", {
@@ -381,6 +397,25 @@ export async function fileBuyerGuaranteeClaim(
           extra: { claimId, credits: decision.remedyCredits },
         });
         recordMetric("guarantee.remedy_grant_failed", 1, { claim_id: claimId });
+
+        // US-2144, decided 2026-07-19: flip to manual_review and KEEP the
+        // drawdown. The buyer is owed credits that did not arrive, and leaving
+        // the row reading auto_approved means nothing ever revisits it. Keeping
+        // the drawdown reserves the money conservatively — silently UNDOING a
+        // payout would be worse than silently succeeding.
+        const { error: flipErr } = await supabaseAdmin
+          .from("buyer_guarantee_claims")
+          .update({
+            status: "manual_review",
+            auto: false,
+            decision_reason: "grant_failed",
+          } as never)
+          .eq("id", claimId);
+        if (flipErr) {
+          // Both the grant and the flip failed — the alert above is now the only
+          // record, so make that explicit rather than losing it in a log line.
+          recordMetric("guarantee.grant_failure_unrecoverable", 1, { claim_id: claimId });
+        }
       }
     }
   }

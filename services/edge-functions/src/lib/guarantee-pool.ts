@@ -182,6 +182,48 @@ export async function getPoolPeriodState(period: string, accountUserId: string):
 }
 
 /** Record a remedy drawdown, idempotent on the claim id. Returns true if new. */
+export interface PoolReserveResult {
+  allowed: boolean;
+  reason: string;
+}
+
+/**
+ * US-2144: atomically evaluate the caps AND record the drawdown.
+ *
+ * Replaces the read-then-decide-then-write sequence, which let two concurrent
+ * claims evaluate against the same pre-drawdown state and both pass the same
+ * budget. The reservation happens inside the same advisory lock as the check, so
+ * the decision and the money moving cannot be separated.
+ *
+ * Fails CLOSED: an unreachable or erroring reserve returns allowed=false, which
+ * downgrades the claim to manual review rather than auto-paying against an
+ * unknown budget.
+ */
+export async function reservePoolDrawdown(
+  claimId: string,
+  accountUserId: string,
+  amountCents: number,
+  period: string,
+  config: GuaranteePoolConfig,
+): Promise<PoolReserveResult> {
+  const { data, error } = await supabaseAdmin.rpc("reserve_guarantee_pool_drawdown", {
+    p_claim_id: claimId,
+    p_account_user_id: accountUserId,
+    p_amount_cents: amountCents,
+    p_period: period,
+    p_account_cap_cents: config.per_account_period_cap_cents,
+    p_period_budget_cents: config.period_budget_cents,
+    p_loss_ratio: config.loss_ratio_throttle,
+  });
+  if (error) {
+    console.error("[guarantee-pool] reserve failed:", error.message);
+    return { allowed: false, reason: "reserve_error" };
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+  const r = row as { allowed?: boolean; reason?: string } | null;
+  return { allowed: r?.allowed === true, reason: r?.reason ?? "unknown" };
+}
+
 export async function recordPoolDrawdown(
   claimId: string,
   accountUserId: string,
