@@ -2286,7 +2286,7 @@ async function doListingsPull(
   // legacy (Trading API) passes. Authority follows listing provenance now —
   // this RETIRES the US-148 per-field source_of_truth pin (`pinnedAgainstEbay`),
   // which is no longer read from the pull (listings.source_of_truth is
-  // deprecated for the eBay↔FlipDesk axis; see SYNC_SOURCE_OF_TRUTH.md).
+  // deprecated for the eBay↔FlipDesk axis; see vault/20-domain/sync-source-of-truth.md).
   //
   // • listing_origin='ebay'        — eBay is the source of truth: the patch is
   //   left untouched (full mirror — every eBay-owned field flows through).

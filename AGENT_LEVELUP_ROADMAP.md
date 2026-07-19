@@ -48,7 +48,7 @@ rule set that agents currently either re-derive or violate:
    `loadListingOwned`-style ownership-via-parent pattern, and "every new edge
    route needs a case in `tenant-isolation_test.ts`."
 4. **`flipdesk-ebay`** — OAuth/refresh + AES-GCM key handling, provenance model
-   and field-ownership rules (condense `SYNC_SOURCE_OF_TRUTH.md` into a
+   and field-ownership rules (condense `vault/20-domain/sync-source-of-truth.md` into a
    procedure), publish pipeline (`assemblePublishContext`), sandbox testing.
 5. **`seo-prerender`** — the `PUBLIC_ROUTES` + `entry-server.tsx` dual
    registration, the react-helmet-async gotcha, JSON-LD mirroring in

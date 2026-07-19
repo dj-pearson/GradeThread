@@ -3,7 +3,7 @@
 // The embed snippets reference the canonical production origin (gradethread.com)
 // so the HTML a seller copies works no matter where the dashboard is running.
 
-import { SITE_URL } from "@/lib/seo/public-routes";
+import { SITE_URL } from "@/lib/seo/site";
 
 // Keep in lockstep with the edge (verified.ts) + DB CHECK (migration 00057).
 export const HANDLE_RE = /^[a-z0-9]([a-z0-9-]{1,28})[a-z0-9]$/;

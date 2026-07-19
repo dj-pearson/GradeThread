@@ -80,7 +80,7 @@
   `POST /nodes/:id/reveal`, authed + scoped to `linked_user_id`). Public passport
   GET surfaces the revealed handle only. Honored on export/delete (`account.ts`).
   Frontend: reveal switches on the Verified page + handle render on passport SPA +
-  SSR. Docs `GARMENT_PASSPORT_PRIVACY.md`. **Schema → 00265.**
+  SSR. Docs `vault/20-domain/garment-passport-privacy.md`. **Schema → 00265.**
 - **US-1106** buyer "scan before you buy" — public `/scan` lookup (parses a
   passport link/slug or tag code → `/passport/:slug` or `/t/:code`). Pure
   `lib/passport-scan.ts` + vitest; SEO-registered (public-routes + entry-server +

@@ -5,7 +5,7 @@
 // <script type="application/ld+json"> tags. Only mark up data that is also
 // visible on the page (Google structured-data policy).
 
-import { SITE_URL } from "./public-routes";
+import { SITE_URL } from "./site";
 import {
   socialProfileUrls,
   contactEmail,

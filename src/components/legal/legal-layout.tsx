@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { SEO } from "@/components/seo";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbLd, organizationLd } from "@/lib/seo/json-ld";
-import { SITE_URL } from "@/lib/seo/public-routes";
+import { SITE_URL } from "@/lib/seo/site";
 import { openCookiePreferences } from "@/lib/cookie-preferences";
 
 interface LegalLayoutProps {

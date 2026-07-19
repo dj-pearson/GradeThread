@@ -4,7 +4,7 @@ import { Printer, Share2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { track } from "@/lib/analytics";
-import { SITE_URL } from "@/lib/seo/public-routes";
+import { SITE_URL } from "@/lib/seo/site";
 import { useAuthStore } from "@/stores/auth-store";
 import { edgeFetch } from "@/lib/edge-fetch";
 

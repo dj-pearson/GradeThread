@@ -35,8 +35,27 @@ import { gradeCheckerRoute } from "./grade-checker";
 import { authenticityCheckRoute } from "./authenticity-check";
 import { fitCheckerRoute } from "./fit-checker";
 import { forBrandsRoute } from "./for-brands";
+import {
+  SITE_URL,
+  DEFAULT_OG_IMAGE_PATH,
+  DEFAULT_OG_IMAGE_ALT,
+  normalizePath,
+} from "./site";
 
-export const SITE_URL = "https://gradethread.com";
+// Re-exported so the 66 existing registry consumers keep working unchanged.
+// Prefer importing these from "@/lib/seo/site" directly — importing them from
+// HERE pulls the whole 213-route registry and its prose into your chunk, which
+// is the bundle problem the split exists to fix. See the note in ./site.ts.
+export {
+  SITE_URL,
+  OG_IMAGE_WIDTH,
+  OG_IMAGE_HEIGHT,
+  OG_IMAGE_TYPE,
+  DEFAULT_OG_IMAGE_PATH,
+  DEFAULT_OG_IMAGE_ALT,
+  normalizePath,
+  absoluteUrl,
+} from "./site";
 
 export type ChangeFreq =
   | "always"
@@ -614,12 +633,8 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
 // src/lib/seo/__tests__/og-images.test.ts so we never emit an og:image that 404s.
 // Routes not listed fall back to the site-wide /og-image.png. ALL images are
 // 1200×630, so OG_IMAGE_WIDTH/HEIGHT below apply to every variant.
-export const OG_IMAGE_WIDTH = 1200;
-export const OG_IMAGE_HEIGHT = 630;
-export const OG_IMAGE_TYPE = "image/png";
-export const DEFAULT_OG_IMAGE_PATH = "/og-image.png";
-export const DEFAULT_OG_IMAGE_ALT =
-  "GradeThread — objective AI condition grading and verifiable certificates for pre-owned clothing.";
+// OG_IMAGE_WIDTH/HEIGHT/TYPE and the DEFAULT_OG_IMAGE_* pair now live in
+// ./site.ts (re-exported above).
 
 export const ROUTE_OG_IMAGES: Record<string, { file: string; alt: string }> = {
   "/how-it-works": {
@@ -660,11 +675,6 @@ export function ogImageForRoute(path: string): { url: string; alt: string } {
     : { url: `${SITE_URL}${DEFAULT_OG_IMAGE_PATH}`, alt: DEFAULT_OG_IMAGE_ALT };
 }
 
-/** Normalize a pathname for lookup (strip trailing slash, keep root as "/"). */
-export function normalizePath(path: string): string {
-  if (path === "/" || path === "") return "/";
-  return path.replace(/\/+$/, "");
-}
 
 /** Registry entry for a path, or undefined if the route is not registered. */
 export function getRouteMeta(path: string): PublicRoute | undefined {
@@ -672,8 +682,3 @@ export function getRouteMeta(path: string): PublicRoute | undefined {
   return PUBLIC_ROUTES.find((r) => r.path === norm);
 }
 
-/** Absolute canonical URL for a registry path. */
-export function absoluteUrl(path: string): string {
-  const norm = normalizePath(path);
-  return norm === "/" ? `${SITE_URL}/` : `${SITE_URL}${norm}`;
-}

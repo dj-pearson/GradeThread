@@ -40,7 +40,7 @@ import {
   profileUrl,
   profileLinkEmbedHtml,
 } from "@/lib/verified";
-import { SITE_URL } from "@/lib/seo/public-routes";
+import { SITE_URL } from "@/lib/seo/site";
 
 type Availability =
   | { state: "idle" }

@@ -109,7 +109,7 @@ The edge service uses the **service-role client, which BYPASSES RLS.** Every que
 
 ## FlipDesk
 
-Reseller surface under `/dashboard/flipdesk/*`: source → catalog → measure → photograph → grade → comp → draft → list → sell → ship → reconcile. PRD: `FlipDesk_PRD_v1.docx`. **Sync source-of-truth contract (provenance model, field ownership, linking-source rules):** [`SYNC_SOURCE_OF_TRUTH.md`](SYNC_SOURCE_OF_TRUTH.md).
+Reseller surface under `/dashboard/flipdesk/*`: source → catalog → measure → photograph → grade → comp → draft → list → sell → ship → reconcile. PRD: `FlipDesk_PRD_v1.docx`. **Sync source-of-truth contract (provenance model, field ownership, linking-source rules):** [`vault/20-domain/sync-source-of-truth.md`](vault/20-domain/sync-source-of-truth.md).
 
 - **DB:** `00008_flipdesk_schema.sql` extends inventory_items/listings/sales + adds sources, item_photos, marketplace_connections, payout_imports, flipdesk_grading_submissions. New `item_status`: sourced, cataloged, measured, photographed, comped, drafted, archived.
 - **Frontend:** `src/pages/flipdesk/{pipeline,sources,marketplaces,reconciliation}.tsx`; sidebar group in `sidebar.tsx`; constants `FLIPDESK_PIPELINE`, `FLIPDESK_SOURCE_TYPES`, `LISTING_STATUSES`, `MARKETPLACE_LABELS`.

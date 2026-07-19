@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { BarChart3, Database, Quote, ShieldCheck, TrendingDown, TrendingUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MarketingLayout, MarketingCTA } from "@/components/marketing/marketing-layout";
-import { SITE_URL } from "@/lib/seo/public-routes";
+import { SITE_URL } from "@/lib/seo/site";
 import { edgeApiUrl } from "@/lib/edge-api";
 import {
   escapeJsonForScript,

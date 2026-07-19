@@ -10,7 +10,7 @@
 // JSON-LD so partners can discover + cite the field. It describes an OPEN
 // specification only — it makes no claim that any third party has adopted it.
 
-import { SITE_URL } from "@/lib/seo/public-routes";
+import { SITE_URL } from "@/lib/seo/site";
 import type { JsonLd } from "@/lib/seo/json-ld";
 
 /** Bumped only on a breaking change to the field shape. Mirrors the edge const. */

@@ -61,7 +61,7 @@ seeded + round-tripped; also drives the clothing-only garment pickers.
   mapping (`resolveMeasurementAspects`) runs at **listing-generation/publish
   time** (`ai-listing.ts`), not via the specifics editor, so a measurement edit
   is reflected when the listing is (re)generated.
-- **listing ⇄ eBay** — ℹ️ server-enforced per `SYNC_SOURCE_OF_TRUTH.md`
+- **listing ⇄ eBay** — ℹ️ server-enforced per `vault/20-domain/sync-source-of-truth.md`
   (`buildListingPullPatch` / `validateEbayOriginEdit`); no client precedence
   logic. Out of scope for this audit; flagged as reviewed, no gap found.
 

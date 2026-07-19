@@ -36,7 +36,12 @@ New here? Read [[CONTRACT]] before adding a note.
 ## 20-domain — grading, measurement, contracts
 
 - [[brand-taxonomy-overview]] — reference — Where brand and garment taxonomy currently lives, why that is a problem, and how it gets extracted in US-2058.
+- [[garment-passport-privacy]] — contract — What a passport may expose publicly, and the salted-hash rule that keeps it de-identified.
 - [[grading-scale-and-weights]] — contract — The 1.0-10.0 scale, the five weighted factors, and the rounding rule that has now shipped wrong twice.
+- [[measurement-accuracy]] — contract — Tolerances the measurement pipeline must hold and how accuracy is validated.
+- [[measurement-card-spec]] — contract — The printed reference card: dimensions, tolerances and why the print scale must not drift.
+- [[support-assistant]] — reference — How the support assistant is scoped, what it may answer, and its escalation path.
+- [[sync-source-of-truth]] — contract — Provenance model, field ownership and linking-source rules for bidirectional marketplace and sheet sync.
 
 ## 30-platform — marketplace integration
 

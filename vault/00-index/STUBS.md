@@ -47,13 +47,18 @@ nothing references, and reports the ones that must stay.
 | `docs/runbooks/mfa-ipv6-ip-mismatch.md` | [[mfa-ipv6-ip-mismatch]] | 2026-07-19 |
 | `ENV_REFERENCE.md` | [[env-reference]] | 2026-07-19 |
 | `ENVIRONMENT.md` | [[env-reference]] | 2026-07-19 |
+| `GARMENT_PASSPORT_PRIVACY.md` | [[garment-passport-privacy]] | 2026-07-19 |
 | `INCIDENT_RESPONSE.md` | [[incident-response]] | 2026-07-19 |
 | `KEY_ROTATION.md` | [[key-rotation]] | 2026-07-19 |
 | `LAUNCH_CHECKLIST.md` | [[launch-checklist]] | 2026-07-19 |
+| `MEASUREMENT_ACCURACY.md` | [[measurement-accuracy]] | 2026-07-19 |
+| `MEASUREMENT_CARD_SPEC.md` | [[measurement-card-spec]] | 2026-07-19 |
 | `MIGRATIONS.md` | [[migrations-process]] | 2026-07-19 |
 | `ROLLBACK.md` | [[rollback]] | 2026-07-19 |
 | `SCALING.md` | [[scaling]] | 2026-07-19 |
 | `STAGING.md` | [[staging]] | 2026-07-19 |
+| `SUPPORT_ASSISTANT.md` | [[support-assistant]] | 2026-07-19 |
+| `SYNC_SOURCE_OF_TRUTH.md` | [[sync-source-of-truth]] | 2026-07-19 |
 | `UPTIME_MONITORING.md` | [[uptime-monitoring]] | 2026-07-19 |
 
 <!-- stubs:end -->

@@ -30,7 +30,7 @@ import {
   type ConditionCurvePoint,
 } from "@/components/passport/condition-curve";
 import { passportLd, breadcrumbLd } from "@/lib/seo/json-ld";
-import { SITE_URL } from "@/lib/seo/public-routes";
+import { SITE_URL } from "@/lib/seo/site";
 import { track } from "@/lib/analytics";
 import { cn } from "@/lib/utils";
 import { edgeApiUrl } from "@/lib/edge-api";

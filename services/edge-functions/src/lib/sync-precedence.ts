@@ -1,6 +1,6 @@
 // Sync source-of-truth precedence rules — pure module, no network/env.
 //
-// Contract: SYNC_SOURCE_OF_TRUTH.md. Authority is per-listing, decided by
+// Contract: vault/20-domain/sync-source-of-truth.md. Authority is per-listing, decided by
 // listing_origin ('gradethread' | 'ebay').
 //
 // • listing_origin='ebay'      — eBay is the source of truth for listing
@@ -94,7 +94,7 @@ export const LISTING_READONLY_SIGNALS: ReadonlyArray<EbayOwnedListingField> = [
  * EBAY_OWNED_LISTING_FIELDS" was wrong. The production pull path
  * (applyProvenanceMerge in flipdesk-ebay.ts) has always let these four through
  * — it deletes only title/price/description/quantity/category — while this
- * module and SYNC_SOURCE_OF_TRUTH.md both claimed a blanket lock. Production
+ * module and vault/20-domain/sync-source-of-truth.md both claimed a blanket lock. Production
  * had the right behaviour and the documented contract was overbroad, so the
  * contract moved to match it rather than the reverse: blocking these would stop
  * eBay ids and URLs ever reaching a GradeThread-originated listing, which is a
@@ -373,7 +373,7 @@ export interface ListingOriginSignals {
 /**
  * Decide whether a listing is eBay-originated or GradeThread-originated.
  *
- * Provenance (SYNC_SOURCE_OF_TRUTH.md): GT-originated = published from FlipDesk
+ * Provenance (vault/20-domain/sync-source-of-truth.md): GT-originated = published from FlipDesk
  * (`batch_id` / `synced_to_ebay_at` set); eBay-originated = imported from eBay
  * (lives on eBay — `platform_listing_id` set — but we never published it).
  * The default is 'gradethread' so an ambiguous listing keeps full bidirectional

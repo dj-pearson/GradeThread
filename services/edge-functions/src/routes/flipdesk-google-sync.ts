@@ -75,7 +75,7 @@ import {
 // user — inventory/sources by user_id, listings/sales through
 // inventory_items!inner(user_id), and pull updates carry .eq("user_id", …).
 //
-// PROVENANCE CARVE-OUT (US-1083, contract: SYNC_SOURCE_OF_TRUTH.md): the sync
+// PROVENANCE CARVE-OUT (US-1083, contract: vault/20-domain/sync-source-of-truth.md): the sync
 // stays bidirectional EXCEPT for eBay-owned fields (EBAY_OWNED_LISTING_FIELDS)
 // on eBay-originated listings (deriveListingOrigin === 'ebay'). A sheet edit to
 // such a locked cell is NOT applied — eBay is the source of truth and would

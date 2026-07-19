@@ -6,7 +6,7 @@ import {
   breadcrumbListLd,
   renderBreadcrumbs,
 } from "../../functions/_shared/blog-render";
-import { SITE_URL } from "@/lib/seo/public-routes";
+import { SITE_URL } from "@/lib/seo/site";
 
 // US-433: the visible breadcrumb (React + SSR) must match the BreadcrumbList
 // JSON-LD on every public surface, and use canonical-derived URLs.

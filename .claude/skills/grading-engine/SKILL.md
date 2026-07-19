@@ -98,3 +98,16 @@ the fence — never mix the two channels.
 4. Additive features → byte-identical prompts when disabled (test-guarded).
 5. Tests: pure logic in `src/tests/*_test.ts`; golden set untouched unless
    adding tagged cases.
+
+## Domain facts live in the vault
+
+This skill owns the **procedure**. The numbers and contracts it operates on live
+in `vault/20-domain/`, where they carry `code_refs` and a CI drift guard:
+
+- `vault/20-domain/grading-scale-and-weights.md` — scale, factor weights, and the
+  rounding rule that has shipped wrong twice (US-1557, US-2041).
+- `vault/20-domain/brands/` — brand and garment taxonomy (populated by US-2058).
+- `vault/20-domain/measurement-accuracy.md` — measurement tolerances and validation.
+
+Link to those rather than restating a weight or threshold here: two copies of a
+number is how the repo ended up with two contradictory key-rotation procedures.

@@ -7,7 +7,7 @@ import {
   OG_IMAGE_WIDTH,
   OG_IMAGE_HEIGHT,
   OG_IMAGE_TYPE,
-} from "@/lib/seo/public-routes";
+} from "@/lib/seo/site";
 import { twitterSiteHandle, twitterCreatorHandle } from "@/lib/seo/social";
 
 type JsonLdValue = Record<string, unknown>;

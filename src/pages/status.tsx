@@ -10,7 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { SEO } from "@/components/seo";
 import { Image } from "@/components/responsive-image";
-import { SITE_URL } from "@/lib/seo/public-routes";
+import { SITE_URL } from "@/lib/seo/site";
 import { cn } from "@/lib/utils";
 import { edgeApiUrl } from "@/lib/edge-api";
 

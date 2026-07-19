@@ -28,7 +28,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { SEO } from "@/components/seo";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { certificateLd, breadcrumbLd } from "@/lib/seo/json-ld";
-import { SITE_URL } from "@/lib/seo/public-routes";
+import { SITE_URL } from "@/lib/seo/site";
 import { cn } from "@/lib/utils";
 import {
   getScoreColor,

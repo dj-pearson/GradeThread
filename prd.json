@@ -2442,7 +2442,7 @@
     },
     {
       "id": "US-2052",
-      "passes": false,
+      "passes": true,
       "dependsOn": [
         "US-2047"
       ],

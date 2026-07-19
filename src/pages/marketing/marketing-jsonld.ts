@@ -80,9 +80,9 @@ import {
   AUTHENTICITY_CHECK_PATH,
 } from "@/lib/seo/authenticity-check";
 import { FIT_CHECKER_META, FIT_CHECKER_PATH } from "@/lib/seo/fit-checker";
-import { absoluteUrl } from "@/lib/seo/public-routes";
+import { absoluteUrl } from "@/lib/seo/site";
 import { LANDING_FAQS } from "@/pages/landing-faqs";
-import { SITE_URL } from "@/lib/seo/public-routes";
+import { SITE_URL } from "@/lib/seo/site";
 import {
   glossaryTrail,
   GLOSSARY_ENTRIES,
