@@ -6,20 +6,27 @@ source_of_truth: vault
 code_refs: []
 reviewed: 2026-07-19
 tags: [audit, code-review, snapshot]
-summary: Nine-domain deep-dive review, fully triaged 2026-07-19 — 91 of 93 findings verified already fixed; 2 remain open by decision.
+summary: Nine-domain deep-dive review, fully triaged 2026-07-19 — all 93 findings closed; 92 already fixed, 1 mitigated rather than eliminated.
 ---
 
 > [!warning] Archived snapshot — as-of 2026-07-04
 > Do not read this as current state. It was FULLY TRIAGED on 2026-07-19 (US-2089)
-> and the result is in the success banner below: 91 of 93 findings were already
-> fixed. The two exceptions are called out there.
+> and the result is in the success banner below: all 93 findings are closed.
 
 # GradeThread — Deep-Dive Code Review & Action Plan
 
 > [!success] Triage COMPLETE (US-2089, 2026-07-19)
-> **91 of 93 boxes are ticked, and every single one was already fixed.**
+> **All 93 boxes are ticked.** 92 were already fixed; the last one is
+> MITIGATED rather than eliminated and says so on its own line.
 > All 9 Criticals, the entire Web section (P1/P2/P3), Grading, Edge
 > tenant-isolation, Payments, DB/durable-jobs, and both iOS sections.
+>
+> The final two were closed on 2026-07-19: the auth-coverage guard (generalized
+> by US-1639 — verified by independently deriving its allowlist AND by watching
+> the guard fail on a planted unauthenticated router), and the Stripe
+> out-of-order concern (US-893's reconciliation converges on the newest event per
+> user, but the handler still writes from the event payload, so a transient
+> window remains by decision rather than by oversight).
 >
 > **The July review was actioned in bulk and nobody ticked the document.** That
 > is the whole finding. For three months these boxes said nothing, and a reader
@@ -173,7 +180,7 @@ These are the P1s whose blast radius is money, fraud, PII exposure, or permanent
 - [x] `flipdesk-autolister.ts:1025/1183` use `${ownerId}/` not `${ownerId}/_staging/` (tighten). — ✅ **CLOSED**: the staging paths are now `_staging/`-qualified throughout. Verified against source 2026-07-19 (US-2089).
 - [x] `flipdesk-listings.ts:287` `/cross-push` bare `.eq("id",…)` (add `.eq("user_id",ownerId)` — now free via `00146`). — ✅ **CLOSED**: `/cross-push` resolves `ownerId` from the workspace context and rejects the draft unless the joined `inventory_items.user_id` matches — ownership via the parent row rather than a bare id filter. Verified against source 2026-07-19 (US-2089).
 - [x] `flipdesk-images.ts:53` `/remove-bg` can write a sensitive `tag`/`certificate` derivative into the **public** bucket (block sensitive `photo_type`s). — ✅ **CLOSED** by US-1638: `SENSITIVE_ITEM_PHOTO_TYPES` blocks label/tag/certificate close-ups from the background-removal path, so they can't land in the public `item-photos` bucket. Verified against source 2026-07-19 (US-2089).
-- [ ] `flipdesk-auth-coverage_test.ts:35` deny-by-default guard is regex-scoped to `/api/flipdesk/*` only — a new router elsewhere that forgets auth ships uncaught (generalize the guard).
+- [x] `flipdesk-auth-coverage_test.ts:35` deny-by-default guard is regex-scoped to `/api/flipdesk/*` only — a new router elsewhere that forgets auth ships uncaught (generalize the guard). — ✅ **CLOSED** by **US-1639**, which added a third test to the same file: "every /api router mount has an auth posture", covering all 134 `app.route` mounts rather than the 28 FlipDesk ones. VERIFIED TWO WAYS 2026-07-19 (US-2089), because a guard is the one thing you cannot confirm by reading it. (1) INDEPENDENTLY DERIVED the uncovered set — parsed `main.ts` for every mount and every `app.use(..., authMiddleware|adminAuthMiddleware|apiKeyAuthMiddleware)` prefix, and got exactly the 17 `/api` routers on `PUBLIC_API_ROUTERS`, no more and no less. Each was then read to confirm the public posture is deliberate: webhooks verify a provider signature, the scheduler/cron entrypoints enforce their own `X-Internal-Job-Secret` INSIDE the router, and `maintenance`/`guarantee`/`changelog` carry file-header comments stating they are public by design. (2) NEGATIVE-VERIFIED by adding a router mount with no auth line: the guard fails naming `/api/brand-new-router`; removing it returns to green. Note the guard proves a deliberate posture PER ROUTER, not sub-path coverage — the same stated limitation as the FlipDesk original, with `US-1623` covering eBay's sub-paths.
 
 ### Test-coverage gaps (US-268 mandates a rejection case per route)
 - [x] `workspace.ts` — **zero** cases (the role-authz surface **C3** most needs coverage and has none). — ✅ **CLOSED** by US-2039 (2026-07-19): `resolveRequestedOwner` / `resolveWorkspaceAccess` were extracted from the middleware precisely so this surface could be tested, and now carry 13 cases — including fail-closed on a lookup error and a viewer resolving as exactly `viewer`, which is what `blockViewerWrites` (the C3 fix) keys on. Verified against source 2026-07-19 (US-2089).
@@ -196,7 +203,7 @@ These are the P1s whose blast radius is money, fraud, PII exposure, or permanent
 - [x] **Affiliate payout Stripe idempotency keys expire ~24h → a stuck payout retried later can double-transfer** — `lib/affiliate-payout.ts`. Also retries permanently-failing transfers forever; commission `amount` is float USD end-to-end. **Fix:** list transfers by `metadata.payout_id` before retry; add a retry cap. — ✅ **CLOSED**: `findExistingTransfer` does a PRE-FLIGHT `transfers.list` lookup before creating, so a payout retried after the key's ~24h TTL is recognised as already-transferred rather than double-paid. (The consignor engine uses the same defence — see US-2022.)
 - [x] **SNS verification has no `Timestamp` freshness check; `SES_SNS_SKIP_VERIFICATION` is a silent prod kill-switch** — `lib/sns-verify.ts`, `email-sns.ts:43`. **Fix:** reject >~1h old; gate the skip flag on `!isProduction()`. — ✅ **CLOSED** by US-1641: `sns-verify.ts` rejects a message whose `Timestamp` is absent, unparseable, or older than the freshness window, closing the replay window.
 - [x] **Admin `/charges/:id/refund` partial refunds carry no idempotency key** — `admin-billing.ts:807-815`. — ✅ **CLOSED**: the refund now carries `admin-refund:${chargeId}:${amount ?? "full"}` — keyed on the AMOUNT too, so a partial and a later full refund are distinct operations rather than colliding on one key.
-- [ ] **Stripe subscription handlers trust event payloads → out-of-order delivery can transiently resurrect stale state** — `webhooks.ts` (mitigated by the reconciliation backstop).
+- [x] **Stripe subscription handlers trust event payloads → out-of-order delivery can transiently resurrect stale state** — `webhooks.ts` (mitigated by the reconciliation backstop). — ✅ **MITIGATED — and deliberately ticked as mitigated, not eliminated.** The mechanism the finding assumed exists and was verified: **US-893**'s `jobs-billing-reconciliation` cron reads the `reconciliation_candidates` RPC, whose `DISTINCT ON` (migration `00217`, :64-66) collapses to the **newest event per user** — so it converges on the state Stripe last actually sent, REGARDLESS of the order the webhooks arrived in. It then flags still-diverging accounts and auto-resolves ones that have caught up. `handleSubscriptionChange` does still write from `event.data.object` without re-fetching, so the transient window the finding describes is REAL: a late-delivered stale event can hold wrong entitlement until the next reconciliation run. That residual is bounded and self-healing, and US-893 is its covering story, so no new story is filed — but it is recorded here rather than ticked as "fixed", because the honest closure is that the drift is DETECTED AND CORRECTED, not prevented. Anyone tightening this should re-fetch the subscription in the handler rather than trusting the payload.
 
 **Verified clean:** Stripe webhook signature over the raw body; all grant/revoke/debit RPCs are `FOR UPDATE` row-locked and keyed; client→server price-id mapping (no client amounts); App Store JWS verification with pinned Root CA G3 + `appAccountToken` ownership; admin billing behind `billing:write` + AAL2 + step-up.
 
