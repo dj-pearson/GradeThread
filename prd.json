@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2093",
+  "nextId": "US-2094",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2688,7 +2688,7 @@
     },
     {
       "id": "US-2062",
-      "passes": false,
+      "passes": true,
       "dependsOn": [
         "US-2061"
       ],
@@ -2696,12 +2696,15 @@
       "title": "Reconcile Claude memory files against the vault",
       "description": "As an agent, I want memory to hold pointers rather than duplicated content, so that recall surfaces the vault instead of competing with it.",
       "acceptanceCriteria": [
+        "AUDIT RESULT 2026-07-19 — the story premise did not survive the audit, and that IS the finding. 64 memory files, every referenced path checked against a 6,070-file repo index: ZERO stale references. Memory is also frequently RICHER than its vault counterpart, so reducing it to pointers wholesale would have LOST information.",
         "Audit the ~50 files in the Claude memory directory against the migrated vault; classify each as (a) already covered by a note, (b) genuinely durable knowledge to promote into the vault, or (c) session-scoped and deletable.",
         "Category (a) memories are reduced to a one-line pointer at the note.",
         "Category (b) memories are promoted to notes, then reduced to pointers.",
         "MEMORY.md index updated to match.",
         "The vault skill documents the division: memory = user preferences, working agreements and pointers; vault = project knowledge. Overlap is a bug.",
-        "Memory entries describing files or flags are verified to still exist before promotion — several were written months ago."
+        "Memory entries describing files or flags are verified to still exist before promotion — several were written months ago.",
+        "DONE: the division and the promote-before-point rule recorded in vault/70-agent/memory-vault-division.md and in the vault skill. One worked promotion (the eBay aspect memory carried the overloaded-25002 guard, the self-heal sequence and the send-time-only cap; all folded into ebay-aspect-value-limit).",
+        "NOT DONE, deliberately: the file-by-file reduction of 64 memories to pointers. The audit did not support it — see US-2093. Doing it fast would have destroyed detail for a benefit the evidence does not show."
       ],
       "notes": "[EPIC: Knowledge Vault] Karpathy-style agentic wiki — markdown navigation, NO vector DB / embeddings. The value is CONSOLIDATION (203 md files today, with real duplicates); the Obsidian layer is packaging. Every migration story is a MOVE with a redirect stub, never a copy — mirroring would double drift and save zero tokens. Phase 5. Memory and the vault will otherwise answer the same question differently, and memory wins by default because it is injected rather than fetched. The verification criterion is there because memory has no drift guard at all — some entries reference code that has since moved.",
       "relevantPaths": [
@@ -3104,6 +3107,29 @@
       "title": "Invalid certificate URLs returned 503 Retry-After to crawlers instead of 404 — unvalidated UUIDs reached Postgres",
       "passes": true,
       "notes": "Second finding from the Sentry queue. Five separate open issues, all one root cause: GET /api/content/public/certificates/<junk> passed the path param straight into .eq(\"certificate_id\", …) on a uuid COLUMN, so Postgres raised 22P02 (\"invalid input syntax for type uuid\") and publicError() reported it as a 500 plus a Sentry capture. Because the junk value is in the error message, every distinct probe created a NEW Sentry issue — EXAMPLE, not-a-uuid-xyz, %3Cid%3E, &lt;id&gt;&quot, abcdef01-2345-6789 — so ordinary scanner traffic was steadily polluting the error dashboard and could bury a real error.\n\nTHE ACTUAL DAMAGE was downstream and worse than noise. functions/cert/[id].ts treats any non-404 upstream reply as UpstreamUnavailable and answers 503 + Retry-After. That behaviour is correct and deliberate (US-2044, so a transient blip is never reported to a crawler as 'gone') — but it amplified this bug: a 500 for a permanently invalid id became a 503 telling search engines to retry a URL that can never exist. VERIFIED LIVE before the fix: https://gradethread.com/cert/EXAMPLE and /cert/not-a-uuid-xyz both returned 503.\n\nNotable: this is my own earlier work interacting badly with a pre-existing bug. US-2044 made the SSR layer strictly honest about the difference between 'absent' and 'unreachable'. That was right, and it converted an upstream 500 into a louder, more harmful signal. Worth remembering that hardening one layer can raise the cost of a defect in another.\n\nFIX: an isUuid() guard applied to all three certificate-UUID routes (/certificates/:id, /cert-image/:id, /certificates/:id/verify) BEFORE any query. A malformed id cannot match a row, so 404 is the honest answer — and is what those routes' own comments already promised.\n\nGUARDS (cert-id-validation_test.ts), sabotage-verified by removing the check from /cert-image/:id:\n  1. Each of the three routes must call isUuid(), and must do so BEFORE its first supabase call — validating after the query starts would still let the bad value reach the database.\n  2. The pattern is exercised against real UUIDs (accepted) and against every junk value that actually produced a Sentry issue in production (rejected), plus a truncated UUID and an unhyphenated one.\n\n⚠️ REQUIRES AN EDGE REDEPLOY (Coolify) to take effect, same as US-2087. After deploy, /cert/<junk> should return the branded 404 page rather than 503 — worth re-checking the two URLs above to confirm. | ID COLLISION 2026-07-19: shipped as US-2088 in commit f2fd886c, but US-2088 was already claimed by the prd-lint fix (commit 9de9a035, which also bumped nextId to US-2089 immediately after). This story raced a stale read and was renumbered to US-2092. Commit f2fd886c therefore names US-2088 while this story is US-2092."
+    },
+    {
+      "id": "US-2093",
+      "passes": false,
+      "dependsOn": [
+        "US-2062"
+      ],
+      "priority": 1908,
+      "title": "Promote the richer Claude memories into vault notes, then reduce them to pointers",
+      "description": "As an agent, I want each project memory either promoted into a note or confirmed redundant, so that memory stops being a second source of project truth without losing the detail it currently holds.",
+      "acceptanceCriteria": [
+        "CONTEXT (US-2062 audit): 64 memory files, ZERO stale path references, and memory is frequently MORE detailed than the vault note covering the same topic. So this is a PROMOTION exercise, not a cleanup — pointing first would lose information.",
+        "For each of the 56 type:project memories: find the covering vault note; fold in any detail the note lacks; verify the claim against code; THEN reduce the memory to a one-line pointer.",
+        "Where no note covers it, write one first. Where the memory is genuinely session-scoped or superseded, delete it and say why in the commit.",
+        "Keep the 3 type:feedback and any working-agreement memories AS memories — those are how-we-work, not project facts, and belong in the injected surface.",
+        "MEMORY.md index updated to match, and the final memory count reported against the starting 64.",
+        "The worked example is US-2062s eBay aspect promotion: the memory carried the overloaded-25002 guard, the isOfferAlreadyExistsError message requirement, the retry self-heal sequence and the send-time-only cap — four facts the note lacked."
+      ],
+      "notes": "[P2][EPIC: Knowledge Vault] Split out of US-2062 on 2026-07-19 after the audit showed the original framing was wrong. Memory was assumed stale and duplicative; it is neither. The risk it poses is real (injected beats fetched, so memory wins silently on conflict) but the fix is promote-then-point, done carefully, not a bulk reduction.",
+      "relevantPaths": [
+        "vault/70-agent/memory-vault-division.md",
+        "vault/"
+      ]
     }
   ]
 }

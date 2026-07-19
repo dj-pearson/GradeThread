@@ -85,7 +85,14 @@ files or flags that have since moved. Verify before relying on one.
   the reconciliation ran both ways. And `prd-lint`'s 800-line playbook guard was
   still pointed at the old path — it would have measured a 4-line redirect stub
   against an 800-line threshold, a guard that can never fire while reading green.
-- **US-2062** — reconcile memory against the vault; promote, point, or delete.
+- **US-2062 — PARTIALLY DONE 2026-07-19.** The audit ran (64 files, every path
+  checked against a 6,070-file index) and found the story's premise only half
+  right: memory is not notably stale — exactly ONE dead file reference — and is
+  frequently RICHER than its vault counterpart. Reducing it to pointers
+  wholesale would have lost information. The division and the
+  promote-before-point rule are recorded in [[memory-vault-division]]; the
+  file-by-file promotion is deliberately left as future work rather than done
+  badly at speed.
 - **US-2063** — split skills into procedure (stays) and facts (moves here).
 
 ## Related

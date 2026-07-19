@@ -40,10 +40,25 @@ value on the first attempt.
 **Disambiguate by message, not by id.** `ebayFetch` parses eBay's structured
 error array into `err.ebayErrorIds` *and* `err.ebayErrorMessages`, keeping eBay's
 own human text precisely because overloaded ids like 25002 cannot be resolved
-from the number (US-528). Read the **last** `publish failed:` line in the
-edge-function log and look at the message, not the code.
+from the number (US-528). Read the **last** `[flipdesk-ebay] publish failed:`
+line in the edge-function log and look at the message, not the code — the
+user-facing "active offer" message hides the real one.
+
+`isOfferAlreadyExistsError` handles the ambiguity by requiring **both** the id
+*and* `/already exists/i` in the message. **Do not loosen that to an id-only
+check** — it would classify every over-long-aspect failure as a duplicate offer.
 
 A single free-text aspect can permanently block a listing this way.
+
+## A stuck offer self-heals on retry
+
+Once the cap is deployed, a previously stuck listing recovers without manual
+intervention: step 2 re-PUTs the capped aspects, step 3 adopts the existing
+offer rather than creating a second one, and step 4 publishes successfully.
+
+The cap is **send-time only**. Stored `ebay_aspects` and `item_specifics_override`
+keep the full untruncated value, so nothing is lost locally — only what eBay
+receives is shortened.
 
 ## How it is handled
 

@@ -55,6 +55,8 @@ Skills and the vault do not overlap, and it matters which you reach for:
 
 - **Skills carry procedure** — what to do, in what order, what to check before
   committing. Loaded on trigger.
+- **Memory carries how-we-work** — user preferences, standing instructions,
+  working agreements, and pointers. Not project facts.
 - **The vault carries facts** — weights, thresholds, contracts, taxonomy,
   decisions, runbooks. Carries `code_refs` and a CI drift guard, which is what
   facts need and procedures do not.
@@ -81,6 +83,20 @@ Three rules people get wrong:
    drift guard watches. A note describing code without them is invisible to CI.
 3. **Bumping `reviewed` asserts you re-read the `code_refs`.** Doing it to
    silence CI is the one failure mode no automation here can catch.
+
+### If a memory and a note disagree
+
+Memory is **injected**; a note is **fetched**. So memory wins silently whenever
+the two conflict, and that is why overlap between them is a bug.
+
+But do not resolve it by trusting the note. A 2026-07-19 audit found memory
+was, in the case examined, **more detailed and more correct** than the note —
+the note had been summarised from that same memory and lost a load-bearing
+nuance in the process. See [[memory-vault-division]].
+
+Resolve by reading the **code**, then promoting whichever source is right into
+the note, and only then reducing the memory to a pointer. Promote before you
+point: pointing first discards detail you have not moved yet.
 
 After editing, run `npm run vault:index` (regenerates INDEX.md) and
 `npm run vault:lint`. Both run in CI via the `vault` verify lane, so a broken
