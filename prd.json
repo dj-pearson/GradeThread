@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2130",
+  "nextId": "US-2145",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3677,6 +3677,223 @@
         "Do NOT weaken the assertions to make them pass — these are the US-1552 and US-2019 guards and a real regression must still fail them."
       ],
       "notes": "[P1][CI/Testing][Measured] Found while closing US-2110. Same family as US-2038 (tests that never run) seen from the other side: a guard that fails at random is only slightly better than one that never runs, because both stop being believed. NOT a US-2110 regression — ruled out by the stash comparison above. [2026-07-19 DONE — filed and fixed same day] AC1 MECHANISM CONFIRMED BY EVIDENCE, not assumption: captured the real failure text — Error: Test timed out in 5000ms. Not a logic bug. Measured the scan: 2,235 files / 21.6 MB, ~27ms to walk and ~490ms to read when idle, inflating past the 5s default under parallel workers. No testTimeout was configured anywhere. AC2 FIXED THE CAUSE FIRST, then set a justified timeout. The avoidable half was real duplication: no-or-on-mutations hoisted the file LIST but not the CONTENTS, so its two heavy tests each re-read all 2,235 files — 43 MB where 21.6 MB was needed. New src/lib/__tests__/_source-scan.ts walks and reads once per worker and memoizes; both guards now share one pass, and two copies of the same walk() collapsed into one helper. The 30s SCAN_TIMEOUT_MS is explicitly NOT a blind raise: 5000ms is vitest default tuned for unit tests, a 21.6MB scan is not one, and the number is derived from the measured 8.6s-under-load with headroom. Documented in place with the measurement. AC3 ASSERTED BY RUNNING IT, as the AC demanded: 5 consecutive full-suite runs, 2344/2344 passed, exit 0 every time, zero 5000ms timeouts. Before the fix it failed on most runs with a DIFFERENT test each time. AC4 ASSERTIONS NOT WEAKENED — verified adversarially rather than claimed: injected a real .or() on an .update() chain into public-routes.ts and the US-1552 guard failed naming file, line and snippet. The guards still guard. WHY THIS MATTERED BEYOND CONVENIENCE: the two flaking tests were the repo-wide guards (no .or() on mutations, lockstep mirror classification). Random red on exactly those trains people to re-run rather than investigate, and it was already costing verification time this session — I twice had to stash changes or run in isolation to prove a failure was noise rather than my own regression."
+    },
+    {
+      "id": "US-2130",
+      "priority": 1990,
+      "passes": false,
+      "title": "Authenticity prompt activation must fail closed — the eval gate has never run",
+      "description": "services/edge-functions/src/lib/ai-authenticity.ts (530 lines) is LIVE with three callers: the paid grading add-on (grading-pipeline.ts:1239), the buyer credit-metered check (routes/buyer-authenticity.ts:53), and an UNAUTHENTICATED public endpoint (routes/public-grading.ts:998). Results surface on public certificates. Meanwhile authenticity-eval.ts (268 lines) — the accuracy gate — has zero non-self callers. Its own header states: '⚠ THIS GATE DOES NOT RUN... Do not read this module's green tests as evidence the gate exists.' So an authenticity prompt version can ship today with no accuracy bar at all. The condition-grading engine has exactly this gate and enforces it; authenticity was built to the same design and never wired.",
+      "acceptanceCriteria": [
+        "Wire runAuthenticityEval into the authenticity prompt-activation path, mirroring how the grading engine gates prompt versions (shadow -> eval gate -> canary).",
+        "Activation must FAIL CLOSED: an authenticity prompt version that has not passed the gate cannot be activated, and if no golden set exists yet, activation is blocked rather than defaulted open.",
+        "Add the admin route/surface needed to run the eval and view results.",
+        "Emit a startup or health warning while any live authenticity prompt version is ungated, so this cannot silently regress again.",
+        "Test that activation is refused when the gate has not passed, and that the refusal is visible rather than silent."
+      ],
+      "notes": "[P0][Authenticity/Safety][EPIC: Visual Authenticity] Found 2026-07-19 by the authenticity deep-dive audit. STRATEGY CONTEXT: Certilogo was the starting reference, but its model does not transfer — it verifies a brand-issued CLG code / QR on a security label sewn in at manufacture (its AI image recognition authenticates the TAG and detects cloned codes, not the garment's construction). GradeThread inspects garments it never manufactured, with no token. The transferable play is visual authentication of the garment itself, anchored on evidence we can actually capture. Note the scaffolding is ~80% built (ai-authenticity.ts is live in production) while the evidence base is ~5% — this epic closes that gap in order: contain what is already live, then raise evidence quality, then productize the claim. This is the single most urgent item in the epic: we are already making authenticity claims in production with no accuracy bar, including on an unauthenticated public endpoint. Same risk class as the FTC Section 5 substantiation work (US-2114..2128). Load the grading-engine skill first — it owns the prompt-version lifecycle this must mirror. Related: US-1996 tracks the backlog-integrity side of the same gap. PARTIAL 2026-07-19: shipped authenticityGateStatus + gateStatusFromRun (pure, fail-closed on BOTH no-run and query-error) + assertAuthenticityPromptActivatable (the fail-closed guard a future activation path must call) + warnAuthenticityGate wired into main.ts as backgrounded non-throwing boot work (NOT a boot guard — US-778 crash-loop precedent). Model is part of the gate key, mirroring US-2036. Guard test extended: accepts either runAuthenticityEval or assertAuthenticityPromptActivatable, and now pins the boot check. 4348 edge tests pass. STILL OPEN: (a) no authenticity prompt-ACTIVATION path exists to block — authenticity prompts are code constants, not ai_prompt_versions rows; building that lifecycle needs a migration and was deliberately NOT invented here (see the reasoning in authenticity-gate-guard_test.ts, which argues against speculative lifecycles); (b) the gate will report ungated for every version until US-2131 seeds real labeled cases. Next: admin route to RUN the eval. ITER2 2026-07-19: added GET /api/admin/grading/authenticity/gate (reports whether each live version has a passing run on the serving model; all_gated headline) and POST /api/admin/grading/authenticity/eval (step-up gated — costs one vision call per case; surfaces the empty-golden-set case as a 400 setup state, not a 500). Reused the existing admin group so guards/audit are inherited. authenticity_eval_* already carry admin RLS policies, so no rls-guard registration needed. 4348 edge tests pass."
+    },
+    {
+      "id": "US-2131",
+      "priority": 1990,
+      "passes": false,
+      "title": "Build the authenticity golden set — the gate is worthless without ground truth",
+      "description": "authenticity_eval_cases (00405_authenticity_eval.sql) exists but has NO seed rows anywhere in the repo — by design, the golden set is operator-curated. runAuthenticityEval would throw on first call (authenticity-eval.ts:183). This is the expensive, slow, expert-dependent asset that everything else in the epic depends on, and it cannot be generated by an agent: it requires labeled authentic-vs-counterfeit items with real photos and defensible provenance for each label.",
+      "acceptanceCriteria": [
+        "Define what a case requires: photos at the resolution the pipeline actually receives, the ground-truth label, the provenance of that label (who determined it and how), brand, garment type, and the tells that justify the label.",
+        "Build the operator curation surface for adding, reviewing and retiring cases.",
+        "Set the passing bar with counsel/product input — including the false-positive bar, which matters far more than overall accuracy: calling a genuine item fake is the more damaging error.",
+        "Seed an initial set covering the brands we actually see most, not the brands that are most interesting.",
+        "Track per-brand coverage so the gate cannot pass on a brand it has never seen.",
+        "Follow the grading-engine skill's golden-set rules and exemplar-privacy constraints."
+      ],
+      "notes": "[P0][Authenticity/Data][EPIC: Visual Authenticity] Found 2026-07-19 by the authenticity deep-dive audit. STRATEGY CONTEXT: Certilogo was the starting reference, but its model does not transfer — it verifies a brand-issued CLG code / QR on a security label sewn in at manufacture (its AI image recognition authenticates the TAG and detects cloned codes, not the garment's construction). GradeThread inspects garments it never manufactured, with no token. The transferable play is visual authentication of the garment itself, anchored on evidence we can actually capture. Note the scaffolding is ~80% built (ai-authenticity.ts is live in production) while the evidence base is ~5% — this epic closes that gap in order: contain what is already live, then raise evidence quality, then productize the claim. USER/EXPERT ACTION REQUIRED — an agent can build the surface and the schema, but not the labels. This is the true critical path for the whole epic; sequence accordingly. Sourcing options to evaluate: partner with an authentication service, buy a labeled corpus, or curate from our own human-review history where provenance is defensible."
+    },
+    {
+      "id": "US-2132",
+      "priority": 1990,
+      "passes": true,
+      "title": "Certificate verification returns verified:true when the signature is null",
+      "description": "cert-integrity.ts:290-296 sets verified = hashMatches when storedSig is null. An attacker with DB write access can null the signature column, edit the scores, recompute the hash, and the certificate verifies as verified:true, signed:false. Nothing enforces that an unsigned certificate is suspect when a signing key is configured. This undermines the tamper-evidence the whole certificate product rests on, and it matters more once an authenticity verdict is sealed into the same structure.",
+      "acceptanceCriteria": [
+        "When CERT_SIGNING_KEY is configured, an unsigned certificate must NOT verify — treat missing signature as a verification failure, not a pass.",
+        "Preserve the legitimate pre-signing historical case if one exists: identify certificates written before signing was introduced and handle them explicitly rather than by falling through.",
+        "Surface signed vs verified distinctly in any admin/public output so an unsigned certificate is visibly different.",
+        "Test: null signature + matching hash + signing key present => verification fails."
+      ],
+      "notes": "[P0][Security][EPIC: Visual Authenticity] Found 2026-07-19 by the authenticity deep-dive audit. Contained security fix, independent of the rest of the epic — worth doing regardless of the authenticity strategy. Note the seal design is otherwise good: version lives inside the hash and verification canonicalizes under the row's stored version, so bumping is non-breaking and needs no backfill. DONE 2026-07-19: verified=false + distinct \"unsigned\" status when CERT_SIGNING_KEY is set and no signature is on record (cert-integrity.ts); 3 regression tests added; certificate.tsx given an explicit amber branch so unsigned no longer renders the misleading \"predates our integrity scheme\" copy. buyer-trust.ts keys off res.verified so it tightens automatically. DEPLOY PREREQUISITE: backfill DOES sign (cert-integrity-backfill.ts:107) and already tracks a hash_only metric flagged as \"should not grow\", but any cert minted while the key was unset will now show \"Integrity could not be confirmed\" to buyers. Query prod for content_hash IS NOT NULL AND content_signature IS NULL and re-run the backfill BEFORE deploying if the count is > 0."
+    },
+    {
+      "id": "US-2133",
+      "priority": 1991,
+      "passes": false,
+      "title": "Substantiation review of every public authenticity claim and its framing",
+      "description": "Authenticity verdicts (likely_authentic / inconclusive / red_flags) are shown on public certificates and returned from an unauthenticated public endpoint, currently with no accuracy gate behind them. Separately, the seeded brand KB was written to REFUSE authentication — 00398_coach_brand_knowledge.sql:14 reads 'NEVER auto-authenticate... A creed/serial proves NOTHING about authenticity on its own' — so our own knowledge base contradicts the product's public posture. That contradiction needs resolving deliberately, not by drift.",
+      "acceptanceCriteria": [
+        "Review every user-facing authenticity string against what the evidence can actually support, with counsel — fold into the US-2114 review gate rather than running a separate process.",
+        "Decide and document the claim posture: assessment/opinion with stated limitations vs verification. The pipeline is built for the former (confidence ceilinged at 0.9, hard-capped to 0.5 on contradiction, limitations set from a constant the model cannot override) — keep that discipline in the copy.",
+        "Reconcile the brand-KB 'never auto-authenticate' guidance with the shipped product posture.",
+        "Check eBay policy exposure: grade-badge.ts is already dead because eBay bans grade overlays on listing imagery, and eBay runs its own Authenticity Guarantee — determine what may be stated on a listing before building listing-facing surfaces.",
+        "Confirm the unauthenticated public endpoint should expose verdicts at all."
+      ],
+      "notes": "[P1][Authenticity/Legal][EPIC: Visual Authenticity] Found 2026-07-19 by the authenticity deep-dive audit. STRATEGY CONTEXT: Certilogo was the starting reference, but its model does not transfer — it verifies a brand-issued CLG code / QR on a security label sewn in at manufacture (its AI image recognition authenticates the TAG and detects cloned codes, not the garment's construction). GradeThread inspects garments it never manufactured, with no token. The transferable play is visual authentication of the garment itself, anchored on evidence we can actually capture. Note the scaffolding is ~80% built (ai-authenticity.ts is live in production) while the evidence base is ~5% — this epic closes that gap in order: contain what is already live, then raise evidence quality, then productize the claim. Pairs with the FTC Section 5 batch (US-2114..2128) — same substantiation problem, different claim. Do not let an agent draft the claim language."
+    },
+    {
+      "id": "US-2134",
+      "priority": 1991,
+      "passes": false,
+      "title": "Garment sellers are never asked for a serial or date-code photo",
+      "description": "photo-profiles.ts:31-45 defines serial and marking slots but surfaces them ONLY for non-clothing profiles. A garment seller is never prompted for a date code, interior stamp, or hardware close-up — while ai-authenticity.ts:142-151 asks the model for stitch-per-inch, embroidery backing, screen-print registration and rivet engraving. The prompt requests evidence the capture flow never collects. This is the cheapest single improvement to authenticity signal quality.",
+      "acceptanceCriteria": [
+        "Add serial/date-code and hardware/stamp macro slots to the clothing photo profile, surfaced when the authenticity add-on is active.",
+        "Make them optional-but-encouraged rather than blocking a condition grade — a grade must never fail because an authenticity slot was skipped.",
+        "Feed slot presence into the authenticity confidence: absent macro evidence should lower confidence and widen limitations, not be silently ignored.",
+        "Mirror across web and iOS (photo required-set and order surfaces change together — see the photo-required-and-order-surfaces memory; ~7 spots).",
+        "Update the prompt so it asks only for what the available slots can actually support."
+      ],
+      "notes": "[P1][Authenticity/Capture][EPIC: Visual Authenticity] Found 2026-07-19 by the authenticity deep-dive audit. STRATEGY CONTEXT: Certilogo was the starting reference, but its model does not transfer — it verifies a brand-issued CLG code / QR on a security label sewn in at manufacture (its AI image recognition authenticates the TAG and detects cloned codes, not the garment's construction). GradeThread inspects garments it never manufactured, with no token. The transferable play is visual authentication of the garment itself, anchored on evidence we can actually capture. Note the scaffolding is ~80% built (ai-authenticity.ts is live in production) while the evidence base is ~5% — this epic closes that gap in order: contain what is already live, then raise evidence quality, then productize the claim. Highest-leverage unblocked item in Phase 1 — everything downstream depends on capturing the right pixels. PARTIAL 2026-07-19: added optional serial (Serial / Date code) + marking (Brand stamp / Hardware) roles to the CLOTHING photo profile with macro-specific hints. Pure config — both storage types already existed in the enum (migration 00230) and were merely never surfaced for clothing, so NO migration and NO client release: photo-profiles.ts is server-authoritative and both clients fetch it (iOS already maps both, PhotoSlotType.swift:46-47). Kept OPTIONAL so a condition grade can never fail on a skipped authenticity slot, which also avoids touching the ~7-surface required-set duplication. STILL OPEN on this story: (a) feed slot presence into authenticity confidence so absent macro evidence lowers it and widens limitations rather than being silently ignored; (b) narrow the prompt so it stops asking for evidence no slot can supply; (c) surface the slots conditionally when the add-on is active. ITER3 2026-07-19: closed the confidence half. (1) FIXED A GAP IN ITER2 — serial/marking were absent from AUTHENTICITY_IMAGE_PRIORITY, so the new slots would have been captured and never reached the model; they now rank ABOVE label so a deliberate authenticity frame is not crowded out of the MAX_AUTHENTICITY_IMAGES budget. (2) hasMacroEvidence() + AUTHENTICITY_NO_MACRO_CONFIDENCE_CAP=0.7 composed into applyVerdictCap as min-of-caps (never raises, per the grading-engine rule); detail deliberately does NOT count as macro evidence. (3) limitations widened with a fixed constant when no macro frame backed the verdict. Image types are taken POST-selection, so a macro frame dropped by the cap cannot license confidence. New params default to the old behavior so existing callers are byte-identical. 4354 edge tests pass (+6). PRODUCT DECISION LEFT OPEN: 0.7 was chosen because it sits exactly on both thresholds — deriveVerdict needs >=0.7 for likely_authentic and authenticityNeedsReview forces review BELOW 0.7 — so it removes high confidence without flipping every existing no-macro verdict to inconclusive or flooding the review queue. Going stricter is defensible but changes the headline verdict on past assessments; that is a product call, not a refactor call. STILL OPEN: narrow the prompt (it still asks for stitch-per-inch/embroidery backing that only a macro frame could support) and surface the slots conditionally when the add-on is active."
+    },
+    {
+      "id": "US-2135",
+      "priority": 1991,
+      "passes": false,
+      "title": "Capture resolution caps out below what authentication needs",
+      "description": "Two downscales happen before upload: web at 2400px width (image-utils.ts:350) and iOS at 1600px long edge, q0.75 — explicitly lowered from 2048/0.8 for upload speed (PhotoCompressor.swift:17-24). The server does no further resize, and Claude's own ~1568px normalization is the effective ceiling. A label filling a third of the frame yields roughly 500px of label: enough to OCR a size, nowhere near enough for stitch density, kerning, weave or engraving fidelity. The only real magnification path today is the Forensic add-on's defect zoom (grading-pipeline.ts:130-172), which crops the retained original and upscales to a 320px minimum — but it is keyed to defect bboxes only, never to tags or hardware.",
+      "acceptanceCriteria": [
+        "Retain a higher-resolution original for authenticity macro slots, or upload them at a higher cap than general condition photos.",
+        "Generalize the Forensic defect-zoom crop pipeline to authenticity regions (tag, stamp, hardware, stitching) rather than defect bboxes only — this is the most reusable existing asset.",
+        "Measure the delivered pixel density per macro region and record it, so confidence can be conditioned on real evidence quality rather than assumed.",
+        "Respect the existing storage/upload hardening path (validateImageUpload -> stripImageMetadata -> upload) and the Vision budget ceiling.",
+        "Do not raise resolution globally — the upload-speed tradeoff that motivated the iOS reduction is real; scope the increase to authenticity slots."
+      ],
+      "notes": "[P1][Authenticity/Capture][EPIC: Visual Authenticity] Found 2026-07-19 by the authenticity deep-dive audit. STRATEGY CONTEXT: Certilogo was the starting reference, but its model does not transfer — it verifies a brand-issued CLG code / QR on a security label sewn in at manufacture (its AI image recognition authenticates the TAG and detects cloned codes, not the garment's construction). GradeThread inspects garments it never manufactured, with no token. The transferable play is visual authentication of the garment itself, anchored on evidence we can actually capture. Note the scaffolding is ~80% built (ai-authenticity.ts is live in production) while the evidence base is ~5% — this epic closes that gap in order: contain what is already live, then raise evidence quality, then productize the claim. Without this the prompt is asking for evidence the pixels cannot carry, which is precisely how an ungated model produces confident nonsense."
+    },
+    {
+      "id": "US-2136",
+      "priority": 1992,
+      "passes": false,
+      "title": "Generalize the iOS tag-quality gate to web and to every macro slot",
+      "description": "iOS already has the right pattern: TagPhotoQuality.swift:24-47 enforces a 700px floor plus on-device OCR requiring at least 4 characters before accepting a tag photo. Web has no tag-quality gate at all, and neither platform applies a quality gate to any other macro slot. A blurry or too-distant macro shot currently reaches the model looking exactly like a good one.",
+      "acceptanceCriteria": [
+        "Port the tag-quality gate to web.",
+        "Apply a quality gate to every authenticity macro slot, with per-slot thresholds.",
+        "Reject or warn in-capture with actionable guidance ('move closer', 'hold steady') rather than failing silently after upload.",
+        "Feed the measured quality into authenticity confidence rather than treating accepted/rejected as binary."
+      ],
+      "notes": "[P2][Authenticity/Capture][EPIC: Visual Authenticity] Found 2026-07-19 by the authenticity deep-dive audit. STRATEGY CONTEXT: Certilogo was the starting reference, but its model does not transfer — it verifies a brand-issued CLG code / QR on a security label sewn in at manufacture (its AI image recognition authenticates the TAG and detects cloned codes, not the garment's construction). GradeThread inspects garments it never manufactured, with no token. The transferable play is visual authentication of the garment itself, anchored on evidence we can actually capture. Note the scaffolding is ~80% built (ai-authenticity.ts is live in production) while the evidence base is ~5% — this epic closes that gap in order: contain what is already live, then raise evidence quality, then productize the claim. The pattern exists and is proven on iOS — this is generalization, not invention."
+    },
+    {
+      "id": "US-2137",
+      "priority": 1992,
+      "passes": false,
+      "title": "Guided macro capture — framing, distance and lighting for authenticity shots",
+      "description": "There is no guided capture for authenticity evidence: no framing overlay, no distance guide, no lighting instruction. iOS uses .builtInWideAngleCamera with no zoom or focus tuning (CameraSession.swift:238), so macro shots depend entirely on the seller's instinct. Authentication tells are only legible at consistent framing and lighting, and inconsistent capture is itself a source of false positives.",
+      "acceptanceCriteria": [
+        "Add per-slot capture guidance: what to photograph, how close, and how to light it, with a framing overlay.",
+        "Investigate closer-focus camera configuration on iOS for macro slots.",
+        "Provide worked examples of a good vs unusable macro shot for each slot type.",
+        "Measure whether guidance actually improves delivered pixel density and gate the rollout on that."
+      ],
+      "notes": "[P2][Authenticity/Capture][EPIC: Visual Authenticity] Found 2026-07-19 by the authenticity deep-dive audit. STRATEGY CONTEXT: Certilogo was the starting reference, but its model does not transfer — it verifies a brand-issued CLG code / QR on a security label sewn in at manufacture (its AI image recognition authenticates the TAG and detects cloned codes, not the garment's construction). GradeThread inspects garments it never manufactured, with no token. The transferable play is visual authentication of the garment itself, anchored on evidence we can actually capture. Note the scaffolding is ~80% built (ai-authenticity.ts is live in production) while the evidence base is ~5% — this epic closes that gap in order: contain what is already live, then raise evidence quality, then productize the claim. Depends on the macro slots existing first."
+    },
+    {
+      "id": "US-2138",
+      "priority": 1991,
+      "passes": false,
+      "title": "Deepen brand-decoders cross-checks — the strongest deterministic signal we have",
+      "description": "brand-decoders.ts is a data-driven regex decoder engine whose crossCheck produces DecodeInconsistency on impossible dates (date_in_future, date_before_brand at :236-245), fed into the prompt as trusted DECODER_CROSS_CHECKS outside the seller-input fence (ai-authenticity.ts:346-353). This is deterministic contradiction detection — it does not depend on model judgment, cannot be talked out of a finding, and is already built and underused. It is the highest-confidence authenticity signal available today and the one most worth extending.",
+      "acceptanceCriteria": [
+        "Expand decoder coverage to the brands we actually see most, driven by real submission volume rather than brand prestige.",
+        "Add cross-check classes beyond date impossibility: RN/CA number vs claimed brand, country of manufacture vs known production windows, size-system vs market, care-label format vs era.",
+        "Every new decoder needs a cited source and a confidence, consistent with the existing brand_knowledge source_url/confidence/verified model.",
+        "A contradiction from a deterministic decoder must dominate model optimism — verify applyVerdictCap composition holds (caps compose as a min and never raise).",
+        "Surface which decoders fired in the operator view so a verdict is explainable."
+      ],
+      "notes": "[P1][Authenticity/Signal][EPIC: Visual Authenticity] Found 2026-07-19 by the authenticity deep-dive audit. STRATEGY CONTEXT: Certilogo was the starting reference, but its model does not transfer — it verifies a brand-issued CLG code / QR on a security label sewn in at manufacture (its AI image recognition authenticates the TAG and detects cloned codes, not the garment's construction). GradeThread inspects garments it never manufactured, with no token. The transferable play is visual authentication of the garment itself, anchored on evidence we can actually capture. Note the scaffolding is ~80% built (ai-authenticity.ts is live in production) while the evidence base is ~5% — this epic closes that gap in order: contain what is already live, then raise evidence quality, then productize the claim. Deterministic signal is also the most defensible claim: 'the date code is impossible for this brand' is a fact, not an opinion. Prioritize this over model-side tuning."
+    },
+    {
+      "id": "US-2139",
+      "priority": 1992,
+      "passes": false,
+      "title": "Per-brand tell depth is 3 brands and 7 tells, all unverified",
+      "description": "CANONICAL_TELLS covers exactly three brands (louisvuitton, coach, gucci) with 7 tells total across categories date_code/stamp/hardware/serial/font — every one marked 'seed:brand-authentication-tells (unverified — review in admin)' at confidence 0.5-0.65, against a taxonomy of 11 categories that includes stitching, construction and material. The separate seeded brand_knowledge.authentication_tells rows are legacy {tell, detail} shape, coerced on read to category 'other' with NO redFlag field (brand-authenticity.ts:88-92), so they contribute almost nothing to the contradiction logic that drives the verdict. admin-brand-knowledge.ts is a working curation surface with validateTellsForWrite and is the right place to do this.",
+      "acceptanceCriteria": [
+        "Migrate legacy {tell, detail} rows into the structured shape so they can carry a category and a redFlag and actually affect the verdict.",
+        "Expand verified tells to the brands with real submission volume; mark provenance and confidence per tell.",
+        "Establish a review workflow so a tell moves from unverified to verified deliberately, with a named source.",
+        "Gate: a brand with no verified tells should widen limitations and lower confidence rather than producing a confident verdict from generic reasoning."
+      ],
+      "notes": "[P2][Authenticity/Signal][EPIC: Visual Authenticity] Found 2026-07-19 by the authenticity deep-dive audit. STRATEGY CONTEXT: Certilogo was the starting reference, but its model does not transfer — it verifies a brand-issued CLG code / QR on a security label sewn in at manufacture (its AI image recognition authenticates the TAG and detects cloned codes, not the garment's construction). GradeThread inspects garments it never manufactured, with no token. The transferable play is visual authentication of the garment itself, anchored on evidence we can actually capture. Note the scaffolding is ~80% built (ai-authenticity.ts is live in production) while the evidence base is ~5% — this epic closes that gap in order: contain what is already live, then raise evidence quality, then productize the claim. Expert-dependent. Note the brand KB currently carries authentication_tells, registered_numbers, tag_eras and country_patterns columns across ~150-200 seeded brands — the columns exist, the depth does not."
+    },
+    {
+      "id": "US-2140",
+      "priority": 1992,
+      "passes": false,
+      "title": "human_reviews is condition-shaped — an authenticity review has nowhere to land",
+      "description": "Authenticity already routes to human review correctly: authenticityNeedsReview() (ai-authenticity.ts:440) forces needs_human_review on a red_flags verdict or a branded assessment under 0.7 confidence, on an axis independent of condition confidence (grading-pipeline.ts:2087). But human_reviews (00003_admin_tables.sql:66) is shaped for condition grading — original_score/adjusted_score decimals — so a reviewer has no field to record an authenticity outcome in. The review is requested and then cannot be properly resolved.",
+      "acceptanceCriteria": [
+        "Add an authenticity outcome model: the reviewer's verdict, their reasoning, which tells they relied on, and whether they overrode the model.",
+        "Resolved authenticity reviews must be able to feed the golden set — this is the cheapest ongoing source of labeled ground truth we have.",
+        "Keep condition and authenticity review outcomes distinguishable in the admin queue.",
+        "Follow the migrations skill (idempotent SQL, EXPECTED_SCHEMA_VERSION bump same commit, self-record footer) and the tenant-isolation skill for any new operator table."
+      ],
+      "notes": "[P2][Authenticity/Review][EPIC: Visual Authenticity] Found 2026-07-19 by the authenticity deep-dive audit. STRATEGY CONTEXT: Certilogo was the starting reference, but its model does not transfer — it verifies a brand-issued CLG code / QR on a security label sewn in at manufacture (its AI image recognition authenticates the TAG and detects cloned codes, not the garment's construction). GradeThread inspects garments it never manufactured, with no token. The transferable play is visual authentication of the garment itself, anchored on evidence we can actually capture. Note the scaffolding is ~80% built (ai-authenticity.ts is live in production) while the evidence base is ~5% — this epic closes that gap in order: contain what is already live, then raise evidence quality, then productize the claim. This closes the loop: reviews become training data, which feeds the golden set, which unblocks the gate. Sequencing-wise it pays for itself faster than any model tuning."
+    },
+    {
+      "id": "US-2141",
+      "priority": 1992,
+      "passes": false,
+      "title": "Seal the authenticity verdict into certificate integrity (v4)",
+      "description": "cert-integrity is at v3, sealing cert id, six scores, tier, ai_summary, buyer_writeup and coverage_pct/covered_zones via SHA-256 over canonical fixed-key-order JSON plus HMAC-SHA-256. Version lives inside the hash and verification canonicalizes under the row's stored version, so bumping is non-breaking and needs no backfill. An authenticity verdict shown on a certificate should be covered by the same tamper-evidence as the scores.",
+      "acceptanceCriteria": [
+        "Add the authenticity verdict behind a version >= 4 branch in canonicalizeCertificate; bump the version constant; update all four seal sites.",
+        "Seal only the COARSE derived verdict, never raw red_flags — the hash must be reproducible from publicly visible data.",
+        "Do not seal anything that is not shown, and do not expose red flags publicly (the current public projection in 00082_public_certificate_view.sql:25 is correct — keep it).",
+        "Depends on the null-signature fix landing first, or the seal is decorative."
+      ],
+      "notes": "[P2][Authenticity/Product][EPIC: Visual Authenticity] Found 2026-07-19 by the authenticity deep-dive audit. STRATEGY CONTEXT: Certilogo was the starting reference, but its model does not transfer — it verifies a brand-issued CLG code / QR on a security label sewn in at manufacture (its AI image recognition authenticates the TAG and detects cloned codes, not the garment's construction). GradeThread inspects garments it never manufactured, with no token. The transferable play is visual authentication of the garment itself, anchored on evidence we can actually capture. Note the scaffolding is ~80% built (ai-authenticity.ts is live in production) while the evidence base is ~5% — this epic closes that gap in order: contain what is already live, then raise evidence quality, then productize the claim. Constraint noted: HMAC is symmetric, so this proves integrity against DB tampering, NOT third-party verifiability. Do not market it as independently verifiable."
+    },
+    {
+      "id": "US-2142",
+      "priority": 1992,
+      "passes": false,
+      "title": "Record the authenticity verdict as a garment_events entry on the passport",
+      "description": "The garment passport ('CARFAX for clothing', 00256_garment_passport_core.sql) is a real append-only chain-of-custody ledger — garment_events with no insert policy (append-only by RLS), pseudonymous owner_nodes, single-use SHA-256 claim tokens, QR tags, and four fraud detectors (00264) with admin link-severing. It fires on every completed grade (grading-pipeline.ts:2149-2199). An authenticity verdict slots in as a new event type cleanly, and provenance accumulating across owners is the part of the Certilogo value proposition that DOES transfer to pre-owned.",
+      "acceptanceCriteria": [
+        "Add an authenticity event type to garment_events, written when an assessment completes.",
+        "Show the assessment history on the passport view, including that a later assessment can supersede an earlier one without erasing it (append-only).",
+        "Ensure the existing fraud detectors account for the new event type.",
+        "Keep red flags operator-side; the passport shows the coarse verdict only."
+      ],
+      "notes": "[P2][Authenticity/Product][EPIC: Visual Authenticity] Found 2026-07-19 by the authenticity deep-dive audit. STRATEGY CONTEXT: Certilogo was the starting reference, but its model does not transfer — it verifies a brand-issued CLG code / QR on a security label sewn in at manufacture (its AI image recognition authenticates the TAG and detects cloned codes, not the garment's construction). GradeThread inspects garments it never manufactured, with no token. The transferable play is visual authentication of the garment itself, anchored on evidence we can actually capture. Note the scaffolding is ~80% built (ai-authenticity.ts is live in production) while the evidence base is ~5% — this epic closes that gap in order: contain what is already live, then raise evidence quality, then productize the claim. This is the honest pre-owned analogue to Certilogo: we cannot tag at manufacture, but we can bind an assessment at inspection and let provenance compound. Related: US-1376 (item passport pedigree timeline)."
+    },
+    {
+      "id": "US-2143",
+      "priority": 1992,
+      "passes": false,
+      "title": "Surface authenticity as a buyer-facing selling point once the evidence supports it",
+      "description": "The add-on is gated to premium/express tiers (constants.ts:665) and buyer plans already carry authenticity credits (Guard 3/mo, Connoisseur 15/mo per vault/50-business/pricing.md:86-87), but the assessment is not positioned as a differentiator anywhere in marketing or the buyer surfaces. This story is the commercial payoff of the epic and must NOT ship before the gate, the evidence-quality work, and the claim review.",
+      "acceptanceCriteria": [
+        "Position authenticity assessment across the buyer surfaces and marketing with claim language approved by the substantiation review.",
+        "State the limitations as prominently as the verdict — the pipeline already enforces a fixed limitations constant; the UI should honour it rather than bury it.",
+        "Do not use verification/guarantee language unless the guarantee story actually ships.",
+        "Explicitly BLOCKED until the eval gate passes with a real golden set."
+      ],
+      "notes": "[P2][Authenticity/Product][EPIC: Visual Authenticity] Found 2026-07-19 by the authenticity deep-dive audit. STRATEGY CONTEXT: Certilogo was the starting reference, but its model does not transfer — it verifies a brand-issued CLG code / QR on a security label sewn in at manufacture (its AI image recognition authenticates the TAG and detects cloned codes, not the garment's construction). GradeThread inspects garments it never manufactured, with no token. The transferable play is visual authentication of the garment itself, anchored on evidence we can actually capture. Note the scaffolding is ~80% built (ai-authenticity.ts is live in production) while the evidence base is ~5% — this epic closes that gap in order: contain what is already live, then raise evidence quality, then productize the claim. The selling point is real, but selling it ahead of the evidence is exactly the FTC Section 5 exposure the other batch is fixing. Sequence last."
+    },
+    {
+      "id": "US-2144",
+      "priority": 1993,
+      "passes": false,
+      "title": "PARKED: guarantee-backed authenticity — record the decision, fix the pool race first",
+      "description": "A financial guarantee is what makes authentication commercially credible (Entrupy's model), but it is a categorically worse actuarial bet than the condition guarantee: a counterfeit claim is a total loss on item value rather than a fee refund, and fakes arrive in correlated batches from a single bad seller — precisely the shape a fixed period budget handles worst. The buyer-guarantee rails it would ride on also have two known flaws: the pool gate reads state BEFORE the insert while drawdown is recorded AFTER (buyer-guarantee-claim.ts:319 vs :357), so concurrent claims can both pass against the same pre-drawdown state; and credit-grant failure is swallowed with console.error (:366) while the claim already reads auto_approved and the pool is already drawn down.",
+      "acceptanceCriteria": [
+        "Record the decision NOT to offer a guarantee-backed authenticity claim at this stage, with the reasoning, as a vault decision note under vault/60-decisions/.",
+        "Fix the pool drawdown race with a transactional reserve, and stop swallowing credit-grant failures — worth doing for the existing buyer guarantee regardless.",
+        "Define what would have to be true to revisit: gate pass rate, false-positive rate, per-brand coverage, and claim-severity modelling.",
+        "Do not implement an authenticity guarantee until those thresholds are met."
+      ],
+      "notes": "[P3][Authenticity/Risk][EPIC: Visual Authenticity] Found 2026-07-19 by the authenticity deep-dive audit. STRATEGY CONTEXT: Certilogo was the starting reference, but its model does not transfer — it verifies a brand-issued CLG code / QR on a security label sewn in at manufacture (its AI image recognition authenticates the TAG and detects cloned codes, not the garment's construction). GradeThread inspects garments it never manufactured, with no token. The transferable play is visual authentication of the garment itself, anchored on evidence we can actually capture. Note the scaffolding is ~80% built (ai-authenticity.ts is live in production) while the evidence base is ~5% — this epic closes that gap in order: contain what is already live, then raise evidence quality, then productize the claim. Filed as PARKED deliberately so the decision is recorded rather than re-litigated in six months. The two pool flaws are real today and should be fixed even if authenticity never rides on them. Load the vault skill before adding the decision note."
     }
   ]
 }
