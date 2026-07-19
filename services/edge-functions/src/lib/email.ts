@@ -1146,6 +1146,24 @@ function formatDate(iso: string): string {
   });
 }
 
+// US-2122: the post-purchase acknowledgement.
+//
+// This email already stated plan, amount, frequency and a "Next charge" date —
+// better than the purchase surfaces — but the words auto-renew, recurring and
+// automatically appeared NOWHERE in it, and the only CTA was a generic "Go to
+// Billing". A bare future date does not tell someone the charge repeats forever.
+//
+// Three things it must now do, and each is deliberate:
+//   1. SAY renewal is automatic and ongoing, in words, not by implication.
+//   2. Link to the cancellation FLOW (?cancel=1 opens the dialog), not to a page
+//      near it — "how to cancel" is the part a date cannot convey.
+//   3. State what cancelling actually does, because the common fear is that
+//      cancelling forfeits the period already paid for. It does not.
+//
+// Kept TRANSACTIONAL (category subscription_started): this is an acknowledgement
+// of a charge, so it must never route through the drip engine where a marketing
+// opt-out, suppression entry or frequency cap could silently drop it — the exact
+// defect US-2120 fixed for the trial notice.
 export async function sendSubscriptionStartedEmail(
   to: string,
   data: SubscriptionStartedData,
@@ -1165,6 +1183,15 @@ export async function sendSubscriptionStartedEmail(
       </tr>
       <tr><td colspan="2" style="padding: 12px; border-top: 1px solid #eee;"><span style="color: #666; font-size: 13px;">Next charge</span><br><strong>${formatDate(data.periodEnd)}</strong></td></tr>
     </table>
+
+    <p style="margin: 0 0 24px; color: #666; font-size: 14px; line-height: 1.6;">
+      This subscription <strong>renews automatically</strong> — you'll be charged
+      ${dollars(data.priceCents)} every ${data.interval === "yearly" ? "year" : "month"},
+      starting ${formatDate(data.periodEnd)}, until you cancel.
+      <br>
+      You can <a href="${SITE_URL}/dashboard/billing?cancel=1" style="color: ${BRAND_RED};">cancel anytime</a>
+      — cancelling stops future charges and keeps your plan active until the end of the period you've paid for.
+    </p>
 
     ${ctaButton("Go to Billing", `${SITE_URL}/dashboard/billing`)}
   `;

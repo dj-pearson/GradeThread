@@ -99,6 +99,24 @@ export function BillingPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
 
+  // US-2122 AC2: ?cancel=1 opens the cancellation dialog directly.
+  //
+  // The subscription-started email is legally required to say HOW to cancel, and
+  // "go to Billing and look for the button" is not that. This makes the email's
+  // link land on the actual flow rather than near it.
+  //
+  // Only opens when there is something to cancel — a link that pops an empty
+  // dialog for a free or already-cancelled user is worse than no link. The param
+  // is stripped either way so a refresh or a Back press doesn't reopen it.
+  useEffect(() => {
+    if (searchParams.get("cancel") !== "1") return;
+    const sub = summary?.subscription;
+    if (sub && !sub.cancel_at_period_end) setCancelOpen(true);
+    const next = new URLSearchParams(searchParams);
+    next.delete("cancel");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams, summary]);
+
   // Returning from Stripe Checkout: the webhook that grants credits / activates
   // the plan lands a beat after this redirect, so poll the summary for a short
   // window instead of showing the pre-webhook snapshot. Strip the params so a
