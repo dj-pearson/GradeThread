@@ -27,6 +27,17 @@ summary: Nine-domain deep-dive review; all six executive-summary criticals since
 
 # GradeThread — Deep-Dive Code Review & Action Plan
 
+> [!info] Triage status (US-2089, updated 2026-07-19)
+> **2 of 93 boxes are ticked.** Both were the edge/DB P2s US-2089 names
+> explicitly, and both turned out to be ALREADY FIXED by later stories — the
+> boxes were never ticked when the work shipped, which is why they carried no
+> signal either way.
+>
+> An unchecked box in this note means **NOT YET TRIAGED**, not **still open**.
+> Do not read the 91 remaining as a backlog of live defects; read them as
+> unverified. That distinction is the whole reason US-2089 exists.
+
+
 **Date:** 2026-07-04
 **Scope:** Web frontend, edge service, database/RLS, durable jobs, iOS app (core + features)
 **Method:** Nine parallel domain reviewers, each reading source directly and quoting evidence; high-severity claims independently re-verified against the code. Findings deduped against the existing audit docs (`SECURITY_AUDIT_2026-06.md`, `ios/IOS_DEEP_DIVE_AUDIT_2026-07-01.md`, `ios/IOS_PRODUCTION_READINESS_REMAINING.md`, `IOS_APP_REVIEW_AUDIT_2026-06-30.md`) — only **new** findings are listed.
@@ -211,8 +222,8 @@ These are the P1s whose blast radius is money, fraud, PII exposure, or permanent
 - [ ] **Ten eBay endpoints 401 unconditionally (missing from the auth whitelist)** — `main.ts:331-361` vs `flipdesk-ebay.ts` (`analytics/account-health`, `compliance/*`, `finances/payouts*`, `catalog/match|adopt`, `promotions`). These have no `app.use(authMiddleware)` line, so `userId` is never set and the handlers fail closed to 401 — for signed-in users too. All are live SPA call sites. CI misses it because `flipdesk-auth-coverage_test.ts` only checks each router prefix has ≥1 auth line. **Fix:** add the `app.use` lines; longer-term invert the model (wildcard auth + explicit public exceptions) or make the guard diff declared paths vs the whitelist.
 
 ### P2
-- [ ] **Moderation withhold (US-484) bypassed via `public_grade_reports`** — `00318_public_cert_coverage.sql:107-116`. The view gates only on `review_status`, never joining `submissions.flagged`/`moderation_status`, so a finalized-then-flagged certificate the edge endpoints correctly 404 stays readable via PostgREST — and the SPA's own `/cert/:id` reads the view directly, still rendering the withheld grade's score/tier/summary. **Fix:** add the flag predicate to the view (new migration, full column reproduction), or route the SPA through the withhold-aware edge endpoint.
-- [ ] **User `resume` endpoints reset live `running` jobs to `pending` with no staleness check → double-run** — `flipdesk-autolister.ts:1511-1519, 2110-2117`. Resume while a worker is mid-generation → the item is regenerated concurrently (double `reserveAiAction` spend). **Fix:** restrict the reset with `.lt("updated_at", jobStaleBefore)` / refuse resume while the batch heartbeat is fresh.
+- [x] **Moderation withhold (US-484) bypassed via `public_grade_reports`** — ✅ **CLOSED** by migration `00356_public_cert_moderation_withhold.sql` (US-1654): the view now LEFT JOINs `submissions` and excludes `pending_review` plus flagged-unless-`approved`, mirroring `isCertificateWithheld` exactly. Verified against source 2026-07-19 (US-2089). Original finding: `00318_public_cert_coverage.sql:107-116`. The view gates only on `review_status`, never joining `submissions.flagged`/`moderation_status`, so a finalized-then-flagged certificate the edge endpoints correctly 404 stays readable via PostgREST — and the SPA's own `/cert/:id` reads the view directly, still rendering the withheld grade's score/tier/summary. **Fix:** add the flag predicate to the view (new migration, full column reproduction), or route the SPA through the withhold-aware edge endpoint.
+- [x] **User `resume` endpoints reset live `running` jobs to `pending` with no staleness check → double-run** — ✅ **CLOSED** by US-1644: BOTH resume routes (generation `/batch/:id/resume` and publish `/publish-batch/:id/resume`) now return 409 while the batch heartbeat is fresh, and reset only `pending` jobs plus `running` jobs whose own heartbeat is stale. Verified against source 2026-07-19 (US-2089). Original finding: `flipdesk-autolister.ts:1511-1519, 2110-2117`. Resume while a worker is mid-generation → the item is regenerated concurrently (double `reserveAiAction` spend). **Fix:** restrict the reset with `.lt("updated_at", jobStaleBefore)` / refuse resume while the batch heartbeat is fresh.
 
 ### P3
 - [ ] `ebay-publish-due`, `promoted-sync`, `leave-feedback`, `sync/performance` crons are invisible to the `cron_runs` ledger (no missed-run signal) — `main.ts:523-542`.
