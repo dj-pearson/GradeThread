@@ -16,6 +16,7 @@
 // not apply. It only fails in production, silently, as a 404.
 import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
+import { PUBLIC_ROUTES } from "@/lib/seo/public-routes";
 import { resolve } from "node:path";
 
 const ROOT = process.cwd();
@@ -78,6 +79,58 @@ describe("Pages Functions are routed the paths they handle", () => {
         "to them:\n  " +
         missing.join("\n  ") +
         '\n\nAdd the bare path alongside the wildcard, as /value and /durability do.',
+    ).toEqual([]);
+  });
+
+  it("every router route survives a hard load / refresh / shared link", () => {
+    // This deployment has NO SPA fallback rewrite: public/_redirects ends in
+    // `/* -> /404.html 404`, deliberately, so unmatched paths are real 404s
+    // rather than soft-404 SPA shells. The consequence is easy to forget —
+    // EVERY client-rendered namespace needs either a spa-shell Pages Function
+    // or prerendered HTML, or it only works via in-app navigation.
+    //
+    // It was forgotten four times. /buyer/** (the whole authenticated buyer
+    // portal) 404'd on refresh or bookmark; /claim/:token (emailed passport
+    // claim links) and /t/:code (physical-tag QR scans) 404'd on every use,
+    // since a scan or an emailed link is ALWAYS a cold load — the QR surface
+    // was entirely non-functional. Three of them carried comments in
+    // src/routes/index.tsx describing "a pure SPA route (no SSR Function)" as a
+    // deliberate choice, which is exactly the misconception this guard exists
+    // to make impossible.
+    const router = readFileSync(resolve(ROOT, "src/routes/index.tsx"), "utf8");
+    const routerPaths = [
+      ...new Set([...router.matchAll(/path:\s*"(\/[^"]*)"/g)].map((m) => m[1]!)),
+    ];
+    expect(routerPaths.length, "no router paths parsed — the scan broke").toBeGreaterThan(50);
+
+    const prerendered = new Set(PUBLIC_ROUTES.map((r) => r.path));
+
+    const matchesInclude = (u: string) =>
+      routes.include.some((r) =>
+        r.endsWith("/*") ? u.startsWith(r.slice(0, -1)) : r === u,
+      );
+
+    const unreachable = routerPaths.filter((p) => {
+      if (p.includes("*")) return false; // catch-all inside the SPA
+
+      if (p.includes("/:")) {
+        // A parameterised route is reachable when its prefix is served by a
+        // Function, or when concrete instances are prerendered under it.
+        const prefix = p.slice(0, p.indexOf("/:") + 1);
+        if (matchesInclude(`${prefix}probe`)) return false;
+        return ![...prerendered].some((r) => r.startsWith(prefix));
+      }
+
+      return !matchesInclude(p) && !prerendered.has(p);
+    });
+
+    expect(
+      unreachable,
+      "These routes exist in the router but nothing serves them on a cold " +
+        "load, so a refresh, bookmark, QR scan or shared link returns 404:\n  " +
+        unreachable.join("\n  ") +
+        "\n\nAdd a functions/<namespace>/[[path]].ts calling serveSpaShell and " +
+        "list the namespace in public/_routes.json (see functions/dashboard).",
     ).toEqual([]);
   });
 

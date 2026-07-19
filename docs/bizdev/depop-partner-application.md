@@ -6,7 +6,7 @@
 > gating step (Depop quotes 1–4 weeks) that unblocks the code stories **US-713** (Depop
 > OAuth 2.0 + PKCE connector) and **US-714** (publish / order-sync / mark-as-shipped).
 
-Source research: `Cross_Listing.md` §2 (Depop API path). The Depop Partner API is a real,
+Source research: `vault/30-platform/cross-listing.md` §2 (Depop API path). The Depop Partner API is a real,
 private RESTful API at `partnerapi.depop.com`; crosslisting tools are an explicitly
 welcomed partner segment.
 

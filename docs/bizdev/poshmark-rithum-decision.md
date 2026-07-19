@@ -5,7 +5,7 @@
 > deliverable — a documented founder decision, not shippable code. Revisit the go/no-go
 > when (and only when) the threshold in §2 is met.
 
-Source research: `Cross_Listing.md` §3 ("Poshmark — only the enterprise door, via
+Source research: `vault/30-platform/cross-listing.md` §3 ("Poshmark — only the enterprise door, via
 Rithum/DSCO") and Phase 2 ("Decide on Poshmark"). Feeds [[US-716]] (extension companion)
 and [[US-718]] (Marketplaces UI / plan-copy truthfulness).
 
@@ -29,7 +29,7 @@ reach it, and one unsanctioned way we refuse to build:
 
 ## 2. Go/No-Go threshold and verdict
 
-**Threshold to pursue Rithum (from `Cross_Listing.md` Phase 2 — ALL must hold):**
+**Threshold to pursue Rithum (from `vault/30-platform/cross-listing.md` Phase 2 — ALL must hold):**
 
 - [ ] ≥ **1 customer doing > $50k/year in Poshmark GMV**, AND
 - [ ] that customer **commits to GradeThread for ≥ 12 months**, AND
