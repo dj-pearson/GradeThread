@@ -66,8 +66,12 @@ export interface CertIntegrity {
 export interface CertVerifyResult {
   // 'verified'      — hash (and signature, if signed) matches the stored fields
   // 'mismatch'      — the stored fields don't hash to the stored value: tampered
+  // 'unsigned'      — hash matches but no signature is on record while signing
+  //                   is active. NOT verified: an attacker with DB write can
+  //                   null the signature, edit the fields and recompute the
+  //                   hash, so a hash match alone proves nothing here.
   // 'unverifiable'  — no integrity hash on record (legacy grade) or bad input
-  status: "verified" | "mismatch" | "unverifiable";
+  status: "verified" | "mismatch" | "unsigned" | "unverifiable";
   verified: boolean;
   signed: boolean;
   algorithm: string;
@@ -286,17 +290,34 @@ export async function verifyCertIntegrity(
   const hashMatches = recomputed === storedHash;
   // When a signature is on record we require BOTH the field hash to match AND
   // the signature to validate over the recomputed hash — that's what makes a
-  // recompute-by-attacker insufficient. Without a signature, hash-match alone.
+  // recompute-by-attacker insufficient.
   let verified = hashMatches;
   let signed = false;
+  let unsigned = false;
   if (storedSig) {
     signed = true;
     const sigValid = await verifyContentSignature(recomputed, storedSig);
     verified = hashMatches && sigValid;
+  } else if (await loadSigningKey()) {
+    // US-2132: hash-match alone is NOT proof once signing is active. Anyone who
+    // can write the DB can null the signature, edit the scores and recompute the
+    // hash — which used to return verified:true, signed:false. Fail closed: an
+    // unsigned certificate does not verify while a signing key is configured.
+    // (With no key configured the system is deliberately hash-only — see the
+    // module header — so hash-match remains the best available answer there.)
+    verified = false;
+    unsigned = true;
   }
 
   return {
-    status: verified ? "verified" : "mismatch",
+    status: verified
+      ? "verified"
+      : unsigned
+        ? // Distinct from 'mismatch': the fields are self-consistent, it is the
+          // absence of a signature that makes them untrustworthy. Conflating the
+          // two would report legitimate pre-signing certificates as tampered.
+          "unsigned"
+        : "mismatch",
     verified,
     signed,
     algorithm,

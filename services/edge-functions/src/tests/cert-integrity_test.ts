@@ -151,6 +151,62 @@ Deno.test("missing stored hash → unverifiable (legacy grade)", async () => {
   assertEquals(res.verified, false);
 });
 
+// ── US-2132: an unsigned certificate must not verify while signing is on ────
+
+Deno.test("signed mode: stripping the signature does NOT yield verified", async () => {
+  _resetSigningKeyCacheForTest();
+  Deno.env.set("CERT_SIGNING_KEY", "test-signing-secret-aaaaaaaaaaaaaaaa");
+
+  // The attack this closes: someone with DB write nulls the signature column,
+  // edits the scores, and recomputes the (unkeyed) SHA-256 so the hash matches
+  // the new fields. That used to return verified:true, signed:false.
+  const tampered: CertIntegrityFields = { ...BASE, overall_score: 9.5 };
+  const tamperedHash = await computeContentHash(tampered);
+  const res = await verifyCertIntegrity(tampered, tamperedHash, null, CERT_INTEGRITY_VERSION);
+
+  assertEquals(res.verified, false);
+  assertEquals(res.signed, false);
+  // 'unsigned', not 'mismatch' — the fields hash consistently; it is the absent
+  // signature that makes them untrustworthy.
+  assertEquals(res.status, "unsigned");
+
+  _resetSigningKeyCacheForTest();
+  Deno.env.delete("CERT_SIGNING_KEY");
+});
+
+Deno.test("signed mode: an untampered but unsigned cert is also unsigned, not verified", async () => {
+  _resetSigningKeyCacheForTest();
+  Deno.env.set("CERT_SIGNING_KEY", "test-signing-secret-aaaaaaaaaaaaaaaa");
+
+  // A genuine hash-only row sealed before signing was enabled. We cannot tell it
+  // apart from the stripped-signature attack above, so it must fail closed too —
+  // the distinct status is what keeps it from being reported as tampering.
+  const hash = await computeContentHash(BASE);
+  const res = await verifyCertIntegrity(BASE, hash, null, CERT_INTEGRITY_VERSION);
+
+  assertEquals(res.verified, false);
+  assertEquals(res.status, "unsigned");
+
+  _resetSigningKeyCacheForTest();
+  Deno.env.delete("CERT_SIGNING_KEY");
+});
+
+Deno.test("hash-only mode: with no signing key configured, hash match still verifies", async () => {
+  _resetSigningKeyCacheForTest();
+  Deno.env.delete("CERT_SIGNING_KEY");
+
+  // Deliberate: signing is optional (see the module header). With no key there
+  // is no stronger answer available, so hash-match remains the best we can say.
+  const hash = await computeContentHash(BASE);
+  const res = await verifyCertIntegrity(BASE, hash, null, CERT_INTEGRITY_VERSION);
+
+  assertEquals(res.status, "verified");
+  assertEquals(res.verified, true);
+  assertEquals(res.signed, false);
+
+  _resetSigningKeyCacheForTest();
+});
+
 // ── US-770: version-aware canonicalization + buyer_writeup sealing ──────────
 
 Deno.test("v1 canonicalization is byte-stable and ignores buyer_writeup", () => {

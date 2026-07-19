@@ -68,7 +68,7 @@ import type {
 
 // US-333: result of the public tamper-evident integrity check.
 type IntegrityVerify = {
-  status: "verified" | "mismatch" | "unverifiable";
+  status: "verified" | "mismatch" | "unsigned" | "unverifiable";
   verified: boolean;
   signed: boolean;
   algorithm: string;
@@ -206,6 +206,26 @@ function IntegrityPanel({
         <p className="mt-1 text-xs text-red-800/80 dark:text-red-300/80">
           The grade data does not match GradeThread’s sealed record. This
           certificate may have been altered or forged.
+        </p>
+      </div>
+    );
+  }
+
+  // US-2132: the grade data hashes consistently but carries no signature, so we
+  // can't rule out that both were rewritten together. Deliberately softer than
+  // 'mismatch' (no evidence of tampering) and firmer than 'unverifiable' (this
+  // certificate is NOT pre-scheme — it should have been signed and wasn't).
+  if (result.status === "unsigned") {
+    return (
+      <div className="rounded-lg border border-amber-600/40 bg-amber-50 px-4 py-3 text-sm dark:bg-amber-950/30">
+        <div className="flex items-center gap-2 font-medium text-amber-800 dark:text-amber-400">
+          <ShieldAlert className="h-5 w-5" />
+          Integrity could not be confirmed
+        </div>
+        <p className="mt-1 text-xs text-amber-900/80 dark:text-amber-300/80">
+          This certificate has no cryptographic signature on record, so we can’t
+          confirm the grade data is unaltered. Contact support before relying on
+          it.
         </p>
       </div>
     );
