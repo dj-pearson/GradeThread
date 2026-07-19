@@ -1173,6 +1173,22 @@ export const AUCTION_DURATION_LABELS: Record<
   DAYS_10: "10 days",
 };
 
+/**
+ * US-2107: the confidence below which a grade is routed to human review, stated
+ * publicly on /grading/methodology. Published as a spec number, so it must not
+ * be allowed to drift from the engine.
+ *
+ * ⚠️ The LIVE threshold is DB-backed (settings registry key
+ * `grading_review_confidence_threshold`, US-884) so the calibration report's
+ * recommended operating point can be applied without a deploy. This constant is
+ * the DEFAULT that the engine falls back to, and the number we publish.
+ * `grading-threshold-parity.test.ts` fails if it diverges from the edge's
+ * fallback — a published spec that silently stops matching the code is worse
+ * than not publishing one. If an operator moves the registry value, the public
+ * page must be updated deliberately.
+ */
+export const GRADING_REVIEW_CONFIDENCE_THRESHOLD = 0.75;
+
 export const GRADING_SUBMISSION_TIERS = [
   "standard",
   "premium",

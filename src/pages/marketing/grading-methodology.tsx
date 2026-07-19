@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { GRADING_REVIEW_CONFIDENCE_THRESHOLD } from "@/lib/constants";
 import {
   MarketingLayout,
   MarketingCTA,
@@ -93,9 +94,13 @@ export function GradingMethodologyPage() {
         <div className="mx-auto max-w-3xl">
           <h2 className="text-3xl font-bold">Error handling &amp; human review</h2>
           <p className="mt-4 text-muted-foreground">
-            Every grade carries a confidence score. When confidence falls below
-            our threshold, the submission is routed to a human reviewer before the
-            grade is finalized — low-confidence cases never ship unchecked. Buyers
+            Every grade carries a confidence score between 0 and 1. When
+            confidence falls below{" "}
+            <strong>{GRADING_REVIEW_CONFIDENCE_THRESHOLD.toFixed(2)}</strong>, the
+            submission is routed to a human reviewer before the grade is finalized
+            — low-confidence cases never ship unchecked. Additional triggers force
+            review regardless of the score: a defect the model and the images
+            disagree on, an authenticity flag, or an incomplete photo set. Buyers
             can dispute a grade, reviewer corrections feed back into the accuracy
             loop, and every new model version must clear a fixed eval gate against
             a golden set of expert-graded garments before it grades live items. We

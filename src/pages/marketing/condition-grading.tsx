@@ -5,6 +5,11 @@ import {
   MarketingCTA,
 } from "@/components/marketing/marketing-layout";
 import { GRADE_FACTORS } from "@/lib/constants";
+import {
+  PUBLISHED_SIZE_BUCKETS,
+  PUBLISHED_SEVERITY_SCALE,
+  PUBLISHED_FLAW_ROUTING,
+} from "@/lib/grading-standard";
 import { GLOSSARY_ENTRIES } from "@/lib/seo/glossary";
 import {
   CONDITION_GRADING_FAQS,
@@ -93,23 +98,45 @@ export function ConditionGradingPage() {
             Each tier anchors a point on the scale. Half-point increments let
             graders place an item precisely between tiers.
           </p>
-          <div className="mt-8 space-y-4">
-            {TIERS.map((tier) => (
-              <div
-                key={tier.name}
-                className="flex gap-4 rounded-lg border bg-background p-4"
-              >
-                <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-brand-navy font-bold text-white">
-                  {tier.score}
-                </div>
-                <div>
-                  <h3 className="font-semibold">{tier.name}</h3>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {tier.def}
-                  </p>
-                </div>
-              </div>
-            ))}
+          {/* US-2107: a real <table>. Tables are the structure most often
+              lifted verbatim into LLM answers and cited as a spec; the previous
+              div cards carried the same data in a form nothing could quote. */}
+          <div className="mt-8 overflow-x-auto rounded-lg border">
+            <table className="w-full text-sm">
+              <caption className="sr-only">
+                GradeThread condition tiers, their score on the 1.0–10.0 scale,
+                and the definition of each tier.
+              </caption>
+              <thead className="bg-muted/50">
+                <tr>
+                  <th scope="col" className="px-4 py-3 text-left font-semibold">
+                    Score
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-left font-semibold">
+                    Tier
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-left font-semibold">
+                    Definition
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {TIERS.map((tier) => (
+                  <tr key={tier.name} className="border-t align-top">
+                    <td className="px-4 py-3 font-bold text-brand-navy dark:text-foreground">
+                      {tier.score}
+                    </td>
+                    <th
+                      scope="row"
+                      className="whitespace-nowrap px-4 py-3 text-left font-semibold"
+                    >
+                      {tier.name}
+                    </th>
+                    <td className="px-4 py-3 text-muted-foreground">{tier.def}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       </section>
@@ -156,6 +183,152 @@ export function ConditionGradingPage() {
               className="font-medium text-brand-navy hover:underline dark:text-foreground"
             >
               resellers page
+            </Link>
+            .
+          </p>
+        </div>
+      </section>
+
+      {/* US-2107: the measurable half of the standard. These millimetre
+          tolerances and the flaw→factor routing are not new claims written for
+          this page — they are mirrored from the grading engine, which has
+          carried them since US-1028, and are guarded by
+          src/test/grading-standard-parity.test.ts. */}
+      <section className="border-t px-6 py-16">
+        <div className="mx-auto max-w-3xl">
+          <h2 className="text-3xl font-bold">How a flaw is measured</h2>
+          <p className="mt-3 text-muted-foreground">
+            &ldquo;Small hole&rdquo; is an opinion; 3–13&nbsp;mm is not. Every
+            defect is sized into a bucket with a stated physical range, so two
+            graders — or two regrades — are working from the same definition.
+          </p>
+          <div className="mt-8 overflow-x-auto rounded-lg border">
+            <table className="w-full text-sm">
+              <caption className="sr-only">
+                Defect size buckets and their physical ranges in millimetres.
+              </caption>
+              <thead className="bg-muted/50">
+                <tr>
+                  <th scope="col" className="px-4 py-3 text-left font-semibold">
+                    Size bucket
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-left font-semibold">
+                    Physical range
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-left font-semibold">
+                    What it means
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {PUBLISHED_SIZE_BUCKETS.map((b) => (
+                  <tr key={b.bucket} className="border-t align-top">
+                    <th
+                      scope="row"
+                      className="whitespace-nowrap px-4 py-3 text-left font-semibold capitalize"
+                    >
+                      {b.bucket}
+                    </th>
+                    <td className="whitespace-nowrap px-4 py-3">{b.range}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{b.note}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <h3 className="mt-12 text-2xl font-bold">
+            Severity, relative to a moderate flaw
+          </h3>
+          <p className="mt-3 text-muted-foreground">
+            Severity scales the penalty a flaw carries. Published as multiples of
+            a moderate flaw so the words have a fixed meaning:
+          </p>
+          <div className="mt-6 overflow-x-auto rounded-lg border">
+            <table className="w-full text-sm">
+              <caption className="sr-only">
+                Severity levels and their multiplier relative to a moderate flaw.
+              </caption>
+              <thead className="bg-muted/50">
+                <tr>
+                  <th scope="col" className="px-4 py-3 text-left font-semibold">
+                    Severity
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-left font-semibold">
+                    Weight
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {PUBLISHED_SEVERITY_SCALE.map((s) => (
+                  <tr key={s.severity} className="border-t">
+                    <th scope="row" className="px-4 py-3 text-left font-semibold">
+                      {s.severity}
+                    </th>
+                    <td className="px-4 py-3">{s.relative}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <h3 className="mt-12 text-2xl font-bold">
+            Which factor each flaw is charged against
+          </h3>
+          <p className="mt-3 text-muted-foreground">
+            A flaw rarely affects one thing. A rip is mostly structural but also
+            costs fabric condition; a stain is mostly cleanliness but also shows.
+            This is the full routing — the shares for each flaw add up to 100%.
+          </p>
+          <div className="mt-6 overflow-x-auto rounded-lg border">
+            <table className="w-full text-sm">
+              <caption className="sr-only">
+                Each defect type and the grading factors its penalty is
+                distributed across, with the share going to each factor.
+              </caption>
+              <thead className="bg-muted/50">
+                <tr>
+                  <th scope="col" className="px-4 py-3 text-left font-semibold">
+                    Flaw
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-left font-semibold">
+                    Factor(s) affected
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {PUBLISHED_FLAW_ROUTING.map((r) => (
+                  <tr key={r.flaw} className="border-t align-top">
+                    <th
+                      scope="row"
+                      className="whitespace-nowrap px-4 py-3 text-left font-semibold"
+                    >
+                      {r.flaw}
+                    </th>
+                    <td className="px-4 py-3">
+                      {r.routes.map(([label, share], i) => (
+                        <span key={label}>
+                          {i > 0 && <span className="text-muted-foreground"> · </span>}
+                          {label}{" "}
+                          <span className="text-muted-foreground">
+                            {Math.round(share * 100)}%
+                          </span>
+                        </span>
+                      ))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-6 text-sm text-muted-foreground">
+            Flaws judged to be intentional design — factory distressing, raw
+            hems, acid wash — are not charged against any factor. See{" "}
+            <Link
+              to="/design-vs-damage"
+              className="font-medium text-brand-navy hover:underline dark:text-foreground"
+            >
+              intentional design vs. damage
             </Link>
             .
           </p>
