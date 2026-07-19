@@ -1,5 +1,69 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+> ## 🔴 READ FIRST (2026-07-19) — **64 migrations are pending, not 3**
+>
+> The three authenticity migrations at the top of this file (`00487`, `00488`,
+> `00489`) are the newest, **not the only** ones outstanding. The full pending
+> range is:
+>
+> ```
+> 00412 … 00436, 00441 … 00474, 00477, 00478, 00487, 00488, 00489
+> ```
+>
+> **Do NOT apply just the authenticity three.** The edge boot guard compares the
+> **MAX** recorded version. Applying only `00487–00489` would push the max to
+> `00489`, which equals `EXPECTED_SCHEMA_VERSION`, so the guard would report
+> **`match`** while ~61 migrations are still missing from the schema. That is
+> precisely the failure the guard exists to catch, and it is the same shape as
+> the unexplained `00479` row documented below.
+>
+> `checkSchemaCompleteness` (US-2009) compares the whole SET rather than the
+> watermark and would flag the gap — but it is deliberately **non-fatal**, so it
+> logs and the service carries on.
+>
+> ### Apply the whole tail, in order
+>
+> ```bash
+> # 1. Back up prod first — migrations are forward-only (vault/10-ops/backups.md)
+> # 2. Apply everything pending, in numeric order. Idempotent + self-recording.
+> SUPABASE_DB_URL="postgres://…@host:5432/postgres" ./scripts/apply-prod-migrations.sh
+> # 3. Reload PostgREST — several add tables/columns/enum values
+> #    psql "$SUPABASE_DB_URL" -c "NOTIFY pgrst, 'reload schema';"
+> # 4. Redeploy the edge on Coolify (its guard now expects 00489; ~40s grace)
+> # 5. Only then push — Cloudflare Pages auto-deploys the frontend on push
+> ```
+>
+> ### Verify before pushing
+>
+> ```
+> GET https://functions.gradethread.com/health/ready
+>   → schema.expected == schema.applied == "00489", status "match"
+> ```
+>
+> ### Ordering caveat inside the authenticity three
+>
+> `00488` must land **before** the edge rolls: `grading-pipeline` writes the new
+> `authenticity_assessed` enum value at finalize. The write is best-effort and
+> caught, so no paid grade is ever lost — but every assessment finalized in the
+> gap silently misses its passport entry. `00487` and `00489` are safe either way
+> (nothing client-side reads them yet).
+>
+> ### Separate precondition — certificate integrity
+>
+> `US-2132` made an unsigned certificate fail verification while a signing key is
+> configured. **Before that reaches prod**, check:
+>
+> ```sql
+> SELECT count(*) FROM grade_reports
+> WHERE content_hash IS NOT NULL AND content_signature IS NULL;
+> ```
+>
+> If that is **> 0**, re-run the cert-integrity backfill first — those
+> certificates will otherwise start showing “Integrity could not be confirmed”
+> to buyers. The backfill does sign (`cert-integrity-backfill.ts:107`), and the
+> `certificates.integrity_share` metric already tracks `hash_only` as an anomaly.
+
+
 > ## 🔴 UNEXPLAINED 2026-07-19 — prod records a **00479 that does not exist in this repo**
 >
 > `GET https://functions.gradethread.com/health/ready`, live on 2026-07-19:
