@@ -223,6 +223,7 @@ const AdminBrandKnowledgePage = lazy(() => import("@/pages/admin/brand-knowledge
 const AdminSubmissionsPage = lazy(() => import("@/pages/admin/submissions").then(m => ({ default: m.AdminSubmissionsPage })));
 const AdminReviewsPage = lazy(() => import("@/pages/admin/reviews").then(m => ({ default: m.AdminReviewsPage })));
 const AdminGradingQueuePage = lazy(() => import("@/pages/admin/grading").then(m => ({ default: m.AdminGradingQueuePage })));
+const AdminAuthenticityPage = lazy(() => import("@/pages/admin/authenticity").then(m => ({ default: m.AdminAuthenticityPage })));
 const AdminAiModelsPage = lazy(() => import("@/pages/admin/ai-models").then(m => ({ default: m.AdminAiModelsPage })));
 const AdminAiSpendPage = lazy(() => import("@/pages/admin/ai-spend").then(m => ({ default: m.AdminAiSpendPage })));
 const AdminAiProfitabilityPage = lazy(() => import("@/pages/admin/ai-profitability").then(m => ({ default: m.AdminAiProfitabilityPage })));
@@ -682,6 +683,7 @@ export const router = createBrowserRouter([
               { path: "/admin/support/monitoring", element: <SuspenseWrapper><AdminMonitoringPage /></SuspenseWrapper> },
               { path: "/admin/support/kb", element: <SuspenseWrapper><AdminKnowledgeBasePage /></SuspenseWrapper> },
               { path: "/admin/grading", element: <SuspenseWrapper><AdminGradingQueuePage /></SuspenseWrapper> },
+              { path: "/admin/authenticity", element: <SuspenseWrapper><AdminAuthenticityPage /></SuspenseWrapper> },
               { path: "/admin/ai-models", element: <SuspenseWrapper><AdminAiModelsPage /></SuspenseWrapper> },
               { path: "/admin/ai-spend", element: <SuspenseWrapper><AdminAiSpendPage /></SuspenseWrapper> },
               { path: "/admin/ai-profitability", element: <SuspenseWrapper><AdminAiProfitabilityPage /></SuspenseWrapper> },

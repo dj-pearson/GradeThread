@@ -80,6 +80,7 @@ const adminNavItems = [
   { to: "/admin/brand-knowledge", icon: BookMarked, label: "Brand Knowledge", end: false, superAdminOnly: false },
   { to: "/admin/submissions", icon: FileText, label: "Submissions", end: false, superAdminOnly: false },
   { to: "/admin/grading", icon: ClipboardCheck, label: "Review Queue", end: false, superAdminOnly: false },
+  { to: "/admin/authenticity", icon: ShieldCheck, label: "Authenticity", end: false, superAdminOnly: false },
   { to: "/admin/reviews", icon: MessageSquare, label: "Reviews", end: false, superAdminOnly: false },
   { to: "/admin/disputes", icon: Scale, label: "Disputes", end: false, superAdminOnly: false },
   { to: "/admin/claims", icon: ShieldCheck, label: "Guarantee Claims", end: false, superAdminOnly: false },
