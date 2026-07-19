@@ -4020,3 +4020,36 @@ read and written through PostgREST).
 a critical ops event, where it previously would have transferred the number as
 dollars. Only reachable once someone connects a non-US marketplace account —
 today nothing in prod should hit it.
+
+---
+
+## 00485_equity_owner_discovery.sql — PENDING (US-2029 AC1)
+
+**Risk: LOW.** One read-only function (service_role only) and one partial index.
+No table or column changes. Safe to re-run (`CREATE OR REPLACE`).
+
+**What it does**
+- `public.equity_snapshot_owners(p_limit)` — distinct owners holding unsold
+  inventory, for the nightly equity-snapshot cron.
+- `idx_inventory_items_unsold_owner` — partial index over the unsold predicate.
+
+**Why it isn't just a perf win.** The old client-side version capped **rows**
+(20,000), not owners — so past that point owners were silently dropped, and one
+seller with 20,000 unsold items could starve every other seller out of the
+snapshot. The job still reported success; those sellers' equity trend just went
+flat. The RPC bounds OWNERS.
+
+**SECURITY DEFINER here, unlike 00482's brand RPC — and the difference is
+deliberate.** This is a platform-wide aggregate called by a cron through the
+service-role client (which already bypasses RLS), so it is not a tenant query.
+It is therefore explicitly **NOT granted to `authenticated`**: a seller has no
+business enumerating which other users hold inventory. `service_role` only.
+
+**Apply order:** after 00484. **`NOTIFY pgrst, 'reload schema';` is required** —
+PostgREST will not expose a new RPC until it reloads, and the edge calls this
+one on the next nightly tick.
+
+**⚠ Edge calls this RPC.** If the edge rolls before the migration applies, owner
+discovery errors and the job now returns 500 **by design** — it fails loud
+rather than writing zero snapshots, which would look identical to "no sellers
+hold inventory". Expect a failed equity-snapshot run, not a silent flat trend.

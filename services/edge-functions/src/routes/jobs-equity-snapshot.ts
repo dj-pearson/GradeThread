@@ -20,7 +20,10 @@ import { computeEquityForOwner } from "./flipdesk-equity.ts";
 // Bound a single run. Distinct owners with unsold inventory; scanning their id
 // column is cheap, and most workspaces are well under this.
 const OWNER_SCAN_CAP = 20_000;
-const REALIZED_STATUSES = "(sold,shipped,completed,archived)";
+// US-2029: the realized-status list now lives in the equity_snapshot_owners
+// RPC (migration 00485) so the DISTINCT happens in the database. Deliberately
+// NOT kept as a duplicate constant here — two copies of a status list is how
+// they drift, and the SQL is the one that runs.
 
 function todayKeyUTC(): string {
   return new Date().toISOString().slice(0, 10); // YYYY-MM-DD
@@ -40,19 +43,31 @@ export async function handleEquitySnapshotCron(c: Context): Promise<Response> {
   }
 
   try {
-    // Distinct owners holding unsold inventory.
-    const { data: ownerRows } = await supabaseAdmin
-      .from("inventory_items")
-      .select("user_id")
-      .not("status", "in", REALIZED_STATUSES)
-      .limit(OWNER_SCAN_CAP);
-    const owners = [
-      ...new Set(
-        ((ownerRows ?? []) as Array<{ user_id: string | null }>)
-          .map((r) => r.user_id)
-          .filter((id): id is string => !!id),
-      ),
-    ];
+    // US-2029 AC1: distinct owners holding unsold inventory, via an RPC.
+    //
+    // This used to select user_id from inventory_items across ALL tenants and
+    // de-duplicate in JS. Two problems, and the second is the serious one:
+    //   • a NOT IN over four enum values will not use idx_inventory_items_status,
+    //     so it was a nightly sequential scan on the largest table; and
+    //   • the 20,000 cap applied to ROWS, not OWNERS — so past that point owners
+    //     were silently dropped, and one seller with 20,000 unsold items could
+    //     starve every other seller out of the snapshot. The job still reported
+    //     success; those sellers' equity trend just went flat.
+    // The RPC does the DISTINCT in the database and bounds OWNERS.
+    const { data: ownerRows, error: ownerErr } = await supabaseAdmin.rpc(
+      "equity_snapshot_owners",
+      { p_limit: OWNER_SCAN_CAP },
+    );
+    if (ownerErr) {
+      // Fail LOUD. Returning zero owners would look identical to "no sellers
+      // hold inventory" and write no snapshots — the exact silent-flat-trend
+      // failure this story is about.
+      console.error("[equity-snapshot] owner discovery failed:", ownerErr.message);
+      return c.json({ ok: false, error: "owner discovery failed" }, 500);
+    }
+    const owners = ((ownerRows ?? []) as Array<{ user_id: string | null }>)
+      .map((r) => r.user_id)
+      .filter((id): id is string => !!id);
 
     const snapshotDate = todayKeyUTC();
     let written = 0;
