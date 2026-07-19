@@ -477,8 +477,20 @@ flipdeskGradingRoutes.post("/submit", async (c) => {
   // every second spent on avoidable I/O widens the window in which an edge
   // timeout leaves a partially-charged batch that the catch-block compensation
   // cannot cover (it handles a THROWN error; a killed isolate throws nothing).
-  // Shrinking the window is not the whole fix for that, but it is the half that
-  // is safe to do here.
+  //
+  // US-2024 AC4 — WHAT COVERS THE KILLED-ISOLATE CASE (it is not this file).
+  // The in-request catch below genuinely cannot help: an isolate kill runs no
+  // JS. Recovery happens OUT of the request, in the stuck-submission cron:
+  // a batch item killed after the charge leaves status='pending' + payment
+  // satisfied + grading_started_at NULL, which is exactly the signature
+  // recoverAbandonedCheckouts()'s findStrandedPaid selects and re-kicks
+  // (lib/stuck-submissions.ts, US-773). If the crash landed before the photo
+  // copy, the re-kick throws "No images found", the row lands in 'processing',
+  // and recoverStuckSubmissions() retries it up to GRADING_MAX_ATTEMPTS before
+  // failing + refunding it — so the chain terminates in the seller's money
+  // coming back rather than looping. Pinned by the US-2024 cases in
+  // src/tests/abandoned-checkout_test.ts; do not add a fourth mechanism here
+  // without checking that one first.
   const batchItemIds = validation.result.items.map((i) => i.inventory_item_id);
   const [batchItemsRes, batchPhotosRes] = await Promise.all([
     supabaseAdmin

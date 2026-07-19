@@ -122,3 +122,47 @@ Deno.test("sweep: nothing to do → zero counts, no side effects", async () => {
   assertEquals(calls.expired, []);
   assertEquals(calls.rekicked, []);
 });
+
+// ── US-2024 AC4: the bulk-grading partial-charge window ─────────────
+//
+// The story's premise was that a KILLED ISOLATE mid-batch leaves a
+// partially-charged batch that nothing reverses: flipdesk-grading.ts sets
+// `charged = true` before the photo copy, and its catch-block compensation only
+// runs for a THROWN error — an isolate kill throws nothing.
+//
+// The in-request half of that is true. The conclusion was not: the recovery
+// already exists OUT of the request, in this sweep, and the audit missed it
+// because it only read the route. A batch item killed after the charge leaves
+// exactly the stranded-paid signature — status='pending', payment satisfied,
+// grading never claimed — which findStrandedPaid selects and re-kicks.
+//
+// These pin that composition, because the guarantee is load-bearing money
+// behaviour spread across three components and nothing asserted it end to end.
+
+Deno.test("US-2024: a batch item killed after the charge is re-kicked, not stranded", async () => {
+  // The exact rows a killed isolate leaves behind mid-batch.
+  const { store, calls } = fakeStore({
+    findStrandedPaid: () => Promise.resolve(["killed_mid_batch_1", "killed_mid_batch_2"]),
+  });
+  const r = await recoverAbandonedCheckouts(store);
+  assertEquals(r.rekicked, 2);
+  assertEquals(calls.rekicked, ["killed_mid_batch_1", "killed_mid_batch_2"]);
+  // Critically: a CHARGED row must never be expired. Expiring it would strand
+  // the seller's money with the submission closed and no grade delivered.
+  assertEquals(r.expired, 0);
+  assertEquals(calls.expired, []);
+});
+
+Deno.test("US-2024: charged-but-killed rows are never swept by the unpaid path", async () => {
+  // The two scans must stay disjoint. findAbandonedUnpaid requires
+  // payment_status='unpaid'; a charged row cannot match it, so a charged row
+  // can only ever be resumed or refunded — never silently expired.
+  const { store, calls } = fakeStore({
+    findAbandonedUnpaid: () => Promise.resolve([]),
+    findStrandedPaid: () => Promise.resolve(["charged_1"]),
+  });
+  const r = await recoverAbandonedCheckouts(store);
+  assertEquals(r.expired, 0);
+  assertEquals(r.rekicked, 1);
+  assertEquals(calls.expired.includes("charged_1"), false);
+});
