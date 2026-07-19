@@ -1,6 +1,6 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-## ⏳ PENDING: 00490_guarantee_pool_reserve.sql (US-2144 transactional pool reserve, 2026-07-19)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00490_guarantee_pool_reserve.sql (US-2144 transactional pool reserve, 2026-07-19)
 
 **Apply AFTER 00489.** Adds `reserve_guarantee_pool_drawdown(...)` — a
 `SECURITY DEFINER` function that evaluates the guarantee pool caps **and** records
@@ -35,8 +35,8 @@ now produce one `auto_approved` and one `manual_review` with
 
 > ## ✅ ALL CLEAR (2026-07-19) — nothing pending
 >
-> The 64-migration backlog (`00412 … 00489`) was applied to prod on 2026-07-19,
-> confirmed by the user. Every entry below is retained as a log; none is
+> The 64-migration backlog (`00412 … 00489`) plus `00490` were applied to prod on
+> 2026-07-19, confirmed by the user. Every entry below is retained as a log; none is
 > outstanding.
 >
 > **Confirm before/after the next edge deploy:**
