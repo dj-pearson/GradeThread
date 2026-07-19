@@ -6,8 +6,8 @@
 // than a generic logo. Mirrors functions/og/cert/[id].ts.
 
 import { ImageResponse } from "workers-og";
-import { fetchJson, UpstreamUnavailable, upstreamUnavailableResponse, type PagesEnv } from "../../_shared/blog-render";
-import { buildSellerOgHtml, FALLBACK_PNG_BASE64 } from "../../_shared/og-template";
+import { fetchJson, siteUrl, UpstreamUnavailable, upstreamUnavailableResponse, type PagesEnv } from "../../_shared/blog-render";
+import { buildSellerOgHtml, brandedFallbackResponse } from "../../_shared/og-template";
 
 interface SellerResponse {
   seller: { display_name: string };
@@ -22,7 +22,7 @@ const OG_CACHE_CONTROL =
 export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
   const { params, env } = context;
   const handle = String(params.handle ?? "").trim();
-  if (!handle) return fallbackImage();
+  if (!handle) return await fallbackImage(env);
 
   try {
     // US-2044: fetchJson now THROWS UpstreamUnavailable rather than returning
@@ -38,7 +38,7 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
       if (e instanceof UpstreamUnavailable) return upstreamUnavailableResponse();
       throw e;
     }
-    if (!data?.seller) return fallbackImage();
+    if (!data?.seller) return await fallbackImage(env);
 
     const html = buildSellerOgHtml({
       displayName: data.seller.display_name,
@@ -57,17 +57,13 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
     });
   } catch (err) {
     console.error("[og/verified] render failed:", err);
-    return fallbackImage();
+    return await fallbackImage(env);
   }
 };
 
-function fallbackImage(): Response {
-  const bytes = Uint8Array.from(atob(FALLBACK_PNG_BASE64), (c) => c.charCodeAt(0));
-  return new Response(bytes, {
-    status: 200,
-    headers: {
-      "Content-Type": "image/png",
-      "Cache-Control": "public, max-age=300",
-    },
-  });
+// US-2108 AC3: a blank preview is worse for click-through than a generic
+// branded card. Delegates to the shared branded fallback, which drops to the
+// transparent pixel only if the static asset is also unreachable.
+function fallbackImage(env: PagesEnv): Promise<Response> {
+  return brandedFallbackResponse(siteUrl(env));
 }

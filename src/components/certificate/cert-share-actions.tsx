@@ -58,13 +58,41 @@ export function CertShareActions({
 
   const origin =
     typeof window !== "undefined" ? window.location.origin : SITE_URL;
+
   // ?s=share lets a shared-link view be attributed (US-769) without any PII.
-  // When the sharer has a referral code, append it (+ utm_source=certificate)
-  // so captureAffiliateRef() attributes any signup that follows from the share.
-  const refSuffix = referralCode
-    ? `&ref=${encodeURIComponent(referralCode)}&utm_source=certificate`
+  //
+  // US-2108 AC1: the referral code and the CHANNEL attribution are now separate
+  // concerns, because they were previously coupled and that coupling is what
+  // made buyer-to-buyer re-shares invisible.
+  //
+  //   ref=          — only when the viewer HAS a code, i.e. is the seller
+  //                   sharing their own grade. Correct to omit for an anonymous
+  //                   re-sharer: there is no one to credit, and borrowing the
+  //                   code the visitor happened to arrive with would credit a
+  //                   seller for a stranger's share. That is a product decision
+  //                   about who earns, not an attribution gap to plug.
+  //   utm_*         — ALWAYS. A re-share by an anonymous buyer is the highest-
+  //                   reach share in the loop and was landing as direct traffic,
+  //                   so the whole flywheel read as unattributable. Channel
+  //                   attribution asserts nothing about who earns a credit.
+  //
+  // utm_medium distinguishes the two so a report can separate seller-driven
+  // shares from organic re-shares rather than lumping them into one number.
+  const refPart = referralCode
+    ? `&ref=${encodeURIComponent(referralCode)}`
     : "";
-  const url = `${origin}/cert/${certificateId}?s=share${refSuffix}`;
+  const campaign = referralCode ? "cert_referral" : "cert_organic";
+  const attribution =
+    `${refPart}&utm_source=certificate&utm_medium=share&utm_campaign=${campaign}`;
+  const url = `${origin}/cert/${certificateId}?s=share${attribution}`;
+
+  /**
+   * Per-channel variant. utm_content is the only thing that differs, so a share
+   * that actually converts can be traced to the network it came from — without
+   * it, six buttons collapse into one undifferentiated "share" bucket.
+   */
+  const channelUrl = (channel: string) =>
+    `${url}&utm_content=${encodeURIComponent(channel)}`;
   const slabImage = `${origin}/slab/cert/${encodeURIComponent(certificateId)}?format=square`;
 
   const baseText = `${title} — verified condition grade ${score.toFixed(1)}/10 (${tier}) on GradeThread.`;
@@ -82,32 +110,32 @@ export function CertShareActions({
     {
       key: "x",
       label: "X",
-      href: `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`,
+      href: `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(channelUrl("x"))}`,
     },
     {
       key: "facebook",
       label: "Facebook",
-      href: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`,
+      href: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(channelUrl("facebook"))}`,
     },
     {
       key: "pinterest",
       label: "Pinterest",
-      href: `https://pinterest.com/pin/create/button/?url=${encodeURIComponent(url)}&media=${encodeURIComponent(slabImage)}&description=${encodeURIComponent(text)}`,
+      href: `https://pinterest.com/pin/create/button/?url=${encodeURIComponent(channelUrl("pinterest"))}&media=${encodeURIComponent(slabImage)}&description=${encodeURIComponent(text)}`,
     },
     {
       key: "whatsapp",
       label: "WhatsApp",
-      href: `https://wa.me/?text=${encodeURIComponent(`${text} ${url}`)}`,
+      href: `https://wa.me/?text=${encodeURIComponent(`${text} ${channelUrl("whatsapp")}`)}`,
     },
     {
       key: "reddit",
       label: "Reddit",
-      href: `https://www.reddit.com/submit?url=${encodeURIComponent(url)}&title=${encodeURIComponent(baseText)}`,
+      href: `https://www.reddit.com/submit?url=${encodeURIComponent(channelUrl("reddit"))}&title=${encodeURIComponent(baseText)}`,
     },
     {
       key: "email",
       label: "Email",
-      href: `mailto:?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(`${text} ${url}`)}`,
+      href: `mailto:?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(`${text} ${channelUrl("email")}`)}`,
     },
   ];
 

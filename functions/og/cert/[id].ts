@@ -6,8 +6,8 @@
 // preview. Streaming bytes is pure I/O and stays within the Free limit. On any
 // upstream error we return the transparent fallback PNG (crawlers accept it).
 
-import { edgeApi, type PagesEnv } from "../../_shared/blog-render";
-import { FALLBACK_PNG_BASE64 } from "../../_shared/og-template";
+import { edgeApi, siteUrl, type PagesEnv } from "../../_shared/blog-render";
+import { brandedFallbackResponse } from "../../_shared/og-template";
 
 type Ctx = EventContext<PagesEnv, "id", Record<string, unknown>>;
 
@@ -17,17 +17,17 @@ const OG_CACHE_CONTROL =
 export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
   const { params, env } = context;
   const id = String(params.id ?? "").trim();
-  if (!id) return fallbackImage();
+  if (!id) return await fallbackImage(env);
   const upstreamUrl = `${edgeApi(env)}/api/content/public/cert-image/${encodeURIComponent(id)}?kind=og`;
   try {
     const upstream = await fetch(upstreamUrl);
-    if (!upstream.ok || !upstream.body) return fallbackImage();
+    if (!upstream.ok || !upstream.body) return await fallbackImage(env);
     return new Response(upstream.body, {
       status: 200,
       headers: { "Content-Type": "image/png", "Cache-Control": OG_CACHE_CONTROL },
     });
   } catch {
-    return fallbackImage();
+    return await fallbackImage(env);
   }
 };
 
@@ -38,10 +38,9 @@ export const onRequestHead: PagesFunction<PagesEnv> = () =>
     headers: { "Content-Type": "image/png", "Cache-Control": OG_CACHE_CONTROL },
   });
 
-function fallbackImage(): Response {
-  const bytes = Uint8Array.from(atob(FALLBACK_PNG_BASE64), (c) => c.charCodeAt(0));
-  return new Response(bytes, {
-    status: 200,
-    headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=300" },
-  });
+// US-2108 AC3: a blank preview is worse for click-through than a generic
+// branded card. Delegates to the shared branded fallback, which drops to the
+// transparent pixel only if the static asset is also unreachable.
+function fallbackImage(env: PagesEnv): Promise<Response> {
+  return brandedFallbackResponse(siteUrl(env));
 }

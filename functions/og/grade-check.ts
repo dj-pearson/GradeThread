@@ -8,7 +8,8 @@
 // points back at the free tool so a share pulls new visitors into the funnel.
 
 import { ImageResponse } from "workers-og";
-import { buildGradeResultCardHtml, FALLBACK_PNG_BASE64 } from "../_shared/og-template";
+import { buildGradeResultCardHtml, brandedFallbackResponse } from "../_shared/og-template";
+import { siteUrl, type PagesEnv } from "../_shared/blog-render";
 import { qrSvgDataUri } from "../_shared/qr";
 
 const CARD_WIDTH = 1200;
@@ -54,7 +55,7 @@ function formatValueText(
   return `${fmt(lo)} – ${fmt(hi)}`;
 }
 
-export const onRequestGet: PagesFunction = async (context) => {
+export const onRequestGet: PagesFunction<PagesEnv> = async (context) => {
   const url = new URL(context.request.url);
   const q = url.searchParams;
 
@@ -94,10 +95,7 @@ export const onRequestGet: PagesFunction = async (context) => {
     });
   } catch (err) {
     console.error("[og/grade-check] render failed:", err);
-    const bytes = Uint8Array.from(atob(FALLBACK_PNG_BASE64), (c) => c.charCodeAt(0));
-    return new Response(bytes, {
-      status: 200,
-      headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=300" },
-    });
+    // US-2108 AC3: branded card rather than a blank preview.
+    return await brandedFallbackResponse(siteUrl(context.env));
   }
 };

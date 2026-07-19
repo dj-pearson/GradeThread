@@ -11,10 +11,11 @@ import {
   upstreamUnavailableResponse,
   type PagesEnv,
   type PublicPost,
+  siteUrl,
 } from "../../_shared/blog-render";
 import {
   buildBlogOgHtml,
-  FALLBACK_PNG_BASE64,
+  brandedFallbackResponse,
 } from "../../_shared/og-template";
 
 type Ctx = EventContext<PagesEnv, "slug", Record<string, unknown>>;
@@ -25,7 +26,7 @@ const OG_CACHE_CONTROL =
 export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
   const { params, env } = context;
   const slug = String(params.slug ?? "");
-  if (!slug) return fallbackImage();
+  if (!slug) return await fallbackImage(env);
 
   try {
     // US-2044: fetchJson now THROWS UpstreamUnavailable rather than returning
@@ -41,7 +42,7 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
       if (e instanceof UpstreamUnavailable) return upstreamUnavailableResponse();
       throw e;
     }
-    if (!data?.post) return fallbackImage();
+    if (!data?.post) return await fallbackImage(env);
     const post = data.post;
 
     // product_focus → human label for the badge area on the OG card.
@@ -77,17 +78,13 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
     });
   } catch (err) {
     console.error("[og/blog] render failed:", err);
-    return fallbackImage();
+    return await fallbackImage(env);
   }
 };
 
-function fallbackImage(): Response {
-  const bytes = Uint8Array.from(atob(FALLBACK_PNG_BASE64), (c) => c.charCodeAt(0));
-  return new Response(bytes, {
-    status: 200,
-    headers: {
-      "Content-Type": "image/png",
-      "Cache-Control": "public, max-age=300",
-    },
-  });
+// US-2108 AC3: a blank preview is worse for click-through than a generic
+// branded card. Delegates to the shared branded fallback, which drops to the
+// transparent pixel only if the static asset is also unreachable.
+function fallbackImage(env: PagesEnv): Promise<Response> {
+  return brandedFallbackResponse(siteUrl(env));
 }

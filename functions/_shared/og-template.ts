@@ -431,9 +431,15 @@ export function buildGradeResultCardHtml(input: GradeResultCardInput): string {
 </div>`;
 }
 
-// 1x1 transparent PNG fallback — last-resort if Satori itself throws. The
-// blog/cert SSR still has its own static `logo_icon_512.png` fallback, so
-// this path is rarely hit in practice.
+// 1x1 transparent PNG — the LAST-resort fallback, after the branded card below
+// has also failed. Prefer brandedFallbackResponse() for anything that ends up in
+// an og:image: a transparent pixel renders as a BLANK link preview, which is
+// worse for click-through than a generic branded card, and it is cached by
+// scrapers we do not control.
+//
+// Still correct for non-OG surfaces (badge/*, slab/*): those have their own
+// dimensions and an invisible badge is a better degradation than a wrong-shaped
+// brand card stretched into a badge slot.
 export const FALLBACK_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
 
@@ -448,4 +454,56 @@ function escapeHtml(s: string): string {
 
 function truncate(s: string, max: number): string {
   return s.length <= max ? s : s.slice(0, max - 1) + "…";
+}
+
+
+/**
+ * US-2108 AC3: a BRANDED fallback for og:image endpoints.
+ *
+ * Every og/* function previously degraded to FALLBACK_PNG_BASE64 — a 1x1
+ * transparent PNG. Crawlers accept it, which is why it survived, but "accepted"
+ * is not the bar: the shared link renders with a blank preview. On the
+ * certificate share path — the designated organic acquisition loop — that turns
+ * the highest-intent share we have into an invisible one.
+ *
+ * Falls back to the static /og-image.png (the site-wide 1200x630 brand card,
+ * already shipped and already the default og:image for unlisted routes), fetched
+ * same-origin. If THAT fails too we return the transparent pixel, because an
+ * endpoint that 500s is worse than one that degrades quietly.
+ *
+ * CACHE TTL IS DELIBERATELY SHORT (300s, not the 24h a real card gets). This
+ * response means "upstream was unavailable", which is usually transient — caching
+ * a generic card for a day at a scraper we cannot purge would outlast the outage
+ * that caused it, and every share created in that window would keep the wrong
+ * image permanently.
+ */
+export async function brandedFallbackResponse(siteOrigin: string): Promise<Response> {
+  try {
+    const res = await fetch(`${siteOrigin}/og-image.png`, {
+      signal: AbortSignal.timeout(3_000),
+    });
+    if (res.ok && res.body) {
+      return new Response(res.body, {
+        status: 200,
+        headers: {
+          "Content-Type": "image/png",
+          "Cache-Control": "public, max-age=300",
+          // Lets a log or a curl tell a real card from a degraded one, which is
+          // otherwise invisible — both are a 200 with PNG bytes.
+          "X-GT-Fallback": "branded",
+        },
+      });
+    }
+  } catch {
+    /* fall through to the transparent pixel */
+  }
+  const bytes = Uint8Array.from(atob(FALLBACK_PNG_BASE64), (c) => c.charCodeAt(0));
+  return new Response(bytes, {
+    status: 200,
+    headers: {
+      "Content-Type": "image/png",
+      "Cache-Control": "public, max-age=300",
+      "X-GT-Fallback": "transparent",
+    },
+  });
 }

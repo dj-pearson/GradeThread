@@ -12,9 +12,10 @@
 // at one of these URLs (or override with an upload) from the social editor.
 
 import { ImageResponse } from "workers-og";
+import { siteUrl, type PagesEnv } from "../../_shared/blog-render";
 import {
   buildSocialCardHtml,
-  FALLBACK_PNG_BASE64,
+  brandedFallbackResponse,
   isSocialCardRatio,
   type SocialCardKind,
   type SocialCardRatio,
@@ -26,8 +27,10 @@ const CARD_CACHE_CONTROL =
 
 const PRODUCTS = new Set(["gradethread", "flipdesk", "both"]);
 
-export const onRequestGet: PagesFunction = async (context) => {
+export const onRequestGet: PagesFunction<PagesEnv> = async (context) => {
   const q = new URL(context.request.url).searchParams;
+  // US-2108: needed for the branded og:image fallback's same-origin fetch.
+  const env = context.env;
 
   const ratioRaw = q.get("ratio");
   const ratio: SocialCardRatio = isSocialCardRatio(ratioRaw)
@@ -68,19 +71,13 @@ export const onRequestGet: PagesFunction = async (context) => {
     });
   } catch (err) {
     console.error("[og/social/card] render failed:", err);
-    return fallbackImage();
+    return await fallbackImage(env);
   }
 };
 
-function fallbackImage(): Response {
-  // Valid 1x1 transparent PNG so a render error never yields a broken image; a
-  // shorter cache on failure so a retry isn't pinned.
-  const bytes = Uint8Array.from(atob(FALLBACK_PNG_BASE64), (c) => c.charCodeAt(0));
-  return new Response(bytes, {
-    status: 200,
-    headers: {
-      "Content-Type": "image/png",
-      "Cache-Control": "public, max-age=300",
-    },
-  });
+// US-2108 AC3: a blank preview is worse for click-through than a generic
+// branded card. Delegates to the shared branded fallback, which drops to the
+// transparent pixel only if the static asset is also unreachable.
+function fallbackImage(env: PagesEnv): Promise<Response> {
+  return brandedFallbackResponse(siteUrl(env));
 }

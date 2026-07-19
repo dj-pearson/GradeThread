@@ -247,6 +247,28 @@ async function renderCertificate(context: Ctx): Promise<Response> {
   <div class="cert-report">${escape(cert.buyer_writeup || cert.ai_summary)}</div>
   <p class="cert-eyebrow" style="margin-top:24px">Graded on ${escape(gradedOn)}${certNoSuffix}</p>
   <a class="cta" href="/?utm_source=certificate&utm_medium=organic">Grade your own garment with GradeThread &rarr;</a>
+  <!--
+    US-2108 AC2 asked to "preserve attribution through the SSR CTA" — i.e. carry
+    an incoming ?ref= into this href. DELIBERATELY NOT DONE, because it would be
+    a correctness bug rather than a fix:
+
+    1. THIS RESPONSE IS SHARED-CACHED. withEdgeCache keys on origin+pathname and
+       DROPS the query string (blog-render.ts). Varying this href by the visitor's
+       ?ref= would cache the first arriver's referral code and then serve it to
+       every subsequent visitor of the same certificate — silently crediting one
+       seller for everyone else's traffic. That is worse than the leak it closes.
+
+    2. THERE IS ALMOST NOTHING TO PRESERVE. /cert/:id renders under RootLayout,
+       which calls captureAffiliateRef() on mount, so a JS-enabled visitor has
+       already banked the ref in storage before they can click this link. The gap
+       is limited to no-JS agents, which are overwhelmingly crawlers — and a
+       crawler does not sign up.
+
+    Fixing this properly means making attribution a client-side concern on this
+    route (it already is) or splitting the cache key, which would multiply cache
+    entries per certificate by the number of referral codes in circulation.
+    Recorded here so the next person does not "fix" it into a cache-poisoning bug.
+  -->
 </main>`;
 
   // Product + expert Review/Rating so the numeric grade is machine-readable and
