@@ -18,6 +18,31 @@
 // live in the versioned tables below so a calibration change (US-1036) is one
 // auditable edit, recorded on the grade via DEFECT_WEIGHTS_VERSION.
 
+// ⚠️ US-2107 — THREE OF THE TABLES BELOW ARE NOW PUBLISHED. READ THIS FIRST.
+//
+// SIZE_BUCKETS (the millimetre tolerances), SEVERITY_MULT and FACTOR_ROUTING are
+// mirrored onto the public /condition-grading page via src/lib/grading-standard.ts.
+// They stopped being purely internal calibration on 2026-07-19.
+//
+// What that changes: tuning one of them is no longer a private tweak that
+// accuracy tracking absorbs. It edits a PUBLISHED SPEC — the page exists
+// precisely to be cited and lifted verbatim into LLM answers, so a stale mirror
+// is a precise, checkable, WRONG public claim, which is worse than the vague
+// adjectives it replaced.
+//
+// src/test/grading-standard-parity.test.ts fails if this file moves and the
+// mirror does not — but note it lives in the WEB project, so `deno test` alone
+// will NOT catch you. Run `npm run verify` (or let CI's web lane run) for a
+// change to any of these three tables.
+//
+// BASE_WEIGHT is deliberately NOT published: publishing which factor a flaw hits
+// makes the standard auditable, publishing the exact score-points penalty makes
+// it gameable — a seller who knows the arithmetic photographs to minimise it. A
+// test asserts it stays out. Reversing that is a product call, not a tidy-up.
+//
+// Contract + rationale: vault/20-domain/grading-scale-and-weights.md
+// (Published criteria). Procedure: the `grading-engine` skill.
+
 // Bump whenever any weight/multiplier/routing below changes in a way that could
 // move grades, so accuracy tracking can attribute a shift to the weight table.
 export const DEFECT_WEIGHTS_VERSION = "defect_weights_v1";

@@ -7,11 +7,13 @@ source_of_truth: code
 code_refs:
   - src/lib/constants.ts
   - src/lib/weighted-grade.ts
+  - src/lib/grading-standard.ts
   - services/edge-functions/src/lib/ai-grading.ts
   - services/edge-functions/src/lib/human-review.ts
+  - services/edge-functions/src/lib/defect-weighting.ts
 reviewed: 2026-07-19
 tags: [grading, contract]
-summary: The 1.0-10.0 scale, the five weighted factors, and the rounding rule that has now shipped wrong twice.
+summary: The 1.0-10.0 scale, the five weighted factors, the rounding rule that has now shipped wrong twice, and which engine criteria are published and therefore no longer free to tune.
 ---
 
 # Grading scale, factor weights and rounding
@@ -70,6 +72,51 @@ that list is authoritative, and this note deliberately does not duplicate it.
 
 **If you add a surface that computes a weighted overall, import the shared helper.
 Do not reimplement the arithmetic.**
+
+## Published criteria — which engine values are now public (US-2107)
+
+Three tables in `services/edge-functions/src/lib/defect-weighting.ts` are
+**mirrored onto the public `/condition-grading` page** by
+`src/lib/grading-standard.ts`:
+
+| Engine table | What it publishes |
+|---|---|
+| `SIZE_BUCKETS` | the millimetre tolerances (pinhole <3mm, small 3–13mm, medium 13–50mm, large >50mm) |
+| `SEVERITY_MULT` | the severity multipliers |
+| `FACTOR_ROUTING` | which factor each defect type hits |
+
+**They stopped being internal calibration on 2026-07-19.** Before that, tuning
+one was a private change that accuracy tracking absorbed. Now it edits a
+published spec, on a page whose stated purpose is to be cited and lifted
+verbatim into LLM answers — so a stale mirror is a precise, checkable, *wrong*
+public claim, which is worse than the vague adjectives it replaced.
+
+The finding behind US-2107 is worth keeping: we were never missing a measurable
+standard. The engine has carried these millimetre buckets and the routing table
+since **US-1028**. We were failing to *publish* them. Nothing was invented for
+the page.
+
+### The rule
+
+Changing any of those three tables is a **public-standard change**, not a
+tuning change. It needs the mirror updated in the same commit, and it deserves
+the same deliberation as changing a published price.
+
+> [!warning] `deno test` alone will not catch you
+> `src/test/grading-standard-parity.test.ts` is the guard, and it lives in the
+> **web** project. The edge suite passes happily while the mirror is stale. Run
+> `npm run verify`, or rely on CI running both lanes, for any change here.
+
+### `BASE_WEIGHT` is deliberately NOT published
+
+The exact score-points penalty per defect type stays internal. Publishing which
+factor a flaw hits makes the standard **auditable**; publishing the exact
+arithmetic makes it **gameable** — a seller who knows the numbers photographs to
+minimise them, and the grade stops measuring the garment.
+
+A test asserts it stays out. This is a product trade-off, not an oversight, so
+reversing it is a product call rather than a completeness fix. Anyone "finishing"
+the published standard by adding it should read this paragraph first.
 
 ## Related
 

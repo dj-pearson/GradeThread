@@ -103,7 +103,7 @@ New here? Read [[CONTRACT]] before adding a note.
 
 - [[android-conversion-plan]] — reference — Superseded by the 51-story Android epic in the backlog.
 - [[archive-semantics]] — reference — What belongs in 90-archive, how CI treats it, and the rule that stops archiving from burying live work.
-- [[code-review-2026-07-04]] — reference — Nine-domain deep-dive review, fully triaged 2026-07-19 — 91 of 93 findings verified already fixed; 2 remain open by decision.
+- [[code-review-2026-07-04]] — reference — Nine-domain deep-dive review, fully triaged 2026-07-19 — all 93 findings closed; 92 already fixed, 1 mitigated rather than eliminated.
 - [[ebay-flips-prd]] — reference — Solo eBay reselling operation currently managed in a Google Sheets flip tracker.
 - [[ios-parity-audit]] — reference — Web/iOS feature parity check; 4 of 6 items closed, the remaining two extracted to US-2090.
 - [[loop-handoff-passport-epic]] — reference — /loop Loop through all of our open stories in prd.json to work to build out our features.
